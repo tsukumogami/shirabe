@@ -423,6 +423,23 @@ expect_problem "a status retired entry at another stage" "$R: a status retired e
 reg "$(sel $G).gates = []"
 expect_problem "an active script entry with no gates" "$G: gates is empty on an active entry"
 
+# scripts/doc-check.sh runs from a skill's phase step, not a koto gate, so an
+# entry it checks may have no gates; the same entry under another check may not.
+reg "$(sel plan/step-shape).check.path = \"skills/scope/scripts/check-hop-document.sh\""
+expect_problem "an empty gates list on an entry another script checks" "plan/step-shape: gates is empty on an active entry"
+
+reg "$(sel rs-027).held_by = \"rs-026\""
+expect_problem "a held_by naming an entry no script checks" "rs-027: held_by \"rs-026\" is not an active script-checked entry"
+
+reg "$(sel rs-027).held_by = \"docs/no-such-rule\""
+expect_problem "a held_by naming no entry" "rs-027: held_by \"docs/no-such-rule\" is not an active script-checked entry"
+
+reg "$(sel $G).held_by = \"docs/required-sections\""
+expect_problem "a held_by on an entry that isn't an rs- item" "$G: held_by is only for an rs- jury or review-shadow item"
+
+reg "$(sel rs-027).held_by = 7"
+expect_problem "a held_by that isn't a string" "rs-027: held_by is not a string"
+
 reg "$(sel $G).gates = [\"work-on:pr_creation\"]"
 expect_problem "a gate missing its gate name" "$G: gate \"work-on:pr_creation\" is not <skill>:<state>:<gate>"
 

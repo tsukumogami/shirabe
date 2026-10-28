@@ -57,7 +57,8 @@
         "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
         "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
-        "plan/issues-table-shape", "plan/issues-table-dependencies", "plan/outline-dependency-resolves"
+        "plan/issues-table-shape", "plan/issues-table-dependencies", "plan/outline-dependency-resolves",
+        "plan/step-shape"
       ],
       "rule_sections": {
         "plan/issues-table-shape": ["Implementation Issues"],
@@ -114,7 +115,8 @@
         "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
         "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
-        "plan/issues-table-shape", "plan/issues-table-dependencies"
+        "plan/issues-table-shape", "plan/issues-table-dependencies",
+        "roadmap/reserved-sections", "roadmap/milestone-shape"
       ],
       "rule_sections": {
         "plan/issues-table-shape": ["Implementation Issues"],

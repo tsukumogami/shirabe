@@ -230,6 +230,13 @@ After incorporating all feedback, commit the PRD:
 docs(prd): draft PRD for <topic>
 ```
 
+Then record the sections the commit wrote, as telemetry
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/prds/PRD-<topic>.md --format prd --skill prd
+```
+
 ## Quality Checklist
 
 Before proceeding:

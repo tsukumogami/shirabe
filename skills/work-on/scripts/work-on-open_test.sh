@@ -19,6 +19,11 @@
 #     refused the same way, with or without --koto-leg and in any occurrence,
 #     and the message names the characters and the rule; a reason using every
 #     allowed punctuation mark passes through unchanged
+#     a review-level read that fails (koto's refusal JSON on the read's
+#     output, as for a session bound to another workspace, or the read
+#     exiting non-zero) stops the open: exit 66, failed=level_unreadable, no
+#     koto init; without --koto-leg the usage refusal comes first and koto is
+#     never called
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     an issue-backed run opened under --koto-leg is bound to the leg, driven
@@ -34,6 +39,8 @@
 #       refusal is recorded on the leg, and no session is left behind
 #     a retained terminal session: koto's session_terminal refusal, recorded
 #       on the leg
+#     a live session whose level read fails: the open stops before koto
+#       init, the leg stays unbound with no result, and a later open binds it
 #     --review-floor=medium: koto's invalid_var at init, recorded on the leg,
 #       no session
 #     a run opened with --review-floor=standard has a `bound` line with that
@@ -231,6 +238,74 @@ pairs_of '["7","--verification=local","--koto-leg=r1:work-on"]'
 eq "--verification=local needs no reason" \
     '[["VERIFICATION","local"]]' \
     "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
+
+# --- a failed review-level read (#1325) ----------------------------------------
+#
+# A stub whose ledger read fails the way $LEVEL_FAIL says, logging every call
+# and keeping a copy of any vars file it is handed:
+#   bound-elsewhere  `context exists` answers koto's refusal JSON on stdout,
+#                    exit 1, as a session bound to another workspace does;
+#                    review-level.sh takes the exit as an absent key and the
+#                    JSON reaches its output
+#   unreadable       `context exists` says yes and `context get` fails, so
+#                    review-level.sh level itself exits non-zero
+LEVEL_BIN="$WORK/level-bin"
+mkdir -p "$LEVEL_BIN"
+cat > "$LEVEL_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${KOTO_STUB_LOG:?}"
+case "${1:-} ${2:-}" in
+    "context exists")
+        case "${LEVEL_FAIL:-}" in
+            bound-elsewhere)
+                printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "${3:-}"
+                exit 1 ;;
+            unreadable) exit 0 ;;
+        esac
+        exit 1 ;;
+    "context get") exit 1 ;;
+esac
+prev=""
+for a in "$@"; do
+    [ "$prev" = "--vars-file" ] && cp -- "$a" "${KOTO_STUB_VARS:?}"
+    prev="$a"
+done
+printf '{"outcome":"created"}\n'
+exit 0
+STUB
+chmod +x "$LEVEL_BIN/koto"
+level_fail_open() { # level_fail_open <mode> <json tokens>
+    : > "$WORK/stub.log"
+    rm -f "$WORK/vars.json"
+    tokens "$2"
+    OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" LEVEL_FAIL="$1" \
+        PATH="$LEVEL_BIN:$PATH" bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 \
+        "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+    INITS=$(grep '^init ' "$WORK/stub.log")
+}
+for mode in bound-elsewhere unreadable; do
+    level_fail_open "$mode" '["7","--koto-leg=r1:work-on"]'
+    if [ "$RC" -eq 66 ] && [ "$OUT" = "failed=level_unreadable" ] && [ -z "$INITS" ] \
+        && [ ! -e "$WORK/vars.json" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "a failed level read ($mode) under --koto-leg: exit 66, failed=level_unreadable, no koto init, tokens directory removed"
+    else
+        fail "a failed level read ($mode) under --koto-leg: exit $RC, out [$OUT], init calls [$INITS], pairs [$(cat "$WORK/vars.json" 2>/dev/null)]"
+    fi
+    case "$ERR" in
+        *"issue_7's review level"*"no koto init"*) pass "a failed level read ($mode): the message names the session and says koto init was not run" ;;
+        *) fail "a failed level read ($mode): stderr [$ERR]" ;;
+    esac
+    # Without --koto-leg the script stops at its usage refusal before the read,
+    # so koto is never called at all.
+    level_fail_open "$mode" '["7"]'
+    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "a failing level read ($mode) without --koto-leg: exit 64, error=usage, no koto call"
+    else
+        fail "a failing level read ($mode) without --koto-leg: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
+    fi
+done
 
 # --- --dispatched-by: the link after the open ----------------------------------
 #
@@ -450,6 +525,35 @@ eq "koto's refusal code" "refused=session_terminal" "$OUT"
 eq "the refusal is recorded on the leg" '"refused"' "$(leg "$REQ" .result_source)"
 eq "the recorded reason" '"session-terminal"' "$(leg "$REQ" .result.payload.reason)"
 eq "the terminal session is untouched" done_blocked "$(state_of issue_7)"
+
+# A failed level read leaves the leg open (#1325). A shim over the real koto
+# answers the live session's ledger read the way koto answers one for a
+# session bound to another workspace; every other call goes to the real koto.
+# The open stops before koto init, the leg stays unbound with no result, and a
+# later open with the real koto binds the same leg.
+SHIM_BIN="$WORK/shim-bin"
+mkdir -p "$SHIM_BIN"
+cat > "$SHIM_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-} ${2:-}" = "context exists" ] && [ "${4:-}" = "review_level.jsonl" ]; then
+    printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "${3:-}"
+    exit 1
+fi
+exec "${KOTO_REAL:?}" "$@"
+STUB
+chmod +x "$SHIM_BIN/koto"
+k init issue_12 --template "$TEMPLATE" --var ISSUE_NUMBER=12 --var ARTIFACT_PREFIX=issue_12 --var PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT" >/dev/null 2>&1
+REQ=$(new_request '{"ISSUE_NUMBER":"12","ARTIFACT_PREFIX":"issue_12"}')
+KOTO_REAL=$(command -v koto) PATH="$SHIM_BIN:$PATH" \
+    run_open issue_12 "[\"12\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=12 --var ARTIFACT_PREFIX=issue_12
+eq "a failed level read on a live session: exit 66" 66 "$RC"
+eq "a failed level read on a live session: failed=level_unreadable" "failed=level_unreadable" "$OUT"
+eq "the leg is still unbound" null "$(leg "$REQ" .bound_child)"
+eq "the leg has no result" null "$(leg "$REQ" .result_source)"
+run_open issue_12 "[\"12\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=12 --var ARTIFACT_PREFIX=issue_12
+eq "a later open of the same leg: exit 0" 0 "$RC"
+case "$OUT" in *opened=attached*session=issue_12*) pass "the later open attaches issue_12" ;; *) fail "later open output: [$OUT] [$ERR]" ;; esac
+eq "the later open binds the leg" '"issue_12"' "$(leg "$REQ" .bound_child)"
 
 # --- the review-level bound -----------------------------------------------------
 

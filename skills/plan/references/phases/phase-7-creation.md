@@ -609,6 +609,18 @@ These steps run after the mode-specific steps above.
 
 ### 7.4b Validate PLAN Doc Reference Hygiene
 
+First commit the PLAN if this mode hasn't (`docs(plan): add PLAN for
+<topic>`), record the sections it wrote and run the document check on the
+written PLAN (`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/plans/PLAN-<topic>.md --format plan --skill plan
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/plans/PLAN-<topic>.md --format plan --moment post_create --phase 7 --topic <topic> --skill plan
+```
+
+Exit 1 means a block-stage rule failed: treat its findings like the checks
+below and fix them in the fix loop that follows.
+
 Before transitioning the source doc's status (which marks the planning step
 as "done" upstream), grep the PLAN artifact for non-durable or
 visibility-violating references. Run from the repo root:
@@ -657,7 +669,18 @@ The chain's status check runs after 7.5's transition, not here: it holds an
   findings as a pass.
 
 **STOP if any check fails.** Fix the PLAN doc and re-run before proceeding to
-status transition.
+status transition. Commit each fix (`docs(plan): fix PLAN for <topic>`), then
+record what it answered and check the PLAN again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/plans/PLAN-<topic>.md --format plan --answers check_fail --skill plan
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/plans/PLAN-<topic>.md --format plan --skill plan
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/plans/PLAN-<topic>.md --format plan --moment post_fix --phase 7 --topic <topic> --skill plan
+```
+
+Repeat while the post-fix check exits 1. On `doc-check: unresolved after 3
+cycles`, stop: present the findings to the user, or under `--auto` end the run
+and report them.
 
 ### 7.5 Source Document Status Transition
 

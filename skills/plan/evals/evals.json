@@ -829,6 +829,21 @@
         "Run 2's transcript says CLAUDE.md asks for issues but a step plan files none",
         "shirabe validate on each written PLAN exits 0"
       ]
+    },
+    {
+      "id": 53,
+      "name": "document-check-at-review-and-on-written-plan",
+      "prompt": "/plan cache-layer -- the decomposition is done and the run reaches Phase 6, then writes the PLAN in Phase 7.",
+      "expected_output": "Before invoking /review-plan at Phase 6 the run calls scripts/doc-check.sh --moment pre_jury --phase 6, which reports every rule not ready since no PLAN exists. At 7.4b, after committing the PLAN, it calls doc-events.sh sections and doc-check.sh --moment post_create --phase 7.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "document-check-wiring",
+      "notes": "Covers the not-ready check at the review moment and the post_create check on the written PLAN.",
+      "expectations": [
+        "Transcript runs doc-check.sh --moment pre_jury --phase 6 before /review-plan runs, and the check prints ::koto-not-ready::",
+        "Transcript runs doc-check.sh --moment post_create --phase 7 on docs/plans/PLAN-cache-layer.md at 7.4b"
+      ],
+      "release": true
     }
   ]
 }
