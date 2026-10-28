@@ -90,12 +90,14 @@
 #       to template_hash. --template is for tests that run a localized copy;
 #       its table is the .compat.json beside it.
 #   coord-log.sh compat --session S [--template PATH]
-#       Prints "<run's compat> <shipped compat> <run's fingerprint>" from the
-#       compat table, the run's compat `-` when the table doesn't list its
-#       template's structure (the fingerprint `unreadable` when the compiled
-#       copy the run runs from can't be read).
-#       Exit 0 when the run's compat is the shipped one; 1 otherwise; 2 the log
-#       or the table can't be read.
+#       Prints "<run's compat> <shipped compat> <run's fingerprint>". The run's
+#       compat is the template_compat its record/meta keeps when the
+#       template_fingerprint beside it is the run's fingerprint, else the
+#       compat table's, `-` when the table doesn't list its template's
+#       structure (the fingerprint `unreadable` when the compiled copy the run
+#       runs from can't be read).
+#       Exit 0 when the table lists the run's fingerprint at the shipped compat
+#       number; 1 otherwise; 2 the log or the table can't be read.
 #   coord-log.sh plugin-root --session S
 #       Prints {"root","rebind"}: the run's PLUGIN_ROOT as koto applies it now,
 #       and whether the compiled template the run runs from declares it
@@ -555,7 +557,19 @@ compat)
     compat_verdict "$FP" "$TABLE"
     RC=$?
     [ $RC -eq 2 ] && die "the compat table $TABLE can't be read"
-    jq -r --arg f "$FP" '"\(if $f == "" then "-" else (.fingerprints[$f] // "-") end) \(.compat) \(if $f == "" then "unreadable" else $f end)"' "$TABLE"
+    # The run's own compat, as its record/meta keeps it (template_compat,
+    # written when the run started, was carried or was taken over;
+    # shirabe#1333), when it was recorded for the structure the run runs: a
+    # run whose fingerprint the table no longer lists still names its compat.
+    # A run with none recorded, or a record naming another structure, is
+    # looked up in the table. The exit status is the table's verdict either way.
+    # record/meta is read through the record's seam (state-read.sh --meta),
+    # the one script outside the entry writer that reads a record/ key.
+    OWN=
+    [ -z "$FP" ] || OWN=$(bash "$HERE/state-read.sh" --session "$SESSION" --meta < /dev/null 2> /dev/null \
+        | jq -r --arg f "$FP" 'objects | select(.template_fingerprint == $f) | .template_compat
+            | select(type == "number" and . >= 1 and . == floor)' 2> /dev/null)
+    jq -r --arg f "$FP" --arg own "$OWN" '"\(if $own != "" then $own elif $f == "" then "-" else (.fingerprints[$f] // "-") end) \(.compat) \(if $f == "" then "unreadable" else $f end)"' "$TABLE"
     exit $RC
     ;;
 plugin-root)
