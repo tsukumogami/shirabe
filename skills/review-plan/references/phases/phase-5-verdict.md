@@ -182,3 +182,12 @@ The verdict key stays readable after the close. With no plan keys there is
 nothing to loop back to, so Phase 6 does not run; the loop-back verdict is the
 report. When `/plan` runs this skill, or a plan was in flight, or `adopt`
 matched a parent, close nothing: the session is `/plan`'s, or the parent's.
+
+Separately, whenever Phase 0 opened `review-plan-<topic>` for the document
+check (0.4a, the no-plan-session case), close it now, whatever the verdict and
+whether or not `plan-<topic>` is closed above. No other case opens it, so
+there is nothing to close otherwise:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close review-plan-<topic> done
+```

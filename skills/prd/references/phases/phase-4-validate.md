@@ -47,6 +47,19 @@ scope key into the second:
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Clarity and Testability run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/prds/PRD-<topic>.md --format skills/prd/references/prd-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
 
+Before the round starts, run the document check on the draft
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/prds/PRD-<topic>.md --format prd --moment pre_jury --phase 4 --topic <topic> --skill prd
+```
+
+Exit 0 goes on to the jury. Exit 1 means a block-stage rule failed: fix what
+its findings name, commit, and run the fix loop in that reference with
+`--answers check_fail` until the post-fix check exits 0, before spawning. A
+`doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user as a significant issue below,
+or under `--auto` stop the run and report them.
+
 Beside the packet, before launching, record the round as telemetry (add
 `--fallback` when the round runs as the serial self-jury). It always exits 0
 and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
@@ -247,6 +260,19 @@ name the tiebreaker. The user overrides if they disagree.
 
 **For minor issues** (wording fixes, adding a missing AC, clarifying a requirement):
 Fix directly, update the PRD, show the user what changed.
+
+Commit the fixes (`docs(prd): apply jury fixes for <topic>`), then record what they answered and check
+the draft again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/prds/PRD-<topic>.md --format prd --answers jury_fail --skill prd
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/prds/PRD-<topic>.md --format prd --skill prd
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/prds/PRD-<topic>.md --format prd --moment post_fix --phase 4 --topic <topic> --skill prd
+```
+
+While the post-fix check exits 1, fix what it names, commit, and repeat the
+three calls with `--answers check_fail`; on `doc-check: unresolved after 3
+cycles`, present the findings to the user as a significant issue (under `--auto`, stop and report).
 
 **For significant issues** (missing requirements, scope gaps, untestable criteria):
 Present the jury's findings to the user with specific recommendations. Use AskUserQuestion

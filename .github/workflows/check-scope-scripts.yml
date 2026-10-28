@@ -77,6 +77,11 @@ on:
       - 'scripts/doc-events_test.sh'
       - 'scripts/review-events.sh'
       - 'scripts/review-events_test.sh'
+      - 'scripts/lib/review-verdicts.sh'
+      - 'scripts/doc-check-wiring_test.sh'
+      # The wiring suite reads every document skill's phase files.
+      - 'skills/*/references/phases/**'
+      - 'koto-templates/skill-session.md'
       - 'scripts/doc-shadow-check.sh'
       - 'scripts/doc-shadow-check_test.sh'
       - 'scripts/fixtures/review-events/**'
@@ -125,6 +130,11 @@ on:
       - 'scripts/doc-events_test.sh'
       - 'scripts/review-events.sh'
       - 'scripts/review-events_test.sh'
+      - 'scripts/lib/review-verdicts.sh'
+      - 'scripts/doc-check-wiring_test.sh'
+      # The wiring suite reads every document skill's phase files.
+      - 'skills/*/references/phases/**'
+      - 'koto-templates/skill-session.md'
       - 'scripts/doc-shadow-check.sh'
       - 'scripts/doc-shadow-check_test.sh'
       - 'scripts/fixtures/review-events/**'
@@ -305,6 +315,10 @@ jobs:
         run: |
           bash scripts/review-events_test.sh
           bash scripts/doc-shadow-check_test.sh
+      # The document skills' call sites, each with its fixed phase, and runs
+      # that follow their phase files, read for the order of their telemetry.
+      - name: Run doc-check wiring tests
+        run: bash scripts/doc-check-wiring_test.sh
 
   # Drives real koto sessions against the shipped template. This is the job that
   # asserts the thing the whole feature is for: a run cannot reach the full-run

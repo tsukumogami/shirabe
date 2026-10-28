@@ -42,7 +42,8 @@
 #      pick and dispatched through dispatch-worker.sh at roadmap scope, the
 #      issue on /shirabe:work-on and the release on /shirabe:release with no
 #      leg and no run mode; each brief names the record's Run coordinator
-#      address and never the koto session name (shirabe#610). (22 sits after
+#      address and never the koto session name (shirabe#610), which appears
+#      only as resolve-coordinator.sh's argument. (22 sits after
 #      19.)
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
@@ -240,7 +241,12 @@ if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGN
     B22=$(cat "$T/work/.niwa/dispatch-briefs/fix-591.md" 2>/dev/null)
     case "$B22" in *'addressed to `coord-test`, the address its record names'*) ok "22: the brief names the record's address" ;;
         *) bad "22: the brief names the record's address" "$(printf '%s' "$B22" | grep -i 'report to the coordinator') $(cat "$T/d22.err")" ;; esac
-    case "$B22" in *"$S"*) bad "22: and never the koto session name" ;; *) ok "22: and never the koto session name" ;; esac
+    # The koto session is no address: it is named only as the argument
+    # resolve-coordinator.sh reads the newest member from. The mask covers
+    # exactly that argument shape, so the check still fails if the session
+    # shows up anywhere else, as an address included.
+    B22M=$(printf '%s' "$B22" | sed -e 's|resolve-coordinator\.sh" '"$(printf '%s' "$S" | sed 's/\./\\./g')"'`|resolve-coordinator.sh" <dispatcher>`|g')
+    case "$B22M" in *"$S"*) bad "22: and never the koto session name" ;; *) ok "22: and never the koto session name" ;; esac
     eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"fix-591"}')"
     write_as_agent state-stored-set.sh --work "acme/widgets#591" --kind holding --who fix-591 --next "report at its first checkpoint"
     eq "22: then back to pick, the issue covered" "pick fix-591" \

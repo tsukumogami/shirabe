@@ -2,19 +2,25 @@
 # review-events.sh -- record a document jury's rounds, its seats' per-rule
 # verdicts and the decision that follows each round, as telemetry.
 #
-# The /brief, /prd, /design and /review-plan jury references call it around
-# each round (references/review-verdicts.md has the seat's side). Recording
+# The /brief, /prd, /design, /review-plan, /vision, /strategy and /roadmap
+# jury references call it around each round (references/review-verdicts.md has
+# the seat's side). Recording
 # never changes a verdict, a gate or what the skill does next.
 #
 # Usage:
 #   review-events.sh round-started --skill <s> --topic <t> --doc <path>
-#                                  --seat-count <n> [--fallback]
-#   review-events.sh verdicts --skill <s> --topic <t> --doc <path> --dir <verdicts-dir>
-#   review-events.sh decision --skill <s> --topic <t> --doc <path> --decision <d>
+#                                  --seat-count <n> [--fallback] [--doc-format <f>]
+#   review-events.sh verdicts --skill <s> --topic <t> --doc <path> --dir <verdicts-dir> [--doc-format <f>]
+#   review-events.sh decision --skill <s> --topic <t> --doc <path> --decision <d> [--doc-format <f>]
 #
-#   --skill       brief, prd, design or plan (the skill whose <skill>-<topic>
-#                 session holds the round counter; /review-plan records under
-#                 plan). It is also the document type recorded.
+#   --skill       brief, prd, design, plan, vision, strategy or roadmap (the
+#                 skill whose <skill>-<topic> session holds the round counter;
+#                 /review-plan records under plan). For the first four it is
+#                 also the document type recorded; the last three have none.
+#   --doc-format  the document's format, which must be the --skill value; it
+#                 is recorded as koto's --doc-format. The vision, strategy and
+#                 roadmap juries always record it, given or not; the other
+#                 four record it only when it is given.
 #   --topic       the topic slug
 #   --doc         the document under review; its frontmatter `schema:` value
 #                 is recorded as is (koto buckets it), or none when the file
@@ -27,13 +33,14 @@
 #
 # round-started: adds one to the session key review/round in <skill>-<topic>
 #   (0 when absent) and records
-#     koto review record <session> round-started --doc-type <s> --schema <v>
-#                        --round <n> --seat-count <n> [--fallback]
+#     koto review record <session> round-started [--doc-type <s>] --schema <v>
+#                        --round <n> --seat-count <n> [--fallback] [--doc-format <f>]
 # verdicts: for each seat of the skill's own seat list (below), reads the
 #   seat's pinned file in --dir and the last fenced `review-verdicts` block in
 #   it, and records one batch per seat
-#     koto review record <session> verdicts --file <batch>
-#   with entries {rule_id, section, verdict, seat, round, doc_type, schema?}.
+#     koto review record <session> verdicts --file <batch> [--doc-format <f>]
+#   with entries {rule_id, section, verdict, seat, round, doc_type?, schema?}
+#   (doc_type for the four document types only).
 #   An entry is dropped when it isn't an object of string rule_id, section and
 #   verdict, when its verdict isn't PASS or FAIL, or when its rule id isn't one
 #   `rule-registry.sh resolve` resolves (a lookup that fails or can't run
@@ -43,8 +50,8 @@
 #   block, a block that isn't a JSON array, or no valid entry records one FAIL
 #   on rs-verdict-missing, section document. At most 200 entries per seat.
 # decision: records
-#     koto review record <session> decision --doc-type <s> --schema <v>
-#                        --round <n> --decision <d>
+#     koto review record <session> decision [--doc-type <s>] --schema <v>
+#                        --round <n> --decision <d> [--doc-format <f>]
 #   at the round review/round holds; with no round recorded it records nothing.
 #
 # The seat name comes from the seat list and the pinned file name, never from
@@ -72,13 +79,12 @@ KOTO="${KOTO_BIN:-koto}"
 ENTRY_CAP=200
 ROUND_KEY=review/round
 MISSING_RULE=rs-verdict-missing
-ID_SHAPE='^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3}|rs-verdict-missing)$'
 
 usage() {
     cat >&2 <<'EOF'
-Usage: review-events.sh round-started --skill <s> --topic <t> --doc <path> --seat-count <n> [--fallback]
-       review-events.sh verdicts --skill <s> --topic <t> --doc <path> --dir <verdicts-dir>
-       review-events.sh decision --skill <s> --topic <t> --doc <path> --decision <d>
+Usage: review-events.sh round-started --skill <s> --topic <t> --doc <path> --seat-count <n> [--fallback] [--doc-format <f>]
+       review-events.sh verdicts --skill <s> --topic <t> --doc <path> --dir <verdicts-dir> [--doc-format <f>]
+       review-events.sh decision --skill <s> --topic <t> --doc <path> --decision <d> [--doc-format <f>]
 EOF
     exit 2
 }
@@ -91,18 +97,8 @@ refuse() {
 # shellcheck source=lib/doc-session.sh
 . "$PLUGIN_ROOT/scripts/lib/doc-session.sh" || refuse "cannot load scripts/lib/doc-session.sh"
 
-# seats_of <skill>: the skill's jury seats, one `<seat>\t<pinned file>` line
-# each. The jury references pin these file names.
-seats_of() {
-    case "$1" in
-        brief) printf '%s\t%s\n' content-quality phase4_content-quality.md structural-format phase4_structural-format.md ;;
-        prd) printf '%s\t%s\n' completeness phase4_completeness.md clarity phase4_clarity.md testability phase4_testability.md ;;
-        design) printf '%s\t%s\n' architecture phase6_architecture-review.md security phase6_security-review.md \
-            structural-format phase6_structural-format-review.md ;;
-        plan) printf '%s\t%s\n' scope-gate category-a.md design-fidelity category-b.md ac-discriminability category-c.md \
-            sequencing category-d.md functional-shape category-e.md ;;
-    esac
-}
+# shellcheck source=lib/review-verdicts.sh
+. "$PLUGIN_ROOT/scripts/lib/review-verdicts.sh" || refuse "cannot load scripts/lib/review-verdicts.sh"
 
 # --- arguments ----------------------------------------------------------------
 
@@ -113,7 +109,7 @@ case "$CMD" in
     round-started|verdicts|decision) ;;
     *) usage ;;
 esac
-SKILL="" TOPIC="" DOC="" SEATS="" FALLBACK=false DIR="" DECISION=""
+SKILL="" TOPIC="" DOC="" SEATS="" FALLBACK=false DIR="" DECISION="" FMT_ARG=""
 set_once() { # <current value> <name>
     [ -z "$1" ] || { echo "review-events: $2 given twice" >&2; usage; }
 }
@@ -129,6 +125,7 @@ while [ $# -gt 0 ]; do
         *:--skill) set_once "$SKILL" --skill; SKILL=$2 ;;
         *:--topic) set_once "$TOPIC" --topic; TOPIC=$2 ;;
         *:--doc) set_once "$DOC" --doc; DOC=$2 ;;
+        *:--doc-format) set_once "$FMT_ARG" --doc-format; FMT_ARG=$2 ;;
         round-started:--seat-count) set_once "$SEATS" --seat-count; SEATS=$2 ;;
         verdicts:--dir) set_once "$DIR" --dir; DIR=$2 ;;
         decision:--decision) set_once "$DECISION" --decision; DECISION=$2 ;;
@@ -144,10 +141,18 @@ case "$CMD" in
 esac
 
 command -v jq >/dev/null 2>&1 || refuse "jq is not on PATH"
+# TYPE_ARGS is the --doc-type koto records (the four document types only);
+# FORMAT_ARGS the --doc-format.
+TYPE_ARGS=() FORMAT_ARGS=()
 case "$SKILL" in
-    brief|prd|design|plan) ;;
-    *) refuse "--skill is not brief, prd, design or plan" ;;
+    brief|prd|design|plan) TYPE_ARGS=(--doc-type "$SKILL") ;;
+    vision|strategy|roadmap) FORMAT_ARGS=(--doc-format "$SKILL") ;;
+    *) refuse "--skill is not brief, prd, design, plan, vision, strategy or roadmap" ;;
 esac
+if [ -n "$FMT_ARG" ]; then
+    [ "$FMT_ARG" = "$SKILL" ] || refuse "--doc-format must be the --skill value"
+    FORMAT_ARGS=(--doc-format "$SKILL")
+fi
 [[ "$TOPIC" =~ $DS_RE_TOPIC ]] || refuse "--topic must match $DS_RE_TOPIC"
 if [ "$CMD" = round-started ]; then
     [[ "$SEATS" =~ ^[1-9][0-9]{0,2}$ ]] || refuse "--seat-count must be a positive integer"
@@ -203,8 +208,9 @@ if [ "$CMD" = round-started ]; then
         "$KOTO" context add "$SESSION" "$ROUND_KEY" --from-file "$WORK/round" >/dev/null 2>&1 \
             || ds_notice "could not write $ROUND_KEY into $SESSION"
     fi
-    set -- --doc-type "$SKILL" --schema "$SCHEMA" --round "$ROUND" --seat-count "$SEATS"
+    set -- ${TYPE_ARGS[@]+"${TYPE_ARGS[@]}"} --schema "$SCHEMA" --round "$ROUND" --seat-count "$SEATS"
     [ "$FALLBACK" = false ] || set -- "$@" --fallback
+    set -- "$@" ${FORMAT_ARGS[@]+"${FORMAT_ARGS[@]}"}
     echo "review-events: round $ROUND started"
     ds_record "round $ROUND" "$DS_RECORD_SESSION" round-started "$@"
     exit 0
@@ -221,7 +227,8 @@ fi
 if [ "$CMD" = decision ]; then
     echo "review-events: round $ROUND decision $DECISION"
     ds_record "the round $ROUND decision" "$DS_RECORD_SESSION" decision \
-        --doc-type "$SKILL" --schema "$SCHEMA" --round "$ROUND" --decision "$DECISION"
+        ${TYPE_ARGS[@]+"${TYPE_ARGS[@]}"} --schema "$SCHEMA" --round "$ROUND" --decision "$DECISION" \
+        ${FORMAT_ARGS[@]+"${FORMAT_ARGS[@]}"}
     exit 0
 fi
 
@@ -232,13 +239,7 @@ fi
     printf 'frontmatter\ndocument\n'
 } | sed '/^$/d' | sort -u > "$WORK/sections" || refuse "cannot read the required sections of $SKILL"
 
-# registered <id>: whether the registry resolves the id.
-registered() {
-    [[ "$1" =~ $ID_SHAPE ]] || return 1
-    "$PLUGIN_ROOT/scripts/rule-registry.sh" resolve "$1" >/dev/null 2>&1
-}
-
-seats_of "$SKILL" > "$WORK/seats"
+rv_seats_of "$SKILL" > "$WORK/seats"
 while IFS='	' read -r seat file; do
     [ -n "$seat" ] || continue
     : > "$WORK/valid"
@@ -246,46 +247,12 @@ while IFS='	' read -r seat file; do
     if [ ! -f "$src" ] || [ -L "$src" ]; then
         ds_notice "seat $seat: no output file"
     else
-        awk '/^```review-verdicts[ \t]*$/ { inside = 1; n++; buf[n] = ""; next }
-             inside && /^```[ \t]*$/ { inside = 0; done[n] = 1; next }
-             inside { buf[n] = buf[n] $0 "\n" }
-             END { for (i = n; i >= 1; i--) if (i in done) { printf "%s", buf[i]; exit } }' "$src" > "$WORK/block" 2>/dev/null
+        rv_block "$src" "$WORK/block"
         if [ ! -s "$WORK/block" ]; then
             ds_notice "seat $seat: no review-verdicts block"
-        elif ! jq -e 'type == "array"' "$WORK/block" >/dev/null 2>&1; then
+        elif ! rv_entries "$WORK/block" "$WORK/sections" "$seat" "$WORK/valid" "$SKILL"; then
+            : > "$WORK/valid"
             ds_notice "seat $seat: the review-verdicts block is not a JSON array"
-        else
-            jq -c 'to_entries[]' "$WORK/block" > "$WORK/entries"
-            while IFS= read -r e; do
-                n=$(( $(printf '%s' "$e" | jq -r '.key') + 1 ))
-                bad=$(printf '%s' "$e" | jq -r '.value as $v
-                    | if ($v | type) != "object" then "entry"
-                      else (["rule_id", "section", "verdict"][] | select(($v[.] | type) != "string")) end' | head -n 1)
-                if [ -n "$bad" ]; then
-                    ds_notice "seat $seat entry $n: $bad is missing or not a string; dropped"
-                    continue
-                fi
-                verdict=$(printf '%s' "$e" | jq -r '.value.verdict')
-                case "$verdict" in
-                    PASS|FAIL) ;;
-                    *) ds_notice "seat $seat entry $n: verdict is not PASS or FAIL; dropped"; continue ;;
-                esac
-                rule=$(printf '%s' "$e" | jq -r '.value.rule_id')
-                if ! registered "$rule"; then
-                    ds_notice "seat $seat entry $n: rule_id is not a registered rule; dropped"
-                    continue
-                fi
-                section=$(printf '%s' "$e" | jq -r '.value.section')
-                # The slug shape comes first: grep -F reads a value with a
-                # newline as several patterns, so "document\n<forged row>"
-                # would match the list and its extra line would reach the
-                # tab-separated file below as an unchecked entry.
-                if ! [[ "$section" =~ ^[a-z0-9-]+$ ]] || ! grep -qxF -- "$section" "$WORK/sections"; then
-                    ds_notice "seat $seat entry $n: section is not on the $SKILL list; recorded as document"
-                    section=document
-                fi
-                printf '%s\t%s\t%s\n' "$rule" "$section" "$verdict" >> "$WORK/valid"
-            done < "$WORK/entries"
         fi
     fi
     if [ ! -s "$WORK/valid" ]; then
@@ -297,12 +264,13 @@ while IFS='	' read -r seat file; do
     fi
     BATCH=$(mktemp "$WORK/verdicts.XXXXXX") || { ds_notice "could not create the telemetry batch for seat $seat"; continue; }
     head -n "$ENTRY_CAP" "$WORK/valid" | jq -R -s -c --arg seat "$seat" --argjson round "$ROUND" \
-        --arg dt "$SKILL" --arg schema "$SCHEMA" '
+        --arg dt "${TYPE_ARGS[1]-}" --arg schema "$SCHEMA" '
         split("\n") | map(select(length > 0) | split("\t")
-            | {rule_id: .[0], section: .[1], verdict: .[2], seat: $seat, round: $round, doc_type: $dt}
+            | {rule_id: .[0], section: .[1], verdict: .[2], seat: $seat, round: $round}
+              + (if $dt == "" then {} else {doc_type: $dt} end)
               + (if $schema == "" then {} else {schema: $schema} end))' > "$BATCH" \
         || { ds_notice "could not build the telemetry batch for seat $seat"; continue; }
     echo "review-events: seat $seat $(jq 'length' "$BATCH") verdict(s)"
-    ds_record "seat $seat's verdicts" "$DS_RECORD_SESSION" verdicts --file "$BATCH"
+    ds_record "seat $seat's verdicts" "$DS_RECORD_SESSION" verdicts --file "$BATCH" ${FORMAT_ARGS[@]+"${FORMAT_ARGS[@]}"}
 done < "$WORK/seats"
 exit 0

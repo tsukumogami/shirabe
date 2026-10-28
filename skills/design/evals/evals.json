@@ -255,6 +255,18 @@
         "PR body names no koto session or context key"
       ],
       "id": 19
+    },
+    {
+      "name": "document-check-before-jury-and-after-fix",
+      "prompt": "/design cache-layer -- Phases 3 and 4 are written and the run reaches Phase 5. The security researcher recommends Option 2; at Phase 6 the architecture reviewer FAILs one minor point.",
+      "expected_output": "At 5.1 the run commits the draft and calls scripts/doc-check.sh --moment pre_jury --phase 5 before launching the researcher; after writing Security Considerations it calls doc-check.sh --moment post_fix --phase 5. At 6.1 it calls doc-check.sh --moment pre_jury --phase 6 before review-events.sh round-started, and after applying the review change it calls doc-events.sh fix --answers jury_fail, sections, and doc-check.sh --moment post_fix --phase 6.",
+      "files": [],
+      "expectations": [
+        "Transcript runs doc-check.sh --moment pre_jury --phase 5 before the security researcher is launched",
+        "Transcript runs doc-check.sh --moment pre_jury --phase 6 before the Phase 6 review panel's round-started",
+        "After applying the review change, transcript runs doc-events.sh fix --answers jury_fail and then doc-check.sh --moment post_fix --phase 6"
+      ],
+      "id": 20
     }
   ]
 }

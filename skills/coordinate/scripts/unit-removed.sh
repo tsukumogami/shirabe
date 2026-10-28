@@ -66,9 +66,14 @@
 #           legs/<request>/<leg>, naming that request and that topic, else
 #           the record is kept: no coordinator. So a request a worker forged
 #           names no coordinator;
-#         - the target is requested_by while coord-log.sh live-session lists
-#           it for its scope slug, else that slug's one live run; none or
-#           several keeps the record: no coordinator, several coordinators;
+#         - the target is the newest member of requested_by's chain when a
+#           takeover superseded it (dispatch-common.sh dc_newest_member
+#           follows its session_superseded events forward), whatever the
+#           members' names; else requested_by while coord-log.sh
+#           live-session lists it for its scope slug, else that slug's one
+#           live run (also when the chain can't be read); none or several
+#           keeps the record: no coordinator, several coordinators. The
+#           record's `last` names the run charged, as `coordinator`;
 #         - what survives goes into the pass's removed-mode archive,
 #           <archive root>/<UTC date>-<topic>-<session id's first 8>
 #           (TEARDOWN_ARCHIVE_DIR, default
@@ -233,6 +238,8 @@ set -- "$AC_R"/*.json
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/unit-removed.XXXXXX") || exit 0
 trap 'rm -rf "$T"' EXIT
+# The run a record's outcome charged, once sweep_record resolves it.
+CHARGED=
 # gh finds no stored login here, whatever the host holds: it reads with the
 # token or not at all.
 mkdir -p "$T/gh-config" || exit 0
@@ -261,9 +268,9 @@ outcome() {
     if [ "${4:-}" = delete ]; then
         rm -f "$1"
     elif tmp=$(mktemp "$AC_R/.record.XXXXXX" 2>/dev/null); then
-        if jq -c --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg o "$3" '
+        if jq -c --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg o "$3" --arg c "$CHARGED" '
             .attempts = (.attempts | if type == "number" and . >= 0 then . + 1 else 1 end)
-            | .last = {at: $at, outcome: $o}' "$1" >"$tmp" 2>/dev/null; then
+            | .last = ({at: $at, outcome: $o} + (if $c == "" then {} else {coordinator: $c} end))' "$1" >"$tmp" 2>/dev/null; then
             mv -f "$tmp" "$1" || rm -f "$tmp"
         else
             rm -f "$tmp"
@@ -294,7 +301,8 @@ sweep_one() {
 
 # sweep_record <record file>
 sweep_record() {
-    local f=$1 row did sid ip d topic slug leg live n target job arch rc last
+    local f=$1 row did sid ip d topic slug leg live n target job arch rc last nm
+    CHARGED=
     row=$(jq -r --arg reap "$AC_RE_REAP" --arg sid "$AC_RE_SID" --arg name "${f##*/}" '
         if type == "object" and .schema == "unit-removal/1"
            and (.dispatch_id | type) == "string" and (.dispatch_id | test($reap)) and $name == .dispatch_id + ".json"
@@ -322,11 +330,19 @@ sweep_record() {
     leg=$(dc_leg_get "$AC_BY" "$AC_REQ" "$AC_LEG" 2>/dev/null) \
         && [ "$(jq -r --arg r "$AC_REQ" --arg t "$topic" '.request == $r and .topic == $t' <<<"$leg" 2>&1)" = true ] \
         || { outcome "$f" "$did" "no coordinator"; return 0; }
+    # A run taken over since it dispatched the unit is fenced, and its newest
+    # member holds the run: the supersede events lead there, whatever the
+    # members' names say. A chain that can't be read, or that runs past the
+    # hop cap, leaves the lookup by name below.
+    nm=$(dc_newest_member "$AC_BY") || nm=
     slug=${AC_BY#coordinate-}
     slug=${slug%-*}
-    live=$(dc_with_deadline 15 bash "$DC_COORD_LOG" live-session --scope-slug "$slug" --all </dev/null 2>/dev/null)
+    live=
+    case "$nm" in *"	"0 | "") live=$(dc_with_deadline 15 bash "$DC_COORD_LOG" live-session --scope-slug "$slug" --all </dev/null 2>/dev/null) ;; esac
     n=$(printf '%s\n' "$live" | grep -c .)
-    if grep -qxF -- "$AC_BY" <<<"$live"; then
+    if [ -n "$nm" ] && [ "${nm#*	}" != 0 ]; then
+        target=${nm%%	*}
+    elif grep -qxF -- "$AC_BY" <<<"$live"; then
         target=$AC_BY
     elif [ "$n" = 1 ]; then
         target=$live
@@ -338,6 +354,7 @@ sweep_record() {
         return 0
     fi
     [[ $target =~ $AC_RE_COORD ]] || { outcome "$f" "$did" "no coordinator"; return 0; }
+    CHARGED=$target
 
     # The pass's removed-mode archive of what survives.
     job=${sid:0:8}

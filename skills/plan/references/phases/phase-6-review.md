@@ -37,6 +37,15 @@ Do not invoke `/review-plan` when the limit is reached.
 
 ## Invoke /review-plan
 
+Before the call, run the document check at the review moment
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`). No PLAN is written yet, so every rule
+comes back not ready and the check exits 0; it records that the review ran
+before the PLAN existed:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/plans/PLAN-<topic>.md --format plan --moment pre_jury --phase 6 --topic <topic> --skill plan
+```
+
 Call `/review-plan` as a sub-operation:
 
 ```

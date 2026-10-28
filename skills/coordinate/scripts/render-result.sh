@@ -29,15 +29,25 @@
 # warning line. Nothing in a skill's text asks the worker to pass the warning
 # on: this script does.
 #
-# Usage:
-#   render-result.sh --session <session> [--pr <url>]...
+# And, given the brief's dispatcher_session, where the report goes: the
+# script runs resolve-coordinator.sh on it, and the result carries the newest
+# run member's address as `coordinator=<name>`, so a worker started again
+# after takeovers sends its result to the run's newest member. When the
+# resolver can't say (exit 1 or 3), the result carries no such line and the
+# worker sends it to its brief's address; the block is printed either way.
 #
-#   --session  the worker's own koto session, the one its opener opened
-#   --pr       a pull request the worker opened, an https URL; repeatable
+# Usage:
+#   render-result.sh --session <session> [--dispatcher <session>] [--pr <url>]...
+#
+#   --session     the worker's own koto session, the one its opener opened
+#   --dispatcher  the brief's dispatcher_session, the run member that
+#                 dispatched the worker
+#   --pr          a pull request the worker opened, an https URL; repeatable
 #
 # Output, on stdout:
 #   === RESULT ===
 #   session=<session>
+#   coordinator=<name>                           (with --dispatcher, resolved)
 #   pr=<url>                                     (one per --pr)
 #   review_round=<json>                          (when the session holds one)
 #   warning=link-failed dispatched_by=<name>     (one per recorded dispatcher)
@@ -59,16 +69,21 @@ RE_URL='^https://[^[:space:]]+$'
 usage() { printf '%s: %s\n' "$PROG" "$1" >&2; exit 64; }
 
 SESSION=""
+DISPATCHER=""
 PRS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage "--session needs the worker's session name"
                    [ -z "$SESSION" ] || usage "--session given more than once"
                    SESSION=$2; shift 2 ;;
+        --dispatcher) [ $# -ge 2 ] || usage "--dispatcher needs the brief's dispatcher_session"
+                      [ -z "$DISPATCHER" ] || usage "--dispatcher given more than once"
+                      [[ $2 =~ $RE_NAME ]] || usage "--dispatcher must name a koto session, got [$2]"
+                      DISPATCHER=$2; shift 2 ;;
         --pr) [ $# -ge 2 ] || usage "--pr needs a pull request URL"
               [[ $2 =~ $RE_URL ]] || usage "--pr takes an https URL, got [$2]"
               PRS+=("$2"); shift 2 ;;
-        *) usage "unknown argument $1; usage: $PROG --session <session> [--pr <url>]..." ;;
+        *) usage "unknown argument $1; usage: $PROG --session <session> [--dispatcher <session>] [--pr <url>]..." ;;
     esac
 done
 [ -n "$SESSION" ] || usage "--session is required"
@@ -100,8 +115,15 @@ case $? in
     *) printf '%s: could not read %s from %s\n' "$PROG" "$KEY" "$SESSION" >&2; exit 2 ;;
 esac
 
+ADDR=""
+if [ -n "$DISPATCHER" ]; then
+    # The resolver's own reason, when it can't say, goes to stderr as it is.
+    ADDR=$(bash "$(dirname "$0")/resolve-coordinator.sh" "$DISPATCHER" </dev/null | sed -n 's/^coordinator=//p')
+fi
+
 printf '=== RESULT ===\n'
 printf 'session=%s\n' "$SESSION"
+[ -z "$ADDR" ] || printf 'coordinator=%s\n' "$ADDR"
 for pr in ${PRS[@]+"${PRS[@]}"}; do printf 'pr=%s\n' "$pr"; done
 [ -z "$ROUND" ] || printf 'review_round=%s\n' "$ROUND"
 [ -z "$WARNINGS" ] || printf '%s\n' "$WARNINGS"

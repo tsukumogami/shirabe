@@ -1013,6 +1013,108 @@
       "notes": ""
     },
     {
+      "id": "plan/step-shape",
+      "status": "active",
+      "summary": "A step plan's steps break the plan/v2 step rules",
+      "text": {
+        "path": "skills/plan/references/plan-format.md",
+        "first": "`shirabe validate` checks a step plan with FC22, at error level, one",
+        "last": "the rule:"
+      },
+      "check": {
+        "kind": "script",
+        "path": "scripts/doc-check.sh",
+        "mode": "--moment"
+      },
+      "fixtures": [
+        "scripts/doc-check_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-27",
+      "gates": [],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "FC22"
+      ],
+      "notes": "The validator's FC22, on a plan/v2 PLAN. Only scripts/doc-check.sh reports it, from a skill's phase step rather than a koto gate, so it has no gates. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "roadmap/milestone-shape",
+      "status": "active",
+      "summary": "A milestone roadmap item lacks a field the milestone shape requires",
+      "text": {
+        "path": "skills/roadmap/references/roadmap-format.md",
+        "first": "On a milestone roadmap, `shirabe validate` runs FC21, an error-level",
+        "last": "2: Registry' has no Evidence`). It reports:"
+      },
+      "check": {
+        "kind": "script",
+        "path": "scripts/doc-check.sh",
+        "mode": "--moment"
+      },
+      "fixtures": [
+        "scripts/doc-check_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-27",
+      "gates": [],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "FC21"
+      ],
+      "notes": "The validator's FC21, on a roadmap/v2 or roadmap/v3 ROADMAP. Only scripts/doc-check.sh reports it, from a skill's phase step rather than a koto gate, so it has no gates. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "roadmap/reserved-sections",
+      "status": "active",
+      "summary": "A roadmap's reserved section is not in its canonical shape",
+      "text": {
+        "path": "skills/roadmap/references/roadmap-format.md",
+        "first": "- Both reserved sections present (may be empty) and in the canonical",
+        "last": "` ```mermaid ` block -- never a plain fenced code block"
+      },
+      "check": {
+        "kind": "script",
+        "path": "scripts/doc-check.sh",
+        "mode": "--moment"
+      },
+      "fixtures": [
+        "scripts/doc-check_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-27",
+      "gates": [],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "FC16"
+      ],
+      "notes": "The validator's FC16, on a ROADMAP's Implementation Issues and Dependency Graph sections. Only scripts/doc-check.sh reports it, from a skill's phase step rather than a koto gate, so it has no gates. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
       "id": "pr-body/banned-word",
       "status": "active",
       "summary": "The pull request title or body uses a word the writing-style rules ban",
@@ -3177,7 +3279,8 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+      "held_by": "docs/required-fields",
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key. held_by names docs/required-fields, the document check that decides the same item, so a fix answering this item's FAIL joins that check."
     },
     {
       "id": "rs-027",
@@ -3204,7 +3307,8 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+      "held_by": "docs/required-sections",
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key. held_by names docs/required-sections, the document check that decides the same item, so a fix answering this item's FAIL joins that check."
     },
     {
       "id": "rs-028",
@@ -3231,7 +3335,8 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+      "held_by": "docs/status-matches-body",
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key. held_by names docs/status-matches-body, the document check that decides the same item, so a fix answering this item's FAIL joins that check."
     },
     {
       "id": "rs-029",
@@ -3339,7 +3444,8 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+      "held_by": "prose/banned-word",
+      "notes": "A jury rubric item: the /brief jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key. held_by names prose/banned-word, the document check that decides the same item, so a fix answering this item's FAIL joins that check."
     },
     {
       "id": "rs-033",
@@ -3942,7 +4048,8 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "A jury rubric item: the /design jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+      "held_by": "docs/required-sections",
+      "notes": "A jury rubric item: the /design jury's structural-format seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key. held_by names docs/required-sections, the document check that decides the same item, so a fix answering this item's FAIL joins that check."
     },
     {
       "id": "rs-056",
@@ -4159,6 +4266,249 @@
       "baseline_keys": [],
       "aliases": [],
       "notes": "A jury rubric item: the /review-plan jury's functional-shape seat judges it and returns its verdict in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-064",
+      "status": "active",
+      "summary": "A VISION draft fails the /vision jury's thesis quality review",
+      "text": {
+        "path": "skills/vision/references/phases/phase-4-validate.md",
+        "first": "#### Thesis Quality Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_thesis-quality.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /vision jury's thesis-quality seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-065",
+      "status": "active",
+      "summary": "A VISION draft fails the /vision jury's content boundary review",
+      "text": {
+        "path": "skills/vision/references/phases/phase-4-validate.md",
+        "first": "#### Content Boundary Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_content-boundary.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /vision jury's content-boundary seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-066",
+      "status": "active",
+      "summary": "A VISION draft fails the /vision jury's section guidance review",
+      "text": {
+        "path": "skills/vision/references/phases/phase-4-validate.md",
+        "first": "#### Section Guidance Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_section-guidance.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /vision jury's section-guidance seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-067",
+      "status": "active",
+      "summary": "A STRATEGY draft fails the /strategy jury's bet quality review",
+      "text": {
+        "path": "skills/strategy/references/phases/phase-4-validate.md",
+        "first": "### Bet Quality Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_bet-quality.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /strategy jury's bet-quality seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-068",
+      "status": "active",
+      "summary": "A STRATEGY draft fails the /strategy jury's altitude review",
+      "text": {
+        "path": "skills/strategy/references/phases/phase-4-validate.md",
+        "first": "### Altitude Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_altitude.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /strategy jury's altitude seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-069",
+      "status": "active",
+      "summary": "A STRATEGY draft fails the /strategy jury's structural format review",
+      "text": {
+        "path": "skills/strategy/references/phases/phase-4-validate.md",
+        "first": "### Structural Format Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_structural-format.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /strategy jury's structural-format seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-070",
+      "status": "active",
+      "summary": "A ROADMAP draft fails the /roadmap jury's theme coherence review",
+      "text": {
+        "path": "skills/roadmap/references/phases/phase-4-validate.md",
+        "first": "#### Theme Coherence Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_theme-coherence.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /roadmap jury's theme-coherence seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-071",
+      "status": "active",
+      "summary": "A ROADMAP draft fails the /roadmap jury's sequencing and dependency review",
+      "text": {
+        "path": "skills/roadmap/references/phases/phase-4-validate.md",
+        "first": "#### Sequencing and Dependency Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_sequencing-dependency.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /roadmap jury's sequencing-dependency seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-072",
+      "status": "active",
+      "summary": "A ROADMAP draft fails the /roadmap jury's annotation and boundary review",
+      "text": {
+        "path": "skills/roadmap/references/phases/phase-4-validate.md",
+        "first": "#### Annotation and Boundary Reviewer",
+        "last": "Write your full review to `<verdicts-dir>/phase4_annotation-boundary.md`"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [
+        "scripts/review-events_test.sh"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A jury rubric item: the /roadmap jury's annotation-boundary seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
     },
     {
       "id": "rs-verdict-missing",
