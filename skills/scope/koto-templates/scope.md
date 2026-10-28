@@ -809,9 +809,10 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       brief_document:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=brief_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop brief'
@@ -869,9 +870,10 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       prd_document:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=prd_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop prd'
@@ -927,9 +929,10 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       design_document:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=design_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop design'
@@ -980,9 +983,10 @@ states:
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
-      # Exit 1 prints a finding per violation and exit 2 could not decide; no arm
-      # names either, so the run holds with the gate reported. Not overridable:
-      # a run gets past it by fixing the document, or by bail.
+      # Exit 1 prints a finding per violation and exit 2 could not decide. Only
+      # the check_unsatisfiable arm names exit 1 and no arm names exit 2, so
+      # otherwise the run holds with the gate reported. Not overridable: a run
+      # gets past it by fixing the document, by the check exit, or by bail.
       plan_document:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=plan_document SHIRABE_GATE_EXITS="hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict" SHIRABE_GATE_EXIT_END=exit_abandonment "{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh" --topic "{{TOPIC}}" --hop plan'
