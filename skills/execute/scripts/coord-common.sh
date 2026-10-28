@@ -172,7 +172,7 @@ coord_pr_checks() {
         out=$("$BASH" "$COORD_PR_CHECKS" "$2" --repo "$3" --json name,bucket </dev/null 2>"$err")
         rc=$?
         cat "$err" >&2
-        if [ -n "$out" ] && jq -e 'type == "array" and all(.[]; type == "object")' >/dev/null 2>&1 <<<"$out"; then
+        if [ -n "$out" ] && jq -e 'type == "array" and all(.[]; type == "object")' >/dev/null <<<"$out"; then
             printf -v "$__out" '%s' "$out"
             rm -f "$err"
             return 0
