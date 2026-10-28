@@ -75,7 +75,7 @@ refuse_unit() {
     # lib_emit exits through this trap. no_verified_head sets the only other
     # one; both functions end the script, so one invocation reaches at most
     # one of the two and neither trap replaces the other's file.
-    trap 'rm -f "$DETAIL"' EXIT
+    trap 'rm -rf "$DETAIL" "${ONCE:-}"' EXIT
     jq -n --arg u "${UNIT:0:80}" --arg why "$1" --argjson known "$known" \
         --arg lead "the merged event's unit" --arg want "unit takes the dispatch topic of a holding with a pull request (its Worker), one of" \
         '{verdict: "unknown-topic", field: "unit", value: $u, accepted: $known,
@@ -88,6 +88,11 @@ refuse_unit() {
 if [ -n "$PR$REPO" ]; then
     bl_pr_ok "$PR" && bl_repo_ok "$REPO" || usage
 else
+    # One record read for the holding and, on a refusal, the holdings listed
+    # (state-read.sh rs_once_begin; shirabe#1315).
+    ONCE=$(mktemp -d "${TMPDIR:-/tmp}/merged-facts-once.XXXXXX") || exit 2
+    trap 'rm -rf "$ONCE"' EXIT
+    rs_once_begin "$ONCE" holdings || exit 2
     if [ -z "$UNIT" ]; then
         EV=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait 2>/dev/null)
         [ $? -eq 2 ] && { echo "$PROG: no readable log for $SESSION" >&2; exit 2; }
@@ -106,6 +111,8 @@ else
     fi
     REPO=$LINK_REPO
     PR=$LINK_NUM
+    rm -rf "$ONCE"
+    RS_ONCE=
 fi
 
 # no_verified_head <why>: this run holds no verified head for #$PR (it was

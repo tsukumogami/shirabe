@@ -103,6 +103,13 @@ if [ $# -ne 3 ] || [ "$1" != verified ] || ! bl_pr_ok "$2" || ! bl_sha_ok "$3"; 
 fi
 PR=$2 SHA=$3
 
+# One record read for the check: the holdings, pauses, holds and the human's
+# reversals come from one read of those four sections (state-read.sh
+# rs_once_begin; shirabe#1315), which the scripts run below inherit.
+LC_FIELDS="holdings holds reversals standing"
+ONCE=$(mktemp -d "${TMPDIR:-/tmp}/land-check-once.XXXXXX") || exit 2
+trap 'rm -rf "$ONCE"' EXIT
+rs_once_begin "$ONCE" "$LC_FIELDS" || exit 2
 if [ -z "$REPO" ]; then
     REPO=$(bl_unit_repo "$SESSION" "$PR") || exit 2
 fi
@@ -125,7 +132,7 @@ if [ "$NOW" != "$SHA" ]; then
 fi
 
 MS=$(mktemp "${TMPDIR:-/tmp}/land-check.XXXXXX") || exit 2
-trap 'rm -f "$MS" "$MS".*' EXIT
+trap 'rm -rf "$MS" "$MS".* "$ONCE"' EXIT
 bl_gh "$MS" pr view "$PR" --repo "$REPO" --json mergeStateStatus,body,title,baseRefName,files || { echo "$PROG: the pull request read failed" >&2; exit 2; }
 STATE=$(jq -r '.mergeStateStatus // ""' "$MS")
 [[ $STATE =~ ^[A-Z_]+$ ]] || { echo "$PROG: merge state [$STATE]" >&2; exit 2; }
@@ -165,7 +172,7 @@ unready() {
 }
 
 # The record, read once for the pauses and the holds.
-rs_record_api "$MS.rec" "$SESSION" || { echo "$PROG: the record couldn't be read for its pauses and holds" >&2; exit 2; }
+rs_record_api "$MS.rec" "$SESSION" "$LC_FIELDS" || { echo "$PROG: the record couldn't be read for its pauses and holds" >&2; exit 2; }
 PAUSES=$(bl_pauses_on "$MS.rec" "$REPO" "$PR") || { echo "$PROG: the record's pauses couldn't be read" >&2; exit 2; }
 detail '.pauses = $p' --argjson p "$PAUSES"
 PAUSED=$(printf '%s' "$PAUSES" | jq -r '.paused // empty')

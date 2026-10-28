@@ -93,6 +93,13 @@ done
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/wait-target.XXXXXX") || exit 2
 trap 'rm -rf "$WORK"' EXIT
+# One record read for select: the holdings and the Standing pauses come from
+# one read of the sections the two listers print (state-read.sh
+# rs_once_begin; shirabe#1315), which every script run below inherits.
+if [ "$MODE" = select ]; then
+    mkdir -p "$WORK/once" || exit 2
+    export RS_ONCE="$WORK/once" RS_ONCE_FIELDS="holdings run standing work"
+fi
 
 put() {
     printf '%s\n' "$2" >"$WORK/v"

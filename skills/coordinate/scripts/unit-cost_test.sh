@@ -363,8 +363,20 @@ POSTED=$((POSTED + 1))
 eq "  ... the milestone not recoverable, no source" "not recoverable|no source" \
     "$(jq -r '"\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"' "$A/unit-cost.json")"
 seed; fresh
+# Holdings is got directly (shirabe#1315), so its failure is that get's; the
+# post fails on the entries' listing, as before.
+mkdir -p "$T/kfail"
+cat > "$T/kfail/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-} \${4:-}" = "context get record/holdings" ]; then
+    echo "koto stub: read failed" >&2
+    exit 1
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$T/kfail/koto"
 export KOTO_NO_LIST_PREFIX=1
-capture; eq "a failed Holdings read (and so a failed post) exits 1" 1 $?
+PATH="$T/kfail:$PATH" capture; eq "a failed Holdings read (and so a failed post) exits 1" 1 $?
 unset KOTO_NO_LIST_PREFIX
 eq "  ... the archive copy says read failed" "not recoverable|read failed" \
     "$(jq -r '"\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"' "$A/unit-cost.json")"

@@ -653,5 +653,54 @@ bash "$CL" check --session "$S" --state record --sealed "$OUT" && ok "the seal c
 eq "the detail names the source" dispatch "$(jq -r .source "$KOTO_STORE/context/$S/coord/record_confirm.json")"
 bash "$C" --no-seal >/dev/null 2>&1; eq "no session is a usage error" 64 $?
 
+echo "== record and --verified: the koto calls don't grow with the entries (shirabe#1315) =="
+# The confirm gets the sections its checks read, each directly, and never
+# lists record/, which names every entry: the same confirm on a record with 3
+# entries and with 300 makes the same koto calls, and reads no entry.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# The first dispatch and --verified runs above, each confirmed.
+dispatch_run() {
+    session
+    checked alpha
+    log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
+    log_to "$S" dispatch record "$EVT"
+    body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
+}
+verified_run() {
+    session
+    log_evidence "$S" wait '{"event":"done","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+    log_to "$S" wait verify
+    log_to "$S" verify verify_board
+    log_capture "$S" VERIFIED "$(bash "$CL" seal --session "$S" --state verify_board --token "verified 12 $SHA_HEAD")" "$EVT"
+    log_to "$S" verify_board verified_confirm "$EVT"
+    body "$(rec | jq -c --argjson h "$(holding alpha "{\"verified_head\":\"$SHA_HEAD\"}")" '.holdings = [$h]')"
+}
+# koto_calls <run> <entries> [flag]: the confirm's verdict and its koto calls
+# for that run on a record with <entries> entries, the calls kept in
+# $T/kc.calls.
+koto_calls() {
+    "$1"
+    filler "$S" "$2"
+    : > "$KOTO_STORE/calls"
+    printf '%s %s' "$(confirm ${3:+"$3"})" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+for run in "dispatch_run record" "verified_run verified_confirm --verified"; do
+    set -- $run
+    FEW=$(koto_calls "$1" 3 ${3:+"$3"})
+    MANY=$(koto_calls "$1" 300 ${3:+"$3"})
+    eq "$2: the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+    eq "  ... confirmed" confirmed "${MANY% *}"
+    eq "  ... reading no entry and never listing record/" "0 0" \
+        "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+done
+
 tokens_ok state-confirm
 done_tests state-confirm

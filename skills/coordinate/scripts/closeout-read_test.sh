@@ -179,4 +179,44 @@ log_to "$S" roadmap_blocked roadmap_close
 env -u RS_SESSION bash "$CR" --session "$S" >/dev/null 2>"$T/err"
 eq "v1: the reason still counts features" "1 feature(s) not Done, Shipped or Dropped" "$(cr_detail .reason)"
 
+echo "== roadmap close: the koto calls don't grow with the entries (shirabe#1315) =="
+# The read gets the five sections its checks read, each directly, and never
+# lists record/, which names every entry: the same close-out on a record with
+# a few entries and with 300 more makes the same koto calls, and reads no
+# entry. FULL clears every check, so each section is judged, and holds a Run
+# section the read doesn't need.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+FULL=$(printf '%s' "$CLEAR" | jq -c --argjson a "$D_OK" --argjson b "$D_CL" --argjson e "$(DENTRY settled)" \
+    '.deferrals = [$a, $b] | .decisions = {next: 2, entries: [$e]}
+     | .run = [{key: "cap", value: "1", set_by: "the human", set: "2026-09-26T07:00Z"}]')
+SK=coordinate-roadmap-plugin-system-20260926T100000Z
+# koto_calls <entries>: the close-out's verdict through the session and its
+# koto calls on FULL with <entries> entries, the calls kept in $T/kc.calls.
+koto_calls() {
+    db_init; file_at main "$RP" "$(roadmap Done Done Dropped)"
+    found_session "$SK" "$(roadmap_vars plugin-system)"
+    seed_session "$SK" "$FULL"
+    log_to "$SK" pick_facts roadmap_close
+    filler "$SK" "$1"
+    : > "$KOTO_STORE/calls"
+    OUT=$(env -u RS_SESSION bash "$CR" --session "$SK" 2>"$T/err")
+    printf '%s %s' "${OUT% sealed:*}" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+eq "FULL is ready" ready "${FEW% *}"
+eq "the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... reading no entry and never listing record/" "0 0" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+eq "  ... and only the sections its checks read are got, each once" "decisions deferrals holdings side-effects work" \
+    "$(sed -n "s|^context get $SK record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+
 done_tests closeout-read

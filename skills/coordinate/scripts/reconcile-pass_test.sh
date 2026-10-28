@@ -679,6 +679,59 @@ TOKEN=$SECRET pass
 grep -rq "$SECRET" "$CASE" && bad "nothing the pass prints, logs or stores holds the token" "$(grep -rl "$SECRET" "$CASE")" || ok "nothing the pass prints, logs or stores holds the token"
 grep -q 'CLOCK\|RECONCILE_.*CLOCK\|SLEEP' <(grep -o '\${[A-Z_]*' "$P" | sort -u) && bad "no environment variable sets the clock or the sleep" || ok "no environment variable sets the clock or the sleep"
 
+echo "== a full reconcile: the koto calls don't grow with the entries (shirabe#1315) =="
+# The visit's one record read gets the four sections reconcile-read.sh builds
+# its view from, each directly, and never lists record/, which names every
+# entry: the same sealing pass on a record with 3 entries and with 300 makes
+# the same koto calls, and reads no entry. The reader above is a stand-in that
+# reads nothing, so this runs from a copy of the tree with the real
+# reconcile-read.sh, reading a session record from the case's context store;
+# coord-log.sh answers run-facts for it and is the stand-in above otherwise.
+TR="$T/tree1315/skills/coordinate/scripts"
+mkdir -p "$TR" "$T/tree1315/skills/execute/scripts"
+cp "$SC"/*.sh "$TR/"
+cp "$HERE/reconcile-read.sh" "$HERE/state-schema.jq" "$TR/"
+cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree1315/skills/execute/scripts/"
+mv "$TR/coord-log.sh" "$TR/coord-log-stand-in.sh"
+cat > "$TR/coord-log.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = run-facts ]; then
+    echo "coord-log $*" >> "$STUB_DIR/log"
+    echo '{"scope":"roadmap","name":"plugin-system","repo":"acme/widgets"}'
+    exit 0
+fi
+exec bash "$(dirname "$0")/coord-log-stand-in.sh" "$@"
+STUB
+chmod +x "$TR"/*.sh
+# put <key> <value>: a context key as the koto stand-in keeps it.
+put() { printf '%s' "$2" > "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')"; }
+# koto_calls <entries>: the sealing pass's line, its seal dropped, and its koto
+# calls on a record with a holding linking #12, a deferral and <entries>
+# entries, the calls kept in $T/kc.calls.
+koto_calls() {
+    local i
+    new_case "calls-1315-$1"
+    put record/meta '{"scope":{"kind":"roadmap","name":"plugin-system"},"store":"session","written":"2026-09-26T12:00:00Z","pending":false}'
+    put record/holdings "[$(hold with-pr "$PR12")]"
+    put record/deferrals '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":""}]'
+    put record/side-effects '[]'
+    put record/decisions '{"next":1,"entries":[]}'
+    for ((i = 1; i <= $1; i++)); do
+        put "record/entries/$(printf '%06d' "$i")" "{\"n\":$i,\"stamp\":\"2026-09-26T08:00:00Z\",\"kind\":\"entry\",\"text\":\"note $i\"}"
+    done
+    P="$TR/reconcile-pass.sh" pass
+    printf '%s %s' "${LINE%% *}" "$(grep -c '^koto ' "$CASE/log")"
+    grep '^koto ' "$CASE/log" > "$T/kc.calls"
+}
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+eq "the same line and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... the visit sealed" reconciled "${MANY% *}"
+eq "  ... reading no entry and never listing record/" "0 0" \
+    "$(grep -c '^koto context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^koto context list [^ ]* --prefix record/$' "$T/kc.calls")"
+eq "  ... the four sections of the view, each got once" "decisions deferrals holdings side-effects" \
+    "$(sed -n "s|^koto context get $SESSION record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+
 echo
 echo "passed: $PASS  failed: $FAIL"
 [ "$FAIL" -eq 0 ]

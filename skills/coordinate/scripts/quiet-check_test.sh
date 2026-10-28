@@ -131,4 +131,41 @@ bash "$QC" --session "$S" --now soon >/dev/null 2>&1; eq "a --now that isn't a t
 bash "$QC" --now 2026-09-26T08:40:00Z >/dev/null 2>&1; eq "no session is a usage error" 64 $?
 bash "$QC" --session "$S" --scope roadmap --name plugin-system --repo "$REPO" >/dev/null 2>&1; eq "the override flags are a usage error" 64 $?
 
+echo "== quiet check: the koto calls don't grow with the entries (shirabe#1315) =="
+# The holdings and the Standing rows come from one read of the sections the
+# two listers print, each got directly, and record/ is never listed: the same
+# sweep on a record with a few entries and with 300 more makes the same koto
+# calls, and reads no entry. beta's pause keeps the Standing section in play.
+# filler <session> <count>: plain entries numbered from 1.
+filler() {
+    local d="$KOTO_STORE/context/$1/record/entries" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries>: the sweep's verdict at 08:31 and its koto calls on a
+# record with <entries> entries, the calls kept in $T/kc.calls.
+koto_calls() {
+    HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
+        --argjson b "$(holding beta '{"unit": "Feature 3", "pull_request": ""}')" '[$a, $b]')
+    STANDING='[{"standing":"s1","kind":"pause","on":"Feature 3","until":"lifted","what":"x","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"}]'
+    seed; run
+    log_evidence "$S" wait '{"event":"quiet"}' 2026-09-26T08:31:00.000Z
+    log_to "$S" wait quiet_check 2026-09-26T08:31:00.000Z
+    filler "$S" "$1"
+    : > "$KOTO_STORE/calls"
+    OUT=$(bash "$QC" --session "$S" --now 2026-09-26T08:31:00Z 2>"$T/err")
+    printf '%s %s' "${OUT% sealed:*}" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/kc.calls"
+}
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+eq "the sweep's verdict: the paused worker isn't silent" "first-silence alpha" "${FEW% *}"
+eq "the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... reading no entry and never listing record/" "0 0" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+eq "  ... and the two listers share one read of their sections, each got once" "holdings run standing work" \
+    "$(sed -n 's|^context get [^ ]* record/\([a-z-]*\)$|\1|p' "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
+
 done_tests quiet-check

@@ -166,8 +166,10 @@ R="$T/reads"
 mkdir -p "$R" || die "can't create the reads directory"
 # One record read for the pass: reconcile-read.sh's read, and the holding rows
 # the settle and the legs classification read (state-holding.sh --read), all
-# take it from here; a write drops it (shirabe#1095).
-rs_once_begin "$T/once" || die "can't create the record read's directory"
+# take it from here; a write drops it (shirabe#1095). It is of the four
+# sections reconcile-read.sh builds its view from, which hold every holding
+# row those reads need (shirabe#1315); a settle's write reads the whole record.
+rs_once_begin "$T/once" "holdings deferrals side_effects decisions" || die "can't create the record read's directory"
 
 list_keys
 # A refusal belongs to the pass that wrote it; progress stays until this pass

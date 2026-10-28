@@ -161,7 +161,7 @@ lib_log_readable || lib_die2 "cannot read the session log"
 if ! lib_run_found; then VERDICT=conflict; REASON="the run has no found record"; finish; fi
 
 # The live record.
-rs_record "$T/rec.json"
+rs_record "$T/rec.json" "holdings deferrals side_effects reversals holds work"
 case $? in
     0) ;;
     65) VERDICT=conflict; REASON="the record doesn't read back as this scope's"; finish ;;

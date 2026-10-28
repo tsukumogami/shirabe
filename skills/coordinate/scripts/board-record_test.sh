@@ -29,11 +29,12 @@
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/board-record_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/board-record-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
 # A body for pull request #12's view; verify_board never reads it for the round.
@@ -260,6 +261,48 @@ eq "no holding links #12: unlinked" "unlinked 12 none" "$(bash "$BR" --session "
 bash "$BR" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
 bash "$BR" --pr 12 >/dev/null 2>&1; eq "no session: exit 64" 64 $?
 bash "$BR" --session "$S" --pr x12 >/dev/null 2>&1; eq "a malformed number: exit 64" 64 $?
+
+echo "== verify_board: the koto calls don't grow with the entries (shirabe#1315) =="
+# The step reads the record's Holdings section alone and never lists record/,
+# which names every entry: the same verified board on a record with a few
+# entries and with 300 makes the same koto calls. The real state-holding.sh
+# stands in the tree here, so the Holdings read reaches the session's keys.
+# filler <session> <count>: plain entries numbered from 1, as the stand-in
+# keeps keys.
+filler() {
+    local d="$KOTO_BOARD_DIR/sessions/$1/ctx" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/record__entries__$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries>: a run at verify_board on a green board, report_facts
+# having sealed worker-f2's holding of #12, its record holding that row and
+# <entries> entries, run as the template runs it (the pull request from the
+# capture, the repository from the row); prints the token and the step's koto
+# calls, the calls kept in $T/kc.calls.
+koto_calls() {
+    N=$((N + 1)); S="coordinate-demo-20260926T1200$(printf '%02d' "$N")Z"
+    bt_run "$S" "$PERMIT"
+    bt_enter "$S" report_facts; bt_sealed "$S" report_facts REPORT "holding 12 worker-f2"
+    bt_enter "$S" classify_report; bt_enter "$S" verify; bt_evidence "$S" verify '{"prediction":"green"}'
+    bt_enter "$S" verify_board
+    bt_board complete-board
+    bt_record_paused '[]'
+    filler "$S" "$1"
+    : > "$KOTO_BOARD_DIR/koto.calls"
+    OUT=$(bash "$BR" --session "$S" 2>"$T/err")
+    printf '%s %s' "${OUT% sealed:*}" "$(wc -l < "$KOTO_BOARD_DIR/koto.calls" | tr -d ' ')"
+    cp "$KOTO_BOARD_DIR/koto.calls" "$T/kc.calls"
+}
+cp "$HERE/state-holding.sh" "$PS/state-holding.sh"
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+cp "$TD/board/stand-in-state-holding.sh" "$PS/state-holding.sh"
+eq "the same token and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... verified at the head" "verified 12 $H" "${FEW% *}"
+eq "  ... reading the Holdings section" 1 "$(grep -c '^context get [^ ]* record/holdings$' "$T/kc.calls")"
+eq "  ... never listing record/" 0 "$(grep -cE '^context list (.* )?--prefix record/( |$)' "$T/kc.calls")"
 
 echo
 echo "board-record: $PASS passed, $FAIL failed"

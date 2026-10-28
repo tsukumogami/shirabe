@@ -312,7 +312,11 @@ lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/state-stored-set.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
-rs_record "$WD/parsed.json"
+# --list prints the stored set alone, so it reads those three sections; a
+# write reads the whole record it writes back (shirabe#1315).
+FIELDS=
+[ "$MODE" = list ] && FIELDS="run standing work"
+rs_record "$WD/parsed.json" "$FIELDS"
 case $? in
     0) ;;
     65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;

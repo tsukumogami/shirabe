@@ -171,7 +171,7 @@ trap 'rm -rf "$T"' EXIT
 # from this one parse: running state-holding.sh, state-stored-set.sh,
 # state-decision.sh and roadmap-status.sh would read and parse the record once
 # apiece (shirabe#840).
-rs_record "$T/rec.json"
+rs_record "$T/rec.json" "holdings side_effects decisions run standing work"
 case $? in
     0) ;;
     2) lib_die2 "cannot read the record: $(lib_scrub < "$T/rec.json.err")" ;;
