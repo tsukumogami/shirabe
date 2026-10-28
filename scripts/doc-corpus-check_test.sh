@@ -193,8 +193,8 @@ count design/frontmatter-order 1
 count design/provenance-opener 4
 count docs/schema-declared 2
 absent $S docs/briefs/BRIEF-gone.md
-skipped $S docs/briefs/BRIEF-big.md over 1 MiB
-skipped $S docs/briefs/BRIEF-link.md not a regular file"
+skipped over-1MiB $S docs/briefs/BRIEF-big.md
+skipped not-regular $S docs/briefs/BRIEF-link.md"
 got_sorted=$(sort "$OUT")
 want_sorted=$(printf '%s\n' "$want" | sort)
 if [ "$RC" -eq 0 ] && [ "$got_sorted" = "$want_sorted" ]; then

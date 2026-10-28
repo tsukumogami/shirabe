@@ -55,15 +55,16 @@
 #   count <rule-id> <n> one per rule with at least one finding
 #   absent <owner/repo> <path>
 #                       a taken path that doesn't exist at --commit
-#   skipped <owner/repo> <path> <reason>
-#                       a taken path that isn't a regular file, or is over
-#                       1 MiB, at --commit; <reason> is `not a regular file`
-#                       or `over 1 MiB`
-# A path can hold spaces, so a reader splits each line from the left: the
-# first two fields of a finding, the first field of an absent or skipped line,
-# then <owner/repo>, which never holds a space. A clean corpus prints nothing. No line carries document text: a finding
-# prints only its rule, the path and the line number, so marker text in a
-# document can't start a line. <owner/repo> comes from origin's URL.
+#   skipped <reason> <owner/repo> <path>
+#                       a taken path that isn't a regular file
+#                       (`not-regular`), or is over 1 MiB (`over-1MiB`), at
+#                       --commit
+# A path can hold spaces and always comes last, so a reader splits each line
+# from the left; no other field holds a space. A clean corpus prints nothing.
+# No line carries document text: a finding prints only its rule, the path and
+# the line number, so marker text in a document can't start a line.
+# <owner/repo> comes from origin's URL. Error-level findings are not reported:
+# they belong to the document checks of each skill, not to this corpus run.
 #
 # Records nothing in telemetry.
 #
@@ -226,6 +227,8 @@ for code in $CODES; do
         block|warn|shadow) ;;
         *) refuse "the registry entry $id has no stage" ;;
     esac
+    # bash 3.2 has no associative arrays; the evals are safe because $code
+    # only ever holds a word of the constant CODES.
     eval "RULE_$code=\$id STAGE_$code=\$stage"
 done
 
@@ -380,7 +383,8 @@ while [ "$i" -lt "${#TAKEN[@]}" ]; do
     case "$p" in
         *[[:cntrl:]]*) BAD_NAMES=$((BAD_NAMES + 1)); continue ;;
     esac
-    # Git stores no `..` segment, so any `..` in a name is refused outright.
+    # Git stores no `..` segment, so this is deliberately broader: any `..` in
+    # a name, `up..down` included, is refused rather than parsed.
     case "$p" in
         *..*) BAD_NAMES=$((BAD_NAMES + 1)); continue ;;
     esac
@@ -398,12 +402,12 @@ while [ "$i" -lt "${#TAKEN[@]}" ]; do
     type=${rest%% *}
     oid=${rest#* }
     if [ "$type" != blob ] || { [ "$mode" != 100644 ] && [ "$mode" != 100755 ]; }; then
-        printf 'skipped %s %s not a regular file\n' "$SLUG" "$p" >> "$WORK/skipped"
+        printf 'skipped not-regular %s %s\n' "$SLUG" "$p" >> "$WORK/skipped"
         continue
     fi
     size=$(git cat-file -s "$oid" 2>/dev/null) || refuse "cannot read the size of $p at $SHA"
     if [ "$size" -gt "$MAX_BYTES" ]; then
-        printf 'skipped %s %s over 1 MiB\n' "$SLUG" "$p" >> "$WORK/skipped"
+        printf 'skipped over-1MiB %s %s\n' "$SLUG" "$p" >> "$WORK/skipped"
         continue
     fi
 
