@@ -175,6 +175,20 @@ to D judge the detailed steps' criteria and checks as they would an issue's.
 Phase 4b (Category E) and Phase 5 use the version to decide whether a
 Category E finding loops back (`plan/v2`) or is advisory (`plan/v1`).
 
+### 0.6b Record the Round
+
+Before any category runs, allocate a private directory for the categories'
+verdict blocks, keep its path as `<verdicts-dir>`, and record the round as
+telemetry. `<plan-doc>` is the PLAN document (`docs/plans/PLAN-<topic>.md`, or
+the path given); under `/plan` it may not exist yet, which is fine. The call
+always exits 0 and changes nothing the review does
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <verdicts-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" round-started --skill plan --topic <topic> --doc <plan-doc> --seat-count 5
+```
+
 ### 0.7 Log Setup Summary
 
 Output before continuing to Phase 1:

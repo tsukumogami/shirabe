@@ -149,7 +149,7 @@ CMD=$1
 ARG=$2
 
 ID_NAMED='^[a-z0-9-]+/[a-z0-9-]+$'
-ID_RS='^rs-[0-9]{3}$'
+ID_RS='^rs-([0-9]{3}|verdict-missing)$'
 PATH_SHAPE='^[A-Za-z0-9._][A-Za-z0-9._/-]*$'
 HEX40='^[0-9a-f]{40}$'
 SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'

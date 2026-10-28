@@ -29,6 +29,15 @@ the path it prints, `<reviews-dir>`:
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
 ```
 
+Before launching, record the round as telemetry (add `--fallback` when the
+round runs as the serial self-jury). It always exits 0 and changes nothing the
+review does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes
+the verdict block each reviewer ends its file with and the calls here:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" round-started --skill design --topic <topic> --doc docs/designs/DESIGN-<topic>.md --seat-count 3
+```
+
 Launch three review agents in parallel using the Agent tool with `run_in_background: true`.
 Reviewers never call koto: each writes one file in `<reviews-dir>`, which the
 orchestrator ingests.
@@ -46,6 +55,11 @@ Questions:
 [Include Solution Architecture and Implementation Approach sections]
 
 Write full analysis to <reviews-dir>/phase6_architecture-review.md, and nowhere else.
+End the file with a fenced block tagged review-verdicts holding a JSON array:
+one {"rule_id", "section", "verdict"} entry per question per section you
+judged it on (verdict PASS or FAIL; section a heading slug such as
+solution-architecture, or document). Question ids: 1 rs-047, 2 rs-048,
+3 rs-049, 4 rs-050.
 Return only key findings and recommendations.
 ```
 
@@ -62,6 +76,11 @@ Questions:
 [Include Security Considerations section]
 
 Write full analysis to <reviews-dir>/phase6_security-review.md, and nowhere else.
+End the file with a fenced block tagged review-verdicts holding a JSON array:
+one {"rule_id", "section", "verdict"} entry per question per section you
+judged it on (verdict PASS or FAIL; section a heading slug such as
+security-considerations, or document). Question ids: 1 rs-051, 2 rs-052,
+3 rs-053, 4 rs-054.
 Return only key findings and recommendations.
 ```
 
@@ -101,6 +120,11 @@ applies only when the harness can't spawn subagents.
 [Include all nine required sections plus the frontmatter]
 
 Write full analysis to <reviews-dir>/phase6_structural-format-review.md, and nowhere else.
+End the file with a fenced block tagged review-verdicts holding a JSON array:
+one {"rule_id", "section", "verdict"} entry per question per section you
+judged it on (verdict PASS or FAIL; section a heading slug such as
+decision-outcome, frontmatter, or document). Question ids: 1 rs-055,
+2 rs-056, 3 rs-057, 4 rs-058.
 Return only key findings and recommendations.
 ```
 
@@ -112,10 +136,12 @@ reviewers do not catch.
 
 ### 6.2 Process Review Feedback
 
-After all three agents complete, turn the reviews into keys (`ingest` removes
-the directory):
+After all three agents complete, record their verdict blocks as telemetry, then
+turn the reviews into keys (`ingest` removes the directory, so the verdicts
+call comes first):
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill design --topic <topic> --doc docs/designs/DESIGN-<topic>.md --dir <reviews-dir>
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest design-<topic> research <reviews-dir>
 ```
 
@@ -129,6 +155,15 @@ Then consolidate feedback:
 
 Apply changes to the design doc. If a review finding requires significant rework,
 discuss with the user before making changes.
+
+Once what follows the review is decided, record it as telemetry: `proceed`
+when nothing needed changing, `fix_and_proceed` for applied changes,
+`loop_back` for rework in an earlier phase, `rerun` for a fresh review, `stop`
+when the design goes no further.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill design --topic <topic> --doc docs/designs/DESIGN-<topic>.md --decision <decision>
+```
 
 ### 6.3 Strawman Check
 

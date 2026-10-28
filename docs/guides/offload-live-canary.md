@@ -158,6 +158,14 @@ before it.
   from the summary; 2 or more needed the full text. Adding
   `@koto.rule.session_count` as a column to the query above splits
   `broken_runs` that way, per group.
+- **A gate run before the pull request is readable isn't a break.** When
+  the gate runs before the pull request or its body exists, it fails with
+  `pr-body/pr-missing` or `pr-body/body-missing`, and with
+  `pr-body/read-failed` when the read itself fails, never with PB4, so
+  those `check_rule` records don't reach `broken_runs`. The first two also
+  mark the evaluation not ready. A failure carrying only the gate's name,
+  `pr_body_conformant`, comes from a plugin version before these rules
+  existed.
 - **Runs from one plan are correlated.** Each `/work-on` run in a `multi-pr`
   plan draws on its own, but runs from one plan share an author and a task,
   so they aren't independent samples.

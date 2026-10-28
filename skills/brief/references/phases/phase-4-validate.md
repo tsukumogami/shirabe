@@ -95,6 +95,15 @@ context key into the second:
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Content Quality runs on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/briefs/BRIEF-<topic>.md --format skills/brief/references/brief-format.md --extra <context-file>`. `<context-file>` is the path `get` printed, the context the Structural Format prompt names.
 
+Beside the packet, before spawning, record the round as telemetry (add
+`--fallback` when the round runs as the serial self-jury). It always exits 0
+and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
+describes the verdict block each seat ends its file with and the calls here:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" round-started --skill brief --topic <topic> --doc docs/briefs/BRIEF-<topic>.md --seat-count 2
+```
+
 Spawn both agents in parallel. Each prompt opens with the fixed preamble below to
 defuse prompt-injection attempts via the BRIEF body.
 
@@ -168,6 +177,14 @@ draws a real line, and any Open Questions genuinely defer to the downstream PRD.
    being accepted? Each question should be safe to leave open; a blocker
    masquerading as an open question is a FAIL.
 
+## Verdict Block
+
+End the file with a fenced block tagged review-verdicts holding a JSON
+array: one {"rule_id", "section", "verdict"} entry per item above per
+section you judged it on. verdict is PASS or FAIL; section is the
+section's heading slug (scope-boundary), frontmatter, or document. Item
+ids: 1 rs-021, 2 rs-022, 3 rs-011, 4 rs-023, 5 rs-024, 6 rs-025.
+
 ## Output Format
 
 Write your full review to `<verdicts-dir>/phase4_content-quality.md`
@@ -191,6 +208,8 @@ The review file MUST follow this format exactly:
 
 ## Summary
 <2-3 sentences>
+
+<the review-verdicts block>
 
 Return only the verdict marker, the issue count, and the summary to this
 conversation. Do not echo the full review.
@@ -272,6 +291,15 @@ is public-visibility clean, and writing-style rules are honored.
    citation. Also check direct prose without preamble, no emojis, no AI
    attribution, and flag specific offending phrases.
 
+## Verdict Block
+
+End the file with a fenced block tagged review-verdicts holding a JSON
+array: one {"rule_id", "section", "verdict"} entry per item above per
+section you judged it on. verdict is PASS or FAIL; section is the
+section's heading slug (scope-boundary), frontmatter, or document. Item
+ids: 1 rs-026, 2 rs-027, 3 rs-028, 4 rs-029, 5 rs-030, 6 rs-012, 7 rs-031,
+8 rs-032.
+
 ## Output Format
 
 Write your full review to `<verdicts-dir>/phase4_structural-format.md`
@@ -299,6 +327,8 @@ The review file MUST follow this format exactly:
 ## Summary
 <2-3 sentences>
 
+<the review-verdicts block>
+
 Return only the verdict marker, the violation count, and the summary to this
 conversation. Do not echo the full review.
 ```
@@ -306,10 +336,12 @@ conversation. Do not echo the full review.
 ## 4.2 Collect Results
 
 Wait for both agents to complete. Read the summary each returned to this
-conversation. Then turn the verdict files into keys (`ingest` removes the
-verdicts directory) and remove the inputs directory:
+conversation. Then record the seats' verdict blocks as telemetry, turn the
+verdict files into keys (`ingest` removes the verdicts directory, so the
+verdicts call comes first) and remove the inputs directory:
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill brief --topic <topic> --doc docs/briefs/BRIEF-<topic>.md --dir <verdicts-dir>
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest brief-<topic> research <verdicts-dir>
 rm -rf -- <inputs-dir>
 ```
@@ -342,6 +374,16 @@ precedent):
 better supported and why, citing the specific verdict finding that decides it.
 If the two are genuinely balanced, say so explicitly, still recommend one, and
 name the tiebreaker. The user overrides if they disagree.
+
+**Record what follows the round.** Once it is decided (here for the first two
+rows, after the user's answer at step 4.5 for the third), record it as
+telemetry: `proceed` for both PASS, `fix_and_proceed` for minor fixes,
+`loop_back` for a loop back to Phase 2 or 3, `rerun` for targeted fixes and a
+fresh jury, `stop` when the brief goes no further.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill brief --topic <topic> --doc docs/briefs/BRIEF-<topic>.md --decision <decision>
+```
 
 **Minor issues:** wording fixes, sharpening a Scope Boundary out-item's rationale,
 adding a "(planned)" annotation to a Downstream Artifacts link, clarifying a phrase

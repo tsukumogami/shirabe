@@ -95,3 +95,11 @@ Findings use the `review_result` `critical_findings` format:
 ```
 
 If no findings: return `critical_findings: []` for this category.
+
+## Verdict Block
+
+End the returned findings with a fenced block tagged `review-verdicts`
+holding a JSON array with one `{"rule_id": "rs-061", "section", "verdict"}`
+entry per section judged (`document` for the plan as a whole): `FAIL` where a
+critical finding was raised, `PASS` otherwise
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`).

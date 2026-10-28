@@ -173,3 +173,11 @@ Report one E3 finding per criterion, so `/plan` and the reader see each one.
 Return two lists for this category, `critical_findings` and
 `advisory_findings`, either of which may be empty. If no test finds anything,
 return both empty.
+
+## Verdict Block
+
+End the returned findings with a fenced block tagged `review-verdicts`
+holding a JSON array with one `{"rule_id": "rs-063", "section", "verdict"}`
+entry per section judged (`document` for the plan as a whole): `FAIL` where a
+critical or advisory finding was raised, `PASS` otherwise
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`).

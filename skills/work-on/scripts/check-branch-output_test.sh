@@ -145,20 +145,22 @@ run() { # <args>... from $REPO
 
 # same_laddered <label> <args>...: the run with the escalation ladder's context
 # (the session log in $LADDER_LOG, gate $LADDER_GATE) exits and prints on
-# standard output exactly what the run without it does. Leaves the laddered
-# run's stderr in $WORKDIR/stderr.
+# standard output exactly what the run without it does, apart from the full
+# delivery markers a release adds. Leaves the laddered run's stderr in
+# $WORKDIR/stderr.
 LADDER_LOG="$WORKDIR/ladder.jsonl"
 LADDER_GATE=commit_convention
+no_full() { printf '%s\n' "$1" | grep -v '^::koto-rule-delivered::.*"extent":"full"'; }
 same_laddered() {
     local label=$1 plain_out plain_rc
     shift
-    run "$@"; plain_out=$OUT; plain_rc=$RC
+    run "$@"; plain_out=$(no_full "$OUT"); plain_rc=$RC
     OUT=$(cd "$REPO" && SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME="$LADDER_GATE" \
         SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" \
         "$CHECK" "$@" 2>"$WORKDIR/stderr")
     RC=$?
-    if [ "$RC" -eq "$plain_rc" ] && [ "$OUT" = "$plain_out" ]; then
-        pass "$label: exits and prints the same with the ladder's context"
+    if [ "$RC" -eq "$plain_rc" ] && [ "$(no_full "$OUT")" = "$plain_out" ]; then
+        pass "$label: exits and prints the same findings with the ladder's context"
     else
         fail "$label: differs with the ladder's context: rc $RC vs $plain_rc"
     fi
@@ -227,13 +229,16 @@ BASE_REF_RC=$RC
 
 # The escalation ladder: with the template's context and a session log where
 # koto already recorded this gate failing once on the rule, the rule's text is
-# released on stderr and nothing else about the run changes.
+# released on stderr, its full delivery marker is added on stdout, and nothing
+# else about the run changes.
 LADDER_LOG="$WORKDIR/ladder.jsonl"
 rf_test_ladder_log "$LADDER_LOG" finalization commit_convention commit/conventional-subject 1
 OUT=$(cd "$REPO" && SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=commit_convention \
     SHIRABE_GATE_EXITS="finalization:finalization_status" "$CHECK" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
 RC=$?
-if [ "$RC" = "$BASE_REF_RC" ] && [ "$OUT" = "$BASE_REF_OUT" ] \
+WANT_OUT="$BASE_REF_OUT
+::koto-rule-delivered::{\"rule_id\":\"commit/conventional-subject\",\"extent\":\"full\",\"delivery\":\"printed\"}"
+if [ "$RC" = "$BASE_REF_RC" ] && [ "$OUT" = "$WANT_OUT" ] \
     && [ "$(grep -c '^::shirabe-rule::{"rule_id":"commit/conventional-subject"' "$WORKDIR/stderr")" -eq 1 ] \
     && ! grep -q '^::shirabe-check-exit::' "$WORKDIR/stderr"; then
     pass "--commits ladder: a second failure releases the rule's text and changes nothing else"
@@ -341,7 +346,8 @@ commit_file a.txt a -m "$(printf 'bad\001subject')"
 run --commits --base-ref origin/main
 LINES=$(printf '%s\n' "$OUT" | grep -c '^::koto-finding::')
 CTRL=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.message' | LC_ALL=C tr -d '\n' | LC_ALL=C grep -c '[[:cntrl:]]')
-if [ "$RC" -eq 1 ] && [ "$LINES" -eq 1 ] && [ "$CTRL" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | grep -c .)" -eq 1 ]; then
+if [ "$RC" -eq 1 ] && [ "$LINES" -eq 1 ] && [ "$CTRL" -eq 0 ] \
+    && [ "$(printf '%s\n' "$OUT" | grep -v '^::koto-rule-delivered::' | grep -c .)" -eq 1 ]; then
     pass "--commits: a control character in a subject is replaced and the finding is one line"
 else
     fail "--commits: control character: rc=$RC lines=$LINES ctrl=$CTRL out=[$OUT]"

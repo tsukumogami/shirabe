@@ -47,6 +47,15 @@ scope key into the second:
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Clarity and Testability run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/prds/PRD-<topic>.md --format skills/prd/references/prd-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
 
+Beside the packet, before launching, record the round as telemetry (add
+`--fallback` when the round runs as the serial self-jury). It always exits 0
+and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
+describes the verdict block each seat ends its file with and the calls here:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" round-started --skill prd --topic <topic> --doc docs/prds/PRD-<topic>.md --seat-count 3
+```
+
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
@@ -76,6 +85,13 @@ the requirements.
 4. Are the user stories complete? Are there user types or scenarios missing?
 5. Is Out of Scope clear enough to prevent scope creep?
 
+## Verdict Block
+End the file with a fenced block tagged review-verdicts holding a JSON array:
+one {"rule_id", "section", "verdict"} entry per item above per section you
+judged it on. verdict is PASS or FAIL; section is the section's heading slug
+(acceptance-criteria), frontmatter, or document. Item ids: 1 rs-033,
+2 rs-034, 3 rs-035, 4 rs-036, 5 rs-037.
+
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_completeness.md`, and nowhere else:
 
@@ -93,6 +109,8 @@ Write your full review to `<verdicts-dir>/phase4_completeness.md`, and nowhere e
 
 ## Summary
 <2-3 sentences>
+
+<the review-verdicts block>
 
 Return only the verdict, issue count, and summary to this conversation.
 ```
@@ -115,6 +133,13 @@ that are vague.
 4. Are user stories concrete enough to derive test cases from?
 5. Is the problem statement specific enough to evaluate solutions against?
 
+## Verdict Block
+End the file with a fenced block tagged review-verdicts holding a JSON array:
+one {"rule_id", "section", "verdict"} entry per item above per section you
+judged it on. verdict is PASS or FAIL; section is the section's heading slug
+(acceptance-criteria), frontmatter, or document. Item ids: 1 rs-038,
+2 rs-039, 3 rs-013, 4 rs-040, 5 rs-041.
+
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_clarity.md`, and nowhere else:
 
@@ -132,6 +157,8 @@ Write your full review to `<verdicts-dir>/phase4_clarity.md`, and nowhere else:
 
 ## Summary
 <2-3 sentences>
+
+<the review-verdicts block>
 
 Return only the verdict, ambiguity count, and summary to this conversation.
 ```
@@ -155,6 +182,13 @@ or talking to the author.
    judgment, depend on external factors, or are too vague to verify)?
 5. Do the criteria cover edge cases and error conditions, or only the happy path?
 
+## Verdict Block
+End the file with a fenced block tagged review-verdicts holding a JSON array:
+one {"rule_id", "section", "verdict"} entry per item above per section you
+judged it on. verdict is PASS or FAIL; section is the section's heading slug
+(acceptance-criteria), frontmatter, or document. Item ids: 1 rs-042,
+2 rs-043, 3 rs-044, 4 rs-045, 5 rs-046.
+
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_testability.md`, and nowhere else:
 
@@ -172,16 +206,20 @@ Write your full review to `<verdicts-dir>/phase4_testability.md`, and nowhere el
 ## Summary
 <2-3 sentences>
 
+<the review-verdicts block>
+
 Return only the verdict, issue count, and summary to this conversation.
 ```
 
 ### 4.2 Collect Results
 
-Wait for all 3 agents to complete. Read their summaries. Then turn the verdict
-files into keys (`ingest` removes the verdicts directory) and remove the inputs
+Wait for all 3 agents to complete. Read their summaries. Then record the seats'
+verdict blocks as telemetry, turn the verdict files into keys (`ingest` removes
+the verdicts directory, so the verdicts call comes first) and remove the inputs
 directory:
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill prd --topic <topic> --doc docs/prds/PRD-<topic>.md --dir <verdicts-dir>
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest prd-<topic> research <verdicts-dir>
 rm -rf -- <inputs-dir>
 ```
@@ -215,6 +253,15 @@ Present the jury's findings to the user with specific recommendations. Use AskUs
 when the findings surface trade-offs or decisions (provide context, recommended answer,
 and alternatives). If changes are substantial (new requirements, changed scope), loop
 back to Phase 3 step 3.5 to incorporate the changes.
+
+**Record what follows the round**, once it is decided, as telemetry: `proceed`
+when all three pass, `fix_and_proceed` for fixes applied without a new jury,
+`loop_back` for a return to Phase 3, `rerun` for fixes that get a fresh jury,
+`stop` when the PRD goes no further.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill prd --topic <topic> --doc docs/prds/PRD-<topic>.md --decision <decision>
+```
 
 ### 4.4 Finalize PRD
 

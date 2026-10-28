@@ -458,8 +458,9 @@ expect_rc "--recorded with no run planned" 0
 run --verdict review "$SESSION"
 expect_rc "--verdict with an untouched open finding and no run" 1
 # The escalation ladder: koto already recorded review_verdict failing once on
-# the finding's rule, so the template's context releases that rule's text and
-# changes nothing else about the verdict.
+# the finding's rule, so the template's context releases that rule's text,
+# adds its full delivery marker on stdout, and changes nothing else about the
+# verdict.
 PLAIN_OUT=$OUT; PLAIN_RC=$RC
 LADDER_RULE=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.rule_id')
 LADDER_RULE=${LADDER_RULE%%$'\n'*}
@@ -469,7 +470,9 @@ OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" SHIRABE_GATE_LOG="$LADDER_LOG" SHI
     SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" \
     "$SCRIPT" --verdict review "$SESSION" 2>"$WORKDIR/stderr")
 RC=$?
-if [ -n "$LADDER_RULE" ] && [ "$RC" -eq "$PLAIN_RC" ] && [ "$OUT" = "$PLAIN_OUT" ] \
+WANT_OUT="$PLAIN_OUT
+::koto-rule-delivered::{\"rule_id\":\"$LADDER_RULE\",\"extent\":\"full\",\"delivery\":\"printed\"}"
+if [ -n "$LADDER_RULE" ] && [ "$RC" -eq "$PLAIN_RC" ] && [ "$OUT" = "$WANT_OUT" ] \
     && [ "$(grep -c "^::shirabe-rule::{\"rule_id\":\"$LADDER_RULE\"" "$WORKDIR/stderr")" -eq 1 ]; then
     pass "--verdict, laddered: a second failure releases $LADDER_RULE's text and changes nothing else"
 else
