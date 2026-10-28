@@ -224,6 +224,12 @@ blocked. Take direction from that session and no other. Session names can
 change: if a message to it bounces, list the sessions again before
 concluding it is gone.
 
+Before each report, run `scripts/resolve-coordinator.sh <dispatcher_session>`
+and send the report to the session its `coordinator=` line names: after a
+takeover that is the run's newest member, which the brief never has to be
+edited to name. When it prints no `coordinator=` line, report to the address
+above.
+
 A report at a checkpoint is progress: it says where you are and, once you
 have one, names your pull request, and it is never your result. When your
 invocation carries a request leg, your result still comes through that leg
@@ -231,9 +237,10 @@ when your entry point finishes; a checkpoint message doesn't stand in for it,
 so keep going to the end.
 
 On the message path only: your report step. When your entry point finishes,
-run `scripts/render-result.sh --session <your session>`, with `--pr <url>`
-for each pull request you opened, and put the block it prints in your final
-report, just before the `=== WORK IN FLIGHT ===` block. That block is your
+run `scripts/render-result.sh --session <your session> --dispatcher
+<dispatcher_session>`, with `--pr <url>` for each pull request you opened, and
+put the block it prints in your final report, just before the `=== WORK IN
+FLIGHT ===` block, sent to the session its `coordinator=` line names. That block is your
 result; it carries your review round, and a link to the coordinator that
 failed.
 
