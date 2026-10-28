@@ -208,7 +208,8 @@ stamp tk-b 2026-09-02T00:00:00.000Z
 stamp tk-new 2026-09-03T00:00:00.000Z
 check_chain "the predecessor's chain start" 2026-09-01T00:00:00.000Z tk-b
 CS=$(chain tk-new)
-check_chain "a takeover's chain start is its predecessor's" 2026-09-01T00:00:00.000Z tk-new
+show tk-new "$CS"
+eq "a takeover's chain start is its predecessor's" 2026-09-01T00:00:00.000Z "$CS"
 RS=$(bash "$CL" run-start --session tk-new)
 eq "the takeover's own run start is later" 2026-09-03T00:00:00.000Z "$RS"
 row() { jq -nc --arg d "$1" '{deferral: "x", reason: "r", raised: "2026-08-31T10:00Z", disposition: $d}' > "$T/row.json"; bash "$DC" --row-file "$T/row.json" --run-start "$RS" --chain-start "$CS"; }

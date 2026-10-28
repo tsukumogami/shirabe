@@ -18,7 +18,7 @@
 #                         run start (coord-log.sh run-start) that isn't
 #                         disposed (row mode below, with the chain start from
 #                         coord-log.sh chain-start, so a carry made by a run
-#                         this one restarted still counts), or a `filed #<n>` naming no
+#                         this one restarted or took over still counts), or a `filed #<n>` naming no
 #                         issue in the host repository. A discipline rotation's
 #                         predecessor's deferrals are rows of this record from
 #                         its first state (state-open.sh --carry), judged the
@@ -95,7 +95,8 @@
 # after the chain start (--chain-start, default the run start): the start of
 # the earliest run in the chain of restarts and takeovers that led to this one
 # (coord-log.sh chain-start), so a restart or a takeover doesn't re-decide what
-# the run it replaced carried, while a rotation's next run still does. A carry whose until time is before now is open again,
+# the run it replaced carried, while a rotation's next run still does. A carry
+# whose until time is before now is open again,
 # chain or not: the until time is compared with the clock now, and a carry is
 # still disposed through the until minute itself. An until at or before the
 # carry time is allowed; it only makes a carry that is already open. Times

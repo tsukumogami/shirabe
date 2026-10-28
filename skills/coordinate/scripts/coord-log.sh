@@ -50,13 +50,15 @@
 #       led to S, as koto's links give them, whatever the runs are named. The
 #       walk goes back from S one member at a time. A member's continues
 #       relation (koto/links/continues/<pred>, written when a run takes
-#       another over) names the run before it, whatever that run's state, so
-#       a run that took over has its predecessor's chain start as its own.
+#       another over; koto lets a session continue at most one) names the run
+#       before it, whatever that run's state, so a run that took over has its
+#       predecessor's chain start as its own.
 #       A member with no relation falls back to the dispatched-by link
 #       coordinate-open.sh writes to the run it carried
 #       (koto/links/dispatched-by/<run>), followed only to a cancelled run of
 #       the same scope and name (SCOPE and the roadmap or discipline, as the
-#       runs opened with them): coordinate-open.sh cancels the live run it
+#       runs opened with them; a member without both, which no coordinator
+#       run is, has no such link): coordinate-open.sh cancels the live run it
 #       replaces, so that is a restart, while a rotation's predecessor ended
 #       at a terminal state and a coordinator that dispatched this one runs
 #       another scope; neither joins the chain. Of several such links, the
@@ -64,8 +66,8 @@
 #       nothing, so a cancelled run named like S that S holds no link to (one
 #       a person cancelled before starting S by hand, or one carried before
 #       coordinate-open.sh linked carried runs) is not in the chain. A run
-#       whose log can't be read ends the chain at the member after it, which
-#       only makes the chain shorter; a run met twice ends it too, and the
+#       whose log can't be read ends the chain at the member that names it,
+#       which only makes the chain shorter; a run met twice ends it too, and the
 #       walk stops after 1024 runs. Exit 0; 2 S's own log or a member's
 #       links can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
@@ -254,8 +256,9 @@ effective_root() {
 }
 
 # scope_key <log>: "<SCOPE> <roadmap slug or discipline>" from the variables
-# the run opened with (run-facts' scope and name), or empty when either is
-# missing, as in a session that isn't a coordinator run.
+# the run opened with, or empty when either is missing, as in a session that
+# isn't a coordinator run. The name is run-facts' own derivation below; change
+# the two together.
 scope_key() {
     jq -r 'select(.type == "workflow_initialized") | .payload.variables
         | [(.SCOPE // ""), (if .SCOPE == "roadmap" then (.ROADMAP // "" | split("/") | last | sub("^ROADMAP-"; "") | sub("\\.md$"; "")) else (.DISCIPLINE // "") end)]
