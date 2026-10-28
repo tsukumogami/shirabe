@@ -654,7 +654,8 @@ leg, since one leg answers one session.
   run at `done` as `<session>-fix-<n>`, a new work-on session with the run's
   variables and parent, and records it in both sessions (see **A Fix Round
   After Done**). Exit codes: 0 started, 1 refused (`not-done`, `round-open`,
-  `cap`), 2 a koto call or a read of the run's log failed, 64 usage.
+  `cap`, `wrong-branch`), 2 a koto call or a read of the run's log failed, 64
+  usage.
   `scripts/fix-round_test.sh` is its harness.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
@@ -818,7 +819,14 @@ paths cover the fix commits only and its verification runs at the fix head. A
 round started from a round counts against the original run. The script refuses
 (`refused=<reason>`, exit 1, nothing started) a run not at `done` (`not-done`; a
 run at `done_blocked` walks back with `koto rewind`), a second round while one is
-open (`round-open`), and a fourth round (`cap`), which is a person's call.
+open (`round-open`), a fourth round (`cap`), which is a person's call, and a start
+from a branch other than the run's `SHARED_BRANCH` (`wrong-branch`).
+
+The round is a unit like any other: a fix-labelled issue makes it a fix that owes
+a red at `reproduce`, where a review change or a CI repair with no check failing
+on the base records a before-observation (see **Fixes Start Red**). Under a parent
+it counts in the parent's children-complete gate while it runs, so a round that
+ends at `done_blocked` fails the parent's batch too.
 
 A coordinator reads the review round from the run its leg is bound to, so record
 the fix head's round there with `review-round.sh record --session <WF>` as well as

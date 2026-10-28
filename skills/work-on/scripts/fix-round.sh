@@ -13,6 +13,13 @@
 # round's changed paths, review packet and panels cover the fix commits only,
 # and its verification runs at the fix head.
 #
+# Why a new session rather than an edge out of `done`: an edge needs `done` to
+# stop being terminal, and a terminal `done` is what /execute's
+# children-complete gate counts as a finished child and what koto promotes to
+# a caller's leg as the run's result. A round under the same parent counts in
+# that gate too while it runs, so a round that ends at `done_blocked` is the
+# parent's failure as well.
+#
 # Usage: fix-round.sh start --from <session>
 #
 #   --from   the run that reached `done`, or one of its fix rounds, which
@@ -24,8 +31,14 @@
 #   not-done         the original isn't at `done`. A run at `done_blocked`
 #                    walks back with `koto rewind`, as its directive says.
 #   round-open       the last fix round hasn't reached a terminal state. One
-#                    round at a time: finish it, or end it, first.
-#   cap              three rounds already ran. A fourth is a person's call.
+#                    round at a time: finish it, or end it, first. Two open
+#                    rounds on one branch would each take the other's commits
+#                    as their own fix.
+#   cap              three rounds already ran. A fourth is a person's call,
+#                    the same three the repository's other retry caps allow.
+#   wrong-branch     the run worked on /execute's shared branch (SHARED_BRANCH)
+#                    and HEAD is on another, so the round would start from a
+#                    head that isn't the one the run left.
 #
 # Started (exit 0): prints `session=<original>-fix-<n>` and `round=<n>`. The
 # new session's context has `fix_round.json` ({from, round, base}), and the
@@ -116,6 +129,12 @@ VARS=$(jq -sc '[.[] | select(.type == "workflow_initialized")][0].payload.variab
     || die 2 "could not read the variables of $ORIG from its state log"
 PARENT=$(koto session list | jq -r --arg s "$ORIG" 'map(select(.id == $s))[0].parent_workflow // empty') \
     || die 2 "could not read the parent of $ORIG"
+
+SHARED=$(printf '%s' "$VARS" | jq -r '.SHARED_BRANCH // empty')
+if [ -n "$SHARED" ]; then
+    CURRENT=$(git rev-parse --abbrev-ref HEAD) || die 2 "could not read the current branch"
+    [ "$CURRENT" = "$SHARED" ] || refuse wrong-branch "$ORIG worked on $SHARED, and HEAD is on $CURRENT"
+fi
 
 ARGS=(init "$NAME" --template "$TEMPLATE")
 [ -n "$PARENT" ] && ARGS+=(--parent "$PARENT")

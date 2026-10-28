@@ -4128,8 +4128,16 @@ the round in both sessions' context: `fix_round.json` in the round, a line in
 this run was given. Its `analysis` takes this run's head as its base, so its
 review panels and changed paths cover the fix commits only, and its
 verification runs at the fix head. The script refuses (`refused=<reason>`,
-exit 1) while an earlier round is still open (`round-open`) and after three
-rounds (`cap`); a fourth is a person's call.
+exit 1) while an earlier round is still open (`round-open`), after three
+rounds (`cap`; a fourth is a person's call), and from a branch other than
+this run's `SHARED_BRANCH` (`wrong-branch`).
+
+The round is a unit like any other. An issue with a fix label makes it a fix
+again, so it owes a red at `reproduce`; a review change or a CI repair with no
+check that fails on the base records a before-observation there instead
+(`references/red-first.md`). Under a parent the round counts in the parent's
+children-complete gate while it runs, so a round that ends at `done_blocked` is
+the parent's failure too.
 
 A coordinator reads the review round from this session, not the round's. Once
 the round's panels pass at the fix head, record it here too with

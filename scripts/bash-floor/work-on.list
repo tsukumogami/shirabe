@@ -128,6 +128,9 @@ skills/work-on/scripts/test-change_test.sh
 # An edited test held at pass_counting through a real koto; skips cleanly
 # without it.
 skills/work-on/scripts/test-change-routes_test.sh
+# A fix round after done, through a real koto; the usage case runs on the
+# floor and the rest skips cleanly without the engine.
+skills/work-on/scripts/fix-round_test.sh
 # session-role.sh is deliberately NOT listed. Every entry here is
 # run with no arguments and a nonzero status is a failure, and the
 # discriminator exits 2 on a missing session name by design. It

@@ -6,7 +6,8 @@
 #
 #   - `koto rewind` from done lands on pr_creation and the next tick returns
 #     to done: rewinding doesn't reopen a round, which is why the route exists;
-#   - fix-round.sh refuses a child that isn't at done;
+#   - fix-round.sh refuses a child that isn't at done, and one whose shared
+#     branch isn't the branch HEAD is on;
 #   - from done it starts <child>-fix-1 from the shipped work-on.md, under the
 #     same parent and with the child's variables (not its review level), and
 #     records the round in both sessions;
@@ -172,6 +173,16 @@ if [[ $AFTER_REWIND == pr_creation && $(state_of par.kid) == done ]]; then
     pass "rewind from done reaches pr_creation only, and the next tick is back at done"
 else
     fail "rewind from done went to [$AFTER_REWIND], then [$(state_of par.kid)]"
+fi
+
+# --- not on the shared branch ----------------------------------------------------
+git -C "$REPO" checkout -q -b elsewhere
+OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid 2>/dev/null); RC=$?
+git -C "$REPO" checkout -q feature
+if [[ $RC -eq 1 && "$OUT" == "refused=wrong-branch" ]] && ! koto context exists par.kid fix_rounds.jsonl; then
+    pass "a round isn't started from a branch other than the child's shared branch"
+else
+    fail "a round from another branch was not refused as wrong-branch (rc=$RC, out=[$OUT])"
 fi
 
 # --- the first round -------------------------------------------------------------
