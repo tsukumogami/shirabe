@@ -176,7 +176,9 @@ still holds the old one. Of the states that read `PLAN_DOC`, a child of
 (`cascade_entry` and `cascade_run` are a root run's), and once it has passed
 `plan_validation` nothing reads it again. Before then, the outline can't be
 read from it, and at `plan_validation` the `step_detail` gate exits 2, so
-`proceed` is refused. The step agent stops and reports `plan_doc=gone`, as the
-coordinated template says, rather than ending the work item at
-`validation_exit` or `done_blocked`; the child stays where it is until it can
-read its PLAN again.
+`proceed` is refused. The coordinated template above tells the step agent to
+stop there and report `plan_doc=gone` rather than end the work item at
+`validation_exit` or `done_blocked`, and the child stays where it is. Line 3 is
+a status note: the owning session acts on line 2 alone and reads the child's
+state from `koto status`, so nothing acts on `plan_doc=gone` yet. Letting such
+a child go on needs a change to `work-on.md`, tracked in issue #1375.

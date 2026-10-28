@@ -274,13 +274,19 @@ case "$PLAN" in *"
 if [ "$REROOT" -eq 1 ]; then
     [ -z "$STORE$CPR$FOLLOW_UP$REMOVE$ADOPT" ] || usage_error "--reroot-plan takes only --session and --plan"
     kept() { printf 'plan_abs=kept\n'; exit 0; }
-    OLD_ABS=$(koto context get "$SESSION" plan_abs 2>/dev/null) || OLD_ABS=""
+    # A session before setup has none of the keys: `exists` answers that
+    # quietly, so only a read that really fails reaches stderr.
+    koto context exists "$SESSION" plan_abs >/dev/null || kept
+    OLD_ABS=$(koto context get "$SESSION" plan_abs) || kept
     [ -n "$OLD_ABS" ] && [ ! -e "$OLD_ABS" ] && [ -f "$PLAN" ] || kept
-    CB=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || kept
-    REC_CB=$(koto context get "$SESSION" coord_branch 2>/dev/null) || kept
+    # --quiet: a detached HEAD fails with no message.
+    CB=$(git symbolic-ref --quiet --short HEAD) || kept
+    koto context exists "$SESSION" coord_branch >/dev/null || kept
+    REC_CB=$(koto context get "$SESSION" coord_branch) || kept
     [ -n "$REC_CB" ] && [ "$CB" = "$REC_CB" ] || kept
     HOME_REPO=$("$BASH" "$COORD_SELF_DIR/record-write-set.sh" --print 2>/dev/null) || kept
-    REC_HOME=$(koto context get "$SESSION" home_repo 2>/dev/null) || kept
+    koto context exists "$SESSION" home_repo >/dev/null || kept
+    REC_HOME=$(koto context get "$SESSION" home_repo) || kept
     [ -n "$REC_HOME" ] && [ "$HOME_REPO" = "$REC_HOME" ] || kept
     PLAN_DIR=$(CDPATH='' cd "$(dirname -- "$PLAN")" && pwd -P) || kept
     PLAN_ABS="$PLAN_DIR/$(basename -- "$PLAN")"

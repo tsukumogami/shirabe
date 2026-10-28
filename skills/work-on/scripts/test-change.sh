@@ -452,7 +452,9 @@ append() {
 # moved_here: prints the current directory's work tree when the run's work
 # tree is gone and this one is clearly the same work: its origin names the
 # header's repository (when the header records one) and its HEAD has
-# impl_base as an ancestor. Prints nothing otherwise.
+# impl_base as an ancestor. Prints nothing otherwise. A header records no
+# repository when init's origin named no owner/name; impl_base's ancestry
+# alone decides then, since there is no repository to compare.
 moved_here() {
     local top url repo
     [ ! -d "$H_WORKTREE" ] || return 0
@@ -472,7 +474,8 @@ moved_here() {
 # the move as one relocate line under the lock (taking it when the caller
 # doesn't hold it, and reading the ledger again once it does) and names it on
 # stderr; `read` uses it for this call only. Otherwise nothing changes, and
-# compute_items reports the gone work tree as before.
+# compute_items reports the gone work tree as before. A refuse or die66 while
+# it holds the lock exits through the EXIT trap, which removes the lock.
 follow_move() {
     local s="$1" mode="$2" to from locked_here=0
     to=$(moved_here)
