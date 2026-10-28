@@ -556,7 +556,7 @@ done
 eq "FULL is judged on the Run section's cap" "at-cap 2/1 0/3" "$VERDICT_FULL"
 eq "BARE is clear" "ok a5" "$VERDICT_BARE"
 koto_calls "$FULL" 300 > /dev/null
-eq "FULL: each section the check reads is got once, and no other" \
+eq "FULL: it reads only the sections and keys its checks need, each got once" \
     "decisions deferrals holdings run standing work" \
     "$(sed -n "s|^context get $S record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... and no key is listed, since every one it reads is there" 0 "$(grep -c '^context list ' "$T/kc.calls")"
