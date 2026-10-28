@@ -294,18 +294,46 @@ for pair in hop_brief:brief_document:hop_prd hop_prd:prd_document:fold hop_desig
     eq "$st's landed edge requires $g" '[0]' \
         "$(q "[.states.$st.transitions[] | select(.when.outcome == \"landed\") | .when[\"gates.$g.exit_code\"]]")"
     eq "$st's skipped, rejected and bail edges name no document gate" 'true' \
-        "$(q "[.states.$st.transitions[] | select(.when.outcome != \"landed\") | has(\"when\") and (.when | has(\"gates.$g.exit_code\") | not)] | all")"
+        "$(q "[.states.$st.transitions[] | select(.when.outcome != \"landed\" and .when.outcome != \"check_unsatisfiable\") | has(\"when\") and (.when | has(\"gates.$g.exit_code\") | not)] | all")"
 done
 eq "hop_plan's two fold-bound arms require plan_document" '[0,0]' \
     "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_document.exit_code"]]')"
 eq "hop_plan's bail and skipped arms name no document gate" 'true' \
-    "$(q '[.states.hop_plan.transitions[] | select(.target != "fold") | .when | has("gates.plan_document.exit_code") | not] | all')"
-eq "the fold accepts keep, absorb and bail" '["keep","absorb","bail"]' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target != "fold" and .target != "check_exit") | .when | has("gates.plan_document.exit_code") | not] | all')"
+eq "the fold accepts keep, absorb, bail and the named exit" '["keep","absorb","bail","check_unsatisfiable"]' \
     "$(q '.states.fold.accepts.verdict.values')"
 eq "all fourteen keep and absorb arms of the fold require fold_documents" '[14,true]' \
     "$(q '[.states.fold.transitions[] | select(.when.verdict == "keep" or .when.verdict == "absorb")] | [length, all(.when["gates.fold_documents.exit_code"] == 0)]')"
 eq "the fold's bail arm routes to bail and names no gate" '[{"target":"bail","when":{"verdict":"bail"}}]' \
     "$(q '[.states.fold.transitions[] | select(.when.verdict == "bail") | {target, when}]')"
+
+# The named exit (DESIGN-validate-and-return.md): each gated state takes
+# check_unsatisfiable on its status field through exactly one edge, to
+# check_exit, open only while its document gate exits 1, carrying the reason
+# into context; check_exit's one edge goes to exit_abandonment. Each gate
+# command carries the ladder's four variables, and the exit table they share
+# names exactly the states that have the edge.
+LADDER_EXITS='hop_brief:outcome hop_prd:outcome hop_design:outcome hop_plan:outcome fold:verdict'
+for pair in hop_brief:brief_document:outcome hop_prd:prd_document:outcome hop_design:design_document:outcome \
+            hop_plan:plan_document:outcome fold:fold_documents:verdict; do
+    st=${pair%%:*}; rest=${pair#*:}; g=${rest%%:*}; f=${rest#*:}
+    eq "$st has one check_unsatisfiable edge, to check_exit, on $g at 1, assigning the reason" \
+        "[{\"target\":\"check_exit\",\"when\":{\"$f\":\"check_unsatisfiable\",\"gates.$g.exit_code\":1},\"assign\":{\"check_exit_reason\":\"\${evidence.check_exit_reason}\"}}]" \
+        "$(q "[.states.$st.transitions[] | select(.when.$f == \"check_unsatisfiable\") | {target, when, assign: .context_assignments}]")"
+    eq "$st accepts check_exit_reason as an optional string" '["string",false]' \
+        "$(q "[.states.$st.accepts.check_exit_reason | .type, (.required // false)]")"
+    eq "$st's $g command carries the ladder's four variables" 'true' \
+        "$(q ".states.$st.gates.$g.command | contains(\"|| exit 2; SHIRABE_GATE_LOG=\\\"{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl\\\" SHIRABE_GATE_NAME=$g SHIRABE_GATE_EXITS=\\\"$LADDER_EXITS\\\" SHIRABE_GATE_EXIT_END=exit_abandonment \\\"{{PLUGIN_ROOT}}/skills/scope/scripts/check-hop-document.sh\\\"\")")"
+done
+eq "check_exit's one edge is unconditional, to exit_abandonment" '[{"target":"exit_abandonment"}]' \
+    "$(q '[.states.check_exit.transitions[] | {target} + (if has("when") and (.when | length) > 0 then {when} else {} end)]')"
+eq "every check_unsatisfiable edge targets check_exit" '[]' \
+    "$(q '[.states | to_entries[] | .key as $s | .value.transitions[]? | select((.when // {}) | to_entries | any(.value == "check_unsatisfiable")) | select(.target != "check_exit") | $s]')"
+eq "the exit table names exactly the states with a check_unsatisfiable edge" \
+    "$(printf '%s\n' $LADDER_EXITS | sort | tr '\n' ' ')" \
+    "$(printf '%s' "$J" | jq -r '.states | to_entries[] | .key as $s | .value.transitions[]? | (.when // {}) | to_entries[] | select(.value == "check_unsatisfiable") | "\($s):\(.key)"' | sort -u | tr '\n' ' ')"
+eq "one exit table across the template" 1 \
+    "$(grep -o 'SHIRABE_GATE_EXITS="[^"]*"' "$TEMPLATE" | sort -u | wc -l | tr -d ' ')"
 
 # Each gated state's directive says what a hold means.
 for pair in hop_brief:brief_document hop_prd:prd_document hop_design:design_document hop_plan:plan_document fold:fold_documents; do
