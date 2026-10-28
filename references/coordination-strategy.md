@@ -283,7 +283,10 @@ run=<32 hex>
   wrote a separator) gets exactly `Coordination pull request for <slug>. It
   carries the planning documents for <n> node pull requests and merges after
   all of them.` (`<n>` counts the PR nodes), and the render replaces the whole
-  body. A Part 1 edited between the render and the post skips the post.
+  body. A Part 1 edited between the render and the post skips the post. A
+  `/scope` republish over a rendered body keeps its Part 1, its `store=` and
+  `run=` lines, its PR Index and its Merge Order, and rewrites only what
+  `/scope` writes around them.
 - **Run lines** — `/scope`'s run lines as setup recorded them, then the
   record's store and the run's identity.
 - **PR Index** — one line per recorded PR node, in the order setup sealed the
