@@ -108,7 +108,15 @@ has "credentials: report unquoted" "$B" "report it to the coordinator at once wi
 has "channel: the record's address named" "$B" 'addressed to `coord-alpha`, the address its record names'
 # section <brief> <heading>: one section's lines, its heading excluded.
 section() { printf '%s\n' "$1" | awk -v h="## $2" '/^## / { on = ($0 == h); next } on'; }
-lacks "channel: the koto session is no address" "$(section "$B" Reporting)" 'coordinate-roadmap-plugin-system-20261006T153752Z'
+# The koto session is never an address: it is named only as the argument
+# resolve-coordinator.sh and render-result.sh --dispatcher read the newest
+# member from. The mask covers exactly those two argument shapes, so the check
+# still fails if the session shows up anywhere else, as an address included;
+# widen it only for another argument use, never for an address.
+lacks "channel: the koto session is no address" "$(section "$B" Reporting \
+    | sed -e 's|resolve-coordinator\.sh" coordinate-roadmap-plugin-system-20261006T153752Z`|resolve-coordinator.sh" <dispatcher>`|g' \
+          -e 's|--dispatcher coordinate-roadmap-plugin-system-20261006T153752Z`|--dispatcher <dispatcher>`|g')" \
+    'coordinate-roadmap-plugin-system-20261006T153752Z'
 has "channel: only direction"    "$B" "That session is your only source of direction"
 has "channel: surface line 1"    "$B" '- `ci-health`: `ci-coord`'
 has "channel: surface line 2"    "$B" '- `releases`: `rel-coord`'
@@ -260,7 +268,13 @@ has "dispatcher: the template's Reporting names render-result.sh too" \
     'scripts/render-result.sh --session <your session>'
 R=$(section "$B" Reporting)
 has "dispatcher: Reporting names render-result.sh as the report step" "$R" \
-    'Your report step: when your entry point finishes, run `"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh" --session <your session>`'
+    "Your report step: when your entry point finishes, run \`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh\" --session <your session> --dispatcher $D\`"
+has "dispatcher: the final report goes to the resolved coordinator" "$R" \
+    'just before the `=== WORK IN FLIGHT ===` block, sent to the session its `coordinator=` line names.'
+has "dispatcher: Reporting resolves the newest member before each report" "$R" \
+    "Before each report, run \`\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/resolve-coordinator.sh\" $D\` and send the report to the session its \`coordinator=\` line names"
+has "dispatcher: ... falling back to the record's address" "$R" \
+    'When it prints no `coordinator=` line, report to `coord-alpha`.'
 L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
 lacks "dispatcher: a leg brief names no dispatcher_session" "$L" "dispatcher_session:"
 lacks "dispatcher: a leg brief shows no link command" "$L" "--dispatched-by"
