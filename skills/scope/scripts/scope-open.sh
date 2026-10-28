@@ -94,6 +94,19 @@
 # upstream document paths for this topic) is also written as the new session's
 # forced_artifact key, since the retry skips the step that records it.
 #
+# The replaced run's review round is carried too. Before the open, when a
+# session named scope-<topic> holds review_round.json (review-round.sh writes
+# it there, and coordinate's land step reads it there), the key is read into a
+# file beside the vars file; nothing is written to that session. After
+# opened=replaced, and never after opened=new or opened=attached, the file is
+# written unchanged as the new session's review_round.json, when it is one
+# JSON object. It keeps its reviewed_head, so the land step still refuses a
+# round whose head has moved. A read or a write that fails prints a warning
+# naming the session and saying the round has to be recorded again with
+# review-round.sh, and the run goes on without it. The round is the one
+# per-run record a coordinator reads from this session; nothing else of the
+# finished session is carried beyond the keys named here.
+#
 # Output. stdout carries koto-open.sh's machine-readable lines, then:
 #
 #   session=scope-<topic>            on success
@@ -123,6 +136,11 @@ RE_LEG='^[a-z0-9_][a-z0-9_-]{0,63}:scope$'
 
 ARGS_FILE=""
 VARS_FILE=""
+ROUND_FILE=""
+# The --alloc-dir directory the round file was written into. koto-open.sh
+# removes its marker but can't remove the directory while the round file is
+# there, so cleanup removes it once it is empty.
+ALLOC_DIR=""
 
 # The work tree the run is scoped in, symlinks resolved. Empty outside one.
 TOP=""
@@ -159,9 +177,12 @@ cleanup() {
     [ -n "$ARGS_FILE" ] && dir=$(dirname -- "$ARGS_FILE")
     remove_if_untracked "$ARGS_FILE"
     remove_if_untracked "$VARS_FILE"
+    remove_if_untracked "$ROUND_FILE"
     # The private directory `koto-open.sh --alloc-dir` made, when koto-open.sh
-    # never ran to remove it: only the marker is left, so it goes too.
-    if [ -n "$dir" ] && [ -f "$dir/.koto-open-alloc" ] && [ ! -L "$dir/.koto-open-alloc" ]; then
+    # never ran to remove it, or couldn't because the round file was there:
+    # only the marker, or nothing, is left, so it goes too.
+    if [ -n "$dir" ] && { [ "$dir" = "$ALLOC_DIR" ] \
+        || { [ -f "$dir/.koto-open-alloc" ] && [ ! -L "$dir/.koto-open-alloc" ]; }; }; then
         if [ -z "$(ls -A -- "$dir" 2>/dev/null | grep -vx '.koto-open-alloc')" ]; then
             rm -f -- "$dir/.koto-open-alloc"
             rmdir -- "$dir" 2>/dev/null
@@ -377,12 +398,73 @@ write_forced_artifact() {
     return 0
 }
 
+# --- the finished run's review round ----------------------------------------------------
+
+# read_prior_round <session> -- before the open, copy <session>'s
+# review_round.json, when it has one, into ROUND_FILE beside the vars file.
+# A read only: nothing is written to <session>. ROUND_READ says what came of
+# it: `none` (no such session or key), `read`, or `failed` (an `exists` that
+# answered neither yes nor no, or a `get` that failed). Only a replace acts on
+# it, so a failure here is reported by write_prior_round or not at all.
+ROUND_READ=none
+read_prior_round() {
+    local session="$1" rc=0 dir
+    "${KOTO_BIN:-koto}" context exists "$session" review_round.json </dev/null >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) ROUND_READ=failed; return 0 ;;
+    esac
+    dir=$(dirname -- "$VARS_FILE")
+    if ! ROUND_FILE=$(mktemp "$dir/scope-open-round.XXXXXX"); then
+        ROUND_FILE=""; ROUND_READ=failed; return 0
+    fi
+    if [ -f "$dir/.koto-open-alloc" ] && [ ! -L "$dir/.koto-open-alloc" ]; then
+        ALLOC_DIR="$dir"
+    fi
+    if "${KOTO_BIN:-koto}" context get "$session" review_round.json </dev/null >"$ROUND_FILE" 2>/dev/null; then
+        ROUND_READ=read
+    else
+        ROUND_READ=failed
+    fi
+    return 0
+}
+
+# write_prior_round <session> -- after a replace, write the round
+# read_prior_round kept, byte for byte, as the new session's
+# review_round.json. Only one JSON object is written. A failed read, anything
+# else, or a failed write is a warning: the land step then finds no round in
+# this run until the worker records it again.
+write_prior_round() {
+    local session="$1" why=""
+    case "$ROUND_READ" in
+        none) return 0 ;;
+        failed) why="could not be read" ;;
+        read)
+            # jq's own parse error, for a value that isn't JSON at all, is
+            # left on stderr above the warning.
+            if ! jq -s -e 'length == 1 and (.[0] | type) == "object"' <"$ROUND_FILE" >/dev/null; then
+                why="is not one JSON object"
+            elif ! "${KOTO_BIN:-koto}" context add "$session" review_round.json <"$ROUND_FILE" >/dev/null 2>&1; then
+                why="could not be written"
+            fi
+            ;;
+    esac
+    remove_if_untracked "$ROUND_FILE"
+    ROUND_FILE=""
+    [ -n "$why" ] || return 0
+    printf '%s: the review round recorded in the finished run of %s %s, so the new run has none; record it again with review-round.sh\n' \
+        "$PROG" "$session" "$why" >&2
+    return 0
+}
+
 # --- the one koto init ----------------------------------------------------------------
 
 # --replace-terminal beside --attach-live: a scope-<topic> session that already
 # reached a terminal is replaced by a fresh one, which walks intake and
 # resume_route like any new run, instead of being ticked into nothing. A live
 # session is never replaced; --attach-live joins it or koto refuses.
+read_prior_round "$SESSION"
 set -- "$SESSION" "$PLUGIN_ROOT/skills/scope/koto-templates/scope.md" "$VARS_FILE" \
     --attach-live --replace-terminal --wording "$WORDING"
 [ -n "$KOTO_LEG" ] && set -- "$@" --koto-leg "$KOTO_LEG"
@@ -395,7 +477,10 @@ VARS_FILE=""   # koto-open.sh removed it on its own exit path
 if [ "$RC" -eq 0 ]; then
     # A replaced finished run hands its facts to this one first of all.
     case "$OUT" in
-        *opened=replaced*) write_prior_run "$SESSION" "$OUT" ;;
+        *opened=replaced*)
+            write_prior_run "$SESSION" "$OUT"
+            write_prior_round "$SESSION"
+            ;;
     esac
     # The run identity every owned-PR lookup of this run carries: minted here,
     # where the session is born, and only read afterwards (run-id.sh get).
