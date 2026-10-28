@@ -42,7 +42,9 @@
 # above are the one-writer-per-key rule.
 #
 # The caller's contract:
-#   - it has sourced state-common.sh, run lib_facts and lib_write_guard, and
+#   - it has sourced state-common.sh, run lib_facts and lib_write_guard
+#     (except coordinate-open.sh for the carry, whose source stays live until
+#     the carry lands, so its new run isn't yet the scope's one live run), and
 #     set PROG, HERE, SESSION, SCOPE, NAME, REPO and STATE_FILE, the next state
 #     as JSON carrying the written time of the version it was built from, in a
 #     file of the writer's own private directory (mode 0600), which the writer
@@ -353,6 +355,24 @@ core_write_meta() {
     "$KOTO" context add "$s" record/meta --from-file "$d/next" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the record/meta write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     rm -rf "$d"
+}
+
+# core_carry_withdraw <to>: remove record/meta from the run a carry wrote into
+# when the carry didn't land (shirabe#1257), so it holds no record and a later
+# start never takes its copy for the record; the keys copied before it stay,
+# unread. It lives here because only the write core removes a record/ key (a
+# structure test holds every other script to that). Only coordinate-open.sh
+# calls it, before cancelling that run. Returns
+# 0 removed or never written; 1 the listing or the removal failed.
+core_carry_withdraw() {
+    local d rc=0
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-withdraw.XXXXXX") || return 1
+    rs_list "$1" record/meta "$d/keys" || { rm -rf "$d"; return 1; }
+    if jq -e 'index("record/meta") != null' "$d/keys" > /dev/null; then
+        "$KOTO" context remove "$1" record/meta < /dev/null > /dev/null 2>&1 || rc=1
+    fi
+    rm -rf "$d"
+    return $rc
 }
 
 # core_write_pushed: set one holding's pushed head (CORE_PUSHED_TOPIC,
