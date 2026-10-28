@@ -529,10 +529,12 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Report to the coordinator by message, addressed to `\(.reports_to)`, the address its record names, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
   "",
+  "Before each report, run `\"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/resolve-coordinator.sh\" \(.dispatcher_session)` and send the report to the session its `coordinator=` line names: a coordinator taken over since this brief was written has a successor, and that line names the run'"'"'s newest member. When it prints no `coordinator=` line, report to `\(.reports_to)`.",
+  "",
   "A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn'"'"'t stand in for it, so keep going to the end.",
   "",
   ( if $opener_kind == "" then empty else
-      "Your report step: when your entry point finishes, run `\"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh\" --session <your session>`, adding `--pr <url>` for each pull request you opened, from the directory your session is opened in, and put the block it prints in your final report, just before the `=== WORK IN FLIGHT ===` block. That block is your result; it carries what your session recorded that the coordinator needs: your review round, and a link that failed.",
+      "Your report step: when your entry point finishes, run `\"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/render-result.sh\" --session <your session> --dispatcher \(.dispatcher_session)`, adding `--pr <url>` for each pull request you opened, from the directory your session is opened in, and put the block it prints in your final report, just before the `=== WORK IN FLIGHT ===` block, sent to the session its `coordinator=` line names. That block is your result; it carries what your session recorded that the coordinator needs: your review round, and a link that failed.",
       ""
     end ),
   "A run the account'"'"'s usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.",
