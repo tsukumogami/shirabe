@@ -382,13 +382,19 @@ gets those entries alone. A record imported before the markers has none, and
 its reader reads every entry instead, as it does when a cited row is in no
 marked entry.
 
-An outward entry, one that a reader outside the coordinator reads on GitHub,
-is also posted as a comment on the item it concerns, named with `--on`: a
-`cost` entry on the holding's pull request or the unit's issue, a `goal-fit`
-entry on the pull request its first line names. `--on none` writes the
-session entry and posts it nowhere; a `milestone-verdict` or
-`milestone-failure` entry is written that way and reaches its roadmap pull
-request only through `roadmap-status.sh`. A posted entry reads:
+An outward entry, one that a reader outside the coordinator may read on
+GitHub, names the item it concerns with `--on`: a `cost` entry the holding's
+pull request or the unit's issue, a `goal-fit` entry the pull request its
+first line names. It is posted as a comment on that item only when the
+item's repository, public or private, opts in with `## PR Workflow Content:
+include` in the CLAUDE.md on its default branch (read through
+`scripts/pr-workflow-content.sh`). Otherwise the append keeps the session
+entry, posts nothing and prints its key, as `--on none` does (exit 0, the
+reason on stderr), and `--repost` is refused (exit 65), the entry staying in
+the session. `--on none` writes the session entry and posts it nowhere; a
+`milestone-verdict` or `milestone-failure` entry is written that way and
+reaches its roadmap pull request only through `roadmap-status.sh`, under the
+same opt-in (The roadmap edits). A posted entry reads:
 
 ```markdown
 <!-- coordinator-record-entry v1 kind=<kind> -->
@@ -413,7 +419,7 @@ something, write it into the record yourself.
 
 Anything a check or a successor acts on stays in the state; an entry is
 its account, never its only copy. GitHub limits how fast comments are
-created; one post per outward entry stays far inside it, and a refused post
+created; at most one post per outward entry stays far inside it, and a refused post
 (exit 14, the entry written but not posted) is finished once, later, with
 `state-entry.sh --repost <n> --on <item>`, never in a loop.
 
@@ -518,7 +524,8 @@ On a milestone roadmap a milestone reads Done only through a checked verdict,
 and Done is taken back only through a checked failure. Each is an entry in the
 record, checked by `scripts/milestone.sh` against the roadmap and written by
 `state-entry.sh` with its own kind, and each roadmap edit is a pull request
-`scripts/roadmap-status.sh` opens, posts the entry on, and never merges. The steps are the
+`scripts/roadmap-status.sh` opens, posts the entry on when the host opts in,
+and never merges. The steps are the
 `milestone_verdict`, `goal_fit` and `milestone_reopen` states of the template.
 
 ### The verdict owed
@@ -633,6 +640,13 @@ it exits 14 naming the pull request; run again with the same entry, it finds
 its row, posts once and pushes only the missing commit, so no second pull
 request opens.
 
+The entry is posted only where `state-entry.sh` would post it: when the host
+opts in with `## PR Workflow Content: include` in the CLAUDE.md GitHub serves
+from its default branch, or when `record/posted/<n>` shows an earlier run of
+the same edit posted it. Otherwise it stays in the session: nothing is
+posted, the pull request's body says so, and the Progress lines cite
+`entry <n>` where the comment's URL would go.
+
 `--verdict` needs the tag's verdict-owed row, requires the default branch to
 contain the Source commit, and runs `check-verdict` against the roadmap at
 that commit. It refuses a tag that already reads Done on the default branch,
@@ -651,19 +665,20 @@ field, a control character or tab, a token, a home-directory path or a
 staging path. Every verdict appends to Progress:
 
 ```markdown
-- <Checked on>: <tag> -- <verdict>, checked by <checker> (<entry URL>, <hash8>)
+- <Checked on>: <tag> -- <verdict>, checked by <checker> (<cite>, <hash8>)
 ```
 
 and an amendment adds `- <Checked on>: <tag> amended -- a follow-up of the
-verified verdict on <tag> (<entry URL>)`. hash8 is the first eight hex digits
-of the posted entry's sha256.
+verified verdict on <tag> (<cite>)`. cite is the posted entry's comment URL,
+or `entry <n>` for an entry kept in the session, and hash8 is the first eight
+hex digits of the entry's sha256.
 
 `--reopen` runs `check-failure` against the roadmap at the default branch's
 head, sets the milestone In progress, leaves Delivered, Outcome and Evidence
 as they are, and appends:
 
 ```markdown
-- <Seen on>: <tag> -- reopened: clause <n> failed, reported by <reporter> (<entry URL>, <hash8>)
+- <Seen on>: <tag> -- reopened: clause <n> failed, reported by <reporter> (<cite>, <hash8>)
 ```
 
 It prints the pull request's URL, then `held-dependent <tag> <worker>` for
@@ -692,7 +707,11 @@ shows it, by its Action: Done for `milestone-done`, the entry's URL in
 Progress for `milestone-verdict` (the comment's URL kept in
 `record/posted/<n>`), and In progress for `milestone-reopen`, where the last
 Progress line about the tag must also be a reopen line whose entry's comment
-still hashes to its hash8. It removes the
+still hashes to its hash8. An entry kept in the session (a row naming
+`(entry <n>)` with no `record/posted/<n>`) is read from the session instead:
+`record/entries/<n>` must hash to the hash8 a Progress line about the tag
+gives beside `entry <n>`, or the reopen line must cite the row's own
+`entry <n>`. It removes the
 milestone's verdict-owed row and any rework row with it. Until the default
 branch shows the edit it exits 1 and writes nothing. Confirming a
 `milestone-verdict` row re-reads its entry, which must still hash to its
@@ -703,6 +722,9 @@ failure; each then writes a rework row:
 {"item": "<tag>", "kind": "rework", "who": "<verdict <comment id> or failure <comment id>>",
  "next": "<the rework text>", "wakes": "0", "updated": "<YYYY-MM-DDTHH:MMZ>"}
 ```
+
+For an entry kept in the session, Who is `verdict <n>` or `failure <n>`, the
+entry's number.
 
 A verdict's text is `Evidence clauses not held: <n, n>.` when a clause wasn't
 held, `The work does not fit the strategy.` when it doesn't, and then

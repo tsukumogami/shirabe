@@ -344,7 +344,8 @@ The find writes the run's store, `session`, and what it read of koto, to
 guesses. A session opened before the GitHub record was removed may hold a
 `store session` Run row; it is kept, and nothing writes a new one. Outward
 entries (cost, verdicts, goal fit, failures) are posted on the item each
-concerns (`--on`) or stay in the session. A run whose session doesn't hold
+concerns (`--on`) only when that item's repository opts in with `## PR
+Workflow Content: include`, and otherwise stay in the session. A run whose session doesn't hold
 the record it should stops at the find, and a koto without the session
 record's features is refused at the start (`store-unsupported`); the reason
 names the import that brings the session here.
@@ -370,8 +371,11 @@ and a test holds every script to that one reader.
 
 The section keys are the record's state. Its account, what happened and why,
 goes in entries: each one key in the session, written with
-`scripts/state-entry.sh`, which stamps it from the host clock, and an
-outward one also posted on the item it concerns. Never write an
+`scripts/state-entry.sh`, which stamps it from the host clock. An outward
+one is also posted on the item it concerns, but only where that item's
+repository declares `## PR Workflow Content: include` in the CLAUDE.md on its
+default branch; elsewhere it stays in the session and nothing is posted.
+Never write an
 entry into a section, a row or a local file, and never post one by hand.
 
 A coordinator's state lives in two places, both in its koto session: the
@@ -470,8 +474,9 @@ states never ask you to do these steps by hand.
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
   removes the holding row last, and `teardown_confirm` checks the result.
-  Before the destroy the pass posts the unit's `cost` entry on the record
-  (`references/unit-cost.md`), which can add up to two minutes, so a
+  Before the destroy the pass writes the unit's `cost` entry into the record,
+  posting it on the unit's pull request or issue only where that repository
+  opts in (`references/unit-cost.md`), which can add up to two minutes, so a
   coordinator running the pass itself asks its shell tool for the longest
   timeout it allows. A unit niwa removes outside the pass gets its entry from
   `scripts/unit-removed.sh`, which the workspace's on-reap step runs; that
@@ -523,20 +528,23 @@ lines, and the rows and refusals behind them, are in
   record (`--entry <n>`), which must be a `milestone-verdict` entry posted
   nowhere yet. It requires the default branch to contain the entry's Source
   commit, and re-checks the entry against the roadmap there. Then it opens
-  one pull request with the entry in its body and posts the entry as a
-  comment on it. Either verified verdict sets Done, removes
+  one pull request with the entry in its body. When the host opts in with
+  `## PR Workflow Content: include`, it posts the entry as a comment on that
+  pull request; otherwise the entry stays in the session, nothing is posted,
+  and the pull request's body says so. Either verified verdict sets Done, removes
   Needs and adds the work checked to Delivered, and a verified with
   follow-ups verdict also adds each new milestone and rewrites each amended
   one, from the `--follow-ups` file, in the same change. A changes-needed
   edit leaves Status and Delivered alone. Every edit appends a Progress line
-  naming the verdict, the checker and that comment. Only one roadmap edit is
+  naming the verdict, the checker and the entry: its comment's URL when it
+  was posted, `entry <n>` when it stayed in the session. Only one roadmap edit is
   pending at a time. An edit whose pull request closed unmerged is dropped
   with `roadmap-status.sh --drop`, which leaves the verdict owed; the same
   verdict, written as a new entry, opens it again.
 - **Rework.** Once the default branch shows the edit, `roadmap-status.sh
   --confirm` clears its Side effects row and the verdict-owed row. For
-  changes needed it also writes a `rework` row (Who `verdict <comment id>`)
-  from the entry: the clauses not held, the strategy's misfit when there is
+  changes needed it also writes a `rework` row (Who `verdict <comment id>`,
+  or `verdict <n>` for an entry kept in the session) from the entry: the clauses not held, the strategy's misfit when there is
   one, and the Changes needed line. Pick reports that text as the unit's `rework` and offers the
   milestone again once no holding covers it; its next brief quotes the text
   under the fixed heading "The last verdict's report (check it against the
@@ -546,8 +554,11 @@ lines, and the rows and refusals behind them, are in
   Evidence clauses a pull request advances. The land check puts the
   holding's milestone in `coord/land.json` as `milestone` (its tag and its
   Evidence on the default branch), or `milestone_error` when that read
-  failed, and then you read the Evidence yourself. You post a goal-fit
-  entry on the pull request (`--on`), checked by `milestone.sh check-goal-fit`, and submit its clauses as
+  failed, and then you read the Evidence yourself. You write a goal-fit
+  entry for the pull request (`--on`), checked by `milestone.sh
+  check-goal-fit`; it is posted on the pull request only when its
+  repository opts in with `## PR Workflow Content: include`, and stays in
+  the session otherwise. Submit its clauses as
   `clauses` beside `fit`. `clauses` routes nothing: `advances none` is
   recorded, and `fit` alone decides where the pull request goes.
 - **Reopening.** When a milestone that reads Done no longer meets a clause
@@ -557,15 +568,18 @@ lines, and the rows and refusals behind them, are in
   check-failure`, write it with `--kind milestone-failure --on none`, and run
   `roadmap-status.sh --reopen` with its entry number, which reads the entry
   as `--verdict` does, opens a pull request setting the milestone In
-  progress, posts the entry on it, and adds a Progress line naming the failed
-  clause, the reporter and that comment. It prints `held-dependent <tag> <worker>` for each milestone
+  progress, posts the entry on it when the host opts in (as `--verdict`
+  does; otherwise the entry stays in the session and the body says so), and
+  adds a Progress line naming the failed clause, the reporter and the entry,
+  by its comment's URL or as `entry <n>`. It prints `held-dependent <tag> <worker>` for each milestone
   that depends on this one and has a holding. Once the edit lands, that
   milestone reads blocked again while its worker keeps running: tell the
   worker's owner, who decides whether it stops. Once the default branch
   reads the milestone In progress, `--confirm` finds the failure through
   the last Progress line about the milestone, which must be a reopen line
   for this run's entry, and writes a rework row from it (Who
-  `failure <comment id>`, the text `Evidence clause <n> failed: <what was
+  `failure <comment id>`, or `failure <n>` for an entry kept in the
+  session, the text `Evidence clause <n> failed: <what was
   seen>` cut to 600 bytes). The milestone is then offered again, and its
   brief quotes the failure under the same heading.
 - **Close-out.** A roadmap record doesn't close while a verdict is owed:
