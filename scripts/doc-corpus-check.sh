@@ -22,11 +22,15 @@
 # docs/designs/**/DESIGN-*.md are taken. A later rename of a taken path, in the
 # window or after it, moves it to its new path, so each document is read once,
 # under its final path. A rename into one of those paths from anywhere else, in
-# the window, counts as the document's first add; a rename of a document added
-# before the window does not.
+# the window, counts as the document's first add, since that is where it first
+# appears as a BRIEF or DESIGN; a rename of a document added before the window
+# does not. A taken document later moved out of those paths keeps its last
+# document path, so it is listed absent.
 #
 # Each final path is read from --commit through `git ls-tree` and
-# `git cat-file`, never through the work tree. A path with `..` or a control
+# `git cat-file`, never through the work tree: ls-tree gives the mode and the
+# object id the type and size checks need, and reading the blob by its id
+# never parses a path as part of a revision. A path with `..` or a control
 # character in it is skipped without being printed (stderr counts them); a
 # path that isn't a regular file there, or whose blob is over 1 MiB, is skipped
 # and listed. Documents are written under generated names (BRIEF-<n>.md,
@@ -42,7 +46,9 @@
 # schema-only skip of the document reads as SCHEMA at line 1). Each validator
 # run, the canary's included, is stopped after DOC_CORPUS_TIMEOUT seconds.
 #
-# Standard output, printed only once every document has a verdict:
+# Standard output, printed only once every document has a verdict. A document
+# the validator gives no verdict on stops the run with nothing printed: a
+# report missing it would read as that document being clean.
 #   <rule-id> <stage> <owner/repo> <path>:<line>
 #                       one per FC23, FC24, FC25 or SCHEMA finding, under the
 #                       registry entry that aliases the code and its stage
@@ -51,8 +57,11 @@
 #                       a taken path that doesn't exist at --commit
 #   skipped <owner/repo> <path> <reason>
 #                       a taken path that isn't a regular file, or is over
-#                       1 MiB, at --commit
-# A clean corpus prints nothing. No line carries document text: a finding
+#                       1 MiB, at --commit; <reason> is `not a regular file`
+#                       or `over 1 MiB`
+# A path can hold spaces, so a reader splits each line from the left: the
+# first two fields of a finding, the first field of an absent or skipped line,
+# then <owner/repo>, which never holds a space. A clean corpus prints nothing. No line carries document text: a finding
 # prints only its rule, the path and the line number, so marker text in a
 # document can't start a line. <owner/repo> comes from origin's URL.
 #
@@ -60,9 +69,9 @@
 #
 # Exit status:
 #   0  the report above (findings or none)
-#   2  usage, a refusal (not a git checkout, no usable origin remote or default
-#      branch, a commit that isn't an ancestor of the default branch, git or jq
-#      missing), or no verdict (the validator missing, inside the repository,
+#   2  usage, a refusal (not a git checkout, a shallow clone, no usable
+#      origin remote or default branch, a commit that isn't an ancestor of the
+#      default branch, git or jq missing), or no verdict (the validator missing, inside the repository,
 #      failing its canary, timing out, or giving output this can't read);
 #      nothing is printed on stdout
 #
@@ -157,6 +166,10 @@ done
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || refuse "not inside a git working tree"
 cd "$ROOT" || refuse "cannot enter the repository root"
 ROOT_REAL=$(pwd -P)
+# In a shallow clone the oldest commit shows every file as added, which would
+# pull documents merged long before the window into it.
+[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = false ] \
+    || refuse "the repository is a shallow clone (git fetch --unshallow gives the full history)"
 
 # slug_from_url <url>: owner/repo from an https, ssh, git or scp-style URL.
 slug_from_url() {
@@ -334,7 +347,9 @@ while IFS= read -r -d '' tok; do
             state=new ;;
         new)
             if i=$(taken_index "$old"); then
-                TAKEN[$i]=$tok
+                # A move out of the document paths keeps the old path, which
+                # is then listed absent.
+                is_doc "$tok" && TAKEN[$i]=$tok
             elif in_window "$date" && is_doc "$tok" && ! is_doc "$old" && ! taken_index "$tok" >/dev/null; then
                 TAKEN[${#TAKEN[@]}]=$tok
             fi
@@ -369,10 +384,6 @@ while [ "$i" -lt "${#TAKEN[@]}" ]; do
     case "$p" in
         *..*) BAD_NAMES=$((BAD_NAMES + 1)); continue ;;
     esac
-    # A taken path renamed out of the two document folders is no longer a
-    # document this reads.
-    is_doc "$p" || continue
-
     entry=""
     git --literal-pathspecs ls-tree -z --full-tree "$SHA" -- "$p" > "$WORK/tree" 2>/dev/null \
         || refuse "git ls-tree failed at $SHA"

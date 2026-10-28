@@ -334,6 +334,52 @@ git -C "$REPO" remote remove origin
 run --since 2026-03-10 --until 2026-03-20 --commit "$HEAD_SHA"
 no_report "no origin remote is an error"
 
+# A shallow clone is refused: its oldest commit shows every file as added.
+git clone -q --depth 1 "file://$WORKDIR/fx-1-corpus" "$WORKDIR/shallow" 2>/dev/null
+REPO="$WORKDIR/shallow"
+run --since 2026-03-10 --until 2026-03-20 --commit "$HEAD_SHA"
+no_report "a shallow clone is refused"
+grep -q 'shallow clone' "$ERR" || fail "shallow reason: $(show)"
+
+# No origin/HEAD: the default branch is unknown.
+new_repo nohead
+doc docs/briefs/BRIEF-x.md schema FC23
+commit_on 2026-03-10 "docs: a brief"
+git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+run --since 2026-03-10 --until 2026-03-11 --commit "$(git -C "$REPO" rev-parse HEAD)"
+no_report "a missing origin/HEAD is refused"
+grep -q "default branch is unknown" "$ERR" || fail "origin/HEAD reason: $(show)"
+
+# A merge on the default branch is read through its first parent, at the
+# merge's date; a document moved out of the folders is listed absent.
+new_repo merges
+doc docs/briefs/BRIEF-m1.md schema FC23
+commit_on 2026-03-10 "docs: a brief"
+git -C "$REPO" checkout -q -b feature HEAD~1
+doc docs/designs/DESIGN-feat.md schema FC24
+commit_on 2026-03-05 "docs: a design on a branch"
+git -C "$REPO" checkout -q main
+GIT_AUTHOR_DATE=2026-03-12T12:00:00Z GIT_COMMITTER_DATE=2026-03-12T12:00:00Z \
+    git -C "$REPO" merge -q --no-ff -m "merge the design" feature
+doc docs/briefs/BRIEF-out.md schema FC23
+commit_on 2026-03-13 "docs: a brief"
+mkdir -p "$REPO/docs/archive"
+git -C "$REPO" mv docs/briefs/BRIEF-out.md docs/archive/BRIEF-out.md
+commit_on 2026-03-14 "docs: archive it"
+publish
+run --since 2026-03-10 --until 2026-03-20 --commit "$(git -C "$REPO" rev-parse HEAD)"
+want="brief/summary-length warn $S docs/briefs/BRIEF-m1.md:5
+design/frontmatter-order warn $S docs/designs/DESIGN-feat.md:5
+count brief/summary-length 1
+count design/frontmatter-order 1
+absent $S docs/briefs/BRIEF-out.md"
+[ "$RC" -eq 0 ] && [ "$(cat "$OUT")" = "$want" ] \
+    && pass "a merge's documents count at the merge's date; one moved out of the folders is listed absent" \
+    || fail "merges: $(show)"
+run --since 2026-03-01 --until 2026-03-10 --commit "$(git -C "$REPO" rev-parse HEAD)"
+[ "$RC" -eq 0 ] && [ ! -s "$OUT" ] \
+    && pass "a branch commit's own date outside the merge's day doesn't count" || fail "merge date: $(show)"
+
 # --- time bound and interrupt ----------------------------------------------------------
 
 new_repo slow
