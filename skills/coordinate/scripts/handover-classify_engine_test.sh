@@ -128,7 +128,7 @@ classify
 printf '%s\n' "$HC_OUT"
 eq "2: handover-classify.sh exits 0" 0 "$HC_RC"
 eq "2: feat-1 live (address coord-test), feat-2 pending, feat-3 missing" \
-    "live feat-1 coord-test|pending feat-2|missing feat-3" "$(printf '%s' "$HC_OUT" | paste -sd '|' -)"
+    "live feat-1 coord-test|pending feat-2|missing feat-3" "$(printf '%s' "$HC_OUT" | tr '\n' '|')"
 eq "2: the record has feat-2 pending and nobody told" "pending:feat-2" "$(run_rows)"
 eq "2: the gate's gaps: feat-1 and feat-3 not told" "not-told feat-1|not-told feat-3" "$(gaps)"
 
