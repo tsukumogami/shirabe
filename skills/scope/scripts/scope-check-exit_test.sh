@@ -25,6 +25,9 @@
 # the session's context, and nothing else in the store, in koto's responses or
 # in the gate's standard error holds the reason.
 #
+# Two more sessions climb the same ladder on the structural rules: a step-plan
+# violation in hop_plan and a DESIGN with no schema in hop_design.
+#
 # Further sessions take the exit at the first failure, run fail, pass, fail
 # in hop_plan with a second rule joining at its first failure, and show a
 # rule's hop_plan failures don't count in the fold. The cases below them run
@@ -58,6 +61,12 @@ for bin in koto shirabe git jq; do
         exit 0
     fi
 done
+# The document gate's canary needs a validator with FC23 to FC25; on an older
+# one every gate stops on an environment fault. `--check FC23` is the probe.
+if ! (cd "${TMPDIR:-/tmp}" && shirabe validate --check FC23 >/dev/null 2>&1); then
+    echo "SKIP: the shirabe on PATH predates FC23 to FC25; this suite's gates cannot run on it"
+    exit 0
+fi
 [ -f "$TEMPLATE" ] && [ -x "$CHECK" ] || { echo "FAIL: no template or gate script under $REPO" >&2; exit 2; }
 
 PASS=0
@@ -370,6 +379,59 @@ for spec in hop_brief:brief_document hop_prd:prd_document hop_design:design_docu
     else
         bad "$st: the reason was written elsewhere" "$leaked"
     fi
+done
+
+# --- the structural rules through the ladder --------------------------------------
+#
+# A step-plan violation in hop_plan (plan/step-shape, the validator's FC22) and
+# a DESIGN with no schema in hop_design (docs/schema-declared, the validator's
+# schema skip) climb the same ladder: the summary, then the full text, then
+# the exit line at count 3. The session's log records each delivery, summary
+# first and full after.
+
+# step_plan <topic>: a plan/v2 PLAN whose step 2 is detailed but has no
+# **Check**: line, which the validator reports as FC22.
+step_plan() {
+    sed "s/^# PLAN: greeting command$/# PLAN: $1/" \
+        "$REPO/crates/shirabe-validate/tests/fixtures/PLAN-v2-detailed-check.md"
+}
+
+for spec in hop_plan:plan_document:plan/step-shape hop_design:design_document:docs/schema-declared; do
+    st=${spec%%:*}; rest=${spec#*:}; g=${rest%%:*}; rule=${rest#*:}
+    tag=$(printf 'ladder-%s' "$st" | tr '_' '-')
+    echo "== $st, $rule"
+    open_run "$tag" || { bad "$st/$rule: could not open a session" ""; continue; }
+    walk "$tag" "$st"
+    if [ "$(state_of "$tag")" != "$st" ]; then
+        bad "$st/$rule: the walk did not reach the state" "state=$(state_of "$tag")"
+        continue
+    fi
+    case "$st" in
+        hop_plan) step_plan "$tag" | put "$tag" "$(the_doc "$st" "$tag")" ;;
+        hop_design) fx_design "$tag" | grep -v '^schema:' | put "$tag" "$(the_doc "$st" "$tag")" ;;
+    esac
+    tick "$tag" "$(landed_json "$st")"
+    [ "$(finding_ids "$tag" "$g")" = "$rule " ] && [ "$(gate_rc "$tag" "$g")" = 1 ] \
+        && [ "$(rule_blocks "$tag" "$g")" -eq 0 ] && [ "$(exit_lines "$tag" "$g")" -eq 0 ] \
+        && ok "$st: failure 1 holds on $rule with its summary only, exit 1" \
+        || bad "$st/$rule: failure 1" "rc=$(gate_rc "$tag" "$g") ids=[$(finding_ids "$tag" "$g")] stderr=[$(gate_err "$tag" "$g" | head -c 600)]"
+    tick "$tag" "$(landed_json "$st")"
+    [ "$(gate_err "$tag" "$g" | grep -c "^::shirabe-rule::{\"rule_id\":\"$rule\"")" -eq 1 ] \
+        && [ "$(rule_ends "$tag" "$g")" -eq 1 ] && [ "$(exit_lines "$tag" "$g")" -eq 0 ] \
+        && ok "$st: failure 2 prints $rule's full text between the rule markers" \
+        || bad "$st/$rule: failure 2" "stderr=[$(gate_err "$tag" "$g" | head -c 600)]"
+    tick "$tag" "$(landed_json "$st")"
+    got=$(exit_notice "$tag" "$g" | jq -c '{rule_id, count, state}' 2>/dev/null)
+    [ "$(exit_lines "$tag" "$g")" -eq 1 ] \
+        && [ "$got" = "$(jq -cn --arg id "$rule" --arg st "$st" '{rule_id: $id, count: 3, state: $st}')" ] \
+        && ok "$st: failure 3 prints one exit line naming $rule with count 3" \
+        || bad "$st/$rule: failure 3" "got=[$got] stderr=[$(gate_err "$tag" "$g" | head -c 600)]"
+    dir=$( cd "$W/$tag" && koto session dir "$PFX-$tag" 2>/dev/null )
+    extents=$(jq -r --arg r "$rule" 'select(.type == "rule_delivered" and .payload.rule_id == $r) | .payload.level' \
+        "$dir/koto-$PFX-$tag.state.jsonl" 2>/dev/null | awk '!seen[$0]++' | tr '\n' ' ')
+    [ "$extents" = "summary full " ] \
+        && ok "$st: the session's log records $rule delivered at summary, then full" \
+        || bad "$st/$rule: rule deliveries" "extents=[$extents]"
 done
 
 # --- the exit at the first failure ----------------------------------------------

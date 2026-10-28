@@ -257,6 +257,114 @@ run -- --doc docs/plans/PLAN-t.md --format plan --moment post_create --phase 7 -
 [ "$RC" -eq 1 ] && [ "$(outcome plan/issues-table-shape)" = fail ] \
     && pass "the same rule with its section reached: fail" || fail "rule section reached: $(show)"
 
+# --- the structural rules: selected notices and the schema skip -----------------------
+
+# schema_skip <file> [<extra finding json>...]: the stub's next answer is the
+# validator's exit 4 skipping <file> for its schema, with any extra findings.
+schema_skip() {
+    local f=$1
+    shift
+    jq -cn --arg f "$f" '{schema_version: "shirabe-validate/v1", summary: {outcome: "incomplete"},
+        findings: ([{code: "SCHEMA", severity: "notice", message: "schema field missing, skipping", file: $f, line: 1}]
+                   + [$ARGS.positional[] | fromjson]),
+        skipped: [{file: $f, reason: "schema field missing, skipping"}]}' --args "$@" > "$STUB_JSON"
+    STUB_RC=4
+}
+
+dct_repo structural
+mkdir -p "$REPO/docs/designs" "$REPO/docs/briefs" "$REPO/docs/plans"
+printf -- '---\nschema: design/v1\n---\n\n## Status\n\nProposed\n' > "$REPO/docs/designs/DESIGN-t.md"
+printf -- '---\nschema: brief/v1\n---\n\n## Status\n\nDraft\n' > "$REPO/docs/briefs/BRIEF-t.md"
+printf -- '---\nschema: plan/v2\n---\n\n## Status\n\nDraft\n' > "$REPO/docs/plans/PLAN-t.md"
+dct_commit "docs: a design, a brief and a plan"
+check_design() { run ${2:-} -- --doc docs/designs/DESIGN-t.md --format design --moment pre_jury --phase "$1" --topic t --skill design; }
+
+schema_skip docs/designs/DESIGN-t.md
+check_design 6
+ln=$(findings | jq -c '{rule_id, line}')
+if [ "$RC" -eq 1 ] && [ "$(outcome docs/schema-declared)" = fail ] && [ "$(outcome docs/required-fields)" = pass ] \
+    && [ "$ln" = '{"rule_id":"docs/schema-declared","line":1}' ] && ! grep -q 'defect' "$ERR"; then
+    pass "a schema-only skip: docs/schema-declared fails at line 1, exit 1, every other rule passes"
+else
+    fail "schema skip: $(show) finding=$ln"
+fi
+for shape in two-skipped other-doc error-beside; do
+    case "$shape" in
+        two-skipped) schema_skip docs/designs/DESIGN-t.md
+                     jq -c '.skipped += [{file: "docs/designs/DESIGN-u.md", reason: "x"}]' "$STUB_JSON" > "$STUB_JSON.new" ;;
+        other-doc)   schema_skip docs/designs/DESIGN-u.md; cp "$STUB_JSON" "$STUB_JSON.new" ;;
+        error-beside) schema_skip docs/designs/DESIGN-t.md "$FC01"; cp "$STUB_JSON" "$STUB_JSON.new" ;;
+    esac
+    mv "$STUB_JSON.new" "$STUB_JSON"
+    check_design 6
+    if [ "$RC" -eq 0 ] && [ "$(outcome docs/schema-declared)" = error ] && grep -q 'defect: no validator verdict' "$ERR"; then
+        pass "an exit 4 that is not a schema-only skip ($shape): every rule is error, exit 0"
+    else
+        fail "exit 4 $shape: $(show)"
+    fi
+done
+printf 'oops\n' > "$STUB_JSON"; STUB_RC=4
+check_design 6
+[ "$RC" -eq 0 ] && [ "$(outcome docs/schema-declared)" = error ] \
+    && pass "an exit 4 with an unreadable envelope: error" || fail "exit 4 unreadable: $(show)"
+
+# FC24 and FC25 are notices selected by code; their rules are at warn, so they
+# fail and print nothing at block.
+dct_envelope 0 '{"code":"FC24","severity":"notice","message":"[FC24] key out of order","file":"x","line":4}' \
+    '{"code":"FC25","severity":"notice","message":"[FC25] no opener","file":"x","line":30}' \
+    '{"code":"FC07","severity":"notice","message":"[FC07] another notice","file":"x","line":9}'
+check_design 6
+if [ "$RC" -eq 0 ] && [ "$(outcome design/frontmatter-order)" = fail ] && [ "$(outcome design/provenance-opener)" = fail ] \
+    && [ "$(finding_count)" -eq 0 ] && ! grep -q 'defect' "$ERR"; then
+    pass "FC24 and FC25 notices fail their warn rules, exit 0, no finding line; FC07 is not selected"
+else
+    fail "selected notices: $(show)"
+fi
+dct_envelope 0 '{"code":"FC23","severity":"notice","message":"[FC23] five lines","file":"x","line":4}'
+run -- --doc docs/briefs/BRIEF-t.md --format brief --moment pre_jury --phase 3 --topic t --skill brief
+[ "$RC" -eq 0 ] && [ "$(outcome brief/summary-length)" = fail ] && [ "$(outcome docs/schema-declared)" = pass ] \
+    && pass "an FC23 notice fails brief/summary-length at warn, exit 0" || fail "FC23: $(show)"
+
+# design/provenance-opener reads Considered Options: not_ready before the phase
+# writes it. Every design phase reaches it, so a plugin copy adds one that
+# doesn't.
+COPY="$RF_TEST_DIR/no-options"
+rf_test_stage_copy "$COPY" design/provenance-opener warn scripts/doc-check.sh scripts/skill-session.sh \
+    scripts/koto-open.sh references/doc-check-phases.json skills/writing-style/rules.yaml 2>"$ERR" \
+    || fail "could not make a plugin copy: $(cat "$ERR")"
+# The copy links the phase map to this checkout's; replace the link, never
+# write through it.
+rm -f "$COPY/references/doc-check-phases.json"
+jq '.formats.design.phases["3"] = ["Status", "Context and Problem Statement", "Decision Drivers"]' \
+    "$PHASES" > "$COPY/references/doc-check-phases.json"
+dct_envelope 0 '{"code":"FC25","severity":"notice","message":"[FC25] no opener","file":"x","line":30}'
+check_design 3 "$COPY/scripts/doc-check.sh"
+if [ "$RC" -eq 0 ] && [ "$(first_line)" = "::koto-not-ready::" ] && [ "$(outcome design/provenance-opener)" = not_ready ]; then
+    pass "design/provenance-opener before Considered Options is written: not_ready"
+else
+    fail "provenance not_ready: $(show)"
+fi
+check_design 4 "$COPY/scripts/doc-check.sh"
+[ "$(outcome design/provenance-opener)" = fail ] \
+    && pass "design/provenance-opener once Considered Options is written: fail" || fail "provenance fail: $(show)"
+rm -rf "$COPY"
+
+# plan/step-shape reads Steps.
+dct_envelope 2 '{"code":"FC22","severity":"error","message":"[FC22] step 2 has no check (rule: step-check)","file":"x","line":14}'
+run -- --doc docs/plans/PLAN-t.md --format plan --moment pre_jury --phase 6 --topic t --skill plan
+[ "$RC" -eq 0 ] && [ "$(outcome plan/step-shape)" = not_ready ] \
+    && pass "plan/step-shape before the steps are written: not_ready" || fail "step-shape not_ready: $(show)"
+run -- --doc docs/plans/PLAN-t.md --format plan --moment post_create --phase 7 --topic t --skill plan
+ln=$(findings | jq -c 'select(.rule_id == "plan/step-shape") | {line, sub: (.message | contains("step-check"))}')
+[ "$RC" -eq 1 ] && [ "$(outcome plan/step-shape)" = fail ] && [ "$ln" = '{"line":14,"sub":true}' ] \
+    && pass "plan/step-shape once the steps are written: fail at FC22's line, naming the sub-rule" || fail "step-shape fail: $(show)"
+
+# A validator that predates FC23 to FC25 fails the canary.
+CLEAN
+STUB_CANARY=old check_design 6
+[ "$RC" -eq 0 ] && [ "$(outcome design/frontmatter-order)" = error ] && grep -q 'no FC23 finding for the canary' "$ERR" \
+    && pass "a validator without the new codes fails the canary: error" || fail "old validator: $(show)"
+
 # --- marker forgery -----------------------------------------------------------------
 
 dct_repo forgery

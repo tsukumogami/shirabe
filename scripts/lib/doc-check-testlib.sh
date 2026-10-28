@@ -13,9 +13,12 @@
 # dct_commit <message>  commits every change in $REPO
 # dct_head              HEAD's commit id in $REPO
 #
-# The stub shirabe answers the canary (canary.md) with a banned-word notice
-# unless STUB_CANARY=none, and every other call with the contents of $STUB_JSON
-# and the exit code $STUB_RC; it logs each call's arguments to $STUB_LOG.
+# The stub shirabe answers the canary run (BRIEF-canary.md and
+# DESIGN-canary.md) with the banned-word notice and FC23, FC24 and FC25
+# notices; STUB_CANARY=old gives the banned word alone, a validator that
+# predates those codes, and STUB_CANARY=none nothing. It answers every other
+# call with the contents of $STUB_JSON and the exit code $STUB_RC, and logs
+# each call's arguments to $STUB_LOG.
 #
 # The stub koto keeps sessions as directories under $STUB_KOTO_DIR/s. It
 # answers `status`, `context exists|get|add` and `review record`: a review call
@@ -40,12 +43,15 @@ if [ "${1-}" = --version ]; then echo "shirabe stub"; exit 0; fi
 printf '%s\n' "$*" >> "${STUB_LOG:-/dev/null}"
 last=""
 for a in "$@"; do last=$a; done
-if [ "$last" = canary.md ]; then
-    if [ "${STUB_CANARY:-ok}" = ok ]; then
-        printf '%s\n' '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"clean","errors":0,"notices":1},"findings":[{"code":"FC10","severity":"notice","message":"[FC10] writing-style banned word \"tier\" -- see skills/writing-style/rules.yaml","file":"canary.md","line":1}]}'
-    else
-        printf '%s\n' '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"clean","errors":0,"notices":0},"findings":[]}'
-    fi
+if [ "$last" = DESIGN-canary.md ]; then
+    banned='{"code":"FC10","severity":"notice","message":"[FC10] writing-style banned word \"tier\" -- see skills/writing-style/rules.yaml","file":"BRIEF-canary.md","line":23}'
+    fresh='{"code":"FC23","severity":"notice","message":"[FC23] problem: spans 5 non-blank lines","file":"BRIEF-canary.md","line":4},{"code":"FC24","severity":"notice","message":"[FC24] status: is out of order","file":"DESIGN-canary.md","line":5},{"code":"FC25","severity":"notice","message":"[FC25] option 1 has no provenance opener","file":"DESIGN-canary.md","line":31}'
+    case "${STUB_CANARY:-ok}" in
+        ok) found="$banned,$fresh" ;;
+        old) found=$banned ;;
+        *) found="" ;;
+    esac
+    printf '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"clean","errors":0,"notices":4},"findings":[%s]}\n' "$found"
     exit 0
 fi
 cat "$STUB_JSON"

@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # preflight-minimum.sh -- report, at skill load, a koto older than shirabe's
-# koto minimum.
+# koto minimum, and for /scope a validator without the check codes its
+# document gates report.
 #
 # Sourced by scripts/skill-preflight.sh after preflight-probe.sh and
 # preflight-report.sh. It defines preflight_check_minimum, the hook the entry
 # point calls for every in-scope record whose tool resolved `present`. The
 # entry point names no tool; this file decides that koto is the only tool with
-# a minimum, holds the once-per-run guard, and makes the `--mode` skip.
+# a minimum version and that shirabe, for /scope only, has a probe of the
+# codes it knows (preflight_check_validator_codes), holds the once-per-run
+# guards, and makes the `--mode` skips.
 #
 # WHY A VERSION, WHEN EVERY OTHER CHECK READS SURFACE
 #
@@ -129,14 +132,78 @@ preflight_minimum_mode_covered() {
     return 1
 }
 
+# preflight_check_validator_codes <skill> <path> <root>
+#
+# /scope's document gates need a validator that reports FC23 to FC25: their
+# canary fails on an older one, so every gate would stop on an environment
+# fault. So a /scope load probes the validator with `--check FC23`, which an
+# older one refuses as an unknown code, and names the version it needs: this
+# plugin's own release, whose validator carries the codes. Once per run, at
+# load only, and only for /scope. A probe that times out, overflows or can't
+# run says nothing, like every probe.
+PREFLIGHT_CODES_DONE=0
+preflight_check_validator_codes() {
+    local skill="$1" path="$2" root="$3" dir need line
+    [ "$skill" = "scope" ] || return 0
+    [ "$PREFLIGHT_CODES_DONE" -eq 0 ] || return 0
+    PREFLIGHT_CODES_DONE=1
+    [ "${PREFLIGHT_WHEN-always}" = "always" ] || return 0
+    declare -f preflight_probe_check_code >/dev/null 2>&1 || return 0
+
+    dir=$(mktemp -d "${TMPDIR:-/tmp}/preflight-codes.XXXXXX" 2>/dev/null) || return 0
+    printf 'Probe.\n' >"$dir/probe.md" 2>/dev/null || { rm -rf "$dir"; return 0; }
+    preflight_probe_check_code "$path" "$dir/probe.md"
+    rm -rf "$dir"
+    [ "$PREFLIGHT_PROBE_OUTCOME" = "empty" ] || return 0
+
+    # The version this plugin was released as, from its own manifest.
+    need=""
+    if [ -r "$root/.claude-plugin/plugin.json" ]; then
+        while IFS= read -r line || [ -n "$line" ]; do
+            if [[ $line =~ \"version\"[[:space:]]*:[[:space:]]*\"$PREFLIGHT_MINIMUM_TRIPLE ]]; then
+                need="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+                break
+            fi
+        done <"$root/.claude-plugin/plugin.json"
+    fi
+    preflight_emit_validator_codes "$skill" "$need"
+    return 0
+}
+
+# preflight_emit_validator_codes <skill> <version>: the block for a validator
+# without FC23 to FC25. Rendered here, since only this check prints it.
+preflight_emit_validator_codes() {
+    local skill="$1" need="$2" wrap=preflight_probe_wrap sep=preflight_probe_separator
+    if declare -f preflight_report_wrap >/dev/null 2>&1; then
+        wrap=preflight_report_wrap
+        sep=preflight_report_separator
+    fi
+    $sep
+    $wrap "shirabe /$skill: prerequisite not met."
+    printf '\n'
+    $wrap "The installed shirabe refuses \`shirabe validate --check FC23\`: it predates the FC23, FC24 and FC25 checks that /$skill's document gates report, so every gate would stop on an environment fault."
+    printf '\n'
+    if [ -n "$need" ]; then
+        $wrap "/$skill declares shirabe. Upgrade shirabe to $need or later before running /$skill."
+    else
+        $wrap "/$skill declares shirabe. Upgrade shirabe to the version of this plugin before running /$skill."
+    fi
+    return 0
+}
+
 # preflight_check_minimum <skill> <tool> <path> <root>
 #
-# Called for every present record. Only koto has a minimum, and it is checked
-# once per run. <path> is the one preflight_resolve_tool vetted: absolute,
-# executable, outside the working directory.
+# Called for every present record. koto has a minimum, checked once per run;
+# shirabe, for /scope, has the check codes above, also once per run. <path> is
+# the one preflight_resolve_tool vetted: absolute, executable, outside the
+# working directory.
 preflight_check_minimum() {
     local skill="$1" tool="$2" path="$3" root="$4" line
 
+    if [ "$tool" = "shirabe" ]; then
+        preflight_check_validator_codes "$skill" "$path" "$root"
+        return 0
+    fi
     [ "$tool" = "koto" ] || return 0
     [ "$PREFLIGHT_MINIMUM_DONE" -eq 0 ] || return 0
     PREFLIGHT_MINIMUM_DONE=1

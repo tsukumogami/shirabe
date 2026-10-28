@@ -1,6 +1,6 @@
 {
   "schema": "doc-check-phases/v1",
-  "notes": "Read by scripts/doc-check.sh and scripts/doc-events.sh. Per format: the document's canonical paths, the required sections (the validator's FC04 list, every plan mode and roadmap version together), the error-level codes the validator can emit for the format, the check-held rules (registered ids), the sections each section-reading rule reads, and per skill phase the required sections that phase has written. A rule whose section a phase has not reached is not_ready at that phase. docs/required-sections reads every required section and is decided per missing section.",
+  "notes": "Read by scripts/doc-check.sh and scripts/doc-events.sh. Per format: the document's canonical paths, the required sections (the validator's FC04 list, every plan mode and roadmap version together), the error-level codes the validator can emit for the format (the notice codes a check selects by name come from DV_SELECTED_NOTICES in scripts/lib/doc-validate.sh, and SCHEMA from a schema-only skip), the check-held rules (registered ids), the sections each section-reading rule reads, and per skill phase the required sections that phase has written. A rule whose section a phase has not reached is not_ready at that phase. docs/required-sections reads every required section and is decided per missing section.",
   "formats": {
     "brief": {
       "paths": ["docs/briefs/BRIEF-{topic}.md"],
@@ -9,7 +9,8 @@
       "rules": [
         "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
-        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word"
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
+        "docs/schema-declared", "brief/summary-length"
       ],
       "rule_sections": {},
       "phases": {
@@ -40,9 +41,12 @@
       "rules": [
         "docs/required-fields", "docs/valid-status", "docs/status-matches-body", "docs/required-sections",
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
-        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word"
+        "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
+        "docs/schema-declared", "design/frontmatter-order", "design/provenance-opener"
       ],
-      "rule_sections": {},
+      "rule_sections": {
+        "design/provenance-opener": ["Considered Options"]
+      },
       "phases": {
         "4": ["Status", "Context and Problem Statement", "Decision Drivers", "Considered Options", "Decision Outcome", "Solution Architecture", "Implementation Approach", "Consequences"],
         "5": ["Status", "Context and Problem Statement", "Decision Drivers", "Considered Options", "Decision Outcome", "Solution Architecture", "Implementation Approach", "Consequences"],
@@ -58,12 +62,13 @@
         "docs/absorbed-declaration", "docs/absorbed-requirement-citation", "docs/no-stale-reference",
         "docs/upstream-resolves", "docs/upstream-direction", "docs/upstream-lifetime", "prose/banned-word",
         "plan/issues-table-shape", "plan/issues-table-dependencies", "plan/outline-dependency-resolves",
-        "plan/step-shape"
+        "plan/step-shape", "docs/schema-declared"
       ],
       "rule_sections": {
         "plan/issues-table-shape": ["Implementation Issues"],
         "plan/issues-table-dependencies": ["Implementation Issues"],
-        "plan/outline-dependency-resolves": ["Issue Outlines"]
+        "plan/outline-dependency-resolves": ["Issue Outlines"],
+        "plan/step-shape": ["Steps"]
       },
       "phases": {
         "0": ["Status", "Scope Summary", "Decomposition Strategy", "Issue Outlines", "Implementation Issues", "Dependency Graph", "Implementation Sequence", "Steps"],

@@ -17,31 +17,40 @@
 #   prd     docs/prds/PRD-<topic>.md
 #   design  docs/designs/DESIGN-<topic>.md, docs/designs/current/DESIGN-<topic>.md
 #   plan    docs/plans/PLAN-<topic>.md
-# A path that doesn't exist is skipped; with none present the gate passes and
-# says so on stderr, because whether a hop landed is hop-complete.sh's question.
+# A path that doesn't exist is skipped. With none present the gate prints
+# `::koto-not-ready::` as its first line on stdout, passes, and says so on
+# stderr, because whether a hop landed is hop-complete.sh's question; koto
+# records the marker for telemetry only. With at least one present it prints
+# no marker and checks those.
 #
 # What counts as a violation:
 #   - every finding whose `severity` is "error", whatever its code, so a check
 #     the validator adds or promotes later is held with no change here;
 #   - an FC10 finding whose message starts with DV_BANNED_PREFIX or
 #     DV_TRUNC_PREFIX in scripts/lib/doc-validate.sh (a banned word, or the
-#     line saying banned-word findings were capped).
+#     line saying banned-word findings were capped);
+#   - a notice whose code is in DV_SELECTED_NOTICES there (FC23 to FC25);
+#   - a schema-only skip (the validator's exit 4 with only a SCHEMA finding
+#     for the document), read as a SCHEMA violation at line 1.
 #     FC10's em-dash-density finding and every other notice are not violations.
 # Each violation prints under the registry entry whose `aliases` hold its code
 # (code_to_id below), with the validator's message, cut to 400 characters, as
-# the detail. An error-level code with no entry, or an entry that doesn't
-# resolve, is "could not decide": the gate never prints a finding it can't
-# register.
+# the detail, at the level of the rule's stage: a rule at warn prints a
+# warning and leaves the gate passing. An error-level code with no entry, or
+# an entry that doesn't resolve, is "could not decide": the gate never prints
+# a finding it can't register.
 #
 # The banned words come from the plugin's own skills/writing-style/rules.yaml.
 # The validator finds its rules by SHIRABE_RULES, else by walking up from the
 # working directory, and with neither it checks no banned word and says
 # nothing. So this script always sets SHIRABE_RULES to the plugin's file,
 # ignoring any inherited value, and before checking a document it runs a
-# canary: a one-line file holding the first banned word of the rules, which
-# must come back through the same selector the documents go through. A
-# validator that silently loaded no rules, or whose wording the prefixes no
-# longer match, fails the canary instead of passing every document.
+# canary: two documents, BRIEF-canary.md and DESIGN-canary.md, holding the
+# first banned word of the rules and breaking FC23, FC24 and FC25, whose
+# findings must come back through the same selector the documents go through
+# (dv_canary in scripts/lib/doc-validate.sh). A validator that silently loaded
+# no rules, whose wording the prefixes no longer match, or that predates the
+# selected codes fails the canary instead of passing every document.
 #
 # Exit status (the gate scripts' shared convention):
 #   0  every checked document passes, or none exists, or every violation is
@@ -50,14 +59,20 @@
 #      line per violation, a line on stderr saying how to dispute one, and,
 #      when the template supplies its context, the escalation ladder's
 #      output on stderr (rf_deliver, scripts/lib/rule-findings.sh)
-#   2  could not decide: a usage error; git, jq or shirabe missing; a shirabe
-#      that resolves inside the repository; the rules file unreadable or with
-#      no words; a failed canary; a validator exit other than 0 or 2; an
-#      envelope that isn't a complete shirabe-validate/v1 verdict (including a
-#      schema-skipped document, outcome `incomplete`); an exit 2 with no error
-#      finding; a symlink, non-regular or empty file at a topic path, or one
-#      resolving outside the repository; an error-level code with no registry
-#      entry. No finding is printed for any document; the reason goes to stderr.
+#   2  could not decide. A usage error (a missing or repeated argument, a
+#      malformed topic, an unknown hop) prints the reason on stderr and
+#      nothing else. Every other reason is an environment fault: git, jq or
+#      shirabe missing; a shirabe that resolves inside the repository; the
+#      rules file unreadable or with no words; a failed canary; a validator
+#      exit other than 0, 2 or a schema-only 4; an envelope that isn't a
+#      complete shirabe-validate/v1 verdict; an exit 2 with no error finding;
+#      a symlink, non-regular or empty file at a topic path, or one resolving
+#      outside the repository; an error-level code with no registry entry.
+#      A fault prints no finding for any document: it prints one
+#      `::koto-finding::` under docs/check-environment whose message is the
+#      fault's reason (also on stderr), and never runs the escalation ladder,
+#      so a fault that repeats never delivers rule text or a named exit.
+#      skills/scope/references/document-gate-faults.md lists the reasons.
 #
 # Every document is decided before anything prints, so a partial list of
 # findings never reads as the whole answer.
@@ -71,7 +86,7 @@ set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 PLUGIN_ROOT=$(cd "$HERE/../../.." && pwd -P)
-RULE_IDS="docs/required-fields docs/valid-status docs/status-matches-body docs/required-sections plan/issues-table-shape plan/issues-table-dependencies plan/outline-dependency-resolves docs/absorbed-declaration docs/absorbed-requirement-citation docs/no-stale-reference docs/upstream-resolves docs/upstream-direction docs/upstream-lifetime prose/banned-word docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type"
+RULE_IDS="docs/required-fields docs/valid-status docs/status-matches-body docs/required-sections plan/issues-table-shape plan/issues-table-dependencies plan/outline-dependency-resolves docs/absorbed-declaration docs/absorbed-requirement-citation docs/no-stale-reference docs/upstream-resolves docs/upstream-direction docs/upstream-lifetime prose/banned-word docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type plan/step-shape brief/summary-length design/frontmatter-order design/provenance-opener docs/schema-declared docs/check-environment"
 
 MESSAGE_CAP=400
 
@@ -83,8 +98,50 @@ Exit 0 the documents pass, 1 a violation (findings on stdout), 2 could not decid
 EOF
 }
 
+# A usage error: the reason on stderr, exit 2, no finding.
+usage_error() {
+    echo "check-hop-document: $*" >&2
+    exit 2
+}
+
+# The environment-fault rule, and its summary and anchor for the one case the
+# registry can't be read (jq or git missing, or the rule itself not
+# resolving). The suite pins both against the registry.
+ENV_RULE=docs/check-environment
+ENV_SUMMARY="The document gate could not check the documents in this environment"
+ENV_ANCHOR="skills/scope/references/document-gate-faults.md"
+ENV_FAULT=""
+
+# env_finding_fixed <reason>: the fault's finding, built without jq or the
+# registry, its rule_ref the anchor's path. Control characters become spaces
+# and the reason is JSON-escaped by hand.
+env_finding_fixed() {
+    local m
+    m=$(printf '%s: %s' "$ENV_SUMMARY" "$1" | tr '\000-\037\177' ' ')
+    m=${m//\\/\\\\}
+    m=${m//\"/\\\"}
+    printf '::koto-finding::{"rule_id":"%s","level":"error","message":"%s","rule_ref":"%s"}\n' \
+        "$ENV_RULE" "$m" "$ENV_ANCHOR"
+}
+
+# undecided <reason>: an environment fault. The reason goes to stderr and, as
+# the message of one docs/check-environment finding, to stdout; exit 2. The
+# escalation ladder never runs here. When resolving the rule fails, this is
+# re-entered, and the finding is built by hand instead.
 undecided() {
     echo "check-hop-document: $*" >&2
+    if [ -n "$ENV_FAULT" ]; then
+        env_finding_fixed "$ENV_FAULT"
+        exit 2
+    fi
+    ENV_FAULT=$*
+    if command -v jq >/dev/null 2>&1 && command -v git >/dev/null 2>&1 \
+        && declare -f rf_finding >/dev/null 2>&1; then
+        rf_require "$ENV_RULE"
+        rf_finding "$ENV_RULE" "$ENV_FAULT"
+    else
+        env_finding_fixed "$ENV_FAULT"
+    fi
     exit 2
 }
 
@@ -118,7 +175,7 @@ done
 # The slug composes every path below; koto constrains it, and it is checked
 # again here because this script can be run by hand.
 case "$TOPIC" in
-    *[!a-z0-9-]*|-*|*-) undecided "--topic [$TOPIC] is not a topic slug" ;;
+    *[!a-z0-9-]*|-*|*-) usage_error "--topic [$TOPIC] is not a topic slug" ;;
 esac
 
 B="docs/briefs/BRIEF-$TOPIC.md"
@@ -132,7 +189,7 @@ case "$HOP" in
     design) PATHS="$D1 $D2" ;;
     plan)   PATHS="$L" ;;
     all)    PATHS="$B $P $D1 $D2 $L" ;;
-    *) undecided "--hop [$HOP] is not brief, prd, design, plan or all" ;;
+    *) usage_error "--hop [$HOP] is not brief, prd, design, plan or all" ;;
 esac
 
 # --- environment --------------------------------------------------------------
@@ -189,6 +246,7 @@ for p in $PATHS; do
 done
 
 if [ "$n" -eq 0 ]; then
+    echo "::koto-not-ready::"
     echo "check-hop-document: no document at any of: $PATHS" >&2
     exit 0
 fi
@@ -213,6 +271,11 @@ code_to_id() {
         R9)   echo docs/private-only-type ;;
         R10)  echo docs/upstream-direction ;;
         R11)  echo docs/upstream-lifetime ;;
+        FC22) echo plan/step-shape ;;
+        FC23) echo brief/summary-length ;;
+        FC24) echo design/frontmatter-order ;;
+        FC25) echo design/provenance-opener ;;
+        SCHEMA) echo docs/schema-declared ;;
         *)    echo "" ;;
     esac
 }
@@ -220,7 +283,7 @@ code_to_id() {
 # Map every code, and resolve the entries the findings will print under, before
 # printing anything. Only those entries are resolved: each resolution runs
 # rule-registry.sh (reference, summary and stage in one call), and on a busy
-# shared host resolving all seventeen up front made a clean PLAN check take 19
+# shared host resolving all of them up front made a clean PLAN check take 19
 # seconds, against about 3 this way, under koto's 30-second command limit.
 # rf_require caches each rule's stage as it resolves, so resolving late still
 # prints every finding at its stage.
