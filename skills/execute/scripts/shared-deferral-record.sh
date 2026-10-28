@@ -36,9 +36,13 @@
 # --child-dir is the directory the --child sessions' koto reads run from:
 # the node worktree a coordinated node's step agents opened them in. Under
 # koto's cloud backend a session answers only in the directory it was opened
-# in, so node-push.sh, which runs in the coordination checkout, reads the
-# node's children from their own. Without it every read runs here. It needs
-# --child.
+# in, and both callers run in the coordination checkout. node-push.sh gives
+# it the node worktree node-cut.sh made, for every child of the node at once.
+# coordinated-next.sh, through coord-common.sh, reads a node whose record has
+# no deferrals one child per call, with the directory `koto session list`
+# gives that child, and leaves it off for a child koto lists with no
+# directory, or one that no longer exists. It is one directory for every
+# --child in the call. Without it every read runs here. It needs --child.
 #
 # --recorded <reason>, once per reason, gives the children's reasons as the
 # run record holds them (run/node/<node>'s deferrals, which node-push.sh
