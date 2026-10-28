@@ -1,1 +1,2 @@
 ::error file=synthetic/DESIGN-fc03-status-mismatch.md,line=11::[FC03] frontmatter status "Proposed" does not match ## Status body "Accepted"
+::notice file=synthetic/DESIGN-fc03-status-mismatch.md::[FC24] frontmatter key 'problem' is out of order; a design's keys go schema, status, problem, decision, rationale, upstream, spawned_from, motivating_context, user_visible_surface, decision_provenance

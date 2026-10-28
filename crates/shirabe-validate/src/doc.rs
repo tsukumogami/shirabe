@@ -61,6 +61,19 @@ pub struct FieldValue {
     pub line: usize,
     /// The field's value decomposed into entries, preserving written order.
     pub entries: FieldEntries,
+    /// How many non-blank source lines the value occupies, when the value
+    /// was read from a document: the key's own line counts as one when it
+    /// carries a value (a block-scalar indicator such as `|` or `>-` is not a
+    /// value), and every non-blank line after it counts up to the next
+    /// top-level key or the end of the frontmatter. A column-0 `#` comment
+    /// line between keys belongs to no value and is not counted.
+    ///
+    /// Counted from the source rather than from `value` because a folded
+    /// (`>`) block scalar joins its lines, so the parsed text no longer says
+    /// how many lines the author wrote. `None` for a value built in code,
+    /// which has no source to count; a check that judges the written length
+    /// skips such a value rather than guess.
+    pub source_lines: Option<usize>,
 }
 
 /// A frontmatter field's value by YAML shape, carrying each entry's
@@ -93,6 +106,7 @@ impl FieldValue {
             entries: FieldEntries::Scalar(value.clone()),
             value,
             line,
+            source_lines: None,
         }
     }
 }
@@ -109,8 +123,8 @@ pub struct Section {
 pub struct ValidationError {
     pub file: String,
     pub line: usize,
-    /// One of "FC01", "FC02", "FC03", "FC04", "FC05", "FC06", "R6", "R7",
-    /// "R8", "SCHEMA".
+    /// A check code such as "FC01", "R6" or "SCHEMA"; see
+    /// [`crate::validate::is_known_check_code`] for the per-file set.
     pub code: String,
     pub message: String,
 }

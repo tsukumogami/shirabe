@@ -175,6 +175,7 @@ entirely if 0.4a determined the field cannot be set:
 
 ```markdown
 ---
+schema: design/v1
 upstream: docs/prds/PRD-<name>.md   # OMIT this line if step 0.4a resolved to "omit"
 ---
 
@@ -192,6 +193,11 @@ Proposed
 
 <Derived from PRD in step 0.4>
 ```
+
+The skeleton's frontmatter holds `schema: design/v1` and nothing the
+design hasn't settled yet. It has no `status:` on purpose: Phase 6's
+resume check reads a frontmatter `status: Proposed` as a finished
+design, and step 6.5 writes the full block in its place.
 
 ### 0.6 Transition PRD Status
 

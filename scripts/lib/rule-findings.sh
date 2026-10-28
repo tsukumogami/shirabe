@@ -126,6 +126,11 @@
 #   SHIRABE_GATE_EXITS  "<state>:<status field> ...", the states with a named exit;
 #                       a status field is lowercase letters and `_` only, and
 #                       an entry with any other field offers no exit
+#   SHIRABE_GATE_EXIT_END  optional: the state the named exit ends the run at,
+#                       which the exit notice prints as `ends_at`. Unset, or
+#                       anything but lowercase letters and `_`, gives
+#                       `done_blocked`, where /work-on's exit ends; /scope's
+#                       ends at `exit_abandonment`
 #
 # The state is read from the log (the last transition's `to`), never from the
 # command. Without SHIRABE_GATE_LOG and SHIRABE_GATE_NAME, rf_deliver does
@@ -405,7 +410,7 @@ rf_ladder_counts() {
 # rf_deliver: the ladder (see the header). Once per process; stderr only,
 # apart from the delivery markers; returns 0.
 rf_deliver() {
-    local counts state field id count top_id="" top=0 notice
+    local counts state field id count top_id="" top=0 notice end
     [ -z "$RF_DELIVERED" ] || return 0
     [ -n "$RF_REPORTED" ] || return 0
     rf_ladder_active || return 0
@@ -434,11 +439,18 @@ EOF
     [ -n "$state" ] && [ -n "$top_id" ] && [ "$top" -ge "$RF_EXIT_AT" ] || return 0
     field=$(rf_exit_field "$state")
     [ -n "$field" ] || return 0
-    notice=$(jq -cn --arg id "$top_id" --argjson n "$top" --arg state "$state" --arg field "$field" '
+    # The end state is a template's own state name; anything else is not one,
+    # and the notice falls back to the end /work-on's exit has.
+    end=${SHIRABE_GATE_EXIT_END:-}
+    case "$end" in
+        ''|*[!a-z_]*) end=done_blocked ;;
+    esac
+    notice=$(jq -cn --arg id "$top_id" --argjson n "$top" --arg state "$state" --arg field "$field" \
+        --arg end "$end" '
         {rule_id: $id, count: $n, state: $state,
          submit: {($field): "check_unsatisfiable",
                   check_exit_reason: "<why the check cannot be satisfied>"},
-         ends_at: "done_blocked"}') || return 0
+         ends_at: $end}') || return 0
     printf '::shirabe-check-exit::%s\n' "$notice" >&2
     return 0
 }

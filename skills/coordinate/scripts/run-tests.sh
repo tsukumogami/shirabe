@@ -10,8 +10,9 @@
 # an undeclared tool fails with "command not found". Engine suites
 # (*_engine_test.sh), which drive real koto on purpose, get the real koto and
 # python3, which runs the fake S3 server (testdata/fake-s3.py) the cloud
-# suites share a bucket through; they are selected with --engine. An engine
-# suite skips without either, and --engine fails a suite that skipped.
+# suites share a bucket through; they are selected with --engine. A suite
+# that skips (an engine suite without either, an offline one without jq)
+# fails, and so does one whose output says "command not found".
 #
 # Usage: bash skills/coordinate/scripts/run-tests.sh [--engine]
 # Exit codes: 0 every suite passed; 1 a suite failed.
@@ -66,10 +67,17 @@ for t in "$HERE"/*_test.sh; do
     st=$?
     cat "$T/out"
     [ $st -eq 0 ] || rc=1
-    # An engine suite SKIPs with exit 0 when koto is missing; under --engine
-    # that would report green having run nothing, so it fails here.
-    if [ "$ENGINE" = 1 ] && grep -q '^SKIP' "$T/out"; then
-        echo "run-tests: $(basename "$t") skipped under --engine"
+    # A suite SKIPs with exit 0 when a tool it needs is missing (koto for an
+    # engine suite, jq for most offline ones); that would report green having
+    # run nothing, so it fails here.
+    if grep -q '^SKIP' "$T/out"; then
+        echo "run-tests: $(basename "$t") skipped"
+        rc=1
+    fi
+    # A command missing from this PATH prints to stderr and the suite carries
+    # on, so a case built on it can pass having compared nothing (shirabe#1324).
+    if grep -q 'command not found' "$T/out"; then
+        echo "run-tests: $(basename "$t") ran a command that isn't on this PATH"
         rc=1
     fi
 done

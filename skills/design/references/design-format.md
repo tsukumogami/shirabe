@@ -49,7 +49,10 @@ Required fields: `schema`, `status`, `problem`, `decision`,
 `rationale`. Optional: `upstream`, `spawned_from`,
 `motivating_context`, `user_visible_surface`, `decision_provenance`.
 
-- **schema** -- `design/v1`. Pins the artifact-type contract.
+- **schema** -- `design/v1`. Pins the artifact-type contract. A design
+  without `schema: design/v1` as its first key is skipped by every
+  structural check (see "The declared schema" in
+  `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`).
 - **status** -- lifecycle state (`Proposed`, `Accepted`, `Planned`,
   `Current`, `Superseded`).
 - **problem** -- the technical problem the design addresses, as 1
@@ -90,6 +93,20 @@ Required fields: `schema`, `status`, `problem`, `decision`,
   (critical-tier questions always go to `/decision`). Omit it when
   every question went to `/decision`. Each question's own provenance
   is the first line of its Considered Options entry.
+
+A design's frontmatter keys appear in this order: `schema`, `status`,
+`problem`, `decision`, `rationale`, `upstream`, `spawned_from`,
+`motivating_context`, `user_visible_surface`, `decision_provenance`; a key
+not in that list may sit anywhere and is ignored. `shirabe validate` reports
+the first key out of place as FC24, a notice that changes no exit status.
+
+With `decision_provenance` set, each `###` heading between `## Considered
+Options` and the next `##` heading (headings inside code blocks aside) has a
+first non-blank line that, after leading spaces, starts with `Resolved
+inline.` or `Delegated to /decision.`, matched case-sensitively with no
+markup stripped. An entry with no body fails. `shirabe validate` reports
+each failing entry at its heading as FC25, a notice that changes no exit
+status.
 
 **Two written shapes are supported for `upstream:`.** A scalar -- the
 path on the key's own line -- and a sequence, written either as `- `
@@ -268,6 +285,11 @@ The validator-side contracts:
   line.
 - **FC04** -- all nine required sections present.
 - **FC15** -- the required sections appear in the canonical order above.
+- **FC24** (notice) -- the frontmatter keys appear in the order
+  [Frontmatter](#frontmatter) gives.
+- **FC25** (notice) -- with `decision_provenance` set, each Considered
+  Options entry opens with its provenance, as
+  [Frontmatter](#frontmatter) describes.
 
 Phase 6 jury reviewers add discretionary rubric coverage:
 

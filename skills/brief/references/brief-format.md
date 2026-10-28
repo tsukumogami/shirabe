@@ -61,13 +61,24 @@ only when the document genuinely has more than one parent; the scalar
 otherwise.
 
 - **schema** -- `brief/v1`. Pins the artifact-type contract. `schema`
-  is the map key the validator routes on, not a checked field.
+  is the map key the validator routes on, not a checked field: a brief
+  without `schema: brief/v1` as its first key is skipped by every
+  structural check (see "The declared schema" in
+  `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`).
 - **status** -- lifecycle state (Draft, Accepted, Done).
 - **problem** -- the problem the feature solves. A 2-4 line YAML
   literal block scalar (`|`). Matches the Problem Statement section
   body.
 - **outcome** -- the outcome a user should experience. A 2-4 line YAML
   literal block scalar (`|`). Matches the User Outcome section body.
+
+A brief's `problem:` and `outcome:` each span two to four non-blank lines.
+The count runs over the block scalar's lines (`|` or `>`, counted as
+written, so a folded block is not one line) from the line after the key up
+to the next top-level key, blank lines skipped; a value written on the
+key's own line counts as one line, so a one-line summary there fails.
+`shirabe validate` reports a summary outside two to four lines as FC23, a
+notice at the key's line that changes no exit status.
 
 Frontmatter status must match the Status section in the body -- agent
 workflows parse frontmatter to determine lifecycle state, so divergence
@@ -266,6 +277,9 @@ visibility-gated section.
   required sections (Status, Problem Statement, User Outcome, User
   Journeys, Scope Boundary). A missing section fails FC04 and the error
   names it.
+- **FC23 -- summary length (notice).** `problem:` and `outcome:` each span
+  two to four non-blank lines, counted as [Frontmatter](#frontmatter)
+  describes. A notice, so it never fails the run.
 
 ### During /brief (drafting)
 
