@@ -111,11 +111,17 @@ jobs:
 
       # Every engine suite SKIPS with exit 0 when koto is missing, which would
       # report green having asserted nothing. Fail here instead, and also when
-      # koto is older than shirabe's floor.
+      # koto is older than shirabe's floor. The takeover suites run only their
+      # refusal on a koto without init --supersede (the floor job's), so this
+      # job, which runs them in full, fails on such a koto too.
       - name: Assert koto meets the floor
         run: |
           command -v koto
           bash scripts/assert-koto-floor.sh
+          case "$(koto init --help)" in
+            *--supersede*) ;;
+            *) echo "::error::this koto has no init --supersede, so the takeover suites would run only their refusal"; exit 1 ;;
+          esac
 
       - name: Run engine suites
         run: bash skills/coordinate/scripts/run-tests.sh --engine
