@@ -138,6 +138,13 @@ After incorporating all feedback, commit the VISION:
 docs(vision): draft VISION for <topic>
 ```
 
+Then record the sections the commit wrote, as telemetry
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/visions/VISION-<topic>.md --format vision --skill vision
+```
+
 ## Quality Checklist
 
 Before proceeding:

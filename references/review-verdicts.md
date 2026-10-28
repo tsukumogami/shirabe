@@ -1,7 +1,7 @@
 # Review Verdict Blocks
 
-A document jury seat (the /brief, /prd, /design and /review-plan reviewers)
-ends its output with one fenced block that says, per rubric item and section,
+A document jury seat (the /brief, /prd, /design, /review-plan, /vision,
+/strategy and /roadmap reviewers) ends its output with one fenced block that says, per rubric item and section,
 whether the document passed. `scripts/review-events.sh` reads the block and
 records it as telemetry through `koto review record`. Recording never changes
 a verdict, a gate or what the skill does next: the seat's own PASS or FAIL line
@@ -32,6 +32,11 @@ The block is the last thing in the seat's output, fenced and tagged
 
 One entry per rubric item per section judged. A seat that couldn't judge an
 item leaves it out rather than guessing.
+
+The /vision, /strategy and /roadmap seats each have one rubric item for now,
+standing for the seat's whole verdict (`rs-064` to `rs-072`), judged on
+`document`. Their criteria get ids of their own when the per-item telemetry is
+wanted.
 
 ## What the script trusts
 
@@ -66,8 +71,19 @@ batch prints one line on stderr and the skill goes on):
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill <skill> --topic <topic> --doc <path> --decision <decision>
 ```
 
+The /vision, /strategy and /roadmap juries add `--doc-format <skill>` to each
+call: koto records the format on every record and no document type, which it
+keeps for the other four.
+
 `round-started` goes beside the `review-packet.sh` call, before the seats are
-spawned; pass `--fallback` when the round runs as the serial self-jury.
+spawned, and after the pre-jury document check
+(`references/doc-check-steps.md`); pass `--fallback` when the round runs as the serial self-jury.
 `verdicts` goes just before `skill-session.sh ingest`, which removes the
 directory. `decision` goes after the orchestrator decides what follows the
 round: `rerun`, `fix_and_proceed`, `loop_back`, `proceed` or `stop`.
+
+A fix made after a round's FAIL verdicts is recorded with
+`scripts/doc-events.sh fix --answers jury_fail`, which reads the FAIL entries
+of the seats' ingested files with the same parser
+(`scripts/lib/review-verdicts.sh`) and joins each rubric item to the document
+check that decides it through the registry's `held_by`.

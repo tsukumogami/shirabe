@@ -95,6 +95,20 @@ context key into the second:
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Content Quality runs on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/briefs/BRIEF-<topic>.md --format skills/brief/references/brief-format.md --extra <context-file>`. `<context-file>` is the path `get` printed, the context the Structural Format prompt names.
 
+Before the round starts, run the document check on the draft
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/briefs/BRIEF-<topic>.md --format brief --moment pre_jury --phase 4 --topic <topic> --skill brief
+```
+
+Exit 0 goes on to the jury. Exit 1 means a block-stage rule failed: fix what
+its findings name, commit, and run the fix loop in that reference with
+`--answers check_fail` until the post-fix check exits 0, before spawning. A
+`doc-check: unresolved after 3 cycles` line is a significant issue: present
+the findings to the user as step 4.5 does for a significant FAIL, or under
+`--auto` stop the run and report them.
+
 Beside the packet, before spawning, record the round as telemetry (add
 `--fallback` when the round runs as the serial self-jury). It always exits 0
 and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
@@ -408,6 +422,20 @@ After all minor fixes are applied, re-read the draft as a whole to confirm the
 fixes did not introduce new issues. If they did, treat the residual as significant
 and route to step 4.5's AskUserQuestion path instead.
 
+Commit the fixes (`docs(brief): apply jury fixes for <topic>`), then record
+what they answered and check the draft again:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/briefs/BRIEF-<topic>.md --format brief --answers jury_fail --skill brief
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/briefs/BRIEF-<topic>.md --format brief --skill brief
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/briefs/BRIEF-<topic>.md --format brief --moment post_fix --phase 4 --topic <topic> --skill brief
+```
+
+While the post-fix check exits 1, fix what it names, commit, and repeat the
+three calls with `--answers check_fail`; on `doc-check: unresolved after 3
+cycles`, take step 4.5's significant-FAIL path (under `--auto`, stop and
+report).
+
 ## 4.5 Surface Verdicts to User
 
 Present the jury's findings to the user. When quoting verdict file content back to
@@ -472,9 +500,20 @@ If the user picks loop back to Phase 2 or Phase 3:
 
 If the user picks "Apply targeted fixes and re-run jury":
 
-1. Apply the user-confirmed fixes to the BRIEF draft.
-2. Remove the existing verdict keys.
-3. Re-enter step 4.1 to re-spawn the jury.
+1. Apply the user-confirmed fixes to the BRIEF draft and commit them.
+2. Record what they answered and check the draft again, as in step 4.4,
+   before the verdict keys go:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/briefs/BRIEF-<topic>.md --format brief --answers jury_fail --skill brief
+   "${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/briefs/BRIEF-<topic>.md --format brief --skill brief
+   "${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/briefs/BRIEF-<topic>.md --format brief --moment post_fix --phase 4 --topic <topic> --skill brief
+   ```
+
+   While it exits 1, fix, commit and repeat with `--answers check_fail`.
+3. Remove the existing verdict keys.
+4. Re-enter step 4.1 to re-spawn the jury. Its pre-jury check records nothing
+   when the last post-fix check of the same commit was clean.
 
 ## 4.7 Commit Validated Draft
 

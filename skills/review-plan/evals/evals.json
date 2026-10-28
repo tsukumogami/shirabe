@@ -172,6 +172,19 @@
       "files": [
         "skills/review-plan/evals/fixtures/PLAN-v2-three-detailed.md"
       ]
+    },
+    {
+      "id": 13,
+      "name": "document-check-on-standalone-plan",
+      "prompt": "/review-plan docs/plans/PLAN-cache-layer.md -- no plan-cache-layer session exists.",
+      "expected_output": "In 0.4a the run opens review-plan-cache-layer with skill-session.sh open review-plan cache-layer and calls scripts/doc-check.sh --moment pre_jury --phase 0 --skill review-plan before any category runs; Phase 5 closes review-plan-cache-layer.",
+      "assertions": [
+        "Transcript runs skill-session.sh open review-plan cache-layer before doc-check.sh",
+        "Transcript runs doc-check.sh --format plan --moment pre_jury --phase 0 --skill review-plan before the round is recorded with review-events.sh round-started",
+        "Phase 5 closes review-plan-cache-layer"
+      ],
+      "files": [],
+      "fixture_dir": null
     }
   ]
 }

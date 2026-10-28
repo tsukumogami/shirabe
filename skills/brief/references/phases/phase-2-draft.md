@@ -207,6 +207,13 @@ Commit the partial draft:
 docs(brief): draft BRIEF for <topic>
 ```
 
+Then record the sections the commit wrote, as telemetry
+(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/briefs/BRIEF-<topic>.md --format brief --skill brief
+```
+
 Update key `work/context.md`'s `## Phase` line to `2`.
 
 ## Quality Checklist

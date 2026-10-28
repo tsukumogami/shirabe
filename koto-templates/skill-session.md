@@ -16,21 +16,31 @@ description: >
   rules.
 
   review_vocabulary lists the document jury seats and section slugs
-  scripts/review-events.sh records on a direct child run, so koto keeps them
-  as given and records anything else as other (references/review-verdicts.md).
-  scope.md declares the same lists for a run under /scope.
+  scripts/review-events.sh and scripts/doc-events.sh record on a direct child
+  run or a /charter run, so koto keeps them as given and records anything
+  else as other (references/review-verdicts.md). scope.md declares the
+  /brief, /prd, /design and /plan lists for a run under /scope; the VISION,
+  STRATEGY and ROADMAP seats and sections are declared here only, since
+  /scope never runs those skills.
 initial_state: open
 review_vocabulary:
   seats: [content-quality, structural-format, completeness, clarity, testability,
           architecture, security, scope-gate, design-fidelity, ac-discriminability,
-          sequencing, functional-shape]
+          sequencing, functional-shape, thesis-quality, content-boundary,
+          section-guidance, bet-quality, altitude, theme-coherence,
+          sequencing-dependency, annotation-boundary]
   sections: [status, problem-statement, user-outcome, user-journeys, scope-boundary,
              goals, user-stories, requirements, acceptance-criteria, out-of-scope,
              context-and-problem-statement, decision-drivers, considered-options,
              decision-outcome, solution-architecture, implementation-approach,
              security-considerations, consequences, scope-summary,
              decomposition-strategy, issue-outlines, implementation-issues,
-             dependency-graph, implementation-sequence, steps, frontmatter, document]
+             dependency-graph, implementation-sequence, steps, thesis, audience,
+             value-proposition, org-fit, success-criteria, non-goals,
+             strategic-context, defensibility-thesis, building-blocks,
+             coordination-dependencies, bet-specific-falsifiability,
+             downstream-artifacts, theme, features, milestones,
+             sequencing-rationale, progress, frontmatter, document]
 states:
   open:
     accepts:

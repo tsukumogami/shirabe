@@ -978,8 +978,11 @@ rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
 # pr-body/pr-missing, pr-body/body-missing and pr-body/read-failed, the PR
 # gate's could-not-decide rules, to 69 and 46; rs-021 to rs-063 and
 # rs-verdict-missing, the document juries' rubric items, to 113 rules and 64
+# rs- ids; plan/step-shape, roadmap/milestone-shape and
+# roadmap/reserved-sections (doc-check.sh gates) and rs-064 to rs-072, the
+# strategy, roadmap and vision juries' items, to 125 rules, 49 gates and 73
 # rs- ids.
-[ "$n" = 113 ] && [ "$gates" = 46 ] && [ "$rsn" = 64 ] && pass "the registry has 113 rules: 46 gates and 64 rs- ids" \
+[ "$n" = 125 ] && [ "$gates" = 49 ] && [ "$rsn" = 73 ] && pass "the registry has 125 rules: 49 gates and 73 rs- ids" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -995,7 +998,7 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-00[4-6]$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
 jev_never=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[7-9]|1[0-9]|20)$")) | select(.withhold == "never")] | length' "$REG")
-[ "$never" = 49 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
+[ "$never" = 52 ] && [ "$eligible" = 3 ] && [ "$jev_never" = 14 ] \
     && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-006 are eligible; the Jev criteria rs-007 to rs-020 are never" \
     || fail "withhold marking" "never=$never eligible=$eligible jev_never=$jev_never"
 
@@ -1019,9 +1022,10 @@ unexplained=$(jq -r '
 # The lifecycle fields: every active script entry at block since the landing
 # date with gates (an entry added later, at block since the day it was added:
 # red-first/no-red and red-first/no-green, test-change/held,
-# pr-body/workflow-content and the PR gate's three could-not-decide rules),
-# both retired script entries at retired, and nothing on any entry that isn't
-# script-checked.
+# pr-body/workflow-content, the PR gate's three could-not-decide rules and the
+# three doc-check.sh gates), both retired script entries at retired, and
+# nothing on any entry that isn't script-checked. An entry doc-check.sh checks
+# runs from a phase step, not a koto gate, so it has no gates to name.
 STAGE_SINCE=2026-10-16
 bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script" and .status == "active")
     | select(.stage != "block"
@@ -1031,12 +1035,16 @@ bad=$(jq -r --arg since "$STAGE_SINCE" '.rules[] | select(.check.kind == "script
                                   "pr-body/read-failed": "2026-10-27",
                                   "test-change/held": "2026-10-23",
                                   "red-first/no-red": "2026-10-22",
-                                  "red-first/no-green": "2026-10-22"}[.id] // $since)
-             or (.gates | type) != "array" or (.gates | length) == 0
+                                  "red-first/no-green": "2026-10-22",
+                                  "plan/step-shape": "2026-10-27",
+                                  "roadmap/milestone-shape": "2026-10-27",
+                                  "roadmap/reserved-sections": "2026-10-27"}[.id] // $since)
+             or (.gates | type) != "array"
+             or ((.gates | length) == 0 and .check.path != "scripts/doc-check.sh")
              or any(.gates[]; type != "string" or (test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$") | not)))
     | .id' "$REG")
 nactive=$(jq '[.rules[] | select(.check.kind == "script" and .status == "active")] | length' "$REG")
-[ -z "$bad" ] && [ "$nactive" = 42 ] && pass "all 42 active script entries are at block since their landing date with gates" \
+[ -z "$bad" ] && [ "$nactive" = 45 ] && pass "all 45 active script entries are at block since their landing date, with gates unless doc-check.sh checks them" \
     || fail "active script stages" "n=$nactive bad: $bad"
 retired=$(jq -r '[.rules[] | select(.check.kind == "script" and .status == "retired") | "\(.id)=\(.stage)"] | join(",")' "$REG")
 [ "$retired" = "branch/no-wip-files=retired,panel/blocking-finding=retired" ] \

@@ -12,12 +12,15 @@
 #      that skill's koto templates, a one-line summary with no control
 #      character and no `::`; a script entry's stage (shadow, warn, block,
 #      retired), stage_since (YYYY-MM-DD) and gates (<skill>:<state>:<gate>,
-#      non-empty while active), stage retired on a status retired entry, and
+#      non-empty while active, unless the check is scripts/doc-check.sh, which
+#      runs from a skill's phase step and has no gate), stage retired on a
+#      status retired entry, and
 #      none of these or stage_backstops on any other entry; stage_backstops
 #      entries name a protected action once each and a check, with notes; a
 #      `decider` check names its template, state, gate and criterion, and a
 #      `jev` contract is an object (its contents are
-#      scripts/jev-criteria/jev_criteria.py's to check)
+#      scripts/jev-criteria/jev_criteria.py's to check); `held_by` appears
+#      only on an rs- entry and names an active script-checked entry
 #   2  withhold safety: a guard other than `none`, or check.kind `none`,
 #      needs withhold `never`; a gate that isn't a decider check needs a
 #      guard, or a backstop: the
@@ -147,6 +150,9 @@ PROTECTED='["pr-create","push","force-push","merge","close-issue","release","del
 # A script entry's stage, in rising order of what a finding does; retired
 # prints nothing.
 STAGES='["shadow","warn","block","retired"]'
+# The one check that holds a skill's phase step rather than a koto gate: an
+# entry it checks has no gates to name, so its gates may be empty.
+STEP_CHECK=scripts/doc-check.sh
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-rule-registry.XXXXXX") || die2 "cannot make a scratch directory"
 trap 'rm -rf "$TMP"' EXIT
@@ -186,11 +192,12 @@ if ! jq -e '.rules | type == "array"' "$REG" >/dev/null 2>&1; then
     exit 1
 fi
 
-jqf "$TMP/shape" -r --argjson protected "$PROTECTED" --argjson stages "$STAGES" '
+jqf "$TMP/shape" -r --argjson protected "$PROTECTED" --argjson stages "$STAGES" --arg step_check "$STEP_CHECK" '
   def strs: type == "array" and all(.[]; type == "string");
   def ctl: explode | any(.[]; . < 32 or . == 127);
   ["id","status","summary","text","check","fixtures","level","timing","guards",
    "withhold","baseline_keys","aliases","notes"] as $fields
+  | [.rules[] | objects] as $all
   | .rules | to_entries[] | .key as $i | .value as $e
   | if ($e | type) != "object" then "entry \($i): not an object"
     else
@@ -226,6 +233,11 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" --argjson stages "$STAGES" 
             elif .kind == "none" then empty
             else "\($n): check.kind \(.kind | tojson) is not script, review-shadow, decider or none" end),
         (select($e | has("jev")) | select(($e.jev | type) != "object") | "\($n): jev is not an object"),
+        (select($e | has("held_by")) | $e.held_by
+          | if ($e.id | type) != "string" or ($e.id | startswith("rs-") | not) then "\($n): held_by is only for an rs- jury or review-shadow item"
+            elif type != "string" then "\($n): held_by is not a string"
+            else . as $h | select([$all[] | select(.id == $h and .status == "active" and .check.kind == "script")] | length == 0)
+              | "\($n): held_by \($h | tojson) is not an active script-checked entry" end),
         ("fixtures","timing","guards","baseline_keys","aliases" | . as $f
           | select($e | has($f)) | select($e[$f] | strs | not) | "\($n): \($f) is not a list of strings"),
         (select($e | has("notes")) | select(($e.notes | type) != "string") | "\($n): notes is not a string"),
@@ -279,7 +291,7 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" --argjson stages "$STAGES" 
           | "\($n): a status retired entry needs stage retired"),
         (select($script and ($e | has("gates"))) | $e.gates
           | if strs | not then "\($n): gates is not a list of strings"
-            elif length == 0 and $e.status == "active" then "\($n): gates is empty on an active entry"
+            elif length == 0 and $e.status == "active" and $e.check.path != $step_check then "\($n): gates is empty on an active entry"
             else (.[] | select(test("^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$") | not)
                   | "\($n): gate \(tojson) is not <skill>:<state>:<gate>")
             end),
