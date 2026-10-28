@@ -135,7 +135,8 @@ for f in board-verdict.sh board-lib.sh state-common.sh dispatch-common.sh state-
     if grep -q . <<<"$gh_calls"; then
         bad "$f: every gh api call is --method GET or GraphQL" "$(grep -n 'gh api' "$HERE/$f" | grep -v -- '--method GET')"
     else ok "$f: every gh api call is --method GET or GraphQL"; fi
-    if grep -v '^ *#' "$HERE/$f" | grep -Eq 'gh pr merge|--method (POST|PATCH|PUT|DELETE)|mutation'; then
+    f_code=$(grep -v '^ *#' "$HERE/$f")
+    if grep -Eq 'gh pr merge|--method (POST|PATCH|PUT|DELETE)|mutation' <<<"$f_code"; then
         bad "$f: no write and no mutation"
     else ok "$f: no write and no mutation"; fi
 done

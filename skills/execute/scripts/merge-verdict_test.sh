@@ -602,13 +602,14 @@ for S in "$VERDICT" "$EXEC"; do
 done
 
 for S in "$VERDICT" "$EXEC"; do
+    CODE=$(non_comment "$S")
     if grep -q '^set -uo pipefail$' "$S" \
-        && ! non_comment "$S" | grep -qE 'declare -A|mapfile|readarray|\$\{[A-Za-z_]+,,\}|\$\{[A-Za-z_]+\^\^\}|\|&'; then
+        && ! grep -qE 'declare -A|mapfile|readarray|\$\{[A-Za-z_]+,,\}|\$\{[A-Za-z_]+\^\^\}|\|&' <<<"$CODE"; then
         pass "static: $(basename "$S") uses set -uo pipefail and no bash 4 feature"
     else
         fail "static: $(basename "$S") misses set -uo pipefail or uses a bash 4 feature"
     fi
-    if non_comment "$S" | grep -qE 'date -[dj]|date --date'; then
+    if grep -qE 'date -[dj]|date --date' <<<"$CODE"; then
         fail "static: $(basename "$S") uses platform date arithmetic"
     else
         pass "static: $(basename "$S") does no platform date arithmetic"

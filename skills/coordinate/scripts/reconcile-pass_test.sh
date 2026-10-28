@@ -559,7 +559,8 @@ jq -c --slurpfile h "$CASE/ctx/record%host" '.record.import = ($h[0] | {source_w
 pass
 get --check; check "the next visit's report, read under the import, reads" $?
 grep -q 'This run was imported from session' <<< "$(ctx reconcile/report.md)"; check "  ... and names the source" $?
-if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
+g_code=$(grep -v '^[[:space:]]*#' "$G")
+if ! grep -q -- '--sealed' <<<"$g_code" && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
 
