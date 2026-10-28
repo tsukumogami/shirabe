@@ -23,6 +23,16 @@
 # `carried=<old>`. A carry cut short exits 1 (`failed=carry`) with the new run
 # holding no record, and the next start carries again.
 #
+# A run's record/meta names the template compat it was compiled at and its
+# template fingerprint (template_compat, template_fingerprint; shirabe#1333),
+# so a later plugin whose compat table no longer lists the run still knows how
+# far behind it is. The write core records them where record/meta is born: the
+# carry here, the legacy import a fresh start calls, and the seed the run's
+# own find makes on a fresh start (the opener leaves a fresh run holding no
+# record). A takeover replaces the predecessor's pair with its own. The
+# template-incompatible refusals read the run's compat through coord-log.sh
+# compat, which prefers that record to the table.
+#
 # A resumable run another Claude session drives is taken over instead
 # (docs/designs/DESIGN-coordinate-successor-continues.md, Decision 1): its
 # record/meta names another driver, or no driver and another coordinator
@@ -32,7 +42,8 @@
 # carrying record/, legs/, taken_legs and leg_children; from then on koto
 # refuses every write to the old run with session_superseded, naming the new
 # one, and coord-log.sh live-session no longer lists it. The new run's
-# record/meta takes this session as its driver, its coordinator row this
+# record/meta takes this session as its driver and the new run's own template
+# compat and fingerprint in place of the predecessor's, its coordinator row this
 # session's name (which clears the told set), one takeover entry is
 # appended, and record/meta's takeover_done is written last. Nothing is
 # cancelled, rebound or copied key by key. It prints `outcome=continued`,
@@ -504,6 +515,14 @@ meta_set() {
     ( PROG=coordinate-open SESSION=$1 SKIP_CHECKS=0 REPO=${HOST:-}
       . "$HERE/state-common.sh" && . "$HERE/state-write-core.sh" && core_write_meta "$@" ) > /dev/null 2>&1
 }
+# compat_meta <run>: the run's template_compat and template_fingerprint as
+# record/meta keeps them, from the write core (core_compat_meta); {} when
+# they can't be read.
+compat_meta() {
+    local o
+    o=$( . "$HERE/state-common.sh" && . "$HERE/state-write-core.sh" && core_compat_meta "$1" ) 2> /dev/null
+    jq -e 'type == "object"' <<< "$o" > /dev/null 2>&1 && printf '%s\n' "$o" || echo '{}'
+}
 refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
     printf 'outcome=refused\nreason=%s\n' "$1"; echo "coordinate-open: $2" >&2; exit 2
 }
@@ -558,8 +577,12 @@ EOF
 finish_takeover() {
     local succ=$1 pred=$2 stopped=$3 d
     if [ "$(meta_field "$succ" driver)" != "$CALLER" ] || [ "$(meta_field "$succ" takeover_done)" = true ]; then
-        meta_set "$succ" '.driver = $c | .takeover_done = false | .takeover = {predecessor: $p, predecessor_stopped: $st}' \
-            --arg c "$CALLER" --arg p "$pred" --arg st "$stopped" \
+        # The fence carried the predecessor's record/meta whole, its template
+        # compat with it; the successor runs this plugin's template, so its
+        # own compat replaces it in the same write.
+        meta_set "$succ" '.driver = $c | .takeover_done = false | .takeover = {predecessor: $p, predecessor_stopped: $st}
+                | del(.template_compat, .template_fingerprint) + $tc' \
+            --arg c "$CALLER" --arg p "$pred" --arg st "$stopped" --argjson tc "$(compat_meta "$succ")" \
             || { echo "failed=takeover_record"; echo "coordinate-open: $pred is fenced and $succ holds its record, but $succ's record/meta wasn't written; run the opener again from this session to finish" >&2; exit 1; }
     fi
     if [ -n "$CALLER_NAME" ]; then
