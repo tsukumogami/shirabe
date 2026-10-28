@@ -15,7 +15,8 @@
 #
 # A person's order to park holds a worker only as a pause row: written as an
 # answer row it holds nothing, and the parked worker goes on to a second
-# silence (shirabe#1364).
+# silence (shirabe#1364). An all pause with a go-ahead on one unit skips only
+# the held worker; the let-through worker is swept as usual (shirabe#1383).
 #
 # Usage: bash skills/coordinate/scripts/quiet-check_test.sh
 set -uo pipefail
@@ -107,6 +108,18 @@ seed; run
 sweep 08:31; eq "the same order as a pause row: the parked worker isn't quiet" quiet-none "$TOK"
 eq "  ... and the detail names the pause" "beta:s1" "$(jq -r '[.holdings[] | select(.paused != null) | "\(.worker):\(.paused)"] | join(" ")' "$KOTO_STORE/context/$S/coord/quiet.json")"
 sweep 09:02; eq "  ... nor on the next sweep" quiet-none "$TOK"
+HOLDINGS=$SAVED; unset STANDING
+
+echo "== a go-ahead lets its unit's worker through an all pause (shirabe#1383) =="
+SAVED=$HOLDINGS
+HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
+    --argjson b "$(holding beta '{"unit": "Feature 3", "pull_request": ""}')" '[$a, $b]')
+STANDING='[{"standing":"s1","kind":"pause","on":"all","until":"lifted","what":"let what is in flight land, then hold every lane","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"},
+    {"standing":"s2","kind":"go-ahead","on":"Feature 2","until":"","what":"land the pull request in flight","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"}]'
+seed; run
+sweep 08:31; eq "the held worker is skipped; the let-through worker is swept as usual" "first-silence alpha" "$TOK"
+eq "  ... and the detail names the pause only for the held worker" "alpha:null beta:s1" "$(jq -r '[.holdings[] | "\(.worker):\(.paused)"] | join(" ")' "$KOTO_STORE/context/$S/coord/quiet.json")"
+sweep 09:02; eq "  ... and the let-through worker goes on to a second silence" "second-silence alpha" "$TOK"
 HOLDINGS=$SAVED; unset STANDING
 
 echo "== activity resets the count =="
