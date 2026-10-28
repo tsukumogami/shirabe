@@ -73,7 +73,10 @@
 # can't then replace the detail a later run's verdict was sealed with
 # (shirabe#1263). A run by hand from surface, at the visit whose verdict koto
 # captured, still writes: merge-order-entry.sh's refusals name it as the way
-# back.
+# back. The check is a read before the write, not a lock: a stale run that
+# finishes after a later run wrote its detail but before koto captured that
+# run's verdict still writes, a window of the later run's seal and exit. The
+# moved and dirty tokens write no detail, so they seal without the check.
 #
 # The repository is the one the record's Holdings row for #<pr> links;
 # --repo overrides it, for tests. --no-seal (tests) prints the bare token.
