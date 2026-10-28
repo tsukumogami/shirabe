@@ -33,7 +33,7 @@ second:
 Load `skills/roadmap/references/roadmap-format.md` and pass the relevant quality
 guidance to each agent.
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Theme Coherence, Sequencing and Dependency, and Annotation and Boundary run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/roadmaps/ROADMAP-<topic>.md --format skills/roadmap/references/roadmap-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Theme Coherence, Sequencing and Dependency, and Annotation and Boundary run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/roadmaps/ROADMAP-<topic>.md --format skills/roadmap/references/roadmap-format.md --extra <scope-file> --scratch <inputs-dir>`. `<scope-file>` is the path `get` printed.
 
 Before the round starts, run the document check on the draft
 (`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):

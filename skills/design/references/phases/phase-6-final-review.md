@@ -20,7 +20,7 @@ If the design doc has YAML frontmatter with status "Proposed", skip to step 6.7
 
 ### 6.1 Launch Review Agents
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Architecture and Security run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Architecture and Security run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md --scratch <scratch>`. `<scratch>` is a directory from `skill-session.sh scratch` that holds only the packet and is removed once the round is aggregated.
 
 Allocate a private directory outside the work tree for the reviews and keep
 the path it prints, `<reviews-dir>`:
