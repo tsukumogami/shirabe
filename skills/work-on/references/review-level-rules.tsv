@@ -89,6 +89,7 @@ class	engine	skills/coordinate/scripts/pick-facts.sh
 class	engine	skills/coordinate/scripts/posture-read.sh
 class	engine	skills/coordinate/scripts/predecessor-handoff.sh
 class	engine	skills/coordinate/scripts/quiet-check.sh
+class	engine	skills/coordinate/scripts/rebrief-record.sh
 class	engine	skills/coordinate/scripts/reconcile-pass.sh
 class	engine	skills/coordinate/scripts/reconcile-report-get.sh
 class	engine	skills/coordinate/scripts/state-confirm.sh

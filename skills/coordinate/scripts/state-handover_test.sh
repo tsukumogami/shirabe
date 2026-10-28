@@ -40,7 +40,7 @@ seed() { db_init; seed_session "$SR" "$1"; }
 # gate: the handover gate's result, printed and kept in G as "<exit> <gaps>".
 gate() {
     bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/gate"
-    G="$? $(sed -n 's/^  \([^:]*\): .*/\1/p' "$T/gate" | paste -sd, -)"
+    G="$? $(awk '/^  [^:]*: / { sub(/^  /, ""); sub(/: .*/, ""); printf "%s%s", s, $0; s = "," }' "$T/gate")"
     echo "     gate: $G"
 }
 

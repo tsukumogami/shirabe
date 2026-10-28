@@ -409,7 +409,7 @@ echo "== pending: a worker that can't be told yet =="
 # gate: the handover gate's result, printed and kept in G as "<exit> <gaps>".
 gate() {
     bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/gate"
-    G="$? $(sed -n 's/^  \([^:]*\): .*/\1/p' "$T/gate" | paste -sd, -)"
+    G="$? $(awk '/^  [^:]*: / { sub(/^  /, ""); sub(/: .*/, ""); printf "%s%s", s, $0; s = "," }' "$T/gate")"
     echo "     gate: $G"
 }
 run_rows() { live | jq -r --arg k "$1" '[.run[] | select(.key == $k) | .value] | join(" ")'; }

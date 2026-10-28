@@ -47,7 +47,7 @@ told_set() {
 # gate: the handover gate's result, as the reconcile step runs it.
 gate() {
     (cd "$WD" && bash "$PS/state-handover.sh" --session "$S" --check) >/dev/null 2>"$T/gate"
-    G="$? $(sed -n 's/^  \([^:]*\): .*/\1/p' "$T/gate" | paste -sd, -)"
+    G="$? $(awk '/^  [^:]*: / { sub(/^  /, ""); sub(/: .*/, ""); printf "%s%s", s, $0; s = "," }' "$T/gate")"
     echo "     gate: $G"
 }
 # to_rebrief: from the saved run at wait, a report classified needs_fix.
