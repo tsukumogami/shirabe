@@ -69,6 +69,7 @@ cost	legacy-import_test.sh	23
 cost	rebrief-record_engine_test.sh	22
 cost	read-once_test.sh	20
 cost	render-brief_test.sh	19
+cost	handover-classify_engine_test.sh	19
 cost	state-holding_test.sh	17
 cost	state-find_test.sh	16
 cost	dispatch-path_engine_test.sh	15
