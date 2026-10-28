@@ -294,7 +294,9 @@ rs_scope_sessions() {
         : > "$d/keys.err"
         if ! rs_list "$s" record/meta "$d/keys"; then
             # koto puts its refusal on stdout (the listing) or stderr: both, on one line.
-            why=$(cat "$d/keys" "$d/keys.err" 2> /dev/null | tr -s '\t\n' '  ' | head -c 400)
+            why=$(cat "$d/keys" "$d/keys.err" 2> /dev/null)
+            why=$(tr -s '\t\n' '  ' <<< "$why")
+            why=${why:0:400}
             case "$why" in *session_migrated*|*session_not_found*) continue ;; esac
             [ -z "${3:-}" ] || printf '%s\t%s\n' "$s" "$why" >> "$3"
             continue

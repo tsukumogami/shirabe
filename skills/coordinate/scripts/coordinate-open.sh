@@ -92,7 +92,8 @@
 #
 # A fresh start (no session here holds the scope's record) opens
 # `coordinate-<scope-slug>-<UTC stamp>`, cancels any other live run of the
-# scope (at once, since there is no carry to wait on), and then calls the legacy importer (../legacy-import/import.sh) once:
+# scope (at once, since there is no carry to wait on), and then calls the
+# legacy importer (../legacy-import/import.sh) once:
 # `--lookup` for an open coordinator record still on GitHub, and, when it
 # answers `record <n>`, the import of that record into the new run, printing
 # `record-imported=<n>`. A discipline's next rotation is not a fresh start: the
@@ -869,7 +870,7 @@ if [ -n "$CARRY_FROM" ]; then
     PROG=coordinate-open SKIP_CHECKS=0 REPO=$HOST
     . "$HERE/state-common.sh"
     T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open.XXXXXX") \
-        || { "$KOTO" cancel "$SESSION" </dev/null >/dev/null 2>&1; echo "failed=carry"; echo "coordinate-open: could not make a scratch directory; $SESSION is cancelled and $CARRY_FROM untouched" >&2; exit 1; }
+        || { "$KOTO" cancel "$SESSION" </dev/null >/dev/null; echo "failed=carry"; echo "coordinate-open: could not make a scratch directory; $SESSION is cancelled and $CARRY_FROM untouched" >&2; exit 1; }
     trap 'rm -rf "$T" "$T_ERR"' EXIT
     . "$HERE/state-write-core.sh"
     # carry_stop <why>: the carry didn't land. The new run loses any
@@ -878,12 +879,14 @@ if [ -n "$CARRY_FROM" ]; then
     # next start carries it again. A refusal of the source as bound to another
     # directory, in the carry's own output or in one read of the source's
     # record/meta made now (koto puts it on stdout or stderr), is
-    # refused=bound-elsewhere; any other is failed=carry.
+    # refused=bound-elsewhere; any other is failed=carry. That read is
+    # rs_key's, which keeps koto's output for <file> in <file>, <file>.err,
+    # <file>.keys and <file>.keys.err (state-read.sh), so all four are searched.
     carry_stop() {
         [ -s "$T/carry.err" ] && head -c 2000 "$T/carry.err" >&2
         core_carry_withdraw "$SESSION" \
             || echo "coordinate-open: $SESSION's record/meta couldn't be removed; remove it before starting again, or the next start carries from $SESSION" >&2
-        "$KOTO" cancel "$SESSION" </dev/null >/dev/null 2>&1 \
+        "$KOTO" cancel "$SESSION" </dev/null >/dev/null \
             || echo "coordinate-open: $SESSION couldn't be cancelled; cancel it before starting again" >&2
         rs_key "$CARRY_FROM" record/meta "$T/probe"
         grep -q session_bound_elsewhere "$T/carry.err" "$T/probe" "$T/probe.err" "$T/probe.keys" "$T/probe.keys.err" 2>/dev/null \
