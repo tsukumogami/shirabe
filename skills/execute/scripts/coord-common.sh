@@ -499,17 +499,17 @@ cc_pr_node() {
 # comma-joined item; a child holding `verification_deferral` deferred. The
 # run's own reason is not passed here: every child the run deferred holds it,
 # and node-push.sh wrote it into the body. With no items (the PLAN gone, so
-# the node list comes from run/setup, which records none) the children are
-# the root sessions named `work-on-<slug>-<node>-<number>` that `koto
-# workflows --roots` lists: the cascade deletes the PLAN only once every node
-# merged, so this is a node left open with its PLAN missing, which must not
-# be read as having no deferral.
+# the node list comes from run/setup, which records none) cc_children_deferrals
+# finds the children itself, in the same koto session listing it reads their
+# directories from: the cascade deletes the PLAN only once every node merged,
+# so this is a node left open with its PLAN missing, which must not be read as
+# having no deferral.
 #
 # Called from cc_pr_node, in coord_compute's scope. Returns 1 once it has set
 # CC_ACTION: error:execute:deferral-record when the body misses a part,
 # error:execute:status-read when it can't be decided.
 cc_deferral_record() {
-    local items="$2" item rc err args roots has recorded
+    local item rc err args has recorded
     args=(--session "$CC_SESSION" --verification "")
     has=$(printf '%s' "$5" | jq -r 'has("deferrals")') || has=""
     case "$has" in
@@ -519,15 +519,7 @@ cc_deferral_record() {
                 || { CC_ACTION="error:execute:status-read"; return 1; }
             ;;
         false)
-            if [ -z "$items" ]; then
-                roots=$(koto workflows --roots </dev/null) \
-                    && items=$(printf '%s' "$roots" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
-                        '[.[] | .name | select(type == "string" and startswith($p)) | ltrimstr($p)
-                          | select(test("^[1-9][0-9]*$"))] | join(",")') \
-                    || { CC_ACTION="error:execute:status-read"; return 1; }
-                [ -n "$items" ] || return 0
-            fi
-            recorded=$(cc_children_deferrals "$1" "$items") \
+            recorded=$(cc_children_deferrals "$1" "$2") \
                 || { CC_ACTION="error:execute:status-read"; return 1; }
             ;;
         *) CC_ACTION="error:execute:status-read"; return 1 ;;
@@ -568,11 +560,16 @@ cc_deferral_record() {
 # list, or whose directory is gone, is read from here as before: a session
 # that doesn't exist didn't defer, and one bound elsewhere is still refused.
 #
+# With no items (the PLAN gone) the children are the sessions in that same
+# listing named `work-on-<slug>-<node>-<number>`, so a node's work items are
+# found where koto records them, whichever directory their step agents opened
+# them in. None listed is no deferral.
+#
 # Returns 1 when it can't decide: the listing failed or isn't a list, or a
 # child's read failed for any reason (shared-deferral-record.sh's message is
 # on stderr). A failed read is never a child that didn't defer.
 cc_children_deferrals() {
-    local listing item child dir out
+    local listing names="$2" item child dir out
     local -a items cargs
     listing=$(koto session list </dev/null) || {
         echo "$PROG: koto session list failed, so node $1's work items can't be found where they are bound" >&2
@@ -582,7 +579,13 @@ cc_children_deferrals() {
         echo "$PROG: koto session list did not answer a list of sessions" >&2
         return 1
     }
-    IFS=, read -r -a items <<< "$2"
+    if [ -z "$names" ]; then
+        names=$(printf '%s' "$listing" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
+            '[.[] | .id | select(type == "string" and startswith($p)) | ltrimstr($p)
+              | select(test("^[1-9][0-9]*$"))] | join(",")') || return 1
+        [ -n "$names" ] || return 0
+    fi
+    IFS=, read -r -a items <<< "$names"
     for item in "${items[@]}"; do
         child="work-on-$CC_SLUG-$1-$item"
         dir=$(printf '%s' "$listing" | jq -r --arg c "$child" \

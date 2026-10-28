@@ -26,8 +26,8 @@
 #                            (evaluate and merge once it has it; another
 #                            node's deferral doesn't hold this one; a failed
 #                            key read is status-read; with the PLAN gone the
-#                            node's children come from koto's root sessions,
-#                            an unreadable list is status-read; no deferral
+#                            node's children come from koto's session
+#                            listing, an unreadable list is status-read; no deferral
 #                            evaluates as before with no body read and no
 #                            stderr); with run/node's deferrals recorded and
 #                            the children bound to a node worktree: a reason
@@ -42,7 +42,11 @@
 #                            read there the body lacks holds, one it records
 #                            evaluates; a key read that fails in the node
 #                            worktree, or a session listing that fails, is
-#                            status-read
+#                            status-read; with the PLAN gone each child is
+#                            found in that listing and read where it is
+#                            bound, with no workflows call, and one whose
+#                            bound directory is gone is read from the
+#                            coordination checkout as before
 #   evaluate:<root>          a ready root PR whose checks are pending
 #   merge:<root>             a ready, mergeable root with --merge true, at the
 #                            recorded head; a body index head= that differs
@@ -335,7 +339,7 @@ expect "a child's key read that fails" "error:execute:status-read" "$out"
 
 # The PLAN gone with a node PR still open (the cascade deletes it only after
 # every node merged, so the PLAN went missing some other way): the node's
-# children are found among koto's root sessions, and the hold still holds.
+# children are found in koto's session listing, and the hold still holds.
 ct_case defer-plan-gone
 ct_record_setup
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
@@ -346,7 +350,7 @@ ct_write_db
 defer_child 2 "$DREASON"
 out=$(run_next "$GONEDIR" --merge true)
 expect "the PLAN gone, an open draft node PR whose child deferred, no record" "error:execute:deferral-record" "$out"
-out=$(KOTO_FAIL_WORKFLOWS=1 run_next "$GONEDIR" --merge true)
+out=$(KOTO_FAIL_SESSION_LIST=1 run_next "$GONEDIR" --merge true)
 expect "the PLAN gone and koto's session list unreadable" "error:execute:status-read" "$out"
 rm -rf "$CASE/ctx/work-on-t-$CT_CORE-2"
 out=$(run_next "$GONEDIR" --merge true)
@@ -431,7 +435,7 @@ ct_write_db
 bound_children
 out=$(run_next "$GONEDIR" --merge true)
 expect "the PLAN gone, a recorded deferral its body lacks" "error:execute:deferral-record" "$out"
-grep -q '^workflows' "$CASE/koto-calls.log" && fail "the PLAN gone with deferrals recorded listed koto's sessions" \
+grep -Eq '^(workflows|session list)' "$CASE/koto-calls.log" && fail "the PLAN gone with deferrals recorded listed koto's sessions" \
     || pass "the PLAN gone with deferrals recorded: no session listing, no child read"
 
 # A record without deferrals: the node was pushed before node-push.sh
@@ -500,6 +504,67 @@ grep -qF "verification_deferral failed (exit 2)" "$CASE/stderr" && pass "the fai
     || fail "the failed read was a refusal: $(ct_refused)"
 out=$(KOTO_FAIL_SESSION_LIST=1 run_next "$PLANDIR" --merge true)
 expect "koto's session listing fails" "error:execute:status-read" "$out"
+
+# The PLAN gone as well: no item numbers, so the node's children are found in
+# the same session listing that says where each is bound, never through
+# `koto workflows`, and each is read in the node worktree.
+plan_gone_bound() { # plan_gone_bound [<body>]: the core node open, its PLAN gone
+    ct_record_setup
+    ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+    ct_record_node "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
+    ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$@"
+    ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+    ct_write_db
+    bound_children
+}
+# each_child_read <label>: both children's keys were read, nothing refused,
+# and no workflows listing was asked for.
+each_child_read() {
+    if grep -q '^workflows' "$CASE/koto-calls.log"; then
+        fail "$1: the children were looked up with koto workflows"
+    elif ! grep -q "^context exists work-on-t-$CT_CORE-1 " "$CASE/koto-calls.log" \
+        || ! grep -q "^context exists work-on-t-$CT_CORE-2 " "$CASE/koto-calls.log"; then
+        fail "$1: not every child was read: $(grep "work-on-t-" "$CASE/koto-calls.log" | tr '\n' ' ')"
+    elif [ -n "$(ct_refused)" ]; then
+        fail "$1: a child was read from the coordination checkout: $(ct_refused)"
+    else
+        pass "$1: each child found in the session listing and read in the node worktree"
+    fi
+}
+
+ct_case plan-gone-bound-defer
+plan_gone_bound
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, a bound child's deferral the body lacks" "error:execute:deferral-record" "$out"
+grep -qF "exactly: Reason: $DREASON" "$CASE/stderr" && pass "the PLAN-gone hold names the bound child's reason" \
+    || fail "the PLAN-gone bound hold's stderr: [$(cat "$CASE/stderr")]"
+each_child_read "the PLAN-gone hold"
+
+ct_case plan-gone-bound-recorded
+plan_gone_bound "$RECORDED_BODY"
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, a bound child's deferral the body records" "evaluate:$CT_CORE" "$out"
+each_child_read "the PLAN-gone evaluate"
+wrote_nothing "the PLAN-gone bound pass"
+
+# A child whose bound directory is gone is read from the coordination
+# checkout, as before: the cloud backend refuses it there, and the pass stops
+# at status-read rather than reading it as a child that didn't defer.
+ct_case plan-gone-bound-dir-gone
+plan_gone_bound
+GONEWT="$CT_WORK/gone-wt"
+mkdir -p "$GONEWT"
+ct_bind "work-on-t-$CT_CORE-2" "$GONEWT"
+rmdir "$GONEWT"
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, a child whose bound directory is gone" "error:execute:status-read" "$out"
+if ct_refused | grep -q "session 'work-on-t-$CT_CORE-2' is bound to .*/gone-wt, not to"; then
+    pass "the child whose directory is gone was read from the coordination checkout"
+else
+    fail "the dir-gone child's read: refused [$(ct_refused)] stderr [$(cat "$CASE/stderr")]"
+fi
+ct_refused | grep -q "work-on-t-$CT_CORE-1" && fail "the child still bound to the node worktree was refused" \
+    || pass "the child still bound to the node worktree was read there"
 
 ct_case root-pending
 ct_record_setup

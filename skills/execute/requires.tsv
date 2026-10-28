@@ -47,8 +47,8 @@
 # (`--recorded`), making no koto call. A node record written before the
 # reasons were recorded has its children read where they are bound: `koto
 # session list` gives each one's execution directory, and the script reads it
-# there with `--child-dir`; `koto workflows --roots` finds the children when
-# the PLAN is gone. child-read.sh runs the
+# there with `--child-dir`; the same listing finds the children when the PLAN
+# is gone. child-read.sh runs the
 # owning session's `koto status` and `koto context get` of a work item in the
 # node worktree.
 #
@@ -139,7 +139,7 @@ koto	context get	-	always
 koto	context remove	-	always
 koto	context exists	-	always
 koto	status	-	always
-koto	workflows	--children,--roots	always
+koto	workflows	--children	always
 koto	session cleanup	-	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
