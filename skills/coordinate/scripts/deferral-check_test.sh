@@ -440,6 +440,13 @@ session "$(roadmap_vars plugin-system)"
 eq "a merged first pull request of a /deliver row, and a scoping-ahead row's, keep their slots" "at-cap 5/5 0/3" "$(check)"
 session "$(roadmap_vars plugin-system)" send_execution s1
 eq "  ... so send_execution to that scoping-ahead row stays within the cap" "ok s1" "$(check)"
+# Once sent, the row is executing under the execution's entry point and keeps
+# the scoping's Verified head and merged link: it still holds its slot.
+sent() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\", \"entry_point\": \"/shirabe:execute\", \"verified_head\": \"$SHA_HEAD\"}"; }
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(sent x1 44)")"
+for n in 21 22 23 24; do pr $n OPEN true; done; pr 44 MERGED false
+session "$(roadmap_vars plugin-system)"
+eq "a row send_execution moved on keeps its slot after its scoping pull request merged" "at-cap 5/5 0/3" "$(check)"
 
 echo "== check mode: a discipline rotation =="
 # A rotation's predecessor's deferrals are rows of its own record from its

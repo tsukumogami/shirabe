@@ -523,15 +523,18 @@ lib_row_merged() {
 # MERGED on GitHub, free its cap slot before the record confirms the merge?
 # Only when its worker has nothing left for the unit: not at Phase
 # scoping-ahead, whose worker still waits for its execution (send_execution
-# keeps the link), and with a Verified head (its finished report was
-# verified) or the work-on entry point, which lands one pull request. A
-# /deliver or /execute holding without a Verified head may be on a multi-pr
-# plan whose first pull request merged while the rest are in flight: the
-# first stays linked, since a report links a pull request only into a blank
-# cell.
+# keeps the link), and with the work-on entry point, which lands one pull
+# request, or a Verified head (its finished report was verified) on any entry
+# point but execute. A /deliver or /execute holding without a Verified head
+# may be on a multi-pr plan whose first pull request merged while the rest
+# are in flight: the first stays linked, since a report links a pull request
+# only into a blank cell. An execute holding is one send_execution moved on
+# from scoping ahead, keeping the scoping's Verified head and link while its
+# execution runs, so its Verified head says nothing about the execution.
 lib_link_merge_frees() {
-    printf '%s' "$1" | jq -e '((.phase // "") != "scoping-ahead")
-        and (((.verified_head // "") != "") or ((.entry_point // "") | ltrimstr("/shirabe:")) == "work-on")' > /dev/null
+    printf '%s' "$1" | jq -e '((.entry_point // "") | ltrimstr("/shirabe:")) as $ep
+        | ((.phase // "") != "scoping-ahead")
+        and ($ep == "work-on" or (((.verified_head // "") != "") and $ep != "execute"))' > /dev/null
 }
 
 # lib_parked <holdings-json-file> <out>: the Holdings rows as a JSON array,

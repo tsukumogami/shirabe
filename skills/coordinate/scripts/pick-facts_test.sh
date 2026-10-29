@@ -148,9 +148,10 @@ MERGED_HOLDINGS=$(jq -nc \
     --argjson f "$(holding zeta "$(lk 36 | jq -c '. + {unit: "#8", entry_point: "work-on"}')")" \
     --argjson g "$(holding eta "$(lk 37 | vh | jq -c '. + {unit: "#9"}')")" \
     --argjson h "$(holding theta "$(jq -nc --arg h "$SHA_HEAD" '{unit: "#10", pull_request: "", verified_head: $h}')")" \
-    '[$a, $b, $c, $d, $e, $f, $g, $h]')
+    --argjson i "$(holding iota "$(lk 38 | vh | jq -c '. + {unit: "#11", entry_point: "/shirabe:execute"}')")" \
+    '[$a, $b, $c, $d, $e, $f, $g, $h, $i]')
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$MERGED_HOLDINGS" '.holdings = $h')"
-pr 31 MERGED false; pr 32 MERGED false; pr 33 MERGED false; pr 34 MERGED false
+pr 31 MERGED false; pr 32 MERGED false; pr 33 MERGED false; pr 34 MERGED false; pr 38 MERGED false
 pr 35 OPEN true; pr 36 OPEN false; pr 37 OPEN false
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
 session "$(roadmap_vars plugin-system)" roadmap-plugin-system
@@ -164,7 +165,10 @@ eq "a work-on row whose pull request is an open draft is active" "merged false, 
 eq "a work-on row whose pull request is open and ready, with no Verified head, is active" "merged false, parked false" "$(row_of zeta)"
 eq "a Verified head and an open, ready pull request is still parked" "merged false, parked true" "$(row_of eta)"
 eq "a confirmed merge's blank cell is still merged" "merged true, parked false" "$(row_of theta)"
-eq "gamma, delta, epsilon and zeta are active, eta parked" "4 1" "$(facts | jq -r '"\(.active) \(.parked)"')"
+# send_execution moves a scoping-ahead row on to executing with the execution's
+# entry point, keeping the scoping's Verified head and its merged link.
+eq "an execute row sent on from scoping ahead keeps its slot, its scoping's Verified head and merged link notwithstanding" "merged false, parked false" "$(row_of iota)"
+eq "gamma, delta, epsilon, zeta and iota are active, eta parked" "5 1" "$(facts | jq -r '"\(.active) \(.parked)"')"
 grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "  ... it only reads" "$(calls)" || ok "  ... it only reads"
 
 echo "== roadmap: owed decision work, the DESIGN's blocking table's third column =="
