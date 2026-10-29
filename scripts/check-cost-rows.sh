@@ -17,15 +17,19 @@
 # adds or removes a suite or edits a check-skill.tsv. check-skill_test.sh
 # still calls it, so the macOS floor checks the same thing.
 #
-# A skill with no check-skill.tsv, or with one that holds no cost row, has
-# opted out of the ordering and is not checked.
+# With no argument, a skill with no check-skill.tsv, or with one that holds
+# no cost row, has opted out of the ordering and is not checked. A skill
+# named on the command line is expected to keep cost rows, so there the same
+# skill is a difference: deleting every row of a skill a caller checks by
+# name (check-skill_test.sh names coordinate) can't pass unnoticed.
 #
 # Usage:
 #   scripts/check-cost-rows.sh            every skill under skills/
 #   scripts/check-cost-rows.sh SKILL...   these skills
 #
 # Prints one line per difference: a suite with no row, a row naming no
-# suite, a suite with more than one row. Exit 0 when every checked skill's
+# suite, a suite with more than one row, a named skill with no cost row.
+# Exit 0 when every checked skill's
 # rows and suites agree, 1 when any differ, 2 on a usage error (a skill name
 # outside [a-z0-9-], or no such skill).
 #
@@ -43,7 +47,9 @@ ROOT=${CHECK_COST_ROWS_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 # sort and comm must collate alike.
 export LC_ALL=C
 
+NAMED=1
 if [ "$#" -eq 0 ]; then
+    NAMED=0
     for d in "$ROOT"/skills/*/; do
         [ -d "$d" ] && set -- "$@" "$(basename "$d")"
     done
@@ -60,9 +66,15 @@ DIFFER=0
 CHECKED=0
 for skill in "$@"; do
     tsv="$ROOT/skills/$skill/check-skill.tsv"
-    [ -f "$tsv" ] || continue
-    rows=$(awk -F'\t' '$1 == "cost" { print $2 }' "$tsv" | sort)
-    [ -n "$rows" ] || continue
+    rows=""
+    [ -f "$tsv" ] && rows=$(awk -F'\t' '$1 == "cost" { print $2 }' "$tsv" | sort)
+    if [ -z "$rows" ]; then
+        if [ "$NAMED" -eq 1 ]; then
+            echo "$skill: check-skill.tsv has no cost row"
+            DIFFER=1
+        fi
+        continue
+    fi
     CHECKED=$((CHECKED + 1))
     suites=$(for s in "$ROOT/skills/$skill"/scripts/*_test.sh; do
         [ -f "$s" ] && basename "$s"

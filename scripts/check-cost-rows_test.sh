@@ -6,7 +6,8 @@
 # suite added with no cost row fails naming it, which is the pull request
 # #1116 says CI let through; a row naming a removed suite fails; a duplicated
 # row fails; a skill with no check-skill.tsv, or one with only shared rows, is
-# not checked; only top-level scripts/*_test.sh count as suites; with no
+# not checked when no skill is named and fails when it is named; only
+# top-level scripts/*_test.sh count as suites; with no
 # argument every skill is checked, and a difference in any one fails; a skill
 # name outside the pattern, or one that isn't there, is a usage error.
 #
@@ -86,9 +87,12 @@ expect "a *_test.sh below scripts/ is not a suite" 0 "1 skill(s)" demo
 
 tree
 skill bare x_test.sh
-expect "a skill with no check-skill.tsv is not checked" 0 "0 skill(s)" bare
+expect "with no argument, a skill with no check-skill.tsv is not checked" 0 "0 skill(s)"
+expect "  ... but named, it fails" 1 "bare: check-skill.tsv has no cost row" bare
 rows bare shared:helper.sh
-expect "a skill with only shared rows is not checked" 0 "0 skill(s)" bare
+expect "with no argument, a skill with only shared rows is not checked" 0 "0 skill(s)"
+expect "  ... but named, it fails, so deleting every row can't pass" 1 \
+    "bare: check-skill.tsv has no cost row" bare
 
 tree
 skill one a_test.sh

@@ -8,7 +8,10 @@ name: Check cost rows
 # touches, and the daily macOS floor caught the miss on main (shirabe#1116).
 #
 # Linux only: the check compares two lists and runs no suite. The macOS floor
-# still runs it through scripts/check-skill_test.sh.
+# still runs it through scripts/check-skill_test.sh. It is a workflow of its
+# own rather than these paths added to check-skill-gate.yml, which would run
+# the whole check-skill suite, and its macOS leg once a pull request is
+# ready, on every pull request that edits any skill suite.
 
 on:
   # The two paths lists below must match; edit both together.
