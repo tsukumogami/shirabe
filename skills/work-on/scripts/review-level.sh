@@ -253,14 +253,15 @@ ctx_put() {
 }
 
 # line <event> [<key> <value>]...: one compact JSON ledger line. A pair whose
-# value is empty is left out.
+# value is empty is left out. The -- after --args ends jq's options, so a value
+# starting with a dash (a --reason of -r, say) is stored, not read as one.
 line() {
     jq -nc --arg ts "$(now)" --arg event "$1" '
         reduce range(0; $ARGS.positional | length; 2) as $i
             ({ts: $ts, event: $event};
              if $ARGS.positional[$i + 1] == "" then .
              else . + {($ARGS.positional[$i]): $ARGS.positional[$i + 1]} end)
-    ' --args "${@:2}"
+    ' --args -- "${@:2}"
 }
 
 # The ledger's level events, read leniently: a line that isn't JSON is skipped

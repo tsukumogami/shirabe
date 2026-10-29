@@ -465,7 +465,9 @@ cmd_red() {
     rsrc=$(koto context get "$s" fix_kind.jsonl 2>>"$ERRLOG" \
         | jq -Rr 'fromjson? | select(type == "object" and .report_source != null) | .report_source' | tail -n 1)
     load_record "$s"
-    jq --argjson argv "$(jq -nc '$ARGS.positional' --args "$@")" \
+    # jq goes on reading options after --args, so the -- keeps a command word
+    # such as -c or --flag=value in the argv instead of taken as jq's own.
+    jq --argjson argv "$(jq -nc '$ARGS.positional' --args -- "$@")" \
         --arg base "$base" --arg head "$head" \
         --rawfile tests "$TMP/tests.tsv" --rawfile harness "$TMP/harness.tsv" \
         --argjson exit "$RUN_EXIT" --rawfile tail "$TMP/tail" --rawfile context "$TMP/context" \
