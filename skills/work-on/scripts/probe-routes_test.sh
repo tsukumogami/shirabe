@@ -168,8 +168,7 @@ if [ -n "$BASE_REF" ] && git -C "$REAL_ROOT" cat-file -e "$BASE_REF:skills/work-
         fail "a registry stage moved: $(diff <(printf '%s\n' "$BSTAGES") <(printf '%s\n' "$HSTAGES") | head -5 | tr '\n' ' ')"
     fi
 else
-    check "the decider mode lines are the shipped ones" "$MODES" "$MODES"
-    pass "SKIP: no base branch to compare the registry stages with"
+    pass "SKIP: no base branch to compare the mode lines and registry stages with"
 fi
 check "the probe's registry entries are at stage shadow" \
     "$(jq -r '[.rules[] | select(.id == "probe/ack-value" or .id == "probe/value-absent") | "\(.id)=\(.stage)"] | join(" ")' "$REAL_ROOT/references/rule-registry.json")" \
@@ -379,7 +378,12 @@ for mode in no-opt-in probe-off; do
     [ "$(printf '%s' "$P_PRC" | sed "s/probe-[0-9]*/S/g" | strip)" = "$(printf '%s' "$D_PRC" | sed "s/probe-[0-9]*/S/g" | strip)" ] \
         && pass "$mode: pr_creation renders as the probe-free template's (trailing whitespace stripped)" \
         || fail "$mode: pr_creation differs from the probe-free template's"
-    [ "$P_PRC" != "$(printf '%s' "$P_PRC" | strip)" ] || [ "$P_RLC" != "" ] && pass "$mode: (the directives rendered)" || fail "$mode: empty directives"
+    # The comparisons above mean nothing if either directive came back empty.
+    if grep -qF 'Choose this run' <<<"$P_RLC" && grep -qF 'SHARED_BRANCH' <<<"$P_PRC"; then
+        pass "$mode: both directives rendered (control for the comparisons)"
+    else
+        fail "$mode: a directive came back empty or unexpected"
+    fi
 done
 
 # --- the arms, from a real draw --------------------------------------------------

@@ -87,6 +87,10 @@ holds the run while the value appears where others can read it:
   issue's comments;
 - at `ci_monitor`, the same again, before the run can finish.
 
+A run whose recorded value can't be read is treated as a run in no arm: the
+gates have nothing to search for, `probe_ack` exits 6 and advances, and the
+run is out of the results either way.
+
 The gate's finding names the route and never the value. Remove the value from
 where it names (amend the branch's commits before they're pushed, or edit the
 pull request or comment) and tick again. A `gh` failure once the pull request
