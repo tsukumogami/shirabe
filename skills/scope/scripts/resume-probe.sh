@@ -12,8 +12,19 @@
 # work/prior-run.md of the same session), the four children's koto sessions
 # (through scripts/skill-session.sh has-work, which only reads), the /explore
 # handoff (key handoff/scope.md of session explore-<topic>), and the current
-# branch name. It writes nothing, it ticks no session, and it makes no gh call
-# and no network call. RUN_INTENT arrives as an
+# branch name. It writes nothing but a private temp directory, removed on
+# exit, it ticks no session, and it makes no gh call and no network call.
+#
+# The seven koto lookups those reads start with (the two state keys, the four
+# children's has-work and the handoff key) don't depend on each other, so they
+# run together, as background jobs, before any row is decided. On a fresh
+# topic every one misses, and under the cloud backend a miss can cost koto
+# seconds: one after another they outran resume_route's 30 s gate. The ladder
+# waits for every answer and then reads them in its own order, so the row is
+# the one a probe running them in turn would give; a lookup past the row that
+# matches is made and ignored. The temp directory holds the has-work jobs'
+# stderr for the cannot-tell message. A read that needs an earlier answer (a
+# key's bytes, once it exists) stays in the ladder. RUN_INTENT arrives as an
 # argument, because the intent shortcuts (rows 40 and 44) exist only on intent
 # runs and a plan-active topic (row 41) is refused only without one.
 #
@@ -70,7 +81,8 @@
 #
 #   2   cannot tell: an invalid topic or intent, an artifact whose status
 #       cannot be read, a git read that failed, or a child session whose state
-#       koto could not report (has-work exit 4). koto absent from PATH
+#       koto could not report (has-work exit 4), or a temp directory that
+#       could not be made. koto absent from PATH
 #       (has-work exit 127) means no child session can exist, so Slot 6
 #       matches nothing.
 #   64  usage error
@@ -90,7 +102,9 @@
 # names the koto the state, prior-run and handoff reads use. With koto absent
 # no session can exist, so those reads match nothing.
 #
-# Requires: bash 3.2+, git, awk; koto for the key reads and Slot 6.
+# The probe's temp directory goes under TMPDIR (default /tmp).
+#
+# Requires: bash 3.2+, git, awk, mktemp; koto for the key reads and Slot 6.
 set -uo pipefail
 
 PROG=resume-probe
@@ -154,18 +168,69 @@ HANDOFF="handoff/scope.md"
 
 present() { [ -e "$1" ] || [ -L "$1" ]; }
 
+# --- the lookups, run together ----------------------------------------------------
+
+LOOKUP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/resume-probe.XXXXXX") ||
+    cannot_tell "could not make a temp directory for the koto lookups"
+# PIDS holds the jobs not yet waited for, which an early exit stops.
+PIDS=""
+cleanup() {
+    [ -z "$PIDS" ] || kill $PIDS 2>/dev/null
+    rm -rf "$LOOKUP_DIR"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# has_work_job <child> -- start skill-session.sh has-work for <child>-<topic>,
+# its stderr kept for the cannot-tell message.
+has_work_job() {
+    "$BASH_BIN" "$SKILL_SESSION" has-work "$1" "$TOPIC" >/dev/null 2>"$LOOKUP_DIR/$1.err" &
+}
+
+"$KOTO" context exists "$SESSION" "$STATE" >/dev/null 2>&1 &
+P_STATE=$!
+"$KOTO" context exists "$SESSION" "$PRIOR" >/dev/null 2>&1 &
+P_PRIOR=$!
+"$KOTO" context exists "$HANDOFF_SESSION" "$HANDOFF" >/dev/null 2>&1 &
+P_HANDOFF=$!
+PIDS="$P_STATE $P_PRIOR $P_HANDOFF"
+# Without skill-session.sh Slot 6 cannot be told; the ladder says so there.
+HAVE_SKILL_SESSION=0
+[ -f "$SKILL_SESSION" ] && HAVE_SKILL_SESSION=1
+if [ "$HAVE_SKILL_SESSION" -eq 1 ]; then
+    has_work_job plan;   P_PLAN=$!
+    has_work_job design; P_DESIGN=$!
+    has_work_job prd;    P_PRD=$!
+    has_work_job brief;  P_BRIEF=$!
+    PIDS="$PIDS $P_PLAN $P_DESIGN $P_PRD $P_BRIEF"
+fi
+
+# rc_of <pid> -- wait for the job and set RC to its exit code.
+rc_of() { RC=0; wait "$1" || RC=$?; }
+
+rc_of "$P_STATE";   RC_STATE=$RC
+rc_of "$P_PRIOR";   RC_PRIOR=$RC
+rc_of "$P_HANDOFF"; RC_HANDOFF=$RC
+if [ "$HAVE_SKILL_SESSION" -eq 1 ]; then
+    rc_of "$P_PLAN";   RC_PLAN=$RC
+    rc_of "$P_DESIGN"; RC_DESIGN=$RC
+    rc_of "$P_PRD";    RC_PRD=$RC
+    rc_of "$P_BRIEF";  RC_BRIEF=$RC
+fi
+PIDS=""
+
 # --- the state key ----------------------------------------------------------------
 
-# key_exists <session> <key> -- 0 when the key exists, 1 when it or its session
-# does not (or koto is absent: no session can exist). Anything else cannot be
-# told.
+# key_exists <rc> <session> <key> -- from the exit code of `koto context exists
+# <session> <key>`: 0 when the key exists, 1 when it or its session does not
+# (or koto is absent: no session can exist). Anything else cannot be told.
 key_exists() {
-    local rc=0
-    "$KOTO" context exists "$1" "$2" >/dev/null 2>&1 || rc=$?
-    case "$rc" in
+    case "$1" in
         0) return 0 ;;
         1|127) return 1 ;;
-        *) cannot_tell "koto context exists $1 $2 exited $rc" ;;
+        *) cannot_tell "koto context exists $2 $3 exited $1" ;;
     esac
 }
 
@@ -339,7 +404,7 @@ probe_state() {
     esac
 }
 
-if key_exists "$SESSION" "$STATE"; then
+if key_exists "$RC_STATE" "$SESSION" "$STATE"; then
     probe_state
 fi
 
@@ -370,7 +435,7 @@ probe_prior() {
     return 0
 }
 
-if key_exists "$SESSION" "$PRIOR"; then
+if key_exists "$RC_PRIOR" "$SESSION" "$PRIOR"; then
     probe_prior
 fi
 
@@ -446,30 +511,28 @@ fi
 
 # --- Slot 6: a child partial -------------------------------------------------------------
 
-# child_partial <child> -- exit 0 when the child's session is live on this
-# branch and holds a work/ key. Only the child writes work/ keys in its own
-# session, so a match always means the child itself ran; no feeder document
-# can imitate one.
+# child_partial <child> <rc> -- from the exit code of has-work for the child:
+# 0 when the child's session is live on this branch and holds a work/ key.
+# Only the child writes work/ keys in its own session, so a match always means
+# the child itself ran; no feeder document can imitate one.
 child_partial() {
-    local rc=0 err
-    err=$("$BASH_BIN" "$SKILL_SESSION" has-work "$1" "$TOPIC" 2>&1 >/dev/null) || rc=$?
-    case "$rc" in
+    case "$2" in
         0) return 0 ;;
         1|127) return 1 ;;
-        *) cannot_tell "skill-session.sh has-work $1 $TOPIC exited $rc: $err" ;;
+        *) cannot_tell "skill-session.sh has-work $1 $TOPIC exited $2: $(cat "$LOOKUP_DIR/$1.err" 2>/dev/null)" ;;
     esac
 }
 
-[ -f "$SKILL_SESSION" ] || cannot_tell "scripts/skill-session.sh not found at $SKILL_SESSION"
+[ "$HAVE_SKILL_SESSION" -eq 1 ] || cannot_tell "scripts/skill-session.sh not found at $SKILL_SESSION"
 
-child_partial plan && row 60 plan-partial
-child_partial design && row 61 design-partial
-child_partial prd && row 62 prd-partial
-child_partial brief && row 63 brief-partial
+child_partial plan "$RC_PLAN" && row 60 plan-partial
+child_partial design "$RC_DESIGN" && row 61 design-partial
+child_partial prd "$RC_PRD" && row 62 prd-partial
+child_partial brief "$RC_BRIEF" && row 63 brief-partial
 
 # --- Slot 7 and the tail ------------------------------------------------------------------
 
-key_exists "$HANDOFF_SESSION" "$HANDOFF" && row 12 explore-handoff
+key_exists "$RC_HANDOFF" "$HANDOFF_SESSION" "$HANDOFF" && row 12 explore-handoff
 
 BRANCH=$(git symbolic-ref --quiet --short HEAD) || BRANCH=""
 if [ -z "$BRANCH" ]; then

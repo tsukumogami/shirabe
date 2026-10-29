@@ -78,8 +78,9 @@
 #                         unknown-topic or unresolved-topic. state-confirm.sh holds the
 #                         dispatch that follows to this topic
 # A row is parked when it has a Verified head and its pull request is open and
-# not a draft; a row with a Verified head and a cleared Pull request cell is
-# merged, waiting for its worker's teardown, and counts as neither; every
+# not a draft; a row with a Verified head and a cleared Pull request cell, or
+# one whose linked pull request GitHub reads merged and that state-common.sh
+# lib_link_merge_frees allows, is merged and counts as neither; every
 # other Holdings row is active. CAP and PARKED_BOUND are the
 # session's variables. The detail goes to context key coord/dispatch_check.json.
 #

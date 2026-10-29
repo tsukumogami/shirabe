@@ -381,6 +381,117 @@ else
     ok "no scope fixture or eval writes phase-N or UNSET"
 fi
 
+echo "== the lookups run together =="
+# A stub koto, named through KOTO_BIN, which the probe and skill-session.sh
+# both honour. It logs each call to STUB_LOG, sleeps STUB_SLEEP seconds, and
+# answers as a store holding only the keys STUB_KEYS lists (<session>:<key>,
+# space-separated) and no session. A session STUB_BROKEN names gets the
+# answers koto gives when it can't tell: exit 3 from context exists, a status
+# that isn't JSON (has-work exit 4).
+STUB="$T/stub/koto"
+mkdir -p "$T/stub"
+cat >"$STUB" <<'EOF_STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_LOG"
+sleep "${STUB_SLEEP:-0}"
+case "$1" in
+    context)
+        [ "$2" = exists ] || exit 1
+        case " ${STUB_KEYS-} " in *" $3:$4 "*) exit 0 ;; esac
+        case " ${STUB_BROKEN-} " in *" $3 "*) exit 3 ;; esac
+        exit 1
+        ;;
+    status)
+        case " ${STUB_BROKEN-} " in *" $2 "*) printf 'garbage\n'; exit 0 ;; esac
+        printf 'session not found\n'
+        exit 2
+        ;;
+esac
+exit 1
+EOF_STUB
+chmod +x "$STUB"
+export STUB_LOG="$T/stub.log"
+# The probe's TMPDIR, so each case can see that its private directory is gone.
+PT="$T/probe-tmp"
+mkdir -p "$PT"
+# tmp_gone <label> -- the probe left nothing in its TMPDIR.
+tmp_gone() {
+    if [ -z "$(ls -A "$PT")" ]; then ok "$1: its temp directory is gone"; else bad "$1: its temp directory is gone" "$(ls -A "$PT")"; fi
+    rm -rf "${PT:?}"/*
+}
+
+# On a fresh topic every lookup misses: context exists on scope-t's two keys,
+# a koto status for each of the four children (has-work stops there on an
+# absent session), and context exists on explore-t's handoff. One after
+# another that is the sum of seven lookups; run together, about the slowest.
+SLEEP=2
+LOOKUPS=7
+repo; : >"$STUB_LOG"
+start=$(date +%s)
+out=$(cd "$R" && STUB_SLEEP=$SLEEP KOTO_BIN="$STUB" TMPDIR="$PT" bash "$S" --topic t --intent none 2>"$T/err"); rc=$?
+took=$(($(date +%s) - start))
+if [ "$rc" = 10 ] && [ "$out" = "row=10 fresh-start" ]; then
+    ok "a fresh topic behind slow lookups is still row 10 ($out)"
+else
+    bad "a fresh topic behind slow lookups is still row 10" "got $rc: $out $(cat "$T/err")"
+fi
+want="context exists explore-t handoff/scope.md
+context exists scope-t work/prior-run.md
+context exists scope-t work/state.md
+status brief-t
+status design-t
+status plan-t
+status prd-t"
+got=$(sort "$STUB_LOG")
+if [ "$got" = "$want" ]; then
+    ok "a fresh topic asks koto the same seven lookups, once each"
+else
+    bad "a fresh topic asks koto the same seven lookups, once each" "$got"
+fi
+# The bound is half the sum: far above one lookup, far below seven.
+if [ "$took" -lt "$SLEEP" ]; then
+    bad "a fresh topic's lookups run together" "took ${took} s, less than one ${SLEEP} s lookup: the stub was not called"
+elif [ "$took" -lt $((SLEEP * LOOKUPS / 2)) ]; then
+    ok "a fresh topic's lookups run together: ${took} s for $LOOKUPS lookups of ${SLEEP} s each"
+else
+    bad "a fresh topic's lookups run together" "took ${took} s for $LOOKUPS lookups of ${SLEEP} s each: total near the sum, not the slowest one"
+fi
+tmp_gone "a fresh topic"
+
+# Every answer is in before the ladder runs, and the ladder still reads them
+# in its own order: a lookup koto can't answer wins only where the serial
+# probe reached it, never past a row that matched first.
+repo
+STUB_KEYS="explore-t:handoff/scope.md" STUB_BROKEN=scope-t KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect "a state lookup koto cannot answer is cannot-tell, ahead of a present handoff" 2 t none
+tmp_gone "a cannot-tell state lookup"
+repo
+STUB_KEYS="explore-t:handoff/scope.md" STUB_BROKEN=design-t KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect "a child koto cannot report (has-work exit 4) is cannot-tell, ahead of a present handoff" 2 t none
+tmp_gone "a has-work exit 4"
+repo; doc docs/plans/PLAN-t.md Active
+STUB_BROKEN="plan-t explore-t" KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect "lookups past a matched row don't count, even ones koto cannot answer" 41 t none
+tmp_gone "a Slot 5 row ahead of broken lookups"
+repo
+STUB_BROKEN=explore-t KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect "a handoff lookup koto cannot answer is cannot-tell" 2 t none
+tmp_gone "a cannot-tell handoff lookup"
+repo
+KOTO_BIN="$T/stub/no-such-koto" TMPDIR="$PT" expect "koto absent: no session can exist" 10 t none
+tmp_gone "koto absent"
+
+# A probe killed while it waits (the gate's timeout, say) still removes its
+# directory.
+repo; : >"$STUB_LOG"
+(cd "$R" && STUB_SLEEP=5 KOTO_BIN="$STUB" TMPDIR="$PT" exec bash "$S" --topic t --intent none >/dev/null 2>&1) &
+pid=$!
+i=0
+while [ -z "$(ls -A "$PT")" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+kill -TERM "$pid" 2>/dev/null
+wait "$pid" 2>/dev/null
+tmp_gone "a probe killed mid-lookup"
+
 echo "== cannot tell and usage =="
 repo; expect "an invalid topic" 2 Bad-Topic none
 repo; expect "an invalid intent" 2 t maybe

@@ -53,10 +53,12 @@
 # Holdings come from the record (state-holding.sh --list), each marked
 # parked (a Verified head, and its pull request open and not a draft), merged
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
-# waiting for its worker's teardown) or active; only active ones count
-# against the cap. Local agents have no holding and are never counted. The counts sit
-# beside CAP and PARKED_BOUND from the session's variables, the cap from the
-# record's Run section when it has one.
+# waiting for its worker's teardown; or a linked pull request GitHub reads
+# merged, when state-common.sh lib_link_merge_frees says its worker has
+# nothing left) or active; only active ones count against the cap. Local
+# agents have no holding and are never counted. The counts sit beside CAP and
+# PARKED_BOUND from the session's variables, the cap from the record's Run
+# section when it has one.
 #
 # The record's pauses (Standing rows of kind pause, evaluated by
 # pause-read.sh): each unit and holding carries `paused`, the id of the pause

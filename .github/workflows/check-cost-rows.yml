@@ -1,0 +1,50 @@
+name: Check cost rows
+
+# A skill's check-skill.tsv keeps one cost row per suite (see
+# scripts/check-cost-rows.sh). Adding or removing a suite, or editing the
+# file, is what makes the two differ, so those paths are the filter. Before
+# this workflow the comparison ran on pull requests only inside
+# check-skill-gate.yml, whose paths a pull request adding a suite never
+# touches, and the daily macOS floor caught the miss on main (shirabe#1116).
+#
+# Linux only: the check compares two lists and runs no suite. The macOS floor
+# still runs it through scripts/check-skill_test.sh. It is a workflow of its
+# own rather than these paths added to check-skill-gate.yml, which would run
+# the whole check-skill suite, and its macOS leg once a pull request is
+# ready, on every pull request that edits any skill suite.
+
+on:
+  # The two paths lists below must match; edit both together.
+  pull_request:
+    paths:
+      - 'skills/*/scripts/*_test.sh'
+      - 'skills/*/check-skill.tsv'
+      - 'scripts/check-cost-rows.sh'
+      - 'scripts/check-cost-rows_test.sh'
+      - '.github/workflows/check-cost-rows.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above. Two pull requests that
+    # each pass alone, one adding a suite and one rewriting the rows, can
+    # merge into a main that differs; the run on main catches it.
+    paths:
+      - 'skills/*/scripts/*_test.sh'
+      - 'skills/*/check-skill.tsv'
+      - 'scripts/check-cost-rows.sh'
+      - 'scripts/check-cost-rows_test.sh'
+      - '.github/workflows/check-cost-rows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check-cost-rows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test the check
+        run: bash scripts/check-cost-rows_test.sh
+
+      - name: Check every skill's cost rows against its suites
+        run: bash scripts/check-cost-rows.sh
