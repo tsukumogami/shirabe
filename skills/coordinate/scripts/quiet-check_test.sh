@@ -15,8 +15,10 @@
 #
 # A person's order to park holds a worker only as a pause row: written as an
 # answer row it holds nothing, and the parked worker goes on to a second
-# silence (shirabe#1364). An all pause with a go-ahead on one unit skips only
-# the held worker; the let-through worker is swept as usual (shirabe#1383).
+# silence (shirabe#1364).
+#
+# An all pause with a go-ahead on one unit skips only the held worker; the
+# let-through worker is swept as usual (shirabe#1383).
 #
 # Usage: bash skills/coordinate/scripts/quiet-check_test.sh
 set -uo pipefail
