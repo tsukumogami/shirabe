@@ -28,7 +28,12 @@
 #      and adds no entry, and the next brief dispatch-worker.sh renders from
 #      B tells the worker to report to B's session;
 #   7. with the liveness probe's clock 11 minutes on and no Claude job for
-#      the predecessor, the same takeover prints predecessor_stopped=no.
+#      the predecessor, the same takeover prints predecessor_stopped=no;
+#   8. with a stand-in koto refusing the run's driver read, its coordinator
+#      row read, or the takeover's koto status of it (session_unlocated), the
+#      start prints failed=takeover_read, exits 1 with koto's reason in its
+#      message, and opens, cancels and writes nothing, and a run with no
+#      driver and no coordinator row is still resumed.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
@@ -258,6 +263,64 @@ if PR=$T/pcopy PS=$T/pcopy/skills/coordinate/scripts to_reconciled quiet "$(two_
     eq "7:   ... and B2 runs from this plugin's root" "$PR" "$( (cd "$T/work2" && bash "$PS/coord-log.sh" vars --session "$(line session)") | jq -r .PLUGIN_ROOT)"
 else
     bad "7: the second run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 8. a refused read of the run stops the start, writing nothing ---------------------------
+# A stand-in in front of the real koto refuses reads of one run, RS_RUN, as
+# koto refuses a run it can't locate (session_unlocated), from the read RS_ARM
+# names on: meta every read from its record/meta's (the driver), row every
+# read from its record/run's (the coordinator row), status its koto status
+# once record/run has been read (the takeover's state read; the resume
+# candidate's own status read comes before it). Each start runs from B's
+# session and directory against a run A drives.
+REAL_KOTO=$(command -v koto)
+mkdir -p "$T/rshim"
+cat > "$T/rshim/koto" <<EOF
+#!/bin/sh
+if [ "\$1 \$2 \$3" = "context get \$RS_RUN" ]; then
+    case "\$RS_ARM:\$4" in meta:record/meta|row:record/run|status:record/run) : > "$T/rs-armed" ;; esac
+fi
+if [ -e "$T/rs-armed" ]; then
+    v=
+    case "\$1 \$2" in "context get"|"context list"|"context exists") [ "\$3" = "\$RS_RUN" ] && [ "\$RS_ARM" != status ] && v=1 ;; esac
+    [ "\$1 \$2" = "status \$RS_RUN" ] && v=1
+    if [ -n "\$v" ]; then
+        printf '{"code":"session_unlocated","command":"%s","error":"session_unlocated: session %s has no copy on this host and the bucket holds none under the prefix 0123456789abcdef, so nothing was read","locations":["0123456789abcdef"],"reason":"no_local_copy","session":"%s"}\n' "\$1" "\$RS_RUN" "\$RS_RUN"
+        exit 2
+    fi
+fi
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/rshim/koto"
+sessions() { koto session list 2>/dev/null | jq -r '.[].id' | sort | tr '\n' ' '; }
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+if to_reconciled unread "$(two_holdings unread)"; then
+    A3=$S
+    A3LOG="$(koto session dir "$A3")/koto-$A3.state.jsonl"
+    A3KEYS=$(keyset "$A3" "$WD")
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    for arm in meta row status; do
+        BEFORE_S=$(sessions); BEFORE_L=$(wc -l < "$A3LOG")
+        rm -f "$T/rs-armed"
+        RS_RUN=$A3 RS_ARM=$arm PATH="$T/rshim:$PATH" opener unread "$T/work2"
+        eq "8 $arm: a refused read stops the start: failed=takeover_read, exit 1" "1 takeover_read" "$ORC $(line failed)"
+        eq "8 $arm:   ... neither resumed nor taken over: no outcome=, no session=" "" "$(line outcome)$(line session)"
+        case $arm in status) what="$A3's state couldn't be read" ;; *) what="$A3's driver" ;; esac
+        grep -qF "$what" "$T/open.err" && grep -q 'no copy on this host' "$T/open.err" && grep -q 0123456789abcdef "$T/open.err" \
+            && ok "8 $arm:   ... the message names the read and carries koto's reason and location" \
+            || bad "8 $arm:   ... the message names the read and carries koto's reason and location" "$(cat "$T/open.err")"
+        eq "8 $arm:   ... opening no run" "$BEFORE_S" "$(sessions)"
+        eq "8 $arm:   ... and writing nothing to the run, cancelling nothing" "$BEFORE_L" "$(wc -l < "$A3LOG")"
+    done
+    eq "8: the run's keys are as they were" "$A3KEYS" "$(keyset "$A3" "$WD")"
+    # A run whose record/meta names no driver and whose record has no
+    # coordinator row is no other session's: it is resumed, as before.
+    put "$A3" record/run '[]'
+    opener unread "$T/work2"
+    eq "8: a run with no driver and no coordinator row is resumed" "0 resumed $A3" "$ORC $(line outcome) $(line session)"
+else
+    bad "8: the third run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
