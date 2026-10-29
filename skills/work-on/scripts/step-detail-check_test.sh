@@ -23,7 +23,11 @@
 # initialized with exactly the vars /execute's spawn line (read from the
 # compiled execute.md) puts on a plan-to-tasks.sh task, which carries PLAN_DOC
 # and passes the gate, while the same task without PLAN_DOC holds with "no
-# plan path given".
+# plan path given"; and a child whose PLAN_DOC was removed after it was
+# opened, which holds on the missing path until an attach that keeps every
+# recorded variable adds PLAN_DOC_MOVED (an attach that changes PLAN_DOC is
+# refused), reads the PLAN there and proceeds, and falls back to PLAN_DOC when
+# a later attach leaves PLAN_DOC_MOVED out.
 #
 # The shirabe binary is $SHIRABE_BIN when set, otherwise a release build of
 # this checkout (`cargo build --release -p shirabe`), as plan-to-tasks_test.sh
@@ -471,6 +475,89 @@ else
         [ "$STATE" = plan_validation ] && pass "proceed is refused for the task without PLAN_DOC" \
             || fail "proceed without PLAN_DOC reached [$STATE]"
     fi
+
+    echo "--- a child whose checkout moved before plan_validation"
+
+    # A child opened with PLAN_DOC in a checkout that is then removed, as a
+    # coordinated child's plan_abs is when the run's checkout moves. The PLAN
+    # of the same file name now sits elsewhere in the repository.
+    OLD_PLAN="$ER/old-checkout/docs/plans/PLAN-steps.md"
+    NEW_PLAN="$ER/docs/plans/PLAN-steps.md"
+    mkdir -p "$(dirname "$OLD_PLAN")"
+    cp "$NEW_PLAN" "$OLD_PLAN"
+    # The recorded variables besides the required two, which every init line
+    # names itself so scripts/check-init-site-vars.sh can see them.
+    MOVED_VARS=(--var ISSUE_SOURCE=plan_outline --var PLAN_DOC="$OLD_PLAN" --var SHARED_BRANCH=main)
+    # attach_moved [<var>...]: the step agent's attach, every recorded
+    # variable unchanged plus any given.
+    attach_moved() {
+        (cd "$ER" && PATH="$ENGINE_PATH" koto init s-moved --template "$TEMPLATE" --attach-live \
+            --var ARTIFACT_PREFIX=step-1 --var PLUGIN_ROOT="$REPO_ROOT" "${MOVED_VARS[@]}" "$@" >/dev/null 2>&1)
+    }
+    step_detail_has() { # step_detail_has <fragment>
+        printf '%s' "$RESP" | jq -e --arg f "$1" '[.blocking_conditions[]? | select(.name == "step_detail") | tostring | contains($f)] | any' >/dev/null 2>&1
+    }
+    (cd "$ER" && PATH="$ENGINE_PATH" koto init s-moved --template "$TEMPLATE" \
+        --var ARTIFACT_PREFIX=step-1 --var PLUGIN_ROOT="$REPO_ROOT" "${MOVED_VARS[@]}" >/dev/null 2>&1)
+    rm -rf "$ER/old-checkout"
+    tick s-moved
+    [ "$STATE" = entry ] && tick s-moved '{"mode":"plan_backed","issue_source":"plan_outline"}'
+    printf 'the outline item\n' | (cd "$ER" && koto context add s-moved context.md) >/dev/null 2>&1
+    tick s-moved '{"status":"completed","issue_source":"plan_outline"}'
+    if [ "$STATE" = plan_validation ] && step_detail_has "plan not found"; then
+        pass "a moved child without PLAN_DOC_MOVED holds at step_detail on the missing path"
+    else
+        fail "moved child before the attach: state [$STATE], response [$RESP]"
+    fi
+
+    # PLAN_DOC isn't rebindable: the step agent's open line, run as an attach
+    # with the run's PLAN, is refused as var_mismatch, and the refusal names
+    # the path the child recorded, which the step agent passes back unchanged.
+    # koto prints the template's warnings first; the refusal is its last line.
+    MISMATCH=$(cd "$ER" && PATH="$ENGINE_PATH" koto init s-moved --template "$TEMPLATE" --attach-live \
+        --var ARTIFACT_PREFIX=step-1 --var ISSUE_SOURCE=plan_outline --var PLAN_DOC="$NEW_PLAN" \
+        --var SHARED_BRANCH=main --var PLUGIN_ROOT="$REPO_ROOT" 2>&1)
+    MISMATCH_RC=$?
+    MISMATCH=${MISMATCH##*$'\n'}
+    if [ "$MISMATCH_RC" -ne 0 ] && printf '%s' "$MISMATCH" | jq -e --arg p "$OLD_PLAN" \
+        '.code == "var_mismatch" and .var == "PLAN_DOC" and .recorded == $p' >/dev/null 2>&1; then
+        pass "an attach that changes PLAN_DOC is refused as var_mismatch naming the recorded path"
+    else
+        fail "an attach that changed PLAN_DOC: exit $MISMATCH_RC, output [$MISMATCH]"
+    fi
+
+    if attach_moved --var PLAN_DOC_MOVED="$NEW_PLAN"; then
+        pass "the attach with every recorded variable and PLAN_DOC_MOVED is accepted"
+    else
+        fail "the attach with PLAN_DOC_MOVED was refused"
+    fi
+    tick s-moved
+    MSG=$(gate_message)
+    if [ "$STATE" = plan_validation ] && [ -z "$MSG" ]; then
+        pass "with PLAN_DOC_MOVED the gate reads the PLAN where it is now and passes"
+    else
+        fail "after the moved attach: state [$STATE], gate message [$MSG]"
+    fi
+
+    # An attach that leaves PLAN_DOC_MOVED out blanks it, and the gate falls
+    # back to PLAN_DOC.
+    attach_moved
+    tick s-moved
+    if [ "$STATE" = plan_validation ] && step_detail_has "plan not found"; then
+        pass "an attach without PLAN_DOC_MOVED blanks it and the gate reads PLAN_DOC again"
+    else
+        fail "after an attach without PLAN_DOC_MOVED: state [$STATE], response [$RESP]"
+    fi
+    tick s-moved '{"verdict":"proceed"}'
+    [ "$STATE" = plan_validation ] && pass "proceed is refused while the gate reads the missing PLAN_DOC" \
+        || fail "proceed on the missing PLAN reached [$STATE]"
+
+    attach_moved --var PLAN_DOC_MOVED="$NEW_PLAN"
+    tick s-moved '{"verdict":"proceed"}'
+    case "$STATE" in
+        setup_plan_backed | analysis) pass "the moved child's verdict proceed moves on to [$STATE]" ;;
+        *) fail "the moved child's proceed reached [$STATE]" ;;
+    esac
 fi
 
 echo ""

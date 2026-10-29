@@ -4082,7 +4082,9 @@ send the unit to the failure branch.
 
 Choose the move and submit `move`: `redispatch` with the same brief plus what was
 learned, or `escalate` when the failure is for whoever dispatched you to decide,
-which raises it as a decision entry. Never tear anything down here.
+which raises it as a decision entry. Never tear anything down here. A worker
+parked on a person's order hasn't failed: write its missing pause, then submit
+`escalate` to raise an entry you settle yourself, as the details below say.
 
 <!-- details -->
 
@@ -4103,6 +4105,24 @@ script refuses a leg-bound worker, whose end still arrives on its leg. The
 new worker's brief names the stranded worker's branch and last pushed head,
 and the stranded row is retired once the new worker is dispatched; a report
 that later comes from the old topic matches no holding and is refused.
+
+A unit sent here by a second silence whose worker turns out to be parked on a
+person's order (its last report says it parked, or the order stands in the
+record as an `answer` row) hasn't failed; its `pause` row is missing, the row
+`status_message` writes at the first silence. Never redispatch or strand it.
+Write the order as `wait` says, with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session {{SESSION_NAME}}`:
+`--standing pause --what "<what it says>" --owner "<the person>" --relayed-by
+"<who carried it>" --on <all or the unit> --until <its condition>` (no relayer
+when the person told you directly), then the worker's Work row, `--work
+"<unit>" --kind holding --who <topic> --next "paused by <id>; idle until the
+resume"`. Send the worker nothing; it is already holding. Then submit `move:
+escalate`, and at `decision_raise` open the entry with `--source self`, its
+question whether to leave the worker parked under the pause row you just wrote,
+naming that row, and `--option "leave the worker parked under pause <id>"`.
+When the entry comes up for its verdict, settle it yourself with that option as
+`--outcome` and the row as `--reason`: the record answers it, so no person is
+asked, and the run goes on to pick, which never chooses a paused unit.
 
 ## decision_apply
 
