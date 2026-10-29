@@ -179,9 +179,10 @@ WD=$(mktemp -d "${TMPDIR:-/tmp}/state-decision.XXXXXX") || lib_die2 "cannot make
 CORE_CLEANUP=$WD
 trap 'rm -rf "$WD"' EXIT
 
-# read_live: the live record into $WD/parsed.json.
+# read_live [<fields>]: the live record into $WD/parsed.json, only <fields>'
+# sections when given.
 read_live() {
-    rs_record "$WD/parsed.json"
+    rs_record "$WD/parsed.json" "${1:-}"
     case $? in
         0) ;;
         4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
@@ -192,7 +193,9 @@ read_live() {
     esac
 }
 
-read_live
+# --list and --read print from the Decisions section alone, so they read that
+# one section; a write reads the whole record it writes back (shirabe#1315).
+case "$MODE" in list|read) read_live decisions ;; *) read_live ;; esac
 case "$MODE" in
 list)
     jq -c -L "$HERE" 'include "state-schema"; decisions_list' "$WD/parsed.json"

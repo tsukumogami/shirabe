@@ -30,7 +30,7 @@ done
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/publish-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'case "$T" in */publish-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */publish-test.*) rm -rf "$T" ;; esac'
 export GIT_CEILING_DIRECTORIES="$T"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 
@@ -491,6 +491,428 @@ INSIDE=$(printf '%s\n' "$BODY" | awk '/^```text$/ { f = 1; next } f && /^```$/ {
 eq "hostile: the fenced block holds exactly the four step lines" "4" \
     "$(printf '%s\n' "$INSIDE" | grep -c '^### Step [1-4]: ' | tr -d ' ')"
 eq "hostile: nothing else sits inside the fence" "4" "$(printf '%s\n' "$INSIDE" | wc -l | tr -d ' ')"
+
+echo "== every body has two parts =="
+# The squash message is the title and Part 1, everything above the body's
+# first top-level `---` outside a code fence (scripts/lib/squash-message.sh).
+# Every body /scope writes, on create and on a rewrite, has exactly one, a
+# Part 1 of plain prose with no heading, and the run marker below it.
+SQUASH="$HERE/../../../scripts/lib/squash-message.sh"
+# sep_line <file> -- the first top-level `---` line outside a fence, 0 when
+# there is none. seps <file> -- how many such lines there are.
+sep_line() {
+    awk '{ l = $0; sub(/\r$/, "", l) }
+         l ~ /^[ \t]*```/ { f = !f; next }
+         !f && l ~ /^[ \t]*---[ \t]*$/ { print NR; found = 1; exit }
+         END { if (!found) print 0 }' "$1"
+}
+seps() {
+    awk '{ l = $0; sub(/\r$/, "", l) }
+         l ~ /^[ \t]*```/ { f = !f; next }
+         !f && l ~ /^[ \t]*---[ \t]*$/ { n++ }
+         END { print n + 0 }' "$1"
+}
+# two_parts <label> <body-file> -- one separator, a non-empty Part 1, no ATX
+# heading in it (references/pr-body-conformance.md, PB2 and PB4).
+two_parts() {
+    local s p1=""
+    eq "$1: exactly one top-level ---" "1" "$(seps "$2")"
+    s=$(sep_line "$2")
+    [ "$s" -gt 1 ] && p1=$(sed -n "1,$((s - 1))p" "$2")
+    if [ -n "$(tr -d '[:space:]' <<<"$p1")" ]; then ok "$1: Part 1 is not empty"; else bad "$1: Part 1 is not empty" "$(cat "$2")"; fi
+    if grep -Eq '^ {0,3}#{1,6}([[:space:]]|$)' <<<"$p1"; then
+        bad "$1: no ATX heading in Part 1" "$p1"
+    else
+        ok "$1: no ATX heading in Part 1"
+    fi
+    if command -v shirabe >/dev/null 2>&1; then
+        if shirabe validate --pr-body "$2" >/dev/null 2>&1; then
+            ok "$1: shirabe validate --pr-body passes"
+        else
+            bad "$1: shirabe validate --pr-body passes" "$(shirabe validate --pr-body "$2" 2>&1 | tail -3)"
+        fi
+    fi
+}
+# marker_below <label> <body-file> -- this run's marker, once, below the separator.
+marker_below() {
+    local s m
+    s=$(sep_line "$2")
+    m=$(awk -v m="<!-- shirabe-run: $MINE -->" '$0 == m { print NR }' "$2")
+    case "$m" in
+        ""|*[!0-9]*) bad "$1: the run marker sits once, below the separator" "$(cat "$2")" ;;
+        *) if [ "$s" -gt 0 ] && [ "$m" -gt "$s" ]; then
+               ok "$1: the run marker sits once, below the separator"
+           else
+               bad "$1: the run marker sits once, below the separator" "$(cat "$2")"
+           fi ;;
+    esac
+}
+
+for kind in default records coordinated; do
+    if [ "$kind" = coordinated ] && ! command -v shirabe >/dev/null 2>&1; then
+        echo "SKIP: shirabe not on PATH -- the coordinated two-part body was not rendered"
+        continue
+    fi
+    case "$kind" in
+        default) CONTENT=omit setup single-pr ;;
+        records) setup single-pr ;;
+        coordinated) setup coordinated ;;
+    esac
+    run --topic topic --exit full-run --intent continue
+    eq "$kind: the create exits 0" "0" "$RC"
+    jq -r '.[0].body' "$GHF/prs.json" >"$T/created.md"
+    two_parts "$kind: the created body" "$T/created.md"
+    if [ "$kind" = default ]; then
+        eq "default: the squash message is the title and the one sentence" \
+            "$(printf 'docs: add the topic scoping documents\n\nThe scoping documents for topic.')" \
+            "$(bash "$SQUASH" --title "docs: add the topic scoping documents" "$T/created.md")"
+    fi
+    # A rewrite of the same PR, whose body this run marked and which has no
+    # separator: the template's two parts, the marker carried below them.
+    jq --arg m "<!-- shirabe-run: $MINE -->" '.[0].body = ("intent=stop\n" + $m + "\n")' \
+        "$GHF/prs.json" >"$GHF/prs.new" && mv "$GHF/prs.new" "$GHF/prs.json"
+    mkdir -p "$STORE/s-two-$kind"; printf '%s' "$MINE" >"$STORE/s-two-$kind/run_id"
+    run --topic topic --exit full-run --intent continue --session "s-two-$kind"
+    eq "$kind: the rewrite exits 0" "0" "$RC"
+    eq "$kind: one pr edit" "1" "$(calls edit)"
+    jq -r '.[0].body' "$GHF/prs.json" >"$T/rewritten.md"
+    two_parts "$kind: the rewritten body" "$T/rewritten.md"
+    marker_below "$kind: the rewritten body" "$T/rewritten.md"
+    if [ "$kind" = coordinated ]; then
+        if shirabe validate --coordination-body "$T/rewritten.md" >/dev/null 2>&1; then
+            ok "coordinated: the rewritten body passes shirabe validate --coordination-body"
+        else
+            bad "coordinated: the rewritten body passes shirabe validate --coordination-body" \
+                "$(shirabe validate --coordination-body "$T/rewritten.md" 2>&1 | tail -3)"
+        fi
+    fi
+done
+
+echo "== a rewrite keeps the live Part 1 and the Part 2 sections it does not write =="
+# set_body <url> <file> -- replace that seeded PR's body with the file's bytes.
+set_body() {
+    jq --arg u "$1" --rawfile b "$2" 'map(if .url == $u then .body = $b else . end)' \
+        "$GHF/prs.json" >"$GHF/prs.new" && mv "$GHF/prs.new" "$GHF/prs.json"
+}
+P7="https://github.com/acme/widgets/pull/7"
+setup single-pr
+seed_pr "$P7" false me main stop
+# A person's Part 1, with a list and a fenced `---` that is not the separator,
+# then a Part 2 holding the template's old sections and two someone added.
+cat >"$T/live-part1.md" <<'EOF'
+A person's description of the change, kept on every rewrite.
+
+```text
+---
+```
+
+- a list item
+
+EOF
+cat >"$T/live-part2.md" <<EOF
+---
+
+# /scope: topic
+
+topic=topic
+intent=stop
+
+## Artifact Chain
+
+- docs/old-path.md
+
+## Review panel
+
+| Seat | Model | Run | Verdict |
+|------|-------|-----|---------|
+| scrutiny | m | run-1 | pass |
+
+## Work Items
+
+- #99
+
+## Notes for the reviewer
+
+Text someone added.
+
+<!-- shirabe-run: $MINE -->
+EOF
+cat "$T/live-part1.md" "$T/live-part2.md" >"$T/live.md"
+set_body "$P7" "$T/live.md"
+mkdir -p "$STORE/s-keep"; printf '%s' "$MINE" >"$STORE/s-keep/run_id"
+run --topic topic --exit full-run --intent continue --session s-keep
+eq "keep: exit 0" "0" "$RC"
+eq "keep: one pr edit" "1" "$(calls edit)"
+jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/kept.md"
+head -c "$(wc -c <"$T/live-part1.md" | tr -d ' ')" "$T/kept.md" >"$T/kept-part1.md"
+if cmp -s "$T/live-part1.md" "$T/kept-part1.md"; then
+    ok "keep: the live Part 1 is kept byte for byte"
+else
+    bad "keep: the live Part 1 is kept byte for byte" "$(cat "$T/kept.md")"
+fi
+eq "keep: the separator follows the kept Part 1" "$(( $(wc -l <"$T/live-part1.md") + 1 ))" "$(sep_line "$T/kept.md")"
+two_parts "keep: the rewritten body" "$T/kept.md"
+marker_below "keep: the rewritten body" "$T/kept.md"
+section() { # section <heading> <file> -- that `## ` section, heading to the next one
+    awk -v h="$1" '$0 == h { p = 1; print; next } p && /^## / { exit } p' "$2"
+}
+eq "keep: the live Part 2's ## Review panel section is carried unchanged" \
+    "$(printf '## Review panel\n\n| Seat | Model | Run | Verdict |\n|------|-------|-----|---------|\n| scrutiny | m | run-1 | pass |')" \
+    "$(section '## Review panel' "$T/kept.md")"
+eq "keep: a second section someone added is carried unchanged" \
+    "$(printf '## Notes for the reviewer\n\nText someone added.\n\n<!-- shirabe-run: %s -->' "$MINE")" \
+    "$(section '## Notes for the reviewer' "$T/kept.md")"
+HEADS=$(awk -v s="$(sep_line "$T/kept.md")" 'NR > s && /^## /' "$T/kept.md")
+eq "keep: the template's sections, then the carried ones in live order" \
+    "$(printf '## Artifact Chain\n## Work Items\n## Review panel\n## Notes for the reviewer')" "$HEADS"
+KEPT=$(cat "$T/kept.md")
+case "$KEPT" in
+    *"docs/old-path.md"*|*"#99"*|*"intent=stop"*) bad "keep: the template's own sections and record lines are replaced" "$KEPT" ;;
+    *"intent=continue"*"docs/plans/PLAN-topic.md"*"#31"*) ok "keep: the template's own sections and record lines are replaced" ;;
+    *) bad "keep: the template's own sections and record lines are replaced" "$KEPT" ;;
+esac
+case "$(cat "$T/err")" in
+    *"## Review panel"*"## Notes for the reviewer"*) ok "keep: stderr names each carried section" ;;
+    *) bad "keep: stderr names each carried section" "$(cat "$T/err")" ;;
+esac
+MSG=$(bash "$SQUASH" --title "docs(scope): topic (full-run)" "$T/kept.md")
+eq "keep: squash-message.sh exits 0 on the rewritten body" "0" "$?"
+case "$MSG" in
+    *"Review panel"*|*"topic="*|*"Artifact Chain"*|*"Work Items"*|*"shirabe-run"*|*"Text someone added"*|*"#31"*)
+        bad "keep: the squash message carries none of Part 2" "$MSG" ;;
+    "docs(scope): topic (full-run)"$'\n\n'"A person's description of the change, kept on every rewrite."*"a list item")
+        ok "keep: the squash message carries none of Part 2" ;;
+    *) bad "keep: the squash message carries none of Part 2" "$MSG" ;;
+esac
+
+# A run of the same body again carries each section once, not twice.
+rm -f "$STORE/s-keep/published_intent"
+run --topic topic --exit full-run --intent continue --session s-keep
+jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/kept2.md"
+eq "keep: a second rewrite carries the Review panel section once" "1" "$(grep -c '^## Review panel$' "$T/kept2.md" | tr -d ' ')"
+if cmp -s "$T/kept.md" "$T/kept2.md"; then ok "keep: a second rewrite changes nothing"; else bad "keep: a second rewrite changes nothing" "$(diff "$T/kept.md" "$T/kept2.md")"; fi
+
+# \r\n line endings, as a body edited in the browser comes back.
+setup single-pr
+seed_pr "$P7" false me main stop
+printf 'Line one of a description.\r\n\r\n' >"$T/crlf-part1.md"
+printf -- '---\r\n\r\n## Review panel\r\n\r\n| Seat | Verdict |\r\n| a | pass |\r\n' >"$T/crlf-part2.md"
+cat "$T/crlf-part1.md" "$T/crlf-part2.md" >"$T/crlf.md"
+set_body "$P7" "$T/crlf.md"
+run --topic topic --exit full-run --intent continue --session s-crlf
+jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/crlf-kept.md"
+head -c "$(wc -c <"$T/crlf-part1.md" | tr -d ' ')" "$T/crlf-kept.md" >"$T/crlf-kept-part1.md"
+if cmp -s "$T/crlf-part1.md" "$T/crlf-kept-part1.md"; then
+    ok "crlf: the live Part 1 is kept byte for byte, \\r included"
+else
+    bad "crlf: the live Part 1 is kept byte for byte, \\r included" "$(od -c "$T/crlf-kept.md" | head -5)"
+fi
+if grep -qF $'| a | pass |\r' "$T/crlf-kept.md"; then
+    ok "crlf: the carried Review panel section keeps its \\r"
+else
+    bad "crlf: the carried Review panel section keeps its \\r" "$(od -c "$T/crlf-kept.md" | tail -8)"
+fi
+eq "crlf: exactly one top-level ---" "1" "$(seps "$T/crlf-kept.md")"
+
+# A live body with no separator has no Part 1 to keep: the template's goes in.
+setup single-pr
+seed_pr "$P7" false me main stop
+printf 'intent=stop\n\n## Review panel\n\n| x |\n' >"$T/nosep.md"
+set_body "$P7" "$T/nosep.md"
+run --topic topic --exit full-run --intent continue --session s-nosep
+jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/nosep-new.md"
+eq "no separator: the template's Part 1" "The scoping documents for topic." "$(sed -n 1p "$T/nosep-new.md")"
+eq "no separator: the separator follows it" "3" "$(sep_line "$T/nosep-new.md")"
+two_parts "no separator: the rewritten body" "$T/nosep-new.md"
+
+# A live Part 1 with no text is not kept (PB2 needs one); its sections still are.
+setup single-pr
+seed_pr "$P7" false me main stop
+printf '\n---\n\n## Review panel\n\n| x |\n' >"$T/blank.md"
+set_body "$P7" "$T/blank.md"
+run --topic topic --exit full-run --intent continue --session s-blank
+jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/blank-new.md"
+eq "blank Part 1: the template's Part 1" "The scoping documents for topic." "$(sed -n 1p "$T/blank-new.md")"
+eq "blank Part 1: the Review panel section is still carried" "$(printf '## Review panel\n\n| x |')" \
+    "$(section '## Review panel' "$T/blank-new.md")"
+two_parts "blank Part 1: the rewritten body" "$T/blank-new.md"
+
+echo "== a republish over a body /execute rendered keeps its record =="
+# cb_fields <body-file> -- what cb_parse reads back: the nodes, run and store.
+cb_fields() {
+    ( . "$HERE/../../../scripts/lib/coordination-body.sh" && cb_parse "$1" ) | jq -cS '{nodes, follow_ups, run, store}'
+}
+# The body coord-render.sh posts (scripts/lib/coordination-body.sh's header):
+# /scope's Part 1, the declaration, the run lines with store= and run=, a PR
+# Index of two nodes, the Merge Order naming them, and the run's marker.
+cat >"$T/rendered.tmpl" <<'EOF'
+The coordination pull request for topic, which merges after every node pull request.
+
+---
+
+> This is a **coordination PR** for a coordinated effort. It is docs-only and
+> merges **last**, once every indexed PR has merged and finalization is complete.
+> See `references/coordination-strategy.md`.
+
+topic=topic
+exit=full-run
+outcome=scoped
+intent=stop
+mode=coordinated
+store=github
+run=@RUN@
+
+## PR Index
+
+- one | acme/widgets:docs/plans/PLAN-topic.md#31 | merged | head=1111111111111111111111111111111111111111
+- two | acme/widgets:@INDEXED@#32 | open | head=2222222222222222222222222222222222222222
+
+## Merge Order
+
+```merge-order
+# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.
+# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
+one | pr | after: -
+two | pr | after: one
+```
+
+<!-- shirabe-run: @RUN@ -->
+EOF
+sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@|docs/plans/PLAN-topic.md|' "$T/rendered.tmpl" >"$T/rendered.md"
+if ! command -v shirabe >/dev/null 2>&1; then
+    echo "SKIP: shirabe not on PATH -- a coordinated republish refuses without the validator"
+else
+    setup coordinated
+    seed_pr "$P7" false me main stop
+    set_body "$P7" "$T/rendered.md"
+    mkdir -p "$STORE/s-rendered"; printf '%s' "$MINE" >"$STORE/s-rendered/run_id"
+    run --topic topic --exit full-run --intent continue --session s-rendered
+    eq "rendered: exit 0" "0" "$RC"
+    eq "rendered: one pr edit" "1" "$(calls edit)"
+    jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/rendered-new.md"
+    eq "rendered: the live Part 1 is kept" \
+        "The coordination pull request for topic, which merges after every node pull request." \
+        "$(sed -n 1p "$T/rendered-new.md")"
+    eq "rendered: the template's run lines with the new intent, then the live store= and run=" \
+        "$(printf 'topic=topic\nexit=full-run\noutcome=scoped\nintent=continue\nmode=coordinated\nstore=github\nrun=%s' "$MINE")" \
+        "$(grep -E '^(topic|exit|outcome|intent|mode|store|run)=' "$T/rendered-new.md")"
+    eq "rendered: the live PR Index is kept unchanged" \
+        "$(section '## PR Index' "$T/rendered.md")" "$(section '## PR Index' "$T/rendered-new.md")"
+    eq "rendered: the live Merge Order is kept unchanged" \
+        "$(section '## Merge Order' "$T/rendered.md")" "$(section '## Merge Order' "$T/rendered-new.md")"
+    case "$(cat "$T/rendered-new.md")" in
+        *"No node PR is open yet"*|*"# /execute renders"*) bad "rendered: no template placeholder replaces the record" "$(cat "$T/rendered-new.md")" ;;
+        *"## Artifact Chain"*"## Work Items"*"## PR Index"*"## Merge Order"*) ok "rendered: no template placeholder replaces the record" ;;
+        *) bad "rendered: no template placeholder replaces the record" "$(cat "$T/rendered-new.md")" ;;
+    esac
+    eq "rendered: cb_parse reads the body back with the live nodes, run and store" \
+        "$(cb_fields "$T/rendered.md")" "$(cb_fields "$T/rendered-new.md")"
+    marker_below "rendered: the republished body" "$T/rendered-new.md"
+    eq "rendered: the run marker is carried once" "1" "$(grep -c 'shirabe-run:' "$T/rendered-new.md" | tr -d ' ')"
+    if shirabe validate --coordination-body "$T/rendered-new.md" >/dev/null 2>&1; then
+        ok "rendered: the republished body passes shirabe validate --coordination-body"
+    else
+        bad "rendered: the republished body passes shirabe validate --coordination-body" \
+            "$(shirabe validate --coordination-body "$T/rendered-new.md" 2>&1 | tail -3)"
+    fi
+
+    # A second republish of that body changes nothing.
+    rm -f "$STORE/s-rendered/published_intent"
+    run --topic topic --exit full-run --intent continue --session s-rendered
+    jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/rendered-new2.md"
+    if cmp -s "$T/rendered-new.md" "$T/rendered-new2.md"; then
+        ok "rendered: a second republish changes nothing"
+    else
+        bad "rendered: a second republish changes nothing" "$(diff "$T/rendered-new.md" "$T/rendered-new2.md")"
+    fi
+    for h in '## PR Index' '## Merge Order' '^store=' '^run='; do
+        eq "rendered: a second republish leaves [$h] once" "1" "$(grep -c "^${h#^}" "$T/rendered-new2.md" | tr -d ' ')"
+    done
+
+    # A rendered body cb_parse refuses is a record the rewrite can't read: no edit.
+    setup coordinated
+    seed_pr "$P7" false me main stop
+    sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@#32|docs/plans/PLAN-topic.md|' "$T/rendered.tmpl" >"$T/rendered-bad.md"
+    set_body "$P7" "$T/rendered-bad.md"
+    mkdir -p "$STORE/s-rendered-bad"; printf '%s' "$MINE" >"$STORE/s-rendered-bad/run_id"
+    run --topic topic --exit full-run --intent continue --session s-rendered-bad
+    eq "an unreadable rendered body: scope:pr-create" "scope:pr-create" "$(line step)"
+    eq "an unreadable rendered body: exit 11" "11" "$RC"
+    eq "an unreadable rendered body: no pr edit" "0" "$(calls edit)"
+
+    # The body /scope opened carries no run= line: the template's placeholders, as before.
+    setup coordinated
+    run --topic topic --exit full-run --intent stop --session s-opened
+    run --topic topic --exit full-run --intent continue --session s-opened
+    eq "no run= line: one pr edit" "1" "$(calls edit)"
+    jq -r '.[0].body' "$GHF/prs.json" >"$T/opened-new.md"
+    case "$(cat "$T/opened-new.md")" in
+        *"No node PR is open yet"*"# /execute renders"*) ok "no run= line: the template's PR Index and Merge Order placeholders" ;;
+        *) bad "no run= line: the template's PR Index and Merge Order placeholders" "$(cat "$T/opened-new.md")" ;;
+    esac
+    eq "no run= line: no store= or run= line is added" "0" "$(grep -cE '^(store|run)=' "$T/opened-new.md" | tr -d ' ')"
+fi
+
+echo "== a re-evaluation or abandonment publish leaves a rendered coordination PR as it is =="
+# Both exits write a plain scoping body; over a body /execute rendered, or one
+# cb_parse refuses, the publish stops with no edit and no published_intent.
+sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@#32|docs/plans/PLAN-topic.md|' "$T/rendered.tmpl" >"$T/forced-bad.md"
+# The coordination body /scope opens, before any render: no store= or run= line.
+sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@|docs/plans/PLAN-topic.md|' -e '/^store=/d' -e '/^run=/d' \
+    "$T/rendered.tmpl" >"$T/forced-opened.md"
+for x in re-evaluation abandonment-forced; do
+    for c in rendered:"$T/rendered.md" refused:"$T/forced-bad.md"; do
+        k="${c%%:*}"; f="${c#*:}"
+        if [ "$k" = rendered ]; then d="a rendered body"; else d="a body cb_parse refuses"; fi
+        setup coordinated
+        seed_pr "$P7" false me main stop
+        set_body "$P7" "$f"
+        mkdir -p "$STORE/s-$x-$k"; printf '%s' "$MINE" >"$STORE/s-$x-$k/run_id"
+        run --topic topic --exit "$x" --intent continue --session "s-$x-$k"
+        eq "$x over $d: scope:pr-create" "scope:pr-create" "$(line step)"
+        eq "$x over $d: exit 11" "11" "$RC"
+        eq "$x over $d: no pr edit, so it is never rewritten as a plain scoping body" "0" "$(calls edit)"
+        eq "$x over $d: no pr create" "0" "$(calls create)"
+        eq "$x over $d: no published_intent" "" "$(cat "$STORE/s-$x-$k/published_intent" 2>/dev/null)"
+        eq "$x over $d: publish_step recorded" "scope:pr-create" "$(cat "$STORE/s-$x-$k/publish_step" 2>/dev/null)"
+        jq -j --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/forced-live.md"
+        if cmp -s "$f" "$T/forced-live.md"; then
+            ok "$x over $d: the body is unchanged"
+        else
+            bad "$x over $d: the body is unchanged" "$(diff "$f" "$T/forced-live.md")"
+        fi
+        case "$k:$(cat "$T/err")" in
+            rendered:*"coordination PR /execute rendered"*"left as it is"*|refused:*"can't be read as a coordination body"*"leaves the PR as it is"*)
+                ok "$x over $d: the refusal says the PR is left as it is" ;;
+            *) bad "$x over $d: the refusal says the PR is left as it is" "$(cat "$T/err")" ;;
+        esac
+    done
+
+    # A coordination body with no run= line is rewritten as a plain scoping body, as before.
+    setup coordinated
+    seed_pr "$P7" false me main stop
+    set_body "$P7" "$T/forced-opened.md"
+    mkdir -p "$STORE/s-$x-opened"; printf '%s' "$MINE" >"$STORE/s-$x-opened/run_id"
+    run --topic topic --exit "$x" --intent continue --session "s-$x-opened"
+    eq "$x over a body with no run= line: exit 0" "0" "$RC"
+    eq "$x over a body with no run= line: one pr edit" "1" "$(calls edit)"
+    eq "$x over a body with no run= line: published_intent recorded" "continue" "$(cat "$STORE/s-$x-opened/published_intent" 2>/dev/null)"
+    jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/forced-opened-new.md"
+    eq "$x over a body with no run= line: the live Part 1 is kept" \
+        "The coordination pull request for topic, which merges after every node pull request." \
+        "$(sed -n 1p "$T/forced-opened-new.md")"
+    eq "$x over a body with no run= line: the plain body's exit line" "$x" "$(sed -n 's/^exit=//p' "$T/forced-opened-new.md")"
+    eq "$x over a body with no run= line: no PR Index, Merge Order or declaration" "0" \
+        "$(grep -cE '^## (PR Index|Merge Order)$|coordination PR\*\*' "$T/forced-opened-new.md" | tr -d ' ')"
+
+    # A non-coordinated body is rewritten as before.
+    setup single-pr
+    seed_pr "$P7" false me main stop
+    run --topic topic --exit "$x" --intent continue --session "s-$x-plain"
+    eq "$x over a non-coordinated body: exit 0" "0" "$RC"
+    eq "$x over a non-coordinated body: one pr edit" "1" "$(calls edit)"
+    eq "$x over a non-coordinated body: published_intent recorded" "continue" "$(cat "$STORE/s-$x-plain/published_intent" 2>/dev/null)"
+done
 
 echo "== usage =="
 setup single-pr

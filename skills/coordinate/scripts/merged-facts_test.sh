@@ -19,11 +19,12 @@
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/merged-facts_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/merged-facts-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
 MF="$PS/merged-facts.sh"
@@ -148,6 +149,56 @@ eq "--pr --repo skip the holding read" "merged 12 $H" "$(bash "$MF" --session "$
 bash "$MF" --session "$S" --unit 'a b' >/dev/null 2>&1; eq "a malformed topic: exit 64" 64 $?
 bash "$MF" --session "$S" --unit x --pr 12 >/dev/null 2>&1; eq "--pr without --repo: exit 64" 64 $?
 bash "$MF" --unit x >/dev/null 2>&1; eq "no --session: exit 64" 64 $?
+
+echo "== merged facts: the koto calls don't grow with the entries (shirabe#1315) =="
+# The real state-holding.sh in place of the stand-in, reading the record the
+# session holds: the holding, and on a refusal the holdings listed, come from
+# one read of Holdings, got directly. record/ is never listed, so a record
+# with 300 entries makes the same calls as one with 3, and no entry is read.
+cp "$HERE/state-holding.sh" "$PS/state-holding.sh"
+mf_row() { # mf_row <worker> <unit> <pr>: a whole Holdings row linking acme/widgets#<pr>
+    jq -nc --arg w "$1" --arg u "$2" --arg l "[#$3](https://github.com/acme/widgets/pull/$3)" '{unit: $u,
+        entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing", dispatch_status: "dispatched",
+        return_path: "message", worker: $w, repo: "acme/widgets", branch: "feat/x", verified_head: "",
+        dispatched: "2026-09-26", pull_request: $l}'
+}
+# filler <session> <count>: plain entries numbered from 1, as record/entries/ keys.
+filler() {
+    local i
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" \
+            > "$KOTO_BOARD_DIR/sessions/$1/ctx/record__entries__$(printf '%06d' "$i")"
+    done
+}
+# mf_calls <unit> <entries>: the verdict on a merged event for <unit>, at
+# merged_facts on a record holding the two holdings and <entries> entries, and
+# its calls, kept in $T/mf.calls.
+mf_calls() {
+    at_facts; bt_evidence "$S" wait "$(jq -nc --arg u "$1" '{event: "merged", unit: $u}')"
+    rm -rf "$KOTO_BOARD_DIR/sessions/$S/ctx"
+    jq -nc --argjson a "$(mf_row plugin-registry "Feature 2" 12)" --argjson b "$(mf_row sandbox "Feature 3" 13)" \
+        '{scope: {kind: "roadmap", name: "demo"}, holdings: [$a, $b], deferrals: [], side_effects: [], reversals: []}' > "$T/rec.json"
+    bt_session_record "$S"
+    filler "$S" "$2"
+    : > "$KOTO_BOARD_DIR/koto.calls"
+    OUT=$(bash "$MF" --session "$S" 2>"$T/err")
+    printf '%s %s' "${OUT% sealed:*}" "$(wc -l < "$KOTO_BOARD_DIR/koto.calls" | tr -d ' ')"
+    cp "$KOTO_BOARD_DIR/koto.calls" "$T/mf.calls"
+}
+for unit in plugin-registry nobody; do
+    FEW=$(mf_calls "$unit" 3)
+    MANY=$(mf_calls "$unit" 300)
+    case "${FEW##* }" in ''|*[!0-9]*) bad "$unit: merged_facts runs" "$FEW"; continue ;; esac
+    eq "$unit: the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+    eq "  ... reading no entry and never listing record/" "0 0" \
+        "$(grep -c '^context get [^ ]* record/entries/' "$T/mf.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/mf.calls")"
+    eq "  ... and of the record, only Holdings is got, once" "record/holdings" \
+        "$(sed -n 's|^context get [^ ]* \(record/[a-z-]*\)$|\1|p' "$T/mf.calls" | grep -vx record/meta | tr '\n' ' ' | sed 's/ $//')"
+    case $unit in plugin-registry) MERGED_VERDICT=${FEW% *} ;; *) REFUSED_VERDICT=${FEW% *} ;; esac
+done
+eq "the merge of the verified head is merged" "merged 12 $H" "${MERGED_VERDICT:-}"
+eq "a unit no holding names is refused" "unknown-topic" "${REFUSED_VERDICT:-}"
+cp "$TD/board/stand-in-state-holding.sh" "$PS/state-holding.sh"
 
 echo
 echo "merged-facts: $PASS passed, $FAIL failed"

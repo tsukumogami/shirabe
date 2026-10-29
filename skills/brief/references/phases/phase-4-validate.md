@@ -93,7 +93,7 @@ context key into the second:
                                                                   # prints <context-file>
 ```
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Content Quality runs on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/briefs/BRIEF-<topic>.md --format skills/brief/references/brief-format.md --extra <context-file>`. `<context-file>` is the path `get` printed, the context the Structural Format prompt names.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Content Quality runs on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/briefs/BRIEF-<topic>.md --format skills/brief/references/brief-format.md --extra <context-file> --scratch <inputs-dir>`. `<context-file>` is the path `get` printed, the context the Structural Format prompt names.
 
 Before the round starts, run the document check on the draft
 (`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):

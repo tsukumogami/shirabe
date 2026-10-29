@@ -18,11 +18,12 @@
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/merge-confirm_test.sh
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/merge-confirm-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
 MC="$PS/merge-confirm.sh"
@@ -103,6 +104,42 @@ at_confirm
 bash "$MC" --session "$S" --repo acme/widgets --pr 13 >/dev/null 2>&1; eq "--pr that disagrees with land's capture" 2 $?
 eq "--no-seal prints the bare token" "merged 12 $H" "$(bash "$MC" --session "$S" --repo acme/widgets --no-seal 2>/dev/null)"
 bash "$MC" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
+
+echo "== merge_confirm: the koto calls don't grow with the entries (shirabe#1315) =="
+# Run as the template runs it, the check finds the repository in the record's
+# Holdings section alone and never lists record/, which names every entry: the
+# same confirmation on a record with a few entries and with 300 makes the same
+# koto calls. The real state-holding.sh stands in the tree here, so the
+# Holdings read reaches the session's keys.
+# filler <session> <count>: plain entries numbered from 1, as the stand-in
+# keeps keys.
+filler() {
+    local d="$KOTO_BOARD_DIR/sessions/$1/ctx" i
+    mkdir -p "$d"
+    for ((i = 1; i <= $2; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/record__entries__$(printf '%06d' "$i")"
+    done
+}
+# koto_calls <entries>: a run at merge_confirm whose record holds #12's row
+# and <entries> entries; prints the token and the check's koto calls, the
+# calls kept in $T/kc.calls.
+koto_calls() {
+    at_confirm
+    bt_record_paused '[]'
+    filler "$S" "$1"
+    : > "$KOTO_BOARD_DIR/koto.calls"
+    OUT=$(bash "$MC" --session "$S" 2>"$T/err")
+    printf '%s %s' "${OUT% sealed:*}" "$(wc -l < "$KOTO_BOARD_DIR/koto.calls" | tr -d ' ')"
+    cp "$KOTO_BOARD_DIR/koto.calls" "$T/kc.calls"
+}
+cp "$HERE/state-holding.sh" "$PS/state-holding.sh"
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+cp "$TD/board/stand-in-state-holding.sh" "$PS/state-holding.sh"
+eq "the same token and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... merged from the verified head" "merged 12 $H" "${FEW% *}"
+eq "  ... reading the Holdings section" 1 "$(grep -c '^context get [^ ]* record/holdings$' "$T/kc.calls")"
+eq "  ... never listing record/" 0 "$(grep -cE '^context list (.* )?--prefix record/( |$)' "$T/kc.calls")"
 
 echo
 echo "merge-confirm: $PASS passed, $FAIL failed"

@@ -58,7 +58,7 @@ TMPS=()
 # suite reporting "0 failed" exited 1 anyway, which is a green run reported red
 # on every macOS leg.
 cleanup() { for d in ${TMPS[@]+"${TMPS[@]}"}; do [[ -n "$d" ]] && rm -rf "$d"; done; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 mktmp() {
     local d

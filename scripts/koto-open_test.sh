@@ -62,7 +62,7 @@ REAL_GIT=$(command -v git)
 T=$(mktemp -d "${TMPDIR:-/tmp}/koto-open-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */koto-open-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 export HOME="$T/home"
 # The engine cases create, replace and move sessions, so they must never reach
@@ -176,7 +176,8 @@ echo
 
 # --- the script never evaluates anything --------------------------------------
 
-if grep -v '^[[:space:]]*#' "$OPEN" | grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)'; then
+OPEN_CODE=$(grep -v '^[[:space:]]*#' "$OPEN")
+if grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)' <<<"$OPEN_CODE"; then
     fail "koto-open.sh contains eval"
 else
     pass "koto-open.sh contains no eval"

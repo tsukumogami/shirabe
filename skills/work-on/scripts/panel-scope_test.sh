@@ -55,7 +55,7 @@ command -v jq  >/dev/null 2>&1 || { echo "SKIP: jq not on PATH -- no case ran"; 
 
 WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Every finding --verdict prints is logged and verified against the rule
 # registry at the end.
@@ -213,13 +213,15 @@ same_laddered() {
 }
 
 # packet <args>: runs review-packet.sh in the fixture, against the same koto
-# stand-in. Sets POUT (the packet path) and PRC.
+# stand-in, with the packet in a private scratch directory as a run's own.
+# Sets POUT (the packet path) and PRC.
 PACKET_SH="$PLUGIN_ROOT/scripts/review-packet.sh"
 PRC=0
 POUT=""
 mkdir -p "$WORKDIR/ptmp"
+mkdir -m 700 "$WORKDIR/pscratch"
 packet() {
-    POUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" TMPDIR="$WORKDIR/ptmp" "$PACKET_SH" "$@" 2>"$WORKDIR/pstderr")
+    POUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" TMPDIR="$WORKDIR/ptmp" "$PACKET_SH" "$@" --scratch "$WORKDIR/pscratch" 2>"$WORKDIR/pstderr")
     PRC=$?
 }
 
@@ -902,7 +904,8 @@ else
     fail "light re-check after a fix: exit $PRC: $(cat "$WORKDIR/pstderr")"
 fi
 [ "$PRC" -eq 0 ] && rm -f "$POUT"
-[ -z "$(ls "$WORKDIR/ptmp")" ] && pass "every packet was cleaned up" || fail "packets left behind: $(ls "$WORKDIR/ptmp")"
+LEFT="$(ls -A "$WORKDIR/ptmp")$(ls -A "$WORKDIR/pscratch")"
+[ -z "$LEFT" ] && pass "every packet was cleaned up" || fail "packets left behind: $LEFT"
 
 echo "--- script: a seat's verdict comes from its findings' severity"
 

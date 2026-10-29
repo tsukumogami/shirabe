@@ -73,7 +73,7 @@ cleanup() {
         [ -n "$d" ] && rm -rf "$d"
     done
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 mktmp() {
     local d
@@ -661,6 +661,7 @@ chmod +x "$BIN/koto"
     printf '  "validate --help") printf "Options:\\n      --lifecycle-chain <DOC>\\n          Chain-targeted\\n      --mode <MODE>\\n          Posture\\n  -h, --help\\n          Print help\\n" ;;\n'
     printf '  "roadmap --help") printf "Commands:\\n  populate  Populate. Pass \\140--issues\\140 to create issues; \\140--no-issues\\140 names the default\\n\\nOptions:\\n  -h, --help  Print help\\n" ;;\n'
     printf '  "roadmap populate --help") printf "Options:\\n      --issues\\n          Issue-creating mode\\n      --no-issues\\n          Issueless mode\\n  -h, --help\\n          Print help\\n" ;;\n'
+    printf '  "validate --format json --check FC23 -- "*) printf "{\\"schema_version\\":\\"shirabe-validate/v1\\"}\\n" ;;\n'
     printf '  *) printf "error: unrecognized subcommand\\n" >&2; exit 2 ;;\n'
     printf 'esac\n'
 } >"$BIN/shirabe"
@@ -726,7 +727,8 @@ assert_lacks "a leaf with no declared flag is never probed" "$(cat "$CALLS")" "k
 NON_HELP=$(grep -v -- '--help$' <"$CALLS" || true)
 assert_eq "every call ends in --help except exactly one koto version, and no declared subcommand runs" "koto version" "$NON_HELP"
 
-# A /scope-shaped declaration: three --help calls and one koto version.
+# A /scope-shaped declaration: three --help calls, one koto version, and the
+# one `validate --check FC23` probe /scope's document gates need.
 ROOT=$(new_root)
 write_decl "$ROOT" "scope" \
     'shirabe\tvalidate\t--mode\talways' \
@@ -735,7 +737,8 @@ write_decl "$ROOT" "scope" \
 run_preflight "$ROOT" "scope"
 SCOPE_CALLS=$(wc -l <"$CALLS" | tr -d ' ')
 assert_eq "a /scope-shaped declaration is silent on a satisfied host" "0" "$RUN_BYTES"
-assert_eq "a /scope-shaped declaration costs four calls: three --help and one koto version" "4" "$SCOPE_CALLS"
+assert_eq "a /scope-shaped declaration costs five calls: three --help, one koto version and one check-code probe" "5" "$SCOPE_CALLS"
+assert_has "the /scope probe asks for FC23" "$(cat "$CALLS")" "shirabe validate --format json --check FC23 -- "
 
 # The regression fixtures, end to end: a known-present flag in each clap layout
 # passes, and a known-absent one is reported. A help-rendering change fails here

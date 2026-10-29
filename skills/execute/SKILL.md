@@ -272,7 +272,10 @@ The script prints koto-open's result line and nothing else you need to parse:
   is followed by `session=execute-<plan-slug>`; drive that session (Step 3).
   When koto kept the finished session for its hierarchy, `moved_to=<name>` and
   `moved_reason=` follow `opened=replaced`: the old run was moved aside to
-  `<name>` rather than removed, and its record is still readable there.
+  `<name>` rather than removed, and its record is still readable there. A
+  replace carries the finished run's review round (`review_round.json`) into
+  the fresh session unchanged, and warns, naming `review-round.sh`, when it
+  can't.
 - `refused=replace_held_live` (exit 75, with a `live=` line) or
   `refused=replace_failed` (exit 74) — the finished session is held by its
   hierarchy and couldn't be moved aside, because work under it is still
@@ -785,7 +788,11 @@ against its chain shape:
      `expected_head` (only after a successful push), `cascade_result.json`
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
-     `coord_branch`, `plan_abs`, `merge_attempts` (`<id>:<result>` entries,
+     `coord_branch`, `plan_abs` (fixed at setup, except that the opener
+     re-roots it on a moved attach: when the recorded PLAN is gone and this
+     checkout is on `coord_branch` with `home_repo` as its origin, it becomes
+     the PLAN here, through `record-coord-setup.sh --reroot-plan`),
+     `merge_attempts` (`<id>:<result>` entries,
      the id a node, a follow-up's `<node>/follow-up-<n>` or `coordination`:
      merge-not-observed, merge-call-failed or merge-refused from
      `coord-merge.sh`, and `coordination:body-stale` or `coordination:body-full`

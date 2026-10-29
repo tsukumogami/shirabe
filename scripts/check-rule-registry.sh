@@ -23,7 +23,8 @@
 #      only on an rs- entry and names an active script-checked entry
 #   2  withhold safety: a guard other than `none`, or check.kind `none`,
 #      needs withhold `never`; a gate that isn't a decider check needs a
-#      guard, or a backstop: the
+#      guard, unless it is an active script entry at shadow or warn (which
+#      never fails its gate, so guards nothing in fact), or a backstop: the
 #      deterministic check that still blocks a protected action after the
 #      gate (backstop.before), for a rule whose harm a later edit undoes; a
 #      backstop needs level gate, guards ["none"], withhold `eligible` and
@@ -67,7 +68,11 @@
 #      shadow on an active entry, and every move raises stage_since; a status
 #      change to retired sets stage retired; a status retired base entry keeps
 #      its status and stage; an active entry that drops a protected guard is
-#      at block. A base with no registry passes; one that doesn't parse exits 2
+#      at block; an active script entry stepping up to block from a stage
+#      where it guarded nothing gains a protected guard in the same change,
+#      unless a backstop covers it;
+#      a new entry takes no alias an entry at the base holds. A base with no
+#      registry passes; one that doesn't parse exits 2
 #  12  hook links: a `deny` is an object of hook and before only, whose hook
 #      is a safe relative path to an existing file and whose before is a
 #      non-empty list of protected actions (the guards vocabulary less
@@ -257,9 +262,13 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" --argjson stages "$STAGES" 
           | "\($n): check.kind none requires withhold never"),
         # A decider check guards no protected action; its withholding is
         # governed by its jev contract (scripts/jev-criteria/jev_criteria.py).
+        # A script entry at shadow or warn never fails its gate, so it guards
+        # nothing in fact; check 11 makes a step to block add the guards.
         (select($e.level == "gate" and ($e.guards | strs) and all($e.guards[]; . == "none")
                 and ($e | has("backstop") | not)
-                and ((($e.check | type) == "object" and $e.check.kind == "decider") | not))
+                and ((($e.check | type) == "object" and $e.check.kind == "decider") | not)
+                and ((($e.check | type) == "object" and $e.check.kind == "script"
+                      and $e.status == "active" and ($e.stage == "shadow" or $e.stage == "warn")) | not))
           | "\($n): a gate entry needs a guard other than none, or a backstop"),
         (select($e | has("backstop")) | $e.backstop as $b
           | if ($b | type) != "object" then "\($n): backstop is not an object"
@@ -747,8 +756,11 @@ if [ -n "$BASE" ]; then
              | from_entries) as $old
           | .rules[] | objects | select((.id | type) == "string") | .id as $n | . as $h
           | $old[$n] as $b
+          | ([$base[0].rules[] | objects | .aliases | arrays | .[] | strings]) as $base_aliases
           | if $b == null then
-              select($h.stage == "retired") | "\($n): a new entry starts at shadow, warn or block, not retired"
+              (select($h.stage == "retired") | "\($n): a new entry starts at shadow, warn or block, not retired"),
+              ((($h.aliases | arrays) // [])[] | strings | . as $a | select($base_aliases | index($a))
+                | "\($n): a new entry takes alias \($a), which an entry at the base holds; keep the code with its entry")
             else
               (select($b.status == "retired" and ($h.status != "retired"
                         or (($b | has("stage")) and $h.stage != $b.stage)))
@@ -772,7 +784,13 @@ if [ -n "$BASE" ]; then
                    | "\($n): stage changed from \($from) to \($to) but stage_since \($h.stage_since | tojson) is not later than the base \($b.stage_since | tojson)")),
               (select($h.status == "active" and ($h.stage // "block") != "block")
                 | ($b | pguards) - ($h | pguards) | select(length > 0)
-                | "\($n): drops protected guard(s) \(join(", ")) while at stage \($h.stage); drop a guard only at block, and soften the stage in a later change")
+                | "\($n): drops protected guard(s) \(join(", ")) while at stage \($h.stage); drop a guard only at block, and soften the stage in a later change"),
+              # An entry with a backstop guards none by design (check 2).
+              (select($h.status == "active" and ($h.stage // "block") == "block"
+                      and ($h | has("backstop") | not)
+                      and ($b | has("stage")) and $b.stage != "block"
+                      and ($b | pguards | length) == 0 and ($h | pguards | length) == 0)
+                | "\($n): steps from \($b.stage) to block guarding nothing; give it a protected guard in the same change")
             end' "$REG"
         report "$TMP/transitions"
     else

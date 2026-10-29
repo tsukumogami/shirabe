@@ -10,7 +10,10 @@
 # Decision 5): each is the key record/entries/<n>, <n> a six-digit sequence one
 # above the highest key there, holding {n, stamp, kind, text}. A number another
 # writer took moves to the next, at most three times (entry-exists, exit 65,
-# after that). An entry is never edited by this script and never grows.
+# after that). An entry is never edited by this script and never grows. A
+# `decisions` entry also gets the marker record/archive/<n>, {n}, written
+# before it, so a reader of the archived rows lists the markers and gets only
+# those entries rather than every entry (shirabe#1315).
 #
 # The outward kinds (cost, milestone-verdict, goal-fit, milestone-failure),
 # which readers outside the coordinator read from GitHub, are also posted as
@@ -117,7 +120,8 @@
 #   writes: gh api --method POST repos/<item repo>/issues/<n>/comments --input <json> (--on)
 # koto calls: context list --prefix record/entries/ and record/posted/,
 #   context list --prefix for each key the seam's rs_key reads, context get,
-#   context add (record/entries/<n>, record/posted/<n>); with --on,
+#   context add (record/entries/<n>, record/posted/<n>, and record/archive/<n>
+#   for a decisions entry); with --on,
 #   record/holdings and record/side-effects through the seam's rs_key.
 set -uo pipefail
 
@@ -501,6 +505,14 @@ for try in 1 2 3 4; do
         continue
     fi
     jq -n -c --argjson n "$NEXT" --arg s "$STAMP" --arg k "$KIND" --arg t "$TEXT" '{n: $n, stamp: $s, kind: $k, text: $t}' > "$WD/entry.json"
+    # A decisions entry's marker goes first: one left by a write that failed
+    # names an entry that isn't there or isn't a decisions entry, which its
+    # reader skips.
+    if [ "$KIND" = decisions ]; then
+        jq -n -c --argjson n "$NEXT" '{n: $n}' > "$WD/marker.json"
+        "$KOTO" context add "$ES" "record/archive/$N" --from-file "$WD/marker.json" < /dev/null > /dev/null 2> "$WD/k.err" \
+            || { echo "$PROG: the entry's archive marker write failed: $(lib_scrub < "$WD/k.err")" >&2; exit 11; }
+    fi
     "$KOTO" context add "$ES" "record/entries/$N" --from-file "$WD/entry.json" < /dev/null > /dev/null 2> "$WD/k.err" \
         || { echo "$PROG: the entry write failed: $(lib_scrub < "$WD/k.err")" >&2; exit 11; }
     WRITTEN=$N

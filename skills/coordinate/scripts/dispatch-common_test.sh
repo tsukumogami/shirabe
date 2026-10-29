@@ -21,7 +21,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-common-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */dispatch-common-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */dispatch-common-test.*) rm -rf "$T" ;; esac'
 
 PASS=0
 FAIL=0

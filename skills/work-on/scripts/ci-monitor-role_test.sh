@@ -74,7 +74,7 @@ cleanup() {
     for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done
     return 0
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # koto's session store lives under HOME (KOTO_HOME is ignored; see the header of
 # scope-substrate_test.sh), so a HOME of the suite's own keeps every session out

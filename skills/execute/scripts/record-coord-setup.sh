@@ -35,7 +35,17 @@
 #
 # All four are fixed for the run: a re-run that computes the same values is a
 # no-op, and one that computes a different value refuses rather than moving
-# the write set mid-run.
+# the write set mid-run. The one exception is plan_abs on a moved attach:
+# when the run's checkout moved (re-cloned elsewhere, the old directory
+# removed, the session rebound to the new one), execute-open.sh runs
+# --reroot-plan on attaching the coordinated session, and plan_abs is
+# re-rooted to the PLAN in this checkout. That happens only when the recorded
+# file doesn't exist, this checkout is on the recorded coord_branch, its
+# origin (read as record-write-set.sh reads it) is the recorded home_repo, and
+# --plan names an existing file. It then writes plan_abs and nothing else,
+# prints `plan_abs=rerooted`, and names both paths in one stderr line; in any
+# other case it writes nothing and prints `plan_abs=kept`. It makes no GitHub
+# read and no isolation check, and takes no other flag.
 #
 # Besides them: the run's identity, `run_id` (run-id.sh mint on a new run,
 # and seed, adopt or mint on a recovery); the run record's `run/` keys, only
@@ -151,6 +161,7 @@
 #            [--store <github|session>] [--coordination-pr <url>]
 #            [--follow-up "<node> <url>" [--follow-up-remove true]]
 #            [--adopt-run <id>]
+#        record-coord-setup.sh --reroot-plan --session <koto-session> --plan <path>
 #
 # Each optional value may be empty (the template passes its rebind variables
 # verbatim), which is the same as leaving the flag out. --follow-up-remove
@@ -170,7 +181,8 @@
 # follow-up-author, follow-up-closed, worktree-isolated.
 #
 # Exit codes:
-#   0   recorded (or already recorded with the same values)
+#   0   recorded (or already recorded with the same values); with
+#       --reroot-plan, plan_abs re-rooted or kept
 #   64  usage error
 #   65  HEAD is detached
 #   66  a value is outside its pattern, this checkout's owner/repo could
@@ -206,6 +218,7 @@ RE_LOGIN='^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$'
 usage_error() {
     echo "$PROG: $*" >&2
     echo "usage: record-coord-setup.sh --session <koto-session> --plan <path> [--store <github|session>] [--coordination-pr <url>] [--follow-up \"<node> <url>\" [--follow-up-remove true]] [--adopt-run <id>]" >&2
+    echo "       record-coord-setup.sh --reroot-plan --session <koto-session> --plan <path>" >&2
     exit 64
 }
 
@@ -215,10 +228,15 @@ stop() { # stop <code> <why> -- a typed stop: nothing has been written
     exit 71
 }
 
-SESSION=""; PLAN=""; STORE=""; CPR=""; FOLLOW_UP=""; REMOVE=""; ADOPT=""
+SESSION=""; PLAN=""; STORE=""; CPR=""; FOLLOW_UP=""; REMOVE=""; ADOPT=""; REROOT=0
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
+        --reroot-plan)
+            [ "$REROOT" -eq 0 ] || usage_error "--reroot-plan given more than once"
+            REROOT=1
+            shift
+            ;;
         --session|--plan|--store|--coordination-pr|--follow-up|--follow-up-remove|--adopt-run)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
@@ -249,6 +267,38 @@ case "$PLAN" in *"
 # The opener refuses --remove without --follow-up too; this script doesn't
 # rely on it.
 [ -n "$REMOVE" ] && [ -z "$FOLLOW_UP" ] && usage_error "--follow-up-remove true needs --follow-up \"<node> <url>\""
+
+# --reroot-plan: the one change plan_abs takes once recorded (see the header).
+# Each condition that fails keeps the recorded path; only a failed write is an
+# error.
+if [ "$REROOT" -eq 1 ]; then
+    [ -z "$STORE$CPR$FOLLOW_UP$REMOVE$ADOPT" ] || usage_error "--reroot-plan takes only --session and --plan"
+    kept() { printf 'plan_abs=kept\n'; exit 0; }
+    # A session before setup has none of the keys: `exists` answers that
+    # quietly, so only a read that really fails reaches stderr.
+    koto context exists "$SESSION" plan_abs >/dev/null || kept
+    OLD_ABS=$(koto context get "$SESSION" plan_abs) || kept
+    [ -n "$OLD_ABS" ] && [ ! -e "$OLD_ABS" ] && [ -f "$PLAN" ] || kept
+    # --quiet: a detached HEAD fails with no message.
+    CB=$(git symbolic-ref --quiet --short HEAD) || kept
+    koto context exists "$SESSION" coord_branch >/dev/null || kept
+    REC_CB=$(koto context get "$SESSION" coord_branch) || kept
+    [ -n "$REC_CB" ] && [ "$CB" = "$REC_CB" ] || kept
+    HOME_REPO=$("$BASH" "$COORD_SELF_DIR/record-write-set.sh" --print 2>/dev/null) || kept
+    koto context exists "$SESSION" home_repo >/dev/null || kept
+    REC_HOME=$(koto context get "$SESSION" home_repo) || kept
+    [ -n "$REC_HOME" ] && [ "$HOME_REPO" = "$REC_HOME" ] || kept
+    PLAN_DIR=$(CDPATH='' cd "$(dirname -- "$PLAN")" && pwd -P) || kept
+    PLAN_ABS="$PLAN_DIR/$(basename -- "$PLAN")"
+    [ "$PLAN_ABS" != "$OLD_ABS" ] || kept
+    printf '%s' "$PLAN_ABS" | koto context add "$SESSION" plan_abs >/dev/null || {
+        echo "$PROG: could not write context key plan_abs in session $SESSION" >&2
+        exit 70
+    }
+    echo "$PROG: plan_abs [$OLD_ABS] is gone; re-rooted to [$PLAN_ABS], the PLAN in this checkout of $HOME_REPO on $CB" >&2
+    printf 'plan_abs=rerooted\n'
+    exit 0
+fi
 
 # The follow-up, split at its first space (a node id holds none):
 # its node, the URL as given, its owner/repo and its number.

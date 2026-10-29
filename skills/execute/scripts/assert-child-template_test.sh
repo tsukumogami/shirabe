@@ -31,7 +31,7 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; ((FAIL_COUNT++)) || true; }
 
 TMPS=()
 cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Case 1 — unset CLAUDE_PLUGIN_ROOT: self-resolves from the script's own location
 # (the real checkout, where work-on.md exists) and succeeds.

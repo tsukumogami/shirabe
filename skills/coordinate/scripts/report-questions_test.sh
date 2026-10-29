@@ -103,14 +103,55 @@ run_archived() {
     log_to "$S" take_report report_facts
     log_capture "$S" REPORT "$(bash "$HERE/coord-log.sh" seal --session "$S" --state report_facts --token "holding none w1")"
     log_to "$S" report_facts report_questions
+    : > "$KOTO_STORE/calls"
     OUT=$(bash "$Q" --session "$S" 2>"$T/err")
     RC=$?
+    cp "$KOTO_STORE/calls" "$T/q.calls"
     seen "$OUT" >/dev/null
 }
 run_archived own_archive
 eq "a citation of the worker's own archived entry is kept" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
 run_archived others_archive
 eq "a citation of another worker's archived entry is dropped" "0|null null" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+
+# The archived rows are read from the entries the record/archive/ markers name
+# (shirabe#1315): the same read, in calls, with 3 other entries and with 300,
+# getting the one marked entry and never listing record/ or the entries.
+# filler <count>: plain entries, numbered on from the session's last.
+filler() {
+    local d="$KOTO_STORE/context/$S/record/entries" i last
+    mkdir -p "$d"
+    last=$(ls "$d" | LC_ALL=C sort | tail -1)
+    last=${last:+$((10#$last))}
+    for ((i = ${last:-0} + 1; i <= ${last:-0} + $1; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+}
+few_archive() { filler 3; own_archive; filler 3; }
+many_archive() { filler 150; own_archive; filler 150; }
+run_archived few_archive
+FEW="$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")') $(wc -l < "$T/q.calls" | tr -d ' ')"
+run_archived many_archive
+MANY="$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")') $(wc -l < "$T/q.calls" | tr -d ' ')"
+eq "an archived citation is read in the same calls with 6 other entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq "  ... kept, as before" "0|null 3" "${MANY% *}"
+eq "  ... getting only the marked entry, and listing neither record/ nor the entries" "record/entries/000151 0 0" \
+    "$(sed -n "s|^context get $S \(record/entries/.*\)\$|\1|p" "$T/q.calls" | tr '\n' ' ')$(grep -c "^context list $S --prefix record/\$" "$T/q.calls") $(grep -c -e "--prefix record/entries/\$" -e "--prefix record/entries/ " "$T/q.calls")"
+# A record imported before the markers has none: every entry is read, as before.
+unmarked_archive() { own_archive; rm -f "$KOTO_STORE/context/$S/record/archive/"*; filler 3; }
+run_archived unmarked_archive
+eq "an archived citation on a record without markers is still kept" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+eq "  ... from a read of every entry" 1 "$(grep -c -e "--prefix record/entries/ " "$T/q.calls")"
+# One that gained a marked entry since, its cited row only in an unmarked
+# entry: every entry is read, so the citation isn't lost.
+mixed_archive() { own_archive; rm -f "$KOTO_STORE/context/$S/record/archive/"*; archive_row "$(printf '%s' "$SETTLED3" | jq -c '.decision = "5"')"; }
+run_archived mixed_archive
+eq "an archived citation whose row only an unmarked entry holds is still kept" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+eq "  ... from a read of every entry" 1 "$(grep -c -e "--prefix record/entries/ " "$T/q.calls")"
+# A marker whose entry isn't there (its write failed after the marker) names nothing.
+orphan_archive() { own_archive; printf '{"n":9}' > "$KOTO_STORE/context/$S/record/archive/000009"; }
+run_archived orphan_archive
+eq "a marker naming no entry is skipped" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
 
 run "holding none w1" "$(printf 'Questions:\n1. first?\n\n2) second (decision 3)\nThat is all.\n3. not an item\n')" "$WORKER" "[$ENTRY]"
 eq "the part runs over blank lines and ends at the first other line" "first?|second (decision 3)" "$(list | jq -r '[.[].text] | join("|")')"

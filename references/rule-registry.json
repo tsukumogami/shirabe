@@ -1023,28 +1023,35 @@
       },
       "check": {
         "kind": "script",
-        "path": "scripts/doc-check.sh",
-        "mode": "--moment"
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
       },
       "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh",
         "scripts/doc-check_test.sh"
       ],
       "level": "gate",
       "timing": [
+        "scope:hop_plan",
+        "scope:fold",
         "pre-merge"
       ],
       "guards": [
+        "pr-create",
         "publish"
       ],
       "stage": "block",
       "stage_since": "2026-10-27",
-      "gates": [],
+      "gates": [
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [
         "FC22"
       ],
-      "notes": "The validator's FC22, on a plan/v2 PLAN. Only scripts/doc-check.sh reports it, from a skill's phase step rather than a koto gate, so it has no gates. Registered after the baseline pin, so it has no baseline key."
+      "notes": "The validator's FC22, on a plan/v2 PLAN, one finding per step-plan violation with the sub-rule's name in its message; one code maps to one rule id, so the sub-rules share this entry. check-hop-document.sh reports it at /scope's plan hop and fold, and scripts/doc-check.sh from a skill's phase step. Registered after the baseline pin, so it has no baseline key."
     },
     {
       "id": "roadmap/milestone-shape",
@@ -4536,6 +4543,208 @@
       "baseline_keys": [],
       "aliases": [],
       "notes": "Recorded by scripts/review-events.sh itself, as one FAIL for a seat that left no valid verdict entry. Its id names what it records, so it is the one rs- id outside rs-NNN. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "brief/summary-length",
+      "status": "active",
+      "summary": "A brief's problem or outcome summary is not two to four lines",
+      "text": {
+        "path": "skills/brief/references/brief-format.md",
+        "first": "A brief's `problem:` and `outcome:` each span two to four non-blank lines.",
+        "last": "notice at the key's line that changes no exit status."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:fold"
+      ],
+      "guards": [
+        "none"
+      ],
+      "stage": "warn",
+      "stage_since": "2026-10-28",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:fold:fold_documents"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "FC23"
+      ],
+      "notes": "The validator's FC23, a notice it never fails a run on. At warn it guards nothing: a warn finding never fails its gate, and a change that steps it to block adds its guards. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "design/frontmatter-order",
+      "status": "active",
+      "summary": "A design's frontmatter keys are out of the documented order",
+      "text": {
+        "path": "skills/design/references/design-format.md",
+        "first": "A design's frontmatter keys appear in this order:",
+        "last": "the first key out of place as FC24, a notice that changes no exit status."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_design",
+        "scope:fold"
+      ],
+      "guards": [
+        "none"
+      ],
+      "stage": "warn",
+      "stage_since": "2026-10-28",
+      "gates": [
+        "scope:hop_design:design_document",
+        "scope:fold:fold_documents"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "FC24"
+      ],
+      "notes": "The validator's FC24, a notice it never fails a run on. At warn it guards nothing: a warn finding never fails its gate, and a change that steps it to block adds its guards. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "design/provenance-opener",
+      "status": "active",
+      "summary": "A design's considered option does not open with its provenance",
+      "text": {
+        "path": "skills/design/references/design-format.md",
+        "first": "With `decision_provenance` set, each `###` heading between `## Considered",
+        "last": "status."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_design",
+        "scope:fold"
+      ],
+      "guards": [
+        "none"
+      ],
+      "stage": "warn",
+      "stage_since": "2026-10-28",
+      "gates": [
+        "scope:hop_design:design_document",
+        "scope:fold:fold_documents"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "FC25"
+      ],
+      "notes": "The validator's FC25, a notice it never fails a run on. At warn it guards nothing: a warn finding never fails its gate, and a change that steps it to block adds its guards. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "docs/schema-declared",
+      "status": "active",
+      "summary": "A document declares no schema its format accepts, so the validator skipped its checks",
+      "text": {
+        "path": "references/pipeline-model.md",
+        "first": "A pipeline document declares its schema in the frontmatter's `schema:` key,",
+        "last": "the frontmatter's first key, with a version the format reference names."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-28",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [
+        "SCHEMA"
+      ],
+      "notes": "The validator's SCHEMA, a notice beside an exit 4 that skips the document. scripts/lib/doc-validate.sh reads a skip of only the document checked as this rule's violation at line 1. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "docs/check-environment",
+      "status": "active",
+      "summary": "The document gate could not check the documents in this environment",
+      "text": {
+        "path": "skills/scope/references/document-gate-faults.md",
+        "first": "The gate checks a document only in an environment it can trust.",
+        "last": "and run the gate again."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/scope/scripts/check-hop-document.sh",
+        "mode": "--hop"
+      },
+      "fixtures": [
+        "skills/scope/scripts/check-hop-document_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "scope:hop_brief",
+        "scope:hop_prd",
+        "scope:hop_design",
+        "scope:hop_plan",
+        "scope:fold"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "stage": "block",
+      "stage_since": "2026-10-28",
+      "gates": [
+        "scope:hop_brief:brief_document",
+        "scope:hop_prd:prd_document",
+        "scope:hop_design:design_document",
+        "scope:hop_plan:plan_document",
+        "scope:fold:fold_documents"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "No validator code: check-hop-document.sh reports it on its could-not-decide exit, one finding whose message is the fault's reason, and never runs the escalation ladder for it. Registered after the baseline pin, so it has no baseline key."
     }
   ]
 }

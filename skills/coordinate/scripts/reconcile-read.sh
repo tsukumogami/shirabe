@@ -112,9 +112,12 @@ rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 
 # The record through the seam (state-read.sh), under this reader's own
 # deadline: rs_record, so a pass that began the step's one read
-# (rs_once_begin) shares it with the settle and the legs classification.
+# (rs_once_begin) shares it with the settle and the legs classification. Only
+# the four sections the view is built from are read (shirabe#1315);
+# reconcile-pass.sh names the same four for the pass's one read.
+RD_FIELDS="holdings deferrals side_effects decisions"
 session_view() {
-    RS_SESSION=$RS rs_record "$T/rec" || return $?
+    RS_SESSION=$RS rs_record "$T/rec" "$RD_FIELDS" || return $?
     cat "$T/rec"
 }
 rd_deadline "$DEADLINE" session_view > "$T/view.json" 2>/dev/null

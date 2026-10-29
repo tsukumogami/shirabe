@@ -30,7 +30,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/wait-target-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */wait-target-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */wait-target-test.*) rm -rf "$T" ;; esac'
 
 PASS=0
 FAIL=0
@@ -328,6 +328,50 @@ eq  "source: a refused record read is 2" 2 "$(src beta message)"
 unset RECORD_MODE
 rm -f "$ST/ctx/report_source"
 bash "$R" --session coord >/dev/null 2>&1; eq "source: no report_source is 2" 2 "$?"
+
+# --- select: the koto calls don't grow with the entries (shirabe#1315) ---------------------------------
+
+echo "== select: the koto calls don't grow with the entries (shirabe#1315) =="
+# select's holdings and Standing pauses come from one read of their sections,
+# each got directly, and never from a listing of record/, which names every
+# entry: the same select on a record with 3 entries and with 300 makes the
+# same koto calls, and reads no entry. The stand-ins above replace the record
+# readers, so this runs the real state-holding.sh and state-stored-set.sh
+# against a session record in the shared koto stand-in (testdata/test-lib.sh),
+# each count in a subshell of its own.
+# koto_calls <entries>: select's request id, its koto calls, and how many of
+# them get an entry or list record/, on a record holding alpha's open leg and
+# gamma's resolved one under a pause on Feature 3, with <entries> entries.
+koto_calls() (
+    . "$HERE/testdata/test-lib.sh"
+    export DC_RECORD_HOLDING="$HERE/state-holding.sh" DC_RECORD_STATE="$HERE/state-stored-set.sh"
+    C=coordinate-roadmap-plugin-system-20260926T080000Z
+    found_session "$C" "$(roadmap_vars plugin-system)"
+    seed_session "$C" "$(record_json roadmap plugin-system | jq -c \
+        --argjson a "$(holding alpha '{"return_path": "leg req_a:scope"}')" \
+        --argjson g "$(holding gamma '{"unit": "Feature 3", "return_path": "leg req_g:execute"}')" \
+        '.holdings = [$a, $g] | .standing = [{standing: "s1", kind: "pause", on: "Feature 3", until: "lifted", what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}]')"
+    mkdir -p "$KOTO_STORE/requests"
+    printf '{"request_id":"req_a","legs":{"scope":{"name":"scope","disposition":"open"}}}\n' > "$KOTO_STORE/requests/req_a.json"
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved"}}}\n' > "$KOTO_STORE/requests/req_g.json"
+    d="$KOTO_STORE/context/$C/record/entries"
+    mkdir -p "$d"
+    for ((i = 1; i <= $1; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+    done
+    : > "$KOTO_STORE/calls"
+    out=$(bash "$S" select --session "$C" 2>&1)
+    printf '%s %s %s %s %s' "$out" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')" \
+        "$(grep -c '^context get [^ ]* record/entries/' "$KOTO_STORE/calls")" "$(grep -c '^context list [^ ]* --prefix record/$' "$KOTO_STORE/calls")" \
+        "$(sed -n "s|^context get $C record/\([a-z-]*\)\$|\1|p" "$KOTO_STORE/calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ',' | sed 's/,$//')"
+)
+FEW=$(koto_calls 3)
+MANY=$(koto_calls 300)
+set -- $FEW
+eq  "select: the same request and koto calls with 3 entries and with 300 (${2:-?} calls)" "$FEW" "$MANY"
+eq  "  ... the paused holding's resolved leg passed over for alpha's open one" req_a "${1:-}"
+eq  "  ... reading no entry and never listing record/" "0 0" "${3:-} ${4:-}"
+eq  "  ... one read of the sections the two listers print, each got once" holdings,run,standing,work "${5:-}"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

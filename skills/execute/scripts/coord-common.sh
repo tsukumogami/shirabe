@@ -44,9 +44,10 @@ fi
 COORD_MARKER='This is a **coordination PR**'
 COORD_RUN_ID=""
 RE_COORD_RUN_ID='^[0-9a-f]{32}$'
-# The PLAN's node list, from /plan's script: the one cross-skill path the
-# coordinated scripts share.
+# The cross-skill paths the coordinated scripts share: the PLAN's node list,
+# from /plan's script, and a PR's checks, from work-on's one check read.
 COORD_PLAN_TO_TASKS="$COORD_SELF_DIR/../../plan/scripts/plan-to-tasks.sh"
+COORD_PR_CHECKS="$COORD_SELF_DIR/../../work-on/scripts/pr-checks.sh"
 
 RE_COORD_REPO='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 RE_COORD_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
@@ -151,6 +152,39 @@ coord_gh_read() {
         fi
         [ "$attempt" -eq 1 ] && sleep 1
     done
+    return 1
+}
+
+# coord_pr_checks <outvar> <pr> <repo> -- a PR's checks as a JSON array of
+# {name, bucket}, read through work-on's pr-checks.sh: the check read itself
+# wherever the token can read checks, the Actions jobs and the commit's
+# statuses where GitHub refuses it (#752). Read as merge-verdict.sh reads it:
+# a JSON array of objects on stdout is the list whatever the exit, and `no
+# checks reported` on stderr is the empty list. Any other failure is retried
+# once after 1 s, as coord_gh_read retries, then returns 1: fewer attempts than
+# merge-verdict.sh makes, since a draft node whose read fails is only
+# evaluated, and the evaluate action reads the checks again. stderr passes
+# through, as coord_gh_read's.
+coord_pr_checks() {
+    local __out="$1" attempt out rc err
+    err=$(mktemp "${TMPDIR:-/tmp}/coord-checks.XXXXXX") || return 1
+    for attempt in 1 2; do
+        out=$("$BASH" "$COORD_PR_CHECKS" "$2" --repo "$3" --json name,bucket </dev/null 2>"$err")
+        rc=$?
+        cat "$err" >&2
+        if [ -n "$out" ] && jq -e 'type == "array" and all(.[]; type == "object")' >/dev/null <<<"$out"; then
+            printf -v "$__out" '%s' "$out"
+            rm -f "$err"
+            return 0
+        fi
+        if [ "$rc" -ne 0 ] && grep -q 'no checks reported' "$err"; then
+            printf -v "$__out" '%s' '[]'
+            rm -f "$err"
+            return 0
+        fi
+        [ "$attempt" -eq 1 ] && sleep 1
+    done
+    rm -f "$err"
     return 1
 }
 
@@ -459,11 +493,13 @@ cc_pr_node() {
     all_merged=0
     cc_deferral_record "$name" "$issues" "$n_repo" "$node_branch" "$node_rec" || return 1
     if [ "$draft" = "true" ]; then
+        # A check that failed, was cancelled, or is `unreadable` (a required
+        # check nothing the token can read answers) stops the run, as in
+        # merge-verdict.sh. A read that fails is no list: the node is
+        # evaluated, and the evaluate action reads its checks again.
         local checks
-        if ! coord_gh_read checks pr checks "$n_pr" --repo "$n_repo" --json name,bucket; then
-            checks="[]"
-        fi
-        if printf '%s' "$checks" | jq -e 'type == "array" and any(.[]; .bucket == "fail" or .bucket == "cancel")' >/dev/null; then
+        coord_pr_checks checks "$n_pr" "$n_repo" || checks="[]"
+        if printf '%s' "$checks" | jq -e 'type == "array" and any(.[]; .bucket == "fail" or .bucket == "cancel" or .bucket == "unreadable")' >/dev/null; then
             CC_ACTION="error:execute:ci"; return 1
         fi
         [ -n "$eval_cand" ] || eval_cand="$name"
@@ -499,17 +535,17 @@ cc_pr_node() {
 # comma-joined item; a child holding `verification_deferral` deferred. The
 # run's own reason is not passed here: every child the run deferred holds it,
 # and node-push.sh wrote it into the body. With no items (the PLAN gone, so
-# the node list comes from run/setup, which records none) the children are
-# the root sessions named `work-on-<slug>-<node>-<number>` that `koto
-# workflows --roots` lists: the cascade deletes the PLAN only once every node
-# merged, so this is a node left open with its PLAN missing, which must not
-# be read as having no deferral.
+# the node list comes from run/setup, which records none) cc_children_deferrals
+# finds the children itself, in the same koto session listing it reads their
+# directories from: the cascade deletes the PLAN only once every node merged,
+# so this is a node left open with its PLAN missing, which must not be read as
+# having no deferral.
 #
 # Called from cc_pr_node, in coord_compute's scope. Returns 1 once it has set
 # CC_ACTION: error:execute:deferral-record when the body misses a part,
 # error:execute:status-read when it can't be decided.
 cc_deferral_record() {
-    local items="$2" item rc err args roots has recorded
+    local item rc err args has recorded
     args=(--session "$CC_SESSION" --verification "")
     has=$(printf '%s' "$5" | jq -r 'has("deferrals")') || has=""
     case "$has" in
@@ -519,15 +555,7 @@ cc_deferral_record() {
                 || { CC_ACTION="error:execute:status-read"; return 1; }
             ;;
         false)
-            if [ -z "$items" ]; then
-                roots=$(koto workflows --roots </dev/null) \
-                    && items=$(printf '%s' "$roots" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
-                        '[.[] | .name | select(type == "string" and startswith($p)) | ltrimstr($p)
-                          | select(test("^[1-9][0-9]*$"))] | join(",")') \
-                    || { CC_ACTION="error:execute:status-read"; return 1; }
-                [ -n "$items" ] || return 0
-            fi
-            recorded=$(cc_children_deferrals "$1" "$items") \
+            recorded=$(cc_children_deferrals "$1" "$2") \
                 || { CC_ACTION="error:execute:status-read"; return 1; }
             ;;
         *) CC_ACTION="error:execute:status-read"; return 1 ;;
@@ -568,11 +596,16 @@ cc_deferral_record() {
 # list, or whose directory is gone, is read from here as before: a session
 # that doesn't exist didn't defer, and one bound elsewhere is still refused.
 #
+# With no items (the PLAN gone) the children are the sessions in that same
+# listing named `work-on-<slug>-<node>-<number>`, so a node's work items are
+# found where koto records them, whichever directory their step agents opened
+# them in. None listed is no deferral.
+#
 # Returns 1 when it can't decide: the listing failed or isn't a list, or a
 # child's read failed for any reason (shared-deferral-record.sh's message is
 # on stderr). A failed read is never a child that didn't defer.
 cc_children_deferrals() {
-    local listing item child dir out
+    local listing names="$2" item child dir out
     local -a items cargs
     listing=$(koto session list </dev/null) || {
         echo "$PROG: koto session list failed, so node $1's work items can't be found where they are bound" >&2
@@ -582,7 +615,13 @@ cc_children_deferrals() {
         echo "$PROG: koto session list did not answer a list of sessions" >&2
         return 1
     }
-    IFS=, read -r -a items <<< "$2"
+    if [ -z "$names" ]; then
+        names=$(printf '%s' "$listing" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
+            '[.[] | .id | select(type == "string" and startswith($p)) | ltrimstr($p)
+              | select(test("^[1-9][0-9]*$"))] | join(",")') || return 1
+        [ -n "$names" ] || return 0
+    fi
+    IFS=, read -r -a items <<< "$names"
     for item in "${items[@]}"; do
         child="work-on-$CC_SLUG-$1-$item"
         dir=$(printf '%s' "$listing" | jq -r --arg c "$child" \

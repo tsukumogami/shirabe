@@ -43,7 +43,7 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT+1)); }
 
 TMPS=()
 cleanup() { for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # build_template <dir> <gates-after> — a template whose FIRST gate is the one
 # under test, followed by <gates-after> more. Each trailing gate carries a long

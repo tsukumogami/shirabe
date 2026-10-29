@@ -77,7 +77,7 @@ draft path to Read, and the exact verdict file to Write.
 
 ## 4.1 Spawn Jury Agents
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Competitive Framing and Content Quality run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/competitive/COMP-<topic>.md --format skills/comp/references/comp-format.md`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Competitive Framing and Content Quality run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/competitive/COMP-<topic>.md --format skills/comp/references/comp-format.md --scratch <scratch>`. `<scratch>` is a directory from `skill-session.sh scratch` that holds only the packet and is removed once the round is aggregated.
 
 Spawn all three reviewers in parallel, each with the preamble, its
 rubric, the COMP path, and its pinned verdict file. The three rubrics —

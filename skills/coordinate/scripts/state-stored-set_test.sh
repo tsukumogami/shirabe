@@ -571,6 +571,13 @@ eq "  ... so the carried run's first --standing reads no entry" "0 s6" \
 CU=coordinate-roadmap-plugin-system-20260926T200000Z
 carry "$CT" "$CU" > /dev/null 2>"$T/err"
 eq "  ... and a carry keeps the source's own standing_used" "0 6" "$? $(meta_used "$CU")"
+printf '{"n":3}' | koto context add "$CU" record/archive/000003
+CV=coordinate-roadmap-plugin-system-20260926T210000Z
+carry "$CU" "$CV" > /dev/null 2>"$T/err"
+eq "a carry copies a decisions entry's archive marker" '0 {"n":3}' "$? $(koto context get "$CV" record/archive/000003)"
+printf '{"n":3}' | koto context add "$CV" record/archive/3
+carry "$CV" coordinate-roadmap-plugin-system-20260926T220000Z > /dev/null 2>"$T/err"
+eq "  ... and refuses a marker misnamed" "65" "$?"
 eq "no write in this section reached GitHub" "" "$(gh_writes)"
 
 done_tests state-stored-set_test

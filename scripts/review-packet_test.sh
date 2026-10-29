@@ -19,11 +19,15 @@
 # the caps and their trailers, that a failure leaves no packet behind, that a
 # plan-outline child's session never reaches `gh issue view`, and that
 # --issue reads its issue from the repository --issue-repo names and refuses
-# to run without it.
+# to run without it. The packet lands in the run's scratch directory
+# (--scratch), never in the shared TMPDIR, and survives another run's cleanup
+# there.
 # The recheck cases also need jq, as the script's recheck kind does, and
 # fail without it. The spawn-site cases then check that every
-# review spawn site still names a model, a call budget and the packet command,
-# and that each /work-on panel gives the recheck packet command too.
+# review spawn site still names a model, a call budget and the packet command
+# with --scratch, that each /work-on panel gives the recheck packet command
+# too, and that the seat preamble keeps its head check and its rule against
+# reading any file in the packet's place.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
@@ -48,7 +52,7 @@ fail() { printf "${RED}FAIL${NC}: %s\n" "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH, no case ran"; exit 0; }
 
 ROOT=$(mktemp -d) || exit 1
-trap 'rm -rf "$ROOT"' EXIT
+ktg_on_exit 'rm -rf "$ROOT"'
 
 # Stubs. KOTO_STORE is a directory with one file per context key.
 STUBS="$ROOT/stubs"
@@ -101,7 +105,7 @@ mkdir -p "$REPO"
 MAIN_SHA=$(git -C "$REPO" rev-parse main)
 FIRST_SHA=$(git -C "$REPO" rev-parse feature~1)
 
-run() {
+run_bare() {
     # Runs the script in the fixture repo with the stubs first on PATH.
     # Sets OUT, ERR, CODE.
     local store="$1"
@@ -111,9 +115,27 @@ run() {
     CODE=$?
     ERR=$(cat "$ROOT/err")
 }
+run() {
+    # run_bare with --scratch naming the run's scratch directory after the
+    # kind, as every spawn site passes it.
+    local store="$1" kind
+    shift
+    if [ $# -gt 0 ]; then
+        kind="$1"
+        shift
+        set -- "$kind" --scratch "$SCRATCH" "$@"
+    fi
+    run_bare "$store" "$@"
+}
 mkdir -p "$ROOT/tmp"
+# The run's scratch directory, made as `skill-session.sh scratch` makes one:
+# private to this user, outside the work tree.
+SCRATCH="$ROOT/scratch"
+mkdir -m 700 "$SCRATCH"
 
-leftover_packets() { ls "$ROOT/tmp" | grep -c '^review-packet\.' ; }
+# Packets and the script's working directories, in the shared TMPDIR or the
+# run's scratch directory.
+leftover_packets() { ls -A "$ROOT/tmp" "$SCRATCH" | grep -c '^review-packet' ; }
 
 # -------------------------------------------------------------- usage --------
 
@@ -498,11 +520,77 @@ rm -f "$TSTORE/red_first.json"
 
 # Outside a repository.
 OUT=$( cd "$ROOT/tmp" && KOTO_STORE="$STORE" PATH="$STUBS:$PATH" TMPDIR="$ROOT/tmp" \
-    "$BASH_BIN" "$PACKET_SH" code --session s 2>/dev/null )
+    "$BASH_BIN" "$PACKET_SH" code --session s --scratch "$SCRATCH" 2>/dev/null )
 CODE=$?
 [ "$CODE" -eq 64 ] && pass "code: outside a repository: exit 64" || fail "code: outside a repository: exit $CODE"
 
 [ "$(leftover_packets)" -eq 0 ] && pass "failures leave no packet behind" || fail "a failure left a packet behind"
+
+# ------------------------------------------------------------- scratch -------
+#
+# The packet lands in the run's own scratch directory, never in the shared
+# TMPDIR, where another run's cleanup can remove it between panels and a seat
+# that finds its path empty can read another run's packet in its place.
+
+run "$STORE" code --session s --criteria "$BODY"
+if [ "$CODE" -eq 0 ] && [ -f "$OUT" ] && [ "${OUT%/*}" = "$SCRATCH" ]; then
+    pass "code: the packet lands in the run's scratch directory"
+else
+    fail "code: the packet lands in the run's scratch directory: exit $CODE, path [$OUT], stderr: $ERR"
+fi
+[ -z "$(ls -A "$ROOT/tmp")" ] && pass "code: nothing is written under the shared TMPDIR" \
+    || fail "code: wrote under the shared TMPDIR: $(ls -A "$ROOT/tmp")"
+[ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+run "$ROOT/none" doc --doc a.txt --format "$FMT"
+if [ "$CODE" -eq 0 ] && [ -f "$OUT" ] && [ "${OUT%/*}" = "$SCRATCH" ] && [ -z "$(ls -A "$ROOT/tmp")" ]; then
+    pass "doc: the packet lands in the run's scratch directory, nothing under TMPDIR"
+else
+    fail "doc: the packet lands in the run's scratch directory: exit $CODE, path [$OUT], stderr: $ERR"
+fi
+[ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+# Another run's cleanup of the shared TMPDIR leaves the packet alone; it goes
+# when this run removes its scratch directory.
+RUN2="$ROOT/run2-scratch"
+mkdir -m 700 "$RUN2"
+run_bare "$STORE" code --session s --criteria "$BODY" --scratch "$RUN2"
+if [ "$CODE" -eq 0 ] && [ "${OUT%/*}" = "$RUN2" ]; then
+    rm -rf "$ROOT/tmp"/review-packet.*
+    [ -f "$OUT" ] && pass "code: the packet survives another run's TMPDIR cleanup" \
+        || fail "code: the packet was removed by another run's TMPDIR cleanup"
+    rm -rf "$RUN2"
+    [ ! -e "$OUT" ] && pass "code: the packet goes when the run removes its scratch directory" \
+        || fail "code: the packet outlived the run's scratch directory"
+else
+    fail "code: the packet lands in the run's scratch directory: exit $CODE, path [$OUT], stderr: $ERR"
+fi
+
+# --scratch is required, and must be a private directory of this user's
+# outside the work tree, as `skill-session.sh scratch` makes one.
+run_bare "$STORE" code --session s --criteria "$BODY"
+[ "$CODE" -eq 67 ] && pass "code: no --scratch: exit 67" || fail "code: no --scratch: exit $CODE"
+run_bare "$ROOT/none" doc --doc a.txt --format "$FMT"
+[ "$CODE" -eq 67 ] && pass "doc: no --scratch: exit 67" || fail "doc: no --scratch: exit $CODE"
+run_bare "$STORE" code --session s --criteria "$BODY" --scratch "$ROOT/no-such-dir"
+[ "$CODE" -eq 64 ] && pass "code: a --scratch that is not a directory: exit 64" \
+    || fail "code: --scratch not a directory: exit $CODE"
+mkdir -m 755 "$ROOT/open-scratch"
+run_bare "$STORE" code --session s --criteria "$BODY" --scratch "$ROOT/open-scratch"
+[ "$CODE" -eq 64 ] && [ -z "$(ls -A "$ROOT/open-scratch")" ] \
+    && pass "code: a --scratch other users can read: exit 64, nothing written" \
+    || fail "code: --scratch mode 755: exit $CODE"
+ln -s "$SCRATCH" "$ROOT/link-scratch"
+run_bare "$STORE" code --session s --criteria "$BODY" --scratch "$ROOT/link-scratch"
+[ "$CODE" -eq 64 ] && pass "code: a --scratch that is a symlink: exit 64" \
+    || fail "code: --scratch symlink: exit $CODE"
+mkdir -m 700 "$REPO/in-tree"
+run_bare "$STORE" code --session s --criteria "$BODY" --scratch "$REPO/in-tree"
+[ "$CODE" -eq 64 ] && [ -z "$(ls -A "$REPO/in-tree")" ] \
+    && pass "code: a --scratch inside the work tree: exit 64, nothing written" \
+    || fail "code: --scratch in the work tree: exit $CODE"
+rmdir "$REPO/in-tree"
+[ "$(leftover_packets)" -eq 0 ] && pass "scratch refusals leave no packet" || fail "a scratch refusal left a packet"
 
 # ------------------------------------------------------------- recheck -------
 #
@@ -829,8 +917,29 @@ for site in $SITES; do
         || fail "spawn site $site: names no call budget"
     grep -q 'scripts/review-packet.sh' <<<"$line" \
         || fail "spawn site $site: does not give the packet command"
+    # Every packet command names the run's scratch directory.
+    commands=$(grep -o 'scripts/review-packet.sh" [a-z]*' <<<"$line" | wc -l | tr -d '[:space:]')
+    scratches=$(grep -o -- '--scratch <[a-z-]*>' <<<"$line" | wc -l | tr -d '[:space:]')
+    [ "$commands" -gt 0 ] && [ "$commands" = "$scratches" ] \
+        || fail "spawn site $site: $commands packet command(s), $scratches with --scratch"
 done
 pass "spawn sites: every listed site checked"
+
+# The seat preamble makes every seat read only the path it was handed and
+# check the packet's head against the head it was given, stopping on a
+# mismatch: a seat that found its packet gone once read another run's.
+PREAMBLE=$(awk '/^## The seat preamble/ { on = 1; next } on && /^## / { exit } on { print }' \
+    "$REPO_ROOT/references/review-seat-commissioning.md")
+PREAMBLE_FLAT=$(tr '\n' ' ' <<<"$PREAMBLE")
+grep -qF '<packet-path>, and only that file' <<<"$PREAMBLE_FLAT" \
+    && grep -qF 'never read another packet' <<<"$PREAMBLE_FLAT" \
+    && pass "the seat preamble: read only the packet path handed, never a substitute" \
+    || fail "the seat preamble has no no-substitution rule: $PREAMBLE"
+grep -qF 'This review is of head <head>' <<<"$PREAMBLE_FLAT" \
+    && grep -qF "check the packet's \`head:\` line against it" <<<"$PREAMBLE_FLAT" \
+    && grep -qF 'stop and return no verdict' <<<"$PREAMBLE_FLAT" \
+    && pass "the seat preamble: check the head: line and stop on a mismatch" \
+    || fail "the seat preamble has no head check: $PREAMBLE"
 
 # Each /work-on panel can mark a seat recheck, so each panel's commissioning
 # line also gives the recheck packet command, under the panel name

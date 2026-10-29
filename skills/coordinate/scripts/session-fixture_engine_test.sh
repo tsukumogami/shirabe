@@ -67,7 +67,7 @@ PR="$T/plugin"
 PS="$PR/skills/coordinate/scripts"
 
 . "$HERE/testdata/cloud-hosts.sh"
-trap 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 's3_stop; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 s3_start || { bad "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; done_tests session-fixture-engine; exit 1; }
 host_make a; host_make b
 for h in a b; do

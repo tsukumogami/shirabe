@@ -64,11 +64,25 @@
 # and from step 9, `milestone` ({tag, evidence}) when the milestone's
 # Evidence was read, or `milestone_error` (why it couldn't be) when it wasn't.
 #
+# The detail is written only by a run whose visit is still current. The run
+# notes the latest entry into land, and the latest LAND capture after it, as
+# it starts, and reads both again just before it writes coord/land.json:
+# when a later entry into land exists, or another run's verdict was captured
+# at this visit meanwhile, it writes no detail, seals nothing, says so on
+# stderr with the seqs, and exits 2. A run koto timed out, or one run by hand,
+# can't then replace the detail a later run's verdict was sealed with
+# (shirabe#1263). A run by hand from surface, at the visit whose verdict koto
+# captured, still writes: merge-order-entry.sh's refusals name it as the way
+# back. The check is a read before the write, not a lock: a stale run that
+# finishes after a later run wrote its detail but before koto captured that
+# run's verdict still writes, a window of the later run's seal and exit. The
+# moved and dirty tokens write no detail, so they seal without the check.
+#
 # The repository is the one the record's Holdings row for #<pr> links;
 # --repo overrides it, for tests. --no-seal (tests) prints the bare token.
 #
-# Exit codes: 0 a token printed; 2 no valid verify capture, or a read failed;
-# 64 usage.
+# Exit codes: 0 a token printed; 2 no valid verify capture, a read failed, or
+# the run's visit was over before it wrote its detail; 64 usage.
 set -uo pipefail
 
 PROG=land-check
@@ -90,6 +104,25 @@ bl_session_ok "$SESSION" || usage
 [ -z "$PR" ] || bl_pr_ok "$PR" || usage
 [ -z "$REPO" ] || bl_repo_ok "$REPO" || usage
 
+# visit_mark: "<entry> <capture>", the seq of the latest entry into land and
+# of the latest LAND capture after it (0 for none yet). Read once as the run
+# starts and again in finish(), just before coord/land.json is written.
+visit_mark() {
+    local e c
+    e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state land) || return 1
+    e=${e%% *}
+    c=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name LAND --after "$e")
+    case $? in
+        0) c=$(printf '%s\n' "$c" | tail -1 | jq -r '.seq') || return 1 ;;
+        1) c=0 ;;
+        *) return 1 ;;
+    esac
+    printf '%s %s\n' "$e" "$c"
+}
+if [ "$NO_SEAL" = 0 ]; then
+    MARK=$(visit_mark) || { echo "$PROG: the latest entry into land couldn't be read" >&2; exit 2; }
+fi
+
 if [ -n "$PR" ]; then
     CAP=$(bl_capture "$SESSION" VERIFIED verify_board --any-visit --for "$PR")
 else
@@ -103,6 +136,13 @@ if [ $# -ne 3 ] || [ "$1" != verified ] || ! bl_pr_ok "$2" || ! bl_sha_ok "$3"; 
 fi
 PR=$2 SHA=$3
 
+# One record read for the check: the holdings, pauses, holds and the human's
+# reversals come from one read of those four sections (state-read.sh
+# rs_once_begin; shirabe#1315), which the scripts run below inherit.
+LC_FIELDS="holdings holds reversals standing"
+ONCE=$(mktemp -d "${TMPDIR:-/tmp}/land-check-once.XXXXXX") || exit 2
+trap 'rm -rf "$ONCE"' EXIT
+rs_once_begin "$ONCE" "$LC_FIELDS" || exit 2
 if [ -z "$REPO" ]; then
     REPO=$(bl_unit_repo "$SESSION" "$PR") || exit 2
 fi
@@ -125,7 +165,7 @@ if [ "$NOW" != "$SHA" ]; then
 fi
 
 MS=$(mktemp "${TMPDIR:-/tmp}/land-check.XXXXXX") || exit 2
-trap 'rm -f "$MS" "$MS".*' EXIT
+trap 'rm -rf "$MS" "$MS".* "$ONCE"' EXIT
 bl_gh "$MS" pr view "$PR" --repo "$REPO" --json mergeStateStatus,body,title,baseRefName,files || { echo "$PROG: the pull request read failed" >&2; exit 2; }
 STATE=$(jq -r '.mergeStateStatus // ""' "$MS")
 [[ $STATE =~ ^[A-Z_]+$ ]] || { echo "$PROG: merge state [$STATE]" >&2; exit 2; }
@@ -146,10 +186,23 @@ detail() {
     DETAIL=$(printf '%s' "$DETAIL" | jq -c "$@" "$f") || { echo "$PROG: the detail couldn't be built" >&2; exit 2; }
 }
 # finish <token>: store the detail as coord/land.json (unless --no-seal) and
-# print the sealed token.
+# print the sealed token. A run whose visit is over by now writes and seals
+# nothing and exits 2: a later entry into land, or a LAND verdict captured at
+# its own visit since it started (another run's, which the detail must stay
+# with).
 finish() {
+    local now
     detail '.verdict = $v' --arg v "${1%% *}"
     if [ "$NO_SEAL" = 0 ]; then
+        now=$(visit_mark) || { echo "$PROG: the latest entry into land couldn't be read" >&2; exit 2; }
+        if [ "${now% *}" != "${MARK% *}" ]; then
+            echo "$PROG: this run checked the land visit at seq ${MARK% *}, but the latest entry into land is seq ${now% *}: it writes no coord/land.json and seals nothing" >&2
+            exit 2
+        fi
+        if [ "${now#* }" != "${MARK#* }" ]; then
+            echo "$PROG: another run at this land visit (seq ${MARK% *}) had its verdict captured at seq ${now#* } while this one ran: it writes no coord/land.json and seals nothing" >&2
+            exit 2
+        fi
         printf '%s\n' "$DETAIL" > "$MS.detail"
         "$KOTO" context add "$SESSION" coord/land.json --from-file "$MS.detail" >/dev/null || {
             echo "$PROG: could not write coord/land.json" >&2; exit 2; }
@@ -165,7 +218,7 @@ unready() {
 }
 
 # The record, read once for the pauses and the holds.
-rs_record_api "$MS.rec" "$SESSION" || { echo "$PROG: the record couldn't be read for its pauses and holds" >&2; exit 2; }
+rs_record_api "$MS.rec" "$SESSION" "$LC_FIELDS" || { echo "$PROG: the record couldn't be read for its pauses and holds" >&2; exit 2; }
 PAUSES=$(bl_pauses_on "$MS.rec" "$REPO" "$PR") || { echo "$PROG: the record's pauses couldn't be read" >&2; exit 2; }
 detail '.pauses = $p' --argjson p "$PAUSES"
 PAUSED=$(printf '%s' "$PAUSES" | jq -r '.paused // empty')

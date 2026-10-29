@@ -41,7 +41,7 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/run-evals-test.XXXXXX") || exit 1
 cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 RC=0
 OUT=""

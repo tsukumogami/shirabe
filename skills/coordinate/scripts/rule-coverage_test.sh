@@ -41,7 +41,7 @@ ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/rule-coverage.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 
 # The template body: everything after the frontmatter's closing `---`.
 awk 'f >= 2 { print; next } /^---$/ { f++ }' "$ROOT/$TEMPLATE" > "$T/body"

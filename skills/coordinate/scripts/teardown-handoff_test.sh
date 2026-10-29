@@ -44,7 +44,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-handoff-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */teardown-handoff-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */teardown-handoff-test.*) rm -rf "$T" ;; esac'
 
 PASS=0
 FAIL=0
@@ -454,6 +454,52 @@ header wk-rm2 "$W/$(inst other 2b3c4d5e)"
 cseal
 case "$OUT" in "handoff-refused sealed:"*) ok "removed, two candidates: prints handoff-refused" ;; *) bad "removed, two candidates: prints handoff-refused" "$OUT $(cat "$T/seal.err")" ;; esac
 has "removed, two candidates: the verdict names both" "$(verdict | sed -n 2p)" "2 instance paths for w5 were recovered"
+
+# --- ready: the holding read doesn't grow with the entries (shirabe#1315) ---------------------
+#
+# The holding comes from the real state-holding.sh, reading the record the
+# coord session holds: Holdings alone, got directly, and record/ never
+# listed, so the same seal on a record with 300 entries makes the same koto
+# calls as on one with 3, and reads no entry. The session's log is the run's
+# start and its found record, sealed at record_find, so the real reader takes
+# the run's facts from it.
+echo "== ready: the koto calls don't grow with the entries (shirabe#1315) =="
+LOG="$KOTO_STORE/sessions/coord/koto-coord.state.jsonl"
+mkdir -p "$(dirname "$LOG")"
+{
+    printf '{"schema_version":1,"workflow":"coord","template_hash":"feedface","created_at":"2026-09-26T08:00:00.000Z","template_name":"coordinate"}\n'
+    jq -nc --arg p "$(cd "$HERE/../../.." && pwd -P)" '{seq: 1, timestamp: "2026-09-26T08:00:00.000Z", type: "workflow_initialized",
+        payload: {template_path: "x", variables: {SCOPE: "roadmap", ROADMAP: "docs/roadmaps/ROADMAP-demo.md", DISCIPLINE: "", HOST_REPO: "acme/widgets", PLUGIN_ROOT: $p}}}'
+    printf '{"seq":2,"timestamp":"2026-09-26T08:01:00.000Z","type":"transitioned","payload":{"from":"start","to":"record_find","condition_type":"auto"}}\n'
+} >"$LOG"
+FOUND=$(KOTO_BIN="$KOTO" bash "$HERE/coord-log.sh" seal --session coord --state record_find --token found)
+jq -nc --arg v "$FOUND" '{seq: 3, timestamp: "2026-09-26T08:01:00.000Z", type: "variable_captured", payload: {key: "RECORD_FIND", value: $v}}' >>"$LOG"
+# th_calls <entries>: the seal's output with the real holding reader, on a
+# record holding w5's row and <entries> entries, and its koto calls, kept in
+# $T/th.calls.
+th_calls() {
+    local r="$KOTO_STORE/context/coord/record" i
+    fixture
+    export KOTO_BIN="$KOTO" DC_RECORD_HOLDING="$HERE/state-holding.sh"
+    rm -rf "$r"
+    mkdir -p "$r/entries"
+    printf '{"scope":{"kind":"roadmap","name":"demo"},"store":"session","written":"2026-09-26T09:00:00Z","pending":false}' >"$r/meta"
+    printf '[{"unit":"#591","entry_point":"/shirabe:deliver","mode":"--auto","phase":"executing","dispatch_status":"dispatched","return_path":"message","worker":"w5","repo":"acme/widgets","branch":"feat/w5","verified_head":"","dispatched":"2026-09-26","pull_request":""}]' >"$r/holdings"
+    for ((i = 1; i <= $1; i++)); do
+        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" >"$r/entries/$(printf '%06d' "$i")"
+    done
+    : >"$KOTO_STORE/calls"
+    printf '%s %s' "$(seal)" "$(wc -l <"$KOTO_STORE/calls" | tr -d ' ')"
+    cp "$KOTO_STORE/calls" "$T/th.calls"
+}
+FEW=$(th_calls 3)
+MANY=$(th_calls 300)
+case "$FEW" in "handoff-ready keyseal:"*) ok "the seal with the real holding reader is ready" ;; *) bad "the seal with the real holding reader is ready" "$FEW $(cat "$T/seal.err")" ;; esac
+eq  "the same verdict and koto calls with 3 entries and with 300 (${FEW##* } calls)" "$FEW" "$MANY"
+eq  "  ... reading no entry and never listing record/" "0 0" \
+    "$(grep -c '^context get [^ ]* record/entries/' "$T/th.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/th.calls")"
+eq  "  ... and of the record, only Holdings is got, once" "record/holdings" \
+    "$(sed -n 's|^context get coord \(record/[a-z-]*\)$|\1|p' "$T/th.calls" | grep -vx record/meta | tr '\n' ' ' | sed 's/ $//')"
 
 printf '\nteardown-handoff: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

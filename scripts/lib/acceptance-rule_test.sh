@@ -30,6 +30,10 @@
 #                           afterwards an acceptance below the overruling's
 #                           authority leaves it held and one at or above it
 #                           counts again
+#   relocate lines          a relocate line (test-change.sh's record of a
+#                           moved work tree) anywhere in a ledger changes no
+#                           acceptance, decline, decline-limit or overrule
+#                           verdict
 #
 # Usage: bash scripts/lib/acceptance-rule_test.sh
 set -uo pipefail
@@ -178,6 +182,45 @@ printf 'a.sh\tA1\nb.sh\tB1\n' > "$W/two"
 { hdr; seat agent:run/accept-1
   printf '%s\n' '{"event":"accept","identity":"agent:run/accept-1","kind":"agent","authority":"reviewer","files":[{"path":"a.sh","digest":"A1"},{"path":"b.sh","digest":"B1"}]}'; } > "$W/l"
 eq "one accept covering two files counts both" counted "$(acceptance_rule_live "$W/l" "$W/two")"
+
+echo "--- relocate lines"
+reloc() { printf '{"ts":"t","event":"relocate","from":"/old/%s","to":"/new/%s","source":"session","rule":"interim"}\n' "$1" "$1"; }
+# moved <ledger> <out>: the ledger with a relocate line after every line but
+# the header, the way a run moved more than once would read.
+moved() {
+    local n=0 line
+    : > "$2"
+    while IFS= read -r line; do
+        printf '%s\n' "$line" >> "$2"
+        n=$((n + 1))
+        [ "$n" -eq 1 ] || reloc "$n" >> "$2"
+    done < "$1"
+}
+# same <label> <current> [<sessions> [<key>]]: the verdict on $W/l and on the
+# same ledger with relocate lines are one verdict, and it is <want>.
+same() {
+    local label="$1" want="$2"
+    shift 2
+    moved "$W/l" "$W/lm"
+    eq "$label: the verdict" "$want" "$(acceptance_rule_live "$W/l" "$@")"
+    eq "$label: unchanged by relocate lines" "$want" "$(acceptance_rule_live "$W/lm" "$@")"
+}
+{ hdr; seat agent:run/accept-1; judge accept agent:run/accept-1 reviewer t.sh D1; } > "$W/l"
+same "an accept" counted "$W/cur"
+same "an accept of an older digest" "held	changed since acceptance t.sh" "$W/cur2"
+{ hdr; seat agent:run/accept-1; judge decline agent:run/accept-1 reviewer t.sh D1; } > "$W/l"
+same "a decline" "held	declined t.sh by agent:run/accept-1" "$W/cur"
+{ hdr; for n in 1 2 3; do seat "agent:run/accept-$n"; judge decline "agent:run/accept-$n" reviewer t.sh "D$n"; done; } > "$W/l"
+moved "$W/l" "$W/lm"
+has "three declines with relocate lines: decline-limit" "held	decline-limit t.sh" "$(acceptance_rule_live "$W/lm" "$W/none")"
+{ hdr; seated_accept agent:run/accept-1 accept-3 D1; coord overrule overrule-4 accept-3; } > "$W/l"
+same "an overrule" "held	overruled t.sh by agent:c" "$W/cur" "$W/sessions"
+{ hdr; seated_accept agent:run/accept-1 accept-3 D1; coord overrule overrule-4 accept-3; coord accept accept-5; } > "$W/l"
+same "an acceptance at the overruling's authority" counted "$W/cur" "$W/sessions"
+{ hdr; person_line accept accept-2 owner D1 good; } > "$W/l"
+same "a tagged person line" counted "$W/cur" "" "$W/key"
+{ hdr; reloc 1; } > "$W/l"
+eq "a relocate line alone accepts nothing" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur")"
 
 echo
 echo "acceptance-rule: $PASS passed, $FAIL failed"

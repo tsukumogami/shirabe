@@ -17,11 +17,34 @@
 # opens and none is cancelled, the run keeps its stamp, and the output is
 # `resumed=1` then `session=<it>` (settings given with the invocation aren't
 # applied to it). One that fails any of those is carried: a new run opens,
-# any other live run of the scope is cancelled (never cleaned up, so its log
-# stays readable), and then every record/ and legs/ key of the old run is
-# copied into the new one through the write core (core_carry), printing
-# `carried=<old>`. A carry cut short exits 1 (`failed=carry`) with the new run
-# holding no record, and the next start carries again.
+# every record/ and legs/ key of the old run is copied into the new one
+# through the write core (core_carry), the copy is checked (every key listed
+# in the new run, its record/meta read back at the old run's written time,
+# and the old run's record/meta unchanged), printing `carried=<old>`, and only
+# then is any other live run of the scope, the old run among them, cancelled
+# (never cleaned up, so its log stays readable). A carry cut short, or one the
+# check fails, leaves the old run untouched and cancels the new one, which
+# holds no record/meta: it exits 1 (`failed=carry`), and the next start
+# carries again. When koto refuses a read of the old run as
+# session_bound_elsewhere (its cloud backend answers a run only in the
+# directory it is bound to; shirabe#1257) the start is refused instead,
+# `refused=bound-elsewhere` (exit 2), naming `koto session rebind <run> --to
+# <this directory>` and the order to run it in: stop the predecessor, rebind
+# or carry, and only then reap. A run of the scope newer than every holder
+# whose keys koto won't list may hold the record, so the start opens nothing
+# and is refused: `refused=bound-elsewhere` as above, or
+# `refused=candidate-unreadable` with koto's reason (exit 2), never a
+# `session=` for an empty run.
+#
+# A run's record/meta names the template compat it was compiled at and its
+# template fingerprint (template_compat, template_fingerprint; shirabe#1333),
+# so a later plugin whose compat table no longer lists the run still knows how
+# far behind it is. The write core records them where record/meta is born: the
+# carry here, the legacy import a fresh start calls, and the seed the run's
+# own find makes on a fresh start (the opener leaves a fresh run holding no
+# record). A takeover replaces the predecessor's pair with its own. The
+# template-incompatible refusals read the run's compat through coord-log.sh
+# compat, which prefers that record to the table.
 #
 # A resumable run another Claude session drives is taken over instead
 # (docs/designs/DESIGN-coordinate-successor-continues.md, Decision 1): its
@@ -32,7 +55,8 @@
 # carrying record/, legs/, taken_legs and leg_children; from then on koto
 # refuses every write to the old run with session_superseded, naming the new
 # one, and coord-log.sh live-session no longer lists it. The new run's
-# record/meta takes this session as its driver, its coordinator row this
+# record/meta takes this session as its driver and the new run's own template
+# compat and fingerprint in place of the predecessor's, its coordinator row this
 # session's name (which clears the told set), one takeover entry is
 # appended, and record/meta's takeover_done is written last. Nothing is
 # cancelled, rebound or copied key by key. It prints `outcome=continued`,
@@ -68,7 +92,8 @@
 #
 # A fresh start (no session here holds the scope's record) opens
 # `coordinate-<scope-slug>-<UTC stamp>`, cancels any other live run of the
-# scope, and then calls the legacy importer (../legacy-import/import.sh) once:
+# scope (at once, since there is no carry to wait on), and then calls the
+# legacy importer (../legacy-import/import.sh) once:
 # `--lookup` for an open coordinator record still on GitHub, and, when it
 # answers `record <n>`, the import of that record into the new run, printing
 # `record-imported=<n>`. A discipline's next rotation is not a fresh start: the
@@ -170,7 +195,9 @@
 # Exit codes: 0 opened or resumed; 10 the human must name the host first; 2
 # this koto lacks the session store's features (`refused=store-unsupported`),
 # or the legacy importer refused the start (`refused=record-unreadable` or
-# `refused=several`); 1 the shipped template didn't compile
+# `refused=several`), or koto refused a read of the run the start would
+# carry (`refused=bound-elsewhere`, `refused=candidate-unreadable`); 1 the
+# shipped template didn't compile
 # (`failed=template_compile`), this host's runs couldn't be read
 # (`failed=resume_candidate`), a cancel failed, a carry failed after the new
 # run opened (`failed=carry`), or the legacy import failed (`failed=import`);
@@ -504,6 +531,14 @@ meta_set() {
     ( PROG=coordinate-open SESSION=$1 SKIP_CHECKS=0 REPO=${HOST:-}
       . "$HERE/state-common.sh" && . "$HERE/state-write-core.sh" && core_write_meta "$@" ) > /dev/null 2>&1
 }
+# compat_meta <run>: the run's template_compat and template_fingerprint as
+# record/meta keeps them, from the write core (core_compat_meta); {} when
+# they can't be read.
+compat_meta() {
+    local o
+    o=$( . "$HERE/state-common.sh" && . "$HERE/state-write-core.sh" && core_compat_meta "$1" ) 2> /dev/null
+    jq -e 'type == "object"' <<< "$o" > /dev/null 2>&1 && printf '%s\n' "$o" || echo '{}'
+}
 refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
     printf 'outcome=refused\nreason=%s\n' "$1"; echo "coordinate-open: $2" >&2; exit 2
 }
@@ -558,8 +593,12 @@ EOF
 finish_takeover() {
     local succ=$1 pred=$2 stopped=$3 d
     if [ "$(meta_field "$succ" driver)" != "$CALLER" ] || [ "$(meta_field "$succ" takeover_done)" = true ]; then
-        meta_set "$succ" '.driver = $c | .takeover_done = false | .takeover = {predecessor: $p, predecessor_stopped: $st}' \
-            --arg c "$CALLER" --arg p "$pred" --arg st "$stopped" \
+        # The fence carried the predecessor's record/meta whole, its template
+        # compat with it; the successor runs this plugin's template, so its
+        # own compat replaces it in the same write.
+        meta_set "$succ" '.driver = $c | .takeover_done = false | .takeover = {predecessor: $p, predecessor_stopped: $st}
+                | del(.template_compat, .template_fingerprint) + $tc' \
+            --arg c "$CALLER" --arg p "$pred" --arg st "$stopped" --argjson tc "$(compat_meta "$succ")" \
             || { echo "failed=takeover_record"; echo "coordinate-open: $pred is fenced and $succ holds its record, but $succ's record/meta wasn't written; run the opener again from this session to finish" >&2; exit 1; }
     fi
     if [ -n "$CALLER_NAME" ]; then
@@ -710,6 +749,18 @@ takeover_check() {
 }
 T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not make a scratch file"
 trap 'rm -f "$T_ERR"' EXIT
+# refuse_bound <run> <what this start left>: koto refused a read of <run> as
+# session_bound_elsewhere, its cloud backend answering a run only in the
+# directory it is bound to (shirabe#1257). The way out, in its order: the
+# predecessor stops, the run is rebound here (or carried), and only then is
+# the predecessor's instance reaped. Exit 2.
+refuse_bound() {
+    local here
+    here=$(pwd -P)
+    echo "refused=bound-elsewhere"
+    echo "coordinate-open: koto refused a read of $1 from $here as session_bound_elsewhere: it is bound to another directory, and $2. In this order: stop the coordinator session that drives $1, run koto session rebind $1 --to $here from $here, start again here to carry it, and only then reap the predecessor's instance" >&2
+    exit 2
+}
 
 # The record lives in a run's session on this host, so a start first looks
 # here for the scope's run that holds it
@@ -735,6 +786,14 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
     [ "$(printf '%s' "$CAND" | jq -r '.session // empty')" = "" ] && FRESH=1
     ACTION=$(printf '%s' "$CAND" | jq -r '.action')
     OLD=$(printf '%s' "$CAND" | jq -r '.session // empty')
+    # A run of the scope koto wouldn't list keys of, newer than every holder:
+    # it may hold the record, so a start never opens an empty run past it.
+    if [ "$ACTION" = unreadable ]; then
+        [ "$(printf '%s' "$CAND" | jq -r '.code // empty')" = bound-elsewhere ] && refuse_bound "$OLD" "nothing was opened"
+        echo "refused=candidate-unreadable"
+        echo "coordinate-open: $OLD may hold $SLUG's record, but koto couldn't list its keys from here ($(printf '%s' "$CAND" | jq -r '.reason')); nothing was opened. Make it readable here, then start again" >&2
+        exit 2
+    fi
     # A named predecessor (--continues) must be the scope's newest member: the
     # run the candidate names, one that holds the record.
     if [ -n "$NAMED" ]; then
@@ -783,36 +842,89 @@ RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 [ $RC -eq 0 ] || exit $RC
 
-# Only once the new run is open (so a refused invocation leaves the live run
-# alone): cancel, never clean up, every other live run of this scope
-# (coord-log.sh live-session --all, the scan every write script's check
-# makes), so its log stays readable.
-LIVE=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/null)
-case $? in 0|1) ;; *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;; esac
-for id in $LIVE; do
-    [ "$id" = "$SESSION" ] && continue
-    "$KOTO" cancel "$id" </dev/null >/dev/null || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
-    echo "cancelled=$id"
-done
+# cancel_others: cancel, never clean up, every live run of this scope but the
+# new one (coord-log.sh live-session --all, the scan every write script's check
+# makes), so its log stays readable. Only once the new run is open, so a
+# refused invocation leaves the live run alone, and on a carry only once the
+# carry has landed, so one cut short leaves its source as it was.
+cancel_others() {
+    local live id
+    live=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/null)
+    case $? in 0|1) ;; *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;; esac
+    for id in $live; do
+        [ "$id" = "$SESSION" ] && continue
+        "$KOTO" cancel "$id" </dev/null >/dev/null || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
+        echo "cancelled=$id"
+    done
+}
+[ -n "$CARRY_FROM" ] || cancel_others
 
 # The carry: the previous run's record into this one, through the write core's
-# checks (core_carry), as the run that now holds it writes it. The previous
-# run's log stays readable; a carry cut short leaves this run holding no record,
-# and the next start carries again.
+# checks (core_carry), as the run that now holds it writes it, then checked
+# (carry_verify), and only then are the other live runs, the source among
+# them, cancelled. The write guard isn't run for it: the source is still live,
+# so the new run isn't yet the scope's one live run. While both are live every
+# write script's guard refuses a write to either (several live sessions), which
+# keeps the source still; carry_verify checks that it was.
 if [ -n "$CARRY_FROM" ]; then
     PROG=coordinate-open SKIP_CHECKS=0 REPO=$HOST
     . "$HERE/state-common.sh"
-    lib_write_guard
-    T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open.XXXXXX") || { echo "failed=carry"; exit 1; }
+    T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open.XXXXXX") \
+        || { "$KOTO" cancel "$SESSION" </dev/null >/dev/null; echo "failed=carry"; echo "coordinate-open: could not make a scratch directory; $SESSION is cancelled and $CARRY_FROM untouched" >&2; exit 1; }
     trap 'rm -rf "$T" "$T_ERR"' EXIT
     . "$HERE/state-write-core.sh"
-    ( core_carry "$CARRY_FROM" "$SESSION" ) || { RC=$?; echo "failed=carry"; echo "coordinate-open: $SESSION is open, but $CARRY_FROM's record wasn't carried into it (exit $RC); start again to carry it" >&2; exit 1; }
+    # carry_stop <why>: the carry didn't land. The new run loses any
+    # record/meta it got, so it never holds a record, and is cancelled, so it
+    # isn't a second live run of the scope; the source is untouched and the
+    # next start carries it again. A refusal of the source as bound to another
+    # directory, in the carry's own output or in one read of the source's
+    # record/meta made now (koto puts it on stdout or stderr), is
+    # refused=bound-elsewhere; any other is failed=carry. That read is
+    # rs_key's, which keeps koto's output for <file> in <file>, <file>.err,
+    # <file>.keys and <file>.keys.err (state-read.sh), so all four are searched.
+    carry_stop() {
+        [ -s "$T/carry.err" ] && head -c 2000 "$T/carry.err" >&2
+        core_carry_withdraw "$SESSION" \
+            || echo "coordinate-open: $SESSION's record/meta couldn't be removed; remove it before starting again, or the next start carries from $SESSION" >&2
+        "$KOTO" cancel "$SESSION" </dev/null >/dev/null \
+            || echo "coordinate-open: $SESSION couldn't be cancelled; cancel it before starting again" >&2
+        rs_key "$CARRY_FROM" record/meta "$T/probe"
+        grep -q session_bound_elsewhere "$T/carry.err" "$T/probe" "$T/probe.err" "$T/probe.keys" "$T/probe.keys.err" 2>/dev/null \
+            && refuse_bound "$CARRY_FROM" "$SESSION, opened to carry it, is cancelled holding no record"
+        echo "failed=carry"
+        echo "coordinate-open: $CARRY_FROM's record wasn't carried into $SESSION ($1); $SESSION is cancelled holding no record, $CARRY_FROM is untouched, and the next start carries it again" >&2
+        exit 1
+    }
+    # carry_verify: the carry landed when every record/ and legs/ key of the
+    # source is listed in the new run (each copy's write has exited 0), the
+    # new run's record/meta reads back, not pending, at the source's written
+    # time, and the source's record/meta still carries that time, so nothing
+    # wrote the source during the carry. A listing per prefix and one read of
+    # each record/meta, rather than a read of every key on both runs: on koto's
+    # cloud backend each call is a bucket round trip. Sets WHY on failure.
+    carry_verify() {
+        local p
+        for p in record/ legs/; do
+            rs_list "$CARRY_FROM" "$p" "$T/src-keys" && rs_list "$SESSION" "$p" "$T/new-keys" \
+                || { WHY="the $p keys couldn't be listed to check the carry"; return 1; }
+            jq -e --slurpfile n "$T/new-keys" 'all(.[]; . as $k | $n[0] | index($k) != null)' "$T/src-keys" > /dev/null \
+                || { WHY="a $p key of $CARRY_FROM isn't in $SESSION"; return 1; }
+        done
+        rs_key "$SESSION" record/meta "$T/new-meta" && rs_key "$CARRY_FROM" record/meta "$T/src-meta" \
+            || { WHY="record/meta couldn't be read back"; return 1; }
+        jq -e --slurpfile s "$T/src-meta" '.pending == false and $s[0].pending != true and .written == $s[0].written' "$T/new-meta" > /dev/null \
+            || { WHY="$CARRY_FROM's record was written during the carry"; return 1; }
+    }
+    ( core_carry "$CARRY_FROM" "$SESSION" ) 2> "$T/carry.err" || carry_stop "the carry stopped with exit $?"
+    WHY=
+    carry_verify || carry_stop "$WHY"
     echo "carried=$CARRY_FROM"
     # The recycled coordinator: the new run is joined to the run it carried,
     # a dispatched-by link in the new run's own session, so the earlier run
     # and the workers it dispatched stay in one hierarchy with it. A failed
     # link has printed its warning and recorded it; the carry stands.
     dl_link "$KOTO" "$SESSION" "$CARRY_FROM" || true
+    cancel_others
 elif [ "$FRESH" = 1 ]; then
     # A fresh start: no session here holds the scope's record (a discipline's
     # next rotation, whose ended rotation's session is here, isn't one). The legacy

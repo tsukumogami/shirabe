@@ -82,7 +82,7 @@ finish() { # finish <token>
 }
 
 lib_roadmap_path
-rs_record "$T/parsed.json"; RS_RC=$?
+rs_record "$T/parsed.json" "holdings deferrals side_effects decisions work"; RS_RC=$?
 case $RS_RC in
     0) ;;
     65) lib_die2 "$(lib_record_name) doesn't read back as a roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;

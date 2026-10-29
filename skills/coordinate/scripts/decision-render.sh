@@ -91,6 +91,9 @@ lib_run_stamp
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/decision-render.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
+# One record read for the step: the entry and, for a redirect, the section
+# come from one read of the Decisions section (shirabe#1315).
+rs_once_begin "$T/once" decisions || lib_die2 "cannot make a temporary directory"
 
 seal_token() { # seal_token <token>: print it sealed to this state's visit
     bash "$HERE/coord-log.sh" seal --session "$SESSION" --state "$STATE" --token "$1" || lib_die2 "cannot seal the verdict"

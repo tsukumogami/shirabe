@@ -760,7 +760,7 @@ states:
           vars.ROADMAP:
             is_set: true
       # A failure reported against a milestone that reads Done: its failure
-      # entry is checked and posted, and roadmap-status.sh --reopen opens the
+      # entry is checked and recorded, and roadmap-status.sh --reopen opens the
       # edit that sets it In progress. Not the `failure` state, which a held
       # re-dispatch reaches through `redispatch`. A roadmap event; at
       # discipline scope no edge takes it.
@@ -1701,7 +1701,7 @@ states:
       clauses:
         type: string
         required: false
-        description: On a milestone roadmap, the Clauses value of the goal-fit entry you posted, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
+        description: On a milestone roadmap, the Clauses value of the goal-fit entry you wrote, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
     gates:
       goal_fit_land:
         type: command
@@ -2120,7 +2120,7 @@ states:
 
   milestone_verdict:
     # Evidence-closed, as roadmap_status is: the coordinator checks the
-    # milestone against its Evidence, posts the checked verdict entry, and
+    # milestone against its Evidence, records the checked verdict entry, and
     # roadmap-status.sh --verdict opens the roadmap edit and writes its row
     # before `recorded`; the record step confirms the row. `deferred` leaves
     # the verdict-owed row standing, so pick still passes over the milestone
@@ -2131,7 +2131,7 @@ states:
         type: enum
         values: [recorded, deferred]
         required: true
-        description: recorded after the checked verdict entry was posted and roadmap-status.sh --verdict opened its roadmap edit; deferred when the verdict can't be given now.
+        description: recorded after the checked verdict entry was recorded and roadmap-status.sh --verdict opened its roadmap edit; deferred when the verdict can't be given now.
       unit:
         type: string
         description: With recorded, the milestone's heading tag (MV2, Feature 7).
@@ -2146,7 +2146,7 @@ states:
 
   milestone_reopen:
     # Evidence-closed, as milestone_verdict is: the coordinator checks the
-    # failure entry, posts it, and roadmap-status.sh --reopen opens the
+    # failure entry, records it, and roadmap-status.sh --reopen opens the
     # roadmap edit setting the milestone In progress and writes its row
     # before `opened`; the record step confirms the row. `failed` changes
     # nothing and goes back to wait
@@ -2156,7 +2156,7 @@ states:
         type: enum
         values: [opened, failed]
         required: true
-        description: opened after the checked failure entry was posted and roadmap-status.sh --reopen opened its roadmap edit; failed when the entry couldn't be checked or the script refused (the milestone isn't Done, or a roadmap edit is pending).
+        description: opened after the checked failure entry was recorded and roadmap-status.sh --reopen opened its roadmap edit; failed when the entry couldn't be checked or the script refused (the milestone isn't Done, or a roadmap edit is pending).
       unit:
         type: string
         description: With opened, the milestone's heading tag (MV2, Feature 7).
@@ -2974,11 +2974,18 @@ directly), `--end <id> --by "<who>"` when it stops binding, `--run cap <n> --by
 <lifted | time YYYY-MM-DDTHH:MMZ | merged owner/repo#n | tag owner/repo
 TAG>`, the time in UTC (convert a person's local time); a go-ahead that lets
 one unit through a wider pause takes `--on <the unit>`, and you end it after
-the step it allowed. A person's own comment on the record is not an entry until
-you write it. And before a local agent starts work in flight (a fix round, a
-pull request it builds), write its row, `--work "<what>" --kind local-agent
---who "local agent" --next "<step>"`, and `--done "<what>"` when it lands:
-without the row a successor can't see the work.
+the step it allowed. Any word from a person that tells workers to stop, park or
+hold is a pause, written as a `pause` row scoped to what it stops: `--on all`
+or the unit, `--until` its condition, or `lifted` when it ends on someone's
+word. That holds when the order is conditional, partial or bundled with other
+rules; those rules go in an `answer` row beside it, never in its place. Pick,
+the dispatch check, the land check, the merge and the quiet check read only
+`pause` rows, so an order written only as an `answer` holds nothing, and the
+workers it parked are counted silent. A person's own comment on the record is
+not an entry until you write it. And before a local agent starts work in
+flight (a fix round, a pull request it builds), write its row, `--work
+"<what>" --kind local-agent --who "local agent" --next "<step>"`, and `--done
+"<what>"` when it lands: without the row a successor can't see the work.
 
 After writing a pause, send each live worker it covers the pause line: push
 what you have at a safe point, report, then do nothing until the resume (no
@@ -3693,9 +3700,12 @@ clause 1 first:
    repository (`mktemp`) and check the entry:
    `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/milestone.sh" check-goal-fit <roadmap file> "<tag>" <entry file>`.
    Fix the entry until it passes.
-3. Post it on the pull request its first line names, the `<owner/repo#n>`
+3. Record it for the pull request its first line names, the `<owner/repo#n>`
    after `Goal fit:`:
    `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-entry.sh" --session {{SESSION_NAME}} --kind goal-fit --on <owner/repo#n> --text-file <entry file>`.
+   It is posted as a comment on that pull request only when its repository
+   opts in with `## PR Workflow Content: include`; otherwise it stays in the
+   session, and the script says so on stderr and exits 0.
 4. Submit, with `clauses` set to the entry's Clauses value.
 
 `advances none` is recorded, not a gap: `fit` alone decides where the pull
@@ -3703,7 +3713,7 @@ request goes, so a pull request that fits and moves no clause still lands.
 When `coord/land.json` carries `milestone_error` instead, the Evidence read
 failed: read it yourself with `milestone.sh evidence <roadmap file> "<tag>"`
 and write the entry the same way. With neither, no holding names a
-milestone for the pull request, and no entry is posted.
+milestone for the pull request, and no entry is written.
 
 ## land_merge
 
@@ -3903,8 +3913,8 @@ lists no instance for its topic and Claude Code lists no job in it, because
 someone already removed them. Ask for the handoff comment first all the same;
 the removed pass checks it as it would for a stopped worker. The inventory
 then finds no instance, and the removed pass archives what survives (the
-worker's last transcript and its koto sessions), posts the unit's cost entry
-when a session survives, and removes nothing. Never submit `removed` to skip
+worker's last transcript and its koto sessions), records the unit's cost
+entry when a session survives, and removes nothing. Never submit `removed` to skip
 the stop or the inventory of a worker that is still there: the inventory
 finds its instance, and the handoff refuses. When you are back here after a
 `stopped` because the inventory found no instance, the worker was already
@@ -3991,7 +4001,7 @@ Where your harness has no subagent tool, run that one command yourself.
 A verdict that says `removed yes` is a removed pass: the unit was torn down
 outside the pass. The agent runs the same command; the pass checks the pull
 requests, the handoff and that niwa and Claude Code list nothing for the
-unit, archives the surviving transcript and koto sessions, posts the cost
+unit, archives the surviving transcript and koto sessions, records the cost
 entry, and runs no `niwa destroy` and no `claude rm`. With `job -` there is
 nothing to archive and its last line still says done. Either way, on `done`
 remove the holding row and submit `destroyed`, as for any pass.
@@ -4034,11 +4044,16 @@ worker's silent checks from this session's log.
 
 A worker is quiet when neither a message nor a push has arrived from it for 30
 minutes; check a quiet worker at most once per 30 minutes, by reading its branch
-and pull request and its session on the host. A worker a pause in the record
-holds is never quiet: it was told to stop, and a sweep that skips it isn't a
-silent check. A silent check made before the latest `resume` tick no longer
-counts, so the first sweep after a resume sends a status message rather than
-going to the failure branch. The 30-minute interval is the
+and pull request and its session on the host. A worker a `pause` row in the
+record holds is never quiet: it was told to stop, and a sweep that skips it
+isn't a silent check. Only a `pause` row holds a worker; an `answer`,
+`approval` or `go-ahead` row never does. A quiet worker you find parked on a
+person's order with no `pause` row covering it gets that row and its `paused
+by <id>` Work row at `status_message`, before `sent` is submitted, so the next
+sweep skips it instead of sending its unit to the failure branch. A silent
+check made before the latest `resume` tick no longer counts, so the first
+sweep after a resume sends a status message rather than going to the failure
+branch. The 30-minute interval is the
 check's own and is fixed: a human's decision about intervals governs what your
 status message asks and when you follow up by hand, not when this check counts
 a silence. One silent check earns a status message;
@@ -4052,11 +4067,24 @@ Send each quiet worker one message asking for its status, and for whatever
 its Work row says is owed (a ready report after a resume, a fix round), then
 submit `sent: sent`.
 
+A quiet worker you find parked on a person's order (its last report says it
+parked, or the order stands in the record as an `answer` row) with no `pause`
+row covering it isn't silent; its pause is missing. Before you submit `sent`,
+write the order as a pause with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session {{SESSION_NAME}}`,
+`--standing pause --on <all or the unit> --until <its condition>` with the
+person as owner, and the worker's Work row, `--work "<unit>" --kind holding
+--who <topic> --next "paused by <id>; idle until the resume"`. Send it no
+status message. The next sweep skips it, where without the row it would
+send the unit to the failure branch.
+
 ## failure
 
 Choose the move and submit `move`: `redispatch` with the same brief plus what was
 learned, or `escalate` when the failure is for whoever dispatched you to decide,
-which raises it as a decision entry. Never tear anything down here.
+which raises it as a decision entry. Never tear anything down here. A worker
+parked on a person's order hasn't failed: write its missing pause, then submit
+`escalate` to raise an entry you settle yourself, as the details below say.
 
 <!-- details -->
 
@@ -4077,6 +4105,24 @@ script refuses a leg-bound worker, whose end still arrives on its leg. The
 new worker's brief names the stranded worker's branch and last pushed head,
 and the stranded row is retired once the new worker is dispatched; a report
 that later comes from the old topic matches no holding and is refused.
+
+A unit sent here by a second silence whose worker turns out to be parked on a
+person's order (its last report says it parked, or the order stands in the
+record as an `answer` row) hasn't failed; its `pause` row is missing, the row
+`status_message` writes at the first silence. Never redispatch or strand it.
+Write the order as `wait` says, with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session {{SESSION_NAME}}`:
+`--standing pause --what "<what it says>" --owner "<the person>" --relayed-by
+"<who carried it>" --on <all or the unit> --until <its condition>` (no relayer
+when the person told you directly), then the worker's Work row, `--work
+"<unit>" --kind holding --who <topic> --next "paused by <id>; idle until the
+resume"`. Send the worker nothing; it is already holding. Then submit `move:
+escalate`, and at `decision_raise` open the entry with `--source self`, its
+question whether to leave the worker parked under the pause row you just wrote,
+naming that row, and `--option "leave the worker parked under pause <id>"`.
+When the entry comes up for its verdict, settle it yourself with that option as
+`--outcome` and the row as `--reason`: the record answers it, so no person is
+asked, and the run goes on to pick, which never chooses a paused unit.
 
 ## decision_apply
 
@@ -4190,9 +4236,12 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
    Source and opens one pull request, with the entry in its body: a verified
    verdict sets the Status to Done, removes the Needs line and adds the work
    checked to Delivered; changes needed leaves Status and Delivered as they
-   are. It then posts the entry as a comment on that pull request and adds a
-   Progress line naming the verdict, you and that comment. When it exits 14
-   (the post or the Progress commit failed), run it again with the same
+   are. When the host opts in with `## PR Workflow Content: include`, it then
+   posts the entry as a comment on that pull request and adds a Progress line
+   naming the verdict, you and that comment. Otherwise nothing is posted: the
+   entry stays in the session, the pull request's body says so, and the
+   Progress line cites `entry <n>` where the comment's URL would go. When it
+   exits 14 (the post or the Progress commit failed), run it again with the same
    entry: it finds its pull request and finishes, opening no second one.
    Never merge it; it goes to whoever merges roadmap changes, in the
    merge-order table, and a person reviews the verdict there.
@@ -4271,9 +4320,12 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
    `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry <n>`.
    It reads the entry from the record, checks it against the roadmap on the
    default branch and opens one pull request, with the entry in its body,
-   that sets the Status to In progress; it then posts the entry as a comment
-   on that pull request and adds a Progress line naming the failed clause,
-   the reporter and that comment. Delivered, Outcome and Evidence stay. When
+   that sets the Status to In progress. It then adds a Progress line naming
+   the failed clause, the reporter and the entry: when the host opts in with
+   `## PR Workflow Content: include`, it posts the entry as a comment on that
+   pull request and the line names that comment; otherwise the entry stays
+   in the session, the pull request's body says so, and the line cites
+   `entry <n>`. Delivered, Outcome and Evidence stay. When
    it exits 14, run it again with the same entry: it finishes the same pull
    request. Never merge it; it goes to whoever merges roadmap
    changes, in the merge-order table, and a person reviews the report there.

@@ -136,7 +136,8 @@ eq "a second live run of the discipline opens" 0 $?
 ROT1=$(key "$S1" record/rotation)
 open_run ops
 S2=$S
-case "$OPEN_OUT" in *"cancelled="*"carried=$S1"*) ok "a run that can't be resumed is carried" ;;
+# The live runs are cancelled only once the carry has landed (shirabe#1257).
+case "$OPEN_OUT" in *"carried=$S1"*"cancelled="*) ok "a run that can't be resumed is carried" ;;
     *) bad "a run that can't be resumed is carried" "$OPEN_OUT $(cat "$T/open.err")" ;; esac
 case "$OPEN_OUT" in *"cancelled=$S1"*) ok "  ... the live run cancelled" ;; *) bad "  ... the live run cancelled" "$OPEN_OUT" ;; esac
 eq "  ... into a new run holding the same rotation" "$ROT1" "$(key "$S2" record/rotation)"

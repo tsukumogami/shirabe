@@ -44,7 +44,7 @@ done
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-hop-document-test.XXXXXX") || exit 1
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
 cleanup() { case "${WORKDIR:-}" in */check-hop-document-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 REAL_SHIRABE=$(command -v shirabe 2>/dev/null || true)
 ORIG_PATH=$PATH
@@ -129,12 +129,31 @@ expect() {
     fi
 }
 
-# expect_undecided <label>: exit 2, no finding, a reason on stderr.
+# expect_undecided <label>: an environment fault. Exit 2, a reason on stderr,
+# and exactly one finding, under docs/check-environment at error, whose
+# message is the rule's summary and the reason; no rule text and no named
+# exit on stderr.
+ENV_SUMMARY_REG=$(jq -r '.rules[] | select(.id == "docs/check-environment") | .summary' \
+    "$SCRIPT_DIR/../../../references/rule-registry.json")
 expect_undecided() {
-    if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ] && grep -q 'check-hop-document:' "$ERR"; then
+    local reason msg
+    msg=$(findings | jq -r 'select(.rule_id == "docs/check-environment" and .level == "error" and (.rule_ref | length) > 0) | .message' 2>/dev/null)
+    reason=${msg#"$ENV_SUMMARY_REG: "}
+    if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 1 ] && [ -n "$reason" ] && [ "$reason" != "$msg" ] \
+        && grep -qxF "check-hop-document: $reason" "$ERR" \
+        && ! grep -q '^::shirabe-rule::\|^::shirabe-check-exit::' "$ERR"; then
         pass "$1"
     else
-        fail "$1: rc=$RC findings=$(finding_count) stderr=[$(tail -n 2 "$ERR" | tr '\n' ' ')]"
+        fail "$1: rc=$RC findings=$(finding_count) msg=[$msg] stderr=[$(tail -n 2 "$ERR" | tr '\n' ' ')]"
+    fi
+}
+
+# expect_usage_error <label>: exit 2, a reason on stderr, nothing on stdout.
+expect_usage_error() {
+    if [ "$RC" -eq 2 ] && [ ! -s "$OUT" ] && grep -q 'check-hop-document:' "$ERR"; then
+        pass "$1"
+    else
+        fail "$1: rc=$RC out=[$(head -c 300 "$OUT")] stderr=[$(tail -n 2 "$ERR" | tr '\n' ' ')]"
     fi
 }
 
@@ -150,9 +169,11 @@ expect_usage() {
 # --- a stub validator -------------------------------------------------------------
 #
 # It answers --version, logs every other call's arguments to $STUB_LOG, answers
-# the canary (the gate's `canary.md`) with a banned-word notice unless
-# STUB_CANARY=none, and answers anything else with the contents of $STUB_JSON
-# and the exit code $STUB_RC.
+# the canary run (BRIEF-canary.md and DESIGN-canary.md) with the banned-word
+# notice and FC23, FC24 and FC25 notices (STUB_CANARY=old: the banned word
+# alone, a validator that predates those codes; STUB_CANARY=none: nothing),
+# and answers anything else with the contents of $STUB_JSON and the exit code
+# $STUB_RC.
 
 STUB_BIN="$WORKDIR/stub-bin"
 mkdir -p "$STUB_BIN"
@@ -162,14 +183,18 @@ if [ "${1-}" = --version ]; then echo "shirabe stub"; exit 0; fi
 printf '%s\n' "$*" >> "${STUB_LOG:-/dev/null}"
 last=""
 for a in "$@"; do last=$a; done
-if [ "$last" = canary.md ]; then
-    if [ "${STUB_CANARY:-ok}" = ok ]; then
-        printf '%s\n' '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"clean","errors":0,"notices":1},"findings":[{"code":"FC10","severity":"notice","message":"[FC10] writing-style banned word \"tier\" -- see skills/writing-style/rules.yaml","file":"canary.md","line":1}]}'
-    else
-        printf '%s\n' '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"clean","errors":0,"notices":0},"findings":[]}'
-    fi
+if [ "$last" = DESIGN-canary.md ]; then
+    banned='{"code":"FC10","severity":"notice","message":"[FC10] writing-style banned word \"tier\" -- see skills/writing-style/rules.yaml","file":"BRIEF-canary.md","line":23}'
+    fresh='{"code":"FC23","severity":"notice","message":"[FC23] problem: spans 5 non-blank lines","file":"BRIEF-canary.md","line":4},{"code":"FC24","severity":"notice","message":"[FC24] status: is out of order","file":"DESIGN-canary.md","line":5},{"code":"FC25","severity":"notice","message":"[FC25] option 1 has no provenance opener","file":"DESIGN-canary.md","line":31}'
+    case "${STUB_CANARY:-ok}" in
+        ok) found="$banned,$fresh" ;;
+        old) found=$banned ;;
+        *) found="" ;;
+    esac
+    printf '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"clean","errors":0,"notices":4},"findings":[%s]}\n' "$found"
     exit 0
 fi
+[ -z "${STUB_STDERR:-}" ] || printf '%s\n' "$STUB_STDERR" >&2
 cat "$STUB_JSON"
 exit "${STUB_RC:-0}"
 STUB
@@ -215,11 +240,11 @@ fixture usage
 gate --topic t
 expect_usage "usage: --hop missing"
 gate --topic t --hop everything
-expect_undecided "usage: an unknown hop"
+expect_usage_error "usage: an unknown hop"
 gate --topic 'T/../x' --hop prd
-expect_undecided "usage: a malformed topic"
+expect_usage_error "usage: a malformed topic"
 gate --topic t- --hop prd
-expect_undecided "usage: a topic ending in a hyphen"
+expect_usage_error "usage: a topic ending in a hyphen"
 
 # --- the code-to-rule map and the registry ----------------------------------------
 #
@@ -252,12 +277,40 @@ EOF
     else
         fail "registry aliases with no code_to_id arm: $missing"
     fi
-    ids=$(printf '%s\n' "$MAP" | cut -f2 | sort -u | tr '\n' ' ')
+    # docs/check-environment has no code: the gate reports it on a fault.
+    ids=$({ printf '%s\n' "$MAP" | cut -f2; echo docs/check-environment; } | sort -u | tr '\n' ' ')
     rule_ids=$(sed -n 's/^RULE_IDS="\(.*\)"$/\1/p' "$CHECK" | tr ' ' '\n' | sort -u | tr '\n' ' ')
     if [ "$ids" = "$rule_ids" ]; then
-        pass "RULE_IDS lists exactly the ids code_to_id maps to"
+        pass "RULE_IDS lists exactly the ids code_to_id maps to, and docs/check-environment"
     else
-        fail "RULE_IDS [$rule_ids] differs from the mapped ids [$ids]"
+        fail "RULE_IDS [$rule_ids] differs from the mapped ids and docs/check-environment [$ids]"
+    fi
+
+    # The code enumeration: every error-level code of the four scope formats,
+    # the notices the gate selects by code, and SCHEMA resolve both in the
+    # gate's table and through doc-check.sh's alias lookup to the same entry.
+    # A code that resolves in neither fails here, named.
+    unmapped=""
+    for code in FC01 FC02 FC03 FC04 FC05 FC06 FC17 FC18 FC19 FC20 FC22 R6 R9 R10 R11 FC23 FC24 FC25 SCHEMA; do
+        arm=$(printf '%s\n' "$MAP" | awk -F'\t' -v c="$code" '$1 == c { print $2 }')
+        alias=$(. "$SCRIPT_DIR/../../../scripts/lib/doc-validate.sh"; dv_registry_id "$REGISTRY" "$code")
+        { [ -n "$arm" ] && [ "$arm" = "$alias" ]; } || unmapped="$unmapped $code(table=[$arm] alias=[$alias])"
+    done
+    if [ -z "$unmapped" ]; then
+        pass "every error-level code of BRIEF, PRD, DESIGN and PLAN, FC23 to FC25 and SCHEMA resolves in the gate's table and the registry's aliases"
+    else
+        fail "codes that don't resolve the same in both:$unmapped"
+    fi
+
+    # The fault finding built without the registry carries the entry's
+    # summary and anchor.
+    env_summary=$(sed -n 's/^ENV_SUMMARY="\(.*\)"$/\1/p' "$CHECK")
+    env_anchor=$(sed -n 's/^ENV_ANCHOR="\(.*\)"$/\1/p' "$CHECK")
+    if [ -n "$env_summary" ] && [ "$env_summary" = "$ENV_SUMMARY_REG" ] \
+        && [ "$env_anchor" = "$(jq -r '.rules[] | select(.id == "docs/check-environment") | .text.path' "$REGISTRY")" ]; then
+        pass "the gate's fixed fault summary and anchor match docs/check-environment's entry"
+    else
+        fail "fixed fault finding: summary [$env_summary] anchor [$env_anchor]"
     fi
 fi
 
@@ -470,13 +523,184 @@ ln -s "$WORKDIR/outside-prds" "$REPO/docs/prds"
 with_stub --topic t --hop prd
 expect_undecided "a topic path resolving outside the repository"
 
+# --- not ready: no document for the hop ---------------------------------------------
+
+fixture not-ready
+stub_json "$CLEAN_ENVELOPE"; STUB_RC=0
+for hop in brief prd design plan all; do
+    with_stub --topic t --hop "$hop"
+    if [ "$RC" -eq 0 ] && [ "$(head -n 1 "$OUT")" = "::koto-not-ready::" ] && [ "$(finding_count)" -eq 0 ] \
+        && [ "$(awk 'END { print NR }' "$STUB_LOG")" -eq 1 ]; then
+        pass "--hop $hop with no document: ::koto-not-ready:: first, exit 0, only the canary ran"
+    else
+        fail "not ready $hop: rc=$RC out=[$(head -c 300 "$OUT")] log=[$(tr '\n' '|' < "$STUB_LOG")]"
+    fi
+done
+fx_prd t | put docs/prds/PRD-t.md
+commit_all
+with_stub --topic t --hop all
+if [ "$RC" -eq 0 ] && ! grep -q '^::koto-not-ready::' "$OUT" && grep -q -- '-- docs/prds/PRD-t.md$' "$STUB_LOG"; then
+    pass "--hop all with only the PRD: no marker, and the PRD is checked"
+else
+    fail "all with a PRD: rc=$RC out=[$(head -c 300 "$OUT")] log=[$(tr '\n' '|' < "$STUB_LOG")]"
+fi
+
+# --- the structural rules, through the stub ------------------------------------------
+#
+# one_finding <label> <rc> <rule> <level> <line> [<message part>]: the gate
+# exited <rc> with exactly one finding, under <rule> at <level> and <line>,
+# its message opening with the rule's summary (and holding <message part>).
+one_finding() {
+    local label=$1 want_rc=$2 rule=$3 level=$4 want_line=$5 part=${6-} summary got
+    summary=$(jq -r --arg id "$rule" '.rules[] | select(.id == $id) | .summary' "$REGISTRY")
+    got=$(findings | jq -c --arg s "$summary: " --arg part "$part" \
+        '{rule_id, level, line, opens: (.message | startswith($s)), part: (.message | contains($part))}' 2>/dev/null)
+    if [ "$RC" -eq "$want_rc" ] && [ "$(finding_count)" -eq 1 ] \
+        && [ "$got" = "{\"rule_id\":\"$rule\",\"level\":\"$level\",\"line\":$want_line,\"opens\":true,\"part\":true}" ]; then
+        pass "$label"
+    else
+        fail "$label: rc=$RC got=[$got] out=[$(head -c 400 "$OUT")] stderr=[$(tail -n 2 "$ERR" | tr '\n' ' ')]"
+    fi
+}
+# notice_envelope <code> <file> <line>: a clean run with one notice.
+notice_envelope() {
+    stub_json "{\"schema_version\":\"shirabe-validate/v1\",\"summary\":{\"outcome\":\"clean\",\"errors\":0,\"notices\":1},\"findings\":[{\"code\":\"$1\",\"severity\":\"notice\",\"message\":\"[$1] a notice\",\"file\":\"$2\",\"line\":$3}]}"
+    STUB_RC=0
+}
+# schema_skip_envelope <file> <reason> [<jq filter>]: the validator's exit 4
+# skipping <file> for its schema, through an optional filter.
+schema_skip_envelope() {
+    jq -cn --arg f "$1" --arg r "$2" '{schema_version: "shirabe-validate/v1",
+        summary: {outcome: "incomplete", errors: 0, notices: 1},
+        findings: [{code: "SCHEMA", severity: "notice", message: $r, file: $f, line: 1}],
+        skipped: [{file: $f, reason: $r}]}' | jq -c "${3:-.}" > "$STUB_JSON"
+    STUB_RC=4
+}
+
+fixture structural-stub
+fx_brief t | put docs/briefs/BRIEF-t.md
+fx_design t | put docs/designs/DESIGN-t.md
+fx_plan t | put docs/plans/PLAN-t.md
+commit_all
+
+notice_envelope FC23 docs/briefs/BRIEF-t.md 4
+with_stub --topic t --hop brief
+one_finding "(a) an FC23 notice: one brief/summary-length warning, exit 0" 0 brief/summary-length warning 4
+notice_envelope FC24 docs/designs/DESIGN-t.md 3
+with_stub --topic t --hop design
+one_finding "(b) an FC24 notice: one design/frontmatter-order warning, exit 0" 0 design/frontmatter-order warning 3
+notice_envelope FC25 docs/designs/DESIGN-t.md 30
+with_stub --topic t --hop design
+one_finding "(c) an FC25 notice: one design/provenance-opener warning, exit 0" 0 design/provenance-opener warning 30
+notice_envelope FC07 docs/designs/DESIGN-t.md 30
+with_stub --topic t --hop design
+expect "a notice outside the selected codes (FC07) is not a violation" 0
+
+stub_json '{"schema_version":"shirabe-validate/v1","summary":{"outcome":"violations","errors":1,"notices":0},"findings":[{"code":"FC22","severity":"error","message":"[FC22] step 2 has no **Check**: line (rule: step-check)","file":"docs/plans/PLAN-t.md","line":14}]}'
+STUB_RC=2
+with_stub --topic t --hop plan
+one_finding "(d) an FC22 step-plan violation: one plan/step-shape finding at its line, naming the sub-rule, exit 1" \
+    1 plan/step-shape error 14 "(rule: step-check)"
+
+schema_skip_envelope docs/designs/DESIGN-t.md "schema field missing, skipping"
+with_stub --topic t --hop design
+one_finding "(e) a DESIGN with no schema: one docs/schema-declared finding at line 1, exit 1" 1 docs/schema-declared error 1 "schema field missing"
+schema_skip_envelope docs/designs/DESIGN-t.md 'schema "design/v9" not in supported range, skipping' '.findings[0].line = 7'
+with_stub --topic t --hop design
+one_finding "(e) a DESIGN with schema design/v9: one docs/schema-declared finding at line 1, exit 1" 1 docs/schema-declared error 1 "not in supported range"
+
+schema_skip_envelope docs/designs/DESIGN-t.md "schema field missing, skipping" '.skipped += [{file: "docs/designs/DESIGN-u.md", reason: "x"}]'
+with_stub --topic t --hop design
+expect_undecided "an exit 4 with two skipped entries is an environment fault"
+schema_skip_envelope docs/designs/DESIGN-u.md "schema field missing, skipping"
+with_stub --topic t --hop design
+expect_undecided "an exit 4 skipping another document is an environment fault"
+schema_skip_envelope docs/designs/DESIGN-t.md "schema field missing, skipping" \
+    '.findings += [{code: "FC04", severity: "error", message: "[FC04] x", file: "docs/designs/DESIGN-t.md", line: 3}]'
+with_stub --topic t --hop design
+expect_undecided "an exit 4 with an error-level finding beside the skip is an environment fault"
+stub_json 'not json'; STUB_RC=4
+with_stub --topic t --hop design
+expect_undecided "an exit 4 with an unreadable envelope is an environment fault"
+stub_json "$CLEAN_ENVELOPE"; STUB_RC=4
+with_stub --topic t --hop design
+expect_undecided "an exit 4 with a complete clean envelope is an environment fault"
+stub_json "$CLEAN_ENVELOPE"; STUB_RC=0
+STUB_CANARY=old with_stub --topic t --hop design
+expect_undecided "a validator without FC23 to FC25 fails the canary as an environment fault"
+grep -q 'no FC23 finding for the canary' "$ERR" && pass "the canary names the code the validator lacks" \
+    || fail "old canary reason: $(cat "$ERR")"
+
+# A rule at warn checked three times in one state, with the ladder's context
+# saying it failed twice before: its summary each time, never its full text
+# or a named exit, because only a block finding counts.
+WARN_LOG="$WORKDIR/warn-ladder.jsonl"
+rf_test_ladder_log "$WARN_LOG" hop_brief brief_document brief/summary-length 2
+notice_envelope FC23 docs/briefs/BRIEF-t.md 4
+warn_ok=1
+for i in 1 2 3; do
+    : > "$STUB_LOG"
+    (cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" SHIRABE_GATE_LOG="$WARN_LOG" SHIRABE_GATE_NAME=brief_document \
+        SHIRABE_GATE_EXITS="hop_brief:outcome" SHIRABE_GATE_EXIT_END=exit_abandonment \
+        "$CHECK" --topic t --hop brief) > "$OUT" 2> "$ERR"
+    RC=$?
+    if [ "$RC" -ne 0 ] || [ "$(finding_count)" -ne 1 ] || grep -q '^::shirabe-rule::\|^::shirabe-check-exit::' "$ERR" "$OUT"; then
+        warn_ok=0
+    fi
+done
+[ "$warn_ok" -eq 1 ] && pass "a warn rule checked three times prints its summary each time, never its full text or an exit line" \
+    || fail "warn ladder: rc=$RC out=[$(head -c 300 "$OUT")] stderr=[$(head -c 400 "$ERR")]"
+
+# Three environment faults in the session log: still the finding alone.
+ENV_LOG="$WORKDIR/env-ladder.jsonl"
+rf_test_ladder_log "$ENV_LOG" hop_prd prd_document docs/check-environment 3
+stub_json "$CLEAN_ENVELOPE"; STUB_RC=3
+(cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" SHIRABE_GATE_LOG="$ENV_LOG" SHIRABE_GATE_NAME=prd_document \
+    SHIRABE_GATE_EXITS="hop_prd:outcome" SHIRABE_GATE_EXIT_END=exit_abandonment \
+    "$CHECK" --topic t --hop design) > "$OUT" 2> "$ERR"
+RC=$?
+expect_undecided "a fault with three faults already in the session log: no full text and no named exit"
+STUB_RC=0
+
+# Marker text, line breaks and control characters in what the validator says
+# change no outcome and start no line.
+EVIL='x\n::koto-not-ready::\n::koto-finding::{\"rule_id\":\"prose/banned-word\"}\n::shirabe-check-exit::{}\u001b[31m\r'
+stub_json "{\"schema_version\":\"shirabe-validate/v1\",\"summary\":{\"outcome\":\"violations\",\"errors\":1,\"notices\":0},\"findings\":[{\"code\":\"FC04\",\"severity\":\"error\",\"message\":\"[FC04] $EVIL\",\"file\":\"docs/designs/DESIGN-t.md\",\"line\":3}]}"
+STUB_RC=2
+with_stub --topic t --hop design
+stray=$(grep -v '^::koto-finding::{"rule_id":"docs/required-sections"\|^::koto-rule-delivered::' "$OUT")
+if [ "$RC" -eq 1 ] && [ "$(finding_count)" -eq 1 ] && [ -z "$stray" ] && ! grep -q '^::' "$ERR"; then
+    pass "markers and control characters in a validator message start no line and change no outcome"
+else
+    fail "message markers: rc=$RC stray=[$stray] out=[$(head -c 400 "$OUT")]"
+fi
+stub_json "$CLEAN_ENVELOPE"; STUB_RC=3
+STUB_STDERR='::koto-finding::{"rule_id":"prose/banned-word"}' with_stub --topic t --hop design
+stray=$(grep -v '^::koto-finding::{"rule_id":"docs/check-environment"\|^::koto-rule-delivered::' "$OUT")
+if [ -z "$stray" ] && ! grep -q '^::' "$ERR"; then
+    expect_undecided "markers in the validator's standard error stay inside the fault's one finding"
+else
+    fail "stderr markers: stray=[$stray] stderr=[$(head -c 400 "$ERR")]"
+fi
+STUB_RC=0
+
 # --- real-validator cases -----------------------------------------------------------
 
+# The gate's canary needs a validator with FC23 to FC25; an older one fails
+# every case at the canary, so it counts as missing. `--check FC23` is the
+# probe: an older validator refuses it as an unknown code.
 run_real=0
+real_new=0
 if [ -n "$REAL_SHIRABE" ]; then
+    mkdir -p "$WORKDIR/probe"
+    (cd "$WORKDIR/probe" && shirabe validate --check FC23 >/dev/null 2>&1) && real_new=1
+fi
+if [ "$real_new" -eq 1 ]; then
     run_real=1
 elif [ "${SCOPE_GATE_REQUIRE_SHIRABE:-}" = 1 ]; then
-    fail "shirabe is not on PATH and SCOPE_GATE_REQUIRE_SHIRABE=1: the real-validator cases can't run"
+    fail "no shirabe with FC23 to FC25 on PATH and SCOPE_GATE_REQUIRE_SHIRABE=1: the real-validator cases can't run"
+elif [ -n "$REAL_SHIRABE" ]; then
+    echo "SKIP: the shirabe on PATH predates FC23 to FC25 -- the real-validator cases did not run"
 else
     echo "SKIP: shirabe not on PATH -- the real-validator cases did not run"
 fi
@@ -667,12 +891,62 @@ if [ "$run_real" -eq 1 ]; then
         fail "message shape: got [$gmsg] want [$summary: $vmsg]"
     fi
 
-    # A schema-less document: the validator checks nothing, so the gate can't decide.
+    # A schema-less document, and one whose schema the format doesn't
+    # support: the validator skips it, and the gate holds it under
+    # docs/schema-declared at line 1.
     fixture schemaless
-    printf 'No frontmatter.\n\n## Status\n\nDraft\n' | put docs/prds/PRD-t.md
+    fx_design t | grep -v '^schema:' | put docs/designs/DESIGN-t.md
     commit_all
-    gate --topic t --hop prd
-    expect_undecided "a schema-less document"
+    gate --topic t --hop design
+    expect "a DESIGN with no schema: one finding" 1 docs/schema-declared
+    [ "$(findings | jq -r '.line')" = 1 ] && pass "the schema finding is at line 1" || fail "schema line: $(findings)"
+    fx_design t | sed 's|^schema: design/v1|schema: design/v9|' | put docs/designs/DESIGN-t.md
+    commit_all
+    gate --topic t --hop design
+    expect "a DESIGN with schema design/v9: one finding" 1 docs/schema-declared
+
+    # One break of each structural rule, and the same document fixed.
+    # real_one <label> <hop> <path> <rc> <rule> <level> <line>: the gate prints
+    # exactly one finding, under <rule> at <level> and <line>, its message
+    # opening with the rule's summary, and exits <rc>.
+    real_one() {
+        local label=$1 hop=$2 path=$3 want_rc=$4 rule=$5 level=$6 want_line=$7 summary got
+        commit_all
+        gate --topic t --hop "$hop"
+        summary=$(jq -r --arg id "$rule" '.rules[] | select(.id == $id) | .summary' "$REGISTRY")
+        got=$(findings | jq -c --arg s "$summary: " '{rule_id, level, path, line, opens: (.message | startswith($s))}')
+        if [ "$RC" -eq "$want_rc" ] && [ "$(finding_count)" -eq 1 ] \
+            && [ "$got" = "{\"rule_id\":\"$rule\",\"level\":\"$level\",\"path\":\"$path\",\"line\":$want_line,\"opens\":true}" ]; then
+            pass "$label"
+        else
+            fail "$label: rc=$RC got=[$got] stderr=[$(tail -n 2 "$ERR" | tr '\n' ' ')]"
+        fi
+    }
+    fixture structural
+    fx_brief t | awk '{ print } /^problem: \|$/ { print "  One more line."; print "  And another."; print "  And a fifth." }' \
+        | put docs/briefs/BRIEF-t.md
+    real_one "(a) a five-line BRIEF problem: one warning, exit 0" brief docs/briefs/BRIEF-t.md 0 \
+        brief/summary-length warning "$(grep -n '^problem:' "$REPO/docs/briefs/BRIEF-t.md" | cut -d: -f1)"
+    fx_brief t | put docs/briefs/BRIEF-t.md
+    commit_all
+    gate --topic t --hop brief
+    expect "(a) fixed: no finding" 0
+    # FC24 reports the first written key that isn't the canonical one there:
+    # problem:, written where status: belongs.
+    fx_design t | awk '/^status: Proposed$/ { next } { print } /^problem: \|$/ { getline; print; print "status: Proposed" }' \
+        | put docs/designs/DESIGN-t.md
+    real_one "(b) a DESIGN key out of order: one warning, exit 0" design docs/designs/DESIGN-t.md 0 \
+        design/frontmatter-order warning "$(grep -n '^problem:' "$REPO/docs/designs/DESIGN-t.md" | cut -d: -f1)"
+    fx_design t | awk 'NR > 1 && /^---$/ && !done { print "decision_provenance: inline-resolved"; done = 1 } { print }
+        /^## Considered Options$/ { print ""; print "### Decision 1: where the list goes"; print ""; print "Resolved inline.";
+                                    print ""; print "### Decision 2: what the list holds" }' \
+        | put docs/designs/DESIGN-t.md
+    real_one "(c) a Considered Options entry with no opener: one warning, exit 0" design docs/designs/DESIGN-t.md 0 \
+        design/provenance-opener warning "$(grep -n '^### Decision 2' "$REPO/docs/designs/DESIGN-t.md" | cut -d: -f1)"
+    fx_design t | put docs/designs/DESIGN-t.md
+    commit_all
+    gate --topic t --hop design
+    expect "(b) and (c) fixed: no finding" 0
 fi
 
 rf_test_verify "check-hop-document"

@@ -187,6 +187,10 @@ coordination PR with; the amendment after the slot rules gives the shape
 `/execute` renders from the run's record:
 
 ````markdown
+The coordination pull request for <effort-slug>, which merges after every node pull request.
+
+---
+
 # Coordination PR: <effort-slug>
 
 > This is a **coordination PR** for a coordinated effort. It is docs-only and
@@ -272,12 +276,18 @@ run=<32 hex>
 ````
 
 - **Part 1** — everything above the body's first top-level `---` is kept
-  byte for byte, so a person's description survives every render. A body with
-  no top-level `---`, such as `/scope`'s, gets exactly `Coordination pull
-  request for <slug>. It carries the planning documents for <n> node pull
-  requests and merges after all of them.` (`<n>` counts the PR nodes), and the
-  render replaces the whole body, `/scope`'s heading and artifact chain
-  included. A Part 1 edited between the render and the post skips the post.
+  byte for byte, so a person's description survives every render. `/scope`
+  writes its body with one, so its one-sentence Part 1 is kept and the render
+  replaces everything below the `---`, `/scope`'s heading and artifact chain
+  included. A body with no top-level `---` (one `/scope` opened before it
+  wrote a separator) gets exactly `Coordination pull request for <slug>. It
+  carries the planning documents for <n> node pull requests and merges after
+  all of them.` (`<n>` counts the PR nodes), and the render replaces the whole
+  body. A Part 1 edited between the render and the post skips the post. A
+  `/scope` republish over a rendered body keeps its Part 1, its `store=` and
+  `run=` lines, its PR Index and its Merge Order, and rewrites only what
+  `/scope` writes around them. A re-evaluation or abandonment-forced publish
+  leaves a rendered body as it is and stops at `scope:pr-create`.
 - **Run lines** — `/scope`'s run lines as setup recorded them, then the
   record's store and the run's identity.
 - **PR Index** — one line per recorded PR node, in the order setup sealed the

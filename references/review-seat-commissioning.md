@@ -14,11 +14,21 @@ those lines have in common, so it is said once.
 ## At the spawn site
 
 1. Assemble the packet once per round with the command the commissioning line
-   gives. It prints the packet's path. The criteria for a code packet come
-   from `--issue <N>`; a plan-backed child whose criteria live in a PLAN
-   outline, and a free-form run with no issue, write their criteria to a
-   `mktemp` file and pass `--criteria <file>` instead. A plan-outline child's
-   `<N>` numbers an item in its PLAN, not an issue, so the script refuses
+   gives. It prints the packet's path. Every packet command takes `--scratch`,
+   a directory of the run's own from `skill-session.sh scratch`, which the
+   packet is written into: a `/work-on` run's scratch directory (the one its
+   evidence files go in, which nothing ingests), a jury's `<inputs-dir>`, or,
+   at a site that keeps
+   neither, one allocated for the packet. Never a directory whose files are
+   ingested as keys, and never the shared `$TMPDIR`, where another run's
+   cleanup can remove the packet between panels. The script refuses a missing
+   `--scratch` with exit 67, and one that isn't a private directory of the
+   current user's outside the work tree with exit 64. The criteria for a code
+   packet come from `--issue <N>`; a plan-backed child whose criteria live in
+   a PLAN outline, and a free-form run with no issue, write their criteria to
+   a file in the same scratch directory and pass `--criteria <file>` instead.
+   A plan-outline child's `<N>` numbers an item in its PLAN, not an issue, so
+   the script refuses
    `--issue` for its session with exit 67 rather than read an unrelated issue
    under that number. `--issue <N>` always comes with `--issue-repo`, the
    run's `ISSUE_REPO` as the state's directive gives it: empty for an issue
@@ -39,9 +49,13 @@ those lines have in common, so it is said once.
 2. Pass the model on every spawn (`model: "sonnet"` or `model: "haiku"`). A
    spawn with no model inherits the parent's.
 3. Open each prompt with the seat preamble below, after any fixed preamble the
-   spawn site already has, with the packet path and the seat's budget filled
-   in. Where a prompt template says to include the document or its sections
-   (`[Contents of ...]`), name the packet path instead of pasting the text.
+   spawn site already has, with the packet path, the head and the seat's
+   budget filled in. `<head>` is the full commit the packet's `head:` line
+   must name: `git rev-parse HEAD` when you build a `code` or `recheck`
+   packet. A `doc` packet has no `head:` line, so its seats' preamble leaves
+   out the sentence that begins `This review is of head`. Where a prompt
+   template says to include the document or its sections (`[Contents of
+   ...]`), name the packet path instead of pasting the text.
    The re-verifier's prompt is the re-check prompt below, with `<panel>`
    filled in, after the preamble, in place of its panel's full-review prompt: its packet carries
    no acceptance criteria for that prompt to judge.
@@ -51,12 +65,22 @@ those lines have in common, so it is said once.
 ## The seat preamble
 
 ```
-Your input is the review packet at <packet-path>. Read it first; it carries
-what this review needs. Read anything else only when a specific finding needs
-it, and list each such read under "Reads beyond packet" in your output, with
-the finding it served. You have a budget of <cap> tool calls. When you reach
-it, stop and return your verdict on what you have, and say the budget ran out.
+Your input is the review packet at <packet-path>, and only that file: never
+read another packet, or a file with a similar name or in another directory,
+in its place. If it is missing or can't be read, stop and return no verdict,
+saying so. This review is of head <head>: before anything else, check the
+packet's `head:` line against it, and if the line is missing or names
+another commit, stop and return no verdict, quoting the line you found. The
+packet carries what this review needs. Read anything else only when a
+specific finding needs it, and list each such read under "Reads beyond
+packet" in your output, with the finding it served. You have a budget of
+<cap> tool calls. When you reach it, stop and return your verdict on what
+you have, and say the budget ran out.
 ```
+
+A packet that is gone or names another head is never replaced by a search:
+a seat that found its path empty once read another run's packet and returned
+a verdict on a different change.
 
 ## The re-check prompt
 

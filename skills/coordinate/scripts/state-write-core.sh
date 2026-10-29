@@ -42,7 +42,9 @@
 # above are the one-writer-per-key rule.
 #
 # The caller's contract:
-#   - it has sourced state-common.sh, run lib_facts and lib_write_guard, and
+#   - it has sourced state-common.sh, run lib_facts and lib_write_guard
+#     (except coordinate-open.sh for the carry, whose source stays live until
+#     the carry lands, so its new run isn't yet the scope's one live run), and
 #     set PROG, HERE, SESSION, SCOPE, NAME, REPO and STATE_FILE, the next state
 #     as JSON carrying the written time of the version it was built from, in a
 #     file of the writer's own private directory (mode 0600), which the writer
@@ -85,6 +87,13 @@ IMPORT_WRITER=0
 # --pushed-head, which state-holding.sh alone passes, sets one (CORE_PUSHED_SET=1
 # with CORE_PUSHED_TOPIC and CORE_PUSHED_HEAD, 40 hex or empty to clear it).
 CORE_PUSHED_SET=0 CORE_PUSHED_TOPIC= CORE_PUSHED_HEAD=
+# The template compat a run was compiled at and its template's structural
+# fingerprint, kept in record/meta as template_compat and template_fingerprint
+# (shirabe#1333), so the run's compat stays known once a later compat table
+# drops its fingerprint (coord-log.sh compat reads them). They are written
+# where record/meta is born, by a seed, a carry and the legacy import, and by
+# coordinate-open.sh's takeover over the predecessor's carried pair; every
+# other write keeps them.
 # The highest Standing id number the record has given out, kept in record/meta
 # as standing_used so the next id is chosen without reading every entry
 # (shirabe#1283). A write keeps it as record/meta has it; state-stored-set.sh
@@ -215,7 +224,8 @@ core_write_session() {
         [ $rc -eq 1 ] || { [ $rc -eq 0 ] && jq -e '.pending == true and .written == ""' "$T/meta.now" > /dev/null; } \
             || { echo "$PROG: refused: session $s already holds a record" >&2; exit 65; }
         RESEED=$([ $rc -eq 0 ] && echo 1)
-        jq -nc --argjson sc "$(jq -c .scope "$T/next-state.json")" '{scope: $sc, store: "session", written: "", pending: false}' > "$T/meta.now"
+        jq -nc --argjson sc "$(jq -c .scope "$T/next-state.json")" --argjson tc "$(core_compat_meta "$s")" \
+            '{scope: $sc, store: "session", written: "", pending: false} + $tc' > "$T/meta.now"
         : > "$T/live.json"
     else
         [ $rc -eq 0 ] || lib_die2 "cannot read session $s's record/meta"
@@ -300,6 +310,25 @@ core_write_host() {
     rm -rf "$d"
 }
 
+# core_compat_meta <session>: the run's template_compat and
+# template_fingerprint as a JSON object for record/meta, from coord-log.sh
+# compat: the compat the table beside the run's plugin lists its fingerprint
+# at. A table never renumbers a fingerprint (check-template-compat.sh), so that
+# is the compat the run was compiled at. {} when the fingerprint can't be read
+# or the table doesn't list it: the record then says nothing rather than
+# something wrong, and a reader falls back to the table as before.
+core_compat_meta() {
+    local c f
+    read -r c _ f <<EOF
+$(bash "$HERE/coord-log.sh" compat --session "$1" < /dev/null 2> /dev/null)
+EOF
+    if [[ $c =~ ^[1-9][0-9]*$ ]] && [[ $f =~ ^[0-9a-f]{64}$ ]]; then
+        jq -nc --argjson c "$c" --arg f "$f" '{template_compat: $c, template_fingerprint: $f}'
+    else
+        echo '{}'
+    fi
+}
+
 # core_write_meta <session> <jq filter> [jq args...]: rewrite the run's
 # record/meta with <filter> applied, for the fields a takeover keeps there
 # (driver, takeover, takeover_done; DESIGN-coordinate-successor-continues.md).
@@ -326,6 +355,24 @@ core_write_meta() {
     "$KOTO" context add "$s" record/meta --from-file "$d/next" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the record/meta write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     rm -rf "$d"
+}
+
+# core_carry_withdraw <to>: remove record/meta from the run a carry wrote into
+# when the carry didn't land (shirabe#1257), so it holds no record and a later
+# start never takes its copy for the record; the keys copied before it stay,
+# unread. It lives here because only the write core removes a record/ key (a
+# structure test holds every other script to that). Only coordinate-open.sh
+# calls it, before cancelling that run. Returns
+# 0 removed or never written; 1 the listing or the removal failed.
+core_carry_withdraw() {
+    local d rc=0
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-withdraw.XXXXXX") || return 1
+    rs_list "$1" record/meta "$d/keys" || { rm -rf "$d"; return 1; }
+    if jq -e 'index("record/meta") != null' "$d/keys" > /dev/null; then
+        "$KOTO" context remove "$1" record/meta < /dev/null > /dev/null 2>&1 || rc=1
+    fi
+    rm -rf "$d"
+    return $rc
 }
 
 # core_write_pushed: set one holding's pushed head (CORE_PUSHED_TOPIC,
@@ -451,7 +498,7 @@ core_carry() {
             record/meta) continue ;;
             # A rotation's window and its reasoning go with it on a restart.
             record/host|record/rotation|record/reasoning) ;;
-            record/entries/*|record/posted/*) [[ $k =~ ^record/(entries|posted)/[0-9]{6}$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
+            record/entries/*|record/posted/*|record/archive/*) [[ $k =~ ^record/(entries|posted|archive)/[0-9]{6}$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
             record/*) case "$secs" in *" $k "*) ;; *) rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k, not one of the session store's" >&2; exit 65 ;; esac ;;
             legs/*) [[ $k =~ ^legs/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
         esac
@@ -478,11 +525,13 @@ core_carry() {
     done < "$d/keys"
     # The highest of the source's own standing_used, the ids the entries name
     # and the Standing rows': the next id in the new run is above all of them.
-    jq -c --rawfile e "$d/used" --slurpfile m "$d/rec.meta" '
-        {scope, store: "session", written, pending: false,
-         standing_used: ([($m[0].standing_used | if type == "number" then . else 0 end),
-                          ($e | split("\n")[] | select(. != "") | tonumber),
-                          ((.standing // [])[] | .standing[1:] | tonumber)] | max)}' \
+    # The new run's own template compat, never the source's: the two may run
+    # different templates. Before standing_used, in the order a seed leaves.
+    jq -c --rawfile e "$d/used" --slurpfile m "$d/rec.meta" --argjson tc "$(core_compat_meta "$to")" '
+        {scope, store: "session", written, pending: false} + $tc
+        + {standing_used: ([($m[0].standing_used | if type == "number" then . else 0 end),
+                            ($e | split("\n")[] | select(. != "") | tonumber),
+                            ((.standing // [])[] | .standing[1:] | tonumber)] | max)}' \
         "$d/rec.state" > "$d/meta" || { rm -rf "$d"; lib_die2 "jq failed"; }
     "$KOTO" context add "$to" record/meta --from-file "$d/meta" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the carry into $to failed at record/meta: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
@@ -511,7 +560,9 @@ core_validate() {
 # core_validate whole before any key is written; each section key is then
 # written whole (a section the state doesn't hold loses its key), each entry in
 # <entries-file>, a JSON array of {n, stamp, kind, text} numbered from 1, as
-# record/entries/<n> (an entry key numbered past the last is removed), and at
+# record/entries/<n> (an entry key numbered past the last is removed), a
+# `decisions` entry with its marker record/archive/<n> as state-entry.sh writes
+# one (a marker on any other number is removed), and at
 # discipline scope <rotation-file>, {start, end, host_repo, predecessor: null},
 # as record/rotation. record/meta is left to core_import_meta, which the
 # importer calls last, so an import cut short leaves no record and the next
@@ -547,20 +598,31 @@ core_import() {
     n=$(jq length "$2")
     for i in $(jq -r 'keys[]' "$2"); do
         jq -c --argjson i "$i" '.[$i]' "$2" > "$T/entry"
+        if [ "$(jq -r .kind "$T/entry")" = decisions ]; then
+            jq -c '{n}' "$T/entry" > "$T/marker"
+            core_import_add "$s" "record/archive/$(printf '%06d' $((i + 1)))" "$T/marker"
+        fi
         core_import_add "$s" "record/entries/$(printf '%06d' $((i + 1)))" "$T/entry"
     done
     for key in $(jq -r --argjson n "$n" '.[] | select(test("^record/entries/[0-9]{6}$")) | select((ltrimstr("record/entries/") | tonumber) > $n)' "$T/keys"); do
+        core_import_remove "$s" "$key"
+    done
+    # A marker an earlier, cut-short import left on an entry this one doesn't
+    # write as a decisions entry.
+    for key in $(jq -r --slurpfile e "$2" '[$e[0][] | select(.kind == "decisions") | .n] as $d
+            | .[] | select(test("^record/archive/[0-9]{6}$")) | select((ltrimstr("record/archive/") | tonumber) as $m | $d | index($m) | not)' "$T/keys"); do
         core_import_remove "$s" "$key"
     done
     [ "$SCOPE" != discipline ] || core_import_add "$s" record/rotation "$3"
 }
 
 # core_import_meta <state-file>: the import's last write, record/meta with the
-# state's scope and written time; from then the session holds the record.
+# state's scope and written time and the run's template compat; from then the
+# session holds the record.
 core_import_meta() {
     local s=${RS_SESSION:-$SESSION}
     core_import_open "$s"
-    jq -c '{scope, store: "session", written, pending: false}' "$1" > "$T/meta" || lib_die2 "jq failed"
+    jq -c --argjson tc "$(core_compat_meta "$s")" '{scope, store: "session", written, pending: false} + $tc' "$1" > "$T/meta" || lib_die2 "jq failed"
     core_import_add "$s" record/meta "$T/meta"
 }
 

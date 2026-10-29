@@ -10,7 +10,8 @@
 # combined status, pull request views and branch rules still answer. This
 # script stands in for `gh pr checks` in every gate that reads a pull
 # request's checks (work-on.md's ci_passing, execute.md's owned_ci_passing,
-# ci-cancel-after-merge.sh, ci-none-declared.sh and merge-verdict.sh), so
+# ci-cancel-after-merge.sh, ci-none-declared.sh, merge-verdict.sh and
+# coord-common.sh's draft-node read), so
 # those gates read CI on whatever the session's token can reach. It never
 # changes or drops the token.
 #

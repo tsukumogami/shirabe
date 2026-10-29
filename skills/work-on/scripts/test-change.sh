@@ -106,12 +106,27 @@
 #             undecided when the run's work tree is gone. Control characters
 #             are shown escaped.
 #
+# A moved work tree. The run's work tree is the latest relocate line's `to`,
+# else the header's. When it is gone and the current directory's work tree is
+# the same work (its origin names the header's repository, when the header
+# records one, and its HEAD has impl_base as an ancestor), seat, accept,
+# decline and status use the current one and, the first time, append a
+# relocate line naming both paths under the lock (status takes it only for
+# that), and say so on stderr. classify and covered use it for that call and
+# write nothing. record never follows the current directory: it reads the
+# relocate lines alone, lists each one, and reports the state as undecided
+# while the latest work tree is gone. Any other case is the gone work tree
+# (exit 2) it always was. init, note and overrule don't read the work tree to
+# decide, and don't follow it.
+#
 # Ledger lines (JSON, one per line). The header comes first. Then `note`,
 # `seat` (identity, nonce), `accept` and `decline` (id, identity, kind,
 # authority, files [{path, digest}], reason, outcome allow, session_exists),
 # `overrule` (id, identity, kind, authority, target, target_authority, files,
-# reason, outcome allow, session_exists) and `refuse` (action, identity, kind,
-# authority, files, reason, rule_id, detail). A person line also carries `tag`.
+# reason, outcome allow, session_exists), `refuse` (action, identity, kind,
+# authority, files, reason, rule_id, detail) and `relocate` (from, to). A
+# person line also carries `tag`. The acceptance rule folds none of the
+# header, note or relocate lines.
 # Every line has ts, event, source (`session`) and rule (`interim`, the rule
 # that judged it). Stored session_exists and terminal flags are notes for a
 # reader: the rule re-derives both every time it folds the ledger.
@@ -122,7 +137,8 @@
 # repository-relative with no `..` segment and no leading - or /. Reasons and
 # paths have control characters stripped, and every line is built with jq.
 #
-# Writers (init, note, seat, accept, decline, overrule) hold a mkdir lock
+# Writers (init, note, seat, accept, decline, overrule, and status while it
+# records a moved work tree) hold a mkdir lock
 # named for the session in a per-user state directory (mode 0700, owner
 # checked), record their pid and its start time in it, break it only when
 # that process is gone, exit 75 when it stays held past TEST_CHANGE_LOCK_WAIT
@@ -250,6 +266,14 @@ valid_repo() {
     return 1
 }
 
+# repo_of_url <url>: the owner/name an origin URL names, or nothing.
+repo_of_url() {
+    local repo
+    repo=$(printf '%s' "$1" | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')
+    valid_repo "$repo" && printf '%s\n' "$repo"
+    return 0
+}
+
 # safe_path <path>: repository-relative, no `..` segment, no leading `-` or `/`.
 safe_path() {
     case "$1" in
@@ -265,12 +289,37 @@ clean() {
     printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | cut -c "1-$TEXT_MAX"
 }
 
+# ctx_has <session> <key>: 0 when the key is present, 1 when koto answers that
+# it is absent, 2 when the read failed. koto's `context exists` answers an
+# absent key with exit 1 and nothing on stdout; a refusal (a session bound to
+# another workspace, say) prints its JSON on stdout and exits 2. An exit 1
+# that prints anything is a failed read too, never an absent key. What koto
+# prints goes to $ERRLOG, never to stdout.
+ctx_has() {
+    local rc=0
+    koto context exists "$1" "$2" > "$TMP/exists.out" 2>>"$ERRLOG" || rc=$?
+    cat "$TMP/exists.out" >> "$ERRLOG"
+    case "$rc" in
+        0) return 0 ;;
+        1) [ -s "$TMP/exists.out" ] || return 1 ;;
+    esac
+    echo "koto context exists $1 $2 exited $rc" >> "$ERRLOG"
+    return 2
+}
+
+# ctx_get <session> <key> <file>: the key's content into <file>, empty when the
+# key is absent. Returns 1 when the read failed, with <file> empty.
 ctx_get() {
     : > "$3"
-    if koto context exists "$1" "$2" >/dev/null 2>>"$ERRLOG"; then
-        koto context get "$1" "$2" > "$3" 2>>"$ERRLOG" || return 1
-    fi
-    return 0
+    ctx_has "$1" "$2"
+    case $? in
+        0) ;;
+        1) return 0 ;;
+        *) return 1 ;;
+    esac
+    koto context get "$1" "$2" > "$3" 2>>"$ERRLOG" && return 0
+    : > "$3"
+    return 1
 }
 
 ctx_put() {
@@ -376,8 +425,9 @@ load_ledger() {
 }
 
 # load_header: 0 with the H_* values set when the ledger starts with a header.
+# The work tree is the latest relocate line's `to`, else the header's.
 load_header() {
-    local h
+    local h moved
     h=$(head -n 1 "$TMP/ledger" | jq -c 'select(type == "object" and .event == "header")' 2>>"$ERRLOG")
     [ -n "$h" ] || return 1
     H_AUTHOR=$(printf '%s' "$h" | jq -r '.author // ""')
@@ -387,6 +437,8 @@ load_header() {
     H_PERSON=$(printf '%s' "$h" | jq -r 'if .person_required == true then "true" else "false" end')
     H_PERSON_SRC=$(printf '%s' "$h" | jq -r '.person_required_source // ""')
     [ -n "$H_AUTHOR" ] && [ -n "$H_BASE" ] && [ -n "$H_WORKTREE" ] || return 1
+    moved=$(jq -Rr 'fromjson? | select(type == "object" and .event == "relocate") | .to // empty' "$TMP/ledger" 2>>"$ERRLOG" | tail -n 1)
+    [ -z "$moved" ] || H_WORKTREE=$moved
     return 0
 }
 
@@ -395,6 +447,61 @@ append() {
     cat "$TMP/ledger" "$2" > "$TMP/ledger.next"
     ctx_put "$1" "$LEDGER" "$TMP/ledger.next" || die66 "could not write $LEDGER (or it didn't read back as written)"
     cp "$TMP/ledger.next" "$TMP/ledger"
+}
+
+# moved_here: prints the current directory's work tree when the run's work
+# tree is gone and this one is clearly the same work: its origin names the
+# header's repository (when the header records one) and its HEAD has
+# impl_base as an ancestor. Prints nothing otherwise. A header records no
+# repository when init's origin named no owner/name; impl_base's ancestry
+# alone decides then, since there is no repository to compare.
+moved_here() {
+    local top url repo
+    [ ! -d "$H_WORKTREE" ] || return 0
+    top=$(git rev-parse --show-toplevel 2>>"$ERRLOG") || return 0
+    [ -n "$top" ] && [ "$top" != "$H_WORKTREE" ] || return 0
+    if [ -n "$H_REPO" ]; then
+        url=$(git -C "$top" remote get-url origin 2>>"$ERRLOG") || return 0
+        repo=$(repo_of_url "$url")
+        [ "$repo" = "$H_REPO" ] || return 0
+    fi
+    git -C "$top" merge-base --is-ancestor "$H_BASE" HEAD 2>>"$ERRLOG" || return 0
+    printf '%s\n' "$top"
+}
+
+# follow_move <session> write|read: when the run's work tree is gone and the
+# current directory's is the same work (moved_here), use it. `write` records
+# the move as one relocate line under the lock (taking it when the caller
+# doesn't hold it, and reading the ledger again once it does) and names it on
+# stderr; `read` uses it for this call only. Otherwise nothing changes, and
+# compute_items reports the gone work tree as before. A refuse or die66 while
+# it holds the lock exits through the EXIT trap, which removes the lock.
+follow_move() {
+    local s="$1" mode="$2" to from locked_here=0
+    to=$(moved_here)
+    [ -n "$to" ] || return 0
+    if [ "$mode" = read ]; then
+        H_WORKTREE=$to
+        return 0
+    fi
+    if [ -z "$LOCK" ]; then
+        take_lock "$s"
+        locked_here=1
+        load_ledger "$s"
+        load_header || refuse "the ledger has no header; test-change.sh init writes it at fix_determination"
+        to=$(moved_here)
+        if [ -z "$to" ]; then
+            drop_lock
+            return 0
+        fi
+    fi
+    from=$H_WORKTREE
+    jq -nc --arg ts "$(now)" --arg from "$from" --arg to "$to" '
+        {ts: $ts, event: "relocate", from: $from, to: $to, source: "session", rule: "interim"}' > "$TMP/relocate.line"
+    append "$s" "$TMP/relocate.line"
+    H_WORKTREE=$to
+    echo "test-change: the run's work tree [$from] is gone; following it to [$to], the same repository with impl_base in its history (recorded)" >&2
+    [ "$locked_here" -eq 0 ] || drop_lock
 }
 
 G() { git -C "$H_WORKTREE" "$@"; }
@@ -677,10 +784,7 @@ cmd_init() {
 
     local url repo=""
     url=$(git remote get-url origin 2>>"$ERRLOG") || url=""
-    if [ -n "$url" ]; then
-        repo=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/:]+/[^/:]+)$#\1#')
-        valid_repo "$repo" || repo=""
-    fi
+    [ -z "$url" ] || repo=$(repo_of_url "$url")
     local nonce
     nonce=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
     jq -nc --arg ts "$(now)" --arg schema "$SCHEMA" --arg author "agent:$s" --arg session "$s" \
@@ -703,6 +807,7 @@ cmd_classify() {
     valid_session "$s" || usage "bad session name [$s]"
     load_ledger "$s"
     load_header || refuse "the ledger has no header; test-change.sh init writes it at fix_determination"
+    follow_move "$s" read
     compute_items "$s"
     cat "$TMP/classified"
     exit 0
@@ -770,6 +875,7 @@ cmd_seat() {
     take_lock "$s"
     load_ledger "$s"
     load_header || refuse "the ledger has no header; test-change.sh init writes it at fix_determination"
+    follow_move "$s" write
     if [ "$H_PERSON" = true ]; then
         drop_lock
         compute_items "$s"
@@ -964,6 +1070,7 @@ cmd_judge() {
     if [ "$has_repo" -eq 1 ] && [ "$repo" != "$H_REPO" ]; then
         refuse "--repo [$repo] is not the run's repository [${H_REPO:-none recorded}]"
     fi
+    follow_move "$s" write
     compute_items "$s"
 
     # The covered items at their current digests.
@@ -1075,6 +1182,7 @@ cmd_status() {
     if ! load_header; then
         echo "no header: the ledger has no header line, so nothing it holds can count (test-change.sh init writes it at fix_determination)" > "$TMP/held"
     else
+        follow_move "$s" write
         compute_items "$s"
         uncommitted >> "$TMP/held"
         fold "$TMP/items"
@@ -1117,6 +1225,7 @@ cmd_covered() {
     valid_session "$s" || usage "bad session name [$s]"
     load_ledger "$s"
     load_header || { echo "held: no header"; exit 1; }
+    follow_move "$s" read
     compute_items "$s"
     : > "$TMP/want"
     for item in "$@"; do
@@ -1180,12 +1289,14 @@ kind_of() {
 
 # history_rows: one tab-separated row per ledger event for record:
 # ts, event, identity, kind, authority, items, rule, reason, id, target.
+# A relocate line carries its from path as items and its to path as target.
 history_rows() {
     jq -Rr 'fromjson? | select(type == "object" and .event != "header")
         | [(.ts // ""), (.event // ""), (.identity // ""), (.kind // ""), (.authority // ""),
-           (if .event == "note" then (.file // "") else ([(.files // [])[] | select(type == "object") | .path] | join(",")) end),
+           (if .event == "note" then (.file // "") elif .event == "relocate" then (.from // "")
+            else ([(.files // [])[] | select(type == "object") | .path] | join(",")) end),
            (if .event == "refuse" then "\(.action // "") refused, rule \(.rule_id // "")" else (.rule // "") end),
-           (.reason // ""), (.id // ""), (.target // "")]
+           (.reason // ""), (.id // ""), (if .event == "relocate" then (.to // "") else (.target // "") end)]
         | map(tostring | gsub("[\t\n\r]"; " ") | if . == "" then "-" else . end) | join("\t")' "$TMP/ledger"
 }
 
@@ -1231,6 +1342,7 @@ cmd_record() {
             while IFS="$tab" read -r ts ev who kind auth items rule reason id target; do
                 case "$ev" in
                     seat) printf '  %s seat %s minted\n' "$ts" "$who" ;;
+                    relocate) printf '  %s relocate: the work tree [%s] moved to [%s]\n' "$ts" "$items" "$target" ;;
                     note) printf '  %s note by %s on %s: %s\n' "$ts" "$who" "$items" "$reason" ;;
                     overrule) printf '  %s %s %s by %s (%s at %s) of %s [%s]: %s\n' "$ts" "$ev" "$id" "$who" "$kind" "$auth" "$target" "$items" "$reason" ;;
                     refuse) printf '  %s refuse: %s by %s (%s at %s) of %s: %s\n' "$ts" "$rule" "$who" "$kind" "$auth" "$items" "$reason" ;;

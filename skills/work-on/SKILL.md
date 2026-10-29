@@ -288,6 +288,13 @@ When `$ARGUMENTS` begins with `-- plan-backed`, extract these variables from the
 - `FIX_REPORT`: a step's `**Fixes**:` line, when it has one; the step is then a fix
   and the line is its report (see **Fixes Start Red**)
 
+One more variable never comes from the arguments: `PLAN_DOC_MOVED`, where the PLAN is
+now when its checkout moved after the child was opened. A coordinated step agent
+sets it by attaching the child before `plan_validation`
+(`skills/execute/references/step-agent-handoff.md`, "A child moved before
+plan_validation"). While it is set, `plan_context_injection` and the `step_detail`
+gate read the PLAN there instead of at `PLAN_DOC`.
+
 Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "issue_number": "<N>"}`.
 
 For `ISSUE_SOURCE=github`: read the GitHub issue with `gh issue view <ISSUE_NUMBER>` during the `plan_context_injection` state to get the issue title, body, and labels. Then proceed directly to `setup_plan_backed` → `analysis`.

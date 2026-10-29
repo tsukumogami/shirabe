@@ -39,6 +39,19 @@
 #     git history does (the PLAN's version before the commit that deleted
 #     it); a deleted single-pr PLAN, and one that never existed, stay on
 #     execute.md
+#     plan_abs on a coordinated attach: a recorded PLAN that is gone is
+#     re-rooted to this checkout's PLAN when it is on coord_branch with
+#     home_repo as its origin, naming both paths on stderr; a recorded PLAN
+#     that still exists, another branch, another repository, and a replaced
+#     (not attached) session leave it unchanged; stdout and the exit are the
+#     same in every case
+#     the review round, on a single-pr and a coordinated PLAN: a replaced
+#     finished session's review_round.json is written once, byte for byte,
+#     into the new session, with or without moved_to=; an attached or a new
+#     session gets no write; a failing exists, get or add, and a value that
+#     isn't one JSON object, print one warning naming the session and
+#     review-round.sh and write nothing; in every case stdout and the exit
+#     match the same open without a round, and no temporary file is left
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -72,6 +85,8 @@
 #       on a live execute.md session koto's template_mismatch (session
 #       unchanged, outcome=error step=execute:refused, recorded on the leg
 #       under --koto-leg); a retained terminal execute.md session replaced
+#     the review round: a real replace of a paused single-pr run, and of a
+#       finished execute.md run by a coordinated PLAN, carries it byte for byte
 #
 # koto status does not print a session's variables, so the effective value is
 # read from the session's own log: the init event's variables with every
@@ -97,7 +112,7 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/execute-open-test.XXXXXX") || exit 1
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 export HOME="$WORK/home"
 mkdir -p "$HOME"
 
@@ -448,6 +463,265 @@ got=$(template_of '["docs/plans/PLAN-hsingle.md"]')
 got=$(template_of '["docs/plans/PLAN-never.md"]')
 [ "$got" = execute.md ] && pass "a PLAN that never existed stays on execute.md" || fail "a PLAN that never existed: template [$got]"
 
+# --- engine-free: plan_abs on a moved attach ----------------------------------
+# The run's checkout moved: the coordinated session is attached from a new
+# clone, and the plan_abs it recorded names the old one. A stub koto answers
+# status (a live run at coord_loop), init (attached, or KOTO_STUB_OUTCOME), and
+# context reads and writes from files under KOTO_STUB_STORE.
+REROOT_BIN="$WORK/reroot-bin"
+mkdir -p "$REROOT_BIN"
+cat > "$REROOT_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+d="${KOTO_STUB_STORE:?}"
+case "${1-} ${2-}" in
+    "status "*) printf '{"name":"%s","current_state":"coord_loop","is_terminal":false}\n' "$2"; exit 0 ;;
+    "init "*) printf '{"outcome":"%s"}\n' "${KOTO_STUB_OUTCOME:-attached}"; exit 0 ;;
+    "context exists") [ -f "$d/$3/$4" ]; exit ;;
+    "context get") [ -f "$d/$3/$4" ] || exit 1; cat "$d/$3/$4"; exit 0 ;;
+    "context add") mkdir -p "$(dirname "$d/$3/$4")"; cat > "$d/$3/$4"; exit 0 ;;
+    "context remove") rm -f "$d/$3/$4"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$REROOT_BIN/koto"
+RR_STORE="$WORK/reroot-store"
+RR_GONE="$WORK/old-checkout/docs/plans/PLAN-mv.md"
+# rr_checkout <dir> <branch> <origin URL>: a checkout holding the coordinated PLAN.
+rr_checkout() {
+    mkdir -p "$1/docs/plans"
+    printf -- '---\nschema: plan/v1\nexecution_mode: coordinated\n---\n\n# PLAN: mv\n' > "$1/docs/plans/PLAN-mv.md"
+    (cd "$1" && git init -q . && git config user.email t@example.com && git config user.name t \
+        && git add -A && git commit -q -m plan && git checkout -q -b "$2" \
+        && git remote add origin "$3") >/dev/null 2>&1
+}
+# rr_open <dir> [env...]: execute-open.sh on PLAN-mv.md from <dir>, over a
+# session recording coord/mv, acme/plans and plan_abs $RR_ABS.
+rr_open() {
+    local dir="$1"
+    shift
+    rm -rf "$RR_STORE"
+    mkdir -p "$RR_STORE/execute-mv"
+    printf '%s' "$RR_ABS" > "$RR_STORE/execute-mv/plan_abs"
+    printf '%s' coord/mv > "$RR_STORE/execute-mv/coord_branch"
+    printf '%s' acme/plans > "$RR_STORE/execute-mv/home_repo"
+    tokens '["docs/plans/PLAN-mv.md"]'
+    OUT=$(cd "$dir" && env KOTO_STUB_STORE="$RR_STORE" PATH="$REROOT_BIN:$PATH" "$@" bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+}
+# koto-open.sh's lines for the stub's attach, then this script's session line.
+RR_WANT=$(printf 'opened=attached\nrebound={}\nsession=execute-mv')
+rr_checkout "$WORK/rr-moved" coord/mv https://github.com/acme/plans.git
+rr_checkout "$WORK/rr-branch" coord/other https://github.com/acme/plans.git
+rr_checkout "$WORK/rr-repo" coord/mv https://github.com/acme/other.git
+RR_NEW="$(cd "$WORK/rr-moved/docs/plans" && pwd -P)/PLAN-mv.md"
+RR_ABS="$RR_GONE"
+rr_open "$WORK/rr-moved"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_NEW" ]; then
+    pass "a coordinated attach from a moved checkout on coord_branch with home_repo's origin re-roots a gone plan_abs, stdout and exit unchanged"
+else
+    fail "moved attach: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+grep -qF "[$RR_GONE] is gone; re-rooted to [$RR_NEW]" "$WORK/stderr" \
+    && pass "the re-root names both paths on stderr" || fail "moved attach stderr: [$ERR]"
+RR_ABS="$WORK/rr-branch/docs/plans/PLAN-mv.md"
+rr_open "$WORK/rr-moved"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_ABS" ]; then
+    pass "a recorded plan_abs that still exists is left unchanged, stdout and exit unchanged"
+else
+    fail "existing plan_abs: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+RR_ABS="$RR_GONE"
+rr_open "$WORK/rr-branch"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_GONE" ]; then
+    pass "an attach from another branch leaves a gone plan_abs unchanged, stdout and exit unchanged"
+else
+    fail "other branch: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+rr_open "$WORK/rr-repo"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_GONE" ]; then
+    pass "an attach from another repository leaves a gone plan_abs unchanged, stdout and exit unchanged"
+else
+    fail "other repository: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+rr_open "$WORK/rr-moved" KOTO_STUB_OUTCOME=replaced
+if [ "$RC" -eq 0 ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_GONE" ]; then
+    pass "only an attach re-roots: a replaced session's plan_abs is left to setup"
+else
+    fail "replaced: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+
+# --- engine-free: the review round on a replace -------------------------------
+# A re-invocation that replaces a finished run carries the round review-round.sh
+# recorded there (review_round.json) into the fresh session, byte for byte; an
+# attach or a new session gets no write. A stub koto keeps each session's
+# context as files under KOTO_STUB_STORE and logs every call beside it.
+# KOTO_STUB_OUTCOME is koto init's outcome: replaced empties the session,
+# moved moves it to <session>_r1 first, created empties it as a new one, and
+# attached leaves it. KOTO_STUB_FAIL makes `context exists`, `get` or `add`
+# of review_round.json fail. Each open runs with TMPDIR a fresh directory, so
+# a temporary file left behind shows there.
+ROUND_BIN="$WORK/round-bin"
+mkdir -p "$ROUND_BIN"
+cat > "$ROUND_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+d="${KOTO_STUB_STORE:?}"
+printf '%s\n' "$*" >> "$d.argv"
+fail="${KOTO_STUB_FAIL-}"
+outcome="${KOTO_STUB_OUTCOME:-replaced}"
+case "${1-} ${2-}" in
+    "status "*)
+        terminal=true
+        [ "$outcome" = attached ] && terminal=false
+        printf '{"name":"%s","current_state":"done_blocked","is_terminal":%s}\n' "$2" "$terminal"
+        exit 0
+        ;;
+    "init "*)
+        case "$outcome" in
+            replaced|created) rm -rf "${d:?}/$2"; mkdir -p "$d/$2" ;;
+            moved) rm -rf "${d:?}/$2_r1"; mv "$d/$2" "$d/$2_r1"; mkdir -p "$d/$2" ;;
+        esac
+        case "$outcome" in
+            replaced) printf '{"outcome":"replaced","replaced_state":"done_blocked","replaced_result":null}\n' ;;
+            moved) printf '{"outcome":"replaced","replaced_state":"done_blocked","replaced_result":null,"moved_to":"%s_r1","moved_reason":"held"}\n' "$2" ;;
+            attached) printf '{"outcome":"attached","rebound":{}}\n' ;;
+            created) printf '{"outcome":"created"}\n' ;;
+        esac
+        exit 0
+        ;;
+    "context list") printf '[]\n'; exit 0 ;;
+    "context exists")
+        [ "$fail" = exists ] && [ "$4" = review_round.json ] && exit 3
+        [ -f "$d/$3/$4" ]
+        exit
+        ;;
+    "context get")
+        [ "$fail" = get ] && [ "$4" = review_round.json ] && exit 1
+        [ -f "$d/$3/$4" ] || exit 1
+        cat "$d/$3/$4"
+        exit 0
+        ;;
+    "context add")
+        [ "$fail" = add ] && [ "$4" = review_round.json ] && exit 1
+        mkdir -p "$d/$3"
+        cat > "$d/$3/$4"
+        exit 0
+        ;;
+    "context remove") rm -f "$d/$3/$4"; exit 0 ;;
+esac
+exit 1
+STUB
+chmod +x "$ROUND_BIN/koto"
+RS_STORE="$WORK/round-store"
+RS_TMP="$WORK/round-tmp"
+# The round as review-round.sh stores it: one compact JSON object and a newline.
+printf '%s\n' '{"reviewed_head":"0123456789abcdef0123456789abcdef01234567","seats":[{"seat":"architect","model":"sonnet","run":"run-a","verdict":"pass"},{"seat":"maintainer","model":"opus","run":"run-b","verdict":"pass"}]}' \
+    > "$WORK/round.json"
+printf '%s\n%s\n' '{"reviewed_head":"a"}' '{"reviewed_head":"b"}' > "$WORK/round-two.json"
+printf '[%s]\n' '{"reviewed_head":"a"}' > "$WORK/round-array.json"
+printf 'not json\n' > "$WORK/round-text.json"
+mkdir -p "$FIXREPO/docs/plans"
+printf -- '---\nschema: plan/v1\nexecution_mode: coordinated\n---\n\n# PLAN: rc\n' > "$FIXREPO/docs/plans/PLAN-rc.md"
+# rs_open <slug> <round file, or ""> [env...]: execute-open.sh on PLAN-<slug>.md
+# over a finished execute-<slug> holding that round (none for "").
+rs_open() {
+    local slug="$1" round="$2"
+    shift 2
+    rm -rf "$RS_STORE" "$RS_STORE.argv" "$RS_TMP"
+    mkdir -p "$RS_STORE/execute-$slug" "$RS_TMP"
+    [ -z "$round" ] || cp "$round" "$RS_STORE/execute-$slug/review_round.json"
+    tokens "[\"docs/plans/PLAN-$slug.md\"]"
+    OUT=$(cd "$FIXREPO" && env KOTO_STUB_STORE="$RS_STORE" PATH="$ROUND_BIN:$PATH" TMPDIR="$RS_TMP" "$@" \
+        bash "$OPEN" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+}
+rs_writes() { grep -c '^context add [^ ]* review_round.json' "$RS_STORE.argv"; }
+rs_warnings() { grep -c 'review-round.sh' <<<"$ERR"; }
+rs_left() { ls -A "$RS_TMP" 2>/dev/null | tr '\n' ' '; }
+# rs_same <label> <want out> <want rc>: stdout and the exit match the same open
+# without a round.
+rs_same() {
+    if [ "$OUT" = "$2" ] && [ "$RC" -eq "$3" ]; then
+        pass "$1: stdout and exit match the same open without a round"
+    else
+        fail "$1: exit $RC (want $3), out [$OUT], want [$2]"
+    fi
+}
+for rs_arm in "rs single-pr execute.md" "rc coordinated execute-coordinated.md"; do
+    read -r slug arm tpl <<<"$rs_arm"
+    S="execute-$slug"
+
+    rs_open "$slug" ""
+    if grep -q "^init $S --template [^ ]*/koto-templates/$tpl " "$RS_STORE.argv"; then
+        pass "$arm: the open enters $tpl"
+    else
+        fail "$arm: the open did not enter $tpl: [$(grep '^init' "$RS_STORE.argv")]"
+    fi
+
+    for outcome in replaced moved; do
+        rs_open "$slug" "" KOTO_STUB_OUTCOME=$outcome
+        BASE_OUT=$OUT BASE_RC=$RC
+        rs_open "$slug" "$WORK/round.json" KOTO_STUB_OUTCOME=$outcome
+        if [ "$RC" -eq 0 ] && cmp -s "$WORK/round.json" "$RS_STORE/$S/review_round.json" \
+            && [ "$(rs_writes)" = 1 ] && [ "$(rs_warnings)" = 0 ]; then
+            pass "$arm, $outcome: the new session holds the finished run's round byte for byte, reviewed_head included, written once, no warning"
+        else
+            fail "$arm, $outcome: the new session's review_round.json [$(cat "$RS_STORE/$S/review_round.json" 2>/dev/null)], exit $RC, writes [$(rs_writes)]; $ERR"
+        fi
+        rs_same "$arm, $outcome with a round" "$BASE_OUT" "$BASE_RC"
+        [ -z "$(rs_left)" ] && pass "$arm, $outcome: no temporary file is left" \
+            || fail "$arm, $outcome: left in TMPDIR [$(rs_left)]"
+    done
+    if cmp -s "$WORK/round.json" "$RS_STORE/${S}_r1/review_round.json"; then
+        pass "$arm: the moved run keeps its own round"
+    else
+        fail "$arm: the moved run's round [$(cat "$RS_STORE/${S}_r1/review_round.json" 2>&1)]"
+    fi
+
+    for outcome in attached created; do
+        rs_open "$slug" "" KOTO_STUB_OUTCOME=$outcome
+        BASE_OUT=$OUT BASE_RC=$RC
+        rs_open "$slug" "$WORK/round.json" KOTO_STUB_OUTCOME=$outcome
+        if [ "$(rs_writes)" = 0 ] && [ "$(rs_warnings)" = 0 ]; then
+            pass "$arm, opened=${outcome/created/new}: no round is written and no warning"
+        else
+            fail "$arm, $outcome: writes [$(rs_writes)]; $ERR"
+        fi
+        rs_same "$arm, $outcome with a round" "$BASE_OUT" "$BASE_RC"
+        [ -z "$(rs_left)" ] && pass "$arm, $outcome: no temporary file is left" \
+            || fail "$arm, $outcome: left in TMPDIR [$(rs_left)]"
+    done
+    if cmp -s "$WORK/round.json" "$RS_STORE/$S/review_round.json"; then
+        fail "$arm, opened=new: the new session holds a round"
+    else
+        pass "$arm, opened=new: the new session holds no round"
+    fi
+
+    # A read or a write that fails, and a value that isn't one JSON object:
+    # one warning naming the session and review-round.sh, nothing written,
+    # and the open goes on unchanged.
+    rs_open "$slug" ""
+    BASE_OUT=$OUT BASE_RC=$RC
+    for c in "exists|$WORK/round.json|could not be read" "get|$WORK/round.json|could not be read" \
+             "add|$WORK/round.json|could not be written" "|$WORK/round-two.json|is not one JSON object" \
+             "|$WORK/round-array.json|is not one JSON object" "|$WORK/round-text.json|is not one JSON object"; do
+        IFS='|' read -r failing file why <<<"$c"
+        if [ -n "$failing" ]; then label="$arm, a failing $failing"; else label="$arm, $(basename "$file")"; fi
+        rs_open "$slug" "$file" KOTO_STUB_FAIL="$failing"
+        if [ "$(rs_warnings)" = 1 ] && [ "$(printf '%s\n' "$ERR" | grep -c .)" = 1 ] \
+            && grep -q "$S $why, so the new run has none; record it again with review-round.sh" <<<"$ERR" \
+            && [ ! -e "$RS_STORE/$S/review_round.json" ]; then
+            pass "$label: one warning naming $S and review-round.sh ($why), no round in the new session"
+        else
+            fail "$label: round [$(cat "$RS_STORE/$S/review_round.json" 2>&1)], stderr [$ERR]"
+        fi
+        rs_same "$label" "$BASE_OUT" "$BASE_RC"
+        [ -z "$(rs_left)" ] && pass "$label: no temporary file is left" || fail "$label: left in TMPDIR [$(rs_left)]"
+    done
+done
+rm -f "$FIXREPO/docs/plans/PLAN-rc.md"
+
 # --- engine-backed ------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then
@@ -691,7 +965,14 @@ for t in orchestrator_setup settled_branch_record drift_facts worktree_sync work
     k next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
 done
 if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; then
+    k context add execute-paused review_round.json < "$WORK/round.json" >/dev/null 2>&1
     run_open '["docs/plans/PLAN-paused.md"]'
+    k context get execute-paused review_round.json > "$WORK/round.after" 2>/dev/null
+    if cmp -s "$WORK/round.json" "$WORK/round.after" && ! grep -q 'review-round.sh' <<<"$ERR"; then
+        pass "a real replace of a paused single-pr run carries its review round byte for byte, reviewed_head included"
+    else
+        fail "a real single-pr replace: the new session's review_round.json [$(cat "$WORK/round.after")]; $ERR"
+    fi
     if [ "$RC" -eq 0 ] && line 'opened=replaced' && line 'replaced_state=paused_for_review' \
         && [ "$(session_var execute-paused PAUSE_BEFORE_FINALIZE)" = false ]; then
         pass "a retained pause is replaced, and the resume passes PAUSE_BEFORE_FINALIZE=false"
@@ -920,11 +1201,18 @@ for t in orchestrator_setup settled_branch_record drift_facts worktree_sync work
 done
 coord_plan swap
 if [ "$(k status execute-swap | jq -r .current_state)" = paused_for_review ]; then
+    k context add execute-swap review_round.json < "$WORK/round.json" >/dev/null 2>&1
     run_open '["docs/plans/PLAN-swap.md"]'
     if [ "$RC" -eq 0 ] && line 'opened=replaced' && [ "$(built_from execute-swap)" = execute-coordinated.md ]; then
         pass "a retained terminal execute.md session is replaced by the coordinated run"
     else
         fail "replace: exit $RC, out [$OUT], template [$(built_from execute-swap)]; $ERR"
+    fi
+    k context get execute-swap review_round.json > "$WORK/round.after" 2>/dev/null
+    if cmp -s "$WORK/round.json" "$WORK/round.after" && ! grep -q 'review-round.sh' <<<"$ERR"; then
+        pass "a real replace by the coordinated run carries the finished run's review round byte for byte"
+    else
+        fail "a real coordinated replace: the new session's review_round.json [$(cat "$WORK/round.after")]; $ERR"
     fi
 else
     fail "could not walk execute-swap to paused_for_review"

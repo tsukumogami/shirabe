@@ -28,6 +28,9 @@
 #              wait for acceptance, and passes it once a minted seat's
 #              acceptance covers both digests; every hold prints
 #              red-first/no-green
+#   refused    a context read koto refuses leaves check-red and check-green
+#              undecided and fails observe and green with 66, the record
+#              untouched, never reading as an absent key
 #
 # Usage: bash skills/work-on/scripts/red-first_test.sh
 set -uo pipefail
@@ -47,7 +50,7 @@ has() { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "[$3] lacks [$2]" ;; esac; }
 hasnt() { case "$3" in *"$2"*) bad "$1" "[$3] holds [$2]" ;; *) ok "$1" ;; esac; }
 
 W=$(mktemp -d) || { echo "FAIL: could not create a temporary directory"; exit 1; }
-trap 'rm -rf "$W"' EXIT
+ktg_on_exit 'rm -rf "$W"'
 export HOME="$W/home"
 mkdir -p "$HOME"
 export GIT_CONFIG_NOSYSTEM=1
@@ -58,9 +61,16 @@ git config --global user.name t
 BIN="$W/bin"
 STORE="$W/store"
 mkdir -p "$BIN" "$STORE"
+# SHIM_REFUSE=<s> refuses every context call on <s>, and SHIM_REFUSE_KEY=<key>
+# every `context exists` of <key>, the way koto refuses a session bound to
+# another workspace: the refusal on stdout, exit 2 (or SHIM_REFUSE_RC).
 cat > "$BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 [ "$1" = context ] || { echo "shim: unsupported $*" >&2; exit 2; }
+if [ "${SHIM_REFUSE:-}" = "$3" ] || { [ "$2" = exists ] && [ "${SHIM_REFUSE_KEY:-}" = "$4" ]; }; then
+    printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"
+    exit "${SHIM_REFUSE_RC:-2}"
+fi
 f="$SHIM_STORE/$3/$4"
 case "$2" in
     add) mkdir -p "$SHIM_STORE/$3"; cat > "$f" ;;
@@ -330,6 +340,31 @@ jq -c '{event: "accept", identity: "agent:o1/accept-1", kind: "agent", authority
 run check-green o1
 eq "an accepted observation pair: check-green exit 0" 0 "$RC"
 has "an accepted observation pair: passes" "pass: the observation pair has a live acceptance" "$OUT"
+
+# --- a refused read ----------------------------------------------------------------
+# koto refuses a read of a session bound to another workspace, printing the
+# refusal on stdout and exiting 2. That is a failed read, which fails the
+# command rather than reading as an absent key.
+new_session r1
+cp "$STORE/$S/red_first.json" "$STORE/r1/red_first.json"
+SHIM_REFUSE=r1 run check-red r1
+eq "check-red on a refused session: exit 2 rather than reading as an absent key" 2 "$RC"
+hasnt "check-red on a refused session: koto's refusal kept off stdout" "session_bound_elsewhere" "$OUT"
+SHIM_REFUSE=r1 run check-green r1
+eq "check-green on a refused session: exit 2 rather than reading as an absent key" 2 "$RC"
+SHIM_REFUSE_KEY=red_first.json run check-red r1
+eq "check-red with the record read refused: exit 2 rather than reading as an absent key" 2 "$RC"
+has "check-red with the record read refused: names the failed read" "could not read red_first.json" "$(cat "$W/err")"
+has "check-red with the record read refused: koto's refusal on stderr" "session_bound_elsewhere" "$(cat "$W/err")"
+SHIM_REFUSE_KEY=red_first.json SHIM_REFUSE_RC=1 run check-green r1
+eq "check-green with the record read refused at exit 1 with the refusal: exit 2 rather than reading as an absent key" 2 "$RC"
+REC_R1=$(record r1)
+SHIM_REFUSE_KEY=red_first.json run observe r1 --phase before --file "$W/obs-before.md"
+eq "observe with the record read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+eq "observe with the record read refused: the record is untouched" "$REC_R1" "$(record r1)"
+SHIM_REFUSE_KEY=red_first.json run green r1
+eq "green with the record read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+eq "green with the record read refused: the record is untouched" "$REC_R1" "$(record r1)"
 
 # --- usage -------------------------------------------------------------------------
 run red "$S" --passage-file "$W/passage" -- true

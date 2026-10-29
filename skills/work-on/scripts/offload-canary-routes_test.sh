@@ -64,7 +64,7 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/offload-canary-routes.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */offload-canary-routes.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 export KOTO_SESSIONS_BASE="$T/sessions"
 export XDG_CONFIG_HOME="$T/xdg"

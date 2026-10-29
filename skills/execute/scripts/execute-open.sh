@@ -141,8 +141,13 @@
 # session that already has run/setup makes the snapshot stale, and it is
 # removed. `merge_attempts` and `recovered` are removed, so every invocation
 # starts with no merge attempts and reports a recovery only when its own setup
-# made one. A single-pr open seeds the prior run_id and mints one when
-# the session still has none.
+# made one. On `opened=attached` the run's plan_abs is checked against this
+# checkout with `record-coord-setup.sh --reroot-plan`, which re-roots it only
+# when the recorded PLAN is gone and this checkout is on the recorded
+# coord_branch with home_repo as its origin (one stderr line names both paths);
+# its stdout is dropped and it changes no line or exit code here. A
+# single-pr open seeds the prior run_id and mints one when the session still
+# has none.
 #
 # The run identity. A session this script opens always has a `run_id`
 # (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
@@ -150,6 +155,23 @@
 # koto replaces a finished session, the finished one's `run_id` is read first
 # and seeded into the replacement, so a re-invocation of the same PLAN in the
 # same place still owns the PR the earlier run opened.
+#
+# The replaced run's review round is carried too. Before the open, when the
+# session holds review_round.json (review-round.sh writes it there, and
+# coordinate's land step reads it there), the key is read into a file in a
+# private directory from `koto-open.sh --alloc-dir`, outside the work tree;
+# nothing is written to that session. After opened=replaced (with or without
+# moved_to=), on either template, and never after opened=new or
+# opened=attached, the file is written unchanged as the new session's
+# review_round.json, when it is one JSON object. It keeps its reviewed_head,
+# so the land step still refuses a round whose head has moved. A read or a
+# write that fails, or a value that isn't one JSON object, prints one stderr
+# warning naming the session and saying the round has to be recorded again
+# with review-round.sh, and the run goes on: no stdout line or exit code
+# changes. The file and its directory are removed on every exit path, by an
+# exit trap that also runs on INT and TERM and, replacing the coordinated
+# lock's own exit trap, releases that lock too. Nothing else of the finished
+# session is carried beyond the keys named here.
 #
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
 # `carried=<n>` after a carry and `session=execute-<slug>` when a session was
@@ -501,6 +523,83 @@ if [ "$NAMED" -eq 1 ] && koto context exists "$SESSION" run_id >/dev/null; then
     [[ $PRIOR_RUN_ID =~ ^[0-9a-f]{32}$ ]] || PRIOR_RUN_ID=""
 fi
 
+# The finished run's review round, read here beside its identity and written
+# into the replacement after the open (see the header). ROUND_DIR is the
+# private directory the round file sits in; on_exit removes both, and
+# releases the lock, on every exit path from here on.
+ROUND_FILE=""
+ROUND_DIR=""
+remove_round() {
+    [ -n "$ROUND_FILE" ] && rm -f -- "$ROUND_FILE"
+    ROUND_FILE=""
+    if [ -n "$ROUND_DIR" ]; then
+        rm -f -- "$ROUND_DIR/.koto-open-alloc"
+        rmdir -- "$ROUND_DIR" 2>/dev/null
+        ROUND_DIR=""
+    fi
+    return 0
+}
+on_exit() { remove_round; release_lock; }
+
+# read_prior_round <session> -- copy <session>'s review_round.json, when it
+# has one, into ROUND_FILE. A read only: nothing is written to <session>.
+# ROUND_READ says what came of it: `none` (no such session or key), `read`,
+# or `failed` (an `exists` that answered neither yes nor no, or a `get` that
+# failed). Only a replace acts on it, so a failure here is reported by
+# write_prior_round or not at all.
+ROUND_READ=none
+read_prior_round() {
+    local session="$1" rc=0
+    koto context exists "$session" review_round.json </dev/null >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) ROUND_READ=failed; return 0 ;;
+    esac
+    if ! ROUND_DIR=$(bash "$KOTO_OPEN" --alloc-dir 2>/dev/null) || [ ! -d "$ROUND_DIR" ]; then
+        ROUND_DIR=""; ROUND_READ=failed; return 0
+    fi
+    ROUND_FILE="$ROUND_DIR/review_round.json"
+    if koto context get "$session" review_round.json </dev/null >"$ROUND_FILE" 2>/dev/null; then
+        ROUND_READ=read
+    else
+        ROUND_READ=failed
+    fi
+    return 0
+}
+
+# write_prior_round <session> -- after a replace, write the round
+# read_prior_round kept, byte for byte, as the new session's
+# review_round.json. Only one JSON object is written. A failed read, anything
+# else, or a failed write is one warning: the land step then finds no round
+# in this run until the worker records it again.
+write_prior_round() {
+    local session="$1" why=""
+    case "$ROUND_READ" in
+        none) return 0 ;;
+        failed) why="could not be read" ;;
+        read)
+            if ! jq -s -e 'length == 1 and (.[0] | type) == "object"' <"$ROUND_FILE" >/dev/null 2>&1; then
+                why="is not one JSON object"
+            elif ! koto context add "$session" review_round.json <"$ROUND_FILE" >/dev/null 2>&1; then
+                why="could not be written"
+            fi
+            ;;
+    esac
+    remove_round
+    [ -n "$why" ] || return 0
+    printf '%s: the review round recorded in the finished run of %s %s, so the new run has none; record it again with review-round.sh\n' \
+        "$PROG" "$session" "$why" >&2
+    return 0
+}
+
+if [ "$NAMED" -eq 1 ]; then
+    trap on_exit EXIT
+    trap 'on_exit; trap - EXIT; exit 130' INT
+    trap 'on_exit; trap - EXIT; exit 143' TERM
+    read_prior_round "$SESSION"
+fi
+
 HEADER_MODE=""
 TOP=$(git rev-parse --show-toplevel) || TOP=""
 if [ -n "$TOP" ] && [ -f "$TOP/CLAUDE.md" ]; then
@@ -552,6 +651,12 @@ RC=$?
 
 case "$OUT" in
     opened=*)
+        # A replaced finished run hands its review round on, under either
+        # template, before anything below can stop the run; an attached or
+        # new session is left as it is.
+        if [ "${OUT%%$'\n'*}" = opened=replaced ]; then
+            write_prior_round "$SESSION"
+        fi
         if [ "$COORDINATED" -eq 1 ]; then
             # The identity: the snapshot's, else the replaced session's. seed
             # writes only when the session has none, so an attached live
@@ -599,6 +704,17 @@ case "$OUT" in
                 || echo "$PROG: could not clear merge_attempts in $SESSION" >&2
             koto context remove "$SESSION" recovered >/dev/null \
                 || echo "$PROG: could not clear recovered in $SESSION" >&2
+            # A live run attached from a checkout it moved to: plan_abs is
+            # re-rooted to the PLAN here when the recorded one is gone and
+            # this is the same coordination branch of the same repository.
+            # record-coord-setup.sh decides and writes, keeping the key's one
+            # writer; its stdout is dropped so this script's lines don't
+            # change, and its one stderr line names the move.
+            if [ "${OUT%%$'\n'*}" = opened=attached ] && [ -n "$PLAN" ]; then
+                bash "$SELF_DIR/record-coord-setup.sh" --reroot-plan --session "$SESSION" --plan "$PLAN" \
+                    </dev/null >/dev/null \
+                    || echo "$PROG: could not check plan_abs in $SESSION against this checkout" >&2
+            fi
         else
             # Carry the prior run's identity into a replacement (seed writes
             # only when the session has none, so an attached live session

@@ -32,7 +32,7 @@ fail() { echo "FAIL: $1 - $2"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 T=$(mktemp -d "${TMPDIR:-/tmp}/rule-lifecycle-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P)
 cleanup() { chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 REG="$T/registry.json"
 cat >"$REG" <<'EOF'

@@ -63,7 +63,7 @@ command -v koto >/dev/null 2>&1 || { echo "SKIP: koto not on PATH -- engine case
 
 WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"

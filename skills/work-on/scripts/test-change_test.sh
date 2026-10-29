@@ -69,10 +69,25 @@
 #   record of a fix
 #              the fix source, the red with its marker, the green, the
 #              reproducing test as added, and the state
+#   a refused read
+#              a context read koto refuses fails status and init with 66, the
+#              ledger untouched, never reading as an absent key
 #   nothing reaches a pull request
 #              gh is a stand-in that logs every call, and the log stays
 #              empty; the script holds no gh pr edit or comment and has no
 #              render subcommand
+#   a moved work tree
+#              the header's work tree gone: from a clone of the same
+#              repository whose HEAD holds impl_base, status gates as it did
+#              at the old path and appends one relocate line naming both
+#              paths, a second status none, and seat and accept follow the
+#              relocated tree; from a clone whose origin is another
+#              repository, or one whose HEAD lacks impl_base, status still
+#              exits 2 with the gone work tree's message and writes nothing;
+#              covered and record write nothing, record never re-roots from
+#              the directory it runs in, and once the move is recorded it
+#              shows the relocation and reads the relocated tree from
+#              anywhere
 #
 # Usage: bash skills/work-on/scripts/test-change_test.sh
 set -uo pipefail
@@ -93,7 +108,7 @@ has() { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "[$3] lacks [$2]" ;; esac; }
 hasnt() { case "$3" in *"$2"*) bad "$1" "[$3] holds [$2]" ;; *) ok "$1" ;; esac; }
 
 W=$(mktemp -d) || { echo "FAIL: could not create a temporary directory"; exit 1; }
-trap 'rm -rf "$W"' EXIT
+ktg_on_exit 'rm -rf "$W"'
 export HOME="$W/home"
 mkdir -p "$HOME"
 export GIT_CONFIG_NOSYSTEM=1
@@ -111,6 +126,9 @@ STORE="$W/store"
 mkdir -p "$BIN" "$STORE"
 SHIM_FLOOR=$(env -u KOTO_FLOOR bash "$PLUGIN/scripts/assert-koto-floor.sh" --print-floor 2>"$W/floor.err")
 [ -n "$SHIM_FLOOR" ] || { echo "FAIL: assert-koto-floor.sh --print-floor printed no floor: $(head -c 400 "$W/floor.err")"; exit 1; }
+# SHIM_REFUSE=<s> refuses every context call on <s>, and SHIM_REFUSE_KEY=<key>
+# every `context exists` of <key>, the way koto refuses a session bound to
+# another workspace: the refusal on stdout, exit 2 (or SHIM_REFUSE_RC).
 cat > "$BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 case "$1" in
@@ -119,6 +137,10 @@ case "$1" in
     context) ;;
     *) echo "shim: unsupported $*" >&2; exit 2 ;;
 esac
+if [ "${SHIM_REFUSE:-}" = "$3" ] || { [ "$2" = exists ] && [ "${SHIM_REFUSE_KEY:-}" = "$4" ]; }; then
+    printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"
+    exit "${SHIM_REFUSE_RC:-2}"
+fi
 f="$SHIM_STORE/$3/$4"
 case "$2" in
     add) mkdir -p "$SHIM_STORE/$3"; cat > "$f" ;;
@@ -695,6 +717,121 @@ has "record prints the marker" "marker: error: name required" "$OUT"
 has "record prints the green" "green: sh tests/run.sh at $(git rev-parse HEAD) exited 0" "$OUT"
 has "record prints the reproducing test as added" "added tests/empty_test.sh" "$OUT"
 has "record prints the state" "state: counted" "$OUT"
+
+# --- a refused read ------------------------------------------------------------------------
+# koto refuses a read of a session bound to another workspace, printing the
+# refusal on stdout and exiting 2. That is a failed read, which fails the
+# command rather than reading as an absent key.
+echo "--- a refused read"
+S=refu
+start "$S"
+LEDGER_REFU=$(ledger "$S")
+SHIM_REFUSE=$S run status "$S"
+eq "status on a refused session: exit 66 rather than reading as an absent key" 66 "$RC"
+hasnt "status on a refused session: koto's refusal kept off stdout" "session_bound_elsewhere" "$OUT"
+has "status on a refused session: koto's refusal on stderr" "session_bound_elsewhere" "$(cat "$W/err")"
+SHIM_REFUSE_KEY=test_change_ledger.jsonl run init "$S"
+eq "init with the ledger read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+eq "init with the ledger read refused: the ledger is untouched" "$LEDGER_REFU" "$(ledger "$S")"
+SHIM_REFUSE_KEY=test_change_ledger.jsonl SHIM_REFUSE_RC=1 run init "$S" --entry
+eq "init --entry with the ledger read refused at exit 1 with the refusal: exit 66 rather than reading as an absent key" 66 "$RC"
+SHIM_REFUSE_KEY=red_first.json run status "$S"
+eq "status with the red-first record read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+has "status with the red-first record read refused: names the failed read" "could not read red_first.json" "$(cat "$W/err")"
+run status "$S"
+eq "status with nothing refused: counted as before" 0 "$RC"
+
+# --- a moved work tree ---------------------------------------------------------------------
+# The run's checkout moves: its work tree is cloned somewhere else and the old
+# one removed, as a handover to a new checkout does. The fixture repository
+# gets an origin named acme/greet so the header records a repository.
+echo "--- a moved work tree"
+run_in() {
+    local d="$1"
+    shift
+    OUT=$(cd "$d" && PATH="$BIN:$PATH" bash "$SCRIPT" "$@" 2>"$W/err")
+    RC=$?
+}
+# exit_is <label> <want>: like eq on RC, with the command's stderr on a failure.
+exit_is() {
+    if [ "$RC" = "$2" ]; then ok "$1"; else bad "$1" "want exit $2, got $RC: $OUT $(cat "$W/err")"; fi
+}
+ORIGIN="$W/remote/acme/greet.git"
+mkdir -p "$W/remote/acme"
+git clone -q --bare "$R" "$ORIGIN"
+MA="$W/moved-a"
+git clone -q "$ORIGIN" "$MA"
+git -C "$MA" checkout -q -b b-mv
+S=mv
+rm -rf "${STORE:?}/$S"
+mkdir -p "$STORE/$S"
+git -C "$MA" rev-parse HEAD > "$STORE/$S/impl_base"
+cp "$RULES" "$STORE/$S/review_level_rules.tsv"
+cp "$STORE/acc/context.md" "$STORE/$S/context.md"
+run_in "$MA" init "$S"
+exit_is "moved: init in the first work tree" 0
+eq "moved: the header records the repository" acme/greet "$(ledger "$S" | head -n 1 | jq -r .repo)"
+sed -i.bak 's/Hello, World!/Hello, World/' "$MA/tests/greet_test.sh"
+rm -f "$MA/tests/greet_test.sh.bak"
+git -C "$MA" commit -q -am "test: drop the exclamation mark"
+run_in "$MA" status "$S"
+exit_is "moved: before the move status holds the edit" 1
+STATUS_BEFORE=$OUT
+MA_TOP=$(git -C "$MA" rev-parse --show-toplevel)
+MB="$W/moved-b"
+git clone -q "$MA" "$MB"
+git -C "$MB" remote set-url origin "$ORIGIN"
+MB_TOP=$(git -C "$MB" rev-parse --show-toplevel)
+MC="$W/moved-c"
+git clone -q "$MA" "$MC"
+git -C "$MC" remote set-url origin "$W/remote/acme/other.git"
+MD="$W/moved-d"
+git clone -q "$ORIGIN" "$MD"
+git -C "$MD" checkout -q --orphan lone
+git -C "$MD" commit -q -m "an unrelated history"
+rm -rf "$MA"
+
+run_in "$MC" status "$S"
+exit_is "moved: from a work tree of another repository status exits 2" 2
+has "moved: another repository keeps the gone work tree's message" "the run's work tree [$MA_TOP] is gone" "$(cat "$W/err")"
+run_in "$MD" status "$S"
+exit_is "moved: from a work tree whose HEAD lacks impl_base status exits 2" 2
+has "moved: no impl_base keeps the gone work tree's message" "the run's work tree [$MA_TOP] is gone" "$(cat "$W/err")"
+eq "moved: neither wrote a line" 1 "$(ledger "$S" | wc -l | tr -d ' ')"
+run_in "$MB" record "$S"
+exit_is "moved: record before the move is recorded exits 0" 0
+has "moved: record doesn't re-root from the directory it runs in" "state: undecided" "$OUT"
+run_in "$MB" covered "$S" tests/greet_test.sh
+exit_is "moved: covered reads the moved tree and holds the edit" 1
+has "moved: covered names the unaccepted edit" "held: unaccepted tests/greet_test.sh" "$OUT"
+eq "moved: record and covered wrote nothing" 1 "$(ledger "$S" | wc -l | tr -d ' ')"
+
+run_in "$MB" status "$S"
+exit_is "moved: from a clone of the same repository status gates as before" 1
+eq "moved: the same output as at the old path" "$STATUS_BEFORE" "$OUT"
+has "moved: stderr names the move" "[$MA_TOP] is gone; following it to [$MB_TOP]" "$(cat "$W/err")"
+eq "moved: one relocate line from the old tree to the new one" "relocate|$MA_TOP|$MB_TOP" \
+    "$(ledger "$S" | sed -n 2p | jq -r '"\(.event)|\(.from)|\(.to)"')"
+has "moved: the relocate line has a time" '"ts":"20' "$(ledger "$S" | sed -n 2p)"
+run_in "$MB" status "$S"
+exit_is "moved: a second status gates the same" 1
+eq "moved: a second status writes no line" 2 "$(ledger "$S" | wc -l | tr -d ' ')"
+hasnt "moved: a second status names no move" "following it" "$(cat "$W/err")"
+run_in "$R" status "$S"
+exit_is "moved: from an unrelated directory status reads the relocated tree" 1
+run_in "$MB" seat "$S"
+exit_is "moved: seat in the relocated tree" 0
+has "moved: the seat's brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
+run_in "$MB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
+exit_is "moved: the seat's accept" 0
+run_in "$MB" status "$S"
+exit_is "moved: after the accept status counts" 0
+LINES_NOW=$(ledger "$S" | wc -l | tr -d ' ')
+run_in "$R" record "$S"
+exit_is "moved: record from anywhere exits 0" 0
+has "moved: record shows the relocation" "relocate: the work tree [$MA_TOP] moved to [$MB_TOP]" "$OUT"
+has "moved: record reads the relocated tree" "state: counted" "$OUT"
+eq "moved: record wrote nothing" "$LINES_NOW" "$(ledger "$S" | wc -l | tr -d ' ')"
 
 # --- nothing reaches a pull request --------------------------------------------------------
 echo "--- nothing reaches a pull request"

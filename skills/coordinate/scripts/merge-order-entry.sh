@@ -31,11 +31,16 @@
 #     <Part 1 as plain text>
 #     ```
 #
-# It refuses detail that isn't the sealed verdict's (coord/land.json's
-# verdict and pull request must match it): the check rewrites both on each
-# visit, so the block is for the pull request the latest land visit judged.
-# Print it at that pull request's own surface visit; a table of several
-# pull requests gets each block from its own visit.
+# It refuses detail that isn't the sealed verdict's (coord/land.json's pull
+# request and verdict must match it): the check rewrites both on each visit,
+# so the block is for the pull request the latest land visit judged. Print it
+# at that pull request's own surface visit; a table of several pull requests
+# gets each block from its own visit. A detail whose verdict differs from the
+# sealed one only in the posture word (permit, deny or confirm; a check run
+# again read the posture afresh) is not refused: the block is worded for the
+# sealed verdict, and stderr says what the detail read. Each refusal of the
+# detail names the way back without leaving surface: land-check.sh --session
+# S --pr N run again, then this script.
 #
 # The repository is the one the record's Holdings row for #<pr> links;
 # --repo overrides it, for tests. The output is what you paste; don't reword
@@ -78,11 +83,26 @@ if [ -z "$REPO" ]; then
 fi
 
 DETAIL=$("$KOTO" context get "$SESSION" coord/land.json) || { echo "$PROG: coord/land.json couldn't be read" >&2; exit 2; }
+# Every refusal of the detail names the way back, which never leaves surface:
+# the check run again rewrites the detail for the sealed verdict's pull request.
+RECOVER="to recover, run $HERE/land-check.sh --session $SESSION --pr $PR here at surface, then merge-order-entry.sh again"
 # The detail must be this verdict's: the land check writes both on each visit.
-printf '%s' "$DETAIL" | jq -e --arg v "$1" --arg pr "$PR" '.verdict == $v and .pr == $pr' >/dev/null \
-    || { echo "$PROG: coord/land.json is not the detail of the sealed verdict ($1 #$PR)" >&2; exit 2; }
+printf '%s' "$DETAIL" | jq -e --arg pr "$PR" '.pr == $pr' >/dev/null \
+    || { echo "$PROG: coord/land.json is not the detail of the sealed verdict ($1 #$PR): it is another pull request's; $RECOVER" >&2; exit 2; }
+posture_word() { case "$1" in permit|deny|confirm) return 0 ;; esac; return 1; }
+DV=$(printf '%s' "$DETAIL" | jq -r '.verdict | strings')
+if [ "$DV" != "$1" ]; then
+    # A later read of the posture can differ from the sealed one, and only the
+    # word changes: the block keeps the sealed verdict's wording.
+    if posture_word "$1" && posture_word "$DV"; then
+        echo "$PROG: coord/land.json reads $DV where the sealed verdict is $1; the block is worded for the sealed $1" >&2
+    else
+        echo "$PROG: coord/land.json is not the detail of the sealed verdict ($1 #$PR): it reads [${DV}]; $RECOVER" >&2
+        exit 2
+    fi
+fi
 printf '%s' "$DETAIL" | jq -e '.evidence.status == "ok" and (.message | type) == "string"' >/dev/null \
-    || { echo "$PROG: coord/land.json carries no evidence or message; the land check didn't reach them" >&2; exit 2; }
+    || { echo "$PROG: coord/land.json carries no evidence or message; the land check didn't reach them; $RECOVER" >&2; exit 2; }
 
 printf '%s' "$DETAIL" | jq -r --arg pr "$PR" --arg repo "$REPO" --arg why "$WHY" '
     "**[#\($pr)](https://github.com/\($repo)/pull/\($pr))**, \($why)\n",

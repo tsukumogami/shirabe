@@ -39,6 +39,12 @@ for bin in koto shirabe; do
         exit 0
     fi
 done
+# The document gate's canary needs a validator with FC23 to FC25; on an older
+# one every gate stops on an environment fault. `--check FC23` is the probe.
+if ! (cd "${TMPDIR:-/tmp}" && shirabe validate --check FC23 >/dev/null 2>&1); then
+    echo "SKIP: the shirabe on PATH predates FC23 to FC25; this suite's gates cannot run on it"
+    exit 0
+fi
 [ -f "$TEMPLATE" ] || { echo "FAIL: no template at $TEMPLATE" >&2; exit 1; }
 
 PASS=0
@@ -70,7 +76,7 @@ case "$REPO" in
         esac ;;
 esac
 REAL_HOME="$HOME"
-trap 'rm -rf "$SANDBOX"' EXIT
+ktg_on_exit 'rm -rf "$SANDBOX"'
 
 # Every session name carries this prefix. It is not the production prefix, so a
 # name collision with a real run is impossible even if the store isolation ever
@@ -465,7 +471,8 @@ case "$fold_directive" in
     *)
         # Not necessarily at fold on this path; assert it exists in the template
         # at the fold state rather than failing on the walk's exact position.
-        if sed -n '/^## fold$/,/^## /p' "$TEMPLATE" | grep -q "Sparing"; then
+        fold_section=$(sed -n '/^## fold$/,/^## /p' "$TEMPLATE")
+        if grep -q "Sparing" <<<"$fold_section"; then
             ok "the reduction argument is carried in the fold state's directive"
         else
             bad "the reduction argument is not at the fold state" "" ;

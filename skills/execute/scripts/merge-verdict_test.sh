@@ -46,7 +46,7 @@ command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 [ -f "$VERDICT" ] || { echo "FAIL: $VERDICT not found" >&2; exit 1; }
 
 WORK=$(mktemp -d) || exit 1
-trap 'rm -rf "$WORK"' EXIT
+ktg_on_exit 'rm -rf "$WORK"'
 
 BIN="$WORK/bin"
 mkdir -p "$BIN" "$WORK/cases"
@@ -602,13 +602,14 @@ for S in "$VERDICT" "$EXEC"; do
 done
 
 for S in "$VERDICT" "$EXEC"; do
+    CODE=$(non_comment "$S")
     if grep -q '^set -uo pipefail$' "$S" \
-        && ! non_comment "$S" | grep -qE 'declare -A|mapfile|readarray|\$\{[A-Za-z_]+,,\}|\$\{[A-Za-z_]+\^\^\}|\|&'; then
+        && ! grep -qE 'declare -A|mapfile|readarray|\$\{[A-Za-z_]+,,\}|\$\{[A-Za-z_]+\^\^\}|\|&' <<<"$CODE"; then
         pass "static: $(basename "$S") uses set -uo pipefail and no bash 4 feature"
     else
         fail "static: $(basename "$S") misses set -uo pipefail or uses a bash 4 feature"
     fi
-    if non_comment "$S" | grep -qE 'date -[dj]|date --date'; then
+    if grep -qE 'date -[dj]|date --date' <<<"$CODE"; then
         fail "static: $(basename "$S") uses platform date arithmetic"
     else
         pass "static: $(basename "$S") does no platform date arithmetic"

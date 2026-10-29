@@ -60,7 +60,7 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/koto-minimum-test.XXXXXX") || exit 1
 cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 MINIMUM=$("$BASH_BIN" "$ASSERT" --print-floor 2>/dev/null)
 if grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$MINIMUM"; then

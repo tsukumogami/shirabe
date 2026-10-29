@@ -18,11 +18,12 @@
 #
 #   rs_record <out> [<fields>]
 #       The run's record. With <fields> (state fields separated by spaces,
-#       such as "holdings deferrals"), only those sections, got directly with
-#       no record/ listing, so the read's koto calls don't grow with the
-#       record's entries (shirabe#1308). It never uses or fills RS_ONCE's
-#       read, so a step under rs_once_begin pays a live read for each one. A
-#       field the record has no section for is refused (2).
+#       such as "holdings deferrals"), only those sections; without, all
+#       nine. Each is got directly, with no record/ listing, so the read's
+#       koto calls don't grow with the record's entries (shirabe#1308,
+#       #1315). Under rs_once_begin it is answered from the step's read
+#       when that read covers it. A field the record has no section for is
+#       refused (2).
 #       Writes <out> (the record, normalize_state's JSON),
 #       <out>.state (the keys as assembled, pushed heads included),
 #       <out>.pushed (the pushed heads, {worker topic: sha}), <out>.meta
@@ -33,10 +34,12 @@
 #       still being written after three re-reads (record-changed); 65 the
 #       session's record is another scope's or breaks a rule of
 #       state-schema.jq.
-#   rs_record_api <out> [<session>]
+#   rs_record_api <out> [<session> [<fields>]]
 #       The record of <session> ($SESSION when not given), its scope, name and
 #       host from that run's facts (coord-log.sh run-facts), for the land check
-#       and the merge, which name the session they read. Writes <out> and its
+#       and the merge, which name the session they read; only <fields>'
+#       sections when given, and from the step's read (rs_once_begin) when it
+#       holds that session's record and covers them. Writes <out> and its
 #       side files, for the caller's own scratch directory to clean up.
 #       Returns 0 read; 2 the read failed or the record breaks a rule.
 #   rs_facts <parsed-record> <topic>
@@ -47,18 +50,24 @@
 #       go-ahead rows pause-read.sh reads. It adds pushed_head when the holding
 #       keeps one. Returns 0 printed; 1 no holding has that topic; 2 the record
 #       couldn't be read.
-#   rs_once_begin <dir>
+#   rs_once_begin <dir> [<fields>]
 #       One record read per step (shirabe#1094, #1095). Creates <dir> and
-#       exports RS_ONCE=<dir>. From then on rs_record, in this process and in
-#       every script it runs (they inherit RS_ONCE), answers from one read of
-#       the run's record: the first rs_record assembles the record's keys into
-#       <dir>, and the rest take their files from there. A read of another record (another session, scope or
-#       name) is made live, as without RS_ONCE, and a read that fails is never
-#       kept. Returns 2 when <dir> can't be made.
+#       exports RS_ONCE=<dir> and RS_ONCE_FIELDS=<fields>. From then on
+#       rs_record, in this process and in every script it runs (they inherit
+#       both), answers from one read of the run's record: the first rs_record
+#       assembles the record's keys into <dir>, and the rest take their files
+#       from there. With <fields> the step's read is of those sections only,
+#       and serves every read of some of them, each handed only the sections
+#       it asked for; a whole read in such a step is made live (shirabe#1315).
+#       Without <fields> the step's read is the whole record, which serves
+#       every read. A read of another record (another session, scope or
+#       name), or of a section the step's read doesn't hold, is made live, as
+#       without RS_ONCE, and a read that fails is never kept. Returns 2 when
+#       <dir> can't be made.
 #
 #       What this bounds is the number of reads a step makes, not the cost of
-#       one. An assembly is still one koto call per key and one listing (koto
-#       has no multi-key get), and the reconcile deadlines stay 8 and 12
+#       one. An assembly is still one koto call per section key, and two for
+#       an absent one (koto has no multi-key get), and the reconcile deadlines stay 8 and 12
 #       seconds rather than growing with the record. On koto's cloud backend
 #       each call is a bucket round trip of 0.3 to 1 s, so there the calls are
 #       the cost, and a step that reads the record more than once can pass a
@@ -99,6 +108,8 @@ RS_LOADED=1
 # pairs (docs/designs/DESIGN-coordinator-session-record.md, Decision 3).
 # A section the record doesn't hold has no key.
 RS_SECTIONS="holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work"
+# Every section's state field, the whole record's read.
+RS_FIELDS_ALL="holdings deferrals side_effects reversals decisions holds run standing work"
 # How long a reader waits before re-reading a session record a write is part way
 # through, in seconds; tests set 0.
 RS_RETRY_PAUSE=${RS_RETRY_PAUSE:-1}
@@ -148,12 +159,13 @@ rs_assemble() {
 # the record was still being written after three re-reads.
 #
 # <fields>, when given, is a space-separated list of state fields (holdings,
-# deferrals, ...): only those sections are read, each got directly, and the
-# record/ listing, which names every entry key, is never made. A get that
-# fails is told apart from an absent section by a listing of that one key, so
-# the read's calls don't grow with the entries (shirabe#1308).
+# deferrals, ...): only those sections are read. Without it all nine are.
+# Either way each section is got directly, and the record/ listing, which
+# names every entry key, is never made. A get that fails is told apart from an
+# absent section by a listing of that one key, so the read's calls don't grow
+# with the entries (shirabe#1308, #1315).
 rs_session_state() {
-    local s=$1 out=$2 only=${3:-} try pair field key changed k=${KOTO:-${KOTO_BIN:-koto}}
+    local s=$1 out=$2 only=${3:-} try k=${KOTO:-${KOTO_BIN:-koto}}
     : > "$out.err"
     for try in 0 1 2 3; do
         [ "$try" -eq 0 ] || sleep "$RS_RETRY_PAUSE"
@@ -173,30 +185,11 @@ rs_session_state() {
         jq -e 'type == "object" and (.written | type) == "string"' "$out.m1" > /dev/null 2>> "$out.err" || return 2
         [ "$(jq -r '.pending // false' "$out.m1")" = true ] && continue
         rm -rf "$out.sec"; mkdir -p "$out.sec" || return 2
-        changed=0
-        if [ -n "$only" ]; then
-            rs_sections_direct "$s" "$out" "$only"
-            case $? in 0) ;; 1) continue ;; *) return 2 ;; esac
-            "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
-            [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] || continue
-            rs_assemble "$out.m1" "$out.sec" > "$out" 2>> "$out.err" || return 2
-            return 0
-        fi
-        # One listing names the sections present; only those are read.
-        rs_list "$s" record/ "$out.keys" || { cat "$out.keys.err" >> "$out.err"; return 2; }
-        for pair in $RS_SECTIONS; do
-            field=${pair%%:*} key=${pair#*:}
-            jq -e --arg key "record/$key" 'index($key) != null' "$out.keys" > /dev/null || continue
-            if ! "$k" context get "$s" "record/$key" < /dev/null > "$out.sec/$field" 2>> "$out.err"; then
-                # Listed but gone: a write removed it since the listing, which
-                # moves record/meta; that is a re-read, not a failed read.
-                "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
-                [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] && return 2
-                changed=1; break
-            fi
-            jq -e . "$out.sec/$field" > /dev/null 2>> "$out.err" || return 2
-        done
-        [ "$changed" = 1 ] && continue
+        # Every section is got directly, the whole record's nine or <fields>'
+        # few: the record/ listing, which names every entry key, is never made
+        # (shirabe#1315).
+        rs_sections_direct "$s" "$out" "${only:-$RS_FIELDS_ALL}"
+        case $? in 0) ;; 1) continue ;; *) return 2 ;; esac
         "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
         [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] || continue
         rs_assemble "$out.m1" "$out.sec" > "$out" 2>> "$out.err" || return 2
@@ -283,9 +276,14 @@ rs_session_read() {
 # scope, coordinate-<slug>-<stamp> (the slug coord-log.sh slug derives, as
 # coordinate-open.sh names them), that hold record/meta, one name per line,
 # oldest stamp first. A child session is never one: a coordinator run is a root.
-# Returns 2 when the session list can't be read.
+# A session koto answers isn't here (session_migrated, moved to another host
+# by an import; session_not_found) holds no record here and is left out. Any
+# other refused listing leaves it unknown whether the session holds a record,
+# so it is never printed; with <unreadable-file> given, it is appended there
+# as `<session><TAB><koto's reason>`, oldest first, and without it, it is left
+# out as before. Returns 2 when the session list can't be read.
 rs_scope_sessions() {
-    local d s slug
+    local d s slug why
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$1" --name "$2") || return 2
     d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
     "${KOTO:-${KOTO_BIN:-koto}}" session list < /dev/null > "$d/list" 2> "$d/err" || { rm -rf "$d"; return 2; }
@@ -293,7 +291,16 @@ rs_scope_sessions() {
         | select(startswith($p) and (ltrimstr($p) | test("^[0-9]{8}T[0-9]{6}Z$")))' "$d/list" \
         2> "$d/err" | LC_ALL=C sort > "$d/names" || { rm -rf "$d"; return 2; }
     while IFS= read -r s; do
-        rs_list "$s" record/meta "$d/keys" || continue
+        : > "$d/keys.err"
+        if ! rs_list "$s" record/meta "$d/keys"; then
+            # koto puts its refusal on stdout (the listing) or stderr: both, on one line.
+            why=$(cat "$d/keys" "$d/keys.err" 2> /dev/null)
+            why=$(tr -s '\t\n' '  ' <<< "$why")
+            why=${why:0:400}
+            case "$why" in *session_migrated*|*session_not_found*) continue ;; esac
+            [ -z "${3:-}" ] || printf '%s\t%s\n' "$s" "$why" >> "$3"
+            continue
+        fi
         jq -e 'index("record/meta") != null' "$d/keys" > /dev/null && printf '%s\n' "$s"
     done < "$d/names"
     rm -rf "$d"
@@ -320,6 +327,13 @@ rs_scope_sessions() {
 #   none    no session here holds a record, or the newest's find never
 #           recorded the session (no coord/source.json reading session): the
 #           start opens a new run
+#   unreadable
+#           a session of the scope newer than every holder (or with no
+#           holder at all) whose record/meta listing koto refused, so it may
+#           hold the record (shirabe#1257): reason is koto's, code is
+#           bound-elsewhere when koto refused it as bound to another
+#           directory (session_bound_elsewhere), and live is false, since
+#           nothing about it could be read. The opener refuses the start
 # At discipline scope the window rule comes first
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3): the
 # newest rotation is resumed or carried only while it is open (rs_rotation_open,
@@ -329,9 +343,20 @@ rs_scope_sessions() {
 # live is whether that session is a live run, which the opener cancels on a
 # carry. Returns 0 printed; 2 a read failed.
 rs_resume_candidate() {
-    local scope=$1 name=$2 hash=$3 today=${4:-$(date -u +%Y-%m-%d)} holders s slug live d src reason=
-    holders=$(rs_scope_sessions "$scope" "$name") || return 2
+    local scope=$1 name=$2 hash=$3 today=${4:-$(date -u +%Y-%m-%d)} holders s slug live d src reason= u
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || return 2
+    holders=$(rs_scope_sessions "$scope" "$name" "$d/unreadable") || { rm -rf "$d"; return 2; }
     s=$(printf '%s\n' "$holders" | grep -v '^$' | tail -1)
+    # Names sort by stamp, so the newest unreadable session is the last line,
+    # and it outranks every holder older than it.
+    u=$(tail -1 "$d/unreadable" 2> /dev/null)
+    if [ -n "$u" ] && { [ -z "$s" ] || [[ ${u%%$'\t'*} > $s ]]; }; then
+        jq -nc --arg s "${u%%$'\t'*}" --arg r "${u#*$'\t'}" '{session: $s, action: "unreadable", live: false, reason: $r}
+            + (if $r | test("session_bound_elsewhere") then {code: "bound-elsewhere"} else {} end)'
+        rm -rf "$d"
+        return 0
+    fi
+    rm -rf "$d"
     if [ -z "$s" ]; then
         jq -nc '{session: null, action: "none", live: false, reason: "no session here holds a record"}'
         return 0
@@ -480,7 +505,20 @@ rs_rotation_open() {
 rs_once_begin() {
     mkdir -p "$1" || return 2
     RS_ONCE=$(cd "$1" && pwd) || return 2
-    export RS_ONCE
+    RS_ONCE_FIELDS=${2:-}
+    export RS_ONCE RS_ONCE_FIELDS
+}
+
+# rs_fields_cover <held> <wanted>: 0 when a read of <held>'s sections holds
+# every one <wanted> names. An empty list is the whole record: it covers any
+# list, and only it covers a whole read.
+rs_fields_cover() {
+    local f
+    [ -z "$1" ] && return 0
+    [ -n "$2" ] || return 1
+    for f in $2; do
+        case " $1 " in *" $f "*) ;; *) return 1 ;; esac
+    done
 }
 
 # rs_once_gen: the step's write count, n.
@@ -501,22 +539,34 @@ rs_once_drop() {
     return 0
 }
 
-# rs_once_record <out>: rs_record from the step's read, made now unless it is
-# already there. Returns rs_record's codes, or 99 when the step wrote while it
-# read, or the read held is another record's, and the caller reads live.
+# rs_once_record <out> [<fields>]: rs_record from the step's read, made now
+# unless it is already there. The step's read is of the sections rs_once_begin
+# named, or of the whole record when it named none; a read it doesn't cover
+# (a whole read in a step that named sections, or a section it didn't name)
+# is made live and never held. A read of some sections is handed only those,
+# as a live read of them would be. Returns rs_record's codes, or 99 when the
+# step wrote while it read, the read held is another record's or doesn't
+# cover the one asked for, and the caller reads live.
 rs_once_record() {
-    local out=$1 s=${RS_SESSION:-${SESSION:-}} key g r d rc
+    local out=$1 want=${2:-} s=${RS_SESSION:-${SESSION:-}} key g r d rc fill f
+    # A field the record has no section for is the live read's to refuse.
+    for f in $want; do
+        case " $RS_SECTIONS " in *" $f:"*) ;; *) return 99 ;; esac
+    done
     key="$SCOPE $NAME $s"
     g=$(rs_once_gen)
     r=$RS_ONCE/read.$g
     if [ ! -f "$r/key" ]; then
+        fill=${RS_ONCE_FIELDS:-}
+        rs_fields_cover "$fill" "$want" || return 99
         d=$(mktemp -d "$RS_ONCE/fill.XXXXXX") || return 99
-        rs_session_read "$d/s" "$s" "$SCOPE" "$NAME"; rc=$?
+        rs_session_read "$d/s" "$s" "$SCOPE" "$NAME" "$fill"; rc=$?
         if [ $rc -ne 0 ]; then
             cp "$d/s.err" "$out.err" 2> /dev/null || : > "$out.err"
             rm -rf "$d"
             return $rc
         fi
+        printf '%s\n' "$fill" > "$d/fields"
         printf '%s\n' "$key" > "$d/key"
         # Two readers of one step may fill at once: the first to arrive is
         # kept, and a later one finds it there (its own copy lands inside, unread).
@@ -525,25 +575,39 @@ rs_once_record() {
         [ "$(rs_once_gen)" = "$g" ] || return 99
     fi
     [ -f "$r/key" ] && [ "$(cat "$r/key")" = "$key" ] || return 99
-    cp "$r/s" "$out" && cp "$r/s.err" "$out.err" && cp "$r/s.state" "$out.state" && cp "$r/s.pushed" "$out.pushed" \
-        && cp "$r/s.meta" "$out.meta" || return 99
+    rs_fields_cover "$(cat "$r/fields" 2> /dev/null)" "$want" || return 99
+    cp "$r/s.err" "$out.err" && cp "$r/s.meta" "$out.meta" || return 99
+    if [ -z "$want" ] || [ "$want" = "$(cat "$r/fields")" ]; then
+        cp "$r/s" "$out" && cp "$r/s.state" "$out.state" && cp "$r/s.pushed" "$out.pushed" || return 99
+        return 0
+    fi
+    for f in s s.state; do
+        jq --arg w "$want" '($w | split(" ")) as $o
+            | with_entries(select(.key == "scope" or .key == "written" or (.key as $k | $o | index($k)) != null))' \
+            "$r/$f" > "$out${f#s}" 2> /dev/null || return 99
+    done
+    case " $want " in
+        *" holdings "*) cp "$r/s.pushed" "$out.pushed" || return 99 ;;
+        *) echo '{}' > "$out.pushed" ;;
+    esac
 }
 
 # rs_record <out> [<fields>]
 rs_record() {
     local out=$1 only=${2:-} rc
-    # The step's one read (rs_once_begin). A read of some sections is always
-    # live: it never stands in for the step's whole read.
-    if [ -n "${RS_ONCE:-}" ] && [ -z "$only" ]; then
-        rs_once_record "$out"; rc=$?
+    # The step's one read (rs_once_begin), when it covers this one.
+    if [ -n "${RS_ONCE:-}" ]; then
+        rs_once_record "$out" "$only"; rc=$?
         [ $rc -eq 99 ] || return $rc
     fi
     rs_session_read "$out" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME" "$only"
 }
 
-# rs_record_api <out> [<session>]: the record of a run named by its session.
+# rs_record_api <out> [<session> [<fields>]]: the record of a run named by its
+# session, only <fields>' sections when given; from the step's one read when
+# that session's record is the one the step holds.
 rs_record_api() {
-    local out=$1 facts rrepo scope name rc
+    local out=$1 only=${3:-} facts rrepo scope name rc
     local SESSION=${2:-${SESSION:-}}
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION") || return 2
     rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
@@ -551,7 +615,11 @@ rs_record_api() {
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
     case "$scope" in roadmap|discipline) ;; *) return 2 ;; esac
     [[ $rrepo =~ $RE_REPO ]] || return 2
-    rs_session_read "$out" "$SESSION" "$scope" "$name"; rc=$?
+    rc=99
+    if [ -n "${RS_ONCE:-}" ]; then
+        SCOPE=$scope NAME=$name RS_SESSION=$SESSION rs_once_record "$out" "$only"; rc=$?
+    fi
+    [ $rc -eq 99 ] && { rs_session_read "$out" "$SESSION" "$scope" "$name" "$only"; rc=$?; }
     cat "$out.err" >&2
     [ $rc -eq 0 ] || return 2
 }

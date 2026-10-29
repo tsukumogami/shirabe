@@ -111,7 +111,10 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/state-holding.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
-rs_record "$T/parsed.json"
+# --read and --list print Holdings alone, so they read that one section; a
+# write's mode reads the whole record it writes back (shirabe#1315).
+case "$MODE" in read|list) FIELDS=holdings ;; *) FIELDS= ;; esac
+rs_record "$T/parsed.json" "$FIELDS"
 case $? in
     0) ;;
     65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;

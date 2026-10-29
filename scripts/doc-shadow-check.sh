@@ -14,7 +14,9 @@
 # the registry's aliases, as doc-check.sh maps them. For each of the format's
 # check-held rules it records one result:
 #
-#   failed  a violation (an error-level finding, or a banned word) maps to it
+#   failed  a violation (an error-level finding, a banned word, a notice
+#           doc-validate.sh selects by code, or a schema-only skip read as
+#           SCHEMA) maps to it
 #   error   the validator reached no verdict, or a violation's code maps to no
 #           check-held rule of the format, which leaves every rule that would
 #           have passed undecided

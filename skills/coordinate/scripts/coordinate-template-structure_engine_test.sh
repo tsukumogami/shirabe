@@ -38,7 +38,7 @@ for b in koto jq; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on 
 PASS=0 FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
-T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX") || exit 1; trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX") || exit 1; ktg_on_exit 'rm -rf "$T"'
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
@@ -329,13 +329,14 @@ printf '\n"$KOTO" context add "$S" record/reasoning --from-file f\n' >> "$T/open
 
 # The rest of the record's keys (references/state-keys.md): record/meta, the
 # sections and record/host are written only by the write core, and
-# record/entries/<n> and record/posted/<n> only by state-entry.sh. No other
+# record/entries/<n>, record/posted/<n> and record/archive/<n> only by
+# state-entry.sh (and the legacy import, through core_import_add). No other
 # script writes or removes a record/ key itself, and only state-stored-set.sh
 # calls core_write_host.
 record_key_writers() {
     grep -lE '^[^#]*context (add|remove)[^#]*record/' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
         | grep -v '/state-write-core\.sh$' | grep -v '/state-entry\.sh$' || true
-    grep -lE '^[^#]*context (add|remove)[^#]*record/(entries|posted)/' "$1"/state-write-core.sh 2>/dev/null || true
+    grep -lE '^[^#]*context (add|remove)[^#]*record/(entries|posted|archive)/' "$1"/state-write-core.sh 2>/dev/null || true
     grep -lE '^[^#]*core_write_host' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' \
         | grep -v '/state-stored-set\.sh$' | grep -v '/state-write-core\.sh$' || true
 }

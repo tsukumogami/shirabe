@@ -9,6 +9,9 @@
 # sees. The commissioning contract that tells each spawn site to use it is
 # references/review-seat-commissioning.md.
 #
+# Every kind takes --scratch <dir>, the run's scratch directory, where the
+# packet is written (see Output).
+#
 # Three kinds:
 #
 #   code --session <koto-session>
@@ -100,14 +103,22 @@
 #
 # ## Output
 #
-# The packet is written to a fresh `mktemp` file outside the repository; its
-# path is the only line on stdout. The caller passes that path to the seats
-# and deletes the file once the round is aggregated, as with the seats'
-# detail files. Diagnostics go to stderr.
+# The packet is written to a fresh `mktemp` file in the --scratch directory,
+# and the script's own working files to a directory there that it removes on
+# exit. Nothing goes in the shared TMPDIR: another run's cleanup there could
+# delete the packet between panels, and a seat that found its path empty
+# could read another run's packet in its place. --scratch must be a
+# directory of the run's own as `skill-session.sh scratch` allocates one: not
+# a symlink, owned by the current user, mode 0700, and outside the work tree.
+# The packet's path is the only line on stdout. The caller passes that path
+# to the seats and deletes the file once the round is aggregated, as with the
+# seats' detail files; the packet lives until then, or until the run removes
+# its scratch directory. Diagnostics go to stderr.
 #
 # Exit codes:
 #   0  -- packet written; its path is on stdout
-#   64 -- an input the packet needs does not exist: --doc, --format or
+#   64 -- an input the packet needs does not exist: --scratch is not a
+#         private directory of the run's own (above), --doc, --format or
 #         --criteria is not a file, or no base resolves (not a git repository,
 #         no commit at HEAD, no impl_base and no merge-base); for recheck,
 #         `<panel>_scope.json` is absent or not JSON, or it does not mark
@@ -116,8 +127,8 @@
 #         no decision for --seat
 #   66 -- a read or write failed: `gh issue view`, `git diff`, or the packet
 #         file could not be created or written
-#   67 -- usage: missing or unrecognised kind, flag, or flag value,
-#         --issue without --issue-repo or the other way round, an
+#   67 -- usage: missing or unrecognised kind, flag, or flag value, no
+#         --scratch, --issue without --issue-repo or the other way round, an
 #         --issue-repo that is neither empty nor owner/repo, or --issue for
 #         a plan-outline child's session
 #   127 -- recheck, or code with --seat: jq is not on PATH
@@ -158,9 +169,9 @@ die() {
 
 usage() {
     die 67 "$1
-usage: review-packet.sh code --session <koto-session> [--issue <N> --issue-repo <owner/repo> | --criteria <file>] [--panel <panel> --seat <seat>]
-       review-packet.sh recheck --session <koto-session> --panel <panel> --seat <seat>
-       review-packet.sh doc --doc <path> --format <reference> [--extra <path>]..."
+usage: review-packet.sh code --session <koto-session> [--issue <N> --issue-repo <owner/repo> | --criteria <file>] [--panel <panel> --seat <seat>] --scratch <dir>
+       review-packet.sh recheck --session <koto-session> --panel <panel> --seat <seat> --scratch <dir>
+       review-packet.sh doc --doc <path> --format <reference> [--extra <path>]... --scratch <dir>"
 }
 
 # emit_capped <cap> <file>: print the file cut at <cap> bytes on a line
@@ -228,6 +239,7 @@ DOC=""
 FORMAT=""
 PANEL=""
 SEAT=""
+SCRATCH=""
 # Newline-separated, read back line by line; bash 3.2 has arrays, but an
 # empty one trips `set -u` there.
 EXTRAS=""
@@ -236,7 +248,7 @@ while [ $# -gt 0 ]; do
     flag="$1"
     shift
     case "$KIND:$flag" in
-        code:--session|code:--issue|code:--criteria|code:--panel|code:--seat|recheck:--session|recheck:--panel|recheck:--seat|doc:--doc|doc:--format|doc:--extra)
+        code:--session|code:--issue|code:--criteria|code:--panel|code:--seat|recheck:--session|recheck:--panel|recheck:--seat|doc:--doc|doc:--format|doc:--extra|*:--scratch)
             [ $# -ge 1 ] && [ -n "$1" ] || usage "$flag needs a value"
             ;;
         code:--issue-repo)
@@ -251,6 +263,7 @@ while [ $# -gt 0 ]; do
         --criteria) CRITERIA="$1" ;;
         --panel)    PANEL="$1" ;;
         --seat)     SEAT="$1" ;;
+        --scratch)  SCRATCH="$1" ;;
         --doc)      DOC="$1" ;;
         --format)   FORMAT="$1" ;;
         --extra)    EXTRAS="$EXTRAS$1
@@ -271,7 +284,32 @@ check_panel_seat() {
     esac
 }
 
+# check_scratch: --scratch names a directory of the run's own, as
+# `skill-session.sh scratch` allocates one, so no other run can see or remove
+# what is written there. The work-tree check compares physical paths, since a
+# temporary directory is often reached through a symlink (/var on macOS).
+check_scratch() {
+    local mode phys top
+    if [ -L "$SCRATCH" ] || [ ! -d "$SCRATCH" ]; then
+        die 64 "--scratch [$SCRATCH] is not a directory (a symlink is refused)"
+    fi
+    [ -O "$SCRATCH" ] || die 64 "--scratch [$SCRATCH] is not owned by the current user"
+    mode=$(stat -c '%a' -- "$SCRATCH" 2>/dev/null || stat -f '%Lp' -- "$SCRATCH" 2>/dev/null) || mode=""
+    case "$mode" in
+        700|0700) ;;
+        *) die 64 "--scratch [$SCRATCH] has mode ${mode:-unknown}; the run's scratch directory is 0700" ;;
+    esac
+    phys=$(cd "$SCRATCH" && pwd -P) || die 64 "cannot resolve --scratch [$SCRATCH]"
+    if top=$(git rev-parse --show-toplevel 2>/dev/null) && top=$(cd "$top" && pwd -P); then
+        case "$phys/" in
+            "$top"/*) die 64 "--scratch [$SCRATCH] lies inside the work tree $top; the packet lives outside it" ;;
+        esac
+    fi
+}
+
 # Validate before creating anything on disk.
+[ -n "$SCRATCH" ] || usage "$KIND needs --scratch <dir>, the run's scratch directory"
+SCRATCH=${SCRATCH%/}
 if [ "$KIND" = "doc" ]; then
     [ -n "$DOC" ] || usage "doc needs --doc"
     [ -n "$FORMAT" ] || usage "doc needs --format"
@@ -321,8 +359,9 @@ else
     fi
 fi
 
-WORK=$(mktemp -d) || die 66 "could not create a temporary directory"
-PACKET=$(mktemp "${TMPDIR:-/tmp}/review-packet.XXXXXX") || { PACKET=""; die 66 "could not create the packet file"; }
+check_scratch
+WORK=$(mktemp -d "$SCRATCH/review-packet-work.XXXXXX") || { WORK=""; die 66 "could not create a working directory in [$SCRATCH]"; }
+PACKET=$(mktemp "$SCRATCH/review-packet.XXXXXX") || { PACKET=""; die 66 "could not create the packet file in [$SCRATCH]"; }
 
 # ------------------------------------------------------------------ doc -------
 

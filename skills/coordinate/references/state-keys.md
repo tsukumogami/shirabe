@@ -75,7 +75,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 
 | Key | Holds | Writer |
 |---|---|---|
-| `record/meta` | `{scope: {kind, name}, store: "session", written, pending, standing_used}`: the scope, the written time, the mark a write sets while it is part way through, and the highest Standing id number the record has given out, which `state-stored-set.sh --standing` reads instead of the entries to choose the next id. A seed into a session with no entries and a carry set it; a record from before it, one the legacy importer wrote, or one re-seeded over entries has none, and its first `--standing` reads the entries once and records it | `state-write-core.sh`, for every writer |
+| `record/meta` | `{scope: {kind, name}, store: "session", written, pending, template_compat, template_fingerprint, standing_used}`: the scope, the written time, the mark a write sets while it is part way through, the template compat the run was compiled at with its template's structural fingerprint, and the highest Standing id number the record has given out, which `state-stored-set.sh --standing` reads instead of the entries to choose the next id. A seed into a session with no entries and a carry set `standing_used`; a record from before it, one the legacy importer wrote, or one re-seeded over entries has none, and its first `--standing` reads the entries once and records it. A seed, a carry, the legacy import and a takeover set the compat pair from the compat table beside the run's plugin, and `coord-log.sh compat` reads it before the table, so a run the table no longer lists still names its compat; a record from before the pair, or a run whose table didn't list it, has none and is looked up in the table | `state-write-core.sh`, for every writer |
 | `record/holdings` | an array of Holdings rows (below), each with its `pushed_head` beside it when one is kept | `state-write.sh` through `state-holding.sh` |
 | `record/deferrals` | an array of Deferrals rows | `state-write.sh` through `state-holding.sh` |
 | `record/side-effects` | an array of Side effects rows | `state-write.sh` through `state-holding.sh`; `roadmap-status.sh` adds the roadmap edits' rows |
@@ -86,6 +86,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/rotation`, `record/reasoning` | a discipline rotation's window, host and predecessor, and the reasoning it leaves the next rotation | `state-stored-set.sh` (`STATE_WRITER`) |
 | `record/host` | the host facts (see Where State Lives), never sent to GitHub | `state-stored-set.sh --host` |
 | `record/entries/<n>`, `record/posted/<n>` | the account, one entry each, and the URL of an outward entry's comment | `state-entry.sh` |
+| `record/archive/<n>` | `{n}`, the marker beside a `decisions` entry, so the archived rows are read without listing every entry | `state-entry.sh`; the legacy importer |
 | `legs/<request>/<leg>` | a worker leg (see Where State Lives) | `dispatch-worker.sh`, `wait-target.sh`, `reconcile-legs.sh` |
 
 Any section key may also be written by the core's carry: `state-open.sh`
@@ -375,15 +376,25 @@ It stamps the entry from the host clock in UTC to the second and writes
 with `--kind`. The milestone steps write three: `milestone-verdict`,
 `goal-fit` and `milestone-failure`, whose lines are under Milestone Verdicts.
 A record moved from GitHub may also hold `decisions` entries, the archived
-Decisions rows (see Decisions).
+Decisions rows (see Decisions). Each is written with a marker beside it,
+`record/archive/<n>`, so a reader of the archived rows lists the markers and
+gets those entries alone. A record imported before the markers has none, and
+its reader reads every entry instead, as it does when a cited row is in no
+marked entry.
 
-An outward entry, one that a reader outside the coordinator reads on GitHub,
-is also posted as a comment on the item it concerns, named with `--on`: a
-`cost` entry on the holding's pull request or the unit's issue, a `goal-fit`
-entry on the pull request its first line names. `--on none` writes the
-session entry and posts it nowhere; a `milestone-verdict` or
-`milestone-failure` entry is written that way and reaches its roadmap pull
-request only through `roadmap-status.sh`. A posted entry reads:
+An outward entry, one that a reader outside the coordinator may read on
+GitHub, names the item it concerns with `--on`: a `cost` entry the holding's
+pull request or the unit's issue, a `goal-fit` entry the pull request its
+first line names. It is posted as a comment on that item only when the
+item's repository, public or private, opts in with `## PR Workflow Content:
+include` in the CLAUDE.md on its default branch (read through
+`scripts/pr-workflow-content.sh`). Otherwise the append keeps the session
+entry, posts nothing and prints its key, as `--on none` does (exit 0, the
+reason on stderr), and `--repost` is refused (exit 65), the entry staying in
+the session. `--on none` writes the session entry and posts it nowhere; a
+`milestone-verdict` or `milestone-failure` entry is written that way and
+reaches its roadmap pull request only through `roadmap-status.sh`, under the
+same opt-in (The roadmap edits). A posted entry reads:
 
 ```markdown
 <!-- coordinator-record-entry v1 kind=<kind> -->
@@ -408,7 +419,7 @@ something, write it into the record yourself.
 
 Anything a check or a successor acts on stays in the state; an entry is
 its account, never its only copy. GitHub limits how fast comments are
-created; one post per outward entry stays far inside it, and a refused post
+created; at most one post per outward entry stays far inside it, and a refused post
 (exit 14, the entry written but not posted) is finished once, later, with
 `state-entry.sh --repost <n> --on <item>`, never in a loop.
 
@@ -424,8 +435,8 @@ a later start's resume reads.
 
 The record's sections live in the run's own session, under `record/`:
 `record/meta` (the scope, the written time, a pending mark a write sets
-while it is part way through, and `standing_used`, the highest Standing id
-given out), one key per section (`record/holdings`,
+while it is part way through, `standing_used`, the highest Standing id
+given out, and the run's template compat and fingerprint), one key per section (`record/holdings`,
 `record/deferrals`, `record/side-effects`, `record/reversals`, `record/holds`,
 `record/run`, `record/standing`, `record/work`, `record/decisions`), each in
 the JSON form The Keys shows, one `record/entries/<n>` per entry
@@ -513,7 +524,8 @@ On a milestone roadmap a milestone reads Done only through a checked verdict,
 and Done is taken back only through a checked failure. Each is an entry in the
 record, checked by `scripts/milestone.sh` against the roadmap and written by
 `state-entry.sh` with its own kind, and each roadmap edit is a pull request
-`scripts/roadmap-status.sh` opens, posts the entry on, and never merges. The steps are the
+`scripts/roadmap-status.sh` opens, posts the entry on when the host opts in,
+and never merges. The steps are the
 `milestone_verdict`, `goal_fit` and `milestone_reopen` states of the template.
 
 ### The verdict owed
@@ -574,8 +586,10 @@ that did the work never checks it. `--verdict` passes the verdict-owed row's
 
 On a milestone run, the land check's `coord/land.json` carries `milestone:
 {tag, evidence}` (the holding's milestone and its clauses on the default
-branch), or `milestone_error: <why>` when that read failed. Goal fit writes,
-with `--kind goal-fit --on <the pull request>`, which also posts it there:
+branch), or `milestone_error: <why>` when that read failed. Goal fit writes
+this entry with `--kind goal-fit --on <the pull request>`, which also posts it
+there only when that pull request's repository opts in with `## PR Workflow
+Content: include`, and otherwise keeps it in the session:
 
 ```
 Goal fit: <owner/repo#n> -- <tag>
@@ -628,6 +642,13 @@ it exits 14 naming the pull request; run again with the same entry, it finds
 its row, posts once and pushes only the missing commit, so no second pull
 request opens.
 
+The entry is posted only where `state-entry.sh` would post it: when the host
+opts in with `## PR Workflow Content: include` in the CLAUDE.md GitHub serves
+from its default branch, or when `record/posted/<n>` shows an earlier run of
+the same edit posted it. Otherwise it stays in the session: nothing is
+posted, the pull request's body says so, and the Progress lines cite
+`entry <n>` where the comment's URL would go.
+
 `--verdict` needs the tag's verdict-owed row, requires the default branch to
 contain the Source commit, and runs `check-verdict` against the roadmap at
 that commit. It refuses a tag that already reads Done on the default branch,
@@ -646,19 +667,20 @@ field, a control character or tab, a token, a home-directory path or a
 staging path. Every verdict appends to Progress:
 
 ```markdown
-- <Checked on>: <tag> -- <verdict>, checked by <checker> (<entry URL>, <hash8>)
+- <Checked on>: <tag> -- <verdict>, checked by <checker> (<cite>, <hash8>)
 ```
 
 and an amendment adds `- <Checked on>: <tag> amended -- a follow-up of the
-verified verdict on <tag> (<entry URL>)`. hash8 is the first eight hex digits
-of the posted entry's sha256.
+verified verdict on <tag> (<cite>)`. cite is the posted entry's comment URL,
+or `entry <n>` for an entry kept in the session, and hash8 is the first eight
+hex digits of the entry's sha256.
 
 `--reopen` runs `check-failure` against the roadmap at the default branch's
 head, sets the milestone In progress, leaves Delivered, Outcome and Evidence
 as they are, and appends:
 
 ```markdown
-- <Seen on>: <tag> -- reopened: clause <n> failed, reported by <reporter> (<entry URL>, <hash8>)
+- <Seen on>: <tag> -- reopened: clause <n> failed, reported by <reporter> (<cite>, <hash8>)
 ```
 
 It prints the pull request's URL, then `held-dependent <tag> <worker>` for
@@ -687,7 +709,11 @@ shows it, by its Action: Done for `milestone-done`, the entry's URL in
 Progress for `milestone-verdict` (the comment's URL kept in
 `record/posted/<n>`), and In progress for `milestone-reopen`, where the last
 Progress line about the tag must also be a reopen line whose entry's comment
-still hashes to its hash8. It removes the
+still hashes to its hash8. An entry kept in the session (a row naming
+`(entry <n>)` with no `record/posted/<n>`) is read from the session instead:
+`record/entries/<n>` must hash to the hash8 a Progress line about the tag
+gives beside `entry <n>`, or the reopen line must cite the row's own
+`entry <n>`. It removes the
 milestone's verdict-owed row and any rework row with it. Until the default
 branch shows the edit it exits 1 and writes nothing. Confirming a
 `milestone-verdict` row re-reads its entry, which must still hash to its
@@ -698,6 +724,9 @@ failure; each then writes a rework row:
 {"item": "<tag>", "kind": "rework", "who": "<verdict <comment id> or failure <comment id>>",
  "next": "<the rework text>", "wakes": "0", "updated": "<YYYY-MM-DDTHH:MMZ>"}
 ```
+
+For an entry kept in the session, Who is `verdict <n>` or `failure <n>`, the
+entry's number.
 
 A verdict's text is `Evidence clauses not held: <n, n>.` when a clause wasn't
 held, `The work does not fit the strategy.` when it doesn't, and then

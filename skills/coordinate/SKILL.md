@@ -109,17 +109,44 @@ work.
    aren't applied to it). One that can't be resumed (another template, another
    plugin, a directed transition, or not the scope's only live run) is
    **carried**: a new run opens and every `record/` and `legs/` key is copied
-   into it, printed `carried=<old run>`; the old run's log stays readable, and
-   a carry cut short (`failed=carry`) is carried again by the next start. A
-   carried run reconciles before acting: the record is a snapshot dated by its
-   `written` time, so reconciling re-checks every holding in it against
-   GitHub (pull request state and head, branch, issue, CI) and the host before
-   anything acts on it, and GitHub wins where they disagree. The opener cancels
-   any earlier live run of the same scope without deleting its log. `ask=host`
-   means the human must name the host first; a refusal prints koto's reason and
+   into it, printed `carried=<old run>`, and only once the copy is checked
+   (every key there, its `record/meta` read back at the old run's `written`
+   time, the old run unchanged meanwhile) is the old run cancelled, its log
+   kept readable. A carry cut short or failing that check (`failed=carry`)
+   leaves the old run as it was and cancels the new one, which holds no
+   record, and the next start carries again. A carried run reconciles before
+   acting: the record is a snapshot dated by its `written` time, so
+   reconciling re-checks every holding in it against GitHub (pull request
+   state and head, branch, issue, CI) and the host before anything acts on
+   it, and GitHub wins where they disagree. The opener cancels any earlier
+   live run of the same scope without deleting its log. `ask=host` means the
+   human must name the host first; a refusal prints koto's reason and
    `refused=<code>`. At discipline scope a start inside the rotation's window
    restarts it, and one after the window opens the next rotation, which
    carries the last one.
+
+   **Handing over to a successor in another directory.** koto's cloud backend
+   answers a run only from the directory it is bound to, and refuses a read
+   from anywhere else as `session_bound_elsewhere`. A successor starting in
+   its own instance can meet that when it carries its predecessor's run. The
+   opener then stops with `refused=bound-elsewhere` (exit 2), leaving the old
+   run as it was and cancelling any run it opened, and its message names the
+   run and this directory. Do the handover in this order:
+
+   1. Stop the predecessor's coordinator session, so nothing ticks or writes
+      the old run.
+   2. From the successor's directory, either let the start carry the old run,
+      or, when it refuses `bound-elsewhere`, run `koto session rebind <old
+      run> --to <successor's directory>` and start again there, which then
+      reads the old run as any run of this directory.
+   3. Only once the carry or the rebind has landed (the start printed
+      `session=` with no refusal) reap the predecessor's instance.
+
+   Reaping first leaves a run nobody may read from where the successor stands.
+   A start that finds a run of the scope it can't read, newer than every run
+   that holds a record, opens nothing: it refuses `bound-elsewhere` as above,
+   or `candidate-unreadable` with koto's reason, rather than open an empty run
+   past a record it couldn't see.
 
    **A live run another session drives is taken over.** When the run the
    opener would resume names another Claude session as its driver (or, with
@@ -344,10 +371,12 @@ The find writes the run's store, `session`, and what it read of koto, to
 guesses. A session opened before the GitHub record was removed may hold a
 `store session` Run row; it is kept, and nothing writes a new one. Outward
 entries (cost, verdicts, goal fit, failures) are posted on the item each
-concerns (`--on`) or stay in the session. A run whose session doesn't hold
-the record it should stops at the find, and a koto without the session
-record's features is refused at the start (`store-unsupported`); the reason
-names the import that brings the session here.
+concerns (`--on`) only when that item's repository opts in with
+`## PR Workflow Content: include`, and otherwise stay in the session. A run
+whose session doesn't hold the record it should stops at the find, and a koto
+without the session record's features is refused at the start
+(`store-unsupported`); the reason names the import that brings the session
+here.
 
 The record also keeps the crash set, what a replacement needs after a crash and
 what never goes to GitHub. In the Run section, written with
@@ -370,8 +399,11 @@ and a test holds every script to that one reader.
 
 The section keys are the record's state. Its account, what happened and why,
 goes in entries: each one key in the session, written with
-`scripts/state-entry.sh`, which stamps it from the host clock, and an
-outward one also posted on the item it concerns. Never write an
+`scripts/state-entry.sh`, which stamps it from the host clock. An outward
+one is also posted on the item it concerns, but only where that item's
+repository declares `## PR Workflow Content: include` in the CLAUDE.md on its
+default branch; elsewhere it stays in the session and nothing is posted.
+Never write an
 entry into a section, a row or a local file, and never post one by hand.
 
 A coordinator's state lives in two places, both in its koto session: the
@@ -470,8 +502,9 @@ states never ask you to do these steps by hand.
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
   removes the holding row last, and `teardown_confirm` checks the result.
-  Before the destroy the pass posts the unit's `cost` entry on the record
-  (`references/unit-cost.md`), which can add up to two minutes, so a
+  Before the destroy the pass writes the unit's `cost` entry into the record,
+  posting it on the unit's pull request or issue only where that repository
+  opts in (`references/unit-cost.md`), which can add up to two minutes, so a
   coordinator running the pass itself asks its shell tool for the longest
   timeout it allows. A unit niwa removes outside the pass gets its entry from
   `scripts/unit-removed.sh`, which the workspace's on-reap step runs; that
@@ -523,20 +556,24 @@ lines, and the rows and refusals behind them, are in
   record (`--entry <n>`), which must be a `milestone-verdict` entry posted
   nowhere yet. It requires the default branch to contain the entry's Source
   commit, and re-checks the entry against the roadmap there. Then it opens
-  one pull request with the entry in its body and posts the entry as a
-  comment on it. Either verified verdict sets Done, removes
+  one pull request with the entry in its body. When the host opts in with
+  `## PR Workflow Content: include` (or an earlier run of the same edit
+  already posted the entry), it posts the entry as a comment on that pull
+  request; otherwise the entry stays in the session, nothing is posted, and
+  the pull request's body says so. Either verified verdict sets Done, removes
   Needs and adds the work checked to Delivered, and a verified with
   follow-ups verdict also adds each new milestone and rewrites each amended
   one, from the `--follow-ups` file, in the same change. A changes-needed
   edit leaves Status and Delivered alone. Every edit appends a Progress line
-  naming the verdict, the checker and that comment. Only one roadmap edit is
+  naming the verdict, the checker and the entry: its comment's URL when it
+  was posted, `entry <n>` when it stayed in the session. Only one roadmap edit is
   pending at a time. An edit whose pull request closed unmerged is dropped
   with `roadmap-status.sh --drop`, which leaves the verdict owed; the same
   verdict, written as a new entry, opens it again.
 - **Rework.** Once the default branch shows the edit, `roadmap-status.sh
   --confirm` clears its Side effects row and the verdict-owed row. For
-  changes needed it also writes a `rework` row (Who `verdict <comment id>`)
-  from the entry: the clauses not held, the strategy's misfit when there is
+  changes needed it also writes a `rework` row (Who `verdict <comment id>`,
+  or `verdict <n>` for an entry kept in the session) from the entry: the clauses not held, the strategy's misfit when there is
   one, and the Changes needed line. Pick reports that text as the unit's `rework` and offers the
   milestone again once no holding covers it; its next brief quotes the text
   under the fixed heading "The last verdict's report (check it against the
@@ -546,8 +583,11 @@ lines, and the rows and refusals behind them, are in
   Evidence clauses a pull request advances. The land check puts the
   holding's milestone in `coord/land.json` as `milestone` (its tag and its
   Evidence on the default branch), or `milestone_error` when that read
-  failed, and then you read the Evidence yourself. You post a goal-fit
-  entry on the pull request (`--on`), checked by `milestone.sh check-goal-fit`, and submit its clauses as
+  failed, and then you read the Evidence yourself. You write a goal-fit
+  entry for the pull request (`--on`), checked by `milestone.sh
+  check-goal-fit`; it is posted on the pull request only when its
+  repository opts in with `## PR Workflow Content: include`, and stays in
+  the session otherwise. Submit its clauses as
   `clauses` beside `fit`. `clauses` routes nothing: `advances none` is
   recorded, and `fit` alone decides where the pull request goes.
 - **Reopening.** When a milestone that reads Done no longer meets a clause
@@ -557,15 +597,18 @@ lines, and the rows and refusals behind them, are in
   check-failure`, write it with `--kind milestone-failure --on none`, and run
   `roadmap-status.sh --reopen` with its entry number, which reads the entry
   as `--verdict` does, opens a pull request setting the milestone In
-  progress, posts the entry on it, and adds a Progress line naming the failed
-  clause, the reporter and that comment. It prints `held-dependent <tag> <worker>` for each milestone
+  progress, posts the entry on it when the host opts in (as `--verdict`
+  does; otherwise the entry stays in the session and the body says so), and
+  adds a Progress line naming the failed clause, the reporter and the entry,
+  by its comment's URL or as `entry <n>`. It prints `held-dependent <tag> <worker>` for each milestone
   that depends on this one and has a holding. Once the edit lands, that
   milestone reads blocked again while its worker keeps running: tell the
   worker's owner, who decides whether it stops. Once the default branch
   reads the milestone In progress, `--confirm` finds the failure through
   the last Progress line about the milestone, which must be a reopen line
   for this run's entry, and writes a rework row from it (Who
-  `failure <comment id>`, the text `Evidence clause <n> failed: <what was
+  `failure <comment id>`, or `failure <n>` for an entry kept in the
+  session, the text `Evidence clause <n> failed: <what was
   seen>` cut to 600 bytes). The milestone is then offered again, and its
   brief quotes the failure under the same heading.
 - **Close-out.** A roadmap record doesn't close while a verdict is owed:
@@ -657,13 +700,27 @@ the unit> --until <lifted | time <UTC minute> | merged owner/repo#n | tag
 owner/repo TAG>`, with the person as owner and whoever relayed it: the record
 holds it, so it survives this session and a replacement finds it standing.
 
+Any word from a person that tells workers to stop, park or hold is a pause,
+and gets a `pause` row scoped to what it stops: `--on all` or the unit,
+`--until` its condition, or `lifted` when it ends on someone's word. That
+holds when the order is conditional, partial or bundled with other rules;
+those rules go in an `answer` row beside it. Pick, the dispatch check, the
+land check, the merge and the quiet check read only `pause` rows, so an order
+written only as an `answer` holds nothing and the workers it parked are
+counted quiet.
+
 - **What it holds.** Pick never chooses a paused unit, and holds while the
   whole coordinator is paused; the dispatch check and `dispatch-worker.sh`
   refuse a paused dispatch; the land check and `land-merge.sh` refuse a
   paused merge and send the worker a re-brief asking it to report again at
   the resume; a paused unit's request leg stays unread. Verification, record
   writes, message intake, decisions, escalations and the teardown of merged
-  workers go on. A paused worker is never counted quiet.
+  workers go on. A paused worker is never counted quiet. A quiet worker found
+  parked on a person's order with no `pause` row gets that row, and its
+  `paused by <id>` Work row, before the status message step submits `sent`,
+  so the next sweep skips it. One the status step missed gets the same rows
+  at the failure branch, which escalates it to an entry you settle yourself
+  as left parked, never redispatching it.
 - **Resume.** A pause ends when its row ends: a person's resume, written with
   `--end <id> --by <the person>`, or its condition read as met at the next
   pick, after which you end the row yourself. Ending an `all` row resumes the

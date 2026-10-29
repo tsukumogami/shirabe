@@ -23,6 +23,9 @@
 #   failures   gh can't read the issue, the rebind fails, the ledger write
 #              fails (the variable is put back), a duplicate Fix Labels
 #              header, and usage errors
+#   refused    a context read koto refuses fails kind and resolve with 66 and
+#              holds agree, never reading as an absent key; resolve's report
+#              read too
 #
 # Usage: bash skills/work-on/scripts/fix-kind_test.sh
 set -uo pipefail
@@ -40,7 +43,7 @@ eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi
 has() { case "$3" in *"$2"*) ok "$1" ;; *) bad "$1" "[$3] lacks [$2]" ;; esac; }
 
 W=$(mktemp -d) || { echo "FAIL: could not create a temporary directory"; exit 1; }
-trap 'rm -rf "$W"' EXIT
+ktg_on_exit 'rm -rf "$W"'
 export HOME="$W/home"
 mkdir -p "$HOME"
 export GIT_CONFIG_NOSYSTEM=1
@@ -55,6 +58,10 @@ git config --global user.name t
 #                                                 appends the args to <s>/.initlog;
 #                                                 SHIM_FAIL_INIT=1 fails it
 #        status <s>                               current_state from <s>/.state
+#        SHIM_REFUSE=<s> refuses every context call on <s>, and
+#        SHIM_REFUSE_KEY=<key> every `context exists` of <key>, the way koto
+#        refuses a session bound to another workspace: the refusal on stdout,
+#        exit 2 (or SHIM_REFUSE_RC)
 # gh:    issue view ...                           prints $GH_ISSUE; GH_FAIL=1 fails
 BIN="$W/bin"
 STORE="$W/store"
@@ -63,6 +70,10 @@ cat > "$BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 case "$1" in
     context)
+        if [ "${SHIM_REFUSE:-}" = "$3" ] || { [ "$2" = exists ] && [ "${SHIM_REFUSE_KEY:-}" = "$4" ]; }; then
+            printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"
+            exit "${SHIM_REFUSE_RC:-2}"
+        fi
         f="$SHIM_STORE/$3/$4"
         case "$2" in
             add)
@@ -303,6 +314,32 @@ run resolve f4 --current maybe
 eq "a bad --current: exit 64" 64 "$RC"
 run frobnicate f4
 eq "an unknown subcommand: exit 64" 64 "$RC"
+
+# --- a refused read --------------------------------------------------------------
+# koto refuses a read of a session bound to another workspace, printing the
+# refusal on stdout and exiting 2. That is a failed read, which fails the
+# command rather than reading as an absent key.
+new_session r1
+SHIM_REFUSE=r1 run kind r1
+eq "kind on a refused session: exit 66 rather than reading as an absent key" 66 "$RC"
+eq "kind on a refused session: nothing on stdout" "" "$OUT"
+has "kind on a refused session: koto's refusal on stderr" "session_bound_elsewhere" "$(cat "$W/err")"
+SHIM_REFUSE=r1 SHIM_REFUSE_RC=1 run kind r1
+eq "kind on a refused session at exit 1 with the refusal: exit 66 rather than reading as an absent key" 66 "$RC"
+SHIM_REFUSE=r1 run agree r1 fix
+eq "agree on a refused session: holds" 1 "$RC"
+has "agree on a refused session names the failed read rather than reading as an absent key" "could not read fix_kind.jsonl" "$OUT"
+new_session r2
+GH_ISSUE=$(issue "x" "bug")
+SHIM_REFUSE_KEY=fix_kind.jsonl run resolve r2 --issue 14
+eq "resolve with the ledger read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+eq "resolve with the ledger read refused: no ledger" "" "$(ledger r2)"
+eq "resolve with the ledger read refused: UNIT_KIND unbound" "" "$(var r2 UNIT_KIND)"
+new_session r3
+SHIM_REFUSE_KEY=fix_report.txt run resolve r3 --issue 14
+eq "resolve with the report read refused: exit 66 rather than reading as an absent key" 66 "$RC"
+eq "resolve with the report read refused: no report stored" "" "$(cat "$STORE/r3/fix_report.txt" 2>/dev/null)"
+eq "resolve with the report read refused: no ledger" "" "$(ledger r3)"
 
 echo
 echo "fix-kind: $PASS passed, $FAIL failed"

@@ -24,8 +24,11 @@
 #        one survivor   reused; with --session, its body is rewritten with
 #                       `gh pr edit --body-file` unless the session's
 #                       published_intent key already equals --intent,
-#                       keeping any run marker line the live body carries
-#                       (`run-id.sh carry`)
+#                       keeping the live body's Part 1 and the Part 2
+#                       sections the template doesn't write (keep_live,
+#                       below), the record /execute rendered into a
+#                       coordination body (keep_record, below), and any run
+#                       marker line it carries (`run-id.sh carry`)
 #        zero           one `gh pr create --head <branch> --base <default>
 #                       --title <title> --body-file <file>` (a foreign-only
 #                       branch counts as zero), then looked up again
@@ -63,6 +66,26 @@
 # topic, the durable documents under `## Documents`, and the work items. A
 # coordination body is written whole either way, since the merge gate reads
 # its index.
+#
+# Every body has two parts (references/pr-body-conformance.md, PB2 and PB4):
+# Part 1, one plain sentence naming the topic with no heading, then a bare
+# `---` line, then everything else as Part 2. The squash message is the
+# title and Part 1 (scripts/lib/squash-message.sh), so the record lines and
+# sections never reach it. A rewrite of a reused PR whose live body has a
+# top-level `---` keeps that body's Part 1 byte for byte in place of the
+# sentence, and carries every `## ` section of its Part 2 whose heading the
+# template never writes (KEEP_OWNED), unchanged, after the template's
+# sections, naming each on stderr. A live Part 1 with no text is not kept.
+# A coordinated full-run rewrite whose live body /execute rendered (cb_parse
+# reads a `run=` line from it) also keeps that record: the live store= and
+# run= lines after the template's run lines, and the live `## PR Index` and
+# `## Merge Order` sections in place of the template's placeholders. A live
+# body cb_parse refuses is scope:pr-create, with no edit.
+# A re-evaluation or abandonment-forced rewrite writes a plain scoping body,
+# which has none of that record, so over a body /execute rendered (the same
+# cb_parse test) it stops at scope:pr-create with no edit and no
+# published_intent write, and the coordination PR is left as it is
+# (refuse_rendered, below); so does one over a live body cb_parse refuses.
 #
 # The intent last published. The body's `intent=` line is text for people; no
 # step reads it back. With --session, a successful publish writes the intent
@@ -121,6 +144,10 @@ RE_PR_URL='^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*
 RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_RUN_ID='^[0-9a-f]{32}$'
 RUNID="$HERE/../../execute/scripts/run-id.sh"
+# cb_part1, the Part 1 reader squash-message.sh's separator rule is written once for.
+. "$HERE/../../../scripts/lib/coordination-body.sh"
+# The `## ` headings the template writes; a rewrite replaces these and keeps any other.
+KEEP_OWNED='|## Documents|## Artifact Chain|## Work Items|## PR Index|## Merge Order|'
 DECLARATION='> This is a **coordination PR** for a coordinated effort. It is docs-only and'
 
 usage() {
@@ -421,6 +448,17 @@ render_body() {
     # its record whatever the switch says: the merge gate reads its index.
     [ "$coord" = 1 ] || [ "$CONTENT" = include ] || records=0
     {
+        # Part 1, the squash message's body: one plain sentence, no heading.
+        if [ "$coord" = 1 ]; then
+            printf 'The coordination pull request for %s, which merges after every node pull request.\n\n' "$TOPIC"
+        else
+            case "$EXIT" in
+                full-run) printf 'The scoping documents for %s.\n\n' "$TOPIC" ;;
+                re-evaluation) printf 'The scoping documents for %s, sent back for re-evaluation.\n\n' "$TOPIC" ;;
+                *) printf 'The scoping documents for %s, which was abandoned.\n\n' "$TOPIC" ;;
+            esac
+        fi
+        printf -- '---\n\n'
         if [ "$coord" = 1 ]; then
             printf '# Coordination PR: %s\n\n' "$TOPIC"
             printf '%s\n' "$DECLARATION"
@@ -428,12 +466,6 @@ render_body() {
             printf '> complete. See `references/coordination-strategy.md`.\n\n'
         elif [ "$records" = 1 ]; then
             printf '# /scope: %s\n\n' "$TOPIC"
-        else
-            case "$EXIT" in
-                full-run) printf 'The scoping documents for %s.\n\n' "$TOPIC" ;;
-                re-evaluation) printf 'The scoping documents for %s, sent back for re-evaluation.\n\n' "$TOPIC" ;;
-                *) printf 'The scoping documents for %s, which was abandoned.\n\n' "$TOPIC" ;;
-            esac
         fi
         if [ "$records" = 1 ]; then
             printf 'topic=%s\n' "$TOPIC"
@@ -484,12 +516,149 @@ render_body() {
             printf '```\n'
         fi
     } >"$f"
+    check_coord_body "$f"
+}
+
+# check_coord_body <file> -- a coordination body is checked before it is posted.
+check_coord_body() {
     if [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ]; then
         command -v shirabe >/dev/null 2>&1 \
             || fail scope:pr-create "shirabe is not on PATH; a coordination body cannot be validated without it"
-        shirabe validate --coordination-body "$f" >&2 \
+        shirabe validate --coordination-body "$1" >&2 \
             || fail scope:pr-create "the coordination body fails shirabe validate --coordination-body"
     fi
+}
+
+# keep_live <live> <new> -- when the live body has a top-level `---` (cb_part1:
+# squash-message.sh's rule, outside a ``` fence), rewrite <new> as the live
+# Part 1 byte for byte, the `---` line, the template's Part 2, then each `## `
+# section of the live Part 2 whose heading is not in KEEP_OWNED, unchanged and
+# in live order (a heading inside a fence starts nothing), after a blank line.
+# A live Part 1 with no text gives way to the template's. Each carried heading
+# is named on stderr. A live body with no top-level `---` leaves <new> as it is.
+keep_live() {
+    local live="$1" new="$2" p1="$2.part1" carried="$2.carried" names="$2.names" n
+    cb_part1 "$live" >"$p1" || return 0
+    if [ -z "$(tr -d '[:space:]' <"$p1")" ]; then
+        cb_part1 "$new" >"$p1" || return 1
+    fi
+    LC_ALL=C awk -v owned="$KEEP_OWNED" -v names="$names" '
+        function flush(   i, last, l) {
+            if (keep) {
+                last = 0
+                for (i = 1; i <= n; i++) { l = buf[i]; if (l ~ /[^ \t\r]/) last = i }
+                if (last) { printf "\n"; for (i = 1; i <= last; i++) print buf[i] }
+            }
+            n = 0
+        }
+        { line = $0; sub(/\r$/, "", line) }
+        !sep {
+            if (line ~ /^[ \t]*```/) fence = !fence
+            else if (!fence && line ~ /^[ \t]*---[ \t]*$/) { sep = 1; fence = 0 }
+            next
+        }
+        line ~ /^[ \t]*```/ { fence = !fence }
+        !fence && line ~ /^## / {
+            flush()
+            h = line; sub(/[ \t]+$/, "", h)
+            keep = (index(owned, "|" h "|") == 0)
+            if (keep) print h > names
+        }
+        keep { buf[++n] = $0 }
+        END { flush() }
+    ' "$live" >"$carried" || return 1
+    # The template's Part 2 starts on the line after its own separator.
+    n=$(cb_part1 "$new" | wc -l) || return 1
+    {
+        cat "$p1"
+        printf -- '---\n'
+        tail -n "+$((n + 2))" "$new"
+        cat "$carried"
+    } >"$new.kept" || return 1
+    mv -f "$new.kept" "$new" || return 1
+    if [ -s "$names" ]; then
+        while IFS= read -r n; do
+            printf '%s: kept the live body'"'"'s section [%s], after the template'"'"'s sections\n' "$PROG" "$n" >&2
+        done <"$names"
+    fi
+    return 0
+}
+
+# keep_record <live> <new> -- on a coordinated full-run rewrite whose live body
+# /execute rendered (cb_parse reads a run from it; only a render writes run=,
+# below a top-level `---`), keep that record in the template's <new>: the live
+# store= and run= lines after the template's run lines, and the live
+# `## PR Index` and `## Merge Order` sections, byte for byte, in place of the
+# template's, each only when the live body has it. Any other body leaves <new>
+# as it is. Returns 1 when cb_parse refuses the live body, so a record the
+# rewrite can't read is never overwritten. A run marker inside a kept section
+# is left to `run-id.sh carry`, which drops it and appends the live one.
+keep_record() {
+    local live="$1" new="$2" parsed run store
+    [ "$MODE" = coordinated ] && [ "$EXIT" = full-run ] || return 0
+    parsed=$(cb_parse "$live") || return 1
+    run=$(printf '%s' "$parsed" | jq -r '.run // empty') || return 1
+    [ -n "$run" ] || return 0
+    store=$(printf '%s' "$parsed" | jq -r '.store // empty') || return 1
+    LC_ALL=C awk -v run="$run" -v store="$store" '
+        { line = $0; sub(/\r$/, "", line) }
+        # The live body: each kept section below its separator, heading to
+        # its last non-blank line.
+        FNR == NR {
+            if (!lsep) {
+                if (line ~ /^[ \t]*```/) lf = !lf
+                else if (!lf && line ~ /^[ \t]*---[ \t]*$/) { lsep = 1; lf = 0 }
+                next
+            }
+            if (line ~ /^[ \t]*```/) lf = !lf
+            else if (!lf && line ~ /^## /) {
+                h = line; sub(/[ \t]+$/, "", h)
+                cur = ((h == "## PR Index" || h == "## Merge Order") && !(h in n)) ? h : ""
+            }
+            if (cur != "") { buf[cur, ++n[cur]] = $0; if (line ~ /[^ \t]/) last[cur] = n[cur] }
+            next
+        }
+        # The template: the run lines after mode=, a kept section in place of its own.
+        !sep {
+            if (line ~ /^[ \t]*```/) f = !f
+            else if (!f && line ~ /^[ \t]*---[ \t]*$/) { sep = 1; f = 0 }
+            print; next
+        }
+        line ~ /^[ \t]*```/ { f = !f; if (!skip) print; next }
+        !f && line ~ /^## / {
+            heading = 1
+            if (skip) { print ""; skip = 0 }
+            h = line; sub(/[ \t]+$/, "", h)
+            if (h in n) { for (i = 1; i <= last[h]; i++) print buf[h, i]; skip = 1; next }
+        }
+        skip { next }
+        { print }
+        !heading && !added && line ~ /^mode=/ {
+            if (store != "") print "store=" store
+            print "run=" run
+            added = 1
+        }
+    ' "$live" "$new" >"$new.record" || return 1
+    mv -f "$new.record" "$new" || return 1
+    printf '%s: kept the rendered record of the live body: its store= and run= lines, and its PR Index and Merge Order where it has them\n' "$PROG" >&2
+    return 0
+}
+
+# refuse_rendered <live> -- on a re-evaluation or abandonment-forced rewrite,
+# stop at scope:pr-create when the live body is one /execute rendered
+# (cb_parse reads a run from it, keep_record's test) or one cb_parse refuses.
+# Those exits write a plain scoping body, with no declaration, run lines, PR
+# Index or Merge Order, so the rewrite would drop the record; the PR is left
+# as it is. A full-run exit, and a live body with no run, return 0.
+refuse_rendered() {
+    local parsed run
+    [ "$EXIT" = full-run ] && return 0
+    parsed=$(cb_parse "$1") \
+        || fail scope:pr-create "the live body can't be read as a coordination body, so the $EXIT publish leaves the PR as it is"
+    run=$(printf '%s' "$parsed" | jq -r '.run // empty') \
+        || fail scope:pr-create "the live body's run can't be read, so the $EXIT publish leaves the PR as it is"
+    [ -z "$run" ] \
+        || fail scope:pr-create "the PR is a coordination PR /execute rendered, which the $EXIT body would rewrite as a plain scoping body; it is left as it is"
 }
 
 BODY="$SCRATCH/body.md"
@@ -513,9 +682,17 @@ if [ -n "$URL" ]; then
     LAST=$(published_intent) || fail scope:pr-create "the session's published_intent cannot be read"
     # No --session: no run state to compare against, so the PR is reused as is.
     if [ -n "$SESSION" ] && [ "$LAST" != "$INTENT" ]; then
-        # A full-body rewrite keeps whatever run marker the live body carries.
+        # A full-body rewrite keeps the live Part 1, the Part 2 sections the
+        # template doesn't write, a record /execute rendered, and whatever run
+        # marker the live body carries.
         gh pr view "$URL" --json body --jq .body </dev/null > "$SCRATCH/live-body.md" \
             || fail scope:pr-create "the owned PR's body cannot be read"
+        refuse_rendered "$SCRATCH/live-body.md"
+        keep_record "$SCRATCH/live-body.md" "$BODY" \
+            || fail scope:pr-create "the live coordination body's record cannot be read or kept; the PR is left as it is"
+        keep_live "$SCRATCH/live-body.md" "$BODY" \
+            || fail scope:pr-create "could not keep the PR's Part 1 and sections in the new body"
+        check_coord_body "$BODY"
         bash "$RUNID" carry "$SCRATCH/live-body.md" "$BODY" </dev/null \
             || fail scope:pr-create "could not carry the PR's run marker into the new body"
         gh pr edit "$URL" --body-file "$BODY" </dev/null >&2 \

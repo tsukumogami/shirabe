@@ -67,7 +67,7 @@ REAL_KOTO=$(command -v koto 2>/dev/null) || REAL_KOTO=""
 T=$(mktemp -d "${TMPDIR:-/tmp}/explore-state-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */explore-state-test.*) chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # A private HOME (koto's template cache lands there) and a private session
 # store: nothing here reaches the developer's own sessions.
@@ -663,7 +663,8 @@ if [ -z "$GENERIC" ]; then fail "could not read the generic lead prompt from pha
 if [ -z "$ADVERSARIAL" ]; then fail "could not read the adversarial lead prompt from phase-1-scope.md"; fi
 if grep -qi 'koto' <<<"$GENERIC"; then fail "the generic research-lead prompt names koto"; else pass "the generic research-lead prompt names no koto command"; fi
 if grep -qi 'koto' <<<"$ADVERSARIAL"; then fail "the adversarial lead's prompt names koto"; else pass "the adversarial lead's prompt names no koto command"; fi
-if fenced "$PH/phase-2-discover.md" | grep -qi 'koto'; then fail "a fenced block in Phase 2 names koto"; else pass "no fenced block in Phase 2 names koto"; fi
+PHASE2_FENCED=$(fenced "$PH/phase-2-discover.md")
+if grep -qi 'koto' <<<"$PHASE2_FENCED"; then fail "a fenced block in Phase 2 names koto"; else pass "no fenced block in Phase 2 names koto"; fi
 case "$GENERIC" in
     *'r<N>_lead-<name>.md'*) pass "the generic prompt pins output to a file r<N>_lead-<name>.md" ;;
     *) fail "the generic prompt does not pin its output file" ;;

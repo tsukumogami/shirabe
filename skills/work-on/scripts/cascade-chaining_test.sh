@@ -73,7 +73,7 @@ cleanup() {
     for d in "${TMPS[@]:-}"; do [[ -n "$d" ]] && rm -rf "$d"; done
     return 0
 }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # koto's session store lives under HOME: a HOME of the suite's own keeps its
 # sessions out of the user's store and away from suites running beside it.

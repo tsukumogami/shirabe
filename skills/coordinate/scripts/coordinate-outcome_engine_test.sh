@@ -25,7 +25,9 @@
 #      released `koto next A` is accepted;
 #   5. against the run from the plugin copy, whose structure the shipped
 #      compat table doesn't list, reason=template-incompatible, naming both
-#      sides' compat numbers and compiled hashes; on a koto whose `init
+#      sides' compat numbers and compiled hashes, the run's as `-` with no
+#      compat recorded and as its record/meta's template_compat once it holds
+#      one (shirabe#1333); on a koto whose `init
 #      --help` lacks --supersede, reason=koto-too-old, naming 0.28.0;
 #   6. two successors taking one run over at once, from two Claude sessions
 #      and two directories, held at koto's fence until both reach it: exactly
@@ -81,11 +83,9 @@ case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo 
 REAL_KOTO=$(command -v koto)
 mkdir -p "$T/tmp"
 # A background helper (the lock holder, the racing openers) is stopped on
-# exit, and the scratch tree removed as test-lib.sh's own trap does, with the
-# guard's directory, whose trap this one replaces.
+# exit, and the scratch tree removed as test-lib.sh's own trap does.
 BG=
-trap 'for p in $BG; do kill "$p" 2>/dev/null; done; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac
-    case "${KOTO_TEST_GUARD_DIR:-}" in */suite-scratch.*) rm -rf "$KOTO_TEST_GUARD_DIR" ;; esac' EXIT
+ktg_on_exit 'for p in $BG; do kill "$p" 2>/dev/null; done; case "$T" in */coordinate-test.*) rm -rf "$T" ;; esac'
 
 # Synthetic Claude session ids, built here so no id-shaped literal ships, and
 # each one's Claude job (its name is its messaging address) and directory.
@@ -379,6 +379,24 @@ if PR=$T/pcopy PS=$T/pcopy/skills/coordinate/scripts open_run compat && [ "$(at)
         *"at compat - (template $A2_HASH)"*"at compat $SHIP_COMPAT (template $SHIPPED)"*)
             ok "5:   ... naming the run's compat number (unlisted) and hash and the shipped compat $SHIP_COMPAT and hash" ;;
         *) bad "5:   ... naming the run's compat number (unlisted) and hash and the shipped compat $SHIP_COMPAT and hash" "$(cat "$T/open.err")" ;;
+    esac
+    # The same run with its compat recorded, as the plugin copy's write core
+    # records it (its own table's answer for the run; shirabe#1333): the
+    # shipped table still doesn't list the run, and the refusal names the
+    # run's real compat instead of `-`.
+    read -r PCOMPAT _ PFP_RUN <<< "$(bash "$T/pcopy/skills/coordinate/scripts/coord-log.sh" compat --session "$A2" 2>/dev/null)"
+    eq "5: the plugin copy's table lists the run at its raised compat" "$((SHIP_COMPAT + 1)) $PFP" "$PCOMPAT $PFP_RUN"
+    kget "$A2" record/meta | jq -c --argjson c "$PCOMPAT" --arg f "$PFP_RUN" '. + {template_compat: $c, template_fingerprint: $f}' > "$T/a2-meta.json"
+    (cd "$T/work" && koto context add "$A2" record/meta --from-file "$T/a2-meta.json" > /dev/null)
+    COUT=$(bash "$REPO_ROOT/skills/coordinate/scripts/coord-log.sh" compat --session "$A2" 2>/dev/null); CRC=$?
+    eq "5: coord-log.sh compat reports the recorded compat the shipped table doesn't list, still exit 1" "1 $PCOMPAT $SHIP_COMPAT $PFP" "$CRC $COUT"
+    SNAP=$(snapshot compat)
+    opener compat "$T/work2"
+    refused "5: a run whose recorded compat the shipped table doesn't list" template-incompatible compat "$SNAP"
+    case "$(cat "$T/open.err")" in
+        *"at compat $PCOMPAT (template $A2_HASH)"*"at compat $SHIP_COMPAT (template $SHIPPED)"*)
+            ok "5:   ... naming the run's recorded compat $PCOMPAT and hash and the shipped compat $SHIP_COMPAT and hash" ;;
+        *) bad "5:   ... naming the run's recorded compat $PCOMPAT and hash and the shipped compat $SHIP_COMPAT and hash" "$(cat "$T/open.err")" ;;
     esac
 else
     bad "5: the run from the plugin copy opens and reaches reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"

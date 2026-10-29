@@ -35,6 +35,16 @@
 # terminal one's replacement, or a name that was listed but gone by the
 # probe). An unreadable session listing falls back to the probe.
 #
+# The review round: an earlier run's review_round.json reaches the fresh
+# session byte for byte after a probe that reported opened=attached (a live
+# run) and one that reported opened=replaced (a finished run). A first run
+# the listing doesn't name reads and writes none, and a probe's opened=new
+# writes none. A failing exists, get or add (the wrapper's
+# DELIVER_TEST_ROUND_FAIL), and a value that isn't one JSON object, print one
+# warning naming the session and review-round.sh and write nothing. In each
+# case the open's stdout and exit match the same open without a round, and no
+# temporary file is left in the opener's TMPDIR.
+#
 # koto admits a --var value only inside ^[a-zA-Z0-9._/:@ \-]*$, and
 # PLUGIN_ROOT is such a value. When this checkout's path falls outside it,
 # PLUGIN_ROOT is a clean symlink under TMPDIR; when TMPDIR is outside it too,
@@ -64,7 +74,7 @@ fi
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/deliver-open-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)" || exit 1
-trap 'case "$T" in */deliver-open-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */deliver-open-test.*) rm -rf "$T" ;; esac'
 export GIT_CEILING_DIRECTORIES="$T"
 
 PASS=0
@@ -103,6 +113,14 @@ if [ "${1-} ${2-}" = "session list" ] && [ -n "${DELIVER_TEST_LIST:-}" ]; then
     printf '%s\n' "$DELIVER_TEST_LIST"
     exit 0
 fi
+# DELIVER_TEST_ROUND_FAIL (exists, get or add) makes that `context` call on
+# review_round.json fail; `exists` answers neither yes nor no.
+case "${1-} ${2-} ${4-}" in
+    "context ${DELIVER_TEST_ROUND_FAIL:-none} review_round.json")
+        [ "$DELIVER_TEST_ROUND_FAIL" = exists ] && exit 3
+        exit 1
+        ;;
+esac
 out=()
 prev=""
 for a in "$@"; do
@@ -267,6 +285,125 @@ if k status deliver-t-done | jq -e '.result == null' >/dev/null; then ok "the fr
 # the replacement the probe made.
 has "a terminal session: removed= names the name" "removed=deliver-t-done" "$STDOUT"
 has "a terminal session: the removed replacement does not predate this invocation" "removed_predates=no" "$STDOUT"
+
+echo "== the earlier run's review round reaches the fresh session =="
+# The round as review-round.sh stores it: one compact JSON object and a newline.
+printf '%s\n' '{"reviewed_head":"0123456789abcdef0123456789abcdef01234567","seats":[{"seat":"architect","model":"sonnet","run":"run-a","verdict":"pass"},{"seat":"maintainer","model":"opus","run":"run-b","verdict":"pass"}]}' >"$T/round.json"
+printf '%s\n%s\n' '{"reviewed_head":"a"}' '{"reviewed_head":"b"}' >"$T/round-two.json"
+printf '[%s]\n' '{"reviewed_head":"a"}' >"$T/round-array.json"
+printf 'not json\n' >"$T/round-text.json"
+round_writes() { grep -c '^context add [^ ]* review_round.json' "$T/koto.argv"; }
+round_reads() { grep -c '^context [a-z]* [^ ]* review_round.json' "$T/koto.argv"; }
+round_warnings() { printf '%s\n' "$STDERR" | grep -c 'review-round.sh'; }
+round_left() { ls -A "$T/round-tmp" 2>/dev/null | tr '\n' ' '; }
+# earlier_run <topic> live|done [round-file] -- this worktree's earlier run of
+# <topic>, holding the round when a file is given.
+earlier_run() {
+    k init "deliver-$1" --template "$(tpl)" --var TOPIC="$1" --var PLUGIN_ROOT="$PLUGIN" >/dev/null 2>&1
+    [ -z "${3-}" ] || k context add "deliver-$1" review_round.json <"$3" >/dev/null 2>&1
+    if [ "$2" = done ]; then to_terminal "$1"; fi
+}
+# round_open <topic> [ROUND_FAIL] -- open_deliver with TMPDIR a fresh directory,
+# so a temporary file left behind (the args directory included) shows there.
+round_open() {
+    local tmp="${TMPDIR-}"
+    rm -rf "$T/round-tmp"
+    mkdir -p "$T/round-tmp"
+    export TMPDIR="$T/round-tmp" DELIVER_TEST_ROUND_FAIL="${2-}"
+    open_deliver "[\"$1\"]"
+    unset DELIVER_TEST_ROUND_FAIL
+    if [ -n "$tmp" ]; then export TMPDIR="$tmp"; else unset TMPDIR; fi
+}
+# twin <topic> live|done -- the same open over the same earlier run holding no
+# round, under <topic>0; BASE_OUT is its stdout with the topic renamed back.
+twin() {
+    earlier_run "${1}0" "$2"
+    round_open "${1}0"
+    BASE_OUT=$(printf '%s\n' "$STDOUT" | sed "s/${1}0/$1/g")
+    BASE_RC=$RC
+}
+# same_as_twin <label> -- moved_reason= carries the time koto kept the run, so
+# that line is compared by its key alone.
+same_as_twin() {
+    local got want
+    got=$(printf '%s\n' "$STDOUT" | sed 's/^moved_reason=.*/moved_reason=/')
+    want=$(printf '%s\n' "$BASE_OUT" | sed 's/^moved_reason=.*/moved_reason=/')
+    if [ "$got" = "$want" ] && [ "$RC" = "$BASE_RC" ]; then
+        ok "$1: stdout and exit match the same open without a round"
+    else
+        bad "$1: stdout and exit match the same open without a round" "exit $RC (want $BASE_RC), [$STDOUT] vs [$BASE_OUT]"
+    fi
+}
+no_temp_left() { eq "$1: no temporary file is left" "" "$(round_left)"; }
+
+for kind in live done; do
+    topic="t-r$kind"
+    case "$kind" in live) probe=opened=attached ;; done) probe=opened=replaced ;; esac
+    twin "$topic" "$kind"
+    earlier_run "$topic" "$kind" "$T/round.json"
+    round_open "$topic"
+    eq "after $probe: exit 0" 0 "$RC"
+    has "after $probe: the earlier session was removed" "removed=deliver-$topic" "$STDOUT"
+    k context get "deliver-$topic" review_round.json >"$T/round.after" 2>/dev/null
+    if cmp -s "$T/round.json" "$T/round.after"; then
+        ok "after $probe: the fresh session holds the round byte for byte, reviewed_head included"
+    else
+        bad "after $probe: the fresh session holds the round byte for byte" "[$(cat "$T/round.after")]"
+    fi
+    eq "after $probe: the round is written once" 1 "$(round_writes)"
+    eq "after $probe: no warning" 0 "$(round_warnings)"
+    eq "after $probe: the fresh session is at open_request" open_request "$(state_of "$topic")"
+    same_as_twin "after $probe"
+    no_temp_left "after $probe"
+    args_gone "after $probe"
+done
+
+# A first run: the listing names no session, so nothing is read or written.
+round_open t-rfirst
+eq "a first run: exit 0" 0 "$RC"
+eq "a first run: no round is read" 0 "$(round_reads)"
+eq "a first run: no round is written" 0 "$(round_writes)"
+if k context exists deliver-t-rfirst review_round.json >/dev/null 2>&1; then bad "a first run: no round key"; else ok "a first run: no round key"; fi
+
+# The listing names the session but the probe makes it (opened=new): nothing
+# is written and nothing warns.
+export DELIVER_TEST_LIST='[{"id":"deliver-t-rrace"}]'
+round_open t-rrace
+unset DELIVER_TEST_LIST
+eq "a probe's opened=new: exit 0" 0 "$RC"
+has "a probe's opened=new: the probe made the session" "removed_predates=no" "$STDOUT"
+eq "a probe's opened=new: no round is written" 0 "$(round_writes)"
+eq "a probe's opened=new: no warning" 0 "$(round_warnings)"
+no_temp_left "a probe's opened=new"
+
+# A read or a write that fails, and a value that isn't one JSON object: one
+# warning naming the session and review-round.sh, nothing written, and the
+# open goes on unchanged.
+twin t-rbad live
+n=0
+for c in "exists|$T/round.json|could not be read" "get|$T/round.json|could not be read" \
+         "add|$T/round.json|could not be written" "|$T/round-two.json|is not one JSON object" \
+         "|$T/round-array.json|is not one JSON object" "|$T/round-text.json|is not one JSON object"; do
+    IFS='|' read -r failing file why <<<"$c"
+    n=$((n + 1))
+    if [ -n "$failing" ]; then label="a failing $failing"; else label=$(basename "$file"); fi
+    topic="t-rbad$n"
+    earlier_run "$topic" live "$file"
+    round_open "$topic" "$failing"
+    eq "$label: exit 0" 0 "$RC"
+    eq "$label: one warning" 1 "$(round_warnings)"
+    has "$label: the warning names the session, why and review-round.sh" \
+        "deliver-$topic $why, so the new run has none; record it again with review-round.sh" "$STDERR"
+    case "$STDERR" in *"parse error"*) bad "$label: no other stderr about the round" "$STDERR" ;; *) ok "$label: no other stderr about the round" ;; esac
+    if k context exists "deliver-$topic" review_round.json >/dev/null 2>&1; then
+        bad "$label: no round in the fresh session" "$(ctx_get "$topic" review_round.json)"
+    else
+        ok "$label: no round in the fresh session"
+    fi
+    STDOUT=$(printf '%s\n' "$STDOUT" | sed "s/$topic/t-rbad/g")
+    same_as_twin "$label"
+    no_temp_left "$label"
+done
 
 echo "== a same-origin terminal session its hierarchy holds =="
 # From koto 0.23.0 a finished session another live session names is kept, and

@@ -17,7 +17,7 @@ SUT="$SCRIPT_DIR/check-normal-runs-unchanged.sh"
 PASS_COUNT=0
 FAIL_COUNT=0
 TEST_DIR=$(mktemp -d)
-trap 'rm -rf "$TEST_DIR"' EXIT
+ktg_on_exit 'rm -rf "$TEST_DIR"'
 
 fail() { echo "FAIL: $1 - $2" >&2; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 pass() { echo "PASS: $1" >&2; PASS_COUNT=$((PASS_COUNT + 1)); }

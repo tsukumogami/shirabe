@@ -185,7 +185,7 @@ bl_human_holds_merge() {
     [[ $min =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || return 1
     local d
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-posture.XXXXXX") || return 2
-    rs_record_api "$d/parsed" "$s" 2>/dev/null || { rm -rf "$d"; return 2; }
+    rs_record_api "$d/parsed" "$s" reversals 2>/dev/null || { rm -rf "$d"; return 2; }
     jq -e --arg min "$min" '
             [.reversals[]? | select(.from == "the human"
                 and (((.reversed // "") + " " + (.now // "")) | ascii_downcase | contains("posture"))
@@ -440,7 +440,7 @@ bl_leg_round() {
 bl_holds_on() {
     local s=$1 repo=$2 pr=$3 d
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
-    rs_record_api "$d/parsed" "$s" || { rm -rf "$d"; return 2; }
+    rs_record_api "$d/parsed" "$s" holds || { rm -rf "$d"; return 2; }
     bl_holds_eval "$d/parsed" "$repo" "$pr"
     local rc=$?
     rm -rf "$d"

@@ -33,6 +33,10 @@
 #   a --mode run load time already covered     zero bytes
 #   a --mode run whose only koto record is it  the block
 #   three koto records                         one block
+#   /scope's shirabe refusing --check FC23     the check-codes block, naming the
+#                                              plugin's release; silent when it
+#                                              knows the code, on a --mode run,
+#                                              for another skill, on a timeout
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -61,7 +65,7 @@ esac
 T=$(mktemp -d "${TMPDIR:-/tmp}/preflight-minimum-test.XXXXXX") || exit 1
 T=$(cd "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */preflight-minimum-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 ROOT="$T/root"
 mkdir -p "$ROOT/.claude-plugin" "$ROOT/scripts/lib" "$ROOT/skills"
@@ -273,6 +277,51 @@ run "$BIN" many
 n=$(printf '%s\n' "$OUT" | grep -c 'is installed. shirabe')
 [ "$n" -eq 1 ] && pass "three koto records print one minimum block" \
     || fail "three koto records printed $n minimum blocks"
+
+# /scope's validator probe: a shirabe whose `validate --check FC23` prints a
+# verdict is silent; one that refuses the code gets the block naming this
+# plugin's release; another skill, a --mode run and the probe's other
+# outcomes say nothing.
+# shirabe_stub <knows|refuses|hang>
+shirabe_stub() {
+    {
+        printf '#!/bin/sh\n'
+        printf 'case "$*" in\n'
+        case "$1" in
+            knows)   printf '    *"--check FC23"*) printf "{\\"schema_version\\":\\"shirabe-validate/v1\\"}\\n" ;;\n' ;;
+            refuses) printf '    *"--check FC23"*) echo "unknown --check code" >&2; exit 1 ;;\n' ;;
+            hang)    printf '    *"--check FC23"*) exec sleep 30 ;;\n' ;;
+        esac
+        printf '    *) printf "usage\\n" ;;\n'
+        printf 'esac\n'
+    } >"$BIN/shirabe"
+    chmod +x "$BIN/shirabe"
+}
+stub "koto 0.14.0 (0000000 2026-01-01T00:00:00Z)"
+printf '{"name":"shirabe","version":"0.38.0-dev"}\n' >"$ROOT/.claude-plugin/plugin.json"
+write_decl scope 'shirabe\t-\t-\talways' 'shirabe\t-\t-\talways'
+shirabe_stub knows
+run "$BIN" scope
+silent "/scope with a shirabe that knows FC23 prints zero bytes"
+shirabe_stub refuses
+run "$BIN" scope
+case "$(flat)" in
+    *"shirabe /scope: prerequisite not met."*"refuses \`shirabe validate --check FC23\`"*"Upgrade shirabe to 0.38.0 or later before running /scope."*)
+        pass "/scope with a shirabe that refuses FC23 prints the block naming the plugin's release" ;;
+    *) fail "/scope refusing shirabe: $OUT" ;;
+esac
+n=$(printf '%s\n' "$OUT" | grep -c 'prerequisite not met')
+[ "$n" -eq 1 ] && pass "two shirabe records print one block" || fail "two shirabe records printed $n blocks"
+run "$BIN" scope --mode coordinated
+silent "a --mode run of /scope makes no probe"
+write_decl other 'shirabe\t-\t-\talways'
+run "$BIN" other
+silent "another skill declaring shirabe makes no probe"
+shirabe_stub hang
+run "$BIN" scope
+silent "a probe that times out says nothing"
+printf '{"name":"shirabe","version":"0.0.0-test"}\n' >"$ROOT/.claude-plugin/plugin.json"
+rm -f "$BIN/shirabe"
 
 echo
 echo "preflight-minimum_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

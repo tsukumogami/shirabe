@@ -25,7 +25,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 for b in koto jq; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on PATH"; exit 0; }; done
 T=$(mktemp -d "${TMPDIR:-/tmp}/render-result-engine.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
-trap 'case "$T" in */render-result-engine.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */render-result-engine.*) rm -rf "$T" ;; esac'
 export HOME="$T/home"; mkdir -p "$HOME"
 PASS=0 FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
