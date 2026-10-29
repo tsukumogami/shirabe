@@ -141,6 +141,8 @@ stub_gates() {
             if (gate == "merge_state_clean") { print "        command: \"exit " merge "\""; next }
             if (gate == "is_root") { print "        command: \"exit " root "\""; next }
             if (gate == "fix_green" || gate == "tests_counted") { print "        command: \"exit 0\""; next }
+            # The probe's leak gate passes, as it does for a run in no arm.
+            if (gate == "probe_value_absent") { print "        command: \"exit 0\""; next }
         }
         { print }
     '

@@ -172,16 +172,22 @@ done
 GOT=$(jq -r '[.variables.REVIEW_LEVEL.rebind, .variables.REVIEW_FLOOR.rebind, .variables.REVIEW_CEILING.rebind]
              | map(. // false) | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
 [ "$GOT" = "true,false,false" ] && pass "only REVIEW_LEVEL is rebindable" || fail "rebind flags are [$GOT]"
-# plan_ready passes through the live offload canary's states, which add no
-# evidence, on its way to review_level_choice.
+# plan_ready passes through the live offload canary's states and then the
+# rule-distance probe's, none of which take evidence, on its way to
+# review_level_choice.
 GOT=$(jq -r '.states.analysis.transitions[] | select(.when.plan_outcome == "plan_ready") | .target' "$COMPILED" 2>/dev/null)
 [ "$GOT" = offload_canary ] && pass "plan_ready targets offload_canary" || fail "plan_ready targets [$GOT]"
 GOT=$(jq -r '[.states.offload_canary.transitions[].target, .states.offload_arm_withheld.transitions[].target,
               .states.offload_arm_preloaded.transitions[].target]
              | map(select(. != "offload_arm_withheld" and . != "offload_arm_preloaded")) | unique | join(",")' \
       "$COMPILED" 2>/dev/null)
-[ "$GOT" = review_level_choice ] && pass "every route out of the canary states reaches review_level_choice" \
+[ "$GOT" = probe_draw ] && pass "every route out of the canary states reaches probe_draw" \
     || fail "the canary states route to [$GOT]"
+GOT=$(jq -r '[.states.probe_draw.transitions[].target, .states.probe_arm_near.transitions[].target,
+              .states.probe_arm_far.transitions[].target, .states.probe_arm_far_redeliver.transitions[].target]
+             | map(select(startswith("probe_arm_") | not)) | unique | join(",")' "$COMPILED" 2>/dev/null)
+[ "$GOT" = review_level_choice ] && pass "every route out of the probe's states reaches review_level_choice" \
+    || fail "the probe's states route to [$GOT]"
 GOT=$(jq -r '.states.issue_type_routing.transitions[] | select(.when.issue_type == "code") | .target' "$COMPILED" 2>/dev/null)
 [ "$GOT" = review_level_check ] && pass "the code route targets review_level_check" || fail "the code route targets [$GOT]"
 GOT=$(jq -r '.states.review_level_check.gates | [.level_floor.type, .level_fits_facts.type] | join(",")' "$COMPILED" 2>/dev/null)

@@ -140,6 +140,16 @@ variables:
     required: false
     default: "on"
     values: ["on", "off"]
+  PROBE:
+    description: >-
+      The rule-distance probe's switch (docs/guides/probe.md). With `on`, a
+      run on a host that opted in, with no shared branch, is drawn into the
+      near, far or far_redeliver arm at probe_draw. Its default is the one
+      change that turns the probe off for every later run. Not rebindable: a
+      run never changes arm partway through.
+    required: false
+    default: "on"
+    values: ["on", "off"]
   VERIFICATION:
     description: >-
       Where the definition-of-done gate runs. `local` (the default) enters the
@@ -700,23 +710,76 @@ states:
       - target: offload_arm_preloaded
         when:
           gates.offload_arm.exit_code: 1
-      - target: review_level_choice
+      - target: probe_draw
         when:
           gates.offload_arm.exit_code: 3
 
-  # The two marker states pass straight through to review_level_choice. Their
+  # The two marker states pass straight through to probe_draw. Their
   # names are what carries a run's group to an exporter such as Datadog:
   # koto's state_entered event has the state name in koto.state, and no
   # variable value is ever exported.
   offload_arm_withheld:
     transitions:
-      - target: review_level_choice
+      - target: probe_draw
 
   offload_arm_preloaded:
+    transitions:
+      - target: probe_draw
+
+  # The rule-distance probe (docs/guides/probe.md). The draw records the run's
+  # arm and value in <session-dir>/probe/ and, for the far arms, prints the
+  # rule's full text once per session, captured as PROBE_FAR_RULE for the
+  # review_level_choice directive. Every other run captures the empty string,
+  # so its directive renders as it would without the probe. The command ends
+  # in `|| true` because a failing default action would hold the run here; the
+  # gate maps every exit but 0, 1 and 4 to 3 so a broken or missing script has
+  # an edge too. Both restate probe.sh's own contract (its header).
+  probe_draw:
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" draw "{{PROBE}}" "{{SHARED_BRANCH}}" "{{SESSION_DIR}}" "{{PLUGIN_ROOT}}" || true'
+      capture_stdout_as: PROBE_FAR_RULE
+      capture_allow_empty: true
+    gates:
+      probe_arm:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 3; "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" arm "{{SESSION_DIR}}"; case $? in 0) exit 0 ;; 1) exit 1 ;; 4) exit 4 ;; esac; exit 3'
+    transitions:
+      - target: probe_arm_near
+        when:
+          gates.probe_arm.exit_code: 0
+      - target: probe_arm_far
+        when:
+          gates.probe_arm.exit_code: 1
+      - target: probe_arm_far_redeliver
+        when:
+          gates.probe_arm.exit_code: 4
+      - target: review_level_choice
+        when:
+          gates.probe_arm.exit_code: 3
+
+  # The probe's marker states, which carry the arm to telemetry the way the
+  # canary's carry its group: as the state name of a state_entered record.
+  probe_arm_near:
+    transitions:
+      - target: review_level_choice
+
+  probe_arm_far:
+    transitions:
+      - target: review_level_choice
+
+  probe_arm_far_redeliver:
     transitions:
       - target: review_level_choice
 
   review_level_choice:
+    # A far-arm run's probe rule ends this state's directive; koto records each
+    # print of it as a rule_delivered event (via directive) while
+    # PROBE_FAR_RULE is non-empty, and nothing for any other run.
+    directive_rules:
+      - rule_id: probe/ack-value
+        check: probe_ack
+        extent: full
+        when_set: PROBE_FAR_RULE
     # The run commits to a review level here, after analysis has read the code
     # and before anything is implemented (references/review-levels.md). The
     # only way forward is REVIEW_LEVEL being set, and the only way it is set is
@@ -2303,6 +2366,20 @@ states:
       tests_still_counted:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=tests_still_counted "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"'
+      # The probe's value must not reach a commit message or patch on the
+      # branch before it is pushed. probe.sh leak-pr exits 0 at once for a run
+      # in no arm; otherwise it searches every commit message and patch on the
+      # branch (its leak-branch search) and, until a `pr_status: created`
+      # submission exists, nothing else. 1 a hit (a probe/value-absent finding
+      # naming only the route), 2 when git or gh can't answer; 1 and 2 hold,
+      # with no bound, and `koto overrides record` is the only way past
+      # (docs/guides/probe.md). A missing script passes: the same script draws
+      # the arm, so a run without it has none. The command is pr_creation's
+      # and ci_monitor's, word for word: one gate name, one command
+      # (scripts/validate-template-mermaid.sh check 4).
+      probe_value_absent:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 0; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" leak-pr "{{SESSION_DIR}}" "$(koto context get "{{SESSION_NAME}}" impl_base 2>/dev/null)" "{{ISSUE_NUMBER}}" "{{ISSUE_REPO}}"; case $? in 0) exit 0 ;; 1) exit 1 ;; esac; exit 2'
     accepts:
       precheck_status:
         type: enum
@@ -2328,17 +2405,19 @@ states:
           gates.branch_docs_visibility.exit_code: 1
         context_assignments:
           failure_reason: "check_exit at pr_precheck: branch_docs_visibility could not be satisfied: ${evidence.check_exit_reason}"
-      - target: pr_creation
+      - target: probe_near
         when:
           gates.on_feature_branch_pr.exit_code: 0
           gates.branch_docs_visibility.exit_code: 0
           gates.tests_still_counted.exit_code: 0
-      - target: pr_creation
+          gates.probe_value_absent.exit_code: 0
+      - target: probe_near
         when:
           gates.on_feature_branch_pr.exit_code: 1
           precheck_status: override
           gates.branch_docs_visibility.exit_code: 0
           gates.tests_still_counted.exit_code: 0
+          gates.probe_value_absent.exit_code: 0
       - target: pass_counting
         when:
           precheck_status: recount
@@ -2356,7 +2435,25 @@ states:
         context_assignments:
           failure_reason: "pr_precheck blocked: ${evidence.detail}"
 
+  # The probe's near-arm text, captured as PROBE_NEAR_RULE for the
+  # pr_creation directive: the rule's full text for a near run, the empty
+  # string for every other. Passes straight through, so it adds no turn.
+  probe_near:
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" near-text "{{SESSION_DIR}}" || true'
+      capture_stdout_as: PROBE_NEAR_RULE
+      capture_allow_empty: true
+    transitions:
+      - target: pr_creation
+
   pr_creation:
+    # A near-arm run's probe rule ends this state's directive, recorded as
+    # review_level_choice's is for the far arms.
+    directive_rules:
+      - rule_id: probe/ack-value
+        check: probe_ack
+        extent: full
+        when_set: PROBE_NEAR_RULE
     gates:
       # Reads the pull request GitHub actually has, not the body the agent
       # believes it wrote. An issue that stays open after its fix merges is the
@@ -2411,11 +2508,34 @@ states:
       verification_deferral_recorded:
         type: command
         command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
+      # The probe's check (docs/guides/probe.md): probe.sh check reads the
+      # `ack` field of this visit's `pr_status: created` submissions from the
+      # session log. 0 a match or a run in no arm, and 0 with the not-ready
+      # marker before a created submission, so the arrival response lists no
+      # probe gate; 4 a near or far miss and 5 a far_redeliver miss after two
+      # re-deliveries, both of which advance; 1 a far_redeliver miss that
+      # holds and hands the rule back; 6 the script couldn't decide, which
+      # advances too. A missing script and any other exit map to 6, so the
+      # probe never holds a run outside far_redeliver.
+      probe_ack:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 6; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" check "{{SESSION_DIR}}"; case $? in 0) exit 0 ;; 1) exit 1 ;; 4) exit 4 ;; 5) exit 5 ;; esac; exit 6'
+      # The probe's value must not reach the pull request: probe.sh leak-pr
+      # repeats the branch search, then reads the title, body, comments,
+      # reviews, inline review comments and the issue's comments. Before a
+      # created submission it searches the branch only and passes with the
+      # not-ready marker. 1 a hit, 2 a gh failure; both hold, as at
+      # pr_precheck.
+      probe_value_absent:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 0; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" leak-pr "{{SESSION_DIR}}" "$(koto context get "{{SESSION_NAME}}" impl_base 2>/dev/null)" "{{ISSUE_NUMBER}}" "{{ISSUE_REPO}}"; case $? in 0) exit 0 ;; 1) exit 1 ;; esac; exit 2'
     accepts:
       pr_status:
         type: enum
         values: [created, shared, creation_failed_retry, creation_failed_escalate, check_unsatisfiable]
         required: true
+      ack:
+        type: string
       pr_url:
         type: string
         description: URL of the created pull request
@@ -2438,12 +2558,49 @@ states:
       # done_already_complete's result maps read pr_url, and koto carries it
       # to a caller's leg as `pr` (#995). A `created` sent without pr_url
       # writes an empty value, which a caller reads as naming no pull request.
+      #
+      # The edge is written once per probe_ack exit code that advances (koto
+      # matches one value per condition): 0, 4, 5 and 6. Exit 1, a
+      # far_redeliver miss, matches none of them, so the state holds while
+      # the rule is handed back.
       - target: ci_monitor
         when:
           pr_status: created
           gates.closing_keyword.exit_code: 0
           gates.pr_body_conformant.exit_code: 0
           gates.verification_deferral_recorded.exit_code: 0
+          gates.probe_ack.exit_code: 0
+          gates.probe_value_absent.exit_code: 0
+        context_assignments:
+          pr_url: "${evidence.pr_url}"
+      - target: ci_monitor
+        when:
+          pr_status: created
+          gates.closing_keyword.exit_code: 0
+          gates.pr_body_conformant.exit_code: 0
+          gates.verification_deferral_recorded.exit_code: 0
+          gates.probe_ack.exit_code: 4
+          gates.probe_value_absent.exit_code: 0
+        context_assignments:
+          pr_url: "${evidence.pr_url}"
+      - target: ci_monitor
+        when:
+          pr_status: created
+          gates.closing_keyword.exit_code: 0
+          gates.pr_body_conformant.exit_code: 0
+          gates.verification_deferral_recorded.exit_code: 0
+          gates.probe_ack.exit_code: 5
+          gates.probe_value_absent.exit_code: 0
+        context_assignments:
+          pr_url: "${evidence.pr_url}"
+      - target: ci_monitor
+        when:
+          pr_status: created
+          gates.closing_keyword.exit_code: 0
+          gates.pr_body_conformant.exit_code: 0
+          gates.verification_deferral_recorded.exit_code: 0
+          gates.probe_ack.exit_code: 6
+          gates.probe_value_absent.exit_code: 0
         context_assignments:
           pr_url: "${evidence.pr_url}"
       # A body without the keyword stops here. Fail-closed: the gate also exits
@@ -2552,6 +2709,12 @@ states:
       merge_state_clean:
         type: command
         command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
+      # The probe's leak gate again, as at pr_creation, so a comment the run
+      # posts after the pull request exists is caught before the run
+      # finishes. It guards the green edge, the one way on toward done.
+      probe_value_absent:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 0; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" leak-pr "{{SESSION_DIR}}" "$(koto context get "{{SESSION_NAME}}" impl_base 2>/dev/null)" "{{ISSUE_NUMBER}}" "{{ISSUE_REPO}}"; case $? in 0) exit 0 ;; 1) exit 1 ;; esac; exit 2'
     accepts:
       ci_outcome:
         type: enum
@@ -2571,6 +2734,7 @@ states:
         when:
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
+          gates.probe_value_absent.exit_code: 0
       # A DIRTY pull request stops, and stops explicitly, with a reason that
       # names the merge conflicts, whatever the CI gate reads: GitHub runs no
       # checks on one, so ci_passing can read green on an earlier head's
@@ -3217,6 +3381,27 @@ There is nothing to submit.
 koto passes through this state to `review_level_choice` without stopping.
 There is nothing to submit.
 
+## probe_draw
+
+koto runs this state itself and moves on to `review_level_choice` without
+stopping. There is nothing to submit. If it ever holds here, tick again with
+`koto next {{SESSION_NAME}} --no-cleanup`.
+
+## probe_arm_near
+
+koto passes through this state to `review_level_choice` without stopping.
+There is nothing to submit.
+
+## probe_arm_far
+
+koto passes through this state to `review_level_choice` without stopping.
+There is nothing to submit.
+
+## probe_arm_far_redeliver
+
+koto passes through this state to `review_level_choice` without stopping.
+There is nothing to submit.
+
 ## review_level_choice
 
 Choose this run's review level now, before implementing anything. The level
@@ -3249,6 +3434,8 @@ bound, or no bound recorded yet: tick again so the action records it). Exit 66
 means the rebind or a koto context read or write failed and nothing changed;
 read its message and run it again. If no level can be recorded, submit
 `level_status: blocked` with `detail`.
+
+{{PROBE_FAR_RULE}}
 
 ## fix_determination
 
@@ -3847,6 +4034,12 @@ Submit `precheck_status: override` to proceed from the default branch anyway, or
 
 `branch_docs_visibility`'s output escalates. The first time a rule fails here, its finding carries the rule's summary. From the second failed evaluation of the same rule, the gate's output also carries the rule's full text, or, where that text can't be printed, the file and line range to read; from the third, a `::shirabe-check-exit::` line says this state's exit is open. koto's own count decides each step. When a documents rule can't be satisfied, take the exit rather than looping: submit `precheck_status: check_unsatisfiable` with `check_exit_reason` set to one sentence saying why. It is accepted only while `branch_docs_visibility` fails on a rule (exit 1), and it ends the run at `done_blocked` through `check_exit`; it never moves the run past the gate.
 
+## probe_near
+
+koto runs this state itself and moves on to `pr_creation` without stopping.
+There is nothing to submit. If it ever holds here, tick again with
+`koto next {{SESSION_NAME}} --no-cleanup`.
+
 ## pr_creation
 
 If `SHARED_BRANCH` is set, this child is running on the orchestrator's shared
@@ -3948,6 +4141,8 @@ just flips between the two. A fix that review or CI asks for after the run
 reaches `done` is a fix round, started from `done` with
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/fix-round.sh" start --from` and this
 run's session name; the `done` directive says how.
+
+{{PROBE_NEAR_RULE}}
 
 ## check_exit
 

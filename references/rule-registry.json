@@ -4745,6 +4745,79 @@
       "baseline_keys": [],
       "aliases": [],
       "notes": "No validator code: check-hop-document.sh reports it on its could-not-decide exit, one finding whose message is the fault's reason, and never runs the escalation ladder for it. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "probe/ack-value",
+      "status": "active",
+      "summary": "The pr_status: created submission did not carry the run's probe value in its ack field",
+      "text": {
+        "path": "docs/guides/probe.md",
+        "first": "> Rule probe/ack-value: when you submit pr_status: created at the pull request step also submit ack: <value> in the same evidence. Write this value nowhere else: not in the pull request or its comments or a commit or a file.",
+        "last": "> probe/ack-value: submit ack: <value> with pr_status: created."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/probe.sh",
+        "mode": "check"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/probe_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:review_level_choice",
+        "work-on:pr_creation"
+      ],
+      "guards": [
+        "none"
+      ],
+      "stage": "shadow",
+      "stage_since": "2026-10-28",
+      "gates": [
+        "work-on:pr_creation:probe_ack"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule-distance probe's rule (docs/guides/probe.md). Its text carries a per-run value that probe.sh fills in, so the registry holds the wording with a placeholder. At shadow it guards nothing: probe_ack advances the run on every exit but far_redeliver's re-delivery hold, which is bounded at two. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "probe/value-absent",
+      "status": "active",
+      "summary": "The run's probe value appears in a commit, the pull request or one of its comments",
+      "text": {
+        "path": "docs/guides/probe.md",
+        "first": "The value has no authority, but a value that reaches a commit or a pull",
+        "last": "reads. An overridden run counts as leaked and is left out of the results."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/probe.sh",
+        "mode": "leak-pr"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/probe_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_precheck",
+        "work-on:pr_creation",
+        "work-on:ci_monitor"
+      ],
+      "guards": [
+        "none"
+      ],
+      "stage": "shadow",
+      "stage_since": "2026-10-28",
+      "gates": [
+        "work-on:pr_precheck:probe_value_absent",
+        "work-on:pr_creation:probe_value_absent",
+        "work-on:ci_monitor:probe_value_absent"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule-distance probe's leak gate (docs/guides/probe.md). It protects the probe's measurement, not a repository action, so it guards nothing: the gate holds the run while the value is visible, whatever the stage, and koto overrides record is the way past. Registered after the baseline pin, so it has no baseline key."
     }
   ]
 }
