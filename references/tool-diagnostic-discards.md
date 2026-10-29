@@ -456,6 +456,8 @@ skills/work-on/scripts/probe.sh	jq -r '.[]? | .body // ""' "$tmp/issue.json" >"$
 skills/work-on/scripts/probe.sh	jq -r '.body // ""' "$tmp/pr.json" >"$tmp/body" 2>/dev/null || exit 2	1	non-zero	A pull request read jq can't parse exits 2 and holds the run; the stderr is dropped because it could quote the body that holds the value.	docs/guides/probe.md#keeping-the-value-out-of-public-places
 skills/work-on/scripts/probe.sh	jq -r '.title // ""' "$tmp/pr.json" >"$tmp/title" 2>/dev/null || exit 2	1	non-zero	A pull request read jq can't parse exits 2 and holds the run; the stderr is dropped because it could quote the title that holds the value.	docs/guides/probe.md#keeping-the-value-out-of-public-places
 skills/work-on/scripts/probe.sh	line=$(jq -cn --arg id "$1" --arg m "$2" '{rule_id: $id, level: "error", message: $m}' 2>/dev/null) || return 1	1	1	A finding jq can't build makes the caller exit 6 (check) or 2 (leak gates), the could-not-decide codes, and nothing half-built reaches the gate output.	docs/guides/probe.md#the-check
+skills/work-on/scripts/probe.sh	num=$(jq -r '.number // empty' "$tmp/pr.json" 2>/dev/null) || exit 2	1	non-zero	A pull request read jq can't parse exits 2 and holds the run; the stderr is dropped because it could quote what gh returned, which may hold the value.	docs/guides/probe.md#keeping-the-value-out-of-public-places
+skills/work-on/scripts/probe.sh	url=$(jq -r '.url // empty' "$tmp/pr.json" 2>/dev/null) || exit 2	1	non-zero	A pull request read jq can't parse exits 2 and holds the run; the stderr is dropped because it could quote what gh returned, which may hold the value.	docs/guides/probe.md#keeping-the-value-out-of-public-places
 ```
 
 ## Running the scan
