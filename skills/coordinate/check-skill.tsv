@@ -20,12 +20,14 @@ shared	state-schema.jq
 # on main at 05d3a50 with four suites at a time on a loaded host. Suites
 # launch costliest first; a suite with no row launches after the rest. The
 # rows of the suites #830 cut are scaled by each suite's measured after/before
-# ratio, so they stay on the same scale as the rest. Two later suites are
+# ratio, so they stay on the same scale as the rest. Four later suites are
 # costed differently: coordinate-outcome_engine_test.sh measured alone on an
-# idle host, and coordinate-takeover-load_engine_test.sh at the cost of its
-# skip, since it runs on CI only (CI set) and SKIPs anywhere check-skill.sh
-# runs it.
+# idle host, coordinate-open-carry-window_engine_test.sh and
+# state-carry_test.sh each measured alone in one run on main at 214a06cb, and
+# coordinate-takeover-load_engine_test.sh at the cost of its skip, since it
+# runs on CI only (CI set) and SKIPs anywhere check-skill.sh runs it.
 cost	coordinate_1_engine_test.sh	271
+cost	state-carry_test.sh	262
 cost	coordinate_2_engine_test.sh	255
 cost	coordinate_3_engine_test.sh	237
 cost	coordinate_4_engine_test.sh	200
@@ -93,6 +95,7 @@ cost	merge-confirm_test.sh	10
 cost	state-open_test.sh	10
 cost	skill-hygiene_test.sh	10
 cost	teardown-pass_test.sh	10
+cost	coordinate-open-carry-window_engine_test.sh	10
 cost	reconcile-settle_test.sh	7
 cost	decision-phrasings_test.sh	6
 cost	milestone_test.sh	6
