@@ -157,13 +157,43 @@ work.
    name), the opener continues it in a new run through koto's fence
    (`koto init --continues --supersede`), carrying its `record/`, `legs/`,
    `taken_legs` and `leg_children` keys, instead of resuming beside it. It
-   prints `outcome=continued`, `predecessor=<old run>`, `session=<new run>`
-   and `predecessor_stopped=yes|no`. Nothing is cancelled. From the fence on
+   prints `outcome=continued`, `predecessor=<old run>`, `session=<new run>`,
+   `predecessor_stopped=yes|no`, `watcher=stopped|absent|unobserved` and
+   `leg_wake=supported|unsupported`. Nothing is cancelled. From the fence on
    koto refuses every write to the old run with `session_superseded`, naming
-   the new one, and the old run's agent stops on it (the hub's "Taken over"
-   directive: stop, report the newest session to whoever launched it, and
-   don't re-arm the watch). The new run's record names this session as its
-   driver and its coordinator address, with nobody told yet, and holds one
+   the new one. The fence also rings the old run's wake file once, so a
+   `koto request watch` armed on it exits, and the old run's agent, ticking
+   on that wake, is refused and stops (the hub's "Taken over" directive:
+   stop, report the newest session to whoever launched it, and don't re-arm
+   the watch).
+
+   **Arm the new run's watch before the first tick.** In the same turn as
+   the opener, start one background
+   `koto request watch --session <session=> --timeout-secs 7200`, built from
+   the `session=` line the opener printed and nothing else, then tick. A
+   harness watch only notifies the agent that started it, so no script can
+   arm it for you. From then on the hub's Waking rule keeps exactly one
+   running.
+
+   `watcher=` says what became of the old run's watch: `stopped`, one ran
+   on this host before the fence and has exited; `absent`, none ran here;
+   `unobserved`, the old run's session names another host as its last writer
+   (koto's `version.json` beside a cloud-synced log), whose watches no ring
+   here reaches, or a watch found here still ran 5 seconds after the ring
+   (the opener names its pid on stderr). Neither `absent` nor `unobserved`
+   stops the takeover: the old run's next tick is refused either way. An
+   opener run again after a takeover cut short past the fence reads the watch
+   state then, after the first run's ring, so it prints `absent`, not
+   `stopped`. `leg_wake=` is read from the koto version: `supported` on koto
+   0.31.0 and later, which follows supersede events when it rings a request's
+   principals (its requester and coordinator of record), so a leg the old run
+   (or any earlier member) opened wakes the new run's watch; `unsupported`
+   on an older koto, which still takes the run over, but such a leg's result
+   reaches the new run only through a worker's message or the next
+   reconcile.
+
+   The new run's record names this session as its driver and its
+   coordinator address, with nobody told yet, and holds one
    takeover entry naming both runs; its first tick needs no rebind and its
    first reconcile reads the holdings it carried. `predecessor_stopped=yes`
    means the old run was live just before the fence, by the liveness probe
