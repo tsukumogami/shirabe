@@ -1,43 +1,45 @@
 #!/usr/bin/env bash
-# unit-removed_test.sh -- unit-removed.sh, the on-reap step and the sweep it
-# starts, run with niwa's environment over a stub Claude home, koto sessions
-# and a koto request on disk, the gh and koto stand-ins, the real record
-# scripts and the real cost capture (unit-cost.sh). The sweep runs with a
-# scrubbed environment, so the stand-ins are reached through wrappers on PATH
-# that carry their stores.
+# unit-removed_test.sh -- unit-removed.sh: the on-reap step and start, which
+# launch no sweep while the automatic sweep is retired pending #1410, and the
+# sweep run by hand over removal records on disk, a stub Claude home, koto
+# sessions and a koto request, the gh and koto stand-ins, the real record
+# scripts and the real cost capture (unit-cost.sh). The stand-ins are reached
+# through wrappers on PATH that carry their stores.
 #
-# Covers: a unit niwa removed, whose koto work-on session ran in the instance
-# and whose koto request names a live coordinator holding the leg key,
-# captured end to end: record exits 0 at once, printing one line, while the
-# sweep's capture is held on a fifo (the suite reads the removal record, then
-# releases it); once the sweep ends the coordinator's session holds one cost
-# entry whose "niwa.dispatch.id" is the reap key, with the worker's tokens and
-# every session's state times measured, dispatch from the koto request, and
-# the figures that needed the removed job or a pull request not recoverable,
-# no source; the removed-mode archive and its teardown.json; the record
-# deleted; the step passes the (dummy) GH_TOKEN, GITHUB_TOKEN and GH_HOST
-# through its scrubbed environment, and every gh call the sweep makes runs
-# with an empty GH_CONFIG_DIR of the sweep's own. requested_by
-# ended: the entry goes to the scope slug's one live run. With no GH_TOKEN the
-# sweep still archives, keeps the record pending github with its attempt
-# counted, posts nothing, and the stub gh records no call. A request whose
-# requested_by holds no leg key for it: the record kept, no coordinator,
-# nothing posted, its removals.log line written, and, its removal more than
-# 24 hours old, a stale line after it; restored, the next sweep captures it.
-# A pending github record is captured by a later sweep with the token, and
-# one whose unit is already recorded is deleted, already recorded. Two sweeps
-# over one record capture it once, the second passing it over; a record
-# written while a sweep runs is handled by it; a lock whose holder is gone is
-# taken over; a sweep with no record makes no call and writes no log; start
-# runs the sweep in the background. A record outside its shape deleted. Each
-# refusal of record (no reap key, a key
+# Covers: record and start each print one line saying the sweep is retired
+# and exit 0; record writes no removal record and makes no removals
+# directory; neither launches a sweep (a perl and a nohup on PATH log any
+# launch), a removal already in R is left as it is, and a sweep run by hand
+# still captures it. A unit niwa removed, whose koto work-on session ran in
+# the instance and whose koto request names a live coordinator holding the
+# leg key, captured end to end by a sweep run by hand while its capture is
+# held on a fifo (the suite checks nothing is posted, then releases it): the
+# coordinator's session holds one cost entry whose "niwa.dispatch.id" is the
+# reap key, with the worker's tokens and every session's state times
+# measured, dispatch from the koto request, and the figures that needed the
+# removed job or a pull request not recoverable, no source; the removed-mode
+# archive and its teardown.json; the record deleted; every gh call the sweep
+# makes runs with an empty GH_CONFIG_DIR of the sweep's own and the (dummy)
+# GITHUB_TOKEN and GH_HOST it was given. requested_by ended: the entry goes to
+# the scope slug's one live run. With no GH_TOKEN the sweep still archives,
+# keeps the record pending github with its attempt counted, posts nothing, and
+# the stub gh records no call. A request whose requested_by holds no leg key
+# for it: the record kept, no coordinator, nothing posted, its removals.log
+# line written, and, its removal more than 24 hours old, a stale line after
+# it; restored, the next sweep captures it. A pending github record is
+# captured by a later sweep with the token, and one whose unit is already
+# recorded is deleted, already recorded. Two sweeps over one record capture it
+# once, the second passing it over; a record written while a sweep runs is
+# handled by it; a lock whose holder is gone is taken over; a sweep with no
+# record makes no call and writes no log. A record outside its shape deleted.
+# Each refusal of record (no reap key, a key
 # equal to the session id, a key starting with -, a path holding .., a path
 # outside the directory record runs in, the workspace root itself with or
 # without a trailing /, a path with a trailing / or a newline, a session id
 # that isn't one, a removals directory that is a
 # symbolic link or not mode 0700, the script writable by group or others):
-# one line, no record, exit 0. A second removal of the same dispatch id at the
-# same path keeps removed_at; one at another path replaces the record.
+# one line, no record, exit 0. A second removal of the same dispatch id, at
+# the same path or another, leaves the record already there as it is.
 #
 # Usage: bash skills/coordinate/scripts/unit-removed_test.sh
 set -uo pipefail
@@ -48,8 +50,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
 export HOME="$T/home" XDG_STATE_HOME="$T/state" XDG_DATA_HOME="$T/data" KOTO_REQUESTS="$T/requests"
 unset TEARDOWN_ARCHIVE_DIR TEARDOWN_KOTO_SESSIONS TEARDOWN_CLAUDE_HOME NIWA_REAP_KEY NIWA_SESSION_ID NIWA_INSTANCE_PATH
-# A dummy token for the stub gh: the sweep makes GitHub calls only with one,
-# and the step passes it through its scrubbed environment.
+# A dummy token for the stub gh: the sweep makes GitHub calls only with one.
 export GH_TOKEN=stub-token
 mkdir -p "$HOME" "$KOTO_REQUESTS"
 UR="$HERE/unit-removed.sh"
@@ -67,7 +68,7 @@ SID=0a1b2c3d-77aa
 DID=dsp-feat-x.7
 R="$XDG_STATE_HOME/shirabe/removals"
 
-# The stand-ins with their stores, for the sweep's scrubbed environment. A
+# The stand-ins with their stores, on PATH for the sweep and its capture. A
 # fifo at $T/hold.<tool> holds that tool's next call until the suite writes
 # to it. Each call logs the GitHub environment it was given, one
 # `<GH_CONFIG_DIR>|<entries in it>|<GITHUB_TOKEN>|<GH_HOST>` line in
@@ -102,15 +103,6 @@ rec() {
         bash "$s" record
     )
 }
-# wait_gone <file> <secs>: 0 once the file is gone.
-wait_gone() {
-    local i=0
-    while [ -e "$1" ]; do
-        [ "$i" -ge $(($2 * 5)) ] && return 1
-        sleep 0.2
-        i=$((i + 1))
-    done
-}
 # count <path>...: how many of the paths exist (an unmatched glob stays a pattern).
 count() {
     local n=0 p
@@ -118,6 +110,11 @@ count() {
     echo "$n"
 }
 nrecords() { count "$R"/*.json; }
+# newrec <dispatch id> <session id> <instance path>: a record removed now.
+newrec() {
+    jq -n -c --arg d "$1" --arg s "$2" --arg p "$3" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        '{schema: "unit-removal/1", dispatch_id: $d, session_id: $s, instance_path: $p, removed_at: $at, attempts: 0, last: null}' >"$R/$1.json"
+}
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 # manifest_ok <archive>: ok when every MANIFEST line's file has its hash and size.
 manifest_ok() {
@@ -166,23 +163,28 @@ seed() {
 }
 
 echo "== a removed unit, captured in its coordinator's session =="
+# record and start no longer launch the sweep (#1409), so the suite writes the
+# removal record and runs the sweep by hand, in the background while its
+# capture is held.
 seed
 rm -rf "$R" "$T/gh.env"
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
 mkfifo "$T/hold.gh"
-OUT=$(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; rec "$DID" "$SID" "$IP")
-eq "record exits 0" 0 $?
-eq "  ... printing one line" "unit-removed: recorded the removal of $DID; the sweep runs in the background" "$OUT"
-eq "  ... with the removal record written while the sweep's capture is held" "unit-removal/1|$DID|$SID|$IP|0|null" \
-    "$(jq -r '"\(.schema)|\(.dispatch_id)|\(.session_id)|\(.instance_path)|\(.attempts)|\(.last)"' "$R/$DID.json" 2>&1)"
-eq "  ... removed_at a UTC time" ok "$(jq -r '.removed_at | if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") then "ok" else . end' "$R/$DID.json" 2>&1)"
+(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
+SW0=$!
+i=0
+until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
 # Read from the store directly, not through the capture's own list: the
 # capture is held at its first GitHub read, before it lists or posts anything.
-eq "  ... and nothing posted yet" 0 "$(count "$KOTO_STORE/context/$S/record/entries"/*)"
+eq "a sweep run by hand holds the record's lock, nothing posted yet" "1|0" \
+    "$(count "$R/.$DID.lock")|$(count "$KOTO_STORE/context/$S/record/entries"/*)"
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
-if wait_gone "$R/$DID.json" 120; then ok "  ... the sweep, released, ends with the record deleted"; else bad "  ... the sweep, released, ends with the record deleted" "$(cat "$R/$DID.json" 2>&1)"; fi
+wait "$SW0"
 kill "$WP" 2>/dev/null
 wait "$WP" 2>/dev/null
+eq "  ... the sweep, released, ends with the record captured and deleted" "$DID: captured|0" "$(cat "$T/sweep0.out")|$(nrecords)"
 if [ -p "$T/hold.gh" ]; then
     rm -f "$T/hold.gh"
     bad "  ... the capture's first GitHub read was the one held" "the fifo was never read"
@@ -214,34 +216,30 @@ eq "  ... the five koto sessions and the project directory" "5|$ENC" "$(count "$
 eq "  ... and every MANIFEST line matches its file" ok "$(manifest_ok "$A")"
 
 echo "== requested_by ended: the scope slug's one live run =="
+# Run by hand: record no longer launches the sweep (#1409).
 seed
 log_end "$S"
 coordinator "$S2"
 rm -rf "$R"
-OUT=$(rec "$DID" "$SID" "$IP")
-eq "record exits 0" 0 $?
-if wait_gone "$R/$DID.json" 120; then ok "  ... the record is captured"; else bad "  ... the record is captured" "$(cat "$R/$DID.json" 2>&1)"; fi
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
+eq "a sweep run by hand captures the record and deletes it" "$DID: captured|0" "$(bash "$UR" sweep)|$(nrecords)"
 eq "  ... the entry is in the live run, none in the ended one" "1|0" "$(costs "$S2" | jq length)|$(costs "$S" | jq length)"
 
 echo "== no GitHub token: archived, kept pending github, no GitHub call =="
+# Run by hand: record no longer launches the sweep (#1409).
 seed
 unset GH_TOKEN
 rm -rf "$R"
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
 reset_calls
-OUT=$(rec "$DID" "$SID" "$IP")
-eq "record exits 0" 0 $?
-i=0
-until [ "$(jq -r '.last.outcome // ""' "$R/$DID.json" 2>/dev/null)" = "pending github" ] || [ "$i" -ge 300 ]; do
-    sleep 0.2
-    i=$((i + 1))
-done
-eq "  ... the sweep keeps the record, pending github, its attempt counted" "1|pending github" \
-    "$(jq -r '"\(.attempts)|\(.last.outcome)"' "$R/$DID.json" 2>&1)"
+eq "a sweep run by hand keeps the record, pending github, its attempt counted" "$DID: pending github|1|pending github" \
+    "$(bash "$UR" sweep)|$(jq -r '"\(.attempts)|\(.last.outcome)"' "$R/$DID.json" 2>&1)"
 eq "  ... the stub gh records no call" "" "$(calls)"
 eq "  ... the archive is still made" ok "$(manifest_ok "$(ls -d "$XDG_DATA_HOME/teardown-archive/"*-feat-x-0a1b2c3d 2>/dev/null)")"
 eq "  ... and nothing is posted" 0 "$(count "$KOTO_STORE/context/$S/record/entries"/*)"
 export GH_TOKEN=stub-token
-wait_gone "$R/.$DID.lock" 30
 eq "a later sweep with the token captures it into the dispatch's coordinator and deletes the record" "$DID: captured|0|1" \
     "$(bash "$UR" sweep)|$(nrecords)|$(costs "$S" | jq length)"
 jq -n -c --arg d "$DID" --arg s "$SID" --arg p "$IP" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -311,33 +309,21 @@ chmod 757 "$T/copy/unit-removed.sh"
 refused "the script writable by others" "$DID" "$SID" "$IP" "$T/copy/unit-removed.sh"
 
 echo "== a second removal of the same dispatch id =="
+# record used to rewrite the record here, keeping removed_at at the same
+# instance path and replacing it at another; it writes none now (#1409).
 rm -rf "$R"
 mkdir -p "$R"
 chmod 700 "$R"
 OTHER="$WS/inst-other"
 jq -n -c --arg p "$OTHER" '{schema: "unit-removal/1", dispatch_id: "dsp-other.1", session_id: "0b0b0b0b-1111",
     instance_path: $p, removed_at: "2026-01-01T00:00:00Z", attempts: 0, last: null}' >"$R/dsp-other.1.json"
+cp "$R/dsp-other.1.json" "$T/other.before"
 rec dsp-other.1 0b0b0b0b-1111 "$OTHER" >/dev/null
-eq "at the same instance path keeps the first removed_at" "2026-01-01T00:00:00Z|$OTHER" \
-    "$(jq -r '"\(.removed_at)|\(.instance_path)"' "$R/dsp-other.1.json")"
+eq "at the same instance path leaves the record already there as it is" same "$(cmp -s "$R/dsp-other.1.json" "$T/other.before" && echo same)"
 rec dsp-other.1 0b0b0b0b-1111 "$OTHER-2" >/dev/null
-eq "at another instance path replaces the record" "new|$OTHER-2" \
-    "$(jq -r '"\(if .removed_at == "2026-01-01T00:00:00Z" then "old" else "new" end)|\(.instance_path)"' "$R/dsp-other.1.json")"
-# The sweep the last one started finds no koto session and keeps the record;
-# the suite ends once it has.
-i=0
-until [ "$(jq -r '.last.outcome // ""' "$R/dsp-other.1.json" 2>/dev/null)" = "no coordinator" ] || [ "$i" -ge 150 ]; do
-    sleep 0.2
-    i=$((i + 1))
-done
-eq "  ... and its sweep keeps it, no coordinator" "no coordinator" "$(jq -r '.last.outcome' "$R/dsp-other.1.json")"
+eq "at another instance path leaves it as it is too" "same|1" "$(cmp -s "$R/dsp-other.1.json" "$T/other.before" && echo same)|$(nrecords)"
 
 echo "== one capture per record: the record lock =="
-# newrec <dispatch id> <session id> <instance path>: a record removed now.
-newrec() {
-    jq -n -c --arg d "$1" --arg s "$2" --arg p "$3" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        '{schema: "unit-removal/1", dispatch_id: $d, session_id: $s, instance_path: $p, removed_at: $at, attempts: 0, last: null}' >"$R/$1.json"
-}
 seed
 rm -rf "$R"
 mkdir -p "$R" && chmod 700 "$R"
@@ -390,14 +376,35 @@ OUT=$(bash "$UR" sweep)
 eq "a sweep that logs past 1 MiB trims the log to its last 1,000 lines, its own line last" "1000|dsp-long.1 no coordinator" \
     "$(wc -l <"$R/removals.log" | tr -d ' ')|$(tail -n 1 "$R/removals.log" | cut -d' ' -f2-)"
 
-echo "== start: the sweep in the background =="
+echo "== record and start launch no sweep: retired pending #1410 =="
+# This replaces the case where start ran the sweep in the background (#1409).
+# The step launched the sweep through perl, else nohup, so a perl and a nohup
+# first on PATH log any launch instead of running it. A removal the sweep would
+# capture is left in R to show that none ran.
 seed
-rm -rf "$R"
+rm -rf "$R" "$T/launched"
+mkdir -p "$T/launch-bin"
+for tool in perl nohup; do
+    cat >"$T/launch-bin/$tool" <<EOF
+#!/bin/sh
+printf '%s %s\n' '$tool' "\$*" >>'$T/launched'
+EOF
+    chmod +x "$T/launch-bin/$tool"
+done
+OUT=$(PATH="$T/launch-bin:$PATH"; rec "$DID" "$SID" "$IP")
+eq "record exits 0, printing one line: the sweep is retired" "0|unit-removed: the automatic sweep is retired pending #1410; nothing recorded" "$?|$OUT"
+eq "  ... writing no removal record and making no removals directory" 0 "$(count "$R")"
 mkdir -p "$R" && chmod 700 "$R"
 newrec "$DID" "$SID" "$IP"
-OUT=$(bash "$UR" start)
-eq "start exits 0 at once, printing one line" "0|unit-removed: the sweep runs in the background" "$?|$OUT"
-if wait_gone "$R/$DID.json" 120; then ok "  ... and the sweep it started captures the record"; else bad "  ... and the sweep it started captures the record" "$(cat "$R/$DID.json" 2>&1)"; fi
-eq "  ... one entry in the coordinator's session" 1 "$(costs "$S" | jq length)"
+cp "$R/$DID.json" "$T/rec.before"
+OUT=$(PATH="$T/launch-bin:$PATH"; bash "$UR" start)
+eq "start exits 0, printing one line: the sweep is retired" "0|unit-removed: the automatic sweep is retired pending #1410; no sweep started" "$?|$OUT"
+# A launch runs in the background, so give one a moment to log.
+i=0
+until [ -e "$T/launched" ] || [ "$i" -ge 10 ]; do sleep 0.2; i=$((i + 1)); done
+eq "neither record nor start launches a detached sweep" "" "$(cat "$T/launched" 2>/dev/null)"
+eq "  ... the removal already in R is untouched, no lock taken, nothing logged or posted" "same|0|0" \
+    "$(cmp -s "$R/$DID.json" "$T/rec.before" && echo same)|$(count "$R/.$DID.lock" "$R/removals.log")|$(costs "$S" | jq length)"
+eq "a sweep run by hand still captures it" "$DID: captured|0|1" "$(bash "$UR" sweep)|$(nrecords)|$(costs "$S" | jq length)"
 
 done_tests unit-removed_test
