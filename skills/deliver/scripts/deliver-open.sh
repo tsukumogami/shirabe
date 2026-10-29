@@ -66,7 +66,10 @@
 # unchanged as the fresh session's review_round.json, when it is one JSON
 # object. It keeps its reviewed_head, so the land step still refuses a round
 # whose head has moved. Nothing is read or written on a first run the listing
-# doesn't name, nor after a probe's opened=new. A read or a write that fails,
+# doesn't name, nor after a probe's opened=new. A listing that can't be read
+# reads no round either, so a probe it lets through carries none and nothing
+# warns; neither does an open that fails after an accepted probe, which ends
+# the run with its own refusal lines. A read or a write that fails,
 # or a value that isn't one JSON object, prints one stderr warning naming the
 # session and saying the round has to be recorded again with review-round.sh,
 # and the run goes on: no stdout line or exit code changes. The file and its

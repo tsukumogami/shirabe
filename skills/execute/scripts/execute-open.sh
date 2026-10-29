@@ -168,8 +168,10 @@
 # write that fails, or a value that isn't one JSON object, prints one stderr
 # warning naming the session and saying the round has to be recorded again
 # with review-round.sh, and the run goes on: no stdout line or exit code
-# changes. The file and its directory are removed on every exit path. Nothing
-# else of the finished session is carried beyond the keys named here.
+# changes. The file and its directory are removed on every exit path, by an
+# exit trap that also runs on INT and TERM and, replacing the coordinated
+# lock's own exit trap, releases that lock too. Nothing else of the finished
+# session is carried beyond the keys named here.
 #
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
 # `carried=<n>` after a carry and `session=execute-<slug>` when a session was
