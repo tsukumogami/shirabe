@@ -156,8 +156,10 @@ case "$(q '.states.pr_precheck.gates.tests_still_counted.command')" in
     *"test-change.sh\" status \"{{SESSION_NAME}}\""*) pass "pr_precheck re-runs test-change.sh status as tests_still_counted" ;;
     *) fail "tests_still_counted is [$(q '.states.pr_precheck.gates.tests_still_counted')]" ;;
 esac
-[ "$(q '[.states.pr_precheck.transitions[] | select(.target == "pr_creation") | .when["gates.tests_still_counted.exit_code"]] | map(tostring) | join(",")')" = "0,0" ] \
-    && pass "every pr_precheck edge to pr_creation needs tests_still_counted to pass" || fail "pr_precheck's edges are [$(q '.states.pr_precheck.transitions')]"
+# The pull request edges go to pr_creation through probe_near, the
+# rule-distance probe's pass-through state.
+[ "$(q '[.states.pr_precheck.transitions[] | select(.target == "probe_near") | .when["gates.tests_still_counted.exit_code"]] | map(tostring) | join(",")')" = "0,0" ] \
+    && pass "every pr_precheck edge toward pr_creation needs tests_still_counted to pass" || fail "pr_precheck's edges are [$(q '.states.pr_precheck.transitions')]"
 grep -qE 'gh pr (edit|comment)' "$TC" && fail "test-change.sh calls gh pr edit or comment" || pass "test-change.sh writes nothing to a pull request"
 
 # ==============================================================================
@@ -502,6 +504,9 @@ stub_block() {
         BEGIN { n = split(stubs, a, " "); for (i = 1; i <= n; i++) { split(a[i], kv, "="); ex[kv[1]] = kv[2] } }
         /^      [a-z_]+:$/ { gate = $1; sub(/:$/, "", gate) }
         /^        command:/ { if (gate in ex) { print "        command: \"exit " ex[gate] "\""; next } }
+        # The rule-distance probe gates pass, as they do for a run in no arm;
+        # probe_test.sh and probe-routes_test.sh exercise them.
+        /^        command:/ { if (gate == "probe_ack" || gate == "probe_value_absent") { print "        command: \"exit 0\""; next } }
         { print }'
 }
 # fixture <file> <first-state> <blocks> <stub terminals...>
@@ -539,7 +544,7 @@ fixture_session() {
 echo "--- pr_precheck re-runs status: a commit after counting is held before a pull request opens"
 
 PRE_BLOCKS=$(stub_block "$(extract_state pr_precheck)" branch_docs_visibility=0)
-fixture "$WORKDIR/precheck.md" pr_precheck "$PRE_BLOCKS" pr_creation pass_counting check_exit
+fixture "$WORKDIR/precheck.md" pr_precheck "$PRE_BLOCKS" probe_near pass_counting check_exit
 git checkout -q main
 git checkout -q -b case-precheck
 S=tc_precheck
@@ -560,7 +565,7 @@ git checkout -q -b case-precheck-clean
 S=tc_precheck_clean
 if fixture_session "$S" "$WORKDIR/precheck.md"; then
     tick "$S"
-    expect_state "with nothing held, pr_precheck goes on" pr_creation
+    expect_state "with nothing held, pr_precheck goes on" probe_near
 fi
 
 echo "--- ci_pass_counting: a test edited while fixing CI is held after CI passes; then an overrule after done"

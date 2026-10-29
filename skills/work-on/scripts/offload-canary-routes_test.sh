@@ -12,7 +12,8 @@
 #      shared-branch and a failed-assignment run (script missing, not
 #      executable, or failing) enter neither and still reach
 #      review_level_choice; a bad switch value and an attach with a different
-#      one are refused; a rewound run re-enters its own marker state.
+#      one are refused; a rewound run keeps its group and enters neither
+#      marker again.
 #   B. The shipped pr_creation directive, rendered after the shipped canary
 #      states in a fixture template: the preloaded, off, shared and failed runs
 #      render it byte for byte alike, and a withheld run's directive, the
@@ -186,15 +187,32 @@ else
     pass "an attach with a different OFFLOAD_CANARY is refused, so a run keeps its group"
 fi
 
-# A rewound withheld run walks back to the assignment and re-enters its own marker.
-(cd "$REPO" && koto rewind "$WS" >/dev/null 2>&1 && koto rewind "$WS" >/dev/null 2>&1)
+# A rewound withheld run keeps its group. koto rewind undoes the last move: it
+# returns to the state the second-to-last state change reached, counting
+# earlier rewinds, so a second rewind goes back where the first one started.
+# Before the probe, the state before review_level_choice was the canary's own
+# marker, and the old check that a rewound run "re-enters offload_arm_withheld"
+# held because the rewind itself arrived there. With probe_draw in between, a
+# rewind arrives at probe_draw and no sequence of rewinds reaches the marker or
+# the assignment. Both rewinds' destinations are pinned below, so a koto that
+# can step back further fails here and the marker check can come back. What a
+# rewind can reach is checked: the tick from probe_draw runs on to
+# review_level_choice without entering either marker again or re-running the
+# assignment, and the recorded group is unchanged.
+RW1=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
+RW2=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
+RW3=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
 SESS=$WS
 RESP=$(cd "$REPO" && koto next "$WS" --no-cleanup 2>/dev/null)
-if [ "$(state_of)" = review_level_choice ] && [ "$(entered "$WS" offload_arm_withheld)" -eq 2 ] \
-    && [ "$(entered "$WS" offload_arm_preloaded)" -eq 0 ]; then
-    pass "a rewound withheld run re-enters offload_arm_withheld and never the other marker"
+WSDIR=$(cd "$REPO" && koto session dir "$WS" 2>/dev/null)
+if [ "$RW1" = probe_draw ] && [ "$RW2" = review_level_choice ] && [ "$RW3" = probe_draw ] \
+    && [ "$(state_of)" = review_level_choice ] \
+    && [ "$(entered "$WS" offload_canary)" -eq 1 ] && [ "$(entered "$WS" offload_arm_withheld)" -eq 1 ] \
+    && [ "$(entered "$WS" offload_arm_preloaded)" -eq 0 ] \
+    && [ "$(cat "$WSDIR/pr-rules/sample" 2>/dev/null)" = withheld ]; then
+    pass "a rewound withheld run keeps its group: rewinds reach probe_draw, never the other marker"
 else
-    fail "rewind: state [$(state_of)], markers $(entered "$WS" offload_arm_withheld)/$(entered "$WS" offload_arm_preloaded)"
+    fail "rewind: rewinds reached [$RW1/$RW2/$RW3], state [$(state_of)], canary $(entered "$WS" offload_canary), markers $(entered "$WS" offload_arm_withheld)/$(entered "$WS" offload_arm_preloaded), sample [$(cat "$WSDIR/pr-rules/sample" 2>/dev/null)]"
 fi
 
 # --- B. the pr_creation directive --------------------------------------------------------
@@ -228,20 +246,25 @@ FIX="$T/fixture.md"
     echo "description: the shipped canary states before the shipped pr_creation directive"
     echo "initial_state: offload_canary"
     echo "variables:"
-    for v in PLUGIN_ROOT ARTIFACT_PREFIX SHARED_BRANCH BRANCH ISSUE_NUMBER; do
+    for v in PLUGIN_ROOT ARTIFACT_PREFIX SHARED_BRANCH BRANCH ISSUE_NUMBER PROBE_NEAR_RULE; do
         echo "  $v:"
         echo "    description: fixture"
         echo "    required: false"
     done
-    echo "  OFFLOAD_CANARY:"
-    echo "    description: fixture"
-    echo "    required: false"
-    echo "    default: \"on\""
-    echo "    values: [\"on\", \"off\"]"
+    for v in OFFLOAD_CANARY PROBE; do
+        echo "  $v:"
+        echo "    description: fixture"
+        echo "    required: false"
+        echo "    default: \"on\""
+        echo "    values: [\"on\", \"off\"]"
+    done
     echo "states:"
-    extract_state offload_canary
-    extract_state offload_arm_withheld
-    extract_state offload_arm_preloaded
+    # The canary's states route on through the rule-distance probe's, which
+    # this host hasn't opted in to, so every run passes through them unarmed.
+    for st in offload_canary offload_arm_withheld offload_arm_preloaded probe_draw \
+        probe_arm_near probe_arm_far probe_arm_far_redeliver; do
+        extract_state $st
+    done
     echo "  review_level_choice:"
     echo "    accepts:"
     echo "      ok:"
@@ -259,6 +282,9 @@ FIX="$T/fixture.md"
     echo "## offload_canary"; echo; echo "Assigning."; echo
     echo "## offload_arm_withheld"; echo; echo "Withheld."; echo
     echo "## offload_arm_preloaded"; echo; echo "Preloaded."; echo
+    for st in probe_draw probe_arm_near probe_arm_far probe_arm_far_redeliver; do
+        echo "## $st"; echo; echo "Probe."; echo
+    done
     echo "## review_level_choice"
     printf '%s\n' "$BODY"
     echo
