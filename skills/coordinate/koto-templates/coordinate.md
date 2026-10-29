@@ -2981,19 +2981,31 @@ word. That holds when the order is conditional, partial or bundled with other
 rules; those rules go in an `answer` row beside it, never in its place. Pick,
 the dispatch check, the land check, the merge and the quiet check read only
 `pause` rows, so an order written only as an `answer` holds nothing, and the
-workers it parked are counted silent. A person's own comment on the record is
-not an entry until you write it. And before a local agent starts work in
-flight (a fix round, a pull request it builds), write its row, `--work
+workers it parked are counted silent. An order that lets some work go on while
+the rest holds (most often: let the pull requests in flight land, then park and
+hold) is the pause it scopes plus one go-ahead row per unit it lets through,
+`--standing go-ahead --on <the unit> --what "<what it lets through>"` with the
+person as owner and `--relayed-by`: an `all` pause alone holds those merges
+too, since the land check and the merge refuse a paused one. The units let
+through are the ones the order names; when it names none, they are the units
+whose pull request is open when the order arrives. A person's own comment on
+the record is not an entry until you write it. And before a local agent starts
+work in flight (a fix round, a pull request it builds), write its row, `--work
 "<what>" --kind local-agent --who "local agent" --next "<step>"`, and `--done
 "<what>"` when it lands: without the row a successor can't see the work.
 
-After writing a pause, send each live worker it covers the pause line: push
+After writing a pause, send each live worker it holds the pause line: push
 what you have at a safe point, report, then do nothing until the resume (no
 panels, evals or messages), and write each one's next step, `--work "<unit>"
 --kind holding --who <topic> --next "paused by <id>; idle until the resume"`.
-Say up which worker the message didn't reach. A resume is that row ending:
-write a person's resume with `--end <id> --by "<the person>"`, then tick
-`resume`; tick `resume` too when a wait you ran until a pause's minute
+A worker a go-ahead lets through gets no pause line: tell it it may carry on
+to its merge, and write its Work row to say so, `--next "go-ahead <id>; carry
+on to the merge"`. End each go-ahead with `--end <id> --by "<who>"` once its
+unit has merged, and end any go-ahead still standing when the pause it was
+written against ends: a go-ahead left behind would let its unit through a
+later pause. Say up which worker the message didn't reach. A resume is that
+row ending: write a person's resume with `--end <id> --by "<the person>"`,
+then tick `resume`; tick `resume` too when a wait you ran until a pause's minute
 returns, and when a notification names the pull request or tag a pause
 waits on. After a resume, send each worker in its scope the resume line (start
 the fix round it was sent, send its ready report again, or continue from its
