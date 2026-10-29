@@ -131,6 +131,41 @@ session "$(roadmap_vars plugin-system)" roadmap-plugin-system
 bash "$PF" --session "$S" >/dev/null 2>"$T/err"
 eq "a merged row reads merged, neither active nor parked" "alpha:true:false 1 0" "$(facts | jq -r '([.holdings[] | select(.worker == "alpha") | "\(.worker):\(.merged):\(.parked)"] | join(" ")) + " \(.active) \(.parked)"')"
 grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "it only reads" "$(calls)" || ok "it only reads"
+# A pull request GitHub reads MERGED frees its holding's slot before the
+# record confirms the merge (shirabe#1385), when the worker has nothing left:
+# a Verified head, or the work-on entry point, which lands one pull request.
+# A /deliver row without a Verified head may be on a multi-pr plan whose first
+# pull request merged, and a scoping-ahead row still waits for its execution:
+# both keep their slot.
+lk() { jq -nc --arg p "$(link "$1")" '{pull_request: $p}'; }
+vh() { jq -c --arg h "$SHA_HEAD" '. + {verified_head: $h}'; }
+MERGED_HOLDINGS=$(jq -nc \
+    --argjson a "$(holding alpha "$(lk 31 | vh | jq -c '. + {unit: "Feature 2"}')")" \
+    --argjson b "$(holding beta "$(lk 32 | jq -c '. + {unit: "Feature 4", entry_point: "/shirabe:work-on"}')")" \
+    --argjson c "$(holding gamma "$(lk 33 | jq -c '. + {unit: "Feature 5"}')")" \
+    --argjson d "$(holding delta "$(lk 34 | vh | jq -c '. + {unit: "Feature 3", phase: "scoping-ahead"}')")" \
+    --argjson e "$(holding epsilon "$(lk 35 | jq -c '. + {unit: "#7", entry_point: "work-on"}')")" \
+    --argjson f "$(holding zeta "$(lk 36 | jq -c '. + {unit: "#8", entry_point: "work-on"}')")" \
+    --argjson g "$(holding eta "$(lk 37 | vh | jq -c '. + {unit: "#9"}')")" \
+    --argjson h "$(holding theta "$(jq -nc --arg h "$SHA_HEAD" '{unit: "#10", pull_request: "", verified_head: $h}')")" \
+    '[$a, $b, $c, $d, $e, $f, $g, $h]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$MERGED_HOLDINGS" '.holdings = $h')"
+pr 31 MERGED false; pr 32 MERGED false; pr 33 MERGED false; pr 34 MERGED false
+pr 35 OPEN true; pr 36 OPEN false; pr 37 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
+session "$(roadmap_vars plugin-system)" roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+row_of() { facts | jq -r --arg w "$1" '.holdings[] | select(.worker == $w) | "merged \(.merged), parked \(.parked)"'; }
+eq "a merged pull request behind a Verified head, unconfirmed, no longer counts against the run's worker cap" "merged true, parked false" "$(row_of alpha)"
+eq "a merged work-on pull request with no Verified head no longer counts against the run's worker cap" "merged true, parked false" "$(row_of beta)"
+eq "a /deliver row with no Verified head whose pull request merged keeps its slot (a multi-pr plan's first)" "merged false, parked false" "$(row_of gamma)"
+eq "a scoping-ahead row whose pull request merged keeps its slot (its execution is still to come)" "merged false, parked false" "$(row_of delta)"
+eq "a work-on row whose pull request is an open draft is active" "merged false, parked false" "$(row_of epsilon)"
+eq "a work-on row whose pull request is open and ready, with no Verified head, is active" "merged false, parked false" "$(row_of zeta)"
+eq "a Verified head and an open, ready pull request is still parked" "merged false, parked true" "$(row_of eta)"
+eq "a confirmed merge's blank cell is still merged" "merged true, parked false" "$(row_of theta)"
+eq "gamma, delta, epsilon and zeta are active, eta parked" "4 1" "$(facts | jq -r '"\(.active) \(.parked)"')"
+grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "  ... it only reads" "$(calls)" || ok "  ... it only reads"
 
 echo "== roadmap: owed decision work, the DESIGN's blocking table's third column =="
 ESC='"round": "1", "verdict": "escalate", "recommendation": "wait", "reason": "r", "context": "c", "problem": "p", "grounds": "scope", "target": "a person"'

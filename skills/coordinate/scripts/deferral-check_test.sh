@@ -408,7 +408,7 @@ seed "$(with_holdings "$(parked p1 31)" "$(parked p2 32)" "$(parked p3 33)")"
 pr 31 OPEN false; pr 32 OPEN true; pr 33 MERGED false
 session "$(roadmap_vars plugin-system)"
 eq "a verified draft and a merged pull request aren't parked" "ok beta" "$(check)"
-eq "they count as active" "2 1" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+eq "the draft counts as active; the merged one, verified, holds no slot (shirabe#1385)" "1 1" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 # A confirmed merge clears the row's Pull request cell and keeps it until
 # teardown: such a row holds no slot under the cap.
 merged() { holding "$1" "{\"pull_request\": \"\", \"verified_head\": \"$SHA_HEAD\"}"; }
@@ -417,6 +417,29 @@ for n in 21 22 23 24; do pr $n OPEN true; done
 session "$(roadmap_vars plugin-system)"
 eq "a merged row waiting for teardown holds no slot under the cap" "ok beta" "$(check)"
 eq "it counts as neither active nor parked" "4 0" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+# A merge the record hasn't confirmed yet frees the slot too, when GitHub reads
+# the linked pull request MERGED and the worker has nothing left: a Verified
+# head, or the work-on entry point (shirabe#1385).
+workon() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\", \"entry_point\": \"work-on\"}"; }
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(parked v1 41)" "$(workon w1 42)")"
+for n in 21 22 23; do pr $n OPEN true; done; pr 41 MERGED false; pr 42 MERGED false
+session "$(roadmap_vars plugin-system)"
+eq "merged pull requests the record hasn't confirmed no longer count against the run's worker cap" "ok beta" "$(check)"
+eq "  ... three active, none parked" "3 0" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(parked v1 41)" "$(workon w1 42)")"
+for n in 21 22 23 41 42; do pr $n OPEN true; done
+session "$(roadmap_vars plugin-system)"
+eq "the same pull requests open as drafts are at-cap again" "at-cap 5/5 0/3" "$(check)"
+# A /deliver row with no Verified head may be on a multi-pr plan whose first
+# pull request merged, and a scoping-ahead row waits for its execution: both
+# keep their slot, merged link or not.
+verified_scoping() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\", \"phase\": \"scoping-ahead\", \"verified_head\": \"$SHA_HEAD\"}"; }
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active d1 43)" "$(verified_scoping s1 44)")"
+for n in 21 22 23; do pr $n OPEN true; done; pr 43 MERGED false; pr 44 MERGED false
+session "$(roadmap_vars plugin-system)"
+eq "a merged first pull request of a /deliver row, and a scoping-ahead row's, keep their slots" "at-cap 5/5 0/3" "$(check)"
+session "$(roadmap_vars plugin-system)" send_execution s1
+eq "  ... so send_execution to that scoping-ahead row stays within the cap" "ok s1" "$(check)"
 
 echo "== check mode: a discipline rotation =="
 # A rotation's predecessor's deferrals are rows of its own record from its
