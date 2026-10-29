@@ -113,14 +113,17 @@
 #not-a-call-site	skills/work-on/scripts/check-pr-output.sh	shirabe	-n	The -n is tail's, in an error message quoting the validator's stderr; the validator itself is called without it.
 #not-a-call-site	skills/work-on/scripts/check-branch-output.sh	shirabe	-n	The -n is tail's, in an error message quoting the validator's stderr; the validator itself is called without it.
 #
-# The koto floor. /work-on needs koto 0.22.0, shirabe's koto minimum
+# The koto floor. /work-on needs koto 0.31.0, shirabe's koto minimum
 # (scripts/assert-koto-floor.sh). 0.15.0 is the release whose value routing and
 # decider checks the review level states use, and 0.20.0 the one whose decider
 # check hands a criterion the decider couldn't answer back to the agent: the
 # review_level_check directive tells the agent to answer it with
 # `koto decider answer`, declared below. 0.21.0 returns a passing gate's
 # warn-stage findings to the agent as advisories (tsukumogami/koto#393), so a
-# rule at warn in /work-on's gates reaches the agent. 0.14.0 is the release from which a child's
+# rule at warn in /work-on's gates reaches the agent. 0.31.0 compiles the probe
+# states' `directive_rules` and `capture_allow_empty` (docs/guides/probe.md),
+# fields a template field rather than a flag, so no record declares them either.
+# 0.14.0 is the release from which a child's
 # result reaches its parent whether or not its tick carried --no-cleanup, which
 # is what lets every tick carry the flag. That is behaviour, not a flag, so no
 # record below can declare it. The preflight compares koto's version with the

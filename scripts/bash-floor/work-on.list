@@ -93,6 +93,10 @@ skills/work-on/scripts/check-pr-output_test.sh
 # the route suite skips its koto cases when koto is absent.
 skills/work-on/scripts/offload-canary_test.sh
 skills/work-on/scripts/offload-canary-routes_test.sh
+# The rule-distance probe: the script's suite needs no engine; the route
+# suite skips its koto cases when koto is absent.
+skills/work-on/scripts/probe_test.sh
+skills/work-on/scripts/probe-routes_test.sh
 # Reads the committed verification map with jq and the files that
 # document it; no engine.
 skills/work-on/scripts/verification-map-schema_test.sh

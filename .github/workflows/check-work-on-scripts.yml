@@ -436,6 +436,20 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/offload-canary-routes_test.sh
 
+      # The rule-distance probe: probe.sh's draw, check and leak gates against
+      # constructed session logs, git fixtures and a stubbed gh (no engine),
+      # then the shipped probe states driven through a real koto: each arm's
+      # routes and directives, the hold, the created edges and the exported
+      # records. The engine cases skip without koto; the macOS leg runs both
+      # on the floor through the work-on suite.
+      - name: Run probe tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/probe_test.sh
+
+      - name: Run probe route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/probe-routes_test.sh
+
       # Holds shirabe's verification map to the v1 schema with jq, and the
       # schema reference and work-on.md to what they must say. Needs only git
       # and jq; the macOS leg runs it on the floor through the work-on suite.

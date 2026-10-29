@@ -307,6 +307,9 @@ stub_block() {
         BEGIN { n = split(stubs, a, " "); for (i = 1; i <= n; i++) { split(a[i], kv, "="); ex[kv[1]] = kv[2] } }
         /^      [a-z_]+:$/ { gate = $1; sub(/:$/, "", gate) }
         /^        command:/ { if (gate in ex) { print "        command: \"exit " ex[gate] "\""; next } }
+        # The rule-distance probe gates pass, as they do for a run in no arm;
+        # probe_test.sh and probe-routes_test.sh exercise them.
+        /^        command:/ { if (gate == "probe_ack" || gate == "probe_value_absent") { print "        command: \"exit 0\""; next } }
         { print }'
 }
 
@@ -339,6 +342,7 @@ build() {
             '    pattern: ^(light|standard|full)?$'
         extract_var VERIFICATION
         extract_var VERIFICATION_DEFERRAL_REASON
+        printf '%s\n' '  PROBE_NEAR_RULE:' '    description: the probe_near capture pr_creation reads' '    required: false'
         printf '%s\n' 'states:' '  start:'
         if [ "$initial" = pr_creation ]; then
             printf '%s\n' '    accepts:' '      go:' '        type: enum' '        values: [pr]' \

@@ -14,11 +14,11 @@ property of koto's session disposal, not of any one skill. Five skills drive
 koto; an argument copied into each drifts, and shirabe#360 demonstrated the
 drift before the copies were consolidated.
 
-It describes koto 0.14.0 and later. shirabe's koto minimum is 0.22.0
+It describes koto 0.14.0 and later. shirabe's koto minimum is 0.31.0
 (`scripts/assert-koto-floor.sh`). Two parts of it arrived in koto 0.23.0, the
 hierarchy case at the terminal tick and the move aside under
-`--replace-terminal`, and a host still on koto 0.22.x has neither; each is
-marked where it appears.
+`--replace-terminal`; each is marked where it appears, and every koto at the
+minimum has both.
 
 ## What koto does
 

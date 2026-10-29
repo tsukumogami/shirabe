@@ -47,6 +47,11 @@
 # `koto init --dispatched-by`, which /execute's coordinated step agent passes,
 # and `koto session hierarchy`, which answers whether a session may be
 # reclaimed (references/skill-session-convention.md).
+# 0.31.0 is the release that records a rule a directive carries
+# (`directive_rules`, a rule_delivered event with via: directive) and delivers
+# an empty capture under `capture_allow_empty`: /work-on's probe states use
+# both (docs/guides/probe.md), and a template that has them doesn't compile on
+# an older koto.
 # Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
@@ -85,7 +90,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.22.0}"
+FLOOR="${KOTO_FLOOR:-0.31.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically
