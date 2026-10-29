@@ -135,7 +135,10 @@ A run's records are:
   ready before a `pr_status: created` submission;
 - the `check_evaluated` and `check_finding` records of `probe_value_absent`.
 
-None of them carries the value, the `ack` field or the rule's text. Each
+None of them carries the value, the `ack` field or the rule's text: koto's
+run journal exports declared names, ids, booleans and counts, never a
+finding's message, a string evidence field, a captured value or a gate's
+output, and the probe relies on that. Each
 re-print of a directive records a new delivery, so a tick that holds at
 `review_level_choice` or `pr_creation` adds one; a reader takes the last
 delivery before the first decided check. A run's first check is its earliest

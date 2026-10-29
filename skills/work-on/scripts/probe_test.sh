@@ -387,7 +387,7 @@ check "pr_precheck probe_value_absent: a run in no arm passes through the templa
 # --- C. check ---------------------------------------------------------------
 
 V=$(runtime_value)
-[ -n "$V" ] || { fail "could not draw a runtime value"; V=xxx000000; }
+[ -n "$V" ] || { echo "could not draw a runtime value" >&2; exit 2; }
 
 SEQ=0
 log_start() { SEQ=0; LOG=$1; echo '{"schema_version":1}' > "$LOG"; }

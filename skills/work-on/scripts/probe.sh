@@ -42,7 +42,9 @@
 # draw prints the rule's full text with the value, which work-on.md captures as
 # PROBE_FAR_RULE, and records <session-dir>/probe/far_shown so a later visit
 # (analysis looping back) prints nothing. draw always exits 0: a failure leaves
-# the run in no arm instead of holding it. Arguments after the fourth are
+# the run in no arm instead of holding it. <plugin-root> is not read today: it
+# is passed so the draw's command line matches the offload canary's and can
+# reach plugin files without a template change. Arguments after it are
 # ignored, and nothing seeds the draw.
 #
 # arm exits 0 near, 1 far, 4 far_redeliver, 3 no arm or unreadable files.
@@ -71,6 +73,11 @@
 # a fixed string, and exits 1 with a probe/value-absent finding naming only the
 # route on a hit, 0 on none, 2 when git can't answer. An empty or unresolvable
 # <base> falls back to the merge base with origin/HEAD.
+#
+# work-on.md doesn't call leak-branch: its three probe_value_absent gates share
+# one command (one gate name, one command), leak-pr, whose first step is the
+# same branch search. leak-branch is the branch search alone, for a caller
+# with no session log.
 #
 # leak-pr runs the branch search, then, once the session log holds a
 # `pr_status: created` submission, reads the pull request's title, body,

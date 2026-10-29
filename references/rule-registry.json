@@ -4761,7 +4761,8 @@
         "mode": "check"
       },
       "fixtures": [
-        "skills/work-on/scripts/probe_test.sh"
+        "skills/work-on/scripts/probe_test.sh",
+        "skills/work-on/scripts/probe-routes_test.sh"
       ],
       "level": "gate",
       "timing": [
@@ -4796,7 +4797,8 @@
         "mode": "leak-pr"
       },
       "fixtures": [
-        "skills/work-on/scripts/probe_test.sh"
+        "skills/work-on/scripts/probe_test.sh",
+        "skills/work-on/scripts/probe-routes_test.sh"
       ],
       "level": "gate",
       "timing": [

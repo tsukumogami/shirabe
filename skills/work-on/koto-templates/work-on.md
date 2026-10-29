@@ -3366,19 +3366,21 @@ Record non-obvious decisions with `koto decisions record {{SESSION_NAME}}`.
 
 ## offload_canary
 
-koto runs this state itself and moves on to `review_level_choice` without
-stopping. It assigns the run to the live offload canary's groups when the
+koto runs this state itself and moves on, through `probe_draw`, to
+`review_level_choice` without stopping. It assigns the run to the live offload canary's groups when the
 canary applies; there is nothing to submit. If it ever holds here, tick again with
 `koto next {{SESSION_NAME}} --no-cleanup`.
 
 ## offload_arm_withheld
 
-koto passes through this state to `review_level_choice` without stopping.
+koto passes through this state, and `probe_draw`, to `review_level_choice`
+without stopping.
 There is nothing to submit.
 
 ## offload_arm_preloaded
 
-koto passes through this state to `review_level_choice` without stopping.
+koto passes through this state, and `probe_draw`, to `review_level_choice`
+without stopping.
 There is nothing to submit.
 
 ## probe_draw
