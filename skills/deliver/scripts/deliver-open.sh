@@ -54,6 +54,25 @@
 #
 # It never reads a session's origin record or state file.
 #
+# The earlier run's review round is carried into the fresh session. Every
+# accepted probe ends with the earlier session gone (the cleanup removes this
+# worktree's live session after opened=attached, or the probe's own
+# replacement after opened=replaced), so before the probe, and only when the
+# listing names the session, its review_round.json (review-round.sh writes it
+# there, and coordinate's land step reads it there) is read into a file in a
+# private directory from `koto-open.sh --alloc-dir`, outside the work tree;
+# nothing is written to that session. After the open succeeds, and only when
+# the probe reported opened=replaced or opened=attached, the file is written
+# unchanged as the fresh session's review_round.json, when it is one JSON
+# object. It keeps its reviewed_head, so the land step still refuses a round
+# whose head has moved. Nothing is read or written on a first run the listing
+# doesn't name, nor after a probe's opened=new. A read or a write that fails,
+# or a value that isn't one JSON object, prints one stderr warning naming the
+# session and saying the round has to be recorded again with review-round.sh,
+# and the run goes on: no stdout line or exit code changes. The file and its
+# directory are removed on every exit path. Nothing else of the earlier
+# session is carried.
+#
 # Usage:
 #   deliver-open.sh [--plugin-root <path>] <args-file>
 #
@@ -142,6 +161,10 @@ KOTO="${KOTO_BIN:-koto}"
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
 
 ARGS_FILE=""
+# The earlier run's review round and the private directory it sits in, while
+# the round is between its read and its write (see the header).
+ROUND_FILE=""
+ROUND_DIR=""
 
 TOP=""
 if [ "$(git rev-parse --is-inside-work-tree 2>&1)" = "true" ]; then
@@ -170,8 +193,21 @@ remove_if_untracked() {
     rm -f -- "$f"
 }
 
+# remove_round -- the round file and its private directory.
+remove_round() {
+    [ -n "$ROUND_FILE" ] && rm -f -- "$ROUND_FILE"
+    ROUND_FILE=""
+    if [ -n "$ROUND_DIR" ]; then
+        rm -f -- "$ROUND_DIR/.koto-open-alloc"
+        rmdir -- "$ROUND_DIR" 2>/dev/null
+        ROUND_DIR=""
+    fi
+    return 0
+}
+
 cleanup() {
     local dir=""
+    remove_round
     [ -n "$ARGS_FILE" ] && dir=$(dirname -- "$ARGS_FILE")
     remove_if_untracked "$ARGS_FILE"
     # The private directory `koto-open.sh --alloc-dir` made for the args file.
@@ -381,11 +417,71 @@ moved_lines() {
     MOVED=$(printf '%s\n' "$1" | grep -E '^moved_(to|reason)=')
 }
 
+# --- the earlier run's review round --------------------------------------------------
+
+# read_prior_round <session> -- copy <session>'s review_round.json, when it
+# has one, into ROUND_FILE. A read only: nothing is written to <session>.
+# ROUND_READ says what came of it: `none` (no such key), `read`, or `failed`
+# (an `exists` that answered neither yes nor no, or a `get` that failed).
+# Only an accepted probe that found the session acts on it, so a failure here
+# is reported by write_prior_round or not at all.
+ROUND_READ=none
+read_prior_round() {
+    local session="$1" rc=0
+    "$KOTO" context exists "$session" review_round.json </dev/null >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) ROUND_READ=failed; return 0 ;;
+    esac
+    if ! ROUND_DIR=$(bash "$KOTO_OPEN" --alloc-dir 2>/dev/null) || [ ! -d "$ROUND_DIR" ]; then
+        ROUND_DIR=""; ROUND_READ=failed; return 0
+    fi
+    ROUND_FILE="$ROUND_DIR/review_round.json"
+    if "$KOTO" context get "$session" review_round.json </dev/null >"$ROUND_FILE" 2>/dev/null; then
+        ROUND_READ=read
+    else
+        ROUND_READ=failed
+    fi
+    return 0
+}
+
+# write_prior_round <session> -- after the open, write the round
+# read_prior_round kept, byte for byte, as the fresh session's
+# review_round.json. Only one JSON object is written. A failed read, anything
+# else, or a failed write is one warning: the land step then finds no round
+# in this run until the worker records it again.
+write_prior_round() {
+    local session="$1" why=""
+    case "$ROUND_READ" in
+        none) return 0 ;;
+        failed) why="could not be read" ;;
+        read)
+            if ! jq -s -e 'length == 1 and (.[0] | type) == "object"' <"$ROUND_FILE" >/dev/null 2>&1; then
+                why="is not one JSON object"
+            elif ! "$KOTO" context add "$session" review_round.json <"$ROUND_FILE" >/dev/null 2>&1; then
+                why="could not be written"
+            fi
+            ;;
+    esac
+    remove_round
+    [ -n "$why" ] || return 0
+    printf '%s: the review round recorded in the earlier run of %s %s, so the new run has none; record it again with review-round.sh\n' \
+        "$PROG" "$session" "$why" >&2
+    return 0
+}
+
 # --- 1. the probe ------------------------------------------------------------------
 
 # A name koto lists no session for needs no probe: the open below makes the
 # session, and nothing is removed. A session that appears in between is
 # refused by the open, which carries no attach flags.
+#
+# ACCEPTED is the result line of the probe that let the run go on: only
+# opened=replaced and opened=attached removed an earlier run whose round the
+# fresh session takes.
+ACCEPTED=""
+[ "$LISTED" = yes ] && read_prior_round "$SESSION"
 if [ "$LISTED" != no ]; then
     PROBE_VARS=$(write_vars '[["TOPIC", .topic], ["PLUGIN_ROOT", $root]]') \
         || stop "error=usage" "could not write the probe's vars file" 64
@@ -393,7 +489,7 @@ if [ "$LISTED" != no ]; then
     RC=$?
 
     case "$PROBE" in
-        opened=*) moved_lines "$PROBE"; fresh_start "$PROBE" ;;
+        opened=*) ACCEPTED=${PROBE%%$'\n'*}; moved_lines "$PROBE"; fresh_start "$PROBE" ;;
         *)
             # A collision (origin_mismatch, template_mismatch) or any other
             # refusal: koto's own wording is already on stderr, and the
@@ -408,7 +504,7 @@ if [ "$LISTED" != no ]; then
                 RECORDED=$OUT
             fi
             case "$RECORDED" in
-                opened=*) moved_lines "$RECORDED"; fresh_start "$RECORDED" ;;
+                opened=*) ACCEPTED=${RECORDED%%$'\n'*}; moved_lines "$RECORDED"; fresh_start "$RECORDED" ;;
                 *)
                     [ -n "$PROBE" ] && printf '%s\n' "$PROBE"
                     bash "$REPORT" --refused
@@ -429,6 +525,9 @@ if [ "$RC" -eq 0 ]; then
     # session is born, and only read afterwards (run-id.sh get).
     bash "$PLUGIN_ROOT/skills/execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
         || printf 'deliver-open: could not record a run identity in %s; its PR lookups will fail until it has one\n' "$SESSION" >&2
+    case "$ACCEPTED" in
+        opened=replaced|opened=attached) write_prior_round "$SESSION" ;;
+    esac
     [ -n "$MOVED" ] && printf '%s\n' "$MOVED"
     [ -n "$REMOVED" ] && printf '%s\n' "$REMOVED"
     printf 'session=%s\n' "$SESSION"

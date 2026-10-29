@@ -208,7 +208,9 @@ nothing else.
    removes nothing. When the run does remove a same-named session of this
    worktree before opening the fresh one, it prints `removed=deliver-<topic>`
    and `removed_predates=yes` for an earlier session or `no` for one this
-   invocation made.
+   invocation made. The earlier run's review round (`review_round.json`) is
+   carried into the fresh session unchanged, and a warning names
+   `review-round.sh` when it can't be.
 
 3. **Tick.** Call `koto next deliver-<topic> --no-cleanup`, do what the
    directive says, submit the evidence it asks for, and repeat.
