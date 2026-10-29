@@ -12,7 +12,8 @@
 #      shared-branch and a failed-assignment run (script missing, not
 #      executable, or failing) enter neither and still reach
 #      review_level_choice; a bad switch value and an attach with a different
-#      one are refused; a rewound run keeps its group.
+#      one are refused; a rewound run keeps its group and enters neither
+#      marker again.
 #   B. The shipped pr_creation directive, rendered after the shipped canary
 #      states in a fixture template: the preloaded, off, shared and failed runs
 #      render it byte for byte alike, and a withheld run's directive, the
@@ -186,20 +187,32 @@ else
     pass "an attach with a different OFFLOAD_CANARY is refused, so a run keeps its group"
 fi
 
-# A rewound withheld run keeps its group. koto rewind steps back one state, to
-# probe_draw now that the probe's states sit between the canary and
-# review_level_choice; the next tick runs on from there and never enters the
-# other marker, and the recorded group is unchanged.
-(cd "$REPO" && koto rewind "$WS" >/dev/null 2>&1)
+# A rewound withheld run keeps its group. koto rewind undoes the last move: it
+# returns to the state the second-to-last state change reached, counting
+# earlier rewinds, so a second rewind goes back where the first one started.
+# Before the probe, the state before review_level_choice was the canary's own
+# marker, and the old check that a rewound run "re-enters offload_arm_withheld"
+# held because the rewind itself arrived there. With probe_draw in between, a
+# rewind arrives at probe_draw and no sequence of rewinds reaches the marker or
+# the assignment. Both rewinds' destinations are pinned below, so a koto that
+# can step back further fails here and the marker check can come back. What a
+# rewind can reach is checked: the tick from probe_draw runs on to
+# review_level_choice without entering either marker again or re-running the
+# assignment, and the recorded group is unchanged.
+RW1=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
+RW2=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
+RW3=$(cd "$REPO" && koto rewind "$WS" 2>/dev/null | jq -r '.state // empty')
 SESS=$WS
 RESP=$(cd "$REPO" && koto next "$WS" --no-cleanup 2>/dev/null)
 WSDIR=$(cd "$REPO" && koto session dir "$WS" 2>/dev/null)
-if [ "$(state_of)" = review_level_choice ] && [ "$(entered "$WS" probe_draw)" -ge 2 ] \
+if [ "$RW1" = probe_draw ] && [ "$RW2" = review_level_choice ] && [ "$RW3" = probe_draw ] \
+    && [ "$(state_of)" = review_level_choice ] \
+    && [ "$(entered "$WS" offload_canary)" -eq 1 ] && [ "$(entered "$WS" offload_arm_withheld)" -eq 1 ] \
     && [ "$(entered "$WS" offload_arm_preloaded)" -eq 0 ] \
     && [ "$(cat "$WSDIR/pr-rules/sample" 2>/dev/null)" = withheld ]; then
-    pass "a rewound withheld run keeps its group: back through probe_draw, never the other marker"
+    pass "a rewound withheld run keeps its group: rewinds reach probe_draw, never the other marker"
 else
-    fail "rewind: state [$(state_of)], probe_draw $(entered "$WS" probe_draw), markers $(entered "$WS" offload_arm_withheld)/$(entered "$WS" offload_arm_preloaded), sample [$(cat "$WSDIR/pr-rules/sample" 2>/dev/null)]"
+    fail "rewind: rewinds reached [$RW1/$RW2/$RW3], state [$(state_of)], canary $(entered "$WS" offload_canary), markers $(entered "$WS" offload_arm_withheld)/$(entered "$WS" offload_arm_preloaded), sample [$(cat "$WSDIR/pr-rules/sample" 2>/dev/null)]"
 fi
 
 # --- B. the pr_creation directive --------------------------------------------------------
