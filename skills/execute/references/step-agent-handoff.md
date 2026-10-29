@@ -131,7 +131,8 @@ How to drive it:
   not found`), the run's checkout may have moved after the child was opened.
   Run the open line above with `--attach-live` added: koto refuses it with
   code `var_mismatch` on `PLAN_DOC` and gives the path the child recorded as
-  `recorded`. When that path doesn't exist and {{PLAN_DOC}} is an existing
+  `recorded`, in the JSON object on the last line of its output (any
+  template warnings come before it). When that path doesn't exist and {{PLAN_DOC}} is an existing
   file with the same file name, run the open line again with `--attach-live`,
   `--var PLAN_DOC=<the recorded path>` in place of `--var PLAN_DOC={{PLAN_DOC}}`
   and `--var PLAN_DOC_MOVED={{PLAN_DOC}}` added, every other variable
@@ -188,9 +189,13 @@ nothing reads it again. Before then, the outline can't be read from it, and at
 `plan_validation` the `step_detail` gate refuses with `plan not found` for a
 task named `step-<N>`, the one name the check reads the PLAN for.
 
-`work-on.md`'s `PLAN_DOC_MOVED` is the way on. It is a rebind variable that only
-this hand-off passes: `plan_context_injection`'s directive and the `step_detail`
-gate read the PLAN there when it is set and at `PLAN_DOC` otherwise.
+`work-on.md`'s `PLAN_DOC_MOVED` is the way on. The child can't look the path up
+from the session that dispatched it instead: its gate runs in the node's
+worktree, and koto's cloud backend answers that session only in the
+coordination checkout it was opened in. `PLAN_DOC_MOVED` is a rebind variable
+that only this hand-off passes: `plan_context_injection`'s directive and the
+`step_detail` gate read the PLAN there when it is set and at `PLAN_DOC`
+otherwise.
 `plan_validation`'s decider input stays `PLAN_DOC`, since koto sends it as text
 and never opens it. The coordinated template above has the step agent attach a
 moved child with every variable it was opened with, `PLAN_DOC` as recorded, and
@@ -198,7 +203,9 @@ moved child with every variable it was opened with, `PLAN_DOC` as recorded, and
 recorded PLAN is gone and the current one is an existing file with the same file
 name, so a child is moved only onto the same PLAN in the new checkout. An attach
 that leaves `PLAN_DOC_MOVED` out blanks it again, which is harmless once the
-child has passed `plan_validation`. In every other case the step agent stops,
+child has passed `plan_validation`; before then the child shows the same signs
+again, and the step agent that drives it next attaches it the same way. In
+every other case the step agent stops,
 leaves the child where it is and reports `plan_doc=gone` rather than end the
 work item at `validation_exit` or `done_blocked`. Line 3 is a status note: the
 owning session acts on line 2 alone and reads the child's state from `koto
