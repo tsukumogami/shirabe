@@ -712,7 +712,9 @@ takeover() {
         rc=$?
         rm -rf "$d"
         [ $rc -eq 0 ] && break
-        code=$(printf '%s' "$out" | jq -r '.error.code // .code // empty' 2> /dev/null)
+        # koto's init refusals are flat ({"error": "<text>", "code": ...});
+        # .error is read for a code only when it is an object.
+        code=$(printf '%s' "$out" | jq -r '(.error | objects | .code) // .code // empty' 2> /dev/null)
         case "$rc:$code" in
             2:stale_state) [ $tries -eq 0 ] || refuse_takeover predecessor-unstoppable "$pred kept moving between its state read and the fence; nothing was written"
                            tries=1 ;;

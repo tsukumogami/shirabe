@@ -32,8 +32,11 @@
 #   8. with a stand-in koto refusing the run's driver read, its coordinator
 #      row read, or the takeover's koto status of it (session_unlocated), the
 #      start prints failed=takeover_read, exits 1 with koto's reason in its
-#      message, and opens, cancels and writes nothing, and a run with no
-#      driver and no coordinator row is still resumed.
+#      message, and opens, cancels and writes nothing; with the stand-in
+#      refusing the fence as koto's cloud backend does (cloud_unsupported),
+#      the start prints outcome=refused reason=cloud_unsupported, exit 2, and
+#      writes nothing; and a run with no driver and no coordinator row is
+#      still resumed.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
@@ -271,12 +274,20 @@ fi
 # names on: meta every read from its record/meta's (the driver), row every
 # read from its record/run's (the coordinator row), status its koto status
 # once record/run has been read (the takeover's state read; the resume
-# candidate's own status read comes before it). Each start runs from B's
-# session and directory against a run A drives.
+# candidate's own status read comes before it). With RS_FENCE set it refuses
+# the fence, koto init --supersede, as koto's cloud backend does: a flat
+# cloud_unsupported body, exit 2. Each start runs from B's session and
+# directory against a run A drives.
 REAL_KOTO=$(command -v koto)
 mkdir -p "$T/rshim"
 cat > "$T/rshim/koto" <<EOF
 #!/bin/sh
+if [ -n "\${RS_FENCE:-}" ] && [ "\$1" = init ]; then
+    case " \$* " in *" --supersede "*)
+        printf '{"code":"cloud_unsupported","command":"init","error":"--supersede: the cloud backend fence is not supported in this release; nothing was written"}\n'
+        exit 2 ;;
+    esac
+fi
 if [ "\$1 \$2 \$3" = "context get \$RS_RUN" ]; then
     case "\$RS_ARM:\$4" in meta:record/meta|row:record/run|status:record/run) : > "$T/rs-armed" ;; esac
 fi
@@ -314,6 +325,14 @@ if to_reconciled unread "$(two_holdings unread)"; then
         eq "8 $arm:   ... and writing nothing to the run, cancelling nothing" "$BEFORE_L" "$(wc -l < "$A3LOG")"
     done
     eq "8: the run's keys are as they were" "$A3KEYS" "$(keyset "$A3" "$WD")"
+    # The fence refused as on koto's cloud backend: koto's own code is the
+    # reason, and nothing is written.
+    BEFORE_S=$(sessions); BEFORE_L=$(wc -l < "$A3LOG")
+    rm -f "$T/rs-armed"
+    RS_FENCE=1 PATH="$T/rshim:$PATH" opener unread "$T/work2"
+    eq "8 fence: a cloud_unsupported fence refuses with koto's code" "2 refused cloud_unsupported" "$ORC $(line outcome) $(line reason)"
+    eq "8 fence:   ... opening no run" "$BEFORE_S" "$(sessions)"
+    eq "8 fence:   ... and writing nothing to the run" "$BEFORE_L" "$(wc -l < "$A3LOG")"
     # A run whose record/meta names no driver and whose record has no
     # coordinator row is no other session's: it is resumed, as before.
     put "$A3" record/run '[]'
