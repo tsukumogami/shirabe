@@ -286,7 +286,8 @@ run=<32 hex>
   body. A Part 1 edited between the render and the post skips the post. A
   `/scope` republish over a rendered body keeps its Part 1, its `store=` and
   `run=` lines, its PR Index and its Merge Order, and rewrites only what
-  `/scope` writes around them.
+  `/scope` writes around them. A re-evaluation or abandonment-forced publish
+  leaves a rendered body as it is and stops at `scope:pr-create`.
 - **Run lines** — `/scope`'s run lines as setup recorded them, then the
   record's store and the run's identity.
 - **PR Index** — one line per recorded PR node, in the order setup sealed the
