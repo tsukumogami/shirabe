@@ -60,6 +60,22 @@ variables:
   PLAN_DOC:
     description: Path to the PLAN document for plan-backed mode
     required: false
+  PLAN_DOC_MOVED:
+    description: >-
+      Where a plan-backed child's PLAN is now, set only when the checkout that
+      held PLAN_DOC moved after the child was opened. PLAN_DOC isn't
+      rebindable, so a child opened before the move keeps the old path; the
+      coordinated step agent (../../execute/references/step-agent-handoff.md)
+      attaches such a child with every recorded variable unchanged and this
+      one set to the run's current PLAN, before the child has passed
+      plan_validation. plan_context_injection's directive and plan_validation's
+      step_detail gate read this path when it is set and PLAN_DOC otherwise.
+      Rebindable, so an attach that leaves it out blanks it; that is harmless,
+      since no state after plan_validation reads it, and a later attach
+      (review-level.sh set, fix-kind.sh) comes only after the child has
+      passed. Empty on every root run and on a child that never moved.
+    required: false
+    rebind: true
   SHARED_BRANCH:
     description: >
       Shared branch name provided by the plan orchestrator. When set, skip branch
@@ -447,17 +463,18 @@ states:
     #
     # step_detail stops a plan/v2 step that is still a one-line outline before
     # any implementation. plan-to-tasks.sh names every plan/v2 task step-<N>,
-    # and the check reads that step from PLAN_DOC as committed now, through
+    # and the check reads that step from the PLAN as committed now, through
     # `shirabe plan outlines`: exit 0 detailed, 1 an outline (its stderr line,
-    # which koto shows as the gate's finding, names the step), 2 refused. A
-    # plan/v1 task's name is never step-<N>, so the check passes it at once
-    # without reading anything. proceed needs exit 0; exit is open whatever the
-    # check said. Not overridable: an override would start work on a step that
-    # has no detail to build from.
+    # which koto shows as the gate's finding, names the step), 2 refused. The
+    # PLAN is PLAN_DOC_MOVED when it is set (a child whose checkout moved) and
+    # PLAN_DOC otherwise. A plan/v1 task's name is never step-<N>, so the
+    # check passes it at once without reading anything. proceed needs exit 0;
+    # exit is open whatever the check said. Not overridable: an override would
+    # start work on a step that has no detail to build from.
     gates:
       step_detail:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh" --task "{{ARTIFACT_PREFIX}}" "{{PLAN_DOC}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh" --task "{{ARTIFACT_PREFIX}}" "$(if [ -n "{{PLAN_DOC_MOVED}}" ]; then printf %s "{{PLAN_DOC_MOVED}}"; else printf %s "{{PLAN_DOC}}"; fi)"'
         overridable: false
     accepts:
       verdict:
@@ -472,6 +489,9 @@ states:
           escape:  {value: unclear, description: "Missing, truncated, or unjudgeable."}
           inputs:
             - {context: context.md, label: outline_item, max_bytes: 12000}
+            # PLAN_DOC, not PLAN_DOC_MOVED: koto sends a var input as its text
+            # and never opens it, so a moved PLAN can't change the verdict,
+            # and a changed input would reset this declaration's evidence.
             - {var: PLAN_DOC, label: plan_path}
       rationale:
         type: string
@@ -3248,8 +3268,11 @@ Obtain the issue context for a plan-backed task. Behavior differs by ISSUE_SOURC
 - If ISSUE_SOURCE is `github`: read the GitHub issue with `gh issue view $ISSUE_NUMBER`
   and write it to koto context as `context.md`. Then proceed to setup_plan_backed.
 - If ISSUE_SOURCE is `plan_outline`: the PLAN doc is already available via the
-  PLAN_DOC variable. Extract the specific issue outline from the PLAN doc and write
-  it as `context.md`, then proceed to plan_validation.
+  PLAN_DOC variable. When PLAN_DOC_MOVED is set, the PLAN's checkout moved after
+  this child was opened and PLAN_DOC_MOVED is where the PLAN is now: read the
+  PLAN at `{{PLAN_DOC_MOVED}}` when that is non-empty, and at `{{PLAN_DOC}}`
+  otherwise. Extract the specific issue outline from that PLAN doc and write it
+  as `context.md`, then proceed to plan_validation.
 - A `plan/v2` PLAN (frontmatter `schema: plan/v2`) holds steps, not issues: the
   task name {{ARTIFACT_PREFIX}} is `step-<N>`, and the context is the
   `### Step <N>:` block under `## Steps`, from that heading up to the next
@@ -3274,7 +3297,8 @@ specific enough to code against.
 
 koto runs the `step_detail` gate on entry:
 `{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh` reads a `plan/v2`
-step from the PLAN as committed now. On a `plan/v1` task it passes without
+step from the PLAN as committed now, at PLAN_DOC_MOVED when that is set and at
+PLAN_DOC otherwise. On a `plan/v1` task it passes without
 reading anything. When the step is still a one-line outline the gate fails and
 its finding reads `step <N> is an outline; the plan's owner details it before
 its work starts`; any other failure is a refusal that names its reason (a

@@ -154,13 +154,43 @@ work.
    name), the opener continues it in a new run through koto's fence
    (`koto init --continues --supersede`), carrying its `record/`, `legs/`,
    `taken_legs` and `leg_children` keys, instead of resuming beside it. It
-   prints `outcome=continued`, `predecessor=<old run>`, `session=<new run>`
-   and `predecessor_stopped=yes|no`. Nothing is cancelled. From the fence on
+   prints `outcome=continued`, `predecessor=<old run>`, `session=<new run>`,
+   `predecessor_stopped=yes|no`, `watcher=stopped|absent|unobserved` and
+   `leg_wake=supported|unsupported`. Nothing is cancelled. From the fence on
    koto refuses every write to the old run with `session_superseded`, naming
-   the new one, and the old run's agent stops on it (the hub's "Taken over"
-   directive: stop, report the newest session to whoever launched it, and
-   don't re-arm the watch). The new run's record names this session as its
-   driver and its coordinator address, with nobody told yet, and holds one
+   the new one. The fence also rings the old run's wake file once, so a
+   `koto request watch` armed on it exits, and the old run's agent, ticking
+   on that wake, is refused and stops (the hub's "Taken over" directive:
+   stop, report the newest session to whoever launched it, and don't re-arm
+   the watch).
+
+   **Arm the new run's watch before the first tick.** In the same turn as
+   the opener, start one background
+   `koto request watch --session <session=> --timeout-secs 7200`, built from
+   the `session=` line the opener printed and nothing else, then tick. A
+   harness watch only notifies the agent that started it, so no script can
+   arm it for you. From then on the hub's Waking rule keeps exactly one
+   running.
+
+   `watcher=` says what became of the old run's watch: `stopped`, one ran
+   on this host before the fence and has exited; `absent`, none ran here;
+   `unobserved`, the old run's session names another host as its last writer
+   (koto's `version.json` beside a cloud-synced log), whose watches no ring
+   here reaches, or a watch found here still ran 5 seconds after the ring
+   (the opener names its pid on stderr). Neither `absent` nor `unobserved`
+   stops the takeover: the old run's next tick is refused either way. An
+   opener run again after a takeover cut short past the fence reads the watch
+   state then, after the first run's ring, so it prints `absent`, not
+   `stopped`. `leg_wake=` is read from the koto version: `supported` on koto
+   0.31.0 and later, which follows supersede events when it rings a request's
+   principals (its requester and coordinator of record), so a leg the old run
+   (or any earlier member) opened wakes the new run's watch; `unsupported`
+   on an older koto, which still takes the run over, but such a leg's result
+   reaches the new run only through a worker's message or the next
+   reconcile.
+
+   The new run's record names this session as its driver and its
+   coordinator address, with nobody told yet, and holds one
    takeover entry naming both runs; its first tick needs no rebind and its
    first reconcile reads the holdings it carried. `predecessor_stopped=yes`
    means the old run was live just before the fence, by the liveness probe
@@ -709,6 +739,16 @@ land check, the merge and the quiet check read only `pause` rows, so an order
 written only as an `answer` holds nothing and the workers it parked are
 counted quiet.
 
+An order that lets some work go on while the rest holds (most often: let the
+pull requests in flight land, then park and hold) is the pause it scopes plus
+one go-ahead row per unit it lets through, `--standing go-ahead --on <the
+unit>` with `--what`, the person as owner and `--relayed-by`. An `all` pause
+alone holds those merges too. The units let through are the ones the order
+names; when it names none, they are the units whose pull request is open when
+the order arrives. Their workers get no pause line: each is told it may carry
+on to its merge, and its Work row says so. The pause line and the `paused by
+<id>` Work row go only to the workers the pause holds.
+
 - **What it holds.** Pick never chooses a paused unit, and holds while the
   whole coordinator is paused; the dispatch check and `dispatch-worker.sh`
   refuse a paused dispatch; the land check and `land-merge.sh` refuse a
@@ -718,12 +758,17 @@ counted quiet.
   workers go on. A paused worker is never counted quiet. A quiet worker found
   parked on a person's order with no `pause` row gets that row, and its
   `paused by <id>` Work row, before the status message step submits `sent`,
-  so the next sweep skips it.
+  so the next sweep skips it. One the status step missed gets the same rows
+  at the failure branch, which escalates it to an entry you settle yourself
+  as left parked, never redispatching it.
 - **Resume.** A pause ends when its row ends: a person's resume, written with
   `--end <id> --by <the person>`, or its condition read as met at the next
   pick, after which you end the row yourself. Ending an `all` row resumes the
   coordinator; ending a unit's row resumes that unit only. A `go-ahead` row
-  on one unit lets it through a wider pause until it is used. Tick `resume`
+  on one unit lets it through a wider pause until it is used: end it with
+  `--end` once its unit has merged, and end any go-ahead still standing when
+  the pause it was written against ends, since one left behind would let its
+  unit through a later pause. Tick `resume`
   so pick reads the pauses again. A scheduled resume is a `time` condition:
   no timer holds it, and any pick after its minute, in this session or a
   replacement's, reads it met.
