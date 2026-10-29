@@ -125,13 +125,16 @@ work.
    restarts it, and one after the window opens the next rotation, which
    carries the last one.
 
-   **Handing over to a successor in another directory.** koto's cloud backend
-   answers a run only from the directory it is bound to, and refuses a read
-   from anywhere else as `session_bound_elsewhere`. A successor starting in
-   its own instance can meet that when it carries its predecessor's run. The
-   opener then stops with `refused=bound-elsewhere` (exit 2), leaving the old
-   run as it was and cancelling any run it opened, and its message names the
-   run and this directory. Do the handover in this order:
+   **Handing over to a successor in another directory.** koto 0.31.0 and
+   later read a run from any directory, so a successor starting in its own
+   instance reads its predecessor's run from where it stands.
+   `session_bound_elsewhere`, and the opener's `refused=bound-elsewhere`
+   (exit 2) that answers it, come only from an older koto, whose cloud
+   backend answers a run only from the directory it is bound to; the opener
+   then leaves the old run as it was, cancels any run it opened, and names
+   the run and this directory. A run koto can't locate (it can't tell which
+   copy is the run's own) refuses `candidate-unreadable` with koto's
+   `session_unlocated` reason. Do the handover in this order:
 
    1. Stop the predecessor's coordinator session, so nothing ticks or writes
       the old run.
@@ -238,6 +241,9 @@ work.
    - `koto-too-old`: this koto lacks `koto init --supersede` and its flags;
      the fence shipped in koto 0.28.0, so a takeover runs on koto 0.28.0
      and later.
+   - koto's own code for any other refusal, among them `cloud_unsupported`:
+     koto's cloud backend refuses `koto init --supersede` (koto 0.28.0
+     through at least 0.31.0), so there a takeover ends at the fence.
 
    A run of 65 or more record entries is taken over with no single koto call
    reaching koto's 30-second action limit, even at a one-minute load average
