@@ -3012,7 +3012,10 @@ open, keep one background `koto request watch --session {{SESSION_NAME}}
 (hold it in your own turn, never in the record or a file): `woke: true` ticks
 `leg`, and tick `leg` again until `leg_pick` offers none; `woke: false` is the
 bound, and ticks `quiet`. Re-arm it after a tick it brought, and arm a new
-one if it has died, so exactly one runs while a leg is open. A message-path
+one if it has died, so exactly one runs while a leg is open. A run that took
+another over (the opener printed `outcome=continued`) armed its first watch
+on the `session=` the opener printed before its first tick; on
+`leg_wake=supported` that watch also hears the legs earlier members opened. A message-path
 worker needs no wait: its message is the wake. While a `time`
 pause stands, one silent wait until its minute, which prints one line only
 then, brings the `resume` tick. Never arm a short watch that notifies on
@@ -3022,7 +3025,9 @@ been silent for 30 minutes; nothing is armed to make that wake happen.
 
 **Taken over.** When `koto next`, a write script or a watch on this run answers
 `session_superseded`, another session has taken the run over and koto refuses
-every write to it; the refusal names the newest session (`newest`). Stop: tick
+every write to it; the refusal names the newest session (`newest`). The
+takeover rings this run's wake file once, so a watch that wakes with no
+worker's message behind it may be that ring: the tick it brings is refused. Stop: tick
 nothing more, write nothing, and don't re-arm the watch or arm a new one. Report
 the newest session's name to whoever launched this session, and end your turn.
 Nothing is lost: the newest session holds the record and the legs.
