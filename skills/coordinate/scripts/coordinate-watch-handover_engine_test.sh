@@ -11,8 +11,9 @@
 #   2. with no watch on A, watcher=absent;
 #   3. with A's session naming another machine as its last writer (koto's
 #      version.json, planted), watcher=unobserved;
-#   4. leg_wake=supported on a koto 0.31.0 or later, unsupported on an older
-#      one; and with KOTO_BIN a koto reporting 0.30.0, the takeover still
+#   4. leg_wake=supported where koto follows supersede events when it rings
+#      (koto 0.31.0 and later), unsupported on an older koto; and with
+#      KOTO_BIN a koto reporting 0.30.0, the takeover still
 #      prints outcome=continued and leg_wake=unsupported;
 #   5. a leg A opened before the takeover wakes a watch armed on the printed
 #      session= within 10 seconds of its result (koto 0.31.0 and later).
