@@ -88,7 +88,15 @@
 #                            its state isn't in the shipped template; names
 #                            both compat numbers and compiled hashes
 #   koto-too-old             this koto lacks init --supersede and its flags
-# (or koto's own code for any other refusal).
+# (or koto's own code for any other refusal), among them:
+#   cloud_unsupported        koto's cloud backend refuses init --supersede
+#                            (koto 0.28.0 through at least 0.31.0), so on it a
+#                            takeover ends at the fence
+# A read the takeover needs that fails (the run's driver or coordinator row,
+# or the predecessor's state, variables or log) stops the start instead:
+# `failed=takeover_read`, exit 1, koto's own reason in the message and nothing
+# written. A driver that couldn't be read is never taken for no driver, so such
+# a run is neither resumed as this session's own nor taken over as driverless.
 #
 # A fresh start (no session here holds the scope's record) opens
 # `coordinate-<scope-slug>-<UTC stamp>`, cancels any other live run of the
@@ -500,26 +508,58 @@ CALLER_NAME=
 # The record is read through its readers, never key by key here: record/meta
 # through state-read.sh --meta, the Run section through state-stored-set.sh
 # --list (as dispatch-worker.sh reads the address).
-# meta_json <run>: the run's record/meta, {} when it holds none, "" when the
-# read fails.
+# A failed read is never an empty one: meta_json, meta_field and run_address
+# return 1 on a failed read, its reason in $T_ERR, and a takeover read that
+# fails stops the start (read_failed, driver_unread), so a run whose driver
+# couldn't be read is neither resumed as this session's own nor taken over as
+# a run with no driver.
+# meta_json <run>: the run's record/meta, {} when it holds none; returns 1
+# when the read fails.
 meta_json() {
-    bash "$HERE/state-read.sh" --session "$1" --meta < /dev/null 2> /dev/null
+    bash "$HERE/state-read.sh" --session "$1" --meta < /dev/null 2> "$T_ERR"
 }
-# meta_field <run> <field>: a string field of the run's record/meta, "" when absent.
+# meta_field <run> <field>: a string field of the run's record/meta, "" when
+# absent; returns 1 when the read fails.
 meta_field() {
-    jq -r --arg f "$2" '.[$f] // "" | if type == "string" or type == "boolean" then tostring else "" end' <<< "$(meta_json "$1")" 2> /dev/null
+    local m
+    m=$(meta_json "$1") || return 1
+    jq -r --arg f "$2" '.[$f] // "" | if type == "string" or type == "boolean" then tostring else "" end' <<< "$m" 2> /dev/null
 }
-# run_address <run>: the address in the run's coordinator row, "" when none.
+# run_address <run>: the address in the run's coordinator row, "" when none or
+# when the run has no record (state-stored-set.sh's exit 10); returns 1 when
+# the read fails.
 run_address() {
-    jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // ""' \
-        <<< "$(bash "$HERE/state-stored-set.sh" --session "$1" --list < /dev/null 2> /dev/null)" 2> /dev/null
+    local l
+    l=$(bash "$HERE/state-stored-set.sh" --session "$1" --list < /dev/null 2> "$T_ERR")
+    case $? in 0|10) ;; *) return 1 ;; esac
+    jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // ""' <<< "$l" 2> /dev/null
+}
+# read_failed <what couldn't be read> <file>: a read a takeover needs failed.
+# The start stops, writing nothing, with what koto said (<file>, on one line
+# and at most 400 bytes).
+read_failed() {
+    local why
+    why=$(tr -s '\t\n' '  ' < "$2" 2> /dev/null)
+    why=${why:0:400}
+    echo "failed=takeover_read"
+    echo "coordinate-open: $1${why:+ ($why)}; nothing was written" >&2
+    exit 1
+}
+# driver_unread <run>: the run's driver or coordinator address couldn't be
+# read. state-read.sh and state-stored-set.sh keep koto's stdout, where koto
+# puts a refusal, to themselves, so koto is asked once more, for a listing of
+# the run's record/meta, and its refusal is added to the reason.
+driver_unread() {
+    local out
+    out=$("$KOTO" context list "$1" --prefix record/meta < /dev/null 2>&1) || printf '%s\n' "$out" >> "$T_ERR"
+    read_failed "$1's driver (its record/meta or coordinator row) couldn't be read" "$T_ERR"
 }
 driven_by_another() {
     local d a
     [ -n "$CALLER" ] || return 1
-    d=$(meta_field "$1" driver)
+    d=$(meta_field "$1" driver) || driver_unread "$1"
     if [ -n "$d" ]; then [ "$d" != "$CALLER" ]; return; fi
-    a=$(run_address "$1")
+    a=$(run_address "$1") || driver_unread "$1"
     [ -n "$a" ] && [ -n "$CALLER_NAME" ] && [ "$a" != "$CALLER_NAME" ]
 }
 # meta_set <run> <jq filter> [jq args...]: rewrite the run's record/meta with
@@ -546,10 +586,10 @@ refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
 # it has none, and FENCE_BY and FENCE_ACTOR to its successor and the Claude
 # session that fenced it. A log that can't be read stops the opener.
 fence_of() {
-    FENCE=$(bash "$HERE/coord-log.sh" fence --session "$1" < /dev/null 2> /dev/null)
+    FENCE=$(bash "$HERE/coord-log.sh" fence --session "$1" < /dev/null 2> "$T_ERR")
     case $? in
         0|1) ;;
-        *) echo "failed=takeover_read"; echo "coordinate-open: $1's log couldn't be read for a fence; nothing was written" >&2; exit 1 ;;
+        *) read_failed "$1's log couldn't be read for a fence" "$T_ERR" ;;
     esac
     FENCE_BY=$(jq -r '.by // ""' <<< "${FENCE:-null}" 2> /dev/null)
     FENCE_ACTOR=$(jq -r '.claude_session // ""' <<< "${FENCE:-null}" 2> /dev/null)
@@ -641,10 +681,13 @@ takeover() {
     missing=$(koto_takeover_missing)
     [ -z "$missing" ] || refuse_takeover koto-too-old \
         "this koto ($("$KOTO" version < /dev/null 2> /dev/null | head -1)) lacks koto init $missing; the fence a takeover of $pred makes shipped in koto 0.28.0, so it runs on koto 0.28.0 and later; nothing was written and $pred still drives"
-    pd=$(meta_field "$pred" driver); pa=$(run_address "$pred")
+    pd=$(meta_field "$pred" driver) || driver_unread "$pred"
+    pa=$(run_address "$pred") || driver_unread "$pred"
     while :; do
-        state=$("$KOTO" status "$pred" < /dev/null 2> /dev/null | jq -r '.current_state // empty' 2> /dev/null)
-        [ -n "$state" ] || { echo "failed=takeover_read"; echo "coordinate-open: $pred's state couldn't be read; nothing was written" >&2; exit 1; }
+        # koto puts a refusal on stdout, so a failed read keeps both streams.
+        out=$("$KOTO" status "$pred" < /dev/null 2> "$T_ERR")
+        state=$(jq -r '.current_state // empty' <<< "$out" 2> /dev/null)
+        [ -n "$state" ] || { printf '%s\n' "$out" >> "$T_ERR"; read_failed "$pred's state couldn't be read" "$T_ERR"; }
         [ -n "$given" ] || jq -e --arg s "$state" '.states | has($s)' "$COMPILED" > /dev/null 2>&1 \
             || compat_refusal "$pred" "$pred is at $state, a state this plugin's coordinate.md doesn't have"
         if dc_session_live "$pred" "$pd" "$pa" > "$T_ERR" 2>&1; then stopped=yes; else stopped=no; fi
@@ -656,9 +699,12 @@ takeover() {
         fi
         not_self "$succ"
         d=$(bash "$KOTO_OPEN" --alloc-dir) || usage "could not allocate a vars directory"
-        bash "$HERE/coord-log.sh" vars --session "$pred" 2> /dev/null \
+        bash "$HERE/coord-log.sh" vars --session "$pred" 2> "$T_ERR" \
             | jq -c --arg r "$PLUGIN_ROOT" '. + {PLUGIN_ROOT: $r} | to_entries | map([.key, (.value | tostring)])' > "$d/vars.json" \
-            || { rm -rf "$d"; echo "failed=takeover_read"; echo "coordinate-open: $pred's variables couldn't be read; nothing was written" >&2; exit 1; }
+            || { rm -rf "$d"; read_failed "$pred's variables couldn't be read" "$T_ERR"; }
+        # The fence. koto refuses init --supersede on its cloud backend
+        # (cloud_unsupported, koto 0.28.0 through at least 0.31.0), so a
+        # takeover there ends here, refused with koto's code and nothing written.
         set -- init "$succ" --template "$TEMPLATE" --vars-file "$d/vars.json" --continues "$pred" --supersede \
             --expect-state "$state" --carry record/ --carry legs/ --carry taken_legs --carry leg_children
         case "${SHIRABE_KOTO_LEGACY_ENVIRONMENT:-}" in ''|0|false) ;; *) set -- "$@" --legacy-environment ;; esac
@@ -709,32 +755,36 @@ takeover() {
 #     for another reason (finished, cancelled, provenance, a directed
 #     transition) is carried as before.
 takeover_check() {
-    local run=$1 action=$2 code=$3 p stopped
+    local run=$1 action=$2 code=$3 p stopped rd rt
     fence_of "$run"
     if [ -n "$FENCE" ]; then
         if [ -n "$CALLER" ] && [ "$FENCE_ACTOR" = "$CALLER" ]; then not_self "$FENCE_BY"; takeover "$run" "$FENCE_BY"; fi
         refuse_takeover taken-over "$run was taken over by $FENCE_BY from another Claude session, and that takeover hasn't finished; nothing was written"
     fi
     p=$(pred_of "$run")
+    # The run's driver, read once: a failed read stops the start, never reads
+    # as no driver.
+    rd=$(meta_field "$run" driver) || driver_unread "$run"
     if [ -n "$p" ]; then
         fence_of "$p"
+        rt=$(meta_field "$run" takeover_done) || driver_unread "$run"
         if [ "$FENCE_BY" = "$run" ] && [ -n "$CALLER" ] && [ "$FENCE_ACTOR" = "$CALLER" ]; then
-            [ "$(meta_field "$run" driver)" = "$CALLER" ] && [ "$(meta_field "$run" takeover_done)" = true ] && return 0
+            [ "$rd" = "$CALLER" ] && [ "$rt" = true ] && return 0
             "$KOTO" context exists "$run" koto/superseded-carry-complete < /dev/null > /dev/null 2>&1 || takeover "$p" "$run"
             # The probe's reading before the fence, once the driver holds it;
             # read again when the cut came before the driver was written.
-            if [ "$(meta_field "$run" driver)" = "$CALLER" ]; then
+            if [ "$rd" = "$CALLER" ]; then
                 stopped=$(jq -r '.takeover.predecessor_stopped // "no"' <<< "$(meta_json "$run")")
             elif dc_session_live "$p" "$(meta_field "$p" driver)" "$(run_address "$p")" > /dev/null 2>&1; then stopped=yes
             else stopped=no; fi
             finish_takeover "$run" "$p" "$stopped"
         fi
-        if [ "$FENCE_BY" = "$run" ] && { [ "$(meta_field "$run" takeover_done)" != true ] || [ "$(meta_field "$run" driver)" != "$FENCE_ACTOR" ]; }; then
+        if [ "$FENCE_BY" = "$run" ] && { [ "$rt" != true ] || [ "$rd" != "$FENCE_ACTOR" ]; }; then
             refuse_takeover taken-over "$run is taking $p over from another Claude session, and that takeover hasn't finished; nothing was written"
         fi
     fi
     if [ -z "$CALLER" ]; then
-        if [ -n "$p" ] || [ -n "$(meta_field "$run" driver)" ]; then
+        if [ -n "$p" ] || [ -n "$rd" ]; then
             refuse_takeover taken-over "this session has no Claude session id (CLAUDE_CODE_SESSION_ID), so it can't tell itself from $run's driver; nothing was written"
         fi
         return 0
