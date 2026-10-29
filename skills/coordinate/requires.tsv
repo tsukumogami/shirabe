@@ -121,6 +121,14 @@ koto	session import	--from,--trust-template	mode:session-store
 # interrupted takeover from another session's.
 koto	init	--continues,--supersede,--expect-state,--carry	mode:takeover
 koto	session hierarchy	-	mode:takeover
+# The takeover's watcher= reads this host's machine id with `koto config get
+# machine.id`, to tell a predecessor last written from another host, and
+# leg_wake= reads `koto version`.
+koto	config get	-	mode:takeover
+# The agent, not a script, arms the run's one leg watch, `koto request watch
+# --session <run> --timeout-secs 7200 [--since <cursor>]`: at the hub, and
+# after a takeover on the session= the opener printed, before the first tick.
+koto	request watch	--session,--timeout-secs,--since	always
 # The carry (core_carry in state-write-core.sh, which coordinate-open.sh runs
 # when a start carries a run's record into a new one) makes its adds into the
 # new run in a write window, KOTO_WRITE_WINDOW on each add and one

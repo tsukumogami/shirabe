@@ -58,6 +58,7 @@ cost	land-merge_test.sh	53
 cost	holding-link_test.sh	48
 cost	board-land_engine_test.sh	47
 cost	quiet-check_test.sh	46
+cost	coordinate-watch-handover_engine_test.sh	46
 cost	decision-render_test.sh	42
 cost	board-verdict_test.sh	40
 cost	discipline-session_test.sh	40
