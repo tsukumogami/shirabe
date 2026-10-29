@@ -20,6 +20,8 @@
 #   observe    a before-observation missing sections is refused naming them;
 #              a complete one is recorded; an after needs a before
 #   green      a failing green is recorded and exits 1; a passing one exits 0
+#   argv       a red and a green whose command has dash-leading words (-c,
+#              --flag=value, a lone --) record it as given
 #   check-red  passes for a non-fix, a red or a before-observation; holds a
 #              fix with neither, printing finding red-first/no-red
 #   check-green  passes for a non-fix and for a green at HEAD; holds with no
@@ -282,6 +284,25 @@ eq "check-green with a green at HEAD: exit 0" 0 "$RC"
 git commit -q --allow-empty -m later
 run check-green g1
 eq "a commit after the green: check-green holds again" 1 "$RC"
+git checkout -q main
+
+# A command whose words start with a dash: jq reads none of them as its own
+# option (-c is one of jq's, --flag=value isn't, a lone -- ends its options),
+# so the red and the green store the argv as given (#1214).
+new_session d1
+git checkout -q -b dash-test "$BASE"
+git checkout -q main -- tests/empty_name_test.sh
+git commit -q -m "test: reproduce"
+DASH_ARGV='["sh","-c","sh tests/run.sh","-c","--flag=value","--","tail"]'
+run red d1 --marker "$MARKER" --passage-file "$W/passage" -- sh -c 'sh tests/run.sh' -c --flag=value -- tail
+eq "a red with dash-leading words: exit 0" 0 "$RC"
+hasnt "a red with dash-leading words: jq takes none as an option" "Unknown option" "$(cat "$W/err")"
+eq "a red with dash-leading words: the argv is stored as given" "$DASH_ARGV" "$(record d1 | jq -c .red.command)"
+git checkout -q main -- greet.sh
+git commit -q -m "fix: refuse an empty name"
+run green d1
+eq "a green with dash-leading words: exit 0" 0 "$RC"
+eq "a green with dash-leading words: the argv is stored as given" "$DASH_ARGV" "$(record d1 | jq -c .green.command)"
 git checkout -q main
 
 new_session c1 change
