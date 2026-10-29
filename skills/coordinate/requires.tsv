@@ -129,6 +129,14 @@ koto	config get	-	mode:takeover
 # --session <run> --timeout-secs 7200 [--since <cursor>]`: at the hub, and
 # after a takeover on the session= the opener printed, before the first tick.
 koto	request watch	--session,--timeout-secs,--since	always
+# The carry (core_carry in state-write-core.sh, which coordinate-open.sh runs
+# when a start carries a run's record into a new one) makes its adds into the
+# new run in a write window, KOTO_WRITE_WINDOW on each add and one
+# `koto session flush` after the last, on koto 0.31.0 and later. Only a carry
+# makes the call, so the record is mode:carry, never checked at load; the carry
+# reads `koto session flush --help` first and, on an older koto, makes its adds
+# without the window, each pushing as before.
+koto	session flush	-	mode:carry
 # The engine suites' floor-koto check reads `koto init --help` from a test
 # fixture under scripts/testdata/, which only *_test.sh suites source.
 #not-a-call-site	skills/coordinate/scripts/testdata/takeover-flags.sh	koto	--help	a test fixture the engine suites source; the skill never runs it
