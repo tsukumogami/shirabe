@@ -754,8 +754,8 @@
     {
       "id": 39,
       "name": "a-second-session-takes-over-a-live-run",
-      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in a new Claude session named coord-b. Another session, coord-a, is still driving the scope's run coordinate-plugin-system-20261027T090000Z, with two workers out. coordinate-open.sh prints outcome=continued, predecessor=coordinate-plugin-system-20261027T090000Z, session=coordinate-plugin-system-20261027T151500Z and predecessor_stopped=yes. Say what happened to the old run, which run you drive now, and what you do before you dispatch anything.",
-      "expected_output": "The opener took the run over: the new run continues the old one through koto's fence and carries its record and legs, and nothing was cancelled. predecessor_stopped=yes says the old run was live just before the fence; koto now refuses every write to it, naming the new run. The coordinator drives the new run with koto next and no rebind, record edit or carry of its own, and its first reconcile reads the two holdings it carried. Its record names coord-b as the coordinator with nobody told yet, so before dispatching it tells each live worker its new address and records each with state-stored-set.sh --told.",
+      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in a new Claude session named coord-b. Another session, coord-a, is still driving the scope's run coordinate-plugin-system-20261027T090000Z, with two workers out. coordinate-open.sh prints outcome=continued, predecessor=coordinate-plugin-system-20261027T090000Z, session=coordinate-plugin-system-20261027T151500Z, predecessor_stopped=yes, watcher=stopped and leg_wake=supported. Say what happened to the old run and its watch, which run you drive now, and what you do before your first tick and before you dispatch anything.",
+      "expected_output": "The opener took the run over: the new run continues the old one through koto's fence and carries its record and legs, and nothing was cancelled. predecessor_stopped=yes says the old run was live just before the fence; koto now refuses every write to it, naming the new run. watcher=stopped says the fence's ring made the old run's watch on this host exit, and leg_wake=supported says legs the old run opened will wake the new run's watch. In the same turn, before its first tick, the coordinator arms one background koto request watch --session coordinate-plugin-system-20261027T151500Z, built from the printed session=. It drives the new run with koto next and no rebind, record edit or carry of its own, and its first reconcile reads the two holdings it carried. Its record names coord-b as the coordinator with nobody told yet, so before dispatching it tells each live worker its new address and records each with state-stored-set.sh --told.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
@@ -763,6 +763,7 @@
         "The coordinator drives the new run (session=), not the predecessor",
         "It says nothing was cancelled and it doesn't cancel or rebind either run",
         "It reads predecessor_stopped=yes as the old run having been live at the takeover",
+        "It arms koto request watch --session on the printed session= before its first tick",
         "It tells each live worker its new address and records them told before dispatching"
       ]
     },

@@ -62,7 +62,20 @@
 # cancelled, rebound or copied key by key. It prints `outcome=continued`,
 # `predecessor=<run>`, `session=<new>` and `predecessor_stopped=yes|no`: yes
 # when the old run was live by the liveness probe (dispatch-common.sh
-# dc_session_live) just before the fence. The same opener run again from
+# dc_session_live) just before the fence. Then `watcher=` and `leg_wake=`
+# (Decision 3). koto's fence rings the old run's wake file once, so a
+# `koto request watch` armed on it exits, and the old run's next tick is
+# refused session_superseded. `watcher=stopped` when such a watch ran on this
+# host before the fence and has exited, `absent` when none ran here, and
+# `unobserved` when the old run's session names another host as its last
+# writer (koto's version.json), whose watches no ring here reaches, or a
+# watch found here still runs 5 seconds on. `leg_wake=supported` on koto
+# 0.31.0 and later, which follows supersede events when it rings a request's
+# principals, so a leg an earlier member opened wakes the new run's watch;
+# `unsupported` on an older koto, which still takes the run over. The skill
+# arms `koto request watch --session <new>` from the printed `session=`
+# before the first tick; no script can start a watch whose wake reaches the
+# agent. The same opener run again from
 # this session finds the new run its own and resumes it, printing
 # `outcome=resumed` and writing nothing. One cut short after any step
 # converges on the same command run again: before the fence nothing was
@@ -585,6 +598,84 @@ EOF
     refuse_takeover template-incompatible \
         "$2: $1 runs coordinate.md at compat ${rc:--} (template ${hash:-unknown}); this plugin (shirabe ${ver:-unknown}) ships coordinate.md at compat ${sc:--} (template $SHIPPED), so it can't drive the run; nothing was written and $1 still drives"
 }
+# watch_pids <run>: the pids of this host's `koto request watch` processes
+# armed on <run>, one per line: argv[0] named koto, then `request watch`, and
+# `--session <run>` or `--session=<run>` among the rest. A shell whose command
+# line only names such a watch is passed over, and so is a watch on any other
+# session.
+watch_pids() {
+    ps -A -o pid= -o args= 2> /dev/null | awk -v run="$1" '
+        { n = split($0, a, /[ \t]+/); i = (a[1] == "") ? 2 : 1
+          cmd = a[i + 1]; sub(/.*\//, "", cmd)
+          if (cmd != "koto" || a[i + 2] != "request" || a[i + 3] != "watch") next
+          for (j = i + 4; j <= n; j++)
+              if ((a[j] == "--session" && a[j + 1] == run) || a[j] == "--session=" run) { print a[i]; next } }'
+}
+# this_machine_id: the id koto's cloud sync records as this host's, its
+# config's machine.id or, with none, the first 8 hex digits of the hostname's
+# sha256, as koto derives it.
+this_machine_id() {
+    local id
+    id=$("$KOTO" config get machine.id < /dev/null 2> /dev/null) || id=
+    if [ -n "$id" ]; then printf '%s\n' "$id"; return; fi
+    if command -v sha256sum > /dev/null 2>&1; then uname -n | tr -d '\n' | sha256sum | cut -c1-8
+    else uname -n | tr -d '\n' | shasum -a 256 | cut -c1-8; fi
+}
+# read_watch <predecessor>: what watcher= is decided from, read before the
+# fence (a fence pushed from here would make this host the run's last
+# writer): WATCH_PIDS, the predecessor's watches on this host, and ELSEWHERE,
+# 1 when the predecessor's session records another machine as its last
+# writer (koto's version.json beside a cloud-synced log; a local run has
+# none, so its every event is this host's). WATCH_READ marks it read.
+# takeover() reads it before its koto init, and finish_takeover reads it
+# when nothing did. Only a first takeover reads it before the fence: a
+# re-run after one cut short past the fence reads it after the first run's
+# ring has ended any watch, and koto doesn't ring again, so its result is
+# `absent` (or `unobserved` for a watch armed since), never `stopped`.
+read_watch() {
+    local f m
+    WATCH_PIDS=$(watch_pids "$1"); ELSEWHERE=0; WATCH_READ=1
+    f="$("$KOTO" session dir "$1" < /dev/null 2> /dev/null)/version.json"
+    [ -f "$f" ] || return 0
+    m=$(jq -r '.machine_id // empty | strings' "$f" 2> /dev/null)
+    [ -n "$m" ] && [ "$m" != "$(this_machine_id)" ] && ELSEWHERE=1
+    return 0
+}
+# watcher_result <predecessor>: watcher= for the result line. koto's fence
+# rings the predecessor's wake file once, so a watch armed on it here exits
+# within its 100 ms poll. unobserved: the predecessor's last writer was
+# another host, whose watches the ring can't reach, or a watch found here
+# still runs 5 seconds on (said on stderr); stopped: one ran here and every
+# one has exited; absent: none ran here.
+watcher_result() {
+    local p left tries=0
+    if [ "$ELSEWHERE" = 1 ]; then echo unobserved; return; fi
+    if [ -z "$WATCH_PIDS" ]; then echo absent; return; fi
+    while :; do
+        left=
+        for p in $WATCH_PIDS; do
+            if kill -0 "$p" 2> /dev/null || ps -p "$p" > /dev/null 2>&1; then left="$left $p"; fi
+        done
+        if [ -z "$left" ]; then echo stopped; return; fi
+        [ $tries -lt 50 ] || break
+        sleep 0.1; tries=$((tries + 1))
+    done
+    echo "coordinate-open: a koto request watch on $1 (pid$left) was still running 5 seconds after the takeover rang it; stop it, since koto refuses $1's every tick" >&2
+    echo unobserved
+}
+# leg_wake: supported when this koto follows supersede events when it rings
+# a request's principals (koto 0.31.0 and later, koto#510), so a leg an
+# earlier member opened wakes the newest member's watch; unsupported on an
+# older koto or one whose version can't be read. The takeover goes ahead
+# either way.
+leg_wake() {
+    local v ma mi
+    v=$("$KOTO" version < /dev/null 2> /dev/null | sed -n '1s/^koto \([0-9][0-9]*\)\.\([0-9][0-9]*\)\.[0-9][0-9]*.*/\1 \2/p')
+    read -r ma mi <<EOF
+$v
+EOF
+    if [ -n "$ma" ] && [ -n "$mi" ] && { [ "$ma" -gt 0 ] || [ "$mi" -ge 31 ]; }; then echo supported; else echo unsupported; fi
+}
 # finish_takeover <successor> <predecessor> <yes|no>: the successor's own
 # record changes after the fence, each written once, so a re-run after a crash
 # finishes what is missing: the driver (first, so a re-run knows the run is
@@ -620,7 +711,9 @@ finish_takeover() {
     fi
     meta_set "$succ" '.takeover_done = true' \
         || { echo "failed=takeover_record"; echo "coordinate-open: $succ's takeover wasn't marked done; run the opener again from this session to finish" >&2; exit 1; }
-    printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\n' "$pred" "$succ" "$stopped"
+    [ -n "${WATCH_READ:-}" ] || read_watch "$pred"
+    printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\nwatcher=%s\nleg_wake=%s\n' \
+        "$pred" "$succ" "$stopped" "$(watcher_result "$pred")" "$(leg_wake)"
     link_dispatcher "$succ"
     exit 0
 }
@@ -642,6 +735,7 @@ takeover() {
     [ -z "$missing" ] || refuse_takeover koto-too-old \
         "this koto ($("$KOTO" version < /dev/null 2> /dev/null | head -1)) lacks koto init $missing; the fence a takeover of $pred makes shipped in koto 0.28.0, so it runs on koto 0.28.0 and later; nothing was written and $pred still drives"
     pd=$(meta_field "$pred" driver); pa=$(run_address "$pred")
+    read_watch "$pred"
     while :; do
         state=$("$KOTO" status "$pred" < /dev/null 2> /dev/null | jq -r '.current_state // empty' 2> /dev/null)
         [ -n "$state" ] || { echo "failed=takeover_read"; echo "coordinate-open: $pred's state couldn't be read; nothing was written" >&2; exit 1; }
