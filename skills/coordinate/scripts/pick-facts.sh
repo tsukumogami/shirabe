@@ -53,7 +53,9 @@
 # Holdings come from the record (state-holding.sh --list), each marked
 # parked (a Verified head, and its pull request open and not a draft), merged
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
-# waiting for its worker's teardown) or active; only active ones count
+# waiting for its worker's teardown; or a linked pull request GitHub reads
+# merged, when the holding isn't scoping ahead and has a Verified head or the
+# work-on entry point: state-common.sh lib_parked) or active; only active ones count
 # against the cap. Local agents have no holding and are never counted. The counts sit
 # beside CAP and PARKED_BOUND from the session's variables, the cap from the
 # record's Run section when it has one.

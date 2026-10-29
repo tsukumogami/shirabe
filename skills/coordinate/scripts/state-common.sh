@@ -508,22 +508,43 @@ lib_pr_held() {
 # lib_row_merged <row-json>: the row's merge was confirmed and it waits for
 # its worker's teardown: a Verified head kept and the Pull request cell
 # blank, which only the cleared cell after a confirmed merge writes
-# (state-confirm.sh; state-holding.sh's header keeps the rule). The one
-# definition pick, dispatch_check and the quiet check read. Reconcile's report
-# reads the same row more narrowly, as merged only when every pull request on
-# its branch is merged, because it reports what it measured.
+# (state-confirm.sh; state-holding.sh's header keeps the rule). The record's
+# rule, which the quiet check and the handover read. pick and dispatch_check
+# read lib_parked instead, which also counts a holding as merged for the cap
+# when GitHub reads its linked pull request merged (lib_link_merge_frees).
+# Reconcile's report reads the same row more narrowly, as merged only when
+# every pull request on its branch is merged, because it reports what it
+# measured.
 lib_row_merged() {
     printf '%s' "$1" | jq -e '((.verified_head // "") != "") and ((.pull_request // "") == "")' > /dev/null
+}
+
+# lib_link_merge_frees <row-json>: may the row's linked pull request, read
+# MERGED on GitHub, free its cap slot before the record confirms the merge?
+# Only when its worker has nothing left for the unit: not at Phase
+# scoping-ahead, whose worker still waits for its execution (send_execution
+# keeps the link), and with a Verified head (its finished report was
+# verified) or the work-on entry point, which lands one pull request. A
+# /deliver or /execute holding without a Verified head may be on a multi-pr
+# plan whose first pull request merged while the rest are in flight: the
+# first stays linked, since a report links a pull request only into a blank
+# cell.
+lib_link_merge_frees() {
+    printf '%s' "$1" | jq -e '((.phase // "") != "scoping-ahead")
+        and (((.verified_head // "") != "") or ((.entry_point // "") | ltrimstr("/shirabe:")) == "work-on")' > /dev/null
 }
 
 # lib_parked <holdings-json-file> <out>: the Holdings rows as a JSON array,
 # each with `parked` and `merged` set. A row is parked when it has a Verified
 # head and its pull request is open and not a draft (gh pr view in the linked
-# repository). A row is merged when it has a Verified head and a blank Pull
-# request cell: a confirmed merge clears the cell and keeps the row until its
-# worker's teardown (state-confirm.sh), and nothing else writes that pair.
-# Every other row is active. Local agents never have a row, so they are never
-# counted. Returns 2 on a failed read.
+# repository). A row is merged when lib_row_merged holds (a confirmed merge
+# cleared the cell and keeps the row until its worker's teardown), or when
+# its linked pull request reads MERGED and lib_link_merge_frees holds: a merge
+# made before a handover, by a person or while no coordinator ran takes no
+# slot either, though the usual path still confirms it and retires the unit.
+# The pull request is read only for a row with a Verified head or one
+# lib_link_merge_frees allows. Every other row is active. Local agents never
+# have a row, so they are never counted. Returns 2 on a failed read.
 lib_parked() {
     local n i row vh pr st mg
     n=$(jq length "$1") || return 2
@@ -535,9 +556,12 @@ lib_parked() {
         pr=$(printf '%s' "$row" | jq -r '.pull_request // ""')
         st=false mg=false
         lib_row_merged "$row" && mg=true
-        if [ -n "$vh" ] && lib_pr_link "$pr"; then
+        if lib_pr_link "$pr" && { [ -n "$vh" ] || lib_link_merge_frees "$row"; }; then
             gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json state,isDraft > "$2.pr" 2> /dev/null < /dev/null || return 2
-            st=$(jq -r 'if .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr") || return 2
+            st=$(jq -r --arg vh "$vh" 'if $vh != "" and .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr") || return 2
+            if jq -e '.state == "MERGED"' "$2.pr" > /dev/null && lib_link_merge_frees "$row"; then
+                mg=true
+            fi
         fi
         printf '%s' "$row" | jq -c --argjson p "$st" --argjson m "$mg" '. + {parked: $p, merged: $m}' >> "$2.rows"
         i=$((i + 1))
