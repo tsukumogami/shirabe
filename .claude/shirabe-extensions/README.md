@@ -108,7 +108,10 @@ Keeping `check-skill.tsv` current:
   two files source is shared without a row.
 - Add a `cost` row for a new suite, and re-measure the rows when a suite's cost changes
   much. A suite with no row launches last, which costs time but never correctness;
-  `scripts/check-skill_test.sh` fails when coordinate's rows and suites differ.
+  `scripts/check-cost-rows.sh` fails when a skill's rows and suites differ. The
+  `check-cost-rows.yml` workflow runs it on every pull request that adds or removes a
+  skill suite or edits a `check-skill.tsv`, and `scripts/check-skill_test.sh` runs it
+  for coordinate on the macOS floor.
 - A skill opts in by adding the file. Until it has one, its suites have never been
   classified, so `--changed` runs them all.
 - A suite that drives a script only through a variable, never by name, can't be found by

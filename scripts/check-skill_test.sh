@@ -888,13 +888,13 @@ expect_listed "coordinate: a change to need-check.sh selects only need-check_tes
     "skills/coordinate/scripts/need-check_test.sh" "selects 1 of"
 
 # Every coordinate suite has a cost row and every cost row names a suite, so
-# a new suite can't quietly launch last.
-COSTED=$(awk -F'\t' '$1 == "cost" { print "skills/coordinate/scripts/" $2 }' \
-    "$REPO_ROOT/skills/coordinate/check-skill.tsv" | sort | tr '\n' ' ' | sed 's/ $//')
-if [ "$COSTED" = "$COORD_ALL" ]; then
+# a new suite can't quietly launch last. scripts/check-cost-rows.sh holds the
+# one copy of the comparison; pull request CI runs it in check-cost-rows.yml,
+# and this case keeps it on the macOS floor.
+if OUT=$("$BASH_BIN" "$SCRIPT_DIR/check-cost-rows.sh" coordinate 2>&1); then
     pass "coordinate: check-skill.tsv has one cost row per suite"
 else
-    fail "coordinate: cost rows and suites differ: $(printf '%s\n' $COSTED $COORD_ALL | sort | uniq -u | tr '\n' ' ')"
+    fail "coordinate: cost rows and suites differ: $(printf '%s\n' "$OUT" | sed -n 's/^coordinate: //p' | tr '\n' ';')"
 fi
 
 echo ""
