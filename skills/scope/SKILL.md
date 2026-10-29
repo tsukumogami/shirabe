@@ -182,7 +182,9 @@ still reach the same scoping PR, so unique topic names remain the only
 separation on this path until the `/scope` and `/execute` legs of one workflow
 share one identity (see `/execute`'s **Owned-PR lookup**). A rewrite of a
 coordination PR that `/execute` has rendered also keeps its `store=` and `run=`
-lines, its PR Index and its Merge Order.
+lines, its PR Index and its Merge Order; on the re-evaluation and
+abandonment-forced exits the publish leaves that PR as it is and stops at
+`scope:pr-create`.
 
 ## Request Leg Flag
 

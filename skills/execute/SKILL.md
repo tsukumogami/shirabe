@@ -272,7 +272,10 @@ The script prints koto-open's result line and nothing else you need to parse:
   is followed by `session=execute-<plan-slug>`; drive that session (Step 3).
   When koto kept the finished session for its hierarchy, `moved_to=<name>` and
   `moved_reason=` follow `opened=replaced`: the old run was moved aside to
-  `<name>` rather than removed, and its record is still readable there.
+  `<name>` rather than removed, and its record is still readable there. A
+  replace carries the finished run's review round (`review_round.json`) into
+  the fresh session unchanged, and warns, naming `review-round.sh`, when it
+  can't.
 - `refused=replace_held_live` (exit 75, with a `live=` line) or
   `refused=replace_failed` (exit 74) — the finished session is held by its
   hierarchy and couldn't be moved aside, because work under it is still

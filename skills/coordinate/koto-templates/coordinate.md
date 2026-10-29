@@ -2981,19 +2981,31 @@ word. That holds when the order is conditional, partial or bundled with other
 rules; those rules go in an `answer` row beside it, never in its place. Pick,
 the dispatch check, the land check, the merge and the quiet check read only
 `pause` rows, so an order written only as an `answer` holds nothing, and the
-workers it parked are counted silent. A person's own comment on the record is
-not an entry until you write it. And before a local agent starts work in
-flight (a fix round, a pull request it builds), write its row, `--work
+workers it parked are counted silent. An order that lets some work go on while
+the rest holds (most often: let the pull requests in flight land, then park and
+hold) is the pause it scopes plus one go-ahead row per unit it lets through,
+`--standing go-ahead --on <the unit> --what "<what it lets through>"` with the
+person as owner and `--relayed-by`: an `all` pause alone holds those merges
+too, since the land check and the merge refuse a paused one. The units let
+through are the ones the order names; when it names none, they are the units
+whose pull request is open when the order arrives. A person's own comment on
+the record is not an entry until you write it. And before a local agent starts
+work in flight (a fix round, a pull request it builds), write its row, `--work
 "<what>" --kind local-agent --who "local agent" --next "<step>"`, and `--done
 "<what>"` when it lands: without the row a successor can't see the work.
 
-After writing a pause, send each live worker it covers the pause line: push
+After writing a pause, send each live worker it holds the pause line: push
 what you have at a safe point, report, then do nothing until the resume (no
 panels, evals or messages), and write each one's next step, `--work "<unit>"
 --kind holding --who <topic> --next "paused by <id>; idle until the resume"`.
-Say up which worker the message didn't reach. A resume is that row ending:
-write a person's resume with `--end <id> --by "<the person>"`, then tick
-`resume`; tick `resume` too when a wait you ran until a pause's minute
+A worker a go-ahead lets through gets no pause line: tell it it may carry on
+to its merge, and write its Work row to say so, `--next "go-ahead <id>; carry
+on to the merge"`. End each go-ahead with `--end <id> --by "<who>"` once its
+unit has merged, and end any go-ahead still standing when the pause it was
+written against ends: a go-ahead left behind would let its unit through a
+later pause. Say up which worker the message didn't reach. A resume is that
+row ending: write a person's resume with `--end <id> --by "<the person>"`,
+then tick `resume`; tick `resume` too when a wait you ran until a pause's minute
 returns, and when a notification names the pull request or tag a pause
 waits on. After a resume, send each worker in its scope the resume line (start
 the fix round it was sent, send its ready report again, or continue from its
@@ -4087,7 +4099,9 @@ send the unit to the failure branch.
 
 Choose the move and submit `move`: `redispatch` with the same brief plus what was
 learned, or `escalate` when the failure is for whoever dispatched you to decide,
-which raises it as a decision entry. Never tear anything down here.
+which raises it as a decision entry. Never tear anything down here. A worker
+parked on a person's order hasn't failed: write its missing pause, then submit
+`escalate` to raise an entry you settle yourself, as the details below say.
 
 <!-- details -->
 
@@ -4108,6 +4122,24 @@ script refuses a leg-bound worker, whose end still arrives on its leg. The
 new worker's brief names the stranded worker's branch and last pushed head,
 and the stranded row is retired once the new worker is dispatched; a report
 that later comes from the old topic matches no holding and is refused.
+
+A unit sent here by a second silence whose worker turns out to be parked on a
+person's order (its last report says it parked, or the order stands in the
+record as an `answer` row) hasn't failed; its `pause` row is missing, the row
+`status_message` writes at the first silence. Never redispatch or strand it.
+Write the order as `wait` says, with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session {{SESSION_NAME}}`:
+`--standing pause --what "<what it says>" --owner "<the person>" --relayed-by
+"<who carried it>" --on <all or the unit> --until <its condition>` (no relayer
+when the person told you directly), then the worker's Work row, `--work
+"<unit>" --kind holding --who <topic> --next "paused by <id>; idle until the
+resume"`. Send the worker nothing; it is already holding. Then submit `move:
+escalate`, and at `decision_raise` open the entry with `--source self`, its
+question whether to leave the worker parked under the pause row you just wrote,
+naming that row, and `--option "leave the worker parked under pause <id>"`.
+When the entry comes up for its verdict, settle it yourself with that option as
+`--outcome` and the row as `--reason`: the record answers it, so no person is
+asked, and the run goes on to pick, which never chooses a paused unit.
 
 ## decision_apply
 

@@ -853,6 +853,67 @@ else
     eq "no run= line: no store= or run= line is added" "0" "$(grep -cE '^(store|run)=' "$T/opened-new.md" | tr -d ' ')"
 fi
 
+echo "== a re-evaluation or abandonment publish leaves a rendered coordination PR as it is =="
+# Both exits write a plain scoping body; over a body /execute rendered, or one
+# cb_parse refuses, the publish stops with no edit and no published_intent.
+sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@#32|docs/plans/PLAN-topic.md|' "$T/rendered.tmpl" >"$T/forced-bad.md"
+# The coordination body /scope opens, before any render: no store= or run= line.
+sed -e "s/@RUN@/$MINE/g" -e 's|@INDEXED@|docs/plans/PLAN-topic.md|' -e '/^store=/d' -e '/^run=/d' \
+    "$T/rendered.tmpl" >"$T/forced-opened.md"
+for x in re-evaluation abandonment-forced; do
+    for c in rendered:"$T/rendered.md" refused:"$T/forced-bad.md"; do
+        k="${c%%:*}"; f="${c#*:}"
+        if [ "$k" = rendered ]; then d="a rendered body"; else d="a body cb_parse refuses"; fi
+        setup coordinated
+        seed_pr "$P7" false me main stop
+        set_body "$P7" "$f"
+        mkdir -p "$STORE/s-$x-$k"; printf '%s' "$MINE" >"$STORE/s-$x-$k/run_id"
+        run --topic topic --exit "$x" --intent continue --session "s-$x-$k"
+        eq "$x over $d: scope:pr-create" "scope:pr-create" "$(line step)"
+        eq "$x over $d: exit 11" "11" "$RC"
+        eq "$x over $d: no pr edit, so it is never rewritten as a plain scoping body" "0" "$(calls edit)"
+        eq "$x over $d: no pr create" "0" "$(calls create)"
+        eq "$x over $d: no published_intent" "" "$(cat "$STORE/s-$x-$k/published_intent" 2>/dev/null)"
+        eq "$x over $d: publish_step recorded" "scope:pr-create" "$(cat "$STORE/s-$x-$k/publish_step" 2>/dev/null)"
+        jq -j --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/forced-live.md"
+        if cmp -s "$f" "$T/forced-live.md"; then
+            ok "$x over $d: the body is unchanged"
+        else
+            bad "$x over $d: the body is unchanged" "$(diff "$f" "$T/forced-live.md")"
+        fi
+        case "$k:$(cat "$T/err")" in
+            rendered:*"coordination PR /execute rendered"*"left as it is"*|refused:*"can't be read as a coordination body"*"leaves the PR as it is"*)
+                ok "$x over $d: the refusal says the PR is left as it is" ;;
+            *) bad "$x over $d: the refusal says the PR is left as it is" "$(cat "$T/err")" ;;
+        esac
+    done
+
+    # A coordination body with no run= line is rewritten as a plain scoping body, as before.
+    setup coordinated
+    seed_pr "$P7" false me main stop
+    set_body "$P7" "$T/forced-opened.md"
+    mkdir -p "$STORE/s-$x-opened"; printf '%s' "$MINE" >"$STORE/s-$x-opened/run_id"
+    run --topic topic --exit "$x" --intent continue --session "s-$x-opened"
+    eq "$x over a body with no run= line: exit 0" "0" "$RC"
+    eq "$x over a body with no run= line: one pr edit" "1" "$(calls edit)"
+    eq "$x over a body with no run= line: published_intent recorded" "continue" "$(cat "$STORE/s-$x-opened/published_intent" 2>/dev/null)"
+    jq -r --arg u "$P7" '.[] | select(.url == $u) | .body' "$GHF/prs.json" >"$T/forced-opened-new.md"
+    eq "$x over a body with no run= line: the live Part 1 is kept" \
+        "The coordination pull request for topic, which merges after every node pull request." \
+        "$(sed -n 1p "$T/forced-opened-new.md")"
+    eq "$x over a body with no run= line: the plain body's exit line" "$x" "$(sed -n 's/^exit=//p' "$T/forced-opened-new.md")"
+    eq "$x over a body with no run= line: no PR Index, Merge Order or declaration" "0" \
+        "$(grep -cE '^## (PR Index|Merge Order)$|coordination PR\*\*' "$T/forced-opened-new.md" | tr -d ' ')"
+
+    # A non-coordinated body is rewritten as before.
+    setup single-pr
+    seed_pr "$P7" false me main stop
+    run --topic topic --exit "$x" --intent continue --session "s-$x-plain"
+    eq "$x over a non-coordinated body: exit 0" "0" "$RC"
+    eq "$x over a non-coordinated body: one pr edit" "1" "$(calls edit)"
+    eq "$x over a non-coordinated body: published_intent recorded" "continue" "$(cat "$STORE/s-$x-plain/published_intent" 2>/dev/null)"
+done
+
 echo "== usage =="
 setup single-pr
 run --topic Bad --exit full-run --intent continue

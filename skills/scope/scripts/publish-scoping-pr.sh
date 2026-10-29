@@ -81,6 +81,11 @@
 # run= lines after the template's run lines, and the live `## PR Index` and
 # `## Merge Order` sections in place of the template's placeholders. A live
 # body cb_parse refuses is scope:pr-create, with no edit.
+# A re-evaluation or abandonment-forced rewrite writes a plain scoping body,
+# which has none of that record, so over a body /execute rendered (the same
+# cb_parse test) it stops at scope:pr-create with no edit and no
+# published_intent write, and the coordination PR is left as it is
+# (refuse_rendered, below); so does one over a live body cb_parse refuses.
 #
 # The intent last published. The body's `intent=` line is text for people; no
 # step reads it back. With --session, a successful publish writes the intent
@@ -639,6 +644,23 @@ keep_record() {
     return 0
 }
 
+# refuse_rendered <live> -- on a re-evaluation or abandonment-forced rewrite,
+# stop at scope:pr-create when the live body is one /execute rendered
+# (cb_parse reads a run from it, keep_record's test) or one cb_parse refuses.
+# Those exits write a plain scoping body, with no declaration, run lines, PR
+# Index or Merge Order, so the rewrite would drop the record; the PR is left
+# as it is. A full-run exit, and a live body with no run, return 0.
+refuse_rendered() {
+    local parsed run
+    [ "$EXIT" = full-run ] && return 0
+    parsed=$(cb_parse "$1") \
+        || fail scope:pr-create "the live body can't be read as a coordination body, so the $EXIT publish leaves the PR as it is"
+    run=$(printf '%s' "$parsed" | jq -r '.run // empty') \
+        || fail scope:pr-create "the live body's run can't be read, so the $EXIT publish leaves the PR as it is"
+    [ -z "$run" ] \
+        || fail scope:pr-create "the PR is a coordination PR /execute rendered, which the $EXIT body would rewrite as a plain scoping body; it is left as it is"
+}
+
 BODY="$SCRATCH/body.md"
 render_body "$BODY"
 
@@ -665,6 +687,7 @@ if [ -n "$URL" ]; then
         # marker the live body carries.
         gh pr view "$URL" --json body --jq .body </dev/null > "$SCRATCH/live-body.md" \
             || fail scope:pr-create "the owned PR's body cannot be read"
+        refuse_rendered "$SCRATCH/live-body.md"
         keep_record "$SCRATCH/live-body.md" "$BODY" \
             || fail scope:pr-create "the live coordination body's record cannot be read or kept; the PR is left as it is"
         keep_live "$SCRATCH/live-body.md" "$BODY" \
