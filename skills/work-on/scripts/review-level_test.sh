@@ -442,6 +442,13 @@ LONG=$(printf '%0300d' 0)
 run set "$SESSION" standard --reason "$LONG"
 GOT=$(ledger | tail -n 1 | jq -r '.reason | length')
 [ "$GOT" = 200 ] && pass "a reason is cut to 200 characters" || fail "stored reason has $GOT characters"
+# jq would take a reason starting with a dash for its own option (#1214).
+run set "$SESSION" full --reason "-r"
+GOT=$(ledger | tail -n 1 | jq -c '{to, reason}')
+[ "$GOT" = '{"to":"full","reason":"-r"}' ] && pass "a reason that is one of jq's options is stored as given" || fail "last line is $GOT"
+run set "$SESSION" standard --reason "--flag=value -- kept"
+GOT=$(ledger | tail -n 1 | jq -c '{to, reason}')
+[ "$GOT" = '{"to":"standard","reason":"--flag=value -- kept"}' ] && pass "a reason starting with -- is stored as given" || fail "last line is $GOT"
 
 echo "--- script: an equal set rebinds a drifted variable"
 
