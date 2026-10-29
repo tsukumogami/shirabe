@@ -724,7 +724,9 @@ counted quiet.
   workers go on. A paused worker is never counted quiet. A quiet worker found
   parked on a person's order with no `pause` row gets that row, and its
   `paused by <id>` Work row, before the status message step submits `sent`,
-  so the next sweep skips it.
+  so the next sweep skips it. One the status step missed gets the same rows
+  at the failure branch, which escalates it to an entry you settle yourself
+  as left parked, never redispatching it.
 - **Resume.** A pause ends when its row ends: a person's resume, written with
   `--end <id> --by <the person>`, or its condition read as met at the next
   pick, after which you end the row yourself. Ending an `all` row resumes the
