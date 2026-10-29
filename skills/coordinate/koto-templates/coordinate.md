@@ -3012,10 +3012,10 @@ open, keep one background `koto request watch --session {{SESSION_NAME}}
 (hold it in your own turn, never in the record or a file): `woke: true` ticks
 `leg`, and tick `leg` again until `leg_pick` offers none; `woke: false` is the
 bound, and ticks `quiet`. Re-arm it after a tick it brought, and arm a new
-one if it has died, so exactly one runs while a leg is open. A run that took
-another over (the opener printed `outcome=continued`) armed its first watch
-on the `session=` the opener printed before its first tick; on
-`leg_wake=supported` that watch also hears the legs earlier members opened. A message-path
+one if it has died, so exactly one runs while a leg is open. After a
+takeover (the opener printed `outcome=continued`), arm the first watch on
+the `session=` the opener printed, in the same turn and before the first
+tick; on `leg_wake=supported` it also hears the legs earlier members opened. A message-path
 worker needs no wait: its message is the wake. While a `time`
 pause stands, one silent wait until its minute, which prints one line only
 then, brings the `resume` tick. Never arm a short watch that notifies on

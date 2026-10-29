@@ -626,7 +626,12 @@ this_machine_id() {
 # writer): WATCH_PIDS, the predecessor's watches on this host, and ELSEWHERE,
 # 1 when the predecessor's session records another machine as its last
 # writer (koto's version.json beside a cloud-synced log; a local run has
-# none, so its every event is this host's).
+# none, so its every event is this host's). WATCH_READ marks it read.
+# takeover() reads it before its koto init, and finish_takeover reads it
+# when nothing did. Only a first takeover reads it before the fence: a
+# re-run after one cut short past the fence reads it after the first run's
+# ring has ended any watch, and koto doesn't ring again, so its result is
+# `absent` (or `unobserved` for a watch armed since), never `stopped`.
 read_watch() {
     local f m
     WATCH_PIDS=$(watch_pids "$1"); ELSEWHERE=0; WATCH_READ=1

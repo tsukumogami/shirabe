@@ -178,13 +178,16 @@ work.
    (koto's `version.json` beside a cloud-synced log), whose watches no ring
    here reaches, or a watch found here still ran 5 seconds after the ring
    (the opener names its pid on stderr). Neither `absent` nor `unobserved`
-   stops the takeover: the old run's next tick is refused either way.
-   `leg_wake=` is read from the koto version: `supported` on koto 0.31.0 and
-   later, which follows supersede events when it rings a request's
-   requester, so a leg the old run (or any earlier member) opened wakes the
-   new run's watch; `unsupported` on an older koto, which still takes the run
-   over, but such a leg's result reaches the new run only through a
-   worker's message or the next reconcile.
+   stops the takeover: the old run's next tick is refused either way. An
+   opener run again after a takeover cut short past the fence reads the watch
+   state then, after the first run's ring, so it prints `absent`, not
+   `stopped`. `leg_wake=` is read from the koto version: `supported` on koto
+   0.31.0 and later, which follows supersede events when it rings a request's
+   principals (its requester and coordinator of record), so a leg the old run
+   (or any earlier member) opened wakes the new run's watch; `unsupported`
+   on an older koto, which still takes the run over, but such a leg's result
+   reaches the new run only through a worker's message or the next
+   reconcile.
 
    The new run's record names this session as its driver and its
    coordinator address, with nobody told yet, and holds one
