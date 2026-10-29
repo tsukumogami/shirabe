@@ -457,19 +457,26 @@ core_write_rotation() {
 # names and its value (JSON, or for record/posted/<n> a comment URL on an issue
 # or pull request, the item an outward entry was posted on), so a refusal or a
 # failed read writes nothing into the new run. Each key is then copied from the
-# file its read left, one get and one add per key (koto has no multi-key
-# context write; on its cloud backend each add pushes the key, the manifest and
-# the state file, which is where a long record's carry spends its time,
-# shirabe#1337), and record/meta goes last, with the source's written time and
+# file its read left, one get and one add per key: koto has no multi-key
+# context read (koto#512) or write. Outside a tick, koto's cloud backend pushes
+# the key, the manifest and the state file on every add, which is where a long
+# record's carry spent its time (shirabe#1337), so on a koto with `koto session
+# flush` (0.31.0 and later; requires.tsv's mode:carry record), read once from
+# its --help as the takeover reads `koto init --help`, the adds go in a write
+# window: each runs with KOTO_WRITE_WINDOW set to <to> on that command only,
+# and one `koto session flush <to>` pushes them together. On an older koto the
+# adds run without it, each pushing as before. record/meta goes last, after the
+# flush and outside the window, with the source's written time and
 # a standing_used no lower than any Standing id the source's meta, entries or
 # rows name (read from the entries as they are checked, so no extra call):
-# until it lands the new run holds no record, so a carry cut short leaves
-# nothing a start would resume, and the next start carries again. Only
+# until it lands the new run holds no record, so a carry cut short, its flush
+# included, leaves nothing a start would resume, and the next start carries
+# again. A failed flush exits 11 with koto's message, as a failed add does. Only
 # coordinate-open.sh calls it, which a structure test holds. Exits 10 the
 # source holds no record; 12 it was being written; 65 refused (the reason on
 # stderr); 11 a write failed; 2 a read failed.
 core_carry() {
-    local from=$1 to=$2 d k n rc secs
+    local from=$1 to=$2 d k n rc secs help win=
     d=$(mktemp -d "${TMPDIR:-/tmp}/state-carry.XXXXXX") || lib_die2 "mktemp failed"
     rs_session_read "$d/rec" "$from" "$SCOPE" "$NAME"; rc=$?
     case $rc in
@@ -515,14 +522,28 @@ core_carry() {
                 || { rm -rf "$d"; lib_die2 "jq failed"; } ;;
         esac
     done < "$d/keys"
-    # Every key passed: copy them in the order they were read.
+    # Every key passed: copy them in the order they were read, in a write
+    # window when this koto has one.
+    help=$("$KOTO" session flush --help < /dev/null 2> /dev/null) || help=
+    case "$help" in *"koto session flush"*) win=$to ;; esac
     n=0
     while IFS= read -r k; do
         [ "$k" = record/meta ] && continue
         n=$((n + 1))
-        "$KOTO" context add "$to" "$k" --from-file "$d/v.$n" < /dev/null > /dev/null 2> "$d/k.err" \
+        if [ -n "$win" ]; then
+            KOTO_WRITE_WINDOW=$win "$KOTO" context add "$to" "$k" --from-file "$d/v.$n"
+        else
+            "$KOTO" context add "$to" "$k" --from-file "$d/v.$n"
+        fi < /dev/null > /dev/null 2> "$d/k.err" \
             || { echo "$PROG: the carry into $to failed at $k: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     done < "$d/keys"
+    # The window closes before anything else asks koto about <to>: a command
+    # on it without the variable would push the window's writes itself. koto
+    # may say why a flush failed on either stream.
+    if [ -n "$win" ]; then
+        "$KOTO" session flush "$to" < /dev/null > "$d/k.err" 2>&1 \
+            || { echo "$PROG: the carry into $to failed closing its write window: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    fi
     # The highest of the source's own standing_used, the ids the entries name
     # and the Standing rows': the next id in the new run is above all of them.
     # The new run's own template compat, never the source's: the two may run
