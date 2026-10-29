@@ -715,6 +715,16 @@ land check, the merge and the quiet check read only `pause` rows, so an order
 written only as an `answer` holds nothing and the workers it parked are
 counted quiet.
 
+An order that lets some work go on while the rest holds (most often: let the
+pull requests in flight land, then park and hold) is the pause it scopes plus
+one go-ahead row per unit it lets through, `--standing go-ahead --on <the
+unit>` with `--what`, the person as owner and `--relayed-by`. An `all` pause
+alone holds those merges too. The units let through are the ones the order
+names; when it names none, they are the units whose pull request is open when
+the order arrives. Their workers get no pause line: each is told it may carry
+on to its merge, and its Work row says so. The pause line and the `paused by
+<id>` Work row go only to the workers the pause holds.
+
 - **What it holds.** Pick never chooses a paused unit, and holds while the
   whole coordinator is paused; the dispatch check and `dispatch-worker.sh`
   refuse a paused dispatch; the land check and `land-merge.sh` refuse a
@@ -731,7 +741,10 @@ counted quiet.
   `--end <id> --by <the person>`, or its condition read as met at the next
   pick, after which you end the row yourself. Ending an `all` row resumes the
   coordinator; ending a unit's row resumes that unit only. A `go-ahead` row
-  on one unit lets it through a wider pause until it is used. Tick `resume`
+  on one unit lets it through a wider pause until it is used: end it with
+  `--end` once its unit has merged, and end any go-ahead still standing when
+  the pause it was written against ends, since one left behind would let its
+  unit through a later pause. Tick `resume`
   so pick reads the pauses again. A scheduled resume is a `time` condition:
   no timer holds it, and any pick after its minute, in this session or a
   replacement's, reads it met.
