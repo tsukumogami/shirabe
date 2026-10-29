@@ -145,6 +145,7 @@ jobs:
             0.20.0) KOTO_SHA256=3ab3b605b3b149911bb6a4aa5b4220a37f8e15ef5635c32c6236e475393d6330 ;;
             0.21.0) KOTO_SHA256=aeeddada7cb480b37d0eae224b5f2185d40c0e623ead47a3abb6ab45984de358 ;;
             0.22.0) KOTO_SHA256=35a570ef5f19e9a4d4562a3b24680135717248ab96d431dde3ce9b6d710ad5f9 ;;
+            0.31.0) KOTO_SHA256=b30ae47c330ea5128769fd7acc5981a146ab7fdf46d235c8c6394111b9a09f83 ;;
             *) echo "no recorded sha256 for koto $KOTO_VERSION, the repository floor; add one here" >&2; exit 1 ;;
           esac
           mkdir -p "$RUNNER_TEMP/koto-bin"
