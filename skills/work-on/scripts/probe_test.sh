@@ -181,7 +181,7 @@ FORM=$( . "$SUT"
     i=0 bad=0
     while [ $i -lt 1000 ]; do
         r=$(draw_arm_value) || { bad=$((bad + 1)); i=$((i + 1)); continue; }
-        printf '%s\n' "${r#* }" | grep -Eq '^[a-z]{3}[0-9]{6}$' || bad=$((bad + 1))
+        grep -Eq '^[a-z]{3}[0-9]{6}$' <<<"${r#* }" || bad=$((bad + 1))
         case "${r% *}" in (near|far|far_redeliver) ;; (*) bad=$((bad + 1)) ;; esac
         i=$((i + 1))
     done
@@ -245,7 +245,7 @@ done
 check "near: the draw prints nothing" "$NOUT" ""
 draw "$ND"; check "near: a second draw prints nothing" "$OUT" ""
 [ ! -e "$ND/probe/far_shown" ] && pass "near: no far_shown" || fail "near: far_shown written"
-if printf '%s' "$FOUT" | LC_ALL=C grep -Eq '^[a-zA-Z0-9._/:@+ \-]*$'; then
+if LC_ALL=C grep -Eq '^[a-zA-Z0-9._/:@+ \-]*$' <<<"$FOUT"; then
     pass "the printed rule holds only characters a captured value may hold"
 else
     fail "the printed rule holds a character a capture refuses"
@@ -313,8 +313,9 @@ else
     fail "seed-like environment: $N/$F/$R, bad form $BADFORM"
 fi
 ENTROPY='\$RANDOM|SRANDOM|(^|[^a-z_])date( |\)|$)|shuf|/dev/random|openssl|(^|[^a-z_])jot |srand|rand\('
-if grep -nE "$ENTROPY" "$SUT" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then
-    fail "probe.sh reads another entropy source: $(grep -nE "$ENTROPY" "$SUT" | grep -v '^[0-9]*:[[:space:]]*#' | head -3)"
+ENTROPY_HITS=$(grep -nE "$ENTROPY" "$SUT" | grep -v '^[0-9]*:[[:space:]]*#')
+if [ -n "$ENTROPY_HITS" ]; then
+    fail "probe.sh reads another entropy source: $(sed -n '1,3p' <<<"$ENTROPY_HITS")"
 else
     pass "probe.sh's code names no entropy source but /dev/urandom"
 fi
@@ -413,9 +414,9 @@ run_check() {
     v=$(cat "$dd/probe/value" 2>/dev/null)
     clean=$(printf '%s' "$out" | sed -e "s#$(summary_text "$v" | sed 's/[.[\*^$/]/\\&/g')##g" \
         -e "s#$(full_text "$v" | sed 's/[.[\*^$/]/\\&/g')##g")
-    if [ -n "$v" ] && printf '%s' "$clean" | grep -qiF -e "$v"; then
+    if [ -n "$v" ] && grep -qiF -e "$v" <<<"$clean"; then
         fail "$label: the value is printed outside the rule text"
-    elif [ -n "$sub" ] && [ ${#sub} -ge 4 ] && printf '%s' "$out" | grep -qF -e "$sub"; then
+    elif [ -n "$sub" ] && [ ${#sub} -ge 4 ] && grep -qF -e "$sub" <<<"$out"; then
         fail "$label: the submitted string is printed"
     else
         pass "$label: prints neither the value (outside the rule text) nor the submitted string"
@@ -551,7 +552,8 @@ log_start "$T/l.jsonl"; enter; created '"m"'
 PATH="$T/bin-net:$PATH" SHIRABE_GATE_LOG="$LOG" "$SUT" check "$S_RED" >/dev/null 2>&1
 check "check starts no network or git tool" "$(cat "$T/net.log")" ""
 CHECK_BODY=$(awk '/^check_facts\(\)/,/^# --- leak gates/' "$SUT")
-if printf '%s\n' "$CHECK_BODY" | grep -v '^[[:space:]]*#' | grep -qE '(^|[^a-zA-Z_.-])(gh|curl|wget|nc|git) '; then
+CHECK_CODE=$(grep -v '^[[:space:]]*#' <<<"$CHECK_BODY")
+if grep -qE '(^|[^a-zA-Z_.-])(gh|curl|wget|nc|git) ' <<<"$CHECK_CODE"; then
     fail "check's code names a network tool"
 else
     pass "check's code names no network tool"
@@ -626,8 +628,8 @@ leak() {
 caught() {
     local msg
     msg=$(printf '%s\n' "$LOUT" | sed -n 's/^::koto-finding:://p' | jq -r 'select(.rule_id == "probe/value-absent") | .message' 2>/dev/null)
-    if [ $LRC -eq 1 ] && printf '%s' "$msg" | grep -qF -- "$2" \
-        && ! printf '%s' "$LOUT" | grep -qiF -e "$LV" && ! printf '%s' "$LOUT" | grep -qF -e "planted line"; then
+    if [ $LRC -eq 1 ] && grep -qF -- "$2" <<<"$msg" \
+        && ! grep -qiF -e "$LV" <<<"$LOUT" && ! grep -qF -e "planted line" <<<"$LOUT"; then
         pass "$1: caught (exit 1), the finding names [$2], and neither the value nor the planted line is printed"
     else
         fail "$1: rc=$LRC out=[$(printf '%s' "$LOUT" | sed "s/$LV/<value>/g")]"

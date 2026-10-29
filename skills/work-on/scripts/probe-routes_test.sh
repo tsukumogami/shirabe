@@ -162,10 +162,11 @@ if [ -n "$BASE_REF" ] && git -C "$REAL_ROOT" cat-file -e "$BASE_REF:skills/work-
     HSTAGES=$(jq -r '.rules[] | select(.id | startswith("probe/") | not) | "\(.id)=\(.stage // "-")"' "$REAL_ROOT/references/rule-registry.json" | sort)
     if [ "$BSTAGES" = "$HSTAGES" ]; then
         pass "every registry entry but the probe's two keeps its stage from $BASE_REF"
-    elif printf '%s\n' "$BSTAGES" | grep -q '^probe/'; then
+    elif grep -q '^probe/' <<<"$BSTAGES"; then
         pass "SKIP: $BASE_REF already holds the probe's entries; the stage comparison is the registry check's"
     else
-        fail "a registry stage moved: $(diff <(printf '%s\n' "$BSTAGES") <(printf '%s\n' "$HSTAGES") | head -5 | tr '\n' ' ')"
+        MOVED=$(diff <(printf '%s\n' "$BSTAGES") <(printf '%s\n' "$HSTAGES"))
+        fail "a registry stage moved: $(sed -n '1,5p' <<<"$MOVED" | tr '\n' ' ')"
     fi
 else
     pass "SKIP: no base branch to compare the mode lines and registry stages with"
@@ -419,7 +420,8 @@ for a in near far far_redeliver; do
     for r in ${RESPS[@]+"${RESPS[@]}"}; do
         st=$(printf '%s' "$r" | jq -r .state)
         case $st in review_level_choice|pr_creation) continue ;; esac
-        printf '%s' "$r" | jq -r '.directive // ""' | grep -qF -- "$V" && others=$((others + 1))
+        dir=$(printf '%s' "$r" | jq -r '.directive // ""')
+        grep -qF -- "$V" <<<"$dir" && others=$((others + 1))
     done
     if [ $a = near ]; then
         check "near: the rule is in pr_creation's directive and not review_level_choice's" "$in_rlc/$in_prc" "0/1"
@@ -503,7 +505,7 @@ check "the journal records hold no trace of the drawn value" "$LEAKED" 0
 printf '{"kind":"check_finding","koto.rule.id":"x %s"}\n' "$V" > "$T/control.jsonl"
 grep -qiF -e "$V" "$T/control.jsonl" && pass "control: the same search finds a planted value" || fail "control: the search missed a planted value"
 SENDOUT=$(cd "$REPO" && koto session export "$SESS" 2>/dev/null; koto journal export "$SESS" 2>/dev/null) || true
-[ -z "$SENDOUT" ] || ! printf '%s' "$SENDOUT" | grep -qiF -e "$V" \
+[ -z "$SENDOUT" ] || ! grep -qiF -e "$V" <<<"$SENDOUT" \
     && pass "an export of the session's journal holds no trace of the value" || fail "an export carries the value"
 
 # Going back to the draw. A far_redeliver run at review_level_choice is
