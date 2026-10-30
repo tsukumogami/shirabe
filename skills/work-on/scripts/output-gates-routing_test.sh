@@ -308,6 +308,9 @@ stub_block() {
         /^      [a-z_]+:$/ { gate = $1; sub(/:$/, "", gate) }
         /^        command:/ {
             if (gate in ex) { print "        command: \"exit " ex[gate] "\""; next }
+            # The rule-distance probe gates pass, as they do for a run in no
+            # arm; probe_test.sh and probe-routes_test.sh exercise them.
+            if (gate == "probe_ack" || gate == "probe_value_absent") { print "        command: \"exit 0\""; next }
             if (st != "" && gate == st) { print; print "        timeout: 1"; next }
         }
         /^          interval_secs:/ { print "          interval_secs: 1"; next }
@@ -335,6 +338,7 @@ build() {
             '  VERIFICATION:' '    description: verification' '    required: false' \
             '    default: local' '    values: [local, hosted-ci]' \
             '  VERIFICATION_DEFERRAL_REASON:' '    description: deferral reason' '    required: false' \
+            '  PROBE_NEAR_RULE:' '    description: the probe_near capture pr_creation reads' '    required: false' \
             'states:' '  start:' '    transitions:' "      - target: $state"
         printf '%s\n' "$block"
         for t in $targets; do
@@ -512,12 +516,12 @@ for key in check-branch-output.sh--docs-visibility:branch_docs_visibility; do
         drive pr_precheck "" "" on_feature_branch_pr=0
         holds "${key#*:} exit $rc" pr_precheck "${key#*:}"
         drive pr_precheck "docs/shared" "" on_feature_branch_pr=0
-        expect "${key#*:} script exit $rc on a shared branch" pr_creation
+        expect "${key#*:} script exit $rc on a shared branch" probe_near
     done
 done
 reset_rc
 drive pr_precheck "" "" on_feature_branch_pr=0
-expect "the branch check passes" pr_creation
+expect "the branch check passes" probe_near
 # tests_still_counted: status re-run before a pull request opens.
 set_rc test-change.shstatus 1
 drive pr_precheck "" "" on_feature_branch_pr=0
@@ -595,12 +599,13 @@ EOF
     # With the gate at 2 the submission holds the state. With it at 0,
     # finalization and pr_creation hold too (check_unsatisfiable matches no
     # passing edge); pr_precheck advances on its own before any evidence,
-    # because its passing edge takes none, so there it goes to pr_creation.
+    # because its passing edge takes none, so there it goes on toward
+    # pr_creation (through probe_near, a stub terminal here).
     for rc in 0 2; do
         reset_rc; set_rc "$key" "$rc"
         if [ "$st" = pr_precheck ] && [ "$rc" = 0 ]; then
             drive "$st" "" "" on_feature_branch_pr=0 closing_keyword=0
-            expect "pr_precheck with $gate at 0 passes before any exit can be taken" pr_creation
+            expect "pr_precheck with $gate at 0 passes before any exit can be taken" probe_near
         else
             drive "$st" "" "$data" on_feature_branch_pr=0 closing_keyword=0
             expect "check_unsatisfiable at $st with $gate at $rc holds" "$st"
