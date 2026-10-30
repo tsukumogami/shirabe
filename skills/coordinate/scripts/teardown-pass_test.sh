@@ -38,8 +38,8 @@
 # And the retired event, through a stand-in for scripts/emit-event.sh in the
 # whole passes' plugin tree: one call, before niwa destroy, naming the topic,
 # the session, the verdict's job session, dispatch id and one pull request,
-# the outcome (stopped, or removed in removed mode, with or without a
-# surviving session) and the request a coordinator opened as the archived
+# no outcome word (the pass reads no verdict that carries one), with or
+# without a surviving session, and the request a coordinator opened as the archived
 # sessions name it, each left out when the pass lacks it; a refused pass
 # sends none; and a helper that exits non-zero or is missing leaves the exit
 # code, output, stderr and RESULT as they were.
@@ -401,13 +401,13 @@ removed_verdict() {
 }
 setup_run
 coord_request
-printf 'dispatch 3c803591-4c01-486f-a927-f96ec399d6a7\n' >>"$VERDICT_FILE"
+printf 'dispatch disp.w5.0001\n' >>"$VERDICT_FILE"
 run_pass
 [ "$RC" = 0 ] && [ "$RES" = done ] && ok "retired: the pass is done" || bad "retired: the pass is done" "exit $RC: $OUT $ERR"
 eq_ "retired: one event, every field the pass has, the koto dir the workspace root" \
     "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.request=r_w5 unit.koto_session=s \
-        "unit.worker_session=$SID" unit.worker_dispatch=3c803591-4c01-486f-a927-f96ec399d6a7 \
-        unit.pr=github.com/acme/widgets#600 unit.outcome=stopped --)" \
+        "unit.worker_session=$SID" unit.worker_dispatch=disp.w5.0001 \
+        unit.pr=github.com/acme/widgets#600 --)" \
     "$(emits)"
 SENT=$(line_of 'emit-event event --scope unit-cost --kind retired')
 DESTROY=$(line_of 'niwa destroy --force tsuku+w5')
@@ -417,7 +417,7 @@ setup_run
 run_pass
 eq_ "retired: no coordinator request in the archive and no dispatch id, so neither is sent" \
     "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.koto_session=s \
-        "unit.worker_session=$SID" unit.pr=github.com/acme/widgets#600 unit.outcome=stopped --)" \
+        "unit.worker_session=$SID" unit.pr=github.com/acme/widgets#600 --)" \
     "$(emits)"
 setup_run
 coord_request
@@ -425,9 +425,9 @@ removed_verdict
 run_pass
 [ "$RC" = 0 ] && [ "$RES" = done ] && [ -z "$(line_of 'niwa destroy')" ] && ok "retired, removed mode: the pass is done, nothing destroyed" \
     || bad "retired, removed mode: the pass is done, nothing destroyed" "exit $RC: $OUT $ERR"
-eq_ "  ... its outcome is removed" \
+eq_ "  ... removed mode sends no outcome" \
     "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.request=r_w5 unit.koto_session=s \
-        "unit.worker_session=$SID" unit.pr=github.com/acme/widgets#600 unit.outcome=removed --)" \
+        "unit.worker_session=$SID" unit.pr=github.com/acme/widgets#600 --)" \
     "$(emits)"
 setup_run
 removed_verdict 'job -'
@@ -436,7 +436,7 @@ run_pass
     && ok "retired, no session survived: the pass is done, nothing archived" || bad "retired, no session survived: the pass is done, nothing archived" "exit $RC: $OUT $ERR"
 eq_ "  ... still retired, with no archive to name a request and no session" \
     "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.koto_session=s \
-        unit.pr=github.com/acme/widgets#600 unit.outcome=removed --)" \
+        unit.pr=github.com/acme/widgets#600 --)" \
     "$(emits)"
 setup_run
 (cd "$T/ws" && PATH="$B2:$PATH" bash "$P2/teardown-pass.sh" run --session s --keyseal "keyseal:8:${KS#keyseal:7:}" >/dev/null 2>&1)

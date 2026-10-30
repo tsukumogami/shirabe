@@ -15,6 +15,7 @@
 # Usage: bash scripts/emit-event_test.sh
 #        /bin/bash scripts/emit-event_test.sh     # the bash 3.2 floor
 set -uo pipefail
+. "$(dirname "$0")/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 HELPER="$HERE/emit-event.sh"
@@ -59,7 +60,7 @@ if [ -z "$T" ]; then
     exit 1
 fi
 cleanup() { pkill -f 'sleep 47' 2>/dev/null; rm -rf "$T"; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Tools for the cases: jq and the helpers' needs, plus a koto stub. A run with
 # NOTIMEOUT=1 gets a PATH without `timeout`, so the helper's own deadline runs.
@@ -79,7 +80,7 @@ esac
 cat <<JSON
 {"excluded_remote_only":0,"sessions":[
  {"id":"other","session_id":"0000-other","parent_workflow":null},
- {"id":"issue_7","session_id":"c3e17b0c-8fad-42fc-8413-ae3385f93404","parent_workflow":"coordinate-x"}]}
+ {"id":"issue_7","session_id":"sess.issue7.0001","parent_workflow":"coordinate-x"}]}
 JSON
 EOF
 chmod 0755 "$BIN/koto"
@@ -301,7 +302,7 @@ grep -qx "LANG=en_US.UTF-8" "$H/sent.env" && ok "a locale name is passed" || bad
 echo "== the koto session id =="
 new_home
 run "$AFTER" event --scope unit-cost --kind session_opened --koto-dir "$T" unit.koto_session=issue_7 unit.outcome=new
-has_arg "unit.koto_session_id=c3e17b0c-8fad-42fc-8413-ae3385f93404" && ok "--koto-dir adds the session's id" || bad "--koto-dir adds the session's id" "$(cat "$H/sent.args" 2>/dev/null)"
+has_arg "unit.koto_session_id=sess.issue7.0001" && ok "--koto-dir adds the session's id" || bad "--koto-dir adds the session's id" "$(cat "$H/sent.args" 2>/dev/null)"
 has_arg "unit.parent_session=coordinate-x" && ok "and its koto parent" || bad "and its koto parent"
 new_home
 run "$AFTER" event --scope unit-cost --kind session_opened --koto-dir "$T" unit.koto_session=issue_7 unit.parent_session=given unit.koto_session_id=forged

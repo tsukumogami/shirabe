@@ -420,7 +420,7 @@ dc_find_session() {
         [ -n "$name" ] || continue
         if dc_session_matches "$2" "$name"; then
             if [ -n "${3-}" ]; then
-                printf '%s' "$list" | jq -c --arg n "$name" '[.[] | select(.session_name == $n)][0] // empty' >"$3" 2>/dev/null ||
+                printf '%s' "$list" | jq -c --arg n "$name" '[.[] | select(.session_name == $n)][0] // empty' >"$3" ||
                     rm -f "$3"
             fi
             printf '%s\t%s\n' "$name" "$path"

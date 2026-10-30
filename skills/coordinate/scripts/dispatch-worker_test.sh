@@ -1281,6 +1281,7 @@ eq  "imported: an old key's unit is carried to the new key" '"Feature 2: the plu
 # or returns.
 
 CS=coordinate-roadmap-plugin-system-20261030T090000Z
+PA_S=plugin_api-""1a2b3c4d
 crun() { (cd "$W/inst" && bash "$S" --session "$CS" "$@"); }
 emits() { cat "$ST/emit.calls" 2>/dev/null; }
 
@@ -1288,7 +1289,7 @@ reset "$INPUT_DELIVER"
 BEFORE=$(date -u +%s)
 OUT=$(crun 2>/dev/null); RC=$?
 AFTER=$(date -u +%s)
-eq  "dispatched: the launch is confirmed" "0 session=plugin_api-1a2b3c4d" "$RC $OUT"
+eq  "dispatched: the launch is confirmed" "0 session=$PA_S" "$RC $OUT"
 AT=$(sed -n 's/^unit\.requested_at=//p' "$ST/emit.calls" 2>/dev/null)
 if [[ $AT =~ ^[0-9]+$ ]] && [ "$AT" -ge "$BEFORE" ] && [ "$AT" -le "$AFTER" ]; then
     ok "dispatched: requested_at is when this run opened the leg, in Unix seconds"
@@ -1309,20 +1310,20 @@ eq  "dispatched: one call, every field the run has, the koto dir the workspace r
 # isn't a coordinator run's) and no worker session (no launch output).
 reset "$INPUT_SCOPE"
 printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","entry_point":"scope","mode":"--auto","unit":"acme/widgets#12"}' >"$ST/rows/plugin-api.json"
-printf '[{"name":"x","path":"/p","session_name":"plugin_api-1a2b3c4d","dispatch_id":"3c803591-4c01-486f-a927-f96ec399d6a7"}]\n' >"$ST/sessions.json"
+printf '[{"name":"x","path":"/p","session_name":"%s","dispatch_id":"disp.w5.0001"}]\n' "$PA_S" >"$ST/sessions.json"
 OUT=$(run 2>/dev/null); RC=$?
-eq  "dispatched, resumed: confirmed from the listing" "0 session=plugin_api-1a2b3c4d" "$RC $OUT"
+eq  "dispatched, resumed: confirmed from the listing" "0 session=$PA_S" "$RC $OUT"
 eq  "dispatched, resumed: the listing row's dispatch id, and only the fields the run has" \
     "$(printf '%s\n' event --scope unit-cost --kind dispatched --koto-dir "$W" \
         unit.request=req_9 unit.leg=scope unit.topic=plugin-api unit.koto_session=coord \
         unit.entry_point=scope unit.repo=acme/widgets unit.mode=auto \
-        unit.worker_dispatch=3c803591-4c01-486f-a927-f96ec399d6a7 --)" \
+        unit.worker_dispatch=disp.w5.0001 --)" \
     "$(emits)"
 
 # A message-path worker has no request or leg to name.
 reset "$INPUT_DELIVER"
 printf '%s' '{"dispatch_status":"dispatching","return_path":"message","worker":"plugin-api","repo":"acme/widgets","entry_point":"deliver","mode":"","unit":"Feature 2: the plugin API"}' >"$ST/rows/plugin-api.json"
-printf '[{"name":"x","path":"/p","session_name":"plugin_api-1a2b3c4d"}]\n' >"$ST/sessions.json"
+printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$PA_S" >"$ST/sessions.json"
 run >/dev/null 2>&1
 eq  "dispatched, message path: no request, leg, empty mode or absent dispatch id" \
     "$(printf '%s\n' event --scope unit-cost --kind dispatched --koto-dir "$W" \

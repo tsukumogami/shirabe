@@ -45,8 +45,7 @@
 #            (docs/designs/DESIGN-fleet-cost-emit.md), run as a child whose
 #            output and status are ignored: the topic, this session, the
 #            verdict's job session, dispatch id and pull request (when it
-#            names exactly one), its outcome (`removed` beside `removed yes`,
-#            else `stopped`), and the unit's request as the archived koto
+#            names exactly one), and the unit's request as the archived koto
 #            sessions name it (archive-common.sh ac_dispatch_request). A
 #            field the pass doesn't have is left out;
 #         5. `niwa destroy --force <name>` at the workspace root, the name
@@ -398,14 +397,13 @@ fi
 # helper runs as a child with no stream of the pass's, its status ignored, so
 # the pass's output, exit code and RESULT are the same whatever it does.
 send_retired() {
-    local req="" pr="" wd="" outcome=stopped kv f
+    local req="" pr="" wd="" kv f
     f=()
     if [ -n "$ARCH" ] && ac_dispatch_request "$ARCH"/koto/*/ 2>/dev/null; then req=$AC_REQ; fi
     [ "$(printf '%s\n' "$PRS" | grep -c .)" = 1 ] && pr="github.com/${PRS%% *}"
     case "$DISPATCH" in '' | - | invalid) ;; *) wd=$DISPATCH ;; esac
-    [ "$REMOVED" = 1 ] && outcome=removed
     for kv in "unit.topic=$TOPIC" "unit.request=$req" "unit.koto_session=$SESSION" "unit.worker_session=$SID" \
-        "unit.worker_dispatch=$wd" "unit.pr=$pr" "unit.outcome=$outcome"; do
+        "unit.worker_dispatch=$wd" "unit.pr=$pr"; do
         [ -n "${kv#*=}" ] && f+=("$kv")
     done
     bash "$EMIT" event --scope unit-cost --kind retired --koto-dir "$ROOT" ${f[@]+"${f[@]}"} </dev/null >/dev/null 2>&1 || :

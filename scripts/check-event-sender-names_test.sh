@@ -5,6 +5,7 @@
 #
 # Usage: bash scripts/check-event-sender-names_test.sh
 set -uo pipefail
+. "$(dirname "$0")/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 CHECK="$HERE/check-event-sender-names.sh"
@@ -16,7 +17,7 @@ ok() { echo "ok   $1"; PASS=$((PASS + 1)); }
 bad() { echo "FAIL $1${2:+: $2}"; FAIL=$((FAIL + 1)); }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/check-event-sender-names-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 
 # The names, built from parts like the check builds them.
 FILE_NAME="event-""sink"

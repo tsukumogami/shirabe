@@ -1038,14 +1038,14 @@ EOF
     tag=${unit%%: *}
     if [[ $tag =~ $RE_MILESTONE_TAG ]] && ! [[ $tag =~ $RE_ISSUE_REF ]]; then ms=$tag; fi
     if [ -n "${UNITS_FILE:-}" ] && [ -f "$UNITS_FILE" ]; then
-        name=$(jq -r 'select(.scope == "roadmap") | .name // empty | strings' "$UNITS_FILE" 2>/dev/null) || name=""
+        name=$(jq -r 'select(.scope == "roadmap") | .name // empty | strings' "$UNITS_FILE") || name=""
         [ -z "$name" ] || roadmap="ROADMAP-$name"
     fi
     if [ -n "${LOG:-}" ] && [ -f "$LOG" ]; then
         ws=$(sed -n 's/^Dispatched session //p' "$LOG" | head -1)
     fi
     if [ -f "$WORK/listed.json" ]; then
-        wd=$(jq -r '.dispatch_id // "" | strings' "$WORK/listed.json" 2>/dev/null) || wd=""
+        wd=$(jq -r '.dispatch_id // "" | strings' "$WORK/listed.json") || wd=""
     fi
     slug=$(dc_scope_slug "$SESSION") || slug=""
     # The row's mode is its flags (`--auto --no-merge`); the event carries them
