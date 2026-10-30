@@ -16,8 +16,12 @@
 #
 # What it checks, and why each entry is here rather than derived:
 #
-#   1. Every `koto init` of work-on.md in skills/work-on/SKILL.md passes each
-#      variable work-on.md declares required.
+#   1. Every open in skills/work-on/SKILL.md passes each variable work-on.md
+#      declares required. SKILL.md has the agent open every issue-backed and
+#      free-form run through skills/work-on/scripts/work-on-open.sh, which
+#      makes the `koto init` of work-on.md and adds PLUGIN_ROOT itself. So each
+#      open site must pass every other required variable as --var, and the
+#      opener must still add PLUGIN_ROOT; neither is enough alone.
 #   2. Every task array /execute builds for its children sets the required
 #      variables that plan-to-tasks.sh does not emit. It is not derived from the
 #      template because the split is real: ARTIFACT_PREFIX reaches a child from
@@ -42,12 +46,24 @@ cd "$ROOT" || exit 1
 
 TEMPLATE="skills/work-on/koto-templates/work-on.md"
 SKILL_DOC="skills/work-on/SKILL.md"
+OPENER="skills/work-on/scripts/work-on-open.sh"
 EXECUTE_TEMPLATE="skills/execute/koto-templates/execute.md"
+# The required variables the opener adds itself, so an open site doesn't pass
+# them.
+OPENER_ADDS="PLUGIN_ROOT"
 
 FAILURES=0
 note_failure() { echo "check-init-site-vars: $*" >&2; FAILURES=$((FAILURES + 1)); }
 
-for f in "$TEMPLATE" "$SKILL_DOC" "$EXECUTE_TEMPLATE"; do
+# join_continuations <file> -- print the file with each backslash-continued
+# command on one line: a trailing backslash and its newline are removed. awk
+# rather than a sed loop, whose `:a; ... ba` form BSD sed refuses.
+join_continuations() {
+    awk '{ if (sub(/\\$/, "")) { buf = buf $0; next } print buf $0; buf = "" }
+         END { if (buf != "") print buf }' "$1"
+}
+
+for f in "$TEMPLATE" "$SKILL_DOC" "$OPENER" "$EXECUTE_TEMPLATE"; do
     [[ -f "$f" ]] || { note_failure "missing file: $f"; }
 done
 [[ "$FAILURES" -eq 0 ]] || exit 1
@@ -71,26 +87,38 @@ if [[ -z "$REQUIRED_VARS" ]]; then
     exit 1
 fi
 
-# --- Site 1: agent-driven init in SKILL.md -----------------------------------
-# Join backslash continuations so one init command is one line, then keep the
-# ones that name the template.
-INIT_COMMANDS=$(sed ':a; /\\$/ { N; s/\\\n//; ba; }' "$SKILL_DOC" | grep 'koto init' | grep "$TEMPLATE")
+# --- Site 1: agent-driven opens in SKILL.md ----------------------------------
+# Join backslash continuations so one open command is one line, then keep the
+# ones that run the opener by its plugin path. The Scripts entry's usage line
+# (`scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]...`) names it
+# without that path, and is not a site.
+INIT_COMMANDS=$(join_continuations "$SKILL_DOC" | grep -F "\${CLAUDE_PLUGIN_ROOT}/$OPENER --workflow")
 
 if [[ -z "$INIT_COMMANDS" ]]; then
-    note_failure "no 'koto init' of $TEMPLATE found in $SKILL_DOC — the init blocks moved, and this check no longer covers them"
+    note_failure "no '$OPENER --workflow' open found in $SKILL_DOC — the init blocks moved, and this check no longer covers them"
 else
     SITE_N=0
     while IFS= read -r cmd; do
         SITE_N=$((SITE_N + 1))
         for var in $REQUIRED_VARS; do
             # ISSUE_NUMBER-style optional variables are not in REQUIRED_VARS, so
-            # every name reaching here must appear at this site.
+            # every name reaching here must appear at this site, unless the
+            # opener adds it (checked below).
+            case " $OPENER_ADDS " in *" $var "*) continue ;; esac
             if [[ "$cmd" != *"--var ${var}="* ]]; then
                 note_failure "$SKILL_DOC init site $SITE_N does not pass required variable $var"
             fi
         done
     done <<< "$INIT_COMMANDS"
 fi
+
+# The opener adds the rest: a `["<VAR>", ...]` pair in the variables it writes,
+# on a line that isn't a comment.
+for var in $OPENER_ADDS; do
+    if ! grep -v '^[[:space:]]*#' "$OPENER" | grep -qF "[\"${var}\","; then
+        note_failure "$OPENER no longer adds required variable $var, which the $SKILL_DOC open sites leave to it"
+    fi
+done
 
 # --- Site 2: programmatic child materialization from /execute ----------------
 # Each tick that builds a task array must inject the variables the child needs
@@ -132,7 +160,7 @@ for harness in $HARNESSES; do
     if grep -qE '^[[:space:]]*TEMPLATE=.*koto-templates/work-on\.md' "$harness"; then
         names_template=1
     fi
-    inits=$(sed ':a; /\\$/ { N; s/\\\n//; ba; }' "$harness" | grep 'koto init' || true)
+    inits=$(join_continuations "$harness" | grep 'koto init' || true)
     [[ -n "$inits" ]] || continue
     while IFS= read -r cmd; do
         # An --attach-live call is not an init site: it attaches to a live
@@ -167,4 +195,4 @@ if [[ "$FAILURES" -ne 0 ]]; then
     exit 1
 fi
 
-echo "check-init-site-vars: OK (required: $(echo "$REQUIRED_VARS" | tr '\n' ' ')| $(echo "$INIT_COMMANDS" | wc -l) direct init site(s), $TASK_BUILDS child task build(s), $HARNESS_SITES harness init site(s))"
+echo "check-init-site-vars: OK (required: $(echo "$REQUIRED_VARS" | tr '\n' ' ')| $(echo "$INIT_COMMANDS" | wc -l | tr -d ' ') SKILL.md open site(s), $TASK_BUILDS child task build(s), $HARNESS_SITES harness init site(s))"

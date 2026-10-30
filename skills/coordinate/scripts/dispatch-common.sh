@@ -65,11 +65,19 @@
 #       lowercase hex digits. Never a prefix match: topic `api` doesn't match
 #       `api_v2-` and its eight digits.
 #
-#   dc_find_session <workspace-root> <topic>
+#   dc_find_session <workspace-root> <topic> [<row-file>]
 #       Prints `<session-name><TAB><instance-path>` for the topic's worker
 #       from `niwa list --json` (run from the workspace root), matched with
 #       dc_session_matches. Returns 0 found, 1 none, 2 when the listing can't
-#       be read. NIWA overrides the binary.
+#       be read. NIWA overrides the binary. With <row-file>, a match also
+#       writes its listing row there as one JSON object (its dispatch_id is
+#       the worker's niwa dispatch id), from the same read; a row that can't
+#       be written leaves no file and changes nothing else.
+#
+#   dc_scope_slug <session>
+#       Prints the scope slug a coordinator run's session name carries
+#       (`coordinate-<scope slug>-<UTC stamp>`), or nothing, returning 1,
+#       when the name isn't one. Reads nothing.
 #
 #   dc_workspace_root [<start-dir>]
 #       Prints the workspace root for the start directory (default: the
@@ -295,6 +303,8 @@ DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
 DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
 # A koto session name, as a leg's bound child is recorded.
 DC_RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+# A coordinator run's session name, its scope slug captured.
+DC_RE_COORD_SLUG='^coordinate-([a-z0-9-]+)-[0-9]{8}T[0-9]{6}Z$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/state-holding.sh}"
 # The stored set's reader, for the pauses (state-stored-set.sh --list); tests use
@@ -409,6 +419,10 @@ dc_find_session() {
     while IFS='	' read -r name path; do
         [ -n "$name" ] || continue
         if dc_session_matches "$2" "$name"; then
+            if [ -n "${3-}" ]; then
+                printf '%s' "$list" | jq -c --arg n "$name" '[.[] | select(.session_name == $n)][0] // empty' >"$3" 2>/dev/null ||
+                    rm -f "$3"
+            fi
             printf '%s\t%s\n' "$name" "$path"
             return 0
         fi
@@ -416,6 +430,11 @@ dc_find_session() {
 $(printf '%s' "$list" | jq -r '.[] | select((.session_name | type) == "string") | [.session_name, (.path // "")] | @tsv')
 EOF
     return 1
+}
+
+dc_scope_slug() {
+    [[ $1 =~ $DC_RE_COORD_SLUG ]] || return 1
+    printf '%s\n' "${BASH_REMATCH[1]}"
 }
 
 dc_workspace_root() {

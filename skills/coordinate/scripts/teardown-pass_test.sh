@@ -35,6 +35,15 @@
 # job's directory or its row is still there, or niwa still lists the
 # instance, or any other rm failure, ends it incomplete at remove.
 #
+# And the retired event, through a stand-in for scripts/emit-event.sh in the
+# whole passes' plugin tree: one call, before niwa destroy, naming the topic,
+# the session, the verdict's job session, dispatch id and one pull request,
+# the outcome (stopped, or removed in removed mode, with or without a
+# surviving session) and the request a coordinator opened as the archived
+# sessions name it, each left out when the pass lacks it; a refused pass
+# sends none; and a helper that exits non-zero or is missing leaves the exit
+# code, output, stderr and RESULT as they were.
+#
 # And `confirm` over an archive of 3,000 files: it confirms inside its
 # archive read's bound, reading sizes with a few wc runs rather than one
 # process per file; a file cut short, gone or replaced by a link, a MANIFEST
@@ -234,6 +243,20 @@ case "$1" in
 esac
 EOF
 chmod +x "$P2"/*.sh "$B2"/*
+# The event helper's stand-in, where the repository keeps it relative to the
+# pass: each call's arguments, one per line and then `--`, appended to
+# $ST/emit.calls, and one line in $ST/log so its place beside the destroy can
+# be read; it prints on both streams and exits with $ST/emit.rc (0 without
+# it), all of which the pass must ignore.
+mkdir -p "$T/plugin2/scripts"
+cat >"$T/plugin2/scripts/emit-event.sh" <<'EOF'
+#!/usr/bin/env bash
+{ printf '%s\n' "$@"; echo --; } >>"$ST/emit.calls"
+echo "emit-event $*" >>"$ST/log"
+echo "emit-event stand-in: stdout"
+echo "emit-event stand-in: stderr" >&2
+exit "$(cat "$ST/emit.rc" 2>/dev/null || echo 0)"
+EOF
 
 IP="$T/inst/w5"
 # Exported: the niwa stand-in's destroy removes this job's directory.
@@ -247,9 +270,6 @@ TR="$PJ/$ENC/$SID.jsonl"
 COPY=$JID-aaaa-bbbb
 export TEARDOWN_CLAUDE_HOME="$HOME/.claude" TEARDOWN_KOTO_SESSIONS="$T/ksess" TEARDOWN_ARCHIVE_DIR="$T/archive" \
     KOTO_REQUESTS="$T/requests" UNIT_COST_FETCH_SECS=1 UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=2
-# The sweep a run starts as it ends: a stand-in that logs its arguments.
-printf '#!/bin/sh\nprintf "%%s\\n" "$*" >>"%s"\n' "$T/sweep.calls" >"$T/sweep-stub"
-export TEARDOWN_SWEEP="$T/sweep-stub"
 # msg <id> <output tokens> <cwd>: one assistant line.
 msg() { printf '{"type":"assistant","cwd":"%s","timestamp":"2026-10-01T09:00:30.000Z","message":{"id":"%s","usage":{"input_tokens":1,"output_tokens":%s}}}\n' "$3" "$1" "$2"; }
 # setup_run: a fresh instance, job, transcripts, worker session and request,
@@ -327,8 +347,6 @@ run_pass
 BASE_LAST="teardown-pass: done $ARCHD"
 [ "$RC" = 0 ] && [ "$LAST" = "$BASE_LAST" ] && [ "$RES" = "done" ] && ok "the pass is done" || bad "the pass is done" "exit $RC: $OUT $ERR"
 [ -z "$ERR" ] && ok "a capture that posts prints no warning" || bad "a capture that posts prints no warning" "$ERR"
-[ "$(cat "$T/sweep.calls" 2>/dev/null)" = start ] && ok "the run starts the host's sweep once, as it ends" \
-    || bad "the run starts the host's sweep once, as it ends" "$(cat "$T/sweep.calls" 2>&1)"
 POST=$(line_of 'gh api --method POST repos/acme/widgets/issues/7/comments')
 DESTROY=$(line_of 'niwa destroy --force tsuku+w5')
 [ -n "$POST" ] && [ -n "$DESTROY" ] && [ "$POST" -lt "$DESTROY" ] && ok "the comment POST comes before niwa destroy" \
@@ -362,6 +380,85 @@ eq_ "an unreadable linked pull request is left out and the pass is done: credit 
     "$(jq -r '"\([.pulls[] | "\(.repo)#\(.number) \(.via)"] | join("|"))|\([.missing[] | select(.figure == "pulls") | .reason] | join(","))"' "$ARCHD/unit-cost.json" 2>&1)|$RC $RES"
 eq_ "  ... green read from the run on the pull request's head, the pull request named" "121 measured|acme/widgets#600" \
     "$(jq -r '"\(.figures.dispatch_to_green_min.value) \(.figures.dispatch_to_green_min.state)|\(.pulls[0].repo)#\(.pulls[0].number)"' "$ARCHD/unit-cost.json" 2>&1)"
+
+echo "== the retired event =="
+emits() { cat "$ST/emit.calls" 2>/dev/null; }
+# setup_run's archived session names its request with no leg, made by a
+# requester that isn't a coordinator run, so the capture's rule finds none;
+# coord_request makes it one a coordinator opened.
+coord_request() {
+    printf 'request_id = "r_w5"\nleg_name = "work-on"\n' >"$T/ksess/issue_7/request-leg.toml"
+    printf '{"created_at":"2026-10-01T08:59:00.000Z","requested_by":"coordinate-roadmap-x-20261001T085800Z","coordinator_of_record":"coordinate-w5"}\n' \
+        >"$T/requests/r_w5/request.jsonl"
+}
+# removed_verdict [job-line]: the verdict of a unit torn down outside the
+# pass, its instance and job gone from both listings.
+removed_verdict() {
+    echo '[]' >"$ST/niwa.json"
+    echo '[]' >"$ST/agents.json"
+    printf 'topic w5\ninstance - %s\n%s\n%s\npr acme/widgets#600 0123456789012345678901234567890123456789\nhandoff https://github.com/acme/widgets/pull/600#issuecomment-1\nremoved yes\nkeyseal %s\n' \
+        "$IP" "${1:-job 4b3597d2 $SID}" "$([ -n "${1:-}" ] || printf 'transcript %s' "$TR")" "$KS" | grep . >"$VERDICT_FILE"
+}
+setup_run
+coord_request
+printf 'dispatch 3c803591-4c01-486f-a927-f96ec399d6a7\n' >>"$VERDICT_FILE"
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && ok "retired: the pass is done" || bad "retired: the pass is done" "exit $RC: $OUT $ERR"
+eq_ "retired: one event, every field the pass has, the koto dir the workspace root" \
+    "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.request=r_w5 unit.koto_session=s \
+        "unit.worker_session=$SID" unit.worker_dispatch=3c803591-4c01-486f-a927-f96ec399d6a7 \
+        unit.pr=github.com/acme/widgets#600 unit.outcome=stopped --)" \
+    "$(emits)"
+SENT=$(line_of 'emit-event event --scope unit-cost --kind retired')
+DESTROY=$(line_of 'niwa destroy --force tsuku+w5')
+[ -n "$SENT" ] && [ -n "$DESTROY" ] && [ "$SENT" -lt "$DESTROY" ] && ok "  ... sent before niwa destroy" \
+    || bad "  ... sent before niwa destroy" "$(cat "$ST/log")"
+setup_run
+run_pass
+eq_ "retired: no coordinator request in the archive and no dispatch id, so neither is sent" \
+    "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.koto_session=s \
+        "unit.worker_session=$SID" unit.pr=github.com/acme/widgets#600 unit.outcome=stopped --)" \
+    "$(emits)"
+setup_run
+coord_request
+removed_verdict
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && [ -z "$(line_of 'niwa destroy')" ] && ok "retired, removed mode: the pass is done, nothing destroyed" \
+    || bad "retired, removed mode: the pass is done, nothing destroyed" "exit $RC: $OUT $ERR"
+eq_ "  ... its outcome is removed" \
+    "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.request=r_w5 unit.koto_session=s \
+        "unit.worker_session=$SID" unit.pr=github.com/acme/widgets#600 unit.outcome=removed --)" \
+    "$(emits)"
+setup_run
+removed_verdict 'job -'
+run_pass
+[ "$RC" = 0 ] && [ "$LAST" = "teardown-pass: done: the unit was removed outside the pass and no session of it survives; nothing archived" ] \
+    && ok "retired, no session survived: the pass is done, nothing archived" || bad "retired, no session survived: the pass is done, nothing archived" "exit $RC: $OUT $ERR"
+eq_ "  ... still retired, with no archive to name a request and no session" \
+    "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.koto_session=s \
+        unit.pr=github.com/acme/widgets#600 unit.outcome=removed --)" \
+    "$(emits)"
+setup_run
+(cd "$T/ws" && PATH="$B2:$PATH" bash "$P2/teardown-pass.sh" run --session s --keyseal "keyseal:8:${KS#keyseal:7:}" >/dev/null 2>&1)
+eq_ "a refused pass sends nothing" "1|" "$?|$(emits)"
+# A helper that exits non-zero, and one that is missing, leave the pass's exit
+# code, output, stderr and RESULT as a helper that works leaves them.
+setup_run
+coord_request
+run_pass
+WANT="$RC|$OUT|$ERR|$RES"
+setup_run
+coord_request
+echo 3 >"$ST/emit.rc"
+run_pass
+eq_ "a helper that exits 3: the same exit, output, stderr and RESULT" "$WANT" "$RC|$OUT|$ERR|$RES"
+eq_ "  ... and it was called" 1 "$(grep -c '^retired$' "$ST/emit.calls" 2>/dev/null)"
+setup_run
+coord_request
+mv "$T/plugin2/scripts/emit-event.sh" "$T/emit-event.aside"
+run_pass
+mv "$T/emit-event.aside" "$T/plugin2/scripts/emit-event.sh"
+eq_ "a missing helper: the same exit, output, stderr and RESULT" "$WANT" "$RC|$OUT|$ERR|$RES"
 
 echo "== a job niwa destroy already removed =="
 setup_run
