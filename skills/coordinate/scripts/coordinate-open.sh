@@ -824,11 +824,11 @@ T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not
 trap 'rm -f "$T_ERR"' EXIT
 # moved_lines <run>: state=<the run's state> and, at the hub, tick=moved, so a
 # run resumed from another workspace (an older koto's import) reconciles
-# again here. At reconcile it
-# does so by itself (its sealed report names another host's import facts). The
-# hub takes the `moved` tick, and its directive checks for a reconcile still
-# owed on every visit, so a run anywhere else gets the reconcile when it
-# reaches the hub; that check reads the run's own keys, so a restart keeps it.
+# again here. At reconcile it does so by itself (its sealed report names
+# another host's import facts). The hub takes the `moved` tick, and its
+# directive checks for a reconcile still owed on every visit, so a run
+# anywhere else gets the reconcile when it reaches the hub; that check reads
+# the run's own keys, so a restart keeps it.
 moved_lines() {
     local at
     at=$("$KOTO" status "$1" 2>/dev/null </dev/null | jq -r '.current_state // empty' 2>/dev/null)
@@ -857,7 +857,7 @@ EOF
 # imported copy must be a run this plugin can continue, and record/host takes
 # the source's facts, so every report up names them for the next import. On
 # koto 0.32.0 and later the copy is then taken over, the predecessor of a new
-# run as in a takeover on one host (takeover below); on an older koto it is
+# run as in a takeover on one host (takeover above); on an older koto it is
 # resumed as it is.
 if [ -n "$IMPORT" ]; then
     [[ $IMPORT =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
