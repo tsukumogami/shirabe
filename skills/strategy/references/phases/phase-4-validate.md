@@ -106,6 +106,16 @@ its findings name, commit, and run the fix loop in that reference with
 `doc-check: unresolved after 3 cycles` line is a significant issue: surface the findings to the user as step 4.5 does for a significant FAIL,
 or under `--auto` stop the run and report them.
 
+Once the check exits 0, and before spawning, grade the document's criteria in
+shadow. Each runs in a throwaway koto session of its own and its answers are
+telemetry only: the step always exits 0, prints at most one fixed line per
+criterion, and changes nothing the jury does
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes it):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" grade --doc docs/strategies/STRATEGY-<topic>.md --format strategy --topic <topic> --skill strategy
+```
+
 Beside the packet, before spawning, record the round as telemetry (add
 `--fallback` when the round runs as the serial self-jury). It always exits 0
 and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
@@ -175,6 +185,8 @@ a concrete corrective action.
    clause names something a reader can check: a metric, a behavior, an
    external event. "If users don't adopt" is too vague. "If <90% of
    adoption comes from <5 power users after 6 months" is observable.
+   The condition is about the claim its bullet names: observing it would
+   show that claim wrong, not some other product, audience or quantity.
 
 5. **Corrective actions are concrete strategic moves.** Each
    `→ *Corrective: ...*` names a specific strategic move, not "we'll
@@ -191,9 +203,15 @@ a concrete corrective action.
 ## Verdict Block
 
 End the file, after the Summary, with a fenced block tagged review-verdicts
-holding a JSON array of one entry: {"rule_id": "rs-067", "section":
-"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
-verdict is FAIL.
+holding a JSON array of two entries:
+
+- {"rule_id": "rs-074", "section": "bet-specific-falsifiability",
+  "verdict": "PASS"} for the falsifier items, 3 to 6: FAIL when any of
+  them fails, PASS otherwise.
+- {"rule_id": "rs-067", "section": "document", "verdict": "PASS"} for
+  items 1 and 2: FAIL when either fails.
+
+A falsifier problem alone doesn't make rs-067 FAIL.
 
 ## Output Format
 
@@ -472,6 +490,7 @@ verdicts directory) and remove the inputs directory:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill strategy --topic <topic> --doc docs/strategies/STRATEGY-<topic>.md --dir <verdicts-dir> --doc-format strategy
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" agreement --format strategy --topic <topic> --skill strategy
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest strategy-<topic> research <verdicts-dir>
 rm -rf -- <inputs-dir>
 ```

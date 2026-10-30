@@ -360,11 +360,30 @@ noop
 EOF
 run_multi_test "check4: block-scalar gate command is refused, not silently compared" 1 "$T/a.md" "$T/b.md"
 
+# Passing: the per-rule criteria templates under koto-templates/doc-criteria/
+# share one gate name with a different command each, by design, so check 4
+# leaves them out. The same pair anywhere else is still drift.
+T=$(mktemp -d "$TMPDIR_ROOT/check4-doccriteria.XXXXXX")
+mkdir -p "$T/koto-templates/doc-criteria"
+write_gate_template "$T/koto-templates/doc-criteria/a.md" "$GATE_CMD"
+write_gate_template "$T/koto-templates/doc-criteria/b.md" 'gh pr checks --json state --jq [.[]|select(.state != \"SUCCESS\")]|length == 0'
+run_multi_test "check4: doc-criteria templates are not compared" 0 \
+    "$T/koto-templates/doc-criteria/a.md" "$T/koto-templates/doc-criteria/b.md"
+cp "$T/koto-templates/doc-criteria/a.md" "$T/a.md"
+cp "$T/koto-templates/doc-criteria/b.md" "$T/b.md"
+run_multi_test "check4: the same pair outside doc-criteria still fails" 1 "$T/a.md" "$T/b.md"
+
 # The real templates must agree. This pins acceptance criterion 3 of issue #244
 # against the checked-in files rather than against fixtures.
 run_multi_test "check4: repository templates agree on shared gates" 0 \
     "$(dirname "$0")/../skills/work-on/koto-templates/work-on.md" \
     "$(dirname "$0")/../skills/execute/koto-templates/execute.md"
+
+# The checked-in criteria templates, which all name their gate doc_criteria,
+# pass beside the other templates.
+run_multi_test "check4: repository doc-criteria templates are left out" 0 \
+    "$(dirname "$0")/../skills/work-on/koto-templates/work-on.md" \
+    "$(dirname "$0")/../koto-templates/doc-criteria/"*.md
 
 # ---------------------------------------------------------------------------
 # Summary

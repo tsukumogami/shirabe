@@ -351,6 +351,79 @@ for t in skills/scope/koto-templates/scope.md koto-templates/skill-session.md; d
         || fail "$t lacks [$missing]"
 done
 
+# --- the document criteria's jury items --------------------------------------------
+
+# A document criterion is compared with the jury's verdict on the same rule id
+# and section key (references/review-verdicts.md), so each pair has to reach
+# the record as written. Per pair: the seat's prompt asks for the id on that
+# key, a stub seat writing the entry records it under that seat, id and key
+# (never remapped to document), and the vocabularies declare the key.
+seat_text() { # <file> <the seat's heading line>: the seat's prompt, joined on one line
+    awk -v h="$2" '$0 == h { on = 1; next } on && /^```/ { n++; if (n == 2) exit; next } on' "$REPO_ROOT/$1" \
+        | tr '\n' ' ' | tr -s ' '
+}
+asks_for() { # <seat text> <id> <key>: the prompt sends the id to the key
+    local text=$1 id=$2 key=$3 m n
+    case "$text" in *"\"rule_id\": \"$id\", \"section\": \"$key\""*) return 0 ;; esac
+    m=$(grep -oE "(^|[ ,])[0-9]+ $id([,. ]|$)" <<<"$text")
+    n=$(grep -oE '[0-9]+ ' <<<"${m%%$'\n'*}")
+    n=${n%%$'\n'*}
+    n=${n// /}
+    [ -n "$n" ] || return 1
+    grep -qE "(Item|Question) $n is judged on $key([,. ]|$)" <<<"$text"
+}
+skill_vocab=$(awk '/^review_vocabulary:/ { f = 1; next } f && /^[a-z_]+:/ { exit } f' "$REPO_ROOT/koto-templates/skill-session.md" | tr -d '[],' | tr ' ' '\n')
+scope_vocab=$(awk '/^review_vocabulary:/ { f = 1; next } f && /^[a-z_]+:/ { exit } f' "$REPO_ROOT/skills/scope/koto-templates/scope.md" | tr -d '[],' | tr ' ' '\n')
+pairs=0
+while IFS='|' read -r skill file heading seat seatfile id key <&3; do
+    [ -n "$skill" ] || continue
+    pairs=$((pairs + 1))
+    text=$(seat_text "$file" "$heading")
+    if [ -n "$text" ] && asks_for "$text" "$id" "$key"; then
+        pass "$skill $seat: the prompt asks for $id on $key"
+    else
+        fail "$skill $seat: the prompt in $file doesn't ask for $id on $key"
+    fi
+
+    dct_repo "criteria-$skill"
+    dct_session "$skill-t"
+    write_doc "$skill" "$skill/v1"
+    doc=$(doc_for "$skill")
+    fmt=""
+    case "$skill" in strategy | roadmap) fmt="--doc-format $skill" ;; esac
+    # shellcheck disable=SC2086 # fmt is empty or two words
+    ev round-started --skill "$skill" --topic t --doc "$doc" --seat-count 1 $fmt
+    rm -rf "$WORKDIR/v"; mkdir -p "$WORKDIR/v"
+    { printf '# Stub seat\n\n```review-verdicts\n'
+      jq -n -c --arg id "$id" --arg key "$key" '[{rule_id: $id, section: $key, verdict: "FAIL"}]'
+      printf '```\n'; } > "$WORKDIR/v/$seatfile"
+    # shellcheck disable=SC2086
+    ev verdicts --skill "$skill" --topic t --doc "$doc" --dir "$WORKDIR/v" $fmt
+    got=$(batches | jq -c --arg s "$seat" 'select(.seat == $s) | [.rule_id, .section, .verdict]' | tr '\n' ' ')
+    want=$(jq -n -c --arg id "$id" --arg key "$key" '[$id, $key, "FAIL"]')
+    if [ "$RC" -eq 0 ] && [ "$got" = "$want " ]; then
+        pass "$skill $seat: a stub seat's $id on $key is recorded as written"
+    else
+        fail "$skill $seat: recorded [$got] want [$want] $(show)"
+    fi
+
+    grep -qxF -- "$key" <<< "$skill_vocab" && grep -qxF -- "$seat" <<< "$skill_vocab" \
+        && pass "skill-session.md declares $seat and $key" || fail "skill-session.md lacks $seat or $key"
+    case "$skill" in
+        brief | prd | design)
+            grep -qxF -- "$key" <<< "$scope_vocab" && grep -qxF -- "$seat" <<< "$scope_vocab" \
+                && pass "scope.md declares $seat and $key" || fail "scope.md lacks $seat or $key" ;;
+    esac
+done 3<<'PAIRS'
+brief|skills/brief/references/phases/phase-4-validate.md|### Content Quality Reviewer|content-quality|phase4_content-quality.md|rs-073|scope-boundary
+roadmap|skills/roadmap/references/phases/phase-4-validate.md|#### Annotation and Boundary Reviewer|annotation-boundary|phase4_annotation-boundary.md|rs-073|milestones
+strategy|skills/strategy/references/phases/phase-4-validate.md|### Bet Quality Reviewer|bet-quality|phase4_bet-quality.md|rs-074|bet-specific-falsifiability
+prd|skills/prd/references/phases/phase-4-validate.md|#### Clarity Reviewer|clarity|phase4_clarity.md|rs-009|document
+design|skills/design/references/phases/phase-6-final-review.md|**Architecture reviewer:**|architecture|phase6_architecture-review.md|rs-009|document
+PAIRS
+[ "$pairs" -eq 5 ] && pass "the five (rule id, section key) pairs of the document criteria are checked" \
+    || fail "checked $pairs pairs, not 5"
+
 # --- contract: a recorded batch against a real koto --------------------------------
 
 if [ -n "$REAL_KOTO" ] && "$REAL_KOTO" review record --help >/dev/null 2>&1; then

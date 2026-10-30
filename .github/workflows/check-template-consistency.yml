@@ -5,6 +5,7 @@ on:
     paths:
       - 'skills/*/koto-templates/**'
       - 'skills/*/koto-templates/*.mermaid.md'
+      - 'koto-templates/doc-criteria/**'
       - 'scripts/validate-template-mermaid.sh'
       - 'scripts/validate-template-mermaid_test.sh'
       - 'scripts/ci-gate-expression_test.sh'

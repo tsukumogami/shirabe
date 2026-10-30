@@ -79,6 +79,14 @@ on:
       - 'scripts/review-events_test.sh'
       - 'scripts/lib/review-verdicts.sh'
       - 'scripts/doc-check-wiring_test.sh'
+      # The criteria step, its suites and what they read.
+      - 'scripts/doc-criteria.sh'
+      - 'scripts/doc-criteria_test.sh'
+      - 'scripts/doc-criteria-wiring_test.sh'
+      - 'scripts/doc-criteria/**'
+      - 'scripts/fixtures/doc-criteria/**'
+      - 'koto-templates/doc-criteria/**'
+      - 'references/doc-criteria.json'
       # The wiring suite reads every document skill's phase files.
       - 'skills/*/references/phases/**'
       - 'koto-templates/skill-session.md'
@@ -135,6 +143,14 @@ on:
       - 'scripts/review-events_test.sh'
       - 'scripts/lib/review-verdicts.sh'
       - 'scripts/doc-check-wiring_test.sh'
+      # The criteria step, its suites and what they read.
+      - 'scripts/doc-criteria.sh'
+      - 'scripts/doc-criteria_test.sh'
+      - 'scripts/doc-criteria-wiring_test.sh'
+      - 'scripts/doc-criteria/**'
+      - 'scripts/fixtures/doc-criteria/**'
+      - 'koto-templates/doc-criteria/**'
+      - 'references/doc-criteria.json'
       # The wiring suite reads every document skill's phase files.
       - 'skills/*/references/phases/**'
       - 'koto-templates/skill-session.md'
@@ -379,6 +395,14 @@ jobs:
 
       - name: Run scope substrate sessions
         run: bash skills/scope/scripts/scope-substrate_test.sh
+
+      # The criteria step against the same koto, with a loopback stub decider:
+      # its child sessions, deadline, pins and fixed lines, and the five
+      # juries' runs with the step and without it.
+      - name: Run the document criteria step sessions
+        run: |
+          bash scripts/doc-criteria_test.sh
+          bash scripts/doc-criteria-wiring_test.sh
 
       # The document gates' escalation and named exit, through real sessions:
       # koto's own failure count drives what each gate prints, so the ladder

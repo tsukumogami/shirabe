@@ -244,6 +244,17 @@
         "After the minor fix, transcript runs doc-events.sh fix --answers jury_fail, then doc-events.sh sections, then doc-check.sh --moment post_fix --phase 4"
       ],
       "id": 16
+    },
+    {
+      "name": "content-quality-seat-judges-scope-boundary-altitude",
+      "prompt": "/brief offline-sync -- the draft is committed through Phase 3 and the run reaches Phase 4. One Scope Boundary bullet reads \"a --since flag on scripts/export.sh\".",
+      "expected_output": "The content-quality reviewer's prompt carries item 7, whether each Scope Boundary bullet names what the feature covers rather than a mechanism, path or command, and its review-verdicts block records rs-073 on scope-boundary as FAIL for the bullet that names a flag and a script.",
+      "files": [],
+      "expectations": [
+        "The content-quality reviewer's prompt includes item 7 on Scope Boundary bullets naming a mechanism, path or command, with 7 rs-073 in its item ids",
+        "The content-quality review's review-verdicts block has an entry with rule_id rs-073 and section scope-boundary, verdict FAIL"
+      ],
+      "id": 17
     }
   ]
 }
