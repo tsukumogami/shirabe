@@ -491,13 +491,17 @@ Each runs from a one-state template under `koto-templates/doc-criteria/`,
 `unit_section`, and one criterion keyed by the jury rubric id it would stand
 in for, in `mode: shadow`, with no `summary` or `rule_text`, since a shadow
 criterion delivers nothing. The check's command runs
-`scripts/doc-criteria/slice.py <rule id> <format> --doc <path> --commit <sha>`,
+`scripts/doc-criteria/slice.py <rule id> <format> --doc <path> --commit <sha>`
+through the template's `PLUGIN_ROOT`, `DOC` and `COMMIT` variables (the plugin
+root rather than a slicer path, so the command names its slice script as
+every other decider check's does),
 which reads the document's blob at that commit from the repository the
 document lives in, refuses a path that isn't under that repository's `docs/`
 once symlinks are followed, and prints one JSON line per unit in the order the
 units start in the document. koto grades the first `max_units` of them and
 records the rest as past the cap (`unit_limit`), so a long document has the
-same units graded on every run.
+same units graded on every run. The units past the cap are never graded, so a
+contract's `over_cap` count says how much of its population that leaves out.
 
 `references/doc-criteria.json` maps each format to its criteria (rule id,
 section key, template and cap) and pins the sha256 of each template and of
@@ -618,7 +622,8 @@ names an implementing function or line).
 **Figures.** A 2,560-byte budget per unit and a cap of 32 units; units are not
 cut. The public repositories hold no ROADMAP under `docs/`, so the census
 measured none; the live figures are the first measurement this contract
-gets.
+gets, and its units aren't cut, so a proposal to promote it needs those
+figures to show the budget holds.
 
 **Fixtures.** `scripts/jev-criteria/fixtures/roadmap-rs-073.jsonl`: 12 good,
 24 seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 12

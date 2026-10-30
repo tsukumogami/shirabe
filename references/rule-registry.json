@@ -5048,7 +5048,7 @@
     {
       "id": "rs-074",
       "status": "active",
-      "summary": "A Bet-Specific Falsifiability bullet doesn't name an observable condition that would show its claim wrong, with a corrective",
+      "summary": "A Bet-Specific Falsifiability bullet's condition isn't about the Defensibility Thesis claim it names",
       "text": {
         "path": "skills/strategy/references/phases/phase-4-validate.md",
         "first": "3. **Falsifiability covers every claim.**",
@@ -5076,7 +5076,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "A document criterion graded per unit in shadow: each falsifier beside the Defensibility Thesis claim it names (references/jev-criteria.md, strategy-rs-074). It runs at a skill's pre-jury step rather than at a koto state, so its timing is pre-merge. Registered after the baseline pin, so it has no baseline key.",
+      "notes": "A document criterion graded per unit in shadow: each falsifier beside the Defensibility Thesis claim it names (references/jev-criteria.md, strategy-rs-074). The anchor is the bet-quality seat's item that every falsifier maps to a claim; the criterion asks only that, and leaves whether the condition can be observed and whether a corrective follows to the seat's other items. It runs at a skill's pre-jury step rather than at a koto state, so its timing is pre-merge. Registered after the baseline pin, so it has no baseline key.",
       "jev": {
         "state": "untrusted",
         "pairs": [

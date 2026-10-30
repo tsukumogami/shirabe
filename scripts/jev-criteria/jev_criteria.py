@@ -697,10 +697,14 @@ def load_slicer(root):
         import importlib.util
         spec = importlib.util.spec_from_file_location("doc_criteria_slice_%d" % len(_SLICERS), path)
         mod = importlib.util.module_from_spec(spec)
+        # A check leaves the tree as it found it: no bytecode beside the slicer.
+        keep, sys.dont_write_bytecode = sys.dont_write_bytecode, True
         try:
             spec.loader.exec_module(mod)
         except Exception as e:  # a slicer that doesn't load can't be checked against
             raise CannotRun("%s does not load: %s" % (DOC_SLICER, type(e).__name__))
+        finally:
+            sys.dont_write_bytecode = keep
         _SLICERS[path] = mod
     return _SLICERS[path]
 
