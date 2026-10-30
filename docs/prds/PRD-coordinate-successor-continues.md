@@ -65,7 +65,7 @@ lookup (tsukumogami/shirabe#1243). Those are this document's Out of Scope.
 It drew on the current resume-or-carry rule
 (`docs/designs/current/DESIGN-coordinator-session-record.md`), the leg watch
 (`docs/designs/current/DESIGN-coordinate-paused-state.md`) and the cost
-sweep (`docs/designs/current/DESIGN-fleet-cost-capture.md`), which this
+sweep (`docs/designs/archive/DESIGN-fleet-cost-capture.md`), which this
 feature changes.
 
 ## Problem Statement

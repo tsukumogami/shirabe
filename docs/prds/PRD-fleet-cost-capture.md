@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Done
+status: In Progress
 problem: |
   A coordinator-dispatched unit gets a `unit-cost/1` entry only when the
   coordinator's own teardown pass removes it. Units removed by hand or by a
@@ -9,11 +9,14 @@ problem: |
   entry on the unit's pull request, and failing heads stop at 300 runs, so the
   fleet's cost per merged pull request by plan shape covers a minority of it.
 goals: |
-  Every coordinator-dispatched unit gets exactly one entry however niwa removed
-  it, with no step run by hand, naming its dispatch id, milestone, plan shape and
-  each pull request it opened that merged or is still open; its failing-head
-  count is whole or marked as a floor; and by default nothing of it is written
-  into the repository it changed.
+  Every coordinator-dispatched unit's cost and milestone facts leave the host
+  while the unit runs, sent inline as its tools are used, so a unit removed or
+  reaped at any point keeps everything it already sent, with nothing stored
+  outside the koto session and nothing run on the host to collect it. A reader
+  can rebuild each unit's dispatch id, milestone, plan shape, pull requests and
+  figures from those facts; its failing-head count is whole or marked as a
+  floor; and nothing of it is written into the repository it changed. (Amended
+  for #1410; the goal before it was one end-of-life entry per unit.)
 source_issue: 1093
 absorbed:
   - docs/briefs/BRIEF-fleet-cost-capture.md
@@ -23,7 +26,7 @@ absorbed:
 
 ## Status
 
-Done
+In Progress
 
 Absorbed [BRIEF-fleet-cost-capture](docs/briefs/BRIEF-fleet-cost-capture.md); carried in Absorbed Brief.
 
@@ -40,6 +43,44 @@ So a sweep without a token makes no GitHub call at all: it archives and
 computes the local figures and leaves the removal pending, and a sweep that
 holds the coordinator's own token finishes it (R12a). Records are never dropped
 for age; one pending past 24 hours is listed as stale (R12).
+
+Amended again for #1410: the end-of-life capture is replaced by cost and
+milestone facts sent while a unit runs
+(`docs/designs/DESIGN-fleet-cost-emit.md`). Telemetry is sent inline as the
+tools are used, the koto session is the only local storage, and nothing runs
+on the host to collect it. The requirements change as follows:
+
+- **Withdrawn**, with the removal capture and the sweep they describe: R1, R3,
+  R4, R5, R12, R12a, R14, R15 and R16. A unit's dispatch id comes from the
+  `dispatched` event and its worker's own events, so no removal record is
+  needed. R5's one-entry rule becomes a count-key rule: a kind sent twice (a
+  step run again) is tolerated, nothing on the host remembers what was sent,
+  and a reader counts distinct values of each kind's count key, which the
+  design names.
+- **Moot**: R10 and R11. No entry is posted anywhere any more, so there is no
+  placement to switch.
+- **Changed source**: R2 (the figures are rebuilt by a reader from the events,
+  koto's workflow records, the agent runtime's token telemetry and GitHub, with
+  the differences the design lists), R6 (the milestone is sent with
+  `dispatched` and fixed at dispatch; R6a's leg key still holds the Unit, but
+  no capture reads it), R7 (credit and `opened` come from the pull request
+  scope's events stamped with the worker's dispatch id), R8 (plan shape comes
+  from `session_opened`) and R19 (`references/unit-cost.md` becomes the event
+  reference).
+- **Changed**: R17, which read the removal record, the request and the
+  archive. None of those is read any more; instead every value sent is mapped
+  or matched to its field's shape by the one sending helper, and a value that
+  fails is dropped. R18, which kept `unit-cost/1` compatible as new keys were
+  added: the schema is now frozen. Entries already written stay readable with
+  every field's meaning unchanged, and no new entry is written.
+- **Unchanged**: R6a (the leg key still holds the Unit), R9 (failing heads over
+  every head, read from GitHub by the reader) and R13 (nothing is written to a
+  unit's pull requests or issues).
+
+In the Acceptance Criteria below, a criterion marked **Withdrawn for #1410**
+verifies only withdrawn or moot requirements and no longer applies. One marked
+**Replaced for #1410** verifies a requirement whose new form the design's
+follow-up work verifies instead.
 
 ## Absorbed Brief
 
@@ -339,30 +380,30 @@ pass happened to remove, with no way to tell which pull requests are missing.
 Each criterion names the requirements it verifies. Suites run with stubbed
 `gh`, `koto`, `niwa` and `claude`, as today's do.
 
-- [ ] (R1, R2, R8) The on-reap step, given a reap key that is a dispatch id, an
+- [ ] **Withdrawn for #1410.** (R1, R2, R8) The on-reap step, given a reap key that is a dispatch id, an
   instance path that no longer exists, transcripts under the stub Claude home
   and a koto `work-on` session whose execution directory was in the instance,
   leads to one `cost` entry in the dispatching coordinator's session with
   measured worker tokens, the session's per-state times, the plan shape,
   `dispatch` from the koto request, and job-state figures `not recoverable`,
   `no source`.
-- [ ] (R2) With the transcripts removed as well, the entry is still written,
+- [ ] **Withdrawn for #1410.** (R2) With the transcripts removed as well, the entry is still written,
   with token figures `not recoverable`, `no source`.
-- [ ] (R15) The step exits 0 after writing the removal record while a stub
+- [ ] **Withdrawn for #1410.** (R15) The step exits 0 after writing the removal record while a stub
   sweep blocked on a fifo is still running (the test reads the record, then
   releases the fifo); with no reap key, with a reap key equal to the session id,
   and with an unwritable state directory it writes no record, prints one line,
   and exits 0.
-- [ ] (R3) With `requested_by` live, the entry goes to it. With it ended and one
+- [ ] **Withdrawn for #1410.** (R3) With `requested_by` live, the entry goes to it. With it ended and one
   live run of the same scope slug, to that run. With none, no entry, the record
   kept, the log outcome `no coordinator`; with two, `several coordinators`. A
   unit whose sessions name no coordinator request gets `no coordinator` and the
   7-day rule.
-- [ ] (R3, R6) A unit absent from the coordinator's Holdings, with its Unit
+- [ ] **Withdrawn for #1410.** (R3, R6) A unit absent from the coordinator's Holdings, with its Unit
   recorded at dispatch, gets its entry with that milestone `measured`.
-- [ ] (R6) With both a Holdings row and a dispatch-time Unit that differ, the
+- [ ] **Replaced for #1410.** (R6) With both a Holdings row and a dispatch-time Unit that differ, the
   row's milestone is written; with neither, `not recoverable`, `no source`.
-- [ ] (R4) The pass's normal mode writes `niwa list`'s dispatch id; with a
+- [ ] **Withdrawn for #1410.** (R4) The pass's normal mode writes `niwa list`'s dispatch id; with a
   removal record for the instance holding a different id, it still writes `niwa
   list`'s and prints a line naming both; its removed mode with a removal record
   writes the record's id and the stub `niwa` records no `list` call; with
@@ -370,19 +411,19 @@ Each criterion names the requirements it verifies. Suites run with stubbed
 - [ ] (R6a) A leg-bound dispatch through `dispatch-worker.sh` writes a leg key
   holding the dispatch's Unit; a message-path dispatch writes none; a Unit
   outside the pattern is not written.
-- [ ] (R5) The pass's capture then a removal of the same unit leaves one entry
+- [ ] **Withdrawn for #1410.** (R5) The pass's capture then a removal of the same unit leaves one entry
   and the second capture's last line is the already-recorded line; a removal's
   capture then the pass's removed mode leaves one entry the same way; two
   captures with null dispatch ids and different keys both write; two with the
   same key and null ids leave one; a pass capture and a sweep capture of one unit
   held at a barrier inside the lock, then released together, leave one entry.
-- [ ] (R7) A unit with a merged, an open, a draft and a closed-unmerged pull
+- [ ] **Replaced for #1410.** (R7) A unit with a merged, an open, a draft and a closed-unmerged pull
   request (all meeting conditions 1, 2 and 4, created after dispatch) lists the
   merged one in `pulls`, the open and the draft in `opened`, and the closed one
   in neither; one created before dispatch is in neither. The case in
   `unit-cost_test.sh` that expects open pull request 47 to be uncredited now
   expects it in `opened` and still out of `pulls`.
-- [ ] (R7) 101 open candidates give 100 `opened` entries and `missing` naming
+- [ ] **Replaced for #1410.** (R7) 101 open candidates give 100 `opened` entries and `missing` naming
   `opened`, `entry size`; on a public host an open pull request in a private
   repository is `{repo: "not public"}`.
 - [ ] (R9) A pull request whose 65 heads' runs the stub serves over four pages
@@ -392,44 +433,44 @@ Each criterion names the requirements it verifies. Suites run with stubbed
   input`; reads stop at the green head (the stub records no read for a later
   head); with no green head every head is read and green is `not recoverable`;
   a pull request with fewer than 100 runs gives the count today's suite expects.
-- [ ] (R10, R11, R13) On the session store with no reader, with a stub reader
+- [ ] **Withdrawn for #1410.** (R10, R11, R13) On the session store with no reader, with a stub reader
   that answers omit, fails, or prints something else, the capture runs
   `record-append.sh --on none` and the stub `gh` records no write call; with a
   stub reader that answers include, it runs `--on <the holding's pull request>`,
   with no pull request `--on <the Unit's issue>`, else `--on none`; a
   GitHub-record run posts on its record issue in each case. Each case's
   last stderr line is the R14 line for where the entry went.
-- [ ] (R15) A capture whose stub GitHub read hangs ends its reads at the budget
+- [ ] **Withdrawn for #1410.** (R15) A capture whose stub GitHub read hangs ends its reads at the budget
   with those figures `time limit` and still writes the entry; one whose stub
   post hangs past 120 seconds is stopped, writes nothing, and its record is kept
   with the log outcome `timed out` (the suite shortens both bounds through their
   variables).
-- [ ] (R12, R14) A record kept for `no coordinator` is captured at the next
+- [ ] **Withdrawn for #1410.** (R12, R14) A record kept for `no coordinator` is captured at the next
   removal once a coordinator is live; kept after a failed record read or a
   failed post, it is captured at the next removal; one whose unit already has an
   entry is deleted with no capture; one with `removed_at` 25 hours old and
   still pending is kept and listed `stale`. Each handled record adds one
   `removals.log` line with its outcome.
-- [ ] (R12a) With `GH_TOKEN` unset, a sweep archives, keeps the record `pending
+- [ ] **Withdrawn for #1410.** (R12a) With `GH_TOKEN` unset, a sweep archives, keeps the record `pending
   github`, and the stub `gh` records no call and `record-append.sh` no post;
   with a token, a later sweep posts the entry to the record the dispatch named
   and deletes the record.
-- [ ] (R16) Two sweeps started together over one pending record post one
+- [ ] **Withdrawn for #1410.** (R16) Two sweeps started together over one pending record post one
   entry; a record lock left by a killed sweep whose pid is gone is taken over and
   the capture runs; a sweep with no pending record makes no call.
-- [ ] (R17) A removal record, request and archive carrying shell metacharacters
+- [ ] **Replaced for #1410.** (R17) A removal record, request and archive carrying shell metacharacters
   in the repository, number, sha, branch and dispatch id, and a non-numeric
   figure, produce no command with those values (the stubs record every argument),
   the figures they feed `not recoverable`, `invalid input`, and a removal record
   with a bad dispatch id deleted with the log outcome `invalid input`.
-- [ ] (R18) Every key of an entry the pass captures from the suite's fixture,
+- [ ] **Replaced for #1410.** (R18) Every key of an entry the pass captures from the suite's fixture,
   before and after this change, other than `opened`, has the same name and JSON
   type.
-- [ ] (R14, R19) `references/unit-cost.md` contains the heading `## Capture
+- [ ] **Replaced for #1410.** (R14, R19) `references/unit-cost.md` contains the heading `## Capture
   after a removal`, the strings `#1114`, `opened` and
   `removals.log`, and each last line of R14; the guide contains the
   on-reap line and a combined example.
-- [ ] (R1-R19) `unit-cost_test.sh`, `unit-cost-on_test.sh`,
+- [ ] **Replaced for #1410.** (R1-R19) `unit-cost_test.sh`, `unit-cost-on_test.sh`,
   `teardown-pass_test.sh` and `teardown-pass_engine_test.sh` pass; the only
   existing cases whose expectations change are the ones R7, R9 and R10 name
   above.

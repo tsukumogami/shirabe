@@ -1,6 +1,7 @@
 ---
 schema: design/v1
-status: Current
+status: Superseded
+superseded_by: docs/designs/DESIGN-fleet-cost-emit.md
 problem: |
   The coordinate skill writes a dispatched unit's `unit-cost/1` entry only in
   its teardown pass. A unit removed by hand or by a reap never gets one, an
@@ -36,7 +37,11 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Current
+Superseded
+
+Superseded by [DESIGN-fleet-cost-emit.md](docs/designs/DESIGN-fleet-cost-emit.md),
+which replaces the end-of-life capture and the removal sweep with cost and
+milestone facts sent while a unit runs (#1410).
 
 Six decision questions were resolved inline under `/scope`. The reasoning that
 survived the decision reports is carried in Considered Options below. This
