@@ -62,24 +62,33 @@ apply puts the hook in place.
 
 ## User Journeys
 
-**A new contributor with tsuku.** They follow the README, run
+### A new contributor with tsuku
+
+They follow the README, run
 `tsuku install tsukumogami/shirabe`, then `niwa create` for the workspace. Every
 product repository clone in the new instance has shirabe's pre-commit hook.
 Their first commit touching a design doc runs `shirabe validate` on it.
 
-**A contributor who hasn't installed shirabe.** They run `niwa create` first.
+### A contributor who hasn't installed shirabe
+
+They run `niwa create` first.
 Apply finishes, and for each product repository it prints a short notice that
 shirabe isn't on PATH, with the install line. They install shirabe, run
 `niwa apply` again, and the hooks appear.
 
-**A contributor with a hook of their own.** One clone already has a
+### A contributor with a hook of their own
+
+One clone already has a
 pre-commit hook, say a formatter hook a repository offers as an opt-in. Apply
 leaves that file as it is and reports that shirabe's hook wasn't installed
 there. Nothing they set up is lost.
 
-**A contributor working in worktrees.** They work in a worktree of a clone
-rather than the clone itself. The hook installed for the clone applies there
-too, so worktrees need no setup step of their own.
+### A contributor working in worktrees
+
+They open a worktree of a clone for a
+side task and commit a doc change there. The commit runs the same validation as
+in the clone, because the hook installed for the clone covers its worktrees,
+and they never ran a setup step for the worktree.
 
 ## Scope Boundary
 
