@@ -130,12 +130,12 @@ fi
 # stamp. It is the predecessor only when its name is coordinate-<slug>-<stamp>
 # whole, it passes coord-log.sh provenance, its DISCIPLINE and HOST_REPO
 # variables are this run's, its rotation has ended by the window rule (the
-# opener never sends an open one here), no other session of the discipline
+# opener never sends an open one here), no later session of the discipline
 # already names it as its predecessor, and its record reads back (record/meta
 # and every section through state-schema.jq's checks). Two at one stamp are
 # unreadable too.
 session_find() {
-    local self=$SELF stamp slug prefix c cands other p
+    local self=$SELF stamp slug prefix c cands other p top
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || lib_die2 "cannot derive the scope's slug"
     prefix="coordinate-$slug-"
     if [ -n "$self" ]; then
@@ -150,10 +150,20 @@ session_find() {
         | select(startswith($p) and . != $me) | . as $id | ($id | ltrimstr($p) | .[0:16]) as $s
         | select(($s | test("^[0-9]{8}T[0-9]{6}Z$")) and $s < $st) | "\($s) \($id)"' "$T/sessions.json" \
         | LC_ALL=C sort -r > "$T/earlier" || lib_die2 "jq failed"
+    # Read newest first, stopping past the stamp of the first holder: an older
+    # session can't change the verdict, and koto may not be able to read it from
+    # here at all (an old session it can't locate). A session that could, newer
+    # than any holder or at the holder's stamp, still stops the find unread.
     : > "$T/holders"
+    top=
     while read -r s id; do
-        rs_list "$id" record/meta "$T/k" || lib_die2 "cannot list $id's keys"
-        jq -e 'index("record/meta") != null' "$T/k" > /dev/null && printf '%s %s\n' "$s" "$id" >> "$T/holders"
+        [ -n "$top" ] && [ "$s" != "$top" ] && break
+        : > "$T/k.err"
+        rs_list "$id" record/meta "$T/k" || lib_die2 "cannot list $id's keys: $(lib_scrub < "$T/k.err")"
+        if jq -e 'index("record/meta") != null' "$T/k" > /dev/null; then
+            printf '%s %s\n' "$s" "$id" >> "$T/holders"
+            top=$s
+        fi
     done < "$T/earlier"
     if [ ! -s "$T/holders" ]; then
         VERDICT=first; REASON="no earlier rotation of the discipline"; finish
@@ -185,9 +195,12 @@ session_find() {
         3) VERDICT=unreadable; REASON="$c holds no record/rotation"; finish ;;
         *) VERDICT=unreadable; REASON="$c's record/rotation can't be read"; finish ;;
     esac
-    # One predecessor is never carried twice: no other rotation of the
-    # discipline, earlier or later, names it.
-    jq -r --arg p "$prefix" --arg c "$c" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and . != $c)' \
+    # One predecessor is never carried twice: no later rotation of the
+    # discipline names it. Only a session whose find would have counted $c as
+    # earlier, the rest of its name after the prefix above $c's stamp, can have
+    # carried it, so an older one is not read.
+    jq -r --arg p "$prefix" --arg c "$c" --arg st "$stamp" '.[] | select(.parent_workflow == null) | .id
+        | select(startswith($p) and . != $c) | select(ltrimstr($p) > $st)' \
         "$T/sessions.json" > "$T/others" || lib_die2 "jq failed"
     while read -r other; do
         rs_rotation "$other" "$T/orot"
