@@ -41,6 +41,31 @@ computes the local figures and leaves the removal pending, and a sweep that
 holds the coordinator's own token finishes it (R12a). Records are never dropped
 for age; one pending past 24 hours is listed as stale (R12).
 
+Amended again for #1410: the end-of-life capture is replaced by cost and
+milestone facts sent while a unit runs
+(`docs/designs/DESIGN-fleet-cost-emit.md`). Telemetry is sent inline as the
+tools are used, the koto session is the only local storage, and nothing runs
+on the host to collect it. The requirements change as follows:
+
+- **Withdrawn**, with the removal capture and the sweep they describe: R1, R3,
+  R4, R5, R12, R12a, R14, R15 and R16. A unit's dispatch id comes from the
+  `dispatched` event and its worker's own events, so no removal record and no
+  deduplication are needed.
+- **Moot**: R10 and R11. No entry is posted anywhere any more, so there is no
+  placement to switch.
+- **Changed source**: R2 (the figures are rebuilt by a reader from the events,
+  koto's workflow records, the agent runtime's token telemetry and GitHub, with
+  the differences the design lists), R6 (the milestone is sent with
+  `dispatched` and fixed at dispatch; R6a's leg key still holds the Unit, but
+  no capture reads it), R7 (credit and `opened` come from the pull request
+  scope's events stamped with the worker's dispatch id), R8 (plan shape comes
+  from `session_opened`) and R19 (`references/unit-cost.md` becomes the event
+  reference).
+- **Unchanged**: R9 (failing heads over every head, read from GitHub by the
+  reader), R13 (nothing is written to a unit's pull requests or issues), R17
+  (every sent value is matched to its shape) and R18 (`unit-cost/1` stays
+  readable, frozen, and gets no new entries).
+
 ## Absorbed Brief
 
 The feature exists because a dispatched unit's cost is captured only when the
