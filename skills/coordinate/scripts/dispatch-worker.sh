@@ -1020,8 +1020,8 @@ confirm() {
 RE_MILESTONE_TAG='^[A-Za-z0-9][A-Za-z0-9 _.#/-]{0,63}$'
 RE_ISSUE_REF='^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*#[1-9][0-9]*$'
 send_dispatched() {
-    local rp unit ep repo mode req="" leg="" tag ms="" name roadmap="" ws="" wd="" slug kv f
-    f=()
+    local rp unit ep repo mode req="" leg="" tag ms="" name roadmap="" ws="" wd="" slug kv f words w
+    f=() words=()
     # One read of the row; a value that isn't a string, or holds a control
     # character, reads as empty.
     IFS=$'\037' read -r rp unit ep repo mode <<EOF
@@ -1050,7 +1050,13 @@ EOF
     slug=$(dc_scope_slug "$SESSION") || slug=""
     # The row's mode is its flags (`--auto --no-merge`); the event carries them
     # as one name, `auto:no-merge`, since a value starting `--` is dropped.
-    mode=$(printf '%s' "$mode" | tr -s ' \t' '\n\n' | sed 's/^--*//' | grep -v '^$' | paste -sd: -)
+    # Plain bash: paste isn't among the tools this script may run.
+    read -ra words <<<"$mode" || :
+    mode=""
+    for w in ${words[@]+"${words[@]}"}; do
+        w=${w#"${w%%[!-]*}"}
+        [ -z "$w" ] || mode=${mode:+$mode:}$w
+    done
     for kv in "unit.request=$req" "unit.requested_at=$OPENED_AT" "unit.leg=$leg" "unit.topic=$TOPIC" \
         "unit.scope_slug=$slug" "unit.koto_session=$SESSION" "unit.roadmap=$roadmap" "unit.milestone=$ms" \
         "unit.entry_point=$ep" "unit.repo=$repo" "unit.mode=$mode" "unit.worker_session=$ws" "unit.worker_dispatch=$wd"; do

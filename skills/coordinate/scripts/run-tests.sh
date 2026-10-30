@@ -8,9 +8,10 @@
 # that reached the real GitHub or the real koto instead of its own stand-ins
 # fails loudly rather than passing on a network read, and a script that calls
 # an undeclared tool fails with "command not found". Engine suites
-# (*_engine_test.sh), which drive real koto on purpose, get the real koto and
+# (*_engine_test.sh), which drive real koto on purpose, get the real koto,
 # python3, which runs the fake S3 server (testdata/fake-s3.py) the cloud
-# suites share a bucket through; they are selected with --engine. A suite
+# suites share a bucket through, and flock or perl, whichever is installed,
+# for the outcome suite's lock case; they are selected with --engine. A suite
 # that skips (an engine suite without either, an offline one without jq)
 # fails, and so does one whose output says "command not found".
 #
@@ -42,10 +43,11 @@ mkdir cp mv ln chmod date basename dirname printf test true false dd od xargs te
 touch ls base64 sha256sum shasum sleep find expr id uname readlink realpath mkfifo"
 mkdir -p "$T/path"
 DECLARED=$(awk -F'\t' '!/^#/ && NF > 1 { print $1 }' "$HERE/../requires.tsv" | sort -u)
-# Engine suites need the real koto even when requires.tsv doesn't name it, and
-# python3 for the fake S3 server; no shipped script uses python3.
+# Engine suites need the real koto even when requires.tsv doesn't name it,
+# python3 for the fake S3 server, and flock or perl for the outcome suite's
+# hold on koto's append lock; no shipped script uses python3, flock or perl.
 EXTRA=
-[ "$ENGINE" = 1 ] && EXTRA="koto python3"
+[ "$ENGINE" = 1 ] && EXTRA="koto python3 flock perl"
 for tool in $COMMON $DECLARED $EXTRA; do
     [ -e "$T/stubs/$tool" ] && continue
     p=$(command -v "$tool" 2>/dev/null) || continue
