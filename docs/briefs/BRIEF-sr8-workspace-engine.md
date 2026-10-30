@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A contributor to the tsukumogami workspace meets shirabe's doc checks only in
   CI. The README doesn't tell them to install the binary through tsuku, and no
@@ -21,7 +21,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
