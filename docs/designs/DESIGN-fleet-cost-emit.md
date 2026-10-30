@@ -1,5 +1,41 @@
 ---
 schema: design/v1
+status: Proposed
+problem: |
+  The coordinate skill computes a unit's cost and milestone facts at the end
+  of its life: the teardown pass runs `unit-cost.sh capture` on an archive,
+  and units removed any other way were left to a detached removal sweep. A
+  unit that dies or is reaped outside the pass loses its figures, the sweeps
+  piled up into most of a busy host's load, and facts known at dispatch are
+  re-derived after the rows that held them are gone. The owner's requirements
+  for the replacement are fixed: telemetry sent inline as tools are used, the
+  koto session as the only local storage, nothing running on the host to
+  collect it, and nothing already done lost.
+decision: |
+  Four one-time facts under one scope, `unit_cost`, each sent by the script
+  that learns it: `dispatched` from the coordinator's dispatch, `session_opened`
+  from the shared koto open path, `landed` from the coordinator's merge and
+  `retired` from the teardown pass. They carry join keys (the koto request,
+  the koto session's name and opaque id, the worker's agent session and niwa dispatch ids, the
+  milestone, the scope slug, the pull request), and a reader rebuilds the
+  `unit-cost/1` figures by joining them with koto's workflow records, the
+  agent runtime's token telemetry and a GitHub read. One helper,
+  `scripts/emit-event.sh`, is the only file that may run the shared sender; it
+  checks the off switch, a fixed date before which it never sends, and the
+  sender's discovery rules, then calls it once under a 3-second bound. The
+  capture, the removal sweep and the removals directory are deleted in a
+  second step after the baseline week ends.
+rationale: |
+  Sending each fact at the moment a script that already runs learns it is
+  what makes a reaped unit keep everything it sent, with no batch and no host
+  job. Re-sending what the workflow scope and the runtime already carry would
+  double-count, so the events hold only the coordinator's side of a unit and
+  the keys that join the streams. A per-transition kind has no call site and
+  a per-session summary is the end-of-run batch the owner ruled out. A date
+  constant in the one file that can name the sender makes inertness a property
+  of the code, and splitting the retirement on that date means every unit gets
+  either an entry or events, never neither.
+upstream: docs/prds/PRD-fleet-cost-capture.md
 ---
 
 # DESIGN: Fleet cost emit
@@ -147,15 +183,18 @@ unit's pull request. `teardown-pass.sh` runs the capture today.
 
 Key assumptions:
 
-- The workflow scope carries koto's `state_entered`, `terminal` and review
-  records with the koto session they belong to. If it leaves out the review
-  records, panel rounds stay not recoverable until it adds them; nothing else
-  changes.
+- The workflow scope carries koto's `state_entered`, `terminal`, `cancelled`
+  and review records, keyed by koto's opaque session id (the `session_id` in
+  the session's header) and koto's run id, never by the session name. The
+  pipeline's owner confirmed this. The code-round review records join that
+  scope with work the pipeline owns; until they do, panel rounds are not
+  recoverable and nothing else changes.
 - The runtime's telemetry gives a subagent's requests its parent session's
   id, so a unit's worker row is one session id.
-- `koto-open.sh` can read the session it opened back from koto; if not, the
-  event carries the session name, which is what the workflow records key on
-  too.
+- A script can read a session's opaque id through koto's supported interface:
+  `koto session list --execution-dir <dir>` prints each session under that
+  directory with its `session_id`, and the row whose `id` is the session's
+  name gives it. Nothing reads koto's files directly.
 
 #### Chosen: four lifecycle facts under one scope, joined at read time
 
@@ -175,8 +214,13 @@ session and dispatch ids, and a worker that dies before it opens any koto
 session would otherwise have nothing linking it to its own token rows. They
 carry the worker's agent session id and, when known, its niwa dispatch id.
 
+Every event that names a koto session carries both its name and its opaque
+session id. The workflow records are keyed by the id alone, so the id is what
+joins a `session_opened` to a session's state entries; the name stays because
+it is what the coordinator's own records and the koto request use.
+
 Per-state time, session spans and sessions without `done` come from the
-workflow records, joined on the koto session. Panel rounds come from a koto
+workflow records, joined on the koto session id. Panel rounds come from a koto
 `code-round` review record, which `panel-scope.sh --record` starts writing for
 each round it records, so they travel as workflow records too. Tokens come
 from the runtime's telemetry. Green, merge and failing heads come from GitHub,
@@ -369,7 +413,12 @@ exits 0. It never retries, spools or backgrounds anything. Callers run it as
   sends nothing.
 - `scripts/koto-open.sh`, after koto reports `opened=new`, `attached` or
   `replaced`: `session_opened`. work-on's plain `koto init` path, which
-  doesn't go through `koto-open.sh`, sends the same event.
+  doesn't go through `koto-open.sh`, sends the same event. Before sending,
+  it reads the session's opaque id with `koto session list --execution-dir
+  <the session's execution directory>`, taking the row whose `id` is the
+  session's name; the coordinator's three call sites read their own
+  session's id the same way. A failed read leaves `unit.koto_session_id`
+  out and sends the rest.
 - `skills/coordinate/scripts/land-merge.sh`, after the merge succeeds:
   `landed`.
 - `skills/coordinate/scripts/teardown-pass.sh`, where step 4a runs the
@@ -402,10 +451,12 @@ them on the way out. Shapes are the sender's: `id` is `[A-Za-z0-9._:-]{1,128}`,
 | `unit.leg` | name | the request leg the worker binds |
 | `unit.topic` | name | the dispatch topic |
 | `unit.scope_slug` | name | the coordinator's scope slug |
-| `unit.koto_session` | id | a koto session: the coordinator's on `dispatched`, `landed` and `retired`, the opened one on `session_opened` |
+| `unit.koto_session` | id | a koto session's name: the coordinator's on `dispatched`, `landed` and `retired`, the opened one on `session_opened` |
+| `unit.koto_session_id` | id | the same session's opaque koto session id, the key the workflow records carry, read with `koto session list --execution-dir`; absent when that read fails |
+| `unit.requested_at` | int | the koto request's creation time, in Unix seconds |
 | `unit.parent_session` | id | the opened session's koto parent, when it has one |
 | `unit.roadmap` | name | `ROADMAP-<name>` on a roadmap record; absent on a discipline record |
-| `unit.milestone` | name | the Unit cut at its first `: `, each character outside the `name` alphabet written as `_` (`Feature 4` is `Feature_4`); absent when the Unit is an issue reference or has no tag shape |
+| `unit.milestone` | name | the Unit cut at its first `: `, each character outside the `name` alphabet written as `_` (`Feature 4` is `Feature_4`) and cut at 128 characters; absent when the Unit is an issue reference or has no tag shape |
 | `unit.entry_point` | name | the skill the worker was dispatched to (`work-on`, `deliver`, ...) |
 | `unit.repo` | name | the holding's repository, `owner/repo` |
 | `unit.template` | name | the opened session's koto template name |
@@ -417,10 +468,10 @@ them on the way out. Shapes are the sender's: `id` is `[A-Za-z0-9._:-]{1,128}`,
 
 | Kind | Sent by, when | Fields |
 |---|---|---|
-| `dispatched` | `dispatch-worker.sh` confirm step, in the coordinator, with `--at` set to the koto request's creation time | request, leg, topic, scope_slug, koto_session, roadmap, milestone, entry_point, repo, mode, worker_session, worker_dispatch |
-| `session_opened` | `koto-open.sh` and work-on's plain init, in the opening session | koto_session, parent_session, template, request, leg, topic, mode, outcome |
-| `landed` | `land-merge.sh` after a merge, in the coordinator | pr, topic, scope_slug, koto_session, request |
-| `retired` | `teardown-pass.sh` before `niwa destroy`, in the coordinator | topic, request, koto_session, worker_session, worker_dispatch, pr, outcome |
+| `dispatched` | `dispatch-worker.sh` confirm step, in the coordinator, once niwa's launch is confirmed; the event time is the send time | request, requested_at, leg, topic, scope_slug, koto_session, koto_session_id, roadmap, milestone, entry_point, repo, mode, worker_session, worker_dispatch |
+| `session_opened` | `koto-open.sh` and work-on's plain init, in the opening session | koto_session, koto_session_id, parent_session, template, request, leg, topic, mode, outcome |
+| `landed` | `land-merge.sh` after a merge, in the coordinator | pr, topic, scope_slug, koto_session, koto_session_id, request |
+| `retired` | `teardown-pass.sh` before `niwa destroy`, in the coordinator | topic, request, koto_session, koto_session_id, worker_session, worker_dispatch, pr, outcome |
 
 Every field is optional on the wire: a value the sending script doesn't have,
 or one that fails its shape, is left out, and the reader treats it as not
@@ -459,8 +510,9 @@ The unit's key is `unit.request` from `dispatched`. The worker's niwa dispatch
 id, W, comes from that event's `unit.worker_dispatch`, else `retired`'s, else
 the dispatch id stamped on a `session_opened` that carries the same
 `unit.request`, else the runtime rows of `unit.worker_session`. The unit's
-koto sessions are the workflow records stamped with W; its tokens are the
-runtime rows that carry W.
+koto sessions are the `unit.koto_session_id` values of the `session_opened`
+events stamped with W, and their state entries and review records are the
+workflow records with those ids; its tokens are the runtime rows that carry W.
 
 | `unit-cost/1` field or figure | New source | Same as today? |
 |---|---|---|
@@ -468,7 +520,7 @@ runtime rows that carry W.
 | `milestone` | `dispatched`: milestone, roadmap | Mostly: fixed at dispatch, alphabet mapped |
 | `unit` (the full tag) | not sent | No: free text has no field shape |
 | `plan_shape` | `session_opened`: template (`execute` is `single-pr`, `execute-coordinated` is `coordinated`) and work-on's mode (`plan_backed` is `multi-pr`, else `issue`) | Mostly; see below |
-| `dispatch` | `dispatched`'s time (the request's creation) | Yes |
+| `dispatch` | `dispatched`'s `unit.requested_at`, else its event time (the confirmed launch) | Yes when the request time arrives; else a few seconds later than today's |
 | `"niwa.dispatch.id"` | W | Yes |
 | `pulls` via holding | `landed`: pr, then `pr-heads.sh` for merge commit and time | Yes |
 | `pulls` via session, `opened` | the pull request scope's opened events stamped W, then GitHub for state | No; see below |
