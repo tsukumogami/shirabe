@@ -27,6 +27,10 @@
 # closeout-read.sh has nothing to read at discipline scope, pick-facts.sh reads
 # the window, and state-entry.sh keeps the entries in the session and refuses
 # an outward one with nowhere to go.
+# Sessions koto can't read don't stop the find when they can't change its
+# verdict (an older session, a rotation older than the predecessor), and still
+# stop it, naming one, when they could (a newer session, one at the latest
+# stamp, a later rotation that may have carried the predecessor).
 #
 # Usage: bash skills/coordinate/scripts/discipline-session_test.sh
 set -uo pipefail
@@ -173,6 +177,57 @@ P=coordinate-discipline-meta-20261001T100000Z
 rotation "$P" meta "$WEEK_AGO" "$YESTERDAY"; ended "$P"
 printf '%s' '{"scope": "not a scope"}' | koto context add "$P" record/meta
 unreadable "a predecessor whose record/meta is malformed" meta "$P" "doesn't read back"
+
+echo "== sessions the find can't read =="
+# koto can refuse to read an old session from the current directory
+# (session_unlocated); KOTO_READ_FAIL=<session> stands in for it. The find
+# reads only the sessions that could change its verdict.
+# verdict_with <label> <want> <reason-substring> <unreadable> <run> <discipline>:
+# the find's token with <unreadable> refused, and the reason it gives.
+verdict_with() {
+    local tok
+    tok=$(KOTO_READ_FAIL=$4 run_find "$5" "$6")
+    [ "$tok" = "$2" ] && ok "$1" || bad "$1" "want [$2], got [$tok]: $(cat "$T/find.err")"
+    grep -q -- "$3" "$T/find.err" && ok "  ... saying why" || bad "  ... saying why" "$(cat "$T/find.err")"
+}
+O=coordinate-discipline-old-20260901T100000Z
+rotation "$O" old "$WEEK_AGO" "$WEEK_AGO"; ended "$O"
+P=coordinate-discipline-old-20261001T100000Z
+rotation "$P" old "$WEEK_AGO" "$YESTERDAY"; ended "$P"
+verdict_with "an older session koto can't read behind an ended rotation leaves it the predecessor" \
+    "predecessor $P" "the latest earlier rotation, $P" "$O" coordinate-discipline-old-20261005T100000Z old
+O=coordinate-discipline-oldrot-20260901T100000Z
+rotation "$O" oldrot "$WEEK_AGO" "$WEEK_AGO"; ended "$O"
+printf 'not json' | koto context add "$O" record/rotation
+P=coordinate-discipline-oldrot-20261001T100000Z
+rotation "$P" oldrot "$WEEK_AGO" "$YESTERDAY"; ended "$P"
+verdict_with "an older rotation whose record/rotation can't be read can't have carried the predecessor" \
+    "predecessor $P" "the latest earlier rotation, $P" "" coordinate-discipline-oldrot-20261005T100000Z oldrot
+O=coordinate-discipline-oldprov-20260901T100000Z
+rotation "$O" oldprov "$WEEK_AGO" "$WEEK_AGO"; ended "$O"
+P=coordinate-discipline-oldprov-20261001T100000Z
+HASH=0ddba11 rotation "$P" oldprov "$WEEK_AGO" "$YESTERDAY"; ended "$P"
+verdict_with "an older session koto can't read leaves the latest one's own rule to decide" \
+    "unreadable $P" "fails provenance" "$O" coordinate-discipline-oldprov-20261005T100000Z oldprov
+P=coordinate-discipline-newer-20261001T100000Z
+rotation "$P" newer "$WEEK_AGO" "$YESTERDAY"; ended "$P"
+N=coordinate-discipline-newer-20261003T100000Z
+log_new "$N" "$(discipline_vars newer)"
+OUT=$(KOTO_READ_FAIL=$N run_find coordinate-discipline-newer-20261005T100000Z newer); rc=$?
+eq "a newer earlier session koto can't read still stops the find" "2 " "$rc $OUT"
+grep -q -- "cannot list $N's keys" "$T/find.err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/find.err")"
+P=coordinate-discipline-samest-20261001T100000Z
+rotation "${P}b" samest "$WEEK_AGO" "$YESTERDAY"; ended "${P}b"
+log_new "${P}a" "$(discipline_vars samest)"
+OUT=$(KOTO_READ_FAIL=${P}a run_find coordinate-discipline-samest-20261005T100000Z samest); rc=$?
+eq "a session at the latest rotation's stamp koto can't read still stops the find" "2 " "$rc $OUT"
+grep -q -- "cannot list ${P}a's keys" "$T/find.err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/find.err")"
+P=coordinate-discipline-later-20261001T100000Z
+rotation "$P" later "$WEEK_AGO" "$YESTERDAY"; ended "$P"
+X=coordinate-discipline-later-20261009T100000Z
+log_new "$X" "$(discipline_vars later)"
+verdict_with "a later session koto can't read still stops the find, since it may have carried the predecessor" \
+    "unreadable $P" "$X's record/rotation can't be read" "$X" coordinate-discipline-later-20261005T100000Z later
 
 echo "== a third rotation carries the second =="
 A=coordinate-discipline-chain-20261001T100000Z
