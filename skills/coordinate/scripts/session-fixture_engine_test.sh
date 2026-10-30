@@ -157,6 +157,15 @@ if [ "$KOTO_MAJOR" -gt 0 ] || [ "$KOTO_MINOR" -ge 24 ]; then
     EXPECTED=$( { printf '%s\n' "$BEFORE"
         printf 'koto/imported-from %s\n' "$(jq -cnS --arg s "$FIRST" --arg i "$SRC_ID" '{from_session: $s, from_session_id: $i}')"
         } | LC_ALL=C sort)
+    # koto 0.32.0 and later also write the copy's one continues relation,
+    # koto/links/continues/<source>, naming A's session; its body carries the
+    # time of the import and the copy's own id, so it is checked on its own.
+    REL="koto/links/continues/$FIRST"
+    if [ "$KOTO_MAJOR" -gt 0 ] || [ "$KOTO_MINOR" -ge 32 ]; then
+        eq "3: the copy's continues relation names A's session and its id" "$FIRST $SRC_ID" \
+            "$(printf '%s\n' "$IMPORTED" | sed -n "s|^$REL ||p" | jq -r '"\(.session) \(.session_id)"')"
+        IMPORTED=$(printf '%s\n' "$IMPORTED" | grep -v "^$REL ")
+    fi
     eq "3: every key but record/host is the same by name and JSON as before the resume, plus koto/imported-from naming A's session" \
         "" "$(diff <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$IMPORTED"))"
 else

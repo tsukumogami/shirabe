@@ -160,7 +160,9 @@ session_find() {
         [ -n "$top" ] && [ "$s" != "$top" ] && break
         : > "$T/k.err"
         rs_list "$id" record/meta "$T/k" || lib_die2 "cannot list $id's keys: $(lib_scrub < "$T/k.err")"
-        if jq -e 'index("record/meta") != null' "$T/k" > /dev/null; then
+        # A rotation imported to another host holds no record here, as
+        # rs_scope_sessions has it, though koto 0.32.0 and later still read it.
+        if jq -e 'index("record/meta") != null' "$T/k" > /dev/null && ! rs_migrated "$id"; then
             printf '%s %s\n' "$s" "$id" >> "$T/holders"
             top=$s
         fi

@@ -28,6 +28,10 @@ koto	status	-	always
 koto	cancel	-	always
 koto	session list	-	always
 koto	session dir	-	always
+# coord-log.sh and state-read.sh ask whether a run was imported to another
+# host, which koto 0.32.0 and later still list and read there: its dashboard
+# detail answers such a run with `migrated`.
+koto	dashboard	--detail	always
 koto	template compile	-	always
 koto	context add	--from-file	always
 koto	context get	-	always

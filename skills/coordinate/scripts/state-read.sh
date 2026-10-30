@@ -308,7 +308,9 @@ rs_session_read() {
 # coordinate-open.sh names them), that hold record/meta, one name per line,
 # oldest stamp first. A child session is never one: a coordinator run is a root.
 # A session koto answers isn't here (session_migrated, moved to another host
-# by an import; session_not_found) holds no record here and is left out. Any
+# by an import; session_not_found) holds no record here and is left out, and
+# so is one rs_migrated says was imported elsewhere, which koto 0.32.0 and
+# later still list and read here as the copy's read-only predecessor. Any
 # other refused listing leaves it unknown whether the session holds a record,
 # so it is never printed; with <unreadable-file> given, it is appended there
 # as `<session><TAB><koto's reason>`, oldest first, and without it, it is left
@@ -332,9 +334,20 @@ rs_scope_sessions() {
             [ -z "${3:-}" ] || printf '%s\t%s\n' "$s" "$why" >> "$3"
             continue
         fi
-        jq -e 'index("record/meta") != null' "$d/keys" > /dev/null && printf '%s\n' "$s"
+        jq -e 'index("record/meta") != null' "$d/keys" > /dev/null || continue
+        rs_migrated "$s" || printf '%s\n' "$s"
     done < "$d/names"
     rm -rf "$d"
+}
+
+# rs_migrated <session>: exit 0 when koto says the session was imported
+# elsewhere: `koto dashboard <session> --detail`, a read that changes nothing,
+# answers it with a `migrated` object naming the copy. Any other answer,
+# a koto that can't give one included, is 1. coord-log.sh's migrated_away
+# asks the same.
+rs_migrated() {
+    "${KOTO:-${KOTO_BIN:-koto}}" dashboard "$1" --detail < /dev/null \
+        | jq -e '.migrated | type == "object"' > /dev/null
 }
 
 # rs_resume_candidate <scope> <name> <shipped-hash>: what a start on this host

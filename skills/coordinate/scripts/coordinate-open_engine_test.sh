@@ -40,13 +40,18 @@
 # refusal, store-unsupported, opening no session.
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
 # over testdata/fake-s3.py): a plain session imported on host B arrives with
-# every key, and host A's copy then refuses as session_migrated. The opener's
+# every key, and host A's copy then refuses a write as session_migrated, and
+# koto's dashboard detail says it migrated; on koto 0.32.0 and later A's copy
+# still answers a read with A's last pushed copy (the import keeps it as a
+# read-only predecessor), and before that it refuses the read too. The opener's
 # --import, run on host B: a malformed or settings-bearing import is usage
 # and a name that isn't a run of the scope refused session-name, neither of
 # them calling `session import`; a discipline one reaches the import, which
 # finds no such run; a
 # run A opened whose find never ran (no session-store find) is imported, then
-# refused session-source, and one A opened from a copy of the plugin at another path
+# refused session-source; host A, whose koto (0.32.0 and later) still lists that
+# run, doesn't count it as a live run of the scope, and its next open opens a
+# new run without cancelling it (no failed=cancel); and one A opened from a copy of the plugin at another path
 # is imported, re-attached with this host's plugin root (rebound=), and then
 # refused only as session-source, its find never having run; a child
 # source is refused with koto's import_source_is_child and leaves no session; a
@@ -420,8 +425,21 @@ host_on b koto template compile plain.md > /dev/null 2>"$T/err"
 OUT=$(host_on b koto session import plain-run --from "$(host_ws a)" 2>"$T/err"); eq "host B imports it" 0 $?
 eq "  ... with every key" 2 "$(printf '%s' "$OUT" | jq -r .keys)"
 eq "  ... readable on B" '{"b":2}' "$(host_on b koto context get plain-run legs/r1/deliver 2>&1)"
-host_on a koto context get plain-run record/meta > "$T/out" 2>"$T/err"; eq "host A's copy then refuses" 2 $?
+# koto 0.32.0 keeps an import's source as a read-only predecessor
+# (koto_keeps_source); an older koto's source refuses its reads too.
+KEEPS_SOURCE=0
+koto_keeps_source && KEEPS_SOURCE=1
+host_on a koto context get plain-run record/meta > "$T/out" 2>"$T/err"; rc=$?
+if [ "$KEEPS_SOURCE" = 1 ]; then
+    eq "host A's copy still answers a read with its last pushed copy" '0 {"a":1}' "$rc $(cat "$T/out")"
+else
+    eq "host A's copy then refuses a read" 2 $rc
+    grep -q session_migrated "$T/out" && pass "  ... as session_migrated" || fail "  ... as session_migrated" "$(cat "$T/out" "$T/err")"
+fi
+printf '{"a":2}' | host_on a koto context add plain-run record/meta > "$T/out" 2>"$T/err"; eq "host A's copy refuses a write" 2 $?
 grep -q session_migrated "$T/out" && pass "  ... as session_migrated" || fail "  ... as session_migrated" "$(cat "$T/out" "$T/err")"
+eq "  ... and koto's dashboard detail says it migrated to B's copy" plain-run \
+    "$(host_on a koto dashboard plain-run --detail 2>/dev/null | jq -r '.migrated.target // empty')"
 
 # --- the opener's --import -----------------------------------------------------
 # Host B runs the opener with koto behind a shim that logs every call, so a
@@ -468,6 +486,46 @@ open_a "$T/plugin"
 import_b "[\"$RM\",\"--import\",\"$OPENED\",\"--from\",\"$WS_A\"]"
 eq "a run whose find never recorded the session store is imported, then refused" "2 refused=session-source" "$? $(grep '^refused=' "$T/out")"
 host_on b koto cancel "$OPENED" >/dev/null 2>&1
+sleep 1
+# The host the import left (shirabe#1417). koto 0.32.0 and later still list
+# the run there, as its copy's read-only predecessor, and refuse its cancel as
+# session_migrated. It isn't a live run of the scope on A, so A's next open
+# opens its new run and leaves it as it is, rather than stop at failed=cancel.
+SRC=$OPENED
+if [ "$KEEPS_SOURCE" = 1 ]; then
+    eq "host A still lists the run B imported" "$SRC" "$(host_on a koto session list | jq -r --arg s "$SRC" '.[] | select(.id == $s) | .id')"
+fi
+eq "  ... which koto says migrated" "$SRC" "$(host_on a koto dashboard "$SRC" --detail 2>/dev/null | jq -r '.migrated.target // empty')"
+eq "  ... and isn't a live run of the scope on A" "" \
+    "$(host_on a bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-plugin-system --all 2>/dev/null)"
+printf '["%s"]' "$RM" > "$T/args-a.json"
+host_on a bash "$OPEN" --plugin-root "$T/plugin" "$T/args-a.json" > "$T/out" 2>"$T/open-a.err"; rc=$?
+NEW=$(sed -n 's/^session=//p' "$T/out")
+if [ $rc -eq 0 ] && [ -n "$NEW" ] && [ "$NEW" != "$SRC" ]; then
+    pass "host A's next open of the scope opens a new run"
+else
+    fail "host A's next open of the scope opens a new run" "rc=$rc $(cat "$T/out" "$T/open-a.err")"
+fi
+grep -q '^failed=' "$T/out" && fail "  ... printing no failed=" "$(cat "$T/out" "$T/open-a.err")" || pass "  ... printing no failed="
+grep -qx "cancelled=$SRC" "$T/out" && fail "  ... and cancelling nothing of the migrated run" "$(cat "$T/out")" || pass "  ... and cancelling nothing of the migrated run"
+eq "  ... the new run the scope's one live run on A" "$NEW" \
+    "$(host_on a bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-plugin-system 2>/dev/null)"
+sleep 1
+# Behind a koto whose dashboard read fails, the migrated run stays listed as
+# live (as it would be had it been imported after the listing): the opener's
+# cancel of it refuses as session_migrated, which it leaves alone, and it
+# cancels the live run it should.
+printf '#!/bin/sh\n[ "$1" = dashboard ] && exit 2\nexec "%s" "$@"\n' "$REAL_KOTO" > "$T/koto-nodash"
+chmod +x "$T/koto-nodash"
+printf '["%s"]' "$RM" > "$T/args-a.json"
+host_on a env KOTO_BIN="$T/koto-nodash" bash "$OPEN" --plugin-root "$T/plugin" "$T/args-a.json" > "$T/out" 2>"$T/open-a.err"; rc=$?
+NEW2=$(sed -n 's/^session=//p' "$T/out")
+if [ $rc -eq 0 ] && [ -n "$NEW2" ] && [ "$NEW2" != "$NEW" ]; then
+    pass "behind a koto that can't say the run migrated, A's next open still opens a new run"
+else
+    fail "behind a koto that can't say the run migrated, A's next open still opens a new run" "rc=$rc $(cat "$T/out" "$T/open-a.err")"
+fi
+eq "  ... cancelling the live run, and only it" "cancelled=$NEW" "$(grep '^cancelled=' "$T/out")"
 sleep 1
 # A run opened from the plugin at another path: the same template, so the same
 # hash, but the run's PLUGIN_ROOT isn't this host's.

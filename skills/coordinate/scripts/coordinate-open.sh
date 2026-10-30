@@ -993,13 +993,21 @@ RC=$?
 # makes), so its log stays readable. Only once the new run is open, so a
 # refused invocation leaves the live run alone, and on a carry only once the
 # carry has landed, so one cut short leaves its source as it was.
+#
+# A run imported to another host isn't listed (koto says it migrated), and one
+# imported after the listing refuses the cancel as session_migrated (on
+# stdout), as it refuses every write: it isn't live here either, so it is left
+# as it is.
 cancel_others() {
-    local live id
+    local live id out
     live=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/null)
     case $? in 0|1) ;; *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;; esac
     for id in $live; do
         [ "$id" = "$SESSION" ] && continue
-        "$KOTO" cancel "$id" </dev/null >/dev/null || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
+        out=$("$KOTO" cancel "$id" </dev/null) || {
+            case "$out" in *session_migrated*) continue ;; esac
+            echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1
+        }
         echo "cancelled=$id"
     done
 }
