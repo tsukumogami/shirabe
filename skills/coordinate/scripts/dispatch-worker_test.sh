@@ -30,6 +30,13 @@
 # run; an execution sent to an entry point with no leg) renders a brief whose
 # dispatcher_session is the run that rendered it, with the link command
 # --dispatched-by filled in; an execution sent on a leg carries none.
+# A confirmed launch sends one `dispatched` event whose arguments a stand-in
+# for scripts/emit-event.sh records (from niwa's output on a launch, from the
+# listing row on a resumed run, without a leg on the message path); a re-run,
+# a re-brief and a failed launch send none; and a helper that exits non-zero
+# or is missing leaves the exit code, stdout and stderr as they were. The
+# scripts run from a copy of the skill laid out as the repository is, so no
+# case reaches the repository's own helper.
 #
 # Usage: bash skills/coordinate/scripts/dispatch-worker_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -37,14 +44,22 @@ set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-S="$HERE/dispatch-worker.sh"
-G="$HERE/holding-recorded.sh"
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-worker-test.XXXXXX") || exit 1
 T=$(cd -P "$T" && pwd -P) || exit 1
 ktg_on_exit 'case "$T" in */dispatch-worker-test.*) rm -rf "$T" ;; esac'
+
+# The scripts run from a copy of the skill under $T/plugin, laid out as the
+# repository is, so the dispatched event reaches the stand-in helper at
+# $T/plugin/scripts/emit-event.sh (below), never the repository's.
+DW="$T/plugin"
+mkdir -p "$DW/skills/coordinate/scripts" "$DW/scripts"
+cp "$HERE"/*.sh "$HERE"/*.jq "$DW/skills/coordinate/scripts/" || exit 1
+cp -R "$HERE/../references" "$HERE/../koto-templates" "$DW/skills/coordinate/" || exit 1
+S="$DW/skills/coordinate/scripts/dispatch-worker.sh"
+G="$DW/skills/coordinate/scripts/holding-recorded.sh"
 
 PASS=0
 FAIL=0
@@ -238,6 +253,16 @@ jq -nc --arg a "${RECORD_ADDRESS-lane-coord}" --argjson w "${RECORD_WORK:-[]}" '
 EOF
 chmod +x "$T/state-stored-set.sh"
 export DC_RECORD_STATE="$T/state-stored-set.sh"
+# The event helper's stand-in: each call's arguments, one per line and then
+# `--`, appended to $ST/emit.calls; it prints on both streams and exits with
+# $ST/emit.rc (0 without it), all of which the caller must ignore.
+cat >"$DW/scripts/emit-event.sh" <<'EOF'
+#!/usr/bin/env bash
+{ printf '%s\n' "$@"; echo --; } >>"$ST/emit.calls"
+echo "emit-event stand-in: stdout"
+echo "emit-event stand-in: stderr" >&2
+exit "$(cat "$ST/emit.rc" 2>/dev/null || echo 0)"
+EOF
 
 # --- the workspace -------------------------------------------------------------------
 
@@ -1248,6 +1273,95 @@ imp_setup
 jq -c '.unit = "Feature 2: the plugin API"' "$ST/ctx/legs/req_9/deliver" >"$T/k" && mv "$T/k" "$ST/ctx/legs/req_9/deliver"
 run --releg-imported plugin-api >/dev/null 2>&1
 eq  "imported: an old key's unit is carried to the new key" '"Feature 2: the plugin API"' "$(lkey req_1 deliver | jq -c .unit)"
+
+# --- the dispatched event ----------------------------------------------------------------------------------
+# A confirmed launch sends one `dispatched` event through the stand-in helper,
+# whose arguments are read back whole; nothing that launches no worker sends
+# one; and a helper that fails or is missing changes nothing the run prints
+# or returns.
+
+CS=coordinate-roadmap-plugin-system-20261030T090000Z
+PA_S=plugin_api-""1a2b3c4d
+crun() { (cd "$W/inst" && bash "$S" --session "$CS" "$@"); }
+emits() { cat "$ST/emit.calls" 2>/dev/null; }
+
+reset "$INPUT_DELIVER"
+BEFORE=$(date -u +%s)
+OUT=$(crun 2>/dev/null); RC=$?
+AFTER=$(date -u +%s)
+eq  "dispatched: the launch is confirmed" "0 session=$PA_S" "$RC $OUT"
+AT=$(sed -n 's/^unit\.requested_at=//p' "$ST/emit.calls" 2>/dev/null)
+if [[ $AT =~ ^[0-9]+$ ]] && [ "$AT" -ge "$BEFORE" ] && [ "$AT" -le "$AFTER" ]; then
+    ok "dispatched: requested_at is when this run opened the leg, in Unix seconds"
+else
+    bad "dispatched: requested_at is when this run opened the leg, in Unix seconds" "[$AT] not in [$BEFORE, $AFTER]"
+fi
+eq  "dispatched: one call, every field the run has, the koto dir the workspace root" \
+    "$(printf '%s\n' event --scope unit-cost --kind dispatched --koto-dir "$W" \
+        unit.request=req_1 "unit.requested_at=$AT" unit.leg=deliver unit.topic=plugin-api \
+        unit.scope_slug=roadmap-plugin-system "unit.koto_session=$CS" unit.roadmap=ROADMAP-plugin-system \
+        "unit.milestone=Feature 2" unit.entry_point=deliver unit.repo=acme/widgets unit.mode=auto:no-merge \
+        unit.worker_session=0 --)" \
+    "$(emits)"
+
+# Confirmed from the listing on a resumed run: the listing row's dispatch_id,
+# no requested_at (an earlier run opened the leg), no roadmap (pick isn't
+# read), no milestone (an issue reference), no scope slug (the session name
+# isn't a coordinator run's) and no worker session (no launch output).
+reset "$INPUT_SCOPE"
+printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","entry_point":"scope","mode":"--auto","unit":"acme/widgets#12"}' >"$ST/rows/plugin-api.json"
+printf '[{"name":"x","path":"/p","session_name":"%s","dispatch_id":"disp.w5.0001"}]\n' "$PA_S" >"$ST/sessions.json"
+OUT=$(run 2>/dev/null); RC=$?
+eq  "dispatched, resumed: confirmed from the listing" "0 session=$PA_S" "$RC $OUT"
+eq  "dispatched, resumed: the listing row's dispatch id, and only the fields the run has" \
+    "$(printf '%s\n' event --scope unit-cost --kind dispatched --koto-dir "$W" \
+        unit.request=req_9 unit.leg=scope unit.topic=plugin-api unit.koto_session=coord \
+        unit.entry_point=scope unit.repo=acme/widgets unit.mode=auto \
+        unit.worker_dispatch=disp.w5.0001 --)" \
+    "$(emits)"
+
+# A message-path worker has no request or leg to name.
+reset "$INPUT_DELIVER"
+printf '%s' '{"dispatch_status":"dispatching","return_path":"message","worker":"plugin-api","repo":"acme/widgets","entry_point":"deliver","mode":"","unit":"Feature 2: the plugin API"}' >"$ST/rows/plugin-api.json"
+printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$PA_S" >"$ST/sessions.json"
+run >/dev/null 2>&1
+eq  "dispatched, message path: no request, leg, empty mode or absent dispatch id" \
+    "$(printf '%s\n' event --scope unit-cost --kind dispatched --koto-dir "$W" \
+        unit.topic=plugin-api unit.koto_session=coord "unit.milestone=Feature 2" \
+        unit.entry_point=deliver unit.repo=acme/widgets --)" \
+    "$(emits)"
+
+# Paths that launch no worker send nothing.
+reset "$INPUT_DELIVER"
+crun >/dev/null 2>&1
+rm -f "$ST/emit.calls"
+OUT=$(crun 2>/dev/null)
+eq  "no worker launched: already-dispatched sends nothing" "already-dispatched|" "$OUT|$(emits)"
+printf 'plugin-api' >"$ST/ctx/report_topic"
+OUT=$(crun --rebrief 2>/dev/null); RC=$?
+eq  "no worker launched: --rebrief sends nothing" "0|" "$RC|$(emits)"
+reset "$INPUT_SCOPE"
+export NIWA_MODE=fail
+crun >/dev/null 2>&1; RC=$?
+eq  "no worker launched: a failed launch sends nothing" "4|" "$RC|$(emits)"
+
+# A helper that exits non-zero, and one that is missing, leave the run's
+# output, stderr and exit code as a helper that works leaves them.
+reset "$INPUT_DELIVER"
+OUT=$(crun 2>"$T/emit-ok.err"); RC=$?
+WANT="$RC|$OUT|$(cat "$T/emit-ok.err")"
+reset "$INPUT_DELIVER"
+echo 3 >"$ST/emit.rc"
+OUT=$(crun 2>"$T/emit-fail.err"); RC=$?
+eq  "a helper that exits 3: the same exit, output and stderr" "$WANT" "$RC|$OUT|$(cat "$T/emit-fail.err")"
+eq  "  ... and it was called" 1 "$(grep -c '^dispatched$' "$ST/emit.calls" 2>/dev/null)"
+eq  "  ... the row still dispatched" dispatched "$(row dispatch_status)"
+reset "$INPUT_DELIVER"
+mv "$DW/scripts/emit-event.sh" "$T/emit-event.aside"
+OUT=$(crun 2>"$T/emit-missing.err"); RC=$?
+mv "$T/emit-event.aside" "$DW/scripts/emit-event.sh"
+eq  "a missing helper: the same exit, output and stderr" "$WANT" "$RC|$OUT|$(cat "$T/emit-missing.err")"
+eq  "  ... the row still dispatched" dispatched "$(row dispatch_status)"
 
 # --- holding-recorded.sh ----------------------------------------------------------------------------------
 

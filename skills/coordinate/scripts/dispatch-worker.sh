@@ -117,6 +117,18 @@
 #      it launched (confirm it); not found means it didn't (rewrite the row
 #      `dispatch-failed`, abandon the request, exit 4); a listing that can't be
 #      read leaves `dispatching` and exits 6 for the next run or reconcile.
+#      A confirmed launch also sends one `dispatched` event through
+#      scripts/emit-event.sh (docs/designs/DESIGN-fleet-cost-emit.md), run as
+#      a child whose output and status are ignored: the leg's request and
+#      leg, the time this run opened it (none on a resumed run), the topic,
+#      the scope slug the session name carries, this session, the roadmap
+#      pick_facts names (a new dispatch only), the Unit's milestone tag, the
+#      holding's entry point, repository and mode, the agent session id
+#      niwa's `Dispatched session` line names, and the dispatch_id of the
+#      listing row when the confirm came from the listing. A field the run
+#      doesn't have is left out. Nothing that launches no worker (already
+#      dispatched, --rebrief, --releg, --releg-imported, a sent execution)
+#      sends it.
 #
 # A topic's session is matched by its whole name, never by prefix (see
 # dc_session_matches). niwa doesn't yet report the launched handle
@@ -245,6 +257,9 @@ KOTO="${KOTO:-koto}"
 NIWA="${NIWA:-niwa}"
 DEADLINE="${DISPATCH_DEADLINE_SECS:-300}"
 RE_REQ="$DC_RE_REQ"
+# The repository's one event helper, found from this script's own directory;
+# nothing in the environment names another.
+EMIT="$HERE/../../../scripts/emit-event.sh"
 
 die() { printf '%s: %s\n' "$PROG" "$2" >&2; exit "$1"; }
 usage() { die 2 "usage: $PROG --session <koto-session> [--rebrief | --releg | --releg-imported <topic>]"; }
@@ -462,10 +477,13 @@ take_lock || die 7 "another run holds the lock for $TOPIC (pid ${LOCK_OWNER:-not
 # --- helpers ---------------------------------------------------------------------------
 
 # find_session: print the topic's live session name; 0 found, 1 none, 2 the
-# listing couldn't be read.
+# listing couldn't be read. A match leaves its listing row in
+# $WORK/listed.json, which only the latest call's match leaves there, for the
+# dispatched event's niwa dispatch id.
 find_session() {
     local found
-    found=$(dc_find_session "$ROOT" "$TOPIC") || return $?
+    rm -f "$WORK/listed.json"
+    found=$(dc_find_session "$ROOT" "$TOPIC" "$WORK/listed.json") || return $?
     printf '%s\n' "${found%%	*}"
 }
 
@@ -503,7 +521,9 @@ STATUS=""
 # request still open under the topic's coordinator is abandoned (with <why>
 # as the rationale) and a one-leg request is opened, admitting the entry
 # point's templates and pinning its inputs; otherwise the return path is
-# `message`.
+# `message`. OPENED_AT is the Unix time the request was opened, for the
+# dispatched event; a run that opens none leaves it empty.
+OPENED_AT=""
 open_leg() {
     local entry=$1 pos=$2 why=$3 leg templates pinned inputs pair var src val left old data dispatcher out req
     leg=$(dc_entry_field "$entry" "$DC_F_LEG") || die 2 "no entry-point row for $entry"
@@ -561,6 +581,7 @@ EOF
     req=$(printf '%s' "$out" | jq -r '.request_id // "" | strings')
     grep -Eq "$RE_REQ" <<<"$req" || die 2 "koto request create printed no usable request id"
     RETURN_PATH="$req:$leg"
+    OPENED_AT=$(date -u +%s)
     # The leg as a key of the coordinator's own session (PRD R13), before any
     # holding names it. A failed write leaves the request open with no row
     # naming it, which the next dispatch of the topic abandons above. It also
@@ -985,8 +1006,63 @@ confirm() {
     write_row "$(with_status "$ROW" dispatched)"
     clear_rework "$(printf '%s' "$ROW" | jq -r '.unit // ""')"
     retire_stranded
+    send_dispatched
     printf 'session=%s\n' "$1"
     exit 0
+}
+# send_dispatched: the dispatched event (the header's step 7), from what the
+# run already holds: the holding row, the leg this run opened, niwa's output,
+# the listing row find_session kept and coord/pick.json. It reads nothing new.
+# Each field the run doesn't have is left out, and the helper runs as a child
+# with no stream of this script's, its status ignored, so the confirm's output
+# and exit code are the same whatever it does. A resumed run reaches confirm
+# before UNITS_FILE and LOG are set.
+RE_MILESTONE_TAG='^[A-Za-z0-9][A-Za-z0-9 _.#/-]{0,63}$'
+RE_ISSUE_REF='^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*#[1-9][0-9]*$'
+send_dispatched() {
+    local rp unit ep repo mode req="" leg="" tag ms="" name roadmap="" ws="" wd="" slug kv f words w
+    f=() words=()
+    # One read of the row; a value that isn't a string, or holds a control
+    # character, reads as empty.
+    IFS=$'\037' read -r rp unit ep repo mode <<EOF
+$(printf '%s' "$ROW" | jq -r '[.return_path, .unit, .entry_point, .repo, .mode]
+    | map(if type == "string" and (test("[[:cntrl:]]") | not) then . else "" end) | join("\u001f")' 2>/dev/null)
+EOF
+    rp=$(dc_rp_from_row "$rp")
+    case "$rp" in
+        message | '') ;;
+        *) req=${rp%%:*} leg=${rp#*:} ;;
+    esac
+    # The milestone: the Unit cut at its first `: `, when that has a tag's
+    # shape and isn't an issue reference.
+    tag=${unit%%: *}
+    if [[ $tag =~ $RE_MILESTONE_TAG ]] && ! [[ $tag =~ $RE_ISSUE_REF ]]; then ms=$tag; fi
+    if [ -n "${UNITS_FILE:-}" ] && [ -f "$UNITS_FILE" ]; then
+        name=$(jq -r 'select(.scope == "roadmap") | .name // empty | strings' "$UNITS_FILE") || name=""
+        [ -z "$name" ] || roadmap="ROADMAP-$name"
+    fi
+    if [ -n "${LOG:-}" ] && [ -f "$LOG" ]; then
+        ws=$(sed -n 's/^Dispatched session //p' "$LOG" | head -1)
+    fi
+    if [ -f "$WORK/listed.json" ]; then
+        wd=$(jq -r '.dispatch_id // "" | strings' "$WORK/listed.json") || wd=""
+    fi
+    slug=$(dc_scope_slug "$SESSION") || slug=""
+    # The row's mode is its flags (`--auto --no-merge`); the event carries them
+    # as one name, `auto:no-merge`, since a value starting `--` is dropped.
+    # Plain bash: paste isn't among the tools this script may run.
+    read -ra words <<<"$mode" || :
+    mode=""
+    for w in ${words[@]+"${words[@]}"}; do
+        w=${w#"${w%%[!-]*}"}
+        [ -z "$w" ] || mode=${mode:+$mode:}$w
+    done
+    for kv in "unit.request=$req" "unit.requested_at=$OPENED_AT" "unit.leg=$leg" "unit.topic=$TOPIC" \
+        "unit.scope_slug=$slug" "unit.koto_session=$SESSION" "unit.roadmap=$roadmap" "unit.milestone=$ms" \
+        "unit.entry_point=$ep" "unit.repo=$repo" "unit.mode=$mode" "unit.worker_session=$ws" "unit.worker_dispatch=$wd"; do
+        [ -n "${kv#*=}" ] && f+=("$kv")
+    done
+    bash "$EMIT" event --scope unit-cost --kind dispatched --koto-dir "$ROOT" ${f[@]+"${f[@]}"} </dev/null >/dev/null 2>&1 || :
 }
 # retire_stranded: remove the stranded rows this dispatch replaced. The new
 # worker is already launched, so a failed removal is reported, not fatal: the

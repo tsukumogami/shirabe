@@ -12,7 +12,7 @@ problem: |
   koto session as the only local storage, nothing running on the host to
   collect it, and nothing already done lost.
 decision: |
-  Four one-time facts under one scope, `unit_cost`, each sent by the script
+  Four one-time facts under one scope, `unit-cost`, each sent by the script
   that learns it: `dispatched` from the coordinator's dispatch, `session_opened`
   from the shared koto open path, `landed` from the coordinator's merge and
   `retired` from the teardown pass. They carry join keys (the koto request,
@@ -200,7 +200,7 @@ Key assumptions:
 
 #### Chosen: four lifecycle facts under one scope, joined at read time
 
-One scope, `unit_cost`, with four kinds. Each is a one-time fact sent from a
+One scope, `unit-cost`, with four kinds. Each is a one-time fact sent from a
 script that already runs at the moment the fact becomes known: `dispatched`
 when the coordinator confirms a worker launched, `session_opened` each time a
 shirabe skill opens a koto session, `landed` when the coordinator merges a
@@ -415,7 +415,9 @@ the first that fails:
    no leading `-`, it runs `koto session list --execution-dir <dir>` under
    its own 3-second bound, selects with `jq` the row whose `id` equals the
    `unit.koto_session` value, and adds that row's `session_id` as
-   `unit.koto_session_id` when it matches the `id` shape. The read runs only here,
+   `unit.koto_session_id` when it matches the `id` shape. When the caller
+   passed no `unit.parent_session`, it fills that field from the same row's
+   parent. The read runs only here,
    after the gate and the discovery checks, so before the cutoff, or on a
    host with no sender, no call site reads koto for telemetry at all. A
    failed or slow read leaves the field out and the rest are sent.
@@ -438,9 +440,10 @@ It never retries or spools, and leaves nothing running after it returns. It
 passes no `--carry`, since a one-shot caller has nowhere to keep a count.
 
 The sender runs with a scrubbed environment, `env -i` plus an allow-list kept
-in the helper: `HOME`, a fixed `PATH`, the locale, and the variables the
-sender itself reads for its stamps and its consent check (niwa's exported
-dispatch and workspace variables and the agent session id). No credential
+in the helper. The list is exactly `HOME`, a fixed `PATH`, `LANG` and
+`LC_ALL` when they hold a locale name, and the variables the sender reads
+for its stamps: `CLAUDE_CODE_SESSION_ID`, `NIWA_DISPATCH_ID` and
+`NIWA_WORKSPACE`. No credential
 reaches it: `GH_TOKEN` and every other variable of the calling script are
 left out. This matters most at the coordinator's three call sites, which run
 with the coordinator's credentials.
@@ -464,7 +467,9 @@ can't reach the caller's shell.
   passes the session's name and `--koto-dir <its execution directory>`, and
   the helper looks the opaque id up; no call site reads koto itself for
   telemetry, so nothing it adds can slow or fail the caller before the
-  cutoff.
+  cutoff. `koto-open.sh` takes a repeatable `--event-field <key>=<value>`
+  that a skill's opener uses to add fields; work-on's opener adds
+  `unit.mode` this way.
 - `skills/coordinate/scripts/land-merge.sh`, after the merge succeeds:
   `landed`.
 - `skills/coordinate/scripts/teardown-pass.sh`, where step 4a runs the
@@ -475,6 +480,10 @@ can't reach the caller's shell.
   failing the round. This is a workflow record, not a cost event; it is
   listed here because the panel-round figure depends on it. It is not part of
   step one: it waits on koto.
+
+**`scripts/check-event-sender-names.sh`** (new). The static check: it fails
+when any tracked code file other than the helper and its test names the
+sender's file or its off-switch variable, as step one below describes.
 
 **`skills/coordinate/scripts/pr-heads.sh`** (new in step two, from code
 already in `unit-cost.sh`). Read-only: for one pull request it prints its
@@ -489,7 +498,8 @@ before step two.
 
 ### Key Interfaces
 
-Scope `unit_cost`. Fields are written exactly as below. Shapes are the
+Scope `unit-cost`, kebab case like every other scope the sender accepts.
+Fields are written exactly as below. Shapes are the
 sender's: `id` is `[A-Za-z0-9._:-]{1,128}`,
 `name` is `[A-Za-z0-9._:/@-]{1,128}`, `pr` is `github.com/<owner>/<repo>#<n>`.
 
@@ -677,6 +687,13 @@ arrive. The step-two pull request names that unit and the events seen, and
 its reviewer checks them before it merges; until then step one's teardown
 capture keeps every unit covered.
 
+Panel rounds have a gate of their own. The teardown capture is the only thing
+that counts them today, and no event will until koto's code-review round
+record has landed and the workflow scope carries it. Until both hold, step two
+doesn't remove the capture's panel-round figure: it keeps whatever part of the
+capture produces panel rounds and retires the rest. That part goes only once
+both hold, so panel rounds never go dark.
+
 - `pr-heads.sh` extracted from `unit-cost.sh` with its tests.
 - `unit-cost.sh` deleted with `unit-cost_test.sh`, `unit-cost-on_test.sh` and
   their fixtures.
@@ -699,7 +716,8 @@ Not filed by this design; each is a candidate issue:
 3. Step one's removals (wake line, sweep start, eval, requires row, reference
    text).
 4. Step two's retirement and `pr-heads.sh`, gated on the cutoff and on one
-   unit's events seen.
+   unit's events seen, and, for the capture's panel-round figure, on koto's
+   code-review round record reaching the workflow scope.
 5. The reference rewrite.
 6. A reader recipe for the join, once the backend's query surface is settled.
 7. In koto, not here: a code-review round record, carried by the workflow

@@ -123,17 +123,20 @@ bl_seal() {
     printf '%s\n' "$out"
 }
 
-# bl_unit_repo <session> <pr>: the repository of the unit whose pull request
-# is #<pr>, from the Holdings row whose Pull request cell links it (read live
-# through state-holding.sh). A token carries only the number, so the record
-# says where it lives; no row, or rows naming #<pr> in two repositories, is a
-# failure rather than a guess. Returns 0 printed; 1 no row links #<pr>; 3
-# rows link #<pr> in two or more repositories; 4 the one row's repository
-# isn't owner/repo; 2 the holdings couldn't be read.
+# bl_unit_repo <session> <pr> [<rows-file>]: the repository of the unit whose
+# pull request is #<pr>, from the Holdings row whose Pull request cell links
+# it (read live through state-holding.sh). A token carries only the number, so
+# the record says where it lives; no row, or rows naming #<pr> in two
+# repositories, is a failure rather than a guess. Returns 0 printed; 1 no row
+# links #<pr>; 3 rows link #<pr> in two or more repositories; 4 the one row's
+# repository isn't owner/repo; 2 the holdings couldn't be read. With
+# <rows-file>, the holdings it read are also written there, so a caller can
+# use them without a second read; a write that fails is ignored.
 bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/state-holding.sh" --session "$1" --list) || {
         echo "$PROG: the record's holdings could not be read" >&2; return 2; }
+    if [ -n "${3-}" ]; then printf '%s\n' "$rows" >"$3" 2>/dev/null || :; fi
     repos=$(printf '%s' "$rows" | jq -r -L "$HERE" --arg n "$2" 'include "state-schema";
         [.[]? | .pull_request // "" | pr_link | select(.number == $n) | .repo] | unique | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }

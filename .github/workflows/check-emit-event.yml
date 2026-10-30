@@ -1,0 +1,26 @@
+name: Check emit-event
+
+on:
+  pull_request:
+    paths:
+      - '**'
+
+jobs:
+  check-emit-event:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # scripts/emit-event.sh is the only file that may name the shared event
+      # sender: it holds the off switch, the date gate and the discovery
+      # checks. The name check runs on every pull request, since a new file
+      # anywhere can break it; its suite runs the check against the tree as
+      # its first case.
+      - name: Only the helper names the event sender
+        run: bash scripts/check-event-sender-names_test.sh
+
+      # The helper's own suite: the gate on both sides of the cutoff, each
+      # discovery refusal, the scrubbed environment, the field mapping and the
+      # deadline, under timeout(1) and under the helper's own watcher.
+      - name: emit-event.sh suite
+        run: bash scripts/emit-event_test.sh

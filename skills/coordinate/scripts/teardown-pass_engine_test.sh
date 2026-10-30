@@ -71,8 +71,6 @@ ktg_on_exit 'case "$T" in */teardown-pass-engine.*) rm -rf "$T" ;; esac'
 # side by side share no path.
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T" KOTO_SESSIONS_BASE="$T/koto-home"
 unset XDG_DATA_HOME TEARDOWN_ARCHIVE_DIR TEARDOWN_CLAUDE_HOME TEARDOWN_KOTO_SESSIONS
-# No sweep of removal records as a run ends: the engine's passes are the subject.
-export TEARDOWN_SWEEP=""
 mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 cd "$T" || exit 1
 # The real koto runs here, so its session store must be this suite's own:
