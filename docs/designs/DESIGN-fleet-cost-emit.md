@@ -189,7 +189,7 @@ Key assumptions:
 - The workflow scope carries koto's `state_entered`, `terminal`, `cancelled`
   and review records, keyed by koto's opaque session id (the `session_id` in
   the session's header) and koto's run id, never by the session name. If the
-  workflow scope doesn't yet carry the code-round review records, panel
+  workflow scope doesn't yet carry code-review round records, panel
   rounds are not recoverable until it does, and nothing else changes.
 - The runtime's telemetry gives a subagent's requests its parent session's
   id, so a unit's worker row is one session id.
@@ -225,9 +225,13 @@ joins a `session_opened` to a session's state entries; the name stays because
 it is what the coordinator's own records and the koto request use.
 
 Per-state time, session spans and sessions without `done` come from the
-workflow records, joined on the koto session id. Panel rounds come from a koto
-`code-round` review record, which `panel-scope.sh --record` starts writing for
-each round it records, so they travel as workflow records too. Tokens come
+workflow records, joined on the koto session id. Panel rounds are meant to
+come from a koto review record for each code-review round, carried by the
+workflow scope like the other review records. koto doesn't have that record
+yet: its `koto review record` covers document reviews only (`round-started`,
+`verdicts`, `decision` and the check kinds). Until koto adds a code-review
+round and the workflow scope carries it, panel rounds are not recoverable. When
+it lands, `panel-scope.sh --record` writes one per round it records. Tokens come
 from the runtime's telemetry. Green, merge and failing heads come from GitHub,
 read by the reader with today's definitions.
 
@@ -261,9 +265,12 @@ Rejected: it needs the same per-transition call site that doesn't exist, and
 it duplicates the workflow scope's own facts.
 
 **A `panel_round` kind under the cost scope.** `panel-scope.sh` sends a cost
-event per round. Rejected: koto already defines a `code-round` record for
-exactly this, kept in the koto session's own log and carried by the workflow
-scope, so a cost kind would split review facts across two scopes.
+event per round, which would work today without waiting on koto. Rejected:
+review rounds are workflow facts, and the workflow scope already carries
+koto's document-review records and is adding code-review rounds; a cost kind
+would split review facts across two scopes, and readers would have to merge
+them for good once koto's record lands. The cost is a gap in panel rounds
+until then.
 
 ### Decision 2: Retiring end-of-life capture and landing the sender call inert
 
@@ -361,7 +368,7 @@ How each owner requirement is met:
 | Requirement | How |
 |---|---|
 | Sent inline and synchronously as tools are used | Each event is sent by the script that runs at that moment (dispatch, open, merge, teardown), in the same process, before the script returns. Nothing is queued for later. |
-| The koto session is the only local storage | The helper writes nothing. The one new local write is the `code-round` record, which lives in the koto session's own log. The removals directory stops being written in step one's release (it already isn't, since #1411) and its code goes in step two. |
+| The koto session is the only local storage | The helper writes nothing. The one new local write, once koto adds it, is the code-review round record, which lives in the koto session's own log. The removals directory stops being written in step one's release (it already isn't, since #1411) and its code goes in step two. |
 | Nothing runs on the host to collect, aggregate or forward | No sweep, timer, daemon or detached job exists after step one: the wake line and the teardown pass's sweep start are deleted, and the helper runs the sender in the foreground and waits for it. |
 | A session that dies or is reaped loses nothing already done | Every event is sent at the moment its fact exists, so a unit removed at any point keeps every event sent before it. Nothing is held back to be sent at the end. See Data Flow. |
 
@@ -374,7 +381,7 @@ coordinator session                     worker and nested sessions
 -------------------                     ---------------------------
 dispatch-worker.sh --dispatched-->      koto-open.sh --session_opened-->
 land-merge.sh      --landed----->       (koto's own records: state_entered,
-teardown-pass.sh   --retired---->        terminal, code-round)
+teardown-pass.sh   --retired---->        terminal, review rounds)
         |                                       |
         +------ scripts/emit-event.sh ----------+
                  (off switch, date gate, discovery checks, timeout 3)
@@ -404,9 +411,11 @@ the first that fails:
    by the user's uid or by 0, and none is writable by group or others.
    Ownership and mode come from `ls -ldn`, which reads the same on macOS and
    Linux.
-4. With `--koto-dir`, it runs `koto session list --execution-dir <dir>`
-   under its own 3-second bound and adds `unit.koto_session_id` from the row
-   whose `id` is the `unit.koto_session` value. The read runs only here,
+4. With `--koto-dir`, whose value must be an absolute path with no `..` and
+   no leading `-`, it runs `koto session list --execution-dir <dir>` under
+   its own 3-second bound, selects with `jq` the row whose `id` equals the
+   `unit.koto_session` value, and adds that row's `session_id` as
+   `unit.koto_session_id` when it matches the `id` shape. The read runs only here,
    after the gate and the discovery checks, so before the cutoff, or on a
    host with no sender, no call site reads koto for telemetry at all. A
    failed or slow read leaves the field out and the rest are sent.
@@ -418,24 +427,40 @@ the first that fails:
    the helper that mirrors the field table below) with `[[ =~ ]]`, never a
    line-oriented `grep`, so an embedded newline can't pass. A key or value
    that still fails, or that starts with `--`, is dropped and the rest are
-   sent.
+   sent. Callers pass keys exactly as the field table writes them
+   (`unit.topic=...`); the helper adds no prefix and renames nothing.
 
 Then it runs the sender with `timeout 3` (or, where `timeout` is missing, the
-repository's watcher-based deadline, which kills the sender's whole process
-group), with each value as one argument and no shell evaluation, discards its
-output and status, and
-exits 0. It never retries, spools or backgrounds anything. Callers run it as
-`bash "$root/scripts/emit-event.sh" event ... </dev/null >/dev/null 2>&1 ||
-:`, never by sourcing it, so a fault in it can't reach the caller's shell.
+repository's watcher-based deadline: a short-lived child that ends with the
+call and kills the sender's whole process group), with each value as one
+argument and no shell evaluation, discards its output and status, and exits 0.
+It never retries or spools, and leaves nothing running after it returns. It
+passes no `--carry`, since a one-shot caller has nowhere to keep a count.
+
+The sender runs with a scrubbed environment, `env -i` plus an allow-list kept
+in the helper: `HOME`, a fixed `PATH`, the locale, and the variables the
+sender itself reads for its stamps and its consent check (niwa's exported
+dispatch and workspace variables and the agent session id). No credential
+reaches it: `GH_TOKEN` and every other variable of the calling script are
+left out. This matters most at the coordinator's three call sites, which run
+with the coordinator's credentials.
+
+Callers run the helper as `bash "$root/scripts/emit-event.sh" event ...
+</dev/null >/dev/null 2>&1 || :`, never by sourcing it, so a fault in it
+can't reach the caller's shell.
 
 **Call sites** (changed), each adding one helper call:
 
 - `skills/coordinate/scripts/dispatch-worker.sh`, in its confirm step, once
   niwa's launch is confirmed: `dispatched`. A re-leg that launches no worker
-  sends nothing.
+  sends nothing. `unit.worker_session` is the session id niwa's dispatch
+  output names; `unit.worker_dispatch` is the `dispatch_id` of that session's
+  row in `niwa list --json`, the field `teardown-handoff.sh` reads today, and
+  is left out when the confirm path didn't read the listing.
 - `scripts/koto-open.sh`, after koto reports `opened=new`, `attached` or
-  `replaced`: `session_opened`. work-on's plain `koto init` path, which
-  doesn't go through `koto-open.sh`, sends the same event. Every call site
+  `replaced`: `session_opened`. work-on's plain `koto init`, which its
+  `SKILL.md` has the agent run directly, moves onto `koto-open.sh` so it
+  sends the same event; no instruction to the agent sends anything. Every call site
   passes the session's name and `--koto-dir <its execution directory>`, and
   the helper looks the opaque id up; no call site reads koto itself for
   telemetry, so nothing it adds can slow or fail the caller before the
@@ -444,10 +469,12 @@ exits 0. It never retries, spools or backgrounds anything. Callers run it as
   `landed`.
 - `skills/coordinate/scripts/teardown-pass.sh`, where step 4a runs the
   capture today, after the archive and before `niwa destroy`: `retired`.
-- `skills/work-on/scripts/panel-scope.sh --record`: a koto `code-round`
-  review record per round it records (`koto review record <session>
-  code-round --round <n> --head <head>`). This is a workflow record, not a
-  cost event; it is listed here because the panel-round figure depends on it.
+- `skills/work-on/scripts/panel-scope.sh --record`: once koto offers a
+  code-review round record, one such record per round it records, written
+  only when the installed koto meets the version that adds it and never
+  failing the round. This is a workflow record, not a cost event; it is
+  listed here because the panel-round figure depends on it. It is not part of
+  step one: it waits on koto.
 
 **`skills/coordinate/scripts/pr-heads.sh`** (new in step two, from code
 already in `unit-cost.sh`). Read-only: for one pull request it prints its
@@ -508,7 +535,7 @@ instead, and a reader counts distinct values of it:
 | `dispatched` | `dispatch-worker.sh` confirm step, in the coordinator, once niwa's launch is confirmed | `unit.request` | request, requested_at, leg, topic, scope_slug, koto_session, koto_session_id, roadmap, milestone, entry_point, repo, mode, worker_session, worker_dispatch |
 | `session_opened` | `koto-open.sh` and work-on's plain init, in the opening session, at each open | `unit.koto_session_id` and `unit.outcome` (the name in place of the id when the id read failed) | koto_session, koto_session_id, parent_session, template, request, leg, topic, mode, outcome |
 | `landed` | `land-merge.sh` after a merge, in the coordinator | `unit.request` and `unit.pr` | pr, topic, scope_slug, koto_session, koto_session_id, request |
-| `retired` | `teardown-pass.sh` before `niwa destroy`, in the coordinator | `unit.request`, the latest event's outcome winning | topic, request, koto_session, koto_session_id, worker_session, worker_dispatch, pr, outcome |
+| `retired` | `teardown-pass.sh` before `niwa destroy`, in the coordinator | `unit.request`, the outcome of the event with the latest sender-stamped time winning | topic, request, koto_session, koto_session_id, worker_session, worker_dispatch, pr, outcome |
 
 For `dispatched`, the earliest event per count key gives the dispatch time.
 
@@ -529,8 +556,8 @@ A unit's life, and what a removal at each point keeps:
    telemetry has been flowing since the worker's first request. A unit reaped
    now keeps all of that up to its last request and its last state entry.
 3. Nested skills open their own sessions: each sends `session_opened`, stamped
-   with the same niwa dispatch id. Each review round writes a `code-round`
-   record as it is recorded.
+   with the same niwa dispatch id. Once koto has a code-review round record,
+   each review round writes one as it is recorded.
 4. The worker opens pull requests: the pull request scope sends them, stamped
    with the worker's ids.
 5. The coordinator merges: `landed` is sent for each pull request.
@@ -546,9 +573,12 @@ someone reads the unit.
 ### Recovering the per-unit figures
 
 The unit's key is `unit.request` from `dispatched`. The worker's niwa dispatch
-id, W, comes from that event's `unit.worker_dispatch`, else `retired`'s, else
-the dispatch id stamped on a `session_opened` that carries the same
-`unit.request`, else the runtime rows of `unit.worker_session`. The unit's
+id, W, comes from that event's `unit.worker_dispatch`, else `retired`'s,
+else the runtime rows of `unit.worker_session`; all three are sent by the
+coordinator. Only when none of them has it does a reader fall back to the
+dispatch id stamped on a `session_opened` carrying the same `unit.request`,
+and it marks that join as taken from the worker's own word: a worker writes
+every value it sends, so it could name another unit's request. The unit's
 koto sessions are the `unit.koto_session_id` values of the `session_opened`
 events stamped with W, and their state entries and review records are the
 workflow records with those ids; its tokens are the runtime rows that carry W.
@@ -568,7 +598,7 @@ workflow records with those ids; its tokens are the runtime rows that carry W.
 | `writing_code_min`, `review_min`, shares | workflow `state_entered` in work-on sessions under W, cut at the first `done` | Yes |
 | `summed_session_span_min`, `minutes_per_unit`, `sessions[]` | workflow records per koto session under W | Yes |
 | `sessions_without_done` | work-on sessions under W with no `done` entry | Yes once `retired` arrived; provisional before |
-| `panel_rounds` | workflow `code-round` records per session | Yes, except a round that ran no seat |
+| `panel_rounds` | workflow code-review round records per session, once koto has them | Not recoverable until then; afterwards yes, except a round that ran no seat |
 | `tokens.worker` | runtime rows of `unit.worker_session` | Classes and sums yes; `messages` becomes a request count |
 | `tokens.nested` | runtime rows under W from other sessions | Close; relocated copies no longer exist to dedupe |
 | `key`, `captured_at`, `dispatch.jobs` | no archive: the unit is named by its request id, `retired`'s time stands in for capture | No |
@@ -582,7 +612,7 @@ are known. A `/deliver` that dies after `/scope` resolves but before its first
 execute or work-on session opens reads plan shape `none`, because its
 `plan_execution_mode` is set by a koto context assignment no script sees. The
 milestone is fixed at dispatch, so a Holdings row re-tagged later isn't
-reflected. And a review round that ran no seat writes no `code-round` record,
+reflected. And a review round that ran no seat writes no code-review round record,
 where the verdict ledger counted it.
 
 ### Readers of `unit-cost/1`
@@ -616,17 +646,10 @@ Lands any time; sends nothing before 2026-11-09T02:00Z.
 - `scripts/emit-event.sh` and `scripts/emit-event_test.sh`. The helper's work
   is a function that takes the current time as a parameter; the command-line
   entry always passes `/bin/date`'s reading, so no variable or argument of the
-  command moves the clock. The test sources the helper and calls that
-  function with chosen times, after building a scratch `HOME` under a
-  mode-0700 parent that passes the checks, a fake sender that logs its
-  arguments, and a stub `koto` on `PATH`. Cases: one second before the cutoff
-  (no call, and no `koto` read), at and after it (one call, exact arguments),
-  `FLEET_EVENT_SINK=off` (no call), `FLEET_EVENT_SINK` set to a path
-  (ignored, call made), a symlinked sender or a group-writable parent (no
-  call), no sender (no call, no `koto` read), a hanging sender or `koto`
-  read (returns within its bounds with 0), sender exits 1 to 4 (helper exits
-  0), an unreadable clock (no call), a topic holding spaces (sent mapped), a
-  value still outside its shape (field dropped).
+  command moves the clock. The test calls that function with chosen times
+  against a scratch `HOME` holding a fake sender, so both sides of the cutoff,
+  each discovery refusal, the scrubbed environment and the field mapping are
+  covered without a real sender; the plan lists the cases.
 - A static check over code only (scripts, templates and tests, not
   documentation such as this design) that fails when any file other than the
   helper and its test holds `event-sink` or `EVENT_SINK` anywhere, which also
@@ -635,8 +658,8 @@ Lands any time; sends nothing before 2026-11-09T02:00Z.
   init, `land-merge.sh`, `teardown-pass.sh` (`retired` beside step 4a, which
   keeps running), each with a suite case asserting the helper's arguments
   through a stubbed helper.
-- `panel-scope.sh --record` writes the `code-round` record.
-- Removals of what already does nothing: the coordinator's wake line
+- Removals of what already does nothing, which depend on nothing above and
+  can land first: the coordinator's wake line
   (`skills/coordinate/SKILL.md`), the teardown pass's sweep start on exit and
   its `TEARDOWN_SWEEP` setting, the coordinate eval
   `a-wake-starts-the-removal-sweep` (replaced by one asserting a wake runs and
@@ -650,7 +673,9 @@ Lands any time; sends nothing before 2026-11-09T02:00Z.
 ### Step two: retire the capture, after the cutoff
 
 Merges after 2026-11-09T02:00Z, once a person has seen one real unit's events
-arrive.
+arrive. The step-two pull request names that unit and the events seen, and
+its reviewer checks them before it merges; until then step one's teardown
+capture keeps every unit covered.
 
 - `pr-heads.sh` extracted from `unit-cost.sh` with its tests.
 - `unit-cost.sh` deleted with `unit-cost_test.sh`, `unit-cost-on_test.sh` and
@@ -670,13 +695,15 @@ arrive.
 Not filed by this design; each is a candidate issue:
 
 1. The helper, its test and the static check.
-2. The four call sites and the `code-round` record, with their suite cases.
+2. The four call sites with their suite cases.
 3. Step one's removals (wake line, sweep start, eval, requires row, reference
    text).
 4. Step two's retirement and `pr-heads.sh`, gated on the cutoff and on one
    unit's events seen.
 5. The reference rewrite.
 6. A reader recipe for the join, once the backend's query surface is settled.
+7. In koto, not here: a code-review round record, carried by the workflow
+   scope; then `panel-scope.sh --record` writes it, behind koto's version.
 
 The allow-list rows for the scope, kinds and fields are added outside this
 repository from the Key Interfaces tables.
@@ -693,12 +720,25 @@ settings from steering it. The helper reads no environment variable but
 `FLEET_EVENT_SINK=off`, and the date gate is a constant, so no setting can
 start sending early or point the helper at another file. It also calls `date`
 and `ls` by absolute path, so a stub earlier on `PATH` can't lift the gate or
-fake an ownership check. The residual risk is the one the sender's design
-accepts. A process running as the user could set `HOME` for a tool process,
-or write into the user's own `libexec` directory, and plant a file that
-passes the checks. Keeping agents from writing there is a matter for the
-sandbox and for the sender's installation, not for this design. The checks and
-the run are separate steps, but only the same user or root could race them.
+fake an ownership check. `timeout`, `koto` and `jq` still resolve through
+`PATH`. A stub of one of them can delay a send within its bound, or drop the
+session id, but it can't open the gate or pass the checks, which only the
+absolute-path tools decide.
+
+The residual risk is a planted sender. A process running as the user could
+set `HOME` for a tool process, or write into the user's own `libexec`
+directory, and plant a file that passes the checks. That file would then run
+from every call site, including the coordinator's three, which hold the
+coordinator's credentials. This design puts the call in those scripts, so it
+limits what a planted file gets: the sender runs under `env -i` with only
+`HOME`, a fixed `PATH`, the locale and the variables the sender reads for its
+stamps and consent. No token or other credential of the calling script
+reaches it. Standard input is closed, and the file gets only the event's
+arguments. A planted file can still act as the user, as any program the user
+runs can. Keeping agents from writing into `libexec` belongs to the agent
+sandbox's write rules and the sender's installation, and this residual risk
+goes to the sender's owner with this design. The checks and the run are
+separate steps, but only the same user or root could race them.
 
 **Values that workers can write.** Every value sent comes from koto, niwa's
 output, a Holdings row or a Unit tag, and a worker can shape all of them. The
@@ -710,6 +750,14 @@ drops the field. A `name` field can carry a few words off the host. That is
 accepted because sending is gated on the host's consent and every field is
 capped at 128 characters.
 
+A worker can also send events of its own, or shape the fields of the ones it
+sends, and so misattribute itself. The reader therefore takes a unit's
+identity from the coordinator's events (`dispatched`, `landed`, `retired`)
+and uses a worker's `session_opened` for the unit's request only as a marked
+fallback. The figures were already evidence rather than proof under
+`unit-cost/1`, read from files the worker could write, and that doesn't
+change.
+
 **What leaves the host.** The events carry repository names, pull request
 references, topics, roadmap names and milestones, plus opaque session,
 request and dispatch ids. They go only to the host's own consented telemetry
@@ -717,14 +765,20 @@ backend, never to a pull request, an issue or any other public surface, so
 the `not public` masking `unit-cost/1` applied before posting on a pull
 request has no counterpart here. Masking a private repository's name would
 also break the join with the pull request scope, which carries the same
-references. No event carries file contents, prompts, tokens or credentials,
-and the free-text fields are mapped to the `name` alphabet and capped at 128
-characters. The sender adds the host and workspace identifiers itself, and
-this design doesn't change what it adds.
+references. No field is read from file contents, prompts or credentials.
+Topics, roadmap names and milestones are labels people choose, though, so a
+label that itself names something sensitive (an embargoed fix, say) leaves
+the host as written, mapped to the `name` alphabet and capped at 128
+characters. The host's existing consent is taken to cover these labels and
+repository names. That reading goes to the sender's owner with this design,
+since the consent belongs to the sender. The sender adds the host and
+workspace identifiers itself, and this design doesn't change what it adds.
 
-**No new standing process.** The helper writes nothing, starts nothing in
-the background and never retries. Where `timeout` is missing, its deadline
-kills the sender's whole process group. It can't fail its caller. A send
+**No new standing process.** The helper writes nothing and never retries.
+The only child it starts in the background is the deadline watcher where
+`timeout` is missing; it ends with the call and kills the sender's whole
+process group. Nothing is left running after the helper returns, and it
+can't fail its caller. A send
 adds at most three seconds, or six with the session-id lookup, and before the
 cutoff it adds only the clock read. Deleting the sweep, its locks and the removals
 directory removes code that ran detached on the host and read files workers
@@ -737,7 +791,8 @@ had written.
 - A unit removed at any point keeps every fact already sent; no figure depends
   on the unit reaching teardown.
 - No host job exists: the sweep, its locks and its log go, and the teardown
-  pass's cost step drops from a 120-second capture to one 3-second send.
+  pass's cost step drops from a 120-second capture to one send of at most 6
+  seconds (3 for the session-id lookup, 3 for the send).
 - The milestone, dispatch and plan shape are sent when they are known, so the
   leg-key and removal-record fallbacks go.
 - Tokens come from the runtime's own per-request telemetry, so the transcript
@@ -753,20 +808,30 @@ had written.
 - A few figures change meaning: plan shape for a `/deliver` that dies early,
   a milestone re-tagged after dispatch, rounds that ran no seat, and the
   archive-only fields.
-- Panel rounds and state times depend on the workflow scope carrying koto's
-  records.
+- State times depend on the workflow scope carrying koto's records, and panel
+  rounds are not recoverable at all until koto has a code-review round record.
 - Two changes instead of one, and the date gate stays in the helper as dead
   code after the cutoff until a cleanup removes it.
 - Every send can add up to 3 seconds to the script that makes it, or 6 when
   it looks up a koto session id.
+- A worker can send or shape events and misattribute itself.
 
 ### Mitigations
 
-- `references/unit-cost.md` documents the join, each figure's new source and
-  every changed meaning, so a reader doesn't rediscover them.
-- Old entries stay readable and are clearly frozen, so the series has a known
-  seam at step two's release.
-- If the workflow scope leaves out review records, only panel rounds are
-  affected, and they are added there rather than under this scope.
-- The send bound is fixed and a unit sends tens of events, so the added time
-  per unit is small and never blocks a step on the sender's answer.
+- The join: `references/unit-cost.md` documents it, each figure's new source
+  and every changed meaning, so a reader doesn't rediscover them; the reader
+  recipe is listed follow-up work.
+- Credit before the pull request scope ships: `landed` still names every pull
+  request the coordinator merged, which covers the holding's pull requests
+  `unit-cost/1` read green, merge and failing heads from.
+- Changed meanings: each is listed with its cause, and old entries stay
+  readable and frozen, so the series has a known seam at step two's release.
+- Panel rounds: the gap is named as koto follow-up work and touches no other
+  figure; the rounds land in the workflow scope rather than under this one.
+- Two changes: step two is small and gated on events seen, and the gate's
+  removal is a one-line cleanup once the date has passed.
+- Send time: the bound is fixed, a unit sends tens of events, and no step
+  waits on the sender's answer, so the added time per unit is small; before
+  the cutoff a call costs only a clock read.
+- Forged events: the reader takes a unit's identity from the coordinator's
+  events and marks any join taken from a worker's word.
