@@ -6,6 +6,8 @@
 # preference order. The reader takes the first record for a tool whose OS
 # matches uname -s and whose probe succeeds, which is what makes "exactly one
 # command in a report" fall out of the data rather than out of reporter logic.
+# When no probe succeeds but one ran out of time before answering, the first
+# such record's command is given, and the report says it went unconfirmed.
 #
 #   1 tool      [A-Za-z0-9._-]+. The union of this column is the closed set of
 #               tool names a skills/<name>/requires.tsv record may name in its
