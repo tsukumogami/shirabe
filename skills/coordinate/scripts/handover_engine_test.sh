@@ -22,7 +22,10 @@
 #   0. the import: B prints imported=, resumed=1 and A's session name, which
 #      keeps A's stamp; every record/ and legs/ key on B is the same as on A,
 #      record/host keeps A's host facts and adds the source workspace, session
-#      and template hash; A's copy then refuses as session_migrated; B's next
+#      and template hash; A's copy then refuses a write as session_migrated
+#      (and, before koto 0.32.0, a read too; from 0.32.0 a read answers with
+#      A's last pushed copy), and on A it is neither a live run of the scope
+#      nor a session holding the scope's record; B's next
 #      entry is numbered after A's last (R9); B's reconcile report and closing
 #      lines name the source;
 #   1. the imported session alone carries every property the roadmap's
@@ -200,8 +203,22 @@ HASH=$(host_on b bash "$PS/coord-log.sh" template-hash --session "$S")
 eq "record/host keeps A's facts and adds the source" \
     "$(printf '%s' "$HOST_A" | jq -cS --arg w "$WS_A" --arg s "$S" --arg h "$HASH" '. + {source_workspace: $w, source_session: $s, template_hash: $h}')" \
     "$(host_on b koto context get "$S" record/host | jq -cS .)"
-host_on a koto context get "$S" record/meta > "$T/out" 2>"$T/err"; eq "A's copy then refuses" 2 $?
+# koto 0.32.0 keeps an import's source as a read-only predecessor
+# (koto_keeps_source): A's copy answers a read and refuses a write; an older
+# koto's refuses both.
+host_on a koto context get "$S" record/meta > "$T/out" 2>"$T/err"; rc=$?
+if koto_keeps_source; then
+    eq "A's copy still answers a read with its last pushed copy" "0 $(printf '%s\n' "$SNAP" | sed -n 's|^record/meta ||p')" "$rc $(cat "$T/out")"
+else
+    eq "A's copy then refuses a read" 2 $rc
+    grep -q session_migrated "$T/out" && ok "  ... as session_migrated" || bad "  ... as session_migrated" "$(cat "$T/out" "$T/err")"
+fi
+printf '{}' | host_on a koto context add "$S" coord/probe.json > "$T/out" 2>"$T/err"; eq "A's copy refuses a write" 2 $?
 grep -q session_migrated "$T/out" && ok "  ... as session_migrated" || bad "  ... as session_migrated" "$(cat "$T/out" "$T/err")"
+eq "  ... and isn't a live run of the scope on A" "" \
+    "$(host_on a bash "$PS/coord-log.sh" live-session --scope-slug "$(bash "$PS/coord-log.sh" slug --scope roadmap --name handover)" --all 2>/dev/null)"
+eq "  ... nor a session that holds the scope's record on A" '{"session":null,"action":"none"}' \
+    "$(host_on a bash "$PS/state-read.sh" --candidate --scope roadmap --name handover --hash "$HASH" 2>/dev/null | jq -c '{session, action}')"
 
 echo "== 1. the imported session alone carries the stored set =="
 eq "it is at reconcile" reconcile "$(at)"

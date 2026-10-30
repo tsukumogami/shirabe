@@ -34,6 +34,12 @@
 #                       that workspace, canonical
 #   ws_on <label> <ws> <command...>
 #                       run a command in that workspace, as that host
+#   koto_keeps_source   exit 0 when the koto on PATH is 0.32.0 or later, whose
+#                       `session import` keeps its source as a read-only
+#                       predecessor (tsukumogami/koto#540): the source answers
+#                       reads from its last pushed copy and refuses every write
+#                       as session_migrated. An older koto's source refuses its
+#                       reads too, and the entry-floor job runs the suites on one.
 #
 # Two workspaces on one host share HOME, the koto cache and the request store,
 # as two checkouts on one machine do; each has its own .koto/config.toml, so
@@ -95,6 +101,13 @@ ws_make() {
 }
 
 host_ws() { ws_path "$1" work; }
+
+koto_keeps_source() {
+    local v maj min
+    v=$(koto version 2>/dev/null | head -n 1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\..*$/\1 \2/p')
+    read -r maj min <<< "${v:-0 0}"
+    [ "$maj" -gt 0 ] || [ "$min" -ge 32 ]
+}
 
 ws_path() { (cd "$T/hosts/$1/$2" && pwd -P); }
 
