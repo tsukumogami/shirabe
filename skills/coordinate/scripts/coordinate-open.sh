@@ -403,103 +403,6 @@ HELP=$("$KOTO" context list --help < /dev/null 2>/dev/null) || HELP=
 case "$HELP" in *--prefix*) ;; *) MISSING="context list --prefix" ;; esac
 "$KOTO" session import --help < /dev/null > /dev/null 2>&1 || MISSING="$MISSING${MISSING:+, }session import"
 [ -z "$MISSING" ] || refuse_import store-unsupported "this koto lacks $MISSING, which the coordinator's session store needs; install a koto that has it"
-# The import: the session another host ran, from the bucket, then resumed here
-# (PRD R14). The name and a live run of the scope are refused before koto runs;
-# koto's own refusals are printed with its code and leave no session; then the
-# imported run must be one a start here would resume, and record/host takes the
-# source's facts, so every report up names them for the next import.
-if [ -n "$IMPORT" ]; then
-    [[ $IMPORT =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
-        || refuse_import session-name "$IMPORT is not a run of $SLUG (coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>)"
-    not_self "$IMPORT"
-    # The import's own target is the one live run it may find: koto keeps it
-    # after `import_unmarked`, and the same import run again only marks the
-    # source.
-    LIVE=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/null)
-    case $? in
-        0) [ "$LIVE" = "$IMPORT" ] || refuse_import session-live "a run of $SLUG is live on this host ($(printf '%s' "$LIVE" | tr '\n' ' ')); an import would make two" ;;
-        1) ;;
-        *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;;
-    esac
-    COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
-    SHIPPED=$(basename -- "$COMPILED" .json)
-    [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was imported" >&2; exit 1; }
-    DIR=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-import.XXXXXX") || usage "could not make a scratch directory"
-    set -- session import "$IMPORT" --from "$FROM"
-    [ -z "$TRUST" ] || set -- "$@" --trust-template
-    "$KOTO" "$@" </dev/null > "$DIR/out" 2> "$DIR/err"
-    RC=$?
-    if [ $RC -ne 0 ]; then
-        CODE=$(jq -r '.error.code // empty' "$DIR/out" 2>/dev/null)
-        [[ $CODE =~ ^[a-z_]+$ ]] || CODE=import_failed
-        TEXT=$(awk -F'\t' -v c="$CODE" '$1 == c { print $2; exit }' "$WORDING")
-        [ -n "$TEXT" ] || TEXT=$(jq -r '.error.message // empty' "$DIR/out" 2>/dev/null | head -c 400)
-        echo "refused=$CODE"; echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
-        rm -rf "$DIR"
-        # koto's exit 1 is a read, push or marker failure worth retrying;
-        # everything else it refuses is exit 2, as this script's own refusals.
-        [ $RC -eq 1 ] && exit 1
-        exit 2
-    fi
-    rm -rf "$DIR"
-    # koto has imported it by now: a refusal below leaves it on this host, the
-    # only copy (the source is marked migrated), and a plain start here carries
-    # its record into a new run on this host's template and plugin, all but
-    # session-source's, which holds no session-store record to carry.
-    HASH=$(bash "$HERE/coord-log.sh" template-hash --session "$IMPORT" 2>/dev/null)
-    # The template: the shipped one, or one the compat table beside it lists
-    # at the shipped compat number (coord-log.sh compat), so a change to
-    # directive text alone no longer stops an import.
-    if [ "$HASH" != "$SHIPPED" ] && ! bash "$HERE/coord-log.sh" compat --session "$IMPORT" >/dev/null 2>&1; then
-        read -r RUN_COMPAT SHIP_COMPAT _ <<EOF
-$(compat_line "$IMPORT")
-EOF
-        refuse_import template-incompatible \
-            "$IMPORT was compiled from coordinate.md at compat ${RUN_COMPAT:--} (template ${HASH:-unknown}); this plugin ships compat ${SHIP_COMPAT:--} (template $SHIPPED), so it can't drive the run; it stays on this host, and a plain start carries its record into a new run"
-    fi
-    # The plugin root: a run opened from another plugin root, whose template
-    # lets koto rebind it, is re-attached with this one before provenance runs.
-    ROOTS=$(bash "$HERE/coord-log.sh" plugin-root --session "$IMPORT" 2>/dev/null) || ROOTS=
-    RUN_ROOT=
-    [ -n "$ROOTS" ] && RUN_ROOT=$(printf '%s' "$ROOTS" | jq -r '.root')
-    # A root that no longer exists on this host is another plugin's: cd's
-    # complaint about it says nothing the comparison doesn't.
-    if [ -n "$ROOTS" ] && [ "$(printf '%s' "$ROOTS" | jq -r '.rebind')" = true ] \
-        && [ "$(cd "$RUN_ROOT" 2>/dev/null && pwd -P)" != "$(cd "$PLUGIN_ROOT" && pwd -P)" ]; then
-        rebind_root "$IMPORT" || refuse_import session-provenance \
-            "$IMPORT's plugin root couldn't be moved to this host's; it stays on this host, and a plain start carries its record into a new run"
-    fi
-    bash "$HERE/coord-log.sh" provenance --session "$IMPORT" >/dev/null 2>&1 || refuse_import session-provenance \
-        "$IMPORT wasn't opened from this host's plugin (its plugin root differs); it stays on this host, and a plain start carries its record into a new run"
-    [ "$("$KOTO" context get "$IMPORT" coord/source.json < /dev/null 2>/dev/null | jq -r '.source // empty' 2>/dev/null)" = session ] \
-        || refuse_import session-source "$IMPORT's find didn't record the session; it holds no record to continue"
-    # A run moved with `koto next --to` refuses every write, so it isn't one to
-    # continue either (the resume candidate's own last check).
-    bash "$HERE/coord-log.sh" directed-since --session "$IMPORT" --from 0 > /dev/null 2>&1
-    case $? in
-        0) ;;
-        1) refuse_import session-directed "$IMPORT has a directed transition in its log; it stays on this host, and a plain start carries its record into a new run" ;;
-        *) echo "failed=directed_read"; echo "coordinate-open: $IMPORT's log couldn't be read for directed transitions" >&2; exit 1 ;;
-    esac
-    bash "$HERE/state-stored-set.sh" --session "$IMPORT" --host source_workspace "$FROM" --host source_session "$IMPORT" \
-        --host template_hash "$HASH" > /dev/null 2>&1 \
-        || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run state-stored-set.sh --host for it" >&2; exit 1; }
-    printf 'imported=%s\nresumed=1\nsession=%s\n' "$IMPORT" "$IMPORT"
-    link_dispatcher "$IMPORT"
-    # The run reconciles again on this host. At reconcile it does so by itself
-    # (its sealed report names another host's import facts). The hub takes the
-    # `moved` tick, and its directive checks for a reconcile still owed on
-    # every visit, so a run anywhere else gets the reconcile when it reaches
-    # the hub; that check reads the run's own keys, so a restart keeps it.
-    AT=$("$KOTO" status "$IMPORT" 2>/dev/null </dev/null | jq -r '.current_state // empty' 2>/dev/null)
-    printf 'state=%s\n' "${AT:-unknown}"
-    case "$AT" in
-        reconcile|reconcile_pass) ;;
-        wait) echo "tick=moved" ;;
-        *) echo "coordinate-open: $IMPORT is at ${AT:-an unreadable state}; it reconciles on this host when it next reaches wait, whose check sends it through moved" >&2 ;;
-    esac
-    exit 0
-fi
 
 # The takeover. The caller is the Claude session running this opener
 # (CLAUDE_CODE_SESSION_ID); its name, the messaging address workers report
@@ -755,6 +658,8 @@ finish_takeover() {
     printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\nwatcher=%s\nleg_wake=%s\n' \
         "$pred" "$succ" "$stopped" "$(watcher_result "$pred")" "$(leg_wake)"
     link_dispatcher "$succ"
+    # An imported run reconciles again on this host.
+    [ -z "$IMPORT" ] || moved_lines "$succ"
     exit 0
 }
 # takeover <predecessor>: continue the predecessor's run in a new session
@@ -895,6 +800,163 @@ takeover_check() {
 }
 T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not make a scratch file"
 trap 'rm -f "$T_ERR"' EXIT
+# moved_lines <run>: state=<the run's state> and, at the hub, tick=moved, so a
+# run that came from another workspace reconciles again here. At reconcile it
+# does so by itself (its sealed report names another host's import facts). The
+# hub takes the `moved` tick, and its directive checks for a reconcile still
+# owed on every visit, so a run anywhere else gets the reconcile when it
+# reaches the hub; that check reads the run's own keys, so a restart keeps it.
+moved_lines() {
+    local at
+    at=$("$KOTO" status "$1" 2>/dev/null </dev/null | jq -r '.current_state // empty' 2>/dev/null)
+    printf 'state=%s\n' "${at:-unknown}"
+    case "$at" in
+        reconcile|reconcile_pass) ;;
+        wait) echo "tick=moved" ;;
+        *) echo "coordinate-open: $1 is at ${at:-an unreadable state}; it reconciles on this host when it next reaches wait, whose check sends it through moved" >&2 ;;
+    esac
+}
+# import_takes_over: koto 0.32.0 and later keep an import's source as a
+# read-only predecessor (koto#540) and fence a predecessor on the cloud
+# backend (koto#525), so an import there is taken over; an older koto's
+# import is resumed.
+import_takes_over() {
+    local v ma mi
+    v=$("$KOTO" version < /dev/null 2> /dev/null | sed -n '1s/^koto v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\.[0-9][0-9]*.*/\1 \2/p')
+    read -r ma mi <<EOF
+$v
+EOF
+    [ -n "$ma" ] && [ -n "$mi" ] && { [ "$ma" -gt 0 ] || [ "$mi" -ge 32 ]; }
+}
+# The import: the session another workspace ran, from the bucket (PRD R14).
+# The name and a live run of the scope are refused before koto runs; koto's
+# own refusals are printed with its code and leave no session; then the
+# imported copy must be a run this plugin can continue, and record/host takes
+# the source's facts, so every report up names them for the next import. On
+# koto 0.32.0 and later the copy is then taken over, the predecessor of a new
+# run as in a takeover on one host (takeover below); on an older koto it is
+# resumed as it is.
+if [ -n "$IMPORT" ]; then
+    [[ $IMPORT =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
+        || refuse_import session-name "$IMPORT is not a run of $SLUG (coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>)"
+    not_self "$IMPORT"
+    TAKES_OVER=
+    import_takes_over && TAKES_OVER=1
+    COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
+    SHIPPED=$(basename -- "$COMPILED" .json)
+    [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was imported" >&2; exit 1; }
+    if [ -n "$TAKES_OVER" ]; then
+        # The takeover records this session as the new run's driver, so a
+        # caller with no Claude session id can't make it.
+        [ -n "$CALLER" ] || refuse_import session-id \
+            "an import takes the run over, recording this Claude session as its driver, and this session has no Claude session id (CLAUDE_CODE_SESSION_ID); nothing was imported"
+        # A copy already here and fenced is this import's takeover run before:
+        # this session's own is resumed when it finished, and finished under
+        # the fence's name when it was cut short after the fence; another
+        # session's is refused.
+        if "$KOTO" status "$IMPORT" < /dev/null > /dev/null 2>&1; then
+            fence_of "$IMPORT"
+            if [ -n "$FENCE" ]; then
+                [ "$FENCE_ACTOR" = "$CALLER" ] || refuse_takeover taken-over \
+                    "$IMPORT was imported here and taken over by $FENCE_BY from another Claude session; nothing was written"
+                not_self "$FENCE_BY"
+                if [ "$(meta_field "$FENCE_BY" driver)" = "$CALLER" ] && [ "$(meta_field "$FENCE_BY" takeover_done)" = true ]; then
+                    printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$FENCE_BY"
+                    link_dispatcher "$FENCE_BY"
+                    exit 0
+                fi
+                printf 'imported=%s\n' "$IMPORT"
+                takeover "$IMPORT" "$FENCE_BY"
+            fi
+        fi
+    fi
+    # The import's own target is the one live run it may find: koto keeps it
+    # after `import_unmarked`, and the same import run again only marks the
+    # source.
+    LIVE=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/null)
+    case $? in
+        0) [ "$LIVE" = "$IMPORT" ] || refuse_import session-live "a run of $SLUG is live on this host ($(printf '%s' "$LIVE" | tr '\n' ' ')); an import would make two" ;;
+        1) ;;
+        *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;;
+    esac
+    DIR=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-import.XXXXXX") || usage "could not make a scratch directory"
+    set -- session import "$IMPORT" --from "$FROM"
+    [ -z "$TRUST" ] || set -- "$@" --trust-template
+    "$KOTO" "$@" </dev/null > "$DIR/out" 2> "$DIR/err"
+    RC=$?
+    if [ $RC -ne 0 ]; then
+        CODE=$(jq -r '.error.code // empty' "$DIR/out" 2>/dev/null)
+        [[ $CODE =~ ^[a-z_]+$ ]] || CODE=import_failed
+        TEXT=$(awk -F'\t' -v c="$CODE" '$1 == c { print $2; exit }' "$WORDING")
+        [ -n "$TEXT" ] || TEXT=$(jq -r '.error.message // empty' "$DIR/out" 2>/dev/null | head -c 400)
+        echo "refused=$CODE"; echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
+        rm -rf "$DIR"
+        # koto's exit 1 is a read, push or marker failure worth retrying;
+        # everything else it refuses is exit 2, as this script's own refusals.
+        [ $RC -eq 1 ] && exit 1
+        exit 2
+    fi
+    rm -rf "$DIR"
+    # koto has imported it by now: a refusal below leaves it on this host, the
+    # only copy (the source is marked migrated), and a plain start here carries
+    # its record into a new run on this host's template and plugin, all but
+    # session-source's, which holds no session-store record to carry.
+    HASH=$(bash "$HERE/coord-log.sh" template-hash --session "$IMPORT" 2>/dev/null)
+    # The template: the shipped one, or one the compat table beside it lists
+    # at the shipped compat number (coord-log.sh compat), so a change to
+    # directive text alone no longer stops an import.
+    if [ "$HASH" != "$SHIPPED" ] && ! bash "$HERE/coord-log.sh" compat --session "$IMPORT" >/dev/null 2>&1; then
+        read -r RUN_COMPAT SHIP_COMPAT _ <<EOF
+$(compat_line "$IMPORT")
+EOF
+        refuse_import template-incompatible \
+            "$IMPORT was compiled from coordinate.md at compat ${RUN_COMPAT:--} (template ${HASH:-unknown}); this plugin ships compat ${SHIP_COMPAT:--} (template $SHIPPED), so it can't drive the run; it stays on this host, and a plain start carries its record into a new run"
+    fi
+    # The plugin root, for a resume only: a takeover opens the new run with
+    # this plugin's root and template, so where the copy was opened from
+    # doesn't matter to it. A run opened from another plugin root, whose
+    # template lets koto rebind it, is re-attached with this one before
+    # provenance runs.
+    if [ -z "$TAKES_OVER" ]; then
+        ROOTS=$(bash "$HERE/coord-log.sh" plugin-root --session "$IMPORT" 2>/dev/null) || ROOTS=
+        RUN_ROOT=
+        [ -n "$ROOTS" ] && RUN_ROOT=$(printf '%s' "$ROOTS" | jq -r '.root')
+        # A root that no longer exists on this host is another plugin's: cd's
+        # complaint about it says nothing the comparison doesn't.
+        if [ -n "$ROOTS" ] && [ "$(printf '%s' "$ROOTS" | jq -r '.rebind')" = true ] \
+            && [ "$(cd "$RUN_ROOT" 2>/dev/null && pwd -P)" != "$(cd "$PLUGIN_ROOT" && pwd -P)" ]; then
+            rebind_root "$IMPORT" || refuse_import session-provenance \
+                "$IMPORT's plugin root couldn't be moved to this host's; it stays on this host, and a plain start carries its record into a new run"
+        fi
+        bash "$HERE/coord-log.sh" provenance --session "$IMPORT" >/dev/null 2>&1 || refuse_import session-provenance \
+            "$IMPORT wasn't opened from this host's plugin (its plugin root differs); it stays on this host, and a plain start carries its record into a new run"
+    fi
+    [ "$("$KOTO" context get "$IMPORT" coord/source.json < /dev/null 2>/dev/null | jq -r '.source // empty' 2>/dev/null)" = session ] \
+        || refuse_import session-source "$IMPORT's find didn't record the session; it holds no record to continue"
+    # A run moved with `koto next --to` refuses every write, so it isn't one to
+    # continue either (the resume candidate's own last check).
+    bash "$HERE/coord-log.sh" directed-since --session "$IMPORT" --from 0 > /dev/null 2>&1
+    case $? in
+        0) ;;
+        1) refuse_import session-directed "$IMPORT has a directed transition in its log; it stays on this host, and a plain start carries its record into a new run" ;;
+        *) echo "failed=directed_read"; echo "coordinate-open: $IMPORT's log couldn't be read for directed transitions" >&2; exit 1 ;;
+    esac
+    bash "$HERE/state-stored-set.sh" --session "$IMPORT" --host source_workspace "$FROM" --host source_session "$IMPORT" \
+        --host template_hash "$HASH" > /dev/null 2>&1 \
+        || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run state-stored-set.sh --host for it" >&2; exit 1; }
+    printf 'imported=%s\n' "$IMPORT"
+    # The copy is the predecessor: the takeover fences it, carries its record
+    # and legs into a new run, and prints the takeover's result, then the new
+    # run's state (finish_takeover). The source refuses every write already,
+    # and koto follows its migration to the copy's successor, so its next tick
+    # is refused session_superseded naming the new run.
+    [ -z "$TAKES_OVER" ] || takeover "$IMPORT"
+    printf 'resumed=1\nsession=%s\n' "$IMPORT"
+    link_dispatcher "$IMPORT"
+    # The run reconciles again on this host.
+    moved_lines "$IMPORT"
+    exit 0
+fi
 # refuse_bound <run> <what this start left>: koto refused a read of <run> as
 # session_bound_elsewhere, its cloud backend answering a run only in the
 # directory it is bound to (shirabe#1257). The way out, in its order: the

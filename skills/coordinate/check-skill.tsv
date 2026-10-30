@@ -135,3 +135,4 @@ cost	board-lib_test.sh	0
 cost	render-result_engine_test.sh	0
 cost	coordinate-takeover-load_engine_test.sh	0
 cost	takeover-flags_test.sh	0
+cost	coordinate-import-takeover_engine_test.sh	60

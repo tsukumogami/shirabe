@@ -3,7 +3,12 @@
 Test-only. It serves one bucket, path-style (`/<bucket>/<key>`), on 127.0.0.1,
 for koto's cloud session backend: GET, PUT, HEAD and DELETE of objects, and
 ListObjectsV2 (`?list-type=2&prefix=..&delimiter=..`) in the XML koto's S3
-client reads. Authentication is ignored. A missing object or bucket answers 404
+client reads. Every object has an ETag, a hash of its content, in a listing, a
+GET, a HEAD and a PUT's reply alike. A PUT honours `If-Match` and
+`If-None-Match: *` as S3 does: when the stored object's ETag isn't the one
+named, or an object is there for `If-None-Match: *`, it answers 412
+PreconditionFailed and stores nothing (koto's supersede pushes its fence on
+that condition). Authentication is ignored. A missing object or bucket answers 404
 with an S3 error body (HEAD with no body). Every reply closes its connection.
 Nothing is logged, so no request header, credential included, is ever written.
 
@@ -33,11 +38,22 @@ def error_body(code, message):
     ).encode()
 
 
+def etag(data):
+    """An object's ETag, quoted as S3 sends it: 64-bit FNV-1a of its content and
+    its length, as koto's fake_s3.rs computes it."""
+    h = 0xCBF29CE484222325
+    for b in data:
+        h ^= b
+        h = (h * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return '"%016x-%d"' % (h, len(data))
+
+
 def list_xml(prefix, delimiter):
     contents, common = [], []
     with LOCK:
         keys = sorted(k for k in OBJECTS if k.startswith(prefix))
         sizes = {k: len(OBJECTS[k]) for k in keys}
+        tags = {k: etag(OBJECTS[k]) for k in keys}
     for key in keys:
         after = key[len(prefix):]
         i = after.find(delimiter) if delimiter else -1
@@ -61,8 +77,8 @@ def list_xml(prefix, delimiter):
     for key in contents:
         parts.append(
             "<Contents><Key>%s</Key><LastModified>2026-01-01T00:00:00.000Z</LastModified>"
-            '<ETag>"fake-etag"</ETag><Size>%d</Size><StorageClass>STANDARD</StorageClass></Contents>'
-            % (escape(key), sizes[key])
+            "<ETag>%s</ETag><Size>%d</Size><StorageClass>STANDARD</StorageClass></Contents>"
+            % (escape(key), escape(tags[key]), sizes[key])
         )
     for p in common:
         parts.append("<CommonPrefixes><Prefix>%s</Prefix></CommonPrefixes>" % escape(p))
@@ -114,11 +130,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(404, error_body("NoSuchKey", "The specified key does not exist."),
                            [("Content-Type", "application/xml")])
             else:
-                self.reply(200, data)
+                self.reply(200, data, [("ETag", etag(data))])
         elif self.command == "PUT":
+            want = self.headers.get("If-Match")
+            none = self.headers.get("If-None-Match")
             with LOCK:
-                OBJECTS[key] = body
-            self.reply(200, headers=[("ETag", '"fake-etag"')])
+                current = OBJECTS.get(key)
+                if want is not None:
+                    failed = current is None or etag(current).strip('"') != want.strip().strip('"')
+                else:
+                    failed = none is not None and none.strip() == "*" and current is not None
+                if not failed:
+                    OBJECTS[key] = body
+            if failed:
+                self.reply(412, error_body("PreconditionFailed",
+                                           "At least one of the pre-conditions you specified did not hold"),
+                           [("Content-Type", "application/xml")])
+            else:
+                self.reply(200, headers=[("ETag", etag(body))])
         elif self.command == "DELETE":
             with LOCK:
                 OBJECTS.pop(key, None)
