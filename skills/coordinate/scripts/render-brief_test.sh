@@ -21,6 +21,8 @@
 # link-dispatcher.sh for /deliver and a /work-on PLAN), and Reporting names
 # render-result.sh; a leg brief carries none of it; a dispatcher_session
 # that isn't a koto session name is refused.
+# A launch field leaves the brief golden, and a key or value outside its
+# fixed sets is refused.
 #
 # Usage: bash skills/coordinate/scripts/render-brief_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -233,6 +235,29 @@ for g in '["merge"]' '"merge-pr"' '["merge-pr","merge-pr"]' '"own"' '[1]'; do
     bash "$S" --input "$(variant grant-bad ".grant = $g")" --stdout >/dev/null 2>"$T/err"
     eq  "grant: $g is refused" "1" "$?"
     has "grant: $g's refusal names the field" "$(cat "$T/err")" "grant: must be an array of distinct authorities"
+done
+
+# --- the worker's launch flags ------------------------------------------------------
+#
+# launch is for dispatch-worker.sh, not the worker: the brief is the golden one
+# with it, and every value is checked against its fixed set, so nothing outside
+# it reaches niwa dispatch.
+golden "launch: the brief is unchanged" "$GOLD/base.txt" \
+    --input "$(variant launch-all '.launch = {"model": "opus", "permission_mode": "bypassPermissions", "accept_session_messages": true}')"
+for l in '{"model": "powerful"}' '{"model": "fable"}' '{"permission_mode": "acceptEdits"}' '{"accept_session_messages": false}'; do
+    bash "$S" --input "$(variant launch-ok ".launch = $l")" --stdout >/dev/null 2>"$T/err"
+    eq  "launch: $l is taken" "0" "$?"
+done
+for l in '{"model": "opus 5"}' '{"model": "--dangerously-skip-permissions"}' '{"model": "claude-opus-5-5"}' '{"model": ""}' \
+         '{"permission_mode": "yolo"}' '{"permission_mode": "bypasspermissions"}' '{"accept_session_messages": "true"}'; do
+    bash "$S" --input "$(variant launch-bad ".launch = $l")" --stdout >/dev/null 2>"$T/err"
+    eq  "launch: $l is refused" "1" "$?"
+    has "launch: $l's refusal names the key" "$(cat "$T/err")" "launch: $(jq -r 'keys[0]' <<<"$l") must be"
+done
+for l in '{}' '"opus"' '{"model": "opus", "agent": "coder"}'; do
+    bash "$S" --input "$(variant launch-bad ".launch = $l")" --stdout >/dev/null 2>"$T/err"
+    eq  "launch: $l is refused" "1" "$?"
+    has "launch: $l's refusal names the field" "$(cat "$T/err")" "launch: "
 done
 
 # --- the dispatcher, on the message path ---------------------------------------------
