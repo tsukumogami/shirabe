@@ -42,7 +42,9 @@
 #      are one set, and each entry's text.path is its criterion's rule_ref;
 #      an rs- entry with check.kind `none` is a jury rubric item, judged by a
 #      document jury seat (references/review-verdicts.md), and has no
-#      criterion. `rs-verdict-missing` is the one rs- id outside rs-NNN
+#      criterion; one with check.kind `decider` is a document criterion its
+#      koto template grades, and may have one or not. `rs-verdict-missing` is
+#      the one rs- id outside rs-NNN
 #   6  printable ids: every id on a RULE_IDS="..." line under skills/,
 #      scripts/ or hooks/ (a hook's *_test.sh suite aside), and every id a
 #      script passes to `rule-registry.sh release`,
@@ -409,11 +411,17 @@ else
 
     # A jury rubric item (check.kind none) is judged by a document jury seat,
     # not by review-shadow.py, so it has no criterion (references/review-verdicts.md).
+    # A document criterion (check.kind decider) is graded by its koto template,
+    # so it needs no criterion either, though one that review-shadow.py also
+    # reads keeps its row.
     jqf "$TMP/reg-rs.raw" -r '.rules[] | objects | select(.check.kind? != "none")
                               | .id | strings | select(test("^rs-"))' "$REG"
     sort -u "$TMP/reg-rs.raw" > "$TMP/reg-rs"
+    jqf "$TMP/reg-rs-need.raw" -r '.rules[] | objects | select(.check.kind? != "none" and .check.kind? != "decider")
+                                   | .id | strings | select(test("^rs-"))' "$REG"
+    sort -u "$TMP/reg-rs-need.raw" > "$TMP/reg-rs-need"
     grep '^rs-' "$TMP/crit-ids" | sort -u > "$TMP/crit-rs"
-    comm -23 "$TMP/reg-rs" "$TMP/crit-rs" | sed 's/$/: in the registry but not in criteria.json/' > "$TMP/rs-only-reg"
+    comm -23 "$TMP/reg-rs-need" "$TMP/crit-rs" | sed 's/$/: in the registry but not in criteria.json/' > "$TMP/rs-only-reg"
     report "$TMP/rs-only-reg"
     comm -13 "$TMP/reg-rs" "$TMP/crit-rs" | sed 's/$/: in criteria.json but not in the registry/' > "$TMP/rs-only-crit"
     report "$TMP/rs-only-crit"

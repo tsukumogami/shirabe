@@ -21,16 +21,19 @@ Every entry Jev grades carries a `jev` object:
 | `slice_script` | The script that prints the slice. For a koto decider check, the gate's command runs it. |
 | `budget` | The slice's byte budget: the gate's `max_bytes`, and never above 2,560, about the 2,507 bytes the Jev accuracy spike validated. A criterion with no gate is measured against 2,560. |
 | `completeness` | `path` and `heading` of its written case on this page, and the `verdict`, `sufficient` or `insufficient`, which the contract's author sets and its pull request's reviewers check. |
-| `measured` | The slice's size on real runs: `population` (`koto-sessions`, `merged-prs` or `review-shadow-records`), `runs`, `max`, `p90` (nearest rank), `over_budget` (runs over the budget), `on` and the `command` that took it, which prints the same figures given the same inputs. Optionally `empty`: the runs that reached the criterion's state with an empty slice, which `runs` leaves out (`measure sessions --slice decision-reasons` prints it). With no `empty`, the measurement found no empty slice. Or instead `not_measured: no-real-run-record`. |
+| `measured` | The slice's size on real runs: `population` (`koto-sessions`, `merged-prs`, `review-shadow-records`, or `documents` for a document criterion's census, below), `runs`, `max`, `p90` (nearest rank), `over_budget` (runs over the budget), `on` and the `command` that took it, which prints the same figures given the same inputs. Optionally `empty`: the runs that reached the criterion's state with an empty slice, which `runs` leaves out (`measure sessions --slice decision-reasons` prints it). With no `empty`, the measurement found no empty slice. Or instead `not_measured: no-real-run-record`. |
 | `fixtures` | The fixture file, from `untrusted` on. |
 | `declared` | For a koto decider check: `sha256` of its declaration and `since`, the date that declaration took effect. `jev_criteria.py declared-hash` prints both the declaration and its hash. |
 | `false_passes` | Confirmed false passes: `evaluated` and `recorded` dates, `oracle` (`review`, `ci` or `human`) and an `evidence` link. Never removed. |
 | `promotion` | Only on a trusted criterion: `trusted_since`, the `fixture_run`, the `live` figures and the slice script's blob hash. |
+| `pairs` | Only on a document criterion, in place of the fields above: one contract per format, each with those fields and `format`, `template`, `section`, `cap`, `cut`, `change_kinds` and `fixture_run` ([Document criteria](#document-criteria)). `state` and `false_passes` stay beside `pairs`. |
 
 A koto gate sends one slice per evaluation, so a criterion that judges every
 unit of a run (every hunk, every acceptance criterion) has to fit them all at
 once. Every figure below is that whole-run size in bytes: the number of runs
 measured, the largest, the 90th percentile and how many went over the budget.
+A document criterion is the exception: its check is in unit mode, grading each
+unit apart, so its figures are per unit and its budget binds one unit.
 
 ## States
 
@@ -475,6 +478,360 @@ agent gave, which read the facts the input leaves out, so a decider that
 misses one is showing the gap above rather than a fault of its own. The
 fixtures haven't been run against the decider.
 
+## Document criteria
+
+Six rules a document jury flags over and over have Jev criteria that grade a
+document one unit at a time: a Scope Boundary bullet, an Evidence clause, an
+acceptance criterion, a user journey, a summary beside its section, two
+passages that share a term or a number, and a falsifier beside its claim.
+Each runs from a one-state template under `koto-templates/doc-criteria/`,
+`<format>-<rule id>.md`, whose `grade` state holds one unit-mode decider check,
+`doc_criteria`, with `units: jsonl`, `max_units` at the criterion's cap,
+`max_bytes: 2560`, the format and section key as `unit_document` and
+`unit_section`, and one criterion keyed by the jury rubric id it would stand
+in for, in `mode: shadow`, with no `summary` or `rule_text`, since a shadow
+criterion delivers nothing. The check's command runs
+`scripts/doc-criteria/slice.py <rule id> <format> --doc <path> --commit <sha>`,
+which reads the document's blob at that commit from the repository the
+document lives in, refuses a path that isn't under that repository's `docs/`
+once symlinks are followed, and prints one JSON line per unit in the order the
+units start in the document. koto grades the first `max_units` of them and
+records the rest as past the cap (`unit_limit`), so a long document has the
+same units graded on every run.
+
+`references/doc-criteria.json` maps each format to its criteria (rule id,
+section key, template and cap) and pins the sha256 of each template and of
+the slice script; `jev_criteria.py check` fails when a pinned file differs,
+and `jev_criteria.py pins` prints the pins as the files are now. A rule that
+runs on two formats has one entry and two contracts, under `jev.pairs`, each
+held to the contract above and to these rules:
+
+- `template`, `section`, `cap` (at most 32) and `cut` match the map, the
+  template's check and the slice script. A criterion that cuts never prints a
+  unit over the budget; one that doesn't prints each unit whole, and koto
+  records one over the budget as `over_budget`.
+- `measured` is a census, population `documents`: every `<FORMAT>-*.md`
+  under the public repositories' `docs/` directories, measured with
+  `jev_criteria.py measure docs`. `runs` counts the documents with a unit,
+  `empty` the ones with none, `over_budget` the documents holding a unit over
+  the budget (the 5% line is drawn on these), `max` and `p90` the unit sizes,
+  and `units`, `units_over_budget`, `units_per_doc_p90`, `units_per_doc_max`
+  and `over_cap` (documents with more units than the cap) sit beside them. A
+  census counts the whole population, so the 100-run minimum doesn't apply.
+- `change_kinds` lists the finding kinds its seeded-bad fixtures may use, and
+  its section below names each one. Every fixture case holds a small document
+  as `input`, the `unit` key and the `slice` the slice script prints for that
+  unit; each seeded-bad case names the good case it came from in `of`, its
+  change kind in `change`, and has a slice of its own. A reviewer reads each
+  seeded-bad case beside its good case and confirms in the review that the
+  two differ by that one change.
+- `fixture_run` records a run of the fixtures against the configured decider
+  in shadow: the date, the decider model, the declaration's sha256, and the
+  blob hashes of the fixture file and of the slice script. It is held to the
+  fixture bar and also to every seeded-bad case answered `fail`, since an
+  escape on a unit known to break the rule is a miss. The check fails when the
+  counts miss either bar or any hash differs from the committed files; a run
+  is re-made with `jev_criteria.py fixtures <rule id> --format <format>`.
+
+No template anywhere may declare one of these six rule ids in `veto` or set
+any decider value to `auto` (below, The shadow guard). Every one of them is
+`untrusted`, and each leaves shadow the same way: a maintainer proposes it,
+citing its live figures and its fixture run; the proposal is approved; and
+only then does a template edit change its mode. Nothing in this page or the
+registry changes a mode.
+
+Every pre-jury moment sends each of these units to the decider endpoint a
+user configured, through koto's capture redaction, private documents
+included. A repository that must not send its documents sets the decider mode
+to `off` in its project `.koto/config.toml`, which koto lets lower a user's
+mode, and then nothing is sent.
+
+### The shadow guard
+
+`jev_criteria.py check` refuses, in every koto template of the tree (a `.md`
+whose frontmatter declares `initial_state:` and `states:`, tests and
+throwaway templates included) and in each template or directory passed with
+`--koto-templates`:
+
+- a decider-check criterion keyed by `rs-009`, `rs-011`, `rs-012`, `rs-013`,
+  `rs-073` or `rs-074` in `mode: veto`;
+- `mode: auto` on any decider answer of an accepts field, or on any criterion;
+- a `KOTO_DECIDER=auto` anywhere in a template's text;
+- the same in any template another one includes through
+  `materialize_children.default_template`, followed from the including
+  template's directory;
+- a project `.koto/config.toml` anywhere in the tree, or in a directory from a
+  passed path up to its repository root, that sets the decider mode to
+  `auto`.
+
+## brief-rs-073
+
+Does a BRIEF's Scope Boundary bullet stay at the feature's altitude, naming no
+function, data structure, field, flag, script, file path or command?
+
+**Sources.** The BRIEF under review, its blob at the commit the step reads.
+
+**Slice.** Each top-level list item under `## Scope Boundary`, whole, with the
+`###` heading it sits under (`### In`, `### Out`) as its first line, or the
+section's own heading when it sits under none. Section key `scope-boundary`.
+
+**Completeness.** A bullet's altitude is decided by its own words and by
+whether it is in or out of scope, which the heading carries; nothing else in
+the document changes the answer. The verdict is `sufficient`. Change kinds:
+`mechanism` (the bullet's subject becomes a function, a data structure or a
+flag), `path` (a file path) and `command` (a command to run).
+
+**Figures.** A 2,560-byte budget per unit and a cap of 32 units; units are not
+cut. 85 public BRIEFs, 83 with a bullet: 934 units, largest 1,231, p90 363,
+none over the budget; units per document p90 15, largest 19; none past the
+cap.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/brief-rs-073.jsonl`: 13 good, 26
+seeded-bad and 7 adversarial cases (all six techniques). Run against the
+configured decider (jev-1.14.0) on 2026-10-30: good 13 pass, seeded-bad 26
+fail, adversarial 6 fail and 1 escape.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
+## roadmap-rs-073
+
+Does a ROADMAP milestone's Evidence clause describe the check only by what a
+person does and sees, naming no source file, script, function or line of the
+implementation?
+
+**Sources.** The ROADMAP under review, its blob at the commit the step reads.
+
+**Slice.** Each Evidence clause, a `- ` line at column 0 with its indented
+continuation, after a milestone's `**Evidence:**` and up to the first blank
+line, field line or heading, with the milestone's `###` heading as its first
+line. Milestones are read under `## Milestones`, or `## Features` on a
+`roadmap/v2`. Section key `milestones`.
+
+**Completeness.** Which milestone a clause evidences is in its heading, and
+whether it names a mechanism is in its own words. The verdict is
+`sufficient`. Change kinds: `file` (the clause names the implementing source
+file), `script` (it rests on a named check script passing) and `function` (it
+names an implementing function or line).
+
+**Figures.** A 2,560-byte budget per unit and a cap of 32 units; units are not
+cut. The public repositories hold no ROADMAP under `docs/`, so the census
+measured none; the live figures are the first measurement this contract
+gets.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/roadmap-rs-073.jsonl`: 12 good,
+24 seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 12
+pass, seeded-bad 24 fail, adversarial 7 fail.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
+## prd-rs-013
+
+Can a PRD's acceptance criterion be answered yes or no by someone who didn't
+write it, without any judgment call?
+
+**Sources.** The PRD under review, its blob at the commit the step reads.
+
+**Slice.** Each top-level list item under `## Acceptance Criteria`, whole,
+group headings left out. Section key `acceptance-criteria`.
+
+**Completeness.** A criterion's own text is all the question reads. The
+verdict is `sufficient`. Change kinds: `subjective-word` (a measurable result
+becomes a judgment word with no measure), `no-observable-result` (it becomes
+an intent or a quality nobody can observe) and `unmeasured-quantity` (a number
+becomes "most", "many" or "reasonable").
+
+**Figures.** A 2,560-byte budget per unit and a cap of 32 units; units are not
+cut. 186 public PRDs, 184 with a criterion: 5,074 units, largest 1,823, p90
+352, none over the budget; units per document p90 51, largest 85; 57
+documents have more units than the cap, and their later criteria are past it.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/prd-rs-013.jsonl`: 13 good, 26
+seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 12
+pass and 1 escape, seeded-bad 26 fail, adversarial 7 fail.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
+## brief-rs-011
+
+Does a BRIEF's user journey have all three parts: a named role, an event or
+need that happens before the role acts, and a result stated after the action?
+
+**Sources.** The BRIEF under review, its blob at the commit the step reads.
+
+**Slice.** Each `###` subsection under `## User Journeys`, whole, heading
+included. Section key `user-journeys`.
+
+**Completeness.** A journey's own text is all the question reads. The verdict
+is `sufficient`. Change kinds: `no-role` (the role becomes "the user"),
+`no-trigger` (the event or need that comes first is removed, or replaced by a
+sentence that names none) and `no-outcome` (the result is removed, or
+replaced by a sentence that names none).
+
+The criterion's threshold is 0.7, not koto's 0.9. On a three-part question the
+decider's confidence on clear cases sat between 0.7 and 0.9 in the fixture
+runs, so at 0.9 a third of the seeded-bad cases escaped. A lower threshold
+lets a wrong answer count sooner; in shadow nothing acts on one, and the
+fixture run and the live figures are taken under this threshold.
+
+**Figures.** A 2,560-byte budget per unit and a cap of 8 units; units are not
+cut. 85 public BRIEFs, 83 with a journey: 341 units, largest 1,455, p90 842,
+none over the budget; units per document p90 5, largest 6; none past the cap.
+Measured as one slice per run, all of a brief's journeys at once, this
+criterion was blocked for want of a koto state; graded one unit at a time from
+its own template, it has one.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/brief-rs-011.jsonl`: 12 good, 24
+seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 12
+pass, seeded-bad 24 fail, adversarial 5 fail and 2 escapes.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
+## brief-rs-012
+
+Does a BRIEF's frontmatter summary say the same thing as the leading part of
+the section it summarizes, with no fact that conflicts?
+
+**Sources.** The BRIEF under review, its blob at the commit the step reads.
+
+**Slice.** The `problem` summary beside `## Problem Statement`, and the
+`outcome` summary beside `## User Outcome`, each as one unit: the summary
+(cut to 1,024 bytes, which no measured summary reaches), then the section's
+leading paragraphs that fit the budget whole, then `[section continues]` when
+any paragraph is left out. A first paragraph too big on its own is cut to fit.
+A summary or a section that's missing gives no unit. Section key
+`frontmatter`.
+
+**Completeness.** The cut can't see a contradiction in the part of the
+section it leaves out, so a pass means "agrees with the leading part", and
+the marker tells the decider the section goes on. Uncut, 44 of the 170
+measured units (26%) would be over the budget. The verdict is `sufficient` for that weaker
+question. Change kinds: `different-subject` (the summary describes another
+problem or outcome) and `contradicted-fact` (one fact in the summary is
+changed so the section states the opposite).
+
+**Figures.** A 2,560-byte budget per unit and a cap of 2 units; units are cut.
+85 public BRIEFs: 170 units, largest 2,559, p90 2,434, none over the budget;
+2 units in every document. Measured whole, as one slice per run, it was
+rejected: every run was over the budget.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/brief-rs-012.jsonl`: 12 good, 24
+seeded-bad and 6 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 11
+pass and 1 escape, seeded-bad 24 fail, adversarial 5 fail and 1 escape.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
+## prd-rs-009
+
+Are two passages of a PRD that share a backticked term or a number consistent
+with each other?
+
+**Sources.** The PRD under review, its blob at the commit the step reads.
+
+**Slice.** A passage is a list item with its continuation lines, a table row,
+or a prose paragraph, outside fenced code and the frontmatter. A pair is two
+passages sharing a key, a backticked term or a number (thousands separators
+dropped), that occurs in two or three passages; a key in more passages forms
+no pair. Each side is the sentence holding the key (an item or a row whole),
+cut to 1,200 bytes, under its section heading cut to 72. Pairs come in order
+of their first passage, then their second. Section key `document`.
+
+**Completeness.** Clipping can drop a qualifying clause around the shared
+term, so the question is whether the two statements, as written, disagree;
+pairs the key rule never forms are never asked. The verdict is `sufficient`.
+Change kinds: `number-conflict`, `name-conflict`, `status-conflict` and
+`behaviour-conflict`, one passage changed so the two disagree on that.
+
+The threshold is 0.85: the decider's confidence on clear conflicts sat between
+0.85 and 0.9 often enough in the fixture runs that 0.9 left a few escaping.
+
+**Figures.** A 2,560-byte budget per unit and a cap of 32 units; units are
+cut. 186 public PRDs, 179 with a pair: 4,828 units, largest 2,426, p90 1,010,
+none over the budget; units per document p90 55, largest 103; 61 documents
+have more pairs than the cap. Measured whole, every pair of a run in one
+slice, it was rejected: two runs in three were over the budget.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/prd-rs-009.jsonl`: 14 good, 25
+seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 14
+pass, seeded-bad 25 fail, adversarial 5 fail and 2 escapes.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
+## design-rs-009
+
+Are two passages of a DESIGN that share a backticked term or a number
+consistent with each other?
+
+**Sources.** The DESIGN under review, its blob at the commit the step reads.
+
+**Slice.** As `prd-rs-009`, over the DESIGN. Section key `document`.
+
+**Completeness.** As `prd-rs-009`: the question is whether the two statements,
+as written, disagree. The verdict is `sufficient`. Change kinds:
+`number-conflict`, `name-conflict`, `status-conflict` and
+`behaviour-conflict`. Its threshold is 0.85, for the same reason.
+
+**Figures.** A 2,560-byte budget per unit and a cap of 32 units; units are
+cut. 249 public DESIGNs, every one with a pair: 13,162 units, largest 2,542,
+p90 943, none over the budget; units per document p90 100, largest 253; 176
+documents have more pairs than the cap, so most DESIGNs are graded in part.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/design-rs-009.jsonl`: 15 good,
+25 seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 15
+pass, seeded-bad 25 fail, adversarial 7 fail.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
+## strategy-rs-074
+
+Is a STRATEGY falsifier's condition about the same thing as the Defensibility
+Thesis claim it names, so that observing it would show that claim wrong?
+
+**Sources.** The STRATEGY under review, its blob at the commit the step reads.
+
+**Slice.** Each top-level list item under `## Bet-Specific Falsifiability`,
+its corrective included, cut to 1,500 bytes, beside the claim its first
+`claim <n>` names: the Defensibility Thesis's numbered item `<n>`, or a
+paragraph there that opens `Claim <n>`, cut to 1,000. A bullet naming no claim
+number is sent with `[no claim named]`, and one naming a number the thesis has
+no claim for says so; the decider escapes on both. Section key
+`bet-specific-falsifiability`.
+
+**Completeness.** The bullet and the claim it names are what the question
+compares, and a missing claim number is itself a finding the escape covers.
+Whether the condition can be observed and whether a corrective follows are
+the bet-quality seat's other items; this criterion asks only whether the
+falsifier tests its claim. The verdict is `sufficient`. Change kinds:
+`unrelated-claim` (the bullet names a claim about another subject) and
+`unrelated-condition` (its condition is replaced by one about another
+subject).
+
+**Figures.** A 2,560-byte budget per unit and a cap of 32 units; units are
+cut. The public repositories hold no STRATEGY under `docs/`, so the census
+measured none; the live figures are the first measurement this contract
+gets.
+
+**Fixtures.** `scripts/jev-criteria/fixtures/strategy-rs-074.jsonl`: 12 good,
+24 seeded-bad and 6 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 10
+pass and 2 escapes, seeded-bad 24 fail, adversarial 6 fail.
+
+**State.** `untrusted`, in shadow. It leaves shadow only through a
+maintainer's proposal citing its live figures and its fixture run, the
+proposal's approval, and then a template edit.
+
 ## rs-007
 
 Does Part 1 of the pull request body claim only changes the file list shows?
@@ -496,18 +853,6 @@ list shows?
 **Sources**, **slice**, **completeness** and **figures** as `rs-007`.
 **State.** `rejected`, for the same measurement.
 
-## rs-009
-
-Are two passages of the same document consistent with each other?
-
-**Sources.** The changed documents at the merge commit, from git. **Slice.**
-`review-shadow.py`'s doc pairs: each added passage beside each passage sharing
-a number or a backticked term, every pair of the run at once. **Completeness.**
-Each pair carries both passages whole, which is all the question reads.
-**Figures.** 24 of shirabe's last 40 merged pull requests had pairs, largest
-54,359, p90 22,939, 16 over 2,560. **State.** `rejected`: over the budget on
-67% of runs.
-
 ## rs-010
 
 Does every code comment in the changed hunks still describe the code after the
@@ -518,37 +863,6 @@ every hunk that adds, removes or borders a comment. **Completeness.** A comment
 and the code beside it are what the question reads. **Figures.** 469 recorded
 `/work-on` runs, largest 324,298, p90 89,574, 449 over 2,560. **State.**
 `rejected`: over the budget on 96% of runs.
-
-## rs-011
-
-Does a user journey name a specific user, what brings them to the feature, and
-what they get?
-
-**Sources.** The BRIEF under review. **Slice.** Every journey of the brief,
-whole. **Completeness.** Each journey's own text is all the question reads.
-**Figures.** 23 recorded `/brief` runs, largest 2,353, p90 1,999, none over
-2,560. **State.** `blocked`: its slices fit, but `/brief` has no koto state to
-run a check in.
-
-## rs-012
-
-Does a frontmatter summary agree with the section it summarizes?
-
-**Sources.** The BRIEF under review. **Slice.** Both summaries (problem and
-outcome) beside the sections they summarize. **Completeness.** A summary and
-its whole section are what the question compares. **Figures.** 23 recorded
-`/brief` runs, largest 3,877, p90 3,709, all 23 over 2,560. **State.**
-`rejected`.
-
-## rs-013
-
-Can an acceptance criterion be answered yes or no by someone who didn't write
-it?
-
-**Sources.** The PRD under review. **Slice.** Every acceptance criterion of the
-PRD. **Completeness.** A criterion's own text is all the question reads.
-**Figures.** 21 recorded `/prd` runs, largest 11,332, p90 8,169, 19 over
-2,560. **State.** `rejected`: over the budget on 90% of runs.
 
 ## rs-014
 

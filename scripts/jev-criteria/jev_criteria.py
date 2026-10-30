@@ -9,24 +9,35 @@ design is docs/designs/current/DESIGN-jev-pass-trust.md.
 
 Subcommands:
 
-  check [--root DIR] [--base REF]
+  check [--root DIR] [--base REF] [--koto-templates PATH]...
       Hold every Jev entry to its contract, and with --base to the history
-      rules. Prints one line per problem. Exit 0 none, 1 problems, 2 could not
-      run.
-  declared-hash RULE_ID [--root DIR]
+      rules. Refuse `mode: veto` on a document criterion and `mode: auto` on
+      any decider value in every template of the tree and of each PATH (a
+      template or a directory of them), the templates they include, and a
+      project config that sets the decider mode to auto. Prints one line per
+      problem. Exit 0 none, 1 problems, 2 could not run.
+  declared-hash RULE_ID [--format F] [--root DIR]
       Print a decider entry's declaration as canonical JSON, then its SHA-256.
+  pins [--root DIR]
+      Print the `pins` JSON references/doc-criteria.json holds: the sha256 of
+      each mapped template and of the slice script as they are now.
   measure sessions --dir DIR [--dir DIR]... [--slice review-facts|decision-reasons|criteria-plan|design-context]
   measure prs --repo OWNER/REPO --limit N --kind pr-summary|code-hunks|doc-pairs [--git-dir DIR]
   measure records --dir DIR --kind KIND
       Measure whole-run slice sizes on real artifacts, with no call to Jev,
       and print the figures as the `measured` JSON a contract records.
-  fixtures RULE_ID [--endpoint URL]
+  measure docs --criterion RULE_ID --format F --roots DIR [DIR]...
+      Measure a document criterion's units, one at a time, over every
+      <FORMAT>-*.md under the roots, and print the `measured` JSON.
+  fixtures RULE_ID [--format F] [--endpoint URL]
       Send each fixture case to Jev under the template's declaration and
       print counts by kind and answer and the `fixture_run` JSON. Exit 0 when
       the fixture bar is met, 1 when not, 2 when it could not run. The key
       comes from KOTO_DECIDER_API_KEY and is never printed; a loopback
-      endpoint (a local stub) never gets it.
-  figures RULE_ID --sessions DIR [--from D] [--to D] [--bar]
+      endpoint (a local stub) never gets it. A document criterion's run is
+      held to the stricter bar (every seeded-bad case answered fail) and
+      records the slice script's blob too.
+  figures RULE_ID [--format F] --sessions DIR [--from D] [--to D] [--bar]
       Compute the live figures from local koto session logs and print the
       `live` JSON; with --bar exit 0 when they meet the bar, 1 when not. A
       reference for the definitions only: the figures that decide a
@@ -65,6 +76,19 @@ REGISTRY = "references/rule-registry.json"
 CRITERIA = "scripts/review-shadow/criteria.json"
 RULE_REGISTRY_SH = "scripts/rule-registry.sh"
 REVIEW_LEVEL_SH = "skills/work-on/scripts/review-level.sh"
+# The document criteria: their per-format map and pins, their slice script,
+# and the directory their one-state templates live in.
+DOC_CRITERIA = "references/doc-criteria.json"
+DOC_SLICER = "scripts/doc-criteria/slice.py"
+DOC_TEMPLATES = "koto-templates/doc-criteria"
+JEV_REFERENCE = "references/jev-criteria.md"
+# The rule ids the document criteria grade. None of them may be declared in
+# veto mode anywhere: they run in shadow until a maintainer's proposal is
+# approved and a template edit follows.
+DOC_RULE_IDS = ("rs-009", "rs-011", "rs-012", "rs-013", "rs-073", "rs-074")
+DOC_FORMATS = ("brief", "prd", "design", "roadmap", "strategy")
+DOC_PARTS = ("Sources", "Slice", "Completeness", "Figures", "Fixtures", "State")
+CHANGE_KIND = re.compile(r"^[a-z][a-z0-9-]*$")
 
 # About the 2,507 bytes the Jev accuracy spike validated; nothing larger is
 # trusted until the spike is re-run (docs/spikes/SPIKE-jev-accuracy.md).
@@ -93,7 +117,14 @@ NOT_GRADED_DRIFT = 0.10
 
 STATES = {"rejected", "blocked", "untrusted", "trusted"}
 WRITERS = {"git", "gate-script", "graded-artifact", "slice-script"}
-POPULATIONS = {"koto-sessions", "merged-prs", "review-shadow-records"}
+# `documents` is a census: every committed document of the format under the
+# measured roots, so `runs` is the documents with a unit, and the 100-run
+# minimum, which asks a sample to be big enough, doesn't apply to it.
+POPULATIONS = {"koto-sessions", "merged-prs", "review-shadow-records", "documents"}
+CENSUS = "documents"
+# A census's `max` and `p90` are per unit, and `over_budget` counts the
+# documents holding a unit over the budget, which the 5% line is drawn on.
+DOC_MEASURED = ("units", "units_over_budget", "units_per_doc_p90", "units_per_doc_max", "over_cap")
 NOT_MEASURED = {"no-real-run-record"}
 VERDICTS = {"sufficient", "insufficient"}
 ORACLES = {"review", "ci", "human"}
@@ -197,7 +228,7 @@ def template_states(root, rel, cache):
 
 def template_files(root):
     out = []
-    for pattern in ("skills/*/koto-templates/*.md", "koto-templates/*.md"):
+    for pattern in ("skills/*/koto-templates/*.md", "koto-templates/*.md", "koto-templates/*/*.md"):
         for p in sorted(glob.glob(os.path.join(root, pattern))):
             if not p.endswith(".mermaid.md"):
                 out.append(os.path.relpath(p, root))
@@ -232,12 +263,19 @@ def find_gate(root, check, cache):
 
 
 def declaration(gate, crit):
-    return {"command": gate.get("command", ""),
+    decl = {"command": gate.get("command", ""),
             "label": gate.get("label", DEFAULT_LABEL),
             "max_bytes": int(gate.get("max_bytes", DEFAULT_MAX_BYTES)),
             "question": crit.get("question", ""), "pass": crit.get("pass", ""),
             "fail": crit.get("fail", ""), "escape": crit.get("escape", ""),
             "threshold": float(crit.get("threshold", DEFAULT_THRESHOLD))}
+    # A unit-mode check grades each printed unit apart, and its cap decides
+    # which ones; both are part of what a fixture run was made under. A
+    # single-slice check has neither, so its hash is what it always was.
+    if "units" in gate:
+        decl["units"] = gate.get("units")
+        decl["max_units"] = gate.get("max_units")
+    return decl
 
 
 def canonical(obj):
@@ -320,12 +358,20 @@ def load_fixtures(path):
     return cases, problems
 
 
-def fixture_bar(counts):
-    """(met, reasons) for fixture counts {kind: {answer: n}}."""
+def fixture_bar(counts, strict=False):
+    """(met, reasons) for fixture counts {kind: {answer: n}}. `strict`, for a
+    document criterion, also wants every seeded-bad case answered fail: an
+    escape on a unit known to break the rule counts against it."""
     reasons = []
     for k in ("seeded-bad", "adversarial"):
         if counts.get(k, {}).get("pass", 0):
             reasons.append("%d %s case(s) answered pass" % (counts[k]["pass"], k))
+    if strict:
+        # A pass and a missing answer are reported below and above; this is
+        # the escape, which the ordinary bar lets through.
+        escaped = counts.get("seeded-bad", {}).get("unclear", 0)
+        if escaped:
+            reasons.append("%d seeded-bad case(s) answered with the escape, not fail" % escaped)
     empty = counts.get(EMPTY_KIND, {})
     judged = empty.get("pass", 0) + empty.get("fail", 0)
     if judged:
@@ -414,13 +460,15 @@ def expected_state(jev, declared_by_template):
     return {"trusted"} if jev.get("promotion") else {"untrusted"}
 
 
-def check_contract(root, entry, jev, criteria, cache, declared):
-    """Problems with one Jev entry's contract (rules 1 to 10)."""
+def check_contract(root, entry, jev, criteria, cache, declared, label=None):
+    """Problems with one Jev entry's contract (rules 1 to 10). A document
+    criterion's entry has one contract per format, each checked here under
+    `label` (`<id> <format>`)."""
     eid = entry["id"]
     out = []
 
     def p(msg):
-        out.append("%s: %s" % (eid, msg))
+        out.append("%s: %s" % (label or eid, msg))
 
     state = jev.get("state")
     if state not in STATES:
@@ -524,7 +572,7 @@ def check_contract(root, entry, jev, criteria, cache, declared):
     if state in ("untrusted", "trusted"):
         if not isinstance(m, dict):
             p("an %s contract needs a measurement" % state)
-        elif isinstance(m.get("runs"), int) and m["runs"] < MIN_RUNS:
+        elif isinstance(m.get("runs"), int) and m["runs"] < MIN_RUNS and m.get("population") != CENSUS:
             p("measured over %d runs, fewer than %d" % (m["runs"], MIN_RUNS))
         rel = jev.get("fixtures")
         if not safe_rel(root, rel) or not os.path.isfile(os.path.join(root, rel)):
@@ -627,6 +675,451 @@ def check_promotion(root, jev, promo, fps, budget):
     return out
 
 
+# --- Document criteria ----------------------------------------------------------
+#
+# A document criterion grades one unit of a document at a time, from a
+# one-state template under koto-templates/doc-criteria/ whose decider check
+# runs scripts/doc-criteria/slice.py. Its rule id is a jury rubric id, and it
+# may run on more than one format, so its entry's `jev` holds `state`,
+# `false_passes` and one contract per format in `pairs`. Each pair is checked
+# as a contract of its own (check_contract) and then held to the rules below.
+
+_SLICERS = {}
+
+
+def load_slicer(root):
+    """The tree's own slice script as a module: fixtures are checked against
+    the code the template runs, not a copy."""
+    path = os.path.join(root, DOC_SLICER)
+    if path not in _SLICERS:
+        if not os.path.isfile(path):
+            raise CannotRun("%s does not exist" % DOC_SLICER)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("doc_criteria_slice_%d" % len(_SLICERS), path)
+        mod = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)
+        except Exception as e:  # a slicer that doesn't load can't be checked against
+            raise CannotRun("%s does not load: %s" % (DOC_SLICER, type(e).__name__))
+        _SLICERS[path] = mod
+    return _SLICERS[path]
+
+
+def sha256_file(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def contracts(entry):
+    """[(label, check, jev)] for an entry: one per format for a document
+    criterion, else the entry's own check and jev."""
+    jev = entry.get("jev") if isinstance(entry.get("jev"), dict) else {}
+    check = entry.get("check") if isinstance(entry.get("check"), dict) else {}
+    pairs = jev.get("pairs")
+    if not isinstance(pairs, list):
+        return [(None, check, jev)]
+    out = []
+    for pair in pairs:
+        if not isinstance(pair, dict):
+            continue
+        pj = dict(pair, state=jev.get("state"), false_passes=jev.get("false_passes", []))
+        if "promotion" in jev:
+            pj["promotion"] = jev["promotion"]
+        out.append(("%s %s" % (entry.get("id"), pair.get("format")),
+                    dict(check, template=pair.get("template")), pj))
+    return out
+
+
+def pair_stem(rule_id, fmt):
+    return "%s-%s" % (fmt, rule_id)
+
+
+def reference_section(root, heading):
+    """The text of `## <heading>` in the Jev reference, up to the next `## `."""
+    try:
+        text = read_text(os.path.join(root, JEV_REFERENCE))
+    except OSError:
+        return None
+    out, on = [], False
+    for line in text.split("\n"):
+        if line.startswith("## "):
+            if on:
+                break
+            on = line.strip() == "## " + heading
+            continue
+        if on:
+            out.append(line)
+    return "\n".join(out) if on or out else None
+
+
+def doc_fixture_problems(cases, rule_id, pair, slicer):
+    """The document-criterion rules for fixture cases: each case's slice is the
+    unit the slice script prints for its input, and each seeded-bad case names
+    a good case, a change kind the contract lists, and a slice of its own."""
+    out = []
+    fmt = pair.get("format")
+    kinds = pair.get("change_kinds") if isinstance(pair.get("change_kinds"), list) else []
+    good = {c.get("id"): c for c in cases if c.get("kind") == "good"}
+    for c in cases:
+        cid = c.get("id")
+        inp, key = c.get("input"), c.get("unit")
+        if not isinstance(inp, str) or not isinstance(key, str):
+            out.append("case %s needs a document `input` and the `unit` key its slice is" % cid)
+            continue
+        try:
+            printed = dict(slicer.units(rule_id, fmt, inp))
+        except Exception as e:  # the slicer's failure on a case is the case's problem
+            out.append("case %s: the slice script fails on its input (%s)" % (cid, type(e).__name__))
+            continue
+        if printed.get(key) != c.get("slice"):
+            out.append("case %s: its slice isn't what the slice script prints as %s for its input" % (cid, key))
+        if c.get("kind") == "seeded-bad":
+            src = good.get(c.get("of"))
+            if src is None:
+                out.append("case %s: `of` %r names no good case" % (cid, c.get("of")))
+            elif src.get("slice") == c.get("slice"):
+                out.append("case %s: its slice is its good case %s's" % (cid, c.get("of")))
+            if c.get("change") not in kinds:
+                out.append("case %s: change %r is not one of the contract's change kinds" % (cid, c.get("change")))
+    return out
+
+
+def check_fixture_run(root, label, pair, decl, cases):
+    """A document criterion's recorded fixture run: the strict bar, counts that
+    cover the file, and hashes of the fixture file, the slice script and the
+    declaration as they are now."""
+    out = []
+    fr = pair.get("fixture_run")
+    if not isinstance(fr, dict):
+        return ["%s: jev.fixture_run is missing; record one with `fixtures`" % label]
+    for k in ("on", "model", "declared_sha256", "fixtures_blob", "slicer_blob", "counts"):
+        if k not in fr:
+            out.append("%s: fixture_run has no %s" % (label, k))
+    if not isinstance(fr.get("on"), str) or not DATE.match(fr.get("on", "")):
+        out.append("%s: fixture_run.on is not a YYYY-MM-DD date" % label)
+    if not isinstance(fr.get("model"), str) or not fr.get("model") or fr.get("model") == "unknown":
+        out.append("%s: fixture_run.model doesn't name the decider model" % label)
+    counts = fr.get("counts") if isinstance(fr.get("counts"), dict) else {}
+    out += ["%s: the fixture run misses the bar: %s" % (label, r) for r in fixture_bar(counts, strict=True)[1]]
+    for k in KINDS:
+        have = sum(1 for c in cases if c.get("kind") == k)
+        got = sum(v for v in (counts.get(k) or {}).values() if isinstance(v, int))
+        if have != got:
+            out.append("%s: the fixture run counts %d %s cases; the file has %d" % (label, got, k, have))
+    rel = pair.get("fixtures")
+    if isinstance(rel, str) and os.path.isfile(os.path.join(root, rel)) and fr.get("fixtures_blob") != git_blob(root, rel):
+        out.append("%s: fixture_run.fixtures_blob differs from the fixture file's" % label)
+    if fr.get("slicer_blob") != git_blob(root, DOC_SLICER):
+        out.append("%s: fixture_run.slicer_blob differs from the slice script's" % label)
+    if fr.get("declared_sha256") != declared_sha256(decl):
+        out.append("%s: the fixture run was made under another declaration" % label)
+    return out
+
+
+def check_doc_pair(root, rule_id, label, pair, gate, crit, mapping):
+    """Problems with one format's contract beyond check_contract's rules."""
+    out = []
+
+    def p(msg):
+        out.append("%s: %s" % (label, msg))
+
+    fmt = pair.get("format")
+    if fmt not in DOC_FORMATS:
+        p("format %r is not one of %s" % (fmt, ", ".join(DOC_FORMATS)))
+        return out
+    stem = pair_stem(rule_id, fmt)
+    if pair.get("template") != "%s/%s.md" % (DOC_TEMPLATES, stem):
+        p("template %r is not %s/%s.md" % (pair.get("template"), DOC_TEMPLATES, stem))
+    if pair.get("slice_script") != DOC_SLICER:
+        p("slice_script is not %s" % DOC_SLICER)
+    slicer = load_slicer(root)
+    spec = slicer.PAIRS.get((rule_id, fmt))
+    cap, cut, sec = pair.get("cap"), pair.get("cut"), pair.get("section")
+    if spec is None:
+        p("the slice script has no units for %s on %s" % (rule_id, fmt))
+    else:
+        if sec != spec[0]:
+            p("section %r is not the slice script's %r" % (sec, spec[0]))
+        if cut is not spec[2]:
+            p("cut %r is not the slice script's %r" % (cut, spec[2]))
+    if not isinstance(cap, int) or isinstance(cap, bool) or not 1 <= cap <= 32:
+        p("cap is not an integer from 1 to 32")
+    row = next((r for r in (mapping.get("formats") or {}).get(fmt, []) or []
+                if isinstance(r, dict) and r.get("rule_id") == rule_id), None)
+    if row is None:
+        p("%s has no row for it under %s" % (DOC_CRITERIA, fmt))
+    elif (row.get("template"), row.get("section"), row.get("cap")) != (pair.get("template"), sec, cap):
+        p("its template, section and cap differ from %s's row" % DOC_CRITERIA)
+    if gate is not None and crit is not None:
+        if gate.get("units") != "jsonl":
+            p("its gate is not a unit-mode check (units: jsonl)")
+        if gate.get("max_units") != cap:
+            p("gate max_units %r differs from cap %r" % (gate.get("max_units"), cap))
+        if gate.get("unit_document") != fmt:
+            p("gate unit_document %r is not %s" % (gate.get("unit_document"), fmt))
+        if gate.get("unit_section") != sec:
+            p("gate unit_section %r differs from section %r" % (gate.get("unit_section"), sec))
+        if pair.get("state") == "untrusted" and crit.get("mode", "shadow") != "shadow":
+            p("an untrusted document criterion must be declared mode: shadow")
+        for k in ("summary", "rule_text"):
+            if k in crit:
+                p("a shadow criterion delivers nothing, so it declares no %s" % k)
+    kinds = pair.get("change_kinds")
+    if not isinstance(kinds, list) or not kinds or len(set(map(str, kinds))) != len(kinds) or \
+            not all(isinstance(k, str) and CHANGE_KIND.match(k) for k in kinds):
+        p("change_kinds is not a non-empty list of distinct kebab-case names")
+        kinds = []
+    text = reference_section(root, stem)
+    if text is None:
+        p("%s has no `## %s` section" % (JEV_REFERENCE, stem))
+    else:
+        for part in DOC_PARTS:
+            if "**%s.**" % part not in text:
+                p("its section in %s has no %s part" % (JEV_REFERENCE, part))
+        for k in kinds:
+            if "`%s`" % k not in text:
+                p("change kind %s isn't named in its section in %s" % (k, JEV_REFERENCE))
+        budget = pair.get("budget")
+        if isinstance(budget, int) and "{:,}-byte budget".format(budget) not in text:
+            p("its section in %s doesn't state the %s-byte budget" % (JEV_REFERENCE, "{:,}".format(budget)))
+        if isinstance(cap, int) and ("cap of %d unit" % cap) not in text:
+            p("its section in %s doesn't state the cap of %d units" % (JEV_REFERENCE, cap))
+    m = pair.get("measured")
+    if isinstance(m, dict):
+        if m.get("population") != CENSUS:
+            p("a document criterion is measured over documents (population %s)" % CENSUS)
+        for k in DOC_MEASURED:
+            v = m.get(k)
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                p("jev.measured.%s is not a non-negative integer" % k)
+        if cut is True and m.get("units_over_budget"):
+            p("a criterion that cuts its units records none over the budget")
+    rel = pair.get("fixtures")
+    cases = []
+    if isinstance(rel, str) and safe_rel(root, rel) and os.path.isfile(os.path.join(root, rel)):
+        cases, _ = load_fixtures(os.path.join(root, rel))
+        out += ["%s: fixtures: %s" % (label, x) for x in doc_fixture_problems(cases, rule_id, pair, slicer)]
+    if gate is not None and crit is not None:
+        out += check_fixture_run(root, label, pair, declaration(gate, crit), cases)
+    return out
+
+
+def check_doc_map(root, mapping, registry_pairs):
+    """references/doc-criteria.json against the registry, the templates on disk
+    and its own pins: every pinned file's sha256 is what ships."""
+    out = []
+    formats, pins = mapping.get("formats"), mapping.get("pins")
+    if not isinstance(formats, dict) or not isinstance(pins, dict):
+        return ["%s: needs a formats map and a pins map" % DOC_CRITERIA]
+    mapped = set()
+    for fmt, rows in sorted(formats.items()):
+        if fmt not in DOC_FORMATS or not isinstance(rows, list):
+            out.append("%s: format %r is not one of %s with a list of criteria" % (DOC_CRITERIA, fmt, ", ".join(DOC_FORMATS)))
+            continue
+        for r in rows:
+            rid = r.get("rule_id") if isinstance(r, dict) else None
+            if rid not in DOC_RULE_IDS:
+                out.append("%s: %s lists %r, not a document criterion" % (DOC_CRITERIA, fmt, rid))
+                continue
+            mapped.add((rid, fmt))
+            if (rid, fmt) not in registry_pairs:
+                out.append("%s: %s %s has no pair in the registry" % (DOC_CRITERIA, fmt, rid))
+            t = r.get("template")
+            if not isinstance(t, str) or t not in pins:
+                out.append("%s: %s %s's template %r has no pin" % (DOC_CRITERIA, fmt, rid, t))
+    for key in registry_pairs:
+        if key not in mapped:
+            out.append("%s: the registry's %s %s pair has no row" % (DOC_CRITERIA, key[1], key[0]))
+    if DOC_SLICER not in pins:
+        out.append("%s: %s has no pin" % (DOC_CRITERIA, DOC_SLICER))
+    wanted = {r.get("template") for rows in formats.values() if isinstance(rows, list)
+              for r in rows if isinstance(r, dict)} | {DOC_SLICER}
+    for rel, want in sorted(pins.items()):
+        if rel not in wanted:
+            out.append("%s: pins %s, which is neither the slice script nor a mapped template" % (DOC_CRITERIA, rel))
+            continue
+        if not safe_rel(root, rel) or not os.path.isfile(os.path.join(root, rel)):
+            out.append("%s: pinned file %s does not exist" % (DOC_CRITERIA, rel))
+        elif sha256_file(os.path.join(root, rel)) != want:
+            out.append("%s: %s's sha256 differs from its pin" % (DOC_CRITERIA, rel))
+    for path in sorted(glob.glob(os.path.join(root, DOC_TEMPLATES, "*.md"))):
+        rel = os.path.relpath(path, root)
+        if not rel.endswith(".mermaid.md") and rel not in wanted:
+            out.append("%s: %s is not in its map" % (DOC_CRITERIA, rel))
+    return out
+
+
+# --- The shadow guard -----------------------------------------------------------
+#
+# Every document criterion runs in shadow. No template may declare one of the
+# six rule ids in `veto`, and no template may set any decider value to `auto`:
+# not in this tree (tests and throwaway templates included), not in a koto
+# template path given to the check, not in a template another one includes
+# through `materialize_children.default_template`, and not through a project
+# `.koto/config.toml` overlay or a KOTO_DECIDER=auto a template sets. The
+# readers below take parsed templates, so the rules are tested on parsed data
+# without writing such a template anywhere.
+
+SKIP_DIRS = {".git", "target", "node_modules", "__pycache__"}
+AUTO_ENV = re.compile(r"\bKOTO_DECIDER\s*=\s*[\"']?auto\b")
+
+
+def tree_templates(root):
+    """Every koto template file in a tree: a .md whose frontmatter declares
+    `initial_state:` and `states:`."""
+    out = []
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for name in sorted(files):
+            if name.endswith(".md") and not name.endswith(".mermaid.md"):
+                path = os.path.join(dirpath, name)
+                if is_template(path):
+                    out.append(path)
+    return out
+
+
+def is_template(path):
+    try:
+        text = read_text(path, errors="replace")
+    except OSError:
+        return False
+    if not text.startswith("---\n"):
+        return False
+    fm = text[4:].split("\n---", 1)[0]
+    return bool(re.search(r"(?m)^initial_state:", fm)) and bool(re.search(r"(?m)^states:", fm))
+
+
+def parse_template(path):
+    """The template's frontmatter as JSON, through yq."""
+    r = run(["yq", "--front-matter=extract", "-o=json", ".", path])
+    if r.returncode != 0:
+        raise CannotRun("yq could not read %s: %s" % (path, r.stderr.strip()[:200]))
+    try:
+        return json.loads(r.stdout or "{}") or {}
+    except ValueError:
+        raise CannotRun("yq printed no JSON for %s" % path)
+
+
+def shadow_problems(where, doc):
+    """Problems in one parsed template: a document criterion in veto, or a
+    decider value in auto."""
+    out = []
+    for sname, state in sorted(((doc or {}).get("states") or {}).items()):
+        state = state if isinstance(state, dict) else {}
+        for gname, gate in sorted((state.get("gates") or {}).items()):
+            if not isinstance(gate, dict) or gate.get("type") != "decider-check":
+                continue
+            for cid, crit in sorted((gate.get("criteria") or {}).items()):
+                mode = (crit or {}).get("mode") if isinstance(crit, dict) else None
+                if cid in DOC_RULE_IDS and mode == "veto":
+                    out.append("%s: state %s gate %s declares document criterion %s in veto" % (where, sname, gname, cid))
+                if mode == "auto":
+                    out.append("%s: state %s gate %s sets criterion %s to auto" % (where, sname, gname, cid))
+        for fname, field in sorted((state.get("accepts") or {}).items()):
+            dec = field.get("decider") if isinstance(field, dict) else None
+            answers = dec.get("answers") if isinstance(dec, dict) else None
+            for value, ans in sorted((answers or {}).items(), key=lambda kv: str(kv[0])):
+                if isinstance(ans, dict) and ans.get("mode") == "auto":
+                    out.append("%s: state %s field %s sets decider value %s to auto" % (where, sname, fname, value))
+    return out
+
+
+def includes(path, doc):
+    """The template files a parsed template includes: each state's
+    materialize_children.default_template, resolved from the template's own
+    directory."""
+    out = []
+    for state in ((doc or {}).get("states") or {}).values():
+        mc = state.get("materialize_children") if isinstance(state, dict) else None
+        t = mc.get("default_template") if isinstance(mc, dict) else None
+        if isinstance(t, str) and t:
+            out.append(os.path.normpath(os.path.join(os.path.dirname(path), t)))
+    return out
+
+
+def overlay_mode(text):
+    """The decider mode a koto config file sets, or None: `mode` under a
+    `[decider]` table, or a dotted `decider.mode` key."""
+    table = ""
+    for raw in text.split("\n"):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        m = re.match(r"^\[\s*([A-Za-z0-9_.\"' -]+?)\s*\]$", line)
+        if m:
+            table = m.group(1).replace('"', "").replace("'", "").replace(" ", "")
+            continue
+        m = re.match(r"^([A-Za-z0-9_.\"' -]+?)\s*=\s*[\"']([^\"']*)[\"']", line)
+        if not m:
+            continue
+        key = m.group(1).replace('"', "").replace("'", "").replace(" ", "")
+        full = "%s.%s" % (table, key) if table else key
+        if full == "decider.mode":
+            return m.group(2)
+    return None
+
+
+def config_files(root, paths):
+    """The project configs that can overlay a template's decider mode: every
+    .koto/config.toml in the tree, and for each given path, the one in each
+    directory from it up to its repository root."""
+    found = []
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        if os.path.basename(dirpath) == ".koto" and "config.toml" in files:
+            found.append(os.path.join(dirpath, "config.toml"))
+    for p in paths:
+        d = os.path.dirname(os.path.abspath(p)) if os.path.isfile(p) else os.path.abspath(p)
+        while True:
+            c = os.path.join(d, ".koto", "config.toml")
+            if os.path.isfile(c) and c not in found:
+                found.append(c)
+            if os.path.isdir(os.path.join(d, ".git")) or os.path.dirname(d) == d:
+                break
+            d = os.path.dirname(d)
+    return found
+
+
+def shadow_guard(root, koto_paths, parse=parse_template, read=read_text):
+    """Problems from the shadow guard over the tree and the given paths.
+    `parse` and `read` are the readers; tests replace them."""
+    out, seen = [], set()
+    queue = list(tree_templates(root))
+    for p in koto_paths:
+        if os.path.isdir(p):
+            queue += tree_templates(p)
+        else:
+            queue.append(os.path.abspath(p))
+    while queue:
+        path = os.path.abspath(queue.pop(0))
+        if path in seen:
+            continue
+        seen.add(path)
+        where = os.path.relpath(path, root) if path.startswith(root + os.sep) else path
+        if not os.path.isfile(path):
+            out.append("%s: an included template does not exist" % where)
+            continue
+        try:
+            text = read(path)
+        except OSError:
+            out.append("%s: cannot be read" % where)
+            continue
+        if AUTO_ENV.search(text):
+            out.append("%s: sets KOTO_DECIDER=auto" % where)
+        doc = parse(path)
+        out += shadow_problems(where, doc)
+        queue += includes(path, doc)
+    for c in config_files(root, koto_paths):
+        try:
+            mode = overlay_mode(read(c))
+        except OSError:
+            continue
+        if mode == "auto":
+            where = os.path.relpath(c, root) if c.startswith(root + os.sep) else c
+            out.append("%s: sets the decider mode to auto" % where)
+    return out
+
+
 def withhold_calls(root, cache, registry_by_id):
     """Problems with templates that call the withhold script (rule 12)."""
     out = []
@@ -711,13 +1204,23 @@ def history(root, base, registry):
         ofp, nfp = oj.get("false_passes") or [], nj.get("false_passes") or []
         if nfp[:len(ofp)] != ofp:
             out.append("%s: a false pass recorded at the base was changed or removed" % eid)
-        od, nd = oj.get("declared") or {}, nj.get("declared") or {}
-        if od.get("sha256") and not nd.get("sha256"):
-            out.append("%s: its declared record was removed" % eid)
-        elif od.get("sha256") and od["sha256"] != nd["sha256"]:
-            if not isinstance(nd.get("since"), str) or nd["since"] < base_date:
-                out.append("%s: its declaration changed, but declared.since %s is before the base's date %s"
-                           % (eid, nd.get("since"), base_date))
+        olds = {lbl: cj for lbl, _, cj in contracts(e)}
+        news = {lbl: cj for lbl, _, cj in contracts(new.get(eid) or {})}
+        for lbl, ocj in sorted(olds.items(), key=lambda kv: str(kv[0])):
+            name = lbl or eid
+            od = ocj.get("declared") or {}
+            ncj = news.get(lbl)
+            if ncj is None:
+                if od.get("sha256"):
+                    out.append("%s: its declared record was removed" % name)
+                continue
+            nd = ncj.get("declared") or {}
+            if od.get("sha256") and not nd.get("sha256"):
+                out.append("%s: its declared record was removed" % name)
+            elif od.get("sha256") and od["sha256"] != nd["sha256"]:
+                if not isinstance(nd.get("since"), str) or nd["since"] < base_date:
+                    out.append("%s: its declaration changed, but declared.since %s is before the base's date %s"
+                               % (name, nd.get("since"), base_date))
     return out
 
 
@@ -732,6 +1235,10 @@ def cmd_check(args):
         by_id = {e.get("id"): e for e in rules}
         gates = decider_gates(root, cache)
         declared_ids = set(gates)
+        # A tree with no document criteria has no map to hold them to.
+        has_map = os.path.isfile(os.path.join(root, DOC_CRITERIA))
+        mapping = read_json(os.path.join(root, DOC_CRITERIA)) if has_map else {"formats": {}, "pins": {}}
+        doc_pairs = {}
         problems = []
         for e in rules:
             if not isinstance(e.get("id"), str):
@@ -746,22 +1253,48 @@ def cmd_check(args):
             if not isinstance(jev, dict):
                 problems.append("%s: a Jev criterion with no jev contract" % e["id"])
                 continue
-            c = e.get("check") or {}
-            declared = c.get("kind") == "decider" and \
-                (c.get("template"), c.get("state"), c.get("gate"), c.get("criterion")) in declared_ids
-            problems += check_contract(root, e, jev, criteria, cache, declared)
+            pairs = jev.get("pairs")
+            if pairs is not None and (not isinstance(pairs, list) or not pairs):
+                problems.append("%s: jev.pairs is not a non-empty list" % e["id"])
+                continue
+            if pairs is not None:
+                if e["id"] not in DOC_RULE_IDS:
+                    problems.append("%s: only a document criterion carries jev.pairs" % e["id"])
+                templates = [x.get("template") for x in pairs if isinstance(x, dict)]
+                if (e.get("check") or {}).get("template") not in templates:
+                    problems.append("%s: check.template is none of its pairs' templates" % e["id"])
+                fmts = [x.get("format") for x in pairs if isinstance(x, dict)]
+                if len(set(fmts)) != len(fmts):
+                    problems.append("%s: a format has two pairs" % e["id"])
+            elif e["id"] in DOC_RULE_IDS and (e.get("check") or {}).get("kind") == "decider":
+                problems.append("%s: a document criterion holds its contracts in jev.pairs" % e["id"])
+            for label, c, cj in contracts(e):
+                declared = c.get("kind") == "decider" and \
+                    (c.get("template"), c.get("state"), c.get("gate"), c.get("criterion")) in declared_ids
+                problems += check_contract(root, dict(e, check=c), cj, criteria, cache, declared, label)
+                if pairs is not None:
+                    gate, crit = find_gate(root, c, cache)
+                    doc_pairs[(e["id"], cj.get("format"))] = cj
+                    problems += check_doc_pair(root, e["id"], label, cj, gate, crit, mapping)
+        # The document criteria's map and pins.
+        if has_map:
+            problems += check_doc_map(root, mapping, doc_pairs)
+        elif doc_pairs:
+            problems.append("%s does not exist, so the document criteria have no pins" % DOC_CRITERIA)
         # 11: every declared decider criterion has an untrusted or trusted entry.
         for t, s, g, cid in gates:
-            match = [e for e in rules if (e.get("check") or {}).get("kind") == "decider"
-                     and ((e["check"].get("template"), e["check"].get("state"), e["check"].get("gate"),
-                           e["check"].get("criterion")) == (t, s, g, cid))]
+            match = [(e, cj) for e in rules if (e.get("check") or {}).get("kind") == "decider"
+                     for _, c, cj in contracts(e)
+                     if (c.get("template"), c.get("state"), c.get("gate"), c.get("criterion")) == (t, s, g, cid)]
             if not match:
                 problems.append("%s: decider check %s/%s criterion %s has no registry entry" % (t, s, g, cid))
-            elif ((match[0].get("jev") or {}).get("state")) not in ("untrusted", "trusted"):
+            elif match[0][1].get("state") not in ("untrusted", "trusted"):
                 problems.append("%s: decider check %s/%s criterion %s is declared, but its entry is %s"
-                                % (t, s, g, cid, (match[0].get("jev") or {}).get("state")))
+                                % (t, s, g, cid, match[0][1].get("state")))
         # 12: who may call the withhold script, and for which rule.
         problems += withhold_calls(root, cache, by_id)
+        # The shadow guard: no document criterion in veto, no decider value in auto.
+        problems += shadow_guard(root, args.koto_templates)
         if args.base:
             problems += history(root, args.base, registry)
     except CannotRun as e:
@@ -774,21 +1307,49 @@ def cmd_check(args):
     return 0
 
 
+def pair_check(e, fmt):
+    """(check, jev) for one of an entry's contracts: its only one, or the
+    format's for a document criterion. Exits 2 when that doesn't resolve."""
+    cs = contracts(e)
+    if fmt:
+        cs = [x for x in cs if x[2].get("format") == fmt]
+        if not cs:
+            fail2("%s has no %s contract" % (e.get("id"), fmt))
+    elif len(cs) > 1:
+        fail2("%s runs on more than one format; name one with --format" % e.get("id"))
+    return cs[0][1], cs[0][2]
+
+
 def cmd_declared_hash(args):
     root = os.path.realpath(args.root)
+    e = decider_entry(root, args.rule_id)
+    check, _ = pair_check(e, args.format)
     try:
-        registry = read_json(os.path.join(root, REGISTRY))
-        e = next((e for e in registry.get("rules", []) if isinstance(e, dict) and e.get("id") == args.rule_id), None)
-        if not e or (e.get("check") or {}).get("kind") != "decider":
-            fail2("%s is not a decider entry" % args.rule_id)
-        gate, crit = find_gate(root, e["check"], {})
-    except CannotRun as e:
-        fail2(str(e))
+        gate, crit = find_gate(root, check, {})
+    except CannotRun as x:
+        fail2(str(x))
     if gate is None or crit is None:
         fail2("%s's check names no decider-check criterion" % args.rule_id)
     decl = declaration(gate, crit)
     print(canonical(decl))
     print(declared_sha256(decl))
+    return 0
+
+
+def cmd_pins(args):
+    root = os.path.realpath(args.root)
+    try:
+        mapping = read_json(os.path.join(root, DOC_CRITERIA))
+    except CannotRun as x:
+        fail2(str(x))
+    rels = sorted({r.get("template") for rows in (mapping.get("formats") or {}).values() if isinstance(rows, list)
+                   for r in rows if isinstance(r, dict) and isinstance(r.get("template"), str)} | {DOC_SLICER})
+    pins = {}
+    for rel in rels:
+        if not safe_rel(root, rel) or not os.path.isfile(os.path.join(root, rel)):
+            fail2("%s does not exist" % rel)
+        pins[rel] = sha256_file(os.path.join(root, rel))
+    print(json.dumps({"pins": pins}, indent=2, sort_keys=True))
     return 0
 
 
@@ -1065,9 +1626,59 @@ def measure_records(args):
                    % (args.kind, args.budget))
 
 
+def doc_files(roots, fmt):
+    """Every <FORMAT>-*.md under the roots, symlinks left out, each once."""
+    out = set()
+    for r in roots:
+        for path in glob.glob(os.path.join(r, "**", "%s-*.md" % fmt.upper()), recursive=True):
+            if not os.path.islink(path) and os.path.isfile(path):
+                out.add(os.path.realpath(path))
+    return sorted(out)
+
+
+def measure_docs(args):
+    """A document criterion's units over every document of its format under the
+    roots. A run is a document with at least one unit; `empty` counts the rest.
+    `over_budget` counts the documents holding a unit over the budget, which is
+    what the 5% line is drawn on, and the unit figures sit beside it."""
+    root = os.path.realpath(args.root)
+    slicer = load_slicer(root)
+    if (args.criterion, args.format) not in slicer.PAIRS:
+        raise CannotRun("the slice script has no units for %s on %s" % (args.criterion, args.format))
+    mapping = read_json(os.path.join(root, DOC_CRITERIA))
+    row = next((r for r in (mapping.get("formats") or {}).get(args.format, []) or []
+                if isinstance(r, dict) and r.get("rule_id") == args.criterion), None)
+    if row is None or not isinstance(row.get("cap"), int):
+        raise CannotRun("%s has no cap for %s on %s" % (DOC_CRITERIA, args.criterion, args.format))
+    cap = row["cap"]
+    sizes, per, over_docs, empty, over_cap = [], [], 0, 0, 0
+    for path in doc_files(args.roots, args.format):
+        try:
+            text = read_text(path, errors="replace")
+        except OSError:
+            continue
+        us = [slicer.utf8_len(t) for _, t in slicer.units(args.criterion, args.format, text)]
+        if not us:
+            empty += 1
+            continue
+        sizes += us
+        per.append(len(us))
+        over_docs += 1 if max(us) > args.budget else 0
+        over_cap += 1 if len(us) > cap else 0
+    out = figures(per, 0, CENSUS, "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion %s --format %s "
+                  "--roots <shirabe>/docs <koto>/docs <niwa>/docs --budget %d"
+                  % (args.criterion, args.format, args.budget), empty)
+    out.update({"max": max(sizes) if sizes else 0, "p90": nearest_rank(sizes, 0.9), "over_budget": over_docs,
+                "units": len(sizes), "units_over_budget": sum(1 for x in sizes if x > args.budget),
+                "units_per_doc_p90": nearest_rank(per, 0.9), "units_per_doc_max": max(per) if per else 0,
+                "over_cap": over_cap})
+    return out
+
+
 def cmd_measure(args):
     try:
-        out = {"sessions": measure_sessions, "prs": measure_prs, "records": measure_records}[args.population](args)
+        out = {"sessions": measure_sessions, "prs": measure_prs, "records": measure_records,
+               "docs": measure_docs}[args.population](args)
     except CannotRun as e:
         fail2(str(e))
     print(json.dumps(out, sort_keys=True))
@@ -1221,17 +1832,22 @@ def map_answer(answer, cid, threshold):
 def cmd_fixtures(args):
     root = os.path.realpath(args.root)
     e = decider_entry(root, args.rule_id)
+    check, jev = pair_check(e, args.format)
+    doc = isinstance((e.get("jev") or {}).get("pairs"), list)
     try:
-        gate, crit = find_gate(root, e["check"], {})
+        gate, crit = find_gate(root, check, {})
         if gate is None or crit is None:
             fail2("%s: no template declares its criterion, so there is no declaration to run" % args.rule_id)
-        rel = (e.get("jev") or {}).get("fixtures")
+        rel = jev.get("fixtures")
         if not safe_rel(root, rel):
             fail2("%s has no fixture file" % args.rule_id)
         cases, problems = load_fixtures(os.path.join(root, rel))
+        if doc:
+            problems += doc_fixture_problems(cases, args.rule_id, jev, load_slicer(root))
         if problems:
             fail2("%s's fixtures: %s" % (rel, "; ".join(problems)))
         blob = git_blob(root, rel)
+        slicer_blob = git_blob(root, DOC_SLICER) if doc else None
     except CannotRun as x:
         fail2(str(x))
     endpoint = args.endpoint or os.environ.get("KOTO_DECIDER_ENDPOINT") or JEV_ENDPOINT
@@ -1247,7 +1863,7 @@ def cmd_fixtures(args):
         if not key or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
             fail2("KOTO_DECIDER_API_KEY is unset, empty or holds whitespace")
     decl = declaration(gate, crit)
-    cid = e["check"]["criterion"]
+    cid = check["criterion"]
     send = transport(endpoint, key)
     counts = {k: {a: 0 for a in ANSWERS} for k in KINDS}
     models = set()
@@ -1262,10 +1878,12 @@ def cmd_fixtures(args):
         counts[c["kind"]][map_answer(answer, cid, decl["threshold"])] += 1
     if all(counts[k]["error"] == sum(counts[k].values()) for k in KINDS):
         fail2("every request failed")
-    met, reasons = fixture_bar(counts)
+    met, reasons = fixture_bar(counts, strict=doc)
     run_record = {"on": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
                   "model": ",".join(sorted(models)) or "unknown",
                   "declared_sha256": declared_sha256(decl), "fixtures_blob": blob, "counts": counts}
+    if doc:
+        run_record["slicer_blob"] = slicer_blob
     for k in KINDS:
         print("%s: %s" % (k, " ".join("%s=%d" % (a, counts[k][a]) for a in ANSWERS)))
     for r in reasons:
@@ -1353,12 +1971,12 @@ def live_figures(sessions_dir, gate, cid, start, end):
 def cmd_figures(args):
     root = os.path.realpath(args.root)
     e = decider_entry(root, args.rule_id)
-    jev = e.get("jev") or {}
+    check, jev = pair_check(e, args.format)
     for d in (args.from_, args.to):
         if d and not DATE.match(d):
             fail2("%s is not a YYYY-MM-DD date" % d)
     start, end = window(jev, args.from_, args.to)
-    live, unread = live_figures(args.sessions, e["check"]["gate"], e["check"]["criterion"], start, end)
+    live, unread = live_figures(args.sessions, check["gate"], check["criterion"], start, end)
     if unread:
         print("%s: skipped %d line(s) or log(s) it couldn't read" % (PROG, unread), file=sys.stderr)
     print(json.dumps({"live": live}, sort_keys=True))
@@ -1384,9 +2002,14 @@ def main(argv=None):
     c = sub.add_parser("check", help="hold every Jev entry to its contract")
     c.add_argument("--root", default=DEFAULT_ROOT)
     c.add_argument("--base", default="")
+    c.add_argument("--koto-templates", action="append", default=[], metavar="PATH",
+                   help="a koto template, or a directory of them, to hold to the shadow guard too")
     h = sub.add_parser("declared-hash", help="print a decider entry's declaration and its SHA-256")
     h.add_argument("rule_id")
+    h.add_argument("--format", default="", choices=("",) + DOC_FORMATS)
     h.add_argument("--root", default=DEFAULT_ROOT)
+    pn = sub.add_parser("pins", help="print the document criteria's pins as the files are now")
+    pn.add_argument("--root", default=DEFAULT_ROOT)
     m = sub.add_parser("measure", help="measure whole-run slice sizes on real artifacts")
     msub = m.add_subparsers(dest="population", required=True)
     ms = msub.add_parser("sessions")
@@ -1400,22 +2023,28 @@ def main(argv=None):
     mr = msub.add_parser("records")
     mr.add_argument("--dir", required=True)
     mr.add_argument("--kind", required=True)
+    md = msub.add_parser("docs")
+    md.add_argument("--criterion", required=True)
+    md.add_argument("--format", required=True, choices=DOC_FORMATS)
+    md.add_argument("--roots", required=True, nargs="+")
     fx = sub.add_parser("fixtures", help="run a criterion's fixture file against Jev")
     fx.add_argument("rule_id")
+    fx.add_argument("--format", default="", choices=("",) + DOC_FORMATS)
     fx.add_argument("--endpoint", default="")
     fx.add_argument("--root", default=DEFAULT_ROOT)
     fg = sub.add_parser("figures", help="compute live figures from koto session logs (a reference reader)")
     fg.add_argument("rule_id")
+    fg.add_argument("--format", default="", choices=("",) + DOC_FORMATS)
     fg.add_argument("--sessions", required=True)
     fg.add_argument("--from", dest="from_", default="")
     fg.add_argument("--to", default="")
     fg.add_argument("--bar", action="store_true")
     fg.add_argument("--root", default=DEFAULT_ROOT)
-    for p in (ms, mp, mr):
+    for p in (ms, mp, mr, md):
         p.add_argument("--root", default=DEFAULT_ROOT)
         p.add_argument("--budget", type=int, default=BUDGET_CEILING)
     args = ap.parse_args(argv)
-    return {"check": cmd_check, "declared-hash": cmd_declared_hash, "measure": cmd_measure,
+    return {"check": cmd_check, "declared-hash": cmd_declared_hash, "pins": cmd_pins, "measure": cmd_measure,
             "fixtures": cmd_fixtures, "figures": cmd_figures}[args.cmd](args)
 
 
