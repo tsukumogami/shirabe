@@ -57,10 +57,16 @@
 #           keeps the larger diff (more changed lines, then more files; a tie
 #           keeps impl_base; with no merge-base, impl_base alone). With a
 #           non-empty --shared-branch (the run is a step on a branch its
-#           siblings also commit to) the merge-base is never computed: the
+#           siblings also commit to) the merge-base is never a candidate: the
 #           impl_base diff is the only one, so earlier steps' commits don't
 #           count, and an unset impl_base exits 64. An empty value is the
-#           same as no option. Classifies every path (both sides of a rename)
+#           same as no option. When the default branch was merged in after
+#           impl_base (its merge-base with HEAD isn't in impl_base), the
+#           impl_base diff is taken from the clean merge of impl_base and
+#           that merge-base instead, so what the merge brought in doesn't
+#           count, and `bases.merged_default` names the folded-in commit
+#           (null otherwise; a merge that conflicts keeps impl_base).
+#           Classifies every path (both sides of a rename)
 #           with the stored rules copy, records `tests_edited` when a `test`
 #           path was edited rather than only added to (scripts/lib/
 #           test-classify.sh's test_classify_unit over the winning base, with
@@ -603,6 +609,40 @@ default_merge_base() {
     [ -n "$ref" ] && git merge-base HEAD "$ref"
 }
 
+# step_base <impl_base> <default merge-base>: sets STEP_BASE to the commit the
+# step is measured from, and MERGED_DEFAULT to the default-branch commit folded
+# into it, or "". When the default branch's merge-base with HEAD is already in
+# impl_base, or there is none, nothing of the default branch came in after
+# impl_base and STEP_BASE is impl_base itself. So it is when HEAD is itself in
+# the default branch (the merge-base is HEAD): the work was committed there,
+# and folding it in would hide it. Otherwise the default branch was
+# merged in after impl_base, and STEP_BASE is a commit whose tree is the clean
+# merge of the two (parents impl_base and the merge-base, a fixed author and
+# date, so the same inputs give the same commit), so the lines, files and
+# classes that merge brought in aren't the step's. A merge that conflicts, or
+# that git can't build (merge-tree --write-tree needs git 2.38), leaves
+# STEP_BASE at impl_base, which counts what the merge brought in: never less
+# than the step's own change.
+STEP_BASE=""
+MERGED_DEFAULT=""
+step_base() {
+    local tree commit
+    STEP_BASE="$1"
+    MERGED_DEFAULT=""
+    [ -n "$2" ] || return 0
+    git merge-base --is-ancestor "$2" "$1" 2>/dev/null && return 0
+    git merge-base --is-ancestor HEAD "$2" 2>/dev/null && return 0
+    tree=$(git merge-tree --write-tree "$1" "$2" 2>/dev/null) || return 0
+    commit=$(GIT_AUTHOR_NAME=work-on GIT_AUTHOR_EMAIL=work-on@localhost \
+        GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000' GIT_COMMITTER_NAME=work-on \
+        GIT_COMMITTER_EMAIL=work-on@localhost GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000' \
+        git commit-tree --no-gpg-sign "$tree" -p "$1" -p "$2" \
+        -m "impl_base with the default branch merged in" </dev/null 2>/dev/null) || return 0
+    [ -n "$commit" ] || return 0
+    STEP_BASE="$commit"
+    MERGED_DEFAULT="$2"
+}
+
 # measure <base> <tag>: diffs <base>..HEAD, writes every changed path (both
 # sides of a rename) NUL-separated to $WORK/paths.<tag>, and sets M_LINES and
 # M_FILES. numstat -z: "<add>\t<del>\t<path>\0", or for a rename
@@ -704,19 +744,25 @@ cmd_facts() {
     # commits, so it is never taken: impl_base is the only base, and without
     # it there is no base. (record-changed-paths.sh also prefers impl_base,
     # but falls back to the merge-base; a floor must not.)
-    local ibase="" mbase="" base="" source="" lines=0 files=0
+    #
+    # Either way, a merge of the default branch after impl_base is not the
+    # step's change: the impl_base candidate is measured from step_base, which
+    # folds what the merge brought in into the base.
+    local ibase="" mbase="" dbase="" base="" source="" lines=0 files=0
     ctx_get "$s" impl_base "$WORK/impl_base" || die 66 "could not read impl_base"
     ibase=$(stored_base "$WORK/impl_base") || ibase=""
+    dbase=$(default_merge_base) || dbase=""
     if [ -n "$shared" ]; then
         [ -n "$ibase" ] || die 64 "no base resolves on a shared branch: impl_base is unset"
     else
-        mbase=$(default_merge_base) || mbase=""
+        mbase="$dbase"
     fi
     [ -n "$ibase" ] || [ -n "$mbase" ] \
         || die 64 "no base resolves: impl_base is unset and HEAD shares no history with origin's default branch or main"
     if [ -n "$ibase" ]; then
-        measure "$ibase" impl || die 64 "git diff $ibase HEAD failed"
-        base="$ibase"; source=impl_base; lines="$M_LINES"; files="$M_FILES"
+        step_base "$ibase" "$dbase"
+        measure "$STEP_BASE" impl || die 64 "git diff $STEP_BASE HEAD failed"
+        base="$STEP_BASE"; source=impl_base; lines="$M_LINES"; files="$M_FILES"
         cp "$WORK/paths.impl" "$WORK/paths"
     fi
     if [ -n "$mbase" ] && [ "$mbase" != "$ibase" ]; then
@@ -820,7 +866,7 @@ cmd_facts() {
         --argjson unclassified "$unclassified" \
         --arg floor "$floor" --arg rule "$rule" --arg head "$head" --arg base "$base" \
         --arg base_source "$source" --arg impl_base "$ibase" --arg merge_base "$mbase" \
-        --arg shared_branch "$shared" \
+        --arg shared_branch "$shared" --arg merged_default "$MERGED_DEFAULT" \
         --rawfile classes "$WORK/classes" --rawfile fired "$WORK/fired" '
         {lines: $lines, files: $files,
          classes: ($classes | split("\n") | map(select(length > 0))),
@@ -832,7 +878,8 @@ cmd_facts() {
          head: $head, base: $base, base_source: $base_source,
          shared_branch: $shared_branch,
          bases: {impl_base: (if $impl_base == "" then null else $impl_base end),
-                 merge_base: (if $merge_base == "" then null else $merge_base end)}}
+                 merge_base: (if $merge_base == "" then null else $merge_base end),
+                 merged_default: (if $merged_default == "" then null else $merged_default end)}}
     ' > "$WORK/facts.json" || die 66 "could not build $FACTS_KEY"
     ctx_put "$s" "$FACTS_KEY" "$WORK/facts.json" || die 66 "could not write $FACTS_KEY"
 

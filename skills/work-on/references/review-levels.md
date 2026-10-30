@@ -95,9 +95,18 @@ lap, `review-level.sh facts` records the change's facts in
   the floor. With no merge-base (no shared history) `impl_base` is used
   alone. On a shared branch the merge-base candidate is skipped and
   `impl_base` is the only base (see "A step's level under the lead shape"
-  below). `review_facts.json` names the winner in `base_source`, the shared
-  branch in `shared_branch` (an empty string off one), and keeps both
-  candidates under `bases`. Uncommitted work isn't counted. A rename is
+  below). A merge of the default branch after `impl_base` isn't the step's
+  change: when the default branch's merge-base with HEAD isn't already in
+  `impl_base` (and isn't HEAD itself), the `impl_base` diff is taken from
+  the clean merge of `impl_base` and that merge-base, so the lines, files
+  and path classes the merge brought in don't count. A step with no merge of
+  the default branch is measured from `impl_base` as before, and so is one
+  whose merge with `impl_base` would conflict, which then counts what the
+  merge brought in. `review_facts.json` names the winner in `base_source`,
+  the shared branch in `shared_branch` (an empty string off one), and keeps
+  both candidates under `bases`, with `bases.merged_default` naming the
+  default-branch commit folded into `impl_base`, or null. Uncommitted work
+  isn't counted. A rename is
   one file plus its changed lines, and both of its paths are classified; a
   deletion counts its deleted lines.
 - changed lines (added plus deleted) and changed files;
@@ -203,14 +212,16 @@ work it didn't do. An `impl_base` that is unset on a shared branch is no base
 at all, and `facts` exits 64 rather than falling back to the merge-base.
 `record-changed-paths.sh` also measures from `impl_base`, which keeps the
 siblings' commits out of `changed_paths.txt`, but it does fall back to the
-merge-base when `impl_base` is unset.
+merge-base when `impl_base` is unset. Both leave out a merge of the default
+branch into the shared branch made after `impl_base`, the same way: the base
+becomes the clean merge of `impl_base` and the default branch's merge-base.
 
 The step's own `/work-on` chooses its level, inside the bound the run was
 given, and its own commits set the floor. A path in the `ci`, `security`,
 `template` or `engine` class floors a step at `full`, as anywhere else. A step
 that touches none of those classes and stays within 400 changed lines and 12
 changed files floors no higher than `standard`, however much the steps before
-it changed.
+it changed or a merge of the default branch brought in.
 
 ## Hand rebinds
 
