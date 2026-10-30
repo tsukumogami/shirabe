@@ -363,11 +363,14 @@ seat_text() { # <file> <the seat's heading line>: the seat's prompt, joined on o
         | tr '\n' ' ' | tr -s ' '
 }
 asks_for() { # <seat text> <id> <key>: the prompt sends the id to the key
-    local text=$1 id=$2 key=$3 n
+    local text=$1 id=$2 key=$3 m n
     case "$text" in *"\"rule_id\": \"$id\", \"section\": \"$key\""*) return 0 ;; esac
-    n=$(printf '%s' "$text" | grep -oE "(^|[ ,])[0-9]+ $id([,. ]|$)" | grep -oE '[0-9]+ ' | head -n 1 | tr -d ' ')
+    m=$(grep -oE "(^|[ ,])[0-9]+ $id([,. ]|$)" <<<"$text")
+    n=$(grep -oE '[0-9]+ ' <<<"${m%%$'\n'*}")
+    n=${n%%$'\n'*}
+    n=${n// /}
     [ -n "$n" ] || return 1
-    printf '%s' "$text" | grep -qE "(Item|Question) $n is judged on $key([,. ]|$)"
+    grep -qE "(Item|Question) $n is judged on $key([,. ]|$)" <<<"$text"
 }
 skill_vocab=$(awk '/^review_vocabulary:/ { f = 1; next } f && /^[a-z_]+:/ { exit } f' "$REPO_ROOT/koto-templates/skill-session.md" | tr -d '[],' | tr ' ' '\n')
 scope_vocab=$(awk '/^review_vocabulary:/ { f = 1; next } f && /^[a-z_]+:/ { exit } f' "$REPO_ROOT/skills/scope/koto-templates/scope.md" | tr -d '[],' | tr ' ' '\n')
