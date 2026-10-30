@@ -42,6 +42,16 @@ its findings name, commit, and run the fix loop in that reference with
 `doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user before launching,
 or under `--auto` stop the run and report them.
 
+Once the check exits 0, and before launching, grade the document's criteria in
+shadow. Each runs in a throwaway koto session of its own and its answers are
+telemetry only: the step always exits 0, prints at most one fixed line per
+criterion, and changes nothing the jury does
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes it):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" grade --doc docs/designs/DESIGN-<topic>.md --format design --topic <topic> --skill design
+```
+
 Before launching, record the round as telemetry (add `--fallback` when the
 round runs as the serial self-jury). It always exits 0 and changes nothing the
 review does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes
@@ -64,15 +74,22 @@ Questions:
 2. Are there missing components or interfaces?
 3. Are the implementation phases correctly sequenced?
 4. Are there simpler alternatives we overlooked?
+5. Do two passages anywhere in the document that share a number or a
+   backticked term contradict each other? A decision that picks one value
+   and an architecture section that builds on another, or a component
+   described two incompatible ways, is a FAIL. Passages that use the same
+   term about different things pass.
 
-[Include Solution Architecture and Implementation Approach sections]
+[Include Solution Architecture and Implementation Approach sections for
+questions 1 to 4, and the whole document for question 5]
 
 Write full analysis to <reviews-dir>/phase6_architecture-review.md, and nowhere else.
 End the file with a fenced block tagged review-verdicts holding a JSON array:
 one {"rule_id", "section", "verdict"} entry per question per section you
 judged it on (verdict PASS or FAIL; section a heading slug such as
 solution-architecture, or document). Question ids: 1 rs-047, 2 rs-048,
-3 rs-049, 4 rs-050.
+3 rs-049, 4 rs-050, 5 rs-009. Question 5 is judged on document, once for
+the whole design.
 Return only key findings and recommendations.
 ```
 
@@ -156,6 +173,7 @@ call comes first):
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill design --topic <topic> --doc docs/designs/DESIGN-<topic>.md --dir <reviews-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" agreement --format design --topic <topic> --skill design
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest design-<topic> research <reviews-dir>
 ```
 

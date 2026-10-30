@@ -4,7 +4,9 @@ name: Check Jev criteria
 # contract and, once trusted, a promotion record. scripts/jev-criteria/
 # jev_criteria.py holds those records to the templates, the fixture files and
 # the slice scripts, and with --base to the registry as the pull request found
-# it, so a contract or a false pass can't be dropped quietly. Nothing here
+# it, so a contract or a false pass can't be dropped quietly. It also holds the
+# document criteria's templates to their pins in references/doc-criteria.json
+# and refuses a veto on those criteria or an auto decider value anywhere. Nothing here
 # calls Jev or the network, and the job reads files only, so a pull request
 # from a fork can't spend anyone's decider key.
 
@@ -25,6 +27,9 @@ on:
       - 'scripts/jev-withhold_test.sh'
       - 'scripts/bash-floor/jev-withhold.list'
       - 'skills/*/koto-templates/**'
+      - 'koto-templates/**'
+      - 'scripts/doc-criteria/**'
+      - 'references/doc-criteria.json'
       - 'skills/work-on/scripts/review-level.sh'
       - 'skills/work-on/references/review-level-rules.tsv'
       - '.github/workflows/check-jev-criteria.yml'
@@ -45,6 +50,9 @@ on:
       - 'scripts/jev-withhold_test.sh'
       - 'scripts/bash-floor/jev-withhold.list'
       - 'skills/*/koto-templates/**'
+      - 'koto-templates/**'
+      - 'scripts/doc-criteria/**'
+      - 'references/doc-criteria.json'
       - 'skills/work-on/scripts/review-level.sh'
       - 'skills/work-on/references/review-level-rules.tsv'
       - '.github/workflows/check-jev-criteria.yml'
@@ -95,6 +103,9 @@ jobs:
           git config --global user.email ci@example.com
           git config --global user.name ci
           python3 scripts/jev-criteria/test_jev_criteria.py -v
+
+      - name: Run the document criteria's slice script tests
+        run: python3 scripts/doc-criteria/test_slice.py -v
 
       # Against the merge base, as check-rule-registry.yml does: the history
       # rules compare a changed declaration's date with the base's, and the

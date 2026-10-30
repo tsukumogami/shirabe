@@ -280,6 +280,17 @@
         "After the fix, transcript runs doc-events.sh fix --answers jury_fail and doc-check.sh --moment post_fix --phase 4"
       ],
       "id": 19
+    },
+    {
+      "name": "annotation-boundary-seat-splits-evidence-clauses",
+      "prompt": "/roadmap plugin-system -- the draft is committed and the run reaches Phase 4. One milestone's Evidence clause reads \"run check-plugins.sh and it exits 0\"; nothing else is wrong.",
+      "expected_output": "The annotation-boundary reviewer's review-verdicts block holds two entries: rs-073 on milestones as FAIL for the Evidence clause that names a script, and rs-072 on document as PASS, since nothing else fails.",
+      "files": [],
+      "expectations": [
+        "The annotation-boundary review's review-verdicts block has an entry with rule_id rs-073 and section milestones, verdict FAIL",
+        "The same block has an entry with rule_id rs-072 and section document, verdict PASS"
+      ],
+      "id": 20
     }
   ]
 }

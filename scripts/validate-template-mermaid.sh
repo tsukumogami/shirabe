@@ -7,7 +7,8 @@
 #   2. default_template: references point to existing files
 #   3. No hardcoded workflow names in koto next calls (use {{SESSION_NAME}})
 #   4. A gate name used by more than one template carries the same command in
-#      all of them (only meaningful when several templates are validated at once)
+#      all of them (only meaningful when several templates are validated at
+#      once; the templates under koto-templates/doc-criteria/ are left out)
 #
 # Usage:
 #   validate-template-mermaid.sh [file ...]
@@ -167,7 +168,16 @@ check_hardcoded_names() {
 . "$(dirname "$0")/lib/koto-gates.sh"
 
 check_shared_gate_commands() {
-    local templates=("$@")
+    # The per-rule criteria templates under koto-templates/doc-criteria/ share
+    # the gate name doc_criteria by design, each running its own rule's slice
+    # command, so they stay out of the comparison.
+    local templates=() t
+    for t in "$@"; do
+        case "$t" in
+            koto-templates/doc-criteria/* | */koto-templates/doc-criteria/*) continue ;;
+        esac
+        templates+=("$t")
+    done
 
     [[ ${#templates[@]} -eq 0 ]] && return 0
 
@@ -175,7 +185,7 @@ check_shared_gate_commands() {
     # COMMAND for a gate the reader could read and UNREADABLE for one it
     # could not.
     local rows=""
-    local t line
+    local line
     for t in "${templates[@]}"; do
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue

@@ -59,7 +59,8 @@ git -C "$S" config core.sparseCheckoutCone false
         /docs/designs/current/DESIGN-output-gates.md /docs/measurement/offload-baseline/template-pin.json \
         /.github/workflows/check-rule-registry.yml /.github/workflows/validate-pr-body.yml
     git -C "$REPO_ROOT" show "$SNAP:references/rule-registry.json" | jq -r '.rules[]
-        | (.text.path?, .check.path?, .backstop.check?, .deny.hook?, (.fixtures[]?), (.stage_backstops[]?.check))
+        | (.text.path?, .check.path?, .check.template?, .backstop.check?, .deny.hook?, (.fixtures[]?),
+           (.stage_backstops[]?.check))
         | strings | "/" + .'
 } > "$S/.git/info/sparse-checkout"
 git -C "$S" checkout -q --detach "$SNAP" || { echo "could not check out the scratch copy" >&2; exit 2; }
@@ -320,6 +321,14 @@ expect_problem "an rs- id only in the registry" "rs-998: in the registry but not
 
 reg "del(.rules[] | select(.id == \"$RS\"))"
 expect_problem "an rs- id only in criteria.json" "$RS: in criteria.json but not in the registry"
+
+# A document criterion is graded by its koto template, so it needs no
+# criteria.json row; rs-073 has none.
+reg ".rules += [$(sel rs-073) | .id = \"rs-998\"]"
+run_check
+[ "$RC" = 0 ] && pass "a decider-checked rs- id needs no criteria.json row" \
+    || fail "a decider-checked rs- id needs no criteria.json row" "rc=$RC: $OUT"
+reset_copy
 
 reg "$(sel $RS).text.path = \"references/wip-hygiene.md\""
 expect_problem "a mismatched criterion path" "$RS: text.path \"references/wip-hygiene.md\" differs from the criterion rule_ref"

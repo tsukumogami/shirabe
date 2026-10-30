@@ -33,6 +33,7 @@ on:
       # list (check-bash-floor_test.sh).
       - 'scripts/bash-floor/rule-registry.list'
       - 'hooks/**'
+      - 'koto-templates/**'
       - 'crates/**'
       - 'docs/guides/**'
       - 'docs/designs/current/DESIGN-output-gates.md'

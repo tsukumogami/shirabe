@@ -2028,11 +2028,17 @@
         "last": "- Does the rejection reference real weaknesses from the decision evaluation?"
       },
       "check": {
-        "kind": "review-shadow",
+        "kind": "decider",
+        "template": "koto-templates/doc-criteria/prd-rs-009.md",
+        "state": "grade",
+        "gate": "doc_criteria",
         "criterion": "rs-009"
       },
       "fixtures": [
-        "scripts/review-shadow/test_review_shadow.py"
+        "scripts/jev-criteria/fixtures/prd-rs-009.jsonl",
+        "scripts/jev-criteria/fixtures/design-rs-009.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py",
+        "scripts/doc-criteria/test_slice.py"
       ],
       "level": "shadow",
       "timing": [
@@ -2046,31 +2052,169 @@
         "skills/design/references/phases/phase-6-final-review.md#L114-L119"
       ],
       "aliases": [],
-      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement.",
+      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the question each document criterion template declares is the precise statement. A document criterion graded per pair of passages in shadow (references/jev-criteria.md, prd-rs-009 and design-rs-009).",
       "jev": {
-        "state": "rejected",
-        "sources": [
+        "state": "untrusted",
+        "pairs": [
           {
-            "what": "the changed documents at the merge commit",
-            "writer": "git"
+            "format": "prd",
+            "template": "koto-templates/doc-criteria/prd-rs-009.md",
+            "section": "document",
+            "cap": 32,
+            "cut": true,
+            "sources": [
+              {
+                "what": "the PRD under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "prd-rs-009",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-009 --format prd --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 7,
+              "max": 2426,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 61,
+              "p90": 1010,
+              "population": "documents",
+              "runs": 179,
+              "units": 4828,
+              "units_over_budget": 0,
+              "units_per_doc_max": 103,
+              "units_per_doc_p90": 55
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/prd-rs-009.jsonl",
+            "change_kinds": [
+              "number-conflict",
+              "name-conflict",
+              "status-conflict",
+              "behaviour-conflict"
+            ],
+            "declared": {
+              "sha256": "1c646f5a2769d91e8079463c19afca5c51a463235f1d31cbdc500bba50c13b0c",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 5,
+                  "pass": 0,
+                  "unclear": 2
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 13,
+                  "unclear": 1
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 25,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "1c646f5a2769d91e8079463c19afca5c51a463235f1d31cbdc500bba50c13b0c",
+              "fixtures_blob": "1f24790692d298d10e99f671c7c453e71aa2de3d",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
+          },
+          {
+            "format": "design",
+            "template": "koto-templates/doc-criteria/design-rs-009.md",
+            "section": "document",
+            "cap": 32,
+            "cut": true,
+            "sources": [
+              {
+                "what": "the DESIGN under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "design-rs-009",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-009 --format design --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 0,
+              "max": 2542,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 176,
+              "p90": 943,
+              "population": "documents",
+              "runs": 249,
+              "units": 13162,
+              "units_over_budget": 0,
+              "units_per_doc_max": 253,
+              "units_per_doc_p90": 100
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/design-rs-009.jsonl",
+            "change_kinds": [
+              "number-conflict",
+              "name-conflict",
+              "status-conflict",
+              "behaviour-conflict"
+            ],
+            "declared": {
+              "sha256": "dadde36e47b12a9edba8a6b54c44e21fc5d0238f3ee0b3c7aad383c8a544114e",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 7,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 15,
+                  "unclear": 0
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 25,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "dadde36e47b12a9edba8a6b54c44e21fc5d0238f3ee0b3c7aad383c8a544114e",
+              "fixtures_blob": "a73ea7c2c5be98df015cdebec2f757957e6eab38",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
           }
         ],
-        "slice_script": "scripts/review-shadow/review-shadow.py",
-        "budget": 2560,
-        "completeness": {
-          "path": "references/jev-criteria.md",
-          "heading": "rs-009",
-          "verdict": "sufficient"
-        },
-        "measured": {
-          "population": "merged-prs",
-          "runs": 24,
-          "max": 54359,
-          "p90": 22939,
-          "over_budget": 16,
-          "on": "2026-10-20",
-          "command": "python3 scripts/jev-criteria/jev_criteria.py measure prs --repo tsukumogami/shirabe --limit 40 --kind doc-pairs --budget 2560 --git-dir <a clone of the repository>"
-        },
         "false_passes": []
       }
     },
@@ -2140,11 +2284,16 @@
         "last": "experience)? A journey missing any of the three is incomplete."
       },
       "check": {
-        "kind": "review-shadow",
+        "kind": "decider",
+        "template": "koto-templates/doc-criteria/brief-rs-011.md",
+        "state": "grade",
+        "gate": "doc_criteria",
         "criterion": "rs-011"
       },
       "fixtures": [
-        "scripts/review-shadow/test_review_shadow.py"
+        "scripts/jev-criteria/fixtures/brief-rs-011.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py",
+        "scripts/doc-criteria/test_slice.py"
       ],
       "level": "shadow",
       "timing": [
@@ -2158,31 +2307,89 @@
         "skills/brief/references/phases/phase-4-validate.md#L129-L132"
       ],
       "aliases": [],
-      "notes": "",
+      "notes": "A document criterion graded per unit in shadow (references/jev-criteria.md, brief-rs-011).",
       "jev": {
-        "state": "blocked",
-        "sources": [
+        "state": "untrusted",
+        "pairs": [
           {
-            "what": "the BRIEF under review",
-            "writer": "graded-artifact"
+            "format": "brief",
+            "template": "koto-templates/doc-criteria/brief-rs-011.md",
+            "section": "user-journeys",
+            "cap": 8,
+            "cut": false,
+            "sources": [
+              {
+                "what": "the BRIEF under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "brief-rs-011",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-011 --format brief --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 2,
+              "max": 1455,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 0,
+              "p90": 842,
+              "population": "documents",
+              "runs": 83,
+              "units": 341,
+              "units_over_budget": 0,
+              "units_per_doc_max": 6,
+              "units_per_doc_p90": 5
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/brief-rs-011.jsonl",
+            "change_kinds": [
+              "no-role",
+              "no-trigger",
+              "no-outcome"
+            ],
+            "declared": {
+              "sha256": "8525fe5f161ad5d99d31278b99d82cd425d912b7901d09816b7c397629faa4ee",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 6,
+                  "pass": 0,
+                  "unclear": 1
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 12,
+                  "unclear": 0
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 24,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "8525fe5f161ad5d99d31278b99d82cd425d912b7901d09816b7c397629faa4ee",
+              "fixtures_blob": "2f51f1bba40a5b7c7ebba81ca9c38a1665115acb",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
           }
         ],
-        "slice_script": "scripts/review-shadow/review-shadow.py",
-        "budget": 2560,
-        "completeness": {
-          "path": "references/jev-criteria.md",
-          "heading": "rs-011",
-          "verdict": "sufficient"
-        },
-        "measured": {
-          "population": "review-shadow-records",
-          "runs": 23,
-          "max": 2353,
-          "p90": 1999,
-          "over_budget": 0,
-          "on": "2026-10-20",
-          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind brief-journey --budget 2560"
-        },
         "false_passes": []
       }
     },
@@ -2196,11 +2403,16 @@
         "last": "elaborates. Paraphrase is fine; contradiction is not."
       },
       "check": {
-        "kind": "review-shadow",
+        "kind": "decider",
+        "template": "koto-templates/doc-criteria/brief-rs-012.md",
+        "state": "grade",
+        "gate": "doc_criteria",
         "criterion": "rs-012"
       },
       "fixtures": [
-        "scripts/review-shadow/test_review_shadow.py"
+        "scripts/jev-criteria/fixtures/brief-rs-012.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py",
+        "scripts/doc-criteria/test_slice.py"
       ],
       "level": "shadow",
       "timing": [
@@ -2214,31 +2426,88 @@
         "skills/brief/references/phases/phase-4-validate.md#L235-L238"
       ],
       "aliases": [],
-      "notes": "",
+      "notes": "A document criterion graded per unit in shadow (references/jev-criteria.md, brief-rs-012).",
       "jev": {
-        "state": "rejected",
-        "sources": [
+        "state": "untrusted",
+        "pairs": [
           {
-            "what": "the BRIEF under review",
-            "writer": "graded-artifact"
+            "format": "brief",
+            "template": "koto-templates/doc-criteria/brief-rs-012.md",
+            "section": "frontmatter",
+            "cap": 2,
+            "cut": true,
+            "sources": [
+              {
+                "what": "the BRIEF under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "brief-rs-012",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-012 --format brief --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 0,
+              "max": 2559,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 0,
+              "p90": 2434,
+              "population": "documents",
+              "runs": 85,
+              "units": 170,
+              "units_over_budget": 0,
+              "units_per_doc_max": 2,
+              "units_per_doc_p90": 2
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/brief-rs-012.jsonl",
+            "change_kinds": [
+              "different-subject",
+              "contradicted-fact"
+            ],
+            "declared": {
+              "sha256": "96332954f9700a0c59a10451057998424c52f0b6656011edcf393a9ec18e062a",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 5,
+                  "pass": 0,
+                  "unclear": 1
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 11,
+                  "unclear": 1
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 24,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "96332954f9700a0c59a10451057998424c52f0b6656011edcf393a9ec18e062a",
+              "fixtures_blob": "b244e916cb56f7068083e7538407fbf269ec23c3",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
           }
         ],
-        "slice_script": "scripts/review-shadow/review-shadow.py",
-        "budget": 2560,
-        "completeness": {
-          "path": "references/jev-criteria.md",
-          "heading": "rs-012",
-          "verdict": "sufficient"
-        },
-        "measured": {
-          "population": "review-shadow-records",
-          "runs": 23,
-          "max": 3877,
-          "p90": 3709,
-          "over_budget": 23,
-          "on": "2026-10-20",
-          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind summary-pair --budget 2560"
-        },
         "false_passes": []
       }
     },
@@ -2252,11 +2521,16 @@
         "last": "- A developer who didn't write the PRD can verify each criterion"
       },
       "check": {
-        "kind": "review-shadow",
+        "kind": "decider",
+        "template": "koto-templates/doc-criteria/prd-rs-013.md",
+        "state": "grade",
+        "gate": "doc_criteria",
         "criterion": "rs-013"
       },
       "fixtures": [
-        "scripts/review-shadow/test_review_shadow.py"
+        "scripts/jev-criteria/fixtures/prd-rs-013.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py",
+        "scripts/doc-criteria/test_slice.py"
       ],
       "level": "shadow",
       "timing": [
@@ -2270,31 +2544,89 @@
         "skills/prd/references/prd-format.md#L230-L231"
       ],
       "aliases": [],
-      "notes": "",
+      "notes": "A document criterion graded per unit in shadow (references/jev-criteria.md, prd-rs-013).",
       "jev": {
-        "state": "rejected",
-        "sources": [
+        "state": "untrusted",
+        "pairs": [
           {
-            "what": "the PRD under review",
-            "writer": "graded-artifact"
+            "format": "prd",
+            "template": "koto-templates/doc-criteria/prd-rs-013.md",
+            "section": "acceptance-criteria",
+            "cap": 32,
+            "cut": false,
+            "sources": [
+              {
+                "what": "the PRD under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "prd-rs-013",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-013 --format prd --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 2,
+              "max": 1823,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 57,
+              "p90": 352,
+              "population": "documents",
+              "runs": 184,
+              "units": 5074,
+              "units_over_budget": 0,
+              "units_per_doc_max": 85,
+              "units_per_doc_p90": 51
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/prd-rs-013.jsonl",
+            "change_kinds": [
+              "subjective-word",
+              "no-observable-result",
+              "unmeasured-quantity"
+            ],
+            "declared": {
+              "sha256": "c5deb2da7fe196786a96696313ec6d0a53262784044f33691ca96c89e3d8756b",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 7,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 12,
+                  "unclear": 1
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 26,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "c5deb2da7fe196786a96696313ec6d0a53262784044f33691ca96c89e3d8756b",
+              "fixtures_blob": "3ed24da555d824532a2a1fb3b6815ae1d7fe8f85",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
           }
         ],
-        "slice_script": "scripts/review-shadow/review-shadow.py",
-        "budget": 2560,
-        "completeness": {
-          "path": "references/jev-criteria.md",
-          "heading": "rs-013",
-          "verdict": "sufficient"
-        },
-        "measured": {
-          "population": "review-shadow-records",
-          "runs": 21,
-          "max": 11332,
-          "p90": 8169,
-          "over_budget": 19,
-          "on": "2026-10-20",
-          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind prd-ac --budget 2560"
-        },
         "false_passes": []
       }
     },
@@ -4516,6 +4848,318 @@
       "baseline_keys": [],
       "aliases": [],
       "notes": "A jury rubric item: the /roadmap jury's annotation-boundary seat returns its overall verdict on it in a review-verdicts block (references/review-verdicts.md), which scripts/review-events.sh records as telemetry. One item stands for the whole seat until the seat's criteria get ids of their own. No script or Jev criterion checks it, so it has no criteria.json row. Registered after the baseline pin, so it has no baseline key."
+    },
+    {
+      "id": "rs-073",
+      "status": "active",
+      "summary": "A Scope Boundary bullet or an Evidence clause names a mechanism, a path or a command instead of what it covers or what a checker sees",
+      "text": {
+        "path": "skills/roadmap/references/roadmap-format.md",
+        "first": "A clause never names the file, script, function or line that implements",
+        "last": "and shape go in Left open."
+      },
+      "check": {
+        "kind": "decider",
+        "template": "koto-templates/doc-criteria/brief-rs-073.md",
+        "state": "grade",
+        "gate": "doc_criteria",
+        "criterion": "rs-073"
+      },
+      "fixtures": [
+        "scripts/jev-criteria/fixtures/brief-rs-073.jsonl",
+        "scripts/jev-criteria/fixtures/roadmap-rs-073.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py",
+        "scripts/doc-criteria/test_slice.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A document criterion graded per unit in shadow: a BRIEF's Scope Boundary bullets and a ROADMAP's Evidence clauses (references/jev-criteria.md, brief-rs-073 and roadmap-rs-073). The anchor is the roadmap format's Evidence rule; the BRIEF's altitude rule has no sentence of its own, so each template's question is the precise statement. It runs at a skill's pre-jury step rather than at a koto state, so its timing is pre-merge. Registered after the baseline pin, so it has no baseline key.",
+      "jev": {
+        "state": "untrusted",
+        "pairs": [
+          {
+            "format": "brief",
+            "template": "koto-templates/doc-criteria/brief-rs-073.md",
+            "section": "scope-boundary",
+            "cap": 32,
+            "cut": false,
+            "sources": [
+              {
+                "what": "the BRIEF under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "brief-rs-073",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-073 --format brief --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 2,
+              "max": 1231,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 0,
+              "p90": 363,
+              "population": "documents",
+              "runs": 83,
+              "units": 934,
+              "units_over_budget": 0,
+              "units_per_doc_max": 19,
+              "units_per_doc_p90": 15
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/brief-rs-073.jsonl",
+            "change_kinds": [
+              "mechanism",
+              "path",
+              "command"
+            ],
+            "declared": {
+              "sha256": "26bffe8cd15604fea0054066f89ead9b58762c6d9a7b41610902415b675d316c",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 6,
+                  "pass": 0,
+                  "unclear": 1
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 13,
+                  "unclear": 0
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 26,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "26bffe8cd15604fea0054066f89ead9b58762c6d9a7b41610902415b675d316c",
+              "fixtures_blob": "0a27488874d2fe143f25e30a679e0c555f513d50",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
+          },
+          {
+            "format": "roadmap",
+            "template": "koto-templates/doc-criteria/roadmap-rs-073.md",
+            "section": "milestones",
+            "cap": 32,
+            "cut": false,
+            "sources": [
+              {
+                "what": "the ROADMAP under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "roadmap-rs-073",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-073 --format roadmap --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 0,
+              "max": 0,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 0,
+              "p90": 0,
+              "population": "documents",
+              "runs": 0,
+              "units": 0,
+              "units_over_budget": 0,
+              "units_per_doc_max": 0,
+              "units_per_doc_p90": 0
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/roadmap-rs-073.jsonl",
+            "change_kinds": [
+              "file",
+              "script",
+              "function"
+            ],
+            "declared": {
+              "sha256": "d15b8793cdb1f0311a38fc64296f8c713a1e097aca3b73e6df4f09d8ac7f207d",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 7,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 12,
+                  "unclear": 0
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 24,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "d15b8793cdb1f0311a38fc64296f8c713a1e097aca3b73e6df4f09d8ac7f207d",
+              "fixtures_blob": "6eae9f5387b514b2acd572c94e0bb8c4718b6db4",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
+          }
+        ],
+        "false_passes": []
+      }
+    },
+    {
+      "id": "rs-074",
+      "status": "active",
+      "summary": "A Bet-Specific Falsifiability bullet doesn't name an observable condition that would show its claim wrong, with a corrective",
+      "text": {
+        "path": "skills/strategy/references/phases/phase-4-validate.md",
+        "first": "3. **Falsifiability covers every claim.**",
+        "last": "indicate a missing claim in the Defensibility Thesis."
+      },
+      "check": {
+        "kind": "decider",
+        "template": "koto-templates/doc-criteria/strategy-rs-074.md",
+        "state": "grade",
+        "gate": "doc_criteria",
+        "criterion": "rs-074"
+      },
+      "fixtures": [
+        "scripts/jev-criteria/fixtures/strategy-rs-074.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py",
+        "scripts/doc-criteria/test_slice.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "A document criterion graded per unit in shadow: each falsifier beside the Defensibility Thesis claim it names (references/jev-criteria.md, strategy-rs-074). It runs at a skill's pre-jury step rather than at a koto state, so its timing is pre-merge. Registered after the baseline pin, so it has no baseline key.",
+      "jev": {
+        "state": "untrusted",
+        "pairs": [
+          {
+            "format": "strategy",
+            "template": "koto-templates/doc-criteria/strategy-rs-074.md",
+            "section": "bet-specific-falsifiability",
+            "cap": 32,
+            "cut": true,
+            "sources": [
+              {
+                "what": "the STRATEGY under review, its blob at the commit the step reads",
+                "writer": "git"
+              }
+            ],
+            "slice_script": "scripts/doc-criteria/slice.py",
+            "budget": 2560,
+            "completeness": {
+              "path": "references/jev-criteria.md",
+              "heading": "strategy-rs-074",
+              "verdict": "sufficient"
+            },
+            "measured": {
+              "command": "python3 scripts/jev-criteria/jev_criteria.py measure docs --criterion rs-074 --format strategy --roots <shirabe>/docs <koto>/docs <niwa>/docs --budget 2560",
+              "empty": 0,
+              "max": 0,
+              "on": "2026-10-30",
+              "over_budget": 0,
+              "over_cap": 0,
+              "p90": 0,
+              "population": "documents",
+              "runs": 0,
+              "units": 0,
+              "units_over_budget": 0,
+              "units_per_doc_max": 0,
+              "units_per_doc_p90": 0
+            },
+            "fixtures": "scripts/jev-criteria/fixtures/strategy-rs-074.jsonl",
+            "change_kinds": [
+              "unrelated-claim",
+              "unrelated-condition"
+            ],
+            "declared": {
+              "sha256": "5b3cff478b33b033e4329ce6233949cb77dd4e064aa634de4e5660cba3589da5",
+              "since": "2026-10-30"
+            },
+            "fixture_run": {
+              "counts": {
+                "adversarial": {
+                  "error": 0,
+                  "fail": 6,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "empty": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 0,
+                  "unclear": 0
+                },
+                "good": {
+                  "error": 0,
+                  "fail": 0,
+                  "pass": 11,
+                  "unclear": 1
+                },
+                "seeded-bad": {
+                  "error": 0,
+                  "fail": 24,
+                  "pass": 0,
+                  "unclear": 0
+                }
+              },
+              "declared_sha256": "5b3cff478b33b033e4329ce6233949cb77dd4e064aa634de4e5660cba3589da5",
+              "fixtures_blob": "57bd4e0a45ef5559247da5bb2441f3eb06aae77c",
+              "model": "jev-1.14.0",
+              "on": "2026-10-30",
+              "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
+            }
+          }
+        ],
+        "false_passes": []
+      }
     },
     {
       "id": "rs-verdict-missing",

@@ -342,7 +342,9 @@ is_archived() { SEC | jq -e --argjson n "$1" '(.archived // []) | index($n) != n
 restore() {
     bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/ra.err" \
         || { lib_scrub < "$WD/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
-    jq -c -L "$HERE" --argjson ids "$(jq -nc '$ARGS.positional | map(tonumber)' --args "$@")" --slurpfile es "$WD/entries.json" 'include "state-schema";
+    # jq goes on reading options after --args, so the -- keeps a dash-leading
+    # id an id, refused as a bad one, instead of taken as jq's own option.
+    jq -c -L "$HERE" --argjson ids "$(jq -nc '$ARGS.positional | map(tonumber)' --args -- "$@")" --slurpfile es "$WD/entries.json" 'include "state-schema";
         ([$es[0][] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
         | reduce $ids[] as $n (.;
             (first($arch[] | .text | d_archive_rows[] | select(.decision == ($n | tostring)))
@@ -382,7 +384,9 @@ open)
     [ -n "$Q" ] && [ ${#OPTS[@]} -gt 0 ] || refuse "an entry needs a question and its options"
     SRC=${SRC:-self}
     case "$SRC" in self|dispatcher) ;; *) refuse "--source is self or dispatcher" ;; esac
-    OJ=$(jq -nc '$ARGS.positional | join("\n")' --args "${OPTS[@]}")
+    # The -- ends jq's options, so an option such as -r or --flag=value is
+    # stored as given, not read as one of jq's.
+    OJ=$(jq -nc '$ARGS.positional | join("\n")' --args -- "${OPTS[@]}")
     change 'if stamped("raise"; $seq) then error("this visit to decision_raise already opened an entry") else . end
       | .entries += [{decision: (.next | tostring), round: "0", question: $q, options: $o, state: "proposed",
           source: "\($src) [\($run) raise \($seq)]", updated: $now}] | .next += 1 | compact_except("")' \
@@ -449,7 +453,7 @@ settle|escalate|hold)
         change '.entries |= map(if .decision == $n then settle("\($o); reason: \($r)"; "the coordinator") else . end) | release | compact_except($n)' \
             --arg n "$N" --arg o "$OUTC" --arg r "$REASON" ;;
     escalate)
-        OJ=$(jq -nc '$ARGS.positional' --args ${OPTS[@]+"${OPTS[@]}"})
+        OJ=$(jq -nc '$ARGS.positional' --args -- ${OPTS[@]+"${OPTS[@]}"})
         change '($opts | map(split(" -- ")[0])) as $given
           | (entry($n) | d_options | map(.label)) as $labels
           | if ($opts | length) > 0 and ($given | sort) != ($labels | sort) then

@@ -1,0 +1,34 @@
+{
+  "schema": "doc-criteria/v1",
+  "formats": {
+    "brief": [
+      {"rule_id": "rs-073", "section": "scope-boundary", "template": "koto-templates/doc-criteria/brief-rs-073.md", "cap": 32},
+      {"rule_id": "rs-011", "section": "user-journeys", "template": "koto-templates/doc-criteria/brief-rs-011.md", "cap": 8},
+      {"rule_id": "rs-012", "section": "frontmatter", "template": "koto-templates/doc-criteria/brief-rs-012.md", "cap": 2}
+    ],
+    "prd": [
+      {"rule_id": "rs-013", "section": "acceptance-criteria", "template": "koto-templates/doc-criteria/prd-rs-013.md", "cap": 32},
+      {"rule_id": "rs-009", "section": "document", "template": "koto-templates/doc-criteria/prd-rs-009.md", "cap": 32}
+    ],
+    "design": [
+      {"rule_id": "rs-009", "section": "document", "template": "koto-templates/doc-criteria/design-rs-009.md", "cap": 32}
+    ],
+    "roadmap": [
+      {"rule_id": "rs-073", "section": "milestones", "template": "koto-templates/doc-criteria/roadmap-rs-073.md", "cap": 32}
+    ],
+    "strategy": [
+      {"rule_id": "rs-074", "section": "bet-specific-falsifiability", "template": "koto-templates/doc-criteria/strategy-rs-074.md", "cap": 32}
+    ]
+  },
+  "pins": {
+    "koto-templates/doc-criteria/brief-rs-011.md": "46d589858a22df8da4f89c7c5d12a412659702bf480e3ec3be10b0ebb2930ec4",
+    "koto-templates/doc-criteria/brief-rs-012.md": "323bafb1061680687e9121e0ee99115f20fabb1a435ff51d5012631da2f99d8a",
+    "koto-templates/doc-criteria/brief-rs-073.md": "c78d09dbf0cb66c4368d81cff0fb3f43d01bd1eb6de8ef6f74b6e2dfa808d03b",
+    "koto-templates/doc-criteria/design-rs-009.md": "0b02c590c1009a4d03120f8d26e3e68e03d47e4c59365350804a4beae8d2a835",
+    "koto-templates/doc-criteria/prd-rs-009.md": "8a86deac3ae1df6a15ae6f83e1e4e08caa29f61547a5451803d6dc22380f2fe0",
+    "koto-templates/doc-criteria/prd-rs-013.md": "5684e09f53d14a23ff2678d884b62a80f22844b88baf4167ca3bc1e7fa3c0f6c",
+    "koto-templates/doc-criteria/roadmap-rs-073.md": "40f9b4dc9e5a5a7562ae65ba6bb3d7f343572c6bff8d96054958cdff8dc5e351",
+    "koto-templates/doc-criteria/strategy-rs-074.md": "231e6c6b0636f392d0894b8741be061d345639f2cd3584bb3c663bb722cff38c",
+    "scripts/doc-criteria/slice.py": "62faf7adce9e6b3e31e965a2bc343949795a3f85278689bcc38d525fed32fee7"
+  }
+}
