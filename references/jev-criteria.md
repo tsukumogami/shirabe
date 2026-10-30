@@ -607,8 +607,8 @@ implementation?
 
 **Sources.** The ROADMAP under review, its blob at the commit the step reads.
 
-**Slice.** Each Evidence clause, a `- ` line at column 0 with its indented
-continuation, after a milestone's `**Evidence:**` and up to the first blank
+**Slice.** Each Evidence clause, a list item at column 0 (`- ` in the
+format) with its indented continuation, after a milestone's `**Evidence:**` and up to the first blank
 line, field line or heading, with the milestone's `###` heading as its first
 line. Milestones are read under `## Milestones`, or `## Features` on a
 `roadmap/v2`. Section key `milestones`.
@@ -693,7 +693,7 @@ its own template, it has one.
 
 **Fixtures.** `scripts/jev-criteria/fixtures/brief-rs-011.jsonl`: 12 good, 24
 seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 12
-pass, seeded-bad 24 fail, adversarial 5 fail and 2 escapes.
+pass, seeded-bad 24 fail, adversarial 6 fail and 1 escape.
 
 **State.** `untrusted`, in shadow. It leaves shadow only through a
 maintainer's proposal citing its live figures and its fixture run, the
@@ -766,8 +766,8 @@ have more pairs than the cap. Measured whole, every pair of a run in one
 slice, it was rejected: two runs in three were over the budget.
 
 **Fixtures.** `scripts/jev-criteria/fixtures/prd-rs-009.jsonl`: 14 good, 25
-seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 14
-pass, seeded-bad 25 fail, adversarial 5 fail and 2 escapes.
+seeded-bad and 7 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 13
+pass and 1 escape, seeded-bad 25 fail, adversarial 5 fail and 2 escapes.
 
 **State.** `untrusted`, in shadow. It leaves shadow only through a
 maintainer's proposal citing its live figures and its fixture run, the
@@ -811,7 +811,7 @@ Thesis claim it names, so that observing it would show that claim wrong?
 its corrective included, cut to 1,500 bytes, beside the claim its first
 `claim <n>` names: the Defensibility Thesis's numbered item `<n>`, or a
 paragraph there that opens `Claim <n>`, cut to 1,000. A bullet naming no claim
-number is sent with `[no claim named]`, and one naming a number the thesis has
+number of at most four digits is sent with `[no claim named]`, and one naming a number the thesis has
 no claim for says so; the decider escapes on both. Section key
 `bet-specific-falsifiability`.
 
@@ -830,8 +830,8 @@ measured none; the live figures are the first measurement this contract
 gets.
 
 **Fixtures.** `scripts/jev-criteria/fixtures/strategy-rs-074.jsonl`: 12 good,
-24 seeded-bad and 6 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 10
-pass and 2 escapes, seeded-bad 24 fail, adversarial 6 fail.
+24 seeded-bad and 6 adversarial cases. Run on 2026-10-30 (jev-1.14.0): good 11
+pass and 1 escape, seeded-bad 24 fail, adversarial 6 fail.
 
 **State.** `untrusted`, in shadow. It leaves shadow only through a
 maintainer's proposal citing its live figures and its fixture run, the

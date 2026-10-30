@@ -50,7 +50,9 @@ TABLE_ROW = re.compile(r"^\s*\|")
 TABLE_RULE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
 TERM = re.compile(r"`([^`\n]+)`")
 NUMBER = re.compile(r"(?<![\w.,/-])\d+(?:[.,]\d+)*(?![\w/-])")
-CLAIM_REF = re.compile(r"\bclaims?\s*#?\s*(\d+)\b", re.IGNORECASE)
+# A claim number is at most four digits, so the label that echoes it stays
+# inside the budget whatever a bullet writes.
+CLAIM_REF = re.compile(r"\bclaims?\s*#?\s*(\d{1,4})\b", re.IGNORECASE)
 CLAIM_PARA = re.compile(r"^(?:\*\*)?claim\s+(\d+)\b", re.IGNORECASE)
 
 CUT = " [cut]"
@@ -390,6 +392,10 @@ def passages(lines):
             cur, cur_start, kind, item_indent = [line.strip()], i, "item", len(m.group(1))
             continue
         if cur is not None and kind == "item":
+            # An item runs on through lines indented under its marker, and
+            # through a line at column 0 straight after it, which Markdown
+            # reads as the item's lazy continuation; a line indented less than
+            # the marker belongs to an outer item and starts a paragraph.
             indent = len(line) - len(line.lstrip())
             if indent > item_indent or not line.startswith((" ", "\t")):
                 cur.append(line.strip())

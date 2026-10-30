@@ -29,6 +29,6 @@
     "koto-templates/doc-criteria/prd-rs-013.md": "5684e09f53d14a23ff2678d884b62a80f22844b88baf4167ca3bc1e7fa3c0f6c",
     "koto-templates/doc-criteria/roadmap-rs-073.md": "40f9b4dc9e5a5a7562ae65ba6bb3d7f343572c6bff8d96054958cdff8dc5e351",
     "koto-templates/doc-criteria/strategy-rs-074.md": "231e6c6b0636f392d0894b8741be061d345639f2cd3584bb3c663bb722cff38c",
-    "scripts/doc-criteria/slice.py": "51b4b80127e5bbc9d81e92974b795eb0741bf034ccd679a3c413bbb07bb670e5"
+    "scripts/doc-criteria/slice.py": "62faf7adce9e6b3e31e965a2bc343949795a3f85278689bcc38d525fed32fee7"
   }
 }

@@ -16,6 +16,9 @@ import sys
 import tempfile
 import unittest
 
+# A local run must leave the tree clean: work-on's panels refuse a dirty one.
+sys.dont_write_bytecode = True
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SLICE = os.path.join(HERE, "slice.py")
 spec = importlib.util.spec_from_file_location("doc_slice", SLICE)
@@ -370,6 +373,13 @@ class UnitRuleTest(unittest.TestCase):
         falsifier, claimpart = t.split("\n\nclaim 1:\n")
         self.assertLessEqual(S.utf8_len(falsifier[len("falsifier:\n"):]), S.FALSIFIER_SIDE)
         self.assertLessEqual(S.utf8_len(claimpart), S.CLAIM_SIDE)
+
+    def test_a_long_claim_number_cannot_push_a_falsifier_over_the_budget(self):
+        text = ("## Defensibility Thesis\n\n1. c\n\n## Bet-Specific Falsifiability\n\n- *If %s* (claim %s), x.\n"
+                % ("y" * 3000, "9" * 3000))
+        (_, t), = S.units("rs-074", "strategy", text)
+        self.assertLessEqual(S.utf8_len(t), S.BUDGET)
+        self.assertTrue(t.endswith("claim: " + S.NO_CLAIM))
 
     def test_whole_units_are_printed_whole_whatever_their_size(self):
         bullet = "- " + "a" * 2600
