@@ -31,6 +31,13 @@ bad() { echo "FAIL $1${2:+: $2}"; FAIL=$((FAIL + 1)); }
 # shellcheck source=emit-event.sh
 . "$HELPER"
 
+# The deadline cases run with the shipped bound. Every other case is about
+# what is sent, not when, so it gets room to spare: on a loaded host the
+# stand-in sender can take longer than the bound to start, and a case whose
+# sender the bound killed would read as "not sent".
+SHIPPED_BOUND=$EE_BOUND
+EE_BOUND=10
+
 CUT=1794189600
 AFTER=$((CUT + 60))
 
@@ -322,7 +329,7 @@ new_home
 sent && ! grep -q '^unit.koto_session_id=' "$H/sent.args" && ok "a failed koto read leaves the id out and sends the rest" || bad "a failed koto read"
 new_home
 start=$(date +%s)
-( export KOTO_STUB_MODE=hang; NOTIMEOUT=1 run "$AFTER" event --scope unit-cost --kind session_opened --koto-dir "$T" unit.koto_session=issue_7 )
+( EE_BOUND=$SHIPPED_BOUND; export KOTO_STUB_MODE=hang; NOTIMEOUT=1 run "$AFTER" event --scope unit-cost --kind session_opened --koto-dir "$T" unit.koto_session=issue_7 )
 took=$(( $(date +%s) - start ))
 [ "$took" -le 5 ] && ok "a hung koto read is cut at its deadline (${took}s)" || bad "a hung koto read is cut at its deadline" "${took}s"
 sent && ok "and the event still goes" || bad "and the event still goes"
@@ -335,6 +342,8 @@ pgrep -f 'sleep 47' >/dev/null && bad "with no sender koto is never read" || ok 
 pgrep -f 'sleep 47' >/dev/null && bad "before the cutoff koto is never read" || ok "before the cutoff koto is never read"
 
 echo "== the deadline =="
+[ "$SHIPPED_BOUND" = 3 ] && ok "the shipped bound is 3 seconds" || bad "the shipped bound is 3 seconds" "$SHIPPED_BOUND"
+EE_BOUND=$SHIPPED_BOUND
 for nt in 0 1; do
     if [ "$nt" = 0 ] && [ ! -e "$BIN/timeout" ]; then
         echo "skip the timeout(1) path: no timeout on this host"
