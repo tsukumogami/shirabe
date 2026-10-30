@@ -401,13 +401,16 @@ preflight_route_run() {
         # own copy once the watchdog is running, so the capture ends when the
         # watchdog does. The watchdog gets its own process group, which the
         # KILL below stops together with its sleep.
+        #
+        # stdin is closed inside the substitution, not with a redirection on
+        # the assignment: bash 5 gives `v=$(...) </dev/null` a status of 0
+        # whatever the substitution exits with, which would read every
+        # refusal as an answer.
         fired=$(
-            exec 3>&1 >/dev/null 2>&1
+            exec 3>&1 >/dev/null 2>&1 </dev/null
             set -m
             "$path" "$@" </dev/null >/dev/null 2>&1 3>&- &
             _preflight_route_pid=$!
-            set +m
-            set -m
             preflight_probe_watchdog "$_preflight_route_pid" mark &
             _preflight_route_watchdog=$!
             set +m
@@ -418,7 +421,7 @@ preflight_route_run() {
                 || kill "$_preflight_route_watchdog" 2>/dev/null
             wait "$_preflight_route_watchdog" 2>/dev/null
             exit "$_preflight_route_status"
-        ) </dev/null || st=$?
+        ) || st=$?
         if [ "$st" -ne 0 ] && [ -n "$fired" ]; then
             PREFLIGHT_ROUTE_TIMEDOUT=1
         fi
