@@ -34,7 +34,7 @@
 #                       that workspace, canonical
 #   ws_on <label> <ws> <command...>
 #                       run a command in that workspace, as that host
-#   koto_keeps_source   exit 0 when the koto on PATH is 0.32.0 or later, whose
+#   koto_keeps_source   exit 0 when the koto on PATH is from 0.32.0 on, whose
 #                       `session import` keeps its source as a read-only
 #                       predecessor (tsukumogami/koto#540): the source answers
 #                       reads from its last pushed copy and refuses every write
@@ -104,7 +104,7 @@ host_ws() { ws_path "$1" work; }
 
 koto_keeps_source() {
     local v maj min
-    v=$(koto version 2>/dev/null | head -n 1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\..*$/\1 \2/p')
+    v=$(koto version | head -n 1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\..*$/\1 \2/p')
     read -r maj min <<< "${v:-0 0}"
     [ "$maj" -gt 0 ] || [ "$min" -ge 32 ]
 }

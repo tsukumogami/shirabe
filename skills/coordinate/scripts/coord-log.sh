@@ -247,7 +247,7 @@ session_log() {
 # nothing and answers such a session with a `migrated` object naming the copy;
 # `koto status` doesn't say. state-read.sh's rs_migrated asks the same.
 migrated_away() {
-    "$KOTO" dashboard "$1" --detail </dev/null 2>/dev/null | jq -e '.migrated | type == "object"' >/dev/null 2>&1
+    "$KOTO" dashboard "$1" --detail </dev/null | jq -e '.migrated | type == "object"' >/dev/null
 }
 
 # events <log>: every event line (the header has no "type").

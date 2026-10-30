@@ -315,8 +315,8 @@ rs_scope_sessions() {
 # a koto that can't give one included, is 1. coord-log.sh's migrated_away
 # asks the same.
 rs_migrated() {
-    "${KOTO:-${KOTO_BIN:-koto}}" dashboard "$1" --detail < /dev/null 2> /dev/null \
-        | jq -e '.migrated | type == "object"' > /dev/null 2>&1
+    "${KOTO:-${KOTO_BIN:-koto}}" dashboard "$1" --detail < /dev/null \
+        | jq -e '.migrated | type == "object"' > /dev/null
 }
 
 # rs_resume_candidate <scope> <name> <shipped-hash>: what a start on this host

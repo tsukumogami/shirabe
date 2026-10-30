@@ -49,7 +49,7 @@
 # them calling `session import`; a discipline one reaches the import, which
 # finds no such run; a
 # run A opened whose find never ran (no session-store find) is imported, then
-# refused session-source; host A, whose koto 0.32.0 or later still lists that
+# refused session-source; host A, whose koto (0.32.0 and later) still lists that
 # run, doesn't count it as a live run of the scope, and its next open opens a
 # new run without cancelling it (no failed=cancel); and one A opened from a copy of the plugin at another path
 # is imported, re-attached with this host's plugin root (rebound=), and then
@@ -510,6 +510,22 @@ grep -q '^failed=' "$T/out" && fail "  ... printing no failed=" "$(cat "$T/out" 
 grep -qx "cancelled=$SRC" "$T/out" && fail "  ... and cancelling nothing of the migrated run" "$(cat "$T/out")" || pass "  ... and cancelling nothing of the migrated run"
 eq "  ... the new run the scope's one live run on A" "$NEW" \
     "$(host_on a bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-plugin-system 2>/dev/null)"
+sleep 1
+# Behind a koto whose dashboard read fails, the migrated run stays listed as
+# live (as it would be had it been imported after the listing): the opener's
+# cancel of it refuses as session_migrated, which it leaves alone, and it
+# cancels the live run it should.
+printf '#!/bin/sh\n[ "$1" = dashboard ] && exit 2\nexec "%s" "$@"\n' "$REAL_KOTO" > "$T/koto-nodash"
+chmod +x "$T/koto-nodash"
+printf '["%s"]' "$RM" > "$T/args-a.json"
+host_on a env KOTO_BIN="$T/koto-nodash" bash "$OPEN" --plugin-root "$T/plugin" "$T/args-a.json" > "$T/out" 2>"$T/open-a.err"; rc=$?
+NEW2=$(sed -n 's/^session=//p' "$T/out")
+if [ $rc -eq 0 ] && [ -n "$NEW2" ] && [ "$NEW2" != "$NEW" ]; then
+    pass "behind a koto that can't say the run migrated, A's next open still opens a new run"
+else
+    fail "behind a koto that can't say the run migrated, A's next open still opens a new run" "rc=$rc $(cat "$T/out" "$T/open-a.err")"
+fi
+eq "  ... cancelling the live run, and only it" "cancelled=$NEW" "$(grep '^cancelled=' "$T/out")"
 sleep 1
 # A run opened from the plugin at another path: the same template, so the same
 # hash, but the run's PLUGIN_ROOT isn't this host's.
