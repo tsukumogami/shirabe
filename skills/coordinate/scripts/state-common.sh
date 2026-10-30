@@ -177,6 +177,44 @@ lib_drop_disposed() {
 
 lib_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+# ---- reads run together ------------------------------------------------------
+# A check with reads that don't wait on each other starts them as background
+# jobs and takes each answer where it read it before, so its verdict, output
+# and exit code are what the reads made one after another give. On a loaded
+# host each koto call can cost seconds, and one after another they outrun
+# koto's 30-second action limit (shirabe#1406).
+#
+# lib_job_start <dir> <name> <command...>: run the command as a background
+# job, its stdout in <dir>/<name>.out and its stderr in <dir>/<name>.err.
+# LIB_JOBS keeps `<name>:<pid>` for each job not yet waited for.
+LIB_JOBS=
+lib_job_start() {
+    local d=$1 n=$2
+    shift 2
+    "$@" < /dev/null > "$d/$n.out" 2> "$d/$n.err" &
+    LIB_JOBS="$LIB_JOBS $n:$!"
+}
+
+# lib_job_wait <name>: wait for the job and set JOB_RC to its exit status.
+lib_job_wait() {
+    local p=${LIB_JOBS#* "$1":}
+    p=${p%% *}
+    JOB_RC=0
+    wait "$p" || JOB_RC=$?
+    LIB_JOBS=${LIB_JOBS/ "$1:$p"/}
+}
+
+# lib_jobs_stop: stop every job not yet waited for, and wait for each to go.
+# A check ends with it, so a read past the verdict it reached, or one still
+# out when the check is killed, doesn't outlive it or write into a temporary
+# directory the check then removes.
+lib_jobs_stop() {
+    local j
+    for j in $LIB_JOBS; do kill "${j#*:}" 2> /dev/null; done
+    for j in $LIB_JOBS; do wait "${j#*:}" 2> /dev/null; done
+    LIB_JOBS=
+}
+
 # lib_run_stamp: RUN, the run's own stamp, the UTC time in the session's name
 # (coordinate-<slug>-<YYYYMMDDTHHMMSSZ>, one per run). Every Decisions stamp
 # starts with it, so a write keyed on a log sequence is never mistaken for

@@ -648,5 +648,17 @@ elif [ "$took" -lt $((CALLS * SLOW / 2)) ]; then
 else
     bad "  ... its koto reads run together" "took ${took} s for $CALLS calls of ${SLOW} s each, over the bound of half their sum, $((CALLS * SLOW / 2)) s: reads made one after another, which on a loaded host run past koto's 30-second action limit"
 fi
+# A check killed while its reads are out (koto's action timeout, say) stops
+# them and still removes its temporary directory.
+PT="$T/check-tmp"
+mkdir -p "$PT"
+(SLOW=3 PATH="$T/slow:$PATH" TMPDIR="$PT" exec bash "$DC" --session "$S" > /dev/null 2>&1) &
+pid=$!
+i=0
+while [ -z "$(ls -A "$PT")" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+sleep 1
+kill -TERM "$pid" 2> /dev/null
+wait "$pid" 2> /dev/null
+if [ -z "$(ls -A "$PT")" ]; then ok "a check killed mid-read leaves no temporary directory"; else bad "a check killed mid-read leaves no temporary directory" "$(ls -A "$PT")"; fi
 
 done_tests deferral-check
