@@ -11,7 +11,8 @@ goals: |
   `niwa apply` or `niwa create` leaves shirabe's pre-commit hook in each product
   repository clone, using the released niwa, without touching a hook the
   contributor or the repository already put there.
-upstream: docs/briefs/BRIEF-sr8-workspace-engine.md
+absorbed:
+  - docs/briefs/BRIEF-sr8-workspace-engine.md
 ---
 
 # PRD: sr8-workspace-engine
@@ -19,6 +20,30 @@ upstream: docs/briefs/BRIEF-sr8-workspace-engine.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-sr8-workspace-engine](docs/briefs/BRIEF-sr8-workspace-engine.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed one gap: of the three consumers shirabe's CLI contract names,
+the contributor's own machine was the only one the workspace hadn't wired up.
+CI and the skills already used the shirabe engine, but nothing told a
+contributor to install the binary through tsuku and nothing put the pre-commit
+hook in their clones, so a malformed document surfaced after a push rather than
+at commit time. That problem is this document's Problem Statement.
+
+The outcome it asked for is that a contributor reads one install line, runs
+`niwa apply`, and finds shirabe's hook in every product repository clone, with
+any hook of their own left alone, and that a missing binary is named with the
+line that installs it, so the next apply finishes the job. Those are this
+document's Goals.
+
+Four journeys grounded it and survive as the User Stories: a new contributor
+with tsuku, a contributor who hasn't installed shirabe yet, a contributor with
+a hook of their own, and a contributor working in worktrees. Its scope boundary
+put the install line and apply-time delivery in, and kept out changes to the
+hook or `shirabe install-hooks`, a niwa release, hook chaining, CI changes, the
+mermaid check and a library crate; those land in Requirements and Out of Scope.
 
 ## Problem Statement
 
