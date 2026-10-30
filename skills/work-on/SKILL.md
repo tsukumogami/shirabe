@@ -116,18 +116,20 @@ the pull request's hosted CI instead, and the deferral is explicit and recorded,
 never a silent skip:
 
 - **Chosen at init, with a reason.** `VERIFICATION=hosted-ci` names the choice and
-  `VERIFICATION_DEFERRAL_REASON` states why (see **Initialize**; under `--koto-leg`,
-  `--verification=hosted-ci --verification-reason=<why>`). Neither is rebindable, so
+  `VERIFICATION_DEFERRAL_REASON` states why, from
+  `--verification=hosted-ci --verification-reason=<why>` in the invocation (see
+  **Initialize**). Neither is rebindable, so
   the choice is fixed before any state runs. The default, `VERIFICATION=local`, is
   the gate described above, unchanged.
 - **The reason's characters.** koto accepts a variable value only within its
   allowlist, `^[a-zA-Z0-9._/:@+ \-]*$`: letters, digits, spaces and `. _ / : @ + -`.
   Apostrophes and commas are not among them, so `host can't run suites, CI only` is
   refused; `host is in a measurement window until 02:40Z` fits. The reason must also
-  start with a letter or digit. Under `--koto-leg`, `work-on-open.sh` refuses a
-  reason with any other character before koto runs, and before its own checks of
-  the flag (`error=usage`, exit 64), naming the characters; a direct `koto init`
-  gets koto's `invalid_var`. Either way, reword the reason and start again.
+  start with a letter or digit. `work-on-open.sh` refuses a reason with any other
+  character before koto runs, and before its checks of `--koto-leg`
+  (`error=usage`, exit 64), naming the characters; one that doesn't start with a
+  letter or digit gets koto's `invalid_var`. Either way, reword the reason and
+  start again.
 - **The map never launches.** Every edge that would enter `verification` goes to
   `verification_deferred` instead. koto runs a state's entry action before anything
   else in it, so the deferral is decided on the way in: `run-verification.sh` never
@@ -346,63 +348,70 @@ You are assigned to work on the resolved issue. The issue number determined abov
 
 ### Initialize
 
+Every issue-backed and free-form run opens its session through `work-on-open.sh`,
+with or without `--koto-leg`; don't run `koto init` for it yourself. First write
+the tokens: split the original `$ARGUMENTS` into tokens as typed, the review-level
+bound, the verification deferral and any `--koto-leg` included, and write them as a
+JSON array of strings, with the Write tool or `jq`, to `tokens.json` in a private
+directory outside the work tree:
+
+```bash
+ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
+```
+
+Then open.
+
 **Issue-backed mode:**
 ```bash
-koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
   --var ISSUE_NUMBER=<N> \
   --var ARTIFACT_PREFIX=issue_<N> \
-  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
+  "$ARGS_DIR/tokens.json"
 ```
 
 **Free-form mode:**
 ```bash
-koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
   --var ARTIFACT_PREFIX=task_<slug> \
-  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
+  "$ARGS_DIR/tokens.json"
 ```
 
-**The review-level bound.** When `$ARGUMENTS` carries `--review-floor=<level>` or
-`--review-ceiling=<level>`, add `--var REVIEW_FLOOR=<level>` or
-`--var REVIEW_CEILING=<level>` to either init above, one `--var` per flag given and
-the value exactly as typed. Without the flags add nothing: the init is the one
-above, unchanged. koto checks the value against `^(light|standard|full)?$` and
-refuses anything else at init (`invalid_var`), and a flag given twice is its
-`duplicate_var`; report the refusal and stop. For example:
+The script adds `PLUGIN_ROOT` itself, reads the bound and the deferral from the
+tokens (below), and makes one `koto init` of `work-on.md` through the shared
+`scripts/koto-open.sh`. Without `--koto-leg` that is a plain init: a new session, or
+koto's refusal when the name is already in use, which the **Resume** guard keeps
+from happening. It removes the tokens file on every path. `session=<WF>` means the
+session is open: go on with the entry evidence. `error=usage` (exit 64) is one of
+the script's own refusals, below, made before any koto call; `refused=<code>` (exit
+2, or koto's own code) is koto's refusal of the init; `failed=<kind>` (exit 127 for
+a missing koto or jq, or koto's own code) means no session was opened. Report any
+of them and stop.
 
-```bash
-koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
-  --var ISSUE_NUMBER=<N> \
-  --var ARTIFACT_PREFIX=issue_<N> \
-  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
-  --var REVIEW_FLOOR=standard
-```
+**The review-level bound.** `--review-floor=<level>` and `--review-ceiling=<level>`
+stay in the tokens: the script hands koto `REVIEW_FLOOR` and `REVIEW_CEILING`, one
+per flag given and the value exactly as typed, and without the flags nothing, so the
+init is the one above, unchanged. Don't pass them as `--var`. koto checks the value
+against `^(light|standard|full)?$` and refuses anything else at init
+(`invalid_var`), and a flag given twice is its `duplicate_var`; report the refusal
+and stop.
 
-**The verification deferral.** When `$ARGUMENTS` carries `--verification=hosted-ci`,
-add `--var VERIFICATION=hosted-ci` and
-`--var VERIFICATION_DEFERRAL_REASON=<why>`, the reason from
-`--verification-reason=<why>` exactly as typed, to either init above (see
-**Deferring Verification to Hosted CI**). A deferral without a reason is not a
-deferral: stop and say so rather than init without one, since the run would end at
-`done_blocked` before opening its pull request. The reason may use only letters,
-digits, spaces and `. _ / : @ + -`, starting with a letter or digit: no apostrophes,
-no commas (see **Deferring Verification to Hosted CI**). Check it before the init,
-and when it has any other character, stop and say which, rather than init. koto
-refuses a `VERIFICATION` other than `local` or `hosted-ci`, and a reason outside its
-pattern or its variable allowlist (`invalid_var`); report the refusal and stop.
-Without the flag add nothing. For example:
-
-```bash
-koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
-  --var ISSUE_NUMBER=<N> \
-  --var ARTIFACT_PREFIX=issue_<N> \
-  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
-  --var VERIFICATION=hosted-ci \
-  --var "VERIFICATION_DEFERRAL_REASON=host is in a measurement window until 02:40Z"
-```
+**The verification deferral.** `--verification=hosted-ci` and
+`--verification-reason=<why>` stay in the tokens too: the script hands koto
+`VERIFICATION` and `VERIFICATION_DEFERRAL_REASON`, the reason exactly as typed (see
+**Deferring Verification to Hosted CI**). Don't pass them as `--var`. A deferral
+without a reason is not a deferral, since the run would end at `done_blocked` before
+opening its pull request, so the script refuses `--verification=hosted-ci` without a
+non-empty reason. The reason may use only letters, digits, spaces and
+`. _ / : @ + -`, starting with a letter or digit: no apostrophes, no commas. The
+script refuses a reason with any other character before koto runs, naming the
+characters. Both refusals are `error=usage`; say which, and stop rather than open
+without the deferral. koto refuses a `VERIFICATION` other than `local` or
+`hosted-ci`, and a reason outside its pattern (`invalid_var`); report the refusal
+and stop.
 
 **An issue in another repository.** When the issue reference names a repository other
 than the one you're working in (an `owner/repo#N` or a URL, as **Input Resolution**
-says), add `--var ISSUE_REPO=<owner/repo>` to the issue-backed init, with the owner and
+says), add `--var ISSUE_REPO=<owner/repo>` to the issue-backed open, with the owner and
 repository from the reference. Leave it off for an issue in this repository, which is
 every bare `#N`: an empty `ISSUE_REPO` is the run as it was before the variable
 existed. The state directives then give `extract-context.sh` and the review packet
@@ -418,11 +427,11 @@ koto refuses a value that isn't `owner/repo` (`invalid_var`); report the refusal
 stop. For example:
 
 ```bash
-koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
   --var ISSUE_NUMBER=<N> \
   --var ARTIFACT_PREFIX=issue_<N> \
-  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
-  --var ISSUE_REPO=acme/tracker
+  --var ISSUE_REPO=acme/tracker \
+  "$ARGS_DIR/tokens.json"
 ```
 
 **Plan-backed mode** is initialized with the task variables (`ISSUE_SOURCE`, `PLAN_DOC`,
@@ -431,8 +440,9 @@ run was given a bound, and `VERIFICATION`/`VERIFICATION_DEFERRAL_REASON` when it
 was given `--verification=hosted-ci`) and enters with `mode: plan_backed` (see **Plan-Backed Child
 Mode**), which routes to `plan_context_injection`.
 
-**Under `--koto-leg`** (issue-backed or free-form), don't run `koto init` yourself; open
-the session through `work-on-open.sh` as **Answering a Caller's Leg** below says.
+**Under `--koto-leg`** (issue-backed or free-form) the open is the same, with the
+flag left in the tokens; **Answering a Caller's Leg** below has the checks that
+come before it and what its result means for the leg.
 
 ### Answering a Caller's Leg
 
@@ -445,7 +455,7 @@ free-form runs only: a plan-backed child is `/execute`'s, which already receives
 result, and a PLAN path runs several issues. `work-on-open.sh` refuses the flag with
 either (`error=usage`, exit 64, no koto call), on the same signals Mode Detection
 uses; stop there and tell the user the flag doesn't apply. Without the flag nothing
-below applies and the run is unchanged.
+below applies: the run opens as **Initialize** says, with no leg.
 
 1. **Check the floor.** The flag needs koto's entry flags, which a koto older than
    the one `requires.tsv` names lacks:
@@ -455,34 +465,16 @@ below applies and the run is unchanged.
    Anything it prints is a missing prerequisite: report it and stop.
 2. **Apply the Resume guard first.** A finished `<WF>` must be cleaned up or the run
    renamed before the open (see **Resume**); the open never replaces one.
-3. **Write the tokens.** Split the original `$ARGUMENTS`, `--koto-leg` included, into
-   tokens as typed and write them as a JSON array of strings, with the Write tool
-   or `jq`, into a private directory outside the work tree:
-   ```bash
-   ARGS_DIR=$(${CLAUDE_PLUGIN_ROOT}/scripts/koto-open.sh --alloc-dir)
-   ```
-4. **Open.**
-   ```bash
-   ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
-     --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
-   ```
-   An issue in another repository also passes `--var ISSUE_REPO=<owner/repo>`, as
-   under **Initialize**. Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. Don't pass the
-   review-level bound or the verification deferral as `--var`: the script reads
-   `--review-floor=`, `--review-ceiling=`, `--verification=` and
-   `--verification-reason=` from the tokens itself, and refuses
-   `--verification=hosted-ci` without a reason, and a reason with a character
-   outside letters, digits, spaces and `. _ / : @ + -` (an apostrophe or a comma,
-   say), naming the characters (`error=usage`, exit 64, no koto call). It adds
-   `PLUGIN_ROOT`, and on a
-   live session the `REVIEW_LEVEL` its ledger last recorded (an attach resets
-   every rebind variable it isn't passed), and makes one `koto init` with
-   `--attach-live --koto-leg`: no
-   session means a new one bound to the leg, and a live one (a resume) is attached
-   and bound. It removes the tokens file on every path. `session=<WF>` means the run
-   is bound. Go on with the entry evidence, or, on a resume, with `koto next`.
-   `error=usage` (exit 64) is a malformed, missing, or repeated `--koto-leg`: no
-   koto call was made, so nothing is on the leg; report it and stop. `refused=<code>`
+3. **Write the tokens and open**, as **Initialize** says, with `--koto-leg` among
+   the tokens and the same `--var`s. With the leg in the tokens the script's one
+   `koto init` carries `--attach-live --koto-leg`: no session means a new one
+   bound to the leg, and a live one (a resume) is attached and bound. On a live
+   session it also passes back the `REVIEW_LEVEL` its ledger last recorded (an
+   attach resets every rebind variable it isn't passed). `session=<WF>` means the
+   run is bound. Go on with the entry evidence, or, on a resume, with `koto next`.
+   `error=usage` (exit 64) is a malformed or repeated `--koto-leg`, or one of the
+   refusals **Initialize** names: no koto call was made, so nothing is on the leg;
+   report it and stop. `refused=<code>`
    (exit 2, or koto's own code such as 1 for lock contention) is a refusal; report
    it and stop. `refused=args_file_in_work_tree` is `koto-open.sh`'s own and never
    reaches koto. `failed=<kind>` (exit 127 for a missing koto or jq, or koto's own
@@ -651,16 +643,18 @@ leg, since one leg answers one session.
   `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and
   `scripts/lib/acceptance-rule_test.sh` are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... [--dispatched-by <dispatcher>] <tokens-file>`
-  — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
-  maps `--review-floor=`/`--review-ceiling=` from the tokens, passes a live
-  session's recorded `REVIEW_LEVEL` back, then makes one
-  `koto init --attach-live --koto-leg` through the shared
-  `scripts/koto-open.sh`; with `--dispatched-by` it then records the
+  — the one entry for every issue-backed and free-form run (see **Initialize**
+  and **Answering a Caller's Leg**): maps `--review-floor=`/`--review-ceiling=`
+  and the verification deferral from the tokens, adds `PLUGIN_ROOT`, then makes
+  one `koto init` through the shared `scripts/koto-open.sh`, a plain one
+  without `--koto-leg` in the tokens. Under the flag it checks it, passes a
+  live session's recorded `REVIEW_LEVEL` back, and makes the init
+  `--attach-live --koto-leg`. With `--dispatched-by` it then records the
   dispatcher with `koto session link` (the script's header has the retry and
   the `warning=link-failed` record). Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
-  with no koto call, 66 a live session's level read that failed, with no
-  `koto init`, 127 no koto or jq, and koto's own code otherwise.
+  with no koto call, 66 a live session's level read under `--koto-leg` that
+  failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
 - `scripts/fix-round.sh start --from <session>` — starts a fix round for a
   run at `done` as `<session>-fix-<n>`, a new work-on session with the run's
   variables and parent, and records it in both sessions (see **A Fix Round
@@ -795,15 +789,15 @@ is a blocking finding raised by that seat. None of it reaches the pull request.
    `is_terminal: true` means a previous run already finished. It is NOT
    resumable, and this run has done no work — do not report the issue complete.
    Start fresh instead: `koto session cleanup <WF>` when its record is no longer
-   wanted and then `koto init`, or `koto init` under a different workflow name to
-   keep the record. (`koto init` on a name still in use refuses and says the
-   same.) Under `--koto-leg` either init goes through `work-on-open.sh`; a
-   renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so a leg that pins it
-   still admits the session.
-3. `is_terminal: false` is a genuine resume: `koto next <WF> --no-cleanup`. Under
-   `--koto-leg`, open through `work-on-open.sh` first, which attaches the live
-   session and binds it to the leg, then tick.
-4. If none, `koto init` fresh (under `--koto-leg`, through `work-on-open.sh`).
+   wanted and then open as **Initialize** says, or open under a different
+   workflow name (`--workflow`) to keep the record. (An open on a name still in
+   use is refused and says the same.) Either open goes through
+   `work-on-open.sh`; a renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so
+   a leg that pins it still admits the session.
+3. `is_terminal: false` is a genuine resume: `koto next <WF> --no-cleanup`, with
+   no open. Under `--koto-leg`, open through `work-on-open.sh` first, which
+   attaches the live session and binds it to the leg, then tick.
+4. If none, open fresh through `work-on-open.sh` as **Initialize** says.
 
 Ticking is not a substitute for the state read: a finished session answers
 `action: "done"` to any tick, which the loop would report as this run's outcome.
@@ -890,10 +884,10 @@ If your project's extension file defines a language skill or PR creation skill, 
 those for project-specific quality and PR requirements.
 
 Then:
-1. `koto workflows` — find a workflow matching this issue, or `koto init` with
-   the template path and appropriate variables if none does. Under
-   `--koto-leg`, on a found workflow apply the **Resume** guard first,
-   then open through `work-on-open.sh` (see **Answering a Caller's Leg**),
+1. `koto workflows` — find a workflow matching this issue, and apply **Resume**
+   to a found one; if none does, open the session through `work-on-open.sh` as
+   **Initialize** says. Under `--koto-leg`, a found workflow is opened through it
+   too once the **Resume** guard passes (see **Answering a Caller's Leg**),
    fresh or resumed.
 2. On a fresh workflow, submit entry evidence from a file (see the execution
    loop), with `--no-cleanup` like every later tick. Write the object to

@@ -15,7 +15,11 @@
 # session, never from GitHub. --closeout is a usage error: there is no record
 # pull request to merge. merge-exec's own refusal and failure pass through as
 # exit 11. The script never names `gh pr merge`, and a MERGE_EXEC in the
-# environment never replaces merge-exec.sh.
+# environment never replaces merge-exec.sh. A merge sends one `landed` event,
+# whose arguments a stand-in for scripts/emit-event.sh in the localized tree
+# records: the topic and request only from the holdings the repository lookup
+# read; a refused merge sends none; and a helper that exits non-zero or is
+# missing leaves the exit code, stdout and stderr as they were.
 #
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/land-merge_test.sh
@@ -167,6 +171,63 @@ eq "the sibling merge-exec.sh is called instead" "acme/widgets 12 $H" "$(cat "$C
 eq "and its line is the one printed" "merge-called:squash:$H" "$OUT"
 lm_code=$(grep -v '^ *#' "$HERE/land-merge.sh")
 if grep -q 'MERGE_EXEC' <<<"$lm_code"; then bad "land-merge.sh reads no MERGE_EXEC"; else ok "land-merge.sh reads no MERGE_EXEC"; fi
+
+echo "== the landed event =="
+# A stand-in for scripts/emit-event.sh in the localized tree: each call's
+# arguments, one per line and then `--`, appended to emit.calls; it prints on
+# both streams and exits with emit.rc (0 without it), which the merge must
+# ignore.
+EMIT_CALLS="$BT_STATE/emit.calls"
+cat > "$T/plugin/scripts/emit-event.sh" <<'EOF'
+#!/usr/bin/env bash
+{ printf '%s\n' "$@"; echo --; } >> "$BT_STATE/emit.calls"
+echo "emit-event stand-in: stdout"
+echo "emit-event stand-in: stderr" >&2
+exit "$(cat "$BT_STATE/emit.rc" 2>/dev/null || echo 0)"
+EOF
+emits() { cat "$EMIT_CALLS" 2>/dev/null; }
+at_emit() { at_land "$@"; rm -f "$EMIT_CALLS" "$BT_STATE/emit.rc" "$BT_STATE/holding.calls"; echo '[]' > "$BT_STATE/holdings"; }
+at_emit
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a merge with --repo: exit 0" 0 $?
+eq "  ... one landed event: the pull request, the scope slug and this session (no holdings read, so no topic or request)" \
+    "$(printf '%s\n' event --scope unit-cost --kind landed unit.pr=github.com/acme/widgets#12 unit.scope_slug=demo "unit.koto_session=$S" --)" \
+    "$(emits)"
+at_emit
+printf '%s\n' '[{"worker":"w12","pull_request":"[#12](https://github.com/acme/widgets/pull/12)","repo":"acme/widgets","return_path":"leg req_7:deliver"},
+  {"worker":"w13","pull_request":"[#13](https://github.com/acme/widgets/pull/13)","repo":"acme/widgets","return_path":"leg req_8:deliver"}]' > "$BT_STATE/holdings"
+OUT=$(bash "$LM" --session "$S" 2>"$T/err"); rc=$?
+eq "a merge whose repository the record gives: exit 0" "0 merge-called:squash:$H" "$rc $OUT"
+eq "  ... the landed event adds the holding's topic and its leg's request, from the same read" \
+    "$(printf '%s\n' event --scope unit-cost --kind landed unit.pr=github.com/acme/widgets#12 unit.topic=w12 \
+        unit.scope_slug=demo "unit.koto_session=$S" unit.request=req_7 --)" \
+    "$(emits)"
+eq "  ... the holdings were read once" 1 "$(grep -c -- '--list' "$BT_STATE/holding.calls" 2>/dev/null)"
+at_emit
+printf '%s\n' '[{"worker":"w12","pull_request":"[#12](https://github.com/acme/widgets/pull/12)","repo":"acme/widgets","return_path":"message"}]' > "$BT_STATE/holdings"
+bash "$LM" --session "$S" >/dev/null 2>&1
+eq "a holding on the message path: the topic, no request" \
+    "$(printf '%s\n' event --scope unit-cost --kind landed unit.pr=github.com/acme/widgets#12 unit.topic=w12 \
+        unit.scope_slug=demo "unit.koto_session=$S" --)" \
+    "$(emits)"
+at_emit; printf '%s\n' "readable merge:deny close:permit teardown:permit release:permit" > "$BT_STATE/posture"
+never "a refused merge" 10
+eq "  ... sends nothing" "" "$(emits)"
+at_emit; printf 'merge-refused:unmergeable:blocked\n' > "$BT_STATE/merge-exec.out"; echo 0 > "$BT_STATE/merge-exec.rc"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a merge-exec refusal: exit 11" 11 $?
+eq "  ... sends nothing" "" "$(emits)"
+# A helper that exits non-zero, and one that is missing, leave the merge's
+# exit code, stdout and stderr as a helper that works leaves them.
+at_emit
+OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>"$T/err"); rc=$?
+WANT="$rc|$OUT|$(cat "$T/err")"
+at_emit; echo 3 > "$BT_STATE/emit.rc"
+OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>"$T/err"); rc=$?
+eq "a helper that exits 3: the same exit, output and stderr" "$WANT" "$rc|$OUT|$(cat "$T/err")"
+eq "  ... and it was called" 1 "$(grep -c '^landed$' "$EMIT_CALLS" 2>/dev/null)"
+at_emit; mv "$T/plugin/scripts/emit-event.sh" "$T/emit-event.aside"
+OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>"$T/err"); rc=$?
+mv "$T/emit-event.aside" "$T/plugin/scripts/emit-event.sh"
+eq "a missing helper: the same exit, output and stderr" "$WANT" "$rc|$OUT|$(cat "$T/err")"
 
 echo
 echo "land-merge: $PASS passed, $FAIL failed"

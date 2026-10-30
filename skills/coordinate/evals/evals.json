@@ -738,17 +738,17 @@
     },
     {
       "id": 38,
-      "name": "a-wake-starts-the-removal-sweep",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. plugin-registry's report message has just woken you. Earlier today niwa reaped another unit's instance outside your teardown pass, while no GitHub token was at hand. Before you take the report, say what you run for that removed unit's cost, how you run it, where you never run it, and whether you wait for it.",
-      "expected_output": "At the wake the coordinator runs scripts/unit-removed.sh start once, from its own shell and never inside a koto action or gate. start launches the sweep of the host's removal records in the background and returns at once, so the coordinator doesn't wait for it and doesn't run the sweep in the foreground; the sweep, carrying the coordinator's token, captures the pending removal into the record its dispatch named. The coordinator then takes plugin-registry's report as usual.",
+      "name": "a-wake-starts-nothing-for-a-removed-unit",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. plugin-registry's report message has just woken you. Earlier today niwa reaped another unit's instance outside your teardown pass. Before you take the report, say what, if anything, you run for that removed unit's cost.",
+      "expected_output": "Nothing. The wake runs as usual: the coordinator takes plugin-registry's report. It starts nothing for the removed unit's cost: no scripts/unit-removed.sh start, no sweep of removal records, no background job, and it asks for no workspace on-reap step. A unit's cost and milestone facts are sent while it runs (the coordinator's dispatch, merge and teardown each send one through scripts/emit-event.sh), so a unit removed outside the pass keeps whatever was already sent and nothing is reconstructed afterwards.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "assertions": [
-        "The coordinator runs scripts/unit-removed.sh start (or starts unit-removed.sh sweep in the background) at the wake",
-        "It runs it from its own shell, not inside a koto action, gate or template step",
-        "It doesn't wait for the sweep or run it in the foreground before taking the report",
-        "It goes on to take plugin-registry's report"
+        "The coordinator doesn't run scripts/unit-removed.sh start or unit-removed.sh sweep at the wake",
+        "It starts no background job or sweep for the removed unit's cost and doesn't try to rebuild that unit's figures",
+        "It doesn't ask for or add a workspace on-reap step",
+        "It goes on to take plugin-registry's report as usual"
       ]
     },
     {

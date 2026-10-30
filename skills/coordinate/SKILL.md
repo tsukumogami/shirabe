@@ -542,9 +542,10 @@ states never ask you to do these steps by hand.
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a
   coordinator running the pass itself asks its shell tool for the longest
-  timeout it allows. A unit niwa removes outside the pass gets its entry from
-  `scripts/unit-removed.sh`, which the workspace's on-reap step runs; that
-  reference's "Capture after a removal" has the line a workspace adds.
+  timeout it allows. A unit's cost and milestone facts are also sent as it
+  runs: the coordinator's dispatch, merge and teardown each send one through
+  `${CLAUDE_PLUGIN_ROOT}/scripts/emit-event.sh`, which sends nothing before its
+  cutoff date. Nothing needs a workspace on-reap step.
 
 ## Verdicts
 
@@ -792,14 +793,11 @@ worker's message and the teardown agent's report; one `koto request watch`
 with a two-hour bound covers every open leg, and while a `time` pause stands
 one silent wait until its minute brings the resume. No short watch that
 notifies on expiry, no polling, no check-in timer; a keep-alive only when the
-person asks. At each wake, run `scripts/unit-removed.sh start` once from your
-own shell, never inside a koto action or gate: it starts a sweep of this host's
-removal records in the background and returns at once, so a unit niwa removed
-while no token was at hand gets its cost entry with yours. Each holding's Work
-row counts its wakes from the run's log at every write, and its final count
-goes into an entry when it leaves Work, so
-the next rotation reads a figure. A usage-limit stop is the host's, not a
-person's pause: no Standing row, one entry saying what was seen, and on the
+person asks. A wake starts nothing for a unit niwa removed outside the pass:
+its cost facts go out while it runs. Each holding's Work row counts its wakes
+from the run's log at every write, and its final count goes into an entry when
+it leaves Work, so the next rotation reads a figure. A usage-limit stop is the
+host's, not a person's pause: no Standing row, one entry saying what was seen, and on the
 reset each worker continues from its last checkpoint and re-runs whatever
 executed nothing.
 

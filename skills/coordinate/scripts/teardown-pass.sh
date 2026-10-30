@@ -40,7 +40,14 @@
 #            own deadline, with no stream of the pass's and its status
 #            ignored, so it never changes the pass's exit code, last line or
 #            RESULT; a capture that posts nothing adds one warning line on
-#            stderr;
+#            stderr. Just before the capture, one `retired` event goes
+#            through scripts/emit-event.sh
+#            (docs/designs/DESIGN-fleet-cost-emit.md), run as a child whose
+#            output and status are ignored: the topic, this session, the
+#            verdict's job session, dispatch id and pull request (when it
+#            names exactly one), and the unit's request as the archived koto
+#            sessions name it (archive-common.sh ac_dispatch_request). A
+#            field the pass doesn't have is left out;
 #         5. `niwa destroy --force <name>` at the workspace root, the name
 #            checked before the command is built;
 #         6. `claude rm <job id>`; when niwa destroy already removed the
@@ -51,11 +58,6 @@
 #            failure is incomplete;
 #         7. confirm `niwa list --json` no longer shows the instance and
 #            `claude agents --json --all` no longer shows the job.
-#       However it ends, the pass then starts `unit-removed.sh start`, which
-#       runs a sweep of the host's removal records detached and returns at
-#       once, so a removal a token-less sweep left pending is finished with
-#       the pass's own token; the pass never waits for it, and its exit code,
-#       last line and RESULT are the same either way.
 #       RESULT in the archive says `done`, or why the pass stopped once the
 #       archive exists. A rerun on the same UTC day reuses the day's archive
 #       directory; one on a later day makes a second, and `confirm` then
@@ -109,7 +111,8 @@
 #       execution_dir), 4a captures as above, and RESULT says done: steps 5
 #       to 7 never run, so the pass has no path to `niwa destroy` or `claude
 #       rm`. With `job -` no session survived: nothing is archived or
-#       posted, and the last line still says done.
+#       posted, the retired event is sent without a request, and the last
+#       line still says done.
 #   teardown-pass.sh confirm --session <s>
 #       The teardown_confirm state's default action: reads the verdict the
 #       same way, both listings, and the archive (RESULT says done, the
@@ -139,8 +142,8 @@
 # ${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
 # (each GitHub read's bound, default 8), TEARDOWN_CAPTURE_SECS (the cost
 # capture's bound, default 120), TEARDOWN_CONFIRM_SECS (confirm's archive
-# read's bound, default 15), TEARDOWN_SWEEP (the script run with `start` as a
-# run ends, default unit-removed.sh beside this one; empty starts none).
+# read's bound, default 15), KOTO_REQUESTS (koto's request store, default
+# $HOME/.koto/requests, where the retired event's request is looked up).
 # bash 3.2.
 set -uo pipefail
 
@@ -164,7 +167,9 @@ CAPTURE_SECS="${TEARDOWN_CAPTURE_SECS:-120}"
 # confirm's archive read gets half of koto's 30-second action bound; the
 # listings, the RESULT read and the MANIFEST digest before it get the rest.
 CONFIRM_SECS="${TEARDOWN_CONFIRM_SECS:-15}"
-SWEEP="${TEARDOWN_SWEEP-$HERE/unit-removed.sh}"
+# The repository's one event helper, found from this script's own directory;
+# nothing in the environment names another.
+EMIT="$HERE/../../../scripts/emit-event.sh"
 
 usage() { sed -n '/^# Usage:/,/^# Output (run)/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 
@@ -185,14 +190,7 @@ case "$MODE" in run) [ -n "$WANT_KS" ] || usage ;; confirm) [ -z "$WANT_KS" ] ||
 umask 077
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass.XXXXXX") || exit 2
-# A run, however it ends, starts the host's sweep of removal records; start
-# returns at once, its output nowhere, so it changes nothing the pass reports.
-pass_end() {
-    rm -rf "$T"
-    [ "$MODE" = run ] && [ -n "$SWEEP" ] && [ -f "$SWEEP" ] || return 0
-    bash "$SWEEP" start </dev/null >/dev/null 2>&1 || :
-}
-trap pass_end EXIT
+trap 'rm -rf "$T"' EXIT
 
 sha256() { ac_sha256; }
 say() { printf '%s: %s\n' "$PROG" "$*"; }
@@ -392,10 +390,31 @@ else
     esac
 fi
 
+# send_retired: the retired event (step 4a's), from what the pass already
+# holds: the verdict, and the unit's request as the archived koto sessions
+# name it (the capture's own rule: the earliest request a coordinator made),
+# once there is an archive. Each field it doesn't have is left out, and the
+# helper runs as a child with no stream of the pass's, its status ignored, so
+# the pass's output, exit code and RESULT are the same whatever it does.
+send_retired() {
+    local req="" pr="" wd="" kv f
+    f=()
+    if [ -n "$ARCH" ] && ac_dispatch_request "$ARCH"/koto/*/ 2>/dev/null; then req=$AC_REQ; fi
+    [ "$(printf '%s\n' "$PRS" | grep -c .)" = 1 ] && pr="github.com/${PRS%% *}"
+    case "$DISPATCH" in '' | - | invalid) ;; *) wd=$DISPATCH ;; esac
+    for kv in "unit.topic=$TOPIC" "unit.request=$req" "unit.koto_session=$SESSION" "unit.worker_session=$SID" \
+        "unit.worker_dispatch=$wd" "unit.pr=$pr"; do
+        [ -n "${kv#*=}" ] && f+=("$kv")
+    done
+    bash "$EMIT" event --scope unit-cost --kind retired --koto-dir "$ROOT" ${f[@]+"${f[@]}"} </dev/null >/dev/null 2>&1 || :
+}
+
 STEP=preserve
 # A unit removed outside the pass with no surviving session has nothing to
-# archive and no entry to post: its cost can't be read from anything.
+# archive and no entry to post: its cost can't be read from anything. The
+# pass still retires it.
 if [ "$NOJOB" = 1 ]; then
+    send_retired
     say "done: the unit was removed outside the pass and no session of it survives; nothing archived"
     exit 0
 fi
@@ -533,6 +552,10 @@ ac_manifest "$ARCH" "$T" || refused "$AC_WHY"
     printf -- '- Handoff: %s\n\n' "$HANDOFF"
 } >"$T/readme.head"
 ac_readme "$ARCH" "$T" "$T/readme.head" "$T/trees.skipped"
+
+# The retired event, once the archive is whole and before the capture, so a
+# pass stopped during the capture has already sent it.
+send_retired
 
 # The cost capture: a child with none of the pass's streams (stdin empty,
 # output to a file), under its own deadline, its status only ever a warning.

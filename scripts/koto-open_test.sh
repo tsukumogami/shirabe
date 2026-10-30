@@ -497,6 +497,80 @@ STUB_MODE=canned STUB_RC=2 STUB_RESPONSE='{"code":"var_mismatch","command":"init
     run_stub s1 "$T/t.md" "$A" --wording "$T/wording-replace.tsv"
 assert_eq "another refusal prints no live line and keeps koto's exit code" "refused=var_mismatch|2" "$STDOUT|$RC"
 
+# --- the session_opened event -------------------------------------------------------
+#
+# A copy of the script runs beside a stand-in scripts/emit-event.sh that logs
+# its arguments one per line, so these pin the helper's call without the real
+# helper (whose own suite covers what it sends). EMIT_STUB_MODE: ok, fail (exit
+# 1 after logging), noisy (prints to both streams).
+EMIT_TREE="$T/emit-tree"
+mkdir -p "$EMIT_TREE"
+cp "$OPEN" "$EMIT_TREE/koto-open.sh"
+EMIT_LOG="$T/emit-argv"
+cat >"$EMIT_TREE/emit-event.sh" <<'STUB'
+#!/bin/bash
+for a in "$@"; do printf '%s\n' "$a"; done >"$EMIT_LOG"
+case "${EMIT_STUB_MODE:-ok}" in
+    fail) exit 1 ;;
+    noisy) echo "opened=forged"; echo "noise" >&2 ;;
+esac
+STUB
+export EMIT_LOG
+REPO_P=$(cd -P "$REPO" && pwd -P)
+
+# run_emit <args...> -- run_stub against the copy beside the stand-in helper.
+run_emit() {
+    rm -f "$EMIT_LOG"
+    local saved="$OPEN"
+    OPEN="$EMIT_TREE/koto-open.sh"
+    run_stub "$@"
+    OPEN="$saved"
+}
+emit_argv() { tr '\n' ' ' <"$EMIT_LOG" 2>/dev/null; }
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+run_emit s1 "$T/scope.md" "$A"
+assert_eq "a new session still prints only opened=new" "opened=new|0" "$STDOUT|$RC"
+assert_eq "a new session sends session_opened with its name, template and outcome" \
+    "event --scope unit-cost --kind session_opened --koto-dir $REPO_P unit.koto_session=s1 unit.template=scope unit.outcome=new " \
+    "$(emit_argv)"
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RESPONSE='{"name":"s1","outcome":"attached","rebound":{}}' \
+    run_emit s1 "$T/work-on.md" "$A" --attach-live --koto-leg req-1:work-on --event-field unit.mode=issue_backed
+assert_eq "an attach sends outcome attached, the leg's request and name, and the caller's fields" \
+    "event --scope unit-cost --kind session_opened --koto-dir $REPO_P unit.koto_session=s1 unit.template=work-on unit.outcome=attached unit.request=req-1 unit.leg=work-on unit.mode=issue_backed " \
+    "$(emit_argv)"
+
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=canned STUB_RESPONSE='{"name":"s1","outcome":"replaced","replaced_state":"done","replaced_result":null}' \
+    run_emit s1 "$T/deliver.md" "$A" --replace-terminal --event-field=unit.topic=my-topic
+assert_contains "a replace sends outcome replaced" "unit.outcome=replaced unit.topic=my-topic " "$(emit_argv)"
+
+for code in session_live var_mismatch; do
+    A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+    STUB_MODE=canned STUB_RC=2 STUB_RESPONSE="{\"code\":\"$code\",\"command\":\"init\",\"error\":\"no\"}" \
+        run_emit s1 "$T/t.md" "$A"
+    [ -f "$EMIT_LOG" ] && fail "a refusal ($code) sends nothing" || pass "a refusal ($code) sends nothing"
+done
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+STUB_MODE=crash run_emit s1 "$T/t.md" "$A"
+[ -f "$EMIT_LOG" ] && fail "a koto crash sends nothing" || pass "a koto crash sends nothing"
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+run_emit s1 "$T/t.md" "$A" --bogus
+[ -f "$EMIT_LOG" ] && fail "a usage error sends nothing" || pass "a usage error sends nothing"
+
+for mode in fail noisy; do
+    A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+    EMIT_STUB_MODE=$mode run_emit s1 "$T/t.md" "$A"
+    assert_eq "a helper that is $mode changes neither the output nor the exit code" "opened=new||0" "$STDOUT|$STDERR|$RC"
+done
+mv "$EMIT_TREE/emit-event.sh" "$EMIT_TREE/emit-event.sh.off"
+A=$(new_args "$OUTSIDE" '[["TOPIC","t1"]]')
+run_emit s1 "$T/t.md" "$A"
+assert_eq "a missing helper changes neither the output nor the exit code" "opened=new||0" "$STDOUT|$STDERR|$RC"
+mv "$EMIT_TREE/emit-event.sh.off" "$EMIT_TREE/emit-event.sh"
+
 # --- engine-backed ------------------------------------------------------------------
 
 REAL_KOTO=$(command -v koto 2>/dev/null) || REAL_KOTO=""

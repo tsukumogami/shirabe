@@ -402,9 +402,8 @@ archives, and keeps the record `pending github`; with one, every `gh` call
 runs with `GH_CONFIG_DIR` an empty directory of the sweep's own, so no
 stored login is ever used. A sweep run by hand from a shell whose `gh` works
 only through a stored login, with no `GH_TOKEN` exported, leaves every
-removal `pending github`; export the token there. The teardown pass still
-runs `unit-removed.sh start` as it ends, and the coordinator's wait guidance
-at each wake, but `start` now only prints its line.
+removal `pending github`; export the token there. Neither the teardown pass
+nor a coordinator wake runs `unit-removed.sh start` any more.
 
 **Retry.** A record whose capture wrote no entry is kept, its `attempts`
 counted and `last` set to `{at, outcome}`, and every later sweep tries it
@@ -432,39 +431,10 @@ seconds), `pending github`, `no coordinator`, `several coordinators` or
 `invalid input`; a kept record past 24 hours adds a line `stale`. Past
 1 MiB the log keeps its last 1,000 lines.
 
-**The on-reap line.** A workspace adds the step to its niwa configuration.
-While the sweep is retired the step records nothing, so a workspace that has
-it can keep it or leave it out. This runs the newest released shirabe in the
-plugin cache, by numeric version order, only when the user owns the script:
-
-```toml
-[session.on_reap]
-command = '''
-c=$(ls -d "$HOME"/.claude/plugins/cache/shirabe/shirabe/*/ 2>/dev/null \
-    | sed 's#/$##; s#.*/##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-    | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-s="$HOME/.claude/plugins/cache/shirabe/shirabe/$c/skills/coordinate/scripts/unit-removed.sh"
-[ -n "$c" ] && [ -O "$s" ] && [ -x "$s" ] && "$s" record
-exit 0
-'''
-```
-
-A workspace that wants one version pins the path instead of choosing the
-newest. niwa refuses an on-reap command whose environment names look like
-credentials, and the step needs none. Combined with another tool's on-reap
-step, shirabe's goes first, without its `exit 0`, since it returns at once:
-
-```toml
-[session.on_reap]
-command = '''
-c=$(ls -d "$HOME"/.claude/plugins/cache/shirabe/shirabe/*/ 2>/dev/null \
-    | sed 's#/$##; s#.*/##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
-    | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-s="$HOME/.claude/plugins/cache/shirabe/shirabe/$c/skills/coordinate/scripts/unit-removed.sh"
-[ -n "$c" ] && [ -O "$s" ] && [ -x "$s" ] && "$s" record
-<the other tool's step>
-'''
-```
+**The on-reap line.** shirabe needs no on-reap step: a unit's cost and
+milestone facts are sent as it runs. A workspace whose `[session.on_reap]`
+command still names shirabe's `unit-removed.sh record` line can drop it. If
+the line stays, it does nothing: `record` prints one line and exits 0.
 
 ## Evidence, not proof
 

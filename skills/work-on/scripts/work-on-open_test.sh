@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
-# work-on-open_test.sh -- /work-on's --koto-leg entry, and the result a leg
-# receives from work-on.md's terminals.
+# work-on-open_test.sh -- /work-on's entry, with and without --koto-leg, and
+# the result a leg receives from work-on.md's terminals.
 # Part of the work-on skill
 #
 #   engine-free (a logging koto stub on PATH):
-#     no --koto-leg, a repeated one, a value that isn't <request-id>:work-on,
-#     an empty or malformed request id, a bare --koto-leg, a tokens file that
-#     isn't an array of strings, and the flag on a plan-backed child or a PLAN
-#     path are this script's own refusals: exit 64, error=usage, no koto call,
-#     and the tokens file and its directory removed
+#     a repeated --koto-leg, a value that isn't <request-id>:work-on, an empty
+#     or malformed request id, a bare --koto-leg, a tokens file that isn't an
+#     array of strings, and the flag on a plan-backed child or a PLAN path are
+#     this script's own refusals: exit 64, error=usage, no koto call, and the
+#     tokens file and its directory removed
+#     without --koto-leg, the plain open: one koto init with neither
+#     --attach-live nor --koto-leg, the --var pairs and PLUGIN_ROOT, no level
+#     read, opened=new and session=<name>; koto's session_live refusal of a
+#     name in use passes through; a PLAN path among the tokens (a multi-pr
+#     run's issue) is not refused
 #     the review-level bound: --review-floor=/--review-ceiling= tokens become
-#     REVIEW_FLOOR/REVIEW_CEILING pairs, one per occurrence; without them the
-#     pairs are exactly ISSUE_NUMBER, ARTIFACT_PREFIX and PLUGIN_ROOT, as
-#     before the flags existed, and no REVIEW_LEVEL is passed for a session
-#     with no ledger
+#     REVIEW_FLOOR/REVIEW_CEILING pairs, one per occurrence, with or without
+#     --koto-leg; without them the pairs are exactly ISSUE_NUMBER,
+#     ARTIFACT_PREFIX and PLUGIN_ROOT, as before the flags existed, and no
+#     REVIEW_LEVEL is passed for a session with no ledger; the verification
+#     deferral maps the same way on both paths
 #     a --verification-reason with a character outside koto's variable
 #     allowlist (an apostrophe, a comma, a newline, a non-ASCII dash) is
 #     refused the same way, with or without --koto-leg and in any occurrence,
@@ -22,8 +28,11 @@
 #     a review-level read that fails (koto's refusal JSON on the read's
 #     output, as for a session bound to another workspace, or the read
 #     exiting non-zero) stops the open: exit 66, failed=level_unreadable, no
-#     koto init; without --koto-leg the usage refusal comes first and koto is
-#     never called
+#     koto init; without --koto-leg the level is never read and the plain
+#     open goes ahead
+#     koto-open.sh is handed --event-field unit.mode=issue_backed when an
+#     ISSUE_NUMBER --var is given and unit.mode=free_form otherwise, with and
+#     without --koto-leg (a copy of the script beside a stand-in koto-open.sh)
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     an issue-backed run opened under --koto-leg is bound to the leg, driven
@@ -31,8 +40,9 @@
 #       failure, final state done_blocked
 #     a free-form run driven to validation_exit: status success, final state
 #       validation_exit
-#     a live session opened without the flag (the plain koto init SKILL.md
-#       uses) is attached and bound by a later --koto-leg invocation: the
+#     a session opened without the flag (the plain open SKILL.md uses) is
+#       new; a second plain open of the live session is refused and leaves it
+#       where it was; a later --koto-leg invocation attaches and binds it: the
 #       resume path; and again after the plugin moved, with PLUGIN_ROOT
 #       rebound rather than refused
 #     a leg pinning another ISSUE_NUMBER: koto's input check refuses, the
@@ -45,8 +55,9 @@
 #       no session
 #     a run opened with --review-floor=standard has a `bound` line with that
 #       floor before its first `choose`, and a light choice under it is refused
-#     a resume through this script of a session whose ledger records a level
-#       keeps REVIEW_LEVEL at that level (an attach resets every rebind
+#     a plain open with --review-floor=standard records that floor, and a
+#       resume through this script of the session once its ledger records a
+#       level keeps REVIEW_LEVEL at that level (an attach resets every rebind
 #       variable it isn't passed), where a bare attach empties it; a resume
 #       naming a different floor is koto's var_mismatch
 #     the reason check's class, read out of scripts/lib/verification-deferral.sh
@@ -127,7 +138,6 @@ own_refusal() { # own_refusal <label> <json tokens>
         fail "own refusal: $1: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
     fi
 }
-own_refusal "no --koto-leg" '["7"]'
 own_refusal "--koto-leg with no colon" '["7","--koto-leg=abc"]'
 own_refusal "--koto-leg naming another leg" '["7","--koto-leg=req1:execute"]'
 own_refusal "--koto-leg with an empty request id" '["7","--koto-leg=:work-on"]'
@@ -146,6 +156,8 @@ own_refusal "--koto-leg on a .md file with plan/v2 frontmatter" '["step-plan.md"
 # A deferral to hosted CI needs its reason (#1012).
 own_refusal "--verification=hosted-ci with no reason" '["7","--verification=hosted-ci","--koto-leg=r1:work-on"]'
 own_refusal "--verification=hosted-ci with an empty reason" '["7","--verification=hosted-ci","--verification-reason=","--koto-leg=r1:work-on"]'
+own_refusal "--verification=hosted-ci with no reason, without --koto-leg" '["7","--verification=hosted-ci"]'
+own_refusal "--koto-leg given twice, the second a bare value" '["7","--koto-leg=r1:work-on","--koto-leg"]'
 
 # A reason with a character outside koto's variable allowlist (#1019): refused
 # before any koto call, and the message names the characters, JSON-quoted and
@@ -185,7 +197,7 @@ reason_refusal "a non-ASCII dash" "host in a window $EMDASH CI only" "\"$EMDASH\
     --verification=hosted-ci --koto-leg=r1:work-on
 reason_refusal "a reason given with --verification=local" "CI only; see #1019" '"#" ";"' \
     --verification=local --koto-leg=r1:work-on
-reason_refusal "an earlier occurrence, though the last one fits" "host is in a measurement window" '","' \
+reason_refusal "an earlier occurrence, though the last one fits" "host is too small for the suites" '","' \
     --verification=hosted-ci --verification-reason=x,y --koto-leg=r1:work-on
 
 : > "$WORK/stub.log"
@@ -226,9 +238,9 @@ pairs_of '["7","--review-floor=light","--review-floor=full","--review-ceiling","
 eq "a repeat is two pairs and a bare flag its literal token, both left to koto" \
     '[["REVIEW_FLOOR","light"],["REVIEW_FLOOR","full"],["REVIEW_CEILING","--review-ceiling"]]' \
     "$(jq -c 'map(select(.[0] | startswith("REVIEW_")))' "$WORK/vars.json" 2>/dev/null)"
-pairs_of '["7","--verification=hosted-ci","--verification-reason=host is in a measurement window","--koto-leg=r1:work-on"]'
+pairs_of '["7","--verification=hosted-ci","--verification-reason=host is too small for the suites","--koto-leg=r1:work-on"]'
 eq "--verification=hosted-ci with a reason: the deferral pairs, the reason one value" \
-    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is in a measurement window"]]' \
+    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is too small for the suites"]]' \
     "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
 pairs_of '["7","--verification=hosted-ci","--verification-reason=CI only: v1.2_rc+build@host/x - 02:40Z","--koto-leg=r1:work-on"]'
 eq "a reason using every allowed punctuation mark passes through unchanged" \
@@ -238,6 +250,153 @@ pairs_of '["7","--verification=local","--koto-leg=r1:work-on"]'
 eq "--verification=local needs no reason" \
     '[["VERIFICATION","local"]]' \
     "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
+
+# The plain open (no --koto-leg) hands koto the same pairs.
+pairs_of '["7"]'
+eq "no --koto-leg, no bound flags: the pairs are the ones before the flags existed" \
+    '["ISSUE_NUMBER","ARTIFACT_PREFIX","PLUGIN_ROOT"]' "$(jq -c 'map(.[0])' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--review-floor=standard","--review-ceiling=full"]'
+eq "no --koto-leg: the bound pairs" \
+    '[["REVIEW_FLOOR","standard"],["REVIEW_CEILING","full"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("REVIEW_")))' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--review-floor=light","--review-floor=full","--review-ceiling"]'
+eq "no --koto-leg: a repeat is two pairs and a bare flag its literal token" \
+    '[["REVIEW_FLOOR","light"],["REVIEW_FLOOR","full"],["REVIEW_CEILING","--review-ceiling"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("REVIEW_")))' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--verification=hosted-ci","--verification-reason=host is too small for the suites"]'
+eq "no --koto-leg: the deferral pairs, the reason one value" \
+    '[["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is too small for the suites"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("VERIFICATION")))' "$WORK/vars.json" 2>/dev/null)"
+
+# --- the plain open: no --koto-leg ---------------------------------------------
+#
+# The real koto-open.sh over a stub that logs every call, keeps a copy of the
+# vars file, and answers init with a new session, or with koto's session_live
+# refusal when PLAIN_LIVE is set (a name in use).
+PLAIN_BIN="$WORK/plain-bin"
+mkdir -p "$PLAIN_BIN"
+cat > "$PLAIN_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${KOTO_STUB_LOG:?}"
+[ "${1:-}" = init ] || exit 1
+prev=""
+for a in "$@"; do
+    [ "$prev" = "--vars-file" ] && cp -- "$a" "${KOTO_STUB_VARS:?}"
+    prev="$a"
+done
+if [ -n "${PLAIN_LIVE:-}" ]; then
+    printf '{"error":"session %s already exists and is running","code":"session_live","command":"init"}\n' "${2:-}"
+    exit 2
+fi
+printf '{"outcome":"created"}\n'
+exit 0
+STUB
+chmod +x "$PLAIN_BIN/koto"
+plain_open() { # plain_open <json tokens> [opener args]...
+    local t="$1"
+    shift
+    : > "$WORK/stub.log"
+    rm -f "$WORK/vars.json"
+    tokens "$t"
+    OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" PATH="$PLAIN_BIN:$PATH" \
+        bash "$OPEN" "$@" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+    CALLS=$(cat "$WORK/stub.log")
+}
+
+plain_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+eq "the plain open: exit 0" 0 "$RC"
+eq "the plain open: opened=new, then session=" "opened=new
+session=issue_7" "$OUT"
+eq "the plain open: one koto call, an init of the session from work-on.md" 1 "$(printf '%s\n' "$CALLS" | grep -c .)"
+case "$CALLS" in
+    "init issue_7 --template "*"/koto-templates/work-on.md --vars-file "*) pass "the plain open: an init of issue_7 from work-on.md with --vars-file" ;;
+    *) fail "the plain open: koto calls [$CALLS]" ;;
+esac
+case "$CALLS" in
+    *--attach-live*|*--koto-leg*) fail "the plain open: --attach-live or --koto-leg reached koto: [$CALLS]" ;;
+    *) pass "the plain open: neither --attach-live nor --koto-leg reaches koto" ;;
+esac
+eq "the plain open: the --var pairs and PLUGIN_ROOT reach koto" \
+    '[["ISSUE_NUMBER","7"],["ARTIFACT_PREFIX","issue_7"],["PLUGIN_ROOT","/koto-probe"]]' \
+    "$(jq -c . "$WORK/vars.json" 2>/dev/null)"
+eq "the plain open: the tokens file and its directory are removed" no "$([ -e "$(dirname "$TOKENS")" ] && echo yes || echo no)"
+
+plain_open '["fix the login timeout","--review-floor=standard","--verification=hosted-ci","--verification-reason=host is too small for the suites"]' \
+    --workflow task_fix-login-timeout --var ARTIFACT_PREFIX=task_fix-login-timeout
+eq "the plain open, free-form with a bound and a deferral: exit 0" 0 "$RC"
+eq "the plain open, free-form: the pairs koto is handed" \
+    '[["ARTIFACT_PREFIX","task_fix-login-timeout"],["REVIEW_FLOOR","standard"],["VERIFICATION","hosted-ci"],["VERIFICATION_DEFERRAL_REASON","host is too small for the suites"],["PLUGIN_ROOT","/koto-probe"]]' \
+    "$(jq -c . "$WORK/vars.json" 2>/dev/null)"
+
+# A name in use: koto's refusal passes through, and no session= line follows.
+PLAIN_LIVE=1 plain_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+eq "the plain open of a live session: exit 2" 2 "$RC"
+eq "the plain open of a live session: koto's refusal, no session= line" "refused=session_live" "$OUT"
+case "$CALLS" in
+    *--attach-live*) fail "the plain open of a live session: it tried to attach: [$CALLS]" ;;
+    "init issue_7 "*) pass "the plain open of a live session: one init, no attach" ;;
+    *) fail "the plain open of a live session: koto calls [$CALLS]" ;;
+esac
+case "$ERR" in *"already exists"*) pass "the plain open of a live session: koto's message reaches stderr" ;; *) fail "the plain open of a live session: stderr [$ERR]" ;; esac
+
+# A multi-pr PLAN run opens each issue here with the PLAN path in its tokens;
+# only under --koto-leg is that refused.
+plain_open '["docs/plans/PLAN-x.md"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+eq "the plain open with a PLAN path among the tokens: exit 0" 0 "$RC"
+eq "the plain open with a PLAN path among the tokens: opened" "opened=new
+session=issue_7" "$OUT"
+
+# --dispatched-by works without the leg too.
+plain_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 --dispatched-by ../x
+eq "the plain open: a malformed --dispatched-by is still refused" "64|error=usage|" "$RC|$OUT|$CALLS"
+
+# --- the unit.mode event field --------------------------------------------------
+#
+# A copy of the script runs in a tree beside a stand-in scripts/koto-open.sh
+# that logs the session and every argument after the args file, one per line,
+# and opens. A stand-in review-level.sh reads no level.
+MODE_TREE="$WORK/mode-tree"
+mkdir -p "$MODE_TREE/skills/work-on/scripts" "$MODE_TREE/skills/work-on/koto-templates" "$MODE_TREE/scripts/lib"
+cp "$OPEN" "$MODE_TREE/skills/work-on/scripts/work-on-open.sh"
+cp "$REPO_ROOT/scripts/lib/verification-deferral.sh" "$REPO_ROOT/scripts/lib/dispatch-link.sh" "$MODE_TREE/scripts/lib/"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$MODE_TREE/skills/work-on/scripts/review-level.sh"
+cat > "$MODE_TREE/scripts/koto-open.sh" <<'STUB'
+#!/usr/bin/env bash
+session="$1" args="$3"
+shift 3
+{ printf '%s\n' "$session"; for a in "$@"; do printf '%s\n' "$a"; done; } > "${OPEN_ARGV:?}"
+rm -f -- "$args" "$(dirname -- "$args")/.koto-open-alloc"
+rmdir -- "$(dirname -- "$args")" 2>/dev/null
+printf 'opened=new\n'
+exit 0
+STUB
+mode_open() { # mode_open <json tokens> [opener args]...
+    local t="$1"
+    shift
+    rm -f "$WORK/open-argv"
+    tokens "$t"
+    OUT=$(cd "$FIXREPO" && OPEN_ARGV="$WORK/open-argv" \
+        bash "$MODE_TREE/skills/work-on/scripts/work-on-open.sh" "$@" "$TOKENS" 2>/dev/null)
+    RC=$?
+    ARGV=$(tr '\n' ' ' < "$WORK/open-argv" 2>/dev/null)
+}
+mode_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+eq "issue-backed, no --koto-leg: koto-open.sh gets unit.mode=issue_backed and no leg" \
+    "0|issue_7 --event-field unit.mode=issue_backed " "$RC|$ARGV"
+mode_open '["7","--koto-leg=r1:work-on"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+eq "issue-backed under --koto-leg: koto-open.sh gets the leg and unit.mode=issue_backed" \
+    "0|issue_7 --attach-live --koto-leg r1:work-on --event-field unit.mode=issue_backed " "$RC|$ARGV"
+mode_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 --var ISSUE_REPO=acme/tracker
+eq "an issue in another repository: still unit.mode=issue_backed" \
+    "0|issue_7 --event-field unit.mode=issue_backed " "$RC|$ARGV"
+mode_open '["tidy notes.md"]' --workflow task_tidy --var ARTIFACT_PREFIX=task_tidy
+eq "free-form, no --koto-leg: koto-open.sh gets unit.mode=free_form" \
+    "0|task_tidy --event-field unit.mode=free_form " "$RC|$ARGV"
+mode_open '["tidy notes.md","--koto-leg","r2:work-on"]' --workflow task_tidy --var ARTIFACT_PREFIX=task_tidy
+eq "free-form under --koto-leg: koto-open.sh gets the leg and unit.mode=free_form" \
+    "0|task_tidy --attach-live --koto-leg r2:work-on --event-field unit.mode=free_form " "$RC|$ARGV"
 
 # --- a failed review-level read (#1325) ----------------------------------------
 #
@@ -297,11 +456,13 @@ for mode in bound-elsewhere unreadable; do
         *"issue_7's review level"*"no koto init"*) pass "a failed level read ($mode): the message names the session and says koto init was not run" ;;
         *) fail "a failed level read ($mode): stderr [$ERR]" ;;
     esac
-    # Without --koto-leg the script stops at its usage refusal before the read,
-    # so koto is never called at all.
+    # Without --koto-leg the level is never read: the plain open never
+    # attaches, so the one koto call is its init.
     level_fail_open "$mode" '["7"]'
-    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
-        pass "a failing level read ($mode) without --koto-leg: exit 64, error=usage, no koto call"
+    if [ "$RC" -eq 0 ] && [ "$OUT" = "opened=new
+session=issue_7" ] && [ -z "$(grep -v '^init ' "$WORK/stub.log")" ] && [ -n "$INITS" ] \
+        && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "a failing level read ($mode) without --koto-leg: never run; the plain open goes ahead"
     else
         fail "a failing level read ($mode) without --koto-leg: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
     fi
@@ -470,9 +631,20 @@ eq "the run ends at validation_exit" validation_exit "$(state_of task_ff)"
 eq "the leg records the terminal state" '"validation_exit"' "$(leg "$REQ" .result_final_state)"
 eq "the leg's status is success" '"success"' "$(leg "$REQ" .result.status)"
 
-# Resume: a live session opened the plain way is attached and bound.
-k init issue_8 --template "$TEMPLATE" --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8 --var PLUGIN_ROOT="$CLAUDE_PLUGIN_ROOT" >/dev/null 2>&1
+# The plain open (no --koto-leg): a new session, and a second plain open of
+# the live session is koto's refusal, leaving it where it was.
+run_open issue_8 '["8"]' --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
+eq "the plain open: exit 0" 0 "$RC"
+case "$OUT" in opened=new*session=issue_8) pass "the plain open prints opened=new and session=issue_8" ;; *) fail "plain open output: [$OUT] [$ERR]" ;; esac
+eq "the plain open: the session is at entry" entry "$(state_of issue_8)"
 tick issue_8 --with-data '{"mode":"issue_backed","issue_number":"8"}'
+run_open issue_8 '["8"]' --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
+case "$RC:$OUT" in 0:*|*:*session=*) fail "a second plain open of a live session was not refused: exit $RC, [$OUT]" ;;
+    *:refused=*) pass "a second plain open of a live session is refused ($OUT, exit $RC)" ;;
+    *) fail "a second plain open: exit $RC, [$OUT] [$ERR]" ;; esac
+eq "and the live session stays where it was" context_injection "$(state_of issue_8)"
+
+# Resume: a live session opened the plain way is attached and bound.
 REQ=$(new_request '{"ISSUE_NUMBER":"8","ARTIFACT_PREFIX":"issue_8"}')
 run_open issue_8 "[\"8\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
 eq "a live session under --koto-leg: exit 0" 0 "$RC"
@@ -616,12 +788,13 @@ eq "a standard choice is recorded" 0 "$?"
 eq "the ledger reads bound, then choose" "bound choose" "$(ledger_events issue_42)"
 
 # A resume through this script keeps the chosen level. The session is opened
-# the plain way (SKILL.md's direct init, with the bound as --var), its level
-# chosen, and a bare attach shows what the script guards against: the attach
-# resets REVIEW_LEVEL, which isn't passed.
-k init issue_43 --template "$TEMPLATE" --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43 \
-    --var PLUGIN_ROOT="$REAL_ROOT" --var REVIEW_FLOOR=standard >/dev/null 2>&1
-eq "the direct init with --var REVIEW_FLOOR=standard" standard "$(session_var issue_43 REVIEW_FLOOR)"
+# the plain way (this script with no --koto-leg, the bound in the tokens), its
+# level chosen, and a bare attach shows what the script guards against: the
+# attach resets REVIEW_LEVEL, which isn't passed.
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43 '["43","--review-floor=standard"]' \
+    --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43
+eq "the plain open with --review-floor=standard: exit 0" 0 "$RC"
+eq "the plain open records REVIEW_FLOOR=standard" standard "$(session_var issue_43 REVIEW_FLOOR)"
 to_choice issue_43
 (cd "$FIXREPO" && "$RL" set issue_43 full >/dev/null 2>&1)
 eq "the level is chosen" full "$(session_var issue_43 REVIEW_LEVEL)"

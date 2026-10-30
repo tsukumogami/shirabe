@@ -1,36 +1,53 @@
 #!/usr/bin/env bash
-# work-on-open.sh -- /work-on's koto entry under --koto-leg: open or attach the
-# run's session and bind it to a caller's request leg, in one `koto init`.
+# work-on-open.sh -- /work-on's koto entry: open the session of an
+# issue-backed or free-form run in one `koto init`, and under --koto-leg attach
+# a live one and bind it to a caller's request leg.
 #
-# Without --koto-leg, /work-on opens its session exactly as SKILL.md has always
-# said (a plain `koto init` with --var), and this script is not used. With it,
-# the agent writes the invocation's tokens (the words of $ARGUMENTS) to a file
-# outside the work tree and calls this script, which makes the one call through
-# the shared scripts/koto-open.sh:
+# Every issue-backed and free-form run opens through this script, with or
+# without --koto-leg (SKILL.md's Initialize). The agent writes the invocation's
+# tokens (the words of $ARGUMENTS) to a file outside the work tree and calls
+# this script, which makes the one call through the shared
+# scripts/koto-open.sh. Without --koto-leg in the tokens, the call is the plain
+# open SKILL.md used to have the agent run itself:
+#
+#   koto init <workflow> --template <work-on.md> --vars-file <pairs>
+#
+# with no --attach-live: a new session, or koto's refusal when the name is in
+# use. SKILL.md's Resume reads the session before any open, so a live one is
+# ticked rather than opened and a finished one is cleaned up or renamed first.
+# With --koto-leg the call is
 #
 #   koto init <workflow> --template <work-on.md> --vars-file <pairs>
 #             --attach-live --koto-leg <request-id>:work-on
 #
-# --attach-live is what makes a resume work: a live session of the same name,
-# template, and worktree is attached and bound to the leg instead of refused.
-# There is no --replace-terminal. A finished session is the Resume guard's to
-# handle before this script runs (SKILL.md), and koto's session_terminal
-# refusal is what an unhandled one gets.
+# --attach-live is what makes a resume work under the leg: a live session of
+# the same name, template, and worktree is attached and bound to the leg
+# instead of refused. Neither call has --replace-terminal. A finished session
+# is the Resume guard's to handle before this script runs (SKILL.md), and
+# koto's session_terminal refusal is what an unhandled one gets.
+#
+# Both calls hand koto-open.sh `--event-field unit.mode=issue_backed` when an
+# ISSUE_NUMBER --var is given, and `--event-field unit.mode=free_form`
+# otherwise. koto-open.sh adds the field to the session_opened event it sends
+# once a session is opened or attached; this script sends nothing itself.
 #
 # koto then decides everything it can: a variable outside its constraint, a
 # live session from another template or worktree, a leg that names another
-# template or pins other inputs. koto records each of those refusals on the leg
-# itself when the leg is still open and unbound; on a leg already bound to this
-# session (a re-dispatch) it records nothing and the leg stays bound. This
-# script's own refusals are the ones where there is no leg to record anything
-# on: no --koto-leg, a repeated one, a value that isn't <request-id>:work-on
-# with a request id koto would accept, or a tokens file it cannot read. It also
-# refuses the two input shapes the flag doesn't apply to, with the signals
-# SKILL.md's Mode Detection uses: tokens that begin with `-- plan-backed` (a
-# plan-backed child, whose result is /execute's) and a PLAN path (a token whose
-# file name is PLAN-*.md, or a .md file whose frontmatter says
-# `schema: plan/v1` or `schema: plan/v2`), which runs several issues or steps
-# where one leg answers one. Each
+# template or pins other inputs. Under --koto-leg koto records each of those
+# refusals on the leg itself when the leg is still open and unbound; on a leg
+# already bound to this session (a re-dispatch) it records nothing and the leg
+# stays bound. This script's own refusals are the ones where there is no leg to
+# record anything on: a repeated --koto-leg, a value that isn't
+# <request-id>:work-on with a request id koto would accept, or a tokens file it
+# cannot read. Under --koto-leg it also refuses the two input shapes the flag
+# doesn't apply to, with the signals SKILL.md's Mode Detection uses: tokens
+# that begin with `-- plan-backed` (a plan-backed child, whose result is
+# /execute's) and a PLAN path (a token whose file name is PLAN-*.md, or a .md
+# file whose frontmatter says `schema: plan/v1` or `schema: plan/v2`), which
+# runs several issues or steps where one leg answers one. Without the leg
+# neither shape is refused: a multi-pr PLAN run opens each issue's session
+# here, with the PLAN path among its tokens, and a plan-backed child's session
+# is opened by /execute, not through this script. Each refusal
 # exits 64 with `error=usage` and makes no koto call. koto-open.sh adds two: an
 # args file inside the work tree, and no koto binary.
 #
@@ -119,12 +136,14 @@
 # PLUGIN_ROOT is added by this script: $CLAUDE_PLUGIN_ROOT, else the plugin
 # root this script ships in. The template is this skill's work-on.md.
 #
-# REVIEW_LEVEL is added when the session is live and its review_level.jsonl
-# ledger records a level (`review-level.sh level`, the last level event's
-# `to`). An attach resets every rebind variable it isn't passed, and without
-# this a resume through this script would empty the run's chosen level. With
-# no session or no ledger nothing is added, so a new session's variables are
-# unchanged. A read that fails stops the open before koto init: `level`
+# Under --koto-leg, REVIEW_LEVEL is added when the session is live and its
+# review_level.jsonl ledger records a level (`review-level.sh level`, the last
+# level event's `to`). An attach resets every rebind variable it isn't passed,
+# and without this a resume through this script would empty the run's chosen
+# level. With no session or no ledger nothing is added, so a new session's
+# variables are unchanged. Without --koto-leg the level is not read: that open
+# never attaches, so a live session is refused whatever it is handed, and a
+# new one has no ledger. A read that fails stops the open before koto init: `level`
 # exiting non-zero, or printing anything but one level name. The second is
 # what a session bound to another workspace gives, since koto's refusal of the
 # read lands on `level`'s output. The script prints `failed=level_unreadable`,
@@ -146,7 +165,7 @@
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
 # own code otherwise), 64 for this script's own usage refusals, or 66 for a
-# failed review-level read, with no koto init.
+# failed review-level read under --koto-leg, with no koto init.
 #
 # A bare `--koto-leg` followed by another flag takes that flag as its value, so
 # the value fails the leg pattern and exits 64. deliver-open.sh records an empty
@@ -249,44 +268,50 @@ rm -f -- "$TOKENS_FILE"
 REFUSAL=$(vd_reason_chars_refusal "$TOKENS")
 [ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
 
-# --koto-leg: exactly once, naming the one leg /work-on answers.
+# --koto-leg: at most once, naming the one leg /work-on answers. Without it
+# the open is the plain one, with no leg and no attach.
 LEGS=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
     | if $t[$i] == "--koto-leg" then ($t[$i + 1] // "")
       elif ($t[$i] | startswith("--koto-leg=")) then ($t[$i] | ltrimstr("--koto-leg="))
       else empty end]')
+LEG=""
 case "$(printf '%s' "$LEGS" | jq 'length')" in
-    0) own_refusal "no --koto-leg in the tokens; without it /work-on opens its session with a plain koto init" ;;
-    1) ;;
+    0) ;;
+    1)
+        LEG=$(printf '%s' "$LEGS" | jq -j '.[0]')
+        [[ "$LEG" =~ $RE_LEG ]] \
+            || own_refusal "--koto-leg must be <request-id>:work-on, with a request id matching ^[a-z0-9_][a-z0-9_-]{0,63}\$, got [$LEG]"
+        ;;
     *) own_refusal "--koto-leg given more than once" ;;
 esac
-LEG=$(printf '%s' "$LEGS" | jq -j '.[0]')
-[[ "$LEG" =~ $RE_LEG ]] \
-    || own_refusal "--koto-leg must be <request-id>:work-on, with a request id matching ^[a-z0-9_][a-z0-9_-]{0,63}\$, got [$LEG]"
 
 # The inputs --koto-leg doesn't apply to. Every token but --koto-leg's own
-# value is looked at.
-REST=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
-    | select(($t[$i] | startswith("--koto-leg")) | not)
-    | select($i == 0 or $t[$i - 1] != "--koto-leg")
-    | $t[$i]]')
-if printf '%s' "$REST" | jq -e '.[0] == "--" and .[1] == "plan-backed"' >/dev/null; then
-    own_refusal "--koto-leg does not apply to a plan-backed child: /execute receives its result"
-fi
-while IFS= read -r t; do
-    [ -n "$t" ] || continue
-    plan=0
-    case "$(basename -- "$t")" in PLAN-*.md) plan=1 ;; esac
-    if [ "$plan" -eq 0 ] && [ -f "$t" ] \
-        && awk 'NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit 1; next }
-                /^---[[:space:]]*$/ { exit 1 }
-                /^schema:[[:space:]]*plan\/v[12][[:space:]]*$/ { found = 1; exit 0 }
-                END { exit found ? 0 : 1 }' "$t"; then
-        plan=1
+# value is looked at. Without the leg there is nothing to refuse: a multi-pr
+# PLAN run opens each issue's session here with the PLAN path in its tokens.
+if [ -n "$LEG" ]; then
+    REST=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
+        | select(($t[$i] | startswith("--koto-leg")) | not)
+        | select($i == 0 or $t[$i - 1] != "--koto-leg")
+        | $t[$i]]')
+    if printf '%s' "$REST" | jq -e '.[0] == "--" and .[1] == "plan-backed"' >/dev/null; then
+        own_refusal "--koto-leg does not apply to a plan-backed child: /execute receives its result"
     fi
-    [ "$plan" -eq 0 ] || own_refusal "--koto-leg does not apply to a PLAN ($t): one leg answers one issue's run"
-done <<TOKENS_EOF
+    while IFS= read -r t; do
+        [ -n "$t" ] || continue
+        plan=0
+        case "$(basename -- "$t")" in PLAN-*.md) plan=1 ;; esac
+        if [ "$plan" -eq 0 ] && [ -f "$t" ] \
+            && awk 'NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit 1; next }
+                    /^---[[:space:]]*$/ { exit 1 }
+                    /^schema:[[:space:]]*plan\/v[12][[:space:]]*$/ { found = 1; exit 0 }
+                    END { exit found ? 0 : 1 }' "$t"; then
+            plan=1
+        fi
+        [ "$plan" -eq 0 ] || own_refusal "--koto-leg does not apply to a PLAN ($t): one leg answers one issue's run"
+    done <<TOKENS_EOF
 $(printf '%s' "$REST" | jq -r '.[] | select(endswith(".md") and (startswith("-") | not))')
 TOKENS_EOF
+fi
 
 # A deferral to hosted CI needs its reason (shared with /execute's opener).
 REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
@@ -294,26 +319,29 @@ REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
-# The level the live session's ledger last recorded, or nothing. Anything but
-# a clean read of nothing or one level name stops the open here, before koto
-# init: passed on, it would reach koto as REVIEW_LEVEL, and koto's invalid_var
-# would resolve a still-open leg as refused.
+# Under --koto-leg, the level the live session's ledger last recorded, or
+# nothing. Anything but a clean read of nothing or one level name stops the
+# open here, before koto init: passed on, it would reach koto as REVIEW_LEVEL,
+# and koto's invalid_var would resolve a still-open leg as refused. The plain
+# open never attaches, so it reads nothing.
 LEVEL=""
-LEVEL_RC=0
-LEVEL=$(bash "$SELF_DIR/review-level.sh" level "$WORKFLOW" 2>"$DIR/level.err") || LEVEL_RC=$?
-case "$LEVEL_RC:$LEVEL" in
-    0:|0:light|0:standard|0:full) ;;
-    *)
-        LEVEL_ERR=$( { printf '%s ' "$LEVEL"; cat -- "$DIR/level.err"; } 2>/dev/null | tr '\n' ' ')
-        LEVEL_ERR=${LEVEL_ERR:0:300}
-        rm -f -- "$DIR/level.err"
-        remove_tokens
-        printf 'failed=level_unreadable\n'
-        echo "$PROG: could not read $WORKFLOW's review level (exit $LEVEL_RC), so the open stops with no koto init and the leg stays open: $LEVEL_ERR" >&2
-        exit 66
-        ;;
-esac
-rm -f -- "$DIR/level.err"
+if [ -n "$LEG" ]; then
+    LEVEL_RC=0
+    LEVEL=$(bash "$SELF_DIR/review-level.sh" level "$WORKFLOW" 2>"$DIR/level.err") || LEVEL_RC=$?
+    case "$LEVEL_RC:$LEVEL" in
+        0:|0:light|0:standard|0:full) ;;
+        *)
+            LEVEL_ERR=$( { printf '%s ' "$LEVEL"; cat -- "$DIR/level.err"; } 2>/dev/null | tr '\n' ' ')
+            LEVEL_ERR=${LEVEL_ERR:0:300}
+            rm -f -- "$DIR/level.err"
+            remove_tokens
+            printf 'failed=level_unreadable\n'
+            echo "$PROG: could not read $WORKFLOW's review level (exit $LEVEL_RC), so the open stops with no koto init and the leg stays open: $LEVEL_ERR" >&2
+            exit 66
+            ;;
+    esac
+    rm -f -- "$DIR/level.err"
+fi
 
 PAIRS_FILE="$DIR/work-on-vars.json"
 jq -nc --arg root "$ROOT" --arg level "$LEVEL" --argjson tokens "$TOKENS" '
@@ -330,7 +358,15 @@ jq -nc --arg root "$ROOT" --arg level "$LEVEL" --argjson tokens "$TOKENS" '
     + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
     || { rm -f -- "$PAIRS_FILE"; own_refusal "could not write the variables file"; }
 
-OUT=$(bash "$KOTO_OPEN" "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE" --attach-live --koto-leg "$LEG")
+# The run's entry mode, for koto-open.sh's session_opened event.
+MODE=free_form
+for v in ${VARS[@]+"${VARS[@]}"}; do
+    case "$v" in ISSUE_NUMBER=*) MODE=issue_backed ;; esac
+done
+
+set -- "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE"
+[ -z "$LEG" ] || set -- "$@" --attach-live --koto-leg "$LEG"
+OUT=$(bash "$KOTO_OPEN" "$@" --event-field "unit.mode=$MODE")
 RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 case "$OUT" in

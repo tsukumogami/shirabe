@@ -27,6 +27,7 @@
 #   koto-open.sh <session> <template> <args-file>
 #                [--attach-live] [--replace-terminal]
 #                [--koto-leg <request-id>:<leg>] [--wording <file>]
+#                [--event-field <key>=<value>]...
 #   koto-open.sh --alloc-dir
 #
 # Arguments:
@@ -54,6 +55,10 @@
 #                       records a refusal on the leg itself; this script never
 #                       writes to the request store.
 #   --wording <file>    the caller's wording table (see Rendering).
+#   --event-field <key>=<value>
+#                       a field the caller adds to the session_opened event
+#                       (see Event), such as unit.mode; repeatable. Passed to
+#                       the helper as one argument each, never to koto.
 #   --alloc-dir         print the path of a new private directory (mode 0700,
 #                       from `mktemp -d`) for the caller to write its args file
 #                       into, and exit 0. When the args file later passed to
@@ -105,6 +110,17 @@
 #                                    (no parseable output), koto_error (a
 #                                    non-zero exit with no typed code)
 #   error=usage                      this script's own usage error
+#
+# Event. Once a session is opened, attached or replaced, and after the result
+# lines above are printed, the script runs scripts/emit-event.sh as a child to
+# send the unit-cost `session_opened` event: the session's name, the template's
+# name, the outcome (new, attached, replaced), the request and leg of
+# --koto-leg, the --event-field values, and --koto-dir set to the current
+# directory so the helper can look up the session's koto id. Its output and
+# status are discarded, so it never changes this script's output or exit code.
+# The helper sends nothing before its cutoff date, with its off switch set, or
+# without a sender on the host, and bounds its own time otherwise
+# (docs/designs/DESIGN-fleet-cost-emit.md). A refusal or failure sends nothing.
 #
 # The human-readable message goes to stderr: on a refusal, the rendered
 # wording; on failure or usage error, a diagnostic; on a replace that moved the
@@ -240,7 +256,7 @@ remove_args_file() {
 usage_error() {
     printf 'error=usage\n'
     printf '%s: %s\n' "$PROG" "$1" >&2
-    printf 'usage: koto-open.sh <session> <template> <args-file> [--attach-live] [--replace-terminal] [--koto-leg <request-id>:<leg>] [--wording <file>]\n' >&2
+    printf 'usage: koto-open.sh <session> <template> <args-file> [--attach-live] [--replace-terminal] [--koto-leg <request-id>:<leg>] [--wording <file>] [--event-field <key>=<value>]...\n' >&2
     exit 64
 }
 
@@ -290,7 +306,9 @@ REPLACE_TERMINAL=0
 KOTO_LEG=""
 HAVE_LEG=0
 WORDING=""
+EVENT_FIELDS=()
 BAD=""
+EMIT_EVENT="$(cd "$(dirname "$0")" && pwd)/emit-event.sh"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -304,6 +322,10 @@ while [ "$#" -gt 0 ]; do
             if [ "$#" -lt 2 ]; then BAD="--wording needs a file"; shift; continue; fi
             WORDING="$2"; shift ;;
         --wording=*) WORDING="${1#--wording=}" ;;
+        --event-field)
+            if [ "$#" -lt 2 ]; then BAD="--event-field needs <key>=<value>"; shift; continue; fi
+            EVENT_FIELDS+=("$2"); shift ;;
+        --event-field=*) EVENT_FIELDS+=("${1#--event-field=}") ;;
         --alloc-dir) [ -n "$BAD" ] || BAD="--alloc-dir takes no other argument" ;;
         --*) [ -n "$BAD" ] || BAD="unknown option: $1" ;;
         *)
@@ -424,6 +446,24 @@ jq_field() {
     FIELD="${FIELD%.}"
 }
 
+# send_session_opened <koto outcome>: the session_opened event, through the
+# one helper that may send it (docs/designs/DESIGN-fleet-cost-emit.md). It
+# runs after the result lines are printed, as a child whose output and status
+# are ignored, so it can't change this script's output or exit code; the
+# helper bounds its own time and sends nothing before its cutoff date.
+send_session_opened() {
+    local outcome="$1" tname
+    case "$outcome" in created) outcome=new ;; esac
+    tname=$(basename -- "$TEMPLATE")
+    set -- event --scope unit-cost --kind session_opened --koto-dir "$(pwd -P)" \
+        "unit.koto_session=$SESSION" "unit.template=${tname%.md}" "unit.outcome=$outcome"
+    if [ "$HAVE_LEG" -eq 1 ]; then
+        set -- "$@" "unit.request=$LEG_REQ" "unit.leg=$LEG_NAME"
+    fi
+    set -- "$@" ${EVENT_FIELDS[@]+"${EVENT_FIELDS[@]}"}
+    bash "$EMIT_EVENT" "$@" </dev/null >/dev/null 2>&1 || :
+}
+
 if ! jq -e 'type == "object"' <"$OUT" >/dev/null 2>&1; then
     printf 'failed=koto_crashed\n'
     printf '%s: koto init exited %s with no parseable output\n' "$PROG" "$RC" >&2
@@ -466,6 +506,7 @@ if [ "$RC" -eq 0 ]; then
     if jq -e 'has("leg")' <"$OUT" >/dev/null 2>&1; then
         printf 'leg=%s\n' "$(jq -c '.leg' <"$OUT")"
     fi
+    send_session_opened "$FIELD"
     exit 0
 fi
 

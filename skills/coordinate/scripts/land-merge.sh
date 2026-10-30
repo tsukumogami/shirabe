@@ -40,6 +40,14 @@
 # merge-exec.sh is always the sibling skill's, found from this script's own
 # directory; nothing in the environment can name another one.
 #
+# Once merge-exec.sh reports merge-called, one `landed` event goes through
+# scripts/emit-event.sh (docs/designs/DESIGN-fleet-cost-emit.md), run as a
+# child whose output and status are ignored: the pull request, this session,
+# the scope slug its name carries, and the topic and request of the Holdings
+# row linking the pull request, taken from the holdings the repository lookup
+# already read (none with --repo). A field the script doesn't have is left
+# out; nothing is sent for a merge that didn't happen.
+#
 # Exit codes: 0 merge-exec.sh reported merge-called (its line on stdout);
 # 10 refused; 11 merge-exec.sh refused or failed (its line, if any, on
 # stdout); 12 refused because a pause holds the pull request (the pause on
@@ -49,6 +57,8 @@ set -uo pipefail
 PROG=land-merge
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/board-lib.sh"
+# The repository's one event helper, found the way merge-exec.sh is.
+EMIT="$HERE/../../../scripts/emit-event.sh"
 
 usage() { sed -n '/^# Usage:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 refuse() { echo "$PROG: refused: $*" >&2; exit 10; }
@@ -92,8 +102,13 @@ if [ $# -ne 3 ] || [ "$1" != "$WANT" ] || ! bl_pr_ok "$2" || ! bl_sha_ok "$3"; t
 fi
 PR=$2 SHA=$3
 
+ROWS=""
 if [ -z "$REPO" ]; then
-    REPO=$(bl_unit_repo "$SESSION" "$PR") || refuse "can't tell pull request #$PR's repository from the record"
+    # The holdings this lookup reads are kept for the landed event's topic and
+    # request, so the event needs no read of its own.
+    ROWS=$(mktemp "${TMPDIR:-/tmp}/land-merge-rows.XXXXXX") || ROWS=""
+    trap 'rm -f ${ROWS:+"$ROWS"}' EXIT
+    REPO=$(bl_unit_repo "$SESSION" "$PR" "$ROWS") || refuse "can't tell pull request #$PR's repository from the record"
 fi
 
 P=$(bl_merge_posture "$SESSION") || refuse "the posture re-read failed"
@@ -118,17 +133,42 @@ fi
 # The squash message, built again from the live title and Part 1, so the
 # commit carries Part 1 and never the reviewer context below it.
 MS=$(mktemp "${TMPDIR:-/tmp}/land-merge.XXXXXX") || refuse "no temporary file"
-trap 'rm -f "$MS" "$MS".*' EXIT
+trap 'rm -f "$MS" "$MS".* ${ROWS:+"$ROWS"}' EXIT
 bl_gh "$MS" pr view "$PR" --repo "$REPO" --json title,body || refuse "the pull request's title and body couldn't be read"
 jq -r '.body // ""' "$MS" > "$MS.body" || refuse "the pull request's body couldn't be read"
 bash "$HERE/../../../scripts/lib/squash-message.sh" --title "$(jq -r '.title // ""' "$MS")" "$MS.body" > "$MS.msg" \
     || refuse "the squash message couldn't be built from the title and Part 1"
 
+# send_landed: the landed event (the header's), from what the run already
+# holds. The topic and request come from the one Holdings row linking the pull
+# request in this repository; the request is its leg's, none on the message
+# path.
+send_landed() {
+    local topic="" rp="" req="" slug kv f
+    f=()
+    if [ -n "$ROWS" ] && [ -s "$ROWS" ]; then
+        IFS=$'\037' read -r topic rp <<EOF
+$(jq -r -L "$HERE" --arg n "$PR" --arg r "$REPO" 'include "state-schema";
+    [.[]? | select((.pull_request // "" | pr_link | .number == $n and .repo == $r))]
+    | if length == 1 then [.[0].worker, .[0].return_path] else ["", ""] end
+    | map(if type == "string" and (test("[[:cntrl:]]") | not) then . else "" end) | join("\u001f")' "$ROWS" 2>/dev/null)
+EOF
+        rp=$(dc_rp_from_row "$rp")
+        case "$rp" in message | '') ;; *) req=${rp%%:*} ;; esac
+    fi
+    slug=$(dc_scope_slug "$SESSION") || slug=""
+    for kv in "unit.pr=github.com/$REPO#$PR" "unit.topic=$topic" "unit.scope_slug=$slug" \
+        "unit.koto_session=$SESSION" "unit.request=$req"; do
+        [ -n "${kv#*=}" ] && f+=("$kv")
+    done
+    bash "$EMIT" event --scope unit-cost --kind landed ${f[@]+"${f[@]}"} </dev/null >/dev/null 2>&1 || :
+}
+
 OUT=$(bash "$HERE/../../execute/scripts/merge-exec.sh" "$REPO" "$PR" "$SHA" "$MS.msg")
 RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then
-    case "$OUT" in merge-called:*) exit 0 ;; esac
+    case "$OUT" in merge-called:*) send_landed; exit 0 ;; esac
 fi
 echo "$PROG: merge-exec.sh exited $RC" >&2
 exit 11

@@ -37,10 +37,11 @@ ktg_on_exit cleanup
 
 TEMPLATE="skills/work-on/koto-templates/work-on.md"
 SKILL_DOC="skills/work-on/SKILL.md"
+OPENER="skills/work-on/scripts/work-on-open.sh"
 EXECUTE_TEMPLATE="skills/execute/koto-templates/execute.md"
 HARNESS="skills/work-on/scripts/terminal-retention_test.sh"
 
-# new_tree — a temp copy of the four files the check reads.
+# new_tree — a temp copy of the five files the check reads.
 new_tree() {
     local d; d=$(mktemp -d) || exit 1; TMPS+=("$d")
     mkdir -p "$d/scripts" "$d/$(dirname "$TEMPLATE")" "$d/$(dirname "$EXECUTE_TEMPLATE")"
@@ -48,8 +49,9 @@ new_tree() {
     cp "$REPO_ROOT/$TEMPLATE" "$d/$TEMPLATE"
     cp "$REPO_ROOT/$SKILL_DOC" "$d/$SKILL_DOC"
     cp "$REPO_ROOT/$EXECUTE_TEMPLATE" "$d/$EXECUTE_TEMPLATE"
-    mkdir -p "$d/$(dirname "$HARNESS")"
+    mkdir -p "$d/$(dirname "$HARNESS")" "$d/$(dirname "$OPENER")"
     cp "$REPO_ROOT/$HARNESS" "$d/$HARNESS"
+    cp "$REPO_ROOT/$OPENER" "$d/$OPENER"
     echo "$d"
 }
 
@@ -83,16 +85,43 @@ drop_nth_occurrence() {
 T=$(new_tree) || exit 1
 expect "unmutated copy passes" 0 "$T"
 
-# Case 2 — the issue-backed init block in SKILL.md forgets the variable.
+# Case 2 — the issue-backed open in SKILL.md forgets the variable.
 T=$(new_tree) || exit 1
-drop_nth_occurrence "$T/$SKILL_DOC" "var PLUGIN_ROOT=" 1
-expect "first SKILL.md init site missing PLUGIN_ROOT is caught" 1 "$T" "init site 1 does not pass required variable PLUGIN_ROOT"
+drop_nth_occurrence "$T/$SKILL_DOC" "var ARTIFACT_PREFIX=" 1
+expect "first SKILL.md open site missing ARTIFACT_PREFIX is caught" 1 "$T" "init site 1 does not pass required variable ARTIFACT_PREFIX"
 
-# Case 3 — the free-form init block forgets it. The distinct site number is the
+# Case 3 — the free-form open forgets it. The distinct site number is the
 # point: the check reports which one drifted, not merely that one did.
 T=$(new_tree) || exit 1
-drop_nth_occurrence "$T/$SKILL_DOC" "var PLUGIN_ROOT=" 2
-expect "second SKILL.md init site missing PLUGIN_ROOT is caught" 1 "$T" "init site 2 does not pass required variable PLUGIN_ROOT"
+drop_nth_occurrence "$T/$SKILL_DOC" "var ARTIFACT_PREFIX=" 2
+expect "second SKILL.md open site missing ARTIFACT_PREFIX is caught" 1 "$T" "init site 2 does not pass required variable ARTIFACT_PREFIX"
+
+# Case 2b — the opener stops adding PLUGIN_ROOT, which the open sites leave
+# to it.
+T=$(new_tree) || exit 1
+python3 - "$T/$OPENER" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = '+ [["PLUGIN_ROOT", $root]]'
+assert needle in s, "the opener mutation is stale"
+open(p, "w").write(s.replace(needle, "+ []", 1))
+PY
+expect "the opener no longer adding PLUGIN_ROOT is caught" 1 "$T" "no longer adds required variable PLUGIN_ROOT"
+
+# Case 2c — a PLUGIN_ROOT mentioned only in a comment of the opener is not an
+# addition.
+T=$(new_tree) || exit 1
+python3 - "$T/$OPENER" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = '+ [["PLUGIN_ROOT", $root]]'
+assert needle in s, "the opener mutation is stale"
+s = s.replace(needle, "+ []", 1)
+open(p, "w").write(s + '\n# + [["PLUGIN_ROOT", $root]]\n')
+PY
+expect "a PLUGIN_ROOT pair left only in a comment is caught" 1 "$T" "no longer adds required variable PLUGIN_ROOT"
 
 # Case 4 — the spawn tick in execute.md stops injecting into child vars. It is
 # the only task build: the complete tick advances bare and submits no tasks.
@@ -157,11 +186,24 @@ open(p, "w").write(s.replace("koto init", "koto start"))
 PYMUT
 expect "a harness scan matching nothing is caught" 1 "$T" "covering nothing"
 
-# Case 7 — the check must not silently pass when it can no longer see the init
-# sites it is supposed to cover.
+# Case 7 — the check must not silently pass when it can no longer see the open
+# sites it is supposed to cover. python3 rather than `sed -i`, whose in-place
+# flag differs between GNU and BSD sed.
 T=$(new_tree) || exit 1
-sed -i 's/koto init/koto start/g' "$T/$SKILL_DOC"
-expect "init blocks moving out of SKILL.md is caught" 1 "$T" "no 'koto init'"
+python3 - "$T/$SKILL_DOC" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = "work-on-open.sh --workflow"
+assert needle in s, "the SKILL.md mutation is stale"
+open(p, "w").write(s.replace(needle, "work-on-start.sh --workflow"))
+PY
+expect "open blocks moving out of SKILL.md is caught" 1 "$T" "no 'skills/work-on/scripts/work-on-open.sh --workflow' open"
+
+# Case 8b — nor when the opener itself is gone.
+T=$(new_tree) || exit 1
+rm "$T/$OPENER"
+expect "a missing opener is caught" 1 "$T" "missing file: $OPENER"
 
 # Case 8 — nor when a file it reads is gone.
 T=$(new_tree) || exit 1
