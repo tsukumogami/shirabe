@@ -2208,7 +2208,7 @@
                 }
               },
               "declared_sha256": "dadde36e47b12a9edba8a6b54c44e21fc5d0238f3ee0b3c7aad383c8a544114e",
-              "fixtures_blob": "a22678493e756f9612f069312a227a02cf235601",
+              "fixtures_blob": "a73ea7c2c5be98df015cdebec2f757957e6eab38",
               "model": "jev-1.14.0",
               "on": "2026-10-30",
               "slicer_blob": "d3ca18f5a310a3625cc174775e95a1d5b0b806ec"
