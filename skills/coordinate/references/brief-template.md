@@ -87,6 +87,25 @@ close or release its grant doesn't cover goes back to you in a report. The
 grant is never wider than your own: niwa refuses one that is, and the
 refusal is reported, never retried wider.
 
+`launch` is how niwa starts the worker, and changes nothing in the brief.
+Give it one or more of `model`, `permission_mode` and
+`accept_session_messages`:
+
+```json
+"launch": {"model": "opus", "permission_mode": "bypassPermissions", "accept_session_messages": true}
+```
+
+`model` is one of niwa's capability categories (`balanced`, `fast`,
+`powerful`) or a versionless model name (`fable`, `opus`, `sonnet`,
+`haiku`); `permission_mode` is one of `default`, `acceptEdits`, `plan`,
+`auto`, `dontAsk` and `bypassPermissions`; `accept_session_messages` is
+`true` or `false`. `render-brief.sh` refuses any other key or value, so
+nothing you didn't pick from those sets reaches the launch. Use it to start
+a worker in the permission mode you run in, so it doesn't stall on a prompt
+nobody answers, and with `accept_session_messages: true`, so your messages
+reach it without an approval in its session. Leave it out and the worker
+gets niwa's and the machine's defaults, as before the field existed.
+
 The rendered brief also names both reporting channels (status and blockers
 to your session, the only source of direction; tooling problems to the
 discipline coordinator for the surface), shows the invocation with
@@ -279,14 +298,19 @@ at the brief:
 niwa dispatch "<authority>. Read <workspace-root>/.niwa/dispatch-briefs/<topic>.md for your complete task brief, then do it." \
   --name <topic> --detach \
   --brief <workspace-root>/.niwa/dispatch-briefs/<topic>.md --skill shirabe:<entry point> \
-  --grant <authority> --parent-from <your instance root>
+  --grant <authority> --parent-from <your instance root> \
+  --model <model> --permission-mode <mode> --accept-session-messages
 ```
 
 `--brief` and `--skill` let niwa put the brief's digest and the requested
 skill on the worker's telemetry. niwa accepts them from 0.28.0; with an older
 niwa, leave both off, since it refuses flags it doesn't know. `--grant` (one
 per authority, none for a worker granted nothing) and `--parent-from` go on
-only when `niwa dispatch --help` lists them, for the same reason.
+only when `niwa dispatch --help` lists them, for the same reason. So do
+`--model`, `--permission-mode` and `--accept-session-messages`
+(`--accept-session-messages=false` for `false`), one for each key of the
+input's `launch`; a flag the help doesn't list is left off with a line on
+stderr naming it, and the worker gets niwa's default for it.
 
 Record the holding under the dispatch topic you passed, with
 `state-holding.sh`, before any other action. `scripts/dispatch-worker.sh`

@@ -105,7 +105,12 @@
 #      <that instance root>` goes on too, so the worker's record names this
 #      coordinator's dispatch as its parent. niwa refuses a grant wider than
 #      its dispatcher's; that refusal is the one this script reports as such
-#      (exit 11), and nothing retries it with another grant.
+#      (exit 11), and nothing retries it with another grant. The input's
+#      `launch` field (render-brief.sh holds each value to a fixed set) adds
+#      `--model <model>`, `--permission-mode <mode>` and
+#      `--accept-session-messages` (or `--accept-session-messages=false`), each
+#      only when the help lists that flag; one it doesn't is left off with a
+#      stderr line naming it. With no `launch` the launch is as it was.
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
@@ -393,11 +398,35 @@ resolve_grant() {
     jq --argjson g "$req" '.grant = $g' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 }
 
+# help_lists <flag>: the help lists <flag> as a flag of its own, at the start
+# of its line, so neither a longer flag nor another flag's text naming it
+# counts.
+help_lists() {
+    grep -Eq -- "^[[:space:]]*(-[A-Za-z], )?$1([[:space:]=]|\$)" <<<"$HELP"
+}
+
+# launch_flag <flag> <argument...>: add the arguments to LAUNCH_ARGS when the
+# help lists <flag>, else say it's dropped.
+launch_flag() {
+    local f=$1
+    shift
+    if help_lists "$f"; then
+        LAUNCH_ARGS+=("$@")
+    else
+        printf '%s: this niwa dispatch takes no %s, so the worker is launched without it\n' "$PROG" "$f" >&2
+    fi
+}
+
 # launch_flags: the flags that carry the grant and the parent, from the help:
 # one `--grant <authority>` per authority, and `--parent-from` with the first
-# directory at or above this one holding .niwa/instance.json.
+# directory at or above this one holding .niwa/instance.json. Then the input's
+# launch field, which render-brief.sh has already held to its fixed sets:
+# `--model <model>`, `--permission-mode <mode>`, and
+# `--accept-session-messages` for true or `--accept-session-messages=false`
+# for false, each only when the help lists it.
+LAUNCH_ARGS=()
 launch_flags() {
-    local a d
+    local a d v
     probe_help
     case "$HELP" in
         *--grant*)
@@ -419,6 +448,15 @@ EOF
                 d=$(dirname "$d")
             done
             ;;
+    esac
+    v=$(jq -r '.launch.model // empty | strings' "$INPUT") || die 2 "jq failed"
+    [ -n "$v" ] && launch_flag --model --model "$v"
+    v=$(jq -r '.launch.permission_mode // empty | strings' "$INPUT") || die 2 "jq failed"
+    [ -n "$v" ] && launch_flag --permission-mode --permission-mode "$v"
+    v=$(jq -r '.launch.accept_session_messages | booleans' "$INPUT") || die 2 "jq failed"
+    case "$v" in
+        true) launch_flag --accept-session-messages --accept-session-messages ;;
+        false) launch_flag --accept-session-messages --accept-session-messages=false ;;
     esac
 }
 
@@ -1252,7 +1290,8 @@ esac
 # failure, and passed on whole.
 LOG="$WORK/niwa.out"
 (cd "$ROOT" && dc_with_deadline "$DEADLINE" "$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach \
-    ${LINEAGE[@]+"${LINEAGE[@]}"} ${GRANT_ARGS[@]+"${GRANT_ARGS[@]}"} ${PARENT_ARGS[@]+"${PARENT_ARGS[@]}"}) >"$LOG" 2>"$WORK/niwa.err"
+    ${LINEAGE[@]+"${LINEAGE[@]}"} ${GRANT_ARGS[@]+"${GRANT_ARGS[@]}"} ${PARENT_ARGS[@]+"${PARENT_ARGS[@]}"} \
+    ${LAUNCH_ARGS[@]+"${LAUNCH_ARGS[@]}"}) >"$LOG" 2>"$WORK/niwa.err"
 RC=$?
 cat "$WORK/niwa.err" >&2
 if [ "$RC" -eq 0 ]; then
