@@ -309,7 +309,7 @@ for spec in "brief brief/references/phases/phase-4-validate.md scope" \
         n_on=$(printf '%s\n' "$reviews_on" | grep -c '"review_round')
         [ -n "$reviews_on" ] && [ "$reviews_on" = "$reviews_off" ] && [ "$n_on" -ge 2 ] \
             && pass "$label: the same jury rounds and verdict records with the step and without" \
-            || fail "$label: review records differ ($(diff <(printf '%s\n' "$reviews_off") <(printf '%s\n' "$reviews_on") | head -n 4 | tr '\n' ' '))"
+            || fail "$label: review records differ ($(diff <(printf '%s\n' "$reviews_off") <(printf '%s\n' "$reviews_on") | awk 'NR <= 4' | tr '\n' ' '))"
 
         # With the step: per round, the children ticked before round-started and
         # the agreement right after the verdicts (one record per seat, read as

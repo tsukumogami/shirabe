@@ -135,7 +135,8 @@ that differs from its pin in `references/doc-criteria.json` runs nothing. The
 children it ran go in `doc-criteria/latest.json` of `<skill>-<topic>`.
 
 `agreement` goes right after `verdicts`. It names, per criterion, the child
-`latest.json` holds (or `none`) and records `criteria-agreement` for the round
+`latest.json` holds (or `none`, and `none` for all when `latest.json` was
+graded for another round) and records `criteria-agreement` for the round
 `round-started` last opened; koto computes the criterion's verdict from the
 child's records, the jury's from the round's verdicts on the same rule id and
 section key (the table above), and the agreement between them. On a koto

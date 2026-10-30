@@ -49,7 +49,8 @@
 #   the counter's next value; a name koto refuses as taken is tried again with
 #   the next value, up to five more times. A document's eleventh moment starts
 #   nothing. latest.json then holds the moment, the counter, the document, its
-#   commit and, per criterion, its rule id, section key and child session
+#   commit, the round it grades for (one past the round review/round holds)
+#   and, per criterion, its rule id, section key and child session
 #   (`none` when none ran).
 #
 #   Before any child starts, each template's sha256 and the slicer's are
@@ -241,8 +242,10 @@ if [ "$CMD" = agreement ]; then
     printf '%s\n' "$CRITERIA" > "$WORK/criteria.tsv"
     # A child latest.json names for a rule is passed only when it has the
     # shape of this step's own child names; koto checks the rest.
-    if ! jq -c --arg f "$FORMAT" --arg pre "$SKILL-$TOPIC-crit-" --rawfile crit "$WORK/criteria.tsv" '
-            (if .format == $f then (.criteria // []) else [] end) as $ran
+    # A record graded for another round (a grade skipped before this one) is
+    # stale: its children judged an earlier document, so every entry is none.
+    if ! jq -c --arg f "$FORMAT" --argjson round "$ROUND" --arg pre "$SKILL-$TOPIC-crit-" --rawfile crit "$WORK/criteria.tsv" '
+            (if .format == $f and (.for_round // 0) == $round then (.criteria // []) else [] end) as $ran
             | [$crit | split("\n")[] | select(length > 0) | split("\t") | {rule_id: .[0], section: .[1]}
                | . as $c
                | ([$ran[] | select(.rule_id == $c.rule_id and .section == $c.section) | .session // "none"]
@@ -327,6 +330,18 @@ if [ "$KOTO_OK" = true ]; then
 fi
 
 STARTED=""
+FOR_ROUND=0
+if [ "$KOTO_OK" = true ]; then
+    FOR_ROUND=$("$KOTO" context get "$STATE_SESSION" "$ROUND_KEY" 2>/dev/null | head -n 1 | tr -d '[:space:]')
+fi
+[[ "$FOR_ROUND" =~ ^[0-9]{1,2}$ ]] || FOR_ROUND=0
+FOR_ROUND=$((FOR_ROUND + 1))
+
+# The eleventh moment reports name_taken: the closed reason set has no cap
+# reason, and the cap is what spends the document's names. Whether no decider
+# is configured isn't this script's to know (koto resolves it, and removes the
+# check when there is none), so that case prints nothing and the agreement
+# record says not_run.
 if [ "$MOMENT" -gt "$MOMENT_CAP" ]; then
     MOMENT=$PREV_MOMENT
     skip_all name_taken
@@ -335,6 +350,8 @@ elif [ -z "$KOTO_VERSION" ] || ! version_at_least "$KOTO_VERSION" "$KOTO_MIN"; t
 elif ! command -v python3 >/dev/null 2>&1; then
     skip_all no_python
 else
+    # One pin that differs refuses the whole format: an install with one
+    # edited template can't be trusted to have the others as released.
     pins_ok=true
     while IFS='	' read -r rule section tpl; do
         [ -n "$rule" ] || continue
@@ -462,8 +479,8 @@ done < "$WORK/results"
 # --- the record ----------------------------------------------------------------------
 
 if jq -n -c --arg d "$DOC" --arg f "$FORMAT" --arg c "$COMMIT" \
-        --argjson m "$MOMENT" --argjson n "$COUNTER" --rawfile r "$WORK/results" '
-        {schema: "doc-criteria-latest/v1", doc: $d, format: $f, commit: $c, moment: $m, counter: $n,
+        --argjson m "$MOMENT" --argjson n "$COUNTER" --argjson fr "$FOR_ROUND" --rawfile r "$WORK/results" '
+        {schema: "doc-criteria-latest/v1", doc: $d, format: $f, commit: $c, moment: $m, counter: $n, for_round: $fr,
          criteria: [$r | split("\n")[] | select(length > 0) | split("\t")
                     | {rule_id: .[0], section: .[1], session: .[2], status: .[3]}]}' > "$WORK/latest.new" 2>/dev/null; then
     if [ "$KOTO_OK" = true ]; then

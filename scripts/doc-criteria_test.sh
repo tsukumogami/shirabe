@@ -291,6 +291,19 @@ c=$(child_for brief-b3 rs-073)
 [ "$(terminal "$c")" = false ] && cancelled "$c" && [ "$(checked "$c" | tr '\n' ' ')" = "scope-boundary/1|unanswered|provider_error scope-boundary/2|unanswered|provider_error " ] \
     && pass "the waiting child is cancelled with its unanswered records kept" || fail "waiting child [$(checked "$c" | tr '\n' ' ')]"
 
+echo "--- grade: fail and escape answers are recorded as given"
+run_session brief-b9
+mkdir -p "$REPO/docs/briefs"
+printf -- '# BRIEF\n\n## User Journeys\n\n### One\n\nA person waits.\n\n## Scope Boundary\n\n- Covers `wait.sh`.\n' > "$REPO/docs/briefs/BRIEF-b9.md"
+git -C "$REPO" add -A && git -C "$REPO" commit -qm "docs: b9" >/dev/null
+mode pass rs-073=fail rs-011=unclear
+grade brief b9
+[ "$RC" -eq 0 ] && [ ! -s "$ERR" ] && [ "$(checked "$(child_for brief-b9 rs-073)")" = "scope-boundary/1|fail|" ] \
+    && [ "$(checked "$(child_for brief-b9 rs-011)")" = "user-journeys/1|escape|" ] && [ "$(terminal "$(child_for brief-b9 rs-073)")" = true ] \
+    && pass "a fail and an escape are recorded in shadow, block nothing and print nothing" \
+    || fail "fail/escape: err=[$(cat "$ERR")] [$(checked "$(child_for brief-b9 rs-073)")] [$(checked "$(child_for brief-b9 rs-011)")]"
+mode pass
+
 echo "--- grade: the deadline"
 run_session brief-b4
 mkdir -p "$REPO/docs/briefs"
@@ -394,6 +407,8 @@ printf '2\n' > "$WORKDIR/round"
 koto context add brief-b1 review/round --from-file "$WORKDIR/round" >/dev/null 2>&1
 agreement brief b1
 last_agreement | grep -q -- '--round 2 ' && pass "without --round it takes the round review-events.sh last started" || fail "round: [$(last_agreement)]"
+[ "$(last_entries | jq -r '[.[].criteria_session] | unique | join(",")')" = none ] \
+    && pass "a record graded for another round is stale: every entry is none" || fail "stale round entries [$(last_entries)]"
 agreement brief b6 --round 1
 [ "$(last_entries | jq -r '.[] | select(.rule_id == "rs-073") | .criteria_session')" = brief-b6-crit-rs-073-7 ] \
     && pass "a criterion's entry follows latest.json" || fail "b6 entries [$(last_entries)]"
@@ -574,6 +589,20 @@ $gone && pass "the run and its children are pruned together, as a run with no cr
     || fail "prune kept: $(for s in brief-h1 $kids; do koto status "$s" >/dev/null 2>&1 && printf '%s ' "$s"; done)"
 
 # ======================================================== what the caller sees
+
+echo "--- every decider record the suite made"
+cat "$KOTO_SESSIONS_BASE"/*-crit-*/koto-*.state.jsonl 2>/dev/null \
+    | jq -r 'select(.type == "decider_checked") | .payload | "\(.outcome)|\(.reason // "")"' | sort -u > "$WORKDIR/outcomes"
+bad=$(grep -v -E '^((pass|fail|escape)\||not_graded\||unanswered\|[a-z_]+)$' "$WORKDIR/outcomes" | tr '\n' ' ')
+seen=$(cut -d'|' -f1 "$WORKDIR/outcomes" | sort -u | tr '\n' ' ')
+[ -z "$bad" ] && [ "$seen" = "escape fail not_graded pass unanswered " ] \
+    && pass "every decider record has an outcome from pass, fail, escape, unanswered or not_graded, and every unanswered one a reason [$seen]" \
+    || fail "outcomes: bad [$bad] seen [$seen]"
+reasons=$(grep '^unanswered|' "$WORKDIR/outcomes" | cut -d'|' -f2 | tr '\n' ' ')
+case " $reasons" in *" over_budget "*) ;; *) reasons="missing over_budget: $reasons" ;; esac
+case " $reasons" in *" unit_limit "*) ;; *) reasons="missing unit_limit: $reasons" ;; esac
+case " $reasons" in *" provider_error "*) ;; *) reasons="missing provider_error: $reasons" ;; esac
+case "$reasons" in missing*) fail "unanswered reasons: $reasons" ;; *) pass "records with no verdict carry over_budget, unit_limit or a provider reason [$reasons]" ;; esac
 
 echo "--- what reaches the caller"
 if grep -q -e 'koto decider answer' -e 'Does this' -e 'rule_ref' -e 'blocking_conditions' "$ALL"; then
