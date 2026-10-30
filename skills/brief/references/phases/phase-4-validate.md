@@ -149,7 +149,8 @@ Pinned verdict path: `<verdicts-dir>/phase4_content-quality.md`
 You are reviewing a BRIEF document for content quality. Your job is to test
 whether the Problem Statement states a genuine problem, the User Outcome is
 outcome-shaped, the User Journeys are concrete and distinct, the Scope Boundary
-draws a real line, and any Open Questions genuinely defer to the downstream PRD.
+draws a real line at the feature's altitude, and any Open Questions genuinely
+defer to the downstream PRD.
 
 ## BRIEF to Review
 [Contents of docs/briefs/BRIEF-<topic>.md]
@@ -191,13 +192,22 @@ draws a real line, and any Open Questions genuinely defer to the downstream PRD.
    being accepted? Each question should be safe to leave open; a blocker
    masquerading as an open question is a FAIL.
 
+7. **Scope Boundary bullets stay at the feature's altitude.** Does each
+   Scope Boundary bullet name what the feature covers or leaves out, in
+   plain words, rather than a mechanism, a path or a command? "Exporting a
+   project's history" names what's covered; "a `--since` flag on
+   `scripts/export.sh`" or "the `ExportJob` struct" names how it's built,
+   which belongs in the design. One bullet that names a function, data
+   structure, field, flag, script, file path or command is a FAIL.
+
 ## Verdict Block
 
 End the file with a fenced block tagged review-verdicts holding a JSON
 array: one {"rule_id", "section", "verdict"} entry per item above per
 section you judged it on. verdict is PASS or FAIL; section is the
 section's heading slug (scope-boundary), frontmatter, or document. Item
-ids: 1 rs-021, 2 rs-022, 3 rs-011, 4 rs-023, 5 rs-024, 6 rs-025.
+ids: 1 rs-021, 2 rs-022, 3 rs-011, 4 rs-023, 5 rs-024, 6 rs-025, 7 rs-073.
+Item 7 is judged on scope-boundary.
 
 ## Output Format
 

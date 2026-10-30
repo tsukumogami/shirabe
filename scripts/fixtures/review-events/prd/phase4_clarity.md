@@ -18,6 +18,7 @@ One vague requirement; the rest reads clearly.
   {"rule_id": "rs-039", "section": "requirements", "verdict": "FAIL"},
   {"rule_id": "rs-013", "section": "acceptance-criteria", "verdict": "PASS"},
   {"rule_id": "rs-040", "section": "user-stories", "verdict": "PASS"},
-  {"rule_id": "rs-041", "section": "problem-statement", "verdict": "PASS"}
+  {"rule_id": "rs-041", "section": "problem-statement", "verdict": "PASS"},
+  {"rule_id": "rs-009", "section": "document", "verdict": "PASS"}
 ]
 ```

@@ -145,13 +145,19 @@ that are vague.
 3. Are acceptance criteria binary pass/fail? Could a reviewer objectively verify each one?
 4. Are user stories concrete enough to derive test cases from?
 5. Is the problem statement specific enough to evaluate solutions against?
+6. Do two passages that share a number or a backticked term contradict each
+   other? A requirement that says 30 seconds and an acceptance criterion that
+   says 60 for the same timeout, or `--force` described as skipping a check
+   in one place and as required for it in another, is a FAIL. Passages that
+   use the same term about different things pass.
 
 ## Verdict Block
 End the file with a fenced block tagged review-verdicts holding a JSON array:
 one {"rule_id", "section", "verdict"} entry per item above per section you
 judged it on. verdict is PASS or FAIL; section is the section's heading slug
 (acceptance-criteria), frontmatter, or document. Item ids: 1 rs-038,
-2 rs-039, 3 rs-013, 4 rs-040, 5 rs-041.
+2 rs-039, 3 rs-013, 4 rs-040, 5 rs-041, 6 rs-009. Item 6 is judged on
+document, once for the whole PRD.
 
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_clarity.md`, and nowhere else:

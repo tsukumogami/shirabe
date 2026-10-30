@@ -235,6 +235,17 @@
         "After the 4.4 fix, transcript runs doc-events.sh fix --answers jury_fail and doc-check.sh --moment post_fix --phase 4"
       ],
       "id": 16
+    },
+    {
+      "name": "bet-quality-seat-splits-falsifier-items",
+      "prompt": "/strategy plugin-ecosystem -- the draft is committed and the run reaches Phase 4. The thesis and claims are sound, but one Bet-Specific Falsifiability bullet's condition measures a different product than the claim it names.",
+      "expected_output": "The bet-quality reviewer's review-verdicts block holds two entries: rs-074 on bet-specific-falsifiability as FAIL for the falsifier whose condition is about another product, and rs-067 on document as PASS, since items 1 and 2 pass.",
+      "files": [],
+      "expectations": [
+        "The bet-quality review's review-verdicts block has an entry with rule_id rs-074 and section bet-specific-falsifiability, verdict FAIL",
+        "The same block has an entry with rule_id rs-067 and section document, verdict PASS"
+      ],
+      "id": 17
     }
   ]
 }

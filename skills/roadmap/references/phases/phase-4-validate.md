@@ -231,9 +231,16 @@ doesn't contain downstream content.
 ## Verdict Block
 
 End the file, after the Summary, with a fenced block tagged review-verdicts
-holding a JSON array of one entry: {"rule_id": "rs-072", "section":
-"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
-verdict is FAIL.
+holding a JSON array of two entries, or only the second on a roadmap with no
+Evidence clauses:
+
+- {"rule_id": "rs-073", "section": "milestones", "verdict": "PASS"} for
+  item 5's Evidence-clause bullets: FAIL when any Evidence clause fails one
+  of them, PASS otherwise.
+- {"rule_id": "rs-072", "section": "document", "verdict": "PASS"} for
+  everything else above: FAIL when any other issue fails the review.
+
+An Evidence clause problem alone doesn't make rs-072 FAIL.
 
 ## Output Format
 Write your full review to `<verdicts-dir>/phase4_annotation-boundary.md`:

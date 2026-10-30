@@ -21,6 +21,7 @@ brief can go to approval.
   {"rule_id": "rs-011", "section": "user-journeys", "verdict": "PASS"},
   {"rule_id": "rs-023", "section": "user-journeys", "verdict": "FAIL"},
   {"rule_id": "rs-024", "section": "scope-boundary", "verdict": "PASS"},
-  {"rule_id": "rs-025", "section": "document", "verdict": "PASS"}
+  {"rule_id": "rs-025", "section": "document", "verdict": "PASS"},
+  {"rule_id": "rs-073", "section": "scope-boundary", "verdict": "PASS"}
 ]
 ```

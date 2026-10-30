@@ -175,6 +175,8 @@ a concrete corrective action.
    clause names something a reader can check: a metric, a behavior, an
    external event. "If users don't adopt" is too vague. "If <90% of
    adoption comes from <5 power users after 6 months" is observable.
+   The condition is about the claim its bullet names: observing it would
+   show that claim wrong, not some other product, audience or quantity.
 
 5. **Corrective actions are concrete strategic moves.** Each
    `→ *Corrective: ...*` names a specific strategic move, not "we'll
@@ -191,9 +193,15 @@ a concrete corrective action.
 ## Verdict Block
 
 End the file, after the Summary, with a fenced block tagged review-verdicts
-holding a JSON array of one entry: {"rule_id": "rs-067", "section":
-"document", "verdict": "PASS"}, with "FAIL" in place of "PASS" when your
-verdict is FAIL.
+holding a JSON array of two entries:
+
+- {"rule_id": "rs-074", "section": "bet-specific-falsifiability",
+  "verdict": "PASS"} for the falsifier items, 3 to 6: FAIL when any of
+  them fails, PASS otherwise.
+- {"rule_id": "rs-067", "section": "document", "verdict": "PASS"} for
+  items 1 and 2: FAIL when either fails.
+
+A falsifier problem alone doesn't make rs-067 FAIL.
 
 ## Output Format
 
