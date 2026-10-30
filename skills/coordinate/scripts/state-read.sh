@@ -205,20 +205,51 @@ rs_session_state() {
 # listed is a failed read unless record/meta moved since <out>.m1, which a
 # write that removed the key since does. Returns 0 read; 1 record/meta moved,
 # so the caller reads again; 2 a read failed or a key isn't JSON.
+#
+# The gets don't depend on each other, so they run together, as background
+# jobs, and so do the listings of the ones that failed; each answer is then
+# read in RS_SECTIONS order, so the outcome is the one a read making them in
+# turn gives, and a get or listing past the section that decides it is made
+# and ignored. One after another, a check's gets cost a koto call each, which
+# on a loaded host outran koto's 30-second action limit (shirabe#1406). The
+# closing record/meta get still follows them all.
 rs_sections_direct() {
-    local s=$1 out=$2 only=$3 pair field key k=${KOTO:-${KOTO_BIN:-koto}}
+    local s=$1 out=$2 only=$3 pair field key pids= j rc= lrc= k=${KOTO:-${KOTO_BIN:-koto}}
+    for pair in $RS_SECTIONS; do
+        field=${pair%%:*}
+        case " $only " in *" $field "*) ;; *) continue ;; esac
+        "$k" context get "$s" "record/${pair#*:}" < /dev/null > "$out.sec/$field" 2> "$out.sec.err.$field" &
+        pids="$pids $field:$!"
+    done
+    # rc holds `<field>:<exit status>` for each get.
+    for j in $pids; do
+        field=${j%%:*}
+        wait "${j#*:}" && rc="$rc $field:0" || rc="$rc $field:$?"
+    done
+    # The listings of the gets that failed, together too; lrc as rc.
+    pids=
+    for pair in $RS_SECTIONS; do
+        field=${pair%%:*}
+        case "$rc " in *" $field:0 "*) continue ;; *" $field:"*) ;; *) continue ;; esac
+        rm -f "$out.sec/$field"
+        : > "$out.one.$field.err"
+        rs_list "$s" "record/${pair#*:}" "$out.one.$field" &
+        pids="$pids $field:$!"
+    done
+    for j in $pids; do
+        field=${j%%:*}
+        wait "${j#*:}" && lrc="$lrc $field:0" || lrc="$lrc $field:$?"
+    done
     for pair in $RS_SECTIONS; do
         field=${pair%%:*} key=${pair#*:}
-        case " $only " in *" $field "*) ;; *) continue ;; esac
-        if "$k" context get "$s" "record/$key" < /dev/null > "$out.sec/$field" 2> "$out.sec.err"; then
+        case "$rc " in *" $field:"*) ;; *) continue ;; esac
+        case "$rc " in *" $field:0 "*)
             jq -e . "$out.sec/$field" > /dev/null 2>> "$out.err" || return 2
-            continue
-        fi
-        rm -f "$out.sec/$field"
-        : > "$out.one.err"
-        rs_list "$s" "record/$key" "$out.one" || { cat "$out.one.err" >> "$out.err"; return 2; }
-        jq -e --arg key "record/$key" 'index($key) != null' "$out.one" > /dev/null || continue
-        cat "$out.sec.err" >> "$out.err"
+            continue ;;
+        esac
+        case "$lrc " in *" $field:0 "*) ;; *) cat "$out.one.$field.err" >> "$out.err"; return 2 ;; esac
+        jq -e --arg key "record/$key" 'index($key) != null' "$out.one.$field" > /dev/null || continue
+        cat "$out.sec.err.$field" >> "$out.err"
         "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
         [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] && return 2
         return 1

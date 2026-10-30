@@ -96,20 +96,16 @@ SCOPE= NAME= REPO=
 lib_facts
 lib_run_stamp
 T=$(mktemp -d "${TMPDIR:-/tmp}/decision-next.XXXXXX") || lib_die2 "cannot make a temporary directory"
-trap 'rm -rf "$T"' EXIT
+trap 'lib_jobs_stop; rm -rf "$T"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 # One record read for the step: the Decisions section, and the Work rows a
 # park is judged on, come from one read of the sections they print
 # (shirabe#1315).
 rs_once_begin "$T/once" "decisions run standing work" || lib_die2 "cannot make a temporary directory"
 CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 
-# The section and the log facts the rules read.
-if [ -n "$PARSED" ]; then
-    jq -c -L "$HERE" 'include "state-schema"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
-else
-    bash "$HERE/state-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
-        || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
-fi
 # The latest entry into each state the rules read, 0 when none, in one read
 # of the log (coord-log.sh entries) rather than one coord-log.sh per state.
 # READS is the one list of <state>:<variable>: the request is built from it,
@@ -120,7 +116,33 @@ READS="dispatch:DISPATCH_SEQ report_questions:RQ_SEQ decision_open:OPEN_SEQ wait
 classify_report:CLASSIFY_SEQ decision_answer:ANSWER_SEQ decision_evidence:EVID_SEQ decision_raise:RAISE_SEQ"
 states=
 for pair in $READS; do states="$states${states:+,}${pair%%:*}"; done
-ENTRIES=$(CL entries --states "$states") || lib_die2 "cannot read the session log"
+
+# The log reads that don't wait on each other start here, together, as
+# background jobs (state-common.sh lib_job_start), beside the section read:
+# the entries, the two captures and the three latest evidences. Each answer is
+# taken below where it was read before, in the same order, its stderr
+# replayed there, so the verdict is the one the reads made in turn give.
+# dispatch_check runs this inside koto's 30-second action limit, which the
+# reads made one after another outran on a loaded host (shirabe#1406). The
+# reads that need an earlier answer (a park's, after the entries) stay in turn.
+lib_job_start "$T" entries CL entries --states "$states"
+lib_job_start "$T" qcap CL capture --name QUESTIONS --state report_questions
+lib_job_start "$T" wans CL evidence --state wait --where event=answer
+lib_job_start "$T" tans CL evidence --state escalate_send --where sent=answered
+lib_job_start "$T" wevi CL evidence --state wait --where event=evidence
+lib_job_start "$T" rcap CL capture --name REPORT --state report_facts
+
+# The section and the log facts the rules read.
+if [ -n "$PARSED" ]; then
+    jq -c -L "$HERE" 'include "state-schema"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
+else
+    bash "$HERE/state-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
+        || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
+fi
+lib_job_wait entries
+cat "$T/entries.err" >&2
+[ "$JOB_RC" = 0 ] || lib_die2 "cannot read the session log"
+ENTRIES=$(cat "$T/entries.out")
 for pair in $READS; do
     rest=$'\n'"$ENTRIES"
     case "$rest" in *$'\n'"${pair%%:*} "*) ;; *) lib_die2 "cannot read the session log" ;; esac
@@ -137,11 +159,33 @@ ev_json() {
     e=$(CL evidence --state "$st" "$@")
     case $? in 0) printf '%s' "$e" ;; 1) printf '{}' ;; *) lib_die2 "cannot read the session log" ;; esac
 }
-QCAP=$(CL capture --name QUESTIONS --state report_questions 2>/dev/null) || QCAP=
-WAIT_ANS=$(ev_json wait --where event=answer)
-TOOL_ANS=$(ev_json escalate_send --where sent=answered)
-WAIT_EVI=$(ev_json wait --where event=evidence)
-RCAP=$(CL capture --name REPORT --state report_facts 2>/dev/null) || RCAP=
+# ev_answer <var> <job>: ev_json's answer, from a job, into <var>. ev_json is
+# read in a command substitution, where a failed read prints its message and
+# leaves the value empty, for the rules' read to fail on; so here.
+ev_answer() {
+    local v=
+    lib_job_wait "$2"
+    cat "$T/$2.err" >&2
+    case $JOB_RC in
+        0) v=$(cat "$T/$2.out") ;;
+        1) v='{}' ;;
+        *) echo "$PROG: cannot read the session log" >&2 ;;
+    esac
+    printf -v "$1" '%s' "$v"
+}
+# cap_answer <var> <job>: a capture, from a job, into <var>: empty when it
+# failed, its stderr unshown.
+cap_answer() {
+    local v=
+    lib_job_wait "$2"
+    [ "$JOB_RC" != 0 ] || v=$(cat "$T/$2.out")
+    printf -v "$1" '%s' "$v"
+}
+cap_answer QCAP qcap
+ev_answer WAIT_ANS wans
+ev_answer TOOL_ANS tans
+ev_answer WAIT_EVI wevi
+cap_answer RCAP rcap
 # The latest visit to decision_raise belongs to a park when the pick before it
 # chose await_decision and the run wasn't back at wait in between: the visit
 # from pick, or one the run came back for. A park is judged by the unit pick
