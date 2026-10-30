@@ -45,8 +45,9 @@ workspace hasn't wired up.
 
 - A contributor installs shirabe the same way they install the workspace's other
   tools, from one line in shirabe's README.
-- After `niwa apply` or `niwa create`, a commit that touches a document in any
-  product repository is validated before it lands, in the same terms CI uses.
+- After `niwa apply` or `niwa create`, a commit that touches a document in a
+  product repository clone with no other pre-commit hook is checked before it
+  lands, by the same validator CI uses.
 - Setup respects what is already there: a hook the contributor or the
   repository installed stays in place, and re-running apply changes nothing
   that is already right.
@@ -56,8 +57,8 @@ workspace hasn't wired up.
 ## User Stories
 
 - As a new contributor with tsuku, I want to follow one README line to install
-  shirabe and then run `niwa create`, so that my first doc commit in any product
-  repository is validated without further setup.
+  shirabe and then run `niwa create`, so that my first doc commit in a product
+  repository clone with no hook of its own is validated without further setup.
 - As a contributor who hasn't installed shirabe yet, I want `niwa create` to tell
   me per repository that shirabe is missing and how to install it, so that I can
   install it and re-run `niwa apply` to get the hooks.
@@ -74,95 +75,126 @@ workspace hasn't wired up.
 
 ## Requirements
 
+### Terms
+
+- **Product repository.** A repository in the workspace that holds a product:
+  shirabe, tsuku, koto and niwa among the public ones, plus each product
+  repository the workspace's private overlay adds. Workspace configuration
+  repositories (the public one and the overlay's own) and the org health-files
+  repository are not product repositories.
+- **Setup.** The per-repository step that delivers the hook during `niwa apply`
+  and `niwa create`, whatever file or configuration the design chooses for it.
+- **The hooks directory.** What `git rev-parse --git-path hooks` prints in the
+  clone. It is *in the clone* when it equals `<git common dir>/hooks`.
+- **A shirabe hook.** A `pre-commit` that is a regular file (not a symlink) and
+  contains the marker `shirabe install-hooks`. Any other `pre-commit`, including
+  a symlink and a dangling symlink, is a *foreign hook*.
+- **The current hook body.** What `shirabe install-hooks --force` from the
+  `shirabe` on setup's PATH writes into an empty hooks directory.
+- **A setup notice.** One output line that names the repository and the reason.
+- **A setup failure.** niwa's `setup script ... failed for <repo>` warning, which
+  also puts the repository in apply's `setup incomplete` summary.
+
 ### Functional
 
-- **R1. Install line.** shirabe's README tells a contributor to install the
-  binary with `tsuku install tsukumogami/shirabe`, as the first route in its
-  install guidance, and the "Requirements" entry for the `shirabe` binary points
-  at that guidance. The curl `install.sh` route may stay as an alternative; the
-  README says the pre-commit hook finds `shirabe` only on PATH.
+- **R1. Install line.** shirabe's README "Local install" section gives
+  `tsuku install tsukumogami/shirabe` as its first install command, and the
+  "Requirements" bullet for the `shirabe` binary carries a markdown link to that
+  section. The curl `install.sh` command may stay as a second route. The README
+  says the pre-commit hook finds `shirabe` on PATH only.
 - **R2. Hook on apply.** After `niwa apply` or `niwa create` for the tsukumogami
-  workspace, each product repository clone (shirabe, tsuku, koto, niwa, and each
-  repository the workspace's private overlay adds) has shirabe's pre-commit hook
-  in its hooks directory, whenever `shirabe` is on the PATH niwa runs with and no
-  other pre-commit hook is present.
-- **R3. Missing shirabe.** When `shirabe` is not on PATH, setup for each product
-  repository prints one notice naming the missing binary and the
-  `tsuku install tsukumogami/shirabe` line, installs nothing, and does not count
-  the repository as a setup failure. The first apply after shirabe is installed
-  installs the hook.
-- **R4. Existing hook preserved.** When a clone already has a pre-commit hook
-  that shirabe didn't write (a plain file, a symlink to a repository script, or
-  a pre-commit framework hook), setup leaves that hook and anything it links to
-  byte-unchanged and prints a notice that shirabe's hook was not installed
-  there.
-- **R5. Idempotent re-apply.** Re-running `niwa apply` on an instance whose
-  hooks are current changes no file. A pre-commit hook shirabe wrote earlier, as
-  a regular file, is rewritten to the current shirabe's hook body on the next
-  apply.
+  workspace, each product repository clone whose hooks directory is in the clone
+  and holds no `pre-commit` gets a shirabe hook with the current hook body, mode
+  executable, whenever `shirabe` is on the PATH of the `niwa` process.
+- **R3. Missing shirabe.** When `shirabe` is not on that PATH, setup prints, per
+  product repository, one setup notice containing
+  `tsuku install tsukumogami/shirabe`, writes nothing, and causes no setup
+  failure. The first apply after shirabe is on PATH installs the hook (R2).
+- **R4. Foreign hook preserved.** When the clone has a foreign hook, setup leaves
+  the `pre-commit` entry, and any file it links to, byte-unchanged, and prints a
+  setup notice saying a pre-commit hook is already present. It causes no setup
+  failure.
+- **R5. Refresh, otherwise no change.** When the clone has a shirabe hook whose
+  body differs from the current hook body, setup rewrites it to the current hook
+  body. When it already matches, setup changes no file and prints nothing.
 - **R6. Worktrees.** A commit in a worktree of a product repository clone runs
-  shirabe's hook with no per-worktree setup step, and setup never writes a hook
-  into a worktree-private git directory.
-- **R7. Hooks outside the clone.** When the clone's hooks directory resolves
-  outside its own git directory (for example a global `core.hooksPath`), setup
-  writes nothing there and prints a notice saying why.
-- **R8. Product repositories only.** Repositories in the workspace that are not
-  product repositories (the workspace config repository and the org health-files
-  repository) get no hook from this feature.
-- **R9. Released niwa.** R2 through R8 hold with the niwa release contributors
-  already have (0.40.0), with no niwa release and no change to niwa's binary.
-- **R10. Same setup everywhere.** Whatever delivers the hook is identical in
-  every product repository, so a repository the private overlay adds takes the
-  same setup verbatim. No public document names a private repository.
-- **R11. Documented.** The contract guide's "Installing the local hook" section
-  says how the workspace delivers the hook during `niwa apply` and what setup
-  does in the R3, R4 and R7 cases.
+  the clone's shirabe hook with no per-worktree step, and setup writes nothing
+  under a worktree's private git directory.
+- **R7. Hooks directory outside the clone.** When the hooks directory is not in
+  the clone (a `core.hooksPath` set globally, locally, or to a path inside the
+  working tree), setup writes nothing and prints a setup notice naming the
+  resolved hooks directory. It causes no setup failure.
+- **R8. Install error.** When `shirabe` is on PATH but writing the hook fails,
+  setup reports a setup failure for that repository, and the other repositories'
+  setup still runs.
+- **R9. Product repositories only.** Repositories that are not product
+  repositories get no hook and no setup notice from this feature.
+- **R10. Released niwa.** R2 through R9 hold with niwa 0.40.0 and later releases,
+  with no change to niwa's source or binary.
+- **R11. Same setup everywhere.** Setup is byte-identical in every product
+  repository and names no repository, so a product repository the private
+  overlay adds takes it verbatim. No public document names a private repository.
+- **R12. Documented.** The contract guide's "Installing the local hook" section
+  has one paragraph each on the apply-time delivery, the missing-shirabe case,
+  the foreign-hook case and the outside-hooks-directory case.
 
 ### Non-functional
 
-- **R12. Quiet and quick.** Setup prints at most two lines per product
-  repository and adds no network access to `niwa apply`.
+- **R13. Quiet and local.** Setup adds at most one output line per product
+  repository in every case, and runs only local commands (`git`, `shirabe`, and
+  shell built-ins), so it adds no network access to `niwa apply`.
 
 ## Acceptance Criteria
 
-- [ ] shirabe's README "Local install" section shows
-      `tsuku install tsukumogami/shirabe` before any other install command, and
-      the "Requirements" bullet for the `shirabe` binary links to that section.
-- [ ] The README states that the pre-commit hook resolves `shirabe` on PATH.
-- [ ] In an isolated `niwa create` (or `niwa apply`) of the tsukumogami workspace
-      with `shirabe` on PATH, each public product repository clone (shirabe,
-      tsuku, koto, niwa) has `.git/hooks/pre-commit` containing the marker
-      `shirabe install-hooks`, and the apply output shows no setup failure for
-      those repositories.
-- [ ] In the same run, the workspace config and org health-files clones have no
-      `.git/hooks/pre-commit`.
-- [ ] With `shirabe` absent from PATH, the same run prints, for each product
-      repository, a notice naming `tsuku install tsukumogami/shirabe`, writes no
-      `pre-commit` hook, and does not list the repository as setup incomplete.
-- [ ] A second `niwa apply` right after a successful one leaves every product
-      clone's `pre-commit` hook byte-identical.
-- [ ] A clone whose `pre-commit` is a symlink to a tracked `scripts/pre-commit`
-      keeps both the symlink and `scripts/pre-commit` byte-identical after
-      apply, `git status` in that clone shows no change, and apply prints a notice
-      for that repository.
-- [ ] A clone with a regular-file `pre-commit` that shirabe didn't write keeps it
-      byte-identical after apply, with a notice printed.
-- [ ] A clone whose `pre-commit` carries the `shirabe install-hooks` marker but an
-      older body holds the current `shirabe install-hooks` body after apply.
-- [ ] Staging a document with an invalid status and committing in a worktree of a
-      product clone is refused by the hook, and no file exists under that
-      worktree's private git directory's `hooks/`.
-- [ ] With `core.hooksPath` set to a directory outside the clone, apply writes no
-      file in that directory and prints a notice for that repository.
-- [ ] The setup artifact is byte-identical across the four public product
-      repositories.
-- [ ] `docs/guides/multi-consumer-cli-contract.md` "Installing the local hook"
-      describes the apply-time delivery and the missing-shirabe,
-      existing-hook and outside-hooks-directory cases.
-- [ ] No document, commit or pull request this feature produces names a private
-      repository.
-- [ ] Setup prints no more than two lines per product repository in each case
-      above.
+The demonstration runs use an isolated instance: a fresh `niwa create` of the
+tsukumogami workspace into a new temporary workspace root, followed by a
+`niwa apply` of that instance, with niwa 0.40.0, leaving the contributor's other
+instances untouched. Each criterion names its requirement.
+
+- [ ] R1: the README "Local install" section's first fenced command is
+      `tsuku install tsukumogami/shirabe`; the "Requirements" bullet for the
+      `shirabe` binary links to `#local-install`; the README says the hook
+      resolves `shirabe` on PATH.
+- [ ] R2, R10: in the isolated run with `shirabe` on PATH, each of the shirabe,
+      tsuku, koto and niwa clones has an executable `.git/hooks/pre-commit`
+      byte-identical to the current hook body, the run prints `niwa version
+      0.40.0` for `niwa --version`, and apply reports no setup failure.
+- [ ] R2: in one of those clones, committing a valid design doc succeeds, and
+      committing a design doc with `status: Bogus` is refused.
+- [ ] R9: in the same run, the workspace configuration and org health-files
+      clones have no `.git/hooks/pre-commit`, and no setup notice names them.
+- [ ] R3: with `shirabe` absent from PATH, `niwa create` prints one setup notice
+      per product repository containing `tsuku install tsukumogami/shirabe`,
+      writes no `pre-commit`, and reports no setup failure; putting `shirabe` on
+      PATH and running `niwa apply` then installs the hook in each clone.
+- [ ] R5: a second `niwa apply` right after a successful one leaves every product
+      clone's `pre-commit` byte-identical and adds no output line from setup.
+- [ ] R5: a clone whose `pre-commit` is a regular file with the marker and a
+      different body holds the current hook body after apply.
+- [ ] R4: each of these, set up before apply, is byte-identical after it, with one
+      setup notice and no setup failure: a symlink to a tracked
+      `scripts/pre-commit` (the symlink and `scripts/pre-commit` both unchanged,
+      `git status` clean); a regular-file hook without the marker; a
+      pre-commit framework hook; a dangling symlink; a symlink whose target
+      contains the marker.
+- [ ] R6: in a worktree of a product clone, committing a valid doc succeeds and
+      committing a doc with `status: Bogus` is refused; no `hooks` entry exists
+      under the worktree's private git directory.
+- [ ] R7: with `core.hooksPath` set to an absolute directory outside the clone,
+      and separately to `.githooks` inside the working tree, apply writes no file
+      in either directory and prints a setup notice naming it.
+- [ ] R8: with the clone's hooks directory made read-only, apply reports a setup
+      failure for that repository and still installs the hook in the others.
+- [ ] R11: setup is byte-identical across the four public product repositories
+      and contains none of their names.
+- [ ] R11: a grep of this feature's diffs and pull request text for the names of
+      the workspace's private repositories returns nothing.
+- [ ] R12: the contract guide's "Installing the local hook" section has a
+      paragraph on apply-time delivery and one each on the missing-shirabe,
+      foreign-hook and outside-hooks-directory cases.
+- [ ] R13: in every run above, setup adds at most one line per product
+      repository, and setup's commands are only `git`, `shirabe` and shell
+      built-ins.
 
 ## Out of Scope
 
