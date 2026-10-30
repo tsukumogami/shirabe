@@ -109,3 +109,39 @@ A fix made after a round's FAIL verdicts is recorded with
 of the seats' ingested files with the same parser
 (`scripts/lib/review-verdicts.sh`) and joins each rubric item to the document
 check that decides it through the registry's `held_by`.
+
+## The criteria step
+
+The /brief, /prd, /design (its final review), /strategy and /roadmap juries
+grade the document's criteria in shadow around each round, and record how each
+criterion agreed with the jury:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" grade --doc <path> --format <format> --topic <topic> --skill <skill>
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" agreement --format <format> --topic <topic> --skill <skill>
+```
+
+`grade` goes right after the pre-jury document check exits 0 and before
+`round-started`. For each criterion `references/doc-criteria.json` lists for
+the format, it starts a throwaway child koto session of the run's session from
+the criterion's template and ticks it once, the format's children in parallel,
+then cancels any child left waiting or still running at the 180-second
+deadline. The run's own session is never ticked, and nothing koto or the
+decider answers reaches the skill: the script prints one summary line and, per
+criterion it couldn't grade, one fixed line (`old_koto`, `no_python`,
+`refused_template`, `name_taken`, `init_failed`, `deadline`, or `cancelled:
+waiting` for a child the decider left without a verdict). A template or slicer
+that differs from its pin in `references/doc-criteria.json` runs nothing. The
+children it ran go in `doc-criteria/latest.json` of `<skill>-<topic>`.
+
+`agreement` goes right after `verdicts`. It names, per criterion, the child
+`latest.json` holds (or `none`) and records `criteria-agreement` for the round
+`round-started` last opened; koto computes the criterion's verdict from the
+child's records, the jury's from the round's verdicts on the same rule id and
+section key (the table above), and the agreement between them. On a koto
+without that record it prints one line and records nothing.
+
+Both always exit 0. `scripts/doc-criteria_test.sh` drives them against a real
+koto and a stub decider; `scripts/doc-criteria-wiring_test.sh` checks the ten
+call sites and that a run records the same states, check exits, rounds and
+verdicts with the step and without it.

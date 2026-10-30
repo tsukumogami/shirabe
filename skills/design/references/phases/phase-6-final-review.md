@@ -42,6 +42,16 @@ its findings name, commit, and run the fix loop in that reference with
 `doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user before launching,
 or under `--auto` stop the run and report them.
 
+Once the check exits 0, and before launching, grade the document's criteria in
+shadow. Each runs in a throwaway koto session of its own and its answers are
+telemetry only: the step always exits 0, prints at most one fixed line per
+criterion, and changes nothing the jury does
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes it):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" grade --doc docs/designs/DESIGN-<topic>.md --format design --topic <topic> --skill design
+```
+
 Before launching, record the round as telemetry (add `--fallback` when the
 round runs as the serial self-jury). It always exits 0 and changes nothing the
 review does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes
@@ -163,6 +173,7 @@ call comes first):
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill design --topic <topic> --doc docs/designs/DESIGN-<topic>.md --dir <reviews-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" agreement --format design --topic <topic> --skill design
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest design-<topic> research <reviews-dir>
 ```
 

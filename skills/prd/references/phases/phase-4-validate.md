@@ -60,6 +60,16 @@ its findings name, commit, and run the fix loop in that reference with
 `doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user as a significant issue below,
 or under `--auto` stop the run and report them.
 
+Once the check exits 0, and before launching, grade the document's criteria in
+shadow. Each runs in a throwaway koto session of its own and its answers are
+telemetry only: the step always exits 0, prints at most one fixed line per
+criterion, and changes nothing the jury does
+(`${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md` describes it):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" grade --doc docs/prds/PRD-<topic>.md --format prd --topic <topic> --skill prd
+```
+
 Beside the packet, before launching, record the round as telemetry (add
 `--fallback` when the round runs as the serial self-jury). It always exits 0
 and changes nothing the jury does; `${CLAUDE_PLUGIN_ROOT}/references/review-verdicts.md`
@@ -239,6 +249,7 @@ directory:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" verdicts --skill prd --topic <topic> --doc docs/prds/PRD-<topic>.md --dir <verdicts-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/doc-criteria.sh" agreement --format prd --topic <topic> --skill prd
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest prd-<topic> research <verdicts-dir>
 rm -rf -- <inputs-dir>
 ```

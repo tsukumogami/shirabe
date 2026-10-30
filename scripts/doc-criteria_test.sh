@@ -446,7 +446,7 @@ for spec in "brief rs-073 32 scope-boundary" "brief rs-011 8 user-journeys" "bri
         mode pass
         grade "$f" "$t"
         past=$(checked "$(child_for "$f-$t" "$r")")
-        first=$(printf '%s\n' "$past" | head -n "$cap")
+        first=$(head -n "$cap" <<< "$past")
         [ "$first" = "$at_cap" ] && [ "$(printf '%s\n' "$past" | sed -n "$((cap + 1))p")" = "$sec/$((cap + 1))|unanswered|unit_limit" ] \
             && [ "$(requests "$r")" -le 32 ] && [ "$(requests "$r")" = "$cap" ] \
             && pass "$f $r: one unit past the cap grades the same first $cap and records the last unit_limit" \
@@ -582,7 +582,7 @@ else
     pass "no criterion text, finding or answer command reached the caller in any case"
 fi
 bad=$(grep -v -E "$ALLOWED" "$ALL" | grep -v -E '^doc-criteria: (moment [0-9]+ graded [0-9]+ of [0-9]+ criteria|round [0-9]+ agreement recorded for [0-9]+ criteria)$' \
-    | grep -v -E '^(Usage: |       doc-criteria.sh )' | sort -u | head -n 5 | tr '\n' '|')
+    | grep -v -E '^(Usage: |       doc-criteria.sh )' | sort -u | awk 'NR <= 5' | tr '\n' '|')
 [ -z "$bad" ] && pass "every line the step printed is one of its fixed lines" || fail "unexpected lines: $bad"
 if grep -v '^[[:space:]]*#' "$DC" | grep -q -E 'curl|wget|/dev/tcp|urllib|http\.client|[^-]nc '; then
     fail "doc-criteria.sh has a request path of its own"
