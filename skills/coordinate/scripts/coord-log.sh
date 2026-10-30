@@ -112,7 +112,8 @@
 #   coord-log.sh live-session --scope-slug SLUG [--all]
 #       Prints the one live coordinate-SLUG-* session. Exit 0; 1 none; 3 several.
 #       A run that is finished, cancelled or taken over (its log holds a
-#       session_superseded event) isn't live.
+#       session_superseded event) isn't live, and neither is one imported to
+#       another host (koto's dashboard detail says it migrated).
 #       With --all, prints every live one, one per line. Exit 0; 1 none.
 #   coord-log.sh slug --scope SCOPE --name NAME
 #       Prints the scope slug sessions are named by: `<scope>-<name>` lowercased,
@@ -239,6 +240,14 @@ session_log() {
         return 1
     fi
     printf '%s\n' "$f"
+}
+
+# migrated_away <session>: exit 0 when koto says the session was imported
+# elsewhere. `koto dashboard <session> --detail` is a read that changes
+# nothing and answers such a session with a `migrated` object naming the copy;
+# `koto status` doesn't say. state-read.sh's rs_migrated asks the same.
+migrated_away() {
+    "$KOTO" dashboard "$1" --detail </dev/null 2>/dev/null | jq -e '.migrated | type == "object"' >/dev/null 2>&1
 }
 
 # events <log>: every event line (the header has no "type").
@@ -604,6 +613,11 @@ live-session)
         # A run another session took over is fenced: koto refuses every write
         # to it, so its successor is the live run.
         jq -e 'select(.type == "session_superseded")' "$LOG" >/dev/null && continue
+        # A run imported to another host is its copy's read-only predecessor
+        # here: koto 0.32.0 and later answer its reads and refuse every write
+        # (session_migrated), so the copy is the live run. Asked last, as it's
+        # one more koto call; a koto that can't answer leaves the run listed.
+        migrated_away "$id" && continue
         [ "$ALL" = 1 ] && printf '%s\n' "$id"
         LIVE=$id
         n=$((n + 1))
