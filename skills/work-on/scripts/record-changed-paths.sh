@@ -161,17 +161,17 @@ fi
 
 if [ -z "$BASE" ]; then
     BASE="$DEFAULT_BASE"
-elif [ -n "$DEFAULT_BASE" ] && ! git merge-base --is-ancestor "$DEFAULT_BASE" "$BASE" 2>/dev/null \
-    && ! git merge-base --is-ancestor HEAD "$DEFAULT_BASE" 2>/dev/null; then
+elif [ -n "$DEFAULT_BASE" ] && ! git merge-base --is-ancestor "$DEFAULT_BASE" "$BASE" \
+    && ! git merge-base --is-ancestor HEAD "$DEFAULT_BASE"; then
     # The default branch was merged in after impl_base. The base becomes the
     # clean merge of the two, so what that merge brought in isn't listed; a
     # merge that conflicts, or that git can't build, keeps impl_base.
-    if tree=$(git merge-tree --write-tree "$BASE" "$DEFAULT_BASE" 2>/dev/null) \
+    if tree=$(git merge-tree --write-tree "$BASE" "$DEFAULT_BASE") \
         && merged=$(GIT_AUTHOR_NAME=work-on GIT_AUTHOR_EMAIL=work-on@localhost \
             GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000' GIT_COMMITTER_NAME=work-on \
             GIT_COMMITTER_EMAIL=work-on@localhost GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000' \
             git commit-tree --no-gpg-sign "$tree" -p "$BASE" -p "$DEFAULT_BASE" \
-            -m "impl_base with the default branch merged in" </dev/null 2>/dev/null) \
+            -m "impl_base with the default branch merged in" </dev/null) \
         && [ -n "$merged" ]; then
         BASE="$merged"
     fi

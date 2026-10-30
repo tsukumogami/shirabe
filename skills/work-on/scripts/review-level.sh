@@ -630,14 +630,14 @@ step_base() {
     STEP_BASE="$1"
     MERGED_DEFAULT=""
     [ -n "$2" ] || return 0
-    git merge-base --is-ancestor "$2" "$1" 2>/dev/null && return 0
-    git merge-base --is-ancestor HEAD "$2" 2>/dev/null && return 0
-    tree=$(git merge-tree --write-tree "$1" "$2" 2>/dev/null) || return 0
+    git merge-base --is-ancestor "$2" "$1" && return 0
+    git merge-base --is-ancestor HEAD "$2" && return 0
+    tree=$(git merge-tree --write-tree "$1" "$2") || return 0
     commit=$(GIT_AUTHOR_NAME=work-on GIT_AUTHOR_EMAIL=work-on@localhost \
         GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000' GIT_COMMITTER_NAME=work-on \
         GIT_COMMITTER_EMAIL=work-on@localhost GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000' \
         git commit-tree --no-gpg-sign "$tree" -p "$1" -p "$2" \
-        -m "impl_base with the default branch merged in" </dev/null 2>/dev/null) || return 0
+        -m "impl_base with the default branch merged in" </dev/null) || return 0
     [ -n "$commit" ] || return 0
     STEP_BASE="$commit"
     MERGED_DEFAULT="$2"
