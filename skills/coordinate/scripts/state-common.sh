@@ -206,8 +206,10 @@ lib_job_wait() {
 
 # lib_jobs_stop: stop every job not yet waited for, and wait for each to go.
 # A check ends with it, so a read past the verdict it reached, or one still
-# out when the check is killed, doesn't outlive it or write into a temporary
-# directory the check then removes.
+# out when the check is killed, starts nothing more and is gone before the
+# check removes its temporary directory. Only the job itself is signalled: a
+# koto call it had already started runs to its end, writing only to the files
+# it already holds open, which the removal unlinks.
 lib_jobs_stop() {
     local j
     for j in $LIB_JOBS; do kill "${j#*:}" 2> /dev/null; done
