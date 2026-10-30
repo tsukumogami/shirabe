@@ -388,20 +388,25 @@ failing heads from GitHub.
 exits 0 at the first that fails:
 
 1. `FLEET_EVENT_SINK` is not exactly `off`. No other value is read.
-2. `date -u +%s` prints an integer at or after 1794189600
-   (2026-11-09T02:00:00Z). An unreadable clock counts as before.
+2. `/bin/date -u +%s` prints an integer at or after 1794189600
+   (2026-11-09T02:00:00Z). An unreadable clock counts as before. `date` and
+   `ls` are called by absolute path, so a stub earlier on `PATH` can't lift
+   the gate or fake the checks below.
 3. `$HOME/.local/libexec/fleet/event-sink` is a regular file, not a symbolic
    link, and executable; it and every directory above it up to `/` are owned
    by the user's uid or by 0, and none is writable by group or others.
    Ownership and mode come from `ls -ldn`, which reads the same on macOS and
    Linux.
-4. Each `key=value` value is matched to its field's shape (id, name, pr, int
-   or bool, from a table in the helper that mirrors the field table below);
-   a value that fails, or that starts with `--`, is dropped and the rest are
-   sent.
+4. Each key is matched to the field table, and each value is matched whole
+   to its field's shape (id, name, pr, int or bool, from a table in the
+   helper that mirrors the field table below) with `[[ =~ ]]`, never a
+   line-oriented `grep`, so an embedded newline can't pass. A key or value
+   that fails, or that starts with `--`, is dropped and the rest are sent.
 
-Then it runs the sender with `timeout 3` (or the repository's watcher-based
-deadline where `timeout` is missing), discards its output and status, and
+Then it runs the sender with `timeout 3` (or, where `timeout` is missing, the
+repository's watcher-based deadline, which kills the sender's whole process
+group), with each value as one argument and no shell evaluation, discards its
+output and status, and
 exits 0. It never retries, spools or backgrounds anything. Callers run it as
 `bash "$root/scripts/emit-event.sh" event ... </dev/null >/dev/null 2>&1 ||
 :`, never by sourcing it, so a fault in it can't reach the caller's shell.
@@ -583,8 +588,10 @@ Lands any time; sends nothing before 2026-11-09T02:00Z.
   a group-writable parent (no call), no sender (no call), a hanging sender
   (returns in about 3 seconds with 0), sender exits 1 to 4 (helper exits 0),
   an unreadable clock (no call), a value outside its shape (field dropped).
-- A static check that fails when any file but the helper and its test names
-  `libexec/fleet/event-sink` or `FLEET_EVENT_SINK`.
+- A static check that fails when any script, template or test other than the
+  helper and its test holds `event-sink` or `EVENT_SINK` anywhere, which also
+  catches a path or variable name assembled from parts. Documentation is
+  exempt.
 - The call sites: `dispatch-worker.sh`, `koto-open.sh` and work-on's plain
   init, `land-merge.sh`, `teardown-pass.sh` (`retired` beside step 4a, which
   keeps running), each with a suite case asserting the helper's arguments
@@ -634,6 +641,53 @@ Not filed by this design; each is a candidate issue:
 
 The allow-list rows for the scope, kinds and fields are added outside this
 repository from the Key Interfaces tables.
+
+## Security Considerations
+
+**Running an executable from the user's home.** The helper runs one file,
+from one fixed path under `$HOME`, and only after the sender's discovery rules
+pass: the file and every directory above it owned by the user or root, none
+writable by group or others, the file not a symbolic link. Those rules come
+from the sender's own design and keep other accounts out; they don't protect
+against the same account. Two things in this design keep a repository's
+settings from steering it. The helper reads no environment variable but
+`FLEET_EVENT_SINK=off`, and the date gate is a constant, so no setting can
+start sending early or point the helper at another file. It also calls `date`
+and `ls` by absolute path, so a stub earlier on `PATH` can't lift the gate or
+fake an ownership check. The residual risk is the one the sender's design
+accepts. A process running as the user could set `HOME` for a tool process,
+or write into the user's own `libexec` directory, and plant a file that
+passes the checks. Keeping agents from writing there is a matter for the
+sandbox and for the sender's installation, not for this design. The checks and
+the run are separate steps, but only the same user or root could race them.
+
+**Values that workers can write.** Every value sent comes from koto, niwa's
+output, a Holdings row or a Unit tag, and a worker can shape all of them. The
+helper matches each key to the field table and each value whole to its
+field's shape, drops any that fail or start with `--`, and passes each as one
+argument with no shell evaluation and standard input closed. The sender
+enforces the same shapes and its own allow-list, so a miss in the helper still
+drops the field. A `name` field can carry a few words off the host. That is
+accepted because sending is gated on the host's consent and every field is
+capped at 128 characters.
+
+**What leaves the host.** The events carry repository names, pull request
+references, topics, roadmap names and milestones, plus opaque session,
+request and dispatch ids. They go only to the host's own consented telemetry
+backend, never to a pull request, an issue or any other public surface, so
+the `not public` masking `unit-cost/1` applied before posting on a pull
+request has no counterpart here. Masking a private repository's name would
+also break the join with the pull request scope, which carries the same
+references. No event carries file contents, prompts, tokens, credentials or
+free text. The sender adds the host and workspace identifiers itself, and
+this design doesn't change what it adds.
+
+**No new standing process.** The helper writes nothing, starts nothing in
+the background and never retries. Where `timeout` is missing, its deadline
+kills the sender's whole process group. It can't fail its caller, and a send
+adds at most three seconds. Deleting the sweep, its locks and the removals
+directory removes code that ran detached on the host and read files workers
+had written.
 
 ## Consequences
 
