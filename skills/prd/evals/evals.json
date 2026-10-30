@@ -332,6 +332,17 @@
         "After the fix, transcript runs doc-events.sh fix --answers jury_fail, doc-events.sh sections and doc-check.sh --moment post_fix --phase 4 in that order"
       ],
       "id": 25
+    },
+    {
+      "name": "clarity-seat-judges-contradicting-passages",
+      "prompt": "/prd sync-retry -- the draft is committed through Phase 3 and the run reaches Phase 4. R3 says the retry timeout is 30 seconds and an acceptance criterion says the same timeout is 60 seconds.",
+      "expected_output": "The clarity reviewer's prompt carries item 6, whether two passages sharing a number or backticked term contradict each other, and its review-verdicts block records rs-009 on document as FAIL for the two timeouts.",
+      "files": [],
+      "expectations": [
+        "The clarity reviewer's prompt includes item 6 on passages that share a number or backticked term contradicting each other, with 6 rs-009 in its item ids",
+        "The clarity review's review-verdicts block has an entry with rule_id rs-009 and section document, verdict FAIL"
+      ],
+      "id": 26
     }
   ]
 }

@@ -1002,8 +1002,9 @@ rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
 # design/provenance-opener, docs/schema-declared and docs/check-environment,
 # the /scope document gate's structural rules, to 130 rules and 54 gates;
 # probe/ack-value and probe/value-absent, the /work-on probe's gates, to 132
-# rules and 56 gates.
-[ "$n" = 132 ] && [ "$gates" = 56 ] && [ "$rsn" = 73 ] && pass "the registry has 132 rules: 56 gates and 73 rs- ids" \
+# rules and 56 gates; rs-073 and rs-074, the document criteria's new rubric
+# ids, to 134 rules and 75 rs- ids.
+[ "$n" = 134 ] && [ "$gates" = 56 ] && [ "$rsn" = 75 ] && pass "the registry has 134 rules: 56 gates and 75 rs- ids" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \

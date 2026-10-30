@@ -267,6 +267,17 @@
         "After applying the review change, transcript runs doc-events.sh fix --answers jury_fail and then doc-check.sh --moment post_fix --phase 6"
       ],
       "id": 20
+    },
+    {
+      "name": "architecture-seat-judges-contradicting-passages",
+      "prompt": "/design cache-layer -- the run reaches Phase 6. Decision Outcome picks a 5-minute TTL and Solution Architecture builds on a 1-hour TTL for the same cache.",
+      "expected_output": "The architecture reviewer is given the whole document for question 5, whether two passages sharing a number or backticked term contradict each other, and its review-verdicts block records rs-009 on document as FAIL for the two TTLs.",
+      "files": [],
+      "expectations": [
+        "The architecture reviewer's prompt includes question 5 on contradicting passages, with 5 rs-009 in its question ids, and it receives the whole document",
+        "The architecture review's review-verdicts block has an entry with rule_id rs-009 and section document, verdict FAIL"
+      ],
+      "id": 21
     }
   ]
 }
