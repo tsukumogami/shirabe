@@ -17,7 +17,8 @@
 # coordinator escalations and withdrawals; --carry from the predecessor
 # session record/rotation names, before and after the first dispatch, and
 # refused for a rotation that names none; compaction; a line break in an item;
-# a write to a record past 60,000 bytes (there is no size budget); the section kept in the run's session's record/decisions, an entry moving
+# --open's and --escalate's options starting with a dash (-r, --flag=value)
+# stored as given, and a dash-leading decision id refused as a bad id; a write to a record past 60,000 bytes (there is no size budget); the section kept in the run's session's record/decisions, an entry moving
 # from proposed to coordinator-verdict to settled there, with nothing written
 # on GitHub.
 #
@@ -108,6 +109,18 @@ refused "--open: a line break in an item is refused" --open --question "$(printf
 refused "--open: a source other than self or the dispatcher is refused" --open --question "Q?" --option "a -- b" --source "worker w1"
 to decision_take
 refused "--open outside decision_raise is refused" --open --question "Q?" --option "a -- b"
+# An option starting with a dash: jq reads none of them as its own option (-r
+# is one of jq's, --flag=value isn't), so each is stored as given (#1405).
+opts() { ent "$1" | jq -r '.options | split("\n") | join("|")'; }
+setup '[]' 1
+to decision_raise
+rd --open --question "Which route?" --option "take the -r route" --option "-r"
+wrote "--open: an option of -r is written"
+eq "--open: an option of -r is stored as given, not taken as jq's" "take the -r route|-r" "$(opts 1)"
+to decision_next; to decision_raise
+rd --open --question "Which flag?" --option "--flag=value -- kept" --option "plain -- too"
+wrote "--open: an option starting with -- is written"
+eq "--open: an option starting with -- is stored as given" "--flag=value -- kept|plain -- too" "$(opts 2)"
 
 # --- --take and the routed entry --------------------------------------------------------
 
@@ -178,6 +191,12 @@ setup "[$(E 1 coordinator-verdict)]" 10 ws
 route "verdict 1" decision_verdict
 rd --escalate "${ESC_ARGS[@]}"
 eq "--escalate: a run reporting to a coordinator escalates to it" "coordinator ws" "$(f 1 target)"
+# --option values starting with a dash are explained as given (#1405).
+setup "[$(E 1 coordinator-verdict '{options: "-r\n--flag=value"}')]"
+route "verdict 1" decision_verdict
+rd --escalate --recommendation "-r" --reason r --context c --problem p --grounds scope --option "-r -- the raw route" --option "--flag=value -- the flag route"
+wrote "--escalate: options starting with a dash are written"
+eq "--escalate: options starting with a dash are stored as given" "escalated|-r -- the raw route|--flag=value -- the flag route" "$(f 1 state)|$(opts 1)"
 
 # --- --hold ---------------------------------------------------------------------------------
 
@@ -225,6 +244,11 @@ refused "evidence without a text is refused" --evidence --source dispatcher
 setup "[$(E 1 proposed)]"
 arrive decision_evidence '{"event":"evidence","decision":"9"}'
 refused "evidence on an entry the record lacks is refused" --evidence --source dispatcher --text t
+# A decision id starting with a dash is a bad id, never one of jq's options (#1405).
+setup "[$(E 1 proposed)]"
+arrive decision_evidence '{"event":"evidence","decision":"-r"}'
+refused "evidence naming a dash-leading decision id is refused" --evidence --source dispatcher --text t
+grep -q "names no decision" "$T/err" && ok "  ... as a bad id" || bad "  ... as a bad id" "$(cat "$T/err")"
 
 # --- --answer -------------------------------------------------------------------------------
 
@@ -421,6 +445,10 @@ setup "[]" 1
 listed '[{"index":1,"kind":"question","text":"x (decision 7)?","source":"worker w1","addressed":false,"cite":7}]'
 printf '%s' '{"1":{"question":"the cap"}}' > "$T/cite7.json"
 refused "--open-from-report: an item citing an entry the record lacks is refused" --open-from-report --text-file "$T/cite7.json"
+setup "[]" 1
+listed '[{"index":1,"kind":"question","text":"x (decision -1)?","source":"worker w1","addressed":false,"cite":"-1"}]'
+refused "--open-from-report: an item citing a dash-leading decision id is refused" --open-from-report --text-file "$T/cite7.json"
+grep -q "cites an entry the record lacks" "$T/err" && ok "  ... as an entry the record lacks" || bad "  ... as an entry the record lacks" "$(cat "$T/err")"
 # A record of 80 long entries, past the 60,000 bytes the old budget allowed, is
 # written like any other: there is no size budget.
 setup "[$(E 1 proposed)]"
