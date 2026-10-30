@@ -120,7 +120,10 @@ koto	session import	--from,--trust-template	mode:session-store
 # --supersede --expect-state --carry` (koto 0.28.0 and later). Only a takeover
 # makes the call, so the record is mode:takeover, never checked at load; on an
 # older koto the opener reads `koto init --help` first and prints
-# outcome=refused and reason=koto-too-old with nothing written. It reads a
+# outcome=refused and reason=koto-too-old with nothing written. On koto 0.32.0
+# and later, which fence a run on the cloud backend, `--import` takes the
+# imported copy over through the same call, and reads `koto version` to tell
+# such a koto from an older one, whose import it resumes. It reads a
 # successor's predecessor from `koto session hierarchy`, to tell its own
 # interrupted takeover from another session's.
 koto	init	--continues,--supersede,--expect-state,--carry	mode:takeover

@@ -18,7 +18,11 @@
 #   2. a start that resumes the live run calls it no more;
 #   3. a start that carries an ended run's record across into a new run calls
 #      it no more;
-#   4. an --import of the run on another host calls it no more, on either host;
+#   4. an --import of the run on another host calls it no more, on either host:
+#      on koto 0.32.0 and later the opener, run as a Claude session, takes the
+#      imported copy over into a new run (imported=, outcome=continued,
+#      predecessor= the copy), and on an older koto it resumes the copy
+#      (imported=, resumed=1);
 #   5. a fresh start of a discipline scope calls it once, for the lookup at
 #      discipline scope;
 #   6. a fresh start whose lookup finds one open record calls it twice: the
@@ -98,13 +102,19 @@ done
 WS_A=$(host_ws a)
 
 ON=a
+# A synthetic Claude session id for B's opener, built here so no id-shaped
+# literal ships: on koto 0.32.0 and later an import is taken over, which
+# records the Claude session running the opener as the new run's driver.
+B_ID=$(printf '%s-0000-4000-8000-%012d' bbbbbbbb 2)
+CALLER_ID=
 tick() { host_on "$ON" koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"; }
 at() { tick "$@" | jq -r '.state // empty'; }
 run() { local s=$1; shift; host_on "$ON" bash "$PS/$s" --session "$S" "$@"; } # run <script> <args...>: on session $S, on host $ON
-# start <args json>: the opener on host $ON; OPEN_OUT its output, S the session.
+# start <args json>: the opener on host $ON, as the Claude session $CALLER_ID
+# when it is set; OPEN_OUT its output, S the session.
 start() {
     printf '%s' "$1" > "$T/args.json"
-    OPEN_OUT=$(host_on "$ON" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    OPEN_OUT=$(host_on "$ON" env ${CALLER_ID:+CLAUDE_CODE_SESSION_ID=$CALLER_ID} bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
 }
@@ -150,9 +160,22 @@ eq "3: the new run's find reaches reconcile" reconcile "$(at)"
 
 echo "== 4. an import on another host =="
 ON=b
-start "[\"docs/roadmaps/ROADMAP-calls.md\", \"--import\", \"$S\", \"--from\", \"$WS_A\"]"
-grep -qx "imported=$S" <<< "$OPEN_OUT" && grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "4: host B imports the run and resumes it" \
-    || bad "4: host B imports the run and resumes it" "$OPEN_OUT $(cat "$T/open.err")"
+SRC=$S
+if koto_keeps_source; then
+    # koto 0.32.0 and later: the copy is taken over into a new run, which
+    # records the Claude session running the opener as its driver.
+    CALLER_ID=$B_ID
+    start "[\"docs/roadmaps/ROADMAP-calls.md\", \"--import\", \"$SRC\", \"--from\", \"$WS_A\"]"
+    CALLER_ID=
+    if grep -qx "imported=$SRC" <<< "$OPEN_OUT" && grep -qx 'outcome=continued' <<< "$OPEN_OUT" \
+        && grep -qx "predecessor=$SRC" <<< "$OPEN_OUT" && [ -n "$S" ] && [ "$S" != "$SRC" ]; then
+        ok "4: host B imports the run and takes it over into a new run"
+    else bad "4: host B imports the run and takes it over into a new run" "$OPEN_OUT $(cat "$T/open.err")"; fi
+else
+    start "[\"docs/roadmaps/ROADMAP-calls.md\", \"--import\", \"$SRC\", \"--from\", \"$WS_A\"]"
+    grep -qx "imported=$S" <<< "$OPEN_OUT" && grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "4: host B imports the run and resumes it" \
+        || bad "4: host B imports the run and resumes it" "$OPEN_OUT $(cat "$T/open.err")"
+fi
 eq "4:   ... calling the importer no more" 1 "$(calls)"
 ON=a
 

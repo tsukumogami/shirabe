@@ -46,14 +46,19 @@
 # read-only predecessor), and before that it refuses the read too. The opener's
 # --import, run on host B: a malformed or settings-bearing import is usage
 # and a name that isn't a run of the scope refused session-name, neither of
-# them calling `session import`; a discipline one reaches the import, which
-# finds no such run; a
+# them calling `session import`; on koto 0.32.0 and later, whose import is a
+# takeover recording the Claude session as driver, an import with no
+# CLAUDE_CODE_SESSION_ID is refused session-id before koto imports, and B's
+# opener otherwise runs as a synthetic Claude session; a discipline one
+# reaches the import, which finds no such run; a
 # run A opened whose find never ran (no session-store find) is imported, then
 # refused session-source; host A, whose koto (0.32.0 and later) still lists that
 # run, doesn't count it as a live run of the scope, and its next open opens a
 # new run without cancelling it (no failed=cancel); and one A opened from a copy of the plugin at another path
-# is imported, re-attached with this host's plugin root (rebound=), and then
-# refused only as session-source, its find never having run; a child
+# is imported and refused only as session-source, its find never having run,
+# an older koto re-attaching it with this host's plugin root first (rebound=)
+# and koto 0.32.0 and later, whose takeover opens the new run from this
+# plugin's root, printing no rebound=; a child
 # source is refused with koto's import_source_is_child and leaves no session; a
 # run from a template B lacks is refused import_template_unavailable, leaving
 # no session either, and with --trust-template imported but refused
@@ -448,10 +453,14 @@ echo "== --import =="
 REAL_KOTO=$(command -v koto)
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexec "%s" "$@"\n' "$T/koto-calls" "$REAL_KOTO" > "$T/koto-shim"
 chmod +x "$T/koto-shim"
+# On koto 0.32.0 and later an import is taken over, which records the Claude
+# session running the opener as the new run's driver, so B's opener runs as a
+# synthetic Claude session, built here so no id-shaped literal ships.
+B_ID=$(printf '%s-0000-4000-8000-%012d' bbbbbbbb 2)
 import_b() { # import_b <args json>: the opener on host B; output in $T/out, stderr in $T/err
     : > "$T/koto-calls"
     printf '%s' "$1" > "$T/args.json"
-    host_on b env KOTO_BIN="$T/koto-shim" bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" > "$T/out" 2>"$T/err"
+    host_on b env KOTO_BIN="$T/koto-shim" CLAUDE_CODE_SESSION_ID="$B_ID" bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" > "$T/out" 2>"$T/err"
 }
 # The opener's feature probe runs `session import --help`, which imports nothing.
 imported() { grep '^session import' "$T/koto-calls" | grep -vc -- ' --help$'; }
@@ -471,6 +480,15 @@ eq "--import at discipline scope reaches koto's import, which finds no such run"
 import_b "[\"$RM\",\"--import\",\"plain-run\",\"--from\",\"$WS_A\"]"
 eq "a name that isn't a run of the scope is refused" "2 refused=session-name" "$? $(cat "$T/out")"
 eq "  ... before any import" 0 "$(imported)"
+# The takeover an import makes on koto 0.32.0 and later needs the Claude
+# session's id; without one the import is refused before koto imports.
+if [ "$KEEPS_SOURCE" = 1 ]; then
+    printf '%s' "[\"$RM\",\"--import\",\"coordinate-roadmap-plugin-system-20260101T000000Z\",\"--from\",\"$WS_A\"]" > "$T/args.json"
+    : > "$T/koto-calls"
+    host_on b env KOTO_BIN="$T/koto-shim" bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" > "$T/out" 2>"$T/err"
+    eq "an import with no Claude session id is refused" "2 refused=session-id" "$? $(cat "$T/out")"
+    eq "  ... before any import" 0 "$(imported)"
+fi
 
 # Refusals after koto's import, each on a real run host A opened. Each leaves
 # the run live on B (the source is marked migrated), so it is cancelled there
@@ -534,8 +552,18 @@ cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin2/"
 open_a "$T/plugin2"
 [ -n "$OPENED" ] && pass "host A opens a run from a plugin at another path" || fail "host A opens a run from a plugin at another path" "$(cat "$T/open-a.err")"
 import_b "[\"$RM\",\"--import\",\"$OPENED\",\"--from\",\"$WS_A\"]"
-eq "a run from another plugin path is imported, its plugin root moved here, then refused only for its find" "2 refused=session-source" "$? $(grep '^refused=' "$T/out")"
-grep -q '^rebound=.*PLUGIN_ROOT' "$T/out" && pass "  ... after rebound= naming PLUGIN_ROOT" || fail "  ... after rebound= naming PLUGIN_ROOT" "$(cat "$T/out")"
+# koto 0.32.0 and later take the import over, opening the new run from this
+# plugin's root, so the copy isn't rebound; an older koto resumes it, after
+# moving its plugin root here.
+rc=$?
+if [ "$KEEPS_SOURCE" = 1 ]; then
+    eq "a run from another plugin path is imported, then refused only for its find" "2 refused=session-source" "$rc $(grep '^refused=' "$T/out")"
+    grep -q '^rebound=' "$T/out" && fail "  ... with no rebound=, a takeover never rebinding the copy" "$(cat "$T/out")" \
+        || pass "  ... with no rebound=, a takeover never rebinding the copy"
+else
+    eq "a run from another plugin path is imported, its plugin root moved here, then refused only for its find" "2 refused=session-source" "$rc $(grep '^refused=' "$T/out")"
+    grep -q '^rebound=.*PLUGIN_ROOT' "$T/out" && pass "  ... after rebound= naming PLUGIN_ROOT" || fail "  ... after rebound= naming PLUGIN_ROOT" "$(cat "$T/out")"
+fi
 host_on b koto cancel "$OPENED" >/dev/null 2>&1
 eq "  ... and neither refused run is left live on B" "" "$(host_on b bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-plugin-system --all 2>/dev/null)"
 

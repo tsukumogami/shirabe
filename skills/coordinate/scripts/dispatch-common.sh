@@ -260,7 +260,8 @@
 #       session that drives it (its job found by dc_claude_job, by id or by
 #       name, and dc_job_finished saying it isn't finished), or, when no job
 #       for it can be seen from here, a koto event in its log within the last
-#       10 minutes (600 seconds). Either argument after the koto session may
+#       10 minutes (600 seconds), koto's own session_imported aside (an
+#       import's copy gets one that no driver wrote). Either argument after the koto session may
 #       be empty. The koto session may be empty too, for a worker whose koto
 #       session can't be found: then only its Claude job decides, and with no
 #       job seen from here there is no event to read, so it isn't live.
@@ -875,7 +876,9 @@ dc_session_live() {
         fi
         printf '%s is driven by a running Claude job: %s\n' "$s" "$why"; return 0
     fi
-    last=$(tail -n 1 "$log" | jq -r '.timestamp // empty' 2>/dev/null)
+    # koto's import appends session_imported to the copy, which no driver
+    # wrote, so the last event before it is the one that counts.
+    last=$(jq -r 'select(.type != "session_imported") | .timestamp // empty' "$log" 2>/dev/null | tail -n 1)
     [ -n "$last" ] || { printf "%s's log has no timed event\n" "$s"; return 2; }
     at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' 2>/dev/null) \
         || { printf "%s's last event time [%s] can't be read\n" "$s" "$last"; return 2; }
