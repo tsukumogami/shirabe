@@ -58,8 +58,25 @@ EOF
 chmod +x "$T/wkoto/koto"
 wcarry() { ( export KOTO_BIN="$T/wkoto/koto"; carry "$@" ); }
 # shape <file>: a call log with each add's file and each W= prefix dropped,
-# so two carries' calls compare.
-shape() { sed -e 's/^W=[^ ]* //' -e 's/--from-file .*/--from-file/' "$1"; }
+# and each run of record-section gets, and of their listings, sorted, so two
+# carries' calls compare. state-read.sh starts those reads together, so they
+# reach koto in any order (shirabe#1406); every other call keeps its place.
+SECTION_KEYS='record/(holdings|deferrals|side-effects|reversals|decisions|holds|run|standing|work)$'
+shape() {
+    sed -e 's/^W=[^ ]* //' -e 's/--from-file .*/--from-file/' "$1" | awk -v get="^context get [^ ]+ $SECTION_KEYS" \
+        -v list="^context list [^ ]+ --prefix $SECTION_KEYS" '
+        function flush(   i, j, t) {
+            for (i = 2; i <= n; i++)
+                for (j = i; j > 1 && b[j - 1] > b[j]; j--) { t = b[j]; b[j] = b[j - 1]; b[j - 1] = t }
+            for (i = 1; i <= n; i++) print b[i]
+            n = 0; k = ""
+        }
+        { m = ""; if ($0 ~ get) m = "get"; else if ($0 ~ list) m = "list" }
+        m != k { flush() }
+        m == "" { print; next }
+        { k = m; b[++n] = $0 }
+        END { flush() }'
+}
 # big_record: the source run, a record with sections, ENTRIES entries (one
 # naming s7), POSTED posted URLs and LEGS legs/ keys, written as the stand-in
 # holds them; the new run holds nothing.

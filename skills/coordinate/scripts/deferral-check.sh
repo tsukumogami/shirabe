@@ -9,8 +9,9 @@
 #                         dispatch topic (dispatch-common.sh dc_valid_topic,
 #                         the grammar render-brief.sh holds a brief to): a
 #                         unit's tag such as "Feature 2" is refused before
-#                         any read, nothing is written, and pick is asked
-#                         again
+#                         any GitHub read or any use of the record (the koto
+#                         reads started beside the log's are ignored),
+#                         nothing is written, and pick is asked again
 #   record-changed        the record the run found (coord-log.sh run-facts) is
 #                         gone from its session, or no longer a canonical
 #                         record of this scope, or the run has no found record
@@ -198,11 +199,43 @@ fi
 # ---- check mode --------------------------------------------------------------
 [ -n "$SESSION" ] || usage
 lib_facts
-lib_bounds
-lib_log_readable || lib_die2 "no readable log for $SESSION"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX") || lib_die2 "cannot make a temporary directory"
-trap 'rm -rf "$T"' EXIT
+# The reads below that don't wait on each other start here, together, as
+# background jobs (state-common.sh lib_job_start): the log's count, the
+# entries into dispatch_check and pick, the run's facts, the record, the run
+# start and the chain start. Each answer is taken where the check read it
+# before, in the same order, so the verdict, output and exit code are those
+# of the reads made one after another; a read past the verdict reached is
+# made and ignored. One after another, on a loaded host, they outran koto's
+# 30-second action limit (shirabe#1406). A job's stderr is replayed where its
+# answer is taken. A temporary directory that can't be made is still refused
+# where it was, after the log check; no job starts without one.
+T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX") || T=
+trap 'lib_jobs_stop; [ -z "$T" ] || rm -rf "$T"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+CL="$HERE/coord-log.sh"
+if [ -n "$T" ]; then
+    lib_job_start "$T" count bash "$CL" count --session "$SESSION"
+    lib_job_start "$T" ent bash "$CL" entry --session "$SESSION" --state dispatch_check
+    lib_job_start "$T" pe bash "$CL" entry --session "$SESSION" --state pick
+    [ "$OVERRIDE" = 1 ] || lib_job_start "$T" found bash "$CL" run-facts --session "$SESSION"
+    lib_job_start "$T" record rs_record "$T/parsed.json" "holdings deferrals decisions run standing work"
+    lib_job_start "$T" start bash "$CL" run-start --session "$SESSION"
+    lib_job_start "$T" chain bash "$CL" chain-start --session "$SESSION"
+fi
+# answer <name>: wait for the job, replay its stderr and set JOB_RC.
+answer() { lib_job_wait "$1"; cat "$T/$1.err" >&2; }
+
+lib_bounds
+if [ -n "$T" ]; then
+    answer count
+    [ "$JOB_RC" = 0 ] || lib_die2 "no readable log for $SESSION"
+else
+    lib_log_readable || lib_die2 "no readable log for $SESSION"
+    lib_die2 "cannot make a temporary directory"
+fi
 
 REASON= OPEN='[]' ACTIVE=0 PARKED=0 CHOICE= TOPIC=-
 finish() {
@@ -220,7 +253,6 @@ finish() {
 # redispatch): the unit that failed, which is the topic this state sealed on its
 # previous visit when the failure came from dispatch, else the latest `wait`
 # evidence's unit. state-confirm.sh then holds the dispatch to this topic.
-CL="$HERE/coord-log.sh"
 # rd <var> <args...>: a coord-log.sh read into <var>, in this shell (not a
 # command substitution, so a failure exits the script). Exit 1 means "none"
 # and leaves <var> empty; any other failure is a read failure (exit 2), never
@@ -231,13 +263,21 @@ rd() {
     case $rc in 0) ;; 1) out= ;; *) lib_die2 "cannot read the session log ($1)" ;; esac
     printf -v "$var" '%s' "$out"
 }
+# rdj <var> <job> <subcommand>: rd's reading of a coord-log.sh read started
+# as a job above.
+rdj() {
+    local out=
+    answer "$2"
+    case $JOB_RC in 0) out=$(cat "$T/$2.out") ;; 1) ;; *) lib_die2 "cannot read the session log ($3)" ;; esac
+    printf -v "$1" '%s' "$out"
+}
 UNIT_FROM_LOG=0
-rd ENT entry --session "$SESSION" --state dispatch_check
+rdj ENT ent entry
 FROMST=${ENT#* }
 U=
 case "$FROMST" in
     pick|deferral_dispose)
-        rd PE entry --session "$SESSION" --state pick
+        rdj PE pe entry
         if [ -n "$PE" ]; then
             rd PICK evidence --session "$SESSION" --state pick --after "${PE%% *}"
             if [ -n "$PICK" ]; then
@@ -264,7 +304,8 @@ case "$CHOICE" in ''|dispatch|scope|scope_ahead|send_execution|redispatch) ;; *)
 # A pick that dispatches must name a topic the dispatch path can take
 # (dispatch-common.sh's dc_valid_topic, the check render-brief.sh and
 # dispatch-worker.sh apply), never a unit's tag from coord/pick.json. One
-# that doesn't is refused before any read, and pick is asked again.
+# that doesn't is refused before any of the record is used, and pick is
+# asked again.
 case "$CHOICE" in dispatch|scope|scope_ahead|send_execution)
     if ! dc_valid_topic "$U"; then
         TOPIC=-
@@ -274,19 +315,29 @@ case "$CHOICE" in dispatch|scope|scope_ahead|send_execution)
     fi ;;
 esac
 
-# The run's record.
-lib_run_found || { REASON="the run has no found record"; finish record-changed; }
+# The run's record: lib_run_found's reading of the run's facts, from the job.
+if [ "$OVERRIDE" != 1 ]; then
+    lib_job_wait found
+    case $JOB_RC in
+        0) ;;
+        1) REASON="the run has no found record"; finish record-changed ;;
+        *) lib_die2 "cannot read the run's facts" ;;
+    esac
+fi
 # The record, through the seam (state-read.sh): only the sections the verdicts
 # below read, each got directly. The record/ listing names every entry, and on
 # koto's cloud backend each call costs more as the keys grow, so the check
 # makes a fixed few calls whatever the record holds (shirabe#1308).
-rs_record "$T/parsed.json" "holdings deferrals decisions run standing work"; RS_RC=$?
+answer record; RS_RC=$JOB_RC
 case $RS_RC in
     0) ;;
     4) REASON="$(lib_record_name) holds no record: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
     65) REASON="$(lib_record_name) no longer reads back as a $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
     *) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
 esac
+# The owed decision work, judged on that record (below), starts now beside the
+# reads in between; its temporary directory goes in this check's.
+lib_job_start "$T" owed env TMPDIR="$T" bash "$HERE/decision-next.sh" --session "$SESSION" --owed dispatch --parsed "$T/parsed.json"
 # The cap a person set in the record's Run section wins over the session's.
 # The first lib_bounds, above, read only the session, for the verdicts that
 # finish before the record is read; the cap check below uses this one.
@@ -341,9 +392,14 @@ if [ -n "$OWED_TAG" ]; then
 fi
 
 # Deferrals raised before the run start.
-START=$(bash "$HERE/coord-log.sh" run-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run start"
+# Both from their jobs, whose stderr the check never showed.
+lib_job_wait start
+[ "$JOB_RC" = 0 ] || lib_die2 "cannot read the run start"
+START=$(cat "$T/start.out")
 RS=$(minute "$START"); [ -n "$RS" ] || lib_die2 "the run start $START is not a time"
-CHAIN=$(bash "$HERE/coord-log.sh" chain-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the chain start"
+lib_job_wait chain
+[ "$JOB_RC" = 0 ] || lib_die2 "cannot read the chain start"
+CHAIN=$(cat "$T/chain.out")
 CS=$(minute "$CHAIN"); [ -n "$CS" ] || lib_die2 "the chain start $CHAIN is not a time"
 : > "$T/open.jsonl"
 open_row() { # open_row <deferral-text> <why>
@@ -381,9 +437,10 @@ fi
 # owed message do. A held entry, and an escalation that owes nothing, never do.
 # It judges the record read above (--parsed), so the check reads it once: on
 # the session store each read is a dozen koto calls, and the check has 30
-# seconds (shirabe#1156).
-OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed dispatch --parsed "$T/parsed.json") \
-    || lib_die2 "cannot read what the decisions are owed"
+# seconds (shirabe#1156). It ran as a job from the record read on.
+answer owed
+[ "$JOB_RC" = 0 ] || lib_die2 "cannot read what the decisions are owed"
+OWED_RULE=$(cat "$T/owed.out")
 if [ "$OWED_RULE" != none ]; then
     REASON="decision work is owed first: $OWED_RULE"; finish "decision-owed $OWED_RULE"
 fi

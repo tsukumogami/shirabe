@@ -616,4 +616,49 @@ session "$(roadmap_vars plugin-system)" send_execution a5
 PATH="$T/bin:$PATH" bash "$DC" --session "$S" > /dev/null 2>&1
 eq "a section that is listed but can't be got exits 2" 2 $?
 
+echo "== check mode: the reads that don't wait on each other run together (shirabe#1406) =="
+# A koto in front of the stand-in that takes SLOW seconds over every call, as
+# each koto call does on a loaded host. The check's verdict is the same, and
+# its wall time is well under the sum of its calls: one after another, the
+# check takes that sum and outruns koto's 30 s action limit.
+mkdir -p "$T/slow"
+cat > "$T/slow/koto" <<EOF
+#!/usr/bin/env bash
+sleep "\${SLOW:-0}"
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$T/slow/koto"
+SLOW=1
+seed "$(with_holdings "$(scoping a5 25)" | jq -c --argjson d "[$(def 'carried 2026-09-26T08:30Z: later')]" '.deferrals = $d')"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" send_execution a5
+: > "$KOTO_STORE/calls"
+start=$(date +%s)
+OUT=$(SLOW=$SLOW PATH="$T/slow:$PATH" bash "$DC" --session "$S" 2> "$T/err")
+took=$(($(date +%s) - start))
+CALLS=$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')
+eq "a check behind a slow koto gives the same verdict" "ok a5" "${OUT% sealed:*}"
+bash "$CL" check --session "$S" --state dispatch_check --sealed "$OUT" && ok "  ... sealed to dispatch_check" || bad "  ... sealed to dispatch_check" "$OUT"
+# The bound is half the sum of the calls: far below the check made one call
+# at a time, far above one call.
+if [ "$took" -lt "$SLOW" ]; then
+    bad "  ... its koto reads run together" "took ${took} s, less than one ${SLOW} s call: the slow koto was not called"
+elif [ "$took" -lt $((CALLS * SLOW / 2)) ]; then
+    ok "  ... its koto reads run together: ${took} s for $CALLS calls of ${SLOW} s each"
+else
+    bad "  ... its koto reads run together" "took ${took} s for $CALLS calls of ${SLOW} s each, over the bound of half their sum, $((CALLS * SLOW / 2)) s: reads made one after another, which on a loaded host run past koto's 30-second action limit"
+fi
+# A check killed while its reads are out (koto's action timeout, say) stops
+# them and still removes its temporary directory.
+PT="$T/check-tmp"
+mkdir -p "$PT"
+(SLOW=3 PATH="$T/slow:$PATH" TMPDIR="$PT" exec bash "$DC" --session "$S" > /dev/null 2>&1) &
+pid=$!
+i=0
+while [ -z "$(ls -A "$PT")" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+sleep 1
+kill -TERM "$pid" 2> /dev/null
+wait "$pid" 2> /dev/null
+if [ -z "$(ls -A "$PT")" ]; then ok "a check killed mid-read leaves no temporary directory"; else bad "a check killed mid-read leaves no temporary directory" "$(ls -A "$PT")"; fi
+
 done_tests deferral-check
