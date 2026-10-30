@@ -2,12 +2,13 @@
 
 Every unit the coordinator dispatches gets one `cost` entry on its record.
 The teardown pass writes it between the archive and `niwa destroy`, through
-`scripts/unit-cost.sh capture`; a unit niwa removes outside the pass gets
-its entry from the sweep described under [Capture after a
-removal](#capture-after-a-removal). Nobody runs anything for it, and nothing
-about the teardown depends on it. This page says what the entry holds, how
-each figure is defined, how a removed unit is captured, and how to read
-entries back.
+`scripts/unit-cost.sh capture`. Nobody runs anything for it, and nothing
+about the teardown depends on it. A unit niwa removes outside the pass gets
+no entry while the automatic sweep described under [Capture after a
+removal](#capture-after-a-removal) is retired pending #1410; the sweep runs
+only by hand, over removal records already on a host. This page says what
+the entry holds, how each figure is defined, how a removed unit was
+captured, and how to read entries back.
 
 ## Where it comes from
 
@@ -345,32 +346,38 @@ niwa removes sessions the coordinator never tears down: `niwa destroy`,
 `niwa reap`, and the reaps `niwa dispatch`, `niwa create` and `niwa watch`
 run first. For each one it runs the workspace's `[session.on_reap]` command
 from the workspace root, with `NIWA_REAP_KEY` (the dispatch id),
-`NIWA_SESSION_ID` and `NIWA_INSTANCE_PATH`, in a 10-second run. A capture
-takes up to 120 seconds, so the step only records the removal and starts a
-sweep in the background that does the rest.
+`NIWA_SESSION_ID` and `NIWA_INSTANCE_PATH`, in a 10-second run.
 
-**The removal record.** `scripts/unit-removed.sh record` writes
-`<dispatch id>.json` in the removals directory,
+**The automatic sweep is retired pending #1410.** The step used to write a
+removal record and start a sweep in the background, and the teardown pass
+and every coordinator wake started one too. On a busy host those sweeps
+piled up, each re-reading every kept record, until they were most of the
+host's load. #1410 replaces end-of-life capture with cost emitted as a
+session runs; until it lands, `scripts/unit-removed.sh record` and
+`unit-removed.sh start` launch nothing. Each prints one line saying the
+sweep is retired and exits 0; `record` writes no removal record and makes
+no removals directory. `unit-removed.sh sweep` is unchanged and runs only
+by hand, to drain or inspect records already on a host. The rest of this
+section describes the records and the sweep as they stand.
+
+**The removal record.** The removals directory is
 `${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals`, which must be the
-user's, mode 0700 and not a symbolic link: `{schema: "unit-removal/1",
-dispatch_id, session_id, instance_path, removed_at, attempts, last}`. A
-second removal of the same dispatch id at the same path keeps the first
-`removed_at`; one at another path replaces the record. The step refuses,
-printing one line, writing nothing and exiting 0, when the reap key is
-missing, outside `^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$` or equal to the
-session id, when the session id or the instance path isn't one (absolute,
-no `..`, strictly under the directory it runs in), when the removals
-directory fails its checks, or when its own script or a library it sources
-is writable by group or others. It exits 0 in every case and never waits
-for the sweep, so it is never in niwa's way.
+user's, mode 0700 and not a symbolic link. A record there is
+`<dispatch id>.json`, `{schema: "unit-removal/1", dispatch_id, session_id,
+instance_path, removed_at, attempts, last}`. `record` still refuses,
+printing one line and exiting 0, when the reap key is missing, outside
+`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$` or equal to the session id, when the
+session id or the instance path isn't one (absolute, no `..`, strictly
+under the directory it runs in), when an existing removals directory fails
+its checks, or when its own script or a library it sources is writable by
+group or others. It exits 0 in every case, so it is never in niwa's way.
 
 **The sweep.** `unit-removed.sh sweep` reads every record in the removals
 directory, one at a time, under a lock of its own (`.<dispatch id>.lock`
 there): a record a live sweep holds is passed over, and a lock whose holder
 is gone, or older than three minutes (the capture's 120 seconds and a
 minute for the archive), is taken over, so two
-sweeps on one host (two coordinators waking together, or a pass and a wake)
-never capture one record twice. With no record it does nothing. For each
+sweeps on one host never capture one record twice. With no record it does nothing. For each
 record it:
 
 1. finds the unit's koto sessions (their execution directory at or under
@@ -393,20 +400,17 @@ The sweep reads GitHub only with a token. With `GH_TOKEN` unset or empty it
 makes no GitHub call at all (a bare `gh` would fall back to a stored login),
 archives, and keeps the record `pending github`; with one, every `gh` call
 runs with `GH_CONFIG_DIR` an empty directory of the sweep's own, so no
-stored login is ever used. niwa's step usually runs without the
-coordinator's token, so the token-bearing sweep comes from two places, each
-detached and never inside a koto action or gate: the end of every teardown
-pass (`teardown-pass.sh run` starts `unit-removed.sh start`), and the
-coordinator's wait guidance, which runs `scripts/unit-removed.sh start` at
-each wake. `start` launches the sweep the way `record` does and returns at
-once. Both pass `GH_TOKEN` on from the shell that runs them, so a coordinator
-whose `gh` works only through a stored login, with no `GH_TOKEN` in its
-shell, leaves every removal `pending github`; export the token there.
+stored login is ever used. A sweep run by hand from a shell whose `gh` works
+only through a stored login, with no `GH_TOKEN` exported, leaves every
+removal `pending github`; export the token there. The teardown pass still
+runs `unit-removed.sh start` as it ends, and the coordinator's wait guidance
+at each wake, but `start` now only prints its line.
 
 **Retry.** A record whose capture wrote no entry is kept, its `attempts`
 counted and `last` set to `{at, outcome}`, and every later sweep tries it
 again: `pending github`, `no coordinator`, `several coordinators`, `read
-failed`, `post failed` and `timed out` all wait for the next sweep. A
+failed`, `post failed` and `timed out` all wait for the next sweep someone
+runs. A
 written entry, or one another capture already wrote (`already recorded`),
 deletes the record; so does a record outside its shape (`invalid input`). No
 record is deleted for its age: one kept more than 24 hours after its
@@ -429,8 +433,9 @@ seconds), `pending github`, `no coordinator`, `several coordinators` or
 1 MiB the log keeps its last 1,000 lines.
 
 **The on-reap line.** A workspace adds the step to its niwa configuration.
-This runs the newest released shirabe in the plugin cache, by numeric
-version order, only when the user owns the script:
+While the sweep is retired the step records nothing, so a workspace that has
+it can keep it or leave it out. This runs the newest released shirabe in the
+plugin cache, by numeric version order, only when the user owns the script:
 
 ```toml
 [session.on_reap]

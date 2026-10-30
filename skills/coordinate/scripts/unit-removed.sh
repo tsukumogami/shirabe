@@ -1,48 +1,39 @@
 #!/usr/bin/env bash
 # unit-removed.sh -- the cost capture for a unit niwa removes outside the
-# teardown pass: the on-reap step that records the removal, and the sweep
-# that captures what survives.
+# teardown pass: the on-reap step, and the sweep that captures what survives
+# a removal record.
 #
 # niwa runs a workspace's `[session.on_reap]` command once for each session it
 # removes (`niwa destroy`, `niwa reap`, and the reaps `niwa dispatch`, `niwa
 # create` and `niwa watch` run first), from the workspace root, with
 # NIWA_REAP_KEY (the dispatch id), NIWA_SESSION_ID and NIWA_INSTANCE_PATH, in
-# a 10-second run. A capture takes up to 120, so the step only records the
-# removal and starts the sweep detached; the sweep does the slow part with the
-# pass's own collection code (archive-common.sh) and the pass's own capture
-# (unit-cost.sh).
+# a 10-second run. The step used to record the removal and start the sweep
+# detached, and the teardown pass and every coordinator wake started one too,
+# until the sweeps piled up host-wide (#1409). The automatic sweep is retired
+# pending #1410, which replaces end-of-life capture: record and start launch
+# nothing, and the sweep runs only by hand, to drain or inspect records
+# already on a host, with the pass's own collection code (archive-common.sh)
+# and the pass's own capture (unit-cost.sh).
 #
 # Usage:
 #   unit-removed.sh record
-#       The on-reap step. Refuses, with one line, no record and exit 0, when
-#       its own script or a library it sources is writable by group or
-#       others; NIWA_REAP_KEY is unset, outside
-#       ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ or equal to NIWA_SESSION_ID;
-#       NIWA_SESSION_ID isn't a session id (unit-cost.sh's pattern, its
-#       first 8 characters hex digits, since they name the archive);
+#       The on-reap step. Refuses, with one line and exit 0, when its own
+#       script or a library it sources is writable by group or others;
+#       NIWA_REAP_KEY is unset, outside ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$
+#       or equal to NIWA_SESSION_ID; NIWA_SESSION_ID isn't a session id
+#       (unit-cost.sh's pattern, its first 8 characters hex digits);
 #       NIWA_INSTANCE_PATH isn't absolute, holds `..`, isn't a plain path
 #       (a trailing `/`, `//` or a control character) or isn't strictly
 #       under the directory the step runs in; or the removals directory R
-#       (${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals) is a
-#       symbolic link, isn't the user's or isn't mode 0700. Otherwise it
-#       writes R/<dispatch id>.json, {schema: "unit-removal/1", dispatch_id,
-#       session_id, instance_path, removed_at, attempts: 0, last: null},
-#       through a temporary name in R and mv; a record already there for the
-#       same instance path keeps its removed_at, one for another path is
-#       replaced. Then it starts `sweep` in a new session (perl's
-#       POSIX::setsid, else nohup, else a plain background job), by its
-#       absolute path, stdin empty, output nowhere, its environment PATH,
-#       HOME and TMPDIR, plus XDG_STATE_HOME, XDG_DATA_HOME,
-#       TEARDOWN_ARCHIVE_DIR and KOTO_REQUESTS when they are set, since they
-#       place R, the archive root and the request store, and GH_TOKEN,
-#       GITHUB_TOKEN and GH_HOST unchanged when they are set, since the
-#       capture reads and posts with them. It prints one line
-#       and exits 0 in every case, never waiting for the sweep.
+#       (${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/removals) exists and
+#       is a symbolic link, isn't the user's or isn't mode 0700. Otherwise
+#       it prints one line saying the automatic sweep is retired pending
+#       #1410 and exits 0. It writes no removal record, makes no R and
+#       starts no sweep.
 #   unit-removed.sh start
-#       Starts `sweep` as record does (detached, by absolute path, with the
-#       environment record names) and exits 0 at once. The teardown pass runs
-#       it as it ends, and the coordinator at each wake, so a sweep holding
-#       the coordinator's token finishes what a token-less one left pending.
+#       Prints one line saying the automatic sweep is retired pending #1410
+#       and exits 0, starting nothing. The teardown pass runs it as it ends,
+#       and the coordinator at each wake.
 #   unit-removed.sh sweep
 #       With no record in R it does nothing at all. Otherwise every record,
 #       one at a time, under its own lock, R/.<dispatch id>.lock (a directory
@@ -105,12 +96,12 @@
 #       Before it exits the sweep reads R again and handles any record
 #       written since it started. Exit 0.
 #
-# Exit codes: record and sweep always 0; 64 usage.
+# Exit codes: record, start and sweep always 0; 64 usage.
 #
-# Environment: the sweep the step starts sees only the names listed under
-# record. Run by hand, the sweep also honours TEARDOWN_KOTO_SESSIONS,
+# Environment: the sweep honours XDG_STATE_HOME, XDG_DATA_HOME,
+# TEARDOWN_ARCHIVE_DIR, KOTO_REQUESTS, TEARDOWN_KOTO_SESSIONS,
 # TEARDOWN_CLAUDE_HOME, and KOTO and GH (the tools, through the scripts it
-# runs). GITHUB_TOKEN and GH_HOST are passed for gh's own use; the sweep's
+# runs). GITHUB_TOKEN and GH_HOST are left for gh's own use; the sweep's
 # no-token rule reads GH_TOKEN alone, the token the coordinator's sessions
 # carry. bash 3.2.
 set -uo pipefail
@@ -151,29 +142,12 @@ fi
 
 skip() { say "$*; nothing recorded"; exit 0; }
 
-# start_sweep: the sweep, detached, by absolute path, with the scrubbed
-# environment the header names.
-start_sweep() {
-    local v p
-    set -- PATH="${PATH:-/usr/bin:/bin}" HOME="${HOME:-}" TMPDIR="${TMPDIR:-/tmp}"
-    for v in XDG_STATE_HOME XDG_DATA_HOME TEARDOWN_ARCHIVE_DIR KOTO_REQUESTS GH_TOKEN GITHUB_TOKEN GH_HOST; do
-        [ -n "${!v:-}" ] && set -- "$@" "$v=${!v}"
-    done
-    # A new session takes the sweep out of niwa's process group and out of
-    # the shell that ran niwa; without perl, nohup at least keeps it past a
-    # hangup.
-    if p=$(command -v perl 2>/dev/null) && [ -n "$p" ]; then
-        env -i "$@" "$p" -MPOSIX -e 'POSIX::setsid(); exec @ARGV' -- "$SELF" sweep </dev/null >/dev/null 2>&1 &
-    elif p=$(command -v nohup 2>/dev/null) && [ -n "$p" ]; then
-        env -i "$@" "$p" "$SELF" sweep </dev/null >/dev/null 2>&1 &
-    else
-        env -i "$@" "$SELF" sweep </dev/null >/dev/null 2>&1 &
-    fi
-}
+# The automatic sweep is retired pending #1410 (#1409): neither record nor
+# start writes a record or launches a sweep.
+RETIRED="the automatic sweep is retired pending #1410"
 
 if [ "$MODE" = start ]; then
-    start_sweep
-    say "the sweep runs in the background"
+    say "$RETIRED; no sweep started"
     exit 0
 fi
 
@@ -195,26 +169,10 @@ if [ "$MODE" = record ]; then
     # under it.
     WS=$(pwd) WSP=$(pwd -P)
     case "$IP" in "$WS"/?* | "$WSP"/?*) ;; *) skip "the instance path is not under $WS" ;; esac
-    ac_removals_dir --create || skip "$AC_WHY"
-    F="$AC_R/$KEY.json"
-    AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    if [ -f "$F" ] && [ ! -L "$F" ]; then
-        # jq's own message, on a record it can't parse, lands in PREV and fails
-        # the timestamp shape below, so the new removal keeps the new time.
-        PREV=$(jq -r --arg p "$IP" 'select(type == "object" and .instance_path == $p) | .removed_at | strings' "$F" 2>&1) || PREV=""
-        PREV=${PREV%%$'\n'*}
-        [[ $PREV =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] && AT=$PREV
-    fi
-    TMPF=$(mktemp "$AC_R/.record.XXXXXX" 2>/dev/null) || skip "cannot write in $AC_R"
-    if ! jq -n -c --arg d "$KEY" --arg s "$SID" --arg p "$IP" --arg at "$AT" \
-        '{schema: "unit-removal/1", dispatch_id: $d, session_id: $s, instance_path: $p, removed_at: $at, attempts: 0, last: null}' >"$TMPF" \
-        || ! mv -f "$TMPF" "$F"; then
-        rm -f "$TMPF"
-        skip "cannot write the removal record"
-    fi
-    start_sweep
-    say "recorded the removal of $KEY; the sweep runs in the background"
-    exit 0
+    # Nothing is written to R, so a missing one isn't made; one that is there
+    # is still checked, as when the step wrote to it.
+    ac_removals_dir || { [ ! -e "$AC_R" ] && [ ! -L "$AC_R" ]; } || skip "$AC_WHY"
+    skip "$RETIRED"
 fi
 
 # ---------------------------------------------------------------------------
