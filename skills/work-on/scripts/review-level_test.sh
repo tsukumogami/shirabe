@@ -814,6 +814,74 @@ expect_rc "facts with no level and a shared branch" 0
 [ "$(fact '.base_source')" = '"impl_base"' ] && pass "the option may follow the session alone" \
     || fail "facts are $(fact '{base_source, shared_branch}')"
 
+echo "--- script: a merge of the default branch after impl_base"
+
+# merged_main <name> <branch>: a branch off main with impl_base at the fork.
+# main then gains a koto-templates file of 500 lines, the branch merges main,
+# and the step commits a 20-line SKILL.md.
+merged_main() {
+    fixture "$1"
+    (cd "$FX/repo" && git checkout -q -b "$2" && git checkout -q main \
+        && mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md \
+        && git add -A && git commit -q -m main-moves && git checkout -q "$2" \
+        && git merge -q --no-ff --no-edit main) >/dev/null 2>&1 || fail "setup: merge main into $2"
+    MAIN_TIP=$(cd "$FX/repo" && git rev-parse main)
+    commit step 'mkdir -p skills/y && seq 1 20 > skills/y/SKILL.md'
+    run init "$SESSION" "" ""
+}
+
+# On a shared branch, main's template file and its 500 lines came in with the
+# merge and are not the step's.
+merged_main merged-shared feat/plan
+run facts "$SESSION" standard --shared-branch feat/plan
+expect_rc "facts on a shared branch after a merge of main" 0
+[ "$(fact '[.floor, .base_source, (.lines | tostring), (.files | tostring), (.classes | index("template") | tostring)] | join(" ")')" = '"standard impl_base 20 1 null"' ] \
+    && pass "a shared-branch step that merged main floors on its own 20 lines, not main's template" \
+    || fail "a merge of main after impl_base counts as the step's own change: facts are $(fact '{floor, base_source, lines, files, classes}')"
+[ "$(fact '.bases.merged_default')" = "\"$MAIN_TIP\"" ] && [ "$(fact '.bases.impl_base')" = "\"$BASE\"" ] \
+    && pass "the facts name the default-branch commit folded into impl_base" || fail "bases are $(fact .bases)"
+[ "$(fact '.base')" != "\"$BASE\"" ] && (cd "$FX/repo" && git merge-base --is-ancestor "$MAIN_TIP" "$(jq -r .base "$(store review_facts.json)")") \
+    && pass "the measured base contains the merged-in main" || fail "base is $(fact .base)"
+
+# Off a shared branch the same merge: neither candidate counts main's lines.
+merged_main merged-off work
+run facts "$SESSION" standard
+expect_rc "facts off a shared branch after a merge of main" 0
+[ "$(fact '[.floor, (.lines | tostring), (.files | tostring), (.classes | index("template") | tostring)] | join(" ")')" = '"standard 20 1 null"' ] \
+    && pass "a step off a shared branch that merged main floors on its own 20 lines" \
+    || fail "a merge of main after impl_base counts as the step's own change: facts are $(fact '{floor, base_source, lines, files, classes}')"
+
+# main moved but was never merged: impl_base is the base, as before.
+fixture main-unmerged
+(cd "$FX/repo" && git checkout -q -b work && git checkout -q main \
+    && mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md \
+    && git add -A && git commit -q -m main-moves && git checkout -q work) >/dev/null 2>&1 || fail "setup: main moves"
+commit step 'mkdir -p skills/y && seq 1 20 > skills/y/SKILL.md'
+run init "$SESSION" "" ""
+run facts "$SESSION" standard --shared-branch work
+[ "$(fact '[.floor, .base_source, .base, (.lines | tostring), (.bases.merged_default | tostring)] | join(" ")')" = "\"standard impl_base $BASE 20 null\"" ] \
+    && pass "with no merge of main the base is impl_base itself" \
+    || fail "facts are $(fact '{floor, base_source, base, lines, bases}')"
+
+# A merge of impl_base and main that conflicts can't be built: the base falls
+# back to impl_base, which counts what the merge brought in (never less).
+fixture merged-conflict
+(cd "$FX/repo" && git checkout -q -b feat/plan) || fail "setup: branch"
+commit sibling 'printf "sibling\n" > docs/other.md'
+(cd "$FX/repo" && git rev-parse HEAD) > "$(store impl_base)"
+(cd "$FX/repo" && git checkout -q main && printf "main\n" > docs/other.md \
+    && mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md \
+    && git add -A && git commit -q -m main-moves && git checkout -q feat/plan \
+    && { git merge -q --no-edit main; git checkout -q --ours docs/other.md; } \
+    && git add -A && git commit -q --no-edit) >/dev/null 2>&1 || fail "setup: conflicted merge"
+commit step 'mkdir -p skills/y && seq 1 20 > skills/y/SKILL.md'
+run init "$SESSION" "" ""
+run facts "$SESSION" standard --shared-branch feat/plan
+expect_rc "facts when impl_base and main conflict" 0
+[ "$(fact '[.floor, .base, (.bases.merged_default | tostring)] | join(" ")')" = "\"full $(cat "$(store impl_base)") null\"" ] \
+    && pass "a conflicted merge of impl_base and main falls back to impl_base" \
+    || fail "facts are $(fact '{floor, base, lines, bases}')"
+
 echo "--- script: thresholds"
 
 # threshold_case <label> <command> <expected floor>

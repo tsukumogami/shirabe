@@ -29,7 +29,16 @@
 # keeps a sibling's commits out: the orchestrator's other children commit to
 # the same branch, and every commit they made before this run reached
 # `analysis` is behind `impl_base`, so none of them appears here.
-# Limitation: merging main in after `analysis` brings main's new commits into the range; the diff then includes what the merge pulled in.
+#
+# A merge of the default branch after `analysis` is not the run's change
+# either. When the default branch's merge-base with HEAD (found as below) isn't
+# already in `impl_base`, and isn't HEAD itself (work committed on the default
+# branch, which folding in would hide), the base is a commit whose tree is the clean merge of
+# the two (parents `impl_base` and that merge-base, a fixed author and date), so
+# what the merge brought in is neither listed nor counted. A merge that
+# conflicts, or that git can't build (`merge-tree --write-tree` needs git 2.38),
+# keeps `impl_base`. review-level.sh's facts fold the same merge into the same
+# base.
 #
 # When `impl_base` is unset -- the `analysis` action failed and the base was
 # never recorded by hand, which analysis's fallback asks for because
@@ -136,17 +145,35 @@ if [ -n "$stored" ]; then
     fi
 fi
 
+# origin's default branch: what origin/HEAD points at, else origin/main; with
+# neither, or no shared history with it, local main.
+DEFAULT_BASE=""
+default_ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
+if [ -z "$default_ref" ] && git rev-parse --verify -q "refs/remotes/origin/main^{commit}" >/dev/null; then
+    default_ref=origin/main
+fi
+if [ -n "$default_ref" ]; then
+    DEFAULT_BASE=$(git merge-base HEAD "$default_ref")
+fi
+if [ -z "$DEFAULT_BASE" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
+    DEFAULT_BASE=$(git merge-base HEAD main)
+fi
+
 if [ -z "$BASE" ]; then
-    # origin's default branch: what origin/HEAD points at, else origin/main.
-    default_ref=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
-    if [ -z "$default_ref" ] && git rev-parse --verify -q "refs/remotes/origin/main^{commit}" >/dev/null; then
-        default_ref=origin/main
-    fi
-    if [ -n "$default_ref" ]; then
-        BASE=$(git merge-base HEAD "$default_ref")
-    fi
-    if [ -z "$BASE" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
-        BASE=$(git merge-base HEAD main)
+    BASE="$DEFAULT_BASE"
+elif [ -n "$DEFAULT_BASE" ] && ! git merge-base --is-ancestor "$DEFAULT_BASE" "$BASE" \
+    && ! git merge-base --is-ancestor HEAD "$DEFAULT_BASE"; then
+    # The default branch was merged in after impl_base. The base becomes the
+    # clean merge of the two, so what that merge brought in isn't listed; a
+    # merge that conflicts, or that git can't build, keeps impl_base.
+    if tree=$(git merge-tree --write-tree "$BASE" "$DEFAULT_BASE") \
+        && merged=$(GIT_AUTHOR_NAME=work-on GIT_AUTHOR_EMAIL=work-on@localhost \
+            GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000' GIT_COMMITTER_NAME=work-on \
+            GIT_COMMITTER_EMAIL=work-on@localhost GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000' \
+            git commit-tree --no-gpg-sign "$tree" -p "$BASE" -p "$DEFAULT_BASE" \
+            -m "impl_base with the default branch merged in" </dev/null) \
+        && [ -n "$merged" ]; then
+        BASE="$merged"
     fi
 fi
 [ -n "$BASE" ] || no_base "no base resolves: impl_base is unset and HEAD shares no history with origin's default branch or local main"

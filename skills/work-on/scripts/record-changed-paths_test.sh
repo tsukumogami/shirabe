@@ -213,6 +213,50 @@ case "$PATHS" in
     *) pass "SHARED_BRANCH: no sibling path anywhere in the record" ;;
 esac
 
+# --- a merge of the default branch after impl_base -------------------------------
+
+# origin/main gains a koto-templates file after the fork, and the run merges it
+# between two of its own commits. What the merge brought in is not the run's.
+fixture merged-main
+commit_file sibling/one.md "sibling one"
+run --base s-merged
+ibase=$(head_sha)
+commit_file mine/before.go
+(cd "$FX/seed" && mkdir -p skills/x/koto-templates && seq 1 500 > skills/x/koto-templates/x.md \
+    && git add -A && git commit -q -m up && git push -q origin main) >/dev/null 2>&1
+(cd "$FX/repo" && git fetch -q origin && git merge -q --no-edit origin/main) >/dev/null 2>&1
+commit_file mine/after.go
+run --write s-merged
+if [ "$RC" -eq 0 ] && [ "$(path_lines)" = "$(printf 'A\tmine/after.go\nA\tmine/before.go')" ] \
+    && [ "$(printf '%s\n' "$PATHS" | sed -n 2p)" = "commits: 3" ]; then
+    pass "a merge of main after impl_base: only the run's own paths and commits are listed"
+else
+    fail "a merge of main after impl_base counts as the step's own change: rc $RC, paths [$PATHS]"
+fi
+base_line=$(printf '%s\n' "$PATHS" | sed -n 1p)
+if (cd "$FX/repo" && git merge-base --is-ancestor "$ibase" "${base_line#base: }" \
+    && git merge-base --is-ancestor origin/main "${base_line#base: }"); then
+    pass "a merge of main after impl_base: the base holds both impl_base and the merged-in main"
+else
+    fail "a merge of main after impl_base: base is [$base_line], impl_base $ibase"
+fi
+
+# origin/main moves but is never merged: the base is impl_base, as before.
+fixture main-unmerged
+run --base s-unmerged
+ibase=$(head_sha)
+(cd "$FX/seed" && printf 'up\n' > upstream.md && git add -A && git commit -q -m up \
+    && git push -q origin main) >/dev/null 2>&1
+(cd "$FX/repo" && git fetch -q origin) >/dev/null 2>&1
+commit_file mine/work.go
+run --write s-unmerged
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$PATHS" | sed -n 1p)" = "base: $ibase" ] \
+    && [ "$(path_lines)" = "$(printf 'A\tmine/work.go')" ]; then
+    pass "main moved but never merged: the base is impl_base itself"
+else
+    fail "main moved but never merged: rc $RC, impl_base $ibase, paths [$PATHS]"
+fi
+
 # --- impl_base unset: merge-base with origin's default branch -------------------
 
 fixture mergebase
