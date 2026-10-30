@@ -37,6 +37,11 @@
 # or is missing leaves the exit code, stdout and stderr as they were. The
 # scripts run from a copy of the skill laid out as the repository is, so no
 # case reaches the repository's own helper.
+# The input's launch field reaches niwa dispatch as exactly the --model,
+# --permission-mode and --accept-session-messages it names, only when niwa's
+# help lists each (a stderr line names each one dropped), with the launch
+# unchanged when it's absent, and a value outside its fixed set refused before
+# anything is written or launched.
 #
 # Usage: bash skills/coordinate/scripts/dispatch-worker_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -154,6 +159,11 @@ case "$1" in
             case "${NIWA_HELP:-lineage}" in
                 lineage) printf 'Flags:\n      --brief string\n      --detach\n      --name string\n      --skill string\n' ;;
                 grant) printf 'Flags:\n      --brief string\n      --detach\n      --grant strings\n      --name string\n      --parent-from string\n      --skill string\n' ;;
+                # `launch` adds --model, --permission-mode and
+                # --accept-session-messages to `lineage`.
+                launch) printf 'Flags:\n      --accept-session-messages   accept messages\n      --brief string\n      --detach\n      --model string\n      --name string\n      --permission-mode string\n      --skill string\n' ;;
+                # `prose` names the three flags only inside other flags' text.
+                prose) printf 'Flags:\n      --brief string     not --model or --permission-mode\n      --detach\n      --model-category string   the --accept-session-messages-ish flag\n      --name string\n      --skill string\n' ;;
                 old) printf 'Flags:\n      --detach\n      --name string\n' ;;
                 fail) exit 1 ;;
             esac
@@ -518,6 +528,70 @@ reset "$(jq -c '.grant = ["merge-pr"]' <<<"$INPUT_DELIVER")"
 export NIWA_HELP=grant NIWA_MODE=fail
 run >/dev/null 2>&1; RC=$?
 eq  "grant, other failure: exit 4" 4 "$RC"
+
+# --- the worker's launch flags ------------------------------------------------------------
+#
+# The input's launch field reaches niwa dispatch as exactly the flags it names,
+# each value one argument, and only the flags niwa's help lists.
+LAUNCH_ALL='{"model": "opus", "permission_mode": "bypassPermissions", "accept_session_messages": true}'
+reset "$(jq -c --argjson l "$LAUNCH_ALL" '.launch = $l' <<<"$INPUT_DELIVER")"
+export NIWA_HELP=launch
+OUT=$(run 2>"$T/err"); RC=$?
+eq  "launch: exit 0" "0 session=$NIWA_NAME" "$RC $OUT"
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+has "launch: --model opus" "$LAUNCHED" "[--model] [opus]"
+has "launch: --permission-mode bypassPermissions" "$LAUNCHED" "[--permission-mode] [bypassPermissions]"
+has "launch: --accept-session-messages" "$LAUNCHED" "[--accept-session-messages]"
+eq  "launch: one of each" "1 1 1" "$(grep -o -e '\[--model\]' <<<"$LAUNCHED" | wc -l | tr -d ' ') $(grep -o -e '\[--permission-mode\]' <<<"$LAUNCHED" | wc -l | tr -d ' ') $(grep -o -e '\[--accept-session-messages' <<<"$LAUNCHED" | wc -l | tr -d ' ')"
+eq  "launch: nothing dropped" "" "$(grep 'launch:' "$T/err")"
+reset "$(jq -c '.launch = {"accept_session_messages": false, "model": "balanced"}' <<<"$INPUT_DELIVER")"
+export NIWA_HELP=launch
+run >/dev/null 2>&1
+LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+has "launch: false is --accept-session-messages=false" "$LAUNCHED" "[--accept-session-messages=false]"
+has "launch: a category goes on as given" "$LAUNCHED" "[--model] [balanced]"
+lacks "launch: a key not given adds no flag" "$LAUNCHED" "[--permission-mode]"
+
+# None given: the launch is exactly what it was, whatever niwa takes.
+for help in launch lineage; do
+    reset "$INPUT_DELIVER"
+    export NIWA_HELP=$help
+    run >/dev/null 2>"$T/err"
+    LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+    case "$LAUNCHED" in
+        *" [--name] [plugin-api] [--detach] [--brief] [$BRIEF_FILE] [--skill] [shirabe:deliver]") ok "launch absent ($help): the launch ends as before" ;;
+        *) bad "launch absent ($help): the launch ends as before" "$LAUNCHED" ;;
+    esac
+    eq  "launch absent ($help): nothing said" "" "$(grep 'launch:' "$T/err")"
+done
+
+# A niwa whose help doesn't list a flag gets no such flag, and a stderr line
+# names each one dropped; a flag named only in prose isn't listed.
+for help in lineage old fail prose; do
+    reset "$(jq -c --argjson l "$LAUNCH_ALL" '.launch = $l' <<<"$INPUT_DELIVER")"
+    export NIWA_HELP=$help
+    run >/dev/null 2>"$T/err"; RC=$?
+    eq  "launch, niwa without the flags ($help): exit 0" 0 "$RC"
+    LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
+    lacks "launch, niwa without the flags ($help): no --model" "$LAUNCHED" "[--model]"
+    lacks "launch, niwa without the flags ($help): no --permission-mode" "$LAUNCHED" "[--permission-mode]"
+    lacks "launch, niwa without the flags ($help): no --accept-session-messages" "$LAUNCHED" "[--accept-session-messages"
+    for f in --model --permission-mode --accept-session-messages; do
+        has "launch, niwa without the flags ($help): says $f is dropped" "$(cat "$T/err")" "takes no $f"
+    done
+done
+
+# A value outside the fixed sets, one with a space or a leading dash, or a key
+# that isn't one of the three: refused before anything is written or launched.
+for l in '{"model": "opus --permission-mode bypassPermissions"}' '{"model": "--dangerously-skip-permissions"}' \
+         '{"permission_mode": "yolo"}' '{"accept_session_messages": "yes"}' '{"agent": "coder"}' '{}'; do
+    reset "$(jq -c --argjson l "$l" '.launch = $l' <<<"$INPUT_DELIVER")"
+    export NIWA_HELP=launch
+    run >/dev/null 2>"$T/err"; RC=$?
+    eq  "launch refused $l: exit 1" 1 "$RC"
+    eq  "launch refused $l: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create' "$ST/calls.log")"
+    has "launch refused $l: says why" "$(cat "$T/err")" "launch: "
+done
 
 reset "$INPUT_SCOPE"
 printf '{"requests":[{"request_id":"req_left","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_other","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"

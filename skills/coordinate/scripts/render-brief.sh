@@ -90,6 +90,19 @@
 #                                 none, and sends a step they don't cover
 #                                 back to the coordinator. Absent, the brief
 #                                 is what it was before the field existed.
+#   launch              optional  how niwa dispatch launches the worker, an
+#                                 object with one or more of: model, one of
+#                                 balanced, fast or powerful (niwa's
+#                                 capability categories) or fable, opus,
+#                                 sonnet or haiku; permission_mode, one of
+#                                 default, acceptEdits, plan, auto, dontAsk
+#                                 or bypassPermissions; and
+#                                 accept_session_messages, true or false.
+#                                 Any other key or value is refused, so
+#                                 nothing but these reaches the launch.
+#                                 dispatch-worker.sh turns each into its
+#                                 niwa dispatch flag; the brief doesn't
+#                                 change.
 #
 # The entry point's target requirement. references/entry-points.tsv gives each
 # entry point the visibility its targets must have (`any`, `public` or
@@ -264,6 +277,20 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
       or (all(.grant[]; type == "string" and IN("merge-pr", "close-issue", "cut-release")) | not)
       or (.grant | length) != (.grant | unique | length))
   then "grant: must be an array of distinct authorities from merge-pr, close-issue and cut-release" else empty end ),
+( if has("launch") then
+    ( .launch as $l
+      | if ($l | type) != "object" or ($l | length) == 0 then "launch: must be an object with model, permission_mode, accept_session_messages or any of them"
+        else
+          ( ($l | keys[]) | select(IN("model","permission_mode","accept_session_messages") | not)
+            | "launch: unknown key \(.); only model, permission_mode and accept_session_messages" ),
+          ( if $l | has("model") and (.model | IN("balanced","fast","powerful","fable","opus","sonnet","haiku") | not)
+            then "launch: model must be balanced, fast, powerful, fable, opus, sonnet or haiku" else empty end ),
+          ( if $l | has("permission_mode") and (.permission_mode | IN("default","acceptEdits","plan","auto","dontAsk","bypassPermissions") | not)
+            then "launch: permission_mode must be default, acceptEdits, plan, auto, dontAsk or bypassPermissions" else empty end ),
+          ( if $l | has("accept_session_messages") and ((.accept_session_messages | type) != "boolean")
+            then "launch: accept_session_messages must be true or false" else empty end )
+        end )
+  else empty end ),
 ( if ([.. | strings | select(uuid)] | length) > 0 then "input: a value carries a UUID-shaped token; a session id never goes in a brief" else empty end )
 )
 '
