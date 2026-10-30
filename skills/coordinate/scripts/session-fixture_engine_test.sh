@@ -20,14 +20,20 @@
 #   2. the next start on A resumes that run (resumed=1, the same session), and
 #      a diff of every key's name and JSON before and after the resume shows
 #      no change;
-#   3. host B imports it with --import and resumes it there (imported=,
-#      resumed=1), and every key but record/host, the import's own, is the same
-#      by name and JSON as before the resume on A, with one more where the
-#      import writes it (koto 0.24.0 and later): koto/imported-from, naming A's
-#      session and its session id (an older koto adds no key);
-#   4. the imported run's find reads the legacy record, its `store session` row
-#      included, as found: it goes on to reconcile_pass and never to
-#      record_conflict.
+#   3. host B imports it with --import, and every key of the imported copy
+#      but record/host, the import's own, is the same by name and JSON as
+#      before the resume on A, with one more where the import writes it (koto
+#      0.24.0 and later): koto/imported-from, naming A's session and its
+#      session id (an older koto adds no key). On koto 0.32.0 and later B's
+#      opener, run as a Claude session, takes the copy over (imported=,
+#      outcome=continued, predecessor= the copy, session= a new run), and the
+#      new run holds every fixture key under record/ and legs/ with the same
+#      JSON but record/meta, which keeps the fixture's scope and store, and
+#      one entry more, the takeover's; on an older koto the copy is resumed
+#      (imported=, resumed=1);
+#   4. the run B goes on with (the new run on koto 0.32.0 and later, the copy
+#      before) reads the legacy record, its `store session` row included, as
+#      found: its find goes on to reconcile_pass and never to record_conflict.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
@@ -80,14 +86,21 @@ done
 WS_A=$(host_ws a)
 
 ON=a
+# A synthetic Claude session id for B's opener, built here so no id-shaped
+# literal ships: on koto 0.32.0 and later an import is taken over, which
+# records the Claude session running the opener as the new run's driver.
+B_ID=$(printf '%s-0000-4000-8000-%012d' bbbbbbbb 2)
+CALLER_ID=
 tick() { host_on "$ON" koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"; }
-# start <args json>: the opener on host $ON; OPEN_OUT its output, S the session.
+# start <args json>: the opener on host $ON, as the Claude session $CALLER_ID
+# when it is set; OPEN_OUT its output, S the session.
 start() {
     printf '%s' "$1" > "$T/args.json"
-    OPEN_OUT=$(host_on "$ON" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    OPEN_OUT=$(host_on "$ON" env ${CALLER_ID:+CLAUDE_CODE_SESSION_ID=$CALLER_ID} bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
 }
+line() { printf '%s\n' "$OPEN_OUT" | sed -n "s/^$1=//p"; }
 # snap <host>: every key of $S on the host but record/host, its name and its
 # JSON with sorted keys, one line each, sorted by name.
 snap() {
@@ -143,9 +156,24 @@ echo "== 3. host B imports it =="
 SRC_ID=$(head -n 1 "$(host_on a koto session dir "$S")/koto-$S.state.jsonl" | jq -r '.session_id // empty')
 [ -n "$SRC_ID" ] && ok "3: A's session id is read" || bad "3: A's session id is read" "empty"
 ON=b
-start "[\"docs/roadmaps/ROADMAP-fixture.md\", \"--import\", \"$FIRST\", \"--from\", \"$WS_A\"]"
-grep -qx "imported=$FIRST" <<< "$OPEN_OUT" && grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "3: host B imports the run and resumes it" \
-    || bad "3: host B imports the run and resumes it" "$OPEN_OUT $(cat "$T/open.err")"
+# koto 0.32.0 and later keep the import's source as a read-only predecessor,
+# and the opener takes the copy over into a new run; an older koto's copy is
+# resumed.
+NEW=
+if koto_keeps_source; then
+    CALLER_ID=$B_ID
+    start "[\"docs/roadmaps/ROADMAP-fixture.md\", \"--import\", \"$FIRST\", \"--from\", \"$WS_A\"]"
+    CALLER_ID=
+    eq "3: host B imports the run and takes it over" "imported=$FIRST outcome=continued predecessor=$FIRST" \
+        "imported=$(line imported) outcome=$(line outcome) predecessor=$(line predecessor)"
+    NEW=$S
+    [ -n "$NEW" ] && [ "$NEW" != "$FIRST" ] && ok "3:   ... into a new run ($NEW)" \
+        || bad "3:   ... into a new run" "$OPEN_OUT $(cat "$T/open.err")"
+else
+    start "[\"docs/roadmaps/ROADMAP-fixture.md\", \"--import\", \"$FIRST\", \"--from\", \"$WS_A\"]"
+    grep -qx "imported=$FIRST" <<< "$OPEN_OUT" && grep -qx 'resumed=1' <<< "$OPEN_OUT" && ok "3: host B imports the run and resumes it" \
+        || bad "3: host B imports the run and resumes it" "$OPEN_OUT $(cat "$T/open.err")"
+fi
 S=$FIRST
 IMPORTED=$(snap b)
 # koto 0.24.0 is the first release whose import writes koto/imported-from; the
@@ -173,7 +201,24 @@ else
         "" "$(diff <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$IMPORTED"))"
 fi
 
-echo "== 4. the imported run's find reads the legacy record =="
+# The new run carries record/ and legs/ from the fenced copy: every fixture
+# key under them but record/meta has the same JSON, and the one key more is
+# the takeover's entry. The takeover rewrites record/meta (its driver, the
+# takeover and this plugin's compat), keeping the fixture's scope and store.
+if [ -n "$NEW" ]; then
+    S=$NEW
+    CARRIED=$(snap b | grep -E '^(record|legs)/' | grep -v '^record/meta ')
+    WANT=$(printf '%s\n' "$BEFORE" | grep -E '^(record|legs)/' | grep -v '^record/meta ')
+    eq "3: the new run holds every fixture key under record/ and legs/ but record/meta, by name and JSON" \
+        "" "$(grep -vxF -f <(printf '%s\n' "$CARRIED") <<< "$WANT")"
+    eq "3:   ... and one key more, the takeover's entry" takeover \
+        "$(grep -vxF -f <(printf '%s\n' "$WANT") <<< "$CARRIED" | sed 's/^[^ ]* //' | jq -r .kind)"
+    eq "3: the new run's record/meta keeps the fixture's scope and store" \
+        "$(jq -c '."record/meta" | {scope, store}' "$FX")" "$(host_on b koto context get "$NEW" record/meta | jq -c '{scope, store}')"
+fi
+
+echo "== 4. the run B goes on with reads the legacy record =="
+[ -z "$NEW" ] || S=$NEW
 tick > /dev/null
 [ "$(entered b reconcile_pass)" -ge 1 ] 2>/dev/null && ok "4: the find goes on to reconcile_pass" \
     || bad "4: the find goes on to reconcile_pass" "$(cat "$T/tick.err")"

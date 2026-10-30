@@ -55,7 +55,7 @@ to advance it, what it never does, and how it ends.
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
-| `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
+| `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
 | `--trust-template` | With `--import` only, and only when the operator says so: take the run's compiled template from the bucket rather than from this host's cache. The template holds every command the run executes. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
@@ -242,8 +242,9 @@ work.
      the fence shipped in koto 0.28.0, so a takeover runs on koto 0.28.0
      and later.
    - koto's own code for any other refusal, among them `cloud_unsupported`:
-     koto's cloud backend refuses `koto init --supersede` (koto 0.28.0
-     through at least 0.31.0), so there a takeover ends at the fence.
+     koto's cloud backend refuses `koto init --supersede` on koto 0.28.0
+     through 0.31.0, so there a takeover ends at the fence. koto 0.32.0 and
+     later fence a run on the cloud backend too.
 
    A run of 65 or more record entries is taken over with no single koto call
    reaching koto's 30-second action limit, even at a one-minute load average
@@ -262,19 +263,39 @@ work.
    again, which only marks the source and passes the live check because the live
    run is its own target; a plain start would carry a run whose source may still
    write. Compile the template here first (the opener does it);
-   `--trust-template` only when the operator passes it. The source is marked
-   migrated, and its copy refuses every later read as `session_migrated`. The
-   imported run must then pass what a resume needs; one that doesn't stays here
-   (`refused=template-incompatible`, `session-provenance`, `session-source` or
-   `session-directed`), and a plain start carries it, except after
-   `session-source`: a run whose find didn't record the session as its store
-   is no resume candidate, so a plain start opens a new run as it would with no
-   session here and cancels the imported one. A good import prints
-   `imported=<name>`, `resumed=1` and `session=<name>`, and `record/host` takes
-   the source workspace, session and template hash. The run keeps its stamp. It
-   reconciles again on this host, because a report sealed on the old host
-   describes that host's workers. The opener prints `state=<where the run
-   stands>`. At the hub (`state=wait`), where a stopped coordinator almost
+   `--trust-template` only when the operator passes it. The imported copy must
+   then be a run this plugin can continue; one that isn't stays here
+   (`refused=template-incompatible`, `session-source` or `session-directed`,
+   and on a koto older than 0.32.0 `session-provenance`), and a plain start
+   carries it, except after `session-source`: a run whose find didn't record
+   the session as its store is no resume candidate, so a plain start opens a
+   new run as it would with no session here and cancels the imported one.
+   `record/host` takes the source workspace, session and template hash.
+
+   On koto 0.32.0 and later the import is a takeover of the copy. The copy is
+   the predecessor, and the opener continues it in a new run opened from this
+   plugin's root and template, as a takeover on one host does (above): koto
+   fences the copy and carries its `record/`, `legs/`, `taken_legs` and
+   `leg_children`, and the new run's record names this session as driver and
+   coordinator, so the import needs this session's Claude session id
+   (`refused=session-id` without one, before koto imports anything). It prints
+   `imported=<name>`, then the takeover's `outcome=continued`,
+   `predecessor=<name>`, `session=<new run>`, `predecessor_stopped=`,
+   `watcher=` and `leg_wake=`; go on as after any takeover, from the
+   `session=` it printed. The new run opens at the template's first state, so
+   its first ticks reconcile on this host. In the workspace the run left, koto
+   still answers reads of the source but refuses every write to it, and its
+   next tick, as `session_superseded` naming the new run, so a coordinator
+   still running there stops. The same import run again from this session
+   prints `outcome=resumed` and the new run, or finishes a takeover cut short
+   after the fence; from another session it is refused `taken-over`.
+
+   On an older koto the copy is resumed. The source is marked migrated, and
+   its copy refuses every later read as `session_migrated`. A good import
+   prints `imported=<name>`, `resumed=1` and `session=<name>`. The run keeps
+   its stamp. It reconciles again on this host, because a report sealed on the
+   old host describes that host's workers. The opener prints `state=<where the
+   run stands>`. At the hub (`state=wait`), where a stopped coordinator almost
    always is, it also prints `tick=moved`: tick the hub with `event: moved`
    first, and a full reconcile reads this host. A run at reconcile does it by
    itself on its first tick. A run imported anywhere else finishes the step it

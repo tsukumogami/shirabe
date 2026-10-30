@@ -14,9 +14,10 @@
 #      session=B, a new run, with no carried=, resumed= or rebound= line, and
 #      predecessor_stopped=yes (A's last event before koto's session_imported
 #      is seconds old);
-#   2. watcher=stopped and the watch in `work` has exited, leg_wake=supported,
-#      and state=<A's state> with tick=moved at the hub, as a takeover on one
-#      host and an import report them;
+#   2. watcher=stopped and the watch in `work` has exited and
+#      leg_wake=supported, as a takeover on one host reports them, and no
+#      state= or tick= line: B opens at the template's first state, so it
+#      reconciles in `second` from its first tick;
 #   3. `koto session hierarchy B` shows B continuing A, B's PLUGIN_ROOT is
 #      this plugin's and its log holds no rebind; every key A held under
 #      record/, legs/, taken_legs and leg_children (but record/meta and
@@ -32,7 +33,9 @@
 #   6. the same import run again from B's Claude session prints
 #      outcome=resumed and session=B, adding no takeover entry;
 #   7. a run opened in `work` from a copy of the plugin whose coordinate.md
-#      differs is imported into `second` and refused template-incompatible,
+#      declares one more variable (another structure, at a compat the shipped
+#      table doesn't list) is imported into `second` and refused
+#      template-incompatible,
 #      the refusal naming coordinate.md and both compat numbers, with no run
 #      taking it over.
 # On a koto older than 0.32.0, whose cloud backend can't fence, the import
@@ -142,13 +145,12 @@ case "$B" in coordinate-roadmap-imp-2*Z) [ "$B" != "$A" ] && ok "1: session= nam
 eq "1: no carried=, resumed= or rebound= line" "" "$(printf '%s\n' "$OUT" | grep -E '^(carried|resumed|rebound)=')"
 eq "1: A's last event before the import is seconds old: predecessor_stopped=yes" yes "$(line predecessor_stopped)"
 
-# ---- 2. watcher=, leg_wake= and the import's state= -------------------------------
+# ---- 2. watcher= and leg_wake=, and no state= or tick= ----------------------------
 eq "2: watcher=stopped" stopped "$(line watcher)"
 kill -0 "$WPID" 2>/dev/null && bad "2: the watch on A in work has exited" "pid $WPID still runs" || ok "2: the watch on A in work has exited"
 wait "$WPID" 2>/dev/null
 eq "2: leg_wake=supported" supported "$(line leg_wake)"
-eq "2: state= is where A stood" "$REACHED" "$(line state)"
-if [ "$REACHED" = wait ]; then eq "2: tick=moved at the hub" moved "$(line tick)"; fi
+eq "2: no state= or tick= line" "" "$(printf '%s\n' "$OUT" | grep -E '^(state|tick)=')"
 
 # ---- 3. the relation and the carried keys ---------------------------------------------
 (cd "$W2" && koto session hierarchy "$B") | grep -qx "continues: $A" && ok "3: koto session hierarchy shows B continuing A" \
@@ -183,11 +185,7 @@ for w in "$W2" "$W1"; do
 done
 (cd "$W1" && CLAUDE_CODE_SESSION_ID=$A_ID bash "$PS/state-stored-set.sh" --session "$A" --run cap 3 --by coord-a) > "$T/w.out" 2>&1
 [ $? -ne 0 ] && ok "5: a record write to A in work is refused" || bad "5: a record write to A in work is refused" "$(cat "$T/w.out")"
-if [ "$(line tick)" = moved ]; then
-    (cd "$W2" && koto next "$B" --with-data '{"event":"moved"}' --no-cleanup) > "$T/b.out" 2>"$T/tick.err"; rc=$?
-else
-    (cd "$W2" && koto next "$B" --no-cleanup) > "$T/b.out" 2>"$T/tick.err"; rc=$?
-fi
+(cd "$W2" && koto next "$B" --no-cleanup) > "$T/b.out" 2>"$T/tick.err"; rc=$?
 eq "5: B's first tick exits 0" 0 "$rc"
 [ -n "$(jq -r '.state // empty' "$T/b.out" 2>/dev/null)" ] && ok "5:   ... and lands on $(jq -r .state "$T/b.out")" || bad "5:   ... and lands on a state" "$(cat "$T/b.out" "$T/tick.err")"
 
@@ -198,9 +196,17 @@ eq "6:   ... adding no takeover entry" 1 \
     "$(cd "$W2" && bash "$PS/state-entry.sh" --session "$B" --list | jq '[.[] | select(.kind == "takeover")] | length')"
 
 # ---- 7. a changed template refuses by name ---------------------------------------------
+# The copy's template gains a variable, so its structure (the compat
+# fingerprint) differs, and its own compat table raises compat and lists the
+# new structure there; the shipped table lists neither. A change to directive
+# text alone keeps the structure, which the shipped table already lists.
 mkdir -p "$T/plugin2"
 cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin2/"
-printf '\nA line this copy of the plugin adds.\n' >> "$T/plugin2/skills/coordinate/koto-templates/coordinate.md"
+PT=$T/plugin2/skills/coordinate/koto-templates
+awk '{ print } /^variables:$/ && !d { print "  COMPAT_PROBE:\n    description: A variable only this copy declares, so its structure differs.\n    default: \"\""; d = 1 }' \
+    "$PT/coordinate.md" > "$T/p2.md" && mv "$T/p2.md" "$PT/coordinate.md"
+PFP=$(bash "$T/plugin2/skills/coordinate/scripts/template-fingerprint.sh" "$(koto template compile "$PT/coordinate.md" 2>/dev/null)")
+jq --arg f "$PFP" '.compat += 1 | .fingerprints[$f] = .compat' "$PT/coordinate.compat.json" > "$T/p2compat.json" && mv "$T/p2compat.json" "$PT/coordinate.compat.json"
 printf '["docs/roadmaps/ROADMAP-imp2.md"]' > "$T/args.json"
 OTHER=$(cd "$W1" && CLAUDE_CODE_SESSION_ID=$A_ID bash "$T/plugin2/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$T/plugin2" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
 [ -n "$OTHER" ] && ok "7: work opens a run from a plugin whose coordinate.md differs" || bad "7: work opens a run from a plugin whose coordinate.md differs" "$(cat "$T/open.err")"

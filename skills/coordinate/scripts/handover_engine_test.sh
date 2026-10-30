@@ -19,15 +19,24 @@
 # other file.
 #
 # Proves, one line per case:
-#   0. the import: B prints imported=, resumed=1 and A's session name, which
-#      keeps A's stamp; every record/ and legs/ key on B is the same as on A,
-#      record/host keeps A's host facts and adds the source workspace, session
-#      and template hash; A's copy then refuses a write as session_migrated
-#      (and, before koto 0.32.0, a read too; from 0.32.0 a read answers with
-#      A's last pushed copy), and on A it is neither a live run of the scope
-#      nor a session holding the scope's record; B's next
-#      entry is numbered after A's last (R9); B's reconcile report and closing
-#      lines name the source;
+#   0. the import: before koto 0.32.0 B prints imported=, resumed=1 and A's
+#      session name; from 0.32.0 B's opener, as a Claude session, prints
+#      imported= and takes the copy over (outcome=continued, predecessor= the
+#      copy, session= a new run, no resumed=, state= or tick=), its stderr
+#      only the note that the coordinator row keeps A's address. Either way
+#      the imported copy keeps A's stamp; every record/ and legs/ key on B is
+#      the same as on A, record/host keeps A's host facts and adds the source
+#      workspace, session and template hash; from 0.32.0 the new run holds
+#      the copy's keys but record/meta, one takeover entry more, the same
+#      record/host and B's session as driver. A's copy then refuses a write as
+#      session_migrated (and, before koto 0.32.0, a read too; from 0.32.0 a
+#      read answers with A's last pushed copy), and on A it is neither a live
+#      run of the scope nor a session holding the scope's record. B's next
+#      entry is numbered after A's last (R9), from 0.32.0 after the takeover's
+#      entry, itself after A's last; B's reconcile report and closing lines
+#      name the source. Every case after runs on the run B goes on with, the
+#      copy before 0.32.0 and the new run from it, whose first ticks bring it
+#      to reconcile on B;
 #   1. the imported session alone carries every property the roadmap's
 #      acceptance test names: the run's arguments and the cap, the worker ids,
 #      a next step per holding, a row for the local agent's work, the standing
@@ -41,17 +50,23 @@
 #   4. past the gate the run reaches pick with the cap of one from the
 #      record, not the default the session was opened with;
 #   5. a holding with no next step holds the gate too, and a Work row clears it;
-#   6. a run imported while it waits at the hub (on a third host) is printed
-#      as `state=wait` with `tick=moved`; the check the hub's directive asks
-#      on every visit says a reconcile is owed, and says it again when read
-#      again; the moved tick takes it through a full reconcile whose report is
-#      read on the new host and names its source, and the check is clear;
+#   6. a run imported while it waits at the hub (on a third host): before
+#      koto 0.32.0 it is printed as `state=wait` with `tick=moved`; the check
+#      the hub's directive asks on every visit says a reconcile is owed, and
+#      says it again when read again; the moved tick takes it through a full
+#      reconcile. From 0.32.0 C's opener, as its own Claude session, takes the
+#      copy over into a new run, printing no state= or tick=; the check isn't
+#      clear before the new run's first tick (it has sealed no report), and
+#      its first ticks take it through a full reconcile. Either way the
+#      report is read on the new host and names its source, and the check is
+#      clear;
 #   7. a discipline rotation on the session store
 #      (docs/designs/current/DESIGN-coordinator-record-teardown.md, Decision 3):
 #      a second rotation carries the first's hold and go-ahead and reports
 #      them, its handover gate lists carry-unacknowledged until a person's
 #      go-ahead set after its start (the carried go-ahead doesn't clear it),
-#      and host B imports it into a fresh workspace, resuming it there with
+#      and host B imports it into a fresh workspace, resuming it there (before
+#      koto 0.32.0) or taking it over into a new run (from 0.32.0), with
 #      record/rotation as on A.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
@@ -127,6 +142,29 @@ keys() {
     done
 }
 last_entry() { host_on "$1" koto context list "$S" --prefix record/entries/ | jq -r 'map(ltrimstr("record/entries/")) | sort | last // ""'; }
+# ckeys <host>: every record/ and legs/ key of $S on the host but record/host
+# and record/meta, its JSON on one line with sorted keys, so two runs' keys
+# compare line by line.
+ckeys() {
+    local k
+    for p in record/ legs/; do host_on "$1" koto context list "$S" --prefix "$p" 2>/dev/null | jq -r '.[]'; done \
+        | grep -vx record/host | grep -vx record/meta | LC_ALL=C sort | while IFS= read -r k; do
+        printf '%s %s\n' "$k" "$(host_on "$1" koto context get "$S" "$k" | jq -cS .)"
+    done
+}
+# outline <output> <name>...: the named lines of an opener's output, in its order, on one line.
+outline() { local o=$1 n; shift; for n in "$@"; do grep "^$n=" <<< "$o"; done | tr '\n' ' ' | sed 's/ $//'; }
+
+# On koto 0.32.0 and later an import is taken over: the opener fences the
+# imported copy and opens a new run that carries its record and legs,
+# recording the Claude session running it as the new run's driver. Each
+# importing opener runs as its own synthetic Claude session, built here so no
+# id-shaped literal ships; an older koto resumes the copy and needs none.
+TAKEOVER=
+koto_keeps_source && TAKEOVER=1
+B_ID=$(printf '%s-0000-4000-8000-%012d' bbbbbbbb 2)
+C_ID=$(printf '%s-0000-4000-8000-%012d' cccccccc 3)
+R_ID=$(printf '%s-0000-4000-8000-%012d' dddddddd 4)
 
 # ---- the fixture ---------------------------------------------------------------
 
@@ -192,17 +230,44 @@ LAST_A=$(last_entry a)
 
 echo "== 0. host B imports the run =="
 ON=b
+SRC=$S
 printf '["docs/roadmaps/ROADMAP-handover.md", "--import", "%s", "--from", "%s"]' "$S" "$WS_A" > "$T/args.json"
-OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
-eq "the import succeeds" 0 $?
-eq "  ... printing imported, resumed, the session and its state (at reconcile, no tick)" "imported=$S resumed=1 session=$S state=reconcile" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
-[ -s "$T/open.err" ] && bad "  ... with nothing on stderr" "$(cat "$T/open.err")" || ok "  ... with nothing on stderr"
+if [ -n "$TAKEOVER" ]; then
+    OUT=$(host_on b env CLAUDE_CODE_SESSION_ID="$B_ID" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    eq "the import succeeds" 0 $?
+    eq "  ... printing imported, then the copy's takeover (continued, the copy its predecessor)" \
+        "imported=$S outcome=continued predecessor=$S" "$(outline "$OUT" imported outcome predecessor)"
+    SUCC=$(sed -n 's/^session=//p' <<< "$OUT")
+    [ -n "$SUCC" ] && [ "$SUCC" != "$S" ] && ok "  ... and session= a new run ($SUCC)" || bad "  ... and session= a new run" "$OUT $(cat "$T/open.err")"
+    eq "  ... with no resumed=, state= or tick= line (the new run opens at the template's first state)" "" "$(grep -E '^(resumed|state|tick)=' <<< "$OUT")"
+    # B's session has no name the opener can read, so the new run's
+    # coordinator row keeps A's address, and the opener says so.
+    eq "  ... with nothing on stderr but that the coordinator row keeps A's address" "" \
+        "$(grep -v "coordinator row still names the predecessor's" "$T/open.err")"
+else
+    OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    eq "the import succeeds" 0 $?
+    eq "  ... printing imported, resumed, the session and its state (at reconcile, no tick)" "imported=$S resumed=1 session=$S state=reconcile" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+    [ -s "$T/open.err" ] && bad "  ... with nothing on stderr" "$(cat "$T/open.err")" || ok "  ... with nothing on stderr"
+fi
 eq "the run keeps A's stamp" "$S" "$(host_on b koto session list | jq -r --arg s "$S" '.[] | select(.id == $s) | .id')"
 eq "every record/ and legs/ key is the same on B" "$SNAP" "$(keys b)"
 HASH=$(host_on b bash "$PS/coord-log.sh" template-hash --session "$S")
-eq "record/host keeps A's facts and adds the source" \
-    "$(printf '%s' "$HOST_A" | jq -cS --arg w "$WS_A" --arg s "$S" --arg h "$HASH" '. + {source_workspace: $w, source_session: $s, template_hash: $h}')" \
-    "$(host_on b koto context get "$S" record/host | jq -cS .)"
+HOST_WANT=$(printf '%s' "$HOST_A" | jq -cS --arg w "$WS_A" --arg s "$S" --arg h "$HASH" '. + {source_workspace: $w, source_session: $s, template_hash: $h}')
+eq "record/host keeps A's facts and adds the source" "$HOST_WANT" "$(host_on b koto context get "$S" record/host | jq -cS .)"
+if [ -n "$TAKEOVER" ]; then
+    # The new run carries the copy's record and legs: every key but
+    # record/meta, which the takeover rewrites, is the same, one entry more is
+    # the takeover's, and record/host names A as the source.
+    WANT=$(ckeys b)
+    S=$SUCC
+    GOT=$(ckeys b)
+    eq "the new run holds every record/ and legs/ key of the copy but record/meta, the same" "" "$(grep -vxF -f <(printf '%s\n' "$GOT") <<< "$WANT")"
+    eq "  ... and one key more, the takeover's entry" takeover "$(grep -vxF -f <(printf '%s\n' "$WANT") <<< "$GOT" | sed 's/^[^ ]* //' | jq -r .kind)"
+    eq "  ... and its record/host names A as the source" "$HOST_WANT" "$(host_on b koto context get "$S" record/host | jq -cS .)"
+    eq "  ... and its record/meta names B's Claude session as driver" "$B_ID" "$(host_on b koto context get "$S" record/meta | jq -r '.driver // empty')"
+    S=$SRC
+fi
 # koto 0.32.0 keeps an import's source as a read-only predecessor
 # (koto_keeps_source): A's copy answers a read and refuses a write; an older
 # koto's refuses both.
@@ -221,7 +286,16 @@ eq "  ... nor a session that holds the scope's record on A" '{"session":null,"ac
     "$(host_on a bash "$PS/state-read.sh" --candidate --scope roadmap --name handover --hash "$HASH" 2>/dev/null | jq -c '{session, action}')"
 
 echo "== 1. the imported session alone carries the stored set =="
-eq "it is at reconcile" reconcile "$(at)"
+if [ -n "$TAKEOVER" ]; then
+    # From here on B drives the new run, which opens at the template's first
+    # state and reconciles on B from its first ticks, through its find.
+    S=$SUCC
+    STATE=$(at); i=0
+    while [ "$STATE" != reconcile ] && [ -n "$STATE" ] && [ "$i" -lt 20 ]; do STATE=$(at); i=$((i + 1)); done
+    eq "the new run's first ticks bring it to reconcile on B" reconcile "$STATE"
+else
+    eq "it is at reconcile" reconcile "$(at)"
+fi
 H=$(handover); eq "the handover read prints" 0 $?
 eq "the run's arguments" "--roadmap docs/roadmaps/ROADMAP-handover.md --cap 3" "$(printf '%s' "$H" | jq -r .arguments)"
 eq "the cap, as the human lowered it" "1" "$(printf '%s' "$H" | jq -r .cap)"
@@ -246,9 +320,16 @@ eq "and, for the old coordinator, no gaps" "0" "$(printf '%s' "$H" | jq '.gaps |
 
 echo "== 2. a new address holds the gate until each worker is told =="
 state --run coordinator lane-v2 --by lane-v2; eq "the replacement writes its own address" 0 $?
-eq "  ... as the entry after A's last (R9)" "$(printf '%06d' $((10#$LAST_A + 1)))" "$(last_entry b)"
+if [ -n "$TAKEOVER" ]; then
+    # The takeover's entry comes first, numbered after A's last.
+    eq "  ... as the entry after the takeover's, itself after A's last (R9)" \
+        "$(printf '%06d' $((10#$LAST_A + 2))) takeover" \
+        "$(last_entry b) $(host_on b koto context get "$S" "record/entries/$(printf '%06d' $((10#$LAST_A + 1)))" | jq -r .kind)"
+else
+    eq "  ... as the entry after A's last (R9)" "$(printf '%06d' $((10#$LAST_A + 1)))" "$(last_entry b)"
+fi
 eq "the gate holds at reconcile" reconcile "$(at --with-data '{"reconciled":"reported"}')"
-grep -qF "This run was imported from session \`$S\` in workspace \`$WS_A\`, compiled from template \`$HASH\`." <<< "$(host_on b koto context get "$S" reconcile/report.md 2>/dev/null)" \
+grep -qF "This run was imported from session \`$SRC\` in workspace \`$WS_A\`, compiled from template \`$HASH\`." <<< "$(host_on b koto context get "$S" reconcile/report.md 2>/dev/null)" \
     && ok "the reconcile report names the source" || bad "the reconcile report names the source" "$(host_on b koto context get "$S" reconcile/report.md 2>&1 | head -5)"
 handover --check >/dev/null 2>"$T/gaps"; eq "the check fails" 1 $?
 grep -q 'not-told worker-f1' "$T/gaps" && grep -q 'not-told worker-f2' "$T/gaps" \
@@ -277,7 +358,7 @@ eq "  ... and the gaps name it" "no-next-step Feature 2" "$(handover | jq -r '[.
 state --work "Feature 2" --kind holding --who worker-f2 --next "a ready report"; eq "a Work row clears it" "" "$(handover | jq -r '[.gaps[].gap] | join(" ")')"
 
 echo "== the closing lines name the source =="
-eq "coordinate-report.sh prints the import facts" "outcome=stopped|source_workspace=$WS_A|source_session=$S|template_hash=$HASH" \
+eq "coordinate-report.sh prints the import facts" "outcome=stopped|source_workspace=$WS_A|source_session=$SRC|template_hash=$HASH" \
     "$(printf '{"is_terminal":true,"result":{"payload":{"outcome":"stopped"}}}' | host_on b bash "$PS/coordinate-report.sh" --session "$S" | grep -v '^events=' | tr '\n' '|' | sed 's/|$//')"
 
 echo "== 6. a run imported at the hub reconciles on its new host =="
@@ -285,18 +366,37 @@ eq "pick holds, and the run waits at the hub" wait "$(at --with-data '{"choice":
 WS_B=$(host_ws b)
 ON=c
 printf '["docs/roadmaps/ROADMAP-handover.md", "--import", "%s", "--from", "%s"]' "$S" "$WS_B" > "$T/args.json"
-OUT=$(host_on c bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
-eq "host C imports it" 0 $?
-grep -qx 'state=wait' <<< "$OUT" && ok "  ... printing that it waits at the hub" || bad "  ... printing that it waits at the hub" "$OUT"
-grep -qx 'tick=moved' <<< "$OUT" && ok "  ... and the tick that comes first" || bad "  ... and the tick that comes first" "$OUT"
-# The hub's directive asks this check on every visit; it reads the run's own
-# keys, so it still says a reconcile is owed when read again, as after a
-# restart, until the reconcile on this host clears it.
-run reconcile-report-get.sh --check >/dev/null 2>&1; eq "the hub's check says a reconcile is owed on C" 3 $?
-run reconcile-report-get.sh --check >/dev/null 2>&1; eq "  ... and still says so when read again" 3 $?
-eq "the moved tick takes it through a full reconcile on C" reconcile "$(at --with-data '{"event":"moved"}')"
+SRC=$S
+if [ -n "$TAKEOVER" ]; then
+    # C's opener, as its own Claude session, takes the copy over: the new run
+    # opens at the template's first state, not at the hub, so there is no
+    # state= or tick= line, and it reconciles on C from its first ticks.
+    OUT=$(host_on c env CLAUDE_CODE_SESSION_ID="$C_ID" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    eq "host C imports it" 0 $?
+    eq "  ... and takes the copy over" "imported=$SRC outcome=continued predecessor=$SRC" "$(outline "$OUT" imported outcome predecessor)"
+    S=$(sed -n 's/^session=//p' <<< "$OUT")
+    [ -n "$S" ] && [ "$S" != "$SRC" ] && ok "  ... into a new run ($S)" || bad "  ... into a new run" "$OUT $(cat "$T/open.err")"
+    eq "  ... printing no state= or tick= line" "" "$(grep -E '^(state|tick)=' <<< "$OUT")"
+    # The new run has sealed no report anywhere, so the check isn't clear
+    # until its own reconcile on C.
+    run reconcile-report-get.sh --check >/dev/null 2>&1; eq "the hub's check is not clear on C before the new run's first tick" 1 $?
+    STATE=$(at); i=0
+    while [ "$STATE" != reconcile ] && [ -n "$STATE" ] && [ "$i" -lt 20 ]; do STATE=$(at); i=$((i + 1)); done
+    eq "the new run's first ticks take it through a full reconcile on C" reconcile "$STATE"
+else
+    OUT=$(host_on c bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    eq "host C imports it" 0 $?
+    grep -qx 'state=wait' <<< "$OUT" && ok "  ... printing that it waits at the hub" || bad "  ... printing that it waits at the hub" "$OUT"
+    grep -qx 'tick=moved' <<< "$OUT" && ok "  ... and the tick that comes first" || bad "  ... and the tick that comes first" "$OUT"
+    # The hub's directive asks this check on every visit; it reads the run's own
+    # keys, so it still says a reconcile is owed when read again, as after a
+    # restart, until the reconcile on this host clears it.
+    run reconcile-report-get.sh --check >/dev/null 2>&1; eq "the hub's check says a reconcile is owed on C" 3 $?
+    run reconcile-report-get.sh --check >/dev/null 2>&1; eq "  ... and still says so when read again" 3 $?
+    eq "the moved tick takes it through a full reconcile on C" reconcile "$(at --with-data '{"event":"moved"}')"
+fi
 run reconcile-report-get.sh --check >/dev/null 2>&1; eq "  ... after which the check is clear" 0 $?
-grep -qF "This run was imported from session \`$S\` in workspace \`$WS_B\`" <<< "$(host_on c koto context get "$S" reconcile/report.md 2>/dev/null)" \
+grep -qF "This run was imported from session \`$SRC\` in workspace \`$WS_B\`" <<< "$(host_on c koto context get "$S" reconcile/report.md 2>/dev/null)" \
     && ok "  ... whose report was read on C, naming B as the source" \
     || bad "  ... whose report was read on C, naming B as the source" "$(host_on c koto context get "$S" reconcile/report.md 2>&1 | head -5)"
 eq "  ... and the handover read still carries the cap" "1" "$(handover | jq -r .cap)"
@@ -341,9 +441,20 @@ case " $(rgaps) " in *" carry-unacknowledged "*) bad "  ... and clears it" "$(rg
 RROT=$(host_on a koto context get "$R2" record/rotation)
 ON=b
 printf '["--discipline", "rota", "--host", "acme/widgets", "--import", "%s", "--from", "%s"]' "$R2" "$WS_A" > "$T/args.json"
-OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
-eq "host B imports the second rotation" 0 $?
-grep -qx 'resumed=1' <<< "$OUT" && grep -qx "session=$R2" <<< "$OUT" && ok "  ... resuming it there" || bad "  ... resuming it there" "$OUT $(cat "$T/open.err")"
-eq "  ... its record/rotation reading the same as on A" "$RROT" "$(host_on b koto context get "$R2" record/rotation)"
+if [ -n "$TAKEOVER" ]; then
+    # Taken over by B's opener, as another Claude session, into a new run
+    # that carries record/rotation.
+    OUT=$(host_on b env CLAUDE_CODE_SESSION_ID="$R_ID" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    eq "host B imports the second rotation" 0 $?
+    R3=$(sed -n 's/^session=//p' <<< "$OUT")
+    [ "$(outline "$OUT" imported outcome predecessor)" = "imported=$R2 outcome=continued predecessor=$R2" ] && [ -n "$R3" ] && [ "$R3" != "$R2" ] \
+        && ok "  ... taking it over there into a new run" || bad "  ... taking it over there into a new run" "$OUT $(cat "$T/open.err")"
+else
+    OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    eq "host B imports the second rotation" 0 $?
+    grep -qx 'resumed=1' <<< "$OUT" && grep -qx "session=$R2" <<< "$OUT" && ok "  ... resuming it there" || bad "  ... resuming it there" "$OUT $(cat "$T/open.err")"
+    R3=$R2
+fi
+eq "  ... its record/rotation reading the same as on A" "$RROT" "$(host_on b koto context get "$R3" record/rotation)"
 
 done_tests handover-engine

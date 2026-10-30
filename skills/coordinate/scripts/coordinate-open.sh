@@ -103,8 +103,9 @@
 #   koto-too-old             this koto lacks init --supersede and its flags
 # (or koto's own code for any other refusal), among them:
 #   cloud_unsupported        koto's cloud backend refuses init --supersede
-#                            (koto 0.28.0 through at least 0.31.0), so on it a
-#                            takeover ends at the fence
+#                            on koto 0.28.0 through 0.31.0, so on it a
+#                            takeover ends at the fence (koto 0.32.0 and
+#                            later fence there too)
 # A read the takeover needs that fails (the run's driver or coordinator row,
 # or the predecessor's state, variables or log) stops the start instead:
 # `failed=takeover_read`, exit 1, koto's own reason in the message and nothing
@@ -136,21 +137,44 @@
 # source). koto's `session import` then brings the
 # run from the bucket, taking the template from the bucket only under
 # `--trust-template`, and marks the source migrated; its refusals print
-# `refused=<koto code>`. The imported run must pass what a resume needs, or it
-# stays here refused: a template this plugin can drive, the shipped one or one
-# the compat table beside it lists at the shipped compat number
-# (`refused=template-incompatible`, naming both compat numbers and hashes),
-# provenance (`refused=session-provenance`; a run from another plugin root
-# whose template lets koto rebind it is re-attached with this root first, and
-# refused only when that attach is), a find that recorded the session
-# (`refused=session-source`) and no directed transition
-# (`refused=session-directed`). A plain start then carries it, except after
-# session-source: a run whose find never ran is no resume candidate, so the
-# start opens a new run as with no session here and cancels the imported one.
-# record/host takes the source's workspace, session and template hash, and the
-# output is `imported=<session>`,
-# `resumed=1`, `session=<it>`, then `state=<the run's state>` and, when the run
-# waits at the hub, `tick=moved`: the first tick, which sends it through a full
+# `refused=<koto code>`. The imported copy must be a run this plugin can
+# continue, or it stays here refused: a template this plugin can drive, the
+# shipped one or one the compat table beside it lists at the shipped compat
+# number (`refused=template-incompatible`, naming both compat numbers and
+# hashes), a find that recorded the session (`refused=session-source`) and no
+# directed transition (`refused=session-directed`). A plain start then carries
+# it, except after session-source: a run whose find never ran is no resume
+# candidate, so the start opens a new run as with no session here and cancels
+# the imported one. record/host takes the source's workspace, session and
+# template hash.
+#
+# On koto 0.32.0 and later, which keep an import's source as a read-only
+# predecessor of the copy (koto#540) and fence a run on the cloud backend
+# (koto#525), the copy is then taken over, as a takeover on one host takes a
+# run over (above): the copy is the predecessor, fenced, and a new run opened
+# from this plugin's root and template carries its record/, legs/, taken_legs
+# and leg_children, so neither the plugin-root rebind nor provenance is asked.
+# The takeover records this Claude session as the new run's driver, so a
+# session with no CLAUDE_CODE_SESSION_ID is refused before koto runs
+# (`refused=session-id`). The output is `imported=<session>`, then the
+# takeover's lines: `outcome=continued`, `predecessor=<the copy>`,
+# `session=<new>`, `predecessor_stopped=`, `watcher=` and `leg_wake=`. The new
+# run opens at the template's first state, so it reconciles on this host from
+# its first tick, and the opener prints no `state=` or `tick=` line. The
+# source refuses every write already, and koto follows its migration to the
+# copy's successor, so the source's next tick, in the workspace it ran in, is
+# refused session_superseded naming the new run. The same import run again
+# finds the copy here and fenced: from the session that took it over it
+# prints `outcome=resumed` and `session=<new>` once that takeover finished,
+# and finishes it when it was cut short after the fence; from any other
+# session it is refused `taken-over`.
+#
+# On an older koto the copy is resumed. It must also pass provenance
+# (`refused=session-provenance`; a run from another plugin root whose template
+# lets koto rebind it is re-attached with this root first, and refused only
+# when that attach is). The output is `imported=<session>`, `resumed=1`,
+# `session=<it>`, then `state=<the run's state>` and, when the run waits at
+# the hub, `tick=moved`: the first tick, which sends it through a full
 # reconcile on this host. A run at reconcile reconciles again by itself; one
 # anywhere else does when it reaches the hub, whose directive checks for a
 # reconcile still owed (`reconcile-report-get.sh --check` exits 3) on every
@@ -658,8 +682,6 @@ finish_takeover() {
     printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\nwatcher=%s\nleg_wake=%s\n' \
         "$pred" "$succ" "$stopped" "$(watcher_result "$pred")" "$(leg_wake)"
     link_dispatcher "$succ"
-    # An imported run reconciles again on this host.
-    [ -z "$IMPORT" ] || moved_lines "$succ"
     exit 0
 }
 # takeover <predecessor>: continue the predecessor's run in a new session
@@ -701,9 +723,9 @@ takeover() {
         bash "$HERE/coord-log.sh" vars --session "$pred" 2> "$T_ERR" \
             | jq -c --arg r "$PLUGIN_ROOT" '. + {PLUGIN_ROOT: $r} | to_entries | map([.key, (.value | tostring)])' > "$d/vars.json" \
             || { rm -rf "$d"; read_failed "$pred's variables couldn't be read" "$T_ERR"; }
-        # The fence. koto refuses init --supersede on its cloud backend
-        # (cloud_unsupported, koto 0.28.0 through at least 0.31.0), so a
-        # takeover there ends here, refused with koto's code and nothing written.
+        # The fence. koto 0.28.0 through 0.31.0 refuse init --supersede on
+        # their cloud backend (cloud_unsupported), so a takeover there ends
+        # here, refused with koto's code and nothing written.
         set -- init "$succ" --template "$TEMPLATE" --vars-file "$d/vars.json" --continues "$pred" --supersede \
             --expect-state "$state" --carry record/ --carry legs/ --carry taken_legs --carry leg_children
         case "${SHIRABE_KOTO_LEGACY_ENVIRONMENT:-}" in ''|0|false) ;; *) set -- "$@" --legacy-environment ;; esac
@@ -801,7 +823,8 @@ takeover_check() {
 T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not make a scratch file"
 trap 'rm -f "$T_ERR"' EXIT
 # moved_lines <run>: state=<the run's state> and, at the hub, tick=moved, so a
-# run that came from another workspace reconciles again here. At reconcile it
+# run resumed from another workspace (an older koto's import) reconciles
+# again here. At reconcile it
 # does so by itself (its sealed report names another host's import facts). The
 # hub takes the `moved` tick, and its directive checks for a reconcile still
 # owed on every visit, so a run anywhere else gets the reconcile when it
@@ -946,10 +969,12 @@ EOF
         || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run state-stored-set.sh --host for it" >&2; exit 1; }
     printf 'imported=%s\n' "$IMPORT"
     # The copy is the predecessor: the takeover fences it, carries its record
-    # and legs into a new run, and prints the takeover's result, then the new
-    # run's state (finish_takeover). The source refuses every write already,
-    # and koto follows its migration to the copy's successor, so its next tick
-    # is refused session_superseded naming the new run.
+    # and legs into a new run and prints the takeover's result
+    # (finish_takeover). The new run opens at the template's first state, so
+    # it reconciles here from its first tick and needs no `moved` tick. The
+    # source refuses every write already, and koto follows its migration to
+    # the copy's successor, so its next tick is refused session_superseded
+    # naming the new run.
     [ -z "$TAKES_OVER" ] || takeover "$IMPORT"
     printf 'resumed=1\nsession=%s\n' "$IMPORT"
     link_dispatcher "$IMPORT"

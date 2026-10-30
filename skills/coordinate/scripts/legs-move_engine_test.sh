@@ -16,7 +16,12 @@
 #   old       dispatched before leg keys existed: its leg has no key
 #   held      (on B) a leg whose request B's own store holds
 # The legs' keys are written as dispatch-worker.sh writes them, and
-# wait-target.sh, run on A, records each bound child in its key.
+# wait-target.sh, run on A, records each bound child in its key. On koto
+# 0.32.0 and later B's --import takes the imported copy over (imported=,
+# outcome=continued, predecessor= the copy) into a new run carrying its
+# record and legs, opened at the template's first state, and every case below
+# runs on that new run, its first ticks reconciling on B; on an older koto the
+# copy itself is resumed at reconcile and reconciles from there.
 #
 # Proves:
 #   1. on B, before the reconcile, the handover gate lists leg-unclassified for
@@ -198,8 +203,25 @@ for t in moved other; do
     host_on b koto session import "deliver-$t" --from "$WS_A" >/dev/null 2>"$T/imp.err" || bad "worker $t's session imports to B" "$(cat "$T/imp.err")"
 done
 printf '["docs/roadmaps/ROADMAP-legs.md", "--import", "%s", "--from", "%s"]' "$S" "$WS_A" > "$T/args.json"
-host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" >"$T/open.out" 2>"$T/open.err"
-eq "the coordinator imports to B" 0 $?
+TAKEOVER=
+if koto_keeps_source; then
+    # koto 0.32.0 and later: the copy is taken over into a new run carrying
+    # its record and legs, which records the Claude session running the
+    # opener as its driver, so B's opener runs as a synthetic one (built here
+    # so no id-shaped literal ships). Everything after runs on the new run.
+    TAKEOVER=1
+    B_ID=$(printf '%s-0000-4000-8000-%012d' bbbbbbbb 2)
+    host_on b env CLAUDE_CODE_SESSION_ID="$B_ID" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" >"$T/open.out" 2>"$T/open.err"
+    eq "the coordinator imports to B" 0 $?
+    eq "  ... and is taken over there" "imported=$S outcome=continued predecessor=$S" \
+        "$(grep -E '^(imported|outcome|predecessor)=' "$T/open.out" | tr '\n' ' ' | sed 's/ $//')"
+    SUCC=$(sed -n 's/^session=//p' "$T/open.out")
+    [ -n "$SUCC" ] && [ "$SUCC" != "$S" ] && ok "  ... by a new run ($SUCC)" || bad "  ... by a new run" "$(cat "$T/open.out" "$T/open.err")"
+    S=$SUCC
+else
+    host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" >"$T/open.out" 2>"$T/open.err"
+    eq "the coordinator imports to B" 0 $?
+fi
 # other is bound to another leg on B before the reconcile.
 R_ELSE=$(host_on b koto request create --role deliver --template deliver.md --inputs '{"TOPIC":"other"}' \
     --requested-by someone-else --coordinator-of-record coordinate-elsewhere | jq -r .request_id)
@@ -219,7 +241,13 @@ eq "every holding whose request B's store doesn't hold is leg-unclassified, and 
 echo "== 2. the reconcile on B gives each leg its end =="
 STATE=$(at)
 i=0
-while [ "$STATE" = reconcile_pass ] && [ "$i" -lt 20 ]; do STATE=$(at); i=$((i + 1)); done
+if [ -n "$TAKEOVER" ]; then
+    # The new run opens at the template's first state and reconciles on B
+    # from its first ticks, through its find to the hub.
+    while [ "$STATE" != reconcile ] && [ -n "$STATE" ] && [ "$i" -lt 20 ]; do STATE=$(at); i=$((i + 1)); done
+else
+    while [ "$STATE" = reconcile_pass ] && [ "$i" -lt 20 ]; do STATE=$(at); i=$((i + 1)); done
+fi
 eq "the reconcile seals on B" reconcile "$STATE"
 NEW_RP=$(row moved | jq -r .return_path)
 NEW=${NEW_RP#leg }; NEW=${NEW%%:*}
