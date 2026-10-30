@@ -45,10 +45,13 @@ upstream: docs/prds/PRD-fleet-cost-capture.md
 Proposed
 
 This design supersedes `docs/designs/archive/DESIGN-fleet-cost-capture.md`.
-It amends `docs/prds/PRD-fleet-cost-capture.md`: R1, R3 to R5, R12, R12a and
-R14 to R16 are withdrawn with the removal capture, R10 and R11 are moot since
-no entry is posted, and R2, R6, R7, R8 and R19 take their figures from the
-sources below. The PRD's Status section lists each change.
+It amends `docs/prds/PRD-fleet-cost-capture.md`, which goes back to In
+Progress: R1, R3 to R5, R12, R12a and R14 to R16 are withdrawn with the
+removal capture (R5's one-entry rule becomes the count-key rule below), R10
+and R11 are moot since no entry is posted, R2, R6, R7, R8 and R19 take their
+figures from the sources below, and R17 and R18 change with them. The PRD's
+Status section lists each change and marks every acceptance criterion it
+affects.
 
 ## Context and Problem Statement
 
@@ -81,8 +84,8 @@ Three things are wrong with it.
   capture carries fallbacks through the leg key and the removal record.
 
 This design replaces the end-of-life capture with facts sent while the unit
-runs, through a shared event sender that other work is building for every kind
-of fleet telemetry (workflow events, cost, pull request data). It defines the
+runs, through a shared event sender that other work is building for shared
+telemetry (workflow events, cost, pull request data). It defines the
 cost and milestone events, their fields and when each fires, and how a reader
 gets back the per-unit figures `unit-cost/1` carries. It builds no sender,
 channel or endpoint of its own.
@@ -185,10 +188,9 @@ Key assumptions:
 
 - The workflow scope carries koto's `state_entered`, `terminal`, `cancelled`
   and review records, keyed by koto's opaque session id (the `session_id` in
-  the session's header) and koto's run id, never by the session name. The
-  pipeline's owner confirmed this. The code-round review records join that
-  scope with work the pipeline owns; until they do, panel rounds are not
-  recoverable and nothing else changes.
+  the session's header) and koto's run id, never by the session name. If the
+  workflow scope doesn't yet carry the code-round review records, panel
+  rounds are not recoverable until it does, and nothing else changes.
 - The runtime's telemetry gives a subagent's requests its parent session's
   id, so a unit's worker row is one session id.
 - A script can read a session's opaque id through koto's supported interface:
@@ -203,9 +205,12 @@ script that already runs at the moment the fact becomes known: `dispatched`
 when the coordinator confirms a worker launched, `session_opened` each time a
 shirabe skill opens a koto session, `landed` when the coordinator merges a
 unit's pull request, and `retired` when the teardown pass removes the unit.
-A unit sends one `dispatched`, one `retired`, one `landed` per merged pull
-request and one `session_opened` per koto session, about 5 to 20 events.
-Nothing is a running total, so nothing double-counts.
+A unit normally sends one `dispatched`, one `retired`, one `landed` per merged
+pull request and one `session_opened` each time a koto session is opened,
+attached to or replaced, about 5 to 20 events. Nothing is a running total.
+A step run twice can send a kind twice; each kind names a count key that a
+reader counts distinct values of, so a repeat never double-counts and nothing
+on the host has to remember what was sent.
 
 The fields are the join keys and the facts only the coordinator holds. Two
 were added after reading the dispatch code: `dispatched` and `retired` are
@@ -383,9 +388,11 @@ failing heads from GitHub.
 
 ### Components
 
-**`scripts/emit-event.sh`** (new). Takes the sender's `event` form unchanged
-(`event --scope S --kind K [--at T] key=value ...`). It checks, in order, and
-exits 0 at the first that fails:
+**`scripts/emit-event.sh`** (new). Takes the sender's `event` form
+(`event --scope S --kind K key=value ...`), plus one option of its own,
+`--koto-dir <execution directory>`, which asks it to look up the opaque id of
+the session named in `unit.koto_session`. It checks, in order, and exits 0 at
+the first that fails:
 
 1. `FLEET_EVENT_SINK` is not exactly `off`. No other value is read.
 2. `/bin/date -u +%s` prints an integer at or after 1794189600
@@ -397,11 +404,21 @@ exits 0 at the first that fails:
    by the user's uid or by 0, and none is writable by group or others.
    Ownership and mode come from `ls -ldn`, which reads the same on macOS and
    Linux.
-4. Each key is matched to the field table, and each value is matched whole
-   to its field's shape (id, name, pr, int or bool, from a table in the
-   helper that mirrors the field table below) with `[[ =~ ]]`, never a
+4. With `--koto-dir`, it runs `koto session list --execution-dir <dir>`
+   under its own 3-second bound and adds `unit.koto_session_id` from the row
+   whose `id` is the `unit.koto_session` value. The read runs only here,
+   after the gate and the discovery checks, so before the cutoff, or on a
+   host with no sender, no call site reads koto for telemetry at all. A
+   failed or slow read leaves the field out and the rest are sent.
+5. The free-text fields `unit.topic`, `unit.leg`, `unit.roadmap` and
+   `unit.milestone` are mapped to the `name` alphabet: each character
+   outside it is written as `_`, and the result is cut at 128 characters.
+   Then each key is matched to the field table, and each value is matched
+   whole to its field's shape (id, name, pr, int or bool, from a table in
+   the helper that mirrors the field table below) with `[[ =~ ]]`, never a
    line-oriented `grep`, so an embedded newline can't pass. A key or value
-   that fails, or that starts with `--`, is dropped and the rest are sent.
+   that still fails, or that starts with `--`, is dropped and the rest are
+   sent.
 
 Then it runs the sender with `timeout 3` (or, where `timeout` is missing, the
 repository's watcher-based deadline, which kills the sender's whole process
@@ -418,12 +435,11 @@ exits 0. It never retries, spools or backgrounds anything. Callers run it as
   sends nothing.
 - `scripts/koto-open.sh`, after koto reports `opened=new`, `attached` or
   `replaced`: `session_opened`. work-on's plain `koto init` path, which
-  doesn't go through `koto-open.sh`, sends the same event. Before sending,
-  it reads the session's opaque id with `koto session list --execution-dir
-  <the session's execution directory>`, taking the row whose `id` is the
-  session's name; the coordinator's three call sites read their own
-  session's id the same way. A failed read leaves `unit.koto_session_id`
-  out and sends the rest.
+  doesn't go through `koto-open.sh`, sends the same event. Every call site
+  passes the session's name and `--koto-dir <its execution directory>`, and
+  the helper looks the opaque id up; no call site reads koto itself for
+  telemetry, so nothing it adds can slow or fail the caller before the
+  cutoff.
 - `skills/coordinate/scripts/land-merge.sh`, after the merge succeeds:
   `landed`.
 - `skills/coordinate/scripts/teardown-pass.sh`, where step 4a runs the
@@ -446,22 +462,22 @@ before step two.
 
 ### Key Interfaces
 
-Scope `unit_cost`. Fields are written exactly as below; the sender renames
-them on the way out. Shapes are the sender's: `id` is `[A-Za-z0-9._:-]{1,128}`,
+Scope `unit_cost`. Fields are written exactly as below. Shapes are the
+sender's: `id` is `[A-Za-z0-9._:-]{1,128}`,
 `name` is `[A-Za-z0-9._:/@-]{1,128}`, `pr` is `github.com/<owner>/<repo>#<n>`.
 
 | Field | Shape | Meaning |
 |---|---|---|
 | `unit.request` | id | the koto request the dispatch created; the unit's key |
-| `unit.leg` | name | the request leg the worker binds |
-| `unit.topic` | name | the dispatch topic |
+| `unit.leg` | name | the request leg the worker binds, mapped to the `name` alphabet as below |
+| `unit.topic` | name | the dispatch topic, mapped to the `name` alphabet as below |
 | `unit.scope_slug` | name | the coordinator's scope slug |
 | `unit.koto_session` | id | a koto session's name: the coordinator's on `dispatched`, `landed` and `retired`, the opened one on `session_opened` |
-| `unit.koto_session_id` | id | the same session's opaque koto session id, the key the workflow records carry, read with `koto session list --execution-dir`; absent when that read fails |
-| `unit.requested_at` | int | the koto request's creation time, in Unix seconds |
+| `unit.koto_session_id` | id | the same session's opaque koto session id, the key the workflow records carry, looked up by the helper with `koto session list --execution-dir`; absent when that read fails |
+| `unit.requested_at` | int | the koto request's creation time, in Unix seconds; used only for the wait between request and launch |
 | `unit.parent_session` | id | the opened session's koto parent, when it has one |
-| `unit.roadmap` | name | `ROADMAP-<name>` on a roadmap record; absent on a discipline record |
-| `unit.milestone` | name | the Unit cut at its first `: `, each character outside the `name` alphabet written as `_` (`Feature 4` is `Feature_4`) and cut at 128 characters; absent when the Unit is an issue reference or has no tag shape |
+| `unit.roadmap` | name | `ROADMAP-<name>` on a roadmap record, mapped to the `name` alphabet as below; absent on a discipline record |
+| `unit.milestone` | name | the Unit cut at its first `: `, mapped to the `name` alphabet (`Feature 4` is `Feature_4`); absent when the Unit is an issue reference or has no tag shape |
 | `unit.entry_point` | name | the skill the worker was dispatched to (`work-on`, `deliver`, ...) |
 | `unit.repo` | name | the holding's repository, `owner/repo` |
 | `unit.template` | name | the opened session's koto template name |
@@ -471,12 +487,30 @@ them on the way out. Shapes are the sender's: `id` is `[A-Za-z0-9._:-]{1,128}`,
 | `unit.worker_session` | id | the worker's agent session id, as niwa reports it |
 | `unit.worker_dispatch` | id | the worker's niwa dispatch id, when the sending script has read it |
 
-| Kind | Sent by, when | Fields |
-|---|---|---|
-| `dispatched` | `dispatch-worker.sh` confirm step, in the coordinator, once niwa's launch is confirmed; the event time is the send time | request, requested_at, leg, topic, scope_slug, koto_session, koto_session_id, roadmap, milestone, entry_point, repo, mode, worker_session, worker_dispatch |
-| `session_opened` | `koto-open.sh` and work-on's plain init, in the opening session | koto_session, koto_session_id, parent_session, template, request, leg, topic, mode, outcome |
-| `landed` | `land-merge.sh` after a merge, in the coordinator | pr, topic, scope_slug, koto_session, koto_session_id, request |
-| `retired` | `teardown-pass.sh` before `niwa destroy`, in the coordinator | topic, request, koto_session, koto_session_id, worker_session, worker_dispatch, pr, outcome |
+The four free-text fields (`unit.topic`, `unit.leg`, `unit.roadmap`,
+`unit.milestone`) are mapped by the helper before their shape is checked:
+each character outside the `name` alphabet is written as `_`, and the result
+is cut at 128 characters. So a topic or roadmap name that holds a space is
+sent, not dropped. A reader maps the value it joins against the same way.
+
+`unit.mode` and `unit.outcome` mean different things on different kinds, as
+the table says, so a reader filters by kind before reading either.
+
+Every event's time is the moment it is sent, which the sender stamps; no call
+site passes `--at`. A coordinator that restarts, a `land-merge.sh` run again on
+a merged pull request, or a teardown pass run again after `niwa destroy`
+failed can send a kind twice. Duplicates are tolerated on the wire, and
+nothing on the host remembers what was sent. Each kind has a count key
+instead, and a reader counts distinct values of it:
+
+| Kind | Sent by, when | Count key | Fields |
+|---|---|---|---|
+| `dispatched` | `dispatch-worker.sh` confirm step, in the coordinator, once niwa's launch is confirmed | `unit.request` | request, requested_at, leg, topic, scope_slug, koto_session, koto_session_id, roadmap, milestone, entry_point, repo, mode, worker_session, worker_dispatch |
+| `session_opened` | `koto-open.sh` and work-on's plain init, in the opening session, at each open | `unit.koto_session_id` and `unit.outcome` (the name in place of the id when the id read failed) | koto_session, koto_session_id, parent_session, template, request, leg, topic, mode, outcome |
+| `landed` | `land-merge.sh` after a merge, in the coordinator | `unit.request` and `unit.pr` | pr, topic, scope_slug, koto_session, koto_session_id, request |
+| `retired` | `teardown-pass.sh` before `niwa destroy`, in the coordinator | `unit.request`, the latest event's outcome winning | topic, request, koto_session, koto_session_id, worker_session, worker_dispatch, pr, outcome |
+
+For `dispatched`, the earliest event per count key gives the dispatch time.
 
 Every field is optional on the wire: a value the sending script doesn't have,
 or one that fails its shape, is left out, and the reader treats it as not
@@ -525,12 +559,12 @@ workflow records with those ids; its tokens are the runtime rows that carry W.
 | `milestone` | `dispatched`: milestone, roadmap | Mostly: fixed at dispatch, alphabet mapped |
 | `unit` (the full tag) | not sent | No: free text has no field shape |
 | `plan_shape` | `session_opened`: template (`execute` is `single-pr`, `execute-coordinated` is `coordinated`) and work-on's mode (`plan_backed` is `multi-pr`, else `issue`) | Mostly; see below |
-| `dispatch` | `dispatched`'s `unit.requested_at`, else its event time (the confirmed launch) | Yes when the request time arrives; else a few seconds later than today's |
+| `dispatch` | the earliest `dispatched` event's time (the confirmed launch); `unit.requested_at` gives the wait between request and launch on its own | Close: today's took the earlier of the request and the job's start, so it can be a few seconds earlier |
 | `"niwa.dispatch.id"` | W | Yes |
 | `pulls` via holding | `landed`: pr, then `pr-heads.sh` for merge commit and time | Yes |
 | `pulls` via session, `opened` | the pull request scope's opened events stamped W, then GitHub for state | No; see below |
-| `dispatch_to_green_min`, `failing_heads` | `dispatched`'s time and `pr-heads.sh` on the `landed` pull requests | Yes, the GitHub read as today |
-| `dispatch_to_merge_min` | `dispatched`'s time and GitHub's merge time | Yes |
+| `dispatch_to_green_min`, `failing_heads` | from `dispatched`'s time (the launch, not `unit.requested_at`) to green read by `pr-heads.sh` on the `landed` pull requests; failing heads from the same read | Yes, the GitHub read as today; the start is the launch |
+| `dispatch_to_merge_min` | from `dispatched`'s time (the launch) to GitHub's merge time | Yes; the start is the launch |
 | `writing_code_min`, `review_min`, shares | workflow `state_entered` in work-on sessions under W, cut at the first `done` | Yes |
 | `summed_session_span_min`, `minutes_per_unit`, `sessions[]` | workflow records per koto session under W | Yes |
 | `sessions_without_done` | work-on sessions under W with no `done` entry | Yes once `retired` arrived; provisional before |
@@ -579,19 +613,24 @@ leaving or deleting them loses nothing already done.
 
 Lands any time; sends nothing before 2026-11-09T02:00Z.
 
-- `scripts/emit-event.sh` and `scripts/emit-event_test.sh`. The test builds a
-  scratch `HOME` under a mode-0700 parent that passes the checks, installs a
-  fake sender that logs its arguments, and puts a stub `date` first on
-  `PATH`. Cases: one second before the cutoff (no call), at and after it (one
-  call, exact arguments), `FLEET_EVENT_SINK=off` (no call),
-  `FLEET_EVENT_SINK` set to a path (ignored, call made), a symlinked sender or
-  a group-writable parent (no call), no sender (no call), a hanging sender
-  (returns in about 3 seconds with 0), sender exits 1 to 4 (helper exits 0),
-  an unreadable clock (no call), a value outside its shape (field dropped).
-- A static check that fails when any script, template or test other than the
+- `scripts/emit-event.sh` and `scripts/emit-event_test.sh`. The helper's work
+  is a function that takes the current time as a parameter; the command-line
+  entry always passes `/bin/date`'s reading, so no variable or argument of the
+  command moves the clock. The test sources the helper and calls that
+  function with chosen times, after building a scratch `HOME` under a
+  mode-0700 parent that passes the checks, a fake sender that logs its
+  arguments, and a stub `koto` on `PATH`. Cases: one second before the cutoff
+  (no call, and no `koto` read), at and after it (one call, exact arguments),
+  `FLEET_EVENT_SINK=off` (no call), `FLEET_EVENT_SINK` set to a path
+  (ignored, call made), a symlinked sender or a group-writable parent (no
+  call), no sender (no call, no `koto` read), a hanging sender or `koto`
+  read (returns within its bounds with 0), sender exits 1 to 4 (helper exits
+  0), an unreadable clock (no call), a topic holding spaces (sent mapped), a
+  value still outside its shape (field dropped).
+- A static check over code only (scripts, templates and tests, not
+  documentation such as this design) that fails when any file other than the
   helper and its test holds `event-sink` or `EVENT_SINK` anywhere, which also
-  catches a path or variable name assembled from parts. Documentation is
-  exempt.
+  catches a path or variable name assembled from parts.
 - The call sites: `dispatch-worker.sh`, `koto-open.sh` and work-on's plain
   init, `land-merge.sh`, `teardown-pass.sh` (`retired` beside step 4a, which
   keeps running), each with a suite case asserting the helper's arguments
@@ -678,14 +717,16 @@ backend, never to a pull request, an issue or any other public surface, so
 the `not public` masking `unit-cost/1` applied before posting on a pull
 request has no counterpart here. Masking a private repository's name would
 also break the join with the pull request scope, which carries the same
-references. No event carries file contents, prompts, tokens, credentials or
-free text. The sender adds the host and workspace identifiers itself, and
+references. No event carries file contents, prompts, tokens or credentials,
+and the free-text fields are mapped to the `name` alphabet and capped at 128
+characters. The sender adds the host and workspace identifiers itself, and
 this design doesn't change what it adds.
 
 **No new standing process.** The helper writes nothing, starts nothing in
 the background and never retries. Where `timeout` is missing, its deadline
-kills the sender's whole process group. It can't fail its caller, and a send
-adds at most three seconds. Deleting the sweep, its locks and the removals
+kills the sender's whole process group. It can't fail its caller. A send
+adds at most three seconds, or six with the session-id lookup, and before the
+cutoff it adds only the clock read. Deleting the sweep, its locks and the removals
 directory removes code that ran detached on the host and read files workers
 had written.
 
@@ -716,7 +757,8 @@ had written.
   records.
 - Two changes instead of one, and the date gate stays in the helper as dead
   code after the cutoff until a cleanup removes it.
-- Every send can add up to 3 seconds to the script that makes it.
+- Every send can add up to 3 seconds to the script that makes it, or 6 when
+  it looks up a koto session id.
 
 ### Mitigations
 
