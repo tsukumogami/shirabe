@@ -36,7 +36,7 @@ shirabe already ships the hook a contributor needs. `shirabe install-hooks`
 writes a pre-commit hook that runs `shirabe validate` over the staged Markdown
 files and blocks the commit on any non-zero exit. What's missing is delivery:
 nothing runs that command in a workspace clone, and the README's only install
-route (`install.sh`, into `~/.shirabe/bin`) puts the binary where the hook never
+route (`install.sh`, into `$HOME/.shirabe/bin`) puts the binary where the hook never
 looks. The requirements are in `docs/prds/PRD-sr8-workspace-engine.md`; this
 design answers how the hook reaches each product repository clone.
 

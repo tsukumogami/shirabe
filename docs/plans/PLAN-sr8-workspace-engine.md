@@ -194,7 +194,7 @@ route and document, in the contract guide, how the pre-commit hook is delivered
 at apply time and what each skip case means.
 
 **Context**: The hook only works with `shirabe` on PATH, and the README's only
-install route today (`install.sh`, into `~/.shirabe/bin`) puts the binary where
+install route today (`install.sh`, into `$HOME/.shirabe/bin`) puts the binary where
 the hook doesn't look. The README "Requirements" bullet for the `shirabe` binary
 already links to `#local-install`; that link stays. Files: `README.md`
 ("## Requirements", "### Local install") and
@@ -207,7 +207,7 @@ Design: `docs/designs/DESIGN-sr8-workspace-engine.md`.
 - [ ] The `install.sh` curl command stays in "### Local install" as the second
       fenced command.
 - [ ] "### Local install" says the pre-commit hook resolves `shirabe` on PATH
-      only (not `~/.shirabe/bin` unless that directory is on PATH).
+      only (not `$HOME/.shirabe/bin` unless that directory is on PATH).
 - [ ] The "## Requirements" bullet for the `shirabe` binary links to
       `#local-install`.
 - [ ] Under "## Installing the local hook", one paragraph covers apply-time

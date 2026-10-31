@@ -55,7 +55,7 @@ local hook exists as a command, `shirabe install-hooks`, but no contributor
 gets it without knowing to run it by hand in every clone.
 
 Two things keep it out of reach. The README's "Local install" section offers
-only the curl `install.sh` route, which puts the binary in `~/.shirabe/bin`, a
+only the curl `install.sh` route, which puts the binary in `$HOME/.shirabe/bin`, a
 directory the pre-commit hook never looks in. The tsuku route,
 `tsuku install tsukumogami/shirabe`, works non-interactively today and is how
 the workspace installs koto and niwa, but the README doesn't mention it. And
@@ -254,7 +254,7 @@ instances untouched. Each criterion names its requirement.
   rough count finds about 80 such legacy docs across the four public product
   repositories.
 - **PATH only.** The hook finds `shirabe` on PATH alone, so a binary installed by
-  `install.sh` into `~/.shirabe/bin` and not added to PATH leaves the hook
+  `install.sh` into `$HOME/.shirabe/bin` and not added to PATH leaves the hook
   skipping. GUI git clients that don't load the shell profile see the same.
 
 ## Decisions and Trade-offs
