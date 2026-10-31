@@ -234,7 +234,12 @@ instances untouched. Each criterion names its requirement.
 - Installing shirabe from setup. A missing binary is reported, not fetched.
 - Chaining shirabe's hook with an existing hook, including the formatter hooks
   tsuku and koto offer. An existing hook is preserved and reported.
-- CI workflow changes in any repository.
+- CI workflow changes in any repository, other than the three the design added
+  after the rollout (amended 2026-10-31): the job that compares each
+  repository's setup-script copy with shirabe's, the interim copy check in a
+  repository that doesn't call `lifecycle.yml` yet, and the `lifecycle.yml`
+  `posture` input that lets such a repository adopt the lifecycle check. The
+  design's Decisions 3 to 5 give the reasons.
 - The mermaid diagram check and publishing a shirabe library crate.
 
 ## Known Limitations

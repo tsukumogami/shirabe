@@ -24,7 +24,11 @@ rationale: |
   apply time without relying on unvalidated behavior, and it scopes itself to
   the repositories that carry the script. Guarding in the script keeps the hook
   body in shirabe's binary while covering every case `install-hooks` handles
-  badly, with no niwa change and no network access. A planning repository
+  badly, with no niwa change and no network access. The copy comparison sits
+  in `lifecycle.yml` because every public product repository already calls it
+  on every pull request, and the interim job covers the one repository that
+  doesn't, since a drifted copy there would otherwise go unreported until it
+  adopts the check. A planning repository
   keeps unfinished plans on its default branch while their work lands
   elsewhere, so the ready posture's reading of the whole tree as finished
   can never pass there; draft posture still catches the drift that matters,
@@ -51,7 +55,9 @@ route (`install.sh`, into `$HOME/.shirabe/bin`) puts the binary where the hook n
 looks. The requirements are in `docs/prds/PRD-sr8-workspace-engine.md`; this
 design answers how the hook reaches each product repository clone.
 
-The technical problem has three parts.
+The technical problem has four parts. The fourth came up after the rollout and
+moved the PRD's line on CI workflow changes, which the PRD's out-of-scope list
+now records.
 
 **A delivery route on the niwa contributors already have.** The hook has to land
 during `niwa apply` and `niwa create` (PRD R2) using niwa 0.40.0, with no niwa
@@ -90,6 +96,15 @@ must be cheap, silent when nothing changes (R5, R13), must not count a missing
 binary as a failure (R3), and must report a real install error for that
 repository only (R8).
 
+**The copies have to stay identical, everywhere.** Once the script is copied
+into each repository, nothing stops a copy from drifting from shirabe's, so a
+CI check has to compare them (Decision 3). One repository that carries a copy,
+a private planning repository, doesn't call `lifecycle.yml`, so its copy needs
+its own check until it does (Decision 4). It can't simply start calling
+`lifecycle.yml` either: ready posture reads every open plan on its default
+branch as merging now, and would turn every other lane's pull request there red
+(Decision 5).
+
 ## Decision Drivers
 
 - **Released niwa only (R10).** The route has to work on niwa 0.40.0 as
@@ -111,6 +126,13 @@ repository only (R8).
   an install error fails that repository's setup alone.
 - **One owner for the hook body.** The body shirabe writes stays in shirabe's
   binary. Nothing else should carry a copy of it that can drift.
+- **Drift fails a check.** A setup-script copy that differs from shirabe's
+  fails a pull request in the repository that carries it, not a later audit.
+- **No other lane turns red.** A repository adopting a check must not fail pull
+  requests that don't bring the problem the check reports.
+- **Product repositories keep their rule.** A product repository still needs a
+  chain finalized and a ROADMAP `Active` before merge; any new acceptance
+  applies only where a caller opts in.
 
 ## Considered Options
 
@@ -253,7 +275,8 @@ question is what detects a copy that no longer matches, not only who copies it.
 Key assumptions:
 
 - shirabe, tsuku, koto and niwa each call `lifecycle.yml` on every pull
-  request, pinned to `main` and with no paths filter. A repository the private
+  request with no paths filter: tsuku, koto and niwa pinned to `main`, shirabe
+  through its local self-caller. A repository the private
   overlay adds may not; Decision 4 covers that case.
 
 #### Chosen: The script lives in shirabe, is copied verbatim, and the reusable lifecycle workflow compares each copy with it
@@ -268,11 +291,13 @@ which is rare: the script changes only if `install-hooks`' interface does.
 
 What keeps the copies identical is a job in shirabe's reusable `lifecycle.yml`.
 When the calling repository has `scripts/setup/shirabe-pre-commit.sh`, the job
-compares it byte for byte with the copy in the shirabe checkout the workflow
-already makes at the called ref, and fails with the command that restores it when
-they differ. A repository without the file passes. Every public product
-repository already calls `lifecycle.yml` on every pull request, with no paths
-filter and pinned to shirabe's `main`, so this needs no change in any of them.
+compares it byte for byte with the copy in its own sparse checkout of shirabe at
+the called ref, and fails with the command that restores it when they differ (a
+symlink, a directory or a missing exec bit fails too). A repository without the
+file passes. Every public product repository already calls `lifecycle.yml` on
+every pull request with no paths filter (tsuku, koto and niwa pinned to
+shirabe's `main`, shirabe locally, so its copy is compared with itself), so this
+needs no change in any of them.
 The job is on shirabe's `main` as `setup-script-copy`, running
 `scripts/check-setup-script-copy.sh`.
 
@@ -338,16 +363,18 @@ It goes in the every-PR workflow the first assumption names, on the runner that
 workflow's other jobs already use. It passes the commit it checked out (`git -C <checkout> rev-parse HEAD`) as the
 ref label, so the restore command the check prints fetches the bytes it compared
 against, not whatever `main` holds later. The job declares `permissions:
-contents: read`, both checkouts set `persist-credentials: false`, and it takes
-no secrets and no environment from the host workflow. The comparison logic
+contents: read`, both checkouts set `persist-credentials: false` (the caller's
+checkout sparse to `scripts/setup/`), the job sets no `env:` and references no
+secrets, and it goes in a workflow with no workflow-level `env:`. The comparison logic
 stays in one place, shirabe's script; the repository adds only the call. When
 the repository's `lifecycle.yml` caller lands, the same pull request removes
 this job, since the reusable workflow then runs the comparison.
 
 It costs one temporary caller of a script that was internal to `lifecycle.yml`.
 A change to the script's arguments has to update that caller in the same window,
-so the script's header has to say such a caller exists. The header on `main`
-doesn't say it yet; the Phase 5 change adds that line. And for as long as the job
+so the script's header has to say a repository may run it from its own workflow
+and that its interface stays stable; Phase 5 adds that to the header. And for
+as long as the job
 exists, that repository's CI runs a script from shirabe's `main` that its own
 owners don't review; Security Considerations says so.
 
@@ -407,9 +434,9 @@ Measured on the planning repository's default branch with the released binary
 
 Simulated on a copy of that tree, fixing the 11 drift documents the way the
 repository's own history does it leaves the one Draft ROADMAP; with that
-accepted, draft posture exits 0. Ready posture still reports 121 errors, 100 of
-them L06 in the four Active single-pr PLANs, which only finishing those plans
-clears. So ready posture never passes there while plans are open, and no pull
+accepted, draft posture exits 0. Ready posture still reports 121 errors: 100 L06
+in the four Active single-pr PLANs, which only finishing those plans clears,
+plus their 12 at-merge L01, the 8 L02, and the Draft ROADMAP's own L01. So ready posture never passes there while plans are open, and no pull
 request in that repository can make it pass.
 
 Key assumptions:
@@ -432,33 +459,42 @@ request. The value reaches the step only through `env:` (`POSTURE: ${{
 inputs.posture }}`), never written into the `run:` script, and the step checks
 it with `case "$POSTURE" in auto|draft)` before using it, failing on anything
 else. A `workflow_call` string input has no choice type, so that check is the
-allowlist. The step writes the posture it ran in to the job summary, not only
-the log. The coordination merge-last gate step is unaffected: it keys on the
+allowlist; the error it prints names the two accepted values and doesn't echo
+the rejected one. The posture-to-mode resolution sits in a small script under
+`scripts/` with its own test, as `coordination-gate-refs.sh` does, because
+shirabe's own caller uses `auto` and would never run the `draft` path in CI.
+Under both values the step writes the posture it ran in to the job summary,
+not only the log. The coordination merge-last gate step is unaffected: it keys on the
 pull request's own draft state and keeps passing `--mode=ready` on a ready
-coordination pull request, whatever `posture` says. The planning repository
-calls `lifecycle.yml` with `posture: draft` and the same self-hosted `runs-on`
-its `validate-docs.yml` and `pr-body.yml` callers pass, once the drift above
-has landed. From then on that repository has three shirabe callers on its
-runner, and its own note on moving off that runner has to count all three.
+coordination pull request, whatever `posture` says. Once the drift above has
+landed, the planning repository calls `lifecycle.yml` the way its header
+example shows (the `pull_request` types, `contents: read` and
+`pull-requests: read`), adding `posture: draft` and the same self-hosted
+`runs-on` its `validate-docs.yml` and `pr-body.yml` callers pass.
 
 Draft posture still catches the failure that matters in a planning repository:
 a chain marked finished whose finalization never ran. Eleven of the twelve
-errors measured were exactly that. What it gives up there, for good, is
+errors measured were real drift of that kind: documents marked finished or
+superseded whose finalization or move never ran. What it gives up there, for good, is
 ready posture's error level on the codes draft posture reports as notices: the
 finalization guard on single-pr chains, L02 orphans, L06 unticked criteria,
-L07 design location, and L09 and L10. A `Current` DESIGN outside
+L07 design location, and L09 (L10 belongs to `--lifecycle-chain`, which
+`lifecycle.yml` doesn't run, so nothing is lost there). A `Current` DESIGN outside
 `docs/designs/current/` would never fail there. In that repository those
 checks could only fire on chains whose work lands elsewhere and which the pull
 request can't finish, or would need every open plan finished first.
 
 The ROADMAP change is new meaning for draft posture, not an extension of an
-existing case: today draft posture accepts no document at `Draft`, and a Draft
-PLAN fails L01 in both postures on purpose. Under draft review posture, a
-ROADMAP that roots its own chain passes at `Draft` or `Active`; under ready
-posture it still needs `Active`. The passing-state table can't carry it,
-because a ROADMAP root is multi-pr in flight in both postures and the table
-never sees the review posture. So `required_state` takes the review posture
-and returns a Draft-or-Active state for that one case. This amends the
+existing case: today no chain member passes at `Draft` under either posture,
+and a Draft PLAN fails L01 in both postures on purpose. Under draft review
+posture, a ROADMAP that roots its own chain at `MultiPrInFlight` passes at
+`Draft` or `Active`; under ready posture it still needs `Active`, and a ROADMAP
+root at `Done` (`MultiPrWorkCompleting`) still expects deletion. The
+passing-state table can't carry it, because a ROADMAP root is multi-pr in
+flight in both postures and the table never sees the review posture. So
+`required_state` takes the review posture and returns a new Draft-or-Active
+passing-state variant for that one row; returning `Draft` alone would be
+disjoint from the member rule's `Active` and give L08 instead of L01. This amends the
 lifecycle discipline design's rule that multi-pr postures don't change with the
 review posture, for this one row. The member rule is unchanged: a ROADMAP that
 a downstream PLAN or PRD chain passes through still has to be `Active`, so a
@@ -472,15 +508,23 @@ roadmap fails its own draft check, since `/roadmap` writes the document at
 `Draft` and moves it to `Active` only on approval. Product repositories keep
 the roadmap skill's rule that a roadmap is `Active` before it merges, because
 their ready pull requests run ready posture. A planning repository, on draft
-posture throughout, can keep a long-horizon roadmap at `Draft`. This is the
-one part of the work that changes the shirabe binary.
+posture throughout, can keep a long-horizon roadmap at `Draft`. The roadmap
+skill's text states that rule for every repository; this design narrows it to
+repositories on the default posture, and the skill's wording is left for a
+follow-up rather than changed here. This is the one part of the work that
+changes the shirabe binary.
 
 Both changes land in one shirabe pull request, built on current `main`. The
-caller lands in the planning repository's own pull request once its default
-branch passes draft posture, with the Decision 4 job removed in the same
+caller lands in the planning repository's own pull request once this
+precondition holds: with the shirabe change on `main` and the 11 drift
+documents fixed, `shirabe validate --lifecycle .` built from shirabe's `main`
+exits 0 on that repository's default branch (the released binary still reports
+the Draft ROADMAP until a release). The Decision 4 job is removed in the same
 change. Landing it then turns no other lane's pull request red: on a pull
-request the check reads the caller's merge commit with that default branch, so
-a pull request fails only on drift it brings itself. The shirabe change alone
+request the check reads the pull request's merge commit, so a pull request
+fails only on drift it brings itself, as long as the default branch keeps
+passing. Two pull requests that each pass alone can still combine into drift
+there; whichever lane caused it fixes the default branch. The shirabe change alone
 changes nothing in that repository, which doesn't call `lifecycle.yml` until
 then.
 
@@ -506,7 +550,7 @@ then.
   feature list is locked and its sequencing approved, which it says it isn't.
   It would make the document misstate itself to satisfy the check.
 - **Treat the Draft ROADMAP as drift too.** Rejected on the same reading: the
-  roadmap skill's rule that a roadmap is `Active` before merging protects a
+  roadmap skill's rule that a roadmap is `Active` before merging is kept for a
   product repository's default branch, which ready posture still enforces. A
   planning repository's default branch is where unfinished planning lives.
 
@@ -760,19 +804,27 @@ Deliverables:
 
 Add the `posture` input to `lifecycle.yml`, with `auto` as the default and the
 lifecycle step passing `--mode=ready` only under `auto` on a ready pull request.
-In the validator, let a ROADMAP root at `Draft` pass under draft review posture;
-add tests for a Draft ROADMAP under each posture and for an Active and a Done
-one unchanged, and update the lifecycle guide where it lists what draft posture
-accepts. Add the line to `scripts/check-setup-script-copy.sh`'s header saying
-a repository that doesn't call `lifecycle.yml` yet runs the script from its own
-workflow (Decision 4). The planning repository's caller, with `posture: draft`,
-lands in that repository's own pull request after its default branch passes
-draft posture, and removes the interim job in the same change.
+Put the posture-to-mode resolution in a script under `scripts/` with a
+`_test.sh` that `build-and-test.yml` runs, so the `draft` and rejection paths
+run in shirabe's CI. In the validator, let a ROADMAP root at `Draft` pass under
+draft review posture; add tests for a Draft ROADMAP under each posture and for
+an Active and a Done one unchanged, and update the lifecycle guide where it
+describes draft posture, the `lifecycle.yml` wiring and L01. Reword
+`scripts/check-setup-script-copy.sh`'s header, and the job comment in
+`lifecycle.yml`, to say a repository may run the script from its own workflow
+(Decision 4). The planning repository's caller, with `posture: draft`, lands in
+that repository's own pull request after its default branch passes draft
+posture, and removes the interim job in the same change.
 
 Deliverables:
 - `.github/workflows/lifecycle.yml`, `crates/shirabe-validate/src/lifecycle.rs`
   and its tests
-- `docs/guides/lifecycle-posture.md`, where it lists what draft posture accepts
+- the posture-resolution script under `scripts/` and its `_test.sh`, wired into
+  `build-and-test.yml`
+- `docs/guides/lifecycle-posture.md`: its posture model, its `lifecycle.yml`
+  bullet and its L01 paragraph
+- a one-line note in `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`
+  pointing at Decision 5
 - `scripts/check-setup-script-copy.sh`, its header only
 
 ## Security Considerations
@@ -805,9 +857,11 @@ remove the header line, and setup will treat the file as foreign from then on.
 **What it trusts.** `scripts/setup/` becomes a live execution path in shirabe,
 tsuku, koto and niwa: whoever can merge a change there runs code on every
 contributor's machine at their next apply. niwa already runs that directory for
-any repository that has one; these four didn't have one before. None of them
-uses CODEOWNERS today, so the protection is the review a change gets before it
-lands on the default branch; a CODEOWNERS entry for `scripts/setup/` is a cheap
+any repository that has one; these four didn't have one before. tsuku's
+CODEOWNERS already names owners for `/scripts/**` and `/.github/workflows/**`,
+which covers `scripts/setup/`. shirabe, koto and niwa have no CODEOWNERS, so
+there the protection is the review a change gets before it lands on the default
+branch; a CODEOWNERS entry for `scripts/setup/` in those three is a cheap
 follow-up. The copies must match the canonical file in shirabe byte for byte,
 and a copy that differs is a defect to revert, not a variant. The lifecycle
 workflow's comparison job (Decision 3) fails any pull request in a repository
@@ -843,7 +897,8 @@ writes no telemetry, and prints at most one line, which niwa streams through its
 secret redactor (`RunSetupScripts` in niwa's `internal/workspace/setup.go`).
 Failure output from `install-hooks` can contain absolute paths and stays in the
 local apply output. A failing run also stops any setup script that sorts after
-this one in the same repository; today it is the only one in each.
+this one in the same repository; today it is the only one in each of the four
+public repositories.
 
 The hook it installs is the existing body, and its own security model
 (NUL-safe file lists, paths after `--`) is unchanged.
@@ -858,9 +913,11 @@ changes its own caller to `posture: draft` gets its own check run in draft
 posture, and the required check stays green under the same name. That is
 quieter than deleting the job, which leaves the required check missing. Two
 things make it visible: the lifecycle step writes the posture it ran in to the
-job summary, and a reviewer sees the workflow change in the diff. Product
-repositories should put `.github/workflows/` under CODEOWNERS so such a change
-needs an owner's review; none of the four uses CODEOWNERS today. The
+job summary, and a reviewer sees the workflow change in the diff. The flip
+would let an unfinalized single-pr chain, a Draft ROADMAP root, and every
+draft-tolerable finding merge as notices. tsuku's CODEOWNERS already covers
+`.github/workflows/`; shirabe, koto and niwa have no CODEOWNERS and should add
+an entry for it so such a change needs an owner's review. The
 coordination merge-last gate ignores the input and still runs `--mode=ready`
 on a ready coordination pull request.
 
@@ -877,10 +934,13 @@ can be a draft-posture one, which now passes a Draft ROADMAP root.
 **The interim comparison job.** It adds a trust edge. For as long as it
 exists, the private planning repository's CI runs a script from public
 shirabe's moving `main`, which that repository's owners don't review, on that
-repository's own runner. The job limits what that script can reach: job-level
-`permissions: contents: read`, `persist-credentials: false` on both checkouts so
-no token is left in `.git/config`, a sparse checkout of two files, and no
-secrets or environment passed in from the host workflow. It labels its result
+repository's own runner. The job limits what that script can reach through
+the job's token: job-level `permissions: contents: read`,
+`persist-credentials: false` on both checkouts so no token is left in
+`.git/config`, sparse checkouts, no `env:` or secrets in the job, and a host
+workflow with no workflow-level `env:`. It doesn't limit the runner host: on a
+persistent self-hosted runner the script runs as the runner user and can read
+what that user can, as any job there already can. It labels its result
 with the commit it checked out, so the restore command fetches the bytes it
 compared. Pinning the checkout to a commit a bot keeps current would narrow the
 edge further. It isn't worth it here: the job goes away at adoption, and the
@@ -923,7 +983,7 @@ binary from it. Its `lifecycle.yml` caller will do the same.
 - A planning repository on `posture: draft` loses ready posture's error level
   for good on every code draft posture reports as a notice: the single-pr
   finalization guard, L02 orphans, L06 unticked criteria, L07 design location,
-  and L09 and L10. A single-pr chain there can merge unfinished, and only its
+  and L09. A single-pr chain there can merge unfinished, and only its
   later `Done` without finalization is caught; a `Current` DESIGN outside
   `docs/designs/current/` never fails there.
 - The planning repository's lifecycle caller waits on other lanes fixing the

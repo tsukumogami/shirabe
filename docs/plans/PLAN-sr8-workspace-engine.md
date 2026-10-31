@@ -398,52 +398,78 @@ pass under draft posture (Decision 5).
 now, which a repository holding open plans on its default branch can never
 pass. The ROADMAP row is in the passing-state reading in
 `crates/shirabe-validate/src/lifecycle.rs`: `required_state` takes the review
-posture and returns a Draft-or-Active state for a ROADMAP that roots its own
-chain, under draft posture only. Today draft posture accepts no document at
-`Draft`, so this is a new acceptance, not an extension of the mid-PR case. The
-coordination merge-last gate step in `lifecycle.yml` keys on the pull request's
-own draft state and is left as it is. Issue 6 landed without a line in
-`scripts/check-setup-script-copy.sh`'s header naming the interim caller, so this
-pull request adds it. This issue changes the shirabe binary that skills call,
-so the workspace's pre-change baseline for such changes is taken before
+posture and returns a new Draft-or-Active passing state for a ROADMAP that
+roots its own chain at `MultiPrInFlight`, under draft posture only; a ROADMAP
+root at `Done` (`MultiPrWorkCompleting`) keeps its current expectation. Today no
+chain member passes at `Draft` under either posture, so this is a new
+acceptance, not an extension of the mid-PR case. The coordination merge-last
+gate step in `lifecycle.yml` keys on the pull request's own draft state and is
+left as it is. Issue 6 has merged, and its script header doesn't yet say that a
+repository may run the script from its own workflow, so this pull request
+corrects that header. Prerequisite: this issue changes the shirabe binary that
+skills call, so a baseline of that binary's current behavior is recorded before
 implementation starts. Build on current `main`. Design:
 `docs/designs/DESIGN-sr8-workspace-engine.md`.
 
 **Acceptance Criteria**:
 - [ ] `lifecycle.yml` declares an optional string input `posture`, default
-      `auto`; with `auto` the lifecycle step behaves exactly as before on draft
-      and ready pull requests.
+      `auto`; with `auto` the lifecycle step picks the same mode as before on
+      draft and ready pull requests (it passes `--mode=ready` only on a ready
+      one) and exits with the same status.
 - [ ] With `posture: draft`, the lifecycle step never passes `--mode=ready`,
-      on a draft or a ready pull request, and writes the posture it ran in to
-      the job summary (`$GITHUB_STEP_SUMMARY`) as well as the log.
+      on a draft or a ready pull request.
+- [ ] Under both values, the step writes the posture it ran in to the job
+      summary (`$GITHUB_STEP_SUMMARY`) as well as the log.
+- [ ] The posture-to-mode resolution lives in a script under `scripts/` with a
+      `_test.sh` beside it, run by `build-and-test.yml`, following
+      `scripts/coordination-gate-refs.sh`. The test covers `auto` and `draft`
+      against a draft and a ready pull request, and rejects `''`, `ready`, and
+      values such as `draft; touch "$T/x"` and `$(touch "$T/x")`, asserting
+      `$T/x` is never created. It fails if `draft` on a ready pull request
+      yields `--mode=ready`.
 - [ ] The input reaches the shell only through `env:` (`POSTURE: ${{
       inputs.posture }}`); `${{ inputs.posture }}` appears in no `run:` block,
       and the step checks it with `case "$POSTURE" in auto|draft)` before any
       other use.
-- [ ] Any other `posture` value, including one carrying shell metacharacters,
-      fails the job with an error naming the two accepted values, and nothing
-      in the value is executed.
-- [ ] Under `posture: draft`, the coordination merge-last gate step still runs
-      on a ready coordination pull request and still passes `--mode=ready`.
+- [ ] Any other `posture` value fails the job: the `case` fallthrough prints an
+      `::error::` naming `auto` and `draft`, without echoing the rejected value,
+      and exits 1.
+- [ ] The diff leaves the coordination merge-last gate step unchanged, so under
+      `posture: draft` it still runs on a ready coordination pull request and
+      still passes `--mode=ready`.
 - [ ] A tree whose only chain is a ROADMAP at `Draft` exits 0 under draft
       posture and exits 2 with L01 under `--mode=ready`.
 - [ ] A ROADMAP at `Active` passes and one at `Done` still fails L01 under both
-      postures; the existing lifecycle tests pass unchanged.
+      postures, the `Done` one with a message that still expects it deleted;
+      the existing lifecycle tests pass unchanged.
 - [ ] A PLAN at `Draft` still fails L01 under draft posture.
-- [ ] A ROADMAP at `Draft` with a child PLAN gives exactly one L01 on the
-      ROADMAP and no L08 under draft posture.
-- [ ] A ROADMAP at `Draft` upstream of an orphan document does not credit it:
-      the orphan's finding is the same as with no ROADMAP upstream.
-- [ ] `scripts/check-setup-script-copy.sh`'s header documents its three
-      arguments and says a repository that doesn't call `lifecycle.yml` yet
-      runs it from its own workflow, so an argument change updates that caller
-      too; `bash scripts/check-setup-script-copy_test.sh` still exits 0.
-- [ ] The lifecycle docs that list what draft posture accepts name the Draft
-      ROADMAP case, and the workflow header names the `posture` input.
-- [ ] `shirabe validate --lifecycle .` on shirabe's own tree gives the same
-      result before and after the change.
+- [ ] A ROADMAP at `Draft` with an `Active` single-pr PLAN whose upstream is the
+      ROADMAP: under draft posture the only finding in the tree is one L01 on
+      the ROADMAP, with no L08.
+- [ ] An `Accepted` PRD whose only upstream is a ROADMAP at `Draft` still gets
+      the L02 orphan finding, a notice under draft posture and an error under
+      `--mode=ready`, with the same text as with no upstream.
+- [ ] Each validator case above is a test in
+      `crates/shirabe-validate/src/lifecycle.rs`; the Draft-ROADMAP
+      draft-posture test fails on `main`.
+- [ ] The header of `scripts/check-setup-script-copy.sh`, and the comment on the
+      `setup-script-copy` job in `lifecycle.yml`, say that a repository may run
+      the script from its own workflow instead of through `lifecycle.yml`, so
+      its three-argument interface stays stable; neither still says that every
+      product repository calls `lifecycle.yml`.
+      `bash scripts/check-setup-script-copy_test.sh` still exits 0.
+- [ ] `docs/guides/lifecycle-posture.md` names the Draft ROADMAP root in its
+      posture-model list and in its L01 paragraph, and its `lifecycle.yml`
+      bullet says `posture: draft` never passes `--mode=ready`. The workflow
+      header names the `posture` input. The lifecycle discipline design gets a
+      one-line note pointing at this design's Decision 5, and the doc comment
+      on `required_state` cites it.
+- [ ] In both modes, `shirabe validate --lifecycle .` on the pull request's tree
+      gives identical output with the base binary and with the pull request's
+      binary.
+- [ ] Neither the pull request text nor the diff names a private repository.
 
-**Dependencies**: None
+**Dependencies**: Blocked by Issue 6
 
 ## Dependency Graph
 
@@ -454,17 +480,17 @@ graph TD
     I1 --> I4["Issue 4: copy (koto)"]
     I1 --> I5["Issue 5: copy (niwa)"]
     I1 --> I6["Issue 6: copy check (shirabe)"]
-    I7["Issue 7: planning posture (shirabe)"]
+    I6 --> I7["Issue 7: planning posture (shirabe)"]
 ```
 
 ## Implementation Sequence
 
-Critical path: Issue 1, then any one of Issues 2 to 5. Issues 1 and 2 share the
+Issues 1 to 6 have merged; Issue 7 is what remains. Critical path: Issue 1, then
+any one of Issues 2 to 6. Issues 1 and 2 share the
 shirabe `default` group and land as one pull request, which merges first. Once
 Issue 1's test passes in CI, Issues 3, 4 and 5 run in parallel, one pull request
 each in tsuku, koto and niwa. Issue 6 follows Issue 1 in its own shirabe pull
-request. Issue 7 depends on nothing and lands in its own shirabe pull request;
-it touches `lifecycle.yml` like Issue 6, so whichever lands second is updated to
-the other's merge and re-run green first. A repository that adopts the check
+request. Issue 7 follows Issue 6, since both touch `lifecycle.yml` and the copy
+script, and lands in its own shirabe pull request built on current `main`. A repository that adopts the check
 through Issue 7's input does so in its own pull request, outside this plan. The
 coordination pull request merges last.
