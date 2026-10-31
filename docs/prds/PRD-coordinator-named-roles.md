@@ -17,6 +17,7 @@ goals: |
   owes is never described, by itself or a successor, under any other name. A
   role carries what the session is expected to do and never what it's allowed
   to do.
+upstream: docs/briefs/BRIEF-coordinator-named-roles.md
 ---
 
 # PRD: Coordinator Named Roles
