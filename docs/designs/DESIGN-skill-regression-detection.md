@@ -33,6 +33,7 @@ rationale: |
   on. Reusing the asset record and the exit-5 protocol keeps the release
   change small. The cost is that nothing measures what the agent does when
   the wiring is intact, which the release notes say on every run.
+upstream: docs/prds/PRD-evals-at-release.md
 ---
 
 # DESIGN: Skill regression detection without paid evals
@@ -72,8 +73,12 @@ confirm-and-rerun protocol, and shirabe's extension declares
 `scripts/release-eval-check.sh`. That check runs the release subset of every
 skill changed since the last tag and compares each pass rate, through
 `scripts/lib/eval-pass-rates.py merge`, with the newest earlier release's
-`eval-pass-rates.json` asset. `docs/designs/current/DESIGN-evals-at-release.md`
-describes it. v0.24.0 carries such an asset.
+`eval-pass-rates.json` asset, and v0.24.0 carries such an asset.
+`docs/designs/current/DESIGN-evals-at-release.md` describes that check,
+against the goals in `docs/prds/PRD-evals-at-release.md`. This design keeps
+the PRD's goals of deterministic pull request checks and a release that
+records, compares and stops on pass rates, but meets the release half with
+script-graded cases instead of the graded runs the PRD assumed.
 
 No release since then has one. Every graded case costs model tokens. The
 cost spike (`docs/spikes/SPIKE-release-eval-cost.md`) priced a tier-1 case at
