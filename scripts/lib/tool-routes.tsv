@@ -35,6 +35,12 @@
 # enumeration a report prints, with its reason, or a reader concludes the
 # maintainers forgot about it.
 #
+# niwa's record checks its route with tsuku-source because its command names
+# the distributed source, which a dry run can resolve before that source is
+# registered (#1450). koto's and shirabe's commands name the tool, and
+# `tsuku install <tool>@latest` doesn't resolve without a registered source
+# either, so a dry run of them would answer what `info` already answers.
+#
 koto	tsuku	any	tsuku tsuku-info	tsuku install koto@latest && . ~/.tsuku/env	-
 shirabe	tsuku	any	tsuku tsuku-info	tsuku install shirabe@latest && . ~/.tsuku/env	-
 niwa	tsuku	any	tsuku tsuku-source tsukumogami/niwa	tsuku install tsukumogami/niwa && . ~/.tsuku/env	-

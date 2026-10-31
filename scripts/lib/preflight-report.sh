@@ -478,6 +478,12 @@ PREFLIGHT_ROUTE_REASON=""
 #                           does, so a host that never installed the tool
 #                           needs the dry run to see the route its command
 #                           takes (#1450). The dry run registers nothing.
+#                           `info` goes first because it is local and quick,
+#                           and it settles every host where the source is
+#                           already registered without a network lookup. Each
+#                           call gets its own probe budget and a timed-out
+#                           `info` never reaches the dry run, so the verb
+#                           waits at most one budget longer than tsuku-info.
 #   `never`                 the route is excluded; handled by the caller,
 #                           which needs the citation.
 #
