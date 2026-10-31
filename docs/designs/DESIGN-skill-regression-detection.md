@@ -6,12 +6,12 @@ problem: |
   hand-off from one skill to another, before the release carrying it ships, and
   wants a release to stop on a skill's pass-rate drop. The only mechanism
   today runs graded evals inside `/shirabe:release`, which costs model tokens
-  the owner has ruled shirabe doesn't have, so every release since v0.24.0 has
-  skipped it and nothing else catches a regression. No hand-off case runs
+  on every release, so every release since v0.24.0 has skipped it and nothing
+  else catches a regression. No hand-off case runs
   without a model, and nothing makes a new skill add one.
 decision: |
   No eval calls a model: not a release, not CI, not a schedule, and not a
-  person running the harness, as the owner settled on 2026-10-31. A new
+  person running the harness. A new
   script-graded case kind in `evals.json` (`grader: script`) checks each
   hand-off with no model, through one shared `scripts/check-handoff.sh`. The
   harness, a new pull request gate job and the release all run these cases,
@@ -24,7 +24,7 @@ decision: |
   The model-graded cases stay in `evals.json`, and the harness, the schedule
   script and the CI workflow all refuse to run them.
 rationale: |
-  With no budget for any graded run, every measurement has to be
+  With no model call allowed on any path, every measurement has to be
   deterministic, and the hand-off wiring is both where the likely breaks are
   and where a script can check without a model, using the engine suites that
   already exist. Running the cases in the pull request gate tells the
@@ -84,16 +84,11 @@ No release since then has one. Every graded case costs model tokens. The
 cost spike (`docs/spikes/SPIKE-release-eval-cost.md`) priced a tier-1 case at
 about $0.29 plus grading, a tier-2 case at about $3, and the orchestrating
 session at $4.34 to $6.27 per skill run, which put a five-skill release at
-about $1,200, or about $90 after four cuts. The owner has ruled that shirabe
-has no budget for evals at release: "you can skip evals for the release of
-shirabe ... fixing these evals is a high priority item though, we cannot
-afford to run these many evals, it's prohibitively expensive" (2026-10-15),
-and releases never run evals because "we dont have budget for that"
-(2026-10-23). So the release check is skipped, and nothing else catches a
-regression before it ships:
+about $1,200, or about $90 after four cuts. At that cost per release the
+check is skipped, and nothing else catches a regression before it ships:
 
-- `scripts/scheduled-evals.py` has a $50 weekly fallback budget, but nothing
-  schedules it and the owner hasn't approved it.
+- `scripts/scheduled-evals.py` has a $50 weekly fallback cap, but nothing
+  schedules it.
 - `.github/workflows/run-evals.yml` is manual-only, bills an API secret, and
   can't grade on branches (shirabe#612).
 - The deterministic engine suites for `/deliver` and `/execute` run in CI for
@@ -109,8 +104,8 @@ eval run.
 
 - No eval makes a model call: not a release (dry runs and confirmation
   re-runs included), not pull request CI, not a schedule, and not a person
-  running the harness. The owner's rulings and the settlement quoted in
-  Decision 1 set this.
+  running the harness. This design sets that constraint itself, so that
+  detection costs no model tokens on any path (Decision 1).
 - A hand-off break in `/deliver` shows up as a failing hand-off case when the
   maintainer runs the eval harness on `/deliver`, and the same holds for a
   skill added later without anyone remembering to add the case.
@@ -127,17 +122,18 @@ eval run.
 ### Decision 1: Where graded evals run, how many runs a skill gets, and who pays
 
 Every case in `evals.json` today is graded by a model, so every graded run
-costs tokens. The owner's earlier rulings ruled out graded runs at release
-and in automated gates. A run a maintainer chooses to start on their own
-plan was left open, and the owner settled it on 2026-10-31: "do not run any
-evals, no budget for that". No paid eval runs, whoever starts it.
+costs tokens, at the prices in the Context section. A check that costs that
+much on each release, each pull request or each week gets skipped, as the
+release check has been since v0.24.0, and a skipped check catches nothing.
+This design takes the opposite constraint: no eval run calls a model,
+whoever starts it.
 
 Key assumptions:
-- The settlement has no exception and no switch. If the owner ever funds
-  graded runs, that takes a new ruling and its own change; this design leaves
-  no path for one.
-- A deterministic case is not an eval in the sense the rulings use: it calls
-  no model and costs nothing but CPU, so the rulings don't reach it.
+- The constraint has no exception and no switch. Running graded cases again
+  would take its own design and its own change; this design leaves no path
+  for one.
+- A deterministic case is not a paid eval: it calls no model and costs
+  nothing but CPU, so the constraint doesn't reach it.
 
 #### Chosen: no graded runs anywhere; deterministic cases are the only measurement
 
@@ -167,19 +163,20 @@ But the harness won't run them under this design:
 
 - **Graded runs at release time.** The current check, about $90 per
   five-skill release after the spike's cuts and about $1,200 before. Rejected:
-  the owner ruled that releases never run evals.
+  a model call on every release, which is the cost that left the check
+  skipped.
 - **Per-PR CI with an API key.** A workflow runs the changed skill's subset
-  on every skill pull request, billing an org secret. Rejected: unbudgeted
-  automated spend, multiplied by fix rounds, and shirabe#612 stops grading in
+  on every skill pull request, billing an org secret. Rejected: automated
+  model spend, multiplied by fix rounds, and shirabe#612 stops grading in
   CI for several skills.
-- **A budgeted schedule.** Wire `scheduled-evals.py` to cron with a weekly
-  cap. Rejected: the owner settled that nothing runs evals, a schedule
-  included.
+- **A capped schedule.** Wire `scheduled-evals.py` to cron with a weekly
+  cap. Rejected: recurring model spend, which the no-model-call constraint
+  rules out.
 - **A maintainer-started run at change time.** One run of the changed skill's
   release subset on the maintainer's own plan, committed as a record the
-  release reads. This was the recommendation until the owner settled the
-  question; rejected by the settlement, "do not run any evals, no budget for
-  that".
+  release reads. Rejected: still a model call on every change, paid by
+  whoever makes it, and the release would rest on runs nobody is obliged to
+  make.
 
 ### Decision 2: How a hand-off break fails a free case, for every skill
 
@@ -260,8 +257,8 @@ running `/execute` inline instead of in an agent, submitting
 `child_returned` early, relaying `/execute`'s report instead of `/deliver`'s,
 and SKILL.md prose that contradicts the directive. The model-graded hand-off
 cases (`/deliver` 1, 2, 18, 20 to 21, 30 to 33; `/execute` 4, 62, 63) cover
-those, and under the owner's settlement nobody runs them (Decision 1), so
-these breaks go unmeasured.
+those, and under this design nothing runs them (Decision 1), so these
+breaks go unmeasured.
 
 #### Alternatives Considered
 
@@ -329,9 +326,8 @@ another in the same release changes the scenario set, which `merge` treats
 as a new reference rather than a drop. Comparing case by case catches the
 break anyway, and "any failing case stops" catches it even with no baseline.
 
-The release also prints, for the notes, "model-graded cases: not run, per
-the owner's ruling of 2026-10-31", so every release says what it didn't
-measure.
+The release also prints, for the notes, "model-graded cases: not run", so
+every release says what it didn't measure.
 
 `--finalize` stays: it stamps the record with the confirmed version and
 Phase 4 uploads it as `eval-pass-rates.json`, so the next release has a
@@ -385,11 +381,11 @@ place they run.
 | 1, for a skill added later | `check-evals-shape.py` derives the new skill's targets from its templates and refuses it in the pull request gate until each has a script-graded case, so the harness on that skill has a hand-off case to fail (Decision 2). | $0 |
 | 2. A maintainer regresses one eval, runs `/shirabe:release`, and the release stops on that skill's drop until a person confirms | For a script-graded eval: the release's check sees the case fail where the baseline had it passing, labels it regressed with the skill's rate against its baseline rate, and exits 5 until `RELEASE_CONFIRMED_DROPS` names the skill (Decision 3). | $0 |
 
-The second piece of evidence holds for script-graded evals only, as the
-owner's settlement leaves it. A regression
+The second piece of evidence holds for script-graded evals only, since no
+model-graded eval runs under this design. A regression
 in a model-graded eval, such as a SKILL.md wording change that alters what
 the agent does at a hand-off while the wiring stays intact, isn't measured by
-anything under the owner's settlement, and the release says so in its notes.
+anything under this design, and the release says so in its notes.
 The first release after this lands has no baseline, so it reports a broken
 case as failing rather than regressed; from the second release on, the drop
 shows as a drop.
@@ -504,7 +500,7 @@ Deliverables:
 - `scripts/lib/script-cases.py`, `run-evals.sh` delegating to it and
   refusing every graded case, with a test that sets each billing variable and
   still sees the refusal, and the failing-`claude`-stub test.
-- `scheduled-evals.py` without its fallback budget or its graded runs, so no
+- `scheduled-evals.py` without its fallback cap or its graded runs, so no
   path can start a graded run once this phase lands.
 - `grader`, `run`, `handoff` in `check-evals-shape.py`, with target
   derivation from templates; `check-skill.sh` running script cases.
@@ -649,8 +645,8 @@ never as instructions.
 - Nothing measures the agent's behaviour: a SKILL.md change that alters what
   the agent does at a hand-off, or anywhere else, while the wiring stays
   intact, ships unmeasured.
-- The second piece of evidence holds for script-graded evals only, as the
-  owner's settlement leaves it.
+- The second piece of evidence holds for script-graded evals only, since no
+  model-graded eval runs under this design.
 - The first release after this lands has no baseline, so it can't label a
   failure as a drop.
 - The release host needs koto, which it didn't before.
