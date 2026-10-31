@@ -19,6 +19,7 @@
 #   state-stored-set.sh --session S --done ITEM [--kind K]
 #   state-stored-set.sh --session S --list
 #   state-stored-set.sh --session S --rules [--id s<n>]...
+#   state-stored-set.sh --session S --rules --counts
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                                  (tests)
 #
@@ -116,6 +117,13 @@
 # printed. A record that breaks a rule of state-schema.jq is refused (65), the
 # rule on stderr naming the row (`standing.s3: ...`). --rules reads; it writes
 # no key and tells no entry.
+# --rules --counts prints seven lines instead, one per class in a fixed order
+# (state-schema.jq's rule_classes: relayed, owner-said, dispatcher-said,
+# inferred, skill-says, charter, unreadable), each `<class> <count>`, a class
+# no row reads printed with 0. It counts every Standing row by the class
+# --rules gives it, whatever the row's status, so `grep '^inferred '` gives
+# the unsourced rules the record holds. It reads the record's Standing alone:
+# no entry and no Run row. --counts takes no --id (64).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -185,6 +193,7 @@ SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 # --rules' --id values, one per line.
 RIDS=
+COUNTS=0
 SKIP_CHECKS=0
 # --host pairs, one `key<TAB>value` line each.
 HOSTKV=
@@ -212,6 +221,7 @@ while [ $# -gt 0 ]; do
         --done) [ $# -ge 2 ] || usage; setmode done; ITEM=$2; shift 2 ;;
         --list) setmode list; shift ;;
         --rules) setmode rules; shift ;;
+        --counts) COUNTS=1; shift ;;
         --id) [ $# -ge 2 ] || usage; RIDS="$RIDS$2"$'\n'; shift 2 ;;
         --by) [ $# -ge 2 ] || usage; BY=$2; shift 2 ;;
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
@@ -250,6 +260,7 @@ EOF
     *) usage ;;
 esac
 [ -z "$RIDS" ] || [ "$MODE" = rules ] || usage
+[ "$COUNTS" = 0 ] || { [ "$MODE" = rules ] && [ -z "$RIDS" ]; } || usage
 . "$HERE/state-common.sh"
 lib_facts
 if [ "$MODE" = host ]; then
@@ -375,6 +386,10 @@ esac
 
 if [ "$MODE" = list ]; then
     jq -c -L "$HERE" 'include "state-schema"; state_list' "$WD/parsed.json"
+    exit 0
+fi
+if [ "$MODE" = rules ] && [ "$COUNTS" = 1 ]; then
+    jq -r -L "$HERE" 'include "state-schema"; (.standing // []) | rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
     exit 0
 fi
 if [ "$MODE" = rules ]; then

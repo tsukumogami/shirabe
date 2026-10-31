@@ -74,6 +74,21 @@ gate; eq "a new address with no told or pending row holds on every live worker" 
 seed "$(record '[]' | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s | .holdings[1].pull_request = ""')"
 gate; eq "a merged holding needs neither told nor pending" "1 not-told worker-f2" "$G"
 
+echo "== rule rows =="
+EVENTS='[{"standing":"s1","kind":"pause","on":"Feature 3","until":"lifted","what":"hold the third lane","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"},
+ {"standing":"s2","kind":"approval","on":"","until":"","what":"ship the docs first","owner":"the human","relayed_by":"","set":"2026-09-26T08:01Z"}]'
+RULE='{"standing":"s3","kind":"rule","on":"","until":"","what":"Read a CI run'"'"'s status at most once a minute.","owner":"","relayed_by":"","set":"2026-09-26T08:02Z","source":"inferred"}'
+seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c --argjson s "$EVENTS" '.standing = $s')"
+H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "a record whose Standing holds no rule row reads" 0 $?
+eq "  ... with no rule_lists key: the same top-level fields as before" \
+    "arguments briefs cap coordinator friction gaps holds host reports_to rules standing told work workers" \
+    "$(printf '%s' "$H" | jq -r 'keys | join(" ")')"
+seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c --argjson s "$EVENTS" --argjson r "$RULE" '.standing = $s + [$r]')"
+H2=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the same record with a rule row reads" 0 $?
+eq "  ... with rule_lists, its inferred row awaiting confirmation" "awaiting-confirmation:s3 superseded: asserted-reversal: authorized-by:" \
+    "$(printf '%s' "$H2" | jq -r '[.rule_lists[] | "\(.list):\([.rows[].standing] | join(","))"] | join(" ")')"
+eq "  ... and everything else as the record without it reads" "$(printf '%s' "$H" | jq -cS .)" "$(printf '%s' "$H2" | jq -cS 'del(.rule_lists)')"
+
 echo "== the schema =="
 state_json "$(record "[$(row told worker-f2),$(row pending worker-f2)]")" >/dev/null 2>"$T/err"
 [ $? -ne 0 ] && grep -q 'both told and pending' "$T/err" && ok "state-schema.jq refuses a worker both told and pending" \
