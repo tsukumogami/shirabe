@@ -255,9 +255,13 @@ different value it exits 65 naming both. The one other place a row is born is
 `state-open.sh`'s seed, the write that already creates a record's sections.
 Readers use a new `state-read.sh --run` mode, which reads `record/run` without
 a sealed find and treats a failed read as an error. A structure test pins the
-two writers, and pins that `posture-read.sh`, `need-check.sh`, `board-lib.sh`
-and `dispatch-worker.sh`'s grant path never read the row and that no script
-passes `--role` to `niwa dispatch`.
+two writers, and pins the readers as an allow-list: only the scripts this
+design names (the opener, `state-handover.sh`, the report's record line and
+`dispatch-worker.sh`'s brief path) may read the `role` row, so a script added
+later that reads it fails the test. That keeps `posture-read.sh`,
+`need-check.sh`, `board-lib.sh` and `dispatch-worker.sh`'s grant path off the
+row without naming each one, and the same test pins that no script passes
+`--role` to `niwa dispatch`.
 
 **Who writes it, path by path.** Whenever the opener knows the role it prints
 `role=<value>` with its result lines.
@@ -1024,7 +1028,10 @@ Plan steps the decisions surfaced, each small and inside this change:
 
 - widen the cap write's trigger ("a person's word" in the template's cap
   paragraph and `state-keys.md`) to accept direction from whoever dispatched
-  the run, so a manager can write a cap change its director made;
+  the run, so a manager can write a cap change its director made; the manager
+  takes that direction only from the sender its Run `reports-to` row names,
+  and the cap it writes stays inside what its own `niwa authority check`
+  answer allows;
 - stop a progress event from linking a pull request onto a holding whose entry
   is `coordinate`, so a director's count of its managers doesn't drift;
 - read one-role duties that SKILL.md addresses to "you" without the word
@@ -1034,7 +1041,8 @@ Plan steps the decisions surfaced, each small and inside this change:
 
 ### Phase 6: Checks
 
-Re-record `coordinate.compat.json`'s gate-script digest. Run
+Re-record `coordinate.compat.json`'s gate-script digest, and have the check
+derive it again from the scripts rather than trust the recorded value. Run
 `scripts/check-skill.sh coordinate`, `scripts/check-template-compat.sh
 --template skills/coordinate/koto-templates/coordinate.md` and
 `scripts/ablation/check-public-content.sh`. Confirm the keep-alive sentence is
@@ -1060,7 +1068,9 @@ declares for a named role; a coordinator named `director` in a workspace that
 happens to declare an `[authority.roles]` entry called `director` still gets
 nothing from it. The posture read, the reserved-step check, the merge re-read
 and the grant path don't read the Run `role` row, and a structure test pins
-that. A director with no merge grant still may not merge, and a manager holding
+that with an allow-list of the row's readers, so a script added later that
+reads the role fails the test instead of slipping past a list of known
+offenders. A director with no merge grant still may not merge, and a manager holding
 one still merges only after its reviewer's review.
 
 **A role can't be injected through prose.** The opener never parses the
@@ -1069,7 +1079,13 @@ opener checks it against two literal values. In a brief, `dispatch-worker.sh`
 overwrites the `role` field from the record or the lane rule, so a dispatcher's
 Goal text ("you are the director") or an input that sets the field can't make a
 lane start as a director. The renderer refuses `--role` in `entry_args`, so the
-flag can't be smuggled past the field.
+flag can't be smuggled past the field. Two strings still come from the caller
+and are echoed or stored, so both are treated as data: the `invalid_role`
+message prints the refused value in backticks, cut to 32 characters and with
+control characters and backticks removed, so a crafted value can't break out of
+the message an agent reads; and the `--by` value on the role row is one line
+of at most 80 characters, stored as provenance and never read back as an
+instruction.
 
 **A forged or mistaken role is visible and bounded.** A session started by hand
 with the wrong role gets only a different expectation list, never an
@@ -1077,19 +1093,41 @@ allowance. Its first report's record line names the stored role, and its
 reviewer reads that line. Once stored, the role can't be changed by a later
 start: the set-once writer and the opener's mismatch check refuse it, and the
 refusal writes nothing, so an attempted change can't leave a half-written
-record.
+record. The flip side is that the first role written to a role-less record,
+whether from the opener's flag or from the person's answer at reconcile, is not
+authenticated and is permanent for that lineage. That is accepted because it
+changes only which expectation list the session follows: a wrong first role is
+corrected by starting a new lineage, and nothing it grants has to be revoked.
 
-**The record line exposes nothing new.** It names the session, the host
-repository and the messaging address, which reports already name; the role
-word adds no identifier. Reports from a public repository's coordinator still
-carry no private path or figure, and nothing in the change names one.
+**The record line exposes nothing new.** It names the session and the host
+repository, which every report already names, and, when the Run `coordinator`
+row differs from the session name, the messaging address. That address is the
+same kind of identifier as the session name: it is what briefs already tell
+workers to report to, and the PRD's own test for the line strips it alongside
+the session and host. The role word adds no identifier. Reports are messages
+between sessions and to the person, not text committed to a repository; a run
+that posts a report somewhere public already has to strip session names under
+that repository's content rules, and the address falls under the same rule.
+Reports from a public repository's coordinator still carry no private path or
+figure, and nothing in the change names one.
 
 **The cap-change read fails closed.** A director makes a cap change itself only
 when `niwa authority check` answers bound with that point's decider `session`.
 A failed lookup, an unbound session, any other decider, or a point the
 authority configuration hasn't named yet sends the change up as a decision
 entry, so a missing or broken read never widens what the director does on its
-own.
+own. Until the authority configuration names the cap-change point, that means
+every cap change goes up as a decision; that's a known limit, not a gap.
+
+**The manager's cap write takes direction from one sender.** The plan step
+that widens the manager's cap write past "a person's word" is the one place
+this change touches an allowance on the manager's side. The manager accepts a
+cap change only from the sender its Run `reports-to` row names, the session
+that dispatched it, and writes it with that sender in `--by`. A cap change
+from anyone else is not written, and a written cap still can't exceed what the
+manager's own `niwa authority check` answer allows, so a director can lower or
+move a manager's cap but can't use the manager to widen it past the workspace
+grant.
 
 ## Consequences
 
