@@ -189,15 +189,9 @@ its reviewer, and in the sentences that design pinned, which keep their words.
 
 The PRD leaves the setting's name and shape, the record key, the gap's name
 and the continuation mechanics to this design. Whatever is chosen has to meet
-its first five requirements together: a start takes the role as a setting with
-two values and refuses any other before a session exists; an unnamed role is
-asked for once and never defaulted or inferred; the record holds it as one
-value with one writer, the handover read prints it, and a record without it is
-a gap that holds the handover gate; resume, carry, takeover, import and a
-carried rotation keep it with no step by hand; and a start that names a
-different role from the recorded one is refused, naming both, with the record
-and the run's state untouched. It also has to keep the role out of every
-allowance read, and describe the `reports-to` value without the word "role".
+R1 to R5 together, and adds two constraints of its own: the role stays out of
+every allowance read, and the `reports-to` value is described without the
+word "role".
 
 Key assumptions:
 
@@ -326,15 +320,10 @@ new field, and meta has no section writer whose fix line could close a gap.
 
 ### Decision 2: How a coordinator's brief carries the role
 
-A successor brief must name the role the record holds and a lane brief must
-name `manager`, each on one line the brief renderer writes from the role it's
-given, never from the dispatcher's prose. The rest of the brief names the
-concrete scope and work but makes no general statement of what the role owes
-and gives no name to the recipient's own role. A worker brief gets no role line
-and stays byte-identical to its golden files. The PRD's test finds exactly one
-role line holding one role word, and a grep over the rest of a coordinator
-brief allows only four kinds of match ("workspace manager", git's head ref,
-the director a manager reports to, the managers a director dispatched).
+R7 and R8 settle what the role line says and who reads it. What's left to this
+design is where the renderer gets the role (the record for a successor,
+`manager` for a lane) and how a worker brief keeps no role line and stays
+byte-identical to its golden files.
 
 Key assumptions:
 
@@ -426,11 +415,8 @@ as a director over a new scope with nothing to refuse it.
 ### Decision 3: The record line every report carries
 
 Every report already has to name the record (its session name and host
-repository). The PRD puts the role on that same line in one fixed place, wants
-that line within the first five lines of the run's first report, and wants the
-skill to document its fixed wording so a test can check that, with the session
-name, host and address removed, the line holds exactly one role word. A report
-names its own role with `manager` or `director` and no other word.
+repository). R6 puts the role on that line; this design fixes the line's
+wording, where it sits in the first report, and when its role is read.
 
 Cross-validation shaped this decision. Under Decision 1, a carry of a role-less
 record (and a fresh start that imported a role-less legacy record) gets its
@@ -529,19 +515,10 @@ a line composed by hand each time is how the role drifts; a script prints it.
 
 ### Decision 4: The expectation lists, the allocation allowance, and the manager's report of its lane's pull requests
 
-The PRD fixes what each role's list must hold at the least and leaves the
-wording and the place to this design. The manager's list says it runs one lane,
-dispatches and briefs workers, reviews its workers' pull requests at its land
-step, and sends the pull requests it authors (verdict and reopen edits
-included) to its reviewer. The director's list says it dispatches and briefs
-managers, is the reviewer of each manager it dispatched, reads a manager's
-finished work itself and sends its own reading up, reads all its managers'
-pushed work for alignment (not correctness) and names diverging work to every
-manager involved, and decides which of its lanes advance within the worker
-budget and lanes it has been given. Neither list may name a grant, a merge
-authority or who settles a step. The Glossary defines Coordinator as a session
-of either role, with Manager and Director entries directly after it, and says
-"workspace manager" is the tool.
+R10 fixes what each role's list must hold at the least, and R11 the Glossary
+entries; both leave the wording and the place to this design. The director's
+allocation duty is the one item that touches an allowance, so this decision
+also names the read that answers it.
 
 The PRD also leaves one gap. The director's alignment reading covers "the
 worker pull requests each manager reports ready or landed in its lane", but
@@ -704,15 +681,12 @@ is still honoured, as a decision the director was given.
 
 ### Decision 5: How the sweep of "coordinator" is done and recorded
 
-The PRD requires every occurrence of `coordinator` (singular or plural, any
-case) in `SKILL.md`, `references/*.md` and the koto template to be classed as
-either role, one role, or not a duty; each one-role occurrence rewritten to
-name `manager` or `director`; the classification after the change put in the
-implementation pull request's description with no row in the one-role class;
-positional names ("lane coordinator", "top", "lead", "head", "parent") replaced
-by the role's name while scope and relation words stay; "manager" without
-"workspace" meaning only the role; and the sentences the dispatcher-review
-design pinned kept word for word.
+R12 and R13 require every occurrence of `coordinator` in `SKILL.md`,
+`references/*.md` and the koto template to be classed, each one-role
+occurrence readdressed, and positional names replaced, with the
+dispatcher-review design's pinned sentences kept word for word. This design
+decides how the 244 occurrences are found, classed and recorded so the
+classification can be checked.
 
 Key assumptions:
 
@@ -1115,7 +1089,10 @@ A failed lookup, an unbound session, any other decider, or a point the
 authority configuration hasn't named yet sends the change up as a decision
 entry, so a missing or broken read never widens what the director does on its
 own. Until the authority configuration names the cap-change point, that means
-every cap change goes up as a decision; that's a known limit, not a gap.
+every cap change goes up as a decision; that's a known limit, not a gap. The
+read itself is prose with no gate, so a director that skips it isn't stopped
+by a script: it is caught by the `--by` its manager writes on the cap row and
+by its own reviewer, as Consequences says.
 
 **The manager's cap write takes direction from one sender.** The plan step
 that widens the manager's cap write past "a person's word" is the one place
