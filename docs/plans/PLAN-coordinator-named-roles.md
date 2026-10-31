@@ -244,7 +244,9 @@ they are.
 **Acceptance Criteria**:
 - [ ] `render-brief.sh` refuses a `coordinate` brief whose `role` is `lead`,
   `Director`, empty or missing, a `role` on any other entry point, and
-  `--role` in `entry_args`; each is a case in `render-brief_test.sh`.
+  `--role` in `entry_args`; each exits 2, the renderer's existing input
+  refusal, prints a stderr line naming the field and the refused value, and
+  writes no brief; each is a case in `render-brief_test.sh`.
 - [ ] `dc_invocation` appends `--role <role>` after the positional, so the
   Goal reads
   `` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``
@@ -293,9 +295,12 @@ its managers doesn't drift.
 
 **Acceptance Criteria**:
 - [ ] At `report_link`, a progress event with a pull request link for a
-  holding whose entry is `coordinate` writes no link, and the holding's
-  record is byte-identical before and after.
-- [ ] The same event for a worker holding still links the pull request.
+  holding whose entry is `coordinate` writes no link: `holding-link.sh`
+  exits 0 and prints `not linked: coordinate holding`, never the record's
+  URL or `already linked`, and the holding's record is byte-identical before
+  and after.
+- [ ] The same event for a worker holding still links the pull request,
+  exits 0 and prints the record's URL, as it does today.
 - [ ] `holding-link_test.sh` adds both cases, and its existing cases pass
   unchanged.
 
@@ -322,6 +327,18 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 - [ ] `## Roles` sits between `## Glossary` and `## The Record`, opens with
   the sentence that a list says what you owe, never what you're allowed to
   do, and holds the design's Both roles, Manager and Director lists.
+- [ ] Each list holds the design's items, and a rule-coverage row pins one
+  sentence from each item, so a dropped or paraphrased item fails
+  `rule-coverage_test.sh`: Both roles holds at least the design's three items
+  ("Call yourself only by the role your record holds", "Report up to your
+  reviewer", "Brief a successor with the role your record holds") plus the
+  relayed-content item below; Manager holds its five ("Run one lane",
+  "Dispatch and brief the workers", "Review your workers' pull requests at
+  your land step", "Send every pull request you author", "Report your lane's
+  worker pull requests"); Director holds its six ("Dispatch and brief
+  managers", "Be the reviewer of each manager you dispatched", "send your own
+  reading up", "Read for alignment", "which of your lanes advance", "Be the
+  owner funnel").
 - [ ] The Manager list reports the lane's worker pull requests by link: each
   ready one in the verify report and the `Ready to merge` rows, and in the
   report owed after a land every one merged in the lane since the last
@@ -363,7 +380,7 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 
 **Complexity**: testable
 
-**Files**: `skills/coordinate/scripts/testdata/rule-coverage.tsv`
+**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`
 
 ### Issue 7: docs(coordinate): class every "coordinator" and readdress one-role duties
 
