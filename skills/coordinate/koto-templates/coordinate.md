@@ -110,8 +110,8 @@ version: "1.0"
 description: >
   /coordinate's loop: a coordinator that drives a roadmap or one rotation of a
   discipline by handing units of work to other sessions, verifying what they
-  push, and landing it or putting it in front of a person, while implementing
-  nothing itself.
+  push, and landing it or putting it in front of its reviewer, while
+  implementing nothing itself.
 
   One rule holds the design together: the workflow reads, the coordinator
   writes, and nothing the coordinator writes is read by a check. Every check
@@ -184,7 +184,7 @@ variables:
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
-    description: How many parked workers may wait on a person's merge before pick dispatches nothing new.
+    description: How many parked workers may wait on a merge by your reviewer before pick dispatches nothing new.
     pattern: '^[1-9][0-9]?$'
     default: "3"
   REPORTS_TO:
@@ -412,12 +412,12 @@ states:
         type: enum
         values: [permitted, reserved]
         required: true
-        description: permitted when the human said the coordinator may merge; reserved when a person keeps the merge.
+        description: permitted when the human said the coordinator may merge; reserved when your reviewer keeps the merge.
       close:
         type: enum
         values: [permitted, reserved]
         required: true
-        description: permitted when the human said the coordinator may close; reserved when a person keeps it.
+        description: permitted when the human said the coordinator may close; reserved when your reviewer keeps it.
       teardown:
         type: enum
         values: [permitted, reserved]
@@ -1646,7 +1646,7 @@ states:
     # Every posture verdict means the pull request passed the closed checks
     # (the worker's review round, the reviewed head, the body and its squash
     # message); goal_fit is the coordinator's one judgment before it lands or
-    # goes to the person. unready is the worker's to fix.
+    # goes to your reviewer. unready is the worker's to fix.
     transitions:
       - target: goal_fit
         when:
@@ -1667,7 +1667,7 @@ states:
         when:
           gates.land_verdict.exit_code: 84  # dirty
       # A hold in the record that the check read as unmet, or couldn't read:
-      # the pull request goes to the person as held, with the hold named.
+      # the pull request goes to your reviewer as held, with the hold named.
       - target: surface
         when:
           gates.land_verdict.exit_code: 85  # held
@@ -2230,7 +2230,7 @@ states:
         type: enum
         values: [closed, handed_over]
         required: true
-        description: closed where the posture permits closing; handed_over after handing the close to a person.
+        description: closed where the posture permits closing; handed_over after handing the close to your reviewer.
     transitions:
       - target: done
         when:
@@ -3670,8 +3670,8 @@ you when your session is bound, and to a person only when you are a root
 coordinator. Where you are a root coordinator, a step the workspace puts behind a
 person's confirmation is reserved for a person too; where you are bound, it
 goes to your dispatcher like a denied one. Either way, hand it over rather than
-trigger the prompt. Never ask the human for a step the workspace already
-permits.
+trigger the prompt.
+Never ask the human for a step the workspace already permits once its review is done; a merge grant lets you take a merge after the review, never instead of it.
 
 ## goal_fit
 
@@ -3689,8 +3689,8 @@ Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
 brief you dispatched. Code quality is the seats' question, already answered in
 the body; don't re-review it and don't launch reviewers. A fit pull request,
 with or without follow-ups, goes on by the land check's own verdict: to
-`land_merge` where the workspace permits the merge, and to the person, with the
-merge-order table, where it doesn't. Before it goes on, file each follow-up as
+`land_merge` where the workspace permits the merge, and where it doesn't,
+to your reviewer, with the merge-order table and your own reading. Before it goes on, file each follow-up as
 an issue where the workspace lets you, or raise it as a proposed issue in your
 report up, and name it beside the pull request in the merge-order table. A gap
 goes to `rebrief`.
@@ -3753,7 +3753,7 @@ its merge commit on the default branch, not by trusting the command's exit.
 
 A hold is not decided here. When someone asks you to hold a merge, record it
 with `state-hold.sh --add` at once: the land check reads every hold in the
-record and sends a held pull request to the person, and `land-merge.sh`
+record and sends a held pull request to your reviewer, and `land-merge.sh`
 re-reads them and refuses a pull request a hold recorded since stands on, so a
 hold you only remember never stops a merge. Submit `merge: failed` on that
 refusal; the pull request goes back through verify.
@@ -3834,8 +3834,8 @@ through `land-merge.sh`'s re-read, so every hold standing on it needs its row.
 ## surface
 
 For a merge the workspace reserves, or one a hold in the record stops, put the
-merge-order table from `references/verification-checklist.md` in front of the
-human, once, with the reason for the order (`surfaced: merge_table`); under it,
+merge-order table from `references/verification-checklist.md`
+in front of your reviewer, once, with the reason for the order and your own reading of each pull request (`surfaced: merge_table`); under it,
 for each pull request, paste the block `merge-order-entry.sh` printed at that
 pull request's own surface visit, as it is (it prints only for the pull
 request the latest land visit judged). For a blocked worker, show the
@@ -3872,7 +3872,7 @@ back to unverified until you read it again.
 
 The block carries the seats' verdicts from the worker's review round, the
 holds the land check read with their states, and the squash message the merge
-will carry, so the person merging reads neither a second review nor a message
+will carry, so whoever merges reads neither a second review nor a message
 you wrote by hand. A held pull request goes back through `verify` when the event
 its hold names arrives: the other pull request merging, the tag, or the
 person's word, which you record with `state-hold.sh --lift`.
@@ -4206,9 +4206,16 @@ pick passes over it.
 
 <!-- details -->
 
-A milestone reads Done only on a verdict from you or a person, never from the
-session that delivered it, and the verdict is checked against the roadmap's
-own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
+A milestone reads Done only on a verdict from you or your reviewer, never
+from the session that delivered it, and the verdict is checked against the
+roadmap's own words.
+Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval:
+you at the approved head when your posture permits a merge, otherwise the
+reviewer that approved it when its own grant does, otherwise the next one up
+the chain, and a person at the root. You never approve your own verdict
+pull request and never hand its merge to a worker.
+
+The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
 
 1. Read the roadmap on the default branch at its head commit, into a file
    outside any repository (`mktemp`), and its clauses with
@@ -4260,8 +4267,11 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
    Progress line cites `entry <n>` where the comment's URL would go. When it
    exits 14 (the post or the Progress commit failed), run it again with the same
    entry: it finds its pull request and finishes, opening no second one.
-   Never merge it; it goes to whoever merges roadmap changes, in the
-   merge-order table, and a person reviews the verdict there.
+   Never merge it before your reviewer approves it: it goes to your
+   reviewer, in the merge-order table, and your reviewer reviews the verdict there.
+   Once it is approved, you merge it at the approved head when your posture
+   permits a merge; otherwise your reviewer, or whoever above it holds the
+   grant, merges it.
 
    For verified with follow-ups, write each follow-up's milestone section to
    a file outside any repository and add `--follow-ups <file>`: a `new:`
@@ -4305,7 +4315,7 @@ as `unit`. When the entry can't be checked or the script refuses, submit
 <!-- details -->
 
 A failure reopens only a Done milestone, and only through a roadmap pull
-request whoever merges roadmap changes reviews, so the report is checked
+request your reviewer reviews, so the report is checked
 before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
 
 1. Read the roadmap on the default branch into a file outside any repository
@@ -4344,8 +4354,11 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
    in the session, the pull request's body says so, and the line cites
    `entry <n>`. Delivered, Outcome and Evidence stay. When
    it exits 14, run it again with the same entry: it finishes the same pull
-   request. Never merge it; it goes to whoever merges roadmap
-   changes, in the merge-order table, and a person reviews the report there.
+   request. Never merge it before your reviewer approves it: it goes to
+   your reviewer, in the merge-order table, and your reviewer reviews the report there.
+   Once it is approved, you merge it at the approved head when your posture
+   permits a merge; otherwise your reviewer, or whoever above it holds the
+   grant, merges it.
    Only one roadmap edit is pending at a time: a second failure reported
    while one is pending opens nothing, so submit `failed` and report it again
    once the pending edit is confirmed or dropped.

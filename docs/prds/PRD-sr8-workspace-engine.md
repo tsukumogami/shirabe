@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   Contributors to the tsukumogami workspace meet shirabe's doc checks only in
   CI. The README offers only a curl install, and a fresh `niwa apply` leaves
@@ -19,7 +19,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-sr8-workspace-engine](docs/briefs/BRIEF-sr8-workspace-engine.md); carried in Absorbed Brief.
 

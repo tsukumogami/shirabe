@@ -166,11 +166,11 @@ sections, in this order, each line carrying its grade:
   isn't there yet but could be reads "none yet"). Its rows come in four
   kinds, always in this order:
   1. **Ready to merge:** pull requests ready to be reviewed and merged (ready to
-     land, or held by a hold in the record), each with its session so the
-     person can talk to it, in the order to merge them. Reconcile keeps the
+     land, or held by a hold in the record), each with its session so your
+     reviewer can talk to it, in the order to merge them. Reconcile keeps the
      record's holding order; it doesn't read dependencies, so reorder by them
      when you report it up if they say otherwise.
-  2. **Blocked on you:** only what waits on the person: a decision entry
+  2. **Blocked on you:** only what waits on your reviewer: a decision entry
      escalated to them, with its recommendation and reason, a finishing
      step reserved for them, such as a merge that didn't confirm, and CI
      that GitHub never started (a job with no step, such as one refused for

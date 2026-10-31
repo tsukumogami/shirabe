@@ -1,0 +1,1 @@
+[{"standing":"s7","kind":"rule","on":"","until":"","what":"Read a CI run's status at most once a minute.","owner":"","relayed_by":"","set":"2026-10-20T09:01Z","source":"skill acme/widgets skills/coordinate/SKILL.md 0123456789abcdef0123456789abcdef0123456"}]

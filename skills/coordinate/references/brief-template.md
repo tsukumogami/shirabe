@@ -82,8 +82,14 @@ it to `niwa dispatch` as `--grant`, with your instance as `--parent-from`, when
 the installed niwa takes those flags, and replaces it with what the launch
 asked for, so the brief's Goal carries one `Named authority:` line that names
 exactly those authorities, or says the worker holds none (always so with a
-niwa that takes no `--grant`). That line also tells the worker that a merge,
-close or release its grant doesn't cover goes back to you in a report. The
+niwa that takes no `--grant`). When the worker holds an authority, the line
+then tells it three things: report its finished work to you for review before
+it merges anything; merge only after your own message clears that pull
+request at a head it names, pinned to that head; and never merge a pull
+request that changes a roadmap under `docs/roadmaps/`, whatever its grant,
+handing it back when unsure. Either way the line ends by telling the worker
+that a merge, close or release its grant doesn't cover goes back to you in a
+report. The
 grant is never wider than your own: niwa refuses one that is, and the
 refusal is reported, never retried wider.
 
