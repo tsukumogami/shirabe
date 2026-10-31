@@ -21,8 +21,8 @@ decision: |
   verdicts in the existing `eval-pass-rates.json` asset, compares them with
   the newest earlier release's record, and stops at exit 5 on any failing
   case, labelled as a drop when it passed before, until a person confirms.
-  The model-graded cases stay in `evals.json`, and the harness refuses to run
-  them without an owner-set cap.
+  The model-graded cases stay in `evals.json`, and the harness, the schedule
+  script and the CI workflow all refuse to run them.
 rationale: |
   With no budget for any graded run, every measurement has to be
   deterministic, and the hand-off wiring is both where the likely breaks are
@@ -97,8 +97,8 @@ regression before it ships:
 - Nothing obliges a new skill that hands off to another to test the hand-off.
 
 This design settles how a regression becomes visible to the maintainer who
-caused it, and how a release stops on a pass-rate drop, without any release
-running a paid eval.
+caused it, and how a release stops on a pass-rate drop, without any paid
+eval run.
 
 ## Decision Drivers
 
@@ -128,9 +128,9 @@ plan was left open, and the owner settled it on 2026-10-31: "do not run any
 evals, no budget for that". No paid eval runs, whoever starts it.
 
 Key assumptions:
-- The settlement holds until the owner funds graded runs. When that happens,
-  the dormant graded path described below is the place to switch them on,
-  and nothing else in this design has to move.
+- The settlement has no exception and no switch. If the owner ever funds
+  graded runs, that takes a new ruling and its own change; this design leaves
+  no path for one.
 - A deterministic case is not an eval in the sense the rulings use: it calls
   no model and costs nothing but CPU, so the rulings don't reach it.
 
@@ -142,18 +142,19 @@ script-graded cases (Decision 2) wherever those run, since a deterministic
 case gives the same answer every time and a repeat measures nothing.
 
 The model-graded cases stay in `evals.json`. They still describe the
-behaviour each skill promises, and they're what a funded run would grade.
+behaviour each skill promises, and the shape check keeps their structure
+valid.
 But the harness won't run them under this design:
 
-- `run-evals.sh` runs script-graded cases by default and refuses to start a
-  graded case unless an owner-set cap exists in `scheduled-evals.py`'s
-  ledger. No such cap exists, so the refusal is the default for everyone,
-  the CI workflow included.
-- It also refuses to start a graded case with any variable set that could
-  bill an API or cloud account (the list is in Security Considerations),
-  cap or no cap, unless explicitly flagged.
-- `scheduled-evals.py` loses its $50 weekly fallback; without an owner-set
-  cap it runs nothing.
+- `run-evals.sh` runs script-graded cases only and refuses every graded
+  case, for everyone, the CI workflow included. No cap, flag or variable
+  lifts the refusal.
+- The refusal doesn't depend on the environment: a variable that could bill
+  an API or cloud account (the list is in Security Considerations) changes
+  nothing, and the script-case runner drops every such variable before a
+  case starts.
+- `scheduled-evals.py` loses its $50 weekly fallback and its graded runs; it
+  runs nothing.
 - `run-evals.yml` stays dispatch-only, and `check-run-evals.yml` fails if it
   gains an automatic trigger. A manual dispatch reaches the same refusal.
 
@@ -167,8 +168,8 @@ But the harness won't run them under this design:
   automated spend, multiplied by fix rounds, and shirabe#612 stops grading in
   CI for several skills.
 - **A budgeted schedule.** Wire `scheduled-evals.py` to cron with a weekly
-  cap. Rejected: the owner hasn't budgeted recurring spend. It stays the
-  documented path if the owner ever funds one.
+  cap. Rejected: the owner settled that nothing runs evals, a schedule
+  included.
 - **A maintainer-started run at change time.** One run of the changed skill's
   release subset on the maintainer's own plan, committed as a record the
   release reads. This was the recommendation until the owner settled the
@@ -367,8 +368,8 @@ script pass rate, and stops on any failing case, labelled as a drop when it
 passed before, until a person confirms.
 
 That answers the two questions the evidence leaves open. Graded evals run
-nowhere until the owner funds them. A skill gets no graded runs and one run
-of its script cases in each place they run.
+nowhere. A skill gets no graded runs and one run of its script cases in each
+place they run.
 
 ### How each piece of evidence is met
 
@@ -378,7 +379,8 @@ of its script cases in each place they run.
 | 1, for a skill added later | `check-evals-shape.py` derives the new skill's targets from its templates and refuses it in the pull request gate until each has a script-graded case, so the harness on that skill has a hand-off case to fail (Decision 2). | $0 |
 | 2. A maintainer regresses one eval, runs `/shirabe:release`, and the release stops on that skill's drop until a person confirms | For a script-graded eval: the release's check sees the case fail where the baseline had it passing, labels it regressed with the skill's rate against its baseline rate, and exits 5 until `RELEASE_CONFIRMED_DROPS` names the skill (Decision 3). | $0 |
 
-The second piece of evidence holds for script-graded evals only. A regression
+The second piece of evidence holds for script-graded evals only, as the
+owner's settlement leaves it. A regression
 in a model-graded eval, such as a SKILL.md wording change that alters what
 the agent does at a hand-off while the wiring stays intact, isn't measured by
 anything under the owner's settlement, and the release says so in its notes.
@@ -405,12 +407,12 @@ and uploads a new record.
 | `scripts/lib/check-evals-shape.py` | Accepts the new keys; derives hand-off targets from templates; requires a script case per target | PR gate | no |
 | `scripts/check-skill.sh` | Runs the skill's script cases, and other skills' cases that target it | PR gate, work-on map | no |
 | `.github/workflows/check-skill-gate.yml` | New job: `check-skill.sh` on each skill with changed files, and `script-cases.py --all` when shared paths change | CI | no |
-| `scripts/run-evals.sh` | Script cases by default; `--script-only`; refuses graded cases without an owner-set cap, and with any billing variable set | anyone's host | no, under this design |
+| `scripts/run-evals.sh` | Script cases only; `--script-only` kept as an alias; refuses every graded case, whatever the environment holds | anyone's host | no |
 | `scripts/lib/eval-pass-rates.py` | Accepts script measurements and `cases`; compares case by case; labels regressed and failing-no-baseline | release | no |
 | `scripts/release-eval-check.sh` | Graded loop and `run-evals.sh` call replaced by `script-cases.py --all`; any failing case exits 5 | release | no |
 | `.claude/shirabe-extensions/release.md` | Check declared without model options; host needs koto, not `claude` or bash 4 | release | no |
 | `skills/release/SKILL.md` | Empties every `RELEASE_CONFIRMED_*` before the first check | release | no |
-| `scripts/scheduled-evals.py` | No $50 fallback; runs nothing without an owner-set cap | (off) | only if funded |
+| `scripts/scheduled-evals.py` | No $50 fallback and no graded runs; runs nothing | (off) | no |
 
 ### Key Interfaces
 
@@ -481,7 +483,7 @@ under `## Release assets`, as today.
 | Release: script cases | CPU and wall time, seconds to minutes, scaling with every skill's script cases | The release host's machine time | 0 |
 | Release: record download and compare | Up to ten small `gh` downloads and a python3 merge | The release host's machine time and network | 0 |
 | Release: confirmation | A person's attention, at most one question per release | The person releasing | 0 |
-| Graded cases, scheduled runs | Not run; would be scenario count times runs | Only with an owner-set cap | 0 under this design |
+| Graded cases, from any host, CI or a schedule | Not run: the harness refuses them | Nobody | 0 |
 
 ## Implementation Approach
 
@@ -506,8 +508,8 @@ Depends on Phase 1's runner and shape check.
 Deliverables:
 - The `check-skill-gate.yml` job, on `pull_request` with read-only
   permissions, and its trigger test.
-- `run-evals.sh`: script cases by default, the graded refusal without an
-  owner-set cap, the billing-variable refusal.
+- `run-evals.sh`: script cases only and the refusal of every graded case,
+  with a test that sets each billing variable and still sees the refusal.
 - `scheduled-evals.py` without its fallback budget; the dispatch-only test
   for `run-evals.yml`.
 
@@ -576,9 +578,11 @@ anywhere, since no nested session starts.
 billing: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 and the switches that route Claude Code through Bedrock or Vertex
 (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`). `run-evals.sh`
-refuses graded cases without an owner-set cap, and refuses them with any of
-those variables set unless explicitly flagged. `run-evals.yml` can't gain an
-automatic trigger without failing a CI test.
+refuses every graded case outright whichever of them is set, with no flag
+to override the refusal, and the script-case runner's allowlisted
+environment keeps all of them away from a case.
+`run-evals.yml` can't gain an automatic trigger without failing a CI test,
+and a manual dispatch reaches the same refusals.
 
 **Release records.** The baseline comes from earlier releases'
 `eval-pass-rates.json` assets, which anyone with release write access can
@@ -619,7 +623,8 @@ never as instructions.
 - Nothing measures the agent's behaviour: a SKILL.md change that alters what
   the agent does at a hand-off, or anywhere else, while the wiring stays
   intact, ships unmeasured.
-- The second piece of evidence holds for script-graded evals only.
+- The second piece of evidence holds for script-graded evals only, as the
+  owner's settlement leaves it.
 - The first release after this lands has no baseline, so it can't label a
   failure as a drop.
 - The release host needs koto, which it didn't before.
@@ -629,8 +634,7 @@ never as instructions.
 ### Mitigations
 
 - The release notes' "model-graded cases: not run" line keeps the gap in
-  view, and the dormant graded path (an owner-set cap) is the one switch to
-  turn graded runs back on if the owner funds them.
+  view on every release.
 - Hand-off wiring is where the most likely breaks live, and it's now covered
   for every skill; turning more behaviour into deterministic cases, where a
   check can stand in for a model, narrows the gap further at no token cost.
