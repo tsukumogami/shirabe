@@ -530,6 +530,153 @@ assert_eq "slow tsuku, brew resolves: exactly one command" "1" "$(indented_lines
 PREFLIGHT_PROBE_BUDGET="$SAVED_BUDGET"
 
 echo
+echo "--- a route from a distributed source tsuku hasn't registered ---"
+
+# tsuku answers `info <tool>` for a distributed tool only once its source is
+# registered, which the first install does. On a host that has never installed
+# the tool, `info` refuses while the route's own command,
+# `tsuku install <owner>/<repo>`, resolves (#1450). The tsuku-source verb asks
+# `info` first and, when it refuses, checks the route the way the command runs
+# it, with a dry run of that install.
+#
+# SRCDRIVER's tsuku refuses `info niwa` as an unregistered source does (exit 3)
+# and resolves a dry run of tsukumogami/niwa. It knows koto. Any other dry run
+# fails as tsuku does for a source it can't find (exit 6).
+SRCDRIVER=$(mktmp)
+SRCCALLS="$SRCDRIVER/calls"
+: >"$SRCCALLS"
+{
+    printf '#!/bin/bash\n'
+    printf 'printf "tsuku %%s\\n" "$*" >> %s\n' "$SRCCALLS"
+    printf 'if [ "$1" = "info" ]; then case "$2" in koto) exit 0 ;; *) exit 3 ;; esac; fi\n'
+    printf 'if [ "$1 $2 $3" = "install --dry-run tsukumogami/niwa" ]; then exit 0; fi\n'
+    printf 'exit 6\n'
+} >"$SRCDRIVER/tsuku"
+chmod +x "$SRCDRIVER/tsuku"
+
+PREFLIGHT_LIB="$ROUTEDIR"
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'niwa\ttsuku\tany\ttsuku tsuku-source tsukumogami/niwa\ttsuku install tsukumogami/niwa\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+: >"$SRCCALLS"
+route_case linux "$SRCDRIVER" niwa install
+assert_has "unregistered source: the install command is printed" \
+    "$ROUTE_OUT" "  tsuku install tsukumogami/niwa"
+assert_eq "unregistered source: exactly one command is printed" "1" "$(indented_lines "$ROUTE_OUT")"
+assert_lacks "unregistered source: no no-route enumeration" \
+    "$(prose "$ROUTE_OUT")" "No install route is available"
+assert_lacks "unregistered source: the route is not called unconfirmed" \
+    "$(prose "$ROUTE_OUT")" "unconfirmed"
+assert_has "unregistered source: info is asked first" "$(cat "$SRCCALLS")" "tsuku info niwa"
+assert_has "unregistered source: the route is checked with a dry run of its install" \
+    "$(cat "$SRCCALLS")" "tsuku install --dry-run tsukumogami/niwa"
+
+# A tool tsuku already knows is confirmed by `info`, with no dry run.
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'koto\ttsuku\tany\ttsuku tsuku-source tsukumogami/koto\ttsuku install tsukumogami/koto\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+: >"$SRCCALLS"
+route_case linux "$SRCDRIVER" koto install
+assert_has "registered source: the install command is printed" \
+    "$ROUTE_OUT" "  tsuku install tsukumogami/koto"
+assert_lacks "registered source: no dry run once info answers" "$(cat "$SRCCALLS")" "--dry-run"
+
+# Where neither `info` nor the dry run resolves the tool, there is no route, and
+# the report says so with the reason.
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'niwa\ttsuku\tany\ttsuku tsuku-source tsukumogami/no-such-repo\ttsuku install tsukumogami/no-such-repo\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+: >"$SRCCALLS"
+route_case linux "$SRCDRIVER" niwa install
+assert_has "no source resolves: the no-route statement holds" \
+    "$(prose "$ROUTE_OUT")" "No install route is available on this host"
+assert_has "no source resolves: the reason names both checks" \
+    "$(prose "$ROUTE_OUT")" "tsuku resolves, but does not know niwa, and a dry run of tsuku install tsukumogami/no-such-repo did not resolve it"
+assert_lacks "no source resolves: no command is printed" "$(prose "$ROUTE_OUT")" "Install niwa:"
+
+# A dry run slower than the budget hasn't refused: the command is given,
+# unconfirmed, as for a slow `info`.
+SLOWSRC=$(mktmp)
+{
+    printf '#!/bin/bash\n'
+    printf 'if [ "$1" = "info" ]; then exit 3; fi\n'
+    printf 'if [ "$1" = "install" ]; then /bin/sleep 30; exit 0; fi\n'
+    printf 'exit 6\n'
+} >"$SLOWSRC/tsuku"
+chmod +x "$SLOWSRC/tsuku"
+PREFLIGHT_PROBE_BUDGET=1
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'niwa\ttsuku\tany\ttsuku tsuku-source tsukumogami/niwa\ttsuku install tsukumogami/niwa\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+SLOW_T0=$(date +%s)
+route_case linux "$SLOWSRC" niwa install
+SLOW_T1=$(date +%s)
+PREFLIGHT_PROBE_BUDGET="$SAVED_BUDGET"
+assert_has "slow dry run: the install command is still named" \
+    "$ROUTE_OUT" "  tsuku install tsukumogami/niwa"
+assert_has "slow dry run: the report says the dry run did not finish in time" \
+    "$(prose "$ROUTE_OUT")" "tsuku did not finish a dry run of tsuku install tsukumogami/niwa within the 1-second budget this check gives it, so whether it knows niwa is unconfirmed."
+assert_lacks "slow dry run: no no-route enumeration" \
+    "$(prose "$ROUTE_OUT")" "No install route is available"
+if [ $(( SLOW_T1 - SLOW_T0 )) -le 4 ]; then
+    pass "slow dry run: the route check returns within the budget and its grace"
+else
+    fail "slow dry run: the route check took $(( SLOW_T1 - SLOW_T0 ))s against a 1s budget"
+fi
+
+# The argument is an owner/repo and nothing else, checked before anything runs.
+for BADARG in "niwa" "-x/niwa" "tsukumogami/-niwa" "a/b/c" "tsukumogami/niwa extra"; do
+    {
+        printf '#schema\ttool-routes/v1\n'
+        printf 'niwa\ttsuku\tany\ttsuku tsuku-source %s\ttsuku install tsukumogami/niwa\t-\n' "$BADARG"
+    } >"$ROUTEDIR/tool-routes.tsv"
+    : >"$SRCCALLS"
+    route_case linux "$SRCDRIVER" niwa install
+    assert_has "tsuku-source '$BADARG': the record is not used" \
+        "$(prose "$ROUTE_OUT")" "No install route is available on this host"
+    assert_eq "tsuku-source '$BADARG': nothing is executed" "" "$(cat "$SRCCALLS")"
+    assert_has "tsuku-source '$BADARG': the reason names the argument" \
+        "$(prose "$ROUTE_OUT")" "gives tsuku-source no owner/repo argument this check will run"
+done
+
+# tsuku-source with no argument at all is refused the same way, rather than
+# running a dry run of an empty name.
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'niwa\ttsuku\tany\ttsuku tsuku-source\ttsuku install tsukumogami/niwa\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+: >"$SRCCALLS"
+route_case linux "$SRCDRIVER" niwa install
+assert_has "bare tsuku-source: the reason names the missing argument" \
+    "$(prose "$ROUTE_OUT")" "gives tsuku-source no owner/repo argument this check will run"
+assert_eq "bare tsuku-source: nothing is executed" "" "$(cat "$SRCCALLS")"
+
+# tsuku-info still takes no argument.
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'koto\ttsuku\tany\ttsuku tsuku-info tsukumogami/koto\ttsuku install koto@latest\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+: >"$SRCCALLS"
+route_case linux "$SRCDRIVER" koto install
+assert_has "tsuku-info with an argument: the record is not used" \
+    "$(prose "$ROUTE_OUT")" "No install route is available on this host"
+assert_eq "tsuku-info with an argument: nothing is executed" "" "$(cat "$SRCCALLS")"
+
+# The shipped niwa record is checked the way its command runs.
+PREFLIGHT_LIB="$REPO/scripts/lib"
+: >"$SRCCALLS"
+route_case linux "$SRCDRIVER" niwa install
+assert_has "shipped table: niwa from an unregistered source gets its install command" \
+    "$ROUTE_OUT" "  tsuku install tsukumogami/niwa && . ~/.tsuku/env"
+assert_lacks "shipped table: niwa from an unregistered source is not a no-route report" \
+    "$(prose "$ROUTE_OUT")" "No install route is available"
+PREFLIGHT_LIB="$ROUTEDIR"
+
+echo
 echo "--- end to end ---"
 
 # new_root -- a throwaway plugin root carrying the real scripts under test,
@@ -949,6 +1096,25 @@ assert_has "slow tsuku end to end: niwa's install command is named" \
     "$RUN_OUT" "
   tsuku install tsukumogami/niwa && . ~/.tsuku/env"
 assert_lacks "slow tsuku end to end: neither block says tsuku does not know the tool" \
+    "$(prose "$RUN_OUT")" "does not know"
+
+# --- niwa never installed, through the real wiring --------------------------
+# tsuku works but has never registered the tsukumogami/niwa source, so it
+# refuses `info niwa` while `tsuku install tsukumogami/niwa` resolves (#1450).
+# The block names niwa as missing and gives the shipped table's command.
+SRCE2E=$(mktmp)
+cp "$SRCDRIVER/tsuku" "$SRCE2E/tsuku"
+write_decl "$ROOT" "unregistered" 'niwa\t-\t-\talways'
+run_preflight "$ROOT" "unregistered" "$SRCE2E:$OSPATH_LINUX" "/nonexistent"
+assert_eq "unregistered niwa end to end: the check exits 0" "0" "$RUN_RC"
+assert_has "unregistered niwa end to end: niwa is reported as not installed" \
+    "$(prose "$RUN_OUT")" "niwa is not installed on this host."
+assert_has "unregistered niwa end to end: the install command is named" \
+    "$RUN_OUT" "
+  tsuku install tsukumogami/niwa && . ~/.tsuku/env"
+assert_lacks "unregistered niwa end to end: no no-route statement" \
+    "$(prose "$RUN_OUT")" "No install route is available"
+assert_lacks "unregistered niwa end to end: tsuku is not said to not know niwa" \
     "$(prose "$RUN_OUT")" "does not know"
 
 echo
