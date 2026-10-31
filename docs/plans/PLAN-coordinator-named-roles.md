@@ -109,8 +109,10 @@ Overlaps shirabe#1470, #1473 and #1474 on the state scripts, `state-keys.md` and
   `state-handover.sh` and the scripts that read `record/run` at the branch
   base for other rows, each noted with the row it reads; `posture-read.sh`,
   `need-check.sh`, `board-lib.sh` and `dispatch-worker.sh`'s grant path
-  aren't on it. The same test fails when any script under
-  `skills/coordinate/` passes `--role` to `niwa dispatch`.
+  aren't on it. For a script with two paths, the list names the function
+  that may read the row, not only the script: the test fails when the read
+  sits in any other function of that script. The same test fails when any
+  script under `skills/coordinate/` passes `--role` to `niwa dispatch`.
 - [ ] The existing large-record tests (a record of about 60,000 bytes) pass
   unchanged with the row added.
 
@@ -175,12 +177,14 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   `{asked}` filled in (for a run recorded `director` asked `manager`, the
   message names the run, then `director`, then `manager`, and ends "or start
   manager as a new lineage."). A second case gives a candidate run whose name
-  is 200 characters long and holds a backtick and a control character, and
-  finds the name in the message cut to 32 characters with both removed, the
-  same cleaning `invalid_role` applies to its value.
+  is 200 characters long and holds a backtick and a control character within
+  its first 32, and finds the name in the message with both removed first
+  and the rest then cut to 32 characters, asserted as the exact expected
+  string; the `invalid_role` case asserts the same cleaning of its value.
 - [ ] Every successful start that knows the role prints `role=<value>`.
 - [ ] A resume of a role-less record given `--role director` writes the row
-  through `state-stored-set.sh` before printing `outcome=resumed`;
+  through `state-stored-set.sh` before printing `outcome=resumed` (a case
+  whose write fails exits non-zero and prints no `outcome=resumed`);
   `finish_takeover` writes it beside the `coordinator` row; a role-less carry
   given `--role` prints `role=<value>` and leaves the row to the `no-role`
   fix.
@@ -314,8 +318,14 @@ they are.
   role comes from the `--role` on its brief's invocation line.
 - [ ] The `references/entry-points.tsv` header comment and `render-brief.sh`'s
   header say where `--role` comes from; the `coordinate` row allows no flags.
-- [ ] The reader allow-list test gains `dispatch-worker.sh`'s brief path; its
-  grant path stays off the list.
+- [ ] The reader allow-list test gains `dispatch-worker.sh` by function: the
+  function that writes `.role` in `read_inputs` may read the row, and a
+  fixture that adds a `state-read.sh --run` call or a `record/run` read to
+  `resolve_grant`, or to any function it calls, fails the test.
+  `dispatch-worker_test.sh` adds a case in which the same input with the
+  fixture run recorded `manager` and then `director` produces a
+  byte-identical grant (the `--role` and authority arguments passed to
+  `niwa dispatch`).
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
@@ -376,7 +386,9 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
   "Read for alignment", "which of your lanes advance", "Be the owner
   funnel"). The owner-funnel item's sentence "Never block on the owner from a
   turn the owner didn't start" is carried as the design words it, with no
-  added scope.
+  added scope. A text check over `SKILL.md`'s `## Roles` section counts the
+  items under each list heading and finds exactly three, five and six, so an
+  added item fails as a dropped one does.
 - [ ] The Manager list reports the lane's worker pull requests by link: each
   ready one in the verify report and the `Ready to merge` rows, and in the
   report owed after a land every one merged in the lane since the last
@@ -401,17 +413,18 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
   reading holds a land isn't set by the role, worded as "Whether your reading
   holds a land isn't set by your role: Bounds and Authority and the
   workspace's authority configuration say who merges." A rule-coverage row
-  pins it, so an item that leaves this unsaid fails. The item says neither
-  that the reading holds a land nor that it doesn't, as the PRD's criterion
-  requires. The source is the owner's direction to the director role, quoted
-  here: "Your PR reviews are not for correctness, they are for alignment ...
-  I expect you to be able to make the call on whether to merge it or not, and
-  push work back to the session if needed." Read with the owner's other
-  ruling, "Expectations are hardcoded in skills and roles, allowances are
-  configurable per workspace/host/etc.", the alignment reading and the
-  push-back to every manager involved are the expectation this item holds,
-  and making the merge call is an allowance the authority configuration
-  grants, which this sentence points to.
+  pins it, so an item that leaves this unsaid fails. Beyond that sentence the
+  item states no answer either way, as the PRD's criterion requires. The
+  requirements are the PRD's R10 (the alignment item and this sentence) and
+  R14 (a role never reaches an allowance). Their source is the owner's
+  direction to the director role: "Your PR reviews are not for correctness,
+  they are for alignment ... I expect you to be able to make the call on
+  whether to merge it or not, and push work back to the session if needed."
+  Read with the owner's other ruling, "Expectations are hardcoded in skills
+  and roles, allowances are configurable per workspace/host/etc.", the
+  alignment reading and the push-back to every manager involved are the
+  expectation this item holds, and the merge call is decided by the
+  authority configuration, which this sentence points to.
 - [ ] No item in the three lists contains `grant`, `merge authority`,
   `may merge` or `settle`; the allocation item names no cap value; no added
   text says a director may change a cap.
@@ -510,8 +523,10 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
   run recorded `director`, as a case in `posture-read_test.sh`. This is the
   PRD's R14 check (a role never reaches an allowance), and it is tested only
   against the posture read and the authority check because that is exactly
-  what the design's Phase 6 names; the reader allow-list test from Issue 1
-  covers every other script by keeping the row out of its reach.
+  what the design's Phase 6 names. The reader allow-list test from Issue 1
+  keeps the row out of every other script's reach, and Issue 4's grant case
+  covers `dispatch-worker.sh`, the one script that both reads the row and
+  passes a grant.
 - [ ] The owner funnel ships as list text only. At the head,
   `git grep -niE 'owner[ -]funnel'` under
   `skills/coordinate/` finds matches only in `SKILL.md` and
