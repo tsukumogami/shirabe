@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   The coordinate skill sends reviews, merges, verdict edits and finishing steps
   to "a person" in places where a bound coordinator's dispatcher is meant, and
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-coordinator-dispatcher-review.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
