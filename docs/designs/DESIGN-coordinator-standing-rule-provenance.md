@@ -1,5 +1,37 @@
 ---
 schema: design/v1
+status: Proposed
+problem: |
+  A coordinator's Standing rows hold only five kinds of person-owned event,
+  with a free-text owner and relayer, and end by deletion; the process rules
+  it runs under ride forward in brief prose. A successor asked why it follows
+  a rule can't say who said it, when, where the words are or whether it still
+  stands, and a rule the owner took back can survive in a copied brief and be
+  acted on again. koto's decision record is being built to answer those
+  questions for every delegated decision, and this work has to use it rather
+  than build a second set of fields or a second reversal.
+decision: |
+  Standing gains a `rule` kind and one optional Source column that cites a
+  koto decision, a skill line, a document, a pinned file, or names the rule
+  inferred. No column stores a class: one schema function works it out at
+  read, and owner-said means a cited person decision entered at a root
+  coordinator, which a manager reaches only by citing its director's. A cited
+  rule's status is koto's, so an owner's reversal reads superseded wherever
+  the rule was copied. Rows written before the change are read in place as
+  relayed, keeping their owner, time and recording entry, and brief rules come
+  in once as flagged inferred rows. A successor that continues a run may
+  reverse below its predecessor, standing where the predecessor stood, read
+  from koto's supersede fence and never higher.
+rationale: |
+  Citing instead of copying keeps one set of provenance fields and one
+  reversal, and deriving the class leaves a coordinator no field in which to
+  call its own prose the owner's word. Reading old rows in place, behind a
+  reader release that ships before any writer, keeps every current reader and
+  older plugins working without a conversion pass. The successor answer
+  follows from the rest: without it, an owner ruling recorded at the root
+  could not be reversed after the first handoff, and the fence is the one
+  record tying a run's members together that the successor doesn't write
+  about itself.
 ---
 
 # DESIGN: Standing rules that carry their provenance
