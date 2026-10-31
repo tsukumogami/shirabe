@@ -10,6 +10,10 @@ skill. It checks the file the eval harness reads without running it:
   - every entry under `evals` has a non-empty `name` and a non-empty `prompt`;
   - every entry has at least one of `expectations` or `assertions` as a
     non-empty list. Both shapes are in use across the suites;
+  - except a script-graded entry (`"grader": "script"`), which needs a
+    non-empty `name`, `run` (the command scripts/lib/script-cases.py runs)
+    and `handoff` (the skill it checks the hand-off to), and no `prompt` or
+    criteria;
   - `tier`, when present, is 1 or 2; every reader takes tier-2 as any tier
     other than 1, so no other value is let through;
   - every tier-2 entry (`tier` other than 1) names the behaviour it exercises
@@ -90,6 +94,17 @@ def check(path):
         elif "," in entry["name"]:
             # scripts/run-evals.sh --scenario takes a comma-separated list.
             problems.append("%s: `name` can't contain a comma" % where)
+        if entry.get("grader") == "script":
+            # A script-graded case runs a command, not a prompt: it needs the
+            # command and the skill it hands off to, and no criteria.
+            for key in ("run", "handoff"):
+                if not non_empty_string(entry.get(key)):
+                    problems.append("%s: a `grader: script` case needs a non-empty `%s`"
+                                    % (where, key))
+            if not tier_ok(entry):
+                problems.append("%s: `tier` is 1 or 2 (absent means 1), not %s"
+                                % (where, json.dumps(entry.get("tier"))))
+            continue
         if not non_empty_string(entry.get("prompt")):
             problems.append("%s: missing or empty `prompt`" % where)
         if not tier_ok(entry):

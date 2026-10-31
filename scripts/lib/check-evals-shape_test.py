@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for scripts/lib/check-evals-shape.py: the tier-2 release-subset rule.
+"""Tests for scripts/lib/check-evals-shape.py: the tier-2 release-subset rule
+and the script-graded case shape.
 
 Usage: python3 scripts/lib/check-evals-shape_test.py
 
@@ -26,7 +27,7 @@ def scenario(name, tier=1, **extra):
     return entry
 
 
-class ReleaseSubsetTest(unittest.TestCase):
+class ShapeCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.skill_md = os.path.join(self.tmp.name, "SKILL.md")
@@ -44,6 +45,8 @@ class ReleaseSubsetTest(unittest.TestCase):
                               capture_output=True, text=True)
         return proc.returncode, proc.stdout + proc.stderr
 
+
+class ReleaseSubsetTest(ShapeCase):
     def test_one_release_per_behaviour_passes(self):
         rc, out = self.check([
             scenario("plan-a"),
@@ -116,6 +119,68 @@ class ReleaseSubsetTest(unittest.TestCase):
         rc, out = self.check([scenario("merge-a", tier=2, behaviour="Merge Refused", release=True)])
         self.assertEqual(rc, 1, out)
         self.assertIn("needs a kebab-case `behaviour`", out)
+
+
+def script_case(name="handoff-execute-contract", **extra):
+    entry = {"id": 34, "name": name, "grader": "script", "handoff": "execute",
+             "run": "scripts/check-handoff.sh deliver execute"}
+    entry.update(extra)
+    return entry
+
+
+class ScriptCaseTest(ShapeCase):
+    """A `grader: script` case needs name, run and handoff, and no prompt or criteria."""
+
+    def test_script_case_without_prompt_or_expectations_passes(self):
+        rc, out = self.check([scenario("plan-a"), script_case()])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("shape ok", out)
+
+    def test_script_case_needs_run_handoff_and_name(self):
+        for key in ("run", "handoff", "name"):
+            for bad in (None, "", "  "):
+                with self.subTest(key=key, bad=bad):
+                    entry = script_case()
+                    if bad is None:
+                        del entry[key]
+                    else:
+                        entry[key] = bad
+                    rc, out = self.check([entry])
+                    self.assertEqual(rc, 1, out)
+                    if key == "name":
+                        self.assertIn("missing or empty `name`", out)
+                    else:
+                        self.assertIn("a `grader: script` case needs a non-empty `%s`" % key, out)
+
+    def test_graded_case_still_needs_prompt_and_expectations(self):
+        no_prompt = scenario("plan-a")
+        del no_prompt["prompt"]
+        no_criteria = scenario("plan-b")
+        del no_criteria["expectations"]
+        rc, out = self.check([script_case(), no_prompt, no_criteria])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("eval 'plan-a' (#2): missing or empty `prompt`", out)
+        self.assertIn("eval 'plan-b' (#3): needs a non-empty `expectations` or `assertions` list",
+                      out)
+
+    def test_unknown_grader_keeps_graded_rules(self):
+        entry = script_case(grader="scripted")
+        rc, out = self.check([entry])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("missing or empty `prompt`", out)
+
+
+class RealDeliverEvalsTest(unittest.TestCase):
+    def test_deliver_evals_pass_with_the_script_case(self):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        evals = os.path.join(root, "skills", "deliver", "evals", "evals.json")
+        with open(evals) as fh:
+            cases = json.load(fh)["evals"]
+        self.assertTrue(any(c.get("grader") == "script" and c.get("id") == 34 for c in cases))
+        proc = subprocess.run([sys.executable, SCRIPT, evals,
+                               os.path.join(root, "skills", "deliver", "SKILL.md")],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
 
 if __name__ == "__main__":

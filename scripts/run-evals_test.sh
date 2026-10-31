@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# run-evals_test.sh -- test harness for scripts/run-evals.sh: the nested
-# session's permission mode, model and environment, the failure it reports when
-# that session ends without executing anything, the changed-since-tag
-# selection, the --summary-out file and the --runs exit code.
+# run-evals_test.sh -- test harness for scripts/run-evals.sh: the session
+# classifier the graded path used, and the script-case runner every selection
+# now goes to (scripts/lib/script-cases.py), with the changed-since-tag list.
 #
 # Usage: bash scripts/run-evals_test.sh
 #
@@ -10,23 +9,28 @@
 #   0 -- all cases pass
 #   1 -- one or more cases failed
 #
-# No model is called. A stub claude (scripts/run-evals/fixtures/bin/claude) is
-# put first on PATH; it records the arguments, prompt, working directory and
-# TMPDIR it was started with, and replays a fixture transcript. The runner is
-# pointed at a throwaway suite through RUN_EVALS_SKILLS_DIR, so no iteration is
-# written into this checkout.
+# No model is called. A failing stub claude (scripts/run-evals/fixtures/bin/
+# claude) is put first on PATH; it records every call in $STUB_CLAUDE_RECORD
+# and exits non-zero, so the runner cases can show it was never started. The
+# runner cases run a temporary copy of the tree that is its own git
+# repository, holding the runner, a throwaway fixture skill and the tracked
+# fixture scripts under scripts/cases/ its cases name, so nothing is written
+# into this checkout.
 #
-# Two groups:
+# Three groups:
 #   classifier cases run scripts/lib/classify-eval-session.py against the
 #   fixture transcripts directly;
-#   runner cases run scripts/run-evals.sh end to end against the stub.
+#   runner cases run scripts/run-evals.sh end to end: the fixture skill in the
+#   copy, and /deliver's hand-off case on this tree and on a mutated copy
+#   (those need koto, which check-handoff.sh compiles the templates with);
+#   selection cases run --list-changed against a throwaway repository.
 
 set -uo pipefail
 . "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 # The cases set these themselves; a value from the caller's shell would change
 # what the runner does.
-unset EVAL_MODEL STUB_CLAUDE_SEQUENCE RUN_EVALS_REPO_ROOT
+unset EVAL_MODEL STUB_CLAUDE_RECORD RUN_EVALS_REPO_ROOT RUN_EVALS_SKILLS_DIR
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
@@ -261,561 +265,366 @@ fi
 
 # -- runner -----------------------------------------------------------------
 
-SUITE="$T/skills"
-mkdir -p "$SUITE/demo/evals" "$SUITE/live/evals"
-echo "# demo skill" > "$SUITE/demo/SKILL.md"
-cat > "$SUITE/demo/evals/evals.json" <<'EOF'
-{"skill_name": "demo", "evals": [
-  {"id": 1, "name": "demo-scenario", "prompt": "do the thing",
-   "expected_output": "the thing is done", "files": [],
-   "expectations": ["stub criterion"]}
-]}
-EOF
-mkdir -p "$SUITE/pair/evals"
-echo "# pair skill" > "$SUITE/pair/SKILL.md"
-cat > "$SUITE/pair/evals/evals.json" <<'EOF'
-{"skill_name": "pair", "evals": [
-  {"id": 1, "name": "first-scenario", "prompt": "one", "expected_output": "one",
-   "files": [], "expectations": ["stub criterion"]},
-  {"id": 2, "name": "second-scenario", "prompt": "two", "expected_output": "two",
-   "files": [], "expectations": ["stub criterion"]}
-]}
-EOF
-echo "# live skill" > "$SUITE/live/SKILL.md"
-# No "tier": 2 here, although the real liveness evals declare it: tier 2 makes
-# the runner clone and push this checkout, which fails on a detached CI
-# checkout and is not what this case tests. The liveness instruction keys on
-# "preflight": "live" alone.
-cat > "$SUITE/live/evals/evals.json" <<'EOF'
-{"skill_name": "live", "evals": [
-  {"id": 1, "name": "liveness", "mode": "execute",
-   "preflight": "live", "preflight_skill": "some-skill",
-   "prompt": "load the fixture plugin", "expected_output": "a report",
-   "files": [], "expectations": ["stub criterion"]}
-]}
-EOF
+# The failing claude stub records every call here; every run below must leave
+# it empty.
+RECORD="$T/claude-record"
+: > "$RECORD"
+record_empty() { [ ! -s "$RECORD" ]; }
 
-LOG="$T/log"
+# has <needle>: OUT contains the text (no pipe, so no early-exit race).
+has() { case "$OUT" in *"$1"*) return 0 ;; esac; return 1; }
 
-# newest_iteration <workspace dir> -- its highest-numbered iteration-N directory.
-# Sorting the paths would compare them as text once a skill reaches iteration-10,
-# and the temporary directory's own name holds hyphens, so take the number.
-newest_iteration() {
-  local dir n best=-1
-  for dir in "$1"/iteration-*; do
-    [ -d "$dir" ] || continue
-    n=${dir##*iteration-}
-    case "$n" in ''|*[!0-9]*) continue ;; esac
-    [ "$n" -gt "$best" ] && best=$n
-  done
-  [ "$best" -ge 0 ] && printf '%s\n' "$1/iteration-$best"
-}
-
-run_runner() { # run_runner <stub-mode> <runner args...>
-  local mode="$1"
+# The fixture tree: its own git repository, so the runner's tracked-file rule
+# reads the fixture's index, not this checkout's.
+TREE="$T/tree"
+git_in() { # git_in <dir> <git args...>
+  local dir="$1"
   shift
-  rm -rf "$LOG"
+  git -C "$dir" -c user.email=test@example.invalid -c user.name=test "$@" >/dev/null
+}
+mkdir -p "$TREE/scripts/cases" "$TREE/skills/fx/evals" "$TREE/skills/two/evals" "$TREE/skills/deliver"
+cp "$RUNNER" "$REPO_ROOT/scripts/check-handoff.sh" "$TREE/scripts/"
+cp -R "$SCRIPT_DIR/lib" "$TREE/scripts/lib"
+echo "# deliver" > "$TREE/skills/deliver/SKILL.md"
+echo "# fx" > "$TREE/skills/fx/SKILL.md"
+echo "# two" > "$TREE/skills/two/SKILL.md"
+
+case_script() { # case_script <path under the tree> <body>
+  printf '#!/bin/sh\n%s\n' "$2" > "$TREE/$1"
+  chmod +x "$TREE/$1"
+}
+case_script scripts/cases/pass.sh 'echo "fixture pass"'
+case_script scripts/cases/fail.sh 'echo "fixture failure: the hand-off word drifted"; exit 1'
+# marker.sh <word>: leaves ran-<word> in the tree, so a case that should
+# never have run shows it did.
+case_script scripts/cases/marker.sh ': > "$PWD/ran-$1"'
+case_script scripts/release-eval-check.sh ': > "$PWD/ran-release"'
+case_script scripts/cases/env.sh 'env > "$PWD/case-env"'
+case_script scripts/cases/sleeper.sh 'sleep 300 &
+echo $! > "$PWD/child-pid"
+sleep 300'
+case_script scripts/cases/lines.sh 'i=1
+while [ "$i" -le 500 ]; do
+  if [ "$i" -eq 400 ]; then printf "line %d \033[31mred\033[0m\n" "$i"; else printf "line %d\n" "$i"; fi
+  i=$((i + 1))
+done
+exit 1'
+ln -s marker.sh "$TREE/scripts/cases/link.sh"
+
+cat > "$TREE/skills/fx/evals/evals.json" <<'EOF'
+{"skill_name": "fx", "evals": [
+  {"id": 1, "name": "pass-case", "grader": "script", "handoff": "fx", "run": "scripts/cases/pass.sh"},
+  {"id": 2, "name": "fail-case", "grader": "script", "handoff": "fx", "run": "scripts/cases/fail.sh"},
+  {"id": 3, "name": "graded-case", "prompt": "do it", "expectations": ["it is done"],
+   "run": "scripts/cases/marker.sh graded"},
+  {"id": 4, "name": "no-grader-case", "run": "scripts/cases/marker.sh nograder"},
+  {"id": 5, "name": "unknown-grader-case", "grader": "scripted", "run": "scripts/cases/marker.sh scripted"},
+  {"id": 6, "name": "untracked-script", "grader": "script", "handoff": "fx", "run": "scripts/cases/untracked.sh"},
+  {"id": 7, "name": "symlinked-script", "grader": "script", "handoff": "fx", "run": "scripts/cases/link.sh symlink"},
+  {"id": 8, "name": "release-script", "grader": "script", "handoff": "fx", "run": "scripts/release-eval-check.sh"},
+  {"id": 9, "name": "traversal-script", "grader": "script", "handoff": "fx", "run": "scripts/cases/../release-eval-check.sh"},
+  {"id": 10, "name": "dotdot-arg", "grader": "script", "handoff": "fx", "run": "scripts/cases/marker.sh .."},
+  {"id": 11, "name": "option-arg", "grader": "script", "handoff": "fx", "run": "scripts/cases/marker.sh --all"},
+  {"id": 12, "name": "semicolon-arg", "grader": "script", "handoff": "fx", "run": "scripts/cases/marker.sh deliver;id"},
+  {"id": 13, "name": "no-such-skill", "grader": "script", "handoff": "fx", "run": "scripts/check-handoff.sh deliver nosuchskill"},
+  {"id": 14, "name": "shell-syntax", "grader": "script", "handoff": "fx",
+   "run": "scripts/cases/marker.sh $(touch pwned) | touch pwned2 > pwned3"},
+  {"id": 15, "name": "env-case", "grader": "script", "handoff": "fx", "run": "scripts/cases/env.sh"},
+  {"id": 16, "name": "timeout-case", "grader": "script", "handoff": "fx", "run": "scripts/cases/sleeper.sh", "timeout": 2},
+  {"id": 17, "name": "long-output", "grader": "script", "handoff": "fx", "run": "scripts/cases/lines.sh"}
+]}
+EOF
+cat > "$TREE/skills/two/evals/evals.json" <<'EOF'
+{"skill_name": "two", "evals": [
+  {"id": 1, "name": "two-pass", "grader": "script", "handoff": "two", "run": "scripts/cases/pass.sh"},
+  {"id": 2, "name": "two-fail", "grader": "script", "handoff": "two", "run": "scripts/cases/fail.sh"}
+]}
+EOF
+git_in "$TREE" init -q
+git_in "$TREE" add -A
+git_in "$TREE" commit -q -m fixture
+# Present on disk, never added: the untracked-script case.
+case_script scripts/cases/untracked.sh ': > "$PWD/ran-untracked"'
+
+# run_tree <runner args...>: the fixture tree's runner, with the failing stub
+# first on PATH and the billing and credential variables a caller might hold
+# set; sets OUT and RC.
+run_tree() {
   RC=0
-  OUT=$(cd "$T" && RUN_EVALS_SKILLS_DIR="$SUITE" STUB_CLAUDE_MODE="$mode" \
-    STUB_CLAUDE_LOG_DIR="$LOG" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
-    bash "$RUNNER" "$@" 2>&1) || RC=$?
+  OUT=$(cd "$T" && env ANTHROPIC_API_KEY=sk-test ANTHROPIC_AUTH_TOKEN=tok-test \
+    ANTHROPIC_BASE_URL=https://example.invalid CLAUDE_CODE_USE_BEDROCK=1 CLAUDE_CODE_USE_VERTEX=1 \
+    GH_TOKEN=secret-token GITHUB_TOKEN=secret-token SSH_AUTH_SOCK="$T/agent.sock" \
+    STUB_CLAUDE_RECORD="$RECORD" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
+    bash "$TREE/scripts/run-evals.sh" "$@" 2>&1) || RC=$?
 }
 
-# arg_after <flag> -- the argument that followed <flag> in the stub's argv
-arg_after() {
-  awk -v f="$1" 'prev == f { print; exit } { prev = $0 }' "$LOG/args"
-}
-
-run_runner plan demo
-if [ "$RC" -eq 4 ] \
-  && grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
-  && grep -q "Permission mode in effect: plan" <<<"$OUT"; then
-  pass "runner: a session that only planned exits 4 and names the mode in effect"
-else
-  fail "runner, plan-mode session (rc=$RC): $OUT"
-fi
-
-# The flags. The stub was started from $T, so a cwd of the repo root proves the
-# runner moved there rather than inheriting the operator's directory.
-if [ "$(arg_after --permission-mode)" = acceptEdits ] \
-  && [ "$(arg_after --allowedTools)" = Bash ] \
-  && grep -qx -- "--output-format" "$LOG/args" \
-  && [ "$(arg_after --output-format)" = stream-json ]; then
-  pass "runner: passes --permission-mode acceptEdits --allowedTools Bash, stream-json"
-else
-  fail "runner flags: $(tr '\n' ' ' < "$LOG/args")"
-fi
-
-scratch=$(arg_after --add-dir)
-if [ -n "$scratch" ] && [ "$(cat "$LOG/tmpdir")" = "$scratch" ] \
-  && [ "$(cat "$LOG/cwd")" = "$REPO_ROOT" ]; then
-  pass "runner: --add-dir is the session's TMPDIR, and the session runs from the repo root"
-else
-  fail "runner scratch/cwd: add-dir=$scratch tmpdir=$(cat "$LOG/tmpdir") cwd=$(cat "$LOG/cwd")"
-fi
-
-if [ -n "$scratch" ] && [ ! -e "$scratch" ]; then
-  pass "runner: removes the scratch root after the run"
-else
-  fail "runner left the scratch root behind: $scratch"
-fi
-
-if grep -q "This session runs with: --permission-mode acceptEdits --allowedTools Bash --add-dir $scratch" "$LOG/prompt"; then
-  pass "runner: tells the session its permissions and scratch directory"
-else
-  fail "runner prompt lacks the permissions block"
-fi
-
-transcript=$(ls "$SUITE"/demo/evals/workspace/iteration-*/runner_session.jsonl 2>/dev/null | tail -n 1)
-if [ -n "$transcript" ] && cmp -s "$transcript" "$FIXTURES/plan-mode.jsonl"; then
-  pass "runner: saves the session transcript in the iteration directory"
-else
-  fail "runner transcript not saved where expected: '$transcript'"
-fi
-
-run_runner failed demo
-if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT"; then
-  pass "runner: a session whose commands all ran and failed stays exit 2, not 4"
-else
-  fail "runner, all-failed session (rc=$RC): $OUT"
-fi
-
-run_runner denied demo
-if [ "$RC" -eq 4 ] && grep -q "Permission denials: 3" <<<"$OUT"; then
-  pass "runner: a session whose every call was denied exits 4"
-else
-  fail "runner, all-denied session (rc=$RC): $OUT"
-fi
-
-run_runner nograde demo
-if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
-  && grep -q "ZERO-GRADED SCENARIOS" <<<"$OUT"; then
-  pass "runner: a session that executed but graded nothing stays exit 2, not 4"
-else
-  fail "runner, executed-but-ungraded (rc=$RC): $OUT"
-fi
-
-# Validation also exits 2 when some scenarios graded and others did not. A
-# grade on disk means the session ran, so even a plan-mode-looking transcript
-# must not turn that into "no scenario ran".
-run_runner partial pair
-if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
-  && grep -q "Evals graded:   1" <<<"$OUT"; then
-  pass "runner: a partly graded run stays exit 2 whatever the transcript says"
-else
-  fail "runner, partly graded (rc=$RC): $OUT"
-fi
-
-# ... and when an agent of the session was stopped before it finished, the
-# runner names it through the classifier's unfinished command: the agent and
-# its status, never the did-not-execute claim.
-run_runner partial-stopped pair
-if [ "$RC" -eq 2 ] && grep -q "EVAL AGENT DID NOT FINISH" <<<"$OUT" \
-  && grep -q "Did not finish: With-skill execute eval run (status: stopped)" <<<"$OUT" \
-  && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT"; then
-  pass "runner: a partly graded run with a stopped agent names the agent and stays exit 2"
-else
-  fail "runner, partly graded with a stopped agent (rc=$RC): $OUT"
-fi
-
-run_runner grade demo
-if [ "$RC" -eq 0 ] && grep -q "All assertions passed." <<<"$OUT" \
-  && grep -q "I ran iteration 2 of the writing-style evals" <<<"$OUT"; then
-  pass "runner: a graded run exits 0 and prints the session's final message"
-else
-  fail "runner, graded session (rc=$RC): $OUT"
-fi
-# The session is told to run its agents in the foreground and wait for all of
-# them: a -p session that ends its turn stops any agent still running.
-if grep -q "run_in_background set to false" "$LOG/prompt" \
-  && grep -q "Never end your turn, and never grade, while an agent you launched is still running" "$LOG/prompt"; then
-  pass "runner: the prompt has the session run its agents in the foreground and wait for every one"
-else
-  fail "runner prompt: no foreground/wait instruction"
-fi
-
-run_runner plan --runs 3 demo
-if [ "$RC" -eq 4 ] && grep -q "Stopping after run 1: the nested session did not execute" <<<"$OUT"; then
-  pass "runner: --runs stops at the first not-executed run"
-else
-  fail "runner, --runs on a not-executed session (rc=$RC): $OUT"
-fi
-
-run_runner plan live
-if grep -q "claude --permission-mode acceptEdits --allowedTools Bash --plugin-dir" "$LOG/prompt"; then
-  pass "runner: the liveness eval's own nested claude gets the same permission flags"
-else
-  fail "runner: liveness instruction lacks the permission flags"
-fi
-
-# --prep-only and --validate are what skills PRs use in the meantime; neither
-# may start a session.
-run_runner plan --prep-only demo
-if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] && grep -q "Workspace ready." <<<"$OUT"; then
-  pass "--prep-only prepares a workspace and starts no session"
-else
-  fail "--prep-only (rc=$RC, session started: $([ -e "$LOG/args" ] && echo yes || echo no)): $OUT"
-fi
-
-latest=$(newest_iteration "$SUITE/demo/evals/workspace")
-mkdir -p "$latest/demo-scenario/with_skill/outputs" "$latest/demo-scenario/without_skill/outputs"
-echo x > "$latest/demo-scenario/with_skill/outputs/response.md"
-echo x > "$latest/demo-scenario/without_skill/outputs/response.md"
-echo '{"expectations": [{"text": "stub criterion", "passed": true}]}' > "$latest/demo-scenario/with_skill/grading.json"
-run_runner plan --validate demo
-if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] && grep -q "All assertions passed." <<<"$OUT"; then
-  pass "--validate grades the latest iteration and starts no session"
-else
-  fail "--validate (rc=$RC): $OUT"
-fi
-
-rm -f "$latest/demo-scenario/with_skill/grading.json"
-run_runner plan --validate demo
-if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT"; then
-  pass "--validate on an ungraded iteration stays exit 2 (it has no session to classify)"
-else
-  fail "--validate ungraded (rc=$RC): $OUT"
-fi
-
-# -- models -----------------------------------------------------------------
-
-# metadata_model <skill> <scenario> -- the model prep wrote for that scenario
-# in the skill's latest iteration.
-metadata_model() {
-  local dir
-  dir=$(newest_iteration "$SUITE/$1/evals/workspace")
-  python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('model'))" \
-    "$dir/$2/eval_metadata.json"
-}
-
-run_runner grade demo
-if [ "$RC" -eq 0 ] && ! grep -qx -- "--model" "$LOG/args" \
-  && [ "$(metadata_model demo demo-scenario)" = sonnet ] \
-  && grep -q "demo-scenario: .*with-skill agent and its baseline agent on model sonnet" "$LOG/prompt"; then
-  pass "model: by default the grader session gets no --model, and a tier-1 scenario runs on sonnet"
-else
-  fail "model default (rc=$RC): --model=$(arg_after --model) metadata=$(metadata_model demo demo-scenario)"
-fi
-
-EVAL_MODEL=opus run_runner grade demo
-if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
-  && [ "$(metadata_model demo demo-scenario)" = opus ] \
-  && grep -q "demo-scenario: .*on model opus" "$LOG/prompt"; then
-  pass "model: EVAL_MODEL=opus reaches the grader session, the metadata and the per-eval line"
-else
-  fail "EVAL_MODEL=opus (rc=$RC): --model=$(arg_after --model) metadata=$(metadata_model demo demo-scenario)"
-fi
-
-# The liveness scenario is not tier 1, so by default it inherits the session's
-# model: no override in its metadata or its instruction line.
-run_runner grade live
-if [ "$RC" -eq 0 ] && ! grep -qx -- "--model" "$LOG/args" \
-  && [ "$(metadata_model live liveness)" = inherit ] \
-  && grep -q "liveness: .*with no model override, so they run on this session's model" "$LOG/prompt"; then
-  pass "model: by default a scenario that is not tier 1 inherits the session's model"
-else
-  fail "model inherit (rc=$RC): metadata=$(metadata_model live liveness)"
-fi
-
-EVAL_MODEL=opus run_runner grade live
-if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
-  && [ "$(metadata_model live liveness)" = opus ]; then
-  pass "model: an explicit EVAL_MODEL also reaches a scenario that is not tier 1"
-else
-  fail "model inherit with EVAL_MODEL (rc=$RC): metadata=$(metadata_model live liveness)"
-fi
-
-# Tier-2 scenarios are checked through --prep-only: a full run would stand up
-# the isolated clone, which is not what these cases test.
-mkdir -p "$SUITE/tiers/evals"
-echo "# tiers skill" > "$SUITE/tiers/SKILL.md"
-cat > "$SUITE/tiers/evals/evals.json" <<'EOF'
-{"skill_name": "tiers", "evals": [
-  {"id": 1, "name": "tier1-scenario", "tier": 1, "mode": "plan_only", "prompt": "one",
-   "expected_output": "one", "files": [], "expectations": ["stub criterion"]},
-  {"id": 2, "name": "tier2-scenario", "tier": 2, "mode": "execute", "prompt": "two",
-   "expected_output": "two", "files": [], "expectations": ["stub criterion"]},
-  {"id": 3, "name": "tier2-pinned", "tier": 2, "mode": "execute", "model": "haiku",
-   "prompt": "three", "expected_output": "three", "files": [], "expectations": ["stub criterion"]}
-]}
-EOF
-run_runner plan --prep-only tiers
-if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] \
-  && [ "$(metadata_model tiers tier1-scenario)" = sonnet ] \
-  && [ "$(metadata_model tiers tier2-scenario)" = inherit ] \
-  && [ "$(metadata_model tiers tier2-pinned)" = haiku ]; then
-  pass "model: by default tier 1 gets sonnet, tier 2 inherits, and a tier-2 model key is kept"
-else
-  fail "model tiers (rc=$RC): t1=$(metadata_model tiers tier1-scenario) t2=$(metadata_model tiers tier2-scenario) pinned=$(metadata_model tiers tier2-pinned)"
-fi
-EVAL_MODEL=opus run_runner plan --prep-only tiers
-if [ "$RC" -eq 0 ] && [ "$(metadata_model tiers tier1-scenario)" = opus ] \
-  && [ "$(metadata_model tiers tier2-scenario)" = opus ] \
-  && [ "$(metadata_model tiers tier2-pinned)" = haiku ]; then
-  pass "model: with EVAL_MODEL set both tiers take it, and a scenario's own key still wins"
-else
-  fail "model tiers with EVAL_MODEL (rc=$RC): t1=$(metadata_model tiers tier1-scenario) t2=$(metadata_model tiers tier2-scenario) pinned=$(metadata_model tiers tier2-pinned)"
-fi
-rm -rf "$SUITE/tiers"
-
-# Selection: --release-subset and a comma-separated --scenario, read from which
-# scenario directories prep wrote.
-mkdir -p "$SUITE/subset/evals"
-echo "# subset skill" > "$SUITE/subset/SKILL.md"
-cat > "$SUITE/subset/evals/evals.json" <<'EOF'
-{"skill_name": "subset", "evals": [
-  {"id": 1, "name": "plan-a", "prompt": "one", "expected_output": "one", "files": [],
-   "expectations": ["stub criterion"]},
-  {"id": 2, "name": "merge-a", "tier": 2, "behaviour": "merge", "release": true, "prompt": "two",
-   "expected_output": "two", "files": [], "expectations": ["stub criterion"]},
-  {"id": 3, "name": "merge-b", "tier": 2, "behaviour": "merge", "prompt": "three",
-   "expected_output": "three", "files": [], "expectations": ["stub criterion"]},
-  {"id": 4, "name": "resume-a", "tier": 2, "behaviour": "resume", "release": true, "prompt": "four",
-   "expected_output": "four", "files": [], "expectations": ["stub criterion"]}
-]}
-EOF
-# prepared_scenarios -- the scenario directories of the subset skill's newest iteration
-prepared_scenarios() {
-  local iter
-  iter=$(newest_iteration "$SUITE/subset/evals/workspace")
-  [ -n "$iter" ] || { echo none; return; }
-  for d in "$iter"/*/; do [ -f "$d/eval_metadata.json" ] && basename "$d"; done | sort | tr '\n' ' '
-}
-run_runner plan --release-subset --prep-only subset
-if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-a plan-a resume-a " ] \
-  && grep -q 'Selection:  the release subset' <<<"$OUT"; then
-  pass "--release-subset: every tier-1 scenario and the tier-2 ones marked release"
-else
-  fail "--release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
-fi
-run_runner plan --scenario merge-b,plan-a --prep-only subset
-if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-b plan-a " ]; then
-  pass "--scenario takes a comma-separated list"
-else
-  fail "--scenario list (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
-fi
-run_runner plan --scenario merge-b,resume-a --release-subset --prep-only subset
-if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "resume-a " ]; then
-  pass "--scenario with --release-subset: the named scenarios that are in the subset"
-else
-  fail "--scenario with --release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
-fi
-run_runner plan --scenario merge-b,nope --prep-only subset
-if [ "$RC" -eq 3 ] && grep -q "no eval named 'nope'" <<<"$OUT"; then
-  pass "--scenario: a name the suite lacks is refused, and named"
-else
-  fail "--scenario unknown name (rc=$RC): $OUT"
-fi
-rm -rf "$SUITE/subset"
-
-# --no-baseline: prep writes no without_skill/ directory, the session is told
-# to spawn the with-skill agent only, and a graded run passes without one.
-# demo_iteration -- the demo skill's newest iteration directory
-demo_iteration() {
-  newest_iteration "$SUITE/demo/evals/workspace"
-}
-run_runner plan --no-baseline --prep-only demo
-ITER=$(demo_iteration)
-if [ "$RC" -eq 0 ] && [ -d "$ITER/demo-scenario/with_skill/outputs" ] \
-  && [ ! -e "$ITER/demo-scenario/without_skill" ]; then
-  pass "--no-baseline: prep writes with_skill/ and no without_skill/"
-else
-  fail "--no-baseline prep (rc=$RC): $(ls "$ITER/demo-scenario" 2>/dev/null | tr '\n' ' ')"
-fi
-run_runner grade --no-baseline demo
-if [ "$RC" -eq 0 ] && grep -q "spawn the with-skill agent only" "$LOG/prompt" \
-  && grep -q "NO no-skill baseline" "$LOG/prompt" \
-  && grep -q "demo-scenario: .*with-skill agent (no baseline agent)" "$LOG/prompt" \
-  && ! grep -q "without_skill/outputs/ (empty" "$LOG/prompt"; then
-  pass "--no-baseline: the session is told to run and grade the with-skill agent only, and the run passes"
-else
-  fail "--no-baseline run (rc=$RC): $OUT"
-fi
-# --validate takes no run options; the iteration's missing without_skill/ is
-# what tells it the baseline was never run.
-run_runner plan --validate demo
-if [ "$RC" -eq 0 ] && grep -q "All assertions passed." <<<"$OUT" \
-  && ! grep -q "without_skill" <<<"$OUT"; then
-  pass "--validate on a no-baseline iteration checks the with-skill side only"
-else
-  fail "--validate no-baseline (rc=$RC): $OUT"
-fi
-run_runner grade demo
-if [ "$RC" -eq 0 ] && grep -q "and a without-skill baseline agent" "$LOG/prompt" \
-  && grep -q "with-skill agent and its baseline agent" "$LOG/prompt"; then
-  pass "without --no-baseline the session still runs the baseline"
-else
-  fail "default baseline (rc=$RC): $OUT"
-fi
-
-mkdir -p "$SUITE/pinned/evals"
-echo "# pinned skill" > "$SUITE/pinned/SKILL.md"
-cat > "$SUITE/pinned/evals/evals.json" <<'EOF'
-{"skill_name": "pinned", "evals": [
-  {"id": 1, "name": "pinned-scenario", "prompt": "one", "expected_output": "one",
-   "model": "haiku", "files": [], "expectations": ["stub criterion"]},
-  {"id": 2, "name": "default-scenario", "prompt": "two", "expected_output": "two",
-   "files": [], "expectations": ["stub criterion"]}
-]}
-EOF
-EVAL_MODEL=opus run_runner grade pinned
-if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
-  && [ "$(metadata_model pinned pinned-scenario)" = haiku ] \
-  && [ "$(metadata_model pinned default-scenario)" = opus ] \
-  && grep -q "pinned-scenario: .*on model haiku" "$LOG/prompt" \
-  && grep -q "default-scenario: .*on model opus" "$LOG/prompt"; then
-  pass "model: a scenario's own model wins over EVAL_MODEL; its sibling keeps EVAL_MODEL"
-else
-  fail "scenario model (rc=$RC): pinned=$(metadata_model pinned pinned-scenario) default=$(metadata_model pinned default-scenario)"
-fi
-
-EVAL_MODEL="-x" run_runner grade demo
-if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && grep -q "EVAL_MODEL must match" <<<"$OUT"; then
-  pass "model: an EVAL_MODEL that does not match the pattern is refused before any session"
-else
-  fail "EVAL_MODEL=-x (rc=$RC): $OUT"
-fi
-
-mkdir -p "$SUITE/badmodel/evals"
-echo "# badmodel skill" > "$SUITE/badmodel/SKILL.md"
-cat > "$SUITE/badmodel/evals/evals.json" <<'EOF'
-{"skill_name": "badmodel", "evals": [
-  {"id": 1, "name": "bad-scenario", "prompt": "one", "expected_output": "one",
-   "model": "opus; rm -rf /", "files": [], "expectations": ["stub criterion"]}
-]}
-EOF
-run_runner grade badmodel
-if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && [ ! -d "$SUITE/badmodel/evals/workspace/iteration-1" ] \
-  && grep -q "bad-scenario declares a model that does not match" <<<"$OUT"; then
-  pass "model: a scenario model that does not match the pattern refuses the suite, exit 3, no iteration"
-else
-  fail "scenario model refused (rc=$RC): $OUT"
-fi
-rm -rf "$SUITE/badmodel"
-
-# -- credentials ------------------------------------------------------------
-
-GH_TOKEN=secret-token GITHUB_TOKEN=secret-token SSH_AUTH_SOCK="$T/agent.sock" run_runner grade demo
-if [ "$RC" -eq 0 ] && grep -qx "GH_TOKEN=unset" "$LOG/env" \
-  && grep -qx "GITHUB_TOKEN=unset" "$LOG/env" && grep -qx "SSH_AUTH_SOCK=unset" "$LOG/env"; then
-  pass "credentials: the nested session sees no GH_TOKEN, GITHUB_TOKEN or SSH_AUTH_SOCK"
-else
-  fail "credentials reached the stub: $(tr '\n' ' ' < "$LOG/env")"
-fi
-
-# -- summary and --runs exit ------------------------------------------------
-
-# summary_field <file> <skill> <field> -- one field of a skill's summary entry
-summary_field() {
+# sfield <summary> <skill> <python expression over the skill's entry `e`>
+sfield() {
   python3 -c "
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert d['schema'] == 'run-evals-summary/v1', d['schema']
-v = d['skills'][sys.argv[2]][sys.argv[3]]
-print(','.join(v) if isinstance(v, list) else v)
-" "$1" "$2" "$3" 2>/dev/null || echo "missing"
+assert d['schema'] == 'script-cases-summary/v1', d['schema']
+e = d['skills'][sys.argv[2]]
+print(eval(sys.argv[3]))
+" "$1" "$2" "$3" 2>&1
 }
 
 SUM="$T/summary.json"
-rm -f "$SUM"
-EVAL_MODEL=opus run_runner grade --summary-out "$SUM" pinned
-if [ "$RC" -eq 0 ] && [ "$(summary_field "$SUM" pinned runs)" = 1 ] \
-  && [ "$(summary_field "$SUM" pinned runs_passed)" = 1 ] \
-  && [ "$(summary_field "$SUM" pinned assertions_passed)" = 2 ] \
-  && [ "$(summary_field "$SUM" pinned assertions_graded)" = 2 ] \
-  && [ "$(summary_field "$SUM" pinned models)" = "haiku,opus" ] \
-  && [ "$(summary_field "$SUM" pinned exit_code)" = 0 ]; then
-  pass "--summary-out: schema, runs, runs_passed, assertions, models and exit_code for a passing run"
+run_tree fx --summary-out "$SUM"
+FX_OUT="$OUT"
+
+if [ "$RC" -eq 1 ] && has "PASS 1 pass-case" && has "PASS 15 env-case" \
+  && has "FAIL 2 fail-case: exited 1" && has "    fixture failure: the hand-off word drifted" \
+  && has "script cases: 2 of 14 passed"; then
+  pass "runner: script cases run, a failing one is named with its output, 2 of 14 passed, exit 1"
 else
-  fail "--summary-out passing run (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+  fail "runner fixture run (rc=$RC): $OUT"
 fi
-if [ "$(summary_field "$SUM" pinned session_model)" = opus ] \
-  && [ "$(summary_field "$SUM" pinned cost_usd)" = 1.25 ] \
-  && [ "$(summary_field "$SUM" pinned cost_runs)" = 1 ]; then
-  pass "--summary-out: session_model is EVAL_MODEL, cost_usd the last total_cost_usd a result event carries"
+
+if has "REFUSED 3 graded-case: graded cases don't run" \
+  && has "REFUSED 4 no-grader-case: graded cases don't run" \
+  && has "REFUSED 5 unknown-grader-case: graded cases don't run" \
+  && [ ! -e "$TREE/ran-graded" ] && [ ! -e "$TREE/ran-nograder" ] && [ ! -e "$TREE/ran-scripted" ]; then
+  pass "runner: a graded case, one with no grader and one with an unknown grader are refused and their run never executes"
 else
-  fail "--summary-out session model and cost: $(cat "$SUM" 2>/dev/null)"
+  fail "runner refusals of non-script cases: $(ls "$TREE" | tr '\n' ' ') -- $OUT"
 fi
-# scenario_hash <name>... -- the scenario_set of these scenario names
-scenario_hash() {
-  python3 -c "
-import hashlib, sys
-print('sha256:' + hashlib.sha256('\n'.join(sorted(sys.argv[1:])).encode()).hexdigest())
-" "$@"
+
+if record_empty; then
+  pass "runner: with ANTHROPIC_*/CLAUDE_CODE_USE_* set, the failing claude stub was never started"
+else
+  fail "runner started claude: $(cat "$RECORD")"
+fi
+
+# refused_case <id> <name> <rule text> [<marker that must not exist>]
+refused_case() {
+  local id="$1" name="$2" rule="$3" marker="${4:-}"
+  if has "FAIL $id $name: refused: " && has "$rule" \
+    && { [ -z "$marker" ] || [ ! -e "$TREE/$marker" ]; }; then
+    pass "containment: $name refused before running, naming the rule ($rule)"
+  else
+    fail "containment $name: want [$rule]; marker=${marker:-none} exists=$([ -n "$marker" ] && [ -e "$TREE/$marker" ] && echo yes || echo no) -- $OUT"
+  fi
 }
-if [ "$(summary_field "$SUM" pinned scenario_set)" = "$(scenario_hash pinned-scenario default-scenario)" ]; then
-  pass "--summary-out: scenario_set hashes the whole suite's names when nothing narrows it"
+refused_case 6 untracked-script "'scripts/cases/untracked.sh' is not tracked by git" ran-untracked
+refused_case 7 symlinked-script "'scripts/cases/link.sh' resolves through a symlink" ran-symlink
+refused_case 8 release-script "'scripts/release-eval-check.sh' is not scripts/check-handoff.sh or under scripts/cases/" ran-release
+refused_case 9 traversal-script "'scripts/release-eval-check.sh' is not scripts/check-handoff.sh or under scripts/cases/" ran-release
+refused_case 10 dotdot-arg "the argument '..' does not match [A-Za-z0-9][A-Za-z0-9._-]*" ran-..
+refused_case 11 option-arg "the argument '--all' does not match" ran---all
+refused_case 12 semicolon-arg "the argument 'deliver;id' does not match" "ran-deliver;id"
+refused_case 13 no-such-skill "the skill argument 'nosuchskill' names no directory under skills/"
+refused_case 14 shell-syntax "the argument '\$(touch' does not match"
+if [ ! -e "$TREE/pwned" ] && [ ! -e "$TREE/pwned2" ] && [ ! -e "$TREE/pwned3" ] \
+  && [ ! -e "$T/pwned" ] && [ ! -e "$T/pwned2" ] && [ ! -e "$T/pwned3" ]; then
+  pass "containment: \$(...), | and > in run never act as shell syntax"
 else
-  fail "--summary-out scenario_set, whole suite: $(cat "$SUM" 2>/dev/null)"
-fi
-rm -f "$SUM"
-EVAL_MODEL=opus run_runner grade --scenario pinned-scenario --summary-out "$SUM" pinned
-if [ "$RC" -eq 0 ] \
-  && [ "$(summary_field "$SUM" pinned scenario_set)" = "$(scenario_hash pinned-scenario)" ]; then
-  pass "--summary-out: scenario_set hashes only the selected names when a set narrows the run"
-else
-  fail "--summary-out scenario_set, narrowed (rc=$RC): $(cat "$SUM" 2>/dev/null)"
-fi
-# A skill that fails before its selection (here, no SKILL.md) records no set:
-# under --all it would otherwise carry the previous skill's.
-mkdir -p "$SUITE/noskill/evals"
-cp "$SUITE/pinned/evals/evals.json" "$SUITE/noskill/evals/evals.json"
-rm -f "$SUM"
-run_runner grade --summary-out "$SUM" noskill
-if [ "$(summary_field "$SUM" noskill exit_code)" = 3 ] \
-  && [ "$(summary_field "$SUM" noskill scenario_set)" = missing ]; then
-  pass "--summary-out: a skill that fails before its selection has no scenario_set"
-else
-  fail "--summary-out scenario_set after a failed prep (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+  fail "containment: shell syntax in run acted: $(ls "$TREE" "$T" | tr '\n' ' ')"
 fi
 
-rm -f "$SUM"
-run_runner plan --runs 3 --summary-out "$SUM" demo
-if [ "$RC" -eq 4 ] && [ "$(summary_field "$SUM" demo runs)" = 1 ] \
-  && [ "$(summary_field "$SUM" demo runs_passed)" = 0 ] \
-  && [ "$(summary_field "$SUM" demo exit_code)" = 4 ]; then
-  pass "--summary-out: written when --runs stops early on 4, with the one run attempted"
+ENV_FILE="$TREE/case-env"
+env_has() { grep -q "^$1=" "$ENV_FILE"; }
+env_keys=$(sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$ENV_FILE" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')
+case_home=$(sed -n 's/^HOME=//p' "$ENV_FILE" 2>/dev/null)
+extra_keys=""
+for key in $env_keys; do
+  case "$key" in PATH|LANG|TMPDIR|HOME|KOTO_HOME|PWD|OLDPWD|SHLVL|_) ;; *) extra_keys="$extra_keys $key" ;; esac
+done
+if [ -f "$ENV_FILE" ] && ! env_has ANTHROPIC_API_KEY && ! env_has GH_TOKEN && ! env_has GITHUB_TOKEN \
+  && ! env_has SSH_AUTH_SOCK && ! env_has ANTHROPIC_AUTH_TOKEN && ! env_has CLAUDE_CODE_USE_BEDROCK \
+  && [ -z "$extra_keys" ] && env_has KOTO_HOME && env_has TMPDIR \
+  && [ -n "$case_home" ] && [ "$case_home" != "$HOME" ]; then
+  pass "environment: only PATH, LANG, TMPDIR, a fresh HOME and KOTO_HOME reach a case; no token or billing variable"
 else
-  fail "--summary-out early stop (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+  fail "environment: keys [$env_keys] extra [$extra_keys] HOME [$case_home] caller HOME [$HOME]"
 fi
-if [ "$(summary_field "$SUM" demo session_model)" = default ] \
-  && [ "$(summary_field "$SUM" demo cost_usd)" = 0.0 ] \
-  && [ "$(summary_field "$SUM" demo cost_runs)" = 0 ]; then
-  pass "--summary-out: no EVAL_MODEL is session_model default; a run with no cost reports none"
+if [ -n "$case_home" ] && [ ! -e "$case_home" ]; then
+  pass "environment: the case's temporary HOME is removed after it runs"
 else
-  fail "--summary-out default session model, no cost: $(cat "$SUM" 2>/dev/null)"
-fi
-
-rm -f "$SUM"
-STUB_CLAUDE_SEQUENCE="nograde failgrade grade" run_runner grade --runs 3 --summary-out "$SUM" demo
-if [ "$RC" -eq 2 ] && [ "$(wc -l < "$LOG/calls" | tr -d ' ')" = 3 ] \
-  && [ "$(summary_field "$SUM" demo runs)" = 3 ] \
-  && [ "$(summary_field "$SUM" demo runs_passed)" = 1 ] \
-  && [ "$(summary_field "$SUM" demo assertions_passed)" = 1 ] \
-  && [ "$(summary_field "$SUM" demo assertions_graded)" = 2 ] \
-  && [ "$(summary_field "$SUM" demo exit_code)" = 2 ]; then
-  pass "--runs 3: a nothing-graded run makes it exit 2 although another run failed assertions"
-else
-  fail "--runs 3 nograde/fail/grade (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+  fail "environment: the case's HOME [$case_home] is still there"
 fi
 
-STUB_CLAUDE_SEQUENCE="failgrade grade" run_runner grade --runs 2 demo
-if [ "$RC" -eq 1 ]; then
-  pass "--runs 2: runs that only failed assertions still exit 1"
+child=$(cat "$TREE/child-pid" 2>/dev/null)
+if has "FAIL 16 timeout-case: timed out after 2s" && [ -n "$child" ] && ! kill -0 "$child" 2>/dev/null; then
+  pass "timeout: a case past its shortened timeout fails as timed out, and its background child is gone"
 else
-  fail "--runs 2 fail/grade (rc=$RC): $OUT"
+  fail "timeout: child=[$child] alive=$([ -n "$child" ] && kill -0 "$child" 2>/dev/null && echo yes || echo no) -- $OUT"
+  [ -n "$child" ] && kill -9 "$child" 2>/dev/null
+fi
+
+esc=$(printf '\033')
+if has "FAIL 17 long-output: exited 1" && has "    line 301
+" && has "    line 500
+" && ! has "    line 300
+" && ! has "$esc" && has "    line 400 red"; then
+  pass "output: a failing case's reason is its last 200 lines (301 to 500) with the escape byte stripped"
+else
+  fail "output truncation: $OUT"
+fi
+if [ "$(sfield "$SUM" fx "len(e['cases'][-1]['reason'].splitlines())")" = 201 ] \
+  && [ "$(sfield "$SUM" fx "chr(27) in json.dumps(e)")" = False ]; then
+  pass "output: the summary's reason is the status line and the same 200 lines, with no escape byte"
+else
+  fail "summary reason: $(sfield "$SUM" fx "e['cases'][-1]['reason'][:200]")"
+fi
+
+if [ "$(sfield "$SUM" fx "e['cases_run'], e['cases_passed'], e['assertions']['passed'], e['assertions']['graded']")" = "(14, 2, 2, 14)" ] \
+  && [ "$(sfield "$SUM" fx "[c['id'] for c in e['refused']]")" = "[3, 4, 5]" ] \
+  && [ "$(sfield "$SUM" fx "e['scenario_set'].startswith('sha256:') and len(e['scenario_set']) == 71")" = True ]; then
+  pass "summary: cases run and passed, assertions, refused cases and scenario_set for the fixture skill"
+else
+  fail "summary fixture: $(head -c 600 "$SUM" 2>/dev/null)"
+fi
+
+SUM2="$T/summary-two.json"
+run_tree two --summary-out "$SUM2"
+if [ "$RC" -eq 1 ] && has "script cases: 1 of 2 passed" \
+  && [ "$(sfield "$SUM2" two "e['assertions']['passed'], e['assertions']['graded'], e['pass_rate']")" = "(1, 2, 0.5)" ] \
+  && [ "$(sfield "$SUM2" two "[(c['name'], c['verdict']) for c in e['cases']]")" = "[('two-pass', 'pass'), ('two-fail', 'fail')]" ]; then
+  pass "summary: two script cases, one failing: assertions 1 of 2, pass rate 0.5, one pass and one fail verdict, exit 1"
+else
+  fail "summary two (rc=$RC): $(cat "$SUM2" 2>/dev/null) -- $OUT"
+fi
+
+run_tree --scenario pass-case --runs 3 --release-subset --no-baseline fx
+if [ "$RC" -eq 0 ] && has "PASS 1 pass-case" && has "script cases: 1 of 1 passed" && ! has "REFUSED"; then
+  pass "options: --scenario narrows to the named case; --runs, --release-subset and --no-baseline are ignored"
+else
+  fail "options (rc=$RC): $OUT"
+fi
+
+run_tree
+if [ "$RC" -eq 1 ] && has "== fx" && has "== two" && has "script cases: 3 of 16 passed"; then
+  pass "default: no skill name runs every skill's script cases, as --all"
+else
+  fail "default run (rc=$RC): $OUT"
+fi
+
+run_tree --prep-only fx
+if [ "$RC" -eq 3 ] && has "--prep-only prepares a model-graded run" && [ ! -d "$TREE/skills/fx/evals/workspace" ]; then
+  pass "--prep-only is refused with exit 3 and prepares nothing"
+else
+  fail "--prep-only (rc=$RC): $OUT"
+fi
+
+run_tree --bogus fx
+if [ "$RC" -eq 1 ] && has "unknown option '--bogus'"; then
+  pass "an unknown option is a usage error, exit 1"
+else
+  fail "unknown option (rc=$RC): $OUT"
+fi
+
+run_tree --list
+if [ "$RC" -eq 0 ] && has "Skills with evals:" && has "  fx (17 evals)" && has "  two (2 evals)"; then
+  pass "--list keeps its behaviour"
+else
+  fail "--list (rc=$RC): $OUT"
+fi
+
+if record_empty; then
+  pass "runner: no run in this group started claude"
+else
+  fail "runner started claude: $(cat "$RECORD")"
+fi
+
+# -- /deliver's hand-off case -----------------------------------------------
+
+if ! command -v koto >/dev/null; then
+  fail "koto is not on PATH: /deliver's hand-off case compiles its templates with koto, so it was not checked"
+else
+  run_real() { # run_real <PATH> [VAR=value...] -- this tree's runner on deliver
+    local path="$1"
+    shift
+    RC=0
+    OUT=$(cd "$T" && env "$@" STUB_CLAUDE_RECORD="$RECORD" PATH="$path" TMPDIR="$T" \
+      /bin/bash "$RUNNER" deliver 2>&1) || RC=$?
+  }
+  run_real "$FIXTURES/bin:$PATH"
+  PLAIN_OUT="$OUT"
+  refused_all=yes
+  i=1
+  while [ "$i" -le 33 ]; do
+    case "$OUT" in *"REFUSED $i "*": graded cases don't run"*) ;; *) refused_all="no ($i)" ;; esac
+    i=$((i + 1))
+  done
+  if [ "$RC" -eq 0 ] && has "PASS 34 handoff-execute-contract" && has "script cases: 1 of 1 passed" \
+    && [ "$refused_all" = yes ] && record_empty; then
+    pass "deliver on /bin/bash: case 34 passes, cases 1 to 33 are refused as graded, 1 of 1 passed, exit 0, no claude call"
+  else
+    fail "deliver (rc=$RC, refused all: $refused_all): $OUT"
+  fi
+
+  run_real "$FIXTURES/bin:$PATH" ANTHROPIC_API_KEY=sk-test ANTHROPIC_AUTH_TOKEN=tok-test \
+    ANTHROPIC_BASE_URL=https://example.invalid CLAUDE_CODE_USE_BEDROCK=1 CLAUDE_CODE_USE_VERTEX=1
+  if [ "$RC" -eq 0 ] && [ "$OUT" = "$PLAIN_OUT" ] && record_empty; then
+    pass "deliver with every billing variable set: the same output and exit, no claude call"
+  else
+    fail "deliver with billing variables (rc=$RC): $OUT"
+  fi
+
+  # No claude anywhere on PATH: python3, git and koto, and the system tools.
+  NOCLAUDE="$T/noclaude-bin"
+  mkdir -p "$NOCLAUDE"
+  for tool in python3 git koto; do
+    ln -s "$(command -v "$tool")" "$NOCLAUDE/$tool"
+  done
+  if PATH="$NOCLAUDE:/usr/bin:/bin" command -v claude >/dev/null; then
+    fail "a claude in /usr/bin or /bin: the no-claude run cannot be made"
+  else
+    run_real "$NOCLAUDE:/usr/bin:/bin"
+    if [ "$RC" -eq 0 ] && has "PASS 34 handoff-execute-contract" && ! has "claude CLI not found"; then
+      pass "deliver with no claude on PATH exits 0, not 3"
+    else
+      fail "deliver with no claude (rc=$RC): $OUT"
+    fi
+  fi
+
+  # A copy of the tree that is its own repository, with the word on the edge
+  # into execute.md's merged state renamed: the case fails through the harness
+  # and through the runner directly. Only the files the case reads are copied.
+  MT="$T/mutated"
+  mkdir -p "$MT/scripts/lib" "$MT/skills/deliver/evals" "$MT/skills/execute" "$MT/skills/work-on"
+  cp "$RUNNER" "$REPO_ROOT/scripts/check-handoff.sh" "$MT/scripts/"
+  cp "$SCRIPT_DIR/lib/script-cases.py" "$MT/scripts/lib/"
+  cp "$REPO_ROOT/skills/deliver/SKILL.md" "$MT/skills/deliver/"
+  cp "$REPO_ROOT/skills/deliver/evals/evals.json" "$MT/skills/deliver/evals/"
+  cp -R "$REPO_ROOT/skills/deliver/koto-templates" "$MT/skills/deliver/"
+  cp "$REPO_ROOT/skills/execute/SKILL.md" "$MT/skills/execute/"
+  cp -R "$REPO_ROOT/skills/execute/koto-templates" "$MT/skills/execute/"
+  cp -R "$REPO_ROOT/skills/work-on/koto-templates" "$MT/skills/work-on/"
+  sed 's/^\(          \)outcome: merged$/\1outcome: landed/' "$REPO_ROOT/skills/execute/koto-templates/execute.md" \
+    > "$MT/skills/execute/koto-templates/execute.md"
+  git_in "$MT" init -q
+  git_in "$MT" add -A
+  RC=0
+  OUT=$(cd "$T" && STUB_CLAUDE_RECORD="$RECORD" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
+    /bin/bash "$MT/scripts/run-evals.sh" deliver 2>&1) || RC=$?
+  if [ "$RC" -eq 1 ] && has "FAIL 34 handoff-execute-contract: exited 1" && has "outcome word 'landed'" \
+    && has "doesn't expect it" && has "script cases: 0 of 1 passed" && record_empty; then
+    pass "deliver on a copy with merged renamed to landed: case 34 fails naming landed, 0 of 1 passed, exit 1"
+  else
+    fail "deliver on the mutated copy (rc=$RC): $OUT"
+  fi
+  RC=0
+  OUT=$(cd "$T" && python3 "$MT/scripts/lib/script-cases.py" deliver 2>&1) || RC=$?
+  if [ "$RC" -eq 1 ] && has "outcome word 'landed'" && has "script cases: 0 of 1 passed"; then
+    pass "script-cases.py on the mutated copy runs the copy's own cases and fails case 34, exit 1"
+  else
+    fail "script-cases.py on the mutated copy (rc=$RC): $OUT"
+  fi
+  rm -rf "$MT"
 fi
 
 # -- changed-since-tag selection --------------------------------------------
 
 # A throwaway repository with its own tags. RUN_EVALS_REPO_ROOT points git at
 # it and RUN_EVALS_SKILLS_DIR at its skills/, so the selection never reads
-# this checkout's history.
+# this checkout's history. --list-changed keeps its behaviour: it prints the
+# selection and runs nothing.
 REPO="$T/repo"
 mkdir -p "$REPO"
-git_t() { git -C "$REPO" -c user.email=test@example.invalid -c user.name=test "$@" >/dev/null 2>&1; }
-git_t init -q
-make_skill() { # make_skill <name> -- a skill with one passing-stub scenario
+git_in "$REPO" init -q
+make_skill() { # make_skill <name> -- a skill with one graded scenario
   mkdir -p "$REPO/skills/$1/evals"
   echo "# $1" > "$REPO/skills/$1/SKILL.md"
   printf '{"skill_name": "%s", "evals": [{"id": 1, "name": "%s-scenario", "prompt": "p", "expected_output": "o", "files": [], "expectations": ["stub criterion"]}]}\n' "$1" "$1" \
@@ -827,111 +636,47 @@ make_skill gamma
 mkdir -p "$REPO/skills/noevals"
 echo "# no evals" > "$REPO/skills/noevals/SKILL.md"
 echo "notes" > "$REPO/skills/gamma/notes.md"
-# Iterations the runner writes into the repository must not count as changes.
-echo "workspace/" > "$REPO/.gitignore"
-git_t add -A
-git_t commit -q -m init
+git_in "$REPO" add -A
+git_in "$REPO" commit -q -m init
 
-run_select() { # run_select <stub-mode> <runner args...>
-  local mode="$1"
-  shift
-  rm -rf "$LOG"
+run_select() { # run_select <runner args...>
   RC=0
   OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$REPO" RUN_EVALS_SKILLS_DIR="$REPO/skills" \
-    STUB_CLAUDE_MODE="$mode" STUB_CLAUDE_LOG_DIR="$LOG" PATH="$FIXTURES/bin:$PATH" \
-    TMPDIR="$T" bash "$RUNNER" "$@" 2>&1) || RC=$?
+    STUB_CLAUDE_RECORD="$RECORD" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" bash "$RUNNER" "$@" 2>&1) || RC=$?
 }
 
-run_select grade --list-changed
-if [ "$RC" -eq 0 ] && grep -q "No v\* tag found" <<<"$OUT" \
-  && [ "$(printf '%s\n' "$OUT" | grep -v '^No v' | tr '\n' ' ')" = "alpha beta gamma " ] \
-  && [ ! -e "$LOG/args" ]; then
-  pass "selection: with no v* tag every skill with evals is selected, and the note says so"
+run_select --list-changed
+if [ "$RC" -eq 0 ] && has "No v* tag found" \
+  && [ "$(printf '%s\n' "$OUT" | grep -v '^No v' | tr '\n' ' ')" = "alpha beta gamma " ]; then
+  pass "selection: with no v* tag every skill with evals is listed, and the note says so"
 else
   fail "selection, no tag (rc=$RC): $OUT"
 fi
 
-git_t tag v0.1.0
-run_select grade
-if [ "$RC" -eq 0 ] && grep -q "No skill with evals changed since v0.1.0." <<<"$OUT" \
-  && [ "$(git -C "$REPO" rev-parse HEAD)" = "$(git -C "$REPO" rev-parse 'v0.1.0^{commit}')" ] \
-  && [ ! -e "$LOG/args" ]; then
-  pass "selection: a run on the tagged commit selects nothing, says so, exits 0 and starts no session"
-else
-  fail "selection, nothing changed (rc=$RC): $OUT"
-fi
-
-rm -f "$SUM"
-run_select grade --summary-out "$SUM"
-if [ "$RC" -eq 0 ] && python3 -c "
-import json, sys
-d = json.load(open(sys.argv[1]))
-sys.exit(0 if d == {'schema': 'run-evals-summary/v1', 'skills': {}} else 1)
-" "$SUM"; then
-  pass "selection: nothing changed still writes an empty summary"
-else
-  fail "selection, nothing changed summary (rc=$RC): $(cat "$SUM" 2>/dev/null)"
-fi
-
+git_in "$REPO" tag v0.1.0
 echo "changed" >> "$REPO/skills/alpha/SKILL.md"
-# An evals/-only change: the skill body is untouched.
 printf '{"skill_name": "beta", "evals": [{"id": 1, "name": "beta-scenario", "prompt": "p2", "expected_output": "o", "files": [], "expectations": ["stub criterion"]}]}\n' \
   > "$REPO/skills/beta/evals/evals.json"
 echo "changed" >> "$REPO/skills/noevals/SKILL.md"
-git_t commit -q -am "change alpha, beta's evals, and a skill without evals"
+git_in "$REPO" commit -q -am "change alpha, beta's evals, and a skill without evals"
 
-run_select grade --list-changed
+run_select --list-changed
 if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tr '\n' ' ')" = "alpha beta " ]; then
   pass "selection: --list-changed prints a changed skill and an evals/-only change, not gamma or a skill without evals"
 else
   fail "selection, --list-changed (rc=$RC): $OUT"
 fi
 
-run_select grade
-if [ "$RC" -eq 0 ] && grep -q "Skills with evals changed since v0.1.0: alpha beta" <<<"$OUT" \
-  && grep -q "=== Preparing evals for skill: alpha ===" <<<"$OUT" \
-  && grep -q "=== Preparing evals for skill: beta ===" <<<"$OUT" \
-  && ! grep -q "Preparing evals for skill: gamma" <<<"$OUT" \
-  && grep -q "All skills passed." <<<"$OUT"; then
-  pass "selection: no skill name prints the selection and runs it through the --all loop"
-else
-  fail "selection, default run (rc=$RC): $OUT"
-fi
-
 make_skill delta
-git_t add -A
-git_t commit -q -m "add delta"
-git_t mv skills/gamma/notes.md skills/delta/notes.md
-git_t commit -q -m "move a file from gamma to delta"
-run_select grade --list-changed
+git_in "$REPO" add -A
+git_in "$REPO" commit -q -m "add delta"
+git_in "$REPO" mv skills/gamma/notes.md skills/delta/notes.md
+git_in "$REPO" commit -q -m "move a file from gamma to delta"
+run_select --list-changed
 if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tr '\n' ' ')" = "alpha beta delta gamma " ]; then
   pass "selection: a rename selects both the skill the file left and the one it joined"
 else
   fail "selection, rename (rc=$RC): $OUT"
-fi
-
-# A shallow clone that fetched no tags (the shape CI's default checkout has)
-# finds no v* tag, so a run with no skill name selects every skill with evals
-# and runs them, rather than nothing.
-SHALLOW="$T/shallow"
-git clone -q --depth 1 --no-tags "file://$REPO" "$SHALLOW" >/dev/null 2>&1
-rm -rf "$LOG"
-RC=0
-OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$SHALLOW" RUN_EVALS_SKILLS_DIR="$SHALLOW/skills" \
-  STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" PATH="$FIXTURES/bin:$PATH" \
-  TMPDIR="$T" bash "$RUNNER" 2>&1) || RC=$?
-if [ "$RC" -eq 0 ] && [ "$(git -C "$SHALLOW" rev-parse --is-shallow-repository)" = true ] \
-  && [ -z "$(git -C "$SHALLOW" tag -l)" ] \
-  && grep -q "No v\* tag found" <<<"$OUT" \
-  && grep -q "=== Preparing evals for skill: alpha ===" <<<"$OUT" \
-  && grep -q "=== Preparing evals for skill: beta ===" <<<"$OUT" \
-  && grep -q "=== Preparing evals for skill: delta ===" <<<"$OUT" \
-  && grep -q "=== Preparing evals for skill: gamma ===" <<<"$OUT" \
-  && ! grep -q "Preparing evals for skill: noevals" <<<"$OUT" \
-  && grep -q "All skills passed." <<<"$OUT"; then
-  pass "selection: a shallow clone with no tags runs every skill with evals"
-else
-  fail "selection, shallow clone (rc=$RC): $OUT"
 fi
 
 # A root git cannot read is an error, not "no tag" selecting every skill.
@@ -939,266 +684,19 @@ mkdir -p "$T/not-a-repo"
 RC=0
 OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$T/not-a-repo" RUN_EVALS_SKILLS_DIR="$REPO/skills" \
   PATH="$FIXTURES/bin:$PATH" GIT_CEILING_DIRECTORIES="$T" bash "$RUNNER" --list-changed 2>&1) || RC=$?
-if [ "$RC" -eq 2 ] && grep -q "is not a git repository" <<<"$OUT" \
-  && ! grep -q "No v\* tag found" <<<"$OUT"; then
+if [ "$RC" -eq 2 ] && has "is not a git repository" && ! has "No v* tag found"; then
   pass "selection: a repository root git cannot read exits 2 instead of selecting everything"
 else
   fail "selection, unreadable root (rc=$RC): $OUT"
 fi
 
-# -- tier-2 isolation -------------------------------------------------------
-
-# The tier-2 clone's throwaway origin has a default branch, so node-cut.sh can
-# cut a node in it (#585), on a host whose init.defaultBranch is master. A
-# detached or shallow CI checkout can't be cloned and pushed the way the
-# runner does, so this runs a copy of the runner from a throwaway repository on
-# a feature branch; the stub's hook cuts a node in the clone and in the second
-# clone while they exist.
-ISO="$T/iso-src"
-mkdir -p "$ISO/scripts" "$ISO/skills/execute/scripts"
-cp "$RUNNER" "$ISO/scripts/"
-cp -R "$SCRIPT_DIR/lib" "$ISO/scripts/lib"
-cp "$REPO_ROOT/skills/execute/scripts/node-cut.sh" "$ISO/skills/execute/scripts/"
-(cd "$ISO" && git -c init.defaultBranch=master init -q . && git add -A \
-  && git -c user.email=t@example.com -c user.name=t commit -q -m runner \
-  && git checkout -q -b feature/under-test) >/dev/null 2>&1
-ISO_HEAD=$(git -C "$ISO" rev-parse HEAD)
-mkdir -p "$T/iso-suite/isoskill/evals"
-echo "# isoskill" > "$T/iso-suite/isoskill/SKILL.md"
-cat > "$T/iso-suite/isoskill/evals/evals.json" <<'EOF'
-{"skill_name": "isoskill", "evals": [
-  {"id": 1, "name": "iso-scenario", "tier": 2, "mode": "execute", "prompt": "cut a node",
-   "expected_output": "a node", "files": [], "expectations": ["stub criterion"]}
-]}
-EOF
-PROBE_OUT="$T/iso-probe.out"
-# The hooks below find the clone by the runner's prompt line "An isolated,
-# throwaway clone of this repository has been prepared at:"; it must stay in
-# step with the runner's prompt, or every tier-2 case here finds no checkout.
-cat > "$T/iso-probe.sh" <<'EOF'
-#!/usr/bin/env bash
-# Cut one node in the tier-2 clone and one in the second clone. node-cut.sh's
-# own key=value lines are prefixed home_ and second_ so each cut is read on
-# its own.
-co=$(sed -n '/^An isolated, throwaway clone of this repository has been prepared at:$/{n;s/^ *//;p;}' "$1")
-{
-  echo "checkout=$co"
-  (cd "$co" && bash skills/execute/scripts/node-cut.sh iso-test pr-core) | sed 's/^/home_/'
-  echo "home_rc=${PIPESTATUS[0]}"
-  echo "head=$(git -C "$co" rev-parse HEAD)"
-  echo "origin_head=$(git -C "$co" symbolic-ref --short refs/remotes/origin/HEAD)"
-  (cd "$(dirname "$co")/second-clone" && bash "$co/skills/execute/scripts/node-cut.sh" iso-test pr-app) | sed 's/^/second_/'
-  echo "second_rc=${PIPESTATUS[0]}"
-} > "$PROBE_OUT" 2>&1
-EOF
-chmod +x "$T/iso-probe.sh"
-rm -rf "$LOG" "$PROBE_OUT"
-RC=0
-OUT=$(cd "$T" && RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" \
-  STUB_CLAUDE_HOOK="$T/iso-probe.sh" PROBE_OUT="$PROBE_OUT" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
-  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=init.defaultBranch GIT_CONFIG_VALUE_0=master \
-  bash "$ISO/scripts/run-evals.sh" isoskill 2>&1) || RC=$?
-probe() { sed -n "s/^$1=//p" "$PROBE_OUT" 2>/dev/null | head -n 1; }
-if [ "$RC" -eq 0 ] && [ -n "$(probe checkout)" ] \
-  && [ "$(probe home_rc)" = 0 ] && [ "$(probe home_cut)" = new ] \
-  && [ "$(probe home_base)" = "$ISO_HEAD" ] && [ "$(probe head)" = "$ISO_HEAD" ] \
-  && [ "$(probe origin_head)" = origin/main ] \
-  && [ "$(probe second_rc)" = 0 ] && [ "$(probe second_cut)" = new ]; then
-  pass "tier-2: under init.defaultBranch=master, node-cut.sh cuts from the clone's origin main, at the commit under test"
+if record_empty; then
+  pass "selection: no run started claude"
 else
-  fail "tier-2 origin default (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
+  fail "selection started claude: $(cat "$RECORD")"
 fi
 
-# An eval's relative call log resolves against the tier-2 checkout once, in
-# the runner, so a gh call from a node worktree lands in the log the grader
-# reads (shirabe#636). The hook sets GH_CALL_LOG as the instruction says and
-# calls the execute gh shim from a directory nested in the checkout, as a
-# coordinated run does from a node worktree. Non-log values pass unchanged.
-mkdir -p "$T/iso-suite/envskill/evals"
-echo "# envskill" > "$T/iso-suite/envskill/SKILL.md"
-cat > "$T/iso-suite/envskill/evals/evals.json" <<'EOF'
-{"skill_name": "envskill", "evals": [
-  {"id": 1, "name": "env-scenario", "tier": 2, "mode": "execute", "prompt": "call gh",
-   "expected_output": "a logged call", "files": [], "expectations": ["stub criterion"],
-   "env": {"GH_CALL_LOG": "gh-calls.log", "KOTO_CALL_LOG": "logs/koto-calls.log",
-           "EXECUTE_CI_WAIT_LIMIT_SECS": "60"}}
-]}
-EOF
-cat > "$T/env-probe.sh" <<'EOF'
-#!/usr/bin/env bash
-co=$(sed -n '/^An isolated, throwaway clone of this repository has been prepared at:$/{n;s/^ *//;p;}' "$1")
-val() { grep -o "$1=[^ ,]*" "$2" | head -n 1 | sed "s/^$1=//; s/[.,]\$//"; }
-gh_log=$(val GH_CALL_LOG "$1")
-mkdir -p "$co/node-worktree/sub"
-(cd "$co/node-worktree/sub" && GH_CALL_LOG="$gh_log" EVAL_SCENARIO=env-probe \
-  "$EVAL_SHIM_BIN/gh" issue view 1 >/dev/null 2>&1)
-{
-  echo "checkout=$co"
-  echo "gh_log=$gh_log"
-  echo "koto_log=$(val KOTO_CALL_LOG "$1")"
-  echo "limit=$(val EXECUTE_CI_WAIT_LIMIT_SECS "$1")"
-  echo "coordination=${EVAL_COORDINATION_CHECKOUT:-}"
-  echo "logged=$(cat "$co/gh-calls.log" 2>/dev/null)"
-  echo "stray=$(cat "$co/node-worktree/sub/gh-calls.log" 2>/dev/null)"
-} > "$PROBE_OUT" 2>&1
-EOF
-chmod +x "$T/env-probe.sh"
-rm -rf "$LOG" "$PROBE_OUT"
-RC=0
-OUT=$(cd "$T" && RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" \
-  STUB_CLAUDE_HOOK="$T/env-probe.sh" PROBE_OUT="$PROBE_OUT" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
-  EVAL_SHIM_BIN="$REPO_ROOT/skills/execute/evals/fixtures/bin" \
-  bash "$ISO/scripts/run-evals.sh" envskill 2>&1) || RC=$?
-env_co=$(probe checkout)
-if [ "$RC" -eq 0 ] && [ -n "$env_co" ] \
-  && [ "$(probe gh_log)" = "$env_co/gh-calls.log" ] \
-  && [ "$(probe koto_log)" = "$env_co/logs/koto-calls.log" ] \
-  && [ "$(probe limit)" = 60 ] \
-  && [ "$(probe logged)" = "issue view 1" ] && [ -z "$(probe stray)" ]; then
-  pass "tier-2: a relative call log is made absolute against the checkout, so a call from a nested worktree lands in it"
-else
-  fail "tier-2 env resolution (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
-fi
-# The session is told which checkout the gh shim seeds a repository model
-# from, so a first gh call made from a node worktree or the second clone
-# still seeds the coordination PR from the checkout.
-if [ -n "$env_co" ] && [ "$(probe coordination)" = "$env_co" ]; then
-  pass "tier-2: the session's EVAL_COORDINATION_CHECKOUT names the tier-2 checkout"
-else
-  fail "tier-2 coordination checkout: [$(probe coordination)], want [$env_co]"
-fi
-
-# No koto the nested session reaches reads or writes $HOME/.koto: each run's
-# koto keeps its store in the run's scratch root. The "real" koto here is a fake
-# that records the HOME it ran under and writes a session where that HOME says,
-# and the caller names it through KOTO_BIN, not PATH, as a developer trying a
-# local koto build would. The hook reaches koto every way a session can:
-# directly, as koto-open.sh does (${KOTO_BIN:-koto}), through the eval koto
-# shim's passthrough, and through the shim again with the fake koto put ahead
-# of the run's wrapper on PATH, as a login-shell snapshot could. Afterwards the
-# caller's HOME must hold no .koto at all.
-FAKE_HOME="$T/fake-home"
-mkdir -p "$FAKE_HOME" "$T/fake-koto"
-KOTO_SEEN="$T/koto-seen"
-cat > "$T/fake-koto/koto" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$HOME" >> "$KOTO_SEEN"
-mkdir -p "$HOME/.koto/sessions/probe"
-EOF
-chmod +x "$T/fake-koto/koto"
-cat > "$T/koto-probe.sh" <<'EOF'
-#!/usr/bin/env bash
-# Reach koto every way a session can.
-{
-  koto session list
-  echo "direct_rc=$?"
-  "${KOTO_BIN:-koto}" session list
-  echo "kotobin_rc=$?"
-  PATH="$EVAL_SHIM_BIN:$PATH" EVAL_SCENARIO=coord-outline-one-repo koto session list
-  echo "shim_rc=$?"
-  PATH="$EVAL_SHIM_BIN:$FAKE_KOTO_DIR:$PATH" EVAL_SCENARIO=coord-outline-one-repo koto session list
-  echo "reordered_rc=$?"
-} > "$PROBE_OUT" 2>&1
-EOF
-chmod +x "$T/koto-probe.sh"
-koto_run() { # koto_run <hook> [VAR=value...] -- the iso suite under a fake HOME; sets OUT, RC
-  local hook="$1"
-  shift
-  rm -rf "$LOG" "$PROBE_OUT" "$KOTO_SEEN" "$FAKE_HOME/.koto"
-  RC=0
-  OUT=$(cd "$T" && env HOME="$FAKE_HOME" RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade \
-    STUB_CLAUDE_LOG_DIR="$LOG" STUB_CLAUDE_HOOK="$hook" PROBE_OUT="$PROBE_OUT" KOTO_SEEN="$KOTO_SEEN" \
-    EVAL_SHIM_BIN="$REPO_ROOT/skills/execute/evals/fixtures/bin" FAKE_KOTO_DIR="$T/fake-koto" TMPDIR="$T" \
-    "$@" bash "$ISO/scripts/run-evals.sh" isoskill 2>&1) || RC=$?
-}
-koto_run "$T/koto-probe.sh" KOTO_BIN="$T/fake-koto/koto" PATH="$FIXTURES/bin:$PATH"
-# Five koto calls: the runner's startup help probe, in a throwaway HOME of its
-# own, and the hook's four, in the run's store.
-SEEN_STORE=$(grep -cx "$T/shirabe-eval-scratch\.[A-Za-z0-9]*/koto-home" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
-SEEN_PROBE=$(grep -cx "$T/shirabe-eval-koto-probe\.[A-Za-z0-9]*" "$KOTO_SEEN" 2>/dev/null) || SEEN_PROBE=0
-SEEN_ALL=$(grep -c . "$KOTO_SEEN" 2>/dev/null) || SEEN_ALL=0
-if [ "$RC" -eq 0 ] && [ "$(probe direct_rc)" = 0 ] && [ "$(probe kotobin_rc)" = 0 ] \
-  && [ "$(probe shim_rc)" = 0 ] && [ "$(probe reordered_rc)" = 0 ] \
-  && [ "$SEEN_STORE" -eq 4 ] && [ "$SEEN_PROBE" -eq 1 ] && [ "$SEEN_ALL" -eq 5 ] \
-  && [ ! -e "$FAKE_HOME/.koto" ]; then
-  pass "koto: every route to koto keeps its store in the run's scratch root, never in \$HOME/.koto"
-else
-  fail "koto store (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] home_koto=$(ls -A "$FAKE_HOME" 2>/dev/null) probe=[$(cat "$PROBE_OUT" 2>/dev/null)] -- $OUT"
-fi
-
-# KOTO_BIN as a bare name resolves through the caller's PATH when the run
-# starts, so the wrapper runs that koto and never itself; one that names
-# nothing stops the run before any session.
-koto_run "$T/koto-probe.sh" KOTO_BIN=koto PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
-SEEN_STORE=$(grep -cx "$T/shirabe-eval-scratch\.[A-Za-z0-9]*/koto-home" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
-if [ "$RC" -eq 0 ] && [ "$SEEN_STORE" -eq 4 ] && [ ! -e "$FAKE_HOME/.koto" ]; then
-  pass "koto: a bare-name KOTO_BIN is resolved first, and every call still lands in the run's store"
-else
-  fail "koto, bare KOTO_BIN (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] -- $OUT"
-fi
-koto_run "$T/koto-probe.sh" KOTO_BIN="$T/no-such-koto" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
-if [ "$RC" -eq 2 ] && [ ! -e "$LOG/args" ] && grep -q "KOTO_BIN \[$T/no-such-koto\] names no executable koto" <<<"$OUT"; then
-  pass "koto: a KOTO_BIN naming nothing stops the run before any session, exit 2"
-else
-  fail "koto, KOTO_BIN naming nothing (rc=$RC): $OUT"
-fi
-
-# The tripwire: a run that leaves a file naming its scratch root in
-# $HOME/.koto fails as an infrastructure failure, whatever it graded. The hook
-# writes one there itself, the way a koto run under the real HOME would.
-cat > "$T/koto-leak.sh" <<'EOF'
-#!/usr/bin/env bash
-mkdir -p "$HOME/.koto/sessions/leak"
-printf 'cwd = "%s/checkout"\n' "$TMPDIR" > "$HOME/.koto/sessions/leak/state.toml"
-EOF
-chmod +x "$T/koto-leak.sh"
-koto_run "$T/koto-leak.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
-if [ "$RC" -eq 2 ] && grep -q "EVAL RUN REACHED \$HOME/.koto" <<<"$OUT" \
-  && grep -q "$FAKE_HOME/.koto/sessions/leak/state.toml" <<<"$OUT"; then
-  pass "koto: a run that wrote into \$HOME/.koto exits 2 and names the file"
-else
-  fail "koto tripwire (rc=$RC): $OUT"
-fi
-# A run that also classified as not executed keeps its 4, which outranks the
-# tripwire's 2; the tripwire still names the file.
-koto_run "$T/koto-leak.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH" STUB_CLAUDE_MODE=plan
-if [ "$RC" -eq 4 ] && grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
-  && grep -q "EVAL RUN REACHED \$HOME/.koto" <<<"$OUT"; then
-  pass "koto: the tripwire on a run that did not execute leaves its exit 4"
-else
-  fail "koto tripwire on a not-executed run (rc=$RC): $OUT"
-fi
-# ... and a change there that doesn't name the run, another session's, passes.
-cat > "$T/koto-other.sh" <<'EOF'
-#!/usr/bin/env bash
-mkdir -p "$HOME/.koto/sessions/other"
-printf 'cwd = "/elsewhere"\n' > "$HOME/.koto/sessions/other/state.toml"
-EOF
-chmod +x "$T/koto-other.sh"
-koto_run "$T/koto-other.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
-if [ "$RC" -eq 0 ] && ! grep -q "EVAL RUN REACHED" <<<"$OUT"; then
-  pass "koto: another session's write to \$HOME/.koto during the run does not trip it"
-else
-  fail "koto tripwire, unrelated write (rc=$RC): $OUT"
-fi
-
-# With no koto at all, the run's wrapper refuses rather than leaving PATH to
-# find one. Skipped where the system directories hold a koto of their own.
-if PATH=/usr/bin:/bin command -v koto >/dev/null 2>&1; then
-  echo "SKIP: a koto in /usr/bin or /bin -- the no-koto wrapper was not checked"
-else
-  cat > "$T/koto-none.sh" <<'EOF'
-#!/usr/bin/env bash
-{ koto session list; echo "none_rc=$?"; } > "$PROBE_OUT" 2>&1
-EOF
-  chmod +x "$T/koto-none.sh"
-  koto_run "$T/koto-none.sh" KOTO_BIN= PATH="$FIXTURES/bin:/usr/bin:/bin"
-  if [ "$RC" -eq 0 ] && [ "$(probe none_rc)" = 127 ] && grep -q "found no koto to wrap" "$PROBE_OUT"; then
-    pass "koto: with no koto to wrap, the run's koto refuses (127)"
-  else
-    fail "koto, none to wrap (rc=$RC): probe=[$(cat "$PROBE_OUT" 2>/dev/null)] -- $OUT"
-  fi
-fi
+rm -rf "$TREE"
 
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
