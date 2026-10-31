@@ -19,7 +19,9 @@ decision: |
   when a maintainer chooses to start one: one run of the changed skill's
   release subset on Sonnet, paid from that person's own Claude plan, committed
   as an add-only record under `evals/records/<skill>/` and bound to a hash of
-  the files the skill loads. The release reads those records with git, stops
+  the files the skill loads; whether the eval rulings allow such a run is
+  waiting on the owner, and the script-graded half stands either way. The
+  release reads those records with git, stops
   at exit 5 on an aggregate drop over 0.05 or a newly failing case, asks one
   batched question for changed skills with no current record, and stops
   outright on a failing script case.
@@ -127,9 +129,9 @@ what's missing is a source of graded rates that isn't the release.
 
 Key assumptions:
 - The owner's rulings cover releases and automated gates, not a run that a
-  person chooses to start on their own plan for a skill they just changed. If
-  the owner rules those out too, no graded rate exists and the second piece of
-  evidence holds only for script-graded cases.
+  person chooses to start on their own plan for a skill they just changed.
+  This reading is waiting on the owner's answer; "Waiting on the owner" under
+  Decision Outcome says what changes if the answer is no.
 - A local run bills the logged-in Claude plan, not the API. `run-evals.sh`
   never reads `ANTHROPIC_API_KEY` itself; only the CI workflow injects one.
 - The spike's single-run noise of about five points holds for skills it
@@ -429,6 +431,25 @@ per-case signal and a person's confirmation stand in for repeat runs.
 For the second piece of evidence to show a pass-rate drop rather than an
 unmeasured skill, the skill needs a baseline: a record matching it at the
 last tag, or a seed record of the released content taken before the change.
+
+### Waiting on the owner
+
+The design has two halves, and only one depends on an open question.
+
+The script-graded half stands whatever the answer: script-graded hand-off
+cases, target derivation in the shape check, Check 3 at release, and the
+record-reading release with no model call. None of it spends a token.
+
+The graded half, maintainer-chosen runs and the records they write, rests on
+reading the eval rulings as covering releases and automated gates but not a
+run a maintainer chooses to start on their own plan. That reading has gone
+to the owner and isn't settled. If the owner rules maintainer-chosen runs out
+too, the edit is small: Decision 1's chosen option becomes "no graded runs at
+all", `run-evals.sh` refuses graded cases unless an owner-set cap exists,
+Check 1 has no records to read and stays dormant, Check 2 lists every changed
+skill as unmeasured, and the second piece of evidence holds only for an eval
+that is script-graded, through Check 3. Nothing else in the architecture
+moves.
 
 ## Solution Architecture
 
