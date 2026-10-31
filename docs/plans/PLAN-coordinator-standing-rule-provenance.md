@@ -145,7 +145,7 @@ shirabe, gated as step 9 plus the supersede hop: the `decision` form, `rule_clas
 
 ### Step 11: a manager's row citing its director's person decision reads owner-said, and reads as a flagged inferred quote while the cross-session read fails
 
-shirabe, gated on koto's cross-session decision read on one host: a manager on the same host as its director cites the decision the director recorded and reads owner-said one level down; with the read failing, the citation reads unreadable and the manager writes an `inferred` rule row quoting the ruling, flagged for confirmation, and its tests cover both paths.
+shirabe, gated as step 10, with only its owner-said criterion also waiting on koto's cross-session decision read on one host: a manager on the same host as its director cites the decision the director recorded and reads owner-said one level down; with the read failing, the citation reads unreadable and the manager writes an `inferred` rule row quoting the ruling, flagged for confirmation, and its tests cover both paths.
 
 ### Step 12: a reversed cited pause holds nothing and a reversed cited go-ahead lets nothing through, inside the pause read's bounds
 
@@ -190,7 +190,7 @@ start as soon as the design is accepted.
 | 8 | writer release | 7 | as step 6 |
 | 9 | citations | 1 | a koto release with the decision record and the reads below |
 | 10 | citations | 6, 9 | as step 9, plus the supersede hop |
-| 11 | citations | 10 | as step 10, plus the cross-session decision read |
+| 11 | citations | 10 | as step 10; its owner-said criterion also waits on the cross-session decision read |
 | 12 | citations | 9 | as step 10 |
 | 13 | citations | 7, 10 | as step 10 |
 | 14 | citations | 10 | as step 10 |
