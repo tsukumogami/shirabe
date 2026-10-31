@@ -18,9 +18,9 @@
 # can't be told it yet, only when there is one, so a record with no pending
 # row reads as it did before the row existed), work (every
 # Work row, local agents included), standing (every Standing row but a `rule`
-# row, so a record holding rules hands over the events it held before; the
-# rules are state-stored-set.sh --rules's), holds (the
-# Holds section as it stands) and gaps. It also prints the crash set (PRD
+# row, so a record holding rules hands over the same events it did before it
+# held any; the rules are read through state-stored-set.sh --rules), holds
+# (the Holds section as it stands) and gaps. It also prints the crash set (PRD
 # R17): each worker's pushed_head when kept, reports_to (the row, or null),
 # rules and briefs (their rows' values), friction, and host (record/host). A
 # gap is {gap, fix}:

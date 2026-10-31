@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # state-stored-set.sh -- change the record's stored set (Run, Standing, Work) and
-# append the entry that tells it, or list the set. Agent-run; the three
+# append the entry that tells it, list the set, or read its Standing rows as
+# rules (--rules). Agent-run; the three
 # sections change only through this script
 # (docs/designs/archive/DESIGN-coordinate-record-container.md, Decision 3).
 #
@@ -107,10 +108,14 @@
 # class worked out from its Source (state-schema.jq's rule_view: standing,
 # kind, class, what, owner, said, set, pointer, words, source, status,
 # reversal, confirm); a relayed row's pointer names the entry its --standing
-# wrote, read from the record's entries. With --id, only those rows; an id
-# the record has no row for is refused (65, naming it) before anything is
+# wrote, read from the record's entries, or the row itself when no entry
+# matches. A `decision` Source reads class and status `unreadable` until what
+# koto recorded about the decision is read. With --id, only those rows, still
+# in record order; an --id that isn't s<n> is a usage error (64), and one the
+# record has no row for is refused (65, naming it) before anything is
 # printed. A record that breaks a rule of state-schema.jq is refused (65), the
-# rule on stderr naming the row (`standing.s3: ...`).
+# rule on stderr naming the row (`standing.s3: ...`). --rules reads; it writes
+# no key and tells no entry.
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -165,7 +170,8 @@
 # this script's read and its write) from the write core; 14
 # the state was written but the entry wasn't posted (post it with
 # state-entry.sh; the change it names is on stderr); 64 usage; 65 refused
-# (the reason on stderr).
+# (the reason on stderr; for --rules, a row that breaks a rule, named, or an
+# --id the record has no row for).
 #
 # The record is read through state-read.sh and written only in the write
 # core it sources, and the entry through state-entry.sh.

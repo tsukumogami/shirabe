@@ -33,13 +33,18 @@
 # Holds, stored set and Decisions rules, and the home-path and token checks over
 # every string, each refused with the module's `refused: ` message (exit 65).
 # The private-repository check over every string runs again once the named
-# repositories' visibility is read, still before any key is written. No body
-# is rendered and no size limit applies: the state lives in the session's keys.
+# repositories' visibility is read (a Standing row's `skill` or `doc` Source
+# names one too), still before any key is written. No body is rendered and no
+# size limit applies: the state lives in the session's keys.
 #
 # The last step (core_write_session; docs/designs/DESIGN-coordinator-session-record.md,
 # Decision 4) writes the changed section keys between two writes of
 # record/meta. Each key's owner is its section's owner, so the owner checks
-# above are the one-writer-per-key rule.
+# above are the one-writer-per-key rule. A section is changed when its next
+# value differs from the live one; Standing is compared with its key as the
+# session stores it, so a row stored outside the normal form (a blank Source
+# kept as `"source": ""`) is written back in it, and a Standing already in it
+# is left byte for byte by a write that doesn't touch it.
 #
 # The caller's contract:
 #   - it has sourced state-common.sh, run lib_facts and lib_write_guard

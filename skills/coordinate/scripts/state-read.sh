@@ -88,7 +88,7 @@
 #   state-read.sh --session S --meta
 #   state-read.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
-#   state-read.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>
+#   state-read.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>|--record
 #                    (tests: RS_SESSION names the session holding the record)
 #
 # A person reads the state through koto's own view of the session (`koto

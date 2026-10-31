@@ -6,6 +6,10 @@
 # home-directory path and token checks, which scan_strings runs over every
 # string in the state. Each function takes the state, a section or a cell as
 # JSON and refuses with a jq error() whose message starts with "refused: ".
+# A Standing row's Source is checked here too (source_problem), and the class,
+# status and pointer state-stored-set.sh --rules prints for a row are worked
+# out here from it at read (rule_class, rule_status, rule_view); no column
+# stores them.
 #
 # state-write-core.sh runs normalize_state over the next state before it
 # writes anything, and state-read.sh over every state it hands a reader, so
