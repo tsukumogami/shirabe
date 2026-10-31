@@ -668,7 +668,9 @@ writes `record/decisions` or `record/reversals`.
   | `inferred` | inferred |
 
   A second function, `rule_grants`, returns whether a row may grant or
-  satisfy a check. A pause never grants. Every other row grants when it is
+  satisfy a check; the handover gate's acceptance of a carried run's
+  inferred carry acknowledgement (Decision 2) is the one check that doesn't
+  ask it. A pause never grants. Every other row grants when it is
   relayed (an uncited go-ahead, approval, answer or assignment grants
   exactly as it does today), an owner-said or dispatcher-said citation in
   effect, or a `skill` or `doc` row citing a repository that can carry a
@@ -807,7 +809,7 @@ writes `record/decisions` or `record/reversals`.
   citation pays no koto read on the pick, dispatch, land or merge path.
 
 - **`skills/coordinate/scripts/state-handover.sh`.** The handover read adds
-  four things. A gap, `brief-unread <label>`, when `record/host` names the
+  five things. A gap, `brief-unread <label>`, when `record/host` names the
   brief this start ran with and no Run `briefs` row carries its digest; it
   clears once the intake writes that row. A report list of every row
   `--rules` shows superseded, with its reversal's reason, which the start
@@ -845,7 +847,9 @@ writes `record/decisions` or `record/reversals`.
   the Standing id in the entry it writes, as it already names decision ids.
   A row `rule_grants` returns false for (an inferred, `pinned`, unreadable
   or superseded row, or one an asserted reversal names) can only restrict: it never grants a step, widens what
-  a grant allows, or satisfies a check. Only a relayed event row, an
+  a grant allows, or satisfies a check, with one exception: a carried
+  run's carry acknowledgement (Decision 2) reads inferred and still
+  satisfies the handover gate, and grants nothing else. Only a relayed event row, an
   owner-said or dispatcher-said citation in effect, a `skill` row and a
   `doc` row can do that, and none of them widens what the workspace grants. The intake writes only sentences it
   can quote from the brief, and on a public host only sentences that pass
@@ -1092,7 +1096,13 @@ file at its merged commit, a text comparison whose result is a refusal or
 not and whose content goes nowhere else. A brief's rules come in as
 inferred rows quoting the brief, and an inferred or pinned rule can only
 restrict; it never grants a step, widens a grant or satisfies a check, so a
-planted brief line can't become a standing permission. A planted
+planted brief line can't become a standing permission. The one exception
+is a carried run's carry acknowledgement, a citation of a person decision
+entered in the run's own session: it reads inferred, satisfies the
+handover gate as the acknowledgement does today, grants nothing else, and
+the start report lists it for the run's next fenced member to confirm. A
+brief line can't take that form, since the intake writes only `inferred
+brief` Sources. A planted
 restriction can still slow a lane, which the inferred-rule cap and the
 start report's list of unconfirmed rules bound and expose. A brief that
 repeats a reversed rule in other words gets past the normalized match and
