@@ -40,6 +40,11 @@ jobs:
       - name: Pre-commit setup script suite
         run: PATH="$PWD/target/release:$PATH" bash scripts/shirabe-pre-commit_test.sh
 
+      # The check the reusable lifecycle workflow runs in each repository that
+      # carries a copy of the setup script, against this commit's canonical copy.
+      - name: Setup script copy check suite
+        run: bash scripts/check-setup-script-copy_test.sh
+
       # The plugin's pre-action hook, run through the command hooks/hooks.json
       # declares, against the binary just built. This workflow runs on every
       # pull request, so it covers every path a change to the hook can come
