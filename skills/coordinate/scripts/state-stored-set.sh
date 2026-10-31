@@ -111,22 +111,26 @@
 # wrote, read from the record's entries, or the row itself when no entry
 # matches. A `decision` Source reads class and status `unreadable` until what
 # koto recorded about the decision is read.
-# Each object also carries grants and allows (state-schema.jq's rule_grants).
-# A pause, an inferred, `pinned` or unreadable row, a row not in force and a
-# row with a reversal never grant (the floor); a `skill` row citing any
-# repository but the one the installed plugin's .claude-plugin/plugin.json
-# names as `repository` (https://github.com/<owner>/<repo>), and a `doc` row
-# citing any but the record's host, never grant either (the anchor). Those
-# rows print grants false and allows [] with no read. When at least one
-# printed row passes both, --rules reads the coordinator session's grant once,
-# `niwa authority check -C <instance root> --session <CLAUDE_CODE_SESSION_ID>
-# --json` (rules_grant_read below says when it makes no read), and every
-# such row prints grants true and allows the answer's grant, in niwa's order,
-# when the read exits 0 with a bound niwa.authority.check/v1 document whose
-# grant and level are in niwa's vocabularies. Any other answer, or no read,
-# gives every row grants false and allows [], and --rules still exits 0. A
-# row's words never widen allows past the session's grant; no --point is
-# asked, and no gate reads grants. With --id, only those rows, still
+# Each object also carries under_session_grant and session_allows
+# (state-schema.jq's rule_grants). A row grants nothing: the grant is the
+# session's, and these two fields say whether the row stands under it and
+# what it allows. A pause, an inferred, `pinned` or unreadable row, a row not
+# in force and a row with a reversal never stand under it (the floor); a
+# `skill` row citing any repository but the one the installed plugin's
+# .claude-plugin/plugin.json names as `repository`
+# (https://github.com/<owner>/<repo>), and a `doc` row citing any but the
+# record's host, never do either (the anchor). Those rows print
+# under_session_grant false and session_allows [] with no read. When at least
+# one printed row passes both, --rules reads the coordinator session's grant
+# once, `niwa authority check -C <instance root> --session
+# <CLAUDE_CODE_SESSION_ID> --json` (rules_grant_read below says when it makes
+# no read), and every such row prints under_session_grant true and
+# session_allows the answer's grant, in niwa's order, when the read exits 0
+# with a bound niwa.authority.check/v1 document whose grant and level are in
+# niwa's vocabularies. Any other answer, or no read, gives every row
+# under_session_grant false and session_allows [], and --rules still exits 0.
+# A row's words never widen session_allows past the session's grant; no
+# --point is asked, and no gate reads either field. With --id, only those rows, still
 # in record order; an --id that isn't s<n> is a usage error (64), and one the
 # record has no row for is refused (65, naming it) before anything is
 # printed. A record that breaks a rule of state-schema.jq is refused (65), the

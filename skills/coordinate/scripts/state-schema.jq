@@ -600,15 +600,17 @@ def grant_allows:
      and all(.grant[]; type == "object" and (.authority | in_set(["merge-pr", "close-issue", "cut-release"])))
      and (.level | in_set(["autonomous", "supervised", "strict"]))
   then [.grant[].authority] else null end;
-# rule_grants($facts): {grants, allows} for one rule_view object. $facts is
-# {plugin_repo, host_repo, answer}, answer the authority read's document, or
-# null when no read was made or it failed. grants is true only for a row that
-# passes the floor and the anchor under a bound answer; allows is then that
-# answer's grant, never more whatever the row's words say, and [] otherwise.
+# rule_grants($facts): {under_session_grant, session_allows} for one
+# rule_view object. $facts is {plugin_repo, host_repo, answer}, answer the
+# authority read's document, or null when no read was made or it failed. The
+# row grants nothing itself: under_session_grant is true only for a row that
+# passes the floor and the anchor under a bound answer, and session_allows is
+# then the session's grant as that answer gives it, never more whatever the
+# row's words say, and [] otherwise.
 def rule_grants($facts):
   (if $facts.answer == null then null else ($facts.answer | grant_allows) end) as $a
-  | if $a != null and rule_passes($facts) then {grants: true, allows: $a}
-    else {grants: false, allows: []} end;
+  | if $a != null and rule_passes($facts) then {under_session_grant: true, session_allows: $a}
+    else {under_session_grant: false, session_allows: []} end;
 
 def decisions_cols: [
   ["decision", "Decision"], ["round", "Round"], ["question", "Question"],

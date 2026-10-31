@@ -25,9 +25,9 @@
 #      (state-open.sh --carry, exit 0) and the successor's record/standing is
 #      byte-identical to A's;
 #   5. --rules on A prints one object per row, in record order, each, apart
-#      from grants and allows, byte-identical (jq -cS, then cmp) to the
-#      objects held below, and with niwa's answer not-dispatched, grants false
-#      and allows [] on every one; each relayed row's pointer names the entry
+#      from under_session_grant and session_allows, byte-identical (jq -cS, then cmp) to the
+#      objects held below, and with niwa's answer not-dispatched, under_session_grant false
+#      and session_allows [] on every one; each relayed row's pointer names the entry
 #      its own --standing wrote, and on B, whose session holds no entries, the
 #      row itself;
 #   6. --rules --id prints exactly the rows named; an id the record lacks
@@ -419,10 +419,10 @@ jq -n --arg a "$A" --slurpfile rec "$T/A.record" "$EXPECT" > "$T/A.rules.want" 2
 need "--rules on A exits 0" 0 "$RC_RULES$(cat "$T/A.rules.err")"
 need "  ... one object per row, in record order" "s1 s2 s3 s4 s5 s6 s7 s8 s9" "$(jq -r .standing "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 jq -cS '.[]' "$T/A.rules.want" > "$T/A.rules.want.each" 2>/dev/null
-jq -cS 'del(.grants, .allows)' "$T/A.rules" > "$T/A.rules.rest" 2>/dev/null
-cmp -s "$T/A.rules.want.each" "$T/A.rules.rest" || needf "apart from grants and allows, --rules on A isn't the objects held here: $(head -c 600 "$T/A.rules.rest")"
-need "  ... with niwa answering not-dispatched, grants false and allows [] on every object" "false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[]" \
-    "$(jq -r '"\(.grants):\(.allows | tojson)"' "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+jq -cS 'del(.under_session_grant, .session_allows)' "$T/A.rules" > "$T/A.rules.rest" 2>/dev/null
+cmp -s "$T/A.rules.want.each" "$T/A.rules.rest" || needf "apart from under_session_grant and session_allows, --rules on A isn't the objects held here: $(head -c 600 "$T/A.rules.rest")"
+need "  ... with niwa answering not-dispatched, under_session_grant false and session_allows [] on every object" "false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[]" \
+    "$(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 printf 'authority check -C %s --session %s --json\n' "$(cd "$WD" && pwd -P)" "$SID" > "$T/A.rules.calls.want"
 cmp -s "$T/A.rules.calls.want" "$T/A.rules.calls" || needf "--rules on A didn't read the grant once as this session: [$(cat "$T/A.rules.calls")]"
 for n in 1 2 3 4 5; do
@@ -436,7 +436,7 @@ NEWEST=$(jq -r '.[]' "$T/A.entries" 2>/dev/null | LC_ALL=C sort | tail -1)
 [ -n "$NEWEST" ] && [ "$NEWEST" != record/entries/000001 ] || needf "s1's entry is the newest, $NEWEST, so the pointer proves nothing"
 need "--rules on B, whose session holds no entries, points each event row at the row itself" "0 $B record/standing s1|$B record/standing s5" \
     "$RC_BRULES $(jq -r 'select(.standing == "s1" or .standing == "s5") | .pointer.row // "none"' "$T/B.rules" 2>/dev/null | tr '\n' '|' | sed 's/|$//')"
-crit "5. --rules on A prints one object per row in record order, each its class, owner, Set, pointer, status and confirm (jq -cS, then cmp), with grants false and allows [] under a not-dispatched answer"
+crit "5. --rules on A prints one object per row in record order, each its class, owner, Set, pointer, status and confirm (jq -cS, then cmp), with under_session_grant false and session_allows [] under a not-dispatched answer"
 
 # ---- 6 ----------------------------------------------------------------------
 need "--rules --id s2 --id s7 prints exactly those two" "0 s2 s7" "$RC_TWO $(jq -r .standing "$T/A.two" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"

@@ -610,20 +610,20 @@ eq "--rules prints one object per row, in record order" "0 s1 s2 s6 s7 s8 s9" "$
 eq "  ... each with its class and status" "relayed:in-force relayed:in-force inferred:unconfirmed skill-says:in-force charter:in-force unreadable:unreadable" \
     "$(jq -r '"\(.class):\(.status)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... the relayed rows their Owner, the rule rows none" "the human|the human|null|null|null|null" "$(jq -r '.owner // "null"' "$T/rules.out" | tr '\n' '|' | sed 's/|$//')"
-eq "  ... and, with no session id, grants false and allows [] on every one, with no read" "false:[] false:[] false:[] false:[] false:[] false:[]|" \
-    "$(jq -r '"\(.grants):\(.allows | tojson)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')|$(cat "$T/niwa.calls" 2>/dev/null)"
+eq "  ... and, with no session id, under_session_grant false and session_allows [] on every one, with no read" "false:[] false:[] false:[] false:[] false:[] false:[]|" \
+    "$(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')|$(cat "$T/niwa.calls" 2>/dev/null)"
 # From an instance, as this session, under a bound answer granting merge-pr:
-# one read, and only the relayed approval (s2) grants; the pause, the
+# one read, and only the relayed approval (s2) is under the grant; the pause, the
 # inferred, pinned and unreadable rows and the skill row citing the host
 # rather than the plugin's repository don't.
 mkdir -p "$T/inst/.niwa" "$T/inst/repo"; printf '{}' > "$T/inst/.niwa/instance.json"
 printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"bound","grant":[{"authority":"merge-pr","sources":["dispatch"]}],"level":"supervised"}' > "$T/niwa.answer"
 rm -f "$T/niwa.calls"
 (cd "$T/inst/repo" && CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 bash "$RS" "${RM[@]}" --rules) > "$T/rules.bound" 2>"$T/err"
-eq "--rules as a bound session grants the relayed approval alone" "0 false:[] true:[\"merge-pr\"] false:[] false:[] false:[] false:[]" \
-    "$? $(jq -r '"\(.grants):\(.allows | tojson)"' "$T/rules.bound" | tr '\n' ' ' | sed 's/ $//')"
+eq "--rules as a bound session puts the relayed approval alone under the grant" "0 false:[] true:[\"merge-pr\"] false:[] false:[] false:[] false:[]" \
+    "$? $(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/rules.bound" | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... from one read of the session's grant" "authority check -C $(cd "$T/inst" && pwd -P) --session 0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 --json" "$(cat "$T/niwa.calls" 2>/dev/null)"
-eq "  ... every other field as without it" "$(jq -c 'del(.grants, .allows)' "$T/rules.out")" "$(jq -c 'del(.grants, .allows)' "$T/rules.bound")"
+eq "  ... every other field as without it" "$(jq -c 'del(.under_session_grant, .session_allows)' "$T/rules.out")" "$(jq -c 'del(.under_session_grant, .session_allows)' "$T/rules.bound")"
 printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
 rm -f "$T/niwa.calls"
 # Each relayed row names the entry its own --standing wrote: s1's is the

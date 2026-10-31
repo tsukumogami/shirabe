@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# rule-grants_engine_test.sh -- state-stored-set.sh --rules' grants and
-# allows on a real koto session of the shipped coordinate.md
+# rule-grants_engine_test.sh -- state-stored-set.sh --rules'
+# under_session_grant and session_allows on a real koto session of the shipped coordinate.md
 # (docs/designs/DESIGN-coordinator-standing-rule-provenance.md): the floor and
 # the repository anchor settle rows with no read, at most one
 # `niwa authority check` read answers every other row, a row's words never
@@ -15,30 +15,30 @@
 # s8's What reading `Cut the release v2.0.0 and close #12.`, s9 a relayed
 # approval, s10 a skill rule citing the manifest's repository, s11 a doc rule
 # citing the host, acme/widgets). Prints one line per criterion:
-#   1. on the six floor and anchor rows alone, --rules prints grants false
-#      and allows [] on each, and niwa is never run;
+#   1. on the six floor and anchor rows alone, --rules prints
+#      under_session_grant false and session_allows [] on each, and niwa is never run;
 #   3. on all eleven, under a bound answer granting merge-pr at supervised,
-#      one read: the five passing rows grant ["merge-pr"], the six don't;
+#      one read: the five passing rows stand under ["merge-pr"], the six don't;
 #   4. that read is exactly `authority check -C <the instance root, canonical>
 #      --session <CLAUDE_CODE_SESSION_ID> --json`, with no --point;
 #   5. --rules --id naming only floor and anchor rows makes no read, one
 #      naming a passing row and a floor row makes one, and state-handover.sh
 #      makes none;
-#   6. the go-ahead naming a release and an issue allows merge-pr alone, and
-#      a bound answer with an empty grant grants with nothing allowed;
+#   6. the go-ahead naming a release and an issue gets merge-pr alone, and
+#      under a bound answer with an empty grant, passing rows allow nothing;
 #   7. every answer but a bound one (exit 1, not-dispatched, record-unusable,
 #      another schema, a grant or level outside niwa's vocabularies, nothing,
-#      text that isn't JSON, a read past its bound) gives grants false and
-#      allows [] on every row, --rules exiting 0 and every other field as
+#      text that isn't JSON, a read past its bound) gives
+#      under_session_grant false and session_allows [] on every row, --rules exiting 0 and every other field as
 #      under the bound answer;
 #   8. no niwa, no session id, no instance root, or a record/meta naming
 #      another driver makes no read; NIWA_BIN names niwa off PATH;
 #   9. run from a copy of the plugin whose manifest names no repository, the
-#      skill row citing the original's repository doesn't grant, and on a
+#      skill row citing the original's repository isn't under the grant, and on a
 #      record where it is the only row that would pass, no read is made;
 #  11. check-template-compat.sh holds for the shipped template with the
 #      gate_scripts digest recorded, and no gate or action of the compiled
-#      template names grants or --rules.
+#      template names either field or --rules.
 # Criterion 2, rule_grants over rows and hand-written facts, is
 # state-schema_test.sh's; criterion 10, step 1's record read through --rules,
 # is standing-rules_engine_test.sh's.
@@ -176,8 +176,8 @@ mode() { printf '%s' "$1" > "$T/niwa.mode"; rm -f "$T/niwa.calls"; }
 calls() { if [ -e "$T/niwa.calls" ]; then wc -l < "$T/niwa.calls" | tr -d ' '; else echo 0; fi; }
 # rules [args...]: --rules on the run, from the repository, as this session.
 rules() { (cd "$WD" && CLAUDE_CODE_SESSION_ID=$SID bash "$PS/state-stored-set.sh" --session "$G" --rules "$@"); }
-# verdicts <file>: each object's `<id>:<grants>:<allows>`, space-separated.
-verdicts() { jq -r '"\(.standing):\(.grants):\(.allows | tojson)"' "$1" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+# verdicts <file>: each object's `<id>:<under_session_grant>:<session_allows>`, space-separated.
+verdicts() { jq -r '"\(.standing):\(.under_session_grant):\(.session_allows | tojson)"' "$1" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
 # bound <authorities, comma-separated> <level>: a bound answer.
 bound() {
     jq -nc --arg g "$1" --arg l "$2" '{schema: "niwa.authority.check/v1", state: "bound", binding: "mapping",
@@ -209,9 +209,9 @@ standing s1 s2 s3 s4 s5 s6 || stop "the floor and anchor rows are added" ""
 answer "$BOUND_MERGE"
 rules > "$T/floor.out" 2> "$T/floor.err"
 need "--rules exits 0" 0 "$?$(cat "$T/floor.err")"
-need "  ... each row grants false with nothing allowed" "$FLOOR_NONE" "$(verdicts "$T/floor.out")"
+need "  ... each row under_session_grant false with nothing allowed" "$FLOOR_NONE" "$(verdicts "$T/floor.out")"
 need "  ... and niwa is never run" 0 "$(calls)"
-crit "1. on a pause, an inferred brief row, a pinned row, a decision row and a skill and a doc row citing other repositories, every object prints grants false and allows [], with no read"
+crit "1. on a pause, an inferred brief row, a pinned row, a decision row and a skill and a doc row citing other repositories, every object prints under_session_grant false and session_allows [], with no read"
 
 # ---- 3 and 4 ------------------------------------------------------------------
 standing s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 || stop "the eleven rows are added" ""
@@ -222,14 +222,14 @@ need "--rules exits 0" 0 "$?$(cat "$T/bound.err")"
 need "  ... one object per row, in record order" "s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11" "$(jq -r .standing "$T/bound.out" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 need "  ... the five passing rows grant merge-pr, the six don't" "$FLOOR_NONE $PASS_MERGE" "$(verdicts "$T/bound.out")"
 need "  ... from exactly one read" 1 "$(calls)"
-crit "3. under a bound answer granting merge-pr, one read: the two go-aheads, the approval and the anchored skill and doc rows print grants true and allows [\"merge-pr\"], the six floor and anchor rows false and []"
+crit "3. under a bound answer granting merge-pr, one read: the two go-aheads, the approval and the anchored skill and doc rows print under_session_grant true and session_allows [\"merge-pr\"], the six floor and anchor rows false and []"
 printf 'authority check -C %s --session %s --json\n' "$INST_P" "$SID" > "$T/call.want"
 cmp -s "$T/call.want" "$T/niwa.calls" || needf "the read is [$(cat "$T/niwa.calls" 2>/dev/null)], not [$(cat "$T/call.want")]"
 grep -q -- '--point' "$T/niwa.calls" 2>/dev/null && needf "the read passes --point"
 case "$INST_P" in "$T/via"*) needf "the instance root isn't canonical: $INST_P" ;; esac
 crit "4. the one read is exactly \`authority check -C <the instance root, canonical> --session <CLAUDE_CODE_SESSION_ID> --json\`, with no --point"
 # Every other field, under the bound answer, for criterion 7.
-jq -c 'del(.grants, .allows)' "$T/bound.out" > "$T/bound.rest"
+jq -c 'del(.under_session_grant, .session_allows)' "$T/bound.out" > "$T/bound.rest"
 
 # ---- 5 ------------------------------------------------------------------------
 answer "$BOUND_MERGE"
@@ -248,12 +248,12 @@ crit "5. --rules --id naming only floor or anchor rows makes no read, naming a p
 # ---- 6 ------------------------------------------------------------------------
 need "the go-ahead reading \`Cut the release v2.0.0 and close #12.\` allows merge-pr alone" \
     'Cut the release v2.0.0 and close #12.|true|["merge-pr"]' \
-    "$(jq -r 'select(.standing == "s8") | "\(.what)|\(.grants)|\(.allows | tojson)"' "$T/bound.out" 2>/dev/null)"
+    "$(jq -r 'select(.standing == "s8") | "\(.what)|\(.under_session_grant)|\(.session_allows | tojson)"' "$T/bound.out" 2>/dev/null)"
 answer "$(bound "" strict)"
 rules > "$T/empty-grant.out" 2> "$T/empty-grant.err"
 need "under a bound answer with an empty grant, --rules exits 0 after one read" "0 1" "$? $(calls)"
-need "  ... every passing row grants with nothing allowed" "$FLOOR_NONE s7:true:[] s8:true:[] s9:true:[] s10:true:[] s11:true:[]" "$(verdicts "$T/empty-grant.out")"
-crit "6. the go-ahead naming a release and an issue allows [\"merge-pr\"] alone, and under a bound answer with an empty grant every passing row grants with allows []"
+need "  ... every passing row under the grant with nothing allowed" "$FLOOR_NONE s7:true:[] s8:true:[] s9:true:[] s10:true:[] s11:true:[]" "$(verdicts "$T/empty-grant.out")"
+crit "6. the go-ahead naming a release and an issue gets session_allows [\"merge-pr\"] alone, and under a bound answer with an empty grant every passing row prints under_session_grant true with session_allows []"
 
 # ---- 7 ------------------------------------------------------------------------
 # closed <label>: --rules under the fake as set gives every row false and [],
@@ -261,8 +261,8 @@ crit "6. the go-ahead naming a release and an issue allows [\"merge-pr\"] alone,
 closed() {
     rules > "$T/closed.out" 2> "$T/closed.err"
     need "$1: --rules exits 0 after one read" "0 1" "$? $(calls)"
-    need "$1: every row grants false with nothing allowed" "$ALL_NONE" "$(verdicts "$T/closed.out")"
-    jq -c 'del(.grants, .allows)' "$T/closed.out" > "$T/closed.rest" 2>/dev/null
+    need "$1: every row under_session_grant false with nothing allowed" "$ALL_NONE" "$(verdicts "$T/closed.out")"
+    jq -c 'del(.under_session_grant, .session_allows)' "$T/closed.out" > "$T/closed.rest" 2>/dev/null
     cmp -s "$T/bound.rest" "$T/closed.rest" || needf "$1: another field differs from the bound answer's output"
 }
 answer "$BOUND_MERGE"; mode exit1; closed "exit 1 with a bound document"
@@ -282,7 +282,7 @@ unset NIWA_LOOKUP_SECONDS
 took=$(( $(date +%s) - start ))
 [ "$took" -lt 10 ] || needf "the sleeping read held --rules ${took}s, not under 10"
 mode answer
-crit "7. exit 1, not-dispatched, record-unusable, another schema, a bad grant or level, empty stdout, text that isn't JSON and a read past its bound each give grants false and allows [] on every row, exit 0, every other field unchanged"
+crit "7. exit 1, not-dispatched, record-unusable, another schema, a bad grant or level, empty stdout, text that isn't JSON and a read past its bound each give under_session_grant false and session_allows [] on every row, exit 0, every other field unchanged"
 
 # ---- 8 ------------------------------------------------------------------------
 answer "$BOUND_MERGE"
@@ -335,9 +335,9 @@ need "where it is the only row that would pass, the copy makes no read" "0 0" "$
 need "  ... and every row is false" "$FLOOR_NONE s10:false:[]" "$(verdicts "$T/bare.out")"
 answer "$BOUND_MERGE"
 rules > "$T/bare.out" 2> "$T/bare.err"
-need "  ... while the installed plugin, naming it, reads once and grants it" "0 1 s10:true:[\"merge-pr\"]" \
+need "  ... while the installed plugin, naming it, reads once and puts it under the grant" "0 1 s10:true:[\"merge-pr\"]" \
     "$? $(calls) $(jq -c 'select(.standing == "s10")' "$T/bare.out" | verdicts /dev/stdin)"
-crit "9. run from a copy whose manifest names no repository, the skill row citing the original's repository prints grants false, and where it is the only row that would pass, no read"
+crit "9. run from a copy whose manifest names no repository, the skill row citing the original's repository prints under_session_grant false, and where it is the only row that would pass, no read"
 
 # ---- 11 -----------------------------------------------------------------------
 (cd "$WD" && bash "$REPO_ROOT/scripts/check-template-compat.sh" --template "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.md") > "$T/compat.out" 2>&1
@@ -346,8 +346,8 @@ RC_COMPAT=$?
 COMPILED=$(cd "$WD" && koto template compile "$TPL" < /dev/null 2> "$T/compile.err")
 # The structure a run executes (template-fingerprint.jq: every gate, action
 # and transition, with the prose left out) names neither.
-need "  ... no gate or action of the compiled template names grants or --rules" 0 \
-    "$(jq -c -f "$HERE/template-fingerprint.jq" "$COMPILED" 2>&1 | jq '[.. | strings | select(test("grants|--rules"))] | length' 2>&1)"
-crit "11. the compat table holds for the shipped template with the gate_scripts digest recorded, and no gate reads grants"
+need "  ... no gate or action of the compiled template names either field or --rules" 0 \
+    "$(jq -c -f "$HERE/template-fingerprint.jq" "$COMPILED" 2>&1 | jq '[.. | strings | select(test("under_session_grant|session_allows|--rules"))] | length' 2>&1)"
+crit "11. the compat table holds for the shipped template with the gate_scripts digest recorded, and no gate reads either field"
 
 done_tests rule-grants-engine
