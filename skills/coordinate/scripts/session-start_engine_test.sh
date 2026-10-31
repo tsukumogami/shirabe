@@ -84,8 +84,10 @@ write_as_agent state-stored-set.sh --run friction lane-friction --by coord-test
 eq "2: friction is accepted" 0 $?
 write_as_agent state-stored-set.sh --run reports-to "the human" --by "the human"
 eq "2: reports-to is accepted" 0 $?
+# The start's own rules rows (skill- and workspace- labels) sit beside them.
 eq "2: record/run holds the four rows" "briefs=lane sha256:$BRIEFS|friction=lane-friction|reports-to=the human|rules=coordinate sha256:$RULES" \
-    "$( (cd "$WD" && koto context get "$S" record/run) | jq -r '[.[] | select(.key | IN("rules", "briefs", "friction", "reports-to")) | "\(.key)=\(.value)"] | sort | join("|")')"
+    "$( (cd "$WD" && koto context get "$S" record/run) | jq -r '[.[] | select(.key | IN("rules", "briefs", "friction", "reports-to"))
+        | select((.key == "rules" and (.value | test("^(skill|workspace)-"))) | not) | "\(.key)=\(.value)"] | sort | join("|")')"
 eq "2:   ... and still no store row" 0 "$(store_rows)"
 
 # ---- 3. a stop, then the next start ---------------------------------------------------

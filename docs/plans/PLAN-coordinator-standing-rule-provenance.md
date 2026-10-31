@@ -186,7 +186,7 @@ The headings are fixed strings:
 
 **Dependencies**: Step 1
 
-**Files**: `skills/coordinate/scripts/state-schema.jq` (`rule_grants`), `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-schema_test.sh`, `skills/coordinate/scripts/state-stored-set_test.sh`, `skills/coordinate/scripts/rule-grants_engine_test.sh`, `skills/coordinate/scripts/standing-rules_engine_test.sh`, `skills/coordinate/scripts/testdata/standing-rules/`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/check-skill.tsv`
+**Files**: `skills/coordinate/scripts/state-schema.jq` (`rule_grants`), `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-schema_test.sh`, `skills/coordinate/scripts/state-stored-set_test.sh`, `skills/coordinate/scripts/rule-grants_engine_test.sh`, `skills/coordinate/scripts/standing-rules_engine_test.sh`, `skills/coordinate/scripts/standing-counts_engine_test.sh` and `skills/coordinate/scripts/rule-files_engine_test.sh` (the fake niwa), `skills/coordinate/scripts/testdata/standing-rules/`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/check-skill.tsv`
 
 ### Step 6: --standing rule writes a skill, doc, pinned or inferred rule row and refuses one that cites words its source doesn't hold
 

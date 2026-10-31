@@ -60,9 +60,19 @@ ORIG_PATH=$PATH
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 export HOME="$T/home" KOTO_HOME="$T/home/.koto" GIT_CEILING_DIRECTORIES="$T"
-mkdir -p "$HOME" "$T/bin"
-PATH="$T/bin:$ORIG_PATH"
+mkdir -p "$HOME" "$T/bin" "$T/fake"
+# niwa is never the real one: --rules may read the session's grant, so a fake
+# niwa in the scratch directory, first on PATH, logs its arguments and answers
+# not-dispatched.
+cat > "$T/fake/niwa" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$T/niwa.calls"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}'
+EOF
+chmod +x "$T/fake/niwa"
+PATH="$T/fake:$T/bin:$ORIG_PATH"
 export PATH
+unset NIWA_BIN NIWA_LOOKUP_SECONDS
 
 # The sessions, named here and nowhere else. A and B are two runs of one
 # roadmap, as in standing-rules_engine_test.sh; I and E are runs of roadmaps

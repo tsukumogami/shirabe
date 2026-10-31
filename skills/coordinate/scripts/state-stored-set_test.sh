@@ -704,4 +704,68 @@ bash "$RS" "${W[@]}" --run friction friction-last --by "the human" >/dev/null 2>
 eq "an unrelated write over a row stored with an empty Source exits 0" 0 $?
 cmp -s "$SD/standing-today.json" "$SK" && ok "  ... and writes it back with the key left out" || bad "  ... and writes it back with the key left out" "$(cat "$SK")"
 
+echo "== --rule-files: the start's rules rows, and the lists it refuses =="
+DA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DB=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+DC=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+rf() { jq -nc --arg l "$1" --arg p "$2" --arg d "$3" '{label: $l, path: $p, digest: $d}'; } # rf <label> <path> <digest>: one line of the list
+HK="$KOTO_STORE/context/$SR/record/host"
+seed "$TWO"
+bash "$RS" "${W[@]}" --run rules "notes sha256:$DC" --by "the human" >/dev/null 2>"$T/err" \
+    && bash "$RS" "${W[@]}" --run briefs "brief-1 sha256:$DC" --by "the human" >/dev/null 2>"$T/err" \
+    && bash "$RS" "${W[@]}" --host rules:notes /srv/notes.md >/dev/null 2>"$T/err"
+eq "a person's rules row, a briefs row and its host key are written" 0 $?
+{ rf skill-SKILL.md /p/skills/coordinate/SKILL.md "$DA"; rf workspace-0-CLAUDE.md /w/repo/CLAUDE.md "$DA"; } > "$T/rf1"
+N0=$(entries | jq length)
+bash "$RS" "${W[@]}" --rule-files "$T/rf1" --by coord-run >/dev/null 2>"$T/err"
+eq "--rule-files writes a rules row per listed file" "0 notes sha256:$DC|skill-SKILL.md sha256:$DA|workspace-0-CLAUDE.md sha256:$DA" \
+    "$? $(live | jq -r '[.run[] | select(.key == "rules") | .value] | join("|")')"
+eq "  ... set by its --by" "coord-run coord-run" "$(live | jq -r '[.run[] | select(.key == "rules" and (.value | startswith("notes") | not)) | .set_by] | join(" ")')"
+eq "  ... the host keys naming each path, the person's kept" "/p/skills/coordinate/SKILL.md|/w/repo/CLAUDE.md|/srv/notes.md" \
+    "$(jq -r '"\(.["rules:skill-SKILL.md"])|\(.["rules:workspace-0-CLAUDE.md"])|\(.["rules:notes"])"' "$HK")"
+eq "  ... and one run entry naming both labels as added" "1 run" "$(entries | jq -r --argjson n "$N0" '.[$n:] | "\(length) \(.[0].kind)"')"
+entries | jq -e '.[-1].text | test("added skill-SKILL.md sha256:a{64}, workspace-0-CLAUDE.md sha256:a{64}")' >/dev/null \
+    && ok "  ... with their digests" || bad "  ... with their digests" "$(entries | jq -r '.[-1].text')"
+SNAP=$(session_snapshot "$SR"); N1=$(entries | jq length)
+bash "$RS" "${W[@]}" --rule-files "$T/rf1" --by coord-run > "$T/out" 2>"$T/err"
+eq "the same list again exits 0 and prints nothing" "0 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+eq "  ... writing no key" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... and no entry" "$N1" "$(entries | jq length)"
+bash "$RS" "${RM[@]}" --rules > "$T/rules.out" 2>"$T/err"
+eq "--rules lists each Run rules row after the Standing objects, with its kind" \
+    "0 other:notes:sha256:$DC skill:skill-SKILL.md:sha256:$DA workspace:workspace-0-CLAUDE.md:sha256:$DA" \
+    "$? $(jq -r 'select(.run == "rules") | "\(.kind):\(.label):\(.digest)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')"
+{ rf skill-SKILL.md /p/skills/coordinate/SKILL.md "$DB"; } > "$T/rf2"
+bash "$RS" "${W[@]}" --rule-files "$T/rf2" --by coord-run >/dev/null 2>"$T/err"
+eq "a changed digest replaces its row and an unlisted one goes" "0 notes sha256:$DC|skill-SKILL.md sha256:$DB" \
+    "$? $(live | jq -r '[.run[] | select(.key == "rules") | .value] | join("|")')"
+eq "  ... its host key with it, the person's and the briefs row kept" "null /srv/notes.md brief-1 sha256:$DC" \
+    "$(jq -r '.["rules:workspace-0-CLAUDE.md"] // "null"' "$HK") $(jq -r '.["rules:notes"]' "$HK") $(live | jq -r '.run[] | select(.key == "briefs") | .value')"
+entries | jq -e '.[-1].text | test("changed skill-SKILL.md sha256:a{64} to sha256:b{64}; removed workspace-0-CLAUDE.md\\.$")' >/dev/null \
+    && ok "  ... and its entry names the old and new digests and the label removed" || bad "  ... and its entry names the old and new digests and the label removed" "$(entries | jq -r '.[-1].text')"
+{ rf skill-SKILL.md /q/skills/coordinate/SKILL.md "$DB"; } > "$T/rf3"
+N2=$(entries | jq length); RUN_BEFORE=$(koto context get "$SR" record/run)
+bash "$RS" "${W[@]}" --rule-files "$T/rf3" --by coord-run >/dev/null 2>"$T/err"
+eq "a file that moved with its digest unchanged moves its host key" "0 /q/skills/coordinate/SKILL.md" "$? $(jq -r '.["rules:skill-SKILL.md"]' "$HK")"
+eq "  ... leaving the Run section and the entries as they were" "$RUN_BEFORE $N2" "$(koto context get "$SR" record/run) $(entries | jq length)"
+# Each list is refused (65) before anything is read or written.
+rf_refused() { # rf_refused <what> <list-file>
+    local snap n rc
+    snap=$(session_snapshot "$SR"); n=$(entries | jq length)
+    bash "$RS" "${W[@]}" --rule-files "$2" --by coord-run >/dev/null 2>"$T/err"; rc=$?
+    if [ "$rc" = 65 ] && [ "$snap" = "$(session_snapshot "$SR")" ] && [ "$n" = "$(entries | jq length)" ]; then
+        ok "--rule-files refuses $1 (65), writing no key and no entry"
+    else bad "--rule-files refuses $1 (65), writing no key and no entry" "$rc $(cat "$T/err")"; fi
+}
+rf notes /p/notes.md "$DA" > "$T/bad"; rf_refused "a label with neither prefix" "$T/bad"
+rf "skill-two words.md" /p/x.md "$DA" > "$T/bad"; rf_refused "a label outside the grammar" "$T/bad"
+rf skill-SKILL.md skills/coordinate/SKILL.md "$DA" > "$T/bad"; rf_refused "a relative path" "$T/bad"
+rf skill-SKILL.md /p/SKILL.md "sha256:$DA" > "$T/bad"; rf_refused "a digest that isn't 64 hex" "$T/bad"
+rf skill-SKILL.md "$(printf '/p/a\tb.md')" "$DA" > "$T/bad"; rf_refused "a path holding a control character" "$T/bad"
+rf skill-SKILL.md "/p/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa.md" "$DA" > "$T/bad"; rf_refused "a path holding a token-shaped string" "$T/bad"
+{ rf skill-SKILL.md /p/a.md "$DA"; rf skill-SKILL.md /p/b.md "$DB"; } > "$T/bad"; rf_refused "one label twice" "$T/bad"
+printf 'not json\n' > "$T/bad"; rf_refused "a list that isn't rule-files.sh's" "$T/bad"
+bash "$RS" "${W[@]}" --rule-files "$T/rf1" >/dev/null 2>&1; eq "--rule-files without --by is a usage error" 64 $?
+eq "no write in this section reached GitHub" "" "$(gh_writes)"
+
 done_tests state-stored-set_test

@@ -247,7 +247,7 @@ S8	skills/coordinate/SKILL.md	-	passing provenance, is **resumed**: the opener
 S9	skills/coordinate/SKILL.md	-	**carried**: a new run opens and every `record/`
 S10	skills/coordinate/SKILL.md	-	**Moving the run to another host is an import**
 S11	skills/coordinate/SKILL.md	-	only when the operator says so
-S12	skills/coordinate/references/state-keys.md	-	Only `state-stored-set.sh --host` writes it
+S12	skills/coordinate/references/state-keys.md	-	Only `state-stored-set.sh` writes it
 S13	skills/coordinate/koto-templates/coordinate.md	reconcile	on the first tick after an import
 S14	skills/coordinate/koto-templates/coordinate.md	reconcile	reports to (`no-reports-to`)
 S15	skills/coordinate/koto-templates/coordinate.md	reconcile	the session, workspace and template it came from
