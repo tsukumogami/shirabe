@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   shirabe wants a maintainer to learn that a change broke a skill, including a
   hand-off from one skill to another, before the release carrying it ships, and
@@ -40,7 +40,7 @@ upstream: docs/prds/PRD-evals-at-release.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
