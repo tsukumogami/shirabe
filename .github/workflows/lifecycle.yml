@@ -16,6 +16,10 @@ name: Lifecycle Check
 #     # with:
 #     #   runs-on: '["self-hosted", "linux", "x64"]'
 #
+# A self-hosted runner needs what the job builds and runs with: cargo (the
+# toolchain action installs it), and, for the coordination merge-last gate on
+# a ready coordination PR only, `gh`, bash 4 or later and grep.
+#
 # The caller must grant `pull-requests: read` (as above): a reusable workflow
 # cannot request a permission the caller lacks, and the coordination merge-last
 # gate below needs it for its live `gh` queries on a coordination PR. A
@@ -112,9 +116,13 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build shirabe
+        # Installs into the job's temp directory rather than /usr/local/bin so
+        # the step needs no root and leaves nothing behind on a self-hosted
+        # runner.
         run: |
           cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
-          install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
+          install -D -m 0755 .shirabe-src/target/release/shirabe "$RUNNER_TEMP/bin/shirabe"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run lifecycle check (R5 finalization-not-done guard)
         # The shell conditional reads github.event.pull_request.draft
