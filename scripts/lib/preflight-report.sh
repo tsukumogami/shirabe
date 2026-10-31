@@ -534,18 +534,27 @@ preflight_route_available() {
     # owner/repo and nothing else: it is passed to the driver as one word, so
     # it is held to a shape that cannot read as an option or a second word.
     case "$verb" in
+        tsuku-source)
+            verb="bad-source"
+            ;;
         "tsuku-source "*)
             arg="${verb#tsuku-source }"
             verb="tsuku-source"
             case "$arg" in
                 [A-Za-z0-9]*/[A-Za-z0-9]*) ;;
-                *) verb="invalid" ;;
+                *) verb="bad-source" ;;
             esac
             case "$arg" in
-                */*/*|*[!A-Za-z0-9._/-]*) verb="invalid" ;;
+                */*/*|*[!A-Za-z0-9._/-]*) verb="bad-source" ;;
             esac
             ;;
     esac
+
+    if [ "$verb" = "bad-source" ]; then
+        PREFLIGHT_ROUTE_REASON="gives tsuku-source no owner/repo argument this check will run, so the route was not used"
+        preflight_route_memo "$key" "no" "$PREFLIGHT_ROUTE_REASON"
+        return 1
+    fi
 
     case "$verb" in
         -|tsuku-info|tsuku-source) ;;

@@ -639,7 +639,21 @@ for BADARG in "niwa" "-x/niwa" "tsukumogami/-niwa" "a/b/c" "tsukumogami/niwa ext
     assert_has "tsuku-source '$BADARG': the record is not used" \
         "$(prose "$ROUTE_OUT")" "No install route is available on this host"
     assert_eq "tsuku-source '$BADARG': nothing is executed" "" "$(cat "$SRCCALLS")"
+    assert_has "tsuku-source '$BADARG': the reason names the argument" \
+        "$(prose "$ROUTE_OUT")" "gives tsuku-source no owner/repo argument this check will run"
 done
+
+# tsuku-source with no argument at all is refused the same way, rather than
+# running a dry run of an empty name.
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'niwa\ttsuku\tany\ttsuku tsuku-source\ttsuku install tsukumogami/niwa\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+: >"$SRCCALLS"
+route_case linux "$SRCDRIVER" niwa install
+assert_has "bare tsuku-source: the reason names the missing argument" \
+    "$(prose "$ROUTE_OUT")" "gives tsuku-source no owner/repo argument this check will run"
+assert_eq "bare tsuku-source: nothing is executed" "" "$(cat "$SRCCALLS")"
 
 # tsuku-info still takes no argument.
 {
