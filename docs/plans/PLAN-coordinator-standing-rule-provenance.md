@@ -113,7 +113,7 @@ step whose behaviour they cover.
 
 ### Step 3: --rules --counts gives each class's count, and the handover read lists inferred rows awaiting confirmation
 
-shirabe: `state-stored-set.sh --rules --counts` prints one count per class with the inferred count on its own line, and `state-handover.sh` gains the report lists the design names (inferred rows awaiting confirmation now; superseded, asserted-reversal and `--authorized-by` lists that print empty until step 9), each under a heading marking koto text as quoted data.
+shirabe: `state-stored-set.sh --rules --counts` prints one count per class with the inferred count on its own line, and `state-handover.sh` gains the report lists the design names (inferred rows awaiting confirmation now; superseded and asserted-reversal lists that print empty until step 9, and an `--authorized-by` list that prints empty until step 13 adds the flag), each under a heading marking koto text as quoted data.
 
 ### Step 4: every start writes the Run rules digests, and --rules lists each skill and workspace rule file the run started under, with its kind
 
@@ -141,7 +141,7 @@ shirabe, gated on a koto release with the decision record and the reads listed b
 
 ### Step 10: a decision row reads owner-said, dispatcher-said or inferred by the root and leg tests, and the writer refuses a citation that wouldn't
 
-shirabe, gated as step 9 plus the supersede hop: the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the root test, own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on.
+shirabe, gated as step 9 plus the supersede hop: the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the root test, own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on; it ships in the same plugin release as step 14, because that refusal covers the carry acknowledgement every handover writes.
 
 ### Step 11: a manager's row citing its director's person decision reads owner-said, and reads as a flagged inferred quote while the cross-session read fails
 
@@ -165,11 +165,11 @@ shirabe, gated as step 12: the coordinate template's tick runs `--rules --in-for
 
 ### Step 16: SKILL.md tells a root to record the owner's word before writing the row and a manager to cite its director's
 
-shirabe, with step 14: the owner-said procedure, the manager rule, the replacement for "record a person's word found on the record's thread or anywhere else", the dropped "yourself as relayer", and the restrict-only rule for rows `rule_grants` refuses, on the same passages tsukumogami/shirabe#1449 changes.
+shirabe, after steps 5, 11 and 14: the owner-said procedure, the manager rule, the replacement for "record a person's word found on the record's thread or anywhere else", the dropped "yourself as relayer", and the restrict-only rule for rows `rule_grants` refuses, on the same passages tsukumogami/shirabe#1449 changes.
 
 ### Step 17: on a fixture lineage, the five outcome checks each hold, and the unsourced count rises within its threshold
 
-shirabe, after steps 3, 4, 11, 13 and 15: an end-to-end walkthrough a reviewer can rerun, over a fixture lineage of at least six successions, that runs the design's five checks with the observations described below for the old lineage, the reversed rule and the accretion threshold.
+shirabe, after steps 3, 4, 11, 13, 14 and 15: an end-to-end walkthrough a reviewer can rerun, over a fixture lineage of at least six successions whose every handover writes its carry acknowledgement in one of step 14's forms, that runs the design's five checks with the observations described below for the old lineage, the reversed rule and the accretion threshold.
 
 ## Implementation Sequence
 
@@ -184,8 +184,8 @@ start as soon as the design is accepted.
 | 2 | reader release | none | nothing |
 | 3 | reader release | 1 | nothing |
 | 4 | reader release | 1 | nothing |
-| 5 | reader release | 1 | nothing more: the authority work has named its read, which niwa already ships |
-| 6 | writer release | 1 | the reader release (steps 1 to 4, and 5 if agreed) shipped in a plugin release |
+| 5 | reader release | 1 | the authority work's agreement to the grant interface, which is reached; niwa already ships the read |
+| 6 | writer release | 1 | the reader release (steps 1 to 5) shipped in a plugin release |
 | 7 | writer release | 6 | as step 6 |
 | 8 | writer release | 7 | as step 6 |
 | 9 | citations | 1 | a koto release with the decision record and the reads below |
@@ -195,14 +195,21 @@ start as soon as the design is accepted.
 | 13 | citations | 7, 10 | as step 10 |
 | 14 | citations | 10 | as step 10 |
 | 15 | citations | 12 | as step 10 |
-| 16 | citations | 11, 14 | as step 11 |
-| 17 | citations | 3, 4, 11, 13, 15 | as step 11 |
+| 16 | citations | 5, 11, 14 | as step 11 |
+| 17 | citations | 3, 4, 11, 13, 14, 15 | as step 11 |
 
 Steps 1 to 5 need no koto change and can be built first. Step 5 reads
 only `niwa authority check`, which niwa already ships, and nothing in
-steps 6 to 8 reads `grants`. Steps 6 to 8 wait for the reader release to ship, by the
-design's release rule: the writer release goes out at least one plugin
-release after the reader release. Steps 9 to 17 wait for koto.
+steps 6 to 8 reads `grants`. Steps 6 to 8 wait for the reader release to
+ship, by the design's release rule: the writer release goes out at least
+one plugin release after the reader release. Steps 9 to 17 wait for koto.
+
+Steps 10 and 14 ship in one plugin release. Once koto is at the floor,
+step 10's writer refuses an uncited event row naming a person in Owner,
+and the carry acknowledgement the handover gate asks every successor to
+write is such a row. Only step 14 gives a successor a form the gate then
+accepts, so a plugin carrying step 10 without step 14 would leave every
+coordinator on that koto unable to hand over.
 
 ### The koto dependencies
 
