@@ -43,6 +43,21 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 RS="$HERE/state-stored-set.sh"
 RH="$HERE/state-handover.sh"
 RA="$HERE/state-entry.sh"
+# --rules may read the session's grant from niwa. A fake niwa goes first on
+# PATH, logging its arguments to $T/niwa.calls and printing $T/niwa.answer,
+# and no session id is set unless a case sets one, so no niwa on this host is
+# ever asked.
+mkdir -p "$T/fake-niwa"
+cat > "$T/fake-niwa/niwa" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$T/niwa.calls"
+cat "$T/niwa.answer"
+EOF
+chmod +x "$T/fake-niwa/niwa"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
+PATH="$T/fake-niwa:$PATH"
+export PATH
+unset CLAUDE_CODE_SESSION_ID NIWA_BIN
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 export RS_SESSION=$SR
@@ -595,7 +610,22 @@ eq "--rules prints one object per row, in record order" "0 s1 s2 s6 s7 s8 s9" "$
 eq "  ... each with its class and status" "relayed:in-force relayed:in-force inferred:unconfirmed skill-says:in-force charter:in-force unreadable:unreadable" \
     "$(jq -r '"\(.class):\(.status)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... the relayed rows their Owner, the rule rows none" "the human|the human|null|null|null|null" "$(jq -r '.owner // "null"' "$T/rules.out" | tr '\n' '|' | sed 's/|$//')"
-eq "  ... and no grants key" 0 "$(jq -s 'map(select(has("grants"))) | length' "$T/rules.out")"
+eq "  ... and, with no session id, grants false and allows [] on every one, with no read" "false:[] false:[] false:[] false:[] false:[] false:[]|" \
+    "$(jq -r '"\(.grants):\(.allows | tojson)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')|$(cat "$T/niwa.calls" 2>/dev/null)"
+# From an instance, as this session, under a bound answer granting merge-pr:
+# one read, and only the relayed approval (s2) grants; the pause, the
+# inferred, pinned and unreadable rows and the skill row citing the host
+# rather than the plugin's repository don't.
+mkdir -p "$T/inst/.niwa" "$T/inst/repo"; printf '{}' > "$T/inst/.niwa/instance.json"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"bound","grant":[{"authority":"merge-pr","sources":["dispatch"]}],"level":"supervised"}' > "$T/niwa.answer"
+rm -f "$T/niwa.calls"
+(cd "$T/inst/repo" && CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 bash "$RS" "${RM[@]}" --rules) > "$T/rules.bound" 2>"$T/err"
+eq "--rules as a bound session grants the relayed approval alone" "0 false:[] true:[\"merge-pr\"] false:[] false:[] false:[] false:[]" \
+    "$? $(jq -r '"\(.grants):\(.allows | tojson)"' "$T/rules.bound" | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... from one read of the session's grant" "authority check -C $(cd "$T/inst" && pwd -P) --session 0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 --json" "$(cat "$T/niwa.calls" 2>/dev/null)"
+eq "  ... every other field as without it" "$(jq -c 'del(.grants, .allows)' "$T/rules.out")" "$(jq -c 'del(.grants, .allows)' "$T/rules.bound")"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
+rm -f "$T/niwa.calls"
 # Each relayed row names the entry its own --standing wrote: s1's is the
 # older of the two, not the newest.
 P1=$(jq -r 'select(.standing == "s1") | .pointer.entry' "$T/rules.out")

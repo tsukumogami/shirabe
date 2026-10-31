@@ -266,6 +266,54 @@ eq "  ... the second row its own entry, not the newest" "{\"entry\":\"$SESS reco
 eq "  ... and a row no entry matches points at itself" "{\"row\":\"$SESS record/standing s2\"}" \
     "$(view "$(jq -c '[.[1]]' "$SD/standing-today.json")" '[]' | cut -d'|' -f8)"
 eq "no rule_view object has a grants key" false "$(jq -c -L "$HERE" --arg s "$SESS" 'include "state-schema"; [.[] | rule_view($s; [])] | any(has("grants"))' "$SD/rule-rows.json")"
+
+echo "== rule_grants =="
+# grants <row-json> <answer-json> [<jq patch over the row's rule_view>]: the
+# row's {grants, allows} beside that answer, the manifest naming
+# acme/plugin and the record's host acme/widgets. A patch writes the facts a
+# cited decision's provenance read will give (its class, status and reversal).
+grants() {
+    jq -c -L "$HERE" --arg s "$SESS" --argjson a "$2" 'include "state-schema";
+        rule_view($s; []) | '"${3:-.}"' | rule_grants({plugin_repo: "acme/plugin", host_repo: "acme/widgets", answer: $a})' <<< "$1"
+}
+BOUND3='{"schema":"niwa.authority.check/v1","state":"bound","dispatch_id":"d1","grant":[{"authority":"merge-pr","sources":["dispatch"]},{"authority":"close-issue","sources":["dispatch"]},{"authority":"cut-release","sources":["dispatch"]}],"level":"autonomous"}'
+ALL3='{"grants":true,"allows":["merge-pr","close-issue","cut-release"]}'
+NONE='{"grants":false,"allows":[]}'
+GO='{"standing":"s2","kind":"go-ahead","on":"Feature 3","until":"","what":"Cut the release v2.0.0 and close #12.","owner":"the human","relayed_by":"","set":"2026-10-20T09:00Z"}'
+PAUSE='{"standing":"s1","kind":"pause","on":"all","until":"lifted","what":"hold everything","owner":"the human","relayed_by":"","set":"2026-10-20T09:00Z"}'
+CITED=$(jq -c '.[3]' "$SD/rule-rows.json")
+REV='{"reverser":"the human","time":"2026-10-21T09:00:00Z","reason":"the board rule is dropped"}'
+eq "a relayed go-ahead under a bound answer grants that answer's authorities" "$ALL3" "$(grants "$GO" "$BOUND3")"
+eq "  ... and with no answer grants nothing" "$NONE" "$(grants "$GO" null)"
+eq "a pause never grants, beside a bound answer granting all three" "$NONE" "$(grants "$PAUSE" "$BOUND3")"
+eq "a cited decision read owner-said and in force grants under that answer" "$ALL3" "$(grants "$CITED" "$BOUND3" '.class = "owner-said" | .status = "in-force"')"
+eq "  ... superseded by a verified reversal, it never grants" "$NONE" \
+    "$(grants "$CITED" "$BOUND3" ".class = \"owner-said\" | .status = \"superseded\" | .reversal = ($REV + {standing: \"verified\"})")"
+eq "  ... in force but with an asserted winning reversal, it never grants" "$NONE" \
+    "$(grants "$CITED" "$BOUND3" ".class = \"owner-said\" | .status = \"in-force\" | .reversal = ($REV + {standing: \"asserted\"})")"
+eq "  ... and unread, as every decision row reads until its provenance is read, it never grants" "$NONE" "$(grants "$CITED" "$BOUND3")"
+for i in 0 2; do
+    eq "the fixture's $(jq -r ".[$i].source | split(\" \")[0]" "$SD/rule-rows.json") row never grants" "$NONE" "$(grants "$(jq -c ".[$i]" "$SD/rule-rows.json")" "$BOUND3")"
+done
+eq "a bare inferred row never grants" "$NONE" "$(grants "$(RULE inferred)" "$BOUND3")"
+eq "a skill row citing the manifest's repository grants" "$ALL3" "$(grants "$(RULE "skill acme/plugin skills/x/SKILL.md $SHA40")" "$BOUND3")"
+eq "  ... named in another case, too" "$ALL3" "$(grants "$(RULE "skill Acme/Plugin skills/x/SKILL.md $SHA40")" "$BOUND3")"
+eq "  ... one citing the host instead never does" "$NONE" "$(grants "$(RULE "skill acme/widgets skills/x/SKILL.md $SHA40")" "$BOUND3")"
+eq "  ... nor one when the manifest names no repository" "$NONE" \
+    "$(jq -c -L "$HERE" --arg s "$SESS" --argjson a "$BOUND3" 'include "state-schema"; rule_view($s; []) | rule_grants({plugin_repo: null, host_repo: "acme/widgets", answer: $a})' <<< "$(RULE "skill acme/plugin skills/x/SKILL.md $SHA40")")"
+eq "a doc row citing the record's host grants" "$ALL3" "$(grants "$(RULE "doc acme/widgets docs/x.md $SHA40")" "$BOUND3")"
+eq "  ... one citing the manifest's repository instead never does" "$NONE" "$(grants "$(RULE "doc acme/plugin docs/x.md $SHA40")" "$BOUND3")"
+eq "a pinned row citing nothing anchored never grants" "$NONE" "$(grants "$(RULE "pinned charter sha256:$SHA64")" "$BOUND3")"
+# The answer, whatever the row's words: a bound answer granting merge-pr
+# alone lets the go-ahead reading `Cut the release ... and close #12.` allow
+# merge-pr and nothing else; an empty grant allows nothing.
+eq "a row's words never widen the answer's grant" '{"grants":true,"allows":["merge-pr"]}' \
+    "$(grants "$GO" "$(jq -c '.grant = [{authority: "merge-pr", sources: ["dispatch"]}] | .level = "supervised"' <<< "$BOUND3")")"
+eq "a bound answer with an empty grant grants with nothing allowed" '{"grants":true,"allows":[]}' "$(grants "$GO" "$(jq -c '.grant = []' <<< "$BOUND3")")"
+for patch in '.state = "not-dispatched"' '.state = "record-unusable"' '.schema = "niwa.authority.check/v2"' '.grant = "merge-pr"' \
+             '.grant[0].authority = "push-tag"' '.grant[0] = "merge-pr"' '.level = "relaxed"' 'del(.level)' 'del(.grant)' '[.]' '"bound"'; do
+    eq "an answer with [$patch] grants nothing" "$NONE" "$(grants "$GO" "$(jq -c "$patch" <<< "$BOUND3")")"
+done
 WK() { jq -nc --arg i "$1" --arg k "$2" --arg w "$3" --arg n "$4" '{item: $i, kind: $k, who: $w, next: $n, wakes: "0", updated: "2026-10-09T10:00Z"}'; }
 WKS() { full_record | jq -c --argjson w "[$1]" '.work = $w'; }
 same "an unknown Work kind" "$(WKS "$(WK x verdict-due me go)")" "work.kind: not holding"

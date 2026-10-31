@@ -263,8 +263,9 @@ allowance:
 What the interface is:
 
 - **What calls it.** The coordinator, through `rule_grants`, before a rule
-  permits a step. In this milestone `state-stored-set.sh --rules` calls it
-  once per call for each row the floor and the anchor don't settle, and no
+  permits a step. In this milestone `state-stored-set.sh --rules` makes
+  at most one read per `--rules` call, made only when a row passes the floor
+  and the anchor, its one answer applied to every row that passes both, and no
   script gates a step on the answer: the pause read enforces pauses and
   go-aheads by kind and status, as the design says.
 - **What it returns.** The session's grant as the authority read answers
