@@ -537,9 +537,9 @@ writes `record/decisions` or `record/reversals`.
   with `-`, and its id must be exactly 12 digits, so nothing a writer types
   there can reach `koto` as a flag or a path; every script passes the two as
   separate arguments, never through a built command string. A `doc` Source
-  must name a commit its repository's default branch contains, checked at
-  write when the repository is readable, so a charter citation points at
-  merged words. Owner may be blank only on a `rule` row whose Source is
+  must name a commit its repository's default branch contains, and the
+  writer refuses one whose repository it can't read to check that, so a
+  charter citation always points at merged words. Owner may be blank only on a `rule` row whose Source is
   `inferred`. Standing holds at most 120 `rule` rows, of which at most 60
   may read inferred; the five event kinds don't count against either cap, so
   neither a long brief nor a full set of rules stops a pause or a go-ahead
@@ -571,8 +571,11 @@ writes `record/decisions` or `record/reversals`.
   The entering session counts as bound when the decision's chain snapshot,
   which koto froze when it recorded the decision, names a session that holds
   a coordinator record (`record/meta`), or when the entering session has a
-  `reports-to` Run row. Neither the row nor the coordinator's own word makes
-  a session a root. It reads and never writes, and it fails closed: any
+  `reports-to` Run row. The row can only make a session count as bound; it
+  never makes one a root and never widens what a writer may cite. The
+  writer's own frozen chain, which the dispatcher-said test reads, comes
+  from the koto-owned `koto/links/dispatched-by/` keys in the writer's
+  session, read by the same helper. It reads and never writes, and it fails closed: any
   error, a status of `unreadable`, a body it can't parse, or a read that runs
   past its time limit gives `unreadable` for that row. Text it hands on from
   koto (a subject, a reason, a link) is cut to 200 characters, stripped of
@@ -582,11 +585,24 @@ writes `record/decisions` or `record/reversals`.
 - **`skills/coordinate/scripts/state-stored-set.sh`.** `--standing` takes
   `rule` and a new `--source <form>`. It refuses a `rule` row without a
   Source; a `decision` Source koto can't find, doesn't read `in-effect`, or
-  whose class `rule_class` wouldn't give the writer (a manager citing a
-  person decision entered in its own session, a citation outside the
-  writer's own run and its frozen koto chain); and, once koto's decision
-  commands are present, a new row naming a person in Owner with no
-  `decision` Source. `--end` refuses a cited row whose decision is in effect
+  that `rule_class` wouldn't read as owner-said or dispatcher-said for this
+  writer (a manager citing a person decision entered in its own session, a
+  citation outside its frozen koto chain, its own run's session decision,
+  whose place is the Decisions section or an `inferred` row); and, once
+  koto's decision commands are present, a new row naming a person in Owner
+  with no `decision` Source. A `decision` row can still read inferred later,
+  when it was carried from a writer whose standing differed; the writer just
+  never creates one. A new mode confirms a row in place:
+
+  ```
+  state-stored-set.sh --session S --confirm s<n> --source "decision <session> <id>" --by <who>
+  ```
+
+  It adds the citation to a row that has none or reads `inferred`, keeping
+  its id, kind, On, Until, What and Set, under the same refusals as a new
+  citation, and writes an entry naming the old and new Source. That is how
+  a relayed or inferred row becomes the owner's word once the owner confirms
+  it. `--end` refuses a cited row whose decision is in effect
   and names `koto decisions reverse` instead; it accepts a cited row once its
   decision reads `reversed` and the reversal is older than this run member's
   start (the creation time in this session's koto header), so the successor
@@ -649,8 +665,9 @@ writes `record/decisions` or `record/reversals`.
   takeover with `failed=takeover_read` before the fence when the schema
   refuses the predecessor's record, instead of reading the refusal as no
   record. Today `run_address` reads the exit code `state-stored-set.sh
-  --list` gives back, and a schema refusal and a missing record can share
-  one; the fix separates them before it changes what the opener does. That turns a too-old plugin meeting a newer record into a clean
+  --list` gives back, which folds `rs_record`'s schema refusal (65) into the
+  same exit 10 a missing record gives. The fix has `--list` pass the 65
+  through unchanged, and `run_address` maps it to `takeover_read`. That turns a too-old plugin meeting a newer record into a clean
   refusal that leaves the predecessor driving.
 
 - **Text.** `references/state-keys.md` describes the `rule` kind, the
