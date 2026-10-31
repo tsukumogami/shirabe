@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   At a finishing step the coordinate skill decides who settles the step from
   rules of its own: a bound coordinator hands it to its dispatcher, a root one
@@ -17,7 +17,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -142,16 +142,6 @@ reports the failed read, as it treats an unreadable posture today.
   what it tells a granted worker stay as #1449 left them.
 - Changes to skill text or scripts in this unit. The implementation is a later
   unit and waits on the authority answer it reads.
-
-## Open Questions
-
-- Which point names teardown and the other handed-over steps ask about, when
-  the authority answer may not carry a point for them yet. The PRD settles
-  which steps ask now and which wait.
-- Whether a step the skill always expects reviewed (a coordinator's own
-  milestone verdict pull request, under #1449) takes its reviewer from the
-  same answer when that answer leaves the step to the session. The PRD
-  settles where the expectation and the answer meet.
 
 ## References
 
