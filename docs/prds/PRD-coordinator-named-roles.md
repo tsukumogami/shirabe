@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   The coordinate skill talks about two coordinator roles, a manager over one
   lane and a director over managers, only in prose. Nothing at a run's start,
@@ -23,7 +23,7 @@ goals: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -126,15 +126,19 @@ brief a director writes to dispatch a manager.
   that opens a new run (a roadmap or a discipline, root or dispatched) takes the
   role as a setting whose only values are `manager` and `director`. Any other
   value, such as `lead` or `top`, is refused before a session exists, as the
-  skill refuses a malformed cap or host today, and nothing opens. A role
-  stated in words in the starter's decisions ("run as a director") is passed as
-  that setting, as the skill does for a host stated in words, and is not asked
-  for again.
+  skill refuses a malformed cap or host today, and nothing opens. Two other
+  statements count as naming the role, and nothing else does: the literal word
+  `manager` or `director` stated as the role in this start's own decisions
+  (the text after `--`, such as "role: director"), which is passed as the
+  setting the way a host stated in words is today; and, for a coordinator
+  another coordinator dispatched, the role line of the brief that started it
+  (R7).
 - **R2. An unnamed role is asked for, never defaulted.** When a new run's start
-  names no role and there's no recorded role to continue from (R4), the start
-  asks for it once, as it asks for a missing host, and nothing is dispatched
-  before it's answered. No default applies, and no role is inferred from the
-  scope, the cap, the holdings, the dispatcher, or any brief or report text.
+  names no role as R1 allows and there's no recorded role to continue from
+  (R4), the start asks for it once, as it asks for a missing host, and nothing
+  is dispatched before it's answered. No default applies, and no role is
+  inferred from the scope, the cap, the holdings, the dispatcher, or any brief
+  or report text other than what R1 accepts.
 - **R3. The role is in the record.** The run's record holds its role as one
   stored value inside the record's existing container, with one writer, read
   through the record's one reader. The handover read prints it, and a record
@@ -145,24 +149,27 @@ brief a director writes to dispatch a manager.
   continue with the recorded role, with no step by hand, and need no role
   setting at start. A continuation whose record holds no role (a lineage
   started before this change) takes it from the start setting under R1, or asks
-  under R2.
+  under R2. A discipline rotation that doesn't carry its predecessor's state is
+  a new run under R1.
 - **R5. The role doesn't change across a succession.** A start that continues a
   recorded role and names a different one is refused, naming the recorded role
   and the one asked for, and the run keeps going as it was. Naming the
   recorded role again is accepted. Naming a role for a record that holds none
   is not a change. A session that should run under the other role is started as
   a new lineage.
-- **R6. Reports name the role.** The run's first report, at reconcile, names the
-  role in its opening lines, beside the record's session name and host
-  repository, and every later report names it wherever it names the record.
-  A report names the role with the word `manager` or `director` and no other
-  word for it.
+- **R6. Reports name the role.** Every report names the record (its session
+  name and host repository) as the skill already requires, and the role is
+  named on that same line. In the run's first report, at reconcile, that line
+  is within the report's first five lines. A report names its own role with the
+  word `manager` or `director` and no other word for it.
 - **R7. A coordinator's brief carries the role on one rendered line.** A
   successor brief names the role the record holds, and a lane brief names
   `manager`, each on one line the brief renderer writes from the role it's
   given, never from the dispatcher's prose. The brief's other sections (Goal,
-  decisions, checkpoints, acceptance criteria) don't describe the role's duties:
-  the coordinator reads those from the skill's expectation list for its role
+  decisions, checkpoints, acceptance criteria) name the concrete scope and work
+  (which roadmap or lanes, which units, which decisions) but make no general
+  statement of what the role owes and use no name for the role at all: the
+  coordinator reads its duties from the skill's expectation list for its role
   (R10). `references/brief-template.md` says so where it describes the Goal.
   A worker brief (one that doesn't start a coordinator) carries no role line,
   and its rendered text is unchanged.
@@ -170,9 +177,9 @@ brief a director writes to dispatch a manager.
   report names the role on its brief's role line, which is the predecessor's
   recorded role, and its record holds that role from the start.
 - **R9. Old names stop at the first handover.** In a lineage started before this
-  change, the successor's role comes only from R1, R2 or R4. Nothing reads a
-  role out of an earlier brief's prose, an earlier report, a decision entry, a
-  session name or the dispatch topic. From its first report on, the successor
+  change, the successor's role comes only from R1, R2 or R4. Outside the two
+  statements R1 accepts, nothing reads a role out of an earlier brief's prose,
+  an earlier report, a decision entry, a session name or the dispatch topic. From its first report on, the successor
   calls its role `director` or `manager` and uses none of the names the
   lineage's earlier briefs used for it.
 - **R10. Each role has an expectation list in the skill.** `SKILL.md` carries
@@ -275,28 +282,44 @@ over a roadmap and one as a director over two managers, and sees each name its
 role in its first report and in its record):
 
 - [ ] A start of a roadmap run with the role setting `manager` opens, its first
-  report's opening lines contain `manager` beside the record's session name and
-  host repository, and reading the record's role value through the record's
+  report's line naming the record's session name and host repository is within
+  its first five lines and contains `manager`, and reading the record's role value through the record's
   reader prints `manager`.
-- [ ] A start with the role setting `director` opens; its first report's
-  opening lines contain `director`, the record's role value prints `director`,
-  and the lane briefs it renders for two managers each carry a role line naming
-  `manager`.
-- [ ] Neither first report names the role with any word other than `manager` or
-  `director` (a reviewer reads the opening lines; `lead`, `top`, `head` and
-  `lane coordinator` are absent).
+- [ ] A start with the role setting `director` opens; its first report's record
+  line, within its first five lines, contains `director`, the record's role
+  value prints `director`, and the lane briefs it renders for two managers each
+  carry a role line naming `manager`.
+- [ ] Each manager those lane briefs start reports `manager` on its first
+  report's record line, and its reports go to the director that dispatched it
+  as its reviewer (its record's `reports-to` row names that director's
+  address).
+- [ ] Every first report in these criteria (the two starts, each successor, and
+  each resume, carry, takeover and import below) names its own role with no
+  word other than `manager` or `director`: `grep -niE 'lead|top|head|lane
+  coordinator|director \(|manager \('` over the report's record line finds
+  nothing.
+- [ ] A later report of each run (after its first landed or handed-over unit)
+  carries the role on its record line.
 - [ ] A start with the role setting `lead` is refused before a session exists:
   no koto session for the scope is created, and the refusal names the two
   allowed values.
 - [ ] A new run's start with no role setting and no role in its decisions asks
   for the role once and dispatches nothing before the answer; a start whose
-  decisions say "run as a director" opens as a director without asking.
+  decisions say "role: director" opens as a director without asking; a start
+  whose decisions only mention a director in passing ("report to the
+  director") still asks.
 - [ ] The handover read of a record with no role lists a gap for it, and the
   handover gate doesn't pass until the role is set; with the role set, the
   same read prints it and lists no role gap.
-- [ ] A resume, a carry and a takeover of a run recorded as `director`, each
-  started with no role setting, report `director` in their first report and
-  their records read `director`.
+- [ ] A resume, a carry, a takeover and an import of a run recorded as
+  `director`, each started with no role setting, report `director` in their
+  first report and their records read `director`; a discipline rotation that
+  carries a predecessor recorded as `manager` reports `manager`.
+- [ ] The diff adds no file, store, GitHub surface, or carry or takeover path for
+  the role: the role is one value in the record's existing container, written
+  only by that section's writer (a write by any other script is refused as it is
+  for every key today), and a record holding it stays within the record's size
+  budget in the existing size test.
 
 Successor brief and first report (Evidence: each session hands off to a
 successor, whose brief and first report name the same role, with no prose
@@ -312,12 +335,15 @@ paragraph describing the role from scratch):
   that passes Goal text containing "you are the director" still renders the
   role line from the given role.
 - [ ] `references/brief-template.md`'s description of the Goal says the Goal
-  doesn't describe the role's duties and the coordinator reads them from the
+  names the concrete scope and work, makes no general statement of the role's
+  duties and names no role, and that the coordinator reads its duties from the
   skill's expectation list for its role.
-- [ ] In each successor's brief, no paragraph outside the role line restates the
-  role's duties: none of the expectation-list items of R10 appears in the
-  brief's Goal, decisions or checkpoints (a reviewer checks the brief against
-  the two lists).
+- [ ] In each successor's brief, outside the role line, `grep -niwE
+  'manager|director|lead|top|head'` finds no word naming the role (the phrase
+  "workspace manager" excepted), and no sentence states in general terms what
+  the role owes (a reviewer checks the Goal, decisions and checkpoints against
+  the two expectation lists; naming the concrete roadmap, lanes or units is
+  allowed).
 - [ ] Each successor's first report names the same role as its brief's role
   line, and its record's role value matches.
 - [ ] A start that continues a run recorded as `manager` with the role setting
@@ -337,9 +363,10 @@ only one role is addressed to "the coordinator"):
   role, and every occurrence of `manager` in the three file sets that means the
   tool has `workspace` immediately before it.
 - [ ] The implementation pull request's description has a table with one row per
-  `grep -niwE 'coordinators?'` hit in the three file sets after the change, each
-  with file, line, phrase and class, the row count equals the grep's line
-  count, and no row is in the one-role class.
+  occurrence of `coordinator` or `coordinators` (whole word, any case) in the
+  three file sets after the change, each with file, line, phrase and class; the
+  row count equals the count `grep -oiwE 'coordinators?'` prints across those
+  files (piped to `wc -l`), and no row is in the one-role class.
 - [ ] A reviewer spot-checks at least ten rows the table classes "either role"
   or "not a duty", including every sentence that dispatches a worker, lands a
   worker pull request, gives a milestone verdict, dispatches a coordinator or
@@ -390,7 +417,7 @@ Checks and content:
 - [ ] `grep -rF 'The workspace manager schedules your keep-alive at dispatch.'`
   finds the sentence in the same files before and after the change.
 - [ ] The diff's added lines contain none of `robust`, `leverage`,
-  `comprehensive`, `holistic`, `facilitate`, `tiered`, no emoji, no
+  `comprehensive`, `holistic`, `facilitate`, `tier`, `tiered`, no emoji, no
   `Co-Authored-By`, and no path or name from a private repository.
 
 ## Out of Scope
