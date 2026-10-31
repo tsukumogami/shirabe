@@ -1,6 +1,27 @@
 ---
 schema: design/v1
+status: Proposed
+problem: |
+  shirabe's pre-commit hook exists as `shirabe install-hooks`, but nothing runs
+  it in a workspace clone. It has to reach every product repository clone during
+  `niwa apply` on the released niwa 0.40.0, and `install-hooks` itself, which
+  can't change, preserves foreign hooks silently, never refreshes its own, writes
+  through symlinks under `--force`, and honors a global `core.hooksPath`.
+decision: |
+  Each product repository commits the same executable
+  `scripts/setup/shirabe-pre-commit.sh`, which niwa's post-clone setup runs in
+  the clone on every apply. The script reports and stops when shirabe is
+  missing, the hooks directory isn't the clone's own, or a foreign hook is
+  present; installs when there's no hook; and refreshes a shirabe-written hook
+  only when its body differs from a freshly generated one.
+rationale: |
+  The post-clone setup convention is the only route the released niwa runs at
+  apply time without relying on unvalidated behavior, and it scopes itself to
+  the repositories that carry the script. Guarding in the script keeps the hook
+  body in shirabe's binary while covering every case `install-hooks` handles
+  badly, with no niwa or shirabe binary change and no network access.
 upstream: docs/prds/PRD-sr8-workspace-engine.md
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: sr8-workspace-engine
