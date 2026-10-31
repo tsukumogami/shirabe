@@ -4206,9 +4206,14 @@ pick passes over it.
 
 <!-- details -->
 
-A milestone reads Done only on a verdict from you or a person, never from the
-session that delivered it, and the verdict is checked against the roadmap's
-own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
+A milestone reads Done only on a verdict from you or your reviewer, never
+from the session that delivered it, and the verdict is checked against the
+roadmap's own words.
+Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval:
+you at the approved head when your posture permits a merge, otherwise the
+reviewer that approved it when its own grant does, otherwise the next one up
+the chain, and a person at the root. You never approve your own verdict
+pull request and never hand its merge to a worker. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
 
 1. Read the roadmap on the default branch at its head commit, into a file
    outside any repository (`mktemp`), and its clauses with
@@ -4260,8 +4265,11 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
    Progress line cites `entry <n>` where the comment's URL would go. When it
    exits 14 (the post or the Progress commit failed), run it again with the same
    entry: it finds its pull request and finishes, opening no second one.
-   Never merge it; it goes to whoever merges roadmap changes, in the
-   merge-order table, and a person reviews the verdict there.
+   Never merge it before your reviewer approves it: it goes to your
+   reviewer, in the merge-order table, and your reviewer reviews the verdict there.
+   Once it is approved, you merge it at the approved head when your posture
+   permits a merge; otherwise your reviewer, or whoever above it holds the
+   grant, merges it.
 
    For verified with follow-ups, write each follow-up's milestone section to
    a file outside any repository and add `--follow-ups <file>`: a `new:`
@@ -4344,8 +4352,11 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
    in the session, the pull request's body says so, and the line cites
    `entry <n>`. Delivered, Outcome and Evidence stay. When
    it exits 14, run it again with the same entry: it finishes the same pull
-   request. Never merge it; it goes to whoever merges roadmap
-   changes, in the merge-order table, and a person reviews the report there.
+   request. Never merge it before your reviewer approves it: it goes to
+   your reviewer, in the merge-order table, and your reviewer reviews the report there.
+   Once it is approved, you merge it at the approved head when your posture
+   permits a merge; otherwise your reviewer, or whoever above it holds the
+   grant, merges it.
    Only one roadmap edit is pending at a time: a second failure reported
    while one is pending opens nothing, so submit `failed` and report it again
    once the pending edit is confirmed or dropped.

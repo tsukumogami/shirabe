@@ -700,7 +700,10 @@ merges it reviews the judgment, and writes a Side effects row:
 
 `milestone-done` is for a verified verdict of either kind, and
 `milestone-verdict` for changes needed. These pull requests must not be
-auto-merged without a person's review: the review is the control on Done.
+auto-merged without the reviewer's review (the dispatching coordinator for a
+bound session, a person for a root coordinator, its own verdicts included):
+the review is the control on Done. Someone other than the author approves,
+and whoever in the chain holds a merge grant merges at the approved head.
 
 ### Confirming, and the rework row
 

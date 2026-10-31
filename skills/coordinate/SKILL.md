@@ -575,8 +575,8 @@ states never ask you to do these steps by hand.
 ## Verdicts
 
 On a milestone roadmap (frontmatter `schema: roadmap/v2` or `roadmap/v3`) a merge never sets
-a milestone Done. A verdict does, given by you or a person and never by the
-worker that did the work, as the roadmap format reference's "When a milestone
+a milestone Done. A verdict does, given by you or your reviewer and never by
+the worker that did the work, as the roadmap format reference's "When a milestone
 is Done" requires. A feature roadmap keeps the merge-driven write-back
 described in The Record. The run records which form it drives once, as it
 opens, in the `ROADMAP_FORM` variable (`milestone` or `feature`). That picks
@@ -681,12 +681,21 @@ lines, and the rows and refusals behind them, are in
 - **An entry alone changes nothing.** A verdict or failure entry without the
   matching state change sets nothing Done or In progress, clears no row,
   re-offers nothing and doesn't let close-out pass: those follow only the
-  record's state and the default branch. Anyone using the coordinator's
-  login can post a comment shaped like a verdict, so the control on Done is
-  the review of the roadmap pull request. **A milestone roadmap's edit pull
-  requests must not be auto-merged without a person's review.** The
-  coordinator never merges them, and a repository that merges them
-  automatically gives up the review that Done rests on.
+  record's state and the default branch.
+  Anyone using the coordinator's login can post a comment shaped like a verdict,
+  so the control on Done is the review of the roadmap pull request. **A
+  milestone roadmap's edit pull requests
+  must not be auto-merged without the reviewer's review.** The reviewer is
+  the coordinator that dispatched this one when its session is bound, and
+  a person when it is a root coordinator, for its own verdict edits too:
+  whoever writes a verdict never approves its own Done.
+  Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval,
+  at the head that was approved: the author itself when its grant lets it
+  merge, otherwise the reviewer that approved it when its own grant does,
+  otherwise the next one up the chain, and a person at the root.
+  No coordinator approves its own verdict pull request or hands its merge to a worker;
+  that rule wins over any `Named authority:` line. A repository that merges
+  them automatically gives up the review that Done rests on.
 
 Two points of the shipped behaviour follow the milestone verdicts PRD where
 its design says otherwise. A changes-needed
