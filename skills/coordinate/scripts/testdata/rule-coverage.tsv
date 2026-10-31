@@ -1,6 +1,6 @@
 # rule-coverage.tsv -- where each rule of the prose /coordinate skill lives now.
 #
-# One row per rule of the pre-koto rule inventory (IDs C1..C196), then the
+# One row per rule of the pre-koto rule inventory (IDs C1..C197), then the
 # decision flow's rules (D1 onward) and the milestone verdict rules (M1
 # onward, docs/designs/DESIGN-milestone-verdicts.md) and the store rules (S1
 # onward, docs/designs/DESIGN-coordinator-session-record.md). Columns,
@@ -134,7 +134,7 @@ C112	skills/coordinate/references/verification-checklist.md	-	Never put an infer
 C113	skills/coordinate/references/verification-checklist.md	-	Reported by the worker, not re-derived (inferred):
 C114	skills/coordinate/references/verification-checklist.md	-	A claim you can't re-derive right now goes under
 C115	skills/coordinate/koto-templates/coordinate.md	land	Take each finishing step as far as the workspace's
-C116	skills/coordinate/koto-templates/coordinate.md	surface	once, with the reason for the order and your own reading
+C116	skills/coordinate/koto-templates/coordinate.md	surface	own reading of each pull request (`surfaced: merge_table`)
 C117	skills/coordinate/koto-templates/coordinate.md	land_merge	merges only at the verified head
 C118	skills/coordinate/koto-templates/coordinate.md	land_merge	merged from the verified head,
 C119	skills/coordinate/references/verification-checklist.md	-	| Pull request | Worker | Verified at | Why this position |
@@ -202,6 +202,7 @@ C193	skills/coordinate/SKILL.md	-	whoever in the chain holds the grant merges it
 C194	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	whoever in the chain holds the grant merges it after
 C195	skills/coordinate/SKILL.md	-	never instead of it
 C196	skills/coordinate/koto-templates/coordinate.md	land	never instead of it
+C197	skills/coordinate/SKILL.md	-	never the worker's or the lane's report passed through
 # The decision flow's rules (D1..D16), added with it; same columns.
 D1	skills/coordinate/SKILL.md	-	scripts/state-decision.sh` is the only thing that
 D2	skills/coordinate/koto-templates/coordinate.md	report_questions	Reading the report's questions.

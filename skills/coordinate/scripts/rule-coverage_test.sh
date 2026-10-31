@@ -8,7 +8,7 @@
 # the phrase occurs in that file and, when a state is named, inside that
 # `## <state>` section of the template body. It also checks that the rows, the
 # `# lost:` line and the `# retired:` lines together name every ID from C1 to
-# C196 exactly once, that the decision flow's rules, D1 onward, the milestone
+# C197 exactly once, that the decision flow's rules, D1 onward, the milestone
 # verdict rules, M1 onward, and the store rules, S1 onward, are each named
 # exactly once by a row or a `# retired:` line, and that each of the four
 # reference files is named in at least one state section of coordinate.md.
@@ -26,7 +26,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
 TSV="$HERE/testdata/rule-coverage.tsv"
 TEMPLATE=skills/coordinate/koto-templates/coordinate.md
-TOTAL=196
+TOTAL=197
 # The decision flow's rules, added after the inventory: D1..D$DTOTAL.
 DTOTAL=16
 # The milestone verdict rules (docs/designs/DESIGN-milestone-verdicts.md): M1..M$MTOTAL.

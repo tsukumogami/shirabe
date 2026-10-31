@@ -110,8 +110,8 @@ version: "1.0"
 description: >
   /coordinate's loop: a coordinator that drives a roadmap or one rotation of a
   discipline by handing units of work to other sessions, verifying what they
-  push, and landing it or putting it in front of a person, while implementing
-  nothing itself.
+  push, and landing it or putting it in front of its reviewer, while
+  implementing nothing itself.
 
   One rule holds the design together: the workflow reads, the coordinator
   writes, and nothing the coordinator writes is read by a check. Every check
@@ -184,7 +184,7 @@ variables:
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
-    description: How many parked workers may wait on a person's merge before pick dispatches nothing new.
+    description: How many parked workers may wait on a merge by your reviewer before pick dispatches nothing new.
     pattern: '^[1-9][0-9]?$'
     default: "3"
   REPORTS_TO:
@@ -412,12 +412,12 @@ states:
         type: enum
         values: [permitted, reserved]
         required: true
-        description: permitted when the human said the coordinator may merge; reserved when a person keeps the merge.
+        description: permitted when the human said the coordinator may merge; reserved when your reviewer keeps the merge.
       close:
         type: enum
         values: [permitted, reserved]
         required: true
-        description: permitted when the human said the coordinator may close; reserved when a person keeps it.
+        description: permitted when the human said the coordinator may close; reserved when your reviewer keeps it.
       teardown:
         type: enum
         values: [permitted, reserved]
@@ -2230,7 +2230,7 @@ states:
         type: enum
         values: [closed, handed_over]
         required: true
-        description: closed where the posture permits closing; handed_over after handing the close to a person.
+        description: closed where the posture permits closing; handed_over after handing the close to your reviewer.
     transitions:
       - target: done
         when:
@@ -3835,8 +3835,7 @@ through `land-merge.sh`'s re-read, so every hold standing on it needs its row.
 
 For a merge the workspace reserves, or one a hold in the record stops, put the
 merge-order table from `references/verification-checklist.md`
-in front of your reviewer, once, with the reason for the order and your own reading of each pull request
-(`surfaced: merge_table`); under it,
+in front of your reviewer, once, with the reason for the order and your own reading of each pull request (`surfaced: merge_table`); under it,
 for each pull request, paste the block `merge-order-entry.sh` printed at that
 pull request's own surface visit, as it is (it prints only for the pull
 request the latest land visit judged). For a blocked worker, show the
@@ -4214,7 +4213,9 @@ Someone other than the author approves it; whoever in the chain holds the grant 
 you at the approved head when your posture permits a merge, otherwise the
 reviewer that approved it when its own grant does, otherwise the next one up
 the chain, and a person at the root. You never approve your own verdict
-pull request and never hand its merge to a worker. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
+pull request and never hand its merge to a worker.
+
+The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
 
 1. Read the roadmap on the default branch at its head commit, into a file
    outside any repository (`mktemp`), and its clauses with
@@ -4314,7 +4315,7 @@ as `unit`. When the entry can't be checked or the script refuses, submit
 <!-- details -->
 
 A failure reopens only a Done milestone, and only through a roadmap pull
-request whoever merges roadmap changes reviews, so the report is checked
+request your reviewer reviews, so the report is checked
 before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
 
 1. Read the roadmap on the default branch into a file outside any repository

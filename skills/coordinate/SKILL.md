@@ -3,8 +3,8 @@ name: coordinate
 description: >-
   Run a coordinator: a long-running session that drives a roadmap or a
   standing discipline by handing units of work to other sessions, verifying
-  what they push, and landing it or putting it in front of a person, while
-  implementing nothing itself. Start it with a scope and the decisions
+  what they push, and landing it or putting it in front of its reviewer,
+  while implementing nothing itself. Start it with a scope and the decisions
   already made, and nothing else: it carries the loop, the words, and the
   record. Use it when an effort is bigger than one feature and someone has to
   keep it moving across sessions -- "drive this roadmap", "coordinate the
@@ -53,7 +53,7 @@ to advance it, what it never does, and how it ends.
 | Flag | Effect |
 |------|--------|
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
-| `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
+| `--parked-bound <n>` | Parked workers waiting on a merge by your reviewer before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
 | `--trust-template` | With `--import` only, and only when the operator says so: take the run's compiled template from the bucket rather than from this host's cache. The template holds every command the run executes. |
@@ -383,7 +383,7 @@ These words mean one thing each, everywhere in this skill and in the record.
   repository holds.
 - **Verdict** -- the judgment that sets a milestone Done, or doesn't: the
   shipped work checked against each clause of the milestone's Evidence and
-  against the roadmap's strategy, by the coordinator or a person, never by
+  against the roadmap's strategy, by the coordinator or its reviewer, never by
   the worker that did it. It is `verified`, `verified with follow-ups` or
   `changes needed`, posted on the record as a verdict entry.
 - **Verdict owed** -- a milestone whose work is finished and whose verdict's
@@ -736,7 +736,7 @@ its author, and a merge grant decides who merges after the review, never whether
 Your land step is the review of your workers' pull requests: nothing a worker
 reports merges until you have checked it there. A pull request you authored
 yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
-You can't tell when `niwa authority check` fails or isn't installed.
+You can't tell whether you are bound when `niwa authority check` fails or isn't installed.
 
 **A merge you may not take goes up with your own reading.** A ready pull
 request you may not merge, from a worker or from a lane, goes to your reviewer
