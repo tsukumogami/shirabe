@@ -218,6 +218,16 @@ bad=$(printf '%s\n' "$calls" | grep -v '"\$bin" install-hooks')
 if grep -q 'NIWA_' "$SETUP"; then problem "the script names a NIWA_ variable"; fi
 end
 
+# Repositories that carry a copy may run shellcheck over scripts/setup/, and a
+# copy can't be changed to suit one of them, so the canonical copy is held to it.
+begin "shellcheck reports nothing on the script"
+if ! command -v shellcheck >/dev/null 2>&1; then
+    skip "$CASE" "shellcheck is not on PATH"
+else
+    shellcheck "$SETUP" > "$T/sc.out" 2>&1 || problem "$(cat "$T/sc.out")"
+    end
+fi
+
 # -- shirabe missing -----------------------------------------------------------
 
 begin "shirabe not on PATH: the install notice, no pre-commit"
