@@ -120,7 +120,36 @@ sites and the occurrence table the pull request carries.
 
 ### Step 4: every remaining "a person" site names the reviewer, and the occurrence table is complete
 
-The description, --parked-bound, posture_ask and close-step descriptions, loop.md, state-keys.md's holds and verification-checklist.md name the reviewer, the sweep table for the pull request is complete, and check-skill.sh coordinate and check-public-content.sh pass.
+**Goal**: No passage left in `skills/coordinate/SKILL.md`, `skills/coordinate/references/*.md` or `skills/coordinate/koto-templates/coordinate.md` sends a review, a merge, a close, a verdict, a merge-order table, a parked worker's merge or the landing step to "a person" or "the person" without saying it's the root case. Every remaining occurrence is classified one of three ways: changed, already qualified, or a genuine person. The sites still left after step 3 name the reviewer: the skill's description, `--parked-bound` and `PARKED_BOUND`, the `posture_ask` merge and close descriptions, the close step's description, `loop.md`'s Ready to merge and Blocked on you rows, `state-keys.md`'s holds, and `verification-checklist.md`'s hand-over. Four leftovers from steps 2 and 3 are fixed:
+- the Verdict glossary entry;
+- the `milestone_reopen` intro;
+- the paragraph break before `milestone_verdict`'s steps;
+- the sentence after the fail-closed rule.
+
+Rule coverage again pins `surfaced: merge_table` in `surface` and pins the own-reading sentence. The template's structure doesn't change.
+
+**Acceptance Criteria**:
+
+- [ ] `grep -F` finds none of these phrases. In SKILL.md: `in front of a person`, `waiting on a person's merge`, `by the coordinator or a person`. In the template: `in front of a person`, `wait on a person's merge`, `reserved when a person keeps the merge`, `may close; reserved when a person keeps it`, `handing the close to a person`, `whoever merges roadmap changes reviews`. In `references/loop.md`: `the person can talk to it` (it may wrap after `the`), `waits on the person`. In `references/state-keys.md`: `goes to the person as held`. In `references/verification-checklist.md`: `the person merging`.
+- [ ] Each of those sites names the reviewer instead. The description and the template's opening say `in front of its reviewer`. `--parked-bound` says `waiting on a merge by your reviewer` and `PARKED_BOUND` says `wait on a merge by your reviewer`. The `posture_ask` merge and close descriptions say `reserved when your reviewer keeps the merge` and `reserved when your reviewer keeps it`, and the teardown description still says `reserved when a person keeps it`. The close step says `handing the close to your reviewer`. `loop.md` says `so your reviewer can talk to it` and `only what waits on your reviewer`. `state-keys.md` says `goes to your reviewer as held`. `verification-checklist.md` says `so whoever merges reads`. The Verdict glossary entry says `by the coordinator or its reviewer`. The `milestone_reopen` intro says the reopen goes through a roadmap pull request `your reviewer reviews`.
+- [ ] SKILL.md's sentence after the fail-closed rule reads `You can't tell whether you are bound when \`niwa authority check\` fails or isn't installed.`
+- [ ] In the template's `milestone_verdict` details, `The steps, with \`S\` for` starts its own paragraph, after a blank line.
+- [ ] The `surface` directive keeps `in front of your reviewer, once, with the reason for the order and your own reading of each pull request` and carries `your own reading of each pull request (\`surfaced: merge_table\`)` on one line. Row C116 pins that second phrase.
+- [ ] `rule-coverage.tsv` gains C197 (SKILL.md, `-`, `never the worker's or the lane's report passed through`). `TOTAL` in `rule-coverage_test.sh` and the header's ID range read 197. `bash skills/coordinate/scripts/rule-coverage_test.sh` exits 0, naming C116, C124, C125, C195, C196, C197 and M1 as found.
+- [ ] `grep -niE 'ask(s|ing)? (the )?(workspace )?owner' ` over the three file sets finds no line that asks the owner or the workspace owner for a review.
+- [ ] Every line the search `grep -nE '\b[Aa] person\b|\b[Tt]he person\b'` finds in the three file sets is classified `changed`, `already qualified` or `genuine` by PRD R5's rule. The result is one table row per occurrence, with columns `File | Line | Phrase | Class`, line numbers as of this step's commit, and the row count equal to the search's match count. The step records the table as `occurrence_table.md` in its own session (`koto context add <its session> occurrence_table.md --from-file <file>`, with the file outside the repository) for the pull request's description. Nothing in the repository carries the table.
+- [ ] `bash scripts/check-skill.sh coordinate` and `bash scripts/ablation/check-public-content.sh` exit 0. `koto template compile skills/coordinate/koto-templates/coordinate.md` exits 0. `bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` exits 0 with the fingerprint still the one listed at compat 2 and `coordinate.compat.json` unchanged.
+
+**Check**: From the repo root, with fixed-string matches and no network access:
+1. `grep -F` for each old phrase in the file the criteria name finds none.
+2. `grep -F` for each new phrase finds one match.
+3. `bash skills/coordinate/scripts/rule-coverage_test.sh` exits 0 and names C116, C124, C125, C195, C196, C197 and M1 as found.
+4. The `grep -nE` occurrence search's match count equals the row count of the recorded `occurrence_table.md`, and `koto context get <its session> occurrence_table.md` prints it.
+5. `bash scripts/check-skill.sh coordinate`, `bash scripts/ablation/check-public-content.sh`, `koto template compile skills/coordinate/koto-templates/coordinate.md` and `bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` each exit 0, and `git diff --stat` shows no change to `coordinate.compat.json`.
+
+**Dependencies**: Step 3
+
+**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/references/verification-checklist.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/scripts/rule-coverage_test.sh`
 
 ## Implementation Sequence
 
