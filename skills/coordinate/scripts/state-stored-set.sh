@@ -132,7 +132,27 @@
 # reversal, confirm); a relayed row's pointer names the entry its --standing
 # wrote, read from the record's entries, or the row itself when no entry
 # matches. A `decision` Source reads class and status `unreadable` until what
-# koto recorded about the decision is read. With --id, only those rows, still
+# koto recorded about the decision is read.
+# Each object also carries under_session_grant and session_allows
+# (state-schema.jq's rule_grants). A row grants nothing: the grant is the
+# session's, and these two fields say whether the row stands under it and
+# what it allows. A pause, an inferred, `pinned` or unreadable row, a row not
+# in force and a row with a reversal never stand under it (the floor); a
+# `skill` row citing any repository but the one the installed plugin's
+# .claude-plugin/plugin.json names as `repository`
+# (https://github.com/<owner>/<repo>), and a `doc` row citing any but the
+# record's host, never do either (the anchor). Those rows print
+# under_session_grant false and session_allows [] with no read. When at least
+# one printed row passes both, --rules reads the coordinator session's grant
+# once, `niwa authority check -C <instance root> --session
+# <CLAUDE_CODE_SESSION_ID> --json` (rules_grant_read below says when it makes
+# no read), and every such row prints under_session_grant true and
+# session_allows the answer's grant, in niwa's order, when the read exits 0
+# with a bound niwa.authority.check/v1 document whose grant and level are in
+# niwa's vocabularies. Any other answer, or no read, gives every row
+# under_session_grant false and session_allows [], and --rules still exits 0.
+# A row's words never widen session_allows past the session's grant; no
+# --point is asked, and no gate reads either field. With --id, only those rows, still
 # in record order; an --id that isn't s<n> is a usage error (64), and one the
 # record has no row for is refused (65, naming it) before anything is
 # printed. A record that breaks a rule of state-schema.jq is refused (65), the
@@ -450,6 +470,37 @@ if [ "$MODE" = list ]; then
     jq -c -L "$HERE" 'include "state-schema"; state_list' "$WD/parsed.json"
     exit 0
 fi
+# rules_grant_read <out>: niwa's answer about this coordinator session's grant
+# into <out>, as posture-read.sh finds and bounds niwa. Returns non-zero, with
+# no read made, when niwa isn't found (on PATH, else an executable $NIWA_BIN),
+# CLAUDE_CODE_SESSION_ID isn't a session id, no directory at or above this one
+# holds .niwa/instance.json, or record/meta names a driver other than this
+# session (or one that isn't a string); and non-zero when the read exits
+# non-zero or runs past NIWA_LOOKUP_SECONDS (3).
+rules_grant_read() {
+    local niwa sid d root= drv
+    niwa=$(command -v niwa 2> /dev/null)
+    if [ -z "$niwa" ]; then
+        [ -n "${NIWA_BIN:-}" ] && [ -f "$NIWA_BIN" ] && [ -x "$NIWA_BIN" ] || return 1
+        niwa=$NIWA_BIN
+    fi
+    sid=${CLAUDE_CODE_SESSION_ID:-}
+    [[ $sid =~ ^[0-9a-f][0-9a-f-]{7,63}$ ]] || return 1
+    d=$(pwd -P) || return 1
+    while :; do
+        if [ -f "$d/.niwa/instance.json" ]; then root=$d; break; fi
+        [ "$d" = / ] && break
+        d=$(dirname "$d")
+    done
+    [ -n "$root" ] && root=$(cd "$root" 2> /dev/null && pwd -P) && [ -n "$root" ] || return 1
+    drv=$(jq -r 'if (.driver // "") == "" then "" elif (.driver | type) == "string" then .driver else error("driver") end' \
+        "$WD/parsed.json.meta" 2> /dev/null) || return 1
+    [ -z "$drv" ] || [ "$drv" = "$sid" ] || return 1
+    # shellcheck source=dispatch-common.sh
+    . "$HERE/dispatch-common.sh" || return 1
+    dc_with_deadline "${NIWA_LOOKUP_SECONDS:-3}" dc_tree "$niwa" authority check -C "$root" --session "$sid" --json \
+        < /dev/null > "$1" 2> /dev/null
+}
 if [ "$MODE" = rules ] && [ "$COUNTS" = 1 ]; then
     jq -r -L "$HERE" 'include "state-schema"; (.standing // []) | rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
     exit 0
@@ -471,7 +522,26 @@ if [ "$MODE" = rules ]; then
     fi
     jq -c -L "$HERE" --arg s "${RS_SESSION:-$SESSION}" --slurpfile e "$WD/entries.json" --slurpfile ids "$WD/ids.json" 'include "state-schema";
         (.standing // [])[] | select(($ids[0] | length) == 0 or (.standing as $i | $ids[0] | index($i)) != null)
-        | rule_view($s; $e[0])' "$WD/parsed.json" || lib_die2 "jq failed"
+        | rule_view($s; $e[0])' "$WD/parsed.json" > "$WD/views.json" || lib_die2 "jq failed"
+    # The anchor's two repositories: the one the installed plugin's manifest
+    # names as its source, and the record's host.
+    PLUGIN_REPO=$(jq -r '.repository // "" | if type == "string" then . else "" end' \
+        "$(cd "$HERE/../../.." && pwd -P)/.claude-plugin/plugin.json" 2> /dev/null)
+    RE_MANIFEST_REPO='^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)$'
+    if [[ $PLUGIN_REPO =~ $RE_MANIFEST_REPO ]]; then PLUGIN_REPO=${BASH_REMATCH[1]}; else PLUGIN_REPO=; fi
+    jq -n --arg p "$PLUGIN_REPO" --arg h "$REPO" \
+        '{plugin_repo: (if $p == "" then null else $p end), host_repo: $h, answer: null}' > "$WD/facts.json" || lib_die2 "jq failed"
+    # The authority read, made at most once, and only when a printed row
+    # passes the floor and the anchor. Any failure leaves the answer null.
+    echo null > "$WD/answer.json"
+    if jq -e -s -L "$HERE" --slurpfile f "$WD/facts.json" 'include "state-schema"; any(.[]; rule_passes($f[0]))' \
+            "$WD/views.json" > /dev/null 2>&1 \
+        && rules_grant_read "$WD/check.json"; then
+        jq -c -s 'if length == 1 then .[0] else null end' "$WD/check.json" > "$WD/answer.json" 2> /dev/null \
+            || echo null > "$WD/answer.json"
+    fi
+    jq -c -L "$HERE" --slurpfile f "$WD/facts.json" --slurpfile a "$WD/answer.json" 'include "state-schema";
+        . + rule_grants($f[0] + {answer: $a[0]})' "$WD/views.json" || lib_die2 "jq failed"
     if [ -z "$RIDS" ]; then
         jq -c '(.run // [])[] | select(.key == "rules") | (.value | split(" ")) as $p
             | {run: "rules", kind: (if ($p[0] | startswith("skill-")) then "skill" elif ($p[0] | startswith("workspace-")) then "workspace" else "other" end),

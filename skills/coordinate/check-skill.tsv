@@ -137,6 +137,7 @@ cost	coordinate-takeover-load_engine_test.sh	0
 cost	takeover-flags_test.sh	0
 cost	coordinate-import-takeover_engine_test.sh	60
 cost	standing-rules_engine_test.sh	53
+cost	rule-grants_engine_test.sh	14
 cost	standing-counts_engine_test.sh	31
 cost	rule-files_engine_test.sh	31
 cost	rule-files_test.sh	1
