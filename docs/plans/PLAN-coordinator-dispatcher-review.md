@@ -24,9 +24,10 @@ definition of the reviewer and one Bounds and Authority paragraph saying
 review comes before every merge, that a merge grant decides who merges after
 the review and never whether it happens, what that means for a coordinator's
 own pull requests, the fail-closed rule, and what a coordinator that may not
-merge sends up. The milestone verdict rule keeps its forgery control and adds
-that no coordinator merges, clears or hands to a worker the merge of a
-milestone roadmap edit. The brief renderer's `Named authority:` line for a
+merge sends up. The milestone verdict rule keeps its forgery control: someone
+other than the author approves a milestone roadmap edit, and whoever in the
+chain holds a merge grant merges it after that approval, the author included
+when granted. The brief renderer's `Named authority:` line for a
 granted worker says to report for review and merge only at a cleared head,
 never a roadmap pull request. Twenty-one other sentences in `SKILL.md`, three
 references and the template's directives and descriptions name the reviewer.
@@ -72,22 +73,24 @@ sites and the occurrence table the pull request carries.
 
 **Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/render-brief_test.sh`, `skills/coordinate/scripts/dispatch-worker_test.sh`, `skills/coordinate/scripts/rule-coverage_test.sh`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
-### Step 2: a milestone verdict pull request names the reviewer and no coordinator merges it
+### Step 2: a milestone verdict pull request names the reviewer, and whoever holds the grant merges it after that review
 
-**Goal**: Anyone reading the coordinate skill's Verdicts passage, the milestone pull request passage of `references/state-keys.md`, or the template's `milestone_verdict` and `milestone_reopen` steps is told who reviews a verdict pull request (the reviewer, never "a person" in general), that a root coordinator's verdict pull requests, its own included, are reviewed by a person, and that no coordinator merges, clears or hands to a worker the merge of a milestone roadmap edit, whatever grant either holds.
+**Goal**: Anyone reading the coordinate skill's Verdicts passage, the milestone pull request passage of `references/state-keys.md`, or the template's `milestone_verdict` and `milestone_reopen` steps is told who reviews a verdict pull request (the reviewer, never "a person" in general), that a root coordinator's verdict pull requests, its own included, are reviewed by a person, and who merges after that review: someone other than the author approves, and whoever in the chain holds a merge grant merges at the approved head (the author when its grant lets it, otherwise the reviewer that approved it when its own grant does, otherwise the next one up, and a person at the root). No coordinator approves its own verdict pull request or hands its merge to a worker. No sentence reads as though only the author may merge after approval, since a lane coordinator usually holds no merge grant.
 
 **Acceptance Criteria**:
 
-- [ ] `grep -F` finds none of these old phrases: `given by you or a person` and `auto-merged without a person's review` in `skills/coordinate/SKILL.md`; `auto-merged without a person's review` in `skills/coordinate/references/state-keys.md`; `a verdict from you or a person`, `a person reviews the verdict there` and `a person reviews the report there` in `skills/coordinate/koto-templates/coordinate.md`.
+- [ ] `grep -F` finds none of these old phrases: `given by you or a person`, `auto-merged without a person's review` and `The coordinator never merges them` in `skills/coordinate/SKILL.md`; `auto-merged without a person's review` in `skills/coordinate/references/state-keys.md`; `a verdict from you or a person`, `a person reviews the verdict there` and `a person reviews the report there` in `skills/coordinate/koto-templates/coordinate.md`.
 - [ ] `grep -F` finds each new phrase: `given by you or your reviewer` and `must not be auto-merged without the reviewer's review` in SKILL.md; `without the reviewer's review` in state-keys.md; `a verdict from you or your reviewer`, `your reviewer reviews the verdict there` and `your reviewer reviews the report there` in the template.
-- [ ] SKILL.md still contains `Anyone using the coordinator's login can post a comment shaped like a verdict`, `The coordinator never merges them` and `gives up the review that Done rests on`, and contains `a person when it is a root coordinator, for its own verdict edits too`.
-- [ ] A fixed-string search for `No coordinator merges, clears or hands to a worker the merge of a pull request that edits a milestone roadmap, whatever grant either holds; that rule wins over any` finds one line in SKILL.md's Verdicts passage and one in the template's `milestone_verdict` section.
-- [ ] No sentence in SKILL.md, state-keys.md or the template says a coordinator may merge a milestone roadmap edit pull request: a case-insensitive search for `coordinator (may|can) merge (a|the|its) (milestone|verdict|roadmap)` over the three files finds nothing.
+- [ ] SKILL.md still contains `Anyone using the coordinator's login can post a comment shaped like a verdict` and `gives up the review that Done rests on`, and contains `a person when it is a root coordinator, for its own verdict edits too`.
+- [ ] A fixed-string search for `Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval` finds one line in SKILL.md's Verdicts passage and one in the template's `milestone_verdict` section, and each of those passages names, in order, the author when granted, the reviewer that approved it, the next one up the chain, and a person at the root.
+- [ ] A fixed-string search for `No coordinator approves its own verdict pull request or hands its merge to a worker` finds one line in SKILL.md's Verdicts passage.
+- [ ] `milestone_verdict` step 6 and `milestone_reopen` step 5 each contain `Never merge it before your reviewer approves it`, and neither says the merge is the author's alone: each also says the reviewer, or whoever above it holds the grant, merges when the author's posture doesn't permit a merge.
+- [ ] A case-insensitive search for `only (you|the author) (may|can) merge` over SKILL.md, state-keys.md and the template finds nothing.
 - [ ] The template's `milestone_verdict` section still contains `A milestone reads Done only on a verdict from you`.
-- [ ] `rule-coverage.tsv` gains C193 (the no-delegation sentence in SKILL.md) and C194 (the same sentence in the template's `milestone_verdict`), `TOTAL` in `rule-coverage_test.sh` reads 194, and `bash skills/coordinate/scripts/rule-coverage_test.sh` exits 0 with every ID from C1 to C194 named exactly once and row M1 still found; deleting the sentence from either file makes it fail.
+- [ ] `rule-coverage.tsv` gains C193 (the approval-then-merge sentence in SKILL.md) and C194 (the same sentence in the template's `milestone_verdict`), `TOTAL` in `rule-coverage_test.sh` reads 194, and `bash skills/coordinate/scripts/rule-coverage_test.sh` exits 0 with every ID from C1 to C194 named exactly once and row M1 still found; deleting the sentence from either file makes it fail.
 - [ ] `koto template compile skills/coordinate/koto-templates/coordinate.md` exits 0, and `bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` exits 0 with the fingerprint still the one listed at compat 2.
 
-**Check**: From the repo root, with fixed-string matches and no network access: (1) run the `grep -F` for each old phrase in its file and see no match; (2) run the `grep -F` for each new phrase, the forgery sentence, the root-review phrase and the no-delegation sentence in the files the criteria name and see one match each; (3) run the `grep -niE` negative check and see no match; (4) `bash skills/coordinate/scripts/rule-coverage_test.sh` exits 0 and names C193, C194 and M1 as found; (5) `koto template compile skills/coordinate/koto-templates/coordinate.md` and `bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` both exit 0.
+**Check**: From the repo root, with fixed-string matches and no network access: (1) run the `grep -F` for each old phrase in its file and see no match; (2) run the `grep -F` for each new phrase, the forgery sentence, the root-review phrase, the approval-then-merge sentence and the no-self-approval sentence in the files the criteria name and see one match each; (3) run the `grep -niE` negative check and see no match; (4) `bash skills/coordinate/scripts/rule-coverage_test.sh` exits 0 and names C193, C194 and M1 as found; (5) `koto template compile skills/coordinate/koto-templates/coordinate.md` and `bash scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` both exit 0.
 
 **Dependencies**: Step 1
 
