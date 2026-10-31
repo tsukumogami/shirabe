@@ -209,8 +209,11 @@ brief a director writes to dispatch a manager.
   isn't set by the role: who merges and who settles a step stay with the
   authority configuration (R14). And the director's list says it decides, within the worker
   budget and the lanes it has been given, which of its lanes advance at any
-  time. The two lists may share items both roles owe, such as briefing a
-  successor.
+  time. It also says the director is the owner funnel: the one place that
+  routes and verifies what reaches the owner, and that never blocks on the
+  owner from a turn the owner didn't start. That item is an expectation only;
+  this feature builds no mechanism for it. The two lists may share items both
+  roles owe, such as briefing a successor.
   Neither list names a grant, a merge authority or who settles a step.
 - **R11. The Glossary defines the roles.** `SKILL.md`'s Glossary entry for
   Coordinator defines it as a session running this skill in either role, and
@@ -467,6 +470,10 @@ only one role is addressed to "the coordinator"):
 - [ ] The director's list has an allocation item saying the director decides
   which of its lanes advance within the worker budget and lanes it's given.
   The item names no cap value and doesn't say the director may change a cap.
+- [ ] The director's list has an owner-funnel item saying the director is the
+  one place that routes and verifies what reaches the owner and never blocks
+  on the owner from a turn the owner didn't start, and nothing in the change
+  adds a script, state or gate for it.
 - [ ] `references/state-keys.md` and `SKILL.md` don't describe the `reports-to`
   value with the word `role`, and an existing `reports-to` row (`the human`)
   still passes the record's schema check.

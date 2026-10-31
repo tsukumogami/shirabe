@@ -20,7 +20,8 @@ decision: |
   invocation line, filled by dispatch-worker.sh from the record for a
   successor and as manager for a lane. SKILL.md gains Manager and Director
   Glossary entries, a Roles section with each role's expectation list (the
-  manager now reports its lane's merged pull requests up), and one role-blind
+  manager now reports its lane's merged pull requests up, and the director
+  keeps the owner funnel), and one role-blind
   paragraph naming where the director's allocation allowances are read. Every
   occurrence of "coordinator" is classed and one-role duties readdressed.
 rationale: |
@@ -32,7 +33,8 @@ rationale: |
   reaches either. Reading the record line live at print time keeps it right
   when the role is written late at the handover gate. The allowance reads use
   the cap, the scope and decisions, and niwa authority check, none of which
-  looks at the role.
+  looks at the role. The design defines no cap change; cap changes stay
+  escalated until later work defines them.
 upstream: docs/prds/PRD-coordinator-named-roles.md
 ---
 
@@ -152,8 +154,8 @@ its reviewer, and in the sentences that design pinned, which keep their words.
 - **A role is an expectation, never an allowance.** Nothing the design adds may
   make the role an input to the posture read, `niwa authority check`, a grant,
   a cap or the settler of a step. Where the director's allocation duty needs an
-  allowance (its worker budget, its lanes, whether it may change a manager's
-  cap), the design names the read that answers it instead of building one.
+  allowance (its worker budget, its lanes), the design names the read that
+  answers it instead of building one, and it defines no cap change.
 - **No second container.** The role lives in the record's existing container,
   written by an existing section's writer, read by `state-read.sh`, and carried
   by the continuation paths that already exist. No new store, file, GitHub
@@ -530,8 +532,9 @@ Key assumptions:
 
 - A director's lanes are read from its scope, its decisions and its Run
   arguments row; no new row names them.
-- The authority effort names the decision point for changing a dispatched
-  coordinator's cap. Until it does, every cap change is escalated.
+- Changing a dispatched coordinator's cap mid-run, and whether that needs an
+  authority of its own, are left to later work. This design defines no cap
+  change, so every cap change stays escalated until that work defines one.
 - Ready worker pull requests already reach the director: `land` is entered
   only from `verified_confirm`, which sends the verify report up, and the
   progress table carries `Ready to merge` rows. Landed ones don't: a merge
@@ -605,7 +608,15 @@ configuration, and it's the same for either role.
 - Decide, within the worker budget and the lanes you've been given, which of
   your lanes advance at any time, and say which in your reports. Bounds and
   Authority says where each is read.
+- Be the owner funnel: the one place that routes what reaches the owner (the
+  person your effort answers to) and verifies it before it goes. Never block
+  on the owner from a turn the owner didn't start: put the question in a
+  report or a decision entry and keep working.
 ```
+
+The owner funnel is an expectation only. This design builds no mechanism for
+it: no routing script, queue or gate. That is later work, which builds on this
+list item rather than adding a second definition.
 
 None of the three lists contains `grant`, `merge authority`, `may merge` or
 `settle`, the allocation item names no cap value, and none says a director may
@@ -634,22 +645,17 @@ budget: how many of them, and any workers you dispatch yourself, run at once.
 A total across their lanes that your decisions, or later direction from
 whoever dispatched you, state is a decision you were given, and going past it
 is asked. The lanes you move are the ones your scope and decisions name.
-Whether you may raise or lower the cap of a coordinator you dispatched is
-asked when you'd make the change, through the same `niwa authority check`
-lookup the posture read makes, with that change's decision point. Only an
-answer that is bound, with that point's decider `session`, makes the change
-yours; on any other answer, a failed lookup, or no point to ask, escalate it
-once as a decision entry carrying the answer. A change you make goes to that
-coordinator as direction through its dispatcher's channel, and it writes the
-new cap in its own Run `cap` row; you never write another run's record.
+Changing the cap of a coordinator you dispatched, or your own, isn't defined
+here: escalate it as a decision entry.
 ```
 
 Each read is something that already exists and doesn't look at the role: the
-cap is enforced at dispatch and already counts a dispatched coordinator, the
-lanes are the start's scope and decisions, and the cap-change read is the
-authority lookup keyed on session and decision point. The posture read is
-unchanged, so it and `niwa authority check` print the same answer for either
-role.
+cap is enforced at dispatch and already counts a dispatched coordinator, and
+the lanes are the start's scope and decisions. This design defines no cap
+change. Changing a bound coordinator's cap mid-run, and whether that needs an
+authority of its own, are left to later work, and cap changes stay escalated
+until it defines them. The posture read is unchanged, so it and
+`niwa authority check` print the same answer for either role.
 
 The dispatcher-review design's own-reading paragraph in `SKILL.md` gains one
 sentence, with none of its words changed: when the pull request comes from a
@@ -670,11 +676,13 @@ Rejected because the PRD's scope sentence for the director's reading assumes
 the manager reports landed pull requests, nothing today does so per pull
 request, and the director would poll GitHub to learn of every merge.
 
-**Allowances read once at start and kept in the record.** The cap-change point
-added to the posture read's lookup and sealed in `grant_check`. Rejected
-because the point isn't named yet, so the seal would ship a constant; a fresh
-read at the moment of change is needed anyway, since a narrowed configuration
-must apply at once.
+**Define the cap change here.** Let a director raise or lower a dispatched
+coordinator's cap through `niwa authority check` with a cap-change decision
+point, and widen the manager's cap write to take that direction. Rejected
+because changing a bound coordinator's cap mid-run is a rule for dispatchers
+in general, not for one role, and whether it needs an authority of its own is
+still open in the authority work; settling either here would decide them for a
+role-naming change, and the decision point doesn't exist yet.
 
 **A cross-lane worker total, defaulting to the managers' starting caps.**
 Rejected because nothing counts that number (the decisions text sets no
@@ -810,9 +818,8 @@ described the `reports-to` value with different placeholders; this design uses
 The role reaches no allowance. It isn't a koto variable, it isn't passed to
 `niwa dispatch`, and a structure test pins that the posture read, the
 reserved-step check, the merge re-read and the grant path never read the row.
-What a director allocates is read from its cap, its scope and decisions, and
-`niwa authority check` at the moment of a cap change, none of which looks at
-the role.
+What a director allocates is read from its cap and its scope and decisions,
+neither of which looks at the role, and the design defines no cap change.
 
 **Where this meets the dispatcher-review design.** That design's Glossary entry
 for the reviewer, its review rule and its pinned fragments stay word for word.
@@ -899,9 +906,8 @@ variable is added, so the template stays at compat 2.
 - **Brief field.** `role` in the render input: required and only allowed when
   the entry point is `coordinate`; written by `dispatch-worker.sh`. Rendered
   as `` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``
-- **Allowance reads (unchanged interfaces).** The Run `cap` row; the start's
-  scope and decisions; `niwa authority check -C <instance> --session <id>
-  --point <cap-change point> --json`, asked when a cap change would happen.
+- **Allowance reads (unchanged interfaces).** The Run `cap` row and the
+  start's scope and decisions. No cap-change interface is added.
 
 ### Data Flow
 
@@ -993,11 +999,6 @@ the new pinned sentences (for example "It isn't a correctness review" and
 
 Plan steps the decisions surfaced, each small and inside this change:
 
-- widen the cap write's trigger ("a person's word" in the cap paragraph of
-  `koto-templates/coordinate.md` and in `references/state-keys.md`) to accept
-  direction from whoever dispatched
-  the run, so a manager can write a cap change its director made, under the
-  sender and raise rules in Security Considerations;
 - stop a progress event from linking a pull request onto a holding whose entry
   is `coordinate` (the link is written by `scripts/holding-link.sh` at
   `report_link`), so a director's count of its managers doesn't drift;
@@ -1086,35 +1087,13 @@ that repository's content rules, and the address falls under the same rule.
 Reports from a public repository's coordinator still carry no private path or
 figure, and nothing in the change names one.
 
-**The cap-change read fails closed.** A director makes a cap change itself only
-when `niwa authority check` answers bound with that point's decider `session`.
-A failed lookup, an unbound session, any other decider, or a point the
-authority configuration hasn't named yet sends the change up as a decision
-entry, so a missing or broken read never widens what the director does on its
-own. Until the authority configuration names the cap-change point, that means
-every cap change goes up as a decision; that's a known limit, not a gap. The
-read itself is prose with no gate, so a director that skips it isn't stopped
-by a script: it is caught by the `--by` its manager writes on the cap row and
-by its own reviewer, as Consequences says.
-
-**The manager's cap write takes direction from one sender.** The plan step
-that widens the manager's cap write past "a person's word" is the one place
-this change touches an allowance on the manager's side, so it gets two rules.
-The sender is the one the message transport stamps on the message (the `from`
-of a cross-session message), never a name written in its text, and it must
-match the session the manager's Run `reports-to` row names; the manager writes
-the change with that sender in `--by`, and a change from anyone else isn't
-written. A lowering that passes that check is written directly, since it can
-only narrow what the manager does. A raise is written only when the director's
-message names the settled decision entry that approved it (or, once the
-authority configuration names the cap-change point, the director's own
-`niwa authority check` answer that it settles that point), and the manager
-names that entry or answer in `--by`; a raise without one goes back up as a
-decision entry. Until the cap-change point is named, that means a raise always
-traces to a person's settled decision, the same known limit the director's
-read has. Like the director's read, these rules are prose with no gate, so a
-manager that skips them is caught by its reviewer reading the cap row's
-`--by`.
+**No cap change is defined, so none can be widened.** The cap is read
+role-blind as a worker budget, enforced at dispatch as today. This design adds
+no way to change a cap mid-run: not for a director over a coordinator it
+dispatched, and not for a manager taking direction from its dispatcher. The
+cap write keeps its existing trigger, and any cap change stays escalated as a
+decision entry until later work defines how a bound coordinator's cap changes
+and whether that needs an authority of its own.
 
 Two smaller cases. The merged pull request links a manager reports up are
 data from the manager's report, read and checked by the director like any
@@ -1152,8 +1131,8 @@ first and refuses the second with exit 65, naming both values.
   so it depends on the reconcile directive's gap fix.
 - The record line moves the reconcile report's `Scope:` line from line 3 to
   line 5, which a reader or tool that looks for it there will notice.
-- The cap-change read is prose with no gate, so a director that skips it is
-  caught only by the `--by` on the manager's cap row and by its reviewer.
+- A director can't change a dispatched coordinator's cap on its own until
+  later work defines cap changes; until then each one is a decision entry.
 - No brief can start a discipline coordinator today, so a director can't
   dispatch a discipline manager through a brief.
 
@@ -1172,9 +1151,7 @@ first and refuses the second with exit 65, naming both values.
   up roleless.
 - The `Scope:` line: `loop.md` already treats the opening lines as kept as
   written, and its text is updated to list the record line first.
-- The cap-change read: escalation is the default on any answer but a bound
-  `session` decider, so skipping the read can't widen what a director does on
-  its own; a proposed follow-up seals the answer once the authority effort
-  names the point.
+- Cap changes: escalation is the only path, so nothing in this change can
+  widen a cap; the work that defines mid-run cap changes picks this up.
 - Discipline lanes: out of this change's scope; a director dispatches roadmap
   managers, and adding a discipline route to briefs is a proposed follow-up.
