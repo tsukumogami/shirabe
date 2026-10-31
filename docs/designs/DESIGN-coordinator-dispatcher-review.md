@@ -427,7 +427,7 @@ the occurrence table for the pull request description (file, line, phrase,
 class), and run `scripts/check-skill.sh coordinate`,
 `scripts/check-template-compat.sh --template
 skills/coordinate/koto-templates/coordinate.md` and
-`scripts/check-public-content.sh`.
+`scripts/ablation/check-public-content.sh`.
 
 ## Security Considerations
 

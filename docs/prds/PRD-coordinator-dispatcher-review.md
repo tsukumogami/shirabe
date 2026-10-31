@@ -258,14 +258,14 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
 - **R12. Tests and CI pass.** `scripts/check-skill.sh coordinate`,
   `scripts/check-template-compat.sh --template
   skills/coordinate/koto-templates/coordinate.md` and
-  `scripts/check-public-content.sh` pass. Tests that pin a sentence this change
+  `scripts/ablation/check-public-content.sh` pass. Tests that pin a sentence this change
   rewords (the rendered `Named authority:` line in `render-brief_test.sh` and
   `dispatch-worker_test.sh`, the rule coverage rows) are updated with it, never
   deleted. The coordinate evals mention "the human" for the merge-order table;
   the Glossary covers those, and they aren't changed.
 - **R13. Public content.** Nothing in the change names a private repository,
-  path, session, fleet figure or measurement, and commit messages and the pull
-  request carry no AI attribution.
+  a private path, a session name or internal figures, and commit messages and
+  the pull request carry no AI attribution.
 - **R14. Vocabulary.** Prose the change adds says "manager" and "director" for
   the roles and "coordinator" for either, and uses none of the words the
   repository's writing-style rules ban (`skills/writing-style/rules.yaml`).
@@ -324,12 +324,11 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
   the committed table lists at compat 2, the committed `gate_scripts` equals the
   printed digest, and `git diff` of `coordinate.compat.json` touches only the
   `gate_scripts` line.
-- [ ] `scripts/check-skill.sh coordinate` and `scripts/check-public-content.sh`
+- [ ] `scripts/check-skill.sh coordinate` and `scripts/ablation/check-public-content.sh`
   exit 0, and `rule-coverage.tsv` has the same row IDs before and after.
 - [ ] The diff's added lines contain none of `robust`, `leverage`,
   `comprehensive`, `holistic`, `facilitate`, `tiered`, no emoji, no
-  `Co-Authored-By`, no `measurement`, and no path or name from a private
-  repository.
+  `Co-Authored-By`, and no path or name from a private repository.
 
 ## Out of Scope
 
