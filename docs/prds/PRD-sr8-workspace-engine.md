@@ -112,8 +112,10 @@ workspace hasn't wired up.
 - **The hooks directory.** What `git rev-parse --git-path hooks` prints in the
   clone. It is *in the clone* when it equals `<git common dir>/hooks`.
 - **A shirabe hook.** A `pre-commit` that is a regular file (not a symlink) and
-  contains the marker `shirabe install-hooks`. Any other `pre-commit`, including
-  a symlink and a dangling symlink, is a *foreign hook*.
+  carries, as a whole line, the header shirabe generates, which contains the
+  marker `shirabe install-hooks`. Any other `pre-commit`, including a symlink, a
+  dangling symlink, or a file that only mentions the marker, is a *foreign
+  hook*.
 - **The current hook body.** What `shirabe install-hooks --force` from the
   `shirabe` on setup's PATH writes into an empty hooks directory.
 - **A setup notice.** One output line that names the repository and the reason.
@@ -195,8 +197,8 @@ instances untouched. Each criterion names its requirement.
       PATH and running `niwa apply` then installs the hook in each clone.
 - [ ] R5: a second `niwa apply` right after a successful one leaves every product
       clone's `pre-commit` byte-identical and adds no output line from setup.
-- [ ] R5: a clone whose `pre-commit` is a regular file with the marker and a
-      different body holds the current hook body after apply.
+- [ ] R5: a clone whose `pre-commit` is a regular file with shirabe's header
+      line and a different body holds the current hook body after apply.
 - [ ] R4: each of these, set up before apply, is byte-identical after it, with one
       setup notice and no setup failure: a symlink to a tracked
       `scripts/pre-commit` (the symlink and `scripts/pre-commit` both unchanged,
