@@ -38,7 +38,7 @@ coordinator. The Glossary's "The human" entry redirects "the human" to the
 dispatching coordinator. Neither reaches the passages that say "a person" or
 "the person". At the time of writing, a search of `SKILL.md`, the files under
 `references/` and the template finds about 118 such occurrences, of which
-twenty-two still send a review, a merge, a close, a verdict or the skill's own
+twenty-one still send a review, a merge, a close, a verdict or the skill's own
 landing step to a person (listed under R5):
 
 - The Verdicts rule says a milestone roadmap's edit pull requests "must not be
@@ -199,7 +199,7 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
   authority is byte-for-byte unchanged.
 - **R8. A coordinator that may not merge gives its own reading.** When a
   coordinator holds ready work it may not merge, from a worker or a lane, it
-  reviews that work at its land step as usual and sends its reviewer its own
+  reviews that work at its land step, as it does any pull request, and sends its reviewer its own
   reading, never the worker's or lane's report passed through. The reading
   names the pull request, the head it checked, what it checked (the board, the
   worker's review round, goal fit against the brief or the milestone's
