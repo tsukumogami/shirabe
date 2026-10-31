@@ -498,21 +498,29 @@ def check_state($sec; $rows; $private):
 #   relayed     no Source: an event a person owns, carried here by --standing
 #   inferred    `inferred`, with or without its brief
 #   skill-says  `skill ...`
-#   doc         `doc ...`
-#   charter     `pinned ...`
+#   charter     `doc ...` or `pinned ...`
 #   unreadable  `decision ...`: what koto recorded about the decision isn't
 #               read yet, so the row is neither the owner's word nor anyone
 #               else's until it is
+# owner-said and dispatcher-said are a cited decision's, once its decider is
+# read; until then no row reads either.
 # rule_status, over a class: in-force, unconfirmed (an inferred row, waiting
 # for a person to confirm it) or unreadable.
+# rule_classes: every class, in the order state-stored-set.sh --rules --counts
+# prints them.
+# rule_counts: a Standing value's `<class> <count>` lines, one per class in
+# that order, a class no row reads printed with 0.
+def rule_classes: ["relayed", "owner-said", "dispatcher-said", "inferred", "skill-says", "charter", "unreadable"];
 def rule_class:
   ((.source // "") | split(" ")[0] // "") as $f
   | if $f == "" then "relayed"
     elif $f == "inferred" then "inferred"
     elif $f == "skill" then "skill-says"
-    elif $f == "doc" then "doc"
-    elif $f == "pinned" then "charter"
+    elif $f == "doc" or $f == "pinned" then "charter"
     else "unreadable" end;
+def rule_counts:
+  [.[] | rule_class] as $c
+  | rule_classes[] | . as $k | "\($k) \([$c[] | select(. == $k)] | length)";
 def rule_status:
   if . == "inferred" then "unconfirmed" elif . == "unreadable" then "unreadable" else "in-force" end;
 
@@ -551,7 +559,7 @@ def rule_view($session; $entries):
                  | if $e == null then $self
                    else {entry: "\($session) record/entries/\("000000\($e.id)" | .[-6:])"} end
                elif $c == "unreadable" then {decision: "\($p[1]) \($p[2])"}
-               elif $c == "skill-says" or $c == "doc" then {repo: $p[1], path: $p[2], commit: $p[3]}
+               elif $p[0] == "skill" or $p[0] == "doc" then {repo: $p[1], path: $p[2], commit: $p[3]}
                elif $c == "charter" then {pinned: $p[1], digest: $p[2]}
                elif ($p | length) == 4 then {brief: $p[2], digest: $p[3]}
                else $self end),

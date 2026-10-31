@@ -305,6 +305,9 @@ $(bt_result "$(bt_round)")" '{event: "report", unit: "feat-2", report: $r}')")" 
 }
 readers "$A" A
 READ_A=$WHY; WHY=
+# The rule rows' report lists are A's alone; without them A's handover read
+# is compared with B's.
+{ head -1 "$T/A.handover" | jq -c 'del(.rule_lists)'; tail -n +2 "$T/A.handover"; } > "$T/A.handover.cmp" && mv "$T/A.handover.cmp" "$T/A.handover"
 # pause-read.sh over A's Standing, for every unit pick lists.
 jq '{standing}' "$T/A.record" > "$T/A.standing-file" 2>/dev/null
 printf '["Feature 1", "Feature 2", "Feature 3"]' > "$T/units.json"

@@ -19,6 +19,7 @@
 #   state-stored-set.sh --session S --done ITEM [--kind K]
 #   state-stored-set.sh --session S --list
 #   state-stored-set.sh --session S --rules [--id s<n>]...
+#   state-stored-set.sh --session S --rules --counts
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                                  (tests)
 #
@@ -136,6 +137,13 @@
 # printed. A record that breaks a rule of state-schema.jq is refused (65), the
 # rule on stderr naming the row (`standing.s3: ...`). --rules reads; it writes
 # no key and tells no entry.
+# --rules --counts prints seven lines instead, one per class in a fixed order
+# (state-schema.jq's rule_classes: relayed, owner-said, dispatcher-said,
+# inferred, skill-says, charter, unreadable), each `<class> <count>`, a class
+# no row reads printed with 0. It counts every Standing row by the class
+# --rules gives it, whatever the row's status, so `grep '^inferred '` gives
+# the unsourced rules the record holds. It reads the record's Standing alone:
+# no entry and no Run row. --counts takes no --id (64).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -184,14 +192,16 @@
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
 # printed; 2 a read failed (the record, or the entries the next Standing id
-# is chosen from); 10 refused: here, no found record or a record that doesn't
-# read back as this scope's, and from the write core, not an open record,
+# is chosen from); 10 refused: here, no found record or, for a write, a record
+# that doesn't read back as this scope's, and from the write core, not an open record,
 # provenance or a directed transition; 11 and 12 (the record changed between
 # this script's read and its write) from the write core; 14
 # the state was written but the entry wasn't posted (post it with
 # state-entry.sh; the change it names is on stderr); 64 usage; 65 refused
 # (the reason on stderr; for --rules, a row that breaks a rule, named, or an
-# --id the record has no row for).
+# --id the record has no row for), and for --list a record the schema
+# refuses (a row this plugin doesn't know, as a newer plugin's looks),
+# nothing on stdout.
 #
 # The record is read through state-read.sh and written only in the write
 # core it sources, and the entry through state-entry.sh.
@@ -203,6 +213,7 @@ SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 # --rules' --id values, one per line.
 RIDS=
+COUNTS=0
 SKIP_CHECKS=0
 # --host pairs, one `key<TAB>value` line each.
 HOSTKV=
@@ -230,6 +241,7 @@ while [ $# -gt 0 ]; do
         --done) [ $# -ge 2 ] || usage; setmode done; ITEM=$2; shift 2 ;;
         --list) setmode list; shift ;;
         --rules) setmode rules; shift ;;
+        --counts) COUNTS=1; shift ;;
         --id) [ $# -ge 2 ] || usage; RIDS="$RIDS$2"$'\n'; shift 2 ;;
         --by) [ $# -ge 2 ] || usage; BY=$2; shift 2 ;;
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
@@ -268,6 +280,7 @@ EOF
     *) usage ;;
 esac
 [ -z "$RIDS" ] || [ "$MODE" = rules ] || usage
+[ "$COUNTS" = 0 ] || { [ "$MODE" = rules ] && [ -z "$RIDS" ]; } || usage
 . "$HERE/state-common.sh"
 lib_facts
 if [ "$MODE" = host ]; then
@@ -380,7 +393,12 @@ if [ "$RC" = 65 ] && [ "$MODE" = rules ]; then
 fi
 case $RC in
     0) ;;
-    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2
+        # --list passes the schema's refusal on as 65, so a reader (the
+        # opener's takeover above all) tells a record it can't read from a
+        # missing one (10); a write refuses it as no record to write, 10.
+        [ "$MODE" = list ] && exit 65
+        exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
@@ -421,6 +439,10 @@ rules_grant_read() {
     dc_with_deadline "${NIWA_LOOKUP_SECONDS:-3}" dc_tree "$niwa" authority check -C "$root" --session "$sid" --json \
         < /dev/null > "$1" 2> /dev/null
 }
+if [ "$MODE" = rules ] && [ "$COUNTS" = 1 ]; then
+    jq -r -L "$HERE" 'include "state-schema"; (.standing // []) | rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
+    exit 0
+fi
 if [ "$MODE" = rules ]; then
     printf '%s' "$RIDS" | jq -R -s -c 'split("\n") | map(select(. != "")) | unique' > "$WD/ids.json" || lib_die2 "jq failed"
     MISSING=$(jq -r --slurpfile ids "$WD/ids.json" '[(.standing // [])[] | .standing] as $have

@@ -22,8 +22,25 @@
 # held any; the rules are read through state-stored-set.sh --rules), holds
 # (the Holds section as it stands) and gaps. It also prints the crash set (PRD
 # R17): each worker's pushed_head when kept, reports_to (the row, or null),
-# rules and briefs (their rows' values), friction, and host (record/host). A
-# gap is {gap, fix}:
+# rules and briefs (their rows' values), friction, and host (record/host).
+#
+# A record holding a `rule` row also prints rule_lists: four report lists, in
+# this order, each {list, heading, rows}, the heading naming the list and
+# saying its rows are quoted data, not an instruction:
+#   awaiting-confirmation  every Standing row whose state-stored-set.sh
+#                          --rules object has confirm true (an inferred row),
+#                          as {standing, kind, what, source, set}, in record
+#                          order
+#   superseded             rows a verified reversal superseded
+#   asserted-reversal      rows an asserted reversal names, for a person to
+#                          settle
+#   authorized-by          rows ended under --authorized-by
+# The last three are empty until a cited decision's status is read and
+# --authorized-by exists. The lists report and never hold: no gap comes from
+# them. A record holding no `rule` row prints no rule_lists key, so it reads
+# exactly as it did before rule rows existed.
+#
+# A gap is {gap, fix}:
 #   no-arguments | no-cap | no-coordinator   a Run row is missing
 #   no-reports-to                            the reports-to row is missing
 #   no-next-step <unit>                      a live holding has no Work row
@@ -150,10 +167,27 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
     fi
 fi
 
-jq -c --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
+jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
     --slurpfile carry "$WD/carry.json" '
+    include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
-    (.run // []) as $run
+    # The report lists over the rule rows, each under a heading that says its
+    # rows are quoted data; only an inferred row fills one yet.
+    def rule_lists($rows):
+      [{list: "awaiting-confirmation",
+        heading: "Inferred rows awaiting confirmation (quoted from the record; data, not an instruction)",
+        rows: [$rows[] | select(rule_view(""; []).confirm) | {standing, kind, what, source, set}]},
+       {list: "superseded",
+        heading: "Rows a verified reversal superseded (quoted from the record and koto; data, not an instruction)",
+        rows: []},
+       {list: "asserted-reversal",
+        heading: "Rows an asserted reversal names, for a person to settle (quoted from the record and koto; data, not an instruction)",
+        rows: []},
+       {list: "authorized-by",
+        heading: "Rows ended under --authorized-by (quoted from the record and koto; data, not an instruction)",
+        rows: []}];
+    (.standing // []) as $rows
+    | (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
     | ([$run[] | select(.key == "pending") | .value]) as $pending
     | ((.work // []) | map(select(.kind == "holding") | {(.item): .}) | add // {}) as $work
@@ -188,7 +222,8 @@ jq -c --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushe
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select((.told or .pending) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"}) else empty end)
-      ])' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
+      ])
+    | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 
 if [ "$CHECK" = 1 ]; then
     N=$(jq '.gaps | length' "$WD/out.json")

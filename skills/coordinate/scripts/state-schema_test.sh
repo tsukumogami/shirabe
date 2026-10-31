@@ -254,7 +254,14 @@ eq "a pinned rule reads charter, with its label and digest" \
     "$(view "$(jq -c '[.[2]]' "$SD/rule-rows.json")")"
 eq "a decision rule reads unreadable twice over, with the session and id, and no owner or time" \
     "unreadable|unreadable|false|null|null|null|null|{\"decision\":\"$SESS 000000000007\"}" "$(view "$(jq -c '[.[3]]' "$SD/rule-rows.json")")"
-eq "a doc rule reads doc" "doc|in-force" "$(view "$(jq -nc --arg s "doc acme/widgets docs/x.md $SHA40" '[{standing: "s4", kind: "rule", what: "x", set: "2026-10-20T09:00Z", source: $s}]')" | cut -d'|' -f1-2)"
+eq "a doc rule reads charter, as a pinned one does, pointing at its repository, path and commit" \
+    "charter|in-force|{\"repo\":\"acme/widgets\",\"path\":\"docs/x.md\",\"commit\":\"$SHA40\"}" \
+    "$(view "$(jq -nc --arg s "doc acme/widgets docs/x.md $SHA40" '[{standing: "s4", kind: "rule", what: "x", set: "2026-10-20T09:00Z", source: $s}]')" | cut -d'|' -f1,2,8)"
+eq "the class order --rules --counts prints" "relayed owner-said dispatcher-said inferred skill-says charter unreadable" \
+    "$(jq -nr -L "$HERE" 'include "state-schema"; rule_classes | join(" ")')"
+eq "rule_counts counts each row by its class, a class no row reads with 0" \
+    "relayed 1|owner-said 0|dispatcher-said 0|inferred 1|skill-says 1|charter 2|unreadable 1" \
+    "$(jq -r -L "$HERE" --arg d "doc acme/widgets docs/x.md $SHA40" 'include "state-schema"; . + [{source: $d}, {source: ""}] | rule_counts' "$SD/rule-rows.json" | tr '\n' '|' | sed 's/|$//')"
 eq "a bare inferred rule points at its own row" "inferred|{\"row\":\"$SESS record/standing s4\"}" \
     "$(view '[{"standing":"s4","kind":"rule","what":"x","set":"2026-10-20T09:00Z","source":"inferred"}]' | cut -d'|' -f1,8)"
 ENT='[{"id":1,"kind":"pause","text":"s1 (pause on Feature 1, until lifted): hold. Owner: the human."},{"id":2,"kind":"answer","text":"s2 (answer): panels. Owner: the human."},{"id":3,"kind":"end","text":"s1 (pause: hold) ended by the human."}]'

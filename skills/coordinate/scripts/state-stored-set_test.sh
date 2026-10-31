@@ -74,6 +74,23 @@ echo "== list =="
 seed "$TWO"
 eq "--list with none of the sections" '{"run":[],"standing":[],"work":[]}' "$(bash "$RS" "${RM[@]}" --list 2>&1)"
 eq "a read writes nothing, and reads nothing on GitHub" "" "$(calls)"
+# A Standing row of a kind this plugin doesn't know, as a newer plugin's row
+# looks to it: --list passes the schema's refusal on (65), not the missing
+# record's 10, so a reader can tell the two apart; a write still refuses 10.
+printf '%s' '[{"standing":"s1","kind":"later-kind","on":"","until":"","what":"a row from a later plugin","owner":"the human","relayed_by":"","set":"2026-09-26T09:00Z"}]' \
+    | koto context add "$SR" record/standing
+SNAP=$(session_snapshot "$SR")
+LIST_OUT=$(bash "$RS" "${RM[@]}" --list 2>"$T/err"); rc=$?
+eq "--list on a record the schema refuses exits 65" 65 "$rc"
+eq "  ... printing nothing on stdout" "" "$LIST_OUT"
+grep -q "doesn't read back" "$T/err" && grep -q 'standing.kind: not one of' "$T/err" \
+    && ok "  ... with the schema's reason on stderr" || bad "  ... with the schema's reason on stderr" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --run cap 3 --by "the human" >/dev/null 2>"$T/err"
+eq "a write (--run cap) against the refused record still exits 10" 10 $?
+eq "  ... writing nothing" "$SNAP" "$(session_snapshot "$SR")"
+LIST_OUT=$(RS_SESSION=coordinate-roadmap-plugin-system-20260926T060000Z bash "$RS" "${RM[@]}" --list 2>"$T/err"); rc=$?
+eq "--list on a session with no record still exits 10" "10 " "$rc $LIST_OUT"
+seed "$TWO"
 
 echo "== Run =="
 bash "$RS" "${W[@]}" --run arguments "--roadmap docs/roadmaps/ROADMAP-plugin-system.md --cap 2" --by "the human" >/dev/null 2>"$T/err"
@@ -640,6 +657,13 @@ eq "--rules --id of a row the record lacks exits 65 and prints nothing" "65 0" "
 grep -q 's99' "$T/err" && ok "  ... naming it on stderr" || bad "  ... naming it on stderr" "$(cat "$T/err")"
 bash "$RS" "${RM[@]}" --rules --id 7 > /dev/null 2>&1; eq "an --id that isn't s<n> is a usage error" 64 $?
 bash "$RS" "${RM[@]}" --list --id s7 > /dev/null 2>&1; eq "  ... and --id belongs to --rules alone" 64 $?
+bash "$RS" "${RM[@]}" --rules --counts > "$T/counts.out" 2>"$T/err"
+eq "--rules --counts prints each class's count, in the fixed order, zeros included" \
+    "0 relayed 2|owner-said 0|dispatcher-said 0|inferred 1|skill-says 1|charter 1|unreadable 1" \
+    "$? $(tr '\n' '|' < "$T/counts.out" | sed 's/|$//')"
+bash "$RS" "${RM[@]}" --rules --counts --id s1 > "$T/counts.out" 2>/dev/null; rc=$?
+eq "--rules --counts --id is a usage error, printing nothing on stdout" "64 0" "$rc $(wc -c < "$T/counts.out" | tr -d ' ')"
+bash "$RS" "${RM[@]}" --list --counts > /dev/null 2>&1; eq "  ... and --counts belongs to --rules alone" 64 $?
 # A rule row whose What reads like a pause holds nothing.
 jq '{standing: .}' "$SK" > "$T/st.json"; printf '["Feature 2", "Feature 3"]' > "$T/units.json"
 bash "$HERE/pause-read.sh" --standing "$T/st.json" --units "$T/units.json" > "$T/pauses.json" 2>"$T/err"
