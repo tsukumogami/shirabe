@@ -11,7 +11,7 @@ split_rationale: |
 tracking_level: none
 upstream: docs/designs/DESIGN-sr8-workspace-engine.md
 milestone: "sr8-workspace-engine"
-issue_count: 5
+issue_count: 7
 ---
 
 # PLAN: sr8-workspace-engine
@@ -330,6 +330,82 @@ Issue 1's test passes in CI. Design: `docs/designs/DESIGN-sr8-workspace-engine.m
 
 **Dependencies**: Blocked by Issue 1
 
+### Issue 6: ci(lifecycle): fail a pull request whose setup-script copy differs from shirabe's
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: copy-check
+
+**Type**: code
+
+**Complexity**: testable
+
+**Goal**: Make a drifted copy of `scripts/setup/shirabe-pre-commit.sh` turn its
+repository's pull request red, through the reusable `lifecycle.yml` every
+product repository already calls (Decision 3).
+
+**Context**: `lifecycle.yml` already checks out shirabe at the called ref. A new
+`setup-script-copy` job compares the caller's copy with that checkout's
+canonical one through `scripts/check-setup-script-copy.sh`. The script's
+three-argument interface is also called, for a while, from a repository that
+doesn't call `lifecycle.yml` yet (Decision 4), so its header documents it.
+Design: `docs/designs/DESIGN-sr8-workspace-engine.md`.
+
+**Acceptance Criteria**:
+- [ ] With no copy in the caller, the check exits 0 and says there's nothing to
+      compare.
+- [ ] With an identical, executable copy, it exits 0.
+- [ ] With differing bytes, a missing exec bit, a symlink or a directory at the
+      path, it exits 1 with one `::error` line naming the command that fixes it,
+      and that command, run in the caller, makes the check pass.
+- [ ] A missing canonical file or wrong argument count exits 2.
+- [ ] `build-and-test.yml` runs the check's test suite.
+- [ ] `lifecycle.yml` runs the job on shirabe's own pull requests, comparing the
+      canonical copy with itself.
+- [ ] The contract guide says the workflow enforces the byte-for-byte rule.
+
+**Dependencies**: Blocked by Issue 1
+
+### Issue 7: feat(lifecycle): let a planning repository run the lifecycle check in draft posture
+
+**Repo**: tsukumogami/shirabe
+
+**Group**: planning-posture
+
+**Type**: code
+
+**Complexity**: testable
+
+**Goal**: Give `lifecycle.yml` a `posture` input whose `draft` value holds the
+check at draft posture on every pull request, and let a ROADMAP root at `Draft`
+pass under draft posture (Decision 5).
+
+**Context**: Ready posture reads every single-pr chain in the tree as merging
+now, which a repository holding open plans on its default branch can never
+pass. The ROADMAP row is in the passing-state reading in
+`crates/shirabe-validate/src/lifecycle.rs`; draft posture already relaxes
+single-pr chains mid-PR. This changes the shirabe binary. Design:
+`docs/designs/DESIGN-sr8-workspace-engine.md`.
+
+**Acceptance Criteria**:
+- [ ] `lifecycle.yml` declares an optional string input `posture`, default
+      `auto`; with `auto` the lifecycle step behaves exactly as before on draft
+      and ready pull requests.
+- [ ] With `posture: draft`, the lifecycle step never passes `--mode=ready`,
+      on a draft or a ready pull request, and says so in its log.
+- [ ] Any other `posture` value fails the job with an error naming the two
+      accepted values.
+- [ ] A tree whose only chain is a ROADMAP at `Draft` exits 0 under draft
+      posture and exits 2 with L01 under `--mode=ready`.
+- [ ] A ROADMAP at `Active` passes and one at `Done` still fails L01 under both
+      postures; the existing lifecycle tests pass unchanged.
+- [ ] The lifecycle docs that list what draft posture accepts name the Draft
+      ROADMAP case, and the workflow header names the `posture` input.
+- [ ] `shirabe validate --lifecycle .` on shirabe's own tree gives the same
+      result before and after the change.
+
+**Dependencies**: None
+
 ## Dependency Graph
 
 ```mermaid
@@ -338,6 +414,8 @@ graph TD
     I1 --> I3["Issue 3: copy (tsuku)"]
     I1 --> I4["Issue 4: copy (koto)"]
     I1 --> I5["Issue 5: copy (niwa)"]
+    I1 --> I6["Issue 6: copy check (shirabe)"]
+    I7["Issue 7: planning posture (shirabe)"]
 ```
 
 ## Implementation Sequence
@@ -345,4 +423,9 @@ graph TD
 Critical path: Issue 1, then any one of Issues 2 to 5. Issues 1 and 2 share the
 shirabe `default` group and land as one pull request, which merges first. Once
 Issue 1's test passes in CI, Issues 3, 4 and 5 run in parallel, one pull request
-each in tsuku, koto and niwa. The coordination pull request merges last.
+each in tsuku, koto and niwa. Issue 6 follows Issue 1 in its own shirabe pull
+request. Issue 7 depends on nothing and lands in its own shirabe pull request;
+it touches `lifecycle.yml` like Issue 6, so whichever lands second is updated to
+the other's merge and re-run green first. A repository that adopts the check
+through Issue 7's input does so in its own pull request, outside this plan. The
+coordination pull request merges last.
