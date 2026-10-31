@@ -235,6 +235,12 @@ pub enum PassingState {
     /// workflow active). Used for multi-pr in-flight where the PRD
     /// can legitimately be at either state.
     PrdAcceptedOrInProgress,
+    /// ROADMAP-specific: passes at either `Draft` or `Active`. Used only
+    /// for a ROADMAP that roots its own in-flight chain, under draft
+    /// review posture (see [`required_state`]). It overlaps the member
+    /// rule's `Active`, so a Draft ROADMAP a downstream chain passes
+    /// through gets that chain's L01 rather than an L08 conflict.
+    RoadmapDraftOrActive,
 }
 
 impl PassingState {
@@ -244,6 +250,7 @@ impl PassingState {
             Self::Deleted => "DELETED (absent from tree)".to_string(),
             Self::DesignPlannedOrCurrent => "status 'Planned' or 'Current'".to_string(),
             Self::PrdAcceptedOrInProgress => "status 'Accepted' or 'In Progress'".to_string(),
+            Self::RoadmapDraftOrActive => "status 'Draft' or 'Active'".to_string(),
         }
     }
 
@@ -264,6 +271,7 @@ impl PassingState {
             Self::Deleted => BTreeSet::new(),
             Self::DesignPlannedOrCurrent => ["Planned", "Current"].into_iter().collect(),
             Self::PrdAcceptedOrInProgress => ["Accepted", "In Progress"].into_iter().collect(),
+            Self::RoadmapDraftOrActive => ["Draft", "Active"].into_iter().collect(),
         }
     }
 
@@ -274,6 +282,7 @@ impl PassingState {
             Self::Deleted => false,
             Self::DesignPlannedOrCurrent => status == "Planned" || status == "Current",
             Self::PrdAcceptedOrInProgress => status == "Accepted" || status == "In Progress",
+            Self::RoadmapDraftOrActive => status == "Draft" || status == "Active",
         }
     }
 }
@@ -1015,9 +1024,30 @@ fn effective_posture(chain: Posture, review: ReviewPosture) -> Posture {
 /// `Active` rather than the weaker "present": the two differ on a
 /// retired ROADMAP above a still-completing chain, which "present"
 /// lets pass and which is a real finding.
-fn required_state(member: &ChainMember, chain: &Chain, posture: Posture) -> PassingState {
-    if member.role == ChainRole::Roadmap && member.path != chain.root {
-        return PassingState::Status("Active");
+///
+/// The review posture matters for one row. Under
+/// `ReviewPosture::Draft`, a ROADMAP that roots its own chain at
+/// `MultiPrInFlight` passes at `Draft` or `Active`
+/// ([`PassingState::RoadmapDraftOrActive`]): draft posture passes
+/// states that are legitimately not final yet, and a roadmap is
+/// authored at `Draft`. Under `ReviewPosture::Ready` it still needs
+/// `Active`, and a ROADMAP root at `Done` (`MultiPrWorkCompleting`)
+/// still expects deletion in both. The passing-state table can't carry
+/// this because it never sees the review posture. See Decision 5 of
+/// `docs/designs/current/DESIGN-sr8-workspace-engine.md`.
+fn required_state(
+    member: &ChainMember,
+    chain: &Chain,
+    posture: Posture,
+    review: ReviewPosture,
+) -> PassingState {
+    if member.role == ChainRole::Roadmap {
+        if member.path != chain.root {
+            return PassingState::Status("Active");
+        }
+        if review == ReviewPosture::Draft && posture == Posture::MultiPrInFlight {
+            return PassingState::RoadmapDraftOrActive;
+        }
     }
     compute_passing_state(member.role, posture)
 }
@@ -1030,7 +1060,7 @@ fn build_obligations(chains: &[Chain], review: ReviewPosture) -> ObligationMap {
         for member in &chain.members {
             map.entry(member.path.clone())
                 .or_default()
-                .entry(required_state(member, chain, posture))
+                .entry(required_state(member, chain, posture, review))
                 .or_default()
                 .insert((posture, chain.root.clone()));
         }
@@ -1492,9 +1522,12 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
 /// Planned/Current, PLAN at Draft is healthy iteration. Under
 /// `ReviewPosture::Ready`, `Posture::SinglePrMidPR` is re-targeted to the
 /// `Posture::SinglePrAtMerge` passing-state row, so a present single-pr
-/// PLAN fails and single-pr BRIEF/PRD at Accepted fail. Multi-pr
-/// postures are unchanged by the posture. The re-target happens once,
-/// as the obligation map is built (see [`effective_posture`]).
+/// PLAN fails and single-pr BRIEF/PRD at Accepted fail. The re-target
+/// happens once, as the obligation map is built (see
+/// [`effective_posture`]). Multi-pr postures keep their row, with one
+/// exception: under `ReviewPosture::Draft` a ROADMAP rooting its own
+/// in-flight chain also passes at `Draft` (see [`required_state`] and
+/// Decision 5 of `docs/designs/current/DESIGN-sr8-workspace-engine.md`).
 ///
 /// The scope is every indexed document. Corpus-integrity findings —
 /// the index and chain errors, L03/L04/L05 — are whole-corpus here; the
@@ -1836,8 +1869,8 @@ fn check_l10_outline_steps(chain: &Chain) -> Vec<ValidationError> {
 /// The `posture` argument has the same shape as `run_lifecycle_check`'s —
 /// under `ReviewPosture::Ready` and a matched chain at
 /// `Posture::SinglePrMidPR`, the chain re-targets to
-/// `Posture::SinglePrAtMerge`. Multi-pr postures are unchanged by the
-/// posture.
+/// `Posture::SinglePrAtMerge`, and under `ReviewPosture::Draft` a
+/// ROADMAP rooting its own in-flight chain also passes at `Draft`.
 pub fn run_lifecycle_chain_check(
     doc_path: &Path,
     cfg: &Config,
@@ -3684,6 +3717,165 @@ mod tests {
             "a completed ROADMAP-rooted chain still owes the deletion, got {:?}",
             on_roadmap
         );
+    }
+
+    // ---- a ROADMAP root at Draft (DESIGN-sr8-workspace-engine Decision 5) ----
+
+    fn lone_roadmap(status: &str) -> PathBuf {
+        build_tree(&[(
+            "docs/roadmaps/ROADMAP-r.md",
+            &make_roadmap(status),
+            &roadmap_body(status),
+        )])
+    }
+
+    #[test]
+    fn a_draft_roadmap_root_passes_under_draft_posture() {
+        let root = lone_roadmap("Draft");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            errors.is_empty(),
+            "a ROADMAP rooting its own chain at Draft passes draft posture, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_draft_roadmap_root_fails_l01_under_ready_posture() {
+        let root = lone_roadmap("Draft");
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
+        assert_eq!(errors.len(), 1, "one finding expected, got {:?}", errors);
+        assert_eq!(errors[0].code, "L01");
+        assert!(
+            errors[0].message.contains("expected status 'Active'"),
+            "ready posture still needs Active, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn an_active_roadmap_root_passes_under_both_postures() {
+        let root = lone_roadmap("Active");
+        for review in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            let errors = run_lifecycle_check(&root, &Config::default(), review);
+            assert!(errors.is_empty(), "{:?}: got {:?}", review, errors);
+        }
+    }
+
+    #[test]
+    fn a_done_roadmap_root_still_expects_deletion_under_both_postures() {
+        let root = lone_roadmap("Done");
+        for review in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            let errors = run_lifecycle_check(&root, &Config::default(), review);
+            assert_eq!(errors.len(), 1, "{:?}: got {:?}", review, errors);
+            assert_eq!(errors[0].code, "L01");
+            assert!(
+                errors[0].message.contains("DELETED"),
+                "{:?}: a Done ROADMAP root still owes its deletion, got {:?}",
+                review,
+                errors
+            );
+        }
+    }
+
+    #[test]
+    fn a_draft_plan_still_fails_l01_under_draft_posture() {
+        let root = build_tree(&[
+            (
+                "docs/designs/DESIGN-f.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan("Draft", "single-pr", "docs/designs/DESIGN-f.md"),
+                &plan_body("Draft"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(
+            findings_on(&errors, "PLAN-f.md")
+                .iter()
+                .any(|e| e.code == "L01" && e.message.contains("expected status 'Active'")),
+            "a Draft PLAN keeps failing L01 under draft posture, got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_draft_roadmap_above_an_active_plan_gets_one_l01_and_no_l08() {
+        let root = build_tree(&[
+            (
+                "docs/roadmaps/ROADMAP-r.md",
+                &make_roadmap("Draft"),
+                &roadmap_body("Draft"),
+            ),
+            (
+                "docs/plans/PLAN-f.md",
+                &make_plan("Active", "single-pr", "docs/roadmaps/ROADMAP-r.md"),
+                &plan_body("Active"),
+            ),
+        ]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert_eq!(
+            errors.len(),
+            1,
+            "only the member rule's L01 on the ROADMAP, got {:?}",
+            errors
+        );
+        assert_eq!(errors[0].code, "L01");
+        assert!(errors[0].file.contains("ROADMAP-r.md"), "got {:?}", errors);
+        assert!(
+            errors[0].message.contains("expected status 'Active'"),
+            "got {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn a_prd_under_a_draft_roadmap_gets_the_same_orphan_finding_as_with_no_upstream() {
+        let under_draft = build_tree(&[
+            (
+                "docs/roadmaps/ROADMAP-r.md",
+                &make_roadmap("Draft"),
+                &roadmap_body("Draft"),
+            ),
+            (
+                "docs/prds/PRD-f.md",
+                &make_prd("Accepted", "docs/roadmaps/ROADMAP-r.md"),
+                &prd_body("Accepted"),
+            ),
+        ]);
+        let no_upstream = build_tree(&[(
+            "docs/prds/PRD-f.md",
+            &make_prd("Accepted", ""),
+            &prd_body("Accepted"),
+        )]);
+        for review in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            let got = run_lifecycle_check(&under_draft, &Config::default(), review);
+            let want = run_lifecycle_check(&no_upstream, &Config::default(), review);
+            let l02 = |errs: &[ValidationError]| -> Vec<String> {
+                findings_on(errs, "PRD-f.md")
+                    .iter()
+                    .filter(|e| e.code == "L02")
+                    .map(|e| e.message.clone())
+                    .collect()
+            };
+            assert_eq!(
+                l02(&want).len(),
+                1,
+                "{:?}: baseline L02, got {:?}",
+                review,
+                want
+            );
+            assert_eq!(
+                l02(&got),
+                l02(&want),
+                "{:?}: a Draft ROADMAP upstream earns no orphan credit, got {:?}",
+                review,
+                got
+            );
+        }
     }
 
     // ---------- L08: conflicting chains ----------
