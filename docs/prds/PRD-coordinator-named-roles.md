@@ -196,13 +196,18 @@ brief a director writes to dispatch a manager.
   included) to its reviewer. The director's list says it dispatches and briefs
   managers, is the reviewer of each manager it dispatched, reads a manager's
   finished work itself and sends its own reading up (shirabe#1449's R8). It
-  also says what that reading is for. The director keeps in view the work all
-  of its managers push, and its review of a manager's pull request is for
-  alignment: whether the work fits the other lanes and the direction of the
-  effort. It isn't a correctness review, which the manager's own land-step
-  review already owns. When work in two or more lanes heads in diverging or
-  conflicting directions, the director says so to the managers involved and in
-  its own reports. And the director's list says it decides, within the worker
+  also says what that reading covers and what it's for. It covers the work
+  all of its managers push: the pull requests a manager authors and sends it,
+  and the worker pull requests each manager reports ready or landed in its
+  lane. Its purpose is alignment: whether the work fits the other lanes and
+  the direction of the effort. It isn't a correctness review. Correctness
+  stays where it is today: a worker's pull request is checked by its own review
+  round and the manager's land step, and a pull request a manager authors is
+  checked by the manager before it sends it. When work in two or more lanes
+  heads in diverging or conflicting directions, the director says so to every
+  manager involved and in its own reports. Whether that reading holds a land
+  isn't set by the role: who merges and who settles a step stay with the
+  authority configuration (R14). And the director's list says it decides, within the worker
   budget and the lanes it has been given, which of its lanes advance at any
   time. The two lists may share items both roles owe, such as briefing a
   successor.
@@ -242,7 +247,7 @@ brief a director writes to dispatch a manager.
   still may not merge, and a manager holding one still merges only after its
   reviewer's review. The director's allocation duty (R10) is an expectation,
   but what it allocates is an allowance: the worker budget, the lanes it's
-  told to move, and whether it may raise or lower another coordinator's cap
+  told to move, and whether it may raise or lower a manager's cap
   come from the workspace's authority configuration and the start's settings,
   never from the role. No text this change adds says a role holds, needs or
   implies a grant, a merge authority, a close or release authority, a cap or
@@ -444,18 +449,21 @@ only one role is addressed to "the coordinator"):
   list, each containing every item R10 names for that role, and neither list
   contains `grant`, `merge authority`, `may merge` or `settle`.
 - [ ] The director's list has an alignment item, and a reviewer finds all three
-  of its parts: its scope (the work all of the director's managers push,
-  across lanes), its purpose (alignment with the other lanes and the effort's
+  of its parts: its scope (the pull requests its managers author and the
+  worker pull requests they report ready or landed, across lanes), its purpose (alignment with the other lanes and the effort's
   direction, not correctness), and its call-out (diverging or conflicting work
   is named to the managers involved and in the director's reports). A list
   that says only that the director reviews its managers' work, or that frames
-  the review as checking correctness, fails.
-- [ ] In the director start above, when the two managers' pull requests
-  conflict (for example, each changes the same skill passage in a way the
-  other can't live with), the director's review of the later one names the
-  other lane's pull request and the conflict, and the director's next report
-  names it too. A review that judges each pull request only on its own
-  correctness fails.
+  the review as checking correctness, fails. The list says correctness stays
+  with the worker's review round, the manager's land step and the manager's
+  own checks, and doesn't say whether the director's reading holds a land.
+- [ ] In the director start above, when two worker pull requests, one from
+  each manager's lane and each reported ready, conflict (for example, each
+  changes the same skill passage in a way the other can't live with), the
+  director's reading
+  names both pull requests and the conflict to both managers, and the
+  director's next report names it too. A director that reads each pull
+  request only on its own correctness, or tells only one manager, fails.
 - [ ] The director's list has an allocation item saying the director decides
   which of its lanes advance within the worker budget and lanes it's given.
   The item names no cap value and doesn't say the director may change a cap.
@@ -485,8 +493,9 @@ Allowances and the dispatcher-review requirements:
 
 - [ ] For the same workspace and session, the posture read and `niwa authority
   check` print the same result whether the run is recorded as `manager` or
-  `director`, including whether it may change another coordinator's cap, and
-  the grant a successor brief requests is the same for either.
+  `director`, including whether it may change a manager's cap, the same start
+  settings record the same cap for either role, and the grant a successor
+  brief requests is the same for either.
 - [ ] The diff's added lines don't say that a role holds, needs or implies a
   grant, a merge, close or release authority, a cap or the right to change
   one, or the right to settle a step (a reviewer reads each added sentence naming `manager` or `director`).
