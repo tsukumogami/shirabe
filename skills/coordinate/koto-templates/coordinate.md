@@ -1646,7 +1646,7 @@ states:
     # Every posture verdict means the pull request passed the closed checks
     # (the worker's review round, the reviewed head, the body and its squash
     # message); goal_fit is the coordinator's one judgment before it lands or
-    # goes to the person. unready is the worker's to fix.
+    # goes to your reviewer. unready is the worker's to fix.
     transitions:
       - target: goal_fit
         when:
@@ -1667,7 +1667,7 @@ states:
         when:
           gates.land_verdict.exit_code: 84  # dirty
       # A hold in the record that the check read as unmet, or couldn't read:
-      # the pull request goes to the person as held, with the hold named.
+      # the pull request goes to your reviewer as held, with the hold named.
       - target: surface
         when:
           gates.land_verdict.exit_code: 85  # held
@@ -3670,8 +3670,8 @@ you when your session is bound, and to a person only when you are a root
 coordinator. Where you are a root coordinator, a step the workspace puts behind a
 person's confirmation is reserved for a person too; where you are bound, it
 goes to your dispatcher like a denied one. Either way, hand it over rather than
-trigger the prompt. Never ask the human for a step the workspace already
-permits.
+trigger the prompt.
+Never ask the human for a step the workspace already permits once its review is done; a merge grant lets you take a merge after the review, never instead of it.
 
 ## goal_fit
 
@@ -3689,8 +3689,8 @@ Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
 brief you dispatched. Code quality is the seats' question, already answered in
 the body; don't re-review it and don't launch reviewers. A fit pull request,
 with or without follow-ups, goes on by the land check's own verdict: to
-`land_merge` where the workspace permits the merge, and to the person, with the
-merge-order table, where it doesn't. Before it goes on, file each follow-up as
+`land_merge` where the workspace permits the merge, and where it doesn't,
+to your reviewer, with the merge-order table and your own reading. Before it goes on, file each follow-up as
 an issue where the workspace lets you, or raise it as a proposed issue in your
 report up, and name it beside the pull request in the merge-order table. A gap
 goes to `rebrief`.
@@ -3753,7 +3753,7 @@ its merge commit on the default branch, not by trusting the command's exit.
 
 A hold is not decided here. When someone asks you to hold a merge, record it
 with `state-hold.sh --add` at once: the land check reads every hold in the
-record and sends a held pull request to the person, and `land-merge.sh`
+record and sends a held pull request to your reviewer, and `land-merge.sh`
 re-reads them and refuses a pull request a hold recorded since stands on, so a
 hold you only remember never stops a merge. Submit `merge: failed` on that
 refusal; the pull request goes back through verify.
@@ -3834,8 +3834,9 @@ through `land-merge.sh`'s re-read, so every hold standing on it needs its row.
 ## surface
 
 For a merge the workspace reserves, or one a hold in the record stops, put the
-merge-order table from `references/verification-checklist.md` in front of the
-human, once, with the reason for the order (`surfaced: merge_table`); under it,
+merge-order table from `references/verification-checklist.md`
+in front of your reviewer, once, with the reason for the order and your own reading of each pull request
+(`surfaced: merge_table`); under it,
 for each pull request, paste the block `merge-order-entry.sh` printed at that
 pull request's own surface visit, as it is (it prints only for the pull
 request the latest land visit judged). For a blocked worker, show the
@@ -3872,7 +3873,7 @@ back to unverified until you read it again.
 
 The block carries the seats' verdicts from the worker's review round, the
 holds the land check read with their states, and the squash message the merge
-will carry, so the person merging reads neither a second review nor a message
+will carry, so whoever merges reads neither a second review nor a message
 you wrote by hand. A held pull request goes back through `verify` when the event
 its hold names arrives: the other pull request merging, the tag, or the
 person's word, which you record with `state-hold.sh --lift`.

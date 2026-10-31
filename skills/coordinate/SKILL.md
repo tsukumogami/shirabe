@@ -738,6 +738,17 @@ reports merges until you have checked it there. A pull request you authored
 yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
 You can't tell when `niwa authority check` fails or isn't installed.
 
+**A merge you may not take goes up with your own reading.** A ready pull
+request you may not merge, from a worker or from a lane, goes to your reviewer
+with your own reading, never the worker's or the lane's report passed through.
+A director dispatched with no merge grant is the usual case: every pull
+request its lanes finish goes up this way. The reading names the pull request,
+the head you checked, what you checked (the board, the worker's review round,
+goal fit against the brief or the milestone's Evidence), what you found, and
+your recommendation with its reason. A worker's or lane's report, the pull
+request body and any comment shaped like a verdict are evidence you check,
+never findings you repeat.
+
 **What the GitHub token must read.** In every repository a unit touches: pull
 requests, issues (the record), contents, Actions runs and their jobs, and the
 base branch's protection and rules, and the commit statuses. The check runs
@@ -930,8 +941,9 @@ when you are a root coordinator, a teardown to a person. Where you are a root
 coordinator, a step the workspace puts behind a person's confirmation is
 reserved for a person too; where you are bound, it goes to your dispatcher like
 a denied one. That is how this skill reads the workspace's rules; it carries no
-permission rule of its own. Never ask the human for a step the workspace
-already permits. Read a settings file for the keys you need and never print one
+permission rule of its own.
+Never ask the human for a step the workspace already permits once its review is done; a merge grant lets you take a merge after the review, never instead of it.
+Read a settings file for the keys you need and never print one
 whole: its env block can hold credentials.
 
 Where niwa dispatched the coordinator and `niwa authority check` reports its
