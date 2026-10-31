@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   Twenty-one sentences in the coordinate skill's SKILL.md, three of its
   references and its koto template send a review, a merge, a close or a
@@ -37,7 +37,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
