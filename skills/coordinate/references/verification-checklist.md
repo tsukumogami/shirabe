@@ -130,7 +130,7 @@ reviewed head, the body's mechanical checks, and your goal-fit call. Under the
 table, for each pull request, give the squash message the merge should carry
 (`message` in `coord/land.json`, the title and Part 1 as plain text) and say
 where the seats' verdicts are (the hand-over block `merge-order-entry.sh`
-prints names it), so the person merging reads neither a second panel nor a
+prints names it), so whoever merges reads neither a second panel nor a
 hand-built message.
 
 ## The Review Round
