@@ -101,11 +101,10 @@ rows and reads inside.
   `state-stored-set.sh` through the write core, under the one-writer rule and
   the size the record already carries. No new key outside Standing; nothing
   touches `record/decisions` or `record/reversals`.
-- **Old rows keep working.** Sixteen scripts and the schema read Standing
-  today (pause reads in pick, the dispatch check, the land check and the
+- **Old rows keep working.** The schema and every script that reads
+  Standing today (pause reads in pick, the dispatch check, the land check and the
   merge; pick's assignment units; the handover read; the carry; the progress
-  view; the write core's comparison).
-  Each must read a row written before this change exactly as it does now, and
+  view; the write core's comparison) must read a row written before this change exactly as it does now, and
   a lineage started before it keeps every rule it had.
 - **Attribution, not authentication.** koto records a person's handle as
   handed text, and an agent can claim to be a person. The design can't make a
@@ -221,7 +220,8 @@ Key assumptions:
 - koto can read a decision in another session on the same host, so a manager
   can read the person decision its director recorded. No koto acceptance
   criterion covers that read yet; if it fails, the manager's citation reads
-  unreadable and the manager writes an uncited row instead.
+  unreadable and the manager writes the ruling as an `inferred` rule row
+  quoting it, flagged for confirmation, until the read works.
 - A coordinator dispatched by another coordinator has a koto dispatched-by
   link to that coordinator's session, which koto freezes into every decision
   it records there. The link is written by the dispatched session's own
@@ -260,7 +260,10 @@ uses to refuse one. A cited row reads:
   person decisions read inferred. The owner's word reaches its rows when
   the run's next member, which starts by takeover through koto's fence and
   holds no link of its own to the carried run, records the person decision
-  in its own session and runs `--confirm` on each row. koto already decides which
+  in its own session and runs `--confirm` on each row; a lane that copied
+  the carried director's ruling re-cites the new decision with `--confirm`
+  too, since a reversal reaches only rows citing the decision it targets.
+  koto already decides which
   surfaces count: `terminal` and `forge` as entered, `relay` only with an
   https link.
 - **dispatcher-said** when the decider is a session the writer's koto chain
@@ -312,7 +315,15 @@ new event row that names a
 person in Owner with no citation, so relayed can't stay open as an unflagged
 channel for rows a coordinator writes from its own prose. That includes the
 carry acknowledgement the handover gate asks a successor to write: after
-koto ships, it has to cite a person decision recorded at the root.
+koto ships, it has to cite a person decision. A taken-over successor is a
+root, so its acknowledgement reads owner-said. A carried run isn't, and for
+that one row the writer accepts a citation of a person decision entered in
+the run's own session even though it reads inferred: the gate is satisfied
+as today, the row reads inferred with `confirm` true, and the start report
+lists it for the run's next fenced member to confirm. A director's own
+ruling handed to a manager with no leg is written as today's uncited event
+row naming the director's session as Owner, which names no person and
+reads relayed, or as an `inferred` rule row.
 
 Who can make a row owner-said follows from where the decision is entered. A
 root coordinator, the director in practice, records the owner's words with
@@ -500,7 +511,9 @@ to meet in its chain walk:
    refuses the reversal, and the coordinator escalates as it does today.
 5. Every reversal that got standing through a hop records the hop in its
    standing path, naming the fence's actor and time, so a reader can list
-   every reversal a given fence enabled.
+   every reversal a given fence enabled. A hop koto confirms gives the
+   reversal standing `verified`, as a complete chain would, so the owner's
+   reversal through a successor lifts a pause like any other.
 6. koto's rule that only a person reverses a person's decision is unchanged.
    A successor alone can't reverse the owner; the owner, entering through the
    successor, can reverse what they told a predecessor.
@@ -619,7 +632,9 @@ writes `record/decisions` or `record/reversals`.
   always points at merged words that say what the row says. The check runs
   once, when the row is written. Any public repository can be cited, but
   only two can carry a grant: for a `skill` row, the repository the
-  installed plugin's own manifest names as its source, and for a `doc`
+  installed plugin's own manifest names as its source (the `repository`
+  field of the plugin's manifest under its install root; a plugin whose
+  manifest names none anchors no grant), and for a `doc`
   row, the record's host repository, where the coordinator's charter and
   roadmap live. A `skill` or `doc` row citing any other repository reads
   its class and restricts only. A rule row's What is one line of at most
@@ -686,7 +701,10 @@ writes `record/decisions` or `record/reversals`.
   koto's supersede marker to its run's later members; a hop koto can't
   confirm stops there, so a successor it can't confirm never reads
   dispatcher-said. Only a `leg` link starts that walk; every link kind
-  counts toward a session being bound. It reads and never writes, and it fails closed: any
+  counts toward a session being bound. A leg counts only when the session
+  it names holds a coordinator record, isn't a member of the writer's own
+  run, and was created before the writer, so a run can't point a leg at a
+  session it opened after itself or at one of its own members. It reads and never writes, and it fails closed: any
   error, a status of `unreadable`, a body it can't parse, or a read that runs
   past its time limit (5 seconds per decision) gives `unreadable` for that
   row. Text it hands on from
@@ -698,8 +716,11 @@ writes `record/decisions` or `record/reversals`.
   `rule` and a new `--source <form>`. It refuses a `rule` row without a
   Source; a `decision` Source koto can't find, doesn't read `in-effect`, or
   that `rule_class` wouldn't read as owner-said or dispatcher-said for this
-  writer (a manager citing a person decision entered in its own session, a
-  citation outside its frozen koto chain, its own run's session decision,
+  writer (a manager citing a person decision entered in its own session; a
+  session decision that isn't its own run's and that it doesn't reach
+  through a leg, since the chain test applies only to session deciders and
+  a person decision is judged by the root test alone; its own run's session
+  decision,
   whose place is the Decisions section or an `inferred` row), or whose
   recorded words don't match What; and, once koto's decision commands are
   present, a new row naming a person in Owner with no `decision` Source. A `decision` row can still read inferred later,
@@ -719,7 +740,9 @@ writes `record/decisions` or `record/reversals`.
   a relayed or inferred row becomes the owner's word once the owner confirms
   it. `--end` refuses a cited row whose decision is in effect
   and names `koto decisions reverse` instead; it accepts a cited row once its
-  decision reads `reversed`, the reversal is older than this run member's
+  decision reads `reversed` (for a pause, by a reversal koto marks
+  `verified`, so an asserted one can't lift a pause by way of its row
+  ending), the reversal is older than this run member's
   start (the creation time in this session's koto header), and the brief
   this member started with no longer states the row's words (the intake's
   normalized match). So the successor after a reversal always sees the
@@ -739,7 +762,8 @@ writes `record/decisions` or `record/reversals`.
   is mechanical: a brief sentence whose normalized text matches a row's What,
   superseded rows included, is not written again, and a new digest of the same brief label ends the
   inferred rows from the earlier digest that the new brief no longer states.
-  An intake that would pass the 120-row cap writes nothing past it and
+  An intake that would pass either cap (60 inferred rows binds first)
+  writes nothing past it and
   leaves the `brief-unread` gap open, naming how many lines it couldn't
   take, so a person decides which rules to end rather than the coordinator
   dropping some quietly. Two new modes read:
@@ -913,7 +937,9 @@ like this:
   before the change. Compare `koto context get <predecessor> record/standing`
   with the successor's `--rules`: every row is there with a class, and every
   row that had an Owner and a Set shows the same values, class relayed. Each
-  rule its brief stated is there as an inferred row naming the brief.
+  rule its brief stated is there as an inferred row naming the brief. The
+  skill and workspace text the lineage ran under isn't copied into rows;
+  the Run section's `rules` digests name its versions.
 - **Three sources on request.** `--rules --id s<a> --id s<b> --id s<c>`
   gives a class, a date and a pointer for each. Following each pointer
   (`koto decisions show`, the entry, the file at its commit) reaches the
@@ -946,7 +972,11 @@ ships only once the one before it has spread, because the danger at every
 step is an older reader meeting a shape it can't read: a schema refusal
 stops a takeover or every write, and nothing old can be changed after the
 fact. The order also matches the dependencies outside shirabe: Phases 1
-and 2 need nothing from koto, and Phase 3 waits on koto's release.
+and 2 need nothing from koto, and Phase 3 waits on koto's release. "Has
+spread" is a release-order rule, not something a script checks: the writer
+release ships at least one plugin release after the reader release, and a
+plugin older than the reader release meeting a `rule` row stays the
+residual named under Consequences.
 
 ### Phase 1: The reader release
 
@@ -970,7 +1000,9 @@ reader never meets a `rule` row. It adds `--standing rule` with the
 grammar, the repository checks, the default-branch and quoted-sentence
 checks, the caps); the `brief-unread` gap and the intake that clears it;
 the Run `briefs` row and the brief's path in `record/host`; and the skill
-and reference text, except the owner-said procedure. It is done when the
+and reference text, except the owner-said procedure and the change to
+"yourself as relayer", which wait for Phase 3 since event rows keep using
+it until citations exist. It is done when the
 intake is idempotent on one digest, a brief line shaped like a pause comes
 in as a restrict-only `rule` row, and a full set of rules still leaves room
 for a pause.
@@ -989,8 +1021,9 @@ check that turns all of it on, and the owner-said procedure in
 `SKILL.md`. Its tests run under a scratch koto store, and it
 is done when an owner's reversal reads superseded in a director's and a
 manager's record and grants nothing, a citation koto can't read or a hop
-it can't confirm fails closed, and a manager can't reach owner-said except
-by citing its director's decision.
+it can't confirm fails closed, a leg pointing at the writer's own run or
+at a session younger than the writer earns no dispatcher-said, and a
+manager can't reach owner-said except by citing its director's decision.
 
 ### Carried back to the authority work
 
@@ -1002,17 +1035,21 @@ session of a person decision, the frozen chain with each link's kind, the
 winning reversal's standing path, the supersede marker, and ideally one
 read of the chain walk so shirabe keeps none of its own. Three open items
 go with them, the only place they could be closed: a verified identity
-for a person decider; dispatch links koto writes itself, which would
-close the residual of a manager skipping its own link; and a carry that
+for a person decider; dispatch links and requesters koto writes and
+observes itself, which would close the residuals of a message-dispatched
+manager skipping its own link and of a coordinator dispatching itself from
+a session it opened; and a carry that
 rides koto's fence, which would let a carried director stay a root. This
 design proposes that work; it files nothing.
 
 ## Security Considerations
 
-This design adds no new dependency and no credential. Its one network read
-is the writer checking that a `skill` or `doc` Source's commit is on its
-repository's default branch, through the `gh` the record's scripts already
-call; it fetches no document. It reads koto decisions and a coordinator's
+This design adds no new dependency and no credential. Its network reads
+are the writer's, at write, for a `skill` or `doc` Source: up to three forge
+reads through the `gh` the record's scripts already call (the repository's
+visibility, the commit's ancestry on the default branch, and the cited
+file's text at that commit, used only to compare with What). Any of them
+that fails or doesn't answer refuses the row. It reads koto decisions and a coordinator's
 brief, and it writes rows inside the record's existing Standing key. Its security questions are about who can
 make a rule look like the owner's, who can reverse one, and what text
 reaches a public host.
@@ -1067,7 +1104,20 @@ own opener writes count only toward making it bound. Only a `leg` link,
 which koto writes at the bind from the request the dispatcher created,
 makes a session the writer's dispatcher. So a coordinator that links
 itself under a session it controls makes itself more bound and gains no
-grant.
+grant. A leg is only as good as the request behind it, and koto's
+documents don't say that a requester is observed or that a session can't
+bind itself to a request it created. So the helper also requires the
+session a leg names to hold a coordinator record, sit outside the
+writer's run, and be older than the writer. That still leaves one route
+open: a coordinator that opens a fresh coordinator session first and
+dispatches itself from it. That is the same residual as a root speaking
+for the owner. A coordinator able to open a new root could record a
+person decision there just as easily. It closes the same way, by koto
+recording a requester it observed, and it is carried to koto with the
+others. Until then the fabricated session is a new run of its own scope,
+which koto's listings and the host's coordinator sessions show beside the
+real director. Event rows that name a session in Owner keep today's trust:
+they read relayed, never owner-said, and grant as an event row does now.
 
 **Who can claim the owner's word.** Handles are handed text and links are
 never fetched, so owner-said means a root coordinator recorded a person
@@ -1081,8 +1131,9 @@ never trusts a matching scope: the only chain session it discounts is an
 earlier member of the entering run that koto's supersede marker ties to
 it, and a manager opened under its director's scope still reads bound. The
 dispatched-by link the chain is built from is written by the manager's
-own opener, though, so a manager that skips both the link and the row reads
-as a root. It also drops out of its director's hierarchy, so koto's listing
+own opener when it was dispatched by message, though, so such a manager
+that skips both the link and the row reads as a root; a manager
+dispatched through a leg can't skip the link koto writes at the bind. It also drops out of its director's hierarchy, so koto's listing
 below the director no longer finds it and retention stops keeping it for
 the director, while the director's record still holds it as a holding: a
 director's start report can set its holdings against the sessions koto
@@ -1162,8 +1213,9 @@ entries kept in the session.
   once, because its status lives in one place koto keeps.
 - A coordinator can't label its own prose the owner's word: there is no
   field to set, a citation has to carry the row's own words, and a manager
-  reaches owner-said only by citing its director's decision, short of
-  skipping its own dispatch link, which its director's start report shows.
+  reaches owner-said only by citing its director's decision, short of a
+  message-dispatched manager skipping its own dispatch link, which its
+  director's start report shows.
 - Old lineages keep working on any plugin from the reader release on, with
   no conversion pass and nothing rewritten.
 - The Run section's `briefs` digests get their first writer and reader, and
