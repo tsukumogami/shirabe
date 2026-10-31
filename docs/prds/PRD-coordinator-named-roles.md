@@ -406,8 +406,8 @@ Allowances and the dispatcher-review requirements:
   grant, a merge, close or release authority, or the right to settle a step (a
   reviewer reads each added sentence naming `manager` or `director`).
 - [ ] `SKILL.md` still has exactly one `**The reviewer** --` Glossary entry,
-  still contains `never whether the review happens`, `once its review is done`
-  and `your own reading`, and the director's expectation list says the director
+  still contains `never whether the review happens`, `once its review is done`,
+  `your own reading` and `without the reviewer's review`, and the director's expectation list says the director
   reads a manager's finished work and sends its own reading.
 
 Checks and content:
