@@ -64,13 +64,8 @@ against the variable's pattern with wording from `coordinate-open.wording.tsv`.
 A missing discipline host makes the opener print `ask=host` and exit 10 before
 any session exists. Text after `--` never becomes a variable; `SKILL.md` says a
 setting stated in words there ("host repo: acme/widgets") is passed as its
-flag. There is no role flag, so the PRD's first requirement (every new run's
-start takes the role as a setting whose only values are `manager` and
-`director`, refuses any other value before a session exists, and accepts the
-word stated as the role in the start's decisions or on the role line of the
-brief that started it) has nothing to attach to. Its second (an unnamed role
-is asked for once, never defaulted or inferred from scope, cap, holdings,
-dispatcher or prose) needs the same ask channel the host uses.
+flag. There is no role flag for the PRD's start setting to attach to, and its
+ask for an unnamed role needs the same ask channel the host uses.
 
 **The record.** A run's record is a set of koto context keys in its session
 (`references/state-keys.md`): `record/run`, `record/holdings`,
@@ -103,11 +98,8 @@ carries `record/` and `legs/`. An import is a takeover of an imported copy and
 accepts only `--discipline` and `--host`. A discipline rotation that carries
 its predecessor copies named sections (Run among them) through
 `state-open.sh --carry`; one that doesn't is a new run. There is no single list
-of carried facts. The PRD requires that every continuation keep the recorded
-role with no step by hand, that a continuation of a record with no role take it
-from the start's setting or ask, and that a start naming a different role from
-the recorded one be refused, naming both, with the record and the run's state
-left exactly as they were.
+of carried facts, so nothing yet keeps a recorded role across all five or
+refuses a start that names a different one.
 
 **Briefs.** `scripts/render-brief.sh` renders every brief from one input
 document. It has no notion of a brief's kind: a successor brief is told apart
@@ -115,12 +107,9 @@ from a lane brief only by its grant (`"own"`, allowed only when the entry point
 is `coordinate`), and a lane brief gets no grant. The `coordinate` row in
 `references/entry-points.tsv` allows no flags, so a brief can pass no setting
 at all to the coordinator it starts. Its golden files
-(`testdata/brief-golden/*.txt`) pin the worker brief byte for byte. The PRD
-requires a successor brief and a lane brief to carry the role on one line the
-renderer writes from the role it is given, never from the dispatcher's prose;
-the rest of the brief names the concrete scope and work but says nothing
-general about what the role owes and uses no name for the recipient's own
-role. A worker brief gets no role line and renders as it does today.
+(`testdata/brief-golden/*.txt`) pin the worker brief byte for byte, so the
+role line the PRD wants in coordinator briefs has to leave worker briefs
+unchanged.
 
 **Reports.** `SKILL.md` requires every report to name the record (its session
 name and host repository), but fixes no wording for that line. The PRD requires
@@ -131,11 +120,8 @@ or `director` and no other word.
 **Skill text.** The word `coordinator` occurs 244 times across `SKILL.md` (92),
 the koto template (74) and the references (78). "Manager" appears ten times,
 every time meaning the workspace manager; "director" appears once; "lane
-coordinator" once. The PRD requires a Glossary that defines a coordinator as a
-session of either role with Manager and Director entries under it, one
-expectation list per role in `SKILL.md`, every one-role duty readdressed to the
-role that owes it (with a classification table of every occurrence in the
-implementation pull request), and one name per role.
+coordinator" once. There is no Glossary entry for either role and no
+expectation list, so every one-role duty is addressed to "the coordinator".
 
 **Allowances.** `scripts/posture-read.sh` reads the session's posture from
 settings and hooks and calls `niwa authority check --json --session <id> -C
@@ -255,7 +241,8 @@ different value it exits 65 naming both. The one other place a row is born is
 `state-open.sh`'s seed, the write that already creates a record's sections.
 Readers use a new `state-read.sh --run` mode, which reads `record/run` without
 a sealed find and treats a failed read as an error. A structure test pins the
-two writers, and pins the readers as an allow-list: only the scripts this
+two writer scripts (`state-stored-set.sh`, and `state-open.sh` for both its
+seed and its `--carry --role` path), and pins the readers as an allow-list: only the scripts this
 design names (the opener, `state-handover.sh`, the report's record line and
 `dispatch-worker.sh`'s brief path) may read the `role` row, so a script added
 later that reads it fails the test. That keeps `posture-read.sh`,
@@ -903,6 +890,7 @@ variable is added, so the template stays at compat 2.
 | `scripts/coordinate-open.sh` | parses `--role` outside the variable pairs; refuses `invalid_role` before any koto call; reads the candidate's role through `state-read.sh --run` and refuses `role-mismatch` before any write; prints `ask=role` (exit 10) for a new run or a role-less continuation without one; prints `role=<value>`; writes the row on a resume of a role-less record; runs the mismatch check on an import's copy right after it lands |
 | `scripts/coordinate-open.wording.tsv` | `invalid_role`, `role_mismatch` and the `ask=role` message |
 | `scripts/state-open.sh` | `--role` required on a fresh seed and written in it; `--carry --role` adds the row only when the copy has none |
+| `scripts/holding-link.sh` | doesn't link a pull request onto a holding whose entry is `coordinate` |
 | `scripts/state-stored-set.sh` | `--run role <manager\|director>`, set-once; `reports-to` usage reworded |
 | `scripts/state-schema.jq` | `role` among the Run keys, two values, one row; `reports-to` comment and message reworded |
 | `scripts/state-read.sh` | a `--run` mode that reads `record/run` without a sealed find |
@@ -1026,14 +1014,16 @@ the new pinned sentences (for example "It isn't a correctness review" and
 
 Plan steps the decisions surfaced, each small and inside this change:
 
-- widen the cap write's trigger ("a person's word" in the template's cap
-  paragraph and `state-keys.md`) to accept direction from whoever dispatched
+- widen the cap write's trigger ("a person's word" in the cap paragraph of
+  `koto-templates/coordinate.md` and in `references/state-keys.md`) to accept
+  direction from whoever dispatched
   the run, so a manager can write a cap change its director made; the manager
   takes that direction only from the sender its Run `reports-to` row names,
   and the cap it writes stays inside what its own `niwa authority check`
   answer allows;
 - stop a progress event from linking a pull request onto a holding whose entry
-  is `coordinate`, so a director's count of its managers doesn't drift;
+  is `coordinate` (the link is written by `scripts/holding-link.sh` at
+  `report_link`), so a director's count of its managers doesn't drift;
 - read one-role duties that SKILL.md addresses to "you" without the word
   "coordinator" (for example "Your land step...") against the two lists and
   readdress any that only one role owes, since the classification table only
@@ -1050,7 +1040,11 @@ found in the same files as before, run the positional-name grep both per line
 and over whitespace-squeezed text, run the banned-word check from
 `skills/writing-style/rules.yaml` over added lines, commit messages and the
 pull request text, and confirm the posture read and `niwa authority check`
-print the same answer for a run recorded either way.
+print the same answer for a run recorded either way. The structure test only
+covers scripts; the agent also reads the role and the Roles text, so a text
+check confirms the Roles section keeps its sentence that a list says what a
+role owes, never what it's allowed to do, and that no expectation item names a
+grant, merge authority, a settler or a cap.
 
 ## Security Considerations
 
@@ -1083,14 +1077,18 @@ flag can't be smuggled past the field. Two strings still come from the caller
 and are echoed or stored, so both are treated as data: the `invalid_role`
 message prints the refused value in backticks, cut to 32 characters and with
 control characters and backticks removed, so a crafted value can't break out of
-the message an agent reads; and the `--by` value on the role row is one line
+the message an agent reads, and the `role_mismatch` message cleans the run
+name it echoes the same way; and the `--by` value on the role row is one line
 of at most 80 characters, stored as provenance and never read back as an
 instruction.
 
 **A forged or mistaken role is visible and bounded.** A session started by hand
 with the wrong role gets only a different expectation list, never an
 allowance. Its first report's record line names the stored role, and its
-reviewer reads that line. Once stored, the role can't be changed by a later
+reviewer reads that line. Naming itself director doesn't make a session
+anyone's reviewer either: a manager's reviewer is whoever its own Run
+`reports-to` row names, which its dispatcher's brief set, and no script
+resolves a reviewer from a `role` row. Once stored, the role can't be changed by a later
 start: the set-once writer and the opener's mismatch check refuse it, and the
 refusal writes nothing, so an attempted change can't leave a half-written
 record. The flip side is that the first role written to a role-less record,
