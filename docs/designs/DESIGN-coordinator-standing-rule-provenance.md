@@ -32,6 +32,7 @@ rationale: |
   could not be reversed after the first handoff, and the fence is the one
   record tying a run's members together that the successor doesn't write
   about itself.
+upstream: docs/briefs/BRIEF-coordinator-standing-rule-provenance.md
 ---
 
 # DESIGN: Standing rules that carry their provenance
