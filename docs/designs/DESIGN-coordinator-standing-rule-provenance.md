@@ -230,8 +230,9 @@ Key assumptions:
   out of its dispatcher's hierarchy. The `reports-to` Run row is a second
   signal, never the only one, because the coordinator writes it itself.
 - A carried run (a recycled coordinator) is linked dispatched-by to the
-  earlier run of the same scope it carried, so a chain can name a session of
-  the writer's own lineage that isn't above it.
+  earlier run of the same scope it carried, by its own opener, so a chain
+  can name a session of the writer's own lineage that isn't above it, and
+  nothing koto writes says so.
 - An owner ruling maps to a koto `judgment` (outcome `settled`) whose subject
   is the rule's words with a pointer to the Standing row, since an `accept`
   needs a repository path and commit that a spoken ruling lacks.
@@ -245,12 +246,18 @@ uses to refuse one. A cited row reads:
 - **owner-said** when the cited decision's decider is a person and the
   decision was entered in a root coordinator's session. A session is a root
   only when neither the chain koto froze into the decision when it was
-  recorded names a session holding a coordinator record for another scope,
-  nor the session has a `reports-to` Run row; so a manager can't become a
-  root by leaving its own row out. A chain session holding a record for the
-  entering session's own scope is an earlier member of its lineage (the run
-  it carried, or a predecessor that dispatched it) and is never above it, so
-  a carried or continued director stays a root. koto already decides which
+  recorded names a session holding a coordinator record, nor the session
+  has a `reports-to` Run row; so a manager can't become a root by leaving
+  its own row out. One chain session is discounted: an earlier member of
+  the entering session's own run, which koto's supersede marker (Decision
+  4) ties to it. Scope is typed by each coordinator's own opener, so a
+  matching scope alone proves nothing, and a manager opened under its
+  director's scope still reads bound. A continued director stays a root. A
+  carried one doesn't, because the carry links the new run to the old one
+  with a link the new run writes itself and koto never fences: until the
+  carry rides koto's fence the way a takeover does, a carried director's
+  person decisions read inferred and the owner's word reaches its rows by
+  confirmation through a fenced member. koto already decides which
   surfaces count: `terminal` and `forge` as entered, `relay` only with an
   https link.
 - **dispatcher-said** when the decider is a session on the writer's koto
@@ -269,11 +276,25 @@ uses to refuse one. A cited row reads:
 
 "The writer's own session" covers every member of the writer's run back
 through koto's supersede fence, so a successor's carried citations keep
-their class without the successor reaching higher than its predecessor. A
-reversed decision keeps its class; what changes is its status, superseded.
+their class without the successor reaching higher than its predecessor. The
+tests run in a fixed order: unreadable first, then the writer's own run
+(inferred), then dispatcher-said, then owner-said, so a session decision of
+the writer's own predecessor never reads as its dispatcher's. A reversed
+decision keeps its class; what changes is its status, superseded.
+
+A citation also has to say what the row says. The writer refuses a
+`decision` row whose What doesn't match the words the cited decision
+records (its reason, which holds the rule's words), and a `skill` or `doc`
+row whose What isn't a sentence of the cited file at the cited commit, by
+the same normalized match the intake uses. So a coordinator can't hang its
+own sentence on a real owner decision or a real merged file and have it
+read as theirs.
 
 An uncited event row reads relayed (Decision 3). Once koto's decision
-commands and its supersede hop (Decision 4) are installed, the writer refuses a new event row that names a
+commands and its supersede hop (Decision 4) are installed, which the writer
+reads as koto at or past the version floor the plugin names for them,
+checked the way the skill already checks koto's floor, the writer refuses a
+new event row that names a
 person in Owner with no citation, so relayed can't stay open as an unflagged
 channel for rows a coordinator writes from its own prose. That includes the
 carry acknowledgement the handover gate asks a successor to write: after
@@ -372,7 +393,8 @@ below, and makes `run_address` stop a takeover before the fence when the
 schema refuses the record, instead of reading the refusal as "no record". A
 later writer release writes `rule` rows and Sources. It writes the
 `decision` form only when koto's decision commands and its supersede hop are
-both present, checked at each write; with an older koto, an owner's word is written as today's event row and reads
+both present (the version floor above, checked at each write); with an
+older koto, an owner's word is written as today's event row and reads
 relayed, so nothing needs rework when koto arrives.
 
 Brief rules come in once per brief digest. At a start whose brief has no Run
@@ -380,8 +402,12 @@ Brief rules come in once per brief digest. At a start whose brief has no Run
 coordinator writes one `rule` row per rule its brief states that no Standing
 row already holds: the brief's sentence in What, Owner blank, Source
 `inferred brief <label> sha256:<digest>`, and the `briefs` row beside them.
-A sentence that matches a row already held, superseded rows included, is
-not written again; one matching a superseded row is named in the start
+The match is mechanical, and the writer, `--end` and the intake all use
+the one normalized match: both texts lowercased, a leading list marker and
+trailing punctuation dropped, runs of whitespace collapsed to one space,
+then compared byte for byte. A paraphrase doesn't match. A sentence that
+matches a row already held, superseded rows included, is not written
+again; one matching a superseded row is named in the start
 report as a reversed rule the brief still carries, so prose the owner took
 back can't come in again as a fresh inferred rule.
 Each reads inferred and is flagged for confirmation. A brief line that reads
@@ -550,17 +576,27 @@ writes `record/decisions` or `record/reversals`.
   `owner/repo#n` reference, so the grammar also checks the bare
   `<owner/repo>` of a `skill` or `doc` Source, and the repository in a
   `decision` Source's session name, against the list of repositories that
-  aren't public. That is why a workspace file a public host can't name is
-  cited only through `pinned`. The normal form leaves out an empty `source`,
+  aren't public. The same repository check runs on What, so a brief
+  sentence or a rule's words that name a private repository by its bare
+  name are refused on a public host too. That is why a workspace file a
+  public host can't name is cited only through `pinned`. A `skill` or `doc`
+  Source's repository is `<owner>/<repo>` of letters, digits, `.`, `_` and
+  `-`, its path is relative with no `..` segment and no leading `-`, and its
+  commit is 40 hex; the writer gives the same refusal for a repository that
+  doesn't exist as for one it can't read, so a refusal says nothing about a
+  private repository. The normal form leaves out an empty `source`,
   so a row without one is written back byte for byte. A `decision` Source's
   session name must match koto's session-name grammar and may not start
   with `-`, and its id must be exactly 12 digits, so nothing a writer types
   there can reach `koto` as a flag or a path; every script passes the two as
   separate arguments, never through a built command string. A `skill` or
   `doc` Source must name a commit its repository's default branch contains,
-  and the writer refuses one whose repository it can't read to check that
-  (one forge read, through the same `gh` the record's scripts already use),
-  so a citation that can grant always points at merged words. A `rule` row
+  and the What has to be a sentence of the file at that commit; the writer
+  refuses one whose repository it can't read to check either (two forge
+  reads, the commit's ancestry and the file at the commit, through the same
+  `gh` the record's scripts already use), so a citation that can grant
+  always points at merged words that say what the row says. The check runs
+  once, when the row is written. A `rule` row
   leaves Owner and Relayed by blank whatever its Source: who said it is the
   Source's to answer (koto's decider for a citation, the document for a
   `skill`, `doc` or `pinned` row, the writing coordinator for an `inferred`
@@ -585,10 +621,12 @@ writes `record/decisions` or `record/reversals`.
   | `doc`, `pinned` | charter |
   | `inferred` | inferred |
 
-  A second function, `rule_grants`, returns whether a row may grant: true
-  for an owner-said or dispatcher-said citation in effect, a `skill` row and
-  a `doc` row, false for everything else (inferred, `pinned`, unreadable,
-  superseded). It branches on the Source as well as the class because
+  A second function, `rule_grants`, returns whether a row may grant or
+  satisfy a check. A pause never grants. Every other row grants when it is
+  relayed (an uncited go-ahead, approval, answer or assignment grants
+  exactly as it does today), an owner-said or dispatcher-said citation in
+  effect, a `skill` row or a `doc` row; it is false for an inferred,
+  `pinned`, unreadable or superseded row. It branches on the Source as well as the class because
   `doc` and `pinned` share the charter class and only `doc` grants, so a
   reader asks this function rather than working it out from the class.
 
@@ -604,19 +642,21 @@ writes `record/decisions` or `record/reversals`.
   standing came through a supersede hop and that fence's actor and time.
   The entering session counts as bound when the decision's chain snapshot,
   which koto froze when it recorded the decision, names a session that holds
-  a coordinator record (`record/meta`) for a scope other than the entering
-  session's own, or when the entering session has a `reports-to` Run row. A
-  chain session of the same scope is an earlier member of the lineage and
-  doesn't count. The row can only make a session count as bound; it never
+  a coordinator record (`record/meta`), other than an earlier member of the
+  entering session's run that koto's supersede marker ties to it, or when
+  the entering session has a `reports-to` Run row. The row can only make a session count as bound; it never
   makes one a root and never widens what a writer may cite. The writer's own
   frozen chain, which the dispatcher-said test reads, comes from the
   koto-owned `koto/links/dispatched-by/` keys in the writer's session, read
-  by the same helper, and each session on it is followed forward through
+  by the same helper (through a koto read of the chain walk instead, if
+  koto's decision record ships one, so shirabe keeps no second walk), and
+  each session on it is followed forward through
   koto's supersede marker to its run's later members; a hop koto can't
   confirm stops there, so a successor it can't confirm never reads
   dispatcher-said. It reads and never writes, and it fails closed: any
   error, a status of `unreadable`, a body it can't parse, or a read that runs
-  past its time limit gives `unreadable` for that row. Text it hands on from
+  past its time limit (5 seconds per decision) gives `unreadable` for that
+  row. Text it hands on from
   koto (a subject, a reason, a link) is cut to 200 characters, stripped of
   control characters, and marked as quoted data. A row with no citation
   costs it nothing.
@@ -627,9 +667,9 @@ writes `record/decisions` or `record/reversals`.
   that `rule_class` wouldn't read as owner-said or dispatcher-said for this
   writer (a manager citing a person decision entered in its own session, a
   citation outside its frozen koto chain, its own run's session decision,
-  whose place is the Decisions section or an `inferred` row); and, once
-  koto's decision commands are present, a new row naming a person in Owner
-  with no `decision` Source. A `decision` row can still read inferred later,
+  whose place is the Decisions section or an `inferred` row), or whose
+  recorded words don't match What; and, once koto's decision commands are
+  present, a new row naming a person in Owner with no `decision` Source. A `decision` row can still read inferred later,
   when it was carried from a writer whose standing differed; the writer just
   never creates one. A new mode confirms a row in place:
 
@@ -639,7 +679,10 @@ writes `record/decisions` or `record/reversals`.
 
   It adds the citation to a row that has none or reads `inferred`, keeping
   its id, kind, On, Until, What and Set, under the same refusals as a new
-  citation, and writes an entry naming the old and new Source. That is how
+  citation. On an event row it sets Owner to the decider koto recorded, so
+  the Owner-must-match rule never strands a relayed row whose free-text
+  Owner was spelled differently, and it writes an entry naming the old and
+  new Source and the old Owner. That is how
   a relayed or inferred row becomes the owner's word once the owner confirms
   it. `--end` refuses a cited row whose decision is in effect
   and names `koto decisions reverse` instead; it accepts a cited row once its
@@ -682,8 +725,10 @@ writes `record/decisions` or `record/reversals`.
   status: a reversed pause holds nothing and a reversed go-ahead lets nothing
   through; an unreadable pause holds and an unreadable go-ahead lets nothing
   through. It reads the uncited pauses first, then consults at most 16
-  cited rows per call, each under the helper's time limit. A cited row it
-  doesn't reach, past the bound or past the time limit, is treated as
+  cited rows per call, each under the helper's time limit, and stops
+  consulting once the call has spent 20 seconds, inside koto's 30-second
+  action limit. A cited row it doesn't reach, past either bound or past the
+  time limit, is treated as
   unreadable: a pause holds and a go-ahead grants nothing, so padding a
   record with citations can delay work but never hides a pause. A failure
   names the session koto couldn't read so a person can act. Uncited rows read exactly as now, so a record with no
@@ -723,11 +768,11 @@ writes `record/decisions` or `record/reversals`.
   replaces "record a person's word found on the record's thread or anywhere
   else" with that rule. When a rule decides an action, the coordinator names
   the Standing id in the entry it writes, as it already names decision ids.
-  A rule `rule_grants` returns false for (an inferred, `pinned`, unreadable
+  A row `rule_grants` returns false for (an inferred, `pinned`, unreadable
   or superseded row) can only restrict: it never grants a step, widens what
-  a grant allows, or satisfies a check. Only an owner-said or
-  dispatcher-said citation in effect, a `skill` row and a `doc` row can do
-  that, and none of them widens what the workspace grants. The intake writes only sentences it
+  a grant allows, or satisfies a check. Only a relayed event row, an
+  owner-said or dispatcher-said citation in effect, a `skill` row and a
+  `doc` row can do that, and none of them widens what the workspace grants. The intake writes only sentences it
   can quote from the brief, and on a public host only sentences that pass
   the text check; a line that fails is reported and left out.
   `references/brief-template.md` is unchanged here; compiling the brief from
@@ -757,6 +802,7 @@ One object of `--rules`:
 {"standing": "s15", "kind": "rule", "class": "owner-said", "what": "...",
  "owner": "<handle>", "said": "2026-11-20T09:29:41.120Z", "set": "2026-11-20T09:30Z",
  "pointer": {"decision": "<session> 000000000007", "surface": "terminal", "entered": "<session>", "link": null},
+ "words": "Release pull requests wait for a person's review before they merge.",
  "source": "decision <session> 000000000007",
  "status": "in-force", "reversal": null, "confirm": false, "grants": true}
 ```
@@ -764,7 +810,9 @@ One object of `--rules`:
 `owner` is who said it: koto's decider for a cited row (the person's
 handle, or the deciding session), the row's Owner for a relayed one, and
 null for a `skill`, `doc`, `pinned` or `inferred` row, whose `pointer` and
-`class` answer that. `grants` is `rule_grants`. `said` is the decision's time for a cited row and the row's Set otherwise.
+`class` answer that. `words` is what the cited decision recorded, as quoted
+data and cut to 200 characters, so a reader sees it beside What; it is null
+for an uncited row. `grants` is `rule_grants`. `said` is the decision's time for a cited row and the row's Set otherwise.
 `pointer` is the decision for a cited row, the entry that recorded the row
 for a relayed one (`{"entry": "<session> record/entries/<n>"}`, with the
 posted comment's URL when there is one, and the row itself when no entry is
@@ -815,8 +863,10 @@ koto decisions reverse <session> <id> --by person:<handle> --surface terminal --
 
 ### How a reviewer checks each outcome
 
-Each outcome the milestone promises can be run by a reviewer who didn't
-write the change, against a real record:
+This is part of the architecture, not a test plan: it names which read
+makes each promised outcome observable on a real record, which is why the
+read views above exist. A reviewer who didn't write the change runs them
+like this:
 
 - **An old lineage keeps its rules.** Start a successor on a lineage created
   before the change. Compare `koto context get <predecessor> record/standing`
@@ -850,72 +900,55 @@ write the change, against a real record:
 
 ## Implementation Approach
 
+The rollout is readers first, then writers, then citations. Each phase
+ships only once the one before it has spread, because the danger at every
+step is an older reader meeting a shape it can't read: a schema refusal
+stops a takeover or every write, and nothing old can be changed after the
+fact. The order also matches the dependencies outside shirabe: Phases 1
+and 2 need nothing from koto, and Phase 3 waits on koto's release.
+
 ### Phase 1: The reader release
 
-The schema accepts the `rule` kind and the Source column and leaves an empty
-Source out of the normal form; `rule_class`, `rule_grants` and the
-`--rules` and `--rules --counts` views land, with `decision` sources classed
-unreadable until the provenance helper can read them; `run_address` refuses before the fence on a schema refusal; the
-handover read lists rules. Nothing writes the new shape yet, so this release
-can ship and spread before any record holds a `rule` row.
-
-Deliverables:
-- `state-schema.jq`, `state-stored-set.sh` (`--rules`, `--rules --counts`),
-  `state-handover.sh` (lists only), `coordinate-open.sh` (`run_address`)
-- tests: every existing Standing reader's tests pass on records with no
-  Source; a record with a `rule` row reads through each of them unchanged;
-  an old row is written back byte for byte after an unrelated write
+The schema accepts the `rule` kind (with Owner and Relayed by blank) and
+the Source column, and leaves an empty Source out of the normal form;
+`rule_class`, `rule_grants` and the `--rules` and `--rules --counts` views
+land, with `decision` sources classed unreadable until the provenance
+helper can read them; `run_address` refuses before the fence on a schema
+refusal; the handover read lists rules. Nothing writes the new shape yet,
+so this release can ship and spread before any record holds a `rule` row.
+It changes `state-schema.jq`, `state-stored-set.sh`, `state-handover.sh`
+and `coordinate-open.sh`, and it is done when every existing Standing
+reader reads a record with and without `rule` rows exactly as before and
+an old row survives an unrelated write byte for byte.
 
 ### Phase 2: Rule rows and the brief intake
 
-Depends on Phase 1 being released, so a successor on the older reader never
-meets a `rule` row. `--standing rule` with the `skill`, `doc`, `pinned` and
-`inferred` forms; the `brief-unread` gap and the intake that clears it; the
-Run `briefs` row and the brief's path in `record/host`; the skill and
-reference text, except the owner-said procedure.
-
-Deliverables:
-- `state-stored-set.sh` (`--standing rule`, `--source`, refusals),
-  `state-handover.sh` (the gap), `SKILL.md`, `references/state-keys.md`
-- tests: the intake is idempotent on one digest and writes only new
-  sentences for a new digest; a brief line shaped like a pause comes in as
-  a `rule` row; an inferred row reads `confirm` true; on a public host a
-  `skill` or `doc` Source naming a repository that isn't public is refused;
-  a `skill` or `doc` Source naming a commit off the default branch is
-  refused; a `rule` row with an Owner is refused; a brief sentence matching
-  a superseded row isn't taken in; the 121st `rule` row is refused while a
-  pause can still be written
+Phase 2 depends on Phase 1 being released, so a successor on the older
+reader never meets a `rule` row. It adds `--standing rule` with the
+`skill`, `doc`, `pinned` and `inferred` forms and their refusals (the
+grammar, the repository checks, the default-branch and quoted-sentence
+checks, the caps); the `brief-unread` gap and the intake that clears it;
+the Run `briefs` row and the brief's path in `record/host`; and the skill
+and reference text, except the owner-said procedure. It is done when the
+intake is idempotent on one digest, a brief line shaped like a pause comes
+in as a restrict-only `rule` row, and a full set of rules still leaves room
+for a pause.
 
 ### Phase 3: Citations, owner-said and reversal
 
-Waits on a koto release that ships the decision record's recording, listing
-and reversal, and the supersede-hop conditions in Decision 4. Without the
-hop, an owner ruling recorded at the root couldn't be reversed after the
-first takeover, so this phase doesn't land on a koto that lacks it. The
-`decision` form, `standing-provenance.sh`, the owner-said and
-dispatcher-said classes, the writer's refusals, `--confirm`, `--end`'s
-refusal of cited rows, the pause read's status check, and the owner-said
-procedure in `SKILL.md`.
-
-Deliverables:
-- `standing-provenance.sh`, `state-stored-set.sh`, `pause-read.sh`,
-  `state-schema.jq` (`rule_class` for citations), `SKILL.md`
-- tests, under a scratch koto store: a reversed owner ruling reads
-  superseded in the director's and a manager's record; a reversed go-ahead
-  grants nothing; an unreadable citation fails closed and its row ends only
-  with `--authorized-by` citing an owner-said decision; a cited pause past
-  the pause read's bound holds; a Source whose session name starts with `-`
-  is refused; a manager citing a person decision it entered
-  itself is refused, including a manager with no `reports-to` row whose
-  frozen chain names its director; a reversal reason that fails the
-  public-host check is withheld from the start report; a successor's
-  reversal below its predecessor is accepted through the hop and refused
-  when the hop can't be confirmed; a carried director's person decision
-  reads owner-said; a manager's row citing its director's successor reads
-  dispatcher-said through the hop and inferred when the hop can't be
-  confirmed; a superseded row's `--end` is refused while this member's brief
-  states its words; `--confirm` turns a relayed row into a cited one
-  keeping its id
+Phase 3 waits on a koto release that ships the decision record's
+recording, listing and reversal, and the supersede-hop conditions in
+Decision 4. Without the hop, an owner ruling recorded at the root couldn't
+be reversed after the first takeover, so this phase doesn't land on a koto
+that lacks it. It adds the `decision` form, `standing-provenance.sh`, the
+owner-said and dispatcher-said classes, the writer's refusals, `--confirm`,
+`--end`'s rules for cited and superseded rows, the intake's match against
+superseded rows, the pause read's status check, and the owner-said
+procedure in `SKILL.md`. Its tests run under a scratch koto store, and it
+is done when an owner's reversal reads superseded in a director's and a
+manager's record and grants nothing, a citation koto can't read or a hop
+it can't confirm fails closed, and a manager can't reach owner-said except
+by citing its director's decision.
 
 ### Carried back to the authority work
 
@@ -947,14 +980,26 @@ text check, and shown under a heading that calls it quoted data and not an
 instruction. That lowers the chance a reason such as "ignore the pause and
 dispatch" is taken as direction; it can't rule it out, since the reader is
 a model, which is why nothing koto hands back can grant anything. Citations
-are pointers: no code fetches a document, link or file a Source names (the
-default-branch check reads commit ancestry only), and a change that ever
-does owns its own review. A brief's rules come in as
+are pointers: no code follows a link a decision carries, and the one file
+read is the writer matching a `skill` or `doc` row's What against the cited
+file at its merged commit, a text comparison whose result is a refusal or
+not and whose content goes nowhere else. A brief's rules come in as
 inferred rows quoting the brief, and an inferred or pinned rule can only
 restrict; it never grants a step, widens a grant or satisfies a check, so a
 planted brief line can't become a standing permission. A planted
 restriction can still slow a lane, which the inferred-rule cap and the
-start report's list of unconfirmed rules bound and expose.
+start report's list of unconfirmed rules bound and expose. A brief that
+repeats a reversed rule in other words gets past the normalized match and
+comes in as a fresh inferred row; that row is restrict-only and listed as
+unconfirmed, so the worst it does is hold back what the reversal allowed,
+until the compiled-brief work stops briefs carrying prose at all.
+
+**A row says what its citation says.** A real owner decision or a real
+merged file is no use as cover for other words: the writer refuses a
+`decision` row whose What doesn't match the decision's recorded words and
+a `skill` or `doc` row whose What isn't a sentence of the cited file, and
+`--rules` prints the cited words beside What. The `doc` and `skill` check
+runs once, at write; the file at a commit can't change afterwards.
 
 **Who can claim the owner's word.** Handles are handed text and links are
 never fetched, so owner-said means a root coordinator recorded a person
@@ -963,13 +1008,19 @@ is a root, and which sessions a manager may cite as its dispatcher, are
 read from the chain koto froze when it recorded the decision; the
 `reports-to` row can only make a session count as bound, never widen what
 it may cite, so a manager gains nothing by omitting or editing its own row.
-The dispatched-by link the chain is built from is written by the manager's
+A coordinator's scope is typed by its own opener too, so the root test
+never trusts a matching scope: the only chain session it discounts is an
+earlier member of the entering run that koto's supersede marker ties to
+it, and a manager opened under its director's scope still reads bound. The
+dispatched-by link the chain is built from is written by the manager's
 own opener, though, so a manager that skips both the link and the row reads
 as a root. It also drops out of its director's hierarchy, so koto's listing
 below the director no longer finds it and retention stops keeping it for
-the director; the director still holds it as a holding. That is the same
-kind of residual as a root recording about its own prose, and it closes the
-same way. Short of that, a manager can't enter a person decision, and only
+the director, while the director's record still holds it as a holding: a
+director's start report can set its holdings against the sessions koto
+lists below it and name any holding missing there. Skipping a flag is
+easier than a root lying about its own prose, so this residual is the
+larger of the two, and it is carried to koto as one. Short of that, a manager can't enter a person decision, and only
 a person can reverse one. A root coordinator can still record a person decision about its own
 prose; the design makes that a separate, write-once record carrying its
 entering session and harness id, which the owner can list below them in one
@@ -982,7 +1033,12 @@ decider and dispatch links koto writes itself.
 predecessor had, read from koto's supersede fence and never higher. Any
 session that can name another can fence it, so a wrong fence now moves
 reversal standing over one coordinator's subtree as well as stopping that
-coordinator. Every reversal that rode a hop records the fence's actor and
+coordinator, and, since dispatcher-said follows the same hop, the fencing
+session's own session decisions read dispatcher-said, and so can grant, in
+every lane that coordinator dispatched. Fencing a director, live or
+stopped, takes only its expected state and has one winner, so nothing here
+keeps a stranger from doing it; that is why each hop's fence actor and time
+reach the start report, and why the trust boundary below matters. Every reversal that rode a hop records the fence's actor and
 time, the start report lists them, a hop koto can't confirm refuses, and the
 owner and the sessions above the position keep the last word. The answer
 assumes the fence and the decision store share one trust boundary, which
@@ -1007,8 +1063,10 @@ references, so the grammar checks the bare repository of a `skill` or `doc`
 Source, and the repository in a cited session's name, against the list of
 repositories that aren't public. A workspace file a public host can't name
 is cited only by label and digest, with its location kept in
-`record/host`, and the intake writes a brief sentence only if it passes the
-same check. A pinned or brief digest records what was read; comparing it
+`record/host`, and the same repository check runs on What, so neither a
+brief sentence nor a rule's words can name a private repository by its bare
+name on a public host. A refusal reads the same for a repository that
+doesn't exist as for one the writer can't read. A pinned or brief digest records what was read; comparing it
 with the file's current contents is the compiled-brief work's, so this
 design doesn't present it as an integrity check, and that is why a pinned
 rule can only restrict. A `skill` or `doc` rule can grant only from a
@@ -1026,7 +1084,9 @@ entries kept in the session.
 - A reversed owner ruling stops binding in every record that cites it at
   once, because its status lives in one place koto keeps.
 - A coordinator can't label its own prose the owner's word: there is no
-  field to set, and a manager can't enter a person decision at all.
+  field to set, a citation has to carry the row's own words, and a manager
+  reaches owner-said only by citing its director's decision, short of
+  skipping its own dispatch link, which its director's start report shows.
 - Old lineages keep working on any plugin from the reader release on, with
   no conversion pass and nothing rewritten.
 - The Run section's `briefs` digests get their first writer and reader, and
@@ -1040,6 +1100,10 @@ entries kept in the session.
   decision and koto's `reverse` for cited ones.
 - A superseded row stays in Standing, counting against the rule cap, for as
   long as a successor's brief still repeats its words.
+- A carried director, which koto never fences, reads bound: its person
+  decisions read inferred until the carry rides koto's fence the way a
+  takeover does, so the owner's word reaches its rows only by confirmation
+  through a fenced member.
 - A root coordinator can still claim the owner said something; the design
   makes the claim attributable, not impossible.
 - The citation phase waits on koto shipping both its decision record and
