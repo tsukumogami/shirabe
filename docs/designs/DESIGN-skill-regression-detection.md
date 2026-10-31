@@ -50,7 +50,11 @@ Proposed
 shirabe wants a maintainer to learn that a change broke a skill's behaviour,
 including a hand-off from one skill to another, before the release that
 carries the change reaches users. That has to hold for every skill, including
-skills added later. Two observations count as evidence that it does:
+skills added later. The project's roadmap, not this design, sets the
+acceptance evidence for that goal, as two observations. They're quoted here
+so the design can show which of its parts makes each one reachable (see "How
+each piece of evidence is met"); this document adds no requirements of its
+own:
 
 1. "A maintainer breaks `/deliver`'s hand-off to `/execute` on a branch, runs
    the eval harness on `/deliver`, and sees its hand-off case fail; doing the
@@ -164,9 +168,10 @@ will sometimes stop a release; that costs a person's attention, not tokens,
 which is the trade the rulings force.
 
 `run-evals.sh` gains two guards. It refuses to start with
-`ANTHROPIC_API_KEY` exported unless given an explicit flag, and that API path
-also needs an owner-set cap in `scheduled-evals.py`'s ledger, so an exported
-key can't silently turn a plan-billed run into API spend. And it checks
+`ANTHROPIC_API_KEY` or any other billing variable Security Considerations
+lists set, unless given an explicit flag, and that API path also needs an
+owner-set cap in `scheduled-evals.py`'s ledger, so a stray variable can't
+silently turn a plan-billed run into API spend. And it checks
 `BASH_VERSINFO` up front and names bash 4 as a requirement of the
 maintainer's host. `scheduled-evals.py` loses its $50 fallback: without an
 owner-set cap it runs nothing. `run-evals.yml` stays dispatch-only, and
@@ -344,8 +349,8 @@ select it; an edit to a shared file it loads does.
 `git show` in one python3 process, with no `gh` and no network. The baseline
 is the newest record at the last tag whose tree matches the skill's tree at
 that tag, falling back to the newest record at the tag measured the same way.
-Records are never deleted, so the tag's tree holds every earlier record and
-the lookup has no depth cap. The current record is the newest record added
+A record is deleted only when its skill is, so the tag's tree holds every
+earlier record of every skill still shipped, and the lookup has no depth cap. The current record is the newest record added
 since the tag, whether or not its tree matches HEAD.
 
 **Check 1, graded drops (exit 5, `RELEASE_CONFIRMED_DROPS`).** A skill drops
@@ -506,9 +511,11 @@ stops on what it finds.
 `run` is split into words on spaces and executed directly, never through a
 shell. Its first word must resolve, after `realpath`, to a tracked regular
 file under `scripts/` that isn't a symlink, and every argument must match
-`[A-Za-z0-9._-]+`; the shape check refuses anything else, and the runner
-checks again before executing. Each case gets a timeout (300 seconds by
-default). A `grader: script` case has no `prompt` or `expectations`.
+`[A-Za-z0-9][A-Za-z0-9._-]*`, with an argument in a skill position naming a
+directory under `skills/`; the shape check refuses anything else, and the
+runner checks again before executing. Each case gets a timeout (300 seconds
+by default) and the limits in Security Considerations. A `grader: script`
+case has no `prompt` or `expectations`.
 
 **Record file** `evals/records/<skill>/<UTC>-<tree12>.json`: a
 `run-evals-summary/v1` skill entry (`runs`, `runs_passed`, `assertions`,
@@ -526,7 +533,8 @@ default). A `grader: script` case has no `prompt` or `expectations`.
 **Release checks** in `release.md`, each a separate entry so each gets its own
 confirmation round:
 
-- `scripts/release-eval-check.sh --drops --tolerance 0.05` (exit 5 with
+- `scripts/release-eval-check.sh --drops --tolerance 0.05` (exit 1 first if
+  any record was modified or deleted since the last tag; then exit 5 with
   `RELEASE_CONFIRMED_DROPS`)
 - `scripts/release-eval-check.sh --unmeasured` (exit 5 with
   `RELEASE_CONFIRMED_UNMEASURED`)
@@ -558,7 +566,7 @@ confirmation round:
 |---|---|---|---|
 | PR gate: shape check, script cases | CPU, scaling with the changed skill's script cases and the cases targeting it | GitHub Actions minutes, free on a public repository | 0 |
 | CI record check | CPU, scaling with record files changed | GitHub Actions minutes | 0 |
-| Maintainer graded run | The skill's release-subset scenario count times the per-scenario rate, plus about $2.50 of session overhead: about $3 for one case, $14 for `/deliver`'s subset, $39 for `/execute`'s, at list price | The Claude plan of the person who starts it; refused with an exported API key unless flagged and under an owner-set cap | yes |
+| Maintainer graded run | The skill's release-subset scenario count times the per-scenario rate, plus about $2.50 of session overhead: about $3 for one case, $14 for `/deliver`'s subset, $39 for `/execute`'s, at list price | The Claude plan of the person who starts it; refused with an API-billing variable set unless flagged and under an owner-set cap | yes |
 | Release: selection and hashing | CPU, scaling with skills and their behaviour files | The release host's machine time | 0 |
 | Release: reading and comparing records | CPU, milliseconds, scaling with changed skills and their records | The release host's machine time | 0 |
 | Release: script cases | CPU and wall time, seconds to minutes, scaling with every skill's script cases | The release host's machine time | 0 |
@@ -573,6 +581,8 @@ The free layer comes first because both pieces of evidence lean on it and it
 needs nothing else.
 
 Deliverables:
+- `scripts/lib/skill-tree.py` and its tests, since the gate job selects
+  changed skills by tree hash.
 - `scripts/check-handoff.sh` and its test suite, with route selectors on the
   `/deliver` and `/execute` engine suites.
 - `scripts/lib/script-cases.py`, `run-evals.sh --script-only` delegating to
@@ -586,11 +596,10 @@ Deliverables:
 
 ### Phase 2: Records and the harness guards
 
-Depends on nothing in Phase 1 but lands after it, so the first records carry
-the new case kind.
+Depends on Phase 1's `skill-tree.py` for the record's `tree` field, and lands
+after it, so the first records carry the new case kind.
 
 Deliverables:
-- `scripts/lib/skill-tree.py` and its tests.
 - Record writing in `run-evals.sh` (`tree`, `cases`, `producer`,
   `cost_usd`), the API-key guard and the `BASH_VERSINFO` guard.
 - `check-evals.yml` record checks; the dispatch-only test for
@@ -613,68 +622,93 @@ Deliverables:
 
 **A record is an assertion, not a proof.** A pull request author can commit a
 record with any numbers. The release checks it only structurally: the tree
-hash matches content, the scenario set and run shape match, and older
-records are unchanged. Records arrive through the same review as the code
-they measure, add-only enforcement keeps an author from rewriting a baseline,
-and a forged good record hides a regression no better than not measuring,
-which Check 2 already surfaces. shirabe's maintainers are trusted to the same
-degree as the code they merge; this design doesn't change that. Add-only
-enforcement is a CI check, so it holds only as far as branch protection and
-review do: a maintainer who can merge past a red check, or rewrite a record
-inside a squashed pull request that review misses, can still change a
-baseline. The release can't detect that, and the design doesn't try to.
+hash matches content, and the scenario set and run shape match. Records
+arrive through the same review as the code they measure, and review is the
+only control on a forged good record: one counts as graded, so it hides a
+regression and also keeps the skill off Check 2's unmeasured list. shirabe's
+maintainers are trusted to the same degree as the code they merge; this
+design doesn't change that.
+
+Add-only enforcement is a CI check, so on its own it holds only as far as
+branch protection and review do. The release backs it up for free: it runs
+`git diff --diff-filter=MD <last tag>..HEAD -- evals/records/` and stops
+(exit 1) on any record modified or deleted since the tag, apart from the
+records of a skill deleted in the same range. A rewritten baseline therefore
+can't reach a release unnoticed, even past a red check.
 
 **Script cases run commands from `evals.json`.** The PR gate and the release
 host execute each case's `run` field, so a careless or hostile case is code
 execution. The runner never hands `run` to a shell: it splits it into words
 and executes the first directly, after checking that it resolves through
-`realpath` to a tracked regular file under `scripts/` that isn't a symlink,
-and that every argument matches `[A-Za-z0-9._-]+`. That rules out `..`
-traversal, symlinks pointing outside the tree, untracked files and shell
-metacharacters. Each case has a timeout, so a hung case stops the check
-rather than the host. The scripts a case names go through review like any
-other code.
+`realpath` to a tracked regular file under `scripts/` that isn't a symlink.
+Every argument must start with a letter or digit and match
+`[A-Za-z0-9][A-Za-z0-9._-]*`, which rules out `.`, `..` and anything that
+reads as an option, and an argument in a skill position must name a
+directory under `skills/`. That rules out traversal, symlinks pointing
+outside the tree, untracked files and shell metacharacters. The scripts a
+case names go through review like any other code.
 
 The release host is a maintainer's machine and holds credentials, so running
-these cases there is a trust boundary, not a free action. The runner unsets
-`GH_TOKEN`, `GITHUB_TOKEN` and `SSH_AUTH_SOCK` for each case, the same
-variables the nested eval session already drops, and the release runs the
-cases from the tree at the commit being tagged, not from whatever else is in
-the working copy. A case that needs a credential is a defect in the case.
+these cases there is a trust boundary, not a free action. Each case runs:
+
+- with an allowlisted environment (`PATH`, `LANG`, `TMPDIR` and the
+  variables the case's script documents), not the caller's, so no token or
+  `ANTHROPIC_*` variable reaches it;
+- with `HOME` set to a fresh temporary directory, so `~/.ssh`,
+  `~/.config/gh` and other stored credentials aren't on the paths a script
+  would look in; a determined script can still reach the real home by
+  absolute path, which is why review of `scripts/` stays the control;
+- with a temporary koto state directory, so `koto init` and the engine
+  suites never touch the maintainer's real sessions;
+- in its own process group, killed as a group when its timeout (300 seconds
+  by default) runs out;
+- from the tree at the commit being tagged, not from whatever else is in the
+  working copy.
+
+A case that needs a credential is a defect in the case. Dry runs execute the
+cases the same way, under the same limits.
 
 **CI runs with no secrets and read-only permissions.** `check-evals.yml` and
 `check-skill-gate.yml` trigger on `pull_request`, never
 `pull_request_target`, and declare `permissions: contents: read`, so a pull
 request from a fork runs its script cases with no token that can write and
-no repository secret. `check-run-evals.yml` gains a test for both properties,
-next to the one that keeps `run-evals.yml` dispatch-only.
+no repository secret. Both use GitHub-hosted runners, the macOS bash 3.2 leg
+included, never a self-hosted one. `check-run-evals.yml` gains a test for
+these properties, next to the one that keeps `run-evals.yml` dispatch-only.
 
 **No model call is reachable from the release.** `script-cases.py` has no code
 path to `claude`, `release-eval-check.sh` no longer calls `run-evals.sh`, and
 a CI test with a failing `claude` stub first on `PATH` proves it. The nested
 eval session's access to stored credentials, an accepted risk in the
-release-time design, no longer applies to release hosts; it applies only on a
-maintainer's host when they choose to run graded evals, and `run-evals.sh`
-keeps printing that fact before it runs.
+release-time design, no longer applies to release hosts. It applies only on
+a maintainer's host when they choose to run graded evals, and `run-evals.sh`
+keeps printing that fact before it runs. A graded run executes the branch's
+skill text with that host's credentials in reach, so a maintainer runs one
+only on a branch they wrote or have reviewed, never on an unreviewed
+contributor branch.
 
-**Accidental API spend.** An exported `ANTHROPIC_API_KEY` could turn a
-plan-billed run into API billing. `run-evals.sh` refuses to start with one
-unless explicitly flagged and under an owner-set cap, and `run-evals.yml`
-can't gain an automatic trigger without failing a CI test.
+**Accidental API spend.** Several variables can turn a plan-billed run into
+API or cloud billing: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+`ANTHROPIC_BASE_URL`, and the switches that route Claude Code through Bedrock
+or Vertex (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`).
+`run-evals.sh` refuses to start with any of them set unless explicitly
+flagged and under an owner-set cap, and `run-evals.yml` can't gain an
+automatic trigger without failing a CI test.
 
 **Pre-set confirmations.** A `RELEASE_CONFIRMED_*` variable left in the
 environment could pass a check without anyone answering. The release skill
 empties all of them before the first check runs.
 
-**Record contents.** A record holds case names, verdicts, models and a cost
-figure, no transcripts, prompts or paths from the maintainer's host.
+**Output an agent reads.** A record holds case names, verdicts, models and a
+cost figure, no transcripts, prompts or paths from the maintainer's host.
 `cost_usd` reveals what a run cost at list price, which the spike already
 publishes. The release prints skill names, case names and `producer` from
-records, and an agent reads that output, so a crafted name could carry
-terminal escape sequences or text meant to steer the agent. The CI record
-check and the release's reader both refuse any of those fields outside
-`[A-Za-z0-9._-]`, and the release treats record contents as data, never as
-instructions.
+records, and the output of failing script cases, and an agent reads all of
+it, so crafted text could carry terminal escape sequences or words meant to
+steer the agent. The CI record check and the release's reader both refuse
+record fields outside `[A-Za-z0-9._-]`; the runner strips control
+characters from script output and truncates each case's output to its last
+200 lines; and the release treats all of it as data, never as instructions.
 
 ## Consequences
 
@@ -717,8 +751,10 @@ instructions.
 - A noise flip costs a person's attention and an optional re-run on their
   plan, never an automatic spend; the per-case output names the case so the
   person can judge it.
-- Add-only records and review keep a forged baseline out; a forged current
-  record is no worse than not measuring, which Check 2 surfaces.
+- Add-only records, enforced in CI and again by the release's diff of
+  `evals/records/` since the tag, keep a rewritten baseline out. A forged
+  current record has review as its only control, the same control that
+  covers the code it claims to measure.
 - Seed runs can be taken one skill at a time, when a maintainer next works on
   that skill.
 - The CI swap for script-case results (Decision 3) takes koto off the release
