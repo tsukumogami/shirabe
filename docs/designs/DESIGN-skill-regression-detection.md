@@ -104,8 +104,8 @@ eval run.
 
 - No eval makes a model call: not a release (dry runs and confirmation
   re-runs included), not pull request CI, not a schedule, and not a person
-  running the harness. This is a requirement, from the owner's rulings and
-  the settlement quoted in Decision 1.
+  running the harness. The owner's rulings and the settlement quoted in
+  Decision 1 set this.
 - A hand-off break in `/deliver` shows up as a failing hand-off case when the
   maintainer runs the eval harness on `/deliver`, and the same holds for a
   skill added later without anyone remembering to add the case.
@@ -206,9 +206,10 @@ Key assumptions:
 `evals.json` gains an optional per-case grader. A case with
 `"grader": "script"` carries a `run` command, where exit 0 passes and anything
 else fails with the command's output as the reason, and a `handoff` key
-naming the target skill. `run-evals.sh deliver` runs these cases first, with
-no nested session and no model, and reports them beside the graded ones;
-`run-evals.sh deliver --script-only` runs only them, on bash 3.2.
+naming the target skill. `run-evals.sh deliver` runs these cases, with no
+nested session and no model, on bash 3.2, and lists the skill's graded cases
+as refused (Decision 1). A case with no `grader`, or one it doesn't know, is
+treated as graded and refused.
 `check-skill.sh` runs the same cases, so the gate and the harness execute one
 definition.
 
@@ -407,7 +408,7 @@ and uploads a new record.
 | `scripts/lib/check-evals-shape.py` | Accepts the new keys; derives hand-off targets from templates; requires a script case per target | PR gate | no |
 | `scripts/check-skill.sh` | Runs the skill's script cases, and other skills' cases that target it | PR gate, work-on map | no |
 | `.github/workflows/check-skill-gate.yml` | New job: `check-skill.sh` on each skill with changed files, and `script-cases.py --all` when shared paths change | CI | no |
-| `scripts/run-evals.sh` | Script cases only; `--script-only` kept as an alias; refuses every graded case, whatever the environment holds | anyone's host | no |
+| `scripts/run-evals.sh` | Script cases only, delegated to `script-cases.py` before any bash 4 construct; refuses every graded case, and every case with no or an unknown `grader`, whatever the environment holds | anyone's host | no |
 | `scripts/lib/eval-pass-rates.py` | Accepts script measurements and `cases`; compares case by case; labels regressed and failing-no-baseline | release | no |
 | `scripts/release-eval-check.sh` | Graded loop and `run-evals.sh` call replaced by `script-cases.py --all`; any failing case exits 5 | release | no |
 | `.claude/shirabe-extensions/release.md` | Check declared without model options; host needs koto, not `claude` or bash 4 | release | no |
@@ -430,7 +431,8 @@ and uploads a new record.
 
 `run` is split into words on spaces and executed directly, never through a
 shell. Its first word must resolve, after `realpath`, to a tracked regular
-file under `scripts/` that isn't a symlink, and every argument must match
+file that isn't a symlink and is either `scripts/check-handoff.sh` or under
+`scripts/cases/`, and every argument must match
 `[A-Za-z0-9][A-Za-z0-9._-]*`, with an argument in a skill position naming a
 directory under `skills/`; the shape check refuses anything else, and the
 runner checks again before executing. Each case gets a timeout (300 seconds
@@ -494,8 +496,11 @@ The free layer comes first because both pieces of evidence lean on it.
 Deliverables:
 - `scripts/check-handoff.sh` and its test suite, with route selectors on the
   `/deliver` and `/execute` engine suites.
-- `scripts/lib/script-cases.py`, `run-evals.sh --script-only` delegating to
-  it, and the failing-`claude`-stub test.
+- `scripts/lib/script-cases.py`, `run-evals.sh` delegating to it and
+  refusing every graded case, with a test that sets each billing variable and
+  still sees the refusal, and the failing-`claude`-stub test.
+- `scheduled-evals.py` without its fallback budget or its graded runs, so no
+  path can start a graded run once this phase lands.
 - `grader`, `run`, `handoff` in `check-evals-shape.py`, with target
   derivation from templates; `check-skill.sh` running script cases.
 - Script-graded hand-off cases in `/deliver` (scope, execute), `/execute`
@@ -508,10 +513,7 @@ Depends on Phase 1's runner and shape check.
 Deliverables:
 - The `check-skill-gate.yml` job, on `pull_request` with read-only
   permissions, and its trigger test.
-- `run-evals.sh`: script cases only and the refusal of every graded case,
-  with a test that sets each billing variable and still sees the refusal.
-- `scheduled-evals.py` without its fallback budget; the dispatch-only test
-  for `run-evals.yml`.
+- The dispatch-only test for `run-evals.yml`.
 
 ### Phase 3: The release runs script cases
 
@@ -532,8 +534,10 @@ Deliverables:
 the release host execute each case's `run` field, so a careless or hostile
 case is code execution. The runner never hands `run` to a shell: it splits it
 into words and executes the first directly, after checking that it resolves
-through `realpath` to a tracked regular file under `scripts/` that isn't a
-symlink. Every argument must start with a letter or digit and match
+through `realpath` to a tracked regular file that isn't a symlink and is
+either `scripts/check-handoff.sh` or under `scripts/cases/`, so no release,
+publish or eval-running script can be named as a case. Every argument must
+start with a letter or digit and match
 `[A-Za-z0-9][A-Za-z0-9._-]*`, which rules out `.`, `..` and anything that
 reads as an option, and an argument in a skill position must name a
 directory under `skills/`. That rules out traversal, symlinks pointing
@@ -543,9 +547,11 @@ case names go through review like any other code.
 The release host is a maintainer's machine and holds credentials, so running
 these cases there is a trust boundary, not a free action. Each case runs:
 
-- with an allowlisted environment (`PATH`, `LANG`, `TMPDIR` and the
-  variables the case's script documents), not the caller's, so no token or
-  `ANTHROPIC_*` variable reaches it;
+- with a closed, allowlisted environment fixed in the runner (`PATH`,
+  `LANG`, `TMPDIR` and the temporary `HOME` and koto state directory below),
+  not the caller's; nothing a case or script declares can add to it, so no
+  token, `GH_*`, `GITHUB_*`, `SSH_AUTH_SOCK`, cloud or `ANTHROPIC_*` variable
+  reaches a case;
 - with `HOME` set to a fresh temporary directory, so `~/.ssh`,
   `~/.config/gh` and other stored credentials aren't on the paths a script
   would look in; a determined script can still reach the real home by
@@ -558,6 +564,14 @@ these cases there is a trust boundary, not a free action. Each case runs:
 
 A case that needs a credential is a defect in the case. Dry runs execute the
 cases the same way, under the same limits.
+
+Some reach stays open, and it's accepted rather than closed. A temporary
+`HOME` doesn't cover the macOS login keychain, where `gh` and `claude` keep
+their credentials, and a script can still call `claude` or `gh` through
+`PATH`; the failing-`claude` stub covers the runner and the release path, not
+what a case's script does. The control for both is review of the scripts a
+case may name, the same control as for absolute-path reads, and the narrow
+set of runnable paths keeps that review small.
 
 **CI runs with no secrets and read-only permissions.** `check-evals.yml` and
 `check-skill-gate.yml` trigger on `pull_request`, never
@@ -586,10 +600,17 @@ and a manual dispatch reaches the same refusals.
 
 **Release records.** The baseline comes from earlier releases'
 `eval-pass-rates.json` assets, which anyone with release write access can
-replace. `eval-pass-rates.py` already validates every field and skips an
-unusable record; a tampered record can at worst make a failing case read
-"failing, no baseline" instead of "regressed", and either label stops the
-release. Asset write access stays limited to the repository's maintainers.
+replace. The stop never reads the baseline: whether the check exits 5 depends
+only on this run's case verdicts, and the baseline only chooses the label. So
+a tampered or missing record can at worst make a failing case read "failing,
+no baseline" instead of "regressed", and either label stops the release. A
+test pins this: the exit code is the same whether a case is absent, passing,
+failing or skipped in the baseline, or the baseline has another scenario set.
+This is new behaviour; today's check passes on a missing baseline by design.
+`eval-pass-rates.py` checks each record's shape and skips one it can't use,
+and since the release runs every skill, the new record is built only from
+this run's results and carries no entry forward from a baseline. Asset write
+access stays limited to the repository's maintainers.
 
 **Pre-set confirmations.** A `RELEASE_CONFIRMED_*` variable left in the
 environment could pass the check without anyone answering. The release skill
@@ -643,5 +664,4 @@ never as instructions.
 - The CI swap for script-case results (Decision 3) takes koto off the release
   host if it proves a burden.
 - `check-evals-shape.py` keeps checking the shape of the model-graded cases
-  on every change, so at least their structure stays valid until they run
-  again.
+  on every change, so at least their structure stays valid.
