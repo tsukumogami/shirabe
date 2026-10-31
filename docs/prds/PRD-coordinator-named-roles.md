@@ -169,8 +169,9 @@ brief a director writes to dispatch a manager.
   given, never from the dispatcher's prose. The brief's other sections (Goal,
   decisions, checkpoints, acceptance criteria) name the concrete scope and work
   (which roadmap or lanes, which units, which decisions) but make no general
-  statement of what the role owes and use no name for the role at all: the
-  coordinator reads its duties from the skill's expectation list for its role
+  statement of what the role owes and use no name for the recipient's own
+  role (naming another session by its role, such as the director a manager
+  reports to, isn't naming it): the coordinator reads its duties from the skill's expectation list for its role
   (R10). `references/brief-template.md` says so where it describes the Goal.
   A worker brief (one that doesn't start a coordinator) carries no role line,
   and its rendered text is unchanged.
@@ -339,18 +340,26 @@ paragraph describing the role from scratch):
   names the concrete scope and work, makes no general statement of the role's
   duties and names no role, and that the coordinator reads its duties from the
   skill's expectation list for its role.
-- [ ] In each successor's brief, outside the role line, `grep -niwE
-  'manager|director|lead|top|head'` finds no word naming the role (the phrase
-  "workspace manager" excepted), and no sentence states in general terms what
-  the role owes (a reviewer checks the Goal, decisions and checkpoints against
-  the two expectation lists; naming the concrete roadmap, lanes or units is
-  allowed).
+- [ ] In each lane brief the director above renders and each successor's
+  brief, every line outside the role line that `grep -niwE
+  'managers?|directors?|lead|top|head'` prints is one of these four, and any
+  other line fails the criterion: the phrase "workspace manager"; git's `HEAD`
+  in capitals; in a manager's brief (lane or successor), the director named as
+  the reviewer the manager reports to; in a director's brief, the managers it
+  dispatched or reviews, named as those sessions. None of the four names the
+  brief recipient's own role. No sentence states in general terms what the role
+  owes (a reviewer checks the Goal, decisions and checkpoints against the two
+  expectation lists; naming the concrete roadmap, lanes or units is allowed).
 - [ ] Each successor's first report names the same role as its brief's role
   line, and its record's role value matches.
-- [ ] A start that continues a run recorded as `manager` with the role setting
-  `director` is refused, the refusal names both roles, and the recorded run is
-  unchanged (same role, still driving); the same start with `manager` is
-  accepted.
+- [ ] A resume, a carry, a takeover and an import of a run recorded as
+  `manager`, each started with the role setting `director`, are each refused,
+  and each refusal names both roles. After each refused start the record is
+  unchanged: every key reads as it did before the attempt, its role value
+  prints `manager`, no new session is opened for it, and the run's state
+  (live, stalled or stopped) is the one it had before. The same four starts of a run recorded as `director` with the
+  setting `manager` are refused the same way. Each of the four started with the
+  recorded role is accepted.
 
 The Glossary and duties (Evidence: the Glossary defines "coordinator" as a
 session of either role with the two roles under it, and no duty that belongs to
