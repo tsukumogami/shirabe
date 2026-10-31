@@ -315,10 +315,13 @@ role in its first report and in its record):
   line equals that wording with the session name, host repository and address
   filled in from the record and `manager` or `director` in the role's place.
   A line with any other word in it, such as "lead", "orchestrator" or
-  "director (lanes)", fails. Outside the record line, a reviewer reads every
-  match `grep -oiwE 'lead|leader|top|top-level|head|parent|orchestrator|lane
-  coordinators?|lane owner'` prints over the whole report and finds none
-  naming the reporting session's own role.
+  "director (lanes)", fails. Outside the record line, a reviewer reads the
+  whole report and finds the reporting session's own role named only by its
+  recorded word: a report that calls itself "the overseer", "chief", "lead"
+  or the other role's word fails. The matches `grep -oiwE
+  'lead|leader|top|top-level|head|parent|orchestrator|overseer|chief|lane
+  coordinators?|lane owner'` prints are read first, as an aid to that read and
+  not a substitute for it.
 - [ ] A later report of each run (after its first landed or handed-over unit)
   has a record line that meets the same allowlist.
 - [ ] A start with the role setting `lead` is refused before a session exists:
@@ -349,8 +352,9 @@ paragraph describing the role from scratch):
 - [ ] The brief renderer, given role `director` for a successor brief, writes
   exactly one role line (the line the renderer writes from the role it's
   given; other text that happens to contain the word, such as "workspace
-  manager", is not a role line), and that line contains `director`; given
-  `manager`, the line contains `manager`. A renderer test asserts both, and
+  manager", is not a role line), and that line is the renderer's fixed
+  role-line wording with `director` as its only role word, so "lead director"
+  fails; given `manager`, the same holds with `manager`. A renderer test asserts both, and
   asserts that a worker brief contains no role line and renders byte-for-byte
   as it did before the change.
 - [ ] A successor brief rendered from a run recorded as `manager` names
@@ -412,9 +416,10 @@ only one role is addressed to "the coordinator"):
   or "not a duty", including every sentence that dispatches a worker, lands a
   worker pull request, gives a milestone verdict, dispatches a coordinator or
   hands a successor a grant, and finds each correctly classed.
-- [ ] `grep -niE 'lane coordinators?|(top-level|top|lead|head|parent)
+- [ ] `grep -niwE 'lane coordinators?|(top-level|top|lead|head|parent)
   (coordinators?|sessions?)|head of effort'` over the three file sets finds
-  nothing.
+  nothing. A hit for "parent session" in koto's sense of a parent skill's
+  session is reworded rather than exempted, so the check stays mechanical.
 - [ ] `SKILL.md` has one manager expectation list and one director expectation
   list, each containing every item R10 names for that role, and neither list
   contains `grant`, `merge authority`, `may merge` or `settle`.
@@ -431,9 +436,11 @@ successor reports as a director and nothing else):
   coordinator" and "head of effort"), a successor started with the role setting
   `director` reports `director` in its first report, and its record's role value
   prints `director`.
-- [ ] That successor's first report and its record's keys written after the
-  start contain none of the three earlier names (`grep -iF` for each finds
-  nothing).
+- [ ] That successor's reports (its first and every later one) and the record
+  keys it writes after the start contain none of the three earlier names
+  (`grep -iF` for each finds nothing). Entries carried unchanged from the
+  earlier record are exempt: R9 forbids reading a role out of them, not
+  keeping them.
 - [ ] The same successor started with no role setting asks for the role and
   dispatches nothing before the answer; it doesn't infer `director` from the
   earlier names, the holdings or the dispatch topic.
@@ -458,10 +465,11 @@ Checks and content:
   `scripts/ablation/check-public-content.sh` exit 0.
 - [ ] `grep -rF 'The workspace manager schedules your keep-alive at dispatch.'`
   finds the sentence in the same files before and after the change.
-- [ ] The diff's added lines contain no word that
+- [ ] The diff's added lines, every commit message on the branch and the pull
+  request's title and description contain no word that
   `skills/writing-style/rules.yaml` bans (checked against that file, not a
-  copied list), no emoji, no `Co-Authored-By`, no path or name from a
-  private repository, no session name and no internal figure.
+  copied list), no emoji, no `Co-Authored-By` or other AI attribution, no path
+  or name from a private repository, no session name and no internal figure.
 
 ## Out of Scope
 
