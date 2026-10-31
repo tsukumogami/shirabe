@@ -348,6 +348,10 @@ These words mean one thing each, everywhere in this skill and in the record.
   coordinator dispatched you, everything this skill sends to the human (a
   decision, a table of ready pull requests, an escalation) goes to that
   coordinator instead, and it decides under the same rules or passes it up.
+- **The reviewer** -- whoever reads finished work before it merges. A bound
+  coordinator's reviewer is the coordinator that dispatched it, a root
+  coordinator's is a person, and a worker's is the coordinator that dispatched
+  it.
 - **Worker** -- a session a coordinator dispatched to do one unit of work,
   named everywhere by its dispatch topic.
 - **Local agent** -- a subagent inside the coordinator's own session, used for
@@ -717,6 +721,13 @@ can't take goes to the coordinator that dispatched you when your session is
 bound, and to a person only when you are a root coordinator. Such a
 decision is escalated once, as a decision entry with a recommendation (see
 Decisions); don't ask for anything else.
+
+**Review comes before every merge.** Work is reviewed by whoever dispatched
+its author, and a merge grant decides who merges after the review, never whether the review happens.
+Your land step is the review of your workers' pull requests: nothing a worker
+reports merges until you have checked it there. A pull request you authored
+yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
+You can't tell when `niwa authority check` fails or isn't installed.
 
 **What the GitHub token must read.** In every repository a unit touches: pull
 requests, issues (the record), contents, Actions runs and their jobs, and the
