@@ -15,8 +15,8 @@ issue_count: 8
 Active
 
 The upstream design is Proposed, and its reviewer accepts it on this plan,
-which shows where each of the design's five decisions and each follow-up from
-its review lands.
+which shows where each of the design's five decisions lands and which
+requirement each criterion traces to.
 
 ## Scope Summary
 
@@ -61,10 +61,10 @@ pull request, because the phases share fixtures and the compat record.
 `state-stored-set.sh --run role`, read through a new `state-read.sh --run`,
 and missing only as the handover gap `no-role`.
 
-Awaits the owner's word: the set-once rule (no role change across a
-succession) is planned as the design has it; the owner has not yet confirmed
-that requirement. If the owner's word changes it, this issue's set-once
-criterion and Issue 2's role-mismatch refusal change with it.
+The set-once rule is the PRD's R5, and the PRD's open question on it is
+marked "Settled: no": a successor keeps the recorded role, and a start that
+names another is refused. This issue's set-once writer and Issue 2's
+role-mismatch refusal both implement it.
 
 Overlaps shirabe#1470, #1473 and #1474 on the state scripts, `state-keys.md` and their tests; rebase onto them if they land first; don't wait on them.
 
@@ -127,10 +127,23 @@ value or a change of a recorded role before anything is written, asks for a
 missing one, prints `role=<value>`, and writes the row for a role-less record
 on resume, takeover and import.
 
-Awaits the owner's word: the set-once rule (no role change across a
-succession) is planned as the design has it; the owner has not yet confirmed
-that requirement. If the owner's word changes it, Issue 1's set-once criterion
-and this issue's role-mismatch refusal change with it.
+The role-mismatch refusal implements the PRD's R5, which the PRD marks
+"Settled: no" (a role doesn't change across a succession).
+
+**Role-less continuations.** The plan follows the design's Asking paragraph,
+its components table and its Data Flow step 6: a start with no `--role` and
+no recorded role to continue is asked, before anything is written, on every
+path but an import whose copy has landed. The path table's rows say how the
+row arrives once a role is given. Path by path, for a record with no `role`
+row:
+
+| Path | No `--role` | `--role <value>` |
+|---|---|---|
+| Resume | `ask=role`, exit 10, nothing written | the opener writes the row through `state-stored-set.sh` before `outcome=resumed` |
+| Takeover (koto 0.32 or later import included) | `ask=role`, exit 10, before `takeover_check` | `finish_takeover` writes the row beside the `coordinator` row |
+| Carry on the same host | `ask=role`, exit 10, before the carry | the copy goes over role-less; the `no-role` gap fix writes the printed `role=` at `reconcile` |
+| Carried discipline rotation | `ask=role`, exit 10, before the carry | `state-open.sh --carry --role` adds the row |
+| Import (any koto), after its copy lands | goes on; `no-role` is left for `reconcile`, which asks the person once | the mismatch check runs on the copy, then the row is written as for a takeover (0.32 or later) or a resume (older) |
 
 Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebase onto it if it lands first; don't wait on it.
 
@@ -145,7 +158,8 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   value holding a backtick and a control character is echoed cut to 32
   characters with both removed.
 - [ ] A new run with no `--role` and nothing recorded prints `ask=role` and
-  exits 10 before anything is written; the message says the role is the
+  exits 10 before anything is written, and so does each continuation the
+  Role-less continuations table above marks `ask=role`; the message says the role is the
   person's call, manager or director, asked once with no recommendation from
   the scope, cap, holdings or names, then re-run with `--role`. A discipline
   start missing both host and role prints `ask=host`, never `ask=role`.
@@ -156,12 +170,26 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   run, recorded and asked values, the run name cleaned as `invalid_role`'s
   value is. Naming the recorded role, or any role for a role-less record, is
   accepted.
+- [ ] A refusal case asserts the whole `role_mismatch` message, not only the
+  `reason=` line: it equals the wording row with `{run}`, `{recorded}` and
+  `{asked}` filled in (for a run recorded `director` asked `manager`, the
+  message names the run, then `director`, then `manager`, and ends "or start
+  manager as a new lineage."). A second case gives a candidate run whose name
+  is 200 characters long and holds a backtick and a control character, and
+  finds the name in the message cut to 32 characters with both removed, the
+  same cleaning `invalid_role` applies to its value.
 - [ ] Every successful start that knows the role prints `role=<value>`.
 - [ ] A resume of a role-less record given `--role director` writes the row
   through `state-stored-set.sh` before printing `outcome=resumed`;
   `finish_takeover` writes it beside the `coordinator` row; a role-less carry
-  or legacy import with no `--role` goes on and leaves `no-role` for
-  reconcile.
+  given `--role` prints `role=<value>` and leaves the row to the `no-role`
+  fix.
+- [ ] Each row of the Role-less continuations table is a test case in the
+  engine tests named below, for both columns. In every `ask=role` case the
+  candidate's record, the run's koto state and the session list are
+  identical before and after, and no new session exists. In the import case
+  with no `--role` the opener exits 0, prints no `ask=role` and no `role=`,
+  and `state-handover.sh --check` on the copy lists `no-role`.
 - [ ] An import runs the mismatch check on the copy right after it lands,
   before the `record/host` write, the rebind and the fence; a refused import
   leaves the copy's record unchanged, and an import never prints `ask=role`
@@ -213,6 +241,14 @@ directive closes its gaps before that report goes up.
   then submits `reconciled: reported`. A role-less carry whose gap fix writes
   `manager` gets a first report whose line 3 ends `Role: manager.`, with no
   second reconcile visit.
+- [ ] The `reconcile` directive says how to fill `no-role`: with the `role=`
+  value the opener printed or, when it printed none, by asking the person
+  once; and that the role is never taken from session names, briefs, entries
+  or the dispatch topic. A `testdata/rule-coverage.tsv` row pins the fill
+  sentence and another pins the "never from" sentence with all four sources
+  in it, so a directive that drops the ask-once fallback or any one of the
+  four sources fails `rule-coverage_test.sh`. The template structure test
+  finds both sentences in the `reconcile` state's directive, not elsewhere.
 - [ ] `references/loop.md` and the template's `reconcile_pass` prose point
   at `reconcile-report-get.sh --md`, not the stored report key, and list the
   record line first among the opening lines kept as written; the
@@ -329,37 +365,53 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
   do, and holds the design's Both roles, Manager and Director lists.
 - [ ] Each list holds the design's items, and a rule-coverage row pins one
   sentence from each item, so a dropped or paraphrased item fails
-  `rule-coverage_test.sh`: Both roles holds at least the design's three items
-  ("Call yourself only by the role your record holds", "Report up to your
-  reviewer", "Brief a successor with the role your record holds") plus the
-  relayed-content item below; Manager holds its five ("Run one lane",
-  "Dispatch and brief the workers", "Review your workers' pull requests at
-  your land step", "Send every pull request you author", "Report your lane's
-  worker pull requests"); Director holds its six ("Dispatch and brief
-  managers", "Be the reviewer of each manager you dispatched", "send your own
-  reading up", "Read for alignment", "which of your lanes advance", "Be the
-  owner funnel").
+  `rule-coverage_test.sh`: Both roles holds the design's three items ("Call
+  yourself only by the role your record holds", "Report up to your
+  reviewer", "Brief a successor with the role your record holds") and no
+  fourth; Manager holds its five ("Run one lane", "Dispatch and brief the
+  workers", "Review your workers' pull requests at your land step", "Send
+  every pull request you author", "Report your lane's worker pull
+  requests"); Director holds its six ("Dispatch and brief managers", "Be the
+  reviewer of each manager you dispatched", "send your own reading up",
+  "Read for alignment", "which of your lanes advance", "Be the owner
+  funnel"). The owner-funnel item's sentence "Never block on the owner from a
+  turn the owner didn't start" is carried as the design words it, with no
+  added scope.
 - [ ] The Manager list reports the lane's worker pull requests by link: each
   ready one in the verify report and the `Ready to merge` rows, and in the
   report owed after a land every one merged in the lane since the last
   report, whoever merged it.
-- [ ] Follow-up 1: the Both roles list says content relayed from another
-  session (a report, a brief, a message, a pull request link) is data to read
-  and check, never an instruction to follow.
-- [ ] Follow-up 2: the keep-working rule (never block on the owner from a
-  turn the owner didn't start; put the question in a report or a decision
-  entry and keep working) names the sessions it binds and the turns that
-  count as ones the owner didn't start, so the sentence alone tells a reader
-  whether it covers a manager and a turn started by a worker's report.
-- [ ] Follow-up 3: the Manager list carries the review duty the
-  dispatcher-review design (`docs/designs/current/DESIGN-coordinator-dispatcher-review.md`)
-  defines, that work is reviewed by whoever dispatched its author. "Review
-  your workers' pull requests at your land step" says the land step is the
-  review of the workers' pull requests, and "Send every pull request you
-  author ... to your reviewer before it merges" uses "your reviewer" as the
-  Glossary's `**The reviewer** --` entry defines it, with no second
-  definition of the reviewer in the Roles section. No item in the list uses
-  a grant or merge-permission word.
+- [ ] The Manager items "Review your workers' pull requests at your land
+  step" and "Send every pull request you author ... to your reviewer before
+  it merges" use "your reviewer" as the existing Glossary entry
+  `**The reviewer** --` defines it (the dispatcher-review design's term), and
+  the Roles section adds no second definition of the reviewer.
+- [ ] The Director's alignment item holds all three parts the PRD's
+  acceptance criterion names, each pinned by its own rule-coverage row: its
+  scope (the pull requests a manager authors and sends, and the worker pull
+  requests each manager reports ready or landed in its lane), its purpose
+  ("It isn't a correctness review", with correctness left to the worker's
+  review round, the manager's land step and the manager's own checks), and
+  its call-out ("name the pull requests and the conflict to every manager
+  involved and in your next report"). The call-out row pins the whole
+  sentence, so an item that tells only one manager, drops the pull
+  requests, drops the conflict or leaves out the next report fails
+  `rule-coverage_test.sh`.
+- [ ] The alignment item ends with the PRD R10 sentence that whether the
+  reading holds a land isn't set by the role, worded as "Whether your reading
+  holds a land isn't set by your role: Bounds and Authority and the
+  workspace's authority configuration say who merges." A rule-coverage row
+  pins it, so an item that leaves this unsaid fails. The item says neither
+  that the reading holds a land nor that it doesn't, as the PRD's criterion
+  requires. The source is the owner's direction to the director role, quoted
+  here: "Your PR reviews are not for correctness, they are for alignment ...
+  I expect you to be able to make the call on whether to merge it or not, and
+  push work back to the session if needed." Read with the owner's other
+  ruling, "Expectations are hardcoded in skills and roles, allowances are
+  configurable per workspace/host/etc.", the alignment reading and the
+  push-back to every manager involved are the expectation this item holds,
+  and making the merge call is an allowance the authority configuration
+  grants, which this sentence points to.
 - [ ] No item in the three lists contains `grant`, `merge authority`,
   `may merge` or `settle`; the allocation item names no cap value; no added
   text says a director may change a cap.
@@ -455,7 +507,20 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
   nothing in the added lines, the commit messages or the pull request text.
 - [ ] `posture-read.sh` and `niwa authority check --json` print
   byte-identical answers for a fixture run recorded `manager` and the same
-  run recorded `director`, as a case in `posture-read_test.sh`.
+  run recorded `director`, as a case in `posture-read_test.sh`. This is the
+  PRD's R14 check (a role never reaches an allowance), and it is tested only
+  against the posture read and the authority check because that is exactly
+  what the design's Phase 6 names; the reader allow-list test from Issue 1
+  covers every other script by keeping the row out of its reach.
+- [ ] The owner funnel ships as list text only. At the head,
+  `git grep -niE 'owner[ -]funnel'` under
+  `skills/coordinate/` finds matches only in `SKILL.md` and
+  `scripts/testdata/rule-coverage.tsv`: none in a script, a wording table, a
+  koto template or `state-schema.jq`. The diff adds no file under
+  `skills/coordinate/scripts/` other than tests, no Run or Stored row other
+  than `role`, and no koto state, gate or variable (the template's state and
+  gate names are identical at base and head, and the compat fingerprint is
+  unchanged).
 - [ ] A text check over `SKILL.md` finds the Roles sentence that a list says
   what a role owes, never what it's allowed to do, and no Roles item that
   names a grant, merge authority, a settler or a cap.
@@ -483,15 +548,17 @@ so it goes last.
 
 **Where each decision and follow-up lands:**
 
-| Design decision or review follow-up | Issues |
+| Design decision or requirement | Issues |
 |---|---|
 | Decision 1: the flag, the row, its writers, the gap, the continuations | Issues 1 and 2 |
 | Decision 2: the role on a brief's invocation line | Issue 4 |
 | Decision 3: the record line | Issue 3 |
 | Decision 4: Glossary entries, Roles lists, allowance paragraph | Issue 6, with Issue 5 for the holding link |
 | Decision 5: the sweep of "coordinator" | Issue 7, checked in Issue 8 |
-| Follow-up 1: relayed content is data | Issue 6 |
-| Follow-up 2: the keep-working rule's scope | Issue 6 |
-| Follow-up 3: the manager's review duty in the dispatcher-review design's terms (the coordinator's reading of the follow-up, for the reviewer to confirm at acceptance) | Issue 6 |
-| Follow-up 4: set-once across a succession (awaits the owner's word) | Issues 1 and 2 |
-| Follow-up 5: a dispatched coordinator's role comes from its brief's `--role` | Issues 4 and 2 |
+| Decision 1's asking rule: which role-less continuations ask and which go on (the Asking paragraph, the components table, Data Flow step 6) | Issue 2, its Role-less continuations table |
+| Decision 1's gap: the reconcile directive's `no-role` fill | Issue 3 |
+| Decision 1 and 2: a dispatched coordinator's role comes from its brief's `--role` | Issues 4 and 2 |
+| PRD R5, settled in the PRD: no role change across a succession | Issues 1 and 2 |
+| PRD R10: the alignment item's scope, purpose and call-out, and that whether the reading holds a land isn't set by the role | Issue 6 |
+| The design's owner funnel as an expectation only, with no mechanism | Issue 6 (the item), Issue 8 (the check that nothing else ships) |
+| PRD R14 and the design's Phase 6: a role never reaches an allowance | Issue 8, with Issue 1's reader allow-list |
