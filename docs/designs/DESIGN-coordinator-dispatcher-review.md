@@ -14,8 +14,9 @@ decision: |
   coordinator's land step is the review of its workers' pull requests, and the
   pull requests it authors go to its own reviewer. Each of the twenty-one sites
   then names the reviewer. The posture and verdict sentences are reworded around
-  the fragments the rule coverage test pins, and no coordinator merges a
-  milestone roadmap edit pull request whatever its grant. The brief renderer's
+  the fragments the rule coverage test pins, and a milestone roadmap edit pull
+  request is approved by someone other than its author and merged after that
+  approval by whoever in the chain holds the grant. The brief renderer's
   Named authority line for a non-empty grant gains a review-before-merge
   sentence, and SKILL.md, goal_fit and surface tell a coordinator that may not
   merge to send its own reading.
@@ -142,8 +143,8 @@ formula, unchanged.
 Three new sentences carry the safety of the change, so each gets a row in
 `skills/coordinate/scripts/testdata/rule-coverage.tsv` at the file's next free
 IDs: the rule paragraph's `never whether the review happens`, the fail-closed
-sentence, and the Verdicts sentence beginning `No coordinator merges, clears or
-hands to a worker`. If `rule-coverage_test.sh` enumerates a fixed ID range, the
+sentence, and the Verdicts sentence beginning `Someone other than the author
+approves it; whoever in the chain holds the grant merges it`. If `rule-coverage_test.sh` enumerates a fixed ID range, the
 range grows with them; no existing row changes.
 
 #### Alternatives Considered
@@ -185,31 +186,38 @@ milestone roadmap's edit pull requests must not be auto-merged without the
 reviewer's review.** The reviewer is the coordinator that dispatched this one
 when its session is bound, and a person when it is a root coordinator, for its
 own verdict edits too: whoever writes a verdict never approves its own Done.
-The coordinator never merges them. No coordinator merges, clears or hands to
-a worker the merge of a pull request that edits a milestone roadmap, whatever
-grant either holds; that rule wins over any `Named authority:` line. A
-repository that merges them automatically gives up the review that Done rests
-on." The
+Someone other than the author approves it; whoever in the chain holds the
+grant merges it after that approval, at the head that was approved: the
+author itself when its grant lets it merge, otherwise the reviewer that
+approved it when its own grant does, otherwise the next one up the chain, and
+a person at the root. No coordinator approves its own verdict pull request or
+hands its merge to a worker; that rule wins over any `Named authority:` line.
+A repository that merges them automatically gives up the review that Done
+rests on." The
 verdict's author ("given by you or a person") becomes "given by you or your
 reviewer", and the template's "A milestone reads Done only on a verdict from
 you or a person" becomes "... from you or your reviewer". `milestone_verdict`
-step 6 and `milestone_reopen` step 5 end "Never merge it; it goes to whoever
-merges roadmap changes, in the merge-order table, and your reviewer reviews
-the verdict there" (or "the report there"). `state-keys.md`'s milestone pull
-request passage says "without the reviewer's review" with the same split in
-parentheses.
+step 6 and `milestone_reopen` step 5 end "Never merge it before your reviewer
+approves it: it goes to your reviewer, in the merge-order table, and your
+reviewer reviews the verdict there" (or "the report there"), followed by who
+merges after the approval: you at the approved head when your posture permits
+a merge, otherwise your reviewer or whoever above it holds the grant.
+`state-keys.md`'s milestone pull request passage says "without the reviewer's
+review" with the same split in parentheses.
 
-The merge of a milestone verdict or reopen pull request stays out of every
-coordinator's hands, as the rule above says. A director that receives a manager's
-verdict pull request reviews it, which is the review the manager owes, and
-then hands the merge on with its own reading (Decision 4) to whoever merges
-roadmap changes: its own reviewer when it is bound, a person when it is the
-root. So the review a bound coordinator owes comes from its dispatcher, and
-the merge that sets Done is still a person's at the end of the chain or the
-repository's protected-branch rule. The reviewer of a verdict or reopen pull
+Approval and merge are separate. The approval is never the author's: a
+director that receives a manager's verdict pull request reviews it, which is
+the review the manager owes, and the reviewer of a verdict or reopen pull
 request is never the session that gave the verdict, nor a session it
 dispatched: what a coordinator's local agents or workers write from its brief
-for its own verdict is the coordinator's work.
+for its own verdict is the coordinator's work. The merge after that approval
+is whoever's grant allows it. A manager holding a merge grant merges its own
+approved verdict pull request; a manager with none, today's usual case, leaves
+it to the director that approved it, which merges when its own grant allows
+and otherwise hands the approved merge up with its own reading (Decision 4),
+until a person merges it at the root. No sentence says only the author may
+merge after approval, since that would leave an ungranted lane's verdict pull
+requests with nobody to merge them.
 
 #### Alternatives Considered
 
@@ -218,19 +226,28 @@ for its own verdict is the coordinator's work.
 sentence, with C125 re-pointed. Rejected: the PRD decided to keep the coverage
 map as it is, and the old opening still reads correctly once qualified.
 
-**Let a merge-granted dispatcher merge the verdict pull request after its
-review.** The director reviews a manager's verdict pull request and merges it
-when its own posture permits. Rejected: it opens a merge path the current
-text closes ("The coordinator never merges them"), and it lets Done be set by
-two sessions that may share one login, which is the forgery the control
-exists to stop.
+**Keep every verdict merge out of every coordinator's hands.** "The
+coordinator never merges them" stays, extended to every coordinator whatever
+its grant, so the director reviews a manager's verdict pull request and hands
+the merge on until a person merges it at the end of the chain. An unattended
+run of this design first chose this, on the ground that Done could otherwise
+be set by two sessions that may share one login. Rejected by the dispatcher
+reviewing the scoping documents: author independence is the forgery control,
+and the reviewer's approval keeps it; whether a session may press merge is an
+allowance its grant configures per workspace, not something the skill should
+hardcode; and the option leaves a granted coordinator unable to finish a
+verdict its reviewer approved, against what the dispatching coordinators
+expect. The shared-login risk stays under Security Considerations.
+
+**Let only the author merge after approval.** The approving reviewer never
+merges; the author merges once approved. Rejected: a lane coordinator usually
+holds no merge grant, so its approved verdict pull requests would have nobody
+to merge them.
 
 **Keep "a person" as the reviewer of every verdict pull request.** Leave the
 Verdicts rule as it is. Rejected: a bound coordinator then asks the workspace
 owner for the review its dispatcher owes, which is the problem this work
-fixes; the person still merges at the end of the chain under the chosen
-option, so keeping the person as reviewer buys nothing the merge doesn't
-already give.
+fixes.
 
 ### Decision 3: How a granted worker learns to report before it merges
 
@@ -441,24 +458,24 @@ it, where the text said a person. That is a weaker review than a person's: the
 dispatcher is an agent session, it often shares the author's login (so GitHub
 doesn't count its review as an approval and branch protection can't see it),
 it briefed the coordinator it is reviewing, and it reads the same pull request
-body and worker-derived content a forger would write. The design accepts that
-for the review, because routing the review to a person is the problem the PRD
-fixes, and it keeps the merge out of every agent's hands so the weaker review
-never sets Done by itself where a person or a protected-branch rule takes the
-merge (a repository that auto-merges roadmap pull requests has no such check;
-see the residual risk).
+body and worker-derived content a forger would write. The design accepts that,
+because routing the review to a person is the problem the PRD fixes, and the
+dispatcher reviewing the scoping documents accepted the consequence: where
+the grants allow, an agent's approval followed by an agent's merge sets Done
+with no person in between. The control that stays is author independence:
+whoever wrote the verdict never approves it. A workspace that wants a person
+on every roadmap merge withholds the merge grant from its coordinators or
+protects the branch.
 
 **What holds the line.**
 
-- No coordinator merges, clears or hands to a worker the merge of a pull
-  request that edits a milestone roadmap, whatever grant either holds, a
-  director included; the Verdicts passage says this rule wins over any `Named
-  authority:` line, the `own` grant included, and the rendered grant line
-  itself tells a worker never to merge such a pull request. The dispatcher reviews
-  and hands the merge on with its own reading, so the merge that sets Done is a
-  person's at the end of the chain (or a protected-branch rule the repository
-  sets). This closes the path a "director merges after review" reading would
-  open.
+- Someone other than the author approves a pull request that edits a
+  milestone roadmap, and only after that approval does whoever in the chain
+  holds the grant merge it, at the approved head. No coordinator approves its
+  own verdict pull request or hands its merge to a worker, a director
+  included; the Verdicts passage says this wins over any `Named authority:`
+  line, the `own` grant included, and the rendered grant line itself tells a
+  worker never to merge such a pull request.
 - The reviewer of a verdict or reopen pull request is never the session that
   gave the verdict nor a session it dispatched; work a coordinator's workers or
   local agents write for its own verdict is the coordinator's.
@@ -483,19 +500,24 @@ see the residual risk).
 - A coordinator that ignores it can still reach `land_merge` on a pull
   request it authored, including one a local agent opened from its brief, and
   declare its own review done; the rule says that review is its reviewer's,
-  and nothing checks it. The milestone steps' own "Never merge it" is the
-  direct instruction on the most sensitive pull requests.
+  and nothing checks it. The milestone steps' own "Never merge it before your
+  reviewer approves it" is the direct instruction on the most sensitive pull
+  requests.
+- Approval and merge can both be agent sessions under one login. GitHub then
+  records no separate approval, and a forged approval message that reaches a
+  granted author would release the merge; the dispatcher accepted this trade
+  for the expected flow, and branch protection is the workspace's remedy.
 - The clearance channel is a session message, and the skill doesn't vet who
   messages a session ("It doesn't vet who is messaging it"); the harness and
   the workspace decide who can reach it. A forged clearance from a session
   that can reach the worker would release a merge at the head it names.
-- The person at the end of the chain reads a chain of agent readings, not the
+- A person who merges at the root reads a chain of agent readings, not the
   work itself, and in a repository that merges roadmap pull requests
   automatically nobody reads them; the Verdicts passage already says such a
   repository gives up the review. A gate
 that enforces review (a recorded review naming the head, checked before a
-merge) is the follow-up the PRD names as out of scope; the scoping pull request
-puts this reduced-review trade to its reviewer for acceptance.
+merge) is the follow-up the PRD names as out of scope; the dispatcher
+reviewing the scoping documents accepted this reduced-review trade.
 
 The renderer change adds a fixed sentence to a line built from the
 already-validated `grant` array; it adds no new input and no new
@@ -526,8 +548,8 @@ written, and the pull request names nothing from a private repository.
 
 ### Mitigations
 
-- A coordinator's verdict and reopen edits already have "Never merge it" in
-  their own steps, so the most sensitive pull requests have a second, direct
+- A coordinator's verdict and reopen edits have "Never merge it before your
+  reviewer approves it" in their own steps, so the most sensitive pull requests have a second, direct
   instruction; enforcement in a gate is recorded as later work in the PRD.
 - The Glossary entry is short and the sites use one word for it.
 - The acceptance criteria check phrases, not line numbers.

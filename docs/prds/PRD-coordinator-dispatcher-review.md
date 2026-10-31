@@ -167,9 +167,17 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
   reads that a milestone roadmap's edit pull requests must not be auto-merged
   without the reviewer's review, and the passage says the reviewer is the
   coordinator that dispatched this one when bound and a person for a root
-  coordinator, its own verdict edits included. The sentences "The coordinator
-  never merges them" (now: whatever grant it holds) and "a repository that
-  merges them automatically gives up the review that Done rests on" stay. The
+  coordinator, its own verdict edits included. The sentence "The coordinator
+  never merges them" is replaced by the merge rule after approval: someone
+  other than the verdict's author approves the pull request, and whoever in
+  the chain holds a merge grant merges it after that approval, at the approved
+  head. That is the author itself when its grant lets it merge, otherwise the
+  reviewer that approved it when its own grant does, otherwise the next
+  session up the chain, and a person at the root. No sentence reads as though
+  only the author may merge after approval, since a lane coordinator usually
+  holds no merge grant. No coordinator approves its own verdict pull request
+  or hands its merge to a worker. The sentence "a repository that merges them
+  automatically gives up the review that Done rests on" stays. The
   same change is made in `references/state-keys.md`'s milestone pull request
   passage and in the template's `milestone_verdict` and `milestone_reopen`
   steps. The verdict's author ("given by you or a person" in `SKILL.md`, "a
@@ -241,8 +249,9 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
   from its first report. No passage in the three file sets asks "the owner" or
   "the workspace owner" for a review.
 - **R10. No exception at the root.** A root coordinator, director or manager,
-  sends every review, merge and verdict step to a person, its own milestone
-  verdict pull requests included. The Verdicts passage says so in positive
+  sends every review it owes to a person, its own milestone verdict pull
+  requests included, and merges only after that review and only when its grant
+  lets it; otherwise the merge is the person's. The Verdicts passage says so in positive
   terms, and no text the change adds names a class of pull request a root
   coordinator may merge without a person's review.
 
@@ -288,10 +297,13 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
   and `person's confirmation is reserved for a person too`.
 - [ ] The Verdicts passage contains the forgery sentence (`Anyone using the
   coordinator's login can post a comment shaped like a verdict`), its bold rule
-  says `without the reviewer's review`, it still says the coordinator never
-  merges them and that a repository merging them automatically gives up the
-  review, and it says a root coordinator's verdict pull requests, its own
-  included, are reviewed by a person.
+  says `without the reviewer's review`, it says someone other than the author
+  approves and whoever in the chain holds the grant merges after that
+  approval (the author, the approving reviewer or someone further up), it no
+  longer says the coordinator never merges them, it still says a repository
+  merging them automatically gives up the review, and it says a root
+  coordinator's verdict pull requests, its own included, are reviewed by a
+  person.
 - [ ] `references/state-keys.md`'s milestone pull request passage and the
   template's `milestone_verdict` and `milestone_reopen` steps contain
   "reviewer" where they said "a person's review" or "a person reviews".
@@ -357,7 +369,7 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
 - The rule is stated, not enforced. A coordinator whose posture permits a merge
   still reaches `land_merge` from `goal_fit` with no state in between; what keeps
   its own pull requests out of that path is the text, and for a milestone edit
-  the existing "never merge it" step.
+  the milestone steps' "never merge it before your reviewer approves it".
 - A director and its managers may run under one login. The dispatcher's review
   is then a separate session's judgment, not a separate account's; the
   requirement still applies, and where the workspace needs a separate account,
@@ -382,6 +394,19 @@ The **land step** is the template's `land`, `goal_fit` and `land_merge` states.
   Alternative: let a root director merge its own verdict edits when it holds a
   grant. Rejected because the author would approve its own Done, which is what
   the verdict rule exists to prevent.
+- **Who merges a milestone verdict pull request after its review.** Decided by
+  the dispatcher reviewing the scoping documents: someone other than the author
+  approves it, and whoever in the chain holds a merge grant merges it after
+  that approval, at the approved head: the author when granted, otherwise the
+  approving reviewer when its grant allows, otherwise the next session up, and
+  a person at the root. Author independence is the forgery control, and the
+  reviewer's approval keeps it; whether a session may press merge at all is
+  its grant's business, configured per workspace, not something the skill
+  hardcodes. Alternative: no coordinator merges a milestone roadmap pull
+  request whatever its grant, so a person always merges at the end of the
+  chain. Rejected because it hardcodes an allowance into the skill, leaves a
+  granted coordinator unable to finish its own approved verdict, and is not
+  what the dispatching coordinators expect.
 - **How the reviewer is cross-referenced.** Decided: define "the reviewer" once
   in the Glossary and have each changed passage name it. Alternative: repeat
   "to the coordinator that dispatched you when your session is bound, and to a
