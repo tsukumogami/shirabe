@@ -207,7 +207,7 @@ end
 begin "the script unsets the relocating git variables before its first git call"
 body=$(grep -v '^[[:space:]]*#' "$SETUP")
 unset_at=$(printf '%s\n' "$body" | grep -n '^unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE$' | cut -d: -f1)
-git_at=$(printf '%s\n' "$body" | grep -n 'git ' | head -n 1 | cut -d: -f1)
+git_at=$(awk '/git /{print NR; exit}' <<< "$body")
 [ -n "$unset_at" ] && [ -n "$git_at" ] && [ "$unset_at" -lt "$git_at" ] || problem "unset at line [$unset_at], first git at [$git_at]"
 end
 
