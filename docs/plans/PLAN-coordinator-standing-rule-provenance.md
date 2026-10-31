@@ -157,7 +157,7 @@ shirabe, gated as step 10: `--confirm` keeps id, kind, On, Until, What and Set a
 
 ### Step 14: each kind of successor writes a carry acknowledgement that satisfies the handover gate, and only a director's taken-over successor reads owner-said
 
-shirabe, gated on the supersede hop: a director's taken-over successor cites a person decision it records and reads owner-said; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise writes today's uncited event row naming the director's session as Owner, which reads relayed.
+shirabe, gated on the supersede hop: a director's taken-over successor cites a person decision it records and reads owner-said; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise, including while koto's cross-session decision read is missing, writes today's uncited event row naming the director's session as Owner, which reads relayed.
 
 ### Step 15: every tick's gate output lists the rule ids in force, and after a reversal no tick lists the reversed rule as in force
 
@@ -165,7 +165,7 @@ shirabe, gated as step 12: the coordinate template's tick runs `--rules --in-for
 
 ### Step 16: SKILL.md tells a root to record the owner's word before writing the row and a manager to cite its director's
 
-shirabe, after steps 5, 11 and 14: the owner-said procedure, the manager rule, the replacement for "record a person's word found on the record's thread or anywhere else", the dropped "yourself as relayer", and the restrict-only rule for rows `rule_grants` refuses, on the same passages tsukumogami/shirabe#1449 changes.
+shirabe, after steps 5, 8, 11 and 14: the owner-said procedure, the manager rule, the replacement for "record a person's word found on the record's thread or anywhere else", the dropped "yourself as relayer", and the restrict-only rule for rows `rule_grants` refuses, on the same passages tsukumogami/shirabe#1449 changes.
 
 ### Step 17: on a fixture lineage, the five outcome checks each hold, and the unsourced count rises within its threshold
 
@@ -193,9 +193,9 @@ start now that the design is accepted.
 | 11 | citations | 10 | as step 10; its owner-said criterion also waits on the cross-session decision read |
 | 12 | citations | 9 | as step 10 |
 | 13 | citations | 7, 10 | as step 10 |
-| 14 | citations | 10 | as step 10 |
+| 14 | citations | 10 | as step 10; its dispatcher-said criterion also waits on the cross-session decision read |
 | 15 | citations | 12 | as step 10 |
-| 16 | citations | 5, 11, 14 | as step 11 |
+| 16 | citations | 5, 8, 11, 14 | as step 11 |
 | 17 | citations | 3, 4, 11, 13, 14, 15 | as step 11 |
 
 Steps 1 to 5 need no koto change and can be built first. Step 5 reads
@@ -222,7 +222,7 @@ what it needs.
 | The decision record's session-addressed commands, released: `koto decisions record <session> --kind judgment --by person:<handle> --surface terminal\|forge\|relay [--link]`, `koto decisions show <session> <id>`, `koto decisions reverse`, and the listing below a session | steps 9 to 17 |
 | The supersede hop with Decision 4's six conditions: a fenced predecessor records no decision, a write-once supersede marker readable at listing cost, the chain walk following the marker with id checks, refusal on a hop it can't confirm, the hop recorded in the reversal's standing path, and person-reverses-person unchanged | steps 10 to 17 |
 | The reads koto's decision design doesn't name yet: a decision's status, the entering session of a person decision, the frozen chain with each link's kind, the winning reversal's standing path, the supersede marker, and ideally one read of the chain walk so shirabe keeps none of its own | steps 9 to 17 |
-| A cross-session decision read: `koto decisions show` on a decision held in another session on the same host, which the design states as an assumption with a fallback | step 11, and the dispatcher-said half of step 10 |
+| A cross-session decision read: `koto decisions show` on a decision held in another session on the same host, which the design states as an assumption with a fallback | step 11, the dispatcher-said half of step 10, and the manager successor's dispatcher-said citation in step 14 |
 
 The cross-session read is the one the design assumes rather than requires.
 Without it a manager's citation of its director's decision reads unreadable,
