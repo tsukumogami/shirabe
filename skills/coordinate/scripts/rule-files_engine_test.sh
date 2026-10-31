@@ -72,6 +72,18 @@ case "$(koto session dir probe 2>&1)" in
     "$T"/*) ;;
     *) echo "FAIL: koto's session directory is not under $T: [$(koto session dir probe 2>&1)]; no case ran"; exit 1 ;;
 esac
+# niwa is never the real one: --rules may read the session's grant, so a fake
+# niwa in the scratch directory, first on PATH, logs its arguments and answers
+# not-dispatched.
+mkdir -p "$T/fake"
+cat > "$T/fake/niwa" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$T/niwa.calls"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}'
+EOF
+chmod +x "$T/fake/niwa"
+export PATH="$T/fake:$PATH"
+unset NIWA_BIN NIWA_LOOKUP_SECONDS
 
 # One line per criterion: need records what failed, crit keeps the line under
 # its number and report prints them in order.

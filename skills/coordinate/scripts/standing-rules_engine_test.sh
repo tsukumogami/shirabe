@@ -24,8 +24,10 @@
 #   4. a discipline rotation holding A's record/standing is carried
 #      (state-open.sh --carry, exit 0) and the successor's record/standing is
 #      byte-identical to A's;
-#   5. --rules on A prints one object per row, in record order, equal (jq -S)
-#      to the objects held below; each relayed row's pointer names the entry
+#   5. --rules on A prints one object per row, in record order, each, apart
+#      from under_session_grant and session_allows, byte-identical (jq -cS, then cmp) to the
+#      objects held below, and with niwa's answer not-dispatched, under_session_grant false
+#      and session_allows [] on every one; each relayed row's pointer names the entry
 #      its own --standing wrote, and on B, whose session holds no entries, the
 #      row itself;
 #   6. --rules --id prints exactly the rows named; an id the record lacks
@@ -38,6 +40,10 @@
 #      Source is written back without it;
 #   9. the same unrelated write on A exits 0 and leaves record/standing byte
 #      for byte.
+#
+# niwa is never the real one: --rules may read the session's grant, so a
+# fake niwa in the scratch directory, first on PATH, appends its arguments to
+# a call log and answers not-dispatched.
 #
 # Every koto call runs on a store under this suite's scratch directory: the
 # guard (scripts/lib/koto-test-guard.sh) unsets every KOTO_SESSION_* variable
@@ -64,9 +70,18 @@ ORIG_PATH=$PATH
 T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 export HOME="$T/home" KOTO_HOME="$T/home/.koto" GIT_CEILING_DIRECTORIES="$T"
-mkdir -p "$HOME" "$T/bin"
-PATH="$T/bin:$ORIG_PATH"
+mkdir -p "$HOME" "$T/bin" "$T/fake"
+cat > "$T/fake/niwa" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$T/niwa.calls"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}'
+EOF
+chmod +x "$T/fake/niwa"
+PATH="$T/fake:$T/bin:$ORIG_PATH"
 export PATH
+# --rules runs as this session; nothing else is given a session id.
+unset CLAUDE_CODE_SESSION_ID NIWA_BIN NIWA_LOOKUP_SECONDS
+SID=$(printf "%s-%s-%s-%s-%s" 4f1c2b9e 7d3a 4e6b 9a8c 0d1e2f3a4b5c)
 
 # The sessions, named here and nowhere else. A and B are two runs of one
 # roadmap, so the readers' output can be compared byte for byte; the others
@@ -250,9 +265,11 @@ agent "$A" state-read.sh --record > "$T/A.record" 2> "$T/A.record.err"
 RC_A=$?
 
 # 5 and 6, A's half: --rules.
-agent "$A" state-stored-set.sh --rules > "$T/A.rules" 2> "$T/A.rules.err"; RC_RULES=$?
-agent "$A" state-stored-set.sh --rules --id s2 --id s7 > "$T/A.two" 2> "$T/A.two.err"; RC_TWO=$?
-agent "$A" state-stored-set.sh --rules --id s99 > "$T/A.none" 2> "$T/A.none.err"; RC_NONE=$?
+rm -f "$T/niwa.calls"
+(cd "$WD" && CLAUDE_CODE_SESSION_ID=$SID bash "$PS/state-stored-set.sh" --session "$A" --rules) > "$T/A.rules" 2> "$T/A.rules.err"; RC_RULES=$?
+cp "$T/niwa.calls" "$T/A.rules.calls" 2>/dev/null || : > "$T/A.rules.calls"
+(cd "$WD" && CLAUDE_CODE_SESSION_ID=$SID bash "$PS/state-stored-set.sh" --session "$A" --rules --id s2 --id s7) > "$T/A.two" 2> "$T/A.two.err"; RC_TWO=$?
+(cd "$WD" && CLAUDE_CODE_SESSION_ID=$SID bash "$PS/state-stored-set.sh" --session "$A" --rules --id s99) > "$T/A.none" 2> "$T/A.none.err"; RC_NONE=$?
 (cd "$WD" && koto context list "$A" --prefix record/entries/) > "$T/A.entries" 2>/dev/null
 
 # readers <session> <label>: the run, at wait after its first pick, through a
@@ -310,7 +327,7 @@ open_roadmap "$B" rules || stop "run B opens" "$(cat "$T/open.out" "$T/open.err"
 [ "$(at "$B" --with-data '{"choice":"hold"}')" = wait ] || stop "run B holds to wait" "$(cat "$T/tick.err")"
 agent "$B" state-read.sh --record > "$T/B.record" 2> "$T/B.record.err"
 RC_B=$?
-agent "$B" state-stored-set.sh --rules > "$T/B.rules" 2> "$T/B.rules.err"; RC_BRULES=$?
+(cd "$WD" && CLAUDE_CODE_SESSION_ID=$SID bash "$PS/state-stored-set.sh" --session "$B" --rules) > "$T/B.rules" 2> "$T/B.rules.err"; RC_BRULES=$?
 readers "$B" B
 READ_B=$WHY; WHY=
 
@@ -404,8 +421,13 @@ EXPECT='[
 jq -n --arg a "$A" --slurpfile rec "$T/A.record" "$EXPECT" > "$T/A.rules.want" 2> "$T/A.rules.want.err" || needf "the expected objects don't build: $(cat "$T/A.rules.want.err")"
 need "--rules on A exits 0" 0 "$RC_RULES$(cat "$T/A.rules.err")"
 need "  ... one object per row, in record order" "s1 s2 s3 s4 s5 s6 s7 s8 s9" "$(jq -r .standing "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
-need "  ... each as the test holds it (jq -S)" "$(jq -cS . "$T/A.rules.want" 2>/dev/null)" "$(jq -s -cS . "$T/A.rules" 2>/dev/null)"
-need "  ... no object has a grants key" 0 "$(jq -s 'map(select(has("grants"))) | length' "$T/A.rules" 2>/dev/null)"
+jq -cS '.[]' "$T/A.rules.want" > "$T/A.rules.want.each" 2>/dev/null
+jq -cS 'del(.under_session_grant, .session_allows)' "$T/A.rules" > "$T/A.rules.rest" 2>/dev/null
+cmp -s "$T/A.rules.want.each" "$T/A.rules.rest" || needf "apart from under_session_grant and session_allows, --rules on A isn't the objects held here: $(head -c 600 "$T/A.rules.rest")"
+need "  ... with niwa answering not-dispatched, under_session_grant false and session_allows [] on every object" "false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[] false:[]" \
+    "$(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/A.rules" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+printf 'authority check -C %s --session %s --json\n' "$(cd "$WD" && pwd -P)" "$SID" > "$T/A.rules.calls.want"
+cmp -s "$T/A.rules.calls.want" "$T/A.rules.calls" || needf "--rules on A didn't read the grant once as this session: [$(cat "$T/A.rules.calls")]"
 for n in 1 2 3 4 5; do
     k=$(jq -r --arg s "s$n" 'select(.standing == $s) | .pointer.entry // "" | sub("^[^ ]* "; "")' "$T/A.rules" 2>/dev/null)
     case "$(ctx "$A" "$k" | jq -r '.text // ""')" in
@@ -417,7 +439,7 @@ NEWEST=$(jq -r '.[]' "$T/A.entries" 2>/dev/null | LC_ALL=C sort | tail -1)
 [ -n "$NEWEST" ] && [ "$NEWEST" != record/entries/000001 ] || needf "s1's entry is the newest, $NEWEST, so the pointer proves nothing"
 need "--rules on B, whose session holds no entries, points each event row at the row itself" "0 $B record/standing s1|$B record/standing s5" \
     "$RC_BRULES $(jq -r 'select(.standing == "s1" or .standing == "s5") | .pointer.row // "none"' "$T/B.rules" 2>/dev/null | tr '\n' '|' | sed 's/|$//')"
-crit "5. --rules on A prints one object per row in record order, each its class, owner, Set, pointer, status and confirm (jq -S), with no grants key"
+crit "5. --rules on A prints one object per row in record order, each its class, owner, Set, pointer, status and confirm (jq -cS, then cmp), with under_session_grant false and session_allows [] under a not-dispatched answer"
 
 # ---- 6 ----------------------------------------------------------------------
 need "--rules --id s2 --id s7 prints exactly those two" "0 s2 s7" "$RC_TWO $(jq -r .standing "$T/A.two" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
