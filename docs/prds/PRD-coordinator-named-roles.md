@@ -170,9 +170,10 @@ brief a director writes to dispatch a manager.
   decisions, checkpoints, acceptance criteria) name the concrete scope and work
   (which roadmap or lanes, which units, which decisions) but make no general
   statement of what the role owes and use no name for the recipient's own
-  role (naming another session by its role, such as the director a manager
-  reports to, isn't naming it): the coordinator reads its duties from the skill's expectation list for its role
-  (R10). `references/brief-template.md` says so where it describes the Goal.
+  role. They name another session by its role in two places only: a manager's
+  brief names the director it reports to as its reviewer, and a director's
+  brief names the managers it dispatched or reviews. The coordinator reads its
+  duties from the skill's expectation list for its role (R10). `references/brief-template.md` says so where it describes the Goal.
   A worker brief (one that doesn't start a coordinator) carries no role line,
   and its rendered text is unchanged.
 - **R8. The successor reports the role its brief names.** A successor's first
@@ -297,9 +298,10 @@ role in its first report and in its record):
   address).
 - [ ] Every first report in these criteria (the two starts, each successor, and
   each resume, carry, takeover and import below) names its own role with no
-  word other than `manager` or `director`: `grep -niE 'lead|top|head|lane
-  coordinator|director \(|manager \('` over the report's record line finds
-  nothing.
+  word other than `manager` or `director`: with the session name and host
+  repository removed from the report's record line, `grep -niwE
+  'lead|leader|top|top-level|head|parent|lane coordinator|director \(|manager
+  \('` over the rest of that line finds nothing.
 - [ ] A later report of each run (after its first landed or handed-over unit)
   carries the role on its record line.
 - [ ] A start with the role setting `lead` is refused before a session exists:
@@ -338,28 +340,35 @@ paragraph describing the role from scratch):
   role line from the given role.
 - [ ] `references/brief-template.md`'s description of the Goal says the Goal
   names the concrete scope and work, makes no general statement of the role's
-  duties and names no role, and that the coordinator reads its duties from the
+  duties and names no role for the coordinator the brief starts (naming the
+  director a manager reports to, or the managers a director dispatched, as R7
+  allows, is not that), and that the coordinator reads its duties from the
   skill's expectation list for its role.
 - [ ] In each lane brief the director above renders and each successor's
-  brief, every line outside the role line that `grep -niwE
-  'managers?|directors?|lead|top|head'` prints is one of these four, and any
-  other line fails the criterion: the phrase "workspace manager"; git's `HEAD`
-  in capitals; in a manager's brief (lane or successor), the director named as
-  the reviewer the manager reports to; in a director's brief, the managers it
-  dispatched or reviews, named as those sessions. None of the four names the
-  brief recipient's own role. No sentence states in general terms what the role
+  brief, every match outside the role line that `grep -noiwE
+  'managers?|directors?|lead|leader|top|top-level|head|parent|lane
+  coordinators?'` prints is one of these four, and any other match fails the
+  criterion: `manager` in the phrase "workspace manager"; `HEAD` in capitals
+  naming git's ref; in a manager's brief (lane or successor), the director
+  named as the reviewer the manager reports to; in a director's brief, the
+  managers it dispatched or reviews, named as those sessions. The check is per
+  match, so a line holding one allowed match and one other fails. None of the
+  four names the brief recipient's own role. No sentence states in general terms what the role
   owes (a reviewer checks the Goal, decisions and checkpoints against the two
   expectation lists; naming the concrete roadmap, lanes or units is allowed).
 - [ ] Each successor's first report names the same role as its brief's role
   line, and its record's role value matches.
-- [ ] A resume, a carry, a takeover and an import of a run recorded as
-  `manager`, each started with the role setting `director`, are each refused,
-  and each refusal names both roles. After each refused start the record is
-  unchanged: every key reads as it did before the attempt, its role value
-  prints `manager`, no new session is opened for it, and the run's state
-  (live, stalled or stopped) is the one it had before. The same four starts of a run recorded as `director` with the
-  setting `manager` are refused the same way. Each of the four started with the
-  recorded role is accepted.
+- [ ] A resume, a carry, a takeover, an import and a discipline rotation that
+  carries its predecessor's state, of a run recorded as `manager`, each started
+  with the role setting `director`, are each refused. Each refusal names
+  `manager` as the recorded role and `director` as the role asked for; a
+  refusal that only lists the two allowed values fails. After each refused
+  start the record is unchanged: every key reads as it did before the attempt,
+  its role value prints `manager`, no new session is opened for it, and the
+  run's state (live, stalled or stopped) is the one it had before. The same
+  five starts of a run recorded as `director` with the setting `manager` are
+  refused the same way, with the roles swapped in the refusal. Each of the
+  five started with the recorded role is accepted.
 
 The Glossary and duties (Evidence: the Glossary defines "coordinator" as a
 session of either role with the two roles under it, and no duty that belongs to
@@ -381,8 +390,9 @@ only one role is addressed to "the coordinator"):
   or "not a duty", including every sentence that dispatches a worker, lands a
   worker pull request, gives a milestone verdict, dispatches a coordinator or
   hands a successor a grant, and finds each correctly classed.
-- [ ] `grep -niE 'lane coordinator|(top|lead|head|parent) coordinator'` over the
-  three file sets finds nothing.
+- [ ] `grep -niE 'lane coordinator|(top-level|top|lead|head|parent)
+  coordinator|top session|head of effort'` over the three file sets finds
+  nothing.
 - [ ] `SKILL.md` has one manager expectation list and one director expectation
   list, each containing every item R10 names for that role, and neither list
   contains `grant`, `merge authority`, `may merge` or `settle`.
@@ -400,7 +410,7 @@ successor reports as a director and nothing else):
   `director` reports `director` in its first report, and its record's role value
   prints `director`.
 - [ ] That successor's first report and its record's keys written after the
-  start contain none of the three earlier names (`grep -F` for each finds
+  start contain none of the three earlier names (`grep -iF` for each finds
   nothing).
 - [ ] The same successor started with no role setting asks for the role and
   dispatches nothing before the answer; it doesn't infer `director` from the
