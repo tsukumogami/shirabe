@@ -143,13 +143,14 @@
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
 # printed; 2 a read failed (the record, or the entries the next Standing id
-# is chosen from); 10 refused: here, no found record or a record that doesn't
-# read back as this scope's, and from the write core, not an open record,
+# is chosen from); 10 refused: here, no found record or, for a write, a record
+# that doesn't read back as this scope's, and from the write core, not an open record,
 # provenance or a directed transition; 11 and 12 (the record changed between
 # this script's read and its write) from the write core; 14
 # the state was written but the entry wasn't posted (post it with
 # state-entry.sh; the change it names is on stderr); 64 usage; 65 refused
-# (the reason on stderr).
+# (the reason on stderr), and for --list a record the schema refuses (a row
+# this plugin doesn't know, as a newer plugin's looks), nothing on stdout.
 #
 # The record is read through state-read.sh and written only in the write
 # core it sources, and the entry through state-entry.sh.
@@ -319,7 +320,12 @@ FIELDS=
 rs_record "$WD/parsed.json" "$FIELDS"
 case $? in
     0) ;;
-    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2
+        # --list passes the schema's refusal on as 65, so a reader (the
+        # opener's takeover above all) tells a record it can't read from a
+        # missing one (10); a write refuses it as no record to write, 10.
+        [ "$MODE" = list ] && exit 65
+        exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "cannot read the record: $(lib_scrub < "$WD/parsed.json.err" | head -1)" ;;
