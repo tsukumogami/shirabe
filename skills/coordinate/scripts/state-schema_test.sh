@@ -204,6 +204,68 @@ same "an assignment whose On isn't an issue or release" "$(STS "$(ST assignment 
 same "an approval with an On" "$(STS "$(ST approval "Feature 2" "")")" "only a pause, a go-ahead or an assignment has an On"
 same "an unknown Standing kind" "$(STS "$(ST veto "" "")")" "standing.kind: not one of"
 same "a Standing id that isn't s<n>" "$(STS "$(ST approval "" "" | jq -c '.standing = "x1"')")" "standing.standing: not s<n>"
+
+echo "== rule rows and the Source column =="
+SD=$HERE/testdata/standing-rules
+SESS=coordinate-roadmap-rules-20261001T100000Z
+# RULE <source>: a rule row, s3, with that Source.
+RULE() { jq -nc --arg s "$1" '{standing: "s3", kind: "rule", on: "", until: "", what: "Read a CI run'"'"'s status at most once a minute.", owner: "", relayed_by: "", set: "2026-10-20T09:00Z", source: $s}'; }
+for src in "decision $SESS 000000000007" "skill acme/widgets skills/coordinate/SKILL.md $SHA40" \
+    "doc acme/widgets docs/designs/DESIGN-x.md $SHA40" "pinned charter sha256:$SHA64" "inferred" "inferred brief worker sha256:$SHA64"; do
+    passes "a rule row with a ${src%% *} Source passes${src#inferred}" "$(STS "$(RULE "$src")")"
+done
+passes "an event row may carry a Source" "$(STS "$(ST approval "" "" | jq -c --arg s "skill acme/widgets skills/coordinate/SKILL.md $SHA40" '.source = $s')")"
+passes "the fixture's four rule rows pass beside an event row" "$(full_record | jq -c --slurpfile r "$SD/rule-rows.json" --argjson e "$(ST approval "" "")" '.standing = [$e] + $r[0]')"
+# Each malformed fixture is refused naming its row, s7.
+for f in owner:"a rule row's Owner is blank" relayed-by:"a rule row's Relayed by is blank" no-source:"a rule row names its Source" \
+    empty-source:"a rule row names its Source" on:"a rule row has no On and no Until" \
+    decision-11-digits:"the Source names a decision id that isn't 12 digits" decision-dash-session:"the Source names a session that isn't a session name" \
+    skill-dotdot:"the Source names a path that isn't relative, or that has a \`.\` or \`..\` segment" skill-39-hex:"the Source names a commit that isn't 40 hex"; do
+    same "a rule row: ${f%%:*} is refused, naming standing.s7" "$(full_record | jq -c --slurpfile r "$SD/bad-${f%%:*}.json" '.standing = $r[0]')" "standing.s7: ${f#*:}"
+done
+same "a rule row with an Until" "$(STS "$(RULE inferred | jq -c '.until = "lifted"')")" "standing.s3: a rule row has no On and no Until"
+same "a Source in no form" "$(STS "$(RULE "memo from the lead")")" "standing.s3: the Source is not one of"
+same "a decision Source with a word missing" "$(STS "$(RULE "decision 000000000007")")" "is not \`decision <session> <12-digit id>\`"
+same "a skill Source with an absolute path" "$(STS "$(RULE "skill acme/widgets /etc/x $SHA40")")" "names a path that isn't relative"
+same "a doc Source naming a repository that isn't owner/repo" "$(STS "$(RULE "doc acme docs/x.md $SHA40")")" "names a repository that isn't owner/repo"
+same "a pinned Source with a short digest" "$(STS "$(RULE "pinned charter sha256:abc")")" "names a digest that isn't sha256:<64 hex>"
+same "an inferred Source with a stray word" "$(STS "$(RULE "inferred maybe")")" "is not \`inferred\` or \`inferred brief"
+same "an inferred brief with a label that isn't one" "$(STS "$(RULE "inferred brief a/b sha256:$SHA64")")" "names a label that isn't"
+same "an event row's Source is held to the same forms" "$(STS "$(ST approval "" "" | jq -c '.source = "decision s 7"')")" "standing.s1: the Source"
+same "a Source naming a repository that isn't public" "$(STS "$(RULE "skill acme/secret skills/x/SKILL.md $SHA40")")" "standing.s3: the Source names acme/secret" acme/secret
+same "an event row's empty Owner is still refused" "$(STS "$(ST approval "" "" | jq -c '.owner = ""')")" "standing.owner: empty"
+# normal <standing-json>: the Standing rows normalize_state gives back.
+normal() { full_record | jq -c --argjson s "$1" '.standing = $s' | jq -c -L "$HERE" 'include "state-schema"; normalize_state([]) | .standing'; }
+eq "an empty Source is left out of the normal form" "$(jq -c '[.[0] | del(.source)] + [.[1]]' "$SD/standing-empty-source.json")" \
+    "$(normal "$(cat "$SD/standing-empty-source.json")")"
+eq "  ... and a row written before the column comes back as it was, byte for byte" "$(cat "$SD/standing-today.json")" \
+    "$(normal "$(cat "$SD/standing-today.json")")"
+eq "  ... and a rule row keeps its columns in the normal form's order" "$(cat "$SD/rule-rows.json")" "$(normal "$(cat "$SD/rule-rows.json")")"
+# rule_class and rule_view, over the fixture's rows and an event row.
+view() { jq -r -L "$HERE" --arg s "$SESS" --argjson e "${2:-[]}" 'include "state-schema"; .[] | rule_view($s; $e) | [.class, .status, .confirm, .owner, .said, .words, .reversal, (.pointer | tostring)] | map(tostring) | join("|")' <<< "$1"; }
+D64=sha256:1111111111111111111111111111111111111111111111111111111111111111
+eq "an inferred brief rule reads inferred, unconfirmed, to confirm, with its brief's label and digest" \
+    "inferred|unconfirmed|true|null|2026-10-20T09:00Z|null|null|{\"brief\":\"worker\",\"digest\":\"$D64\"}" "$(view "$(jq -c '[.[0]]' "$SD/rule-rows.json")")"
+eq "a skill rule reads skill-says, in force, with its repository, path and commit" \
+    'skill-says|in-force|false|null|2026-10-20T09:01Z|null|null|{"repo":"acme/widgets","path":"skills/coordinate/SKILL.md","commit":"0123456789abcdef0123456789abcdef01234567"}' \
+    "$(view "$(jq -c '[.[1]]' "$SD/rule-rows.json")")"
+eq "a pinned rule reads charter, with its label and digest" \
+    'charter|in-force|false|null|2026-10-20T09:02Z|null|null|{"pinned":"charter","digest":"sha256:2222222222222222222222222222222222222222222222222222222222222222"}' \
+    "$(view "$(jq -c '[.[2]]' "$SD/rule-rows.json")")"
+eq "a decision rule reads unreadable twice over, with the session and id, and no owner or time" \
+    "unreadable|unreadable|false|null|null|null|null|{\"decision\":\"$SESS 000000000007\"}" "$(view "$(jq -c '[.[3]]' "$SD/rule-rows.json")")"
+eq "a doc rule reads doc" "doc|in-force" "$(view "$(jq -nc --arg s "doc acme/widgets docs/x.md $SHA40" '[{standing: "s4", kind: "rule", what: "x", set: "2026-10-20T09:00Z", source: $s}]')" | cut -d'|' -f1-2)"
+eq "a bare inferred rule points at its own row" "inferred|{\"row\":\"$SESS record/standing s4\"}" \
+    "$(view '[{"standing":"s4","kind":"rule","what":"x","set":"2026-10-20T09:00Z","source":"inferred"}]' | cut -d'|' -f1,8)"
+ENT='[{"id":1,"kind":"pause","text":"s1 (pause on Feature 1, until lifted): hold. Owner: the human."},{"id":2,"kind":"answer","text":"s2 (answer): panels. Owner: the human."},{"id":3,"kind":"end","text":"s1 (pause: hold) ended by the human."}]'
+eq "a relayed row reads relayed, in force, its Owner, its Set, and the entry its own write made" \
+    "relayed|in-force|false|the human|2026-10-07T10:00Z|null|null|{\"entry\":\"$SESS record/entries/000001\"}" \
+    "$(view "$(jq -c '[.[0]]' "$SD/standing-today.json")" "$ENT")"
+eq "  ... the second row its own entry, not the newest" "{\"entry\":\"$SESS record/entries/000002\"}" \
+    "$(view "$(jq -c '[.[1]]' "$SD/standing-today.json")" "$ENT" | cut -d'|' -f8)"
+eq "  ... and a row no entry matches points at itself" "{\"row\":\"$SESS record/standing s2\"}" \
+    "$(view "$(jq -c '[.[1]]' "$SD/standing-today.json")" '[]' | cut -d'|' -f8)"
+eq "no rule_view object has a grants key" false "$(jq -c -L "$HERE" --arg s "$SESS" 'include "state-schema"; [.[] | rule_view($s; [])] | any(has("grants"))' "$SD/rule-rows.json")"
 WK() { jq -nc --arg i "$1" --arg k "$2" --arg w "$3" --arg n "$4" '{item: $i, kind: $k, who: $w, next: $n, wakes: "0", updated: "2026-10-09T10:00Z"}'; }
 WKS() { full_record | jq -c --argjson w "[$1]" '.work = $w'; }
 same "an unknown Work kind" "$(WKS "$(WK x verdict-due me go)")" "work.kind: not holding"
