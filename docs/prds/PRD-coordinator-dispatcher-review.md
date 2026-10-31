@@ -14,7 +14,8 @@ goals: |
   root. Review before merge reads as something the skill always expects, a merge
   grant as an allowance that never skips it, and a coordinator that may not
   merge passes up its own reading of the work with a recommendation.
-upstream: docs/briefs/BRIEF-coordinator-dispatcher-review.md
+absorbed:
+  - docs/briefs/BRIEF-coordinator-dispatcher-review.md
 ---
 
 # PRD: Coordinator Dispatcher Review
@@ -22,6 +23,30 @@ upstream: docs/briefs/BRIEF-coordinator-dispatcher-review.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-coordinator-dispatcher-review](docs/briefs/BRIEF-coordinator-dispatcher-review.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed why this feature exists. A coordinator dispatched by another
+coordinator is told, in passage after passage, that a review, a merge, a verdict
+edit or a finishing step goes to "a person", when the coordinator that
+dispatched it is the one that should read its finished work. shirabe#1259 fixed
+the reserved-step passages and left the ones that decide who reviews: the
+milestone verdict rule, the posture passage's "Never ask the human" sentence,
+the granted worker's brief and what a coordinator that may not merge does with
+ready work. Those gaps are this document's Problem Statement.
+
+The outcome it asked for is that whoever dispatches a coordinator gets its
+finished work, verdict pull requests included, for review before it lands,
+whether or not it holds a merge grant; that a root coordinator sends the same
+step to a person; and that a coordinator that may not merge passes up its own
+reading. Those are this document's Goals. Its five journeys (a manager's verdict
+going to its director, a merge grant that doesn't skip review, a director with
+no merge grant giving its own reading, a granted worker reporting before it
+merges, and a root coordinator sending review to a person) are this document's
+User Stories, and its scope boundary is the Requirements and the Out of Scope
+list.
 
 ## Problem Statement
 
