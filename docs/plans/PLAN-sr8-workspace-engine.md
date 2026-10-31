@@ -47,10 +47,10 @@ the contract guide section in the same shirabe pull request. Issues 3 to 5 copy
 the settled script, byte for byte, into tsuku, koto and niwa, one pull request
 per repository. Issue 6 adds the copy comparison to `lifecycle.yml` in its own
 shirabe pull request once Issue 1 has landed. Issue 7 adds the `posture` input
-and the Draft ROADMAP acceptance in another shirabe pull request, which depends
-on nothing. The shirabe pull request for Issues 1 and 2 lands first; the three
-copies follow in any order, and Issues 6 and 7 land whenever they are ready,
-the second of them updated to the first's merge.
+and the Draft ROADMAP acceptance in another shirabe pull request after Issue 6,
+since both touch `lifecycle.yml` and the copy script. The shirabe pull request
+for Issues 1 and 2 lands first; the three copies follow in any order, then
+Issue 6, then Issue 7.
 
 ## Issue Outlines
 
@@ -418,22 +418,28 @@ implementation starts. Build on current `main`. Design:
       one) and exits with the same status.
 - [ ] With `posture: draft`, the lifecycle step never passes `--mode=ready`,
       on a draft or a ready pull request.
-- [ ] Under both values, the step writes the posture it ran in to the job
-      summary (`$GITHUB_STEP_SUMMARY`) as well as the log.
-- [ ] The posture-to-mode resolution lives in a script under `scripts/` with a
-      `_test.sh` beside it, run by `build-and-test.yml`, following
-      `scripts/coordination-gate-refs.sh`. The test covers `auto` and `draft`
+- [ ] The posture-to-mode resolution lives in one script under `scripts/`,
+      shaped like `scripts/coordination-gate-refs.sh` with a `_test.sh` beside
+      it. Its contract: it reads `POSTURE` and the pull request's draft state
+      (`PR_DRAFT`, `true` or `false`) from the environment; it holds the only
+      `case "$POSTURE" in auto|draft)` allowlist; on success it prints the mode
+      flag to stdout (empty or `--mode=ready`) and exits 0.
+- [ ] The lifecycle step passes `POSTURE: ${{ inputs.posture }}` and the draft
+      state to the script only through `env:`, runs it as
+      `bash .shirabe-src/scripts/<name>.sh` (the checkout at the called ref, as
+      the gate step runs `coordination-gate-refs.sh`), passes the flag it prints
+      to `shirabe validate`, and writes the posture it ran in to the job summary
+      (`$GITHUB_STEP_SUMMARY`) and the log under both values.
+      `${{ inputs.posture }}` appears in no `run:` block.
+- [ ] Any other `posture` value fails the job: the script's `case` fallthrough
+      prints an `::error::` naming `auto` and `draft`, without echoing the
+      rejected value, and exits 1.
+- [ ] The `_test.sh` is wired into `build-and-test.yml` the way
+      `scripts/check-setup-script-copy_test.sh` is. It covers `auto` and `draft`
       against a draft and a ready pull request, and rejects `''`, `ready`, and
       values such as `draft; touch "$T/x"` and `$(touch "$T/x")`, asserting
-      `$T/x` is never created. It fails if `draft` on a ready pull request
-      yields `--mode=ready`.
-- [ ] The input reaches the shell only through `env:` (`POSTURE: ${{
-      inputs.posture }}`); `${{ inputs.posture }}` appears in no `run:` block,
-      and the step checks it with `case "$POSTURE" in auto|draft)` before any
-      other use.
-- [ ] Any other `posture` value fails the job: the `case` fallthrough prints an
-      `::error::` naming `auto` and `draft`, without echoing the rejected value,
-      and exits 1.
+      `$T/x` is never created and the error doesn't contain the value. It fails
+      if `draft` on a ready pull request yields `--mode=ready`.
 - [ ] The diff leaves the coordination merge-last gate step unchanged, so under
       `posture: draft` it still runs on a ready coordination pull request and
       still passes `--mode=ready`.
@@ -461,9 +467,12 @@ implementation starts. Build on current `main`. Design:
 - [ ] `docs/guides/lifecycle-posture.md` names the Draft ROADMAP root in its
       posture-model list and in its L01 paragraph, and its `lifecycle.yml`
       bullet says `posture: draft` never passes `--mode=ready`. The workflow
-      header names the `posture` input. The lifecycle discipline design gets a
-      one-line note pointing at this design's Decision 5, and the doc comment
-      on `required_state` cites it.
+      header names the `posture` input, and the lifecycle step's comment no
+      longer calls the `draft == false` gating the whole point.
+      `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md` gets a
+      one-line note pointing at this design's Decision 5; the doc comments on
+      `required_state` and `run_lifecycle_check` cite it, and the latter no
+      longer says multi-pr postures never change with the posture.
 - [ ] In both modes, `shirabe validate --lifecycle .` on the pull request's tree
       gives identical output with the base binary and with the pull request's
       binary.
@@ -485,8 +494,8 @@ graph TD
 
 ## Implementation Sequence
 
-Issues 1 to 6 have merged; Issue 7 is what remains. Critical path: Issue 1, then
-any one of Issues 2 to 6. Issues 1 and 2 share the
+Issues 1 to 6 have merged; Issue 7 is what remains. Critical path: Issue 1,
+Issue 6, Issue 7. Issues 1 and 2 share the
 shirabe `default` group and land as one pull request, which merges first. Once
 Issue 1's test passes in CI, Issues 3, 4 and 5 run in parallel, one pull request
 each in tsuku, koto and niwa. Issue 6 follows Issue 1 in its own shirabe pull

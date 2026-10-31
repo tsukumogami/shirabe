@@ -42,7 +42,8 @@ Four journeys grounded it and survive as the User Stories: a new contributor
 with tsuku, a contributor who hasn't installed shirabe yet, a contributor with
 a hook of their own, and a contributor working in worktrees. Its scope boundary
 put the install line and apply-time delivery in, and kept out changes to the
-hook or `shirabe install-hooks`, a niwa release, hook chaining, CI changes, the
+hook or `shirabe install-hooks`, a niwa release, hook chaining, CI changes
+(later narrowed; see Out of Scope), the
 mermaid check and a library crate; those land in Requirements and Out of Scope.
 
 ## Problem Statement
@@ -238,8 +239,9 @@ instances untouched. Each criterion names its requirement.
   after the rollout (amended 2026-10-31): the job that compares each
   repository's setup-script copy with shirabe's, the interim copy check in a
   repository that doesn't call `lifecycle.yml` yet, and the `lifecycle.yml`
-  `posture` input that lets such a repository adopt the lifecycle check. The
-  design's Decisions 3 to 5 give the reasons.
+  `posture` input that lets such a repository adopt the lifecycle check, plus
+  wiring the new scripts' tests into shirabe's own build. The design's
+  Decisions 3 to 5 give the reasons.
 - The mermaid diagram check and publishing a shirabe library crate.
 
 ## Known Limitations
