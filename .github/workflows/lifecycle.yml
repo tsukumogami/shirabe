@@ -15,6 +15,17 @@ name: Lifecycle Check
 #     # Optional, for a self-hosted runner; the default is ubuntu-latest:
 #     # with:
 #     #   runs-on: '["self-hosted", "linux", "x64"]'
+#     #   # Optional; the default is auto (see the posture input below):
+#     #   posture: draft
+#
+# The `posture` input (added after v0.10.0, so a caller using it pins a later
+# ref or calls @main) chooses the lifecycle check's review posture. `auto`, the
+# default, runs draft posture on a draft pull request and ready posture on a
+# ready one. `draft` runs draft posture on every pull request and never passes
+# `--mode=ready`: it is for a repository whose default branch holds open plans
+# whose work lands elsewhere, which ready posture could never pass. It does not
+# affect the coordination merge-last gate, which keys on the pull request's own
+# draft state.
 #
 # A self-hosted runner needs what the job builds and runs with: a Linux host
 # with GNU coreutils (the build step uses `install -D`), cargo (the toolchain
@@ -31,13 +42,13 @@ name: Lifecycle Check
 #
 # The reusable workflow runs the chain-aware passing-state check
 # (`shirabe validate --lifecycle .`) against the caller repo's working
-# tree, with the review posture set conditional on
+# tree, with the review posture set from the `posture` input and
 # `github.event.pull_request.draft`. The whole-tree scan is the point —
 # no `paths:` filter at the caller level, since the check inspects
 # every chain in the tree regardless of which docs the diff touches.
 #
-# DRAFT PRs run in draft posture and pass against mid-PR chain
-# states; READY PRs run in ready posture and require single-pr chains
+# Under `posture: auto`, DRAFT PRs run in draft posture and pass against mid-PR
+# chain states; READY PRs run in ready posture and require single-pr chains
 # to be at their terminal (PLAN deleted, BRIEF/PRD Done, DESIGN
 # Current). See docs/briefs/BRIEF-lifecycle-draft-ready-discipline.md
 # for the DRAFT-vs-READY discipline.
@@ -58,6 +69,15 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+      posture:
+        description: >-
+          The lifecycle check's review posture. `auto` (the default) runs
+          draft posture on a draft pull request and ready posture on a ready
+          one. `draft` runs draft posture on every pull request and never
+          passes `--mode=ready`. Any other value fails the job.
+        required: false
+        type: string
+        default: auto
 
 jobs:
   lifecycle:
@@ -132,15 +152,19 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run lifecycle check (R5 finalization-not-done guard)
-        # The shell conditional reads github.event.pull_request.draft
-        # and sets MODE_FLAG to --mode=ready when the PR is
-        # ready-for-review (draft is false). DRAFT PRs leave MODE_FLAG
-        # empty so the binary's default draft posture applies and the
-        # check passes against mid-PR chain states. READY PRs run in
-        # ready posture and require chains to be at their terminal
-        # passing state. See
+        # scripts/lifecycle-posture-mode.sh, from the shirabe checkout at the
+        # called ref, resolves the `posture` input and the PR's draft state to
+        # the mode flag. Under `auto` it prints --mode=ready on a
+        # ready-for-review PR (draft is false) and nothing on a draft PR, so
+        # the binary's default draft posture applies and the check passes
+        # against mid-PR chain states; READY PRs run in ready posture and
+        # require chains to be at their terminal passing state. Under `draft`
+        # it never prints --mode=ready. Any other value fails the step. Both
+        # values reach the script only through env, never through the run
+        # script's text. See
         # docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md
-        # for the interface rationale.
+        # for the interface rationale, and Decision 5 of
+        # docs/designs/current/DESIGN-sr8-workspace-engine.md for the input.
         #
         # R5 (DESIGN-execute-friction D4): this ready-posture step IS the
         # finalization-not-done guard for /execute. A run whose finalization
@@ -149,18 +173,23 @@ jobs:
         # state fails L01 (exit 2) and the guard fires. The whole-tree
         # `--lifecycle .` scan covers every chain, so no separate per-seed
         # `--lifecycle-chain <DESIGN>` step is needed — duplicating it here
-        # would re-run the identical ready-posture check. The draft == false
-        # gating is the point: the guard asserts the finalized terminal only at
-        # review time, never on a draft PR whose cascade is legitimately
-        # mid-flight. See docs/guides/execute-friction.md (The finalization-not-done guard).
+        # would re-run the identical ready-posture check. Under `auto` the guard
+        # asserts the finalized terminal only at review time (draft == false),
+        # never on a draft PR whose cascade is legitimately mid-flight; a
+        # caller on `posture: draft` gives the guard up for good. See
+        # docs/guides/execute-friction.md (The finalization-not-done guard).
+        env:
+          POSTURE: ${{ inputs.posture }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
-          MODE_FLAG=""
-          if [ "${{ github.event.pull_request.draft }}" = "false" ]; then
-            MODE_FLAG="--mode=ready"
-            echo "PR is ready-for-review; running in ready posture."
+          MODE_FLAG="$(bash .shirabe-src/scripts/lifecycle-posture-mode.sh)"
+          if [ "$MODE_FLAG" = "--mode=ready" ]; then
+            POSTURE_LINE="Lifecycle check ran in ready posture (posture input: $POSTURE)."
           else
-            echo "PR is draft; running in draft posture (default)."
+            POSTURE_LINE="Lifecycle check ran in draft posture (posture input: $POSTURE)."
           fi
+          echo "$POSTURE_LINE"
+          echo "$POSTURE_LINE" >> "$GITHUB_STEP_SUMMARY"
           shirabe validate \
             --visibility=${{ github.repository_visibility }} \
             --lifecycle . \
@@ -286,10 +315,13 @@ jobs:
     # Compares the calling repository's copy of shirabe's pre-commit setup
     # script with the canonical one at the called ref, and fails when they
     # differ. Every product repository commits the same bytes at
-    # scripts/setup/shirabe-pre-commit.sh, and each calls this workflow on every
-    # pull request, so a local edit to a copy, or a canonical change not yet
-    # copied, turns that repository's pull request red with the restore command.
-    # A repository without the file passes. The check reports; it never copies.
+    # scripts/setup/shirabe-pre-commit.sh, so in a repository that calls this
+    # workflow on every pull request, a local edit to a copy, or a canonical
+    # change not yet copied, turns that pull request red with the restore
+    # command. A repository may instead run scripts/check-setup-script-copy.sh
+    # from its own workflow, so the script's three-argument interface stays
+    # stable. A repository without the file passes. The check reports; it never
+    # copies.
     runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     permissions:
       contents: read

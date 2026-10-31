@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   shirabe's pre-commit hook exists as `shirabe install-hooks`, but nothing runs
   it in a workspace clone. It has to reach every product repository clone during
@@ -43,7 +43,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
