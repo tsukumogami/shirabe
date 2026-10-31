@@ -169,7 +169,7 @@ a row:
 A hold is a condition on another lane's state or a person's word, and the land
 check reads each one live before it reports a pull request ready: another pull
 request merged, a tag pushed, or `lifted` filled. One it reads as unmet,
-or can't read, is `held`, and the pull request goes to the person as held.
+or can't read, is `held`, and the pull request goes to your reviewer as held.
 `scripts/state-hold.sh` is the only writer: `--add` a hold someone asked for,
 and `--lift` one whose `until` is `lifted` when the person lifts it. A hold is
 never deleted. When a pull request merges while a hold on it is unmet, write a
@@ -686,8 +686,8 @@ as they are, and appends:
 It prints the pull request's URL, then `held-dependent <tag> <worker>` for
 each milestone whose Dependencies name this one and that a holding covers.
 
-Each edit opens one pull request with the whole entry in its body, so whoever
-merges it reviews the judgment, and writes a Side effects row:
+Each edit opens one pull request with the whole entry in its body, so the
+reviewer who approves it reads the judgment, and writes a Side effects row:
 
 ```json
 {"action": "milestone-done", "target": "<tag> [#<n>](<url>)", "verified_head": "", "attempted": "<YYYY-MM-DDTHH:MMZ>",
@@ -700,7 +700,10 @@ merges it reviews the judgment, and writes a Side effects row:
 
 `milestone-done` is for a verified verdict of either kind, and
 `milestone-verdict` for changes needed. These pull requests must not be
-auto-merged without a person's review: the review is the control on Done.
+auto-merged without the reviewer's review (the dispatching coordinator for a
+bound session, a person for a root coordinator, its own verdicts included):
+the review is the control on Done. Someone other than the author approves,
+and whoever in the chain holds a merge grant merges at the approved head.
 
 ### Confirming, and the rework row
 
