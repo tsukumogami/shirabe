@@ -312,7 +312,8 @@ commands and its supersede hop (Decision 4) are installed, which the writer
 reads as koto at or past the version floor the plugin names for them,
 checked the way the skill already checks koto's floor, the writer refuses a
 new event row that names a
-person in Owner with no citation, so relayed can't stay open as an unflagged
+person in Owner with no citation (an Owner names a person unless it is the
+name of a koto session koto can read), so relayed can't stay open as an unflagged
 channel for rows a coordinator writes from its own prose. That includes the
 carry acknowledgement the handover gate asks a successor to write: after
 koto ships, it has to cite a person decision. A taken-over successor is a
@@ -320,7 +321,9 @@ root, so its acknowledgement reads owner-said. A carried run isn't, and for
 that one row the writer accepts a citation of a person decision entered in
 the run's own session even though it reads inferred: the gate is satisfied
 as today, the row reads inferred with `confirm` true, and the start report
-lists it for the run's next fenced member to confirm. A director's own
+lists it for the run's next fenced member to confirm. It is the one inferred
+row that satisfies a check, and the writer's refusals below make the same
+single exception for it. A director's own
 ruling handed to a manager with no leg is written as today's uncited event
 row naming the director's session as Owner, which names no person and
 reads relayed, or as an `inferred` rule row.
@@ -638,7 +641,8 @@ writes `record/decisions` or `record/reversals`.
   row, the record's host repository, where the coordinator's charter and
   roadmap live. A `skill` or `doc` row citing any other repository reads
   its class and restricts only. A rule row's What is one line of at most
-  400 bytes. A `rule` row
+  400 bytes, so a root records an owner's ruling whose reason fits in that,
+  since a cited row's What must equal the whole reason. A `rule` row
   leaves Owner and Relayed by blank whatever its Source: who said it is the
   Source's to answer (koto's decider for a citation, the document for a
   `skill`, `doc` or `pinned` row, the writing coordinator for an `inferred`
@@ -725,7 +729,8 @@ writes `record/decisions` or `record/reversals`.
   recorded words don't match What; and, once koto's decision commands are
   present, a new row naming a person in Owner with no `decision` Source. A `decision` row can still read inferred later,
   when it was carried from a writer whose standing differed; the writer just
-  never creates one. A new mode confirms a row in place:
+  never creates one, save the carried run's carry acknowledgement (Decision
+  2). A new mode confirms a row in place:
 
   ```
   state-stored-set.sh --session S --confirm s<n> --source "decision <session> <id>" --by <who>
@@ -786,7 +791,9 @@ writes `record/decisions` or `record/reversals`.
   whose only winning reversal is `asserted` (koto's standing when the
   original's chain is incomplete) reads superseded in `--rules` but keeps
   holding, while an asserted reversal of a go-ahead does stop it granting,
-  so an unconfirmed reverser can only ever make the record stricter. It reads the uncited pauses first, then consults at most 16
+  so an unconfirmed reverser can only ever make the record stricter. Such
+  a pause leaves the way an unreadable one does, by `--end` with
+  `--authorized-by` citing an owner-said decision. It reads the uncited pauses first, then consults at most 16
   cited rows per call, each under the helper's time limit, and stops
   consulting once the call has spent 20 seconds, inside koto's 30-second
   action limit. A cited row it doesn't reach, past either bound or past the
@@ -929,9 +936,12 @@ koto decisions reverse <session> <id> --by person:<handle> --surface terminal --
 ### How a reviewer checks each outcome
 
 This is part of the architecture, not a test plan: it names which read
-makes each promised outcome observable on a real record, which is why the
-read views above exist. A reviewer who didn't write the change runs them
-like this:
+makes each of the milestone's five promised outcomes observable on a real
+record, which is why the read views above exist. It covers those outcomes
+only; the conditions each phase is done on (byte-for-byte old rows, the
+takeover refusal, the caps, the leg and owner-said rules, failing closed)
+are the plan's tests and aren't repeated here. A reviewer who didn't write
+the change runs them like this:
 
 - **An old lineage keeps its rules.** Start a successor on a lineage created
   before the change. Compare `koto context get <predecessor> record/standing`
@@ -1038,8 +1048,10 @@ go with them, the only place they could be closed: a verified identity
 for a person decider; dispatch links and requesters koto writes and
 observes itself, which would close the residuals of a message-dispatched
 manager skipping its own link and of a coordinator dispatching itself from
-a session it opened; and a carry that
-rides koto's fence, which would let a carried director stay a root. This
+a session it opened; a carry that rides koto's fence, which would let a
+carried director stay a root; and a rule for who may fence a session,
+since a session that fences a director takes its verified reversal
+standing, over its pauses included. This
 design proposes that work; it files nothing.
 
 ## Security Considerations
@@ -1110,14 +1122,16 @@ bind itself to a request it created. So the helper also requires the
 session a leg names to hold a coordinator record, sit outside the
 writer's run, and be older than the writer. That still leaves one route
 open: a coordinator that opens a fresh coordinator session first and
-dispatches itself from it. That is the same residual as a root speaking
+dispatches itself from it, or, if koto takes the requester as handed
+text, one that names any older coordinator session as its requester. That is the same residual as a root speaking
 for the owner. A coordinator able to open a new root could record a
 person decision there just as easily. It closes the same way, by koto
 recording a requester it observed, and it is carried to koto with the
 others. Until then the fabricated session is a new run of its own scope,
 which koto's listings and the host's coordinator sessions show beside the
-real director. Event rows that name a session in Owner keep today's trust:
-they read relayed, never owner-said, and grant as an event row does now.
+real director. Every uncited event row keeps today's trust: it reads
+relayed, never owner-said, grants as an event row does now, and can be
+ended or rewritten with `--end` as today.
 
 **Who can claim the owner's word.** Handles are handed text and links are
 never fetched, so owner-said means a root coordinator recorded a person
