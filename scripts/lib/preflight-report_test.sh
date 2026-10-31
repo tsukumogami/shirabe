@@ -441,6 +441,95 @@ assert_lacks "shipped table on darwin: the linux apt-get route never wins" \
     "$ROUTE_OUT" "apt-get install"
 
 echo
+echo "--- a route driver slower than the budget ---"
+
+# A tsuku that takes longer than the budget to answer `info` has not said it
+# doesn't know the tool. tsuku spends about two seconds starting up on a host
+# with distributed registries configured, at any load, so a route that read a
+# watchdog kill as a refusal dropped the install command on whichever runs
+# landed past the budget. Two slow stubs: one the watchdog's TERM ends with
+# 143, and one that traps TERM and exits 1, as tsuku does, so the exit status
+# alone can't tell the kill from a refusal.
+SLOWDRIVER=$(mktmp)
+TRAPDRIVER=$(mktmp)
+SLOWBREW=$(mktmp)
+{
+    printf '#!/bin/bash\n'
+    printf 'if [ "$1" = "info" ]; then /bin/sleep 30; exit 0; fi\n'
+    printf 'exit 1\n'
+} >"$SLOWDRIVER/tsuku"
+chmod +x "$SLOWDRIVER/tsuku"
+{
+    printf '#!/bin/bash\n'
+    printf 'trap "exit 1" TERM\n'
+    printf 'if [ "$1" = "info" ]; then /bin/sleep 30 & wait $!; exit 0; fi\n'
+    printf 'exit 1\n'
+} >"$TRAPDRIVER/tsuku"
+chmod +x "$TRAPDRIVER/tsuku"
+cp "$SLOWDRIVER/tsuku" "$SLOWBREW/tsuku"
+cp "$BREWDRIVER/brew" "$SLOWBREW/brew"
+
+SAVED_BUDGET="$PREFLIGHT_PROBE_BUDGET"
+PREFLIGHT_PROBE_BUDGET=1
+PREFLIGHT_LIB="$ROUTEDIR"
+
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'koto\ttsuku\tany\ttsuku tsuku-info\ttsuku install koto@latest\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+
+SLOW_T0=$(date +%s)
+route_case linux "$SLOWDRIVER" koto install
+SLOW_T1=$(date +%s)
+assert_lacks "slow tsuku: the route is not reported as not knowing the tool" \
+    "$(prose "$ROUTE_OUT")" "does not know"
+assert_has "slow tsuku: the install command is still named" \
+    "$ROUTE_OUT" "  tsuku install koto@latest"
+assert_eq "slow tsuku: exactly one command is printed" "1" "$(indented_lines "$ROUTE_OUT")"
+assert_has "slow tsuku: the report says tsuku did not confirm in time" \
+    "$(prose "$ROUTE_OUT")" "tsuku did not answer within the 1-second budget"
+assert_lacks "slow tsuku: no no-route enumeration" \
+    "$(prose "$ROUTE_OUT")" "No install route is available"
+if [ $(( SLOW_T1 - SLOW_T0 )) -le 3 ]; then
+    pass "slow tsuku: the route check returns within the budget and its grace"
+else
+    fail "slow tsuku: the route check took $(( SLOW_T1 - SLOW_T0 ))s against a 1s budget"
+fi
+
+route_case linux "$TRAPDRIVER" koto update
+assert_lacks "tsuku that exits 1 on TERM: still not reported as not knowing the tool" \
+    "$(prose "$ROUTE_OUT")" "does not know"
+assert_has "tsuku that exits 1 on TERM: the update command is still named" \
+    "$ROUTE_OUT" "  tsuku install koto@latest"
+assert_has "tsuku that exits 1 on TERM: update mode keeps its lead-in" \
+    "$(prose "$ROUTE_OUT")" "Update to the newest koto:"
+
+# A tsuku that answers within the budget and refuses still gets the truthful
+# no-route report: the slow path must not turn a real refusal into a command.
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'jq\ttsuku\tany\ttsuku tsuku-info\ttsuku install jq@latest\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+route_case linux "$DRIVERS" jq install
+assert_has "fast refusal: the route is still reported as not knowing the tool" \
+    "$(prose "$ROUTE_OUT")" "tsuku resolves, but does not know jq"
+assert_lacks "fast refusal: no command is printed" "$ROUTE_OUT" "tsuku install jq"
+
+# A confirmed route later in the table beats one that only timed out.
+{
+    printf '#schema\ttool-routes/v1\n'
+    printf 'gh\ttsuku\tany\ttsuku tsuku-info\ttsuku install gh@latest\t-\n'
+    printf 'gh\thomebrew\tany\tbrew -\tbrew install gh\t-\n'
+} >"$ROUTEDIR/tool-routes.tsv"
+route_case darwin "$SLOWBREW" gh install
+assert_has "slow tsuku, brew resolves: the confirmed route wins" "$ROUTE_OUT" "  brew install gh"
+assert_lacks "slow tsuku, brew resolves: the unconfirmed command is not printed" \
+    "$ROUTE_OUT" "tsuku install gh"
+assert_eq "slow tsuku, brew resolves: exactly one command" "1" "$(indented_lines "$ROUTE_OUT")"
+
+PREFLIGHT_PROBE_BUDGET="$SAVED_BUDGET"
+
+echo
 echo "--- end to end ---"
 
 # new_root -- a throwaway plugin root carrying the real scripts under test,
@@ -833,6 +922,34 @@ for SKILL_DIR in "$REPO"/skills/*/; do
 done
 assert_eq "every shipped declaration was exercised" "22" "$REAL_TOTAL"
 assert_eq "the twenty-two shipped declarations emit zero bytes on this host" "" "$REAL_NOISY"
+
+# --- a slow tsuku, through the real wiring ----------------------------------
+# niwa absent and koto below shirabe's floor, with a tsuku that takes longer
+# than the budget to answer `info`. Both blocks name their command from the
+# shipped route table.
+SLOWE2E=$(mktmp)
+cp "$SLOWDRIVER/tsuku" "$SLOWE2E/tsuku"
+{
+    printf '#!/bin/bash\n'
+    printf 'if [ "$1" = "version" ]; then printf "koto 0.30.0\\n"; exit 0; fi\n'
+    printf 'exit 2\n'
+} >"$SLOWE2E/koto"
+chmod +x "$SLOWE2E/koto"
+write_decl "$ROOT" "slowtsuku" 'koto\t-\t-\talways' 'niwa\t-\t-\talways'
+SHIRABE_PREFLIGHT_BUDGET=1
+export SHIRABE_PREFLIGHT_BUDGET
+run_preflight "$ROOT" "slowtsuku" "$SLOWE2E:$OSPATH_LINUX" "/nonexistent"
+unset SHIRABE_PREFLIGHT_BUDGET
+assert_has "slow tsuku end to end: koto below the floor is reported" \
+    "$(prose "$RUN_OUT")" "koto 0.30.0 is installed."
+assert_has "slow tsuku end to end: koto's upgrade command is named" \
+    "$RUN_OUT" "
+  tsuku install koto@latest && . ~/.tsuku/env"
+assert_has "slow tsuku end to end: niwa's install command is named" \
+    "$RUN_OUT" "
+  tsuku install tsukumogami/niwa && . ~/.tsuku/env"
+assert_lacks "slow tsuku end to end: neither block says tsuku does not know the tool" \
+    "$(prose "$RUN_OUT")" "does not know"
 
 echo
 echo "preflight-report_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

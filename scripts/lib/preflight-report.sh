@@ -380,27 +380,51 @@ preflight_report_routes_file() {
 # loaded its watchdog bounds this call too. Without that file the call is made
 # directly, which is the honest degradation -- the alternative is a second
 # watchdog implementation maintained in parallel with the first.
+#
+# PREFLIGHT_ROUTE_TIMEDOUT is 1 when the driver exited non-zero after the
+# watchdog fired, and 0 otherwise. A driver killed for running past the budget
+# has not answered, and the caller must not read its exit as a refusal. The
+# watchdog's marker byte, not the exit status, carries this: tsuku traps TERM
+# and exits 1, the same status it gives for a tool it doesn't know. A driver
+# that exits 0 has answered, whenever it did.
+PREFLIGHT_ROUTE_TIMEDOUT=0
 preflight_route_run() {
     local path="$1"
     shift
-    local st=0
+    local st=0 fired=""
+    PREFLIGHT_ROUTE_TIMEDOUT=0
     if declare -f preflight_probe_watchdog >/dev/null 2>&1 &&
        declare -f preflight_probe_helpers_ready >/dev/null 2>&1 &&
        preflight_probe_helpers_ready; then
-        (
-            exec >/dev/null 2>&1
+        # Descriptor 3 is the capture pipe, and only the watchdog keeps it:
+        # the driver is started with it closed and this subshell closes its
+        # own copy once the watchdog is running, so the capture ends when the
+        # watchdog does. The watchdog gets its own process group, which the
+        # KILL below stops together with its sleep.
+        #
+        # stdin is closed inside the substitution, not with a redirection on
+        # the assignment: bash 5 gives `v=$(...) </dev/null` a status of 0
+        # whatever the substitution exits with, which would read every
+        # refusal as an answer.
+        fired=$(
+            exec 3>&1 >/dev/null 2>&1 </dev/null
             set -m
-            "$path" "$@" </dev/null >/dev/null 2>&1 &
+            "$path" "$@" </dev/null >/dev/null 2>&1 3>&- &
             _preflight_route_pid=$!
-            set +m
-            preflight_probe_watchdog "$_preflight_route_pid" &
+            preflight_probe_watchdog "$_preflight_route_pid" mark &
             _preflight_route_watchdog=$!
+            set +m
+            exec 3>&-
             wait "$_preflight_route_pid"
             _preflight_route_status=$?
-            kill "$_preflight_route_watchdog" 2>/dev/null
+            kill -KILL -- "-$_preflight_route_watchdog" 2>/dev/null \
+                || kill "$_preflight_route_watchdog" 2>/dev/null
             wait "$_preflight_route_watchdog" 2>/dev/null
             exit "$_preflight_route_status"
-        ) </dev/null || st=$?
+        ) || st=$?
+        if [ "$st" -ne 0 ] && [ -n "$fired" ]; then
+            PREFLIGHT_ROUTE_TIMEDOUT=1
+        fi
     else
         "$path" "$@" </dev/null >/dev/null 2>&1 || st=$?
     fi
@@ -453,8 +477,9 @@ PREFLIGHT_ROUTE_REASON=""
 # permissive reader would ship is a table that can name any command it likes
 # and have this check run it.
 #
-# Returns 0 when the route is available; 1 otherwise, with the reason in
-# PREFLIGHT_ROUTE_REASON.
+# Returns 0 when the route is available; 1 when it is not; 2 when the driver
+# resolved but `info` did not answer within the budget, so whether the route
+# is available is unknown. 1 and 2 put the reason in PREFLIGHT_ROUTE_REASON.
 preflight_route_available() {
     local probe="$1" tool="$2" driver verb key k s r
 
@@ -476,6 +501,7 @@ preflight_route_available() {
                 if [ "$k" = "$key" ]; then
                     PREFLIGHT_ROUTE_REASON="$r"
                     [ "$s" = "ok" ] && return 0
+                    [ "$s" = "slow" ] && return 2
                     return 1
                 fi
             done <<<"$PREFLIGHT_ROUTE_DATA"
@@ -523,6 +549,11 @@ preflight_route_available() {
 
     if [ "$verb" = "tsuku-info" ]; then
         if ! preflight_route_run "$PREFLIGHT_ROUTE_DRIVER" info "$tool"; then
+            if [ "$PREFLIGHT_ROUTE_TIMEDOUT" = "1" ]; then
+                PREFLIGHT_ROUTE_REASON="$driver did not answer within the ${PREFLIGHT_PROBE_BUDGET-2}-second budget this check gives it"
+                preflight_route_memo "$key" "slow" "$PREFLIGHT_ROUTE_REASON"
+                return 2
+            fi
             PREFLIGHT_ROUTE_REASON="$driver resolves, but does not know $tool"
             preflight_route_memo "$key" "no" "$PREFLIGHT_ROUTE_REASON"
             return 1
@@ -562,6 +593,12 @@ preflight_route_command_ok() {
 # route that was checked with the reason it did not apply. Never two commands,
 # and never a choice for the reader.
 #
+# The first confirmed route wins. When none is confirmed but a route's driver
+# ran out of time before answering, that route's command is given anyway,
+# followed by a sentence saying it went unconfirmed: a driver that didn't answer
+# hasn't said it can't install the tool. A route confirmed later in the table
+# still beats it.
+#
 # <mode> is `install` (the default, for an absent tool) or `update` (for a tool
 # that is installed and missing part of its surface). It changes the lead-in
 # and the closing sentence, nothing else.
@@ -573,7 +610,7 @@ preflight_render_route() {
     local tool="$1" mode="${2-install}"
     local file hostos line tabs rtool route os probe command citation
     local reasons="" width=0 n
-    local winner="" k r pad gap
+    local winner="" unconfirmed="" unconfirmed_why="" k r pad gap
 
     if [ "$mode" = "update" ]; then
         pad="Update to the newest $tool:"
@@ -667,10 +704,19 @@ preflight_render_route() {
             continue
         fi
 
-        if preflight_route_available "$probe" "$tool"; then
-            winner="$command"
-            continue
-        fi
+        preflight_route_available "$probe" "$tool"
+        case "$?" in
+            0)
+                winner="$command"
+                continue
+                ;;
+            2)
+                if [ -z "$unconfirmed" ]; then
+                    unconfirmed="$command"
+                    unconfirmed_why="$PREFLIGHT_ROUTE_REASON"
+                fi
+                ;;
+        esac
 
         reasons="$reasons$route$PREFLIGHT_TAB$PREFLIGHT_ROUTE_REASON$PREFLIGHT_NL"
     done <"$file"
@@ -679,6 +725,19 @@ preflight_render_route() {
         preflight_report_wrap "$pad"
         printf '\n'
         printf '  %s\n' "$winner"
+        return 0
+    fi
+
+    # No route confirmed, but one went unanswered: its driver resolved and ran
+    # out of time before saying whether it knows the tool. That is not a
+    # refusal, and tsuku is slow on a host where it is set up to install these
+    # tools, so the route is given, with the fact that it went unconfirmed.
+    if [ -n "$unconfirmed" ]; then
+        preflight_report_wrap "$pad"
+        printf '\n'
+        printf '  %s\n' "$unconfirmed"
+        printf '\n'
+        preflight_report_wrap "$unconfirmed_why, so whether it knows $tool is unconfirmed. This is the route listed for $tool on this host."
         return 0
     fi
 

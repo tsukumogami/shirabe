@@ -202,17 +202,28 @@ preflight_probe_helpers_ready() {
     return 0
 }
 
-# preflight_probe_watchdog <pid>
+# preflight_probe_watchdog <pid> [mark]
 #
 # Sleeps the budget, then TERM and KILL. Runs as a subshell of the capture
 # group, which is why its first statement releases the inherited descriptors:
 # see the header. Signals the process group only when the group id is confirmed
 # to be the probe's own pid. Runs in a process group of its own, which the
 # parent KILLs to stop it and its sleep together.
+#
+# With `mark`, it writes one byte to descriptor 3 once the budget has run out
+# and before it signals, then closes it. That is how a caller learns the
+# watchdog fired: the exit status can't say, since a program that traps TERM
+# exits with whatever status it likes (tsuku exits 1). The sleep never holds
+# descriptor 3, so a watchdog stopped early closes it at once.
 preflight_probe_watchdog() {
-    local pid="$1" pgid="" target
+    local pid="$1" mark="${2-}" pgid="" target
     exec >/dev/null 2>&1
-    "$PREFLIGHT_PROBE_SLEEP" "$PREFLIGHT_PROBE_BUDGET"
+    "$PREFLIGHT_PROBE_SLEEP" "$PREFLIGHT_PROBE_BUDGET" 3>&-
+
+    if [ "$mark" = "mark" ]; then
+        printf 't' >&3
+        exec 3>&-
+    fi
 
     if [ -n "$PREFLIGHT_PROBE_PS" ]; then
         pgid=$("$PREFLIGHT_PROBE_PS" -o pgid= -p "$pid" 2>/dev/null) || pgid=""
