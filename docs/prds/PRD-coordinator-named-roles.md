@@ -403,7 +403,11 @@ only one role is addressed to "the coordinator"):
 - [ ] `SKILL.md`'s Glossary entry for Coordinator says a session of either role,
   and `grep -c '^- \*\*Manager\*\* --' skills/coordinate/SKILL.md` and
   `grep -c '^- \*\*Director\*\* --' skills/coordinate/SKILL.md` each print 1,
-  directly after the Coordinator entry.
+  directly after the Coordinator entry. A reviewer compares each entry's text
+  with the Terms in this document and finds the same meaning: the Manager
+  entry says one lane, and the Director entry says a session over managers. An
+  entry that gives a manager several lanes, or leaves the director's scope
+  unstated, fails.
 - [ ] The Glossary says "workspace manager" means the tool and is never the
   role, and every occurrence of `manager` in the three file sets that means the
   tool has `workspace` immediately before it.
@@ -420,6 +424,9 @@ only one role is addressed to "the coordinator"):
   (coordinators?|sessions?)|head of effort'` over the three file sets finds
   nothing. A hit for "parent session" in koto's sense of a parent skill's
   session is reworded rather than exempted, so the check stays mechanical.
+  A reviewer also reads every match `grep -oiwE 'lead|top|head|parent'` prints
+  over the same file sets after the change and finds none used as a name for
+  a coordinator's role, such as "report to the lead" or "the top's review".
 - [ ] `SKILL.md` has one manager expectation list and one director expectation
   list, each containing every item R10 names for that role, and neither list
   contains `grant`, `merge authority`, `may merge` or `settle`.
