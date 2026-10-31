@@ -227,8 +227,16 @@ else fails with the command's output as the reason, and a `handoff` key
 naming the target skill. `run-evals.sh deliver` runs these cases first, with
 no nested session and no model, and reports them beside the graded ones;
 `run-evals.sh deliver --script-only` runs only them, on bash 3.2.
-`check-skill.sh` runs the same cases in the pull request gate, so the gate and
-the harness execute one definition.
+`check-skill.sh` runs the same cases, so the gate and the harness execute one
+definition.
+
+Today `check-skill.sh` runs against real skills only as the work-on
+verification-map entry, on the worker's host before a pull request opens; CI
+runs only the script's own test suite. That isn't enough to stop a merge, so
+`check-skill-gate.yml` gains a job that runs `check-skill.sh` on every skill a
+pull request changes (by the tree hash in Decision 3, so an edit to a shared
+file selects the skills that load it), on Linux and on the macOS bash 3.2
+leg. "The pull request gate" in the rest of this design means that job.
 
 Every hand-off case runs one shared command, `scripts/check-handoff.sh <from>
 <to>`, which composes what exists instead of adding a second test suite:
@@ -252,9 +260,9 @@ gets one for `work-on`, where the leg is the child template reference
 For skills added later, `check-evals-shape.py` derives each skill's hand-off
 targets from its koto templates (request-leg `leg:` names, `--koto-leg=` in
 directives, child template references) and fails when a target has no
-script-graded case with that `handoff`. `check-skill.sh` already runs the
-shape check on every changed skill, so a new skill that hands off can't merge
-without its case. `check-skill.sh` for a skill also runs every other skill's
+script-graded case with that `handoff`. The pull request gate runs the shape
+check on every changed skill, a new skill included, so a new skill that hands
+off can't merge without its case. `check-skill.sh` for a skill also runs every other skill's
 hand-off case whose target is that skill, so a change to `/execute`'s
 outcomes fails `/deliver`'s case in `/execute`'s own pull request.
 
@@ -469,7 +477,8 @@ stops on what it finds.
 | `scripts/check-handoff.sh <from> <to>` | New: routes, rendered directive, receiving-side contract, real attach | PR gate, harness, release | no |
 | `scripts/lib/script-cases.py` | New: runs a skill's (or every skill's) `grader: script` cases; no path to `claude` | PR gate, harness, release | no |
 | `scripts/lib/check-evals-shape.py` | Derives hand-off targets from templates; requires a script case per target | PR gate | no |
-| `scripts/check-skill.sh` | Runs the skill's script cases, and other skills' cases that target it | PR gate | no |
+| `scripts/check-skill.sh` | Runs the skill's script cases, and other skills' cases that target it | PR gate, work-on map | no |
+| `.github/workflows/check-skill-gate.yml` | New job: `check-skill.sh` on every skill the pull request changes, Linux and macOS bash 3.2 | CI | no |
 | `scripts/lib/skill-tree.py` | New: lists a skill's behaviour files and hashes them | harness, CI, release | no |
 | `scripts/run-evals.sh` | Script cases first; `--script-only`; writes a record with `tree`, `cases`, `producer`, `cost_usd`; API-key and bash 4 guards | maintainer host | yes, when graded |
 | `evals/records/<skill>/*.json` | New add-only record files | (data) | no |
@@ -494,9 +503,12 @@ stops on what it finds.
 }
 ```
 
-`run` must start with `scripts/` and name a file in the repository; the shape
-check refuses anything else. A `grader: script` case has no `prompt` or
-`expectations`.
+`run` is split into words on spaces and executed directly, never through a
+shell. Its first word must resolve, after `realpath`, to a tracked regular
+file under `scripts/` that isn't a symlink, and every argument must match
+`[A-Za-z0-9._-]+`; the shape check refuses anything else, and the runner
+checks again before executing. Each case gets a timeout (300 seconds by
+default). A `grader: script` case has no `prompt` or `expectations`.
 
 **Record file** `evals/records/<skill>/<UTC>-<tree12>.json`: a
 `run-evals-summary/v1` skill entry (`runs`, `runs_passed`, `assertions`,
@@ -566,7 +578,9 @@ Deliverables:
 - `scripts/lib/script-cases.py`, `run-evals.sh --script-only` delegating to
   it, and the failing-`claude`-stub test.
 - `grader`, `run`, `handoff` in `check-evals-shape.py`, with target
-  derivation from templates; `check-skill.sh` running script cases.
+  derivation from templates; `check-skill.sh` running script cases; the
+  `check-skill-gate.yml` job running `check-skill.sh` on every changed skill,
+  with `pull_request`, read-only permissions and its trigger test.
 - Script-graded hand-off cases in `/deliver` (scope, execute), `/execute`
   (work-on) and every other skill the derivation names.
 
@@ -604,15 +618,36 @@ records are unchanged. Records arrive through the same review as the code
 they measure, add-only enforcement keeps an author from rewriting a baseline,
 and a forged good record hides a regression no better than not measuring,
 which Check 2 already surfaces. shirabe's maintainers are trusted to the same
-degree as the code they merge; this design doesn't change that.
+degree as the code they merge; this design doesn't change that. Add-only
+enforcement is a CI check, so it holds only as far as branch protection and
+review do: a maintainer who can merge past a red check, or rewrite a record
+inside a squashed pull request that review misses, can still change a
+baseline. The release can't detect that, and the design doesn't try to.
 
 **Script cases run commands from `evals.json`.** The PR gate and the release
-host execute each case's `run` field. The shape check limits it to a file
-under `scripts/` in the repository, so a case can't name an arbitrary binary
-or a path outside the tree, and the scripts it names go through review like
-any other. The release already runs the repository's own scripts from the
-tree it releases, so this adds no new trust boundary. CI runs these cases
-with no secrets in the environment.
+host execute each case's `run` field, so a careless or hostile case is code
+execution. The runner never hands `run` to a shell: it splits it into words
+and executes the first directly, after checking that it resolves through
+`realpath` to a tracked regular file under `scripts/` that isn't a symlink,
+and that every argument matches `[A-Za-z0-9._-]+`. That rules out `..`
+traversal, symlinks pointing outside the tree, untracked files and shell
+metacharacters. Each case has a timeout, so a hung case stops the check
+rather than the host. The scripts a case names go through review like any
+other code.
+
+The release host is a maintainer's machine and holds credentials, so running
+these cases there is a trust boundary, not a free action. The runner unsets
+`GH_TOKEN`, `GITHUB_TOKEN` and `SSH_AUTH_SOCK` for each case, the same
+variables the nested eval session already drops, and the release runs the
+cases from the tree at the commit being tagged, not from whatever else is in
+the working copy. A case that needs a credential is a defect in the case.
+
+**CI runs with no secrets and read-only permissions.** `check-evals.yml` and
+`check-skill-gate.yml` trigger on `pull_request`, never
+`pull_request_target`, and declare `permissions: contents: read`, so a pull
+request from a fork runs its script cases with no token that can write and
+no repository secret. `check-run-evals.yml` gains a test for both properties,
+next to the one that keeps `run-evals.yml` dispatch-only.
 
 **No model call is reachable from the release.** `script-cases.py` has no code
 path to `claude`, `release-eval-check.sh` no longer calls `run-evals.sh`, and
@@ -634,7 +669,12 @@ empties all of them before the first check runs.
 **Record contents.** A record holds case names, verdicts, models and a cost
 figure, no transcripts, prompts or paths from the maintainer's host.
 `cost_usd` reveals what a run cost at list price, which the spike already
-publishes.
+publishes. The release prints skill names, case names and `producer` from
+records, and an agent reads that output, so a crafted name could carry
+terminal escape sequences or text meant to steer the agent. The CI record
+check and the release's reader both refuse any of those fields outside
+`[A-Za-z0-9._-]`, and the release treats record contents as data, never as
+instructions.
 
 ## Consequences
 
