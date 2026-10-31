@@ -580,4 +580,74 @@ carry "$CV" coordinate-roadmap-plugin-system-20260926T220000Z > /dev/null 2>"$T/
 eq "  ... and refuses a marker misnamed" "65" "$?"
 eq "no write in this section reached GitHub" "" "$(gh_writes)"
 
+echo "== rule rows: --rules, the readers, and an unrelated write =="
+SD="$HERE/testdata/standing-rules"
+SK="$KOTO_STORE/context/$SR/record/standing"
+put_standing() { koto context add "$SR" record/standing --from-file "$1"; } # the key, as the file holds it
+seed "$TWO"
+bash "$RS" "${W[@]}" --standing pause --on "Feature 3" --until lifted --what "hold the third lane" --owner "the human" --relayed-by "the process owner" >/dev/null 2>"$T/err" \
+    && bash "$RS" "${W[@]}" --standing approval --what "ship the docs first" --owner "the human" >/dev/null 2>"$T/err"
+eq "two event rows are written through --standing" 0 $?
+jq -c --slurpfile r "$SD/rule-rows.json" '. + $r[0]' "$SK" > "$T/with-rules.json"
+put_standing "$T/with-rules.json"
+bash "$RS" "${RM[@]}" --rules > "$T/rules.out" 2>"$T/err"
+eq "--rules prints one object per row, in record order" "0 s1 s2 s6 s7 s8 s9" "$? $(jq -r .standing "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... each with its class and status" "relayed:in-force relayed:in-force inferred:unconfirmed skill-says:in-force charter:in-force unreadable:unreadable" \
+    "$(jq -r '"\(.class):\(.status)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... the relayed rows their Owner, the rule rows none" "the human|the human|null|null|null|null" "$(jq -r '.owner // "null"' "$T/rules.out" | tr '\n' '|' | sed 's/|$//')"
+eq "  ... and no grants key" 0 "$(jq -s 'map(select(has("grants"))) | length' "$T/rules.out")"
+# Each relayed row names the entry its own --standing wrote: s1's is the
+# older of the two, not the newest.
+P1=$(jq -r 'select(.standing == "s1") | .pointer.entry' "$T/rules.out")
+P2=$(jq -r 'select(.standing == "s2") | .pointer.entry' "$T/rules.out")
+eq "a relayed row's pointer names its own entry, in this session" "$SR s1 (pause" "${P1%% *} $(koto context get "$SR" "${P1#* }" | jq -r '.text' | cut -c1-9)"
+eq "  ... and the next row its own, a later one" "$SR s2 (approval" "${P2%% *} $(koto context get "$SR" "${P2#* }" | jq -r '.text' | cut -c1-12)"
+[ "$P1" != "$P2" ] && ok "  ... two different entries" || bad "  ... two different entries" "$P1 $P2"
+bash "$RS" "${RM[@]}" --rules --id s7 --id s2 > "$T/two.out" 2>"$T/err"
+eq "--rules --id prints exactly those rows" "0 s2 s7" "$? $(jq -r .standing "$T/two.out" | tr '\n' ' ' | sed 's/ $//')"
+bash "$RS" "${RM[@]}" --rules --id s99 > "$T/none.out" 2>"$T/err"; rc=$?
+eq "--rules --id of a row the record lacks exits 65 and prints nothing" "65 0" "$rc $(wc -c < "$T/none.out" | tr -d ' ')"
+grep -q 's99' "$T/err" && ok "  ... naming it on stderr" || bad "  ... naming it on stderr" "$(cat "$T/err")"
+bash "$RS" "${RM[@]}" --rules --id 7 > /dev/null 2>&1; eq "an --id that isn't s<n> is a usage error" 64 $?
+bash "$RS" "${RM[@]}" --list --id s7 > /dev/null 2>&1; eq "  ... and --id belongs to --rules alone" 64 $?
+# A rule row whose What reads like a pause holds nothing.
+jq '{standing: .}' "$SK" > "$T/st.json"; printf '["Feature 2", "Feature 3"]' > "$T/units.json"
+bash "$HERE/pause-read.sh" --standing "$T/st.json" --units "$T/units.json" > "$T/pauses.json" 2>"$T/err"
+eq "pause-read.sh lists only the event pause, and none for Feature 2" "s1 null s1" \
+    "$(jq -r '"\([.pauses[].standing] | join(",")) \(.covers["Feature 2"]) \(.covers["Feature 3"])"' "$T/pauses.json")"
+eq "the handover read lists the event rows and no rule row" "s1 s2" "$(bash "$RH" "${RM[@]}" 2>/dev/null | jq -r '[.standing[].standing] | join(" ")')"
+cp "$SK" "$T/before.json"
+bash "$RS" "${W[@]}" --run friction friction-log --by "the human" >/dev/null 2>"$T/err"
+eq "an unrelated write over rule rows exits 0" 0 $?
+cmp -s "$T/before.json" "$SK" && ok "  ... and leaves record/standing byte for byte" || bad "  ... and leaves record/standing byte for byte" "$(cat "$SK")"
+
+# Each malformed rule row is refused by --rules and by the record read,
+# naming the row, and changes no key.
+for f in owner relayed-by no-source empty-source on decision-11-digits decision-dash-session skill-dotdot skill-39-hex; do
+    put_standing "$SD/bad-$f.json"
+    SNAP=$(session_snapshot "$SR")
+    bash "$RS" "${RM[@]}" --rules > "$T/bad.out" 2> "$T/bad.err"; rc=$?
+    bash "$HERE/state-read.sh" "${RM[@]}" --record > "$T/bad2.out" 2> "$T/bad2.err"; rc2=$?
+    if [ "$rc $rc2" = "65 65" ] && grep -q 'standing\.s7: ' "$T/bad.err" && grep -q 'standing\.s7: ' "$T/bad2.err" \
+        && [ ! -s "$T/bad.out" ] && [ "$SNAP" = "$(session_snapshot "$SR")" ]; then
+        ok "a rule row ($f) is refused by --rules and the record read, 65, naming standing.s7, no key changed"
+    else
+        bad "a rule row ($f) is refused by --rules and the record read, 65, naming standing.s7, no key changed" "$rc $rc2 $(cat "$T/bad.err" "$T/bad2.err")"
+    fi
+done
+put_standing "$SD/standing-today.json"
+bash "$HERE/state-read.sh" "${RM[@]}" --record > "$T/rec.out" 2>"$T/err"
+eq "the record read prints the record a reader is handed" "0 s1 s2" "$? $(jq -r '[.standing[].standing] | join(" ")' "$T/rec.out")"
+
+# A Standing value as today's release stores it survives an unrelated write
+# byte for byte; a blank Source stored as "" is written back without it.
+bash "$RS" "${W[@]}" --run friction friction-next --by "the human" >/dev/null 2>"$T/err"
+eq "an unrelated write over today's Standing exits 0" 0 $?
+cmp -s "$SD/standing-today.json" "$SK" && ok "  ... leaving it byte-identical to the testdata file" || bad "  ... leaving it byte-identical to the testdata file" "$(cat "$SK")"
+eq "  ... with no source key" 0 "$(grep -c '"source"' "$SK")"
+put_standing "$SD/standing-empty-source.json"
+bash "$RS" "${W[@]}" --run friction friction-last --by "the human" >/dev/null 2>"$T/err"
+eq "an unrelated write over a row stored with an empty Source exits 0" 0 $?
+cmp -s "$SD/standing-today.json" "$SK" && ok "  ... and writes it back with the key left out" || bad "  ... and writes it back with the key left out" "$(cat "$SK")"
+
 done_tests state-stored-set_test

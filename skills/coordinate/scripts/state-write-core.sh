@@ -33,13 +33,18 @@
 # Holds, stored set and Decisions rules, and the home-path and token checks over
 # every string, each refused with the module's `refused: ` message (exit 65).
 # The private-repository check over every string runs again once the named
-# repositories' visibility is read, still before any key is written. No body
-# is rendered and no size limit applies: the state lives in the session's keys.
+# repositories' visibility is read (a Standing row's `skill` or `doc` Source
+# names one too), still before any key is written. No body is rendered and no
+# size limit applies: the state lives in the session's keys.
 #
 # The last step (core_write_session; docs/designs/DESIGN-coordinator-session-record.md,
 # Decision 4) writes the changed section keys between two writes of
 # record/meta. Each key's owner is its section's owner, so the owner checks
-# above are the one-writer-per-key rule.
+# above are the one-writer-per-key rule. A section is changed when its next
+# value differs from the live one; Standing is compared with its key as the
+# session stores it, so a row stored outside the normal form (a blank Source
+# kept as `"source": ""`) is written back in it, and a Standing already in it
+# is left byte for byte by a write that doesn't touch it.
 #
 # The caller's contract:
 #   - it has sourced state-common.sh, run lib_facts and lib_write_guard
@@ -262,6 +267,13 @@ core_write_session() {
         if jq -e --arg f "$field" 'has($f)' "$T/next-state.json" > /dev/null; then
             jq -c --arg f "$field" '.[$f]' "$T/next-state.json" > "$T/sec.new"
             LIVE_SEC=$( [ -s "$T/live.json" ] && jq -cS --arg f "$field" 'if has($f) then .[$f] else empty end' "$T/live.json")
+            # Standing is compared with the key as the session stores it, not
+            # as the reader normalized it: a row whose stored form isn't the
+            # normal form (a blank Source kept as `"source": ""`) is written
+            # back in it, and a row already in it is left byte for byte.
+            if [ "$field" = standing ] && [ -s "$T/live.json" ] && [ -s "$T/live.json.state" ]; then
+                LIVE_SEC=$(jq -cS 'if has("standing") then .standing else empty end' "$T/live.json.state")
+            fi
             if [ "$field" = holdings ]; then
                 jq -c --slurpfile live "$T/live-holdings.json" --arg set "$CORE_PUSHED_SET" --arg t "$CORE_PUSHED_TOPIC" --arg h "$CORE_PUSHED_HEAD" '
                     ($live[0] | map(select((.pushed_head // "") != "") | {(.worker): .pushed_head}) | add // {}) as $p
@@ -729,7 +741,8 @@ core_write() {
               ((.holds // [])[] | (.on | sub("#.*$"; "")),
                 (.until | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.standing // [])[] | ((.on // "") | select(test("/")) | if startswith("release ") then split(" ")[1] else sub("#.*$"; "") end),
-                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
+                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end),
+                source_repo),
               ((.side_effects[] | (.target // "")) | tostring
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
