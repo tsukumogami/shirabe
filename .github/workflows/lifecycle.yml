@@ -41,6 +41,11 @@ name: Lifecycle Check
 # to be at their terminal (PLAN deleted, BRIEF/PRD Done, DESIGN
 # Current). See docs/briefs/BRIEF-lifecycle-draft-ready-discipline.md
 # for the DRAFT-vs-READY discipline.
+#
+# A second job, setup-script-copy, runs beside the lifecycle check: it fails
+# when the caller's scripts/setup/shirabe-pre-commit.sh differs from the
+# canonical copy at the called ref, and passes when the caller has none. A
+# caller of this workflow gets both jobs.
 
 on:
   workflow_call:
@@ -297,8 +302,9 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Checkout shirabe
-        # The canonical copy and the check, at the called workflow's commit
-        # (for the self-caller, this pull request's head).
+        # The canonical copy and the check, at the called workflow's commit.
+        # For the self-caller that is the commit this run tests, so the
+        # canonical copy is compared with itself.
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           repository: ${{ job.workflow_repository }}

@@ -40,7 +40,7 @@ r=$(caller differs)
 cp "$CANON" "$r/$REL" && printf '# a local edit\n' >> "$r/$REL" && chmod 0755 "$r/$REL"
 out=$(bash "$CHECK" "$r" "$CANON" abc123 2>&1); rc=$?
 case "$out" in
-    "::error file=$REL::$REL differs from the canonical copy in tsukumogami/shirabe at abc123."*"raw.githubusercontent.com/tsukumogami/shirabe/abc123/$REL -o $REL && chmod 0755 $REL")
+    "::error file=$REL::$REL differs from the canonical copy in tsukumogami/shirabe at abc123."*"rm -rf -- $REL && curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/abc123/$REL -o $REL && chmod 0755 $REL")
         [ "$rc" = 1 ] && ok "a differing copy: exit 1 with the restore command" || bad "a differing copy: exit 1" "rc=$rc" ;;
     *) bad "a differing copy: exit 1 with the restore command" "rc=$rc out=[$out]" ;;
 esac
@@ -49,17 +49,29 @@ r=$(caller mode)
 cp "$CANON" "$r/$REL" && chmod 0644 "$r/$REL"
 out=$(bash "$CHECK" "$r" "$CANON" abc123 2>&1); rc=$?
 case "$out" in
-    "::error file=$REL::$REL matches the canonical copy but isn't executable"*)
-        [ "$rc" = 1 ] && ok "identical but not executable: exit 1" || bad "identical but not executable: exit 1" "rc=$rc" ;;
-    *) bad "identical but not executable: exit 1" "rc=$rc out=[$out]" ;;
+    "::error file=$REL::$REL matches the canonical copy but isn't executable"*"chmod 0755 $REL (and commit the mode)")
+        [ "$rc" = 1 ] && ok "identical but not executable: exit 1 naming the chmod fix" || bad "identical but not executable: exit 1" "rc=$rc" ;;
+    *) bad "identical but not executable: exit 1 naming the chmod fix" "rc=$rc out=[$out]" ;;
 esac
 
+# A symlink and a directory at the path are the same failure: not a regular
+# file, with the remove-then-restore command.
 r=$(caller link)
 ln -s "$CANON" "$r/$REL"
 out=$(bash "$CHECK" "$r" "$CANON" abc123 2>&1); rc=$?
 case "$out" in
-    "::error file=$REL::$REL differs"*) [ "$rc" = 1 ] && ok "a symlink in place of the copy: exit 1" || bad "a symlink: exit 1" "rc=$rc" ;;
-    *) bad "a symlink in place of the copy: exit 1" "rc=$rc out=[$out]" ;;
+    "::error file=$REL::$REL must be a regular file"*"not a symlink or directory. Replace it with: rm -rf -- $REL && curl"*)
+        [ "$rc" = 1 ] && ok "a symlink in place of the copy: exit 1, not a regular file" || bad "a symlink: exit 1" "rc=$rc" ;;
+    *) bad "a symlink in place of the copy: exit 1, not a regular file" "rc=$rc out=[$out]" ;;
+esac
+
+r=$(caller dir)
+mkdir "$r/$REL"
+out=$(bash "$CHECK" "$r" "$CANON" abc123 2>&1); rc=$?
+case "$out" in
+    "::error file=$REL::$REL must be a regular file"*"Replace it with: rm -rf -- $REL && curl"*)
+        [ "$rc" = 1 ] && ok "a directory in place of the copy: exit 1, not a regular file" || bad "a directory: exit 1" "rc=$rc" ;;
+    *) bad "a directory in place of the copy: exit 1, not a regular file" "rc=$rc out=[$out]" ;;
 esac
 
 out=$(bash "$CHECK" "$T/none" "$T/missing.sh" abc123 2>&1); rc=$?

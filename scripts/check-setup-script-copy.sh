@@ -11,9 +11,9 @@
 # that ref (a commit) in the message, so the fix points at the exact bytes.
 #
 # Exit codes: 0 no copy (nothing to compare) or the copy matches and is
-# executable; 1 the copy differs or isn't executable, with a GitHub Actions
-# ::error line naming the restore command; 2 usage, or the canonical file is
-# missing.
+# executable; 1 the copy is a symlink or not a regular file, differs, or isn't
+# executable, with a GitHub Actions ::error line naming the fix; 2 usage, or
+# the canonical file is missing.
 set -euo pipefail
 
 if [ $# -ne 3 ]; then
@@ -34,15 +34,22 @@ if [ ! -e "$copy" ] && [ ! -L "$copy" ]; then
     exit 0
 fi
 
-restore="curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/$ref/$rel -o $rel && chmod 0755 $rel"
+# Removing first means the same command also replaces a symlink or a directory
+# standing at the path; curl -o alone would write through a link.
+restore="rm -rf -- $rel && curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/$ref/$rel -o $rel && chmod 0755 $rel"
 
-if [ -L "$copy" ] || [ ! -f "$copy" ] || ! cmp -s "$canonical" "$copy"; then
+if [ -L "$copy" ] || [ ! -f "$copy" ]; then
+    echo "::error file=$rel::$rel must be a regular file, a byte-identical copy of the canonical one in tsukumogami/shirabe at $ref, not a symlink or directory. Replace it with: $restore"
+    exit 1
+fi
+
+if ! cmp -s "$canonical" "$copy"; then
     echo "::error file=$rel::$rel differs from the canonical copy in tsukumogami/shirabe at $ref. Copies are kept byte-identical; restore it with: $restore"
     exit 1
 fi
 
 if [ ! -x "$copy" ]; then
-    echo "::error file=$rel::$rel matches the canonical copy but isn't executable, so niwa won't run it. Fix it with: chmod 0755 $rel (and commit the mode)"
+    echo "::error file=$rel::$rel matches the canonical copy but isn't executable; niwa's setup step runs only executable files. Fix it with: chmod 0755 $rel (and commit the mode)"
     exit 1
 fi
 
