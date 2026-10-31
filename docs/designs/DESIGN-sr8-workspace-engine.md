@@ -234,7 +234,12 @@ Resolved inline.
 R11 asks for the same bytes in every product repository. The question is how
 the copies stay in step.
 
-#### Chosen: The script lives in shirabe and is copied verbatim; shirabe's guide points at it
+Revised after the rollout. Copies kept identical only by hand are a small
+copying mechanism of their own: nothing fails when one drifts, which is the
+property that retired the workspace's earlier script-copying sync. So the
+question is what detects a copy that no longer matches, not only who copies it.
+
+#### Chosen: The script lives in shirabe, is copied verbatim, and the reusable lifecycle workflow compares each copy with it
 
 The canonical copy is `scripts/setup/shirabe-pre-commit.sh` in the shirabe
 repository, where it runs for shirabe's own clone too. tsuku, koto, niwa and each
@@ -244,14 +249,44 @@ canonical path and says copies must match it byte for byte. A change to the
 script is a pull request in shirabe followed by the same copy in each repository,
 which is rare: the script changes only if `install-hooks`' interface does.
 
+What keeps the copies identical is a job in shirabe's reusable `lifecycle.yml`.
+When the calling repository has `scripts/setup/shirabe-pre-commit.sh`, the job
+compares it byte for byte with the copy in the shirabe checkout the workflow
+already makes at the called ref, and fails with the command that restores it when
+they differ. A repository without the file passes. Every product repository
+already calls `lifecycle.yml` on every pull request, with no paths filter and
+pinned to shirabe's `main`, so this needs no change in any of them.
+
+That is enough because a copy can't change, and the canonical copy can't move on,
+without a red check in the repository that holds the stale copy. A local edit to
+a copy fails that pull request. A change in shirabe fails each consumer's next
+pull request until its copy is updated, and the failure names the fix. The check
+copies nothing and opens no pull request: it reports, and a person makes the
+copy. It covers a private repository's copy too, since the comparison runs in that
+repository's own CI against public shirabe. Its one gap is a repository that
+doesn't call `lifecycle.yml`; that repository has no lifecycle gate either, and
+adopting the gate brings the check with it.
+
+The cost is that a change to the canonical script turns every consumer's open
+pull requests red until each copy is updated. That is deliberate: a stale copy is
+a defect, and the change that makes it stale should travel with the copies, as
+this rollout's own plan did.
+
 #### Alternatives Considered
 
+- **Keep the copies by hand, guided by the header comment and the contract
+  guide.** This was the first choice. Rejected on review: nothing reports a
+  drifted copy, so the copies stay identical only as long as everyone remembers.
 - **Fetch the script at setup time from shirabe's repository.** Rejected: network
   access on every apply (R13), and a setup step that runs remote code.
-- **A CI check in each repository that compares its copy with shirabe's.**
-  Rejected for now: it needs a cross-repository fetch in four CI configurations
-  to guard a file that changes almost never. The byte-identical acceptance check
-  covers this rollout.
+- **A separate comparison workflow, with a caller added in each repository.**
+  Rejected: four consumer changes, plus one per new repository, to get the same
+  check the existing lifecycle call can carry with none.
+- **Shrink the copy to a few lines that call a shirabe subcommand carrying the
+  logic.** Not now: it needs a change to the shirabe binary and a release to reach
+  contributors, which this work doesn't cut. It stays the way forward if the
+  script ever starts changing often, since the copies would then almost never
+  need to.
 
 ## Decision Outcome
 
@@ -269,7 +304,10 @@ can stay off.
 Nothing in niwa or in the shirabe binary changes. The work is one new script in
 shirabe, the same file in three other public repositories, a README change
 (R1), and a guide section (R12). Product repositories the private overlay adds
-take the same file in their own pull requests.
+take the same file in their own pull requests. A job in shirabe's reusable
+`lifecycle.yml`, which every product repository already calls on each pull
+request, compares that repository's copy with shirabe's and fails when they
+differ (Decision 3).
 
 ## Solution Architecture
 
@@ -300,6 +338,10 @@ niwa apply / niwa create            (niwa 0.40.0, unchanged)
   included.
 - **README** "Requirements" and "Local install" sections (R1), and the contract
   guide's "Installing the local hook" section (R12), both in shirabe.
+- **The copy comparison**, a job in shirabe's reusable `lifecycle.yml`. In the
+  calling repository it compares `scripts/setup/shirabe-pre-commit.sh`, when
+  present, with the same path in the shirabe checkout at the called ref, and
+  fails with the restore command when they differ.
 
 ### Key Interfaces
 
@@ -493,8 +535,9 @@ any repository that has one; these four didn't have one before. None of them
 uses CODEOWNERS today, so the protection is the review a change gets before it
 lands on the default branch; a CODEOWNERS entry for `scripts/setup/` is a cheap
 follow-up. The copies must match the canonical file in shirabe byte for byte,
-and a copy that differs is a defect to revert, not a variant; no automated check
-enforces that after this rollout's own acceptance check.
+and a copy that differs is a defect to revert, not a variant. The lifecycle
+workflow's comparison job (Decision 3) fails any pull request in a repository
+whose copy differs, so a change slipped into one copy doesn't land quietly.
 
 **Residual risks.** Two are accepted rather than closed:
 
@@ -545,8 +588,9 @@ The hook it installs is the existing body, and its own security model
 
 ### Negative
 
-- Four public copies of one script (plus private ones) have to be kept in step
-  by hand.
+- Four public copies of one script (plus private ones) are still updated by
+  hand. A change to the canonical script turns each consumer's pull requests red
+  until its copy is updated.
 - In a tsuku or koto clone where the contributor ran `scripts/install-hooks.sh`,
   the formatter hook wins and shirabe's hook never runs there. Running that
   script after apply replaces shirabe's hook without a warning.
@@ -568,9 +612,9 @@ The hook it installs is the existing body, and its own security model
 - The git floor is stated in the contract guide, and the failure names the
   repository, so the cause is visible.
 
-- The script changes only when `install-hooks`' interface changes, and the
-  contract guide names the canonical copy. A later CI comparison can be added if
-  drift ever shows up.
+- The script changes only when `install-hooks`' interface changes, the contract
+  guide names the canonical copy, and the lifecycle workflow's comparison job
+  names the exact copy command when a copy is stale.
 - The foreign-hook notice tells a tsuku or koto contributor why validation isn't
   active. Chaining the formatter and validation hooks is separate work in those
   repositories.
