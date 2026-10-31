@@ -36,7 +36,13 @@
 #      refusing the fence as koto's cloud backend does (cloud_unsupported),
 #      the start prints outcome=refused reason=cloud_unsupported, exit 2, and
 #      writes nothing; and a run with no driver and no coordinator row is
-#      still resumed.
+#      still resumed;
+#   9. with a run's record holding a Standing row of a kind this plugin
+#      doesn't know (as a newer plugin's row looks to it), the start prints
+#      failed=takeover_read, exits 1 naming the run and the schema's
+#      standing.kind reason, opens no session and adds nothing to the run's
+#      log, so koto next on it still exits 0 and state-stored-set.sh --list
+#      on it still exits 65.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
@@ -340,6 +346,41 @@ if to_reconciled unread "$(two_holdings unread)"; then
     eq "8: a run with no driver and no coordinator row is resumed" "0 resumed $A3" "$ORC $(line outcome) $(line session)"
 else
     bad "8: the third run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 9. a record the schema refuses stops the takeover before the fence -------
+# A's record holds a Standing row of a kind this plugin doesn't know
+# (`later-kind`, as a newer plugin's row looks to it), so the schema refuses
+# the record. B's start stops at failed=takeover_read before koto init
+# --supersede, and A keeps driving its run.
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+if to_reconciled newer "$(two_holdings newer)"; then
+    A4=$S
+    A4LOG="$(koto session dir "$A4")/koto-$A4.state.jsonl"
+    put "$A4" record/standing '[{"standing":"s1","kind":"later-kind","on":"","until":"","what":"a row from a later plugin","owner":"the human","relayed_by":"","set":"2026-09-26T09:00Z"}]'
+    BEFORE_S=$(sessions); BEFORE_L=$(wc -l < "$A4LOG")
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    opener newer "$T/work2"
+    eq "9: a takeover of a record the schema refuses stops: failed=takeover_read, exit 1" "1 takeover_read" "$ORC $(line failed)"
+    eq "9:   ... neither resumed nor taken over: no outcome=, no session=" "" "$(line outcome)$(line session)"
+    if grep -qF "the schema refused $A4's record" "$T/open.err" && grep -q 'standing\.kind: not one of' "$T/open.err" \
+        && ! grep -qF "couldn't be read" "$T/open.err"; then
+        ok "9:   ... the message names A's run, says the schema refused its record and carries the schema's reason"
+    else
+        bad "9:   ... the message names A's run, says the schema refused its record and carries the schema's reason" "$(cat "$T/open.err")"
+    fi
+    eq "9:   ... opening no session" "$BEFORE_S" "$(sessions)"
+    eq "9:   ... adding no line to A's log" "$BEFORE_L" "$(wc -l < "$A4LOG")"
+    eq "9:   ... which holds no session_superseded event" 0 "$(grep -c session_superseded "$A4LOG")"
+    export CLAUDE_CODE_SESSION_ID=$A_ID
+    NX=$(cd "$WD" && koto next "$A4" --no-cleanup 2>&1); rc=$?
+    if [ $rc -eq 0 ] && ! grep -q superseded <<< "$NX"; then ok "9: koto next on A, from A's directory, exits 0 naming no successor"
+    else bad "9: koto next on A, from A's directory, exits 0 naming no successor" "rc=$rc $NX"; fi
+    LIST_OUT=$(cd "$WD" && bash "$PS/state-stored-set.sh" --session "$A4" --list 2>/dev/null); rc=$?
+    eq "9: state-stored-set.sh --list on A still exits 65, so the record wasn't rewritten" "65 " "$rc $LIST_OUT"
+else
+    bad "9: the fourth run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

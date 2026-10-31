@@ -111,6 +111,9 @@
 # `failed=takeover_read`, exit 1, koto's own reason in the message and nothing
 # written. A driver that couldn't be read is never taken for no driver, so such
 # a run is neither resumed as this session's own nor taken over as driverless.
+# A record the schema refuses (a row this plugin doesn't know, as a newer
+# plugin's record looks to it) stops the start the same way, before the fence,
+# with the schema's reason in the message, so the run's driver keeps it.
 #
 # A fresh start (no session here holds the scope's record) opens
 # `coordinate-<scope-slug>-<UTC stamp>`, cancels any other live run of the
@@ -466,12 +469,13 @@ meta_field() {
     jq -r --arg f "$2" '.[$f] // "" | if type == "string" or type == "boolean" then tostring else "" end' <<< "$m" 2> /dev/null
 }
 # run_address <run>: the address in the run's coordinator row, "" when none or
-# when the run has no record (state-stored-set.sh's exit 10); returns 1 when
+# when the run has no record (state-stored-set.sh's exit 10); returns 65 when
+# the schema refuses the record (state-stored-set.sh's exit 65), and 1 when
 # the read fails.
 run_address() {
     local l
     l=$(bash "$HERE/state-stored-set.sh" --session "$1" --list < /dev/null 2> "$T_ERR")
-    case $? in 0|10) ;; *) return 1 ;; esac
+    case $? in 0|10) ;; 65) return 65 ;; *) return 1 ;; esac
     jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // ""' <<< "$l" 2> /dev/null
 }
 # read_failed <what couldn't be read> <file>: a read a takeover needs failed.
@@ -494,12 +498,20 @@ driver_unread() {
     out=$("$KOTO" context list "$1" --prefix record/meta < /dev/null 2>&1) || printf '%s\n' "$out" >> "$T_ERR"
     read_failed "$1's driver (its record/meta or coordinator row) couldn't be read" "$T_ERR"
 }
+# address_unread <run> <run_address's return>: the run's coordinator row
+# couldn't be read. A record the schema refuses isn't a failed read: a plugin
+# that knows its rows reads it, so the start stops naming the refusal and the
+# schema's reason; any other failure is driver_unread.
+address_unread() {
+    [ "$2" = 65 ] || driver_unread "$1"
+    read_failed "the schema refused $1's record, so this plugin can't tell whose run it is (it holds a row this plugin doesn't know, as a newer plugin's record does); $1 is neither resumed nor taken over and its driver keeps it" "$T_ERR"
+}
 driven_by_another() {
     local d a
     [ -n "$CALLER" ] || return 1
     d=$(meta_field "$1" driver) || driver_unread "$1"
     if [ -n "$d" ]; then [ "$d" != "$CALLER" ]; return; fi
-    a=$(run_address "$1") || driver_unread "$1"
+    a=$(run_address "$1") || address_unread "$1" $?
     [ -n "$a" ] && [ -n "$CALLER_NAME" ] && [ "$a" != "$CALLER_NAME" ]
 }
 # meta_set <run> <jq filter> [jq args...]: rewrite the run's record/meta with
@@ -702,7 +714,7 @@ takeover() {
     [ -z "$missing" ] || refuse_takeover koto-too-old \
         "this koto ($("$KOTO" version < /dev/null 2> /dev/null | head -1)) lacks koto init $missing; the fence a takeover of $pred makes shipped in koto 0.28.0, so it runs on koto 0.28.0 and later; nothing was written and $pred still drives"
     pd=$(meta_field "$pred" driver) || driver_unread "$pred"
-    pa=$(run_address "$pred") || driver_unread "$pred"
+    pa=$(run_address "$pred") || address_unread "$pred" $?
     read_watch "$pred"
     while :; do
         # koto puts a refusal on stdout, so a failed read keeps both streams.
