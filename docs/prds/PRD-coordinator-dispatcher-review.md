@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The coordinate skill sends reviews, merges, verdict edits and finishing steps
   to "a person" in places where a bound coordinator's dispatcher is meant, and
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-coordinator-dispatcher-review](docs/briefs/BRIEF-coordinator-dispatcher-review.md); carried in Absorbed Brief.
 
