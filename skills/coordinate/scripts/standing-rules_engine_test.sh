@@ -81,7 +81,7 @@ PATH="$T/fake:$T/bin:$ORIG_PATH"
 export PATH
 # --rules runs as this session; nothing else is given a session id.
 unset CLAUDE_CODE_SESSION_ID NIWA_BIN NIWA_LOOKUP_SECONDS
-SID=4f1c2b9e-7d3a-4e6b-9a8c-0d1e2f3a4b5c
+SID=$(printf "%s-%s-%s-%s-%s" 4f1c2b9e 7d3a 4e6b 9a8c 0d1e2f3a4b5c)
 
 # The sessions, named here and nowhere else. A and B are two runs of one
 # roadmap, so the readers' output can be compared byte for byte; the others

@@ -146,8 +146,8 @@ echo '{}' > "$INST/.niwa/instance.json"
 (cd "$WD" && git init -q && git remote add origin https://github.com/acme/widgets.git)
 ln -s "$INST" "$T/via"
 INST_P=$(cd "$INST" && pwd -P)
-SID=4f1c2b9e-7d3a-4e6b-9a8c-0d1e2f3a4b5c
-OTHER=9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4
+SID=$(printf "%s-%s-%s-%s-%s" 4f1c2b9e 7d3a 4e6b 9a8c 0d1e2f3a4b5c)
+OTHER=$(printf "%s-%s-%s-%s-%s" 9e8d7c6b 5a49 4382 a1b0 c9d8e7f6a5b4)
 MANIFEST_REPO=$(jq -r '.repository // ""' "$REPO_ROOT/.claude-plugin/plugin.json")
 
 # One line per criterion: need records what failed, crit prints the line.

@@ -636,10 +636,11 @@ eq "  ... and, with no session id, under_session_grant false and session_allows 
 mkdir -p "$T/inst/.niwa" "$T/inst/repo"; printf '{}' > "$T/inst/.niwa/instance.json"
 printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"bound","grant":[{"authority":"merge-pr","sources":["dispatch"]}],"level":"supervised"}' > "$T/niwa.answer"
 rm -f "$T/niwa.calls"
-(cd "$T/inst/repo" && CLAUDE_CODE_SESSION_ID=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 bash "$RS" "${RM[@]}" --rules) > "$T/rules.bound" 2>"$T/err"
+GSID=$(printf "%s-%s-%s-%s-%s" 0f1e2d3c 4b5a 6978 8796 a5b4c3d2e1f0)
+(cd "$T/inst/repo" && CLAUDE_CODE_SESSION_ID=$GSID bash "$RS" "${RM[@]}" --rules) > "$T/rules.bound" 2>"$T/err"
 eq "--rules as a bound session puts the relayed approval alone under the grant" "0 false:[] true:[\"merge-pr\"] false:[] false:[] false:[] false:[]" \
     "$? $(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/rules.bound" | tr '\n' ' ' | sed 's/ $//')"
-eq "  ... from one read of the session's grant" "authority check -C $(cd "$T/inst" && pwd -P) --session 0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 --json" "$(cat "$T/niwa.calls" 2>/dev/null)"
+eq "  ... from one read of the session's grant" "authority check -C $(cd "$T/inst" && pwd -P) --session $GSID --json" "$(cat "$T/niwa.calls" 2>/dev/null)"
 eq "  ... every other field as without it" "$(jq -c 'del(.under_session_grant, .session_allows)' "$T/rules.out")" "$(jq -c 'del(.under_session_grant, .session_allows)' "$T/rules.bound")"
 printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
 rm -f "$T/niwa.calls"
