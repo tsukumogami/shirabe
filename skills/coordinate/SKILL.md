@@ -444,7 +444,12 @@ what never goes to GitHub. In the Run section, written with
 `state-stored-set.sh --run`: `rules` and `briefs` (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with), `friction` (a label) and
 `reports-to` (`<role>` or `<role> at <address>`, who this coordinator reports
-up to). Where those files live goes in `record/host` through `state-stored-set.sh
+up to). The `rules` rows of the files this session loads as rules, the
+skill's own (`skill-<file name>`) and the workspace's `CLAUDE.md`,
+`CLAUDE.local.md` and `.claude/rules/*.md` (`workspace-<depth>-...`), are
+written by every start that leaves the run holding a record, never by you; a
+failed write prints `warning=rules-unrecorded` and the next start writes them.
+Where those files live goes in `record/host` through `state-stored-set.sh
 --host`, never in a table, and so do an import's facts (`source_workspace`,
 `source_session`, `template_hash`); host facts never go to GitHub. A holding
 keeps its last pushed head, the pull request head a report or a link last read,

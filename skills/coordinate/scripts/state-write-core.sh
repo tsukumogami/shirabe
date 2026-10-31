@@ -80,6 +80,12 @@ VERDICT_WRITER=0
 # state-open.sh sets it, to open a record or carry a predecessor rotation's
 # sections into a new one. A structure test holds it to that script.
 SESSION_SEED=0
+# START_WRITER=1 lets a write land before the run's find has sealed its
+# record, in a session that holds one (core_live still reads it, and refuses
+# a session holding none): the Run section's `rules` digests a start writes,
+# which come after a carry or the seed record_open makes and before the find
+# runs again. Only state-stored-set.sh --rule-files sets it.
+START_WRITER=0
 # IMPORT_WRITER=1 opens core_import and core_import_meta, the legacy importer's
 # write of a GitHub record's state into a session that holds no record
 # (docs/designs/current/DESIGN-coordinator-record-teardown.md, "The legacy
@@ -684,7 +690,7 @@ core_import_remove() { # core_import_remove <session> <key>
 
 core_write() {
     # Every write but a seed goes to a run whose find sealed its record.
-    if [ "$SESSION_SEED" != 1 ]; then
+    if [ "$SESSION_SEED" != 1 ] && [ "$START_WRITER" != 1 ]; then
         lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
     fi
 
