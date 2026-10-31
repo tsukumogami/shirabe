@@ -10,36 +10,32 @@ problem: |
   skipped it and nothing else catches a regression. No hand-off case runs
   without a model, and nothing makes a new skill add one.
 decision: |
-  No release, pull request check or schedule calls a model. A new
+  No eval calls a model: not a release, not CI, not a schedule, and not a
+  person running the harness, as the owner settled on 2026-10-31. A new
   script-graded case kind in `evals.json` (`grader: script`) checks each
-  hand-off with no model, through one shared `scripts/check-handoff.sh`; the
-  harness, the free pull request gate and the release all run these cases,
+  hand-off with no model, through one shared `scripts/check-handoff.sh`. The
+  harness, a new pull request gate job and the release all run these cases,
   and the shape check derives a skill's hand-off targets from its koto
-  templates so a new skill can't merge without one. Graded runs happen only
-  when a maintainer chooses to start one: one run of the changed skill's
-  release subset on Sonnet, paid from that person's own Claude plan, committed
-  as an add-only record under `evals/records/<skill>/` and bound to a hash of
-  the files the skill loads; whether the eval rulings allow such a run is
-  waiting on the owner, and the script-graded half stands either way. The
-  release reads those records with git, stops
-  at exit 5 on an aggregate drop over 0.05 or a newly failing case, asks one
-  batched question for changed skills with no current record, and stops
-  outright on a failing script case.
+  templates so a new skill can't merge without one. The release runs every
+  skill's script cases, records each skill's script pass rate and per-case
+  verdicts in the existing `eval-pass-rates.json` asset, compares them with
+  the newest earlier release's record, and stops at exit 5 on any failing
+  case, labelled as a drop when it passed before, until a person confirms.
+  The model-graded cases stay in `evals.json`, and the harness refuses to run
+  them without an owner-set cap.
 rationale: |
-  The owner's rulings leave one place a graded run can happen: a person
-  choosing to spend their own plan's tokens on the skill they just changed.
-  Everything that runs unattended has to be free, so the hand-off coverage
-  that must hold for every skill moves to deterministic cases, which the
-  existing engine suites already make cheap to build. Committing records
-  beside the change makes them reviewable, needs no network at release, and
-  survives squash merge through the content hash rather than a commit SHA.
-  Splitting drops, unmeasured skills and script failures into separate checks
-  keeps a routine confirmation from waving through a real drop. The cost is
-  that graded coverage depends on people choosing to measure, which the
-  release makes visible on every run instead of hiding.
+  With no budget for any graded run, every measurement has to be
+  deterministic, and the hand-off wiring is both where the likely breaks are
+  and where a script can check without a model, using the engine suites that
+  already exist. Running the cases in the pull request gate tells the
+  maintainer before merge; running them all again at release catches what a
+  shared-file change broke elsewhere and gives a release a pass rate to stop
+  on. Reusing the asset record and the exit-5 protocol keeps the release
+  change small. The cost is that nothing measures what the agent does when
+  the wiring is intact, which the release notes say on every run.
 ---
 
-# DESIGN: Skill regression detection without paid release evals
+# DESIGN: Skill regression detection without paid evals
 
 ## Status
 
@@ -106,10 +102,10 @@ running a paid eval.
 
 ## Decision Drivers
 
-- No shirabe release makes a model call to grade a skill, dry runs and
-  confirmation re-runs included. This is a requirement.
-- No automated gate (pull request CI, a schedule) spends model tokens the
-  owner hasn't budgeted.
+- No eval makes a model call: not a release (dry runs and confirmation
+  re-runs included), not pull request CI, not a schedule, and not a person
+  running the harness. This is a requirement, from the owner's rulings and
+  the settlement quoted in Decision 1.
 - A hand-off break in `/deliver` shows up as a failing hand-off case when the
   maintainer runs the eval harness on `/deliver`, and the same holds for a
   skill added later without anyone remembering to add the case.
@@ -120,84 +116,64 @@ running a paid eval.
   deterministic engine suites.
 - Release and worker hosts run macOS's bash 3.2; the graded harness needs
   bash 4.
-- Single-run noise on an unchanged skill is up to about five points, and one
-  regressed case in `/deliver`'s 33 moves its aggregate by about three.
 
 ## Considered Options
 
 ### Decision 1: Where graded evals run, how many runs a skill gets, and who pays
 
 Every case in `evals.json` today is graded by a model, so every graded run
-costs tokens. The comparison logic in `eval-pass-rates.py` needs no model;
-what's missing is a source of graded rates that isn't the release.
+costs tokens. The owner's earlier rulings ruled out graded runs at release
+and in automated gates. A run a maintainer chooses to start on their own
+plan was left open, and the owner settled it on 2026-10-31: "do not run any
+evals, no budget for that". No paid eval runs, whoever starts it.
 
 Key assumptions:
-- The owner's rulings cover releases and automated gates, not a run that a
-  person chooses to start on their own plan for a skill they just changed.
-  This reading is waiting on the owner's answer; "Waiting on the owner" under
-  Decision Outcome says what changes if the answer is no.
-- A local run bills the logged-in Claude plan, not the API. `run-evals.sh`
-  never reads `ANTHROPIC_API_KEY` itself; only the CI workflow injects one.
-- The spike's single-run noise of about five points holds for skills it
-  didn't measure. Its cost figures are list price, which is notional under a
-  subscription.
-- `/deliver`'s hand-off case `auto-merged-no-split` grades on a branch when
-  run locally. shirabe#612 breaks grading in CI's isolated checkout; whether it
-  touches a local run on this case hasn't been checked, because checking costs
-  a paid run.
+- The settlement holds until the owner funds graded runs. When that happens,
+  the dormant graded path described below is the place to switch them on,
+  and nothing else in this design has to move.
+- A deterministic case is not an eval in the sense the rulings use: it calls
+  no model and costs nothing but CPU, so the rulings don't reach it.
 
-#### Chosen: a maintainer-started run at change time, one fixed shape, committed for the release to read
+#### Chosen: no graded runs anywhere; deterministic cases are the only measurement
 
-Graded runs happen only on a maintainer's own host, when they change a
-skill's behaviour, on that skill only. They're opt-in: an agent working for
-the maintainer may offer the run and state its estimated cost, and never
-starts one by default. The release, pull request CI and any schedule run no
-graded eval.
+Graded evals run nowhere: not at release, not in CI, not on a schedule, and
+not on a maintainer's host. A skill gets zero graded runs and one run of its
+script-graded cases (Decision 2) wherever those run, since a deterministic
+case gives the same answer every time and a repeat measures nothing.
 
-The run has one fixed shape, so any two records of a skill compare:
-`EVAL_MODEL=sonnet scripts/run-evals.sh --release-subset --no-baseline --runs 1 <skill>`.
-A maintainer chasing one case can run that scenario alone, which prints the
-case's verdict whatever the aggregate rate does. Repeats are never required.
-A person who wants more certainty after a drop may run three times, but that
-measurement is recorded under its own comparison key and never clears a drop.
+The model-graded cases stay in `evals.json`. They still describe the
+behaviour each skill promises, and they're what a funded run would grade.
+But the harness won't run them under this design:
 
-One run, because cost scales linearly with runs, session overhead included,
-and three runs would triple the bill to narrow a noise band that the per-case
-signal (Decision 3) and a person's confirmation already cover. A noise flip
-will sometimes stop a release; that costs a person's attention, not tokens,
-which is the trade the rulings force.
-
-`run-evals.sh` gains two guards. It refuses to start with
-`ANTHROPIC_API_KEY` or any other billing variable Security Considerations
-lists set, unless given an explicit flag, and that API path also needs an
-owner-set cap in `scheduled-evals.py`'s ledger, so a stray variable can't
-silently turn a plan-billed run into API spend. And it checks
-`BASH_VERSINFO` up front and names bash 4 as a requirement of the
-maintainer's host. `scheduled-evals.py` loses its $50 fallback: without an
-owner-set cap it runs nothing. `run-evals.yml` stays dispatch-only, and
-`check-run-evals.yml` fails if it gains an automatic trigger.
+- `run-evals.sh` runs script-graded cases by default and refuses to start a
+  graded case unless an owner-set cap exists in `scheduled-evals.py`'s
+  ledger. No such cap exists, so the refusal is the default for everyone,
+  the CI workflow included.
+- It also refuses to start a graded case with any variable set that could
+  bill an API or cloud account (the list is in Security Considerations),
+  cap or no cap, unless explicitly flagged.
+- `scheduled-evals.py` loses its $50 weekly fallback; without an owner-set
+  cap it runs nothing.
+- `run-evals.yml` stays dispatch-only, and `check-run-evals.yml` fails if it
+  gains an automatic trigger. A manual dispatch reaches the same refusal.
 
 #### Alternatives Considered
 
 - **Graded runs at release time.** The current check, about $90 per
-  five-skill release after the spike's cuts and about $1,200 before. Rejected
-  because the owner ruled that releases never run evals.
+  five-skill release after the spike's cuts and about $1,200 before. Rejected:
+  the owner ruled that releases never run evals.
 - **Per-PR CI with an API key.** A workflow runs the changed skill's subset
-  on every skill pull request, billing an org secret. Rejected because
-  push-triggered spend is the unbudgeted automated gate the rulings rule out,
-  fix rounds multiply it, and shirabe#612 stops grading in CI for several
-  skills. The deterministic suites already catch hand-off breaks on every pull
-  request for free (Decision 2).
+  on every skill pull request, billing an org secret. Rejected: unbudgeted
+  automated spend, multiplied by fix rounds, and shirabe#612 stops grading in
+  CI for several skills.
 - **A budgeted schedule.** Wire `scheduled-evals.py` to cron with a weekly
-  cap and three runs per changed skill. Rejected because the owner hasn't
-  budgeted recurring spend, its results stay on one host, its three-run,
-  with-baseline records don't compare with one-run records, and a skill
-  changed after the last pass ships with no fresh rate anyway. It stays the
-  documented path for unattended runs if the owner ever funds one.
-- **No graded runs at all.** Gate only on checks that call no model. Rejected
-  as the whole answer because no graded rate would exist for a release to
-  stop on, and a deterministic check can't see a change in SKILL.md wording
-  that alters what the agent does. Kept as the only automated gate.
+  cap. Rejected: the owner hasn't budgeted recurring spend. It stays the
+  documented path if the owner ever funds one.
+- **A maintainer-started run at change time.** One run of the changed skill's
+  release subset on the maintainer's own plan, committed as a record the
+  release reads. This was the recommendation until the owner settled the
+  question; rejected by the settlement, "do not run any evals, no budget for
+  that".
 
 ### Decision 2: How a hand-off break fails a free case, for every skill
 
@@ -238,10 +214,10 @@ definition.
 Today `check-skill.sh` runs against real skills only as the work-on
 verification-map entry, on the worker's host before a pull request opens; CI
 runs only the script's own test suite. That isn't enough to stop a merge, so
-`check-skill-gate.yml` gains a job that runs `check-skill.sh` on every skill a
-pull request changes (by the tree hash in Decision 3, so an edit to a shared
-file selects the skills that load it), on Linux and on the macOS bash 3.2
-leg. "The pull request gate" in the rest of this design means that job.
+`check-skill-gate.yml` gains a job that runs `check-skill.sh` on every skill
+with changed files under `skills/<name>/`, and `script-cases.py --all` when
+a shared path (`scripts/`, `references/`, `koto-templates/`) changes, on
+Linux and on the macOS bash 3.2 leg. "The pull request gate" in the rest of this design means that job.
 
 Every hand-off case runs one shared command, `scripts/check-handoff.sh <from>
 <to>`, which composes what exists instead of adding a second test suite:
@@ -276,8 +252,9 @@ hand-off: skipping or rewording the Skill call despite a correct directive,
 running `/execute` inline instead of in an agent, submitting
 `child_returned` early, relaying `/execute`'s report instead of `/deliver`'s,
 and SKILL.md prose that contradicts the directive. The model-graded hand-off
-cases (`/deliver` 1, 2, 18, 20 to 21, 30 to 33; `/execute` 4, 62, 63) keep
-those, and they run only when a maintainer chooses (Decision 1).
+cases (`/deliver` 1, 2, 18, 20 to 21, 30 to 33; `/execute` 4, 62, 63) cover
+those, and under the owner's settlement nobody runs them (Decision 1), so
+these breaks go unmeasured.
 
 #### Alternatives Considered
 
@@ -295,184 +272,128 @@ those, and they run only when a maintainer chooses (Decision 1).
 
 ### Decision 3: How the release gets pass rates and stops on a drop without running a paid eval
 
-`eval-pass-rates.py merge` already does the free part: it compares
-measurements taken the same way (models, session model, scenario set, run
-count), applies the tolerance, and exits 5 with a
-`confirm: RELEASE_CONFIRMED_DROPS=...` line. It can't use maintainer records
-today: it treats a missing summary as an infrastructure failure, needs
-per-case data the summary doesn't carry, and finds its baseline through a
-release-asset walk that stops at ten tags, which from v0.39.0 never reaches
-v0.24.0, so every skill would read "no baseline, passes". The release skill's
-exit-5 protocol allows one confirmation round per check, under any upper-case
-variable name. Pull requests squash-merge, and release tags sit on main.
+With no graded runs, the only pass rates that can exist are script-graded
+ones. `eval-pass-rates.py merge` already compares a skill's measurement with
+the newest earlier release that measured it the same way (models, session
+model, scenario set, run count), and exits 5 with a
+`confirm: RELEASE_CONFIRMED_DROPS=...` line. `release-eval-check.sh` already
+walks up to ten earlier releases for their `eval-pass-rates.json` assets, and
+its `--finalize` step names this release's record for upload. The paid part
+is the loop that calls the graded harness for each changed skill.
 
 Key assumptions:
-- Script-graded cases fall outside the "no evals at release" ruling, because
-  the ruling is about budget and these call no model. If the owner reads it
-  literally, the release reads script-case results from CI on HEAD's exact
-  SHA instead of running them, and nothing else changes.
 - The release host has koto (the attach step in `check-handoff.sh` needs it)
-  and tags are fetched. Without either, the check exits 1 rather than
-  passing.
-- A skill's behaviour files can be listed mechanically: `skills/<name>/`
-  minus `evals/` and tests, plus the root `references/`, `scripts/` and
-  `koto-templates/` files it names through `${CLAUDE_PLUGIN_ROOT}`. A missed
-  file neither selects the skill nor marks its record stale, a gap today's
-  `--list-changed` already has.
-- The second piece of evidence needs a baseline: a record that matches the
-  skill at the last tag, or a seed record of the released content that a
-  maintainer pays for before changing it.
+  and `gh` access to earlier releases. Without either the check exits 1
+  rather than passing.
+- `eval-pass-rates.py` can accept a script measurement: `models:
+  ["script"]`, no session model, one run, a scenario set hashed over the
+  script cases' ids and commands, and a per-case `cases` list.
+- No release since v0.24.0 has an asset, so the first release after this
+  lands has no baseline for any skill. That release still stops on any
+  failing case; it just can't call the failure a drop.
 
-#### Chosen: committed add-only records bound to skill content, read for free behind three separate checks
+#### Chosen: the release runs every script case, records script pass rates, and stops on any failing case until a person confirms
 
-**Records.** Each maintainer run under Decision 1 adds one file,
-`evals/records/<skill>/<UTC-timestamp>-<tree12>.json`, committed in the same
-pull request as the change. The directory sits at the repository root,
-outside every skill's hashed files, so a record never changes its own hash
-and committing one isn't a skill change. The file is a `run-evals-summary/v1`
-skill entry, which merge's summary reader already takes, plus four fields:
-`tree`, a hash over the skill's behaviour files, shared root files included;
-`cases`, each case's name and verdict; `producer`; and `cost_usd`. No commit
-SHA is trusted, because squash merge discards it; the tree hash survives.
+`release-eval-check.sh` loses its graded loop and its call to
+`run-evals.sh`. In its place it runs every skill's `grader: script` cases
+through `scripts/lib/script-cases.py`, a standalone python3 runner with no
+code path to `claude`, and writes one summary per skill: cases run, cases
+passed, the pass rate and each case's verdict. All skills run, not only the
+changed ones, because the cases are cheap and a change to a shared file or to
+a hand-off target can break a skill whose own files didn't change.
 
-**Free pull request check.** `check-evals.yml`, which needs no model, widens
-its paths to `evals/records/**` and the shared root paths. It checks that
-records are well formed, that no record is edited, and that a record is
-deleted only together with its skill. It doesn't require a record: measuring
-stays opt-in.
+It hands those summaries to `eval-pass-rates.py merge` with the earlier
+releases' records as baselines, as today. The stop rule is any failing script
+case, in any skill. The output names each failing case and labels it:
 
-**Selection.** A skill counts as changed when its tree hash at the last tag
-differs from its hash at HEAD. Edits to evals, fixtures or tests alone don't
-select it; an edit to a shared file it loads does.
+- **regressed**: the case passed in the skill's baseline, or the skill's rate
+  fell below its baseline rate. This is the pass-rate drop.
+- **failing, no baseline**: the case is new, or no earlier release measured
+  the skill this way.
 
-**Baseline and current record.** Everything is read with `git ls-tree` and
-`git show` in one python3 process, with no `gh` and no network. The baseline
-is the newest record at the last tag whose tree matches the skill's tree at
-that tag, falling back to the newest record at the tag measured the same way.
-A record is deleted only when its skill is, so the tag's tree holds every
-earlier record of every skill still shipped, and the lookup has no depth cap. The current record is the newest record added
-since the tag, whether or not its tree matches HEAD.
+Either label exits 5, and the release asks the person running it. Re-running
+with `RELEASE_CONFIRMED_DROPS` naming every skill with a failing case lets
+the release continue; the confirmed names and the "script cases: P of N
+passed" line go into the release notes. A runner that can't start, missing
+koto or a failed download, exits 1 with a retry message.
 
-**Check 1, graded drops (exit 5, `RELEASE_CONFIRMED_DROPS`).** A skill drops
-when its aggregate falls more than 0.05 below the baseline's, or when any
-case that passed in the baseline fails now. Either signal alone stops the
-release; the case signal exists because one regressed case can sit inside
-single-run noise. A change of comparison key is reported in the same check. A
-drop against a fallback baseline is labelled as such and still blocks. A drop
-on a current record that a later edit has made stale still blocks; it clears
-only when a newer record taken the same way replaces it.
+Per-case comparison matters because adding one passing case and breaking
+another in the same release changes the scenario set, which `merge` treats
+as a new reference rather than a drop. Comparing case by case catches the
+break anyway, and "any failing case stops" catches it even with no baseline.
 
-**Check 2, changed skills with no usable record (exit 5,
-`RELEASE_CONFIRMED_UNMEASURED`).** One batched question, under its own
-variable, so a quick yes here can never confirm a drop. It lists changed
-skills with no record since the tag, with only a stale record, with only a
-fallback baseline, or with no baseline at all, and gives each skill's reason.
-The output leads with "graded: X of Y changed skills", and the agent copies
-that line and the confirmed names into the release notes. merge's "missing
-baseline passes" never applies on this path.
+The release also prints, for the notes, "model-graded cases: not run, per
+the owner's ruling of 2026-10-31", so every release says what it didn't
+measure.
 
-**Check 3, script-graded cases (exit 1, not confirmable).** The release runs
-every skill's `grader: script` cases, not only the changed skills', through a
-standalone python3 runner, `scripts/lib/script-cases.py`, that has no code
-path to `claude`. `run-evals.sh --script-only` delegates to the same runner,
-and a CI test with a failing `claude` stub first on `PATH` proves the release
-path never reaches a model. A failure is a deterministic hand-off break this
-release would ship, and fixing it costs no tokens.
-
-**Release skill and extension.** `release.md` replaces the paid check with
-these three checks and drops the `--finalize` release asset; the
-`eval-pass-rates.json` asset is retired, since a record committed at the tag
-supersedes it. `claude` and bash 4 come off the release host's required
-tools, and koto goes on. `skills/release/SKILL.md` forces every
-`RELEASE_CONFIRMED_*` variable empty at the start, not only
-`RELEASE_CONFIRMED_DROPS`, so nothing in the environment can confirm in
-advance. All three checks run the same way in a dry run, because they're
-free.
+`--finalize` stays: it stamps the record with the confirmed version and
+Phase 4 uploads it as `eval-pass-rates.json`, so the next release has a
+baseline. `release.md` declares the check with no model or session-model
+options, and the release host's required tools lose `claude` and bash 4 and
+gain koto. `skills/release/SKILL.md` empties every `RELEASE_CONFIRMED_*`
+variable before the first check runs, so nothing set in advance can confirm.
 
 #### Alternatives Considered
 
-- **One overwritten summary file per skill, with the release-asset walk as
-  baseline.** Rejected because the walk finds no asset newer than v0.24.0, so
-  every skill passes with no baseline. Reading the baseline through `git show`
-  at the tag instead leaves the asset adding a network dependency and no
-  information, and overwriting loses a seed record committed in the same pull
-  request.
-- **Git notes, or pull request comments.** Records kept out of the tree under
-  a notes ref, or posted as comments the release finds through `gh`. Rejected
-  because notes are invisible in review, aren't fetched or pushed by default,
-  and can be force-pushed, and comments are editable free text found through
-  merged-PR search, which returns work a release doesn't contain.
-- **The release computes a free signal itself and treats graded records as
-  advisory.** Script cases block; changed skills with no graded record are
-  only listed. Rejected as the whole answer because script cases don't
-  measure what SKILL.md wording does to the agent, and when listing is the
-  only consequence, not measuring becomes the easy path. Its two other pieces
-  were kept: script cases at release for every skill, and a runner with no
-  path to the graded harness.
-- **Script-case results read from CI instead of run at release.**
-  `check-evals.yml` runs every script case on push to main, and the release
-  requires that run's success on HEAD's exact SHA. Not chosen for now: it
-  needs new CI plumbing, and running the cases locally checks exactly what
-  ships. It's the swap if the owner reads the ruling literally or koto on
-  release hosts proves a burden.
+- **A failing script case stops the release outright (exit 1).** Rejected:
+  the evidence asks for a stop "until a person confirms it", and a release
+  that must ship with a known, accepted failure (a fix in flight, a case
+  that's wrong rather than the skill) would have no way through except
+  editing the case.
+- **Baseline by re-running the last tag's script cases in a temporary
+  worktree.** No stored record at all, and always a baseline. Rejected: the
+  old cases run against today's koto and today's shared scripts, so an
+  environment change reads as a skill change, and the release would do
+  twice the work to learn what a stored record already says.
+- **Committed records under `evals/records/`.** Records reviewed with the
+  change and read with `git show` at the tag. Rejected: designed to carry
+  graded runs, which no longer exist. For deterministic results the release
+  can produce itself, a committed copy adds files and an add-only rule with
+  nothing to protect.
+- **Read script-case results from CI on HEAD's exact SHA.** Takes koto off
+  the release host. Not chosen for now: it needs new CI plumbing, and the
+  release skill's current "CI green on HEAD" check passes on a missing
+  status. It's the swap if koto on release hosts proves a burden.
 
 ## Decision Outcome
 
-The three decisions split detection by what it costs. Everything that runs
-unattended is free: script-graded hand-off cases in the pull request gate and
-at release, record-shape checks in CI, and the release's reading and
-comparing of records. Everything that costs tokens is started by a person, on
-one skill, on their own plan, and leaves a committed record of what it found
-and what it cost. The release turns those records into a stop: a drop, or a
-case that newly fails, waits for a person's yes; a changed skill nobody
-measured waits for a separate, batched yes that lands in the release notes;
-and a failing hand-off case stops the release until it's fixed.
+Nothing in this design makes a model call: not a release, not CI, not a
+schedule, and not a person running the harness. Detection rests entirely on
+script-graded cases, which check each hand-off with no model. The pull
+request gate runs them on every change, so the maintainer who breaks a
+hand-off learns it before merging, and a new skill can't merge without its
+hand-off cases. The release runs all of them again, records each skill's
+script pass rate, and stops on any failing case, labelled as a drop when it
+passed before, until a person confirms.
 
 That answers the two questions the evidence leaves open. Graded evals run
-neither in CI nor at release time: they run on a maintainer's host at change
-time. A skill gets one run of its release subset per measurement, and the
-per-case signal and a person's confirmation stand in for repeat runs.
+nowhere until the owner funds them. A skill gets no graded runs and one run
+of its script cases in each place they run.
 
 ### How each piece of evidence is met
 
 | Evidence | What meets it | Cost of showing it |
 |---|---|---|
-| 1. A maintainer breaks `/deliver`'s hand-off to `/execute`, runs the harness on `/deliver`, and sees its hand-off case fail | `run-evals.sh deliver` runs the `grader: script` case with `handoff: execute` first; `check-handoff.sh deliver execute` fails on a broken gate, directive, leg script, outcome word, result key, template name or attach (Decision 2). A break only in the agent's behaviour fails the model-graded hand-off case when the maintainer runs it (Decision 1). | $0 for the script case; about $3 for the single graded case, from the maintainer's plan |
-| 1, for a skill added later | `check-evals-shape.py` derives the new skill's targets from its templates and refuses it in the free gate until each has a script-graded case, so the harness on that skill has a hand-off case to fail (Decision 2). | $0 |
-| 2. A maintainer regresses one eval, runs `/shirabe:release`, and the release stops on that skill's drop until a person confirms | If the regressed eval is graded: the maintainer's committed record shows the aggregate down more than 0.05 or the case newly failing, and Check 1 exits 5 until `RELEASE_CONFIRMED_DROPS` names the skill. If no record was taken, Check 2 exits 5 naming the skill as unmeasured. If the regressed eval is script-graded: Check 3 stops the release (Decision 3). | $0 at release; the graded record costs the release-subset run on the maintainer's plan |
+| 1. A maintainer breaks `/deliver`'s hand-off to `/execute`, runs the harness on `/deliver`, and sees its hand-off case fail | `run-evals.sh deliver` runs the `grader: script` case with `handoff: execute`; `check-handoff.sh deliver execute` fails on a broken gate, directive, leg script, outcome word, result key, template name or attach (Decision 2). | $0 |
+| 1, for a skill added later | `check-evals-shape.py` derives the new skill's targets from its templates and refuses it in the pull request gate until each has a script-graded case, so the harness on that skill has a hand-off case to fail (Decision 2). | $0 |
+| 2. A maintainer regresses one eval, runs `/shirabe:release`, and the release stops on that skill's drop until a person confirms | For a script-graded eval: the release's check sees the case fail where the baseline had it passing, labels it regressed with the skill's rate against its baseline rate, and exits 5 until `RELEASE_CONFIRMED_DROPS` names the skill (Decision 3). | $0 |
 
-For the second piece of evidence to show a pass-rate drop rather than an
-unmeasured skill, the skill needs a baseline: a record matching it at the
-last tag, or a seed record of the released content taken before the change.
-
-### Waiting on the owner
-
-The design has two halves, and only one depends on an open question.
-
-The script-graded half stands whatever the answer: script-graded hand-off
-cases, target derivation in the shape check, Check 3 at release, and the
-record-reading release with no model call. None of it spends a token.
-
-The graded half, maintainer-chosen runs and the records they write, rests on
-reading the eval rulings as covering releases and automated gates but not a
-run a maintainer chooses to start on their own plan. That reading has gone
-to the owner and isn't settled. If the owner rules maintainer-chosen runs out
-too, the edit is small: Decision 1's chosen option becomes "no graded runs at
-all", `run-evals.sh` refuses graded cases unless an owner-set cap exists,
-Check 1 has no records to read and stays dormant, Check 2 lists every changed
-skill as unmeasured, and the second piece of evidence holds only for an eval
-that is script-graded, through Check 3. Nothing else in the architecture
-moves.
+The second piece of evidence holds for script-graded evals only. A regression
+in a model-graded eval, such as a SKILL.md wording change that alters what
+the agent does at a hand-off while the wiring stays intact, isn't measured by
+anything under the owner's settlement, and the release says so in its notes.
+The first release after this lands has no baseline, so it reports a broken
+case as failing rather than regressed; from the second release on, the drop
+shows as a drop.
 
 ## Solution Architecture
 
 ### Overview
 
-Three paths meet at the release. The pull request gate runs script-graded
-cases and checks record files, for free. A maintainer may run graded evals on
-a changed skill and commit the record. The release selects changed skills by
-content hash, reads their records from the tree, runs every script case, and
-stops on what it finds.
+Two paths, both free. The pull request gate runs the shape check and the
+script cases on every change. The release runs every script case, compares
+the results with the newest earlier release's record, stops on any failure,
+and uploads a new record.
 
 ### Components
 
@@ -480,19 +401,16 @@ stops on what it finds.
 |---|---|---|---|
 | `skills/*/evals/evals.json` | Optional `grader`, `run`, `handoff` per case | (data) | no |
 | `scripts/check-handoff.sh <from> <to>` | New: routes, rendered directive, receiving-side contract, real attach | PR gate, harness, release | no |
-| `scripts/lib/script-cases.py` | New: runs a skill's (or every skill's) `grader: script` cases; no path to `claude` | PR gate, harness, release | no |
-| `scripts/lib/check-evals-shape.py` | Derives hand-off targets from templates; requires a script case per target | PR gate | no |
+| `scripts/lib/script-cases.py` | New: runs one skill's or every skill's `grader: script` cases; writes a per-skill summary with per-case verdicts; no path to `claude` | PR gate, harness, release | no |
+| `scripts/lib/check-evals-shape.py` | Accepts the new keys; derives hand-off targets from templates; requires a script case per target | PR gate | no |
 | `scripts/check-skill.sh` | Runs the skill's script cases, and other skills' cases that target it | PR gate, work-on map | no |
-| `.github/workflows/check-skill-gate.yml` | New job: `check-skill.sh` on every skill the pull request changes, Linux and macOS bash 3.2 | CI | no |
-| `scripts/lib/skill-tree.py` | New: lists a skill's behaviour files and hashes them | harness, CI, release | no |
-| `scripts/run-evals.sh` | Script cases first; `--script-only`; writes a record with `tree`, `cases`, `producer`, `cost_usd`; API-key and bash 4 guards | maintainer host | yes, when graded |
-| `evals/records/<skill>/*.json` | New add-only record files | (data) | no |
-| `.github/workflows/check-evals.yml` | Record shape, add-only and deletion rules | CI | no |
-| `scripts/lib/eval-pass-rates.py` | Baseline adapter, per-case comparison, stale/unbaselined/nobaseline/rekeyed outcomes | release | no |
-| `scripts/release-eval-check.sh` | Loses the paid loop, asset walk, state marker and `--finalize`; runs the three checks | release | no |
-| `.claude/shirabe-extensions/release.md` | Declares the three checks; drops the release asset; host needs koto, not `claude` or bash 4 | release | no |
-| `skills/release/SKILL.md` | Forces every `RELEASE_CONFIRMED_*` empty at start | release | no |
-| `scripts/scheduled-evals.py` | No $50 fallback; runs nothing without an owner-set cap; same run shape | (off) | only if funded |
+| `.github/workflows/check-skill-gate.yml` | New job: `check-skill.sh` on each skill with changed files, and `script-cases.py --all` when shared paths change | CI | no |
+| `scripts/run-evals.sh` | Script cases by default; `--script-only`; refuses graded cases without an owner-set cap, and with any billing variable set | anyone's host | no, under this design |
+| `scripts/lib/eval-pass-rates.py` | Accepts script measurements and `cases`; compares case by case; labels regressed and failing-no-baseline | release | no |
+| `scripts/release-eval-check.sh` | Graded loop and `run-evals.sh` call replaced by `script-cases.py --all`; any failing case exits 5 | release | no |
+| `.claude/shirabe-extensions/release.md` | Check declared without model options; host needs koto, not `claude` or bash 4 | release | no |
+| `skills/release/SKILL.md` | Empties every `RELEASE_CONFIRMED_*` before the first check | release | no |
+| `scripts/scheduled-evals.py` | No $50 fallback; runs nothing without an owner-set cap | (off) | only if funded |
 
 ### Key Interfaces
 
@@ -517,131 +435,103 @@ runner checks again before executing. Each case gets a timeout (300 seconds
 by default) and the limits in Security Considerations. A `grader: script`
 case has no `prompt` or `expectations`.
 
-**Record file** `evals/records/<skill>/<UTC>-<tree12>.json`: a
-`run-evals-summary/v1` skill entry (`runs`, `runs_passed`, `assertions`,
-`pass_rate`, `models`, `session_model`, `scenario_set`, `measured_at`) plus:
+**Script measurement** in the `eval-pass-rates/v1` record, per skill:
 
 ```json
 {
-  "tree": "sha256:<hex over the sorted behaviour files and their blob ids>",
-  "cases": [{"name": "auto-merged-no-split", "verdict": "pass"}],
-  "producer": "local",
-  "cost_usd": 13.84
+  "runs": 1,
+  "runs_passed": 1,
+  "assertions": {"passed": 2, "graded": 2},
+  "pass_rate": 1.0,
+  "models": ["script"],
+  "scenario_set": "sha256:<hex over the script cases' ids and run commands>",
+  "cases": [{"name": "handoff-execute-contract", "verdict": "pass"}],
+  "measured_at": "0.40.0"
 }
 ```
 
-**Release checks** in `release.md`, each a separate entry so each gets its own
-confirmation round:
-
-- `scripts/release-eval-check.sh --drops --tolerance 0.05` (exit 1 first if
-  any record was modified or deleted since the last tag; then exit 5 with
-  `RELEASE_CONFIRMED_DROPS`)
-- `scripts/release-eval-check.sh --unmeasured` (exit 5 with
-  `RELEASE_CONFIRMED_UNMEASURED`)
-- `scripts/release-eval-check.sh --script-cases` (exit 1 on any failure)
+**Release check** in `release.md`: `scripts/release-eval-check.sh` (exit 5
+with `RELEASE_CONFIRMED_DROPS` on any failing case; exit 1 on an
+infrastructure failure), and `scripts/release-eval-check.sh --finalize`
+under `## Release assets`, as today.
 
 ### Data Flow
 
-1. A maintainer changes `skills/deliver/`. `check-skill.sh deliver` runs in
-   the PR gate: validation, template compile, script tests, the shape check
-   (targets derived, a case each) and the script cases, `/deliver`'s own and
-   any other skill's that target it.
-2. Optionally the maintainer runs `run-evals.sh deliver` on their host. Script
-   cases print first; graded cases run on their plan; the run writes
-   `evals/records/deliver/<UTC>-<tree12>.json`, which they commit.
-3. CI's `check-evals.yml` checks the record is well formed and that no older
-   record changed.
-4. At release, `release-eval-check.sh` computes each skill's tree at the last
-   tag and at HEAD, selects the changed skills, reads the baseline and current
-   records from git, and hands them to `eval-pass-rates.py`, which decides
-   drops and unmeasured skills. It then runs every script case through
-   `script-cases.py`.
-5. A drop or an unmeasured list exits 5; the release asks the person, re-runs
-   the check with the confirmed names, and copies the "graded: X of Y" line
-   into the notes. A failing script case exits 1 and the release stops.
+1. A maintainer changes `skills/deliver/`. The pull request gate runs
+   `check-skill.sh deliver`: validation, template compile, script tests, the
+   shape check (targets derived, a case each) and the script cases,
+   `/deliver`'s own and any other skill's that target it. A change to a
+   shared path also runs `script-cases.py --all`.
+2. The maintainer can run `run-evals.sh deliver` on any host, bash 3.2
+   included, to see the same cases; graded cases are refused.
+3. At release, `release-eval-check.sh` runs `script-cases.py --all`,
+   downloads the newest earlier records, and hands both to
+   `eval-pass-rates.py merge`, which labels every failing case.
+4. Any failing case exits 5; the release asks the person, re-runs the check
+   with the confirmed names, and copies the "script cases: P of N passed"
+   line, the confirmed names and the "model-graded cases: not run" line into
+   the notes. `--finalize` stamps the record and Phase 4 uploads it.
 
 ### Cost of every run
 
 | Run | Cost driver | Who pays | Tokens |
 |---|---|---|---|
-| PR gate: shape check, script cases | CPU, scaling with the changed skill's script cases and the cases targeting it | GitHub Actions minutes, free on a public repository | 0 |
-| CI record check | CPU, scaling with record files changed | GitHub Actions minutes | 0 |
-| Maintainer graded run | The skill's release-subset scenario count times the per-scenario rate, plus about $2.50 of session overhead: about $3 for one case, $14 for `/deliver`'s subset, $39 for `/execute`'s, at list price | The Claude plan of the person who starts it; refused with an API-billing variable set unless flagged and under an owner-set cap | yes |
-| Release: selection and hashing | CPU, scaling with skills and their behaviour files | The release host's machine time | 0 |
-| Release: reading and comparing records | CPU, milliseconds, scaling with changed skills and their records | The release host's machine time | 0 |
+| PR gate: shape check, script cases | CPU, scaling with the changed skills' cases and the cases targeting them, or every case on a shared-path change | GitHub Actions minutes, free on a public repository | 0 |
+| Harness on a maintainer's host | CPU, scaling with the skill's script cases | The maintainer's machine time | 0 |
 | Release: script cases | CPU and wall time, seconds to minutes, scaling with every skill's script cases | The release host's machine time | 0 |
-| Release: confirmations | A person's attention, at most one question per check | The person releasing | 0 |
-| Scheduled runs | Off; would be scenario count times runs, billed to that host's account | Only with an owner-set cap | only if funded |
+| Release: record download and compare | Up to ten small `gh` downloads and a python3 merge | The release host's machine time and network | 0 |
+| Release: confirmation | A person's attention, at most one question per release | The person releasing | 0 |
+| Graded cases, scheduled runs | Not run; would be scenario count times runs | Only with an owner-set cap | 0 under this design |
 
 ## Implementation Approach
 
 ### Phase 1: Script-graded cases and the hand-off check
 
-The free layer comes first because both pieces of evidence lean on it and it
-needs nothing else.
+The free layer comes first because both pieces of evidence lean on it.
 
 Deliverables:
-- `scripts/lib/skill-tree.py` and its tests, since the gate job selects
-  changed skills by tree hash.
 - `scripts/check-handoff.sh` and its test suite, with route selectors on the
   `/deliver` and `/execute` engine suites.
 - `scripts/lib/script-cases.py`, `run-evals.sh --script-only` delegating to
   it, and the failing-`claude`-stub test.
 - `grader`, `run`, `handoff` in `check-evals-shape.py`, with target
-  derivation from templates; `check-skill.sh` running script cases; the
-  `check-skill-gate.yml` job running `check-skill.sh` on every changed skill,
-  with `pull_request`, read-only permissions and its trigger test.
+  derivation from templates; `check-skill.sh` running script cases.
 - Script-graded hand-off cases in `/deliver` (scope, execute), `/execute`
   (work-on) and every other skill the derivation names.
 
-### Phase 2: Records and the harness guards
+### Phase 2: The pull request gate and the harness guards
 
-Depends on Phase 1's `skill-tree.py` for the record's `tree` field, and lands
-after it, so the first records carry the new case kind.
-
-Deliverables:
-- Record writing in `run-evals.sh` (`tree`, `cases`, `producer`,
-  `cost_usd`), the API-key guard and the `BASH_VERSINFO` guard.
-- `check-evals.yml` record checks; the dispatch-only test for
-  `run-evals.yml`; `scheduled-evals.py` without its fallback budget.
-
-### Phase 3: The release reads records
-
-Depends on Phase 2's record format and Phase 1's runner.
+Depends on Phase 1's runner and shape check.
 
 Deliverables:
-- `eval-pass-rates.py`: baseline adapter, per-case comparison, the new
-  outcomes, no "missing baseline passes" on this path; offline tests.
-- `release-eval-check.sh` with `--drops`, `--unmeasured`, `--script-cases`,
-  and the paid loop, asset walk and `--finalize` removed.
+- The `check-skill-gate.yml` job, on `pull_request` with read-only
+  permissions, and its trigger test.
+- `run-evals.sh`: script cases by default, the graded refusal without an
+  owner-set cap, the billing-variable refusal.
+- `scheduled-evals.py` without its fallback budget; the dispatch-only test
+  for `run-evals.yml`.
+
+### Phase 3: The release runs script cases
+
+Depends on Phase 1's runner and summary format.
+
+Deliverables:
+- `eval-pass-rates.py`: script measurements, `cases`, case-by-case
+  comparison, the regressed and failing-no-baseline labels; offline tests.
+- `release-eval-check.sh` with the graded loop replaced by `script-cases.py
+  --all` and the any-failing-case stop.
 - `release.md`, `skills/release/SKILL.md`, CLAUDE.md, AGENTS.md and the
   extension README describing the new split; the release half of
   `DESIGN-evals-at-release.md` marked as replaced by this design.
 
 ## Security Considerations
 
-**A record is an assertion, not a proof.** A pull request author can commit a
-record with any numbers. The release checks it only structurally: the tree
-hash matches content, and the scenario set and run shape match. Records
-arrive through the same review as the code they measure, and review is the
-only control on a forged good record: one counts as graded, so it hides a
-regression and also keeps the skill off Check 2's unmeasured list. shirabe's
-maintainers are trusted to the same degree as the code they merge; this
-design doesn't change that.
-
-Add-only enforcement is a CI check, so on its own it holds only as far as
-branch protection and review do. The release backs it up for free: it runs
-`git diff --diff-filter=MD <last tag>..HEAD -- evals/records/` and stops
-(exit 1) on any record modified or deleted since the tag, apart from the
-records of a skill deleted in the same range. A rewritten baseline therefore
-can't reach a release unnoticed, even past a red check.
-
-**Script cases run commands from `evals.json`.** The PR gate and the release
-host execute each case's `run` field, so a careless or hostile case is code
-execution. The runner never hands `run` to a shell: it splits it into words
-and executes the first directly, after checking that it resolves through
-`realpath` to a tracked regular file under `scripts/` that isn't a symlink.
-Every argument must start with a letter or digit and match
+**Script cases run commands from `evals.json`.** The pull request gate and
+the release host execute each case's `run` field, so a careless or hostile
+case is code execution. The runner never hands `run` to a shell: it splits it
+into words and executes the first directly, after checking that it resolves
+through `realpath` to a tracked regular file under `scripts/` that isn't a
+symlink. Every argument must start with a letter or digit and match
 `[A-Za-z0-9][A-Za-z0-9._-]*`, which rules out `.`, `..` and anything that
 reads as an option, and an argument in a skill position must name a
 directory under `skills/`. That rules out traversal, symlinks pointing
@@ -660,8 +550,7 @@ these cases there is a trust boundary, not a free action. Each case runs:
   absolute path, which is why review of `scripts/` stays the control;
 - with a temporary koto state directory, so `koto init` and the engine
   suites never touch the maintainer's real sessions;
-- in its own process group, killed as a group when its timeout (300 seconds
-  by default) runs out;
+- in its own process group, killed as a group when its timeout runs out;
 - from the tree at the commit being tagged, not from whatever else is in the
   working copy.
 
@@ -676,86 +565,79 @@ no repository secret. Both use GitHub-hosted runners, the macOS bash 3.2 leg
 included, never a self-hosted one. `check-run-evals.yml` gains a test for
 these properties, next to the one that keeps `run-evals.yml` dispatch-only.
 
-**No model call is reachable from the release.** `script-cases.py` has no code
-path to `claude`, `release-eval-check.sh` no longer calls `run-evals.sh`, and
-a CI test with a failing `claude` stub first on `PATH` proves it. The nested
-eval session's access to stored credentials, an accepted risk in the
-release-time design, no longer applies to release hosts. It applies only on
-a maintainer's host when they choose to run graded evals, and `run-evals.sh`
-keeps printing that fact before it runs. A graded run executes the branch's
-skill text with that host's credentials in reach, so a maintainer runs one
-only on a branch they wrote or have reviewed, never on an unreviewed
-contributor branch.
+**No model call is reachable.** `script-cases.py` has no code path to
+`claude`, `release-eval-check.sh` no longer calls `run-evals.sh`, and a CI
+test with a failing `claude` stub first on `PATH` proves the release path
+never reaches a model. The nested eval session's access to stored
+credentials, an accepted risk in the release-time design, no longer applies
+anywhere, since no nested session starts.
 
-**Accidental API spend.** Several variables can turn a plan-billed run into
-API or cloud billing: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
-`ANTHROPIC_BASE_URL`, and the switches that route Claude Code through Bedrock
-or Vertex (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`).
-`run-evals.sh` refuses to start with any of them set unless explicitly
-flagged and under an owner-set cap, and `run-evals.yml` can't gain an
+**Accidental spend.** Several variables can turn a run into API or cloud
+billing: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
+and the switches that route Claude Code through Bedrock or Vertex
+(`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`). `run-evals.sh`
+refuses graded cases without an owner-set cap, and refuses them with any of
+those variables set unless explicitly flagged. `run-evals.yml` can't gain an
 automatic trigger without failing a CI test.
 
+**Release records.** The baseline comes from earlier releases'
+`eval-pass-rates.json` assets, which anyone with release write access can
+replace. `eval-pass-rates.py` already validates every field and skips an
+unusable record; a tampered record can at worst make a failing case read
+"failing, no baseline" instead of "regressed", and either label stops the
+release. Asset write access stays limited to the repository's maintainers.
+
 **Pre-set confirmations.** A `RELEASE_CONFIRMED_*` variable left in the
-environment could pass a check without anyone answering. The release skill
+environment could pass the check without anyone answering. The release skill
 empties all of them before the first check runs.
 
-**Output an agent reads.** A record holds case names, verdicts, models and a
-cost figure, no transcripts, prompts or paths from the maintainer's host.
-`cost_usd` reveals what a run cost at list price, which the spike already
-publishes. The release prints skill names, case names and `producer` from
-records, and the output of failing script cases, and an agent reads all of
-it, so crafted text could carry terminal escape sequences or words meant to
-steer the agent. The CI record check and the release's reader both refuse
-record fields outside `[A-Za-z0-9._-]`; the runner strips control
-characters from script output and truncates each case's output to its last
-200 lines; and the release treats all of it as data, never as instructions.
+**Output an agent reads.** The release prints skill names, case names and
+the output of failing script cases, and an agent reads all of it, so crafted
+text could carry terminal escape sequences or words meant to steer the
+agent. The record reader refuses names outside `[A-Za-z0-9._-]`, the runner
+strips control characters from script output and truncates each case's
+output to its last 200 lines, and the release treats all of it as data,
+never as instructions.
 
 ## Consequences
 
 ### Positive
 
-- No release, pull request or schedule spends a model token, on any path,
-  dry runs and confirmation re-runs included.
+- No release, pull request, schedule or person spends a model token, on any
+  path, dry runs and confirmation re-runs included.
 - A hand-off break in templates, leg scripts, directives or the target's
-  outcome words now fails a named case in the harness, the PR gate and the
-  release, for free, including the receiving-side drift the engine suites'
+  outcome words fails a named case in the harness, the pull request gate and
+  the release, including the receiving-side drift the engine suites'
   stand-in children let through today.
 - A new skill that hands off to another can't merge without a hand-off case.
-- Every release states how many changed skills were graded, against what
-  baseline, and what each measurement cost.
-- The baseline lookup reads the tag's tree, so it has no depth cap and no
-  network dependency, and squash merge doesn't break it.
+- Every release records a script pass rate per skill again, the first since
+  v0.24.0, and says in its notes what it didn't measure.
+- The harness runs on bash 3.2 for everything it's allowed to run.
 
 ### Negative
 
-- Graded coverage depends on people choosing to measure; a release can ship
-  a skill whose wording change nobody graded, with only a confirmation in its
-  way.
-- Shared root files are loaded by many skills, so most releases will raise
-  the unmeasured question for several skills at once.
-- Single-run noise will sometimes stop a release on a case that flipped by
-  chance.
-- A record written on a laptop can be checked only for shape, not
-  re-verified.
-- The second piece of evidence can show a drop only once a skill has a
-  baseline, which for most skills means one paid seed run.
+- Nothing measures the agent's behaviour: a SKILL.md change that alters what
+  the agent does at a hand-off, or anywhere else, while the wiring stays
+  intact, ships unmeasured.
+- The second piece of evidence holds for script-graded evals only.
+- The first release after this lands has no baseline, so it can't label a
+  failure as a drop.
 - The release host needs koto, which it didn't before.
+- The model-graded cases stop being exercised, so they can rot against
+  skills that keep changing.
 
 ### Mitigations
 
-- The "graded: X of Y" line in every release's notes shows how much is
-  unmeasured, which is the evidence for asking the owner to fund more
-  measurement, through the documented schedule path.
-- The unmeasured question is one batched confirmation under its own
-  variable, so it costs one answer and can't confirm a drop.
-- A noise flip costs a person's attention and an optional re-run on their
-  plan, never an automatic spend; the per-case output names the case so the
-  person can judge it.
-- Add-only records, enforced in CI and again by the release's diff of
-  `evals/records/` since the tag, keep a rewritten baseline out. A forged
-  current record has review as its only control, the same control that
-  covers the code it claims to measure.
-- Seed runs can be taken one skill at a time, when a maintainer next works on
-  that skill.
+- The release notes' "model-graded cases: not run" line keeps the gap in
+  view, and the dormant graded path (an owner-set cap) is the one switch to
+  turn graded runs back on if the owner funds them.
+- Hand-off wiring is where the most likely breaks live, and it's now covered
+  for every skill; turning more behaviour into deterministic cases, where a
+  check can stand in for a model, narrows the gap further at no token cost.
+- From the second release on, every failure that passed before shows as a
+  drop; the first release still stops on any failure.
 - The CI swap for script-case results (Decision 3) takes koto off the release
   host if it proves a burden.
+- `check-evals-shape.py` keeps checking the shape of the model-graded cases
+  on every change, so at least their structure stays valid until they run
+  again.
