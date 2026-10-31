@@ -444,7 +444,7 @@ LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
 has "grant: --grant merge-pr" "$LAUNCHED" "[--grant] [merge-pr]"
 eq  "grant: one --grant" 1 "$(grep -o '\[--grant\]' <<<"$LAUNCHED" | wc -l | tr -d ' ')"
 has "grant: --parent-from names the coordinator's own instance" "$LAUNCHED" "[--parent-from] [$W/inst]"
-eq  "grant: the brief names merge-pr and nothing else" "Named authority: you hold merge-pr and nothing else. A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way." "$(named)"
+eq  "grant: the brief names merge-pr and nothing else" "Named authority: you hold merge-pr and nothing else. Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator's own message clears that pull request at a head it names, and merge it pinned to that head. Never merge a pull request that changes a roadmap under docs/roadmaps/, whatever your grant; when unsure, hand it back. A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way." "$(named)"
 lacks "grant: the brief names no other authority" "$(cat "$BRIEF_FILE")" "close-issue"
 
 # A worker the brief hands no landing step: no --grant at all, and a brief that
