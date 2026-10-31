@@ -421,11 +421,25 @@ the COMP adoption notes, and migration notes for repos with existing docs.
 ### Local install
 
 ```bash
+tsuku install tsukumogami/shirabe
+```
+
+[tsuku](https://tsuku.dev) installs `shirabe` into `$HOME/.tsuku/tools/current/`
+and checks the download against the release's checksums. A tsuku setup already
+has that directory on `PATH`; when it doesn't, tsuku prints the line to add.
+Without tsuku, use the install script:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/main/install.sh | bash
 ```
 
-Installs `shirabe` to `$HOME/.shirabe/bin/`. Add that directory to `PATH`, then
-run `shirabe validate docs/designs/DESIGN-foo.md`.
+It installs `shirabe` to `$HOME/.shirabe/bin/`. Add that directory to `PATH`,
+then run `shirabe validate docs/designs/DESIGN-foo.md`.
+
+The pre-commit hook that `shirabe install-hooks` writes resolves `shirabe` on
+`PATH` only. It doesn't look in `$HOME/.shirabe/bin/` unless that directory is
+on `PATH`, so a binary installed there but left off `PATH` means the hook skips
+validation.
 
 ## Roadmap
 

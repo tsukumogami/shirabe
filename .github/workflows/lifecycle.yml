@@ -12,6 +12,14 @@ name: Lifecycle Check
 # jobs:
 #   lifecycle:
 #     uses: tsukumogami/shirabe/.github/workflows/lifecycle.yml@v0.10.0
+#     # Optional, for a self-hosted runner; the default is ubuntu-latest:
+#     # with:
+#     #   runs-on: '["self-hosted", "linux", "x64"]'
+#
+# A self-hosted runner needs what the job builds and runs with: a Linux host
+# with GNU coreutils (the build step uses `install -D`), cargo (the toolchain
+# action installs it), and, for the coordination merge-last gate on a ready
+# coordination PR only, `gh`, bash 4 or later and grep.
 #
 # The caller must grant `pull-requests: read` (as above): a reusable workflow
 # cannot request a permission the caller lacks, and the coordination merge-last
@@ -36,10 +44,21 @@ name: Lifecycle Check
 
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          Where the job runs. A single runner label (`ubuntu-latest`) or a
+          JSON array of labels for a self-hosted runner
+          (`["self-hosted", "linux", "x64"]`). Defaults to `ubuntu-latest`.
+        required: false
+        type: string
+        default: ubuntu-latest
 
 jobs:
   lifecycle:
-    runs-on: ubuntu-latest
+    # A value starting with `[` is parsed as a JSON label array; anything else
+    # is used as a single label. Same input and expression as validate-docs.yml.
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     permissions:
       contents: read
       # Needed only by the coordination merge-last gate's live `gh` queries on
@@ -98,9 +117,14 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build shirabe
+        # Installs into the job's temp directory rather than /usr/local/bin so
+        # the step needs no root and leaves nothing behind on a self-hosted
+        # runner. Later steps run `shirabe` through PATH, which $GITHUB_PATH
+        # extends from the next step on; don't call it by an absolute path.
         run: |
           cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
-          install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
+          install -D -m 0755 .shirabe-src/target/release/shirabe "$RUNNER_TEMP/bin/shirabe"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run lifecycle check (R5 finalization-not-done guard)
         # The shell conditional reads github.event.pull_request.draft
