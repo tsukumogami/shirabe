@@ -157,7 +157,8 @@ workspace hasn't wired up.
 - **R10. Released niwa.** R2 through R9 hold with niwa 0.40.0 and later releases,
   with no change to niwa's source or binary.
 - **R11. Same setup everywhere.** Setup is byte-identical in every product
-  repository and names no repository, so a product repository the private
+  repository and holds nothing specific to the repository it sits in, so a
+  product repository the private
   overlay adds takes it verbatim. No public document names a private repository.
 - **R12. Documented.** The contract guide's "Installing the local hook" section
   has one paragraph each on the apply-time delivery, the missing-shirabe case,
@@ -211,7 +212,8 @@ instances untouched. Each criterion names its requirement.
 - [ ] R8: with the clone's hooks directory made read-only, apply reports a setup
       failure for that repository and still installs the hook in the others.
 - [ ] R11: setup is byte-identical across the four public product repositories
-      and contains none of their names.
+      and reads nothing that identifies the repository it runs in (it uses only
+      what `git rev-parse` reports for the current clone).
 - [ ] R11: a grep of this feature's diffs and pull request text for the names of
       the workspace's private repositories returns nothing.
 - [ ] R12: the contract guide's "Installing the local hook" section has a
