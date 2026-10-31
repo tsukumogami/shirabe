@@ -7,7 +7,11 @@ split_rationale: |
   Hard Constraint. The same setup script has to land in four separate
   repositories (shirabe, tsuku, koto, niwa), and a pull request can't span
   repositories; the copies are cut from shirabe's canonical script once its
-  test passes.
+  test passes. The copy check (Issue 6) and the planning posture (Issue 7)
+  are separate shirabe pull requests because each was added after the first
+  five issues' pull requests were cut, each changes a different part of
+  `lifecycle.yml` that a reviewer reads on its own, and Issue 7 changes the
+  shirabe binary while nothing else in the plan does.
 tracking_level: none
 upstream: docs/designs/DESIGN-sr8-workspace-engine.md
 milestone: "sr8-workspace-engine"
@@ -27,7 +31,12 @@ Deliver shirabe's pre-commit hook into every product repository clone during
 `scripts/setup/shirabe-pre-commit.sh`, to shirabe, tsuku, koto and niwa, and
 point contributors at `tsuku install tsukumogami/shirabe`. Each product
 repository the private overlay adds takes the same file in its own pull
-request, outside this plan.
+request, outside this plan. The reusable `lifecycle.yml` then fails any pull
+request whose copy differs from shirabe's (Issue 6), and gains a `posture`
+input, with draft posture accepting a ROADMAP that roots its own chain at
+`Draft`, so a planning repository whose default branch holds open plans can
+call it (Issue 7). That repository's own caller, and the interim comparison job
+it runs until then, land in its own pull requests, outside this plan.
 
 ## Decomposition Strategy
 
@@ -36,7 +45,12 @@ including an isolated niwa demonstration with the script copied into each
 product clone of a throwaway instance. Issue 2 lands the README install line and
 the contract guide section in the same shirabe pull request. Issues 3 to 5 copy
 the settled script, byte for byte, into tsuku, koto and niwa, one pull request
-per repository. Shirabe lands first; the three copies follow in any order.
+per repository. Issue 6 adds the copy comparison to `lifecycle.yml` in its own
+shirabe pull request once Issue 1 has landed. Issue 7 adds the `posture` input
+and the Draft ROADMAP acceptance in another shirabe pull request, which depends
+on nothing. The shirabe pull request for Issues 1 and 2 lands first; the three
+copies follow in any order, and Issues 6 and 7 land whenever they are ready,
+the second of them updated to the first's merge.
 
 ## Issue Outlines
 
@@ -342,7 +356,7 @@ Issue 1's test passes in CI. Design: `docs/designs/DESIGN-sr8-workspace-engine.m
 
 **Goal**: Make a drifted copy of `scripts/setup/shirabe-pre-commit.sh` turn its
 repository's pull request red, through the reusable `lifecycle.yml` every
-product repository already calls (Decision 3).
+public product repository already calls (Decision 3).
 
 **Context**: `lifecycle.yml` already checks out shirabe at the called ref. A new
 `setup-script-copy` job compares the caller's copy with that checkout's
@@ -383,8 +397,16 @@ pass under draft posture (Decision 5).
 **Context**: Ready posture reads every single-pr chain in the tree as merging
 now, which a repository holding open plans on its default branch can never
 pass. The ROADMAP row is in the passing-state reading in
-`crates/shirabe-validate/src/lifecycle.rs`; draft posture already relaxes
-single-pr chains mid-PR. This changes the shirabe binary. Design:
+`crates/shirabe-validate/src/lifecycle.rs`: `required_state` takes the review
+posture and returns a Draft-or-Active state for a ROADMAP that roots its own
+chain, under draft posture only. Today draft posture accepts no document at
+`Draft`, so this is a new acceptance, not an extension of the mid-PR case. The
+coordination merge-last gate step in `lifecycle.yml` keys on the pull request's
+own draft state and is left as it is. Issue 6 landed without a line in
+`scripts/check-setup-script-copy.sh`'s header naming the interim caller, so this
+pull request adds it. This issue changes the shirabe binary that skills call,
+so the workspace's pre-change baseline for such changes is taken before
+implementation starts. Build on current `main`. Design:
 `docs/designs/DESIGN-sr8-workspace-engine.md`.
 
 **Acceptance Criteria**:
@@ -392,13 +414,30 @@ single-pr chains mid-PR. This changes the shirabe binary. Design:
       `auto`; with `auto` the lifecycle step behaves exactly as before on draft
       and ready pull requests.
 - [ ] With `posture: draft`, the lifecycle step never passes `--mode=ready`,
-      on a draft or a ready pull request, and says so in its log.
-- [ ] Any other `posture` value fails the job with an error naming the two
-      accepted values.
+      on a draft or a ready pull request, and writes the posture it ran in to
+      the job summary (`$GITHUB_STEP_SUMMARY`) as well as the log.
+- [ ] The input reaches the shell only through `env:` (`POSTURE: ${{
+      inputs.posture }}`); `${{ inputs.posture }}` appears in no `run:` block,
+      and the step checks it with `case "$POSTURE" in auto|draft)` before any
+      other use.
+- [ ] Any other `posture` value, including one carrying shell metacharacters,
+      fails the job with an error naming the two accepted values, and nothing
+      in the value is executed.
+- [ ] Under `posture: draft`, the coordination merge-last gate step still runs
+      on a ready coordination pull request and still passes `--mode=ready`.
 - [ ] A tree whose only chain is a ROADMAP at `Draft` exits 0 under draft
       posture and exits 2 with L01 under `--mode=ready`.
 - [ ] A ROADMAP at `Active` passes and one at `Done` still fails L01 under both
       postures; the existing lifecycle tests pass unchanged.
+- [ ] A PLAN at `Draft` still fails L01 under draft posture.
+- [ ] A ROADMAP at `Draft` with a child PLAN gives exactly one L01 on the
+      ROADMAP and no L08 under draft posture.
+- [ ] A ROADMAP at `Draft` upstream of an orphan document does not credit it:
+      the orphan's finding is the same as with no ROADMAP upstream.
+- [ ] `scripts/check-setup-script-copy.sh`'s header documents its three
+      arguments and says a repository that doesn't call `lifecycle.yml` yet
+      runs it from its own workflow, so an argument change updates that caller
+      too; `bash scripts/check-setup-script-copy_test.sh` still exits 0.
 - [ ] The lifecycle docs that list what draft posture accepts name the Draft
       ROADMAP case, and the workflow header names the `posture` input.
 - [ ] `shirabe validate --lifecycle .` on shirabe's own tree gives the same
