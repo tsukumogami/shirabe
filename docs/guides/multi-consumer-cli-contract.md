@@ -189,7 +189,10 @@ prints nothing. It installs into the clone's shared hooks directory, so the
 clone's linked worktrees run the same hook. The copy at that path in the
 shirabe repository is the canonical one: every other repository's copy must
 match it byte for byte, and a copy that differs is a defect to fix, not a
-variant. The script needs git 2.31 or later, for
+variant. The reusable `lifecycle.yml` enforces that: its `setup-script-copy`
+job compares the calling repository's copy with the canonical one at the
+called ref and fails the pull request, naming the command that restores the
+copy, when they differ. The script needs git 2.31 or later, for
 `git rev-parse --path-format`; on an older git, and on any install error, setup
 fails for that repository alone and apply's output says so.
 

@@ -1,0 +1,1023 @@
+---
+schema: design/v1
+status: Planned
+problem: |
+  shirabe's pre-commit hook exists as `shirabe install-hooks`, but nothing runs
+  it in a workspace clone. It has to reach every product repository clone during
+  `niwa apply` on the released niwa 0.40.0, and `install-hooks` itself, which
+  can't change, preserves foreign hooks silently, never refreshes its own, writes
+  through symlinks under `--force`, and honors a global `core.hooksPath`.
+decision: |
+  Each product repository commits the same executable
+  `scripts/setup/shirabe-pre-commit.sh`, which niwa's post-clone setup runs in
+  the clone on every apply. The script reports and stops when shirabe is
+  missing, the hooks directory isn't the clone's own, or a foreign hook is
+  present; installs when there's no hook; and refreshes a shirabe-written hook
+  only when its body differs from a freshly generated one. The reusable
+  lifecycle workflow fails any copy that differs from shirabe's, a repository
+  not yet calling that workflow runs the same comparison from its own every-PR
+  workflow, and a planning repository adopts the lifecycle check through a
+  `posture: draft` input, with draft posture also accepting a ROADMAP that
+  roots its own chain at `Draft`.
+rationale: |
+  The post-clone setup convention is the only route the released niwa runs at
+  apply time without relying on unvalidated behavior, and it scopes itself to
+  the repositories that carry the script. Guarding in the script keeps the hook
+  body in shirabe's binary while covering every case `install-hooks` handles
+  badly, with no niwa change and no network access. The copy comparison sits
+  in `lifecycle.yml` because every public product repository already calls it
+  on every pull request, and the interim job covers the one repository that
+  doesn't, since a drifted copy there would otherwise go unreported until it
+  adopts the check. A planning repository
+  keeps unfinished plans on its default branch while their work lands
+  elsewhere, so the ready posture's reading of the whole tree as finished
+  can never pass there; draft posture still catches the drift that matters,
+  a chain marked finished but never finalized. Accepting a Draft ROADMAP root
+  under draft posture is the design's one shirabe binary change, and ready
+  posture keeps product repositories' rule that a roadmap is Active at merge.
+upstream: docs/prds/PRD-sr8-workspace-engine.md
+decision_provenance: inline-resolved
+---
+
+# DESIGN: sr8-workspace-engine
+
+## Status
+
+Planned
+
+## Context and Problem Statement
+
+shirabe already ships the hook a contributor needs. `shirabe install-hooks`
+writes a pre-commit hook that runs `shirabe validate` over the staged Markdown
+files and blocks the commit on any non-zero exit. What's missing is delivery:
+nothing runs that command in a workspace clone, and the README's only install
+route (`install.sh`, into `$HOME/.shirabe/bin`) puts the binary where the hook never
+looks. The requirements are in `docs/prds/PRD-sr8-workspace-engine.md`; this
+design answers how the hook reaches each product repository clone.
+
+The technical problem has four parts. The fourth came up after the rollout and
+moved the PRD's line on CI workflow changes, which the PRD's out-of-scope list
+now records.
+
+**A delivery route on the niwa contributors already have.** The hook has to land
+during `niwa apply` and `niwa create` (PRD R2) using niwa 0.40.0, with no niwa
+source or binary change (R10), because no niwa release is cut in this unit. It
+has to reach shirabe, tsuku, koto and niwa, and each product repository the
+workspace's private overlay adds, while the workspace configuration repositories
+and the org health-files repository get nothing (R9). The same delivery has to
+work verbatim in a private repository without a public document naming it
+(R11).
+
+**`install-hooks` behaves badly at the edges, and it can't change.** Research
+against shirabe v0.38.1 found that it:
+
+- exits 0 both when it installs and when it preserves someone else's hook, so a
+  caller can't tell the two apart from the exit status;
+- treats any hook containing its marker (`shirabe install-hooks`) as installed
+  and never refreshes it, so a hook freezes at whatever body first landed (R5
+  asks for a refresh);
+- with `--force`, follows a symlinked hook and overwrites the target. In tsuku
+  and koto, where `scripts/install-hooks.sh` symlinks `.git/hooks/pre-commit` to
+  a tracked `scripts/pre-commit`, that rewrites a tracked file (R4 forbids
+  touching a foreign hook or what it links to);
+- honors `core.hooksPath`, including a global one, so an unguarded run writes the
+  hook into a directory every repository on the machine shares (R7 forbids
+  that);
+- resolves the hooks directory with `git rev-parse --git-path hooks`, which from
+  a linked worktree points at the clone's shared `<common dir>/hooks`. That part
+  is what R6 needs: one install per clone covers its worktrees.
+
+Changing the hook or `install-hooks` is out of scope, so every guard has to live
+in whatever invokes it.
+
+**It runs on every apply.** niwa re-runs repository setup on every `niwa apply`,
+`niwa create` and provisioning run, not just after the first clone. So the step
+must be cheap, silent when nothing changes (R5, R13), must not count a missing
+binary as a failure (R3), and must report a real install error for that
+repository only (R8).
+
+**The copies have to stay identical, everywhere.** Once the script is copied
+into each repository, nothing stops a copy from drifting from shirabe's, so a
+CI check has to compare them (Decision 3). One repository that carries a copy,
+a private planning repository, doesn't call `lifecycle.yml`, so its copy needs
+its own check until it does (Decision 4). It can't simply start calling
+`lifecycle.yml` either: ready posture reads every open plan on its default
+branch as merging now, and would turn every other lane's pull request there red
+(Decision 5).
+
+## Decision Drivers
+
+- **Released niwa only (R10).** The route has to work on niwa 0.40.0 as
+  shipped. A route that depends on behavior niwa doesn't promise is fragile even
+  if it works today.
+- **Exact scope (R2, R9, R11).** The hook reaches the product repositories and
+  nothing else, and the delivery is byte-identical everywhere, so a private
+  repository takes it unchanged.
+- **Never touch a foreign hook (R4).** A symlink, a framework hook, or a regular
+  file without the marker stays byte-unchanged, and so does any file it links
+  to.
+- **No writes outside the clone (R6, R7).** Install only when the hooks
+  directory is the clone's own `<common dir>/hooks`.
+- **Refresh what shirabe wrote, otherwise change nothing (R5).** A stale shirabe
+  hook is brought up to date; a current one is left alone and setup stays
+  silent.
+- **Quiet, local, non-fatal (R3, R8, R13).** At most one line per repository,
+  only `git`, `shirabe` and shell built-ins, a missing binary is a notice, and
+  an install error fails that repository's setup alone.
+- **One owner for the hook body.** The body shirabe writes stays in shirabe's
+  binary. Nothing else should carry a copy of it that can drift.
+- **Drift fails a check.** A setup-script copy that differs from shirabe's
+  fails a pull request in the repository that carries it, not a later audit.
+- **No other lane turns red.** A repository adopting a check must not fail pull
+  requests that don't bring the problem the check reports.
+- **Product repositories keep their rule.** A product repository's ready run
+  still requires a chain finalized and a ROADMAP `Active`; any new acceptance
+  applies only where a caller opts in.
+
+## Considered Options
+
+### Decision 1: The delivery route
+
+Resolved inline.
+
+niwa 0.40.0 offers a few places where workspace or repository content runs or
+lands during apply. The question is which can run `shirabe install-hooks` in
+each product repository clone, at apply time, on the released binary.
+
+Key assumptions:
+
+- niwa keeps running each repository's `scripts/setup/` on every apply. This was
+  read in `internal/workspace/apply.go` (the setup step) and confirmed in the
+  0.40.0 binary.
+- No product repository has a `scripts/setup/` directory today, so adding one
+  changes nothing else in those repositories.
+
+#### Chosen: A committed setup script in each product repository's `scripts/setup/`
+
+niwa's post-clone convention runs every executable top-level file in a
+repository's `scripts/setup/` directory, in name order, with the clone as the
+working directory, on every create, apply and provisioning run. A script that
+exits non-zero stops that repository's remaining scripts and shows up as a
+warning plus a `setup incomplete` summary entry; apply itself still exits 0, and
+the other repositories still run. A file without the executable bit is skipped
+and reported.
+
+One script, committed byte-identical to each product repository, uses that
+convention as shipped. It scopes itself: a repository without the file (the
+configuration and health-files repositories) runs nothing. It needs no
+workspace configuration, works with the released niwa, and a repository the
+private overlay adds gets the same result by committing the same file.
+
+#### Alternatives Considered
+
+- **A workspace-level `setup_dir` in the public workspace config, pointing back
+  into the config repository** (for example `../../../.niwa/setup`). It works
+  today only because niwa doesn't validate `setup_dir` the way it validates its
+  other path fields. It also depends on the instance's directory layout,
+  replaces every repository's own `scripts/setup` default, and runs in every
+  repository niwa classifies, so the script would need its own allowlist of
+  repository names. Rejected: it rests on an unpromised behavior a later niwa
+  could close.
+- **Distributing the script through the workspace config's `[files]` table.**
+  The files materializer writes files at mode 0600 and inserts a `.local` infix,
+  so niwa's setup runner skips them as not executable. Rejected: it can't run.
+- **A Claude Code hook (`[claude.hooks]`, e.g. on SessionStart).** These are
+  copied in as executables, but they fire only inside Claude sessions, never
+  during `niwa apply`. Rejected: it misses contributors who don't start one.
+- **A new niwa feature** (say, workspace-declared setup commands). Rejected:
+  it needs a niwa release, which this unit doesn't cut.
+
+### Decision 2: What the setup script does in each case
+
+Resolved inline.
+
+`install-hooks` can't change, so the script decides each case before it calls
+it. The order matters: each check rules out a case where calling `install-hooks`
+would do the wrong thing.
+
+Key assumptions:
+
+- Contributors' git supports `git rev-parse --path-format=absolute` (git 2.31 or
+  later; macOS ships 2.39).
+- The hook body's header line,
+  ``# shirabe pre-commit hook -- generated by `shirabe install-hooks`.``, has not
+  changed since `install-hooks` shipped, and a unit test in
+  `crates/shirabe/src/main.rs` pins the marker it contains.
+
+#### Chosen: A guarded wrapper that classifies first and refreshes only shirabe-written files
+
+The script first unsets the git variables that relocate a repository
+(`GIT_DIR`, `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`), so an
+inherited value can't point it, or its scratch repository, at another
+repository. Then, in order:
+
+1. **shirabe missing.** If `command -v shirabe` fails, or returns something
+   that isn't an absolute path outside the clone's work tree, print one notice
+   that includes `tsuku install tsukumogami/shirabe` and exit 0. That's R3: no
+   write, no setup failure, and the next apply installs. Refusing a relative or
+   in-clone result means an empty or `.` entry in PATH can't make the clone
+   supply its own `shirabe`.
+2. **Hooks directory not the clone's own.** Compare
+   `git rev-parse --path-format=absolute --git-path hooks` with
+   `$(git rev-parse --path-format=absolute --git-common-dir)/hooks`, and treat
+   a hooks directory that is itself a symlink the same way. If they differ (a
+   global, local or in-tree `core.hooksPath`) or the directory is a link, print
+   one notice naming the resolved directory and exit 0. That's R7.
+3. **Foreign hook.** If `<hooks>/pre-commit` is a symlink (dangling or not), or
+   a regular file without shirabe's exact header line, print one notice that a
+   pre-commit hook is already present and exit 0. That's R4. Testing for a
+   symlink first means `--force` never runs against a link, so nothing it points
+   to can change. Matching the whole header line, rather than the marker
+   anywhere in the file, keeps a contributor's own hook that merely calls
+   `shirabe install-hooks` from being overwritten.
+4. **No hook.** Run `shirabe install-hooks` with its output discarded, then print
+   one line saying the hook was installed. That's R2.
+5. **A shirabe hook.** A regular file with the header line. Generate the current body
+   by running `shirabe install-hooks --force` inside a throwaway `git init`
+   repository under `mktemp -d`, and compare it with `cmp`. If it matches, exit 0
+   silently. If not, run `shirabe install-hooks --force` in the clone and print
+   one line saying the hook was refreshed. That's R5.
+
+`set -euo pipefail` makes any failure of `git` or `install-hooks` in steps 2, 4
+or 5 exit non-zero, which niwa reports as a setup failure for this repository
+alone (R8).
+
+#### Alternatives Considered
+
+- **Call `shirabe install-hooks` unguarded.** It never refreshes a stale hook,
+  installs into a global `core.hooksPath`, and prints the same exit status
+  whether it installed or preserved. Rejected: it fails R5 and R7, and its
+  output alone tells a reader nothing.
+- **Run a silent `--force` whenever the header is present.** This drops the
+  scratch repository and the `cmp`, at the cost of rewriting the file (same
+  bytes, new mtime) on every apply. Rejected, narrowly: the comparison is one
+  extra local `install-hooks` call, and in exchange a re-apply really touches
+  nothing and the script can say "refreshed" only when something changed.
+  Either way the symlink check (step 3) has to come before any `--force`.
+- **Install shirabe through tsuku when it's missing.** Rejected: it adds network
+  access and a tsuku dependency to every apply, against R13 and the PRD's out
+  of scope list. The README line and the step 1 notice cover the need.
+- **Have the script write the hook body itself.** Rejected: it would duplicate a
+  body shirabe owns, and the two copies would drift with each shirabe release.
+
+### Decision 3: Keeping the copies identical
+
+Resolved inline.
+
+R11 asks for the same bytes in every product repository. The question is how
+the copies stay in step.
+
+Revised after the rollout. Copies kept identical only by hand are a small
+copying mechanism of their own: nothing fails when one drifts, which is the
+property that retired the workspace's earlier script-copying sync. So the
+question is what detects a copy that no longer matches, not only who copies it.
+
+Key assumptions:
+
+- shirabe, tsuku, koto and niwa each call `lifecycle.yml` on every pull
+  request with no paths filter: tsuku, koto and niwa pinned to `main`, shirabe
+  through its local self-caller. A repository the private
+  overlay adds may not; Decision 4 covers that case.
+
+#### Chosen: The script lives in shirabe, is copied verbatim, and the reusable lifecycle workflow compares each copy with it
+
+The canonical copy is `scripts/setup/shirabe-pre-commit.sh` in the shirabe
+repository, where it runs for shirabe's own clone too. tsuku, koto, niwa and each
+product repository the private overlay adds commit an identical copy at the same
+path. The contract guide's "Installing the local hook" section names the
+canonical path and says copies must match it byte for byte. A change to the
+script is a pull request in shirabe followed by the same copy in each repository,
+which is rare: the script changes only if `install-hooks`' interface does.
+
+What keeps the copies identical is a job in shirabe's reusable `lifecycle.yml`.
+When the calling repository has `scripts/setup/shirabe-pre-commit.sh`, the job
+compares it byte for byte with the copy in its own sparse checkout of shirabe at
+the called ref, and fails with the command that restores it when they differ (a
+symlink, a directory or a missing exec bit fails too). A repository without the
+file passes. Every public product repository already calls `lifecycle.yml` on
+every pull request with no paths filter (tsuku, koto and niwa pinned to
+shirabe's `main`, shirabe locally, so its copy is compared with itself), so this
+needs no change in any of them.
+The job is on shirabe's `main` as `setup-script-copy`, running
+`scripts/check-setup-script-copy.sh`.
+
+That is enough because a copy can't change, and the canonical copy can't move on,
+without a red check in the repository that holds the stale copy. A local edit to
+a copy fails that pull request. A change in shirabe fails each consumer's next
+pull request until its copy is updated, and the failure names the fix. The check
+copies nothing and opens no pull request: it reports, and a person makes the
+copy. It covers a private repository's copy too, since the comparison runs in that
+repository's own CI against public shirabe. Its one gap is a repository that
+doesn't call `lifecycle.yml` yet; Decision 4 covers that repository's copy until
+it does, and Decision 5 says how a planning repository adopts the gate, which
+then brings the comparison with it.
+
+The cost is that a change to the canonical script turns every consumer's open
+pull requests red until each copy is updated. That is deliberate: a stale copy is
+a defect, and the change that makes it stale should travel with the copies, as
+this rollout's own plan did.
+
+#### Alternatives Considered
+
+- **Keep the copies by hand, guided by the header comment and the contract
+  guide.** This was the first choice. Rejected on review: nothing reports a
+  drifted copy, so the copies stay identical only as long as everyone remembers.
+- **Fetch the script at setup time from shirabe's repository.** Rejected: network
+  access on every apply (R13), and a setup step that runs remote code.
+- **A separate comparison workflow, with a caller added in each repository.**
+  Rejected: four consumer changes, plus one per new repository, to get the same
+  check the existing lifecycle call can carry with none.
+- **Shrink the copy to a few lines that call a shirabe subcommand carrying the
+  logic.** Not now: it needs a shirabe release to reach contributors' local
+  binaries, which this work doesn't cut. It stays the way forward if the
+  script ever starts changing often, since the copies would then almost never
+  need to.
+
+### Decision 4: Covering a copy where the lifecycle workflow isn't called yet
+
+Resolved inline.
+
+One product repository the private overlay adds is a planning repository. It
+carries the setup script and calls shirabe's `validate-docs.yml` and
+`pr-body.yml`, but not `lifecycle.yml`, so Decision 3's comparison never runs
+there. Its `validate-docs.yml` caller has a `docs/**` paths filter; its
+`pr-body.yml` caller runs on every pull request but checks only the title and
+body. The question is what reports a drifted copy in that repository until it
+calls `lifecycle.yml`, which Decision 5 makes possible only after other work
+lands.
+
+Key assumptions:
+
+- The repository already has a workflow of its own that runs on every pull
+  request with no paths filter and already covers `scripts/setup/` (shellcheck
+  and the setup tests).
+- `scripts/check-setup-script-copy.sh` keeps its three-argument interface
+  (caller root, canonical file, ref label). Its header documents it.
+
+#### Chosen: The repository's own every-PR workflow runs shirabe's comparison script until it calls `lifecycle.yml`
+
+A job in that workflow checks out shirabe at `main`, sparse to the canonical
+script and `scripts/check-setup-script-copy.sh`, and runs the check against the
+repository's copy, exactly as `lifecycle.yml`'s `setup-script-copy` job does,
+with `actions/checkout` pinned by SHA as `lifecycle.yml` pins it.
+It goes in the every-PR workflow the first assumption names, on the runner that
+workflow's other jobs already use. It passes the commit it checked out (`git -C <checkout> rev-parse HEAD`) as the
+ref label, so the restore command the check prints fetches the bytes it compared
+against, not whatever `main` holds later. The job declares `permissions:
+contents: read`, both checkouts set `persist-credentials: false` (the caller's
+checkout sparse to `scripts/setup/`), the job sets no `env:` and references no
+secrets, and it goes in a workflow with no workflow-level `env:`. The comparison logic
+stays in one place, shirabe's script; the repository adds only the call. When
+the repository's `lifecycle.yml` caller lands, the same pull request removes
+this job, since the reusable workflow then runs the comparison.
+
+It costs one temporary caller of a script that was internal to `lifecycle.yml`.
+A change to the script's arguments has to update that caller in the same window,
+so the script's header has to say a repository may run it from its own workflow
+and that its interface stays stable; Phase 5 adds that to the header. And for
+as long as the job
+exists, that repository's CI runs a script from shirabe's `main` that its own
+owners don't review; Security Considerations says so.
+
+#### Alternatives Considered
+
+- **Add the comparison job to `validate-docs.yml` too.** Rejected: that
+  repository's caller filters on `docs/**`, so the job wouldn't run on the pull
+  requests most likely to change the script, and every other product
+  repository, which calls both workflows, would run the comparison twice.
+- **Add the comparison job to `pr-body.yml`, which that repository calls on
+  every pull request.** Rejected: that workflow checks the pull request's
+  title and body and reads no files, so the job would be an unrelated concern
+  in it, and every repository calling both `pr-body.yml` and `lifecycle.yml`
+  would run the comparison twice.
+- **A standalone reusable comparison workflow in shirabe.** Rejected: a public
+  reusable workflow for one transitional caller, with the job either living in
+  two places or `lifecycle.yml` calling it as a nested workflow, to buy what a
+  ten-line job in the caller's existing workflow already gives.
+- **Call `lifecycle.yml` now with an input that turns the lifecycle check
+  off.** Rejected: it adds an input whose only use is to disable the workflow's
+  main check, and the caller would look like adoption without the gate.
+- **Leave the gap until adoption.** Rejected: the copy runs on every apply in
+  that repository, and a drifted one would go unreported for as long as
+  adoption takes, which depends on other lanes' work.
+
+### Decision 5: How a planning repository adopts the lifecycle check
+
+Resolved inline.
+
+The lifecycle check (`shirabe validate --lifecycle .`) reads every chain in the
+tree on every pull request. On a draft pull request it runs in draft posture;
+on a ready one it runs in ready posture, which reads each single-pr chain as if
+this pull request were merging it. A product repository fits that: a chain is
+authored and implemented in one pull request, and the default branch holds only
+finished or in-flight multi-pr chains. A planning repository doesn't. Its
+default branch holds Active single-pr PLANs for months while their work lands in
+other repositories, and long-horizon documents that are deliberately not final.
+
+Measured on the planning repository's default branch with the released binary
+(whose lifecycle code matches `main`):
+
+- **Draft posture: 12 errors, all L01.** Sorted against that repository's own
+  conventions and history, 11 are real drift, in four classes: a finished
+  single-pr chain whose finalization never ran (PLAN still present at Done,
+  PRD and DESIGN not at their terminals; 3 errors); a multi-pr PLAN marked Done
+  while its open criteria continue as another feature's checklist, which also
+  fails its PRD, correctly left In Progress (2 PLANs and 2 PRDs, 4 errors); a
+  Superseded DESIGN left in `docs/designs/` instead of `docs/designs/archive/`
+  (1); and finished ROADMAPs left where the check reads them instead of being
+  retired out of its scan, as that repository does with its older finished
+  roadmaps (3). One is check fit: a long-horizon ROADMAP its owners keep at
+  Draft on purpose, which no posture accepts.
+- **Ready posture: 445 errors** (413 L06, 24 L01, 8 L02). The 413 L06 are
+  unticked criteria in outline-shaped PLANs. Of the 24 L01, 12 are the draft
+  errors above and 12 come from four Active single-pr chains read at merge. The
+  L02 are orphan documents, which draft posture reports as notices.
+
+Simulated on a copy of that tree, fixing the 11 drift documents the way the
+repository's own history does it leaves the one Draft ROADMAP; with that
+accepted, draft posture exits 0. Ready posture still reports 121 errors: 100 L06
+in the four Active single-pr PLANs, which only finishing those plans clears,
+plus their 12 at-merge L01, the 8 L02, and the Draft ROADMAP's own L01. So ready posture never passes there while plans are open, and no pull
+request in that repository can make it pass.
+
+Key assumptions:
+
+- The drift is fixed by the lanes that own those documents, not by this work.
+  Until it is, the caller stays out, because it would turn every pull request in
+  that repository red.
+- A `lifecycle.yml` called at `main` builds shirabe from source at the called
+  commit, so a change to the check reaches the caller without a release.
+- Under `auto`, ready posture gates a product repository's merge only if its
+  caller triggers on `ready_for_review` and the lifecycle check is required for
+  merging. Today the callers trigger on it, but none of shirabe, tsuku, koto
+  and niwa marks the lifecycle check required, so a red ready-posture run there
+  is advisory and the last green run can be a draft-posture one.
+
+#### Chosen: A `posture` input that holds the check at draft posture, and draft posture accepting a Draft ROADMAP root
+
+`lifecycle.yml` gains an optional string input `posture`. Its default, `auto`,
+keeps today's behavior: draft posture on a draft pull request, ready posture
+otherwise. `draft` runs the lifecycle step in draft posture on every pull
+request. The posture-to-mode resolution sits in one small script under
+`scripts/`, shaped like `coordination-gate-refs.sh` and with its own test,
+because shirabe's own caller uses `auto` and would never run the `draft` path in
+CI. The step passes the value and the pull request's draft state to it only
+through `env:` (`POSTURE: ${{ inputs.posture }}`), never written into a `run:`
+script, and runs it from the shirabe checkout at the called ref. The script
+checks the value with `case "$POSTURE" in auto|draft)` before using it and
+fails on anything else. A `workflow_call` string input has no choice type, so
+that `case` is the allowlist, and it lives only in the script; the error it
+prints names the two accepted values and doesn't echo the rejected one. On
+success it prints the mode flag the step passes on. Under both values the step
+writes the posture it ran in to the job summary, not only the log. The
+coordination merge-last gate step is unaffected: it keys on the
+pull request's own draft state and keeps passing `--mode=ready` on a ready
+coordination pull request, whatever `posture` says. Once the drift above has
+landed, the planning repository calls `lifecycle.yml` at `@main`, as its other
+shirabe callers do (the header example's older pinned ref has no `posture`
+input), with the header example's `pull_request` types, `contents: read` and
+`pull-requests: read`, adding `posture: draft` and the same self-hosted
+`runs-on` its `validate-docs.yml` and `pr-body.yml` callers pass.
+
+Draft posture still catches the failure that matters in a planning repository:
+a chain marked finished whose finalization never ran. Eleven of the twelve
+errors measured were real drift of that kind, from chains where a document was
+marked finished or superseded and its finalization or move never ran. What it gives up there, for good, is
+ready posture's error level on the codes draft posture reports as notices: the
+finalization guard on single-pr chains, L02 orphans, L06 unticked criteria,
+L07 design location, and L09 (L10 belongs to `--lifecycle-chain`, which
+`lifecycle.yml` doesn't run, so nothing is lost there). A `Current` DESIGN outside
+`docs/designs/current/` would never fail there. In that repository those
+checks could only fire on chains whose work lands elsewhere and which the pull
+request can't finish, or would need every open plan finished first.
+
+The ROADMAP change is new meaning for draft posture, not an extension of an
+existing case: today no chain member passes at `Draft` under either posture,
+and a Draft PLAN fails L01 in both postures on purpose. Under draft review
+posture, a ROADMAP that roots its own chain at `MultiPrInFlight` passes at
+`Draft` or `Active`; under ready posture it still needs `Active`, and a ROADMAP
+root at `Done` (`MultiPrWorkCompleting`) still expects deletion. The
+passing-state table can't carry it, because a ROADMAP root is multi-pr in
+flight in both postures and the table never sees the review posture. So
+`required_state` takes the review posture and returns a new Draft-or-Active
+passing-state variant for that one row; returning `Draft` alone would be
+disjoint from the member rule's `Active` and give L08 instead of L01. This amends the
+lifecycle discipline design's rule that multi-pr postures don't change with the
+review posture, for this one row. The member rule is unchanged: a ROADMAP that
+a downstream PLAN or PRD chain passes through still has to be `Active`, so a
+Draft ROADMAP with a child PLAN still fails L01 there (with no L08, since the
+two required sets overlap at `Active`), and the orphan rule still credits only
+an Active ROADMAP upstream.
+
+The reason for the row: draft posture exists to pass states that are
+legitimately not final yet. Today a draft pull request that authors a new
+roadmap fails its own draft check, since `/roadmap` writes the document at
+`Draft` and moves it to `Active` only on approval. Product repositories keep
+the roadmap skill's rule that a roadmap is `Active` before it merges, because
+their ready pull requests run ready posture. A planning repository, on draft
+posture throughout, can keep a long-horizon roadmap at `Draft`. The roadmap
+skill's text states that rule for every repository; this design narrows it to
+repositories on the default posture, and the skill's wording is left for a
+follow-up rather than changed here. This is the one part of the work that
+changes the shirabe binary.
+
+Both changes land in one shirabe pull request, built on current `main`. The
+caller lands in the planning repository's own pull request once this
+precondition holds: with the shirabe change on `main` and the 11 drift
+documents fixed, `shirabe validate --lifecycle .` built from shirabe's `main`
+exits 0 on that repository's default branch (the released binary still reports
+the Draft ROADMAP until a release). The Decision 4 job is removed in the same
+change. Landing it then turns no other lane's pull request red: on a pull
+request the check reads the pull request's merge commit, so a pull request
+fails only on drift it brings itself, as long as the default branch keeps
+passing. Two pull requests that each pass alone can still combine into drift
+there; whichever lane caused it fixes the default branch. The shirabe change alone
+changes nothing in that repository, which doesn't call `lifecycle.yml` until
+then.
+
+#### Alternatives Considered
+
+- **Call `lifecycle.yml` as it is.** Rejected: every ready pull request in that
+  repository fails, on documents the pull request doesn't touch and can't
+  finish.
+- **Ready posture with `--allow-untracked-acs`.** Rejected: it clears L06 only.
+  The 12 at-merge L01 from Active single-pr chains are the same mismatch, read
+  through another rule, and the orphan L02 stay errors.
+- **Ready posture scoped to the chains a pull request touches
+  (`--lifecycle-chain` per changed document).** Rejected: in a planning
+  repository, ticking one criterion of an Active single-pr PLAN would then
+  require finishing the chain in that pull request. The at-merge reading is
+  wrong there whatever its scope, and the scoping needs diff plumbing the
+  workflow doesn't have.
+- **Exempt documents by path or by a frontmatter field.** Rejected: a knob any
+  repository could use to hide drift, where the drift found here is real and
+  fixable.
+- **Set the Draft ROADMAP to `Active` instead of changing the check.**
+  Rejected: its owners chose `Draft` deliberately, and `Active` means its
+  feature list is locked and its sequencing approved, which it says it isn't.
+  It would make the document misstate itself to satisfy the check.
+- **Treat the Draft ROADMAP as drift too.** Rejected on the same reading: the
+  roadmap skill's rule that a roadmap is `Active` before merging is kept for a
+  product repository's default branch, which ready posture still enforces. A
+  planning repository's default branch is where unfinished planning lives.
+
+## Decision Outcome
+
+Each product repository commits the same executable script,
+`scripts/setup/shirabe-pre-commit.sh`, and niwa's existing post-clone setup runs
+it in the clone on every apply. The script is a thin guard around
+`shirabe install-hooks`: it reports and stops when shirabe is missing, when the
+hooks directory isn't the clone's own, or when a hook it didn't write is
+present; it installs when there's no hook; and it refreshes a hook shirabe wrote
+only when the body has changed. Because the hooks directory it installs into is
+the clone's shared `<common dir>/hooks`, the clone's worktrees run the hook
+without any setup of their own, and niwa's `worktree_setup` (off by default)
+can stay off.
+
+Nothing in niwa changes, and the hook's delivery needs no shirabe binary change
+or release: contributors run the `install-hooks` they already have. The work is one new script in
+shirabe, the same file in three other public repositories, a README change
+(R1), and a guide section (R12). Product repositories the private overlay adds
+take the same file in their own pull requests. A job in shirabe's reusable
+`lifecycle.yml`, which every public product repository already calls on each
+pull request, compares that repository's copy with shirabe's and fails when they
+differ (Decision 3).
+
+A product repository that doesn't call `lifecycle.yml` yet runs the same
+comparison script from its own every-PR workflow until it does (Decision 4).
+For a planning repository, whose default branch holds plans that are still open,
+`lifecycle.yml` gains a `posture: draft` input, and draft posture accepts a
+ROADMAP that roots its own chain at `Draft`; that repository calls the workflow
+once the drift found on its default branch has been fixed by the lanes that own
+it (Decision 5). That check change is the one shirabe binary change in this
+design.
+
+## Solution Architecture
+
+### Overview
+
+```
+niwa apply / niwa create            (niwa 0.40.0, unchanged)
+  └─ for each repo in the instance
+       └─ run executable files in <clone>/scripts/setup/   (cwd = clone)
+            └─ shirabe-pre-commit.sh   (present only in product repos)
+                 ├─ classify: shirabe? hooks dir? existing pre-commit?
+                 └─ shirabe install-hooks [--force]   (unchanged binary)
+                      └─ writes <common dir>/hooks/pre-commit
+                           └─ runs at commit time in the clone and its worktrees
+```
+
+### Components
+
+- **`scripts/setup/shirabe-pre-commit.sh`**, mode 0755, in shirabe, tsuku, koto,
+  niwa and each product repository the private overlay adds. Byte-identical
+  everywhere. Bash, `#!/usr/bin/env bash`, `set -euo pipefail`.
+- **`shirabe install-hooks`**, unchanged. It writes the hook into the directory
+  `git rev-parse --git-path hooks` names and preserves an existing hook unless
+  given `--force`.
+- **The script's test**, a `_test.sh` file under shirabe's `scripts/`, named by
+  shirabe's existing script-test convention. It lives outside `scripts/setup/`
+  on purpose: niwa runs every executable file in that directory, a test
+  included.
+- **README** "Requirements" and "Local install" sections (R1), and the contract
+  guide's "Installing the local hook" section (R12), both in shirabe.
+- **The copy comparison**, a job in shirabe's reusable `lifecycle.yml`. In the
+  calling repository it compares `scripts/setup/shirabe-pre-commit.sh`, when
+  present, with the same path in the shirabe checkout at the called ref, and
+  fails with the restore command when they differ.
+- **The interim comparison**, a job in a not-yet-adopting repository's own
+  every-PR workflow that checks out shirabe at `main` and runs
+  `scripts/check-setup-script-copy.sh`; removed when that repository's
+  `lifecycle.yml` caller lands (Decision 4).
+- **The `posture` input** of `lifecycle.yml`: `auto` (default) or `draft`. With
+  `draft`, the lifecycle step never passes `--mode=ready`.
+- **Draft ROADMAP under draft posture**, in `crates/shirabe-validate`: a ROADMAP
+  root at `Draft` passes L01 under draft review posture and still fails under
+  ready posture.
+
+### Key Interfaces
+
+**What niwa gives the script.** Working directory: the clone root. Environment:
+the `niwa` process's environment, plus `NIWA_INSTANCE_ROOT`, plus
+`NIWA_SETUP_TERMINAL=1` when an interactive apply has a terminal. The script
+reads none of the `NIWA_*` variables. niwa prefixes each output line with
+`[<repo>/<script>]`, so the script never prints the repository name.
+
+**What the script prints.** At most one line per run, on stdout:
+
+| Case | Line | Exit |
+|------|------|------|
+| shirabe not on PATH | `shirabe not on PATH; pre-commit hook not installed (install it with: tsuku install tsukumogami/shirabe)` | 0 |
+| hooks dir outside the clone | `hooks directory <path> is not this clone's own hooks directory; shirabe pre-commit hook not installed` | 0 |
+| foreign hook | `a pre-commit hook is already present; shirabe pre-commit hook not installed` | 0 |
+| installed | `installed shirabe pre-commit hook` | 0 |
+| refreshed | `refreshed shirabe pre-commit hook` | 0 |
+| current | (nothing) | 0 |
+| install error | `install-hooks`' own stderr | non-zero |
+
+**The script's shape.** This sketch is normative for the order of the checks,
+not for every line:
+
+```bash
+#!/usr/bin/env bash
+# Installs shirabe's pre-commit hook in this clone. niwa runs it during apply.
+set -euo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+
+top=$(git rev-parse --show-toplevel)
+bin=$(command -v shirabe 2>/dev/null || true)
+case "$bin" in
+  /*) bindir=$(cd "$(dirname "$bin")" && pwd -P) ;;
+  *) bindir="" ;;
+esac
+case "$bindir/" in
+  /|"$top"/*) bin="" ;;
+esac
+if [ -z "$bin" ]; then
+  echo "shirabe not on PATH; pre-commit hook not installed (install it with: tsuku install tsukumogami/shirabe)"
+  exit 0
+fi
+
+hooks=$(git rev-parse --path-format=absolute --git-path hooks)
+common=$(git rev-parse --path-format=absolute --git-common-dir)
+if [ "$hooks" != "$common/hooks" ] || [ -L "$hooks" ]; then
+  echo "hooks directory $hooks is not this clone's own hooks directory; shirabe pre-commit hook not installed"
+  exit 0
+fi
+
+header='# shirabe pre-commit hook -- generated by `shirabe install-hooks`.'
+hook="$hooks/pre-commit"
+if [ -L "$hook" ] || { [ -e "$hook" ] && { [ ! -f "$hook" ] || ! grep -qxF "$header" "$hook"; }; }; then
+  echo "a pre-commit hook is already present; shirabe pre-commit hook not installed"
+  exit 0
+fi
+
+if [ ! -e "$hook" ]; then
+  "$bin" install-hooks >/dev/null
+  echo "installed shirabe pre-commit hook"
+  exit 0
+fi
+
+scratch=$(mktemp -d)
+trap 'rm -rf -- "$scratch"' EXIT
+git -C "$scratch" init -q
+git -C "$scratch" config core.hooksPath "$scratch/.git/hooks"
+( cd "$scratch" && "$bin" install-hooks --force >/dev/null )
+if cmp -s "$scratch/.git/hooks/pre-commit" "$hook"; then
+  exit 0
+fi
+"$bin" install-hooks --force >/dev/null
+echo "refreshed shirabe pre-commit hook"
+```
+
+The scratch repository pins its own `core.hooksPath` to its own `.git/hooks`, so
+a global `core.hooksPath` in a config file can't send the reference copy into a
+shared directory. Git config injected through the environment
+(`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`) outranks that pin, but the same
+environment already fails step 2's comparison for the clone, so the scratch step
+is never reached with it. The script must run `"$bin"`, the binary step 1
+checked, never `shirabe` by name.
+
+**Requirements on the runtime.** git 2.31 or later, for
+`rev-parse --path-format`. On an older git the `rev-parse` call fails, and under
+`set -e` that is a setup failure for the repository, visible in apply's output,
+not a silent skip. The script relies on niwa's default `scripts/setup`
+location; the public workspace config sets no `setup_dir` that would replace it.
+
+### Data Flow
+
+There's no persistent state beyond the hook file itself. Each apply reads the
+clone's git configuration and the `pre-commit` entry, decides, and at most
+writes that one file through `install-hooks`. The scratch repository lives only
+for the duration of step 5.
+
+## Implementation Approach
+
+### Phase 1: The script, its test, and the shirabe docs (shirabe)
+
+Add `scripts/setup/shirabe-pre-commit.sh` (mode 0755) and its test. The test
+runs the script in throwaway repositories under `mktemp -d`, with the `shirabe`
+binary built from the same commit on PATH, against each case: no shirabe on PATH;
+a `shirabe` only in an in-clone PATH directory; an in-tree and an absolute
+`core.hooksPath`; a symlinked hooks directory; a symlinked hook pointing at a
+tracked file; a dangling symlink; a regular foreign hook, including one that
+mentions `shirabe install-hooks` without the header line; a framework hook; no
+hook; a stale shirabe hook; a current one, run twice to show the second run is
+silent and leaves the bytes alone; an inherited `GIT_DIR`; and a linked
+worktree, where the clone's hook is the one used. A read-only hooks directory
+case skips itself when the test runs as root, where the permission bit means
+nothing. Each case asserts the output line, the exit status, and the bytes of
+every file involved. Wire the test into the CI workflow that already runs
+shirabe's script tests, and make sure the script passes shirabe's existing
+script checks (for example the `mktemp` guard check).
+
+Update the README (R1): the "Local install" section opens with
+`tsuku install tsukumogami/shirabe`, keeps `install.sh` second, and says the
+pre-commit hook finds `shirabe` on PATH only; the "Requirements" bullet links to
+`#local-install`. Update the contract guide (R12): the "Installing the local
+hook" section gets a paragraph on apply-time delivery that names the canonical
+script path, and one paragraph each on the missing-shirabe, foreign-hook and
+outside-hooks-directory cases. The foreign-hook paragraph also says that
+removing the header line is how a contributor keeps a customized hook, and the
+delivery paragraph states the git 2.31 floor.
+
+Deliverables:
+- `scripts/setup/shirabe-pre-commit.sh`
+- the script's `_test.sh` under `scripts/` and its CI wiring
+- `README.md`, `docs/guides/multi-consumer-cli-contract.md`
+
+### Phase 2: The same script in tsuku, koto and niwa
+
+Commit a byte-identical copy of the script, mode 0755, at
+`scripts/setup/shirabe-pre-commit.sh` in each repository, one pull request per
+repository. No other file changes. The copies are cut from the Phase 1 script
+once its test passes in CI, since any later change to it means re-copying into
+every repository. Each product repository the private overlay
+adds takes the same file in its own pull request, outside this plan's public
+steps.
+
+Deliverables:
+- `scripts/setup/shirabe-pre-commit.sh` in tsuku, koto and niwa
+
+### Phase 3: Demonstration
+
+Run the PRD's acceptance scenarios against an isolated instance:
+`niwa create` of the tsukumogami workspace into a new temporary workspace root,
+with niwa 0.40.0. Until the pull requests merge, a fresh clone holds the default
+branch, so check out each product repository's pull request branch in its clone
+(or copy the script in) and run `niwa apply`. That exercises the same setup
+step a merged script will. For the missing-shirabe case, run `niwa` by absolute
+path with a PATH that leaves shirabe out. Record the hook files' bytes, the
+apply output, and the commit results in the shirabe pull request.
+
+Deliverables:
+- A recorded demonstration in the shirabe pull request description
+
+### Phase 4: The copy comparison (shirabe)
+
+The `setup-script-copy` job in `lifecycle.yml`, `scripts/check-setup-script-copy.sh`
+and its test, wired into `build-and-test.yml` (Decision 3). A product repository
+that doesn't call `lifecycle.yml` yet adds the interim comparison job to its own
+every-PR workflow in its own pull request (Decision 4).
+
+Deliverables:
+- `.github/workflows/lifecycle.yml`, `scripts/check-setup-script-copy.sh` and its
+  `_test.sh`
+- `.github/workflows/build-and-test.yml`, which runs that test
+- `docs/guides/multi-consumer-cli-contract.md`, which says the workflow enforces
+  the byte-for-byte rule
+
+### Phase 5: Planning-repository posture (shirabe)
+
+Add the `posture` input to `lifecycle.yml`, with `auto` as the default and the
+lifecycle step passing `--mode=ready` only under `auto` on a ready pull request.
+Put the posture-to-mode resolution in a script under `scripts/` with a
+`_test.sh` that `build-and-test.yml` runs, so the `draft` and rejection paths
+run in shirabe's CI. In the validator, let a ROADMAP root at `Draft` pass under
+draft review posture; add tests for a Draft ROADMAP under each posture and for
+an Active and a Done one unchanged, and update the lifecycle guide where it
+describes draft posture, the `lifecycle.yml` wiring and L01. Reword
+`scripts/check-setup-script-copy.sh`'s header, and the job comment in
+`lifecycle.yml`, to say a repository may run the script from its own workflow
+(Decision 4). The planning repository's caller, with `posture: draft`, lands in
+that repository's own pull request after its default branch passes draft
+posture, and removes the interim job in the same change.
+
+Deliverables:
+- `.github/workflows/lifecycle.yml`, `crates/shirabe-validate/src/lifecycle.rs`
+  and its tests
+- the posture-resolution script under `scripts/` and its `_test.sh`, wired into
+  `build-and-test.yml`
+- `docs/guides/lifecycle-posture.md`: its posture model, its `lifecycle.yml`
+  bullet and its L01 paragraph
+- a one-line note in `docs/designs/current/DESIGN-lifecycle-draft-ready-discipline.md`
+  pointing at Decision 5
+- `scripts/check-setup-script-copy.sh`, its header only
+
+## Security Considerations
+
+The script runs with the contributor's own privileges on every `niwa apply`,
+`niwa create` and provisioning run, in each product repository clone. It runs
+only `git`, `shirabe`, `cmp`, `grep`, `mktemp`, `rm`, `dirname` and shell
+built-ins, and reaches no network. Its inputs are the clone's git configuration
+and the bytes of `<hooks>/pre-commit`. The hook's bytes are matched and compared,
+never evaluated, and every path reaches a command line as a quoted argument. The
+script unsets the git variables that relocate a repository before it starts, so
+an inherited `GIT_DIR` can't point it or its scratch repository somewhere else.
+
+**Where it can write.** Only through `shirabe install-hooks`, and only when the
+hooks directory is the clone's own `<common dir>/hooks` and isn't itself a
+symlink. A global, local or in-tree `core.hooksPath` and a symlinked hooks
+directory are reported and left alone. A symlinked `pre-commit` is never written
+to, and `--force` never runs against one. A file counts as shirabe-written only
+when it carries shirabe's exact generated header line; any other file, including
+one that merely mentions `shirabe install-hooks`, is a foreign hook and stays
+unchanged. A `pre-commit` that isn't a regular file (a FIFO, a device) is
+treated as foreign before anything reads it. The scratch repository is created
+with `mktemp -d`, pins its own hooks path, and is removed on exit.
+
+The header line proves where a hook came from, not that nobody edited it. A
+contributor who keeps shirabe's header and adds lines of their own loses those
+lines at the next refresh. The contract guide says so: to customize the hook,
+remove the header line, and setup will treat the file as foreign from then on.
+
+**What it trusts.** `scripts/setup/` becomes a live execution path in shirabe,
+tsuku, koto and niwa: whoever can merge a change there runs code on every
+contributor's machine at their next apply. niwa already runs that directory for
+any repository that has one; these four didn't have one before. The protection
+is the review a change gets before it lands on the default branch. tsuku's
+CODEOWNERS names owners for `/scripts/**` and `/.github/workflows/**`, which
+requests their review on a `scripts/setup/` change; shirabe, koto and niwa have
+no CODEOWNERS. None of the four turns on required code-owner review, so a
+CODEOWNERS file only requests reviewers and blocks nothing. A follow-up that
+closes it adds the entry in the three that lack one and turns on "require
+review from Code Owners" in all four. The copies must match the canonical file in shirabe byte for byte,
+and a copy that differs is a defect to revert, not a variant. The lifecycle
+workflow's comparison job (Decision 3) fails any pull request in a repository
+whose copy differs, so a change slipped into one copy shows a red check; it
+blocks the merge only where the lifecycle check is made required, which none of
+the four does today.
+
+**Residual risks.** Two are accepted rather than closed:
+
+- *Whatever branch is checked out runs.* niwa runs the setup scripts in the
+  clone's working tree, so a contributor who checks out an outside pull request
+  in one of these public repositories and runs `niwa apply` runs that branch's
+  `scripts/setup/`. This holds for any repository with a setup directory; this
+  design adds the directory to four. The Phase 3 demonstration applies only
+  branches whose `scripts/setup/` diff has been read.
+- *The hook resolves `shirabe` on PATH at every commit.* The script's
+  absolute-path check guards apply time only. At commit time the unchanged hook
+  runs whatever `shirabe` PATH finds, so a contributor with `.` or an empty
+  entry in PATH who commits in a tree carrying a `shirabe` file runs it. Closing
+  that needs a hook-body change, which is out of scope.
+
+**How it finds shirabe.** The script accepts only an absolute path whose
+physical directory lies outside the clone's work tree, so a relative, empty or
+in-clone PATH entry can't make the clone supply the binary setup runs. It checks
+the directory PATH found, not a symlink's target: a link elsewhere on PATH that
+points into the clone needs write access outside the clone, which is already a
+compromise of the machine. The README points contributors at tsuku first, whose
+recipe (`.tsuku-recipes/shirabe.toml`) verifies the download against the
+release's `checksums.txt`. A compromised shirabe release would run on every
+apply and every commit, so shirabe's release integrity is part of this design's
+trust base, as it already is for the skills.
+
+**What leaves the machine.** Nothing. The script makes no network request,
+writes no telemetry, and prints at most one line, which niwa streams through its
+secret redactor (`RunSetupScripts` in niwa's `internal/workspace/setup.go`).
+Failure output from `install-hooks` can contain absolute paths and stays in the
+local apply output. A failing run also stops any setup script that sorts after
+this one in the same repository; today it is the only one in each of the four
+public repositories.
+
+The hook it installs is the existing body, and its own security model
+(NUL-safe file lists, paths after `--`) is unchanged.
+
+**The posture input.** `posture: draft` weakens only the calling repository's
+own gate, and reads no pull request content. Its value reaches the shell only
+through `env:` and passes the script's `case` allowlist (`auto` or `draft`)
+before any use, so a caller that wires a pull-request-controlled value into it
+gets a failed job, not shell injection into a job holding a read token. Only the
+caller's workflow file sets it, but on `pull_request` a pull request that
+changes its own caller to `posture: draft` gets its own check run in draft
+posture, and the lifecycle check stays green under the same name. The flip
+would let an unfinalized single-pr chain and a Draft ROADMAP root merge
+silently, and every draft-tolerable finding as a notice. Today it adds no new
+bypass in shirabe, tsuku, koto or niwa: none of them marks the lifecycle check
+required or turns on required code-owner review, so a red ready-posture run is
+already advisory there. Two things make the flip visible: the lifecycle step
+writes the posture it ran in to the job summary, and a reviewer sees the
+workflow change in the diff. Closing it is a follow-up: mark the lifecycle
+check required, and put `.github/workflows/` under CODEOWNERS with required
+code-owner review turned on. The
+coordination merge-last gate ignores the input and still runs `--mode=ready`
+on a ready coordination pull request.
+
+**The Draft ROADMAP row.** It lets a ROADMAP that roots its own chain pass at
+`Draft` under draft posture, and nothing else. A ROADMAP that another chain
+passes through still has to be `Active`, and the orphan rule still credits
+only an `Active` ROADMAP upstream, so one Draft ROADMAP can't cover the PLANs
+and orphans under it. Under `auto`, a ready pull request's run still needs the
+root `Active`. That gates the merge only where the caller triggers on
+`ready_for_review` and the lifecycle check is required (Decision 5's
+assumptions); in the four public repositories it isn't required today, so the
+rule is reported, not enforced, and the last green run can be a draft-posture
+one, which now passes a Draft ROADMAP root.
+
+**The interim comparison job.** It adds a trust edge. For as long as it
+exists, the private planning repository's CI runs a script from public
+shirabe's moving `main`, which that repository's owners don't review, on that
+repository's own runner. The job limits what that script can reach through
+the job's token: job-level `permissions: contents: read`,
+`persist-credentials: false` on both checkouts so no token is left in
+`.git/config`, sparse checkouts, no `env:` or secrets in the job, and a host
+workflow with no workflow-level `env:`. It doesn't limit the runner host: on a
+persistent self-hosted runner the script runs as the runner user and can read
+what that user can, as any job there already can. It labels its result
+with the commit it checked out, so the restore command fetches the bytes it
+compared. Pinning the checkout to a commit a bot keeps current would narrow the
+edge further. It isn't worth it here: the job goes away at adoption, and the
+repository already trusts shirabe's `main` more broadly through its
+`validate-docs.yml` and `pr-body.yml` callers, which build and run the whole
+binary from it. Its `lifecycle.yml` caller will do the same.
+
+## Consequences
+
+### Positive
+
+- Contributors get commit-time validation from the apply they already run, on
+  the niwa they already have.
+- No change to niwa, and the hook's delivery waits on no release. The one
+  binary change, the Draft ROADMAP row, reaches callers of `lifecycle.yml` at
+  `main` through the workflow's build from source.
+- The script scopes itself: repositories without it are untouched, and private
+  repositories adopt it by committing the same file.
+- Foreign hooks, global hook directories and symlinked repository hooks are
+  never written to.
+
+### Negative
+
+- Four public copies of one script (plus private ones) are still updated by
+  hand. A change to the canonical script turns each consumer's pull requests red
+  until its copy is updated.
+- In a tsuku or koto clone where the contributor ran `scripts/install-hooks.sh`,
+  the formatter hook wins and shirabe's hook never runs there. Running that
+  script after apply replaces shirabe's hook without a warning.
+- Step 5 runs `shirabe install-hooks` in a scratch repository on every apply in
+  each clone that already has the hook. It's local and fast, but it's work
+  repeated for nothing on most applies.
+- The hook blocks commits that CI would accept for test-fixture paths, and
+  refuses schema-less artifact docs (the PRD's known limitations).
+- niwa runs the script from the clone's working tree. An existing instance
+  picks it up only once each product clone has the commit that adds it; until
+  then that clone runs no setup for the hook.
+- A contributor on git older than 2.31 gets a setup failure for each product
+  repository instead of a hook.
+- A planning repository on `posture: draft` loses ready posture's error level
+  for good on every code draft posture reports as a notice: the single-pr
+  finalization guard, L02 orphans, L06 unticked criteria, L07 design location,
+  and L09. A single-pr chain there can merge unfinished, and only its
+  later `Done` without finalization is caught; a `Current` DESIGN outside
+  `docs/designs/current/` never fails there.
+- The planning repository's lifecycle caller waits on other lanes fixing the
+  drift on its default branch, and its interim comparison job is a second
+  caller of the comparison script until then.
+
+### Mitigations
+
+- Existing instances catch up the next time a contributor updates a clone's
+  default branch and re-applies; nothing has to be done by hand beyond that.
+- The git floor is stated in the contract guide, and the failure names the
+  repository, so the cause is visible.
+- The script changes only when `install-hooks`' interface changes, the contract
+  guide names the canonical copy, and the lifecycle workflow's comparison job
+  names the exact copy command when a copy is stale.
+- The foreign-hook notice tells a tsuku or koto contributor why validation isn't
+  active. Chaining the formatter and validation hooks is separate work in those
+  repositories.
+- If the scratch comparison ever costs too much, a version stamp in the hook
+  would let the script skip it; that would be an `install-hooks` change, outside
+  this design.
+- `git commit --no-verify` remains the escape for fixture edits until the hook's
+  file selection matches CI's.
