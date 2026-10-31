@@ -673,7 +673,8 @@ writes `record/decisions` or `record/reversals`.
   exactly as it does today), an owner-said or dispatcher-said citation in
   effect, or a `skill` or `doc` row citing a repository that can carry a
   grant; it is false for an inferred, `pinned`, unreadable or superseded
-  row and for a `skill` or `doc` row citing any other repository. In this
+  row, for a row whose cited decision has an `asserted` reversal, and for a
+  `skill` or `doc` row citing any other repository. In this
   milestone no script gates a step on it: the pause read enforces pauses
   and go-aheads by their kind and status, and `grants` is what the
   coordinator, and later the authority model, reads before letting a rule
@@ -745,9 +746,9 @@ writes `record/decisions` or `record/reversals`.
   a relayed or inferred row becomes the owner's word once the owner confirms
   it. `--end` refuses a cited row whose decision is in effect
   and names `koto decisions reverse` instead; it accepts a cited row once its
-  decision reads `reversed` (for a pause, by a reversal koto marks
-  `verified`, so an asserted one can't lift a pause by way of its row
-  ending), the reversal is older than this run member's
+  decision reads `reversed` by a reversal koto marks `verified` (so an
+  asserted one can't loosen any row by way of its row ending), the
+  reversal is older than this run member's
   start (the creation time in this session's koto header), and the brief
   this member started with no longer states the row's words (the intake's
   normalized match). So the successor after a reversal always sees the
@@ -787,13 +788,15 @@ writes `record/decisions` or `record/reversals`.
   row with a `decision` Source, it asks the provenance helper for the
   status: a reversed pause holds nothing and a reversed go-ahead lets nothing
   through; an unreadable pause holds and an unreadable go-ahead lets nothing
-  through. A pause is lifted only by a reversal koto marks `verified`: one
-  whose only winning reversal is `asserted` (koto's standing when the
-  original's chain is incomplete) reads superseded in `--rules` but keeps
-  holding, while an asserted reversal of a go-ahead does stop it granting,
-  so an unconfirmed reverser can only ever make the record stricter. Such
-  a pause leaves the way an unreadable one does, by `--end` with
-  `--authorized-by` citing an owner-said decision. It reads the uncited pauses first, then consults at most 16
+  through. A cited row of any kind reads superseded only by a reversal koto
+  marks `verified`. One whose only winning reversal is `asserted` (koto's
+  standing when the reverser sits beyond a broken chain, which a session
+  that isn't the owner can reach by typing a person's handle) stays in
+  force in `--rules` with the reversal shown beside it: a pause keeps
+  holding and a rule keeps restricting, while it stops granting, so a
+  go-ahead lets nothing through. An unconfirmed reverser can only ever make
+  the record stricter. Such a row leaves the way an unreadable one does,
+  by `--end` with `--authorized-by` citing an owner-said decision. It reads the uncited pauses first, then consults at most 16
   cited rows per call, each under the helper's time limit, and stops
   consulting once the call has spent 20 seconds, inside koto's 30-second
   action limit. A cited row it doesn't reach, past either bound or past the
@@ -812,7 +815,8 @@ writes `record/decisions` or `record/reversals`.
   standing came through a supersede hop, and naming any row in force whose
   words match a superseded row's, so a reversed rule recorded again by a
   root shows up as a new ruling beside the old reversal. A list of rows
-  ended under `--authorized-by`. And a report list of inferred rows awaiting
+  an `asserted` reversal names, with its reverser and standing, for a
+  person to settle. A list of rows ended under `--authorized-by`. And a report list of inferred rows awaiting
   confirmation, which this design reports and does not block on: whether an
   inferred rule holds the first dispatch is the handoff-restatement work's
   call. Text that came from koto (a subject, a reason, a link, a handle)
@@ -840,7 +844,7 @@ writes `record/decisions` or `record/reversals`.
   else" with that rule. When a rule decides an action, the coordinator names
   the Standing id in the entry it writes, as it already names decision ids.
   A row `rule_grants` returns false for (an inferred, `pinned`, unreadable
-  or superseded row) can only restrict: it never grants a step, widens what
+  or superseded row, or one an asserted reversal names) can only restrict: it never grants a step, widens what
   a grant allows, or satisfies a check. Only a relayed event row, an
   owner-said or dispatcher-said citation in effect, a `skill` row and a
   `doc` row can do that, and none of them widens what the workspace grants. The intake writes only sentences it
@@ -889,9 +893,11 @@ for a relayed one (`{"entry": "<session> record/entries/<n>"}`, with the
 posted comment's URL when there is one, and the row itself when no entry is
 found), the brief's label and digest for an inferred brief rule, and the
 repository, path and commit (or the pinned label and digest) otherwise.
-`status` is `in-force`, `superseded` (a cited decision reading reversed, with
-`reversal` holding the reverser, time and reason), `unconfirmed` (an
-inferred row) or `unreadable`. `confirm` is true for inferred rows. The
+`status` is `in-force`, `superseded` (a cited decision reversed by a
+reversal koto marks `verified`, with `reversal` holding the reverser, time
+and reason), `unconfirmed` (an inferred row) or `unreadable`. A row whose
+only winning reversal is `asserted` stays `in-force`, with `reversal`
+holding it and its standing and `grants` false. `confirm` is true for inferred rows. The
 compiled brief and the handoff restatement read this object and nothing
 else.
 
@@ -1030,7 +1036,8 @@ superseded rows, the pause read's status check, the koto version-floor
 check that turns all of it on, and the owner-said procedure in
 `SKILL.md`. Its tests run under a scratch koto store, and it
 is done when an owner's reversal reads superseded in a director's and a
-manager's record and grants nothing, a citation koto can't read or a hop
+manager's record and grants nothing, an asserted reversal leaves a cited
+rule restricting and a cited pause holding, a citation koto can't read or a hop
 it can't confirm fails closed, a leg pointing at the writer's own run or
 at a session younger than the writer earns no dispatcher-said, and a
 manager can't reach owner-said except by citing its director's decision.
@@ -1043,7 +1050,7 @@ to implement in its chain walk. With it go the reads Phase 3 needs from
 koto and koto's design doesn't yet name: a decision's status, the entering
 session of a person decision, the frozen chain with each link's kind, the
 winning reversal's standing path, the supersede marker, and ideally one
-read of the chain walk so shirabe keeps none of its own. Three open items
+read of the chain walk so shirabe keeps none of its own. Four open items
 go with them, the only place they could be closed: a verified identity
 for a person decider; dispatch links and requesters koto writes and
 observes itself, which would close the residuals of a message-dispatched
@@ -1183,9 +1190,11 @@ would otherwise hold a cited pause for good. The pause read reads uncited
 pauses first and consults a bounded number of cited rows under a time
 limit; a row it doesn't reach counts as unreadable, so padding can delay
 work but never hides a pause, and a failure names the session at fault.
-A reversal koto marks only `asserted` never lifts a cited pause, though it
-does stop a go-ahead, so a reverser koto couldn't confirm can make the
-record stricter and never looser. An unreadable row can be ended only by
+A reversal koto marks only `asserted` never makes a cited row read
+superseded: a pause keeps holding and a rule keeps restricting, though the
+row stops granting, so a reverser koto couldn't confirm, such as a session
+typing the owner's handle from beyond a broken chain, can make the record
+stricter and never looser. An unreadable row can be ended only by
 citing an owner-said decision naming it,
 the same bar as any owner ruling and no lower, and the next start report
 lists the ending. Standing holds at most 120 `rule` rows and at most 60
