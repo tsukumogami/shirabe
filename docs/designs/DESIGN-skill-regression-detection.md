@@ -552,9 +552,9 @@ these cases there is a trust boundary, not a free action. Each case runs:
   not the caller's; nothing a case or script declares can add to it, so no
   token, `GH_*`, `GITHUB_*`, `SSH_AUTH_SOCK`, cloud or `ANTHROPIC_*` variable
   reaches a case;
-- with `HOME` set to a fresh temporary directory, so `~/.ssh`,
-  `~/.config/gh` and other stored credentials aren't on the paths a script
-  would look in; a determined script can still reach the real home by
+- with `HOME` set to a fresh temporary directory, so SSH keys, the `gh`
+  configuration and other credentials stored under the home directory aren't
+  on the paths a script would look in; a determined script can still reach the real home by
   absolute path, which is why review of `scripts/` stays the control;
 - with a temporary koto state directory, so `koto init` and the engine
   suites never touch the maintainer's real sessions;
