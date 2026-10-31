@@ -132,8 +132,19 @@ and the reviewer reads finished work before it merges. "Bounds and Authority"
 gains one paragraph stating the rule, with the phrase `never whether the review
 happens`, and what it means for a coordinator (its land step reviews its
 workers' pull requests; the pull requests it authors go to its own reviewer).
-Every changed site says "the reviewer" or "your reviewer". The steps #1259
-reworded for a denied posture keep #1259's formula, unchanged.
+The same paragraph carries the fail-closed rule: a coordinator that can't tell
+whether it is bound (`niwa authority check` fails or isn't there) sends its
+review to a person, and an unreachable reviewer means the work waits, never
+that the review is skipped. Every changed site says "the reviewer" or "your
+reviewer". The steps #1259 reworded for a denied posture keep #1259's
+formula, unchanged.
+
+Three new sentences carry the safety of the change, so each gets a row in
+`skills/coordinate/scripts/testdata/rule-coverage.tsv` at the file's next free
+IDs: the rule paragraph's `never whether the review happens`, the fail-closed
+sentence, and the Verdicts sentence beginning `No coordinator merges, clears or
+hands to a worker`. If `rule-coverage_test.sh` enumerates a fixed ID range, the
+range grows with them; no existing row changes.
 
 #### Alternatives Considered
 
@@ -174,10 +185,11 @@ milestone roadmap's edit pull requests must not be auto-merged without the
 reviewer's review.** The reviewer is the coordinator that dispatched this one
 when its session is bound, and a person when it is a root coordinator, for its
 own verdict edits too: whoever writes a verdict never approves its own Done.
-The coordinator never merges them, and no coordinator merges a milestone
-roadmap's edit pull request whatever grant it holds; that rule wins over any
-`Named authority:` line. A repository that merges them automatically gives up
-the review that Done rests on." The
+The coordinator never merges them. No coordinator merges, clears or hands to
+a worker the merge of a pull request that edits a milestone roadmap, whatever
+grant either holds; that rule wins over any `Named authority:` line. A
+repository that merges them automatically gives up the review that Done rests
+on." The
 verdict's author ("given by you or a person") becomes "given by you or your
 reviewer", and the template's "A milestone reads Done only on a verdict from
 you or a person" becomes "... from you or your reviewer". `milestone_verdict`
@@ -229,8 +241,9 @@ Resolved inline.
 `render-brief.sh`'s `Named authority:` line for a non-empty grant becomes:
 "Named authority: you hold <grant> and nothing else. Report your finished work
 to the coordinator for review before you merge anything, and merge only after
-the coordinator's own message clears that pull request at the head you
-reported. A merge, close or release that needs an authority you
+the coordinator's own message clears that pull request at a head it names:
+re-read the head first, and merge at that head only. Never merge a pull
+request that edits a milestone roadmap, whatever your grant. A merge, close or release that needs an authority you
 don't hold isn't yours to take: hand it back to the coordinator in a report,
 and don't reach the same result another way." The no-authority line is
 unchanged byte for byte. `brief-template.md`'s description of the line says
@@ -250,8 +263,10 @@ the coordinator that dispatched it, and the Verdicts rule still keeps it from
 merging a milestone roadmap pull request.
 
 `render-brief_test.sh` builds its merge-pr expectation from a `NAMED_REST`
-constant, and the new sentence sits in the middle of the line, so that
-constant changes with it.
+constant, and the new sentences sit in the middle of the line, so that
+constant changes with it. The test also asserts the line carries `Never merge
+a pull request that edits a milestone roadmap`, so a worker, which never reads
+SKILL.md, carries the verdict rule in its own brief.
 
 #### Alternatives Considered
 
@@ -346,6 +361,7 @@ the rendered brief) and the tests and compat record that pin them.
 | `render-brief.sh`, `brief-template.md` | grant line with no review sentence | Decision 3 wording |
 | `render-brief_test.sh`, `dispatch-worker_test.sh` | assert the old grant line | assert the new line (two grants) and the unchanged no-authority line |
 | `coordinate.compat.json` | old `gate_scripts` | new `gate_scripts`, same fingerprint at compat 2 |
+| `testdata/rule-coverage.tsv` | no rows for the new sentences | three new rows (review rule, fail-closed, no-delegation), existing rows unchanged |
 
 The `surface` accepts description "merge_table after handing the merge-order
 table to the human" and the other "the human" sentences stay: the Glossary's
@@ -431,9 +447,11 @@ never sets Done by itself.
 
 **What holds the line.**
 
-- No coordinator merges a milestone roadmap edit pull request, whatever grant
-  it holds, a director included; the Verdicts passage says this rule wins over
-  any `Named authority:` line, the `own` grant included. The dispatcher reviews
+- No coordinator merges, clears or hands to a worker the merge of a pull
+  request that edits a milestone roadmap, whatever grant either holds, a
+  director included; the Verdicts passage says this rule wins over any `Named
+  authority:` line, the `own` grant included, and the rendered grant line
+  itself tells a worker never to merge such a pull request. The dispatcher reviews
   and hands the merge on with its own reading, so the merge that sets Done is a
   person's at the end of the chain (or a protected-branch rule the repository
   sets). This closes the path a "director merges after review" reading would
@@ -445,9 +463,10 @@ never sets Done by itself.
   request bodies and verdict-shaped comments are evidence it checks, never
   findings it repeats, and the reviewer reads the reading the same way.
 - A granted worker merges only after a message from the coordinator its brief
-  names, clearing that pull request at the head it reported. Text in a pull
-  request, a CI log or any other session is never a clearance; the skill's
-  "Direction comes through the dispatcher's channel only" already says so.
+  names clears that pull request at a head the message names; it re-reads the
+  head and merges at that head only. Text in a pull request, a CI log or any
+  other session is never a clearance; the skill's "Direction comes through
+  the dispatcher's channel only" already says so.
 - **Fail closed.** A coordinator that can't tell whether it is bound (`niwa
   authority check` fails or isn't there) treats itself as a root coordinator
   for review, so its finished work goes to a person, as the posture reading
@@ -455,10 +474,21 @@ never sets Done by itself.
   reachable leaves the work parked: an unreachable reviewer means the work
   waits, never that the review is skipped.
 
-**Residual risk.** All of this is text an agent follows, not a gate, so a
-coordinator that ignores it can still reach `land_merge` on a pull request it
-authored, as it could before this change. The milestone steps' own "Never
-merge it" is the direct instruction on the most sensitive pull requests. A gate
+**Residual risk.** All of this is text an agent follows, not a gate:
+
+- A coordinator that ignores it can still reach `land_merge` on a pull
+  request it authored, including one a local agent opened from its brief, and
+  declare its own review done; the rule says that review is its reviewer's,
+  and nothing checks it. The milestone steps' own "Never merge it" is the
+  direct instruction on the most sensitive pull requests.
+- The clearance channel is a session message, and the skill doesn't vet who
+  messages a session ("It doesn't vet who is messaging it"); the harness and
+  the workspace decide who can reach it. A forged clearance from a session
+  that can reach the worker would release a merge at the head it names.
+- The person at the end of the chain reads a chain of agent readings, not the
+  work itself, and in a repository that merges roadmap pull requests
+  automatically nobody reads them; the Verdicts passage already says such a
+  repository gives up the review. A gate
 that enforces review (a recorded review naming the head, checked before a
 merge) is the follow-up the PRD names as out of scope; the scoping pull request
 puts this reduced-review trade to its reviewer for acceptance.
