@@ -17,7 +17,7 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/lifecycle-posture-mode.XXXXXX")" || {
     echo "mktemp failed" >&2
     exit 1
 }
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 
 PASS=0
 FAIL=0
