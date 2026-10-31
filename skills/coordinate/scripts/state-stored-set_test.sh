@@ -59,6 +59,23 @@ echo "== list =="
 seed "$TWO"
 eq "--list with none of the sections" '{"run":[],"standing":[],"work":[]}' "$(bash "$RS" "${RM[@]}" --list 2>&1)"
 eq "a read writes nothing, and reads nothing on GitHub" "" "$(calls)"
+# A Standing row of a kind this plugin doesn't know, as a newer plugin's row
+# looks to it: --list passes the schema's refusal on (65), not the missing
+# record's 10, so a reader can tell the two apart; a write still refuses 10.
+printf '%s' '[{"standing":"s1","kind":"later-kind","on":"","until":"","what":"a row from a later plugin","owner":"the human","relayed_by":"","set":"2026-09-26T09:00Z"}]' \
+    | koto context add "$SR" record/standing
+SNAP=$(session_snapshot "$SR")
+LIST_OUT=$(bash "$RS" "${RM[@]}" --list 2>"$T/err"); rc=$?
+eq "--list on a record the schema refuses exits 65" 65 "$rc"
+eq "  ... printing nothing on stdout" "" "$LIST_OUT"
+grep -q "doesn't read back" "$T/err" && grep -q 'standing.kind: not one of' "$T/err" \
+    && ok "  ... with the schema's reason on stderr" || bad "  ... with the schema's reason on stderr" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --run cap 3 --by "the human" >/dev/null 2>"$T/err"
+eq "a write (--run cap) against the refused record still exits 10" 10 $?
+eq "  ... writing nothing" "$SNAP" "$(session_snapshot "$SR")"
+LIST_OUT=$(RS_SESSION=coordinate-roadmap-plugin-system-20260926T060000Z bash "$RS" "${RM[@]}" --list 2>"$T/err"); rc=$?
+eq "--list on a session with no record still exits 10" "10 " "$rc $LIST_OUT"
+seed "$TWO"
 
 echo "== Run =="
 bash "$RS" "${W[@]}" --run arguments "--roadmap docs/roadmaps/ROADMAP-plugin-system.md --cap 2" --by "the human" >/dev/null 2>"$T/err"

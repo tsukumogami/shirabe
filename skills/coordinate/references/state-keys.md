@@ -261,6 +261,15 @@ state-stored-set.sh --session S --done <item> [--kind <kind>]
 state-stored-set.sh --session S --list
 ```
 
+`--list` prints the three sections as JSON. On a session with no record it
+exits 10; on a record the schema refuses (a Standing row of a kind this
+plugin doesn't know, as a newer plugin's row looks to it, among others) it
+exits 65 with nothing on stdout and the schema's reason on stderr, so a reader
+can tell a record it can't read from a missing one. A write mode refuses
+either one with 10. `coordinate-open.sh` reads the coordinator row this way:
+a 65 stops a takeover at `failed=takeover_read`, before the fence, and the run
+keeps its driver.
+
 Write each when it happens: the arguments, the cap and your address at your
 first start; a Standing row or a cap when a person's word arrives, wherever it
 arrives (you write it, the person as owner and yourself as relayer); a holding's Work row once its dispatch is sent, which the record step
