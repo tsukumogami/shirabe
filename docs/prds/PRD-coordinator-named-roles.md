@@ -195,8 +195,17 @@ brief a director writes to dispatch a manager.
   step, and sends the pull requests it authors (its verdict and reopen edits
   included) to its reviewer. The director's list says it dispatches and briefs
   managers, is the reviewer of each manager it dispatched, reads a manager's
-  finished work itself and sends its own reading up (shirabe#1449's R8). The
-  two lists may share items both roles owe, such as briefing a successor.
+  finished work itself and sends its own reading up (shirabe#1449's R8). It
+  also says what that reading is for. The director keeps in view the work all
+  of its managers push, and its review of a manager's pull request is for
+  alignment: whether the work fits the other lanes and the direction of the
+  effort. It isn't a correctness review, which the manager's own land-step
+  review already owns. When work in two or more lanes heads in diverging or
+  conflicting directions, the director says so to the managers involved and in
+  its own reports. And the director's list says it decides, within the worker
+  budget and the lanes it has been given, which of its lanes advance at any
+  time. The two lists may share items both roles owe, such as briefing a
+  successor.
   Neither list names a grant, a merge authority or who settles a step.
 - **R11. The Glossary defines the roles.** `SKILL.md`'s Glossary entry for
   Coordinator defines it as a session running this skill in either role, and
@@ -231,9 +240,13 @@ brief a director writes to dispatch a manager.
   grant a worker or successor is dispatched holding, and whoever settles a
   step all come out the same for either role. A director with no merge grant
   still may not merge, and a manager holding one still merges only after its
-  reviewer's review. No text this change adds says a role holds, needs or
-  implies a grant, a merge authority, a close or release authority, or the
-  right to settle a step.
+  reviewer's review. The director's allocation duty (R10) is an expectation,
+  but what it allocates is an allowance: the worker budget, the lanes it's
+  told to move, and whether it may raise or lower another coordinator's cap
+  come from the workspace's authority configuration and the start's settings,
+  never from the role. No text this change adds says a role holds, needs or
+  implies a grant, a merge authority, a close or release authority, a cap or
+  the right to change one, or the right to settle a step.
 - **R15. Where this meets the dispatcher-review requirements.** The role and the
   dispatch relationship are separate: a manager or a director can be root
   (its reviewer is a person) or bound (its reviewer is the coordinator that
@@ -430,6 +443,22 @@ only one role is addressed to "the coordinator"):
 - [ ] `SKILL.md` has one manager expectation list and one director expectation
   list, each containing every item R10 names for that role, and neither list
   contains `grant`, `merge authority`, `may merge` or `settle`.
+- [ ] The director's list has an alignment item, and a reviewer finds all three
+  of its parts: its scope (the work all of the director's managers push,
+  across lanes), its purpose (alignment with the other lanes and the effort's
+  direction, not correctness), and its call-out (diverging or conflicting work
+  is named to the managers involved and in the director's reports). A list
+  that says only that the director reviews its managers' work, or that frames
+  the review as checking correctness, fails.
+- [ ] In the director start above, when the two managers' pull requests
+  conflict (for example, each changes the same skill passage in a way the
+  other can't live with), the director's review of the later one names the
+  other lane's pull request and the conflict, and the director's next report
+  names it too. A review that judges each pull request only on its own
+  correctness fails.
+- [ ] The director's list has an allocation item saying the director decides
+  which of its lanes advance within the worker budget and lanes it's given.
+  The item names no cap value and doesn't say the director may change a cap.
 - [ ] `references/state-keys.md` and `SKILL.md` don't describe the `reports-to`
   value with the word `role`, and an existing `reports-to` row (`the human`)
   still passes the record's schema check.
@@ -456,10 +485,11 @@ Allowances and the dispatcher-review requirements:
 
 - [ ] For the same workspace and session, the posture read and `niwa authority
   check` print the same result whether the run is recorded as `manager` or
-  `director`, and the grant a successor brief requests is the same for either.
+  `director`, including whether it may change another coordinator's cap, and
+  the grant a successor brief requests is the same for either.
 - [ ] The diff's added lines don't say that a role holds, needs or implies a
-  grant, a merge, close or release authority, or the right to settle a step (a
-  reviewer reads each added sentence naming `manager` or `director`).
+  grant, a merge, close or release authority, a cap or the right to change
+  one, or the right to settle a step (a reviewer reads each added sentence naming `manager` or `director`).
 - [ ] `SKILL.md` still has exactly one `**The reviewer** --` Glossary entry,
   still contains `never whether the review happens`, `once its review is done`,
   `your own reading` and `without the reviewer's review`, and the director's expectation list says the director
@@ -542,6 +572,23 @@ names two as questions for the design.
   role already changed. A lineage with no recorded role isn't a change, so the
   lineages started before this change aren't blocked. The dispatcher reviewing
   this document is where this is confirmed or reversed.
+- **Allocating across lanes. Decided: the duty is an expectation, the budget
+  an allowance.** The workspace owner's split is that what a session is
+  expected to do is fixed in the skill and its roles, while what it's allowed
+  to do is configured per workspace and host. Deciding which lanes advance is
+  something every director owes, whatever workspace it runs in, so it sits in
+  the director's expectation list (R10). How many parallel workers it has to
+  spread, which lanes it's told to move, and whether it may raise or lower a
+  manager's cap differ from one workspace or host to the next, so they are
+  allowances, read from the authority configuration and the start's settings
+  (R14). Alternative: make the whole of allocation an allowance. Rejected
+  because a director with no allocation duty in its list could leave lanes
+  idle or overrun with nothing in the skill saying it owes the choice; the
+  duty is what the role is for. Alternative: make the budget part of the role.
+  Rejected because it would tie a number that depends on the host to the
+  role's name, which is the coupling R14 forbids. How the director carries out
+  its choice (adjusting caps where it's allowed, asking whoever holds that
+  right where it isn't) is the design's.
 - **No default role.** Decided: an unnamed role is asked for (R2). Alternative:
   default to `manager`, the common case. Rejected because a default would let a
   successor of a director's lineage, started without the setting, report as a
