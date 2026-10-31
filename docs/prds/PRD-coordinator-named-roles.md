@@ -161,8 +161,10 @@ brief a director writes to dispatch a manager.
 - **R6. Reports name the role.** Every report names the record (its session
   name and host repository) as the skill already requires, and the role is
   named on that same line. In the run's first report, at reconcile, that line
-  is within the report's first five lines. A report names its own role with the
-  word `manager` or `director` and no other word for it.
+  is within the report's first five lines. The skill documents that line's
+  fixed wording, with the role in one fixed place. A report, in that line and
+  anywhere else in it, names its own role with the word `manager` or
+  `director` and no other word for it.
 - **R7. A coordinator's brief carries the role on one rendered line.** A
   successor brief names the role the record holds, and a lane brief names
   `manager`, each on one line the brief renderer writes from the role it's
@@ -281,8 +283,8 @@ brief a director writes to dispatch a manager.
 ## Acceptance Criteria
 
 A grep below that looks for a phrase of more than one word runs over the text
-with line breaks replaced by spaces (`tr '\n' ' '`), so a phrase wrapped across
-two lines is still found; the anchored `grep -c '^...'` counts run over the
+with every run of whitespace squeezed to one space (`tr -s '[:space:]' ' '`),
+so a phrase wrapped across two indented lines is still found; the anchored `grep -c '^...'` counts run over the
 file as it is. "The record line" is a report's line naming the record's session
 name and host repository (R6), and "its remainder" is that line with the
 session name, the host repository and any session address removed.
@@ -313,9 +315,12 @@ role in its first report and in its record):
   line equals that wording with the session name, host repository and address
   filled in from the record and `manager` or `director` in the role's place.
   A line with any other word in it, such as "lead", "orchestrator" or
-  "director (lanes)", fails.
+  "director (lanes)", fails. Outside the record line, a reviewer reads every
+  match `grep -oiwE 'lead|leader|top|top-level|head|parent|orchestrator|lane
+  coordinators?|lane owner'` prints over the whole report and finds none
+  naming the reporting session's own role.
 - [ ] A later report of each run (after its first landed or handed-over unit)
-  carries the role on its record line.
+  has a record line that meets the same allowlist.
 - [ ] A start with the role setting `lead` is refused before a session exists:
   no koto session for the scope is created, and the refusal names the two
   allowed values.
@@ -342,7 +347,9 @@ successor, whose brief and first report name the same role, with no prose
 paragraph describing the role from scratch):
 
 - [ ] The brief renderer, given role `director` for a successor brief, writes
-  exactly one line naming the role, and that line contains `director`; given
+  exactly one role line (the line the renderer writes from the role it's
+  given; other text that happens to contain the word, such as "workspace
+  manager", is not a role line), and that line contains `director`; given
   `manager`, the line contains `manager`. A renderer test asserts both, and
   asserts that a worker brief contains no role line and renders byte-for-byte
   as it did before the change.
@@ -405,8 +412,8 @@ only one role is addressed to "the coordinator"):
   or "not a duty", including every sentence that dispatches a worker, lands a
   worker pull request, gives a milestone verdict, dispatches a coordinator or
   hands a successor a grant, and finds each correctly classed.
-- [ ] `grep -niE 'lane coordinator|(top-level|top|lead|head|parent)
-  coordinator|top session|head of effort'` over the three file sets finds
+- [ ] `grep -niE 'lane coordinators?|(top-level|top|lead|head|parent)
+  (coordinators?|sessions?)|head of effort'` over the three file sets finds
   nothing.
 - [ ] `SKILL.md` has one manager expectation list and one director expectation
   list, each containing every item R10 names for that role, and neither list
@@ -453,8 +460,8 @@ Checks and content:
   finds the sentence in the same files before and after the change.
 - [ ] The diff's added lines contain no word that
   `skills/writing-style/rules.yaml` bans (checked against that file, not a
-  copied list), no emoji, no `Co-Authored-By`, and no path or name from a
-  private repository.
+  copied list), no emoji, no `Co-Authored-By`, no path or name from a
+  private repository, no session name and no internal figure.
 
 ## Out of Scope
 
