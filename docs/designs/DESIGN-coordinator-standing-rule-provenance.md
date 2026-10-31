@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 problem: |
   A coordinator's Standing rows hold only five kinds of person-owned event,
   with a free-text owner and relayer, and end by deletion; the process rules
@@ -39,7 +39,7 @@ upstream: docs/briefs/BRIEF-coordinator-standing-rule-provenance.md
 
 ## Status
 
-Proposed
+Planned
 
 ## Context and Problem Statement
 
