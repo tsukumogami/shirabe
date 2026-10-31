@@ -17,6 +17,7 @@
 #   state-stored-set.sh --session S --work ITEM --kind holding|local-agent|decision|follow-up --who W --next TEXT
 #   state-stored-set.sh --session S --done ITEM [--kind K]
 #   state-stored-set.sh --session S --list
+#   state-stored-set.sh --session S --rules [--id s<n>]...
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                                  (tests)
 #
@@ -94,7 +95,22 @@
 # lists it as a unit from then on (shirabe#607).
 # --end removes a Standing row (a resume ends a pause; a go-ahead or approval
 # ends when used; an answer when withdrawn; an assignment once its work is
-# done).
+# done; a rule once it no longer binds).
+#
+# A `rule` row is a rule that binds the coordinator until it is ended: no On,
+# no Until, a blank Owner and Relayed by, and a Source saying where its words
+# come from (state-schema.jq's source_problem lists the five forms; the other
+# kinds may carry one too). Nothing here writes one yet. A rule row holds
+# nothing: pick, the dispatch check, the land check and the merge read pauses,
+# go-aheads and assignments only, whatever a rule's What says.
+# --rules prints one JSON object per Standing row, in record order, with its
+# class worked out from its Source (state-schema.jq's rule_view: standing,
+# kind, class, what, owner, said, set, pointer, words, source, status,
+# reversal, confirm); a relayed row's pointer names the entry its --standing
+# wrote, read from the record's entries. With --id, only those rows; an id
+# the record has no row for is refused (65, naming it) before anything is
+# printed. A record that breaks a rule of state-schema.jq is refused (65), the
+# rule on stderr naming the row (`standing.s3: ...`).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -159,6 +175,8 @@ PROG=state-stored-set
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
+# --rules' --id values, one per line.
+RIDS=
 SKIP_CHECKS=0
 # --host pairs, one `key<TAB>value` line each.
 HOSTKV=
@@ -185,6 +203,8 @@ while [ $# -gt 0 ]; do
         --work) [ $# -ge 2 ] || usage; setmode work; ITEM=$2; shift 2 ;;
         --done) [ $# -ge 2 ] || usage; setmode done; ITEM=$2; shift 2 ;;
         --list) setmode list; shift ;;
+        --rules) setmode rules; shift ;;
+        --id) [ $# -ge 2 ] || usage; RIDS="$RIDS$2"$'\n'; shift 2 ;;
         --by) [ $# -ge 2 ] || usage; BY=$2; shift 2 ;;
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
         --owner) [ $# -ge 2 ] || usage; OWNER=$2; shift 2 ;;
@@ -212,8 +232,16 @@ case "$MODE" in
     work) [ -n "$KIND" ] && [ -n "$WHO" ] && [ -n "$NEXT" ] && [ -z "$BY$WHAT$OWNER$RELAYED$ON$UNTIL" ] || usage ;;
     done) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$ON$UNTIL" ] || usage ;;
     list) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    rules) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
+           while IFS= read -r RID; do
+               [ -z "$RID" ] || [[ $RID =~ ^s[1-9][0-9]*$ ]] || { echo "$PROG: --id takes a Standing id, s<n>" >&2; exit 64; }
+           done <<EOF
+$RIDS
+EOF
+           ;;
     *) usage ;;
 esac
+[ -z "$RIDS" ] || [ "$MODE" = rules ] || usage
 . "$HERE/state-common.sh"
 lib_facts
 if [ "$MODE" = host ]; then
@@ -316,8 +344,15 @@ trap 'rm -rf "$WD"' EXIT
 # write reads the whole record it writes back (shirabe#1315).
 FIELDS=
 [ "$MODE" = list ] && FIELDS="run standing work"
+[ "$MODE" = rules ] && FIELDS="standing"
 rs_record "$WD/parsed.json" "$FIELDS"
-case $? in
+RC=$?
+# --rules is a read of the rows themselves, so a row that breaks a rule is
+# its refusal, naming the row, not a record that isn't there.
+if [ "$RC" = 65 ] && [ "$MODE" = rules ]; then
+    echo "$PROG: refused: $(lib_scrub < "$WD/parsed.json.err" | head -3)" >&2; exit 65
+fi
+case $RC in
     0) ;;
     65) echo "$PROG: refused: $(lib_record_name) doesn't read back as a $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
@@ -327,6 +362,26 @@ esac
 
 if [ "$MODE" = list ]; then
     jq -c -L "$HERE" 'include "state-schema"; state_list' "$WD/parsed.json"
+    exit 0
+fi
+if [ "$MODE" = rules ]; then
+    printf '%s' "$RIDS" | jq -R -s -c 'split("\n") | map(select(. != "")) | unique' > "$WD/ids.json" || lib_die2 "jq failed"
+    MISSING=$(jq -r --slurpfile ids "$WD/ids.json" '[(.standing // [])[] | .standing] as $have
+        | [$ids[0][] | select(. as $i | $have | index($i) | not)] | join(", ")' "$WD/parsed.json") || lib_die2 "jq failed"
+    [ -z "$MISSING" ] || { echo "$PROG: refused: no Standing row $MISSING" >&2; exit 65; }
+    # A relayed row points at the entry its --standing wrote, so the entries
+    # are read only when the record holds such a row.
+    echo '[]' > "$WD/entries.json"
+    if jq -e 'any((.standing // [])[]; (.source // "") == "")' "$WD/parsed.json" > /dev/null; then
+        if [ "$OVERRIDE" = 1 ]; then
+            bash "$HERE/state-entry.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --list > "$WD/entries.json" 2> "$WD/list.err"
+        else
+            bash "$HERE/state-entry.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/list.err"
+        fi || lib_die2 "cannot read the record's entries: $(lib_scrub < "$WD/list.err")"
+    fi
+    jq -c -L "$HERE" --arg s "${RS_SESSION:-$SESSION}" --slurpfile e "$WD/entries.json" --slurpfile ids "$WD/ids.json" 'include "state-schema";
+        (.standing // [])[] | select(($ids[0] | length) == 0 or (.standing as $i | $ids[0] | index($i)) != null)
+        | rule_view($s; $e[0])' "$WD/parsed.json" || lib_die2 "jq failed"
     exit 0
 fi
 

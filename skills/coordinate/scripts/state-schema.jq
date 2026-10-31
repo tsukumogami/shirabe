@@ -216,9 +216,12 @@ def check_holds($h; $private):
 #            last four are the crash set (see run_keys below).
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
-# Standing, the events only a person owns that still bind the run:
+# Standing, the events only a person owns that still bind the run, and the
+# rules that bind the coordinator until they are ended:
 #   Standing s<n>, unique
-#   Kind     pause | go-ahead | approval | answer | assignment
+#   Kind     pause | go-ahead | approval | answer | assignment | rule. A rule
+#            row holds nothing: no reader of pauses, go-aheads or assignments
+#            reads it, whatever its What says
 #   On       a pause's or go-ahead's scope: `all` (a pause only: the whole
 #            coordinator) or one unit as pick lists it (`Feature 2`, `ED1`,
 #            `#12`, `owner/repo#12`); required on a pause, optional on a
@@ -230,9 +233,15 @@ def check_holds($h; $private):
 #            `tag owner/repo <tag>`; required on a pause, blank otherwise
 #            (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1)
 #   What     what it says, one line
-#   Owner    who decided it
-#   Relayed by  who carried it to this coordinator, blank when nobody did
+#   Owner    who decided it; blank on a rule row, whose Source says who
+#   Relayed by  who carried it to this coordinator, blank when nobody did;
+#            blank on a rule row
 #   Set      when, YYYY-MM-DDTHH:MMZ
+#   Source   where the row's words come from (source_problem below): required
+#            on a rule row, optional on the other kinds, and left out of the
+#            normal form when blank, so a row written before the column
+#            existed reads and is written back byte for byte
+#            (docs/designs/DESIGN-coordinator-standing-rule-provenance.md)
 # Work, a next step for each holding and a row for work no holding covers:
 #   Item     a holding's Unit, or what the work is; unique within its Kind
 #   Kind     holding | local-agent | decision (a unit pick parked on a
@@ -271,7 +280,8 @@ def check_holds($h; $private):
 def state_secs: [
   {key: "run", title: "Run", cols: [["key", "Key"], ["value", "Value"], ["set_by", "Set by"], ["set", "Set"]]},
   {key: "standing", title: "Standing", cols: [["standing", "Standing"], ["kind", "Kind"], ["on", "On"],
-    ["until", "Until"], ["what", "What"], ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
+    ["until", "Until"], ["what", "What"], ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"],
+    ["source", "Source"]]},
   {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
     ["wakes", "Wakes"], ["updated", "Updated"]]}];
 # store: the legacy row. The record's store is always the coordinator's
@@ -289,7 +299,50 @@ def state_secs: [
 #                  coordinator reports up to, and their messaging address
 def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "store", "rules", "briefs", "friction", "reports-to"];
 def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
-def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
+def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment", "rule"];
+# A Standing row's Source, where its words come from, in one of five forms
+# (docs/designs/DESIGN-coordinator-standing-rule-provenance.md):
+#   decision <session> <id>               a koto decision: <session> a session
+#                                         name, <id> 12 digits
+#   skill <owner/repo> <path> <commit>    a line of a skill's text
+#   doc <owner/repo> <path> <commit>      a document a public host can name
+#                                         (<path> relative, with no `.` or
+#                                         `..` segment; <commit> 40 hex)
+#   pinned <label> sha256:<64 hex>        a file the Run section pins as
+#                                         `rules <label>` or `briefs <label>`
+#   inferred [brief <label> sha256:<64 hex>]
+#                                         the coordinator's own reading, with
+#                                         the brief it read it from
+# source_problem: null for a Source in one of them, or what is wrong with it.
+def re_source_path: "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$";
+def re_digest: "^sha256:[0-9a-f]{64}$";
+def source_problem:
+  split(" ") as $p
+  | ($p | length) as $n
+  | def label_digest($l; $d):
+      if ($l | test(re_label) | not) then "names a label that isn't letters, digits, `.`, `_` and `-`"
+      elif ($d | test(re_digest) | not) then "names a digest that isn't sha256:<64 hex>"
+      else null end;
+    if $p[0] == "decision" then
+      (if $n != 3 then "is not `decision <session> <12-digit id>`"
+       elif ($p[1] | test(re_topic) | not) then "names a session that isn't a session name: letters, digits, `.`, `_` and `-`, starting with a letter or a digit"
+       elif ($p[2] | test("^[0-9]{12}$") | not) then "names a decision id that isn't 12 digits"
+       else null end)
+    elif $p[0] == "skill" or $p[0] == "doc" then
+      (if $n != 4 then "is not `\($p[0]) <owner/repo> <path> <40-hex commit>`"
+       elif ($p[1] | test(re_repo) | not) or any($p[1] | split("/")[]; . == "." or . == "..") then "names a repository that isn't owner/repo"
+       elif ($p[2] | test(re_source_path) | not) or any($p[2] | split("/")[]; . == "." or . == "..") then "names a path that isn't relative, or that has a `.` or `..` segment"
+       elif ($p[3] | test("^[0-9a-f]{40}$") | not) then "names a commit that isn't 40 hex"
+       else null end)
+    elif $p[0] == "pinned" then
+      (if $n != 3 then "is not `pinned <label> sha256:<64 hex>`" else label_digest($p[1]; $p[2]) end)
+    elif $p[0] == "inferred" then
+      (if $n == 1 then null
+       elif $n != 4 or $p[1] != "brief" then "is not `inferred` or `inferred brief <label> sha256:<64 hex>`"
+       else label_digest($p[2]; $p[3]) end)
+    else "is not one of `decision <session> <id>`, `skill <owner/repo> <path> <commit>`, `doc <owner/repo> <path> <commit>`, `pinned <label> sha256:<64 hex>` or `inferred [brief <label> sha256:<64 hex>]`" end;
+# The repository a `skill` or `doc` Source names, or nothing.
+def source_repo: (.source // "") | split(" ") | select(.[0] == "skill" or .[0] == "doc") | .[1] // empty;
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
 def work_kinds: ["holding", "local-agent", "decision", "follow-up", "verdict-owed", "rework"];
@@ -322,7 +375,7 @@ def check_scell($sk; $key; $private):
     elif $v | test("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]") then refuse("\($n): a control character")
     elif ($v | test("[\r\n]")) then refuse("\($n): a line break")
     elif $v == "" and $sk == "work" and $key == "wakes" then "0"
-    elif $v == "" and ($sk != "standing" or ($key != "relayed_by" and $key != "on" and $key != "until")) then refuse("\($n): empty")
+    elif $v == "" and ($sk != "standing" or ($key != "relayed_by" and $key != "on" and $key != "until" and $key != "source")) then refuse("\($n): empty")
     elif $v == "" then $v
     elif ($key == "set" or $key == "updated") then (if test(re_time_min) then . else refuse("\($n): not YYYY-MM-DDTHH:MMZ") end)
     elif $sk == "run" and $key == "key" then (if any(run_keys[]; . == $v) then . else refuse("run.key: not one of \(run_keys | join(", "))") end)
@@ -347,7 +400,11 @@ def check_srow($sec; $private):
   | if type != "object" then refuse("\($sec.key): a row that isn't an object") else . end
   | ([keys[] | . as $k | select(any($sec.cols[]; .[0] == $k) | not)]) as $extra
   | if ($extra | length) > 0 then refuse("\($sec.key).\($extra[0]): not a column of this section") else . end
-  | reduce $sec.cols[] as $c ({}; .[$c[0]] = (($row[$c[0]] // "") | check_scell($sec.key; $c[0]; $private)))
+  # A rule row's Owner is blank (check_srow refuses one that isn't, naming the
+  # row); every other row's is required.
+  | reduce $sec.cols[] as $c ({}; .[$c[0]] = (($row[$c[0]] // "") as $v
+      | if $sec.key == "standing" and $c[0] == "owner" and $v == "" and $row.kind == "rule" then $v
+        else $v | check_scell($sec.key; $c[0]; $private) end))
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" or .key == "pending" then (.value | check_worker) as $_ | .
@@ -380,7 +437,13 @@ def check_srow($sec; $private):
        elif (.next | rework_problem) != null then refuse("work.next: a rework row's text is one paragraph of at most 600 bytes with no URL or markdown link: \(.next | rework_problem)")
        else . end)
     elif $sec.key == "standing" then
-      (if .kind == "pause" then
+      (if .kind == "rule" then
+         (if .owner != "" then refuse("standing.\(.standing): a rule row's Owner is blank; its Source says who said it")
+          elif .relayed_by != "" then refuse("standing.\(.standing): a rule row's Relayed by is blank; its Source says where it came from")
+          elif .on != "" or .until != "" then refuse("standing.\(.standing): a rule row has no On and no Until; it binds until it is ended")
+          elif .source == "" then refuse("standing.\(.standing): a rule row names its Source")
+          else . end)
+       elif .kind == "pause" then
          (if .on == "" or .until == "" then refuse("standing.\(.standing): a pause names its On and its Until") else . end)
        elif .kind == "go-ahead" then
          (if .until != "" then refuse("standing.\(.standing): a go-ahead has no Until; it ends when used")
@@ -392,6 +455,15 @@ def check_srow($sec; $private):
           else . end)
        elif .on != "" or .until != "" then refuse("standing.\(.standing): only a pause, a go-ahead or an assignment has an On, and only a pause an Until")
        else . end)
+      # The Source, on any kind that has one, in one of its five forms and
+      # naming no repository the host can't show; a blank one is left out of
+      # the normal form, so a row written before the column reads as written.
+      | (if .source == "" then del(.source)
+         else (.source | source_problem) as $why
+           | if $why != null then refuse("standing.\(.standing): the Source \($why)") else . end
+           | ([source_repo as $sr | $private[] as $p | select($sr | names_repo($p)) | $p] | first) as $hit
+           | if $hit != null then refuse("standing.\(.standing): the Source names \($hit), a repository that isn't public") else . end
+         end)
     else . end;
 
 def check_state($sec; $rows; $private):
@@ -416,6 +488,72 @@ def check_state($sec; $rows; $private):
         (if ($r | map([.item, .kind]) | unique | length) != ($r | length) then refuse("work: an item is listed twice under one kind") else $r end)
       end
   end;
+
+# rule_class: a Standing row's class, worked out at read from its Source; no
+# column stores it, so nothing can disagree with where the words came from.
+#   relayed     no Source: an event a person owns, carried here by --standing
+#   inferred    `inferred`, with or without its brief
+#   skill-says  `skill ...`
+#   doc         `doc ...`
+#   charter     `pinned ...`
+#   unreadable  `decision ...`: what koto recorded about the decision isn't
+#               read yet, so the row is neither the owner's word nor anyone
+#               else's until it is
+# rule_status, over a class: in-force, unconfirmed (an inferred row, waiting
+# for a person to confirm it) or unreadable.
+def rule_class:
+  ((.source // "") | split(" ")[0] // "") as $f
+  | if $f == "" then "relayed"
+    elif $f == "inferred" then "inferred"
+    elif $f == "skill" then "skill-says"
+    elif $f == "doc" then "doc"
+    elif $f == "pinned" then "charter"
+    else "unreadable" end;
+def rule_status:
+  if . == "inferred" then "unconfirmed" elif . == "unreadable" then "unreadable" else "in-force" end;
+
+# rule_view($session; $entries): one Standing row, as state-stored-set.sh
+# --rules prints it, for the record in $session whose entries
+# (state-entry.sh --list) are $entries:
+#   class, status   rule_class and rule_status
+#   owner           the row's Owner for a relayed row, else null: the Source
+#                   and the pointer say who or what said it
+#   said            the row's Set, or null for an unreadable row, whose
+#                   decision's time isn't read
+#   pointer         a relayed row's entry, the first whose kind is the row's
+#                   and whose text begins `s<n> (`, the one its own --standing
+#                   wrote: {entry: "<session> record/entries/<n>"}, or
+#                   {row: "<session> record/standing s<n>"} when no entry
+#                   matches; a decision's {decision: "<session> <id>"}; a
+#                   skill's or doc's {repo, path, commit}; a pinned file's
+#                   {pinned: <label>, digest}; an inferred brief rule's
+#                   {brief: <label>, digest}; a bare inferred row's own row
+#   words           null: only a cited decision's recorded words would go
+#                   here, and none is read yet
+#   source          the Source, or null for none
+#   reversal        null: no reversal is read yet
+#   confirm         true for an inferred row, which a person confirms
+def rule_view($session; $entries):
+  . as $r
+  | rule_class as $c
+  | (($r.source // "") | split(" ")) as $p
+  | {row: "\($session) record/standing \($r.standing)"} as $self
+  | {standing: $r.standing, kind: $r.kind, class: $c, what: $r.what,
+     owner: (if $c == "relayed" then $r.owner else null end),
+     said: (if $c == "unreadable" then null else $r.set end),
+     set: $r.set,
+     pointer: (if $c == "relayed" then
+                 (first($entries[] | select(.kind == $r.kind and ((.text // "") | startswith($r.standing + " (")))) // null) as $e
+                 | if $e == null then $self
+                   else {entry: "\($session) record/entries/\("000000\($e.id)" | .[-6:])"} end
+               elif $c == "unreadable" then {decision: "\($p[1]) \($p[2])"}
+               elif $c == "skill-says" or $c == "doc" then {repo: $p[1], path: $p[2], commit: $p[3]}
+               elif $c == "charter" then {pinned: $p[1], digest: $p[2]}
+               elif ($p | length) == 4 then {brief: $p[2], digest: $p[3]}
+               else $self end),
+     words: null,
+     source: (if ($r.source // "") == "" then null else $r.source end),
+     status: ($c | rule_status), reversal: null, confirm: ($c == "inferred")};
 
 def decisions_cols: [
   ["decision", "Decision"], ["round", "Round"], ["question", "Question"],

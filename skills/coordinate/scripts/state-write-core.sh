@@ -262,6 +262,13 @@ core_write_session() {
         if jq -e --arg f "$field" 'has($f)' "$T/next-state.json" > /dev/null; then
             jq -c --arg f "$field" '.[$f]' "$T/next-state.json" > "$T/sec.new"
             LIVE_SEC=$( [ -s "$T/live.json" ] && jq -cS --arg f "$field" 'if has($f) then .[$f] else empty end' "$T/live.json")
+            # Standing is compared with the key as the session stores it, not
+            # as the reader normalized it: a row whose stored form isn't the
+            # normal form (a blank Source kept as `"source": ""`) is written
+            # back in it, and a row already in it is left byte for byte.
+            if [ "$field" = standing ] && [ -s "$T/live.json" ] && [ -s "$T/live.json.state" ]; then
+                LIVE_SEC=$(jq -cS 'if has("standing") then .standing else empty end' "$T/live.json.state")
+            fi
             if [ "$field" = holdings ]; then
                 jq -c --slurpfile live "$T/live-holdings.json" --arg set "$CORE_PUSHED_SET" --arg t "$CORE_PUSHED_TOPIC" --arg h "$CORE_PUSHED_HEAD" '
                     ($live[0] | map(select((.pushed_head // "") != "") | {(.worker): .pushed_head}) | add // {}) as $p
@@ -729,7 +736,8 @@ core_write() {
               ((.holds // [])[] | (.on | sub("#.*$"; "")),
                 (.until | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.standing // [])[] | ((.on // "") | select(test("/")) | if startswith("release ") then split(" ")[1] else sub("#.*$"; "") end),
-                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
+                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end),
+                source_repo),
               ((.side_effects[] | (.target // "")) | tostring
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")

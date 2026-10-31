@@ -82,6 +82,7 @@
 #       no later read looks. Without RS_ONCE it does nothing.
 #
 # Usage (as a script):
+#   state-read.sh --session S --record
 #   state-read.sh --session S --facts <topic>
 #   state-read.sh --session S --host
 #   state-read.sh --session S --meta
@@ -91,14 +92,18 @@
 #                    (tests: RS_SESSION names the session holding the record)
 #
 # A person reads the state through koto's own view of the session (`koto
-# context get` on its record/ keys); --host prints record/host, the object
+# context get` on its record/ keys); --record prints the record as rs_record
+# hands it to every reader (normalize_state's JSON, one line), and refuses a
+# record that breaks a rule of state-schema.jq (65, the rule on stderr, naming
+# the row: `standing.s3: ...`); --host prints record/host, the object
 # rs_host reads; --meta prints record/meta as it stands, pending or not, or
 # {} when the session holds none (coordinate-open.sh reads a run's driver
 # and takeover fields there).
 #
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
 # failed; 4 the session holds no record/meta; 12 the session record was still
-# being written; 64 usage.
+# being written; 64 usage; 65 (--record) the record is another scope's or
+# breaks a rule of state-schema.jq.
 #
 # Requires: bash 3.2+, jq, koto, and state-common.sh, state-schema.jq,
 # coord-log.sh and pause-read.sh beside this file.
@@ -721,6 +726,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --hash) [ $# -ge 2 ] || rs_usage; HASH=$2; shift 2 ;;
             --today) [ $# -ge 2 ] || rs_usage; TODAY=$2; shift 2 ;;
             --facts) [ $# -ge 2 ] || rs_usage; ACTION=facts; TOPIC=$2; shift 2 ;;
+            --record) ACTION=record; shift ;;
             *) rs_usage ;;
         esac
     done
@@ -763,8 +769,16 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
         0) ;;
         4) lib_scrub < "$RS_T/rec.err" >&2; exit 4 ;;
         12) lib_scrub < "$RS_T/rec.err" >&2; exit 12 ;;
+        65) if [ "$ACTION" = record ]; then
+                echo "$PROG: refused: $(lib_scrub < "$RS_T/rec.err" | head -3)" >&2; exit 65
+            fi
+            echo "$PROG: the record couldn't be read: $(lib_scrub < "$RS_T/rec.err" | head -3)" >&2; exit 2 ;;
         *) echo "$PROG: the record couldn't be read: $(lib_scrub < "$RS_T/rec.err" | head -3)" >&2; exit 2 ;;
     esac
+    if [ "$ACTION" = record ]; then
+        jq -c . "$RS_T/rec" || exit 2
+        exit 0
+    fi
     rs_facts "$RS_T/rec" "$TOPIC"
     exit $?
 fi
