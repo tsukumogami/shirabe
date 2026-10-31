@@ -220,17 +220,36 @@ done
 #
 # Absent, the brief is the golden one; present, the Goal gains one line after
 # the authority sentence, naming exactly the grant or saying it holds none.
-NAMED_REST="A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way."
+# A non-empty grant's line tells the worker to report for review before it
+# merges, to merge only at a head the coordinator clears, and never to merge a
+# roadmap pull request, then sends what the grant doesn't cover back.
+NAMED_REVIEW="Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator's own message clears that pull request at a head it names, and merge it pinned to that head. Never merge a pull request that changes a roadmap under docs/roadmaps/, whatever your grant; when unsure, hand it back."
+NAMED_HANDBACK="A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way."
+NAMED_REST="$NAMED_REVIEW $NAMED_HANDBACK"
 G1=$(bash "$S" --input "$(variant grant-merge '.grant = ["merge-pr"]')" --stdout)
 has "grant: names merge-pr and nothing else" "$G1" "Named authority: you hold merge-pr and nothing else. $NAMED_REST"
+G1_LINE=$(printf '%s\n' "$G1" | grep '^Named authority:')
+has "grant: merge-pr reports for review before it merges" "$G1_LINE" "Report your finished work to the coordinator for review before you merge anything"
+has "grant: merge-pr merges only at a head the coordinator clears" "$G1_LINE" "clears that pull request at a head it names"
+has "grant: merge-pr never merges a roadmap pull request" "$G1_LINE" "Never merge a pull request that changes a roadmap under docs/roadmaps/, whatever your grant"
+case "$G1_LINE" in
+    *" $NAMED_HANDBACK") ok "grant: merge-pr's line still ends with the hand-back sentence" ;;
+    *) bad "grant: merge-pr's line still ends with the hand-back sentence" "$G1_LINE" ;;
+esac
+GC=$(bash "$S" --input "$(variant grant-close '.grant = ["close-issue"]')" --stdout)
+eq  "grant: close-issue gets the same review sentences" "Named authority: you hold close-issue and nothing else. $NAMED_REST" \
+    "$(printf '%s\n' "$GC" | grep '^Named authority:')"
 eq  "grant: the line follows the authority sentence" "You are working for the owner on acme/widgets to build feature 2." \
     "$(printf '%s\n' "$G1" | awk '/^Named authority:/ { print p2; exit } { p2 = p1; p1 = $0 }')"
 eq  "grant: nothing else changes" "$(cat "$GOLD/base.txt")" "$(printf '%s\n' "$G1" | awk '/^Named authority:/ { skip = 2 } skip > 0 { skip--; next } { print }')"
 G2=$(bash "$S" --input "$(variant grant-two '.grant = ["merge-pr", "close-issue"]')" --stdout)
 has "grant: two authorities, both named" "$G2" "Named authority: you hold merge-pr, close-issue and nothing else."
 G0=$(bash "$S" --input "$(variant grant-none '.grant = []')" --stdout)
-has "grant: none says it holds none" "$G0" "Named authority: you hold no named authority. A merge, close or release isn't yours to take"
+eq  "grant: none says it holds none, unchanged" "Named authority: you hold no named authority. A merge, close or release isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way." \
+    "$(printf '%s\n' "$G0" | grep '^Named authority:')"
 lacks "grant: none names no authority" "$(printf '%s\n' "$G0" | grep '^Named authority:')" "merge-pr"
+lacks "grant: none carries no review sentence" "$G0" "for review before you merge"
+lacks "grant: absent carries no review sentence" "$(bash "$S" --input "$BASE" --stdout)" "for review before you merge"
 for g in '["merge"]' '"merge-pr"' '["merge-pr","merge-pr"]' '"own"' '[1]'; do
     bash "$S" --input "$(variant grant-bad ".grant = $g")" --stdout >/dev/null 2>"$T/err"
     eq  "grant: $g is refused" "1" "$?"

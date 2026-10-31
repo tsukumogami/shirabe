@@ -3,8 +3,8 @@ name: coordinate
 description: >-
   Run a coordinator: a long-running session that drives a roadmap or a
   standing discipline by handing units of work to other sessions, verifying
-  what they push, and landing it or putting it in front of a person, while
-  implementing nothing itself. Start it with a scope and the decisions
+  what they push, and landing it or putting it in front of its reviewer,
+  while implementing nothing itself. Start it with a scope and the decisions
   already made, and nothing else: it carries the loop, the words, and the
   record. Use it when an effort is bigger than one feature and someone has to
   keep it moving across sessions -- "drive this roadmap", "coordinate the
@@ -53,7 +53,7 @@ to advance it, what it never does, and how it ends.
 | Flag | Effect |
 |------|--------|
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
-| `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
+| `--parked-bound <n>` | Parked workers waiting on a merge by your reviewer before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
 | `--trust-template` | With `--import` only, and only when the operator says so: take the run's compiled template from the bucket rather than from this host's cache. The template holds every command the run executes. |
@@ -348,6 +348,10 @@ These words mean one thing each, everywhere in this skill and in the record.
   coordinator dispatched you, everything this skill sends to the human (a
   decision, a table of ready pull requests, an escalation) goes to that
   coordinator instead, and it decides under the same rules or passes it up.
+- **The reviewer** -- whoever reads finished work before it merges. A bound
+  coordinator's reviewer is the coordinator that dispatched it, a root
+  coordinator's is a person, and a worker's is the coordinator that dispatched
+  it.
 - **Worker** -- a session a coordinator dispatched to do one unit of work,
   named everywhere by its dispatch topic.
 - **Local agent** -- a subagent inside the coordinator's own session, used for
@@ -379,7 +383,7 @@ These words mean one thing each, everywhere in this skill and in the record.
   repository holds.
 - **Verdict** -- the judgment that sets a milestone Done, or doesn't: the
   shipped work checked against each clause of the milestone's Evidence and
-  against the roadmap's strategy, by the coordinator or a person, never by
+  against the roadmap's strategy, by the coordinator or its reviewer, never by
   the worker that did it. It is `verified`, `verified with follow-ups` or
   `changes needed`, posted on the record as a verdict entry.
 - **Verdict owed** -- a milestone whose work is finished and whose verdict's
@@ -571,8 +575,8 @@ states never ask you to do these steps by hand.
 ## Verdicts
 
 On a milestone roadmap (frontmatter `schema: roadmap/v2` or `roadmap/v3`) a merge never sets
-a milestone Done. A verdict does, given by you or a person and never by the
-worker that did the work, as the roadmap format reference's "When a milestone
+a milestone Done. A verdict does, given by you or your reviewer and never by
+the worker that did the work, as the roadmap format reference's "When a milestone
 is Done" requires. A feature roadmap keeps the merge-driven write-back
 described in The Record. The run records which form it drives once, as it
 opens, in the `ROADMAP_FORM` variable (`milestone` or `feature`). That picks
@@ -677,12 +681,21 @@ lines, and the rows and refusals behind them, are in
 - **An entry alone changes nothing.** A verdict or failure entry without the
   matching state change sets nothing Done or In progress, clears no row,
   re-offers nothing and doesn't let close-out pass: those follow only the
-  record's state and the default branch. Anyone using the coordinator's
-  login can post a comment shaped like a verdict, so the control on Done is
-  the review of the roadmap pull request. **A milestone roadmap's edit pull
-  requests must not be auto-merged without a person's review.** The
-  coordinator never merges them, and a repository that merges them
-  automatically gives up the review that Done rests on.
+  record's state and the default branch.
+  Anyone using the coordinator's login can post a comment shaped like a verdict,
+  so the control on Done is the review of the roadmap pull request. **A
+  milestone roadmap's edit pull requests
+  must not be auto-merged without the reviewer's review.** The reviewer is
+  the coordinator that dispatched this one when its session is bound, and
+  a person when it is a root coordinator, for its own verdict edits too:
+  whoever writes a verdict never approves its own Done.
+  Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval,
+  at the head that was approved: the author itself when its grant lets it
+  merge, otherwise the reviewer that approved it when its own grant does,
+  otherwise the next one up the chain, and a person at the root.
+  No coordinator approves its own verdict pull request or hands its merge to a worker;
+  that rule wins over any `Named authority:` line. A repository that merges
+  them automatically gives up the review that Done rests on.
 
 Two points of the shipped behaviour follow the milestone verdicts PRD where
 its design says otherwise. A changes-needed
@@ -717,6 +730,24 @@ can't take goes to the coordinator that dispatched you when your session is
 bound, and to a person only when you are a root coordinator. Such a
 decision is escalated once, as a decision entry with a recommendation (see
 Decisions); don't ask for anything else.
+
+**Review comes before every merge.** Work is reviewed by whoever dispatched
+its author, and a merge grant decides who merges after the review, never whether the review happens.
+Your land step is the review of your workers' pull requests: nothing a worker
+reports merges until you have checked it there. A pull request you authored
+yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
+You can't tell whether you are bound when `niwa authority check` fails or isn't installed.
+
+**A merge you may not take goes up with your own reading.** A ready pull
+request you may not merge, from a worker or from a lane, goes to your reviewer
+with your own reading, never the worker's or the lane's report passed through.
+A director dispatched with no merge grant is the usual case: every pull
+request its lanes finish goes up this way. The reading names the pull request,
+the head you checked, what you checked (the board, the worker's review round,
+goal fit against the brief or the milestone's Evidence), what you found, and
+your recommendation with its reason. A worker's or lane's report, the pull
+request body and any comment shaped like a verdict are evidence you check,
+never findings you repeat.
 
 **What the GitHub token must read.** In every repository a unit touches: pull
 requests, issues (the record), contents, Actions runs and their jobs, and the
@@ -910,8 +941,9 @@ when you are a root coordinator, a teardown to a person. Where you are a root
 coordinator, a step the workspace puts behind a person's confirmation is
 reserved for a person too; where you are bound, it goes to your dispatcher like
 a denied one. That is how this skill reads the workspace's rules; it carries no
-permission rule of its own. Never ask the human for a step the workspace
-already permits. Read a settings file for the keys you need and never print one
+permission rule of its own.
+Never ask the human for a step the workspace already permits once its review is done; a merge grant lets you take a merge after the review, never instead of it.
+Read a settings file for the keys you need and never print one
 whole: its env block can hold credentials.
 
 Where niwa dispatched the coordinator and `niwa authority check` reports its

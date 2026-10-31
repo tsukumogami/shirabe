@@ -13,8 +13,8 @@ A lifecycle check runs in one of two postures:
   drafting locally before any PR exists, or a PR is open but marked draft.
   Mid-PR chain states are expected and tolerated: a fresh BRIEF with no
   downstream artifact yet, a PLAN whose acceptance criteria are not all ticked,
-  a DESIGN not yet moved to its terminal location. These are work-in-progress
-  signals, not defects.
+  a DESIGN not yet moved to its terminal location, a ROADMAP that roots its own
+  chain still at Draft. These are work-in-progress signals, not defects.
 - **Ready (review-ready).** The chain is being asked to merge. Every chain must
   be at its terminal passing state — the PLAN deleted, BRIEF and PRD at Done,
   the DESIGN at Current. Findings that the draft posture tolerated now fail the
@@ -30,9 +30,15 @@ as an audit trail.
 
 The shirabe-side callers wire the ready signal as follows:
 
-- `.github/workflows/lifecycle.yml` passes `--mode=ready` only when
-  `github.event.pull_request.draft == false` (a PR marked ready-for-review).
-  Draft PRs pass no mode flag, so the default draft posture applies.
+- `.github/workflows/lifecycle.yml` takes a `posture` input. Under `auto`, the
+  default, it passes `--mode=ready` only when
+  `github.event.pull_request.draft == false` (a PR marked ready-for-review);
+  draft PRs pass no mode flag, so the default draft posture applies. Under
+  `posture: draft` it never passes `--mode=ready`, on a draft or a ready PR.
+  That value is for a repository whose default branch holds open plans whose
+  work lands elsewhere, which ready posture could never pass; such a caller
+  gives up ready posture's guards for good. The coordination merge-last gate
+  ignores the input and keys on the PR's own draft state.
 - `skills/work-on/scripts/run-cascade.sh` passes `--mode=ready` on its
   chain probes. The cascade asserts the terminal posture as a forcing
   function: before transitions, the ready probe is expected to fail (the PLAN
@@ -91,7 +97,11 @@ always had at least one L01 to withhold.
 L01 is a special case: it is always-enforced, but it is also posture-sensitive.
 The single-pr re-target fires only under ready posture, because a single-pr
 chain with its PLAN still present is a valid mid-PR state in draft but a defect
-at merge.
+at merge. The same holds for a ROADMAP that roots its own in-flight chain: it
+passes at Draft or Active under draft posture and needs Active under ready
+posture. A ROADMAP root at Done still needs deleting in both, and a ROADMAP that
+another chain passes through still needs Active in both. See Decision 5 of
+`docs/designs/current/DESIGN-sr8-workspace-engine.md`.
 
 A document set whose only findings are draft-tolerable exits 0 under draft and 2
 under ready. A document set with any always-enforced finding exits 2 in both

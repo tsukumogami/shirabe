@@ -1296,8 +1296,8 @@ EOF
                     else printf -- '- amends %s: its Outcome, Evidence and Left open are the follow-up'"'"'s, with a Progress line naming the amendment\n' "$at"; fi
                 done < "$WD/fu-plan.tsv"
             fi
-            # The body carries the whole entry either way, so whoever merges
-            # reviews the judgment even when no comment holds it.
+            # The body carries the whole entry either way, so the reviewer who
+            # approves it reads the judgment even when no comment holds it.
             if [ "$POSTS" = 1 ]; then
                 printf '\nThe verdict entry, as the coordinator recorded it; it is posted as a comment on this pull request, and a Progress line names that comment:\n\n'
             else
@@ -1305,7 +1305,7 @@ EOF
             fi
             sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
             printf '\n---\n\n'
-            printf 'Opened by the coordinator for %s. Review the verdict against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sets the Status, and the coordinator never merges it.\n' "$NAME"
+            printf 'Opened by the coordinator for %s. Review the verdict against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sets the Status, so someone other than the coordinator that opened it approves it before it merges.\n' "$NAME"
         } > "$WD/prbody.md"
         open_pr "$MSG"
         # The row names its entry, which a run that stopped short finds it by,
@@ -1391,7 +1391,7 @@ if [ "$MODE" = reopen ]; then
             fi
             sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
             printf '\n---\n\n'
-            printf 'Opened by the coordinator for %s. Check the report against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sends a Done milestone back to work, and the coordinator never merges it.\n' "$NAME"
+            printf 'Opened by the coordinator for %s. Check the report against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sends a Done milestone back to work, so someone other than the coordinator that opened it approves it before it merges.\n' "$NAME"
         } > "$WD/prbody.md"
         open_pr "$MSG"
         HOW="the roadmap on $DEFAULT_BRANCH reads $TAG In progress (entry $ENUM)" CITED="entry $ENUM"
