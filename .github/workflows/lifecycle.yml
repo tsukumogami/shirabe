@@ -12,6 +12,9 @@ name: Lifecycle Check
 # jobs:
 #   lifecycle:
 #     uses: tsukumogami/shirabe/.github/workflows/lifecycle.yml@v0.10.0
+#     # Optional, for a self-hosted runner; the default is ubuntu-latest:
+#     # with:
+#     #   runs-on: '["self-hosted", "linux", "x64"]'
 #
 # The caller must grant `pull-requests: read` (as above): a reusable workflow
 # cannot request a permission the caller lacks, and the coordination merge-last
@@ -36,10 +39,21 @@ name: Lifecycle Check
 
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          Where the job runs. A single runner label (`ubuntu-latest`) or a
+          JSON array of labels for a self-hosted runner
+          (`["self-hosted", "linux", "x64"]`). Defaults to `ubuntu-latest`.
+        required: false
+        type: string
+        default: ubuntu-latest
 
 jobs:
   lifecycle:
-    runs-on: ubuntu-latest
+    # A value starting with `[` is parsed as a JSON label array; anything else
+    # is used as a single label. Same input and expression as validate-docs.yml.
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     permissions:
       contents: read
       # Needed only by the coordination merge-last gate's live `gh` queries on
