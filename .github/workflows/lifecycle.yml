@@ -12,6 +12,14 @@ name: Lifecycle Check
 # jobs:
 #   lifecycle:
 #     uses: tsukumogami/shirabe/.github/workflows/lifecycle.yml@v0.10.0
+#     # Optional, for a self-hosted runner; the default is ubuntu-latest:
+#     # with:
+#     #   runs-on: '["self-hosted", "linux", "x64"]'
+#
+# A self-hosted runner needs what the job builds and runs with: a Linux host
+# with GNU coreutils (the build step uses `install -D`), cargo (the toolchain
+# action installs it), and, for the coordination merge-last gate on a ready
+# coordination PR only, `gh`, bash 4 or later and grep.
 #
 # The caller must grant `pull-requests: read` (as above): a reusable workflow
 # cannot request a permission the caller lacks, and the coordination merge-last
@@ -33,13 +41,29 @@ name: Lifecycle Check
 # to be at their terminal (PLAN deleted, BRIEF/PRD Done, DESIGN
 # Current). See docs/briefs/BRIEF-lifecycle-draft-ready-discipline.md
 # for the DRAFT-vs-READY discipline.
+#
+# A second job, setup-script-copy, runs beside the lifecycle check: it fails
+# when the caller's scripts/setup/shirabe-pre-commit.sh differs from the
+# canonical copy at the called ref, and passes when the caller has none. A
+# caller of this workflow gets both jobs.
 
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        description: >-
+          Where the job runs. A single runner label (`ubuntu-latest`) or a
+          JSON array of labels for a self-hosted runner
+          (`["self-hosted", "linux", "x64"]`). Defaults to `ubuntu-latest`.
+        required: false
+        type: string
+        default: ubuntu-latest
 
 jobs:
   lifecycle:
-    runs-on: ubuntu-latest
+    # A value starting with `[` is parsed as a JSON label array; anything else
+    # is used as a single label. Same input and expression as validate-docs.yml.
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
     permissions:
       contents: read
       # Needed only by the coordination merge-last gate's live `gh` queries on
@@ -98,9 +122,14 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build shirabe
+        # Installs into the job's temp directory rather than /usr/local/bin so
+        # the step needs no root and leaves nothing behind on a self-hosted
+        # runner. Later steps run `shirabe` through PATH, which $GITHUB_PATH
+        # extends from the next step on; don't call it by an absolute path.
         run: |
           cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
-          install -m 0755 .shirabe-src/target/release/shirabe /usr/local/bin/shirabe
+          install -D -m 0755 .shirabe-src/target/release/shirabe "$RUNNER_TEMP/bin/shirabe"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Run lifecycle check (R5 finalization-not-done guard)
         # The shell conditional reads github.event.pull_request.draft
@@ -252,3 +281,41 @@ jobs:
           # `--mode=ready`: this step only runs on ready PRs, so a blocked gate
           # must fail (under draft posture the same mode is a notice, exit 0).
           shirabe validate --merge-gate --mode=ready "${GATE_ARGS[@]}"
+
+  setup-script-copy:
+    # Compares the calling repository's copy of shirabe's pre-commit setup
+    # script with the canonical one at the called ref, and fails when they
+    # differ. Every product repository commits the same bytes at
+    # scripts/setup/shirabe-pre-commit.sh, and each calls this workflow on every
+    # pull request, so a local edit to a copy, or a canonical change not yet
+    # copied, turns that repository's pull request red with the restore command.
+    # A repository without the file passes. The check reports; it never copies.
+    runs-on: ${{ startsWith(inputs.runs-on, '[') && fromJSON(inputs.runs-on) || inputs.runs-on }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/setup/shirabe-pre-commit.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout shirabe
+        # The canonical copy and the check, at the called workflow's commit.
+        # For the self-caller that is the commit this run tests, so the
+        # canonical copy is compared with itself.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .shirabe-src
+          sparse-checkout: |
+            scripts/setup/shirabe-pre-commit.sh
+            scripts/check-setup-script-copy.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Compare the setup script copy
+        env:
+          CANONICAL_REF: ${{ job.workflow_sha }}
+        run: bash .shirabe-src/scripts/check-setup-script-copy.sh . .shirabe-src/scripts/setup/shirabe-pre-commit.sh "$CANONICAL_REF"

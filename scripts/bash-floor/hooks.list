@@ -7,3 +7,7 @@ needs: shirabe
 # repositories, and the hook's own PATH of bash, sh, cat, sed,
 # tr, awk, sleep and git.
 hooks/pre-action-deny_test.sh
+# The setup script niwa runs on every apply, under whatever bash
+# the contributor's host has. Its suite runs the shirabe on PATH
+# (or SHIRABE_BIN) against throwaway git repositories.
+scripts/shirabe-pre-commit_test.sh

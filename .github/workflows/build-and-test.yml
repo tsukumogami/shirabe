@@ -33,6 +33,18 @@ jobs:
       - name: Cargo build (release)
         run: cargo build --release
 
+      # The setup script niwa runs in each product repository clone on every
+      # apply, scripts/setup/shirabe-pre-commit.sh, driven through each case
+      # it decides in throwaway repositories, against the binary just built:
+      # the hook it installs is the one this commit's install-hooks writes.
+      - name: Pre-commit setup script suite
+        run: PATH="$PWD/target/release:$PATH" bash scripts/shirabe-pre-commit_test.sh
+
+      # The check the reusable lifecycle workflow runs in each repository that
+      # carries a copy of the setup script, against this commit's canonical copy.
+      - name: Setup script copy check suite
+        run: bash scripts/check-setup-script-copy_test.sh
+
       # The plugin's pre-action hook, run through the command hooks/hooks.json
       # declares, against the binary just built. This workflow runs on every
       # pull request, so it covers every path a change to the hook can come
