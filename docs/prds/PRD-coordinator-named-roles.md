@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The coordinate skill talks about two coordinator roles, a manager over one
   lane and a director over managers, only in prose. Nothing at a run's start,
@@ -24,7 +24,7 @@ upstream: docs/briefs/BRIEF-coordinator-named-roles.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
