@@ -22,9 +22,9 @@ step_count: 17
 
 Active
 
-The upstream design is still Proposed. This plan carries the five changes
-its reviewer asked for before accepting it, and no step starts until the
-design is accepted.
+The upstream design is Planned and its brief is Accepted. The reviewer
+accepted both on this plan, which carries the five changes asked for before
+acceptance.
 
 ## Scope Summary
 
@@ -176,7 +176,7 @@ shirabe, after steps 3, 4, 11, 13, 14 and 15: an end-to-end walkthrough a review
 The steps run in order where they depend on each other and side by side
 where they don't. Each step is one pull request in tsukumogami/shirabe. A
 step marked gated waits on something outside this plan; the others can
-start as soon as the design is accepted.
+start now that the design is accepted.
 
 | Step | Phase | Depends on | Gated on |
 |---|---|---|---|
