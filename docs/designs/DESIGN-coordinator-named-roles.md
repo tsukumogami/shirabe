@@ -236,10 +236,12 @@ different value it exits 65 naming both. The one other place a row is born is
 Readers use a new `state-read.sh --run` mode, which reads `record/run` without
 a sealed find and treats a failed read as an error. A structure test pins the
 two writer scripts (`state-stored-set.sh`, and `state-open.sh` for both its
-seed and its `--carry --role` path), and pins the readers as an allow-list: only the scripts this
-design names (the opener, `state-handover.sh`, the report's record line and
-`dispatch-worker.sh`'s brief path) may read the `role` row, so a script added
-later that reads it fails the test. That keeps `posture-read.sh`,
+seed and its `--carry --role` path), and pins the readers as an allow-list of
+callers: only the scripts this design names (the opener, `state-handover.sh`,
+the report's record line and `dispatch-worker.sh`'s brief path) may call
+`state-read.sh --run` or read `record/run` whole, so a script added later that
+reads the role fails the test. The test lands with the row and gains each
+named caller in the phase that adds it. That keeps `posture-read.sh`,
 `need-check.sh`, `board-lib.sh` and `dispatch-worker.sh`'s grant path off the
 row without naming each one, and the same test pins that no script passes
 `--role` to `niwa dispatch`.
@@ -940,10 +942,13 @@ compat record, so one pull request is the expected shape.
 Add the Run `role` row: `state-schema.jq`, `state-stored-set.sh --run role`
 (set-once), `state-open.sh` seed and `--carry --role`, `state-read.sh --run`,
 and `state-handover.sh`'s `role` field and `no-role` gap. Reword `reports-to`
-in the scripts and their messages. Update the record's writer structure test
-and the gap list tests.
+in the scripts and their messages. Pass `role=` from the `record_open`
+directive in `koto-templates/coordinate.md` to `state-open.sh --role` in the
+same step, since the seed requires it from here on. Update the record's writer
+structure test, add the reader allow-list test, and update the gap list tests.
 
-Deliverables: the five scripts, `state-keys.md`'s Run row entry, tests.
+Deliverables: the five scripts, the `record_open` directive line,
+`state-keys.md`'s Run row entry, tests.
 
 ### Phase 2: The opener
 
@@ -991,10 +996,8 @@ Plan steps the decisions surfaced, each small and inside this change:
 - widen the cap write's trigger ("a person's word" in the cap paragraph of
   `koto-templates/coordinate.md` and in `references/state-keys.md`) to accept
   direction from whoever dispatched
-  the run, so a manager can write a cap change its director made; the manager
-  takes that direction only from the sender its Run `reports-to` row names,
-  and the cap it writes stays inside what its own `niwa authority check`
-  answer allows;
+  the run, so a manager can write a cap change its director made, under the
+  sender and raise rules in Security Considerations;
 - stop a progress event from linking a pull request onto a holding whose entry
   is `coordinate` (the link is written by `scripts/holding-link.sh` at
   `report_link`), so a director's count of its managers doesn't drift;
@@ -1096,13 +1099,28 @@ by its own reviewer, as Consequences says.
 
 **The manager's cap write takes direction from one sender.** The plan step
 that widens the manager's cap write past "a person's word" is the one place
-this change touches an allowance on the manager's side. The manager accepts a
-cap change only from the sender its Run `reports-to` row names, the session
-that dispatched it, and writes it with that sender in `--by`. A cap change
-from anyone else is not written, and a written cap still can't exceed what the
-manager's own `niwa authority check` answer allows, so a director can lower or
-move a manager's cap but can't use the manager to widen it past the workspace
-grant.
+this change touches an allowance on the manager's side, so it gets two rules.
+The sender is the one the message transport stamps on the message (the `from`
+of a cross-session message), never a name written in its text, and it must
+match the session the manager's Run `reports-to` row names; the manager writes
+the change with that sender in `--by`, and a change from anyone else isn't
+written. A lowering that passes that check is written directly, since it can
+only narrow what the manager does. A raise is written only when the director's
+message names the settled decision entry that approved it (or, once the
+authority configuration names the cap-change point, the director's own
+`niwa authority check` answer that it settles that point), and the manager
+names that entry or answer in `--by`; a raise without one goes back up as a
+decision entry. Until the cap-change point is named, that means a raise always
+traces to a person's settled decision, the same known limit the director's
+read has. Like the director's read, these rules are prose with no gate, so a
+manager that skips them is caught by its reviewer reading the cap row's
+`--by`.
+
+Two smaller cases. The merged pull request links a manager reports up are
+data from the manager's report, read and checked by the director like any
+other report field, never acted on as instructions. And two first-role writes
+racing on a role-less record can't both land: the set-once writer stores the
+first and refuses the second with exit 65, naming both values.
 
 ## Consequences
 
