@@ -5,10 +5,13 @@
 # Usage: check-setup-script-copy.sh <caller root> <canonical file> <ref label>
 #
 # The canonical copy is scripts/setup/shirabe-pre-commit.sh in shirabe. Every
-# product repository that carries a copy keeps it byte-identical, and the
-# reusable lifecycle workflow runs this check in each of them on every pull
-# request, against the shirabe checkout at the called ref. <ref label> names
-# that ref (a commit) in the message, so the fix points at the exact bytes.
+# product repository that carries a copy keeps it byte-identical. The reusable
+# lifecycle workflow runs this check on every pull request of a repository that
+# calls it, against the shirabe checkout at the called ref. A repository may
+# instead run this script from its own workflow, against a shirabe checkout it
+# makes itself, so the three-argument interface above is a stable contract.
+# <ref label> names the canonical ref (a commit) in the message, so the fix
+# points at the exact bytes.
 #
 # Exit codes: 0 no copy (nothing to compare) or the copy matches and is
 # executable; 1 the copy is a symlink or not a regular file, differs, or isn't

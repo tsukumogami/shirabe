@@ -425,6 +425,10 @@ The `SinglePrMidPR + strict` row is the new branch; it reuses the
 `SinglePrAtMerge` row's computation. The other rows are unchanged
 from the upstream.
 
+Amended later for one multi-pr row: under draft posture a ROADMAP that roots
+its own in-flight chain also passes at `Draft` (Decision 5 of
+`docs/designs/current/DESIGN-sr8-workspace-engine.md`).
+
 ## Implementation Approach
 
 Single PR, single commit chain. The PLAN driving this work is
