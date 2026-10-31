@@ -469,6 +469,15 @@ PREFLIGHT_ROUTE_REASON=""
 #
 #   `<driver> -`            the route is available when <driver> resolves.
 #   `<driver> tsuku-info`   ... and when `<driver> info <tool>` also succeeds.
+#   `<driver> tsuku-source <owner>/<repo>`
+#                           ... and when `<driver> info <tool>` succeeds, or,
+#                           when it refuses, `<driver> install --dry-run
+#                           <owner>/<repo>` does. tsuku answers `info` for a
+#                           tool from a distributed source only once that
+#                           source is registered, which its first install
+#                           does, so a host that never installed the tool
+#                           needs the dry run to see the route its command
+#                           takes (#1450). The dry run registers nothing.
 #   `never`                 the route is excluded; handled by the caller,
 #                           which needs the citation.
 #
@@ -481,14 +490,14 @@ PREFLIGHT_ROUTE_REASON=""
 # resolved but `info` did not answer within the budget, so whether the route
 # is available is unknown. 1 and 2 put the reason in PREFLIGHT_ROUTE_REASON.
 preflight_route_available() {
-    local probe="$1" tool="$2" driver verb key k s r
+    local probe="$1" tool="$2" driver verb arg="" key k s r
 
     PREFLIGHT_ROUTE_REASON=""
 
     # The probe string becomes a `case` pattern below, so its alphabet is
     # checked before it does.
     case "$probe" in
-        ''|*[!A-Za-z0-9._' '-]*)
+        ''|*[!A-Za-z0-9._/' '-]*)
             PREFLIGHT_ROUTE_REASON="carries an availability test this check will not read"
             return 1
             ;;
@@ -515,8 +524,25 @@ preflight_route_available() {
         verb="${probe#* }"
     fi
 
+    # tsuku-source is the one verb with an argument, and the argument is an
+    # owner/repo and nothing else: it is passed to the driver as one word, so
+    # it is held to a shape that cannot read as an option or a second word.
     case "$verb" in
-        -|tsuku-info) ;;
+        "tsuku-source "*)
+            arg="${verb#tsuku-source }"
+            verb="tsuku-source"
+            case "$arg" in
+                [A-Za-z0-9]*/[A-Za-z0-9]*) ;;
+                *) verb="invalid" ;;
+            esac
+            case "$arg" in
+                */*/*|*[!A-Za-z0-9._/-]*) verb="invalid" ;;
+            esac
+            ;;
+    esac
+
+    case "$verb" in
+        -|tsuku-info|tsuku-source) ;;
         *)
             PREFLIGHT_ROUTE_REASON="names an availability test this check does not implement, so the route was not used"
             preflight_route_memo "$key" "no" "$PREFLIGHT_ROUTE_REASON"
@@ -547,16 +573,31 @@ preflight_route_available() {
             ;;
     esac
 
-    if [ "$verb" = "tsuku-info" ]; then
+    if [ "$verb" = "tsuku-info" ] || [ "$verb" = "tsuku-source" ]; then
         if ! preflight_route_run "$PREFLIGHT_ROUTE_DRIVER" info "$tool"; then
             if [ "$PREFLIGHT_ROUTE_TIMEDOUT" = "1" ]; then
                 PREFLIGHT_ROUTE_REASON="$driver did not answer within the ${PREFLIGHT_PROBE_BUDGET-2}-second budget this check gives it"
                 preflight_route_memo "$key" "slow" "$PREFLIGHT_ROUTE_REASON"
                 return 2
             fi
-            PREFLIGHT_ROUTE_REASON="$driver resolves, but does not know $tool"
-            preflight_route_memo "$key" "no" "$PREFLIGHT_ROUTE_REASON"
-            return 1
+            if [ "$verb" = "tsuku-info" ]; then
+                PREFLIGHT_ROUTE_REASON="$driver resolves, but does not know $tool"
+                preflight_route_memo "$key" "no" "$PREFLIGHT_ROUTE_REASON"
+                return 1
+            fi
+            # `info` refused, which is also what an unregistered source
+            # answers. The dry run is the route's own install, so its answer
+            # is the one that decides. It gets the same budget as `info`.
+            if ! preflight_route_run "$PREFLIGHT_ROUTE_DRIVER" install --dry-run "$arg"; then
+                if [ "$PREFLIGHT_ROUTE_TIMEDOUT" = "1" ]; then
+                    PREFLIGHT_ROUTE_REASON="$driver did not finish a dry run of $driver install $arg within the ${PREFLIGHT_PROBE_BUDGET-2}-second budget this check gives it"
+                    preflight_route_memo "$key" "slow" "$PREFLIGHT_ROUTE_REASON"
+                    return 2
+                fi
+                PREFLIGHT_ROUTE_REASON="$driver resolves, but does not know $tool, and a dry run of $driver install $arg did not resolve it"
+                preflight_route_memo "$key" "no" "$PREFLIGHT_ROUTE_REASON"
+                return 1
+            fi
         fi
     fi
 

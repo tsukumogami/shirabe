@@ -595,7 +595,7 @@ assert_has "no source resolves: the no-route statement holds" \
     "$(prose "$ROUTE_OUT")" "No install route is available on this host"
 assert_has "no source resolves: the reason names both checks" \
     "$(prose "$ROUTE_OUT")" "tsuku resolves, but does not know niwa, and a dry run of tsuku install tsukumogami/no-such-repo did not resolve it"
-assert_lacks "no source resolves: no command is printed" "$ROUTE_OUT" "  tsuku install"
+assert_lacks "no source resolves: no command is printed" "$(prose "$ROUTE_OUT")" "Install niwa:"
 
 # A dry run slower than the budget hasn't refused: the command is given,
 # unconfirmed, as for a slow `info`.
@@ -618,8 +618,8 @@ SLOW_T1=$(date +%s)
 PREFLIGHT_PROBE_BUDGET="$SAVED_BUDGET"
 assert_has "slow dry run: the install command is still named" \
     "$ROUTE_OUT" "  tsuku install tsukumogami/niwa"
-assert_has "slow dry run: the report says tsuku did not confirm in time" \
-    "$(prose "$ROUTE_OUT")" "tsuku did not answer within the 1-second budget"
+assert_has "slow dry run: the report says the dry run did not finish in time" \
+    "$(prose "$ROUTE_OUT")" "tsuku did not finish a dry run of tsuku install tsukumogami/niwa within the 1-second budget this check gives it, so whether it knows niwa is unconfirmed."
 assert_lacks "slow dry run: no no-route enumeration" \
     "$(prose "$ROUTE_OUT")" "No install route is available"
 if [ $(( SLOW_T1 - SLOW_T0 )) -le 4 ]; then

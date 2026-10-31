@@ -18,7 +18,11 @@
 #   3 os        any, darwin, or linux, matched against uname -s.
 #   4 probe     Availability test, as <driver> or <driver> <verb>. `tsuku
 #               tsuku-info` means tsuku resolves and `tsuku info <tool>`
-#               succeeds; `brew -` means brew resolves. `never` marks an
+#               succeeds; `tsuku tsuku-source <owner>/<repo>` means the same,
+#               or, when `info` refuses, that `tsuku install --dry-run
+#               <owner>/<repo>` succeeds, for a tool from a distributed source
+#               tsuku learns about only on its first install (#1450);
+#               `brew -` means brew resolves. `never` marks an
 #               excluded route. The verb vocabulary is closed and lives in the
 #               reader, so adding a driver is a code change, not a data change.
 #   5 command   Emitted verbatim if this record wins. `-` when excluded.
@@ -33,7 +37,7 @@
 #
 koto	tsuku	any	tsuku tsuku-info	tsuku install koto@latest && . ~/.tsuku/env	-
 shirabe	tsuku	any	tsuku tsuku-info	tsuku install shirabe@latest && . ~/.tsuku/env	-
-niwa	tsuku	any	tsuku tsuku-info	tsuku install tsukumogami/niwa && . ~/.tsuku/env	-
+niwa	tsuku	any	tsuku tsuku-source tsukumogami/niwa	tsuku install tsukumogami/niwa && . ~/.tsuku/env	-
 gh	tsuku	linux	never	-	tsukumogami/tsuku#2245
 gh	tsuku	darwin	tsuku tsuku-info	tsuku install gh@latest && . ~/.tsuku/env	-
 gh	homebrew	darwin	brew -	brew install gh	-
