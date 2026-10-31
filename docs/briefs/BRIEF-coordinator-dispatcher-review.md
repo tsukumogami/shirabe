@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   The coordinate skill sends reviews, merges, verdict edits and finishing steps to
   "a person" where the coordinator that dispatched the session is meant, and its
@@ -17,7 +17,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
