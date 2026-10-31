@@ -16,9 +16,10 @@ name: Lifecycle Check
 #     # with:
 #     #   runs-on: '["self-hosted", "linux", "x64"]'
 #
-# A self-hosted runner needs what the job builds and runs with: cargo (the
-# toolchain action installs it), and, for the coordination merge-last gate on
-# a ready coordination PR only, `gh`, bash 4 or later and grep.
+# A self-hosted runner needs what the job builds and runs with: a Linux host
+# with GNU coreutils (the build step uses `install -D`), cargo (the toolchain
+# action installs it), and, for the coordination merge-last gate on a ready
+# coordination PR only, `gh`, bash 4 or later and grep.
 #
 # The caller must grant `pull-requests: read` (as above): a reusable workflow
 # cannot request a permission the caller lacks, and the coordination merge-last
@@ -118,7 +119,8 @@ jobs:
       - name: Build shirabe
         # Installs into the job's temp directory rather than /usr/local/bin so
         # the step needs no root and leaves nothing behind on a self-hosted
-        # runner.
+        # runner. Later steps run `shirabe` through PATH, which $GITHUB_PATH
+        # extends from the next step on; don't call it by an absolute path.
         run: |
           cargo build --release --bin shirabe --manifest-path .shirabe-src/Cargo.toml
           install -D -m 0755 .shirabe-src/target/release/shirabe "$RUNNER_TEMP/bin/shirabe"
