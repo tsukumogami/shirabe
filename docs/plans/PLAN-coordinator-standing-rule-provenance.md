@@ -141,7 +141,7 @@ shirabe, gated on a koto release with the decision record and the reads listed b
 
 ### Step 10: a decision row reads owner-said, dispatcher-said or inferred by the root and leg tests, and the writer refuses a citation that wouldn't
 
-shirabe, gated as step 9 plus the supersede hop: the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the root test, own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on; it ships in the same plugin release as step 14, because that refusal covers the carry acknowledgement every handover writes.
+shirabe, gated as step 9 plus the supersede hop, with only its dispatcher-said criterion also waiting on koto's cross-session decision read (with the read failing, a citation of the dispatcher's decision reads unreadable and the writer records the ruling as an `inferred` rule row quoting it, flagged for confirmation, and its tests cover both paths): the `decision` form, `rule_class`'s fixed-order tests (unreadable, person to the root test, own run, then a leg to a coordinator outside the writer's run created before the writer), the writer's refusals (What not equal to the decision's whole reason, Owner not koto's decider, a person in Owner uncited once the koto floor is met), and the koto version-floor check that turns citations on; it ships in the same plugin release as step 14, because that refusal covers the carry acknowledgement every handover writes.
 
 ### Step 11: a manager's row citing its director's person decision reads owner-said, and reads as a flagged inferred quote while the cross-session read fails
 
@@ -189,7 +189,7 @@ start now that the design is accepted.
 | 7 | writer release | 6 | as step 6 |
 | 8 | writer release | 7 | as step 6 |
 | 9 | citations | 1 | a koto release with the decision record and the reads below |
-| 10 | citations | 6, 9 | as step 9, plus the supersede hop |
+| 10 | citations | 6, 9 | as step 9, plus the supersede hop; its dispatcher-said criterion also waits on the cross-session decision read |
 | 11 | citations | 10 | as step 10; its owner-said criterion also waits on the cross-session decision read |
 | 12 | citations | 9 | as step 10 |
 | 13 | citations | 7, 10 | as step 10 |
