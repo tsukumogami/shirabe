@@ -686,8 +686,8 @@ as they are, and appends:
 It prints the pull request's URL, then `held-dependent <tag> <worker>` for
 each milestone whose Dependencies name this one and that a holding covers.
 
-Each edit opens one pull request with the whole entry in its body, so whoever
-merges it reviews the judgment, and writes a Side effects row:
+Each edit opens one pull request with the whole entry in its body, so the
+reviewer who approves it reads the judgment, and writes a Side effects row:
 
 ```json
 {"action": "milestone-done", "target": "<tag> [#<n>](<url>)", "verified_head": "", "attempted": "<YYYY-MM-DDTHH:MMZ>",
