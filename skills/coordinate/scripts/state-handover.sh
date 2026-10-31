@@ -17,8 +17,10 @@
 # `pending: true` for a worker recorded pending), pending (the workers that
 # can't be told it yet, only when there is one, so a record with no pending
 # row reads as it did before the row existed), work (every
-# Work row, local agents included), standing (every Standing row), holds (the
-# Holds section as it stands) and gaps. It also prints the crash set (PRD
+# Work row, local agents included), standing (every Standing row but a `rule`
+# row, so a record holding rules hands over the same events it did before it
+# held any; the rules are read through state-stored-set.sh --rules), holds
+# (the Holds section as it stands) and gaps. It also prints the crash set (PRD
 # R17): each worker's pushed_head when kept, reports_to (the row, or null),
 # rules and briefs (their rows' values), friction, and host (record/host). A
 # gap is {gap, fix}:
@@ -163,7 +165,7 @@ jq -c --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushe
                          # Only a record holding a pending row says so: one
                          # written before pending rows existed reads as it did.
                          | .worker as $w | if ($pending | index($w)) != null then .pending = true else . end],
-       work: (.work // []), standing: (.standing // []), holds: (.holds // [])}
+       work: (.work // []), standing: [(.standing // [])[] | select(.kind != "rule")], holds: (.holds // [])}
     | if ($pending | length) > 0 then .pending = $pending else . end
     | .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
     | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
