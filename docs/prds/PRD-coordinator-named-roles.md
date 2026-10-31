@@ -280,28 +280,40 @@ brief a director writes to dispatch a manager.
 
 ## Acceptance Criteria
 
+A grep below that looks for a phrase of more than one word runs over the text
+with line breaks replaced by spaces (`tr '\n' ' '`), so a phrase wrapped across
+two lines is still found; the anchored `grep -c '^...'` counts run over the
+file as it is. "The record line" is a report's line naming the record's session
+name and host repository (R6), and "its remainder" is that line with the
+session name, the host repository and any session address removed.
+
 Starting and recording (Evidence: a reviewer starts one session as a manager
 over a roadmap and one as a director over two managers, and sees each name its
 role in its first report and in its record):
 
-- [ ] A start of a roadmap run with the role setting `manager` opens, its first
-  report's line naming the record's session name and host repository is within
-  its first five lines and contains `manager`, and reading the record's role value through the record's
-  reader prints `manager`.
+- [ ] A start of a roadmap run with the role setting `manager` opens; its first
+  report's record line is within its first five lines, `grep -oiwE
+  'manager|director'` over its remainder prints exactly one match, `manager`,
+  and reading the record's role value through the record's reader prints
+  `manager`.
 - [ ] A start with the role setting `director` opens; its first report's record
-  line, within its first five lines, contains `director`, the record's role
-  value prints `director`, and the lane briefs it renders for two managers each
-  carry a role line naming `manager`.
+  line is within its first five lines, the same grep over its remainder prints
+  exactly one match, `director`, the record's role value prints `director`,
+  and the lane briefs it renders for two managers each carry a role line
+  naming `manager`.
 - [ ] Each manager those lane briefs start reports `manager` on its first
-  report's record line, and its reports go to the director that dispatched it
+  report's record line (the same exactly-one-match grep over its remainder
+  prints `manager`), its record's role value prints `manager`, and its reports go to the director that dispatched it
   as its reviewer (its record's `reports-to` row names that director's
   address).
 - [ ] Every first report in these criteria (the two starts, each successor, and
   each resume, carry, takeover and import below) names its own role with no
-  word other than `manager` or `director`: with the session name and host
-  repository removed from the report's record line, `grep -niwE
-  'lead|leader|top|top-level|head|parent|lane coordinator|director \(|manager
-  \('` over the rest of that line finds nothing.
+  word other than `manager` or `director`. This is an allowlist: the skill
+  documents the record line's fixed wording, and each first report's record
+  line equals that wording with the session name, host repository and address
+  filled in from the record and `manager` or `director` in the role's place.
+  A line with any other word in it, such as "lead", "orchestrator" or
+  "director (lanes)", fails.
 - [ ] A later report of each run (after its first landed or handed-over unit)
   carries the role on its record line.
 - [ ] A start with the role setting `lead` is refused before a session exists:
@@ -345,7 +357,8 @@ paragraph describing the role from scratch):
   allows, is not that), and that the coordinator reads its duties from the
   skill's expectation list for its role.
 - [ ] In each lane brief the director above renders and each successor's
-  brief, every match outside the role line that `grep -noiwE
+  brief, with the role line removed before the line breaks are joined, every
+  match that `grep -noiwE
   'managers?|directors?|lead|leader|top|top-level|head|parent|lane
   coordinators?'` prints is one of these four, and any other match fails the
   criterion: `manager` in the phrase "workspace manager"; `HEAD` in capitals
@@ -353,8 +366,10 @@ paragraph describing the role from scratch):
   named as the reviewer the manager reports to; in a director's brief, the
   managers it dispatched or reviews, named as those sessions. The check is per
   match, so a line holding one allowed match and one other fails. None of the
-  four names the brief recipient's own role. No sentence states in general terms what the role
-  owes (a reviewer checks the Goal, decisions and checkpoints against the two
+  four names the brief recipient's own role, and a reviewer reading the Goal,
+  decisions and checkpoints finds no other word (such as "orchestrator" or
+  "lane owner") used as a name for it. No sentence states in general terms
+  what the role owes (a reviewer checks the Goal, decisions and checkpoints against the two
   expectation lists; naming the concrete roadmap, lanes or units is allowed).
 - [ ] Each successor's first report names the same role as its brief's role
   line, and its record's role value matches.
@@ -436,9 +451,10 @@ Checks and content:
   `scripts/ablation/check-public-content.sh` exit 0.
 - [ ] `grep -rF 'The workspace manager schedules your keep-alive at dispatch.'`
   finds the sentence in the same files before and after the change.
-- [ ] The diff's added lines contain none of `robust`, `leverage`,
-  `comprehensive`, `holistic`, `facilitate`, `tier`, `tiered`, no emoji, no
-  `Co-Authored-By`, and no path or name from a private repository.
+- [ ] The diff's added lines contain no word that
+  `skills/writing-style/rules.yaml` bans (checked against that file, not a
+  copied list), no emoji, no `Co-Authored-By`, and no path or name from a
+  private repository.
 
 ## Out of Scope
 
