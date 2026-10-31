@@ -30,7 +30,7 @@
 #
 # Exit codes:
 #   0 - the mode flag printed on stdout (possibly empty)
-#   1 - POSTURE is not an accepted value
+#   1 - POSTURE is not an accepted value; the error is on stderr, stdout empty
 
 set -euo pipefail
 
@@ -46,7 +46,10 @@ case "${POSTURE-}" in
         printf '\n'
         ;;
     *)
-        echo "::error::lifecycle.yml: the posture input must be 'auto' or 'draft'"
+        # stderr, not stdout: the step captures stdout as the mode flag, so an
+        # error printed there would be swallowed. The runner reads workflow
+        # commands from both streams.
+        echo "::error::lifecycle.yml: the posture input must be 'auto' or 'draft'" >&2
         exit 1
         ;;
 esac
