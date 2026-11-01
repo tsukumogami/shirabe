@@ -4,12 +4,29 @@
 Usage:
   scripts/lib/script-cases.py <skill> [--scenario <a,b,...>] [--summary-out <file>]
   scripts/lib/script-cases.py --all [--summary-out <file>]
+  scripts/lib/script-cases.py --for <skill> [--list]
 
 Reads skills/<skill>/evals/evals.json (or every skill's, with --all) and runs
 each case that carries `"grader": "script"`. Every other case, one with no
 `grader`, a grader this runner doesn't know, or a model-graded one, is listed
 as refused ("graded cases don't run") and its `run` is never executed. This
 runner has no code path to `claude` or any model.
+
+--for <skill> selects by hand-off instead: <skill>'s own script cases, then
+every other skill's script cases whose `handoff` is <skill>, skill by skill
+in name order, each skill's under a `== <skill>` header as --all prints them,
+with one closing total. scripts/check-skill.sh runs it, so a change to a
+skill fails the cases other skills keep on their hand-offs to it. Graded
+cases aren't listed: the eval harness reports those. A case whose own skill
+is its `handoff` runs once. <skill> must be a directory under skills/; its
+own evals.json may be absent (a skill that declares
+disable-model-invocation: true has none), and then it has no cases of its
+own. Another skill with no evals.json is skipped, but one that can't be read
+or parsed is a usage error (exit 2), since its cases can't be selected.
+git's index is read only when a case is about to run, so a tree with no
+script case to run needs no repository. --for takes neither --scenario nor
+--summary-out. With --list it prints each case it would run as
+`<skill> <id> <name>` and runs none.
 
 The repository is the directory two levels above this file, so a copied tree
 runs its own cases against its own scripts.
@@ -37,7 +54,10 @@ repository root, with this closed environment and nothing else from the
 caller: PATH, LANG, TMPDIR (a fresh directory), HOME (a fresh directory) and
 KOTO_HOME (a fresh koto state directory). Each case runs in its own process
 group and the group is killed (SIGKILL) when its timeout runs out: 300
-seconds, or a shorter `timeout` (in seconds) the case sets.
+seconds, or a shorter `timeout` (in seconds) the case sets. A TERM or INT to
+the runner kills the running case's group the same way before the runner
+exits (143 or 130): a caller that keeps the runner in its own process group,
+as scripts/check-skill.sh does, signals the runner, never the case's group.
 
 A failing case's reason is a status line (exited N, timed out, refused) and
 then its merged stdout and stderr with control characters and terminal escape
@@ -72,6 +92,7 @@ Exit codes:
   1 - a script case failed or was refused
   2 - usage error, or a file that can't be read or written
   3 - a missing prerequisite (git)
+  130, 143 - stopped by INT or TERM; the running case's group is killed
 """
 
 import hashlib
@@ -242,6 +263,23 @@ def kill_group(pgid):
         pass
 
 
+# The process group of the case running now, or None between cases.
+RUNNING = [None]
+
+
+def stop_on_signal(signum, _frame):
+    """TERM or INT: kill the running case's group, then exit 128+signal.
+
+    SystemExit unwinds through execute()'s finally, so the case's scratch
+    directory is removed too.
+    """
+    pgid = RUNNING[0]
+    if pgid is not None:
+        kill_group(pgid)
+    sys.stdout.flush()
+    raise SystemExit(128 + signum)
+
+
 def execute(argv, timeout):
     """Run one case. Returns (passed, status line, output text)."""
     scratch = tempfile.mkdtemp(prefix="script-case.")
@@ -253,6 +291,7 @@ def execute(argv, timeout):
                                     start_new_session=True)
         except OSError as exc:
             return False, "could not start: %s" % exc.strerror, ""
+        RUNNING[0] = proc.pid
         buf = bytearray()
 
         def reader():
@@ -282,6 +321,7 @@ def execute(argv, timeout):
                 timed_out = lingering = True
         kill_group(proc.pid)
         proc.wait()
+        RUNNING[0] = None
         thread.join(5)
         proc.stdout.close()
         text = strip_controls(bytes(buf[-OUTPUT_KEEP:]).decode("utf-8", "replace"))
@@ -321,6 +361,94 @@ def load_cases(skill):
     return evals
 
 
+def run_case(case, index):
+    """Run one script case; print its lines; return its summary result."""
+    cid, name = case.get("id"), case.get("name")
+    result = {"id": cid, "name": name}
+    argv, problem = containment(case.get("run"), index)
+    timeout = DEFAULT_TIMEOUT
+    if argv is not None:
+        timeout, problem = case_timeout(case)
+    if problem is not None:
+        passed, status, text = False, "refused: " + problem, ""
+    else:
+        passed, status, text = execute(argv, timeout)
+    if passed:
+        result["verdict"] = "pass"
+        print("PASS %s %s" % (label(cid), label(name)))
+    else:
+        output = tail_lines(text)
+        result["verdict"] = "fail"
+        result["reason"] = "\n".join([status] + output)
+        print("FAIL %s %s: %s" % (label(cid), label(name), status))
+        for line in output:
+            print("    " + line)
+    sys.stdout.flush()
+    return result
+
+
+def is_script_case(case):
+    return isinstance(case, dict) and case.get("grader") == "script"
+
+
+def select_for(skill):
+    """--for <skill>: [(skill name, [script case, ...]), ...], own cases first.
+
+    Skills without an evals.json have no cases; any other unreadable file
+    raises UsageError.
+    """
+    skills_dir = os.path.join(ROOT, "skills")
+    others = sorted(n for n in os.listdir(skills_dir)
+                    if n != skill and os.path.isfile(os.path.join(skills_dir, n, "evals", "evals.json")))
+    selected = []
+    if os.path.isfile(os.path.join(skills_dir, skill, "evals", "evals.json")):
+        own = [c for c in load_cases(skill) if is_script_case(c)]
+        if own:
+            selected.append((skill, own))
+    for other in others:
+        cases = [c for c in load_cases(other) if is_script_case(c) and c.get("handoff") == skill]
+        if cases:
+            selected.append((other, cases))
+    return selected
+
+
+def run_for(skill, listing):
+    """--for <skill>, run or listed; returns the exit code."""
+    try:
+        if not os.path.isdir(os.path.join(ROOT, "skills", skill)):
+            raise UsageError("--for %s: skills/%s is not a directory" % (skill, skill))
+        selected = select_for(skill)
+    except (UsageError, OSError) as exc:
+        sys.stderr.write("script-cases: %s\n" % (exc.args[0] if isinstance(exc, UsageError) else exc))
+        return 2
+    if listing:
+        for name, cases in selected:
+            for case in cases:
+                print("%s %s %s" % (name, label(case.get("id")), label(case.get("name"))))
+        return 0
+    index = {}
+    if selected:
+        if shutil.which("git") is None:
+            sys.stderr.write("script-cases: git not found; it is needed to check that a case's "
+                             "script is tracked\n")
+            return 3
+        try:
+            index = tracked_files()
+        except UsageError as exc:
+            sys.stderr.write("script-cases: %s\n" % exc.args[0])
+            return 2
+    passed = run = 0
+    for name, cases in selected:
+        print("== %s" % name)
+        sys.stdout.flush()
+        for case in cases:
+            run += 1
+            if run_case(case, index)["verdict"] == "pass":
+                passed += 1
+    print("script cases: %d of %d passed" % (passed, run))
+    return 0 if passed == run else 1
+
+
 def run_skill(skill, evals, index, scenario):
     """Run one skill's cases; print their lines; return its summary entry."""
     selected = []
@@ -344,26 +472,9 @@ def run_skill(skill, evals, index, scenario):
             entry["refused"].append({"id": cid, "name": name})
             continue
         entry["cases_run"] += 1
-        result = {"id": cid, "name": name}
-        argv, problem = containment(case.get("run"), index)
-        timeout = DEFAULT_TIMEOUT
-        if argv is not None:
-            timeout, problem = case_timeout(case)
-        if problem is not None:
-            passed, status, text = False, "refused: " + problem, ""
-        else:
-            passed, status, text = execute(argv, timeout)
-        if passed:
+        result = run_case(case, index)
+        if result["verdict"] == "pass":
             entry["cases_passed"] += 1
-            result["verdict"] = "pass"
-            print("PASS %s %s" % (label(cid), label(name)))
-        else:
-            output = tail_lines(text)
-            result["verdict"] = "fail"
-            result["reason"] = "\n".join([status] + output)
-            print("FAIL %s %s: %s" % (label(cid), label(name), status))
-            for line in output:
-                print("    " + line)
         entry["cases"].append(result)
     run = entry["cases_run"]
     entry["assertions"] = {"passed": entry["cases_passed"], "graded": run}
@@ -373,22 +484,28 @@ def run_skill(skill, evals, index, scenario):
 
 
 def parse(argv):
-    target, summary, scenario = None, None, None
+    """Returns (target, summary, scenario, for_skill, listing)."""
+    target, summary, scenario, for_skill, listing = None, None, None, None, False
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg in ("--summary-out", "--scenario"):
+        if arg in ("--summary-out", "--scenario", "--for"):
             if i + 1 >= len(argv) or argv[i + 1] == "":
                 raise UsageError("%s needs a value" % arg)
             value = argv[i + 1]
             i += 2
-        elif arg.startswith("--summary-out=") or arg.startswith("--scenario="):
+        elif (arg.startswith("--summary-out=") or arg.startswith("--scenario=")
+              or arg.startswith("--for=")):
             arg, _, value = arg.partition("=")
             if value == "":
                 raise UsageError("%s needs a value" % arg)
             i += 1
         elif arg in ("-h", "--help"):
             raise UsageError(None)
+        elif arg == "--list":
+            listing = True
+            i += 1
+            continue
         elif arg == "--all" or not arg.startswith("-"):
             if target is not None:
                 raise UsageError("name one skill, or --all")
@@ -399,29 +516,50 @@ def parse(argv):
             raise UsageError("unknown option %r" % arg)
         if arg == "--summary-out":
             summary = value
+        elif arg == "--for":
+            if for_skill is not None:
+                raise UsageError("--for names one skill; give it once")
+            for_skill = value
         else:
             scenario = {n for n in value.split(",") if n}
+    if for_skill is not None:
+        if target is not None:
+            raise UsageError("--for selects the cases itself; it takes no skill name or --all")
+        if scenario is not None:
+            raise UsageError("--for runs every case it selects; it takes no --scenario")
+        if summary is not None:
+            raise UsageError("--for writes no summary; it takes no --summary-out")
+        if not ARG.fullmatch(for_skill):
+            raise UsageError("skill name %r does not match [A-Za-z0-9][A-Za-z0-9._-]*" % for_skill)
+        return None, None, None, for_skill, listing
+    if listing:
+        raise UsageError("--list lists what --for selects; use it with --for")
     if target is None:
         raise UsageError("name one skill, or --all")
     if target == "--all" and scenario is not None:
         raise UsageError("--scenario names cases in one skill; use it with a skill name, not --all")
     if target != "--all" and not ARG.fullmatch(target):
         raise UsageError("skill name %r does not match [A-Za-z0-9][A-Za-z0-9._-]*" % target)
-    return target, summary, scenario
+    return target, summary, scenario, None, False
 
 
 USAGE = ("usage: script-cases.py <skill> [--scenario <a,b,...>] [--summary-out <file>]\n"
-         "       script-cases.py --all [--summary-out <file>]\n")
+         "       script-cases.py --all [--summary-out <file>]\n"
+         "       script-cases.py --for <skill> [--list]\n")
 
 
 def main(argv):
     try:
-        target, summary_path, scenario = parse(argv[1:])
+        target, summary_path, scenario, for_skill, listing = parse(argv[1:])
     except UsageError as exc:
         if exc.args[0]:
             sys.stderr.write("script-cases: %s\n" % exc.args[0])
         sys.stderr.write(USAGE)
         return 2
+    signal.signal(signal.SIGTERM, stop_on_signal)
+    signal.signal(signal.SIGINT, stop_on_signal)
+    if for_skill is not None:
+        return run_for(for_skill, listing)
     if shutil.which("git") is None:
         sys.stderr.write("script-cases: git not found; it is needed to check that a case's "
                          "script is tracked\n")
