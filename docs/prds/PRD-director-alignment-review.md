@@ -251,8 +251,7 @@ scope.
   intervention from a session above it in its calling hierarchy, or from a
   person, and adds no such intervention: a hold, a call, a declined relay and
   a lane's question are none of those. It leaves the named roles' rules on
-  how a role is set and kept, a succession keeping its role included, as they
-  are.
+  how a role is set, kept and changed as they are.
 - **R19. It runs before provenance.** A director can do all of the above with
   skill text and the record as it is plus the one new entry kind, before
   standing-rule provenance gives entries a source. Where the relay check of
@@ -351,6 +350,10 @@ scope.
   role in the record and the director's expectation list in the skill, which
   the named-roles plan (shirabe#1483) builds and which isn't merged. Until it
   lands, nothing tells a session it is a director, so none of this applies.
+  The named-roles work is also being amended so that a continuation keeps its
+  role and a role changes mid-lineage only on an intervention from a session
+  above it in its calling hierarchy, or from a person, recorded with who and
+  when. R18 relies on that amendment and doesn't restate it.
 - **The relay check is only as good as the recorded text.** Until
   standing-rule provenance lands, the director checks a relay against the
   owner-decision rows the record already keeps. An owner decision that was
