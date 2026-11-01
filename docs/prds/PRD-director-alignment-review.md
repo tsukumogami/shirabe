@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A director gets its lanes' finished pull requests, most of them marking a
   milestone done, and the coordinate skill gives it no written way to judge
@@ -31,7 +31,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
