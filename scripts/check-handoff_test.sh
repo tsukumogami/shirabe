@@ -7,9 +7,10 @@
 # Every case runs a temporary copy's own scripts/check-handoff.sh, after one
 # mutation of that copy; the checkout is never changed. Two kinds of copy:
 #
-#   - a small copy: the check and its helpers, the four skills' SKILL.md and
-#     koto-templates/, and deliver-open-request.sh (the opener the attach
-#     runs), with a stand-in for each route suite that passes one case. The
+#   - a small copy: the check and its helpers, the five skills' SKILL.md and
+#     koto-templates/, deliver-open-request.sh (the opener the attach runs)
+#     and /coordinate's entry-points.tsv, with a stand-in for each route
+#     suite check-handoff.routes.tsv names that passes one case. The
 #     contract, directive and attach mutations run here, so each costs a
 #     compile and a few koto inits rather than the engine suites.
 #   - a full copy of the tree (tracked and untracked files git doesn't
@@ -40,12 +41,23 @@
 #                       leaving out a key every terminal of its outcome
 #                       carries
 #   execute -> work-on  default_template pointing at a missing template;
-#                       work-on.md renamed
+#                       work-on.md renamed; assert-child-template_test.sh
+#                       failing, with its route row and without (full copy)
+#   coordinate -> <to>  deliver's entry-points row naming no leg; scope's
+#                       row not admitting scope.md; --koto-leg gone from
+#                       work-on's SKILL.md; pr dropped from work-on.md's
+#                       terminals; the `-` results record listing an
+#                       uncopied key, leaving out pr, and deleted; wait_leg
+#                       capturing WAIT_LEG_X; leg_result reading an init
+#                       variable; work-on.md renamed; dispatch-worker.sh
+#                       dropping --koto-leg from a /deliver worker (full copy)
 #
 # and: koto absent and a koto without --koto-leg, for each hand-off; a route
 # suite that SKIPs or passes nothing; the caller's own koto sessions the same
-# before and after a passing and a failing run, with nothing left in TMPDIR;
-# and deliver-engine_test.sh under each selector and none.
+# before and after a passing and a failing run, and what `koto workflows`
+# lists the same around a passing and a failing coordinate -> work-on run,
+# with nothing left in TMPDIR; and deliver-engine_test.sh under each
+# selector and none.
 #
 # Needs koto (with --koto-leg), python3, jq and git. With no koto on PATH
 # every case fails rather than skips: a skip here would report green having
@@ -85,12 +97,15 @@ FULL="$T/full"
 EXEC_TPL="skills/execute/koto-templates/execute.md"
 DELIVER_TPL="skills/deliver/koto-templates/deliver.md"
 SCOPE_TPL="skills/scope/koto-templates/scope.md"
+COORD_TPL="skills/coordinate/koto-templates/coordinate.md"
+WORKON_TPL="skills/work-on/koto-templates/work-on.md"
+ENTRY_POINTS="skills/coordinate/references/entry-points.tsv"
 RESULTS="scripts/check-handoff.results.tsv"
-ROUTE_SUITES="skills/deliver/scripts/deliver-engine_test.sh
-skills/deliver/scripts/deliver-execute-leg_test.sh
-skills/deliver/scripts/deliver-template-structure_test.sh
-skills/execute/scripts/execute-template-structure_test.sh
-skills/execute/scripts/assert-child-template_test.sh"
+ROUTES="scripts/check-handoff.routes.tsv"
+TAB=$(printf '\t')
+EDGES="deliver:execute deliver:scope execute:work-on coordinate:deliver coordinate:execute coordinate:scope coordinate:work-on"
+# Every suite the route table names, once each.
+ROUTE_SUITES=$(awk -F "$TAB" '$0 !~ /^#/ && NF == 3 { print $3 }' "$REPO_ROOT/$ROUTES" | sort -u)
 
 # stub_suite <path> [<line>...]: a stand-in route suite printing its lines,
 # by default one passing case.
@@ -110,15 +125,18 @@ stub_suite() {
 fresh_copy() {
     rm -rf "$COPY"
     mkdir -p "$COPY/scripts/lib" "$COPY/skills/deliver/scripts" || return 1
-    cp "$REPO_ROOT/scripts/check-handoff.sh" "$REPO_ROOT/$RESULTS" "$COPY/scripts/" || return 1
+    cp "$REPO_ROOT/scripts/check-handoff.sh" "$REPO_ROOT/$RESULTS" "$REPO_ROOT/$ROUTES" \
+        "$COPY/scripts/" || return 1
     cp "$REPO_ROOT/scripts/lib/check-handoff.py" "$REPO_ROOT/scripts/lib/koto-test-guard.sh" \
         "$COPY/scripts/lib/" || return 1
-    for s in deliver execute scope work-on; do
+    for s in deliver execute scope work-on coordinate; do
         mkdir -p "$COPY/skills/$s" || return 1
         cp "$REPO_ROOT/skills/$s/SKILL.md" "$COPY/skills/$s/" || return 1
         cp -R "$REPO_ROOT/skills/$s/koto-templates" "$COPY/skills/$s/" || return 1
     done
     cp "$REPO_ROOT/skills/deliver/scripts/deliver-open-request.sh" "$COPY/skills/deliver/scripts/" || return 1
+    mkdir -p "$COPY/skills/coordinate/references" || return 1
+    cp "$REPO_ROOT/$ENTRY_POINTS" "$COPY/$ENTRY_POINTS" || return 1
     for suite in $ROUTE_SUITES; do stub_suite "$COPY/$suite"; done
 }
 
@@ -286,10 +304,10 @@ small() {
 
 # -- unchanged small copy ----------------------------------------------------
 
-for edge in "deliver execute" "deliver scope" "execute work-on"; do
+for edge in $EDGES; do
     fresh_copy || { fail "could not copy the tree"; break; }
-    run_check "$COPY" $edge
-    expect_pass "the small copy, unchanged" $edge
+    run_check "$COPY" "${edge%%:*}" "${edge#*:}"
+    expect_pass "the small copy, unchanged" "${edge%%:*}" "${edge#*:}"
 done
 rm -rf "$COPY"
 
@@ -449,6 +467,54 @@ small "work-on.md renamed" execute work-on \
     "child template reference" "skills/work-on/koto-templates/work-on.md" "does not exist" \
     -- mv "$COPY/skills/work-on/koto-templates/work-on.md" "$COPY/skills/work-on/koto-templates/work-on-v1.md"
 
+# -- coordinate -> deliver, execute, scope, work-on: the templated leg ---------------------
+
+# entry_field <skill> <field> <value>: set one field of a skill's row in
+# entry-points.tsv.
+entry_field() {
+    apply "$ENTRY_POINTS" 'BEGIN { FS = OFS = "\t" } $0 !~ /^#/ && $1 == s { $f = v } { print }' \
+        -v s="$1" -v f="$2" -v v="$3"
+}
+small "deliver's entry-points row naming no leg" coordinate deliver \
+    "receiving-side contract" "entry-points.tsv" "row for \`deliver\` names leg \`-\`" \
+    -- entry_field deliver 2 -
+small "scope's entry-points row no longer admitting scope.md" coordinate scope \
+    "receiving-side contract" "entry-points.tsv" "doesn't admit scope.md" \
+    -- entry_field scope 3 scope-v2.md
+small "--koto-leg removed from skills/work-on/SKILL.md" coordinate work-on \
+    "--koto-leg" "skills/work-on/SKILL.md" \
+    -- apply "skills/work-on/SKILL.md" 'index($0, "--koto-leg") == 0 { print }'
+drop_work_on_pr() {
+    mut "$COPY/$WORKON_TPL" result-drop "done" pr &&
+        mut "$COPY/$WORKON_TPL" result-drop done_already_complete pr
+}
+small "pr dropped from work-on.md's done and done_already_complete" coordinate work-on \
+    "receiving-side contract" "key 'pr'" "every terminal state" -- drop_work_on_pr
+WORKON_RECORD="coordinate${TAB}work-on${TAB}-${TAB}pr"
+RECORD_LINE=$(grep -n -F -x "$WORKON_RECORD" "$REPO_ROOT/$RESULTS" | cut -d: -f1)
+small "the '-' record listing a key wait_leg doesn't copy" coordinate work-on \
+    "check-handoff.results.tsv line $RECORD_LINE" "key 'repos'" \
+    -- mut "$COPY/$RESULTS" line-replace "$WORKON_RECORD" "coordinate${TAB}work-on${TAB}-${TAB}pr,repos"
+small "the '-' record leaving out pr, which a work-on terminal carries" coordinate work-on \
+    "check-handoff.results.tsv line $RECORD_LINE" "leaves out key 'pr'" \
+    -- mut "$COPY/$RESULTS" line-replace "$WORKON_RECORD" "coordinate${TAB}work-on${TAB}-${TAB}-"
+small "the coordinate work-on record deleted" coordinate work-on \
+    "key 'step'" "key 'reason'" "work-on.md" \
+    -- apply "$RESULTS" '$0 != r { print }' -v r="$WORKON_RECORD"
+# koto refuses to compile a gate reading a variable nothing declares or
+# captures, naming it; the directive check fails with it.
+small "wait_leg capturing WAIT_LEG_X" coordinate work-on \
+    "rendered directive" "WAIT_LEG" \
+    -- mut "$COPY/$COORD_TPL" line-replace "      capture_stdout_as: WAIT_LEG" "      capture_stdout_as: WAIT_LEG_X"
+# A gate reading a declared init variable compiles; only the directive check,
+# which wants a value a state's action captured, refuses it.
+small "leg_result reading the init variable SCOPE, which no state captures" coordinate work-on \
+    "rendered directive" "SCOPE" "capture_stdout_as" \
+    -- mut "$COPY/$COORD_TPL" line-replace '        leg: "{{WAIT_LEG}}"' '        leg: "{{SCOPE}}"'
+small "work-on.md renamed, against the templated leg" coordinate work-on \
+    "attach" "koto refused" "work-on-v1.md" \
+    -- mv "$COPY/$WORKON_TPL" "$COPY/skills/work-on/koto-templates/work-on-v1.md"
+
 # -- route suites that check nothing -------------------------------------------------------
 
 small "a route suite that SKIPs and exits 0" deliver execute "routes" "SKIP: jq not on PATH" \
@@ -467,17 +533,19 @@ mkdir -p "$OLDKOTO"
 printf '#!/bin/sh\n[ "$1 $2" = "init --help" ] && { echo "Usage: koto init [OPTIONS] <NAME>"; exit 0; }\nexit 1\n' \
     >"$OLDKOTO/koto"
 chmod +x "$OLDKOTO/koto"
-for edge in "deliver execute" "deliver scope" "execute work-on"; do
+for edge in $EDGES; do
+    from=${edge%%:*}
+    to=${edge#*:}
     if PATH="$NOKOTO:/usr/bin:/bin" command -v koto >/dev/null; then
         echo "SKIP: a koto in /usr/bin or /bin -- the no-koto case was not checked"
     else
         RC=0
-        OUT=$(PATH="$NOKOTO:/usr/bin:/bin" /bin/bash "$COPY/scripts/check-handoff.sh" $edge 2>&1) || RC=$?
-        expect_fail "$edge with no koto on PATH" "koto is not on PATH"
+        OUT=$(PATH="$NOKOTO:/usr/bin:/bin" /bin/bash "$COPY/scripts/check-handoff.sh" "$from" "$to" 2>&1) || RC=$?
+        expect_fail "$from $to with no koto on PATH" "koto is not on PATH"
     fi
     RC=0
-    OUT=$(PATH="$OLDKOTO:$PATH" bash "$COPY/scripts/check-handoff.sh" $edge 2>&1) || RC=$?
-    expect_fail "$edge with a koto whose init has no --koto-leg" "koto" "--koto-leg"
+    OUT=$(PATH="$OLDKOTO:$PATH" bash "$COPY/scripts/check-handoff.sh" "$from" "$to" 2>&1) || RC=$?
+    expect_fail "$from $to with a koto whose init has no --koto-leg" "koto" "--koto-leg"
 done
 
 RC=0
@@ -528,15 +596,79 @@ for kind in passing failing; do
 done
 rm -rf "$COPY"
 
+# The same for coordinate -> work-on, read through `koto workflows`: its
+# attach opens a request and a work-on session, both in the scratch store.
+fresh_copy || fail "could not copy the tree"
+WF_BEFORE=$(cd "$PROBE" && koto workflows 2>/dev/null)
+for kind in passing failing; do
+    run_tmp="$T/tmp-coordinate-$kind"
+    mkdir -p "$run_tmp"
+    [ "$kind" = failing ] && drop_work_on_pr
+    RC=0
+    OUT=$(cd "$PROBE" && TMPDIR="$run_tmp" bash "$COPY/scripts/check-handoff.sh" coordinate work-on 2>&1) || RC=$?
+    WF_AFTER=$(cd "$PROBE" && koto workflows 2>/dev/null)
+    left=$(ls -A "$run_tmp")
+    want_rc=0
+    [ "$kind" = failing ] && want_rc=1
+    case "$WF_BEFORE" in *caller-probe*) listed=1 ;; *) listed=0 ;; esac
+    if [ "$RC" -eq "$want_rc" ] && [ "$listed" -eq 1 ] && [ "$WF_BEFORE" = "$WF_AFTER" ] && [ -z "$left" ]; then
+        pass "a $kind coordinate work-on run (exit $RC) leaves what koto workflows lists as it was and nothing in TMPDIR"
+    else
+        fail "a $kind coordinate work-on run (rc=$RC): workflows before [$WF_BEFORE] after [$WF_AFTER], left in TMPDIR [$left]: $OUT"
+    fi
+done
+rm -rf "$COPY"
+
 # -- the full copy: unchanged, the route breaks, the selectors ------------------------------
 
 if ! full_copy; then
     fail "could not make the full copy of the tree"
 else
-    for edge in "deliver execute" "deliver scope" "execute work-on"; do
-        run_check "$FULL" $edge
-        expect_pass "the full copy, unchanged" $edge
+    for edge in $EDGES; do
+        run_check "$FULL" "${edge%%:*}" "${edge#*:}"
+        expect_pass "the full copy, unchanged" "${edge%%:*}" "${edge#*:}"
     done
+
+    # A /deliver worker's invocation without --koto-leg: dispatch-worker_test.sh,
+    # which /coordinate's edges run whole, fails, and the routes check carries
+    # its failing line.
+    DW="skills/coordinate/scripts/dispatch-worker.sh"
+    cp "$FULL/$DW" "$T/dw.orig"
+    if mut "$FULL/$DW" line-replace \
+        'INVOCATION=$(dc_invocation "$INPUT" "$RETURN_PATH") || die 2 "building the invocation failed"' \
+        'INVOCATION=$(if [ "$ENTRY" = deliver ]; then dc_invocation "$INPUT" message; else dc_invocation "$INPUT" "$RETURN_PATH"; fi) || die 2 "building the invocation failed"'; then
+        run_check "$FULL" coordinate deliver
+        expect_fail "dispatch-worker.sh dropping --koto-leg from a /deliver worker's invocation" \
+            "routes" "dispatch-worker_test.sh" "FAIL prompt: invocation"
+    else
+        fail "the dispatch-worker.sh mutation matched nothing"
+    fi
+    cp "$T/dw.orig" "$FULL/$DW"
+
+    # The route table alone decides which suites an edge runs: with
+    # assert-child-template_test.sh failing, execute -> work-on fails while
+    # its row is there and passes once the row is gone, with no edit to
+    # check-handoff.sh.
+    ACT="skills/execute/scripts/assert-child-template_test.sh"
+    cp "$FULL/$ACT" "$T/act.orig"
+    cp "$FULL/$ROUTES" "$T/routes.orig"
+    printf '#!/usr/bin/env bash\necho "FAIL made to fail"\necho "Results: 0 passed, 1 failed"\nexit 1\n' >"$FULL/$ACT"
+    run_check "$FULL" execute work-on
+    expect_fail "assert-child-template_test.sh failing, its row present" \
+        "routes" "assert-child-template_test.sh" "made to fail"
+    if mut "$FULL/$ROUTES" line-replace "execute${TAB}work-on${TAB}$ACT" "# row removed"; then
+        run_check "$FULL" execute work-on
+        expect_pass "assert-child-template_test.sh failing, its row removed" execute work-on
+    else
+        fail "the route table row removal matched nothing"
+    fi
+    if cmp -s "$REPO_ROOT/scripts/check-handoff.sh" "$FULL/scripts/check-handoff.sh"; then
+        pass "the route table row removal needed no edit to check-handoff.sh"
+    else
+        fail "check-handoff.sh in the full copy differs from the checkout's"
+    fi
+    cp "$T/act.orig" "$FULL/$ACT"
+    cp "$T/routes.orig" "$FULL/$ROUTES"
 
     LEG="skills/deliver/scripts/deliver-execute-leg.sh"
     cp "$FULL/$LEG" "$T/leg.orig"

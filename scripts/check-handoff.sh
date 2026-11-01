@@ -6,7 +6,10 @@
 # <from> is the skill that hands off and <to> the skill that receives it: in
 # `check-handoff.sh deliver execute`, /deliver opens a koto request and runs
 # /execute on its `execute` leg; in `check-handoff.sh execute work-on`,
-# /execute's spawn_and_await materializes work-on.md children. The
+# /execute's spawn_and_await materializes work-on.md children; in
+# `check-handoff.sh coordinate work-on`, /coordinate's wait_leg reads a
+# templated leg (`leg: "{{WAIT_LEG}}"`) that dispatch-worker.sh opened from
+# work-on's row in skills/coordinate/references/entry-points.tsv. The
 # script-graded eval cases name it in their `run` field
 # (scripts/lib/script-cases.py runs them), and anyone can run it directly.
 #
@@ -24,15 +27,19 @@
 #   rendered directive       the state waiting on the target renders a
 #                            directive naming skill <to> and
 #                            --koto-leg=<req>:<leg> (for a child, the child
-#                            template's file)
+#                            template's file; for a templated leg, the gate
+#                            reads a request and leg a state captures)
 #   attach                   the real target template attached with
 #                            `koto init --koto-leg` to a fresh request the
 #                            caller's own opener created (for a child, opened
-#                            with `koto init --parent` under the real caller)
-#   routes                   the caller's engine, leg and structure suites,
-#                            run with HANDOFF_ROUTE=<to> so a suite that
-#                            takes the selector runs only the sections on
-#                            the hand-off to <to>
+#                            with `koto init --parent` under the real caller;
+#                            for a templated leg, a request in the shape
+#                            dispatch-worker.sh opens from the row)
+#   routes                   the caller's suites for the edge, from
+#                            scripts/check-handoff.routes.tsv, run with
+#                            HANDOFF_ROUTE=<to> so a suite that takes the
+#                            selector runs only the sections on the
+#                            hand-off to <to>; the others run whole
 #
 # scripts/lib/check-handoff.py runs the first three; its header has the
 # details. The routes check fails on a suite that exits non-zero, prints a
@@ -110,32 +117,23 @@ python3 "$REPO_ROOT/scripts/lib/check-handoff.py" "$FROM" "$TO" "$WORK" || rc=1
 
 # --- routes -----------------------------------------------------------------
 
-# route_suites <from> <to>: the caller's suites that walk its hand-off to
-# <to>, relative to the repository. The engine and structure suites that take
-# HANDOFF_ROUTE run only that route's sections under it.
-route_suites() {
-    case "$1 $2" in
-        "deliver execute")
-            echo "skills/deliver/scripts/deliver-engine_test.sh"
-            echo "skills/deliver/scripts/deliver-execute-leg_test.sh"
-            echo "skills/deliver/scripts/deliver-template-structure_test.sh" ;;
-        "deliver scope")
-            echo "skills/deliver/scripts/deliver-engine_test.sh"
-            echo "skills/deliver/scripts/deliver-template-structure_test.sh" ;;
-        "execute work-on")
-            echo "skills/execute/scripts/execute-template-structure_test.sh"
-            echo "skills/execute/scripts/assert-child-template_test.sh" ;;
-        *) return 1 ;;
-    esac
-}
-
+# The caller's suites that walk its hand-off to <to>, from
+# scripts/check-handoff.routes.tsv (from, to, suite; the suite relative to
+# the repository). The engine and structure suites that take HANDOFF_ROUTE
+# run only that route's sections under it; the others run whole.
+ROUTES="$REPO_ROOT/scripts/check-handoff.routes.tsv"
 ESC=$(printf '\033')
+TAB=$(printf '\t')
 routes_ok=1
-SUITES=$(route_suites "$FROM" "$TO") || {
-    echo "FAIL: handoff $FROM -> $TO: routes: no route suites are declared for this hand-off in scripts/check-handoff.sh"
-    SUITES=""
+SUITES=""
+if [ -f "$ROUTES" ]; then
+    SUITES=$(awk -F "$TAB" -v f="$FROM" -v t="$TO" \
+        '$0 !~ /^#/ && NF == 3 && $1 == f && $2 == t { print $3 }' "$ROUTES")
+fi
+if [ -z "$SUITES" ]; then
+    echo "FAIL: handoff $FROM -> $TO: routes: no route suites are declared for this hand-off in scripts/check-handoff.routes.tsv"
     routes_ok=0
-}
+fi
 for suite in $SUITES; do
     out="$WORK/suite.out"
     if [ ! -f "$REPO_ROOT/$suite" ]; then

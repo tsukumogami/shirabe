@@ -15,8 +15,14 @@
 # every copied key that each terminal of the outcome carries, so a record
 # can't drift from either template unnoticed.
 #
+# An outcome of `-` is the record for the caller's transitions that pin no
+# outcome: at least one terminal of <to> must carry each listed key, the
+# keys must be ones those transitions copy, and the record must list every
+# copied key some terminal carries.
+#
 # /scope's terminals each carry only their own outcome's keys, and /deliver
-# reads a key a result leaves out as empty.
+# reads a key a result leaves out as empty. /work-on's terminals carry only
+# `pr`; /coordinate reads the step and reason a result leaves out as empty.
 deliver	scope	scoped	intent,next,plan_execution_mode,plan_path,pr,startable
 deliver	scope	handed-off-multi-pr	intent,next,plan_execution_mode,plan_path,pr,startable
 deliver	scope	executed	intent,pr,pr_state
@@ -25,3 +31,4 @@ deliver	scope	abandonment	intent,pr
 deliver	scope	cancelled	intent
 deliver	scope	error	intent,step
 deliver	scope	refused	intent,next,plan_execution_mode,plan_path,reason
+coordinate	work-on	-	pr

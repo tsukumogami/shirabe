@@ -29,7 +29,8 @@ Before anything runs, `run` is split into words on spaces and checked:
     skill position: it must name a directory under skills/.
 
 A case that breaks a rule is refused with the rule named and counts as a
-failed case. The words are executed directly, never through a shell, from the
+failed case. scripts/lib/check-evals-shape.py refuses the same cases with the
+same rule text, calling containment() here rather than keeping a copy. The words are executed directly, never through a shell, from the
 repository root, with this closed environment and nothing else from the
 caller: PATH, LANG, TMPDIR (a fresh directory), HOME (a fresh directory) and
 KOTO_HOME (a fresh koto state directory). Each case runs in its own process
@@ -136,16 +137,16 @@ def label(value):
     return strip_controls(value).replace("\n", " ").replace("\t", " ") or "?"
 
 
-def tracked_files():
-    """git's index for the repository: path -> mode."""
+def tracked_files(root=ROOT):
+    """git's index for the repository at root: path -> mode."""
     try:
-        proc = subprocess.run(["git", "-C", ROOT, "ls-files", "-s", "-z"],
+        proc = subprocess.run(["git", "-C", root, "ls-files", "-s", "-z"],
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError as exc:
         raise UsageError("could not run git: %s" % exc.strerror)
     if proc.returncode != 0:
         raise UsageError("git could not list the files tracked in %s: %s"
-                         % (ROOT, proc.stderr.decode("utf-8", "replace").strip()))
+                         % (root, proc.stderr.decode("utf-8", "replace").strip()))
     index = {}
     for entry in proc.stdout.split(b"\0"):
         if not entry:
@@ -155,14 +156,20 @@ def tracked_files():
     return index
 
 
-def containment(run, index):
-    """Return (argv, None) for a run field the rules allow, or (None, rule broken)."""
+def containment(run, index, root=ROOT):
+    """Return (argv, None) for a run field the rules allow, or (None, rule broken).
+
+    root is the repository the case belongs to, and index its tracked_files().
+    The runner checks its own repository; scripts/lib/check-evals-shape.py
+    calls this with the repository two levels above the skill it checks, so
+    the two refuse a case with the same rule text.
+    """
     if not isinstance(run, str) or run.strip() == "":
         return None, "a script case needs a non-empty `run` string"
     words = [w for w in run.split(" ") if w != ""]
     script, args = words[0], words[1:]
-    candidate = os.path.join(ROOT, script)
-    real_root = os.path.realpath(ROOT)
+    candidate = os.path.join(root, script)
+    real_root = os.path.realpath(root)
     rel = os.path.relpath(os.path.realpath(candidate), real_root)
     if rel.startswith(".." + os.sep) or rel == ".." or os.path.isabs(script):
         return None, ("the script %r resolves outside the repository; it must be %s or under %s"
@@ -195,7 +202,7 @@ def containment(run, index):
             return None, ("%s takes two skill arguments, <from> and <to>; got %d"
                           % (HANDOFF, len(args)))
         for arg in args:
-            if not os.path.isdir(os.path.join(ROOT, "skills", arg)):
+            if not os.path.isdir(os.path.join(root, "skills", arg)):
                 return None, ("the skill argument %r names no directory under skills/"
                               % label(arg))
     if not os.access(candidate, os.X_OK):
