@@ -30,7 +30,9 @@ Before anything runs, `run` is split into words on spaces and checked:
 
 A case that breaks a rule is refused with the rule named and counts as a
 failed case. scripts/lib/check-evals-shape.py refuses the same cases with the
-same rule text, calling containment() here rather than keeping a copy. The words are executed directly, never through a shell, from the
+same rule text, calling containment() here rather than keeping a copy.
+
+The words are executed directly, never through a shell, from the
 repository root, with this closed environment and nothing else from the
 caller: PATH, LANG, TMPDIR (a fresh directory), HOME (a fresh directory) and
 KOTO_HOME (a fresh koto state directory). Each case runs in its own process

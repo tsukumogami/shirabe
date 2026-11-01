@@ -130,8 +130,11 @@ if [ -f "$ROUTES" ]; then
     SUITES=$(awk -F "$TAB" -v f="$FROM" -v t="$TO" \
         '$0 !~ /^#/ && NF == 3 && $1 == f && $2 == t { print $3 }' "$ROUTES")
 fi
-if [ -z "$SUITES" ]; then
-    echo "FAIL: handoff $FROM -> $TO: routes: no route suites are declared for this hand-off in scripts/check-handoff.routes.tsv"
+if [ ! -f "$ROUTES" ]; then
+    echo "FAIL: handoff $FROM -> $TO: routes: scripts/check-handoff.routes.tsv does not exist"
+    routes_ok=0
+elif [ -z "$SUITES" ]; then
+    echo "FAIL: handoff $FROM -> $TO: routes: no route suites are declared for this hand-off in scripts/check-handoff.routes.tsv (a row is three tab-separated fields: from, to, suite)"
     routes_ok=0
 fi
 for suite in $SUITES; do

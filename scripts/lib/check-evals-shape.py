@@ -47,6 +47,12 @@ each declared target must be a skill whose SKILL.md declares --koto-leg,
 since only such a skill can answer a leg. The `shape ok` line lists the
 targets.
 
+The frontmatter is read by indentation, as every template here is written:
+a state is a two-space key, `gates:` a four-space key in it, a gate a
+six-space key under that and its `type:` and `leg:` eight-space keys. A
+template laid out otherwise derives no gate target, and the `shape ok` line,
+which lists the targets, shows it.
+
 A skill with no evals.json passes only when its SKILL.md declares
 `disable-model-invocation: true`, read the way scripts/check-evals-exist.sh
 reads it (the phrase anywhere in the file). Otherwise the missing file fails.

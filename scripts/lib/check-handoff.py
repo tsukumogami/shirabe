@@ -561,7 +561,7 @@ def run_leg(frm, to, src, leg, paths, from_abs, to_abs, repo_root, run_dir,
         if target is None:
             contract.fail("koto template compile %s failed:\n%s" % (paths["to_tpl"], err))
     leg_contract(contract, frm, to, src, target, leg, paths)
-    declares_koto_leg(contract, to, paths, repo_root)
+    require_koto_leg(contract, to, paths, repo_root)
 
     # rendered directive
     spec = src["states"][state_name]["gates"][gate]
@@ -595,8 +595,9 @@ def run_leg(frm, to, src, leg, paths, from_abs, to_abs, repo_root, run_dir,
     attach_child(attach, to, req_id, inputs, repo_root, run_dir)
 
 
-def declares_koto_leg(contract, to, paths, repo_root):
-    """skills/<to>/SKILL.md declares --koto-leg, which a leg is entered with."""
+def require_koto_leg(contract, to, paths, repo_root):
+    """Fail contract unless skills/<to>/SKILL.md declares --koto-leg, which a
+    leg is entered with."""
     skill = os.path.join(repo_root, paths["to_skill"])
     try:
         with open(skill, encoding="utf-8") as fh:
@@ -703,7 +704,7 @@ def run_templated(frm, to, src, templated, paths, to_abs, repo_root, run_dir,
         if target is None:
             contract.fail("koto template compile %s failed:\n%s" % (paths["to_tpl"], err))
     leg_contract(contract, frm, to, src, target, (state_name, gate, [gate], None), paths)
-    declares_koto_leg(contract, to, paths, repo_root)
+    require_koto_leg(contract, to, paths, repo_root)
 
     # rendered directive: dispatch-worker.sh, not a directive, composes the
     # worker's --koto-leg, so the gate must read the request and the leg a
@@ -725,6 +726,10 @@ def run_templated(frm, to, src, templated, paths, to_abs, repo_root, run_dir,
                     "nothing was attached" % (table, to, to))
         return
     _, _, row_templates, pinned = row
+    # entry-points.tsv's sources are `arg` (the positional) and `plan-slug`
+    # (the PLAN path's slug); a dispatch fills both from the topic, so both
+    # take the check's topic here. dispatch-worker.sh refuses any other
+    # source, so one passes through as written and koto judges it.
     inputs = {}
     for pair in pinned.split(","):
         if pair in ("", "-"):
