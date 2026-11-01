@@ -12,7 +12,8 @@ PATH: the shape check reads templates as text. The older rules (names,
 prompts, criteria, the reference-only exemption) are covered by
 scripts/check-skill_test.sh.
 
-Needs git; not koto.
+Needs git. koto is needed only by test_verdicts_are_the_same_with_koto_on_path,
+which runs the checker again with koto on PATH and fails without it.
 """
 
 import json

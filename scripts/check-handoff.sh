@@ -164,8 +164,10 @@ for suite in $SUITES; do
     fi
     if [ -n "$reason" ]; then
         echo "FAIL: handoff $FROM -> $TO: routes: $suite (HANDOFF_ROUTE=$TO) $reason:"
-        # The suite's own failing lines, each with the detail line after it.
-        grep -E -A 1 '^(FAIL|SKIP)' "$out.plain" | grep -v '^--$' | head -n 40 | sed 's/^/    /'
+        # The suite's own failing lines, each with the detail line after it,
+        # the first 40 only. sed reads to the end rather than stopping at
+        # line 40, so no stage before it is cut off.
+        grep -E -A 1 '^(FAIL|SKIP)' "$out.plain" | grep -v '^--$' | sed -n '1,40s/^/    /p'
         tail -n 1 "$out.plain" | sed 's/^/    /'
         routes_ok=0
     fi
