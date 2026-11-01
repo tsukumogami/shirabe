@@ -70,101 +70,115 @@ restated; the requirements below are written against them. Two more:
 - As a workspace admin, I want a declaration changed during a run to apply at
   the coordinator's next finishing step, so that I don't have to restart a
   long-running coordinator to tighten review.
-- As a reviewer of the skill, I want one place where a finishing step reads
-  the answer, so that the merge and the close can't disagree on what an
-  answer means.
+- As a reviewer of the skill, I want every finishing step to call the same
+  script for the authority answer, so that the merge and the close can't
+  disagree on what an answer means.
 
 ## Requirements
 
 Terms. The **authority answer** is the output of
 `niwa authority check -C <instance> --session <id> --point <p> --json`, with
-schema `niwa.authority.check/v1`. The **settler** of a step is who the answer
-says decides that step's point. A **finishing step** is a merge, a close
-(issue, pull request or roadmap), a release, a teardown, or any of these a
-worker hands back to its coordinator.
+schema `niwa.authority.check/v1`. The **settler** of a step is the decider the
+answer gives for that step's point (`session`, `dispatcher` or `person`). A
+**finishing step** is a merge, a close (issue, pull request or roadmap), a
+release, a teardown, or any of these a worker hands back to its coordinator.
+To **take** a step is for the coordinator to perform it itself; to **hold**
+one is to not perform it, record it as held, and report (R6). This document
+binds the later implementation; the unit that writes it changes no skill text
+or script.
 
 ### Functional
 
-- **R1. Each finishing step asks one point.** The skill maps steps to points
-  and keeps that mapping as its only vocabulary: a merge, a verdict or reopen
-  pull request's merge included, asks `merge-pr`; a close asks `close-issue`;
-  a release asks `cut-release`. A step a worker hands back asks the point of
-  the step it is. The skill asks no point niwa doesn't define (see R9 for
-  teardown).
+- **R1. Each finishing step asks one point.** The skill keeps one
+  step-to-point mapping and no other vocabulary of points: a merge, a verdict
+  or reopen pull request's merge included, asks `merge-pr`; closing an issue,
+  a pull request or a roadmap asks `close-issue`; a release asks
+  `cut-release`. A step a worker hands back asks the point of the step it is,
+  and a handed-back teardown follows R9. The skill asks no point niwa doesn't
+  define.
 - **R2. The answer is read at the step.** Each visit to a finishing step reads
-  the answer for its point, fresh, bounded as `posture-read.sh` bounds it
-  today. The start read stays as a first look and can only narrow: when the
-  two disagree the stricter applies, as `land-merge.sh` already does for the
-  merge. A step never acts on a stored answer alone.
-- **R3. One reader.** Every finishing step reads the answer through one
-  shared reader, which checks the schema and stays closed over niwa's
-  vocabularies (state, decider, author exclusion, level, grant). A value
-  outside them is an unreadable answer (R6). The `--rules` read from
-  tsukumogami/shirabe#1473 uses the same reader.
-- **R4. The skill acts on the answer and adds nothing.** The one combination
-  the skill keeps is this: when the session holds the step's grant, the
-  answer names the session as settler and the author is not excluded, the
-  coordinator takes the step as its grant allows. In every other case the
-  step goes to the settler the answer names, to the target the answer gives
-  for it. The skill derives no settler from a level, a parent, a `bound`
-  state, a missing field or its own reports-to address, and adds no
-  distinction the answer doesn't carry (today's close-confirm versus
-  merge-deny split goes).
+  the answer for its point, fresh, bounded at `NIWA_LOOKUP_SECONDS` (3 seconds
+  by default) as `posture-read.sh` bounds it today, and acts on that read in
+  the same visit. A step whose act reads again (as `land-merge.sh` does for
+  the merge) is held if either read holds it. The start read stays only for
+  the board and the start report; no step acts on it.
+- **R3. One reader.** Every finishing step, and the `--rules` read from
+  tsukumogami/shirabe#1473, gets the answer from one shared script, the only
+  code in `skills/coordinate/` that runs `niwa authority check`. It accepts an
+  answer only when it exits 0 with schema `niwa.authority.check/v1` and every
+  `state`, `decider`, `author_exclusion`, `level` and grant value is one
+  `posture-read.sh` accepts today. Anything else is an unreadable answer (R6).
+- **R4. The skill acts on the answer and adds nothing.** The coordinator takes
+  a step only when the answer says the session holds the step's grant, names
+  `session` as settler and has author exclusion off; it then takes it after
+  the review R10 keeps. In every other case the step goes to the settler the
+  answer names, at the target the answer gives for it: when the settler is
+  `dispatcher`, or the settler is `session` with author exclusion on, that
+  target comes from the answer (D1, D3); when it is `person`, a person. The
+  skill derives no settler from a level, a parent, a `bound` state, a missing
+  field or its own reports-to address, and adds no distinction the answer
+  doesn't carry: today's close-confirm versus merge-deny split goes.
 - **R5. The bound-or-root rule goes.** Every sentence in
   `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`
   and `skills/coordinate/references/*.md` that routes a finishing step by
-  whether the session is bound or root, and the matching code in
-  `need-check.sh`, `progress-view.sh --dispatcher` and the `land-merge.sh`
-  refusal text, is replaced by a reading of the settler from the answer. The
-  need's wording names the settler the answer gave. Exceptions are R9 and
-  R10 only.
-- **R6. An unreadable answer holds the step.** A failed, timed-out, skipped
-  (no niwa, no session id, no instance root) or unrecognised read, an answer
-  with no entry for the point asked, and a settler the coordinator can't
-  address all mean the same: the coordinator doesn't take the step, holds it,
-  and reports the failed read. It never falls back to the bound-or-root rule
-  or to "not dispatched means a person".
+  whether the session is bound or root, and the matching code (the
+  `grant_check.state` routing in `need-check.sh`, the `--dispatcher` wording in
+  `progress-view.sh`, the "hand the merge to the human" refusal in
+  `land-merge.sh`), is replaced by a reading of the settler from the answer.
+  A held step's need names the settler the answer gave. The only exceptions
+  are R9 and R10.
+- **R6. An unreadable answer holds the step.** These hold the step: a read
+  that fails, times out or is skipped (no niwa, no session id, no instance
+  root); an answer R3 refuses; an answer with no entry for the point asked;
+  and a settler whose target the answer doesn't give. The coordinator doesn't
+  take the step, records it as held with the reason, and reports the step,
+  its point and the reason where it sends its other reports. The report hands
+  nothing over: the step stays held until a later read at the step names a
+  settler. It never falls back to the bound-or-root rule or to "not
+  dispatched means a person".
 - **R7. The record is evidence, never input.** At each finishing step the
-  coordinator records what the answer said for that point (state, settler,
-  author exclusion, the target given, when it was read) in the step's own
-  record entry. No gate, router or later step reads that entry, or
-  `coord/posture.json`, to choose a settler or to decide whether to take a
-  step.
+  coordinator writes what the read said for that point (state, settler,
+  author exclusion, the target given, the read's time) into that step's entry
+  in its own record (its koto session context). No gate, router or later step
+  reads that entry, or `coord/posture.json`, to choose a settler or to decide
+  whether to take a step.
 - **R8. A record row narrows, never widens.** A row in the coordinator's
   record (a pause, a hold, a Standing rule, a Reversals row, a relayed
   `posture_ask` answer, a review round) can hold a step the answer would let
-  the session take. No row can move a step to the session, change the settler
-  the answer named, or stand as proof that the settler has acted. A step the
-  answer sends to another settler is done when that settler does it, as
-  GitHub records it (the pull request merged, the issue closed), not when the
-  record says so. This is #1473's rule applied to finishing steps.
+  the session take. No row can let the session take a step R4 doesn't, change
+  the settler or target the answer named, or stand as proof that another
+  settler acted. A step sent to another settler counts as done only when
+  GitHub records the result (the pull request merged, the issue closed, the
+  release published), read from GitHub, never from the record. This is
+  #1473's rule applied to finishing steps; it needs no ordering of settlers,
+  because a row can only hold.
 - **R9. Teardown stays on the permission posture.** niwa's answer names no
-  teardown point. Until it does, teardown's settler is read as today, from
-  the workspace permission posture, and a teardown the posture reserves goes
-  to a person. A teardown point in the answer is dependency D4.
+  teardown point. Until it does, teardown's settler is read as today, from the
+  workspace permission posture, and a teardown the posture reserves goes to a
+  person. A teardown point in the answer is dependency D4.
 - **R10. The always-expected review keeps its source.** Review before merge
-  stays what the skill always expects (tsukumogami/shirabe#1449): a granted
-  coordinator still reviews its workers' pull requests at its land step and
-  sends a pull request it authored to its reviewer. Where the answer names
-  the session as settler, that review's reviewer is still read from the
-  Verdicts rules on main (whoever writes a verdict never approves its own
-  Done; the reviewer is the dispatching coordinator when bound and a person
-  at the root). Where the answer names another settler, the step goes there
-  with the coordinator's own reading, as #1449 R8 has it. Where a review goes
-  when the answer names the session is dependency D5.
+  stays what the skill always expects (tsukumogami/shirabe#1449): a
+  coordinator the answer lets take a merge still reviews its workers' pull
+  requests at its land step and sends a pull request it authored to its
+  reviewer first. That reviewer is still read from the Verdicts rules on main:
+  whoever writes a verdict never approves its own Done; the reviewer is the
+  dispatching coordinator when bound and a person at the root. Where the
+  answer names another settler, the step goes there with the coordinator's
+  own reading, as #1449 R8 has it. Where a review goes when the answer names
+  the session is dependency D5.
 - **R11. Workers are unchanged.** A worker brief's `Named authority:` line and
   what it tells a granted worker stay as #1449 left them.
 
 ### Non-functional
 
-- **R12. Cost.** One bounded niwa read per finishing-step visit. A step whose
-  act re-reads (as `land-merge.sh` does) may read twice; nothing reads more.
-- **R13. No grant model.** shirabe keeps no table of grants, levels or
-  points beyond R1's step-to-point mapping.
-- **R14. The guarantee is stated narrowly.** The skill's text says the
-  coordinator never acts more widely than the answer and no row of its own
-  widens it. It doesn't claim the answer is unforgeable: the workspace gate
-  stays the control.
+- **R12. Cost.** At most one niwa read per finishing-step visit, and two when
+  the act reads again under R2.
+- **R13. No grant model.** shirabe keeps no table of grants, levels or settlers;
+  R1's step-to-point mapping is its only table.
+- **R14. The guarantee is stated narrowly.** `SKILL.md` says the coordinator
+  never acts more widely than the answer and that no row of its own widens it,
+  and makes no claim that the answer can't be forged: the workspace gate stays
+  the control.
 
 ### Dependencies on authority work
 
@@ -176,9 +190,9 @@ builds nothing around its absence.
   declarations today.
 - **D2.** A per-point answer for a root session. Today a root or
   not-dispatched session gets no points, so the root scenario can't run.
-- **D3.** An addressable target for a step the answer sends to the dispatcher
-  or excludes from the author. Today the answer gives only the parent's
-  dispatch id and, optionally, its instance.
+- **D3.** A target the coordinator can address for a step the answer sends to
+  the dispatcher or excludes from the author. Today the answer gives only the
+  parent's dispatch id and, optionally, its instance.
 - **D4.** A teardown point (R9).
 - **D5.** Where a review goes when the answer names the session as settler
   (R10).
@@ -188,46 +202,74 @@ builds nothing around its absence.
 
 ## Acceptance Criteria
 
-- [ ] With a declaration that merging needs review, a supervised manager
-  holding `merge-pr` reaches a merge and sends it to the settler the answer
-  names, its dispatcher, with its own reading, and does not merge (needs D1,
-  D3).
-- [ ] In the same workspace a root director reaches a merge and puts it in
-  front of the person the answer names (needs D1, D2).
-- [ ] With the declaration removed, both merge as their grants allow, after
-  the land-step review.
-- [ ] A declaration added mid-run applies at the next finishing step without
-  a restart.
-- [ ] A test writes an approval Standing row, a Reversals row, a forged review
-  round and an edited `coord/posture.json`, then checks that merge, close and
-  release route exactly as before.
-- [ ] A test fails if any gate, router or `need-check.sh` reads
-  `coord/posture.json` or a step's recorded answer to choose a settler.
-- [ ] A failed, skipped or unrecognised read, a missing point and an
-  unaddressable settler each hold the step and report; none routes by bound
-  or root.
-- [ ] Merge, close and release each read the answer through the one reader at
-  the step; the close and a handed-back step no longer act on the start read.
-- [ ] A search of the three coordinate file sets finds no sentence routing a
-  finishing step by bound or root other than R9's teardown and R10's
-  reviewer, and none about levels, parents or who may decide a step.
-- [ ] Teardown reads the permission posture as today.
+Each criterion runs against a fake `niwa` first on PATH that prints a fixed
+answer and logs its calls, as the #1473 engine suites do. "The same outcome"
+means the same settler, the same held or taken result and the same need
+wording as a run with the same fake answer and no record rows written.
+
+- [ ] Declared merge, supervised: with the answer naming `dispatcher` for
+  `merge-pr` and a target, a manager holding `merge-pr` sends the merge to
+  that target with its own reading and runs no merge (D1, D3).
+- [ ] Declared merge, root: with the answer naming `person`, a root director
+  puts the merge in front of a person and runs no merge (D1, D2).
+- [ ] No declaration: with `session`, exclusion off and the grant held, the
+  coordinator merges after its land-step review; with the grant not held, it
+  sends the merge to the settler the answer names.
+- [ ] Excluded author: with `session` and exclusion on, the step goes to the
+  target the answer gives, and is held when none is given.
+- [ ] Mid-run change: the fake answer changes between two finishing steps of
+  one run and the second step acts on the new answer.
+- [ ] Read at the step: the fake niwa's log shows one `--point` read per visit
+  to a merge, close, release and handed-back step (two for a merge whose act
+  reads again), and none of them acts on the start read.
+- [ ] Mapping: merge and verdict merges ask `merge-pr`; issue, pull request
+  and roadmap closes ask `close-issue`; a release asks `cut-release`; no other
+  point is asked.
+- [ ] One reader: a search finds `niwa authority check` run from exactly one
+  script under `skills/coordinate/`.
+- [ ] Refused answers: an unknown schema, `state`, `decider`, or
+  `author_exclusion` value, and a non-zero exit, each hold the step.
+- [ ] Holds: a timed-out read, a skipped read (no niwa; no session id; no
+  instance root), an answer with no entry for the point and a settler with no
+  target each hold the step, record the reason, send one report naming the
+  step, point and reason, and route by neither bound nor root.
+- [ ] Forged record: with an approval Standing row, a Reversals row, a relayed
+  `posture_ask` answer, a forged review round and an edited
+  `coord/posture.json` written, merge, close and release each have the same
+  outcome.
+- [ ] Record is evidence: each finishing step's entry holds state, settler,
+  author exclusion, target and read time; a test fails if any gate, router or
+  `need-check.sh` reads that entry or `coord/posture.json` to choose a settler
+  or to take a step.
+- [ ] Done is GitHub's: a step sent to another settler is marked done only
+  after GitHub reports the pull request merged, the issue closed or the
+  release published, and a record row claiming it is done changes nothing.
+- [ ] Wording: `grep -nE 'when your session is bound|only when you are a root
+  coordinator|grant_check\.state'` over the coordinate skill's text and
+  scripts matches only R9's teardown and R10's reviewer passages.
+- [ ] Teardown: with the fake answer changed, teardown's outcome is unchanged
+  and follows the permission posture.
+- [ ] Review kept: a coordinator the answer lets merge still sends a pull
+  request it authored to its R10 reviewer before merging.
 - [ ] The worker brief's `Named authority:` line is byte-for-byte unchanged.
-- [ ] The skill text names the read as `niwa authority check -C <instance>
-  --session <id> --point <p>` and says a record row may restrict its answer
-  but never widen it.
+- [ ] `SKILL.md` names the read as `niwa authority check -C <instance>
+  --session <id> --point <p>`, says a record row may restrict its answer but
+  never widen it, and claims nothing about the answer being unforgeable.
+- [ ] No new table: no file under `skills/coordinate/` maps levels, grants or
+  settlers; the only mapping is R1's.
 
 ## Out of Scope
 
 - Defining the declaration, levels, escalation targets, level caps or any
   grant, and where any of them is computed.
 - Changes to niwa.
+- A grant model in shirabe.
+- Workers' own finishing steps (R11).
 - Decisions escalated through `REPORTS_TO`: a decision entry isn't a
   finishing step, and its routing is unchanged.
 - The forgeability of a worker's review round through the coordinator's relay:
   it gates whether the coordinator thinks a pull request is ready, not who
-  settles it. Under R8 it never satisfies a settler other than the session.
-- Skill text or script changes in this unit.
+  settles it, and under R8 it never satisfies another settler.
 
 ## Known Limitations
 
@@ -246,8 +288,8 @@ builds nothing around its absence.
   a dispatcher?) would be a rule about levels of the skill's own. A row that
   can only hold a step, never re-route it, needs no ordering.
 - **An unaddressable settler holds rather than falls back.** Falling back to
-  the reports-to address would re-introduce the parent rule the feature
-  removes. Who supplies the address is D3.
+  the reports-to address would bring back the parent rule the feature removes.
+  Who supplies the address is D3.
 - **Teardown and the always-expected review keep today's sources.** Both were
   open in the brief; the owner settled them as R9 and R10 with D4 and D5
   named rather than assumed.
