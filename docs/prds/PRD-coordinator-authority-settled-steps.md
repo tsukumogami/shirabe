@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   At a finishing step a manager or director decides who settles it by the
   coordinate skill's own bound-or-root rule, from an authority answer it read
@@ -19,7 +19,7 @@ upstream: docs/briefs/BRIEF-coordinator-authority-settled-steps.md
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
