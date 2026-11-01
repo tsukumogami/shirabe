@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   At a finishing step a manager or director decides who settles it by the
   coordinate skill's own bound-or-root rule, from an authority answer it read
@@ -19,7 +19,7 @@ upstream: docs/briefs/BRIEF-coordinator-authority-settled-steps.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -183,7 +183,10 @@ or script.
 ### Dependencies on authority work
 
 The implementation waits on these. None is assumed shipped, and the skill
-builds nothing around its absence.
+builds nothing around its absence. D1 to D5 belong to the workspace authority
+work that makes the workspace's gates honour the authority a session was
+dispatched with; this document needs each of them and assumes no shape for
+any. D6 is a separate dispatch bug.
 
 - **D1.** A per-point declaration that a step needs review (the author may not
   settle its own work), reflected in the answer. niwa has the slot but no
