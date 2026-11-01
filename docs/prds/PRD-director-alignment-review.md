@@ -165,7 +165,8 @@ treats two questions, or a relay and a recorded text, as the same subject.
   strategy document; or the director found a recorded owner decision among its
   plan sources. A full read compares the pull request against every plan
   source the call names. Any other lane pull request gets a one-line call:
-  plan sources `none`, call `fits`, and a reason of one line. The skill states
+  the plan sources it names (or `none`), call `fits`, and a reason of one
+  line. The skill states
   this line in one place.
 - **R4. Three call values.** An alignment call is one of `fits`, `fits with
   follow-ups` or `diverges`. `diverges` means the pull request contradicts or
@@ -207,8 +208,10 @@ treats two questions, or a relay and a recorded text, as the same subject.
   `diverges` again records a new call and leaves the hold standing. The owner
   or another person may lift any hold, as a person may today; that lift is
   recorded with who lifted it. Each hold on a pull request lifts on its own
-  terms. A held pull request that is closed stays held in the record and is
-  listed as closed while held.
+  terms, and a `diverges` call on a pull request that already holds a
+  director's hold adds no second one. Every director start lists each
+  standing hold. A held pull request that is closed stays held in the record
+  and is listed as closed while held.
 - **R10. A merge with no call is reported as unreviewed.** At every director
   start (a new run, a resume, a takeover or a successor's first run), the
   director lists each lane pull request merged since the previous director
@@ -262,7 +265,9 @@ treats two questions, or a relay and a recorded text, as the same subject.
   call, leaves every existing entry kind's grammar unchanged and adds no
   record section. Every call, a re-read included, is a new entry; no entry is
   rewritten. A hold is lifted the way holds are lifted today, by recording its
-  lift, and never deleted.
+  lift, and never deleted. Whether the heads R9 needs (placed on, lifted on)
+  live in the hold row or in the call entries the hold names is the design's
+  question.
 - **R16. The call is a record other tools read.** An alignment call has five
   named fields, the pull request, the head, the call value, the plan sources
   and the reason, in a fixed grammar the skill documents. The record's write
@@ -342,6 +347,9 @@ Holds:
 - [ ] A re-read that calls `diverges` on the new head adds a call and leaves
   the hold standing; a `fits` call recorded for the held head itself leaves
   the hold standing. (R9)
+- [ ] A push that returns a held pull request to its held head, followed by a
+  `fits` call for that head, leaves the hold standing. A `diverges` call on a
+  pull request already held by the director adds no second hold. (R9)
 - [ ] A person's lift of a hold on an unchanged head lifts it and records the
   person as the one who lifted it. (R9)
 - [ ] A held pull request that is closed is listed as closed while held at
