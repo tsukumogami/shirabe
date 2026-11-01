@@ -152,17 +152,27 @@ naming that source, and no merge or recommendation until a call exists (R2).
   shirabe#1483, not merged): the Run row `role`, the record line, and the
   director's and manager's expectation lists. **This feature depends on that
   plan landing.** Until it does, no session knows it is a director, and
-  nothing here applies.
+  nothing here applies. Today no record carries a role: the Run section has
+  no `role` row, and the land check reads the merge path without one. The
+  row arrives with the named-roles build that shirabe#1483 plans, which
+  isn't merged. This design assumes nothing about the row beyond what that
+  plan says: a Run-section `role` row, written once by its writer, read as
+  `director` or `manager`. Where this design reads the row, it reads only
+  that value.
 - **An amendment to the named roles**, not yet written, under which a
   continuation keeps its role and a role changes mid-lineage only on an
   intervention from a session above it in its calling hierarchy, or from a
   person, recorded with who and when. This design relies on that rule and
   adds no such intervention.
-- **Standing-rule provenance** (designed, partly built): a `rule` kind of
-  Standing row and a Source column whose class says whether a rule is what
-  the owner said, what a dispatcher said, or a relay. This design does not
-  wait for it, and names under Solution Architecture where it would change
-  what is built here.
+- **Standing-rule provenance** (designed and planned on main in
+  `docs/designs/DESIGN-coordinator-standing-rule-provenance.md` and
+  `docs/plans/PLAN-coordinator-standing-rule-provenance.md`, shirabe#1451
+  and shirabe#1459; partly built): a `rule` kind of Standing row and a
+  Source column that cites a koto decision, from which a reader works out
+  whether a rule is what the owner said, what a dispatcher said, or a relay.
+  It covers Standing rows, not holds. This design does not wait for it, and
+  names under Solution Architecture where it would change what is built
+  here, including what it would need to cover a lift.
 
 ## Decision Drivers
 
@@ -606,6 +616,17 @@ their class; the entry's grammar doesn't change. And the `align-` hold's
 Set by text is where a Source class for the hold would go if provenance
 extends to holds.
 
+**What provenance would need to cover a lift.** The standing-rule
+provenance design and plan on main (shirabe#1451, shirabe#1459) give
+Standing rows a Source that cites a koto decision, and their writer refuses
+a citation it can't verify. They don't reach the Holds section or the
+messages that place and lift a hold. To cover a lift, that work would need
+three things: the director's lift recorded as a decision koto keeps, a
+Source on the manager's copied hold that cites it, and `alignment-call.sh
+--copy` checking that citation, so a lift is accepted because its decision
+verifies rather than because of the address it came from. Until then the
+sender address is the only check (see Security Considerations).
+
 **Where the named roles meet this.** The Run `role` row gates the land
 check's call requirement and the director's start steps; the director's
 expectation list gains the alignment section; the manager's list gains the
@@ -655,7 +676,8 @@ relays; and `land-check.sh` requiring a standing non-`diverges` call for the
 pinned head when the Run `role` row reads `director`. The gate ships in the
 same change as the text that tells a director to record calls, so no
 director meets a gate its skill doesn't explain. Needs the named-roles role
-row; the compatibility digest is re-recorded.
+row, so this phase can't land before the named-roles build that
+shirabe#1483 plans; the compatibility digest is re-recorded.
 
 Deliverables:
 - `skills/coordinate/scripts/land-check.sh`, its test
@@ -702,12 +724,21 @@ all of which the coordinator already reads.
   number of the `fits` call it rests on, and the manager's `hold` entry
   records both, so a lift without a matching call is visible in the
   manager's own account.
-- **Residual risks a person accepts.** Two remain by design and are stated
-  for the owner to accept or close later: a worker pull request merged in
-  the delivery window between the call and the manager's copy, which the
-  record shows afterwards; and a forged lift from the dispatcher's own
-  address naming the current verified head, which releases the manager's
-  copy, as the reviewer concept already accepts for a clearance.
+- **Residual risks a person accepts.** Two remain by design, each with a
+  stated limit, for the owner to accept or close later:
+  - A worker pull request merged in the delivery window between the call
+    and the manager's copy. The window is bounded by the manager's next
+    tick, since the copy is taken when the manager next reads its messages,
+    and the record shows any merge that fell inside it afterwards.
+  - A forged lift from the dispatcher's own address naming the current
+    verified head. **A lift arriving from the dispatcher's address is
+    trusted today**: the coordinate skill doesn't vet who sends a message
+    under a session's address, so the address check is the whole check. Its
+    limit is that it releases only the manager's copy, and only for the
+    current verified head; the director's own record keeps the hold until
+    its guarded lift, as the reviewer concept already accepts for a
+    clearance. Closing it needs the provenance coverage described under
+    Solution Architecture.
 - **Delivery is confirmed, not assumed.** The director's own record holds
   the pull request from the call onward; the hold counts as delivered to
   the manager only once a manager report names it, and is re-sent until
