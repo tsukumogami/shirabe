@@ -150,10 +150,17 @@ Resolved inline. The ownership rule is the one the takeover already applies.
 `coordinate-open.sh` applies to a takeover: the record is the caller's own
 when its `record/meta` names `CLAUDE_CODE_SESSION_ID` as its driver, or, with
 no driver recorded, when its coordinator row names the caller's session name.
-With no caller session id and no driver recorded, the write is own, as a run
-no takeover has touched resumes today. Every other case is cross-lane: another
-driver, no driver and another coordinator, a driver recorded but no caller
-session id, or a meta that can't be read.
+Every other case is cross-lane: another driver, no driver and another
+coordinator, no caller session id at all (with or without a driver recorded),
+or a meta or coordinator row that can't be read. The takeover lets a caller
+with no session id resume an untouched run; the cap write doesn't take that
+exception, because a caller that can't name itself can't show the record is
+its own, and taking it would let any such caller write a sibling's cap.
+
+A coordinator's own first-start cap write passes this test only if the
+coordinator row is written before the cap. The implementation checks that
+order in the template and moves the cap write after the coordinator row if it
+isn't already there.
 
 An own write goes ahead with no read, exactly as today. A cross-lane write
 calls `authority-read.sh` for the caller's own session and instance, then
@@ -240,7 +247,10 @@ the result per lane, as Decision 1 and Decision 3 describe. It runs no
 ownership test and the cross-lane refusal. The ownership test is the one
 `coordinate-open.sh` uses, moved into `dispatch-common.sh` so both call it
 instead of keeping two copies. `--rules` stops calling niwa through its own
-`rules_grant_read` once the settled-steps reader lands (that scoping's Phase 1).
+`rules_grant_read` and calls the reader instead. That move is the settled-steps
+scoping's Phase 1; if that work hasn't landed, this feature's first phase makes
+the move along with adding the reader, so R12's one-reader search holds when
+this feature ships either way.
 
 **`skills/coordinate/SKILL.md` and `koto-templates/coordinate.md`.** The Bounds
 and Authority text says a director reads a lane's allowances with
@@ -266,14 +276,25 @@ prints one JSON line per lane:
 ```
 
 A can't-tell reason is one of niwa's state with its reason (`not-dispatched`,
-`record-unusable`), `no-lane` (no `niwa list` row or no lineage session), or
-the reader's `skipped`, `timeout`, `failed` or `refused` with its stderr
-reason. `skipped` covers a missing niwa.
+`record-unusable`), `no-lane` (no `niwa list` row or no lineage session),
+`ambiguous-lane` (more than one `niwa list` row matches the topic, as a
+successor lane in a second instance can), `bad-lookup` (a path that isn't
+absolute or holds no `.niwa/instance.json`, or a session id that isn't a
+lowercase UUID), or the reader's `skipped`, `timeout`, `failed` or `refused`.
+`skipped` covers a missing niwa. Any reason text taken from niwa or the
+reader is cut to one line of at most 200 characters before it's printed.
 
-The cross-lane cap refusal, on stderr with a non-zero exit:
+The cross-lane cap refusal, on stderr with a non-zero exit, takes one of two
+forms. For a bound answer:
 
 ```
-refused: moving another lane's cap needs the cap-change authority, which niwa grants and this session doesn't hold (<case>)
+refused: moving another lane's cap needs the cap-change authority, which niwa grants and this session doesn't hold (not-held)
+```
+
+For any other result, where the read couldn't say:
+
+```
+refused: moving another lane's cap needs the cap-change authority, which niwa grants, and this session's authority couldn't be read (<case>)
 ```
 
 ### Data Flow
@@ -307,8 +328,9 @@ fields don't change.
 
 Move the takeover's ownership test into `dispatch-common.sh` and have
 `coordinate-open.sh` call it, with its existing tests passing unchanged. Use
-`authority-read.sh` from the settled-steps work, or add it to that design's
-interface if it hasn't landed.
+`authority-read.sh` from the settled-steps work, or, if it hasn't landed, add
+it to that design's interface and move `posture-read.sh` and
+`state-stored-set.sh --rules` onto it, so no second call site survives.
 
 ### Phase 2: The cap-move check
 
@@ -338,7 +360,10 @@ None of these is assumed shipped.
   Until then every cross-lane cap move is refused. When it exists, the check
   needs its name from niwa, and `authority-read.sh` has to accept it in its
   grant vocabulary; until the reader knows the value, an answer carrying it is
-  refused and the move still holds.
+  refused and the move still holds. How niwa tells the skill which grant value
+  is the cap-change authority is part of this dependency, and the skill adds no
+  literal for it in the meantime: the allow path stays unwritten until niwa
+  answers that, which is why the check today can only refuse.
 - **The soundness of the parent.** tsukumogami/niwa#422: a session without a
   grant can launch a child whose record looks operator-launched, so
   `parent_is_mine` is only as sound as that fix.
@@ -365,7 +390,14 @@ The cap check closes a gap rather than opening one: today any session can
 rewrite a sibling lane's cap. Its failure direction is refusal: a meta it can't
 read, a missing caller id with a driver recorded, a failed or slow read, and an
 answer the reader refuses all keep the target cap as it is. The refusal's text
-is fixed and carries only the case word, never text from niwa's answer.
+is fixed and carries only the case word, never text from niwa's answer. A
+caller with no session id is cross-lane, so unsetting the session variable
+can't turn a sibling's record into the caller's own.
+
+The lane read checks what it takes from niwa's lookup before using it: the
+instance path must be absolute and hold `.niwa/instance.json`, the session id
+must be a lowercase UUID, and a topic matching more than one instance is
+answered can't tell rather than picked.
 
 A forged record can't widen anything. The lane answer comes from niwa, not the
 director's record, and record rows only appear as `narrowed_by`. The cap
