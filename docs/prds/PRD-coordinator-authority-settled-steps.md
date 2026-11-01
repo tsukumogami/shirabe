@@ -144,7 +144,10 @@ or script.
   author exclusion, the target given, the read's time) into that step's entry
   in its own record (its koto session context). No gate, router or later step
   reads that entry, or `coord/posture.json`, to choose a settler or to decide
-  whether to take a step.
+  whether to take a step. The entry has one reader: the coordinator's next
+  start report lists each settle read written since the previous start (step,
+  point, verdict, settler and hold reason), so a reviewer sees how each step
+  was routed. The report shows the reads and decides nothing from them.
 - **R8. A record row narrows, never widens.** A row in the coordinator's
   record (a pause, a hold, a Standing rule, a Reversals row, a relayed
   `posture_ask` answer, a review round) can hold a step the answer would let
@@ -155,10 +158,12 @@ or script.
   release published), read from GitHub, never from the record. This is
   #1473's rule applied to finishing steps; it needs no ordering of settlers,
   because a row can only hold.
-- **R9. Teardown stays on the permission posture.** niwa's answer names no
+- **R9. Teardown waits for a teardown point.** niwa's answer names no
   teardown point. Until it does, teardown's settler is read as today, from the
   workspace permission posture, and a teardown the posture reserves goes to a
-  person. A teardown point in the answer is dependency D4.
+  person. That is interim, not teardown's lasting source: once the workspace
+  authority work names a teardown point (dependency D4), teardown reads it at
+  its step like every other finishing step.
 - **R10. The always-expected review keeps its source.** Review before merge
   stays what the skill always expects (tsukumogami/shirabe#1449): a
   coordinator the answer lets take a merge still reviews its workers' pull
@@ -254,7 +259,11 @@ wording as a run with the same fake answer and no record rows written.
 - [ ] Record is evidence: each finishing step's entry holds state, settler,
   author exclusion, target and read time; a test fails if any gate, router or
   `need-check.sh` reads that entry or `coord/posture.json` to choose a settler
-  or to take a step.
+  or to take a step. The start report is the one reader the test allows.
+- [ ] Routing shown: after a merge sent to the dispatcher and a close held
+  for `no-grant`, the coordinator's next start report lists both reads with
+  step, point, verdict, settler and reason; with both entries edited before
+  that start, every transition is unchanged.
 - [ ] Done is GitHub's: a step sent to another settler is marked done only
   after GitHub reports the pull request merged, the issue closed or the
   release published, and a record row claiming it is done changes nothing.

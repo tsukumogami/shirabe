@@ -127,7 +127,9 @@ From the PRD, carried here as what each asks:
   stand as proof another settler acted. Done for a routed step is what GitHub
   records.
 - **Two passages keep today's source (R9, R10).** Teardown's settler stays the
-  permission posture until niwa names a teardown point. The review the skill
+  permission posture only until the workspace authority work names a teardown
+  point (PRD D4); then teardown reads that point at its step like every other
+  finishing step. The posture read is interim, not teardown's lasting source. The review the skill
   always expects before a merge stays sourced from the Verdicts rules (whoever
   writes a verdict never approves its own Done; the reviewer is the dispatching
   coordinator when bound and a person at the root).
@@ -253,7 +255,8 @@ the answer didn't give, which R4 rules out.
 Every finishing step except teardown runs one check action, `settle-check.sh`,
 on entry to its state. It asks `authority-read.sh` for the step's one point,
 turns the answer into take, route or hold by R4 and R6, seals that verdict to the
-visit, and writes the read into a per-step evidence key nothing reads back. The
+visit, and writes the read into a per-step evidence key whose one reader is
+the coordinator's next start report. The
 state's transitions follow the sealed token. The merge runs the check twice,
 at land and at land_merge, and takes only when both say take and the permission
 lists allow the command.
@@ -397,6 +400,13 @@ The evidence key, `coord/settle/<state>-<visit>.json`, holds:
 ```
 
 The target's shape is whatever the answer gives; the design assumes none.
+
+The key has one reader, so a reviewer can see how each step was routed
+without the routing depending on it. At its next start the coordinator lists
+every settle key written since the previous start in its start report: step,
+point, verdict, settler and hold reason, one line per visit. The report only
+prints them. No gate, router, `need-check.sh` or later step reads a settle
+key, so editing one changes what the report shows and nothing else (R7).
 
 ### Data Flow
 
