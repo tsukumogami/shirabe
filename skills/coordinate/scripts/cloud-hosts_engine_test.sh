@@ -53,7 +53,7 @@ expect_stopped() {
     local out rc
     out=$(ws_check "$2" "$3" 2>&1)
     rc=$?
-    if [ "$rc" = 1 ] && printf '%s\n' "$out" | grep -qF "$GUARD"; then
+    if [ "$rc" = 1 ] && grep -qF "$GUARD" <<< "$out"; then
         pass "$1"
     else
         fail "$1 (exit $rc): $out"
