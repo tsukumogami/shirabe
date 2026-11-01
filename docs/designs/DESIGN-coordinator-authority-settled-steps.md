@@ -199,8 +199,9 @@ Key assumptions:
 action on entry to each finishing state. It maps the step to its one point
 (R1), calls `authority-read.sh --point <p>`, applies R4's take rule and R6's
 holds, and prints a sealed verdict: `take <point>`, `route <settler> <point>`
-or `hold <point> <reason>`. The state's transitions follow the captured token,
-so the coordinator acts on what koto captured, not on anything it submits.
+or `hold <point> <reason>`. The state's transitions follow the captured token
+and accept no submitted evidence field in its place, so the coordinator acts
+on what koto captured, not on anything it submits.
 Before printing, it writes the read into the step's evidence key with
 `coord-log.sh seal --file --key`. No gate or script reads that key.
 
@@ -302,9 +303,21 @@ finishing state. It holds R1's mapping as its one table: `merge` to `merge-pr`,
 6. Grant not held, settler `session`, exclusion off: the answer names the session
    but doesn't let it act, and names no one else: `hold <point> no-grant`.
 
-It writes the evidence key, then seals and prints the token. It never reads
-`coord/posture.json`, a Standing or Reversals row, the `posture_ask` answer, a
-review round or any earlier evidence key.
+"Grant held" means the answer's grant lists the step's point. An answer whose
+`state` or any other value is outside niwa's vocabulary never reaches this
+logic: `authority-read.sh` refuses it, so every accepted answer has a defined
+outcome above. The permission lists in step 3 come from the same settings
+reading `posture-read.sh` does today, run unsealed for the one step; they can
+only turn a take into a hold.
+
+It writes the evidence key, then seals and prints the token. Run as a state's
+own check action it seals its token to the visit. Called from inside another
+check action (`land-check.sh`, `land-merge.sh`, `need-check.sh`) it runs
+unsealed and returns its verdict to the caller, whose one sealed token carries
+it, so each state has one seal and its transitions follow that token. It never
+reads `coord/posture.json`, a Standing or Reversals row, the `posture_ask`
+answer, a review round or any earlier evidence key. A hold's reason is always
+one word from the closed list below, never text taken from the answer.
 
 **Each finishing state.** The states that settle a step gain the check, or swap
 their posture read for it:
@@ -390,12 +403,14 @@ The target's shape is whatever the answer gives; the design assumes none.
 A finishing state is entered. koto runs `settle-check.sh`, which calls
 `authority-read.sh`, which calls niwa once. The verdict is written to the
 evidence key, sealed and printed; koto captures it. The state's transitions
-route on the captured token: `take` goes to the act (for a merge, through
+route on the captured token alone: `take` goes to the act (for a merge, through
 `land_merge`, whose own check must also print `take`); `route person` goes to the
 surface path for a person; `route target` sends the step to the answer's target;
 `hold` records the step as held, sends one report naming the step, point and
 reason to where the coordinator sends its other reports, and leaves the step to
-be read again at its next visit. A routed step is marked done only when GitHub
+be read again at its next visit. Which transition each state uses for a held
+step (for `roadmap_close_step`, a held outcome beside `closed` and
+`handed_over`) is settled per state in the plan. A routed step is marked done only when GitHub
 shows the pull request merged, the issue closed or the release published.
 
 ### Where this meets the earlier work
@@ -474,13 +489,21 @@ reach can widen what the workspace allows.
 **Forged record.** The coordinator can write any key in its own session. The
 design puts nothing it can write on the decision path: the read runs inside a
 koto check action, the verdict reaches the transitions as koto's captured and
-sealed stdout, and `settle-check.sh` reads no context key. Editing
+sealed stdout, the transitions accept no submitted field in its place, and
+`settle-check.sh` reads no context key. That rests on koto not letting the
+agent write a check action's capture; an acceptance test submits a forged
+verdict field at a finishing state and expects the transition unchanged. Editing
 `coord/posture.json`, an evidence key, a Standing or Reversals row, a relayed
 `posture_ask` answer or a review round changes nothing, and the PRD's
 forged-record criterion tests exactly that.
 
+The settings files behind the permission lists may be within the agent's
+reach, but those lists can only turn a take into a hold, never widen one.
+
 **Forged answer.** A process that can put its own `niwa` first on PATH, or set
-`NIWA_BIN`, can answer anything. The design doesn't claim otherwise (R14): the
+`NIWA_BIN` or `KOTO_BIN`, can answer anything, and one that sets
+`CLAUDE_CODE_SESSION_ID` or moves the instance root chooses whose answer is
+read. A short `NIWA_LOOKUP_SECONDS` can only cause holds. The design doesn't claim otherwise (R14): the
 workspace's own gate on the command stays the control, and the skill's promise
 is only that it never acts more widely than the answer it read.
 
@@ -500,7 +523,10 @@ call and write one context key. They read no settings file's `env` block, print
 no credential, and add no network call beyond niwa's own.
 
 **Residual risk.** Until niwa#422 is fixed, a child dispatched around the cap
-can carry a grant its parent lacked, and its answer will say so.
+can carry a grant its parent lacked, and its answer will say so. Teardown and
+the Verdicts reviewer keep today's sources (R9, R10), so they get none of the
+protection above: whatever teardown reads today, it still reads, and that is
+accepted until niwa names a teardown point and says where a review goes.
 
 ## Consequences
 
