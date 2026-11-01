@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A director that dispatched a lane learns what the lane may do only by asking
   it or by rereading the brief it wrote. Neither is the answer niwa resolves
@@ -20,7 +20,7 @@ upstream: docs/briefs/BRIEF-director-reads-lane-authority.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
