@@ -260,7 +260,8 @@ wording as a run with the same fake answer and no record rows written.
 - [ ] Record is evidence: each finishing step's entry holds state, settler,
   author exclusion, target and read time; a test fails if any gate, router or
   `need-check.sh` reads that entry or `coord/posture.json` to choose a settler
-  or to take a step. The start report is the one reader the test allows.
+  or to take a step. The test allows two reads: the start report printing the
+  entries, and teardown's interim read of `coord/posture.json` under R9.
 - [ ] Routing shown: after a merge sent to the dispatcher and a close held
   for `no-grant`, the coordinator's next start report lists both reads with
   step, point, verdict, settler and reason; with the held close's entry edited

@@ -106,7 +106,8 @@ From the PRD, carried here as what each asks:
 - **Read at the step (R2, R12).** Each visit to a finishing step reads its point
   fresh, bounded at `NIWA_LOOKUP_SECONDS` (3 seconds by default), and acts on
   that read in the same visit: one read per visit, two when the act reads
-  again. The start read stays only for the board and the start report.
+  again. The start read stays only for the board, the start report and
+  teardown's interim settler (R9).
 - **One reader (R3).** One script is the only code under `skills/coordinate/`
   that runs `niwa authority check`, and it accepts an answer only on exit 0
   with schema `niwa.authority.check/v1` and every value in the vocabulary
