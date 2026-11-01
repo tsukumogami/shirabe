@@ -13,7 +13,8 @@ goals: |
   changes the grant. A session that niwa doesn't grant the cap-change
   authority, trying to move another lane's cap through the skill, is refused
   by that authority's name, and the skill defines no authority of its own.
-upstream: docs/briefs/BRIEF-director-reads-lane-authority.md
+absorbed:
+  - docs/briefs/BRIEF-director-reads-lane-authority.md
 ---
 
 # PRD: Director Reads Lane Authority
@@ -21,6 +22,32 @@ upstream: docs/briefs/BRIEF-director-reads-lane-authority.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-director-reads-lane-authority](docs/briefs/BRIEF-director-reads-lane-authority.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed why this feature exists: what a session is expected to do
+lives in the skill and its role, and what it is allowed to do is configured
+per workspace and host and read from niwa. A director that judges a lane's
+allowances from its own brief, or from what the lane says, turns an
+allowance into an expectation, and the two drift apart the first time the
+workspace narrows a role or lowers the grant ceiling. The same split rules
+out the obvious fix for the lane cap: a rule in the skill about who may move
+another lane's cap would be a second source of truth niwa can't see. That
+framing is this document's Problem Statement.
+
+The outcome it asked for is a director that answers from niwa's record of a
+lane, without involving the lane, and sees the answer change when the
+workspace changes the grant, and a cross-lane cap move refused by the name
+of the authority niwa grants, with no authority defined in the skill. Those
+are this document's Goals. Its five journeys (a director checking what a lane
+may do, the workspace narrowing a grant, a lane trying to move a sibling's
+cap, an authority that can't be read, and a maintainer looking for the cap
+rule) survive as the User Stories, and its boundary survives as the
+Requirements and Out of Scope. The skill passages it pointed to are the lane
+cap and the start read of the session's own authority in the coordinate
+skill's Bounds and Authority section.
 
 ## Problem Statement
 
