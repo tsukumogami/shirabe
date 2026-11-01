@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A director that dispatched a lane can learn what the lane may do only by
   asking it or rereading the brief it wrote, and neither is the answer niwa
@@ -36,7 +36,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
