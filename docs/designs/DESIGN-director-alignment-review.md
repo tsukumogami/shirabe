@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   A director is the reviewer of every manager it dispatched and is expected
   to read their finished pull requests for alignment, but the coordinate
@@ -35,7 +35,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
