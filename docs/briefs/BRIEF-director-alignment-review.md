@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A director gets its lanes' finished pull requests, most marking a milestone
   done, with no written way to judge their fit with the roadmap, strategy and
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -150,13 +150,3 @@ waits with its age, and no second lane asks it again.
 - Implementing any of this in skill text, templates or scripts. That's a later
   unit; this one ends at the documents.
 
-## Open Questions
-
-- Where is the line between a one-line call and a full read?
-- How does the director find the roadmap clauses, strategy and owner decisions
-  a pull request touches?
-- Does a push-back reuse the existing changes-needed rework route, or get its
-  own?
-- Who merges after a director without the merge grant has reviewed?
-- What shape does the alignment call's record take before standing-rule
-  provenance gives it provenance?
