@@ -102,6 +102,21 @@ jobs:
             exit 0
           fi
 
+      - name: Clear a sparse checkout left in the workspace
+        # A self-hosted runner keeps the workspace between jobs. A non-cone
+        # sparse checkout made here earlier (setup-script-copy's, before it
+        # moved to a directory of its own) leaves core.sparseCheckout=true in
+        # .git/config, and the checkout below can't undo it: actions/checkout
+        # runs `git sparse-checkout disable`, which records false in
+        # .git/config.worktree, then unsets extensions.worktreeConfig, so git
+        # ignores that file and the old true wins. The tree then has no docs/
+        # and the lifecycle check refuses the root. Clearing the setting first
+        # lets the disable restore the full tree.
+        run: |
+          if [ -d .git ]; then
+            git config --local --unset-all core.sparseCheckout || true
+          fi
+
       - name: Checkout caller repo
         # Fetch full history so the chain walker sees the working tree
         # as it stands on the PR's head commit. The lifecycle check is
@@ -326,9 +341,17 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Both checkouts are sparse, so each gets a directory of its own under
+      # .setup-script-copy/. A self-hosted runner keeps the workspace between
+      # jobs, and a non-cone sparse checkout leaves core.sparseCheckout=true in
+      # its repository's .git/config. In the workspace root or .shirabe-src it
+      # would carry into the lifecycle job's checkouts there and strip docs/
+      # from the tree that job checks. The lifecycle job's caller checkout
+      # runs `git clean -ffdx`, which removes this directory.
       - name: Checkout caller repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          path: .setup-script-copy/caller
           sparse-checkout: |
             scripts/setup/shirabe-pre-commit.sh
           sparse-checkout-cone-mode: false
@@ -341,7 +364,7 @@ jobs:
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
-          path: .shirabe-src
+          path: .setup-script-copy/shirabe
           sparse-checkout: |
             scripts/setup/shirabe-pre-commit.sh
             scripts/check-setup-script-copy.sh
@@ -350,4 +373,4 @@ jobs:
       - name: Compare the setup script copy
         env:
           CANONICAL_REF: ${{ job.workflow_sha }}
-        run: bash .shirabe-src/scripts/check-setup-script-copy.sh . .shirabe-src/scripts/setup/shirabe-pre-commit.sh "$CANONICAL_REF"
+        run: bash .setup-script-copy/shirabe/scripts/check-setup-script-copy.sh .setup-script-copy/caller .setup-script-copy/shirabe/scripts/setup/shirabe-pre-commit.sh "$CANONICAL_REF"
