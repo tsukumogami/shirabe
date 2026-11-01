@@ -130,7 +130,10 @@ or script.
 - **R6. An unreadable answer holds the step.** These hold the step: a read
   that fails, times out or is skipped (no niwa, no session id, no instance
   root); an answer R3 refuses; an answer with no entry for the point asked;
-  and a settler whose target the answer doesn't give. The coordinator doesn't
+  a settler whose target the answer doesn't give; an answer that names the
+  session as settler without the grant; and a step whose command a Claude
+  Code deny or ask rule covers, where the answer would let the session take
+  it. The coordinator doesn't
   take the step, records it as held with the reason, and reports the step,
   its point and the reason where it sends its other reports. The report hands
   nothing over: the step stays held until a later read at the step names a
@@ -217,7 +220,8 @@ wording as a run with the same fake answer and no record rows written.
   puts the merge in front of a person and runs no merge (D1, D2).
 - [ ] No declaration: with `session`, exclusion off and the grant held, the
   coordinator merges after its land-step review; with the grant not held, it
-  sends the merge to the settler the answer names.
+  sends the merge to the settler the answer names, and holds it with reason
+  `no-grant` when that settler is `session` with exclusion off.
 - [ ] Excluded author: with `session` and exclusion on, the step goes to the
   target the answer gives, and is held when none is given.
 - [ ] Mid-run change: the fake answer changes between two finishing steps of
@@ -230,6 +234,10 @@ wording as a run with the same fake answer and no record rows written.
   point is asked.
 - [ ] One reader: a search finds `niwa authority check` run from exactly one
   script under `skills/coordinate/`.
+- [ ] Permission hold: with the answer letting the session take a merge,
+  close or release and a Claude Code deny or ask rule covering the step's
+  command, the step is held with reason `permission` and goes to no other
+  settler.
 - [ ] Refused answers: an unknown schema, `state`, `decider`, or
   `author_exclusion` value, and a non-zero exit, each hold the step.
 - [ ] Holds: a timed-out read, a skipped read (no niwa; no session id; no
@@ -294,5 +302,5 @@ wording as a run with the same fake answer and no record rows written.
   the reports-to address would bring back the parent rule the feature removes.
   Who supplies the address is D3.
 - **Teardown and the always-expected review keep today's sources.** Both were
-  open in the brief; the owner settled them as R9 and R10 with D4 and D5
-  named rather than assumed.
+  open in the brief; R9 and R10 settle them on today's sources, with D4 and
+  D5 named rather than assumed.

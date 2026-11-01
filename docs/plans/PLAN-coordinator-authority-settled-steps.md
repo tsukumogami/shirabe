@@ -59,7 +59,9 @@ reader alone, and the whole of it waits on the same niwa work.
 
 **Goal**: `land` decides the merge from one read of `merge-pr` through
 `authority-read.sh` and `settle-check.sh`, writes the read into the step's
-evidence key, and follows the sealed token, never the start capture.
+evidence key, and follows the sealed token, never the start capture. It
+closes the PRD criteria Declared merge (supervised and root), No declaration,
+Excluded author, Refused answers, Holds and Record is evidence, for the merge.
 
 **Acceptance Criteria**:
 
@@ -98,7 +100,9 @@ skills/coordinate/koto-templates/coordinate.md
 
 **Goal**: `land-merge.sh` reads `merge-pr` again just before the merge command,
 the start capture and the `posture_ask` answer stop deciding the merge, and a
-Claude Code deny or ask rule on the merge command holds it.
+Claude Code deny or ask rule on the merge command holds it. It closes the PRD
+criteria Forged record, Done is GitHub's, Review kept and Permission hold, for
+the merge.
 
 **Acceptance Criteria**:
 
@@ -130,20 +134,20 @@ skills/coordinate/scripts/board-lib.sh
 
 ### Step 3: closes and verdict merges read their own point at their state
 
-Roadmap closes, close-out issue and pull request closes, and verdict and reopen merges each run `settle-check.sh` at their state, with a held outcome added beside each state's existing ones.
+Roadmap closes, close-out issue and pull request closes, and verdict and reopen merges each run `settle-check.sh` at their state, with a held outcome added beside each state's existing ones, closing the PRD criteria Mapping, Read at the step, Forged record and Done is GitHub's for closes.
 
 ### Step 4: a handed-back merge, close or release goes to the settler the answer names
 
-`need-check.sh` and `progress-view.sh` word a worker's reserved step from a fresh read of its point, the `grant_check.state` routing and `--dispatcher` wording gone, teardown still for a person.
+`need-check.sh` and `progress-view.sh` word a worker's reserved step from a fresh read of its point, the `grant_check.state` routing and `--dispatcher` wording gone, teardown still for a person, closing the PRD criteria Holds and Teardown for handed-back steps.
 
 ### Step 5: a release the coordinator runs itself reads cut-release at its step
 
-A release the coordinator runs itself takes, routes or holds on a fresh `cut-release` read, and a mid-run change to the answer applies at the next step.
+A release the coordinator runs itself takes, routes or holds on a fresh `cut-release` read, and a mid-run change to the answer applies at the next step, closing the PRD criteria Mid-run change and Mapping for releases.
 
 ### Step 6: the start read and the standing-rule read go through the one reader
 
-`posture-read.sh` and `state-stored-set.sh --rules` call `authority-read.sh`, the grant fold table goes, and a search finds `niwa authority check` in exactly one script.
+`posture-read.sh` and `state-stored-set.sh --rules` call `authority-read.sh`, the grant fold table goes, and a search finds `niwa authority check` in exactly one script, closing the PRD criteria One reader and No new table.
 
 ### Step 7: the skill names the settler from the answer and the bound-or-root rule is gone
 
-`SKILL.md`, the template and the references replace every bound-or-root sentence except teardown and the Verdicts reviewer, name the read, say a row may restrict but never widen, and the PRD's wording search passes as a test.
+`SKILL.md`, the template and the references replace every bound-or-root sentence except teardown and the Verdicts reviewer, name the read, say a row may restrict but never widen, and the PRD's wording search passes as a test, closing the PRD criteria Wording, the `SKILL.md` read and the unchanged worker brief line.

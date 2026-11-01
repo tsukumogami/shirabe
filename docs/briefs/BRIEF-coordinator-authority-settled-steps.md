@@ -30,9 +30,10 @@ coordinator that dispatched you when your session is bound, and to a person
 only when you are a root coordinator", and defines its reviewer the same way.
 That is a rule about parents, written into the skill.
 
-The workspace is meant to own that answer. The owner's line is that what a
-session is expected to do is fixed in skills and roles, and what it is allowed
-to do is configured per workspace. Who settles a step is the second kind. A
+The workspace is meant to own that answer. The feature rests on one split,
+which its PRD carries as a requirement: what a session is expected to do is
+fixed in skills and roles, and what it is allowed to do is configured per
+workspace. Who settles a step is the second kind. A
 workspace that wants every merge reviewed before it lands, even by a
 coordinator holding the merge grant, has nowhere in the skill to say so: the
 skill reads the grant, finds `merge-pr`, and merges after its own land-step
