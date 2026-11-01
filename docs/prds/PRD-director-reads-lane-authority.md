@@ -123,8 +123,11 @@ change the workspace makes between two asks shows in the second answer.
 niwa's authority-check schema with state `bound`, the director says it can't
 tell what the lane may do, and why: niwa's state and reason (`not-dispatched`
 with its reason, `record-unusable`), a read that failed or ran past its bound,
-no niwa, or an answer whose shape or values it doesn't accept. It assumes no
-grant and falls back to nothing.
+no niwa, or an answer whose shape or values it doesn't accept. An accepted
+answer exits 0, declares the schema `niwa.authority.check/v1`, and holds only
+grant authorities, levels and settlers from niwa's own vocabularies, the same
+acceptance the skill's existing authority reads apply. It assumes no grant
+and falls back to nothing.
 
 **R6. A record row restricts, never widens.** A row in the director's own
 record (a pause, a person's word about that lane) may narrow what the
@@ -138,12 +141,15 @@ record it isn't driving, the skill reads the moving session's own authority
 from niwa first. The move goes ahead only when that answer is `bound` and its
 grant holds the cap-change authority. Otherwise the skill refuses, names the
 cap-change authority as one niwa grants and the session doesn't hold, and
-leaves the target lane's cap and record unchanged.
+leaves the target lane's cap and record unchanged. A record is the moving
+session's own only when the session driving it is the moving session; a
+write whose session can't be told from a recorded driver counts as
+cross-lane.
 
 **R8. No cap-change authority exists yet, so every cross-lane move is
 refused.** niwa grants no cap-change authority today. Until it does, every
-cross-lane cap move through the skill is refused under R7, and the refusal
-says the authority is one niwa will grant.
+cross-lane cap move through the skill is refused under R7 with the same
+refusal: the cap-change authority, named as one niwa grants, isn't held.
 
 **R9. A move whose check can't be read is refused.** A cross-lane cap move
 whose authority read fails, times out, finds no niwa, or answers anything but
@@ -166,8 +172,9 @@ the standing-rule grant fields, and for who settles each finishing step, so
 ### Non-functional
 
 **R13. Bounded.** Each read is bounded the way the skill's existing authority
-reads are (three seconds by default), and one question costs at most one read
-per lane asked about.
+reads are (three seconds by default). One question costs at most one read
+per lane asked about, and a cross-lane cap move costs one read of the moving
+session.
 
 **R14. Works on today's niwa.** The lane read works on niwa 0.40.0 from a
 session that is neither the lane nor its dispatcher, using only what that
@@ -188,8 +195,8 @@ dependency, never assumed.
 - [ ] Asked about a point (for example the merge point), the answer gives who
   settles it as niwa answers it.
 - [ ] Asked about a session in another instance, a session started by hand,
-  or a lane whose read is made to fail, time out or print a document of
-  another schema, the director answers that it can't tell, with niwa's state
+  a lane niwa answers `record-unusable` for, or a lane whose read is made to
+  fail, time out or print a document of another schema, the director answers that it can't tell, with niwa's state
   and reason or the read failure named, and reports no grant.
 - [ ] With a pause on a lane in the director's record, the director's answer
   for that lane still shows niwa's grant and says the pause narrows it; with
@@ -204,6 +211,10 @@ dependency, never assumed.
   sibling's cap is unchanged.
 - [ ] A coordinator setting its own cap at first start and on a person's word
   succeeds as before, and makes no authority read for it.
+- [ ] A cap write against a record whose driver is a different session from
+  the writer is treated as cross-lane and refused; a write whose writer can't
+  be told from the record's driver (no session id for the writer, with a
+  driver recorded) is refused the same way, with that reason.
 - [ ] A reviewer reads the skill after the change and finds the cap-change
   authority named only as something niwa grants: no definition, no rule for
   who holds it, no level rule and no grant table.
@@ -212,6 +223,15 @@ dependency, never assumed.
   standing-rule read and the finishing-step read all call.
 - [ ] A lane read whose niwa never answers returns can't tell within the
   bound (three seconds by default) plus a second's slack.
+- [ ] With no niwa on the path, a lane read answers can't tell naming the
+  missing niwa, and a cross-lane cap move is refused naming it.
+- [ ] One question about two lanes makes exactly two niwa calls, counted on a
+  stand-in niwa's call log, and none of them is about the director's own
+  session unless the question is.
+- [ ] On niwa 0.40.0, run from a session that is neither the lane nor its
+  dispatcher, the lane read returns the lane's bound answer, and the lane's
+  instance and session id were found from niwa's dispatch records alone
+  (no file the lane wrote was read and no message was sent).
 
 ## Out of Scope
 
