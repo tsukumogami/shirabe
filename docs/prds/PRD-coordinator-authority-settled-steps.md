@@ -145,7 +145,9 @@ or script.
   the verdict with its hold reason) into that step's entry
   in its own record (its koto session context). No gate, router or later step
   reads that entry, or `coord/posture.json`, to choose a settler or to decide
-  whether to take a step. The entry has one reader: the coordinator's next
+  whether to take a step, except teardown, whose interim settler R9 keeps on
+  the permission posture in `coord/posture.json` until a teardown point is
+  named. The entry has one reader: the coordinator's next
   start report lists each settle read written since the previous start (step,
   point, verdict, settler and hold reason), so a reviewer sees how each step
   was routed. The report shows the reads and decides nothing from them.

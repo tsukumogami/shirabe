@@ -124,7 +124,8 @@ From the PRD, carried here as what each asks:
   other reports go. The report hands nothing over.
 - **The record is evidence, never input (R7, R8).** The step's entry records
   state, settler, author exclusion, target and read time. No gate, router or
-  later step reads that entry or `coord/posture.json` to pick a settler. A row
+  later step reads that entry or `coord/posture.json` to pick a settler,
+  except teardown's interim posture read (R9). A row
   may hold a step; none may let the session take one, change the settler or
   stand as proof another settler acted. Done for a routed step is what GitHub
   records.
@@ -510,8 +511,9 @@ sealed stdout, the transitions accept no submitted field in its place, and
 agent write a check action's capture; an acceptance test submits a forged
 verdict field at a finishing state and expects the transition unchanged. Editing
 `coord/posture.json`, an evidence key, a Standing or Reversals row, a relayed
-`posture_ask` answer or a review round changes nothing, and the PRD's
-forged-record criterion tests exactly that.
+`posture_ask` answer or a review round changes no step but teardown, which
+reads the posture copy until a teardown point is named (R9) and so keeps
+today's exposure. The PRD's forged-record criterion tests the other steps.
 
 The settings files behind the permission lists may be within the agent's
 reach, but those lists can only turn a take into a hold, never widen one.
