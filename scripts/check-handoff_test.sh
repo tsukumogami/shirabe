@@ -4,21 +4,52 @@
 #
 # Usage: bash scripts/check-handoff_test.sh
 #
-# Each case copies the parts of this tree the check reads (the script itself,
-# the two skills' SKILL.md and koto-templates/, and work-on's koto-templates/,
-# which execute.md names as its child template) into a temporary
-# directory, applies one mutation there, runs that copy's
-# scripts/check-handoff.sh, and removes the copy. The checkout is never
-# changed. The mutations break the receiving-side contract of /deliver's
-# hand-off to /execute in every way the check is meant to catch: an outcome
-# word renamed on the edges into each terminal state of execute.md, a new
-# terminal state with a new word, a word dropped from the exec_leg gate's
-# expect list, each copied key dropped from a result map, an extra copied key,
-# the template renamed, and the --koto-leg declaration removed.
+# Every case runs a temporary copy's own scripts/check-handoff.sh, after one
+# mutation of that copy; the checkout is never changed. Two kinds of copy:
 #
-# Needs koto (the check compiles the templates with it) and python3. With no
-# koto on PATH every case that needs it fails rather than skips: a skip here
-# would report green having checked nothing.
+#   - a small copy: the check and its helpers, the four skills' SKILL.md and
+#     koto-templates/, and deliver-open-request.sh (the opener the attach
+#     runs), with a stand-in for each route suite that passes one case. The
+#     contract, directive and attach mutations run here, so each costs a
+#     compile and a few koto inits rather than the engine suites.
+#   - a full copy of the tree (tracked and untracked files git doesn't
+#     ignore), made once: the unchanged runs, the route mutations and the
+#     route selectors run here against the real suites. Each mutation of it
+#     is undone before the next case.
+#
+# The mutations, per hand-off:
+#
+#   deliver -> execute  the outcome word on the edges into each terminal of
+#                       execute.md renamed; a new terminal with a new word;
+#                       exec_leg's expect list short each of its five
+#                       outcomes; each key execute_run copies dropped from a
+#                       terminal that ends with its outcome; an extra copied
+#                       key; exec_leg removed and renamed; execute_run's
+#                       directive without skill `execute` and without
+#                       --koto-leg; execute.md renamed; --koto-leg gone from
+#                       execute's SKILL.md; deliver-execute-leg.sh exiting
+#                       non-zero and dropping --store (full copy)
+#   deliver -> scope    scope_leg and scope_intent removed and renamed;
+#                       scope_leg's expect list short each outcome;
+#                       scope_intent's short intent-mismatch (full copy);
+#                       scope_run's directive without skill `scope` and
+#                       without --koto-leg; scope.md renamed; pr_state,
+#                       step and reason dropped from the terminals that end
+#                       with executed, error and refused; a results record
+#                       naming an unknown outcome, an uncopied key, or
+#                       leaving out a key every terminal of its outcome
+#                       carries
+#   execute -> work-on  default_template pointing at a missing template;
+#                       work-on.md renamed
+#
+# and: koto absent and a koto without --koto-leg, for each hand-off; a route
+# suite that SKIPs or passes nothing; the caller's own koto sessions the same
+# before and after a passing and a failing run, with nothing left in TMPDIR;
+# and deliver-engine_test.sh under each selector and none.
+#
+# Needs koto (with --koto-leg), python3, jq and git. With no koto on PATH
+# every case fails rather than skips: a skip here would report green having
+# checked nothing.
 #
 # Exit codes:
 #   0 -- all cases pass
@@ -34,53 +65,91 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 
 PASS_COUNT=0
 FAIL_COUNT=0
-pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
-fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
+pass() { printf 'ok   %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
+fail() { printf 'FAIL %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/check-handoff-test.XXXXXX") || { echo "FAIL: mktemp"; exit 1; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/check-handoff-test.XXXXXX") || { echo "FAIL mktemp"; exit 1; }
+T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
 ktg_on_exit cleanup
 
+if ! command -v koto >/dev/null; then
+    fail "koto is not on PATH; check-handoff.sh needs it, so no case can run"
+    echo ""
+    echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
+    exit 1
+fi
+
 COPY="$T/tree"
+FULL="$T/full"
 EXEC_TPL="skills/execute/koto-templates/execute.md"
 DELIVER_TPL="skills/deliver/koto-templates/deliver.md"
+SCOPE_TPL="skills/scope/koto-templates/scope.md"
+RESULTS="scripts/check-handoff.results.tsv"
+ROUTE_SUITES="skills/deliver/scripts/deliver-engine_test.sh
+skills/deliver/scripts/deliver-execute-leg_test.sh
+skills/deliver/scripts/deliver-template-structure_test.sh
+skills/execute/scripts/execute-template-structure_test.sh
+skills/execute/scripts/assert-child-template_test.sh"
 
-# fresh_copy: the files the check reads, in $COPY, replacing any earlier copy.
+# stub_suite <path> [<line>...]: a stand-in route suite printing its lines,
+# by default one passing case.
+stub_suite() {
+    local path="$1"
+    shift
+    [ "$#" -gt 0 ] || set -- "ok   stand-in route suite" "Results: 1 passed, 0 failed"
+    mkdir -p "$(dirname "$path")"
+    {
+        echo '#!/usr/bin/env bash'
+        for line in "$@"; do printf 'echo %s\n' "'$line'"; done
+        echo 'exit 0'
+    } >"$path"
+}
+
+# fresh_copy: the small copy in $COPY, replacing any earlier one.
 fresh_copy() {
     rm -rf "$COPY"
-    mkdir -p "$COPY/scripts" "$COPY/skills/deliver" "$COPY/skills/execute" || return 1
-    cp "$REPO_ROOT/scripts/check-handoff.sh" "$COPY/scripts/" || return 1
-    for s in deliver execute; do
+    mkdir -p "$COPY/scripts/lib" "$COPY/skills/deliver/scripts" || return 1
+    cp "$REPO_ROOT/scripts/check-handoff.sh" "$REPO_ROOT/$RESULTS" "$COPY/scripts/" || return 1
+    cp "$REPO_ROOT/scripts/lib/check-handoff.py" "$REPO_ROOT/scripts/lib/koto-test-guard.sh" \
+        "$COPY/scripts/lib/" || return 1
+    for s in deliver execute scope work-on; do
+        mkdir -p "$COPY/skills/$s" || return 1
         cp "$REPO_ROOT/skills/$s/SKILL.md" "$COPY/skills/$s/" || return 1
         cp -R "$REPO_ROOT/skills/$s/koto-templates" "$COPY/skills/$s/" || return 1
     done
-    # execute.md's spawn_and_await names work-on.md as its child template, and
-    # koto compiles the child with the parent.
-    mkdir -p "$COPY/skills/work-on" || return 1
-    cp -R "$REPO_ROOT/skills/work-on/koto-templates" "$COPY/skills/work-on/" || return 1
+    cp "$REPO_ROOT/skills/deliver/scripts/deliver-open-request.sh" "$COPY/skills/deliver/scripts/" || return 1
+    for suite in $ROUTE_SUITES; do stub_suite "$COPY/$suite"; done
+}
+
+# full_copy: the whole tree in $FULL, once.
+full_copy() {
+    mkdir -p "$FULL" || return 1
+    (cd "$REPO_ROOT" && git ls-files -co --exclude-standard -z | tar -cf - --null -T -) \
+        | tar -xf - -C "$FULL"
 }
 
 RC=0
 OUT=""
-run_check() { # run_check -- the copy's check on deliver -> execute; sets RC and OUT
+# run_check <tree> <from> <to>: that tree's check; sets RC and OUT.
+run_check() {
     RC=0
-    OUT=$(bash "$COPY/scripts/check-handoff.sh" deliver execute 2>&1) || RC=$?
+    OUT=$(bash "$1/scripts/check-handoff.sh" "$2" "$3" 2>&1) || RC=$?
 }
 
 # apply <file> <awk program> [awk -v assignments...]: rewrite a file in the
-# copy through awk, and fail when the rewrite changed nothing, so a mutation
-# that no longer matches the template is reported instead of passing quietly.
-MUTATED=0
+# small copy through awk, and fail when the rewrite changed nothing, so a
+# mutation that no longer matches the template is reported instead of
+# passing quietly.
 apply() {
     local file="$COPY/$1" prog="$2"
     shift 2
-    MUTATED=0
-    awk "$@" "$prog" "$file" > "$file.new" || return 1
+    awk "$@" "$prog" "$file" >"$file.new" || return 1
     if cmp -s "$file" "$file.new"; then
         rm -f "$file.new"
         return 1
     fi
-    mv "$file.new" "$file" && MUTATED=1
+    mv "$file.new" "$file"
 }
 
 # The state a line belongs to (a two-space-indented key in the frontmatter)
@@ -89,6 +158,84 @@ TRACK='
 /^  [A-Za-z_][A-Za-z0-9_]*:[ ]*$/ { state = $1; sub(/:$/, "", state); target = "" }
 /^ *- target: / { target = $0; sub(/^ *- target: */, "", target); sub(/[ ]*$/, "", target) }
 '
+
+# mut <file> <op> <args...>: a structured mutation (see MUTATOR below);
+# exits 1 when it changed nothing.
+MUTATOR="$T/mutate.py"
+cat >"$MUTATOR" <<'PY'
+import re, sys
+
+path, op, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+with open(path, encoding="utf-8") as fh:
+    lines = fh.read().split("\n")
+out = []
+
+def state_of(i):
+    """The frontmatter state (two-space key) line i sits in."""
+    for j in range(i, -1, -1):
+        m = re.match(r"  ([A-Za-z_][A-Za-z0-9_]*):\s*$", lines[j])
+        if m:
+            return m.group(1)
+    return None
+
+if op == "section-replace":          # <## section> <old> <new>
+    section, old, new = args
+    sec = None
+    for line in lines:
+        if line.startswith("## "):
+            sec = line[3:].strip()
+        out.append(line.replace(old, new) if sec == section else line)
+elif op == "gate-remove":            # <state> <gate>
+    state, gate = args
+    skip = False
+    for i, line in enumerate(lines):
+        if line == "      %s:" % gate and state_of(i) == state:
+            skip = True
+            continue
+        if skip and line.startswith("        "):
+            continue
+        skip = False
+        out.append(line)
+elif op == "gate-rename":            # <state> <gate> <new name>
+    state, gate, new = args
+    for i, line in enumerate(lines):
+        out.append("      %s:" % new if line == "      %s:" % gate and state_of(i) == state else line)
+elif op == "expect-drop":            # <state> <field> <value>
+    state, field, value = args
+    for i, line in enumerate(lines):
+        m = re.match(r"(\s+%s: \[)(.*)(\].*)$" % re.escape(field), line)
+        if m and state_of(i) == state:
+            items = [x.strip() for x in m.group(2).split(",")]
+            line = m.group(1) + ", ".join(x for x in items if x.strip('"') != value) + m.group(3)
+        out.append(line)
+elif op == "result-drop":            # <terminal> <key>
+    terminal, key = args
+    for i, line in enumerate(lines):
+        if re.match(r"      %s: " % re.escape(key), line) and state_of(i) == terminal:
+            continue
+        out.append(line)
+elif op == "line-replace":           # <old line> <new line>
+    old, new = args
+    out = [new if line == old else line for line in lines]
+elif op == "line-insert-after":      # <line> <new line>
+    old, new = args
+    for line in lines:
+        out.append(line)
+        if line == old:
+            out.append(new)
+else:
+    sys.exit("unknown op " + op)
+
+if out == lines:
+    sys.exit(1)
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write("\n".join(out))
+PY
+mut() {
+    local file="$1"
+    shift
+    python3 "$MUTATOR" "$file" "$@"
+}
 
 # expect_fail <label> <needle>...: the check exited non-zero and its output
 # names every needle.
@@ -105,28 +252,50 @@ expect_fail() {
     fi
 }
 
-if ! command -v koto >/dev/null; then
-    fail "koto is not on PATH; check-handoff.sh compiles the templates with it, so no case can run"
-    echo ""
-    echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
-    exit 1
-fi
+# expect_pass <label> <from> <to>: exit 0 with one PASS line per check.
+expect_pass() {
+    local label="$1" want
+    want="PASS: handoff $2 -> $3: receiving-side contract
+PASS: handoff $2 -> $3: rendered directive
+PASS: handoff $2 -> $3: attach
+PASS: handoff $2 -> $3: routes"
+    if [ "$RC" -eq 0 ] && [ "$OUT" = "$want" ]; then
+        pass "$label: $2 -> $3 exits 0 with a PASS line for each of the four checks"
+    else
+        fail "$label: $2 -> $3 (rc=$RC): $OUT"
+    fi
+}
 
-# -- unchanged tree --------------------------------------------------------
+# small <label> <from> <to> <needle>... -- <mutation command...>: a fresh
+# small copy, the mutation, the check, and the expected failure.
+small() {
+    local label="$1" from="$2" to="$3" needles=()
+    shift 3
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do needles+=("$1"); shift; done
+    shift
+    fresh_copy || { fail "$label: could not copy the tree"; return; }
+    if ! "$@"; then
+        fail "$label: the mutation matched nothing"
+        rm -rf "$COPY"
+        return
+    fi
+    run_check "$COPY" "$from" "$to"
+    expect_fail "$label" "${needles[@]}"
+    rm -rf "$COPY"
+}
 
-fresh_copy || { fail "could not copy the tree"; exit 1; }
-run_check
-if [ "$RC" -eq 0 ] && [ "$OUT" = "PASS: handoff deliver -> execute: receiving-side contract" ]; then
-    pass "unchanged tree: deliver -> execute exits 0 with one PASS line"
-else
-    fail "unchanged tree (rc=$RC): $OUT"
-fi
+# -- unchanged small copy ----------------------------------------------------
+
+for edge in "deliver execute" "deliver scope" "execute work-on"; do
+    fresh_copy || { fail "could not copy the tree"; break; }
+    run_check "$COPY" $edge
+    expect_pass "the small copy, unchanged" $edge
+done
 rm -rf "$COPY"
 
-# -- outcome words on the edges into each terminal state -------------------
+# -- deliver -> execute: outcome words on the edges into each terminal ----------
 
-# rename_edge <terminal> <old word> <new word>
-rename_edge() {
+rename_edge() { # rename_edge <terminal> <old word> <new word>
     apply "$EXEC_TPL" "$TRACK"'
 { if (target == t && $0 ~ ("^ +outcome: " old "$")) sub("outcome: " old "$", "outcome: " new); print }' \
         -v t="$1" -v old="$2" -v new="$3"
@@ -135,25 +304,15 @@ for spec in paused_for_review:paused-for-review merged:merged \
     ready_awaiting_merge:ready-awaiting-merge done_blocked:error; do
     terminal=${spec%%:*}
     word=${spec#*:}
-    renamed="$word-renamed"
-    fresh_copy || { fail "could not copy the tree"; continue; }
-    if ! rename_edge "$terminal" "$word" "$renamed"; then
-        fail "rename '$word' on the edges into $terminal: the mutation matched nothing in $EXEC_TPL"
-        rm -rf "$COPY"
-        continue
-    fi
-    run_check
-    expect_fail "'$word' renamed to '$renamed' on the edges into $terminal" \
-        "outcome word '$renamed'" "doesn't expect it" "exec_leg"
-    rm -rf "$COPY"
+    small "'$word' renamed to '$word-renamed' on the edges into $terminal" deliver execute \
+        "receiving-side contract" "outcome word '$word-renamed'" "doesn't expect it" "exec_leg" \
+        -- rename_edge "$terminal" "$word" "$word-renamed"
 done
 
-# -- a new terminal state with a new word ----------------------------------
-
-fresh_copy || fail "could not copy the tree"
 # escalate's one unconditional edge goes to a new terminal, parked, assigning
 # the word parked; parked's result map is the others'.
-if apply "$EXEC_TPL" "$TRACK"'
+add_parked() {
+    apply "$EXEC_TPL" "$TRACK"'
 $0 == "  done_blocked:" {
     print "  parked:"; print "    terminal: true"; print "    result:"
     print "      outcome: \"${context.outcome}\""; print "      step: \"${context.step}\""
@@ -166,47 +325,45 @@ $0 == "  done_blocked:" {
     else if (state == "escalate" && $0 ~ /^ +outcome: error$/) sub(/error$/, "parked")
     print
 }
-END { print ""; print "## parked"; print ""; print "Parked." }'; then
-    run_check
-    expect_fail "a new terminal state reached by an edge assigning 'parked'" \
-        "outcome word 'parked'" "terminal state parked" "doesn't expect it"
-else
-    fail "parked: the mutation matched nothing in $EXEC_TPL"
-fi
-rm -rf "$COPY"
+END { print ""; print "## parked"; print ""; print "Parked." }'
+}
+small "a new terminal state reached by an edge assigning 'parked'" deliver execute \
+    "outcome word 'parked'" "terminal state parked" "doesn't expect it" -- add_parked
 
-# -- the expect list loses a word ------------------------------------------
+# -- deliver -> execute: exec_leg's expect list, and the gate itself ------------
 
-fresh_copy || fail "could not copy the tree"
-if apply "$DELIVER_TPL" '
-{ if ($0 ~ /^ +outcome: \[.*paused-for-review, /) sub(/paused-for-review, /, ""); print }'; then
-    run_check
-    expect_fail "exec_leg's expect list without paused-for-review" \
-        "outcome word 'paused-for-review'" "doesn't expect it"
-else
-    fail "expect list: the mutation matched nothing in $DELIVER_TPL"
-fi
-rm -rf "$COPY"
-
-# -- result maps lose a copied key -----------------------------------------
-
-for key in pr repos resume waiting reason step; do
-    fresh_copy || { fail "could not copy the tree"; continue; }
-    if apply "$EXEC_TPL" "$TRACK"'
-{ if (state == "merged" && $0 ~ ("^      " k ": ")) next; print }' -v k="$key"; then
-        run_check
-        expect_fail "'$key' dropped from the result map of terminal state merged" \
-            "key '$key'" "terminal state merged" "execute_run"
-    else
-        fail "drop $key: the mutation matched nothing in $EXEC_TPL"
-    fi
-    rm -rf "$COPY"
+for word in merged ready-awaiting-merge paused-for-review paused-awaiting-merges error; do
+    small "exec_leg's expect list without $word" deliver execute \
+        "receiving-side contract" "exec_leg" "'$word'" "expect" \
+        -- mut "$COPY/$DELIVER_TPL" expect-drop execute_run outcome "$word"
 done
+small "exec_leg removed from execute_run" deliver execute "receiving-side contract" "exec_leg" \
+    -- mut "$COPY/$DELIVER_TPL" gate-remove execute_run exec_leg
+small "exec_leg renamed in execute_run" deliver execute "receiving-side contract" "exec_leg" \
+    -- mut "$COPY/$DELIVER_TPL" gate-rename execute_run exec_leg exec_gate
 
-# -- an extra copied key ---------------------------------------------------
+# -- deliver -> execute: result keys, per outcome ---------------------------------
 
-fresh_copy || fail "could not copy the tree"
-if apply "$DELIVER_TPL" "$TRACK"'
+# Each key the merged transition copies, dropped from merged; step, which
+# only the error transition copies, from done_blocked, the terminal error
+# ends at.
+for spec in merged:pr merged:repos merged:resume merged:waiting merged:reason done_blocked:step; do
+    terminal=${spec%%:*}
+    key=${spec#*:}
+    small "'$key' dropped from the result map of terminal state $terminal" deliver execute \
+        "key '$key'" "terminal state $terminal" "execute_run" \
+        -- mut "$COPY/$EXEC_TPL" result-drop "$terminal" "$key"
+done
+# step from merged: no transition that can end at merged copies it.
+fresh_copy && mut "$COPY/$EXEC_TPL" result-drop merged step && run_check "$COPY" deliver execute
+case "$OUT" in
+    *"key 'step'"*) fail "'step' dropped from merged, which no merged transition copies, fails the check: $OUT" ;;
+    *) pass "'step' dropped from merged, which no transition for outcome merged copies, is not a failure" ;;
+esac
+rm -rf "$COPY"
+
+add_extra() {
+    apply "$DELIVER_TPL" "$TRACK"'
 {
     print
     if (state == "execute_run" && !done && $0 ~ /^ +pr: "\$\{gates\.exec_leg\.payload\.pr\}"$/) {
@@ -214,36 +371,115 @@ if apply "$DELIVER_TPL" "$TRACK"'
         print line "extra: \"${gates.exec_leg.payload.extra}\""
         done = 1
     }
-}'; then
-    run_check
-    expect_fail "execute_run also copying 'extra'" "key 'extra'" "missing from the result map"
-else
-    fail "extra key: the mutation matched nothing in $DELIVER_TPL"
-fi
-rm -rf "$COPY"
+}'
+}
+small "execute_run also copying 'extra'" deliver execute "key 'extra'" "missing from the result map" \
+    -- add_extra
 
-# -- the template renamed --------------------------------------------------
+# -- deliver -> execute: the rendered directive, the template, the SKILL.md --------
+
+small "execute_run's directive not naming skill execute" deliver execute \
+    "rendered directive" "does not name skill \`execute\`" \
+    -- mut "$COPY/$DELIVER_TPL" section-replace execute_run '`execute` and these arguments' '`exec` and these arguments'
+small "execute_run's directive without --koto-leg" deliver execute \
+    "rendered directive" "does not carry --koto-leg=req-handoff-check:execute" \
+    -- mut "$COPY/$DELIVER_TPL" section-replace execute_run '--koto-leg={{REQ}}:execute' '--leg={{REQ}}:execute'
+small "execute.md renamed to execute-v2.md" deliver execute \
+    "execute.md" "does not exist" "attach" "koto refused" "execute-v2.md" \
+    -- mv "$COPY/$EXEC_TPL" "$COPY/skills/execute/koto-templates/execute-v2.md"
+small "--koto-leg removed from skills/execute/SKILL.md" deliver execute \
+    "--koto-leg" "skills/execute/SKILL.md" \
+    -- apply "skills/execute/SKILL.md" 'index($0, "--koto-leg") == 0 { print }'
+
+# -- deliver -> scope ----------------------------------------------------------------
+
+for gate in scope_leg scope_intent; do
+    small "$gate removed from scope_run" deliver scope "receiving-side contract" "$gate" \
+        -- mut "$COPY/$DELIVER_TPL" gate-remove scope_run "$gate"
+    small "$gate renamed in scope_run" deliver scope "receiving-side contract" "$gate" \
+        -- mut "$COPY/$DELIVER_TPL" gate-rename scope_run "$gate" "${gate}_x"
+done
+for word in scoped handed-off-multi-pr executed re-evaluation abandonment cancelled refused error; do
+    small "scope_leg's expect list without $word" deliver scope \
+        "receiving-side contract" "scope_leg" "'$word'" \
+        -- mut "$COPY/$DELIVER_TPL" expect-drop scope_run outcome "$word"
+done
+small "scope_run's directive not naming skill scope" deliver scope \
+    "rendered directive" "does not name skill \`scope\`" \
+    -- mut "$COPY/$DELIVER_TPL" section-replace scope_run '`scope` and' '`scoping` and'
+small "scope_run's directive without --koto-leg" deliver scope \
+    "rendered directive" "does not carry --koto-leg=req-handoff-check:scope" \
+    -- mut "$COPY/$DELIVER_TPL" section-replace scope_run '--koto-leg={{REQ}}:scope' '--leg={{REQ}}:scope'
+small "scope.md renamed to scope-v2.md" deliver scope \
+    "attach" "koto refused" "scope-v2.md" \
+    -- mv "$COPY/$SCOPE_TPL" "$COPY/skills/scope/koto-templates/scope-v2.md"
+for spec in done_executed:pr_state:executed done_error:step:error done_refused:reason:refused; do
+    terminal=${spec%%:*}
+    rest=${spec#*:}
+    key=${rest%%:*}
+    word=${rest#*:}
+    small "'$key' dropped from $terminal" deliver scope \
+        "key '$key'" "terminal state $terminal" "outcome '$word'" \
+        -- mut "$COPY/$SCOPE_TPL" result-drop "$terminal" "$key"
+done
+
+# -- deliver -> scope: the results records --------------------------------------------
+
+TAB=$(printf '\t')
+small "a results record naming an outcome scope_leg doesn't expect" deliver scope \
+    "check-handoff.results.tsv" "outcome 'shipped'" "doesn't expect" \
+    -- mut "$COPY/$RESULTS" line-insert-after "deliver${TAB}scope${TAB}cancelled${TAB}intent" \
+    "deliver${TAB}scope${TAB}shipped${TAB}intent"
+small "a results record naming a key the transition doesn't copy" deliver scope \
+    "check-handoff.results.tsv" "key 'via'" "copies" \
+    -- mut "$COPY/$RESULTS" line-replace "deliver${TAB}scope${TAB}cancelled${TAB}intent" \
+    "deliver${TAB}scope${TAB}cancelled${TAB}intent,via"
+small "a results record leaving out a key every terminal of its outcome carries" deliver scope \
+    "check-handoff.results.tsv" "leaves out key 'pr_state'" "done_executed" \
+    -- mut "$COPY/$RESULTS" line-replace "deliver${TAB}scope${TAB}executed${TAB}intent,pr,pr_state" \
+    "deliver${TAB}scope${TAB}executed${TAB}intent,pr"
+
+# -- execute -> work-on ------------------------------------------------------------------
+
+small "spawn_and_await's default_template pointing at a missing work-on template" execute work-on \
+    "child template reference" "skills/work-on/koto-templates/work-on-v2.md" "does not exist" \
+    -- mut "$COPY/$EXEC_TPL" line-replace "      default_template: ../../work-on/koto-templates/work-on.md" \
+    "      default_template: ../../work-on/koto-templates/work-on-v2.md"
+small "work-on.md renamed" execute work-on \
+    "child template reference" "skills/work-on/koto-templates/work-on.md" "does not exist" \
+    -- mv "$COPY/skills/work-on/koto-templates/work-on.md" "$COPY/skills/work-on/koto-templates/work-on-v1.md"
+
+# -- route suites that check nothing -------------------------------------------------------
+
+small "a route suite that SKIPs and exits 0" deliver execute "routes" "SKIP: jq not on PATH" \
+    -- stub_suite "$COPY/skills/deliver/scripts/deliver-engine_test.sh" "SKIP: jq not on PATH"
+small "a route suite that passes no case" deliver execute "routes" "reported no passing case" \
+    -- stub_suite "$COPY/skills/deliver/scripts/deliver-engine_test.sh" "Results: 0 passed, 0 failed"
+
+# -- koto ------------------------------------------------------------------------------------
 
 fresh_copy || fail "could not copy the tree"
-mv "$COPY/$EXEC_TPL" "$COPY/skills/execute/koto-templates/execute-v2.md"
-run_check
-expect_fail "execute.md renamed to execute-v2.md" "execute.md" "does not exist"
-rm -rf "$COPY"
+NOKOTO="$T/nokoto-bin"
+mkdir -p "$NOKOTO"
+ln -s "$(command -v python3)" "$NOKOTO/python3"
+OLDKOTO="$T/oldkoto-bin"
+mkdir -p "$OLDKOTO"
+printf '#!/bin/sh\n[ "$1 $2" = "init --help" ] && { echo "Usage: koto init [OPTIONS] <NAME>"; exit 0; }\nexit 1\n' \
+    >"$OLDKOTO/koto"
+chmod +x "$OLDKOTO/koto"
+for edge in "deliver execute" "deliver scope" "execute work-on"; do
+    if PATH="$NOKOTO:/usr/bin:/bin" command -v koto >/dev/null; then
+        echo "SKIP: a koto in /usr/bin or /bin -- the no-koto case was not checked"
+    else
+        RC=0
+        OUT=$(PATH="$NOKOTO:/usr/bin:/bin" /bin/bash "$COPY/scripts/check-handoff.sh" $edge 2>&1) || RC=$?
+        expect_fail "$edge with no koto on PATH" "koto is not on PATH"
+    fi
+    RC=0
+    OUT=$(PATH="$OLDKOTO:$PATH" bash "$COPY/scripts/check-handoff.sh" $edge 2>&1) || RC=$?
+    expect_fail "$edge with a koto whose init has no --koto-leg" "koto" "--koto-leg"
+done
 
-# -- --koto-leg removed from SKILL.md --------------------------------------
-
-fresh_copy || fail "could not copy the tree"
-if apply "skills/execute/SKILL.md" 'index($0, "--koto-leg") == 0 { print }'; then
-    run_check
-    expect_fail "--koto-leg removed from skills/execute/SKILL.md" "--koto-leg" "skills/execute/SKILL.md"
-else
-    fail "--koto-leg: the mutation matched nothing in skills/execute/SKILL.md"
-fi
-rm -rf "$COPY"
-
-# -- usage and koto ----------------------------------------------------------
-
-fresh_copy || fail "could not copy the tree"
 RC=0
 OUT=$(bash "$COPY/scripts/check-handoff.sh" deliver nosuchskill 2>&1) || RC=$?
 if [ "$RC" -eq 2 ] && case "$OUT" in *"skills/nosuchskill"*) true ;; *) false ;; esac; then
@@ -251,18 +487,145 @@ if [ "$RC" -eq 2 ] && case "$OUT" in *"skills/nosuchskill"*) true ;; *) false ;;
 else
     fail "missing skill (rc=$RC): $OUT"
 fi
-# PATH without koto: python3 and the basic tools only.
-NOKOTO="$T/nokoto-bin"
-mkdir -p "$NOKOTO"
-ln -s "$(command -v python3)" "$NOKOTO/python3"
-if PATH="$NOKOTO:/usr/bin:/bin" command -v koto >/dev/null; then
-    echo "SKIP: a koto in /usr/bin or /bin -- the no-koto case was not checked"
-else
+
+# -- the caller's koto store and TMPDIR ---------------------------------------------------
+
+# This suite's own store stands for the caller's: a session in it, listed
+# before and after a passing run and a failing one, which each run with a
+# TMPDIR of their own that must be empty afterwards.
+PROBE="$T/probe"
+mkdir -p "$PROBE"
+cat >"$PROBE/probe.md" <<'TPL'
+---
+name: probe
+version: "1.0"
+description: a caller session check-handoff.sh must not touch
+initial_state: work
+states:
+  work:
+    terminal: true
+---
+## work
+Probe.
+TPL
+(cd "$PROBE" && koto init caller-probe --template "$PROBE/probe.md" >/dev/null 2>&1)
+BEFORE=$(cd "$PROBE" && koto session list 2>/dev/null)
+for kind in passing failing; do
+    run_tmp="$T/tmp-$kind"
+    mkdir -p "$run_tmp"
+    [ "$kind" = failing ] && mut "$COPY/$EXEC_TPL" result-drop merged pr
     RC=0
-    OUT=$(PATH="$NOKOTO:/usr/bin:/bin" /bin/bash "$COPY/scripts/check-handoff.sh" deliver execute 2>&1) || RC=$?
-    expect_fail "with no koto on PATH" "koto is not on PATH"
-fi
+    OUT=$(cd "$PROBE" && TMPDIR="$run_tmp" bash "$COPY/scripts/check-handoff.sh" deliver execute 2>&1) || RC=$?
+    AFTER=$(cd "$PROBE" && koto session list 2>/dev/null)
+    left=$(ls -A "$run_tmp")
+    want_rc=0
+    [ "$kind" = failing ] && want_rc=1
+    if [ "$RC" -eq "$want_rc" ] && [ -n "$BEFORE" ] && [ "$BEFORE" = "$AFTER" ] && [ -z "$left" ]; then
+        pass "a $kind run (exit $RC) leaves the caller's koto sessions as they were and nothing in TMPDIR"
+    else
+        fail "a $kind run (rc=$RC): sessions before [$BEFORE] after [$AFTER], left in TMPDIR [$left]: $OUT"
+    fi
+done
 rm -rf "$COPY"
+
+# -- the full copy: unchanged, the route breaks, the selectors ------------------------------
+
+if ! full_copy; then
+    fail "could not make the full copy of the tree"
+else
+    for edge in "deliver execute" "deliver scope" "execute work-on"; do
+        run_check "$FULL" $edge
+        expect_pass "the full copy, unchanged" $edge
+    done
+
+    LEG="skills/deliver/scripts/deliver-execute-leg.sh"
+    cp "$FULL/$LEG" "$T/leg.orig"
+    if mut "$FULL/$LEG" line-insert-after "handover)" "    exit 3"; then
+        run_check "$FULL" deliver execute
+        expect_fail "deliver-execute-leg.sh exiting non-zero on handover" \
+            "routes" "deliver-engine_test.sh" "a single-pr PLAN: the handover reads none"
+    else
+        fail "the leg script mutation matched nothing"
+    fi
+    cp "$T/leg.orig" "$FULL/$LEG"
+    if mut "$FULL/$LEG" line-replace "        printf -- '--coordination-pr %s --store %s\\n' \"\$PR\" \"\$STORE\"" \
+        "        printf -- '--coordination-pr %s\\n' \"\$PR\""; then
+        run_check "$FULL" deliver execute
+        expect_fail "deliver-execute-leg.sh dropping --store from the handover" \
+            "routes" "a coordinated PLAN with --store session: both flags"
+    else
+        fail "the --store mutation matched nothing"
+    fi
+    cp "$T/leg.orig" "$FULL/$LEG"
+
+    cp "$FULL/$DELIVER_TPL" "$T/deliver.orig"
+    if mut "$FULL/$DELIVER_TPL" expect-drop scope_run reason intent-mismatch; then
+        run_check "$FULL" deliver scope
+        expect_fail "scope_intent's expect list without intent-mismatch" "routes" "scope_intent"
+    else
+        fail "the scope_intent mutation matched nothing"
+    fi
+    cp "$T/deliver.orig" "$FULL/$DELIVER_TPL"
+
+    # deliver-engine_test.sh under each selector and none. The sections and
+    # the routes each names come from the suite's own `if section` lines.
+    ENGINE="$FULL/skills/deliver/scripts/deliver-engine_test.sh"
+    for route in all execute scope; do
+        RC=0
+        if [ "$route" = all ]; then
+            bash "$ENGINE" >"$T/engine-$route.out" 2>&1 || RC=$?
+        else
+            HANDOFF_ROUTE="$route" bash "$ENGINE" >"$T/engine-$route.out" 2>&1 || RC=$?
+        fi
+        echo "$RC" >"$T/engine-$route.rc"
+    done
+    VERDICT=$(python3 - "$ENGINE" "$T" <<'PY'
+import re, sys
+src, t = sys.argv[1], sys.argv[2]
+sections = re.findall(r'^if section "([^"]*)" "(.*)"; then$', open(src).read(), re.M)
+def parse(route):
+    counts, cur, total = {}, None, None
+    for line in open("%s/engine-%s.out" % (t, route)):
+        m = re.match(r"== (.*) ==$", line.rstrip("\n"))
+        if m:
+            cur = m.group(1)
+            counts[cur] = 0
+        elif line.startswith("ok ") and cur is not None:
+            counts[cur] += 1
+        m = re.match(r"Results: (\d+) passed, (\d+) failed", line)
+        if m:
+            total = (int(m.group(1)), int(m.group(2)))
+    rc = int(open("%s/engine-%s.rc" % (t, route)).read())
+    return counts, total, rc
+problems = []
+every, total, rc = parse("all")
+if rc != 0 or total is None or total[1] != 0:
+    problems.append("no selector: exit %d, %s" % (rc, total))
+if list(every) != [title for _, title in sections]:
+    problems.append("no selector ran %s, not every section" % list(every))
+if total and sum(every.values()) != total[0]:
+    problems.append("no selector: section passes add up to %d, Results says %d" % (sum(every.values()), total[0]))
+for route in ("execute", "scope"):
+    got, rtotal, rrc = parse(route)
+    want = [title for routes, title in sections if route in routes.split()]
+    if rrc != 0 or rtotal is None or rtotal[1] != 0:
+        problems.append("%s: exit %d, %s" % (route, rrc, rtotal))
+    if list(got) != want:
+        problems.append("%s ran %s, not its sections %s" % (route, list(got), want))
+    for title, n in got.items():
+        if every.get(title) != n:
+            problems.append("%s: section [%s] passed %d, %s with no selector" % (route, title, n, every.get(title)))
+print("; ".join(problems) if problems else "ok %d %d" % (len(sections), total[0]))
+PY
+)
+    case "$VERDICT" in
+        "ok "*) pass "deliver-engine_test.sh: no selector runs all ${VERDICT#ok } (sections, passes); execute and scope run only their own sections, each with the same passes" ;;
+        *) fail "deliver-engine_test.sh selectors: $VERDICT" ;;
+    esac
+    RC=0
+    OUT=$(HANDOFF_ROUTE=work-on bash "$ENGINE" 2>&1) || RC=$?
+    expect_fail "deliver-engine_test.sh with a route it has no sections for" "HANDOFF_ROUTE=work-on"
+fi
 
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

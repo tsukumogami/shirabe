@@ -547,9 +547,9 @@ else
     case "$OUT" in *"REFUSED $i "*": graded cases don't run"*) ;; *) refused_all="no ($i)" ;; esac
     i=$((i + 1))
   done
-  if [ "$RC" -eq 0 ] && has "PASS 34 handoff-execute-contract" && has "script cases: 1 of 1 passed" \
-    && [ "$refused_all" = yes ] && record_empty; then
-    pass "deliver on /bin/bash: case 34 passes, cases 1 to 33 are refused as graded, 1 of 1 passed, exit 0, no claude call"
+  if [ "$RC" -eq 0 ] && has "PASS 34 handoff-execute-contract" && has "PASS 35 handoff-scope-contract" \
+    && has "script cases: 2 of 2 passed" && [ "$refused_all" = yes ] && record_empty; then
+    pass "deliver on /bin/bash: cases 34 and 35 pass, cases 1 to 33 are refused as graded, 2 of 2 passed, exit 0, no claude call"
   else
     fail "deliver (rc=$RC, refused all: $refused_all): $OUT"
   fi
@@ -581,11 +581,14 @@ else
 
   # A copy of the tree that is its own repository, with the word on the edge
   # into execute.md's merged state renamed: the case fails through the harness
-  # and through the runner directly. Only the files the case reads are copied.
+  # and through the runner directly. Only the files the contract check reads
+  # are copied, so case 35 fails too, on the route suites and the attach the
+  # copy leaves out.
   MT="$T/mutated"
   mkdir -p "$MT/scripts/lib" "$MT/skills/deliver/evals" "$MT/skills/execute" "$MT/skills/work-on"
-  cp "$RUNNER" "$REPO_ROOT/scripts/check-handoff.sh" "$MT/scripts/"
-  cp "$SCRIPT_DIR/lib/script-cases.py" "$MT/scripts/lib/"
+  cp "$RUNNER" "$REPO_ROOT/scripts/check-handoff.sh" "$REPO_ROOT/scripts/check-handoff.results.tsv" "$MT/scripts/"
+  cp "$SCRIPT_DIR/lib/script-cases.py" "$SCRIPT_DIR/lib/check-handoff.py" "$SCRIPT_DIR/lib/koto-test-guard.sh" \
+    "$MT/scripts/lib/"
   cp "$REPO_ROOT/skills/deliver/SKILL.md" "$MT/skills/deliver/"
   cp "$REPO_ROOT/skills/deliver/evals/evals.json" "$MT/skills/deliver/evals/"
   cp -R "$REPO_ROOT/skills/deliver/koto-templates" "$MT/skills/deliver/"
@@ -600,14 +603,14 @@ else
   OUT=$(cd "$T" && STUB_CLAUDE_RECORD="$RECORD" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
     /bin/bash "$MT/scripts/run-evals.sh" deliver 2>&1) || RC=$?
   if [ "$RC" -eq 1 ] && has "FAIL 34 handoff-execute-contract: exited 1" && has "outcome word 'landed'" \
-    && has "doesn't expect it" && has "script cases: 0 of 1 passed" && record_empty; then
-    pass "deliver on a copy with merged renamed to landed: case 34 fails naming landed, 0 of 1 passed, exit 1"
+    && has "doesn't expect it" && has "script cases: 0 of 2 passed" && record_empty; then
+    pass "deliver on a copy with merged renamed to landed: case 34 fails naming landed, 0 of 2 passed, exit 1"
   else
     fail "deliver on the mutated copy (rc=$RC): $OUT"
   fi
   RC=0
   OUT=$(cd "$T" && python3 "$MT/scripts/lib/script-cases.py" deliver 2>&1) || RC=$?
-  if [ "$RC" -eq 1 ] && has "outcome word 'landed'" && has "script cases: 0 of 1 passed"; then
+  if [ "$RC" -eq 1 ] && has "outcome word 'landed'" && has "script cases: 0 of 2 passed"; then
     pass "script-cases.py on the mutated copy runs the copy's own cases and fails case 34, exit 1"
   else
     fail "script-cases.py on the mutated copy (rc=$RC): $OUT"

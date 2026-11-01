@@ -512,6 +512,13 @@
       "grader": "script",
       "handoff": "execute",
       "run": "scripts/check-handoff.sh deliver execute"
+    },
+    {
+      "id": 35,
+      "name": "handoff-scope-contract",
+      "grader": "script",
+      "handoff": "scope",
+      "run": "scripts/check-handoff.sh deliver scope"
     }
   ]
 }

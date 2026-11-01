@@ -1,0 +1,27 @@
+# check-handoff.results.tsv -- the result keys a hand-off target carries for
+# an outcome by design, where it carries fewer than the caller's transition
+# for that outcome copies. scripts/lib/check-handoff.py reads it for the
+# receiving-side contract check of scripts/check-handoff.sh.
+#
+# One record per line, four tab-separated fields:
+#
+#   from  to  outcome  keys
+#
+# `keys` is a comma-separated list, or `-` for none. With a record, every
+# terminal state of <to> that can end with <outcome> must carry each listed
+# key; without one, it must carry every key the caller's transition for that
+# outcome copies. A record must name an outcome the caller's leg gate
+# expects, list only keys a transition for that outcome copies, and list
+# every copied key that each terminal of the outcome carries, so a record
+# can't drift from either template unnoticed.
+#
+# /scope's terminals each carry only their own outcome's keys, and /deliver
+# reads a key a result leaves out as empty.
+deliver	scope	scoped	intent,next,plan_execution_mode,plan_path,pr,startable
+deliver	scope	handed-off-multi-pr	intent,next,plan_execution_mode,plan_path,pr,startable
+deliver	scope	executed	intent,pr,pr_state
+deliver	scope	re-evaluation	intent,pr
+deliver	scope	abandonment	intent,pr
+deliver	scope	cancelled	intent
+deliver	scope	error	intent,step
+deliver	scope	refused	intent,next,plan_execution_mode,plan_path,reason
