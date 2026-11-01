@@ -811,6 +811,34 @@
         "It does no hand repair: no record edit, rebind, cancel or fresh run",
         "It drives the successor once the opener prints it, not the fenced run"
       ]
+    },
+    {
+      "id": 43,
+      "name": "handoff-deliver-contract",
+      "grader": "script",
+      "handoff": "deliver",
+      "run": "scripts/check-handoff.sh coordinate deliver"
+    },
+    {
+      "id": 44,
+      "name": "handoff-execute-contract",
+      "grader": "script",
+      "handoff": "execute",
+      "run": "scripts/check-handoff.sh coordinate execute"
+    },
+    {
+      "id": 45,
+      "name": "handoff-scope-contract",
+      "grader": "script",
+      "handoff": "scope",
+      "run": "scripts/check-handoff.sh coordinate scope"
+    },
+    {
+      "id": 46,
+      "name": "handoff-work-on-contract",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/check-handoff.sh coordinate work-on"
     }
   ]
 }

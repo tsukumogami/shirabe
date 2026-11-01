@@ -1,0 +1,32 @@
+# check-handoff.routes.tsv -- the caller's suites that walk each hand-off,
+# run by the routes check of scripts/check-handoff.sh. scripts/check-handoff.sh
+# and scripts/check-handoff_test.sh both read this file, so a new edge or a
+# new suite is one row here and no edit to either script.
+#
+# One record per line, three tab-separated fields:
+#
+#   from  to  suite
+#
+# `suite` is a path relative to the repository. Each suite runs with
+# HANDOFF_ROUTE=<to>; one that takes the selector runs only its sections on
+# the hand-off to <to>, and one that doesn't runs whole. An edge with no
+# record fails the routes check.
+deliver	execute	skills/deliver/scripts/deliver-engine_test.sh
+deliver	execute	skills/deliver/scripts/deliver-execute-leg_test.sh
+deliver	execute	skills/deliver/scripts/deliver-template-structure_test.sh
+deliver	scope	skills/deliver/scripts/deliver-engine_test.sh
+deliver	scope	skills/deliver/scripts/deliver-template-structure_test.sh
+execute	work-on	skills/execute/scripts/execute-template-structure_test.sh
+execute	work-on	skills/execute/scripts/assert-child-template_test.sh
+coordinate	deliver	skills/coordinate/scripts/dispatch-worker_test.sh
+coordinate	deliver	skills/coordinate/scripts/wait-target_test.sh
+coordinate	deliver	skills/coordinate/scripts/dispatch-path_engine_test.sh
+coordinate	execute	skills/coordinate/scripts/dispatch-worker_test.sh
+coordinate	execute	skills/coordinate/scripts/wait-target_test.sh
+coordinate	execute	skills/coordinate/scripts/dispatch-path_engine_test.sh
+coordinate	scope	skills/coordinate/scripts/dispatch-worker_test.sh
+coordinate	scope	skills/coordinate/scripts/wait-target_test.sh
+coordinate	scope	skills/coordinate/scripts/dispatch-path_engine_test.sh
+coordinate	work-on	skills/coordinate/scripts/dispatch-worker_test.sh
+coordinate	work-on	skills/coordinate/scripts/wait-target_test.sh
+coordinate	work-on	skills/coordinate/scripts/dispatch-path_engine_test.sh

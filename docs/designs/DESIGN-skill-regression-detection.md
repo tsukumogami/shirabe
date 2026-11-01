@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 problem: |
   shirabe wants a maintainer to learn that a change broke a skill, including a
   hand-off from one skill to another, before the release carrying it ships, and
@@ -34,13 +34,60 @@ rationale: |
   change small. The cost is that nothing measures what the agent does when
   the wiring is intact, which the release notes say on every run.
 upstream: docs/prds/PRD-evals-at-release.md
+absorbed:
+  - docs/briefs/BRIEF-skill-regression-detection.md
+  - docs/prds/PRD-skill-regression-detection.md
 ---
 
 # DESIGN: Skill regression detection without paid evals
 
 ## Status
 
-Proposed
+Planned
+
+Absorbed [BRIEF-skill-regression-detection](docs/briefs/BRIEF-skill-regression-detection.md); carried in Absorbed Brief.
+
+Absorbed [PRD-skill-regression-detection](docs/prds/PRD-skill-regression-detection.md); carried in Absorbed PRD.
+
+## Absorbed Brief
+
+This topic never had a brief of its own. Its framing comes from
+`docs/prds/PRD-evals-at-release.md`, the upstream this design implements part
+of, and from the roadmap's two pieces of acceptance evidence quoted in the
+Context section below.
+
+The problem is that a maintainer who breaks a skill, a hand-off between two
+skills above all, finds out after the release that carries the break, if at
+all. The one behavioural check that exists runs graded evals at release time,
+it has been skipped on every release since v0.24.0, and nothing else stands
+in for it. Two people are on the receiving end: the maintainer making a
+change, who should see the break before merging, and the person cutting a
+release, who should see a release stop on a regression until they confirm it.
+A skill added later has to be covered the same way without anyone
+remembering to add a case.
+
+Out of scope from the start: measuring what an agent does when the hand-off
+wiring is intact, and any check that calls a model.
+
+## Absorbed PRD
+
+The topic's requirements are the upstream PRD's goals, narrowed to what a
+deterministic check can carry, plus the roadmap's evidence. This design adds
+none of its own:
+
+- A skill pull request finishes on deterministic checks any host can run,
+  macOS's bash 3.2 included, and none of them calls a model.
+- When `/deliver`'s hand-off to `/execute` breaks on a branch, running the
+  eval harness on `/deliver` shows its hand-off case failing; a skill added
+  later can't merge without the hand-off cases its templates imply.
+- The release records a pass rate for every skill, compares it with the
+  newest earlier release's record, and stops on a failing case until a
+  person confirms, naming the case and whether it passed before.
+- No path, whether a release, CI, a schedule or a person running the
+  harness, starts a model-graded eval.
+
+Done means each of those is shown by a test or a case run in CI, not by a
+run that calls a model.
 
 ## Context and Problem Statement
 

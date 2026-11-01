@@ -68,11 +68,27 @@
 # owned_pr_merged gate, a merged edge that also needs green CI, an edge into
 # `done`, a second edge into `merged`, and a `${context.` in a default action.
 #
-# Usage: execute-template-structure_test.sh
-# Exit codes: 0 all pass (or koto absent: a loud SKIP), 1 a failure
+# HANDOFF_ROUTE=work-on runs only the sections on the hand-off to /work-on:
+# the tasks spawn_and_await builds for its work-on.md children, and the
+# carry-forward check on their summaries. The template is compiled either
+# way. With HANDOFF_ROUTE unset every section runs. scripts/check-handoff.sh
+# sets it for its routes check.
+#
+# Usage: [HANDOFF_ROUTE=work-on] execute-template-structure_test.sh
+# Exit codes: 0 all pass (or koto absent: a loud SKIP), 1 a failure, or a
+# HANDOFF_ROUTE this suite has no sections for
 
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+
+ROUTE=${HANDOFF_ROUTE:-}
+case "$ROUTE" in
+    ''|work-on) ;;
+    *) echo "FAIL: HANDOFF_ROUTE=$ROUTE: this suite's only route is work-on"; exit 1 ;;
+esac
+# runs <route>: true when a section on <route> (empty for one on no hand-off)
+# runs under HANDOFF_ROUTE.
+runs() { [ -z "$ROUTE" ] || [ "$ROUTE" = "$1" ]; }
 
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(CDPATH='' cd "$SCRIPT_DIR/.." && pwd)
@@ -167,6 +183,9 @@ run_checks() { # run_checks <compiled json> -> prints the labels that fail
 }
 
 # --- the shipped template ------------------------------------------------------
+#
+# Compiled under every route; its checks are on no hand-off, so they run only
+# with HANDOFF_ROUTE unset.
 
 SHIPPED=$(compile "$TEMPLATE")
 if [ -z "$SHIPPED" ] || [ ! -f "$SHIPPED" ]; then
@@ -175,21 +194,25 @@ if [ -z "$SHIPPED" ] || [ ! -f "$SHIPPED" ]; then
     echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
     exit 1
 fi
-FAILED=$(run_checks "$SHIPPED")
-for entry in "${CHECKS[@]}" "PLUGIN_ROOT carries the absolute-path pattern|"; do
-    label="${entry%%|*}"
-    if grep -qxF "$label" <<<"$FAILED"; then
-        fail "$label"
-    else
-        pass "$label"
-    fi
-done
+if runs ""; then
+    FAILED=$(run_checks "$SHIPPED")
+    for entry in "${CHECKS[@]}" "PLUGIN_ROOT carries the absolute-path pattern|"; do
+        label="${entry%%|*}"
+        if grep -qxF "$label" <<<"$FAILED"; then
+            fail "$label"
+        else
+            pass "$label"
+        fi
+    done
+fi
 
 # --- the tasks the spawn builds --------------------------------------------------
 #
 # The spawn's jq line is read from the compiled directive, the PLAN path and
 # the bound variables are written in the way koto renders {{VAR}} (empty when
 # unset), and the line is run on a task array of plan-to-tasks.sh's shape.
+# These are the tasks of the work-on.md children: they run under
+# HANDOFF_ROUTE=work-on too.
 
 SPAWN_LINE=$(jq -r '.states.spawn_and_await.directive' "$SHIPPED" | grep '^TASKS_WITH_BRANCH=')
 if [ "$(printf '%s\n' "$SPAWN_LINE" | grep -c .)" -ne 1 ]; then
@@ -242,81 +265,85 @@ spawn_eq "a bound and a deferral together: each child carries both" \
 #
 # A copy of the template, changed in one place, must fail the check that is
 # about that place. The copy sits beside a link to /work-on so its relative
-# child-template path still resolves.
+# child-template path still resolves. On no hand-off: only with HANDOFF_ROUTE
+# unset.
 
-MUT_DIR="$WORK/mut/skills/execute/koto-templates"
-mkdir -p "$MUT_DIR"
-ln -s "$SKILL_DIR/../work-on" "$WORK/mut/skills/work-on"
+if runs ""; then
+    MUT_DIR="$WORK/mut/skills/execute/koto-templates"
+    mkdir -p "$MUT_DIR"
+    ln -s "$SKILL_DIR/../work-on" "$WORK/mut/skills/work-on"
 
-mutate() { # mutate <label> <expected failing check> <perl substitution>
-    local label="$1" want="$2" sub="$3" json failed
-    perl -0pe "$sub" "$TEMPLATE" > "$MUT_DIR/execute.md"
-    if cmp -s "$TEMPLATE" "$MUT_DIR/execute.md"; then
-        fail "mutation [$label] did not change the template; the substitution no longer matches"
-        return
-    fi
-    # --allow-legacy-gates skips only koto's reachability check, which an
-    # overridable merge_intent gate would fail on its own; the mutation is
-    # about what this suite catches, not what the compiler does.
-    json=$(koto template compile --allow-legacy-gates "$MUT_DIR/execute.md" 2>/dev/null | tail -1)
-    if [ -z "$json" ] || [ ! -f "$json" ]; then
-        fail "mutation [$label] does not compile, so it proves nothing"
-        koto template compile "$MUT_DIR/execute.md" 2>&1 | tail -2
-        return
-    fi
-    failed=$(run_checks "$json")
-    if grep -qxF "$want" <<<"$failed"; then
-        pass "the check fails on a copy with $label"
-    else
-        fail "a copy with $label passed [$want]"
-    fi
-}
+    mutate() { # mutate <label> <expected failing check> <perl substitution>
+        local label="$1" want="$2" sub="$3" json failed
+        perl -0pe "$sub" "$TEMPLATE" > "$MUT_DIR/execute.md"
+        if cmp -s "$TEMPLATE" "$MUT_DIR/execute.md"; then
+            fail "mutation [$label] did not change the template; the substitution no longer matches"
+            return
+        fi
+        # --allow-legacy-gates skips only koto's reachability check, which an
+        # overridable merge_intent gate would fail on its own; the mutation is
+        # about what this suite catches, not what the compiler does.
+        json=$(koto template compile --allow-legacy-gates "$MUT_DIR/execute.md" 2>/dev/null | tail -1)
+        if [ -z "$json" ] || [ ! -f "$json" ]; then
+            fail "mutation [$label] does not compile, so it proves nothing"
+            koto template compile "$MUT_DIR/execute.md" 2>&1 | tail -2
+            return
+        fi
+        failed=$(run_checks "$json")
+        if grep -qxF "$want" <<<"$failed"; then
+            pass "the check fails on a copy with $label"
+        else
+            fail "a copy with $label passed [$want]"
+        fi
+    }
 
-mutate "an assignment writing home_pr from evidence" \
-    "no context_assignments block writes home_pr" \
-    's/(          merge_exec: refused\n        context_assignments:\n)/$1          home_pr: "\${evidence.merge_line}"\n/'
-mutate "an overridable merge_intent gate" \
-    "merge_attempt carries the non-overridable merge_intent gate" \
-    's/(command: .test "\{\{MERGE\}\}" = true.\n        overridable: )false/${1}true/'
-mutate "ci_monitor's green edge back on done" \
-    "no transition targets done" \
-    's/(      - target: )merge_readiness(\n        when:\n          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_ci_passing.exit_code: 0)/${1}done$2/'
-mutate "an overridable owned_pr_merged gate" \
-    "owned_pr_merged is a non-overridable command gate" \
-    's/(      owned_pr_merged:\n        type: command\n        overridable: )false/${1}true/'
-mutate "ci_monitor's merged edge needing green CI" \
-    "ci_monitor routes a MERGED owned PR to merge_readiness on the lookup and owned_pr_merged alone" \
-    's/(          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_pr_merged.exit_code: 0\n)/$1          gates.owned_ci_passing.exit_code: 0\n/'
-mutate "a second edge into merged" \
-    "merged's only incoming edge is from merge_confirm" \
-    's/(      - target: )ready_awaiting_merge(\n        when:\n          gates.merge_intent.exit_code: 0\n          merge_exec: refused)/${1}merged$2/'
-mutate "a \${context. in a default action" \
-    "no default_action command holds \${context." \
-    's/--head-branch "\$\(koto context get execute-\{\{PLAN_SLUG\}\} settled_branch\)"(.\n      fallback: >-\n        koto could not record the merge verdict)/--head-branch "\${context.settled_branch}"$1/'
-mutate "worktree_sync rebasing again" \
-    "no default action or gate runs git rebase" \
-    's/command: git merge --no-edit origin\/main/command: git rebase origin\/main/'
-mutate "the phase-6-pr.md pointer back in ci_monitor" \
-    "ci_monitor does not load /work-on's phase-6-pr.md" \
-    's/(Monitor CI on the shared branch until all checks pass AND merge state is clean\.\n)/$1\nRead phase-6-pr.md for CI monitoring guidance.\n/'
-mutate "ci_monitor's CI cap removed" \
-    "ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable" \
-    's/\*\*CI repair is capped at 3 fix pushes, all within this one visit to `ci_monitor`\.\*\*/**CI repair is not capped.**/'
-mutate "worktree_sync's gate reduced to the merge exit code" \
-    "worktree_sync's gate tests ancestry with no merge in progress" \
-    's/command: .test -x "\{\{PLUGIN_ROOT\}\}\/skills\/work-on\/scripts\/check-branch-output.sh" \|\| exit 2; "\{\{PLUGIN_ROOT\}\}\/skills\/work-on\/scripts\/check-branch-output.sh" --synced.\n/command: true\n/'
-mutate "a braced SETTLED_BRANCH in settled_branch_record" \
-    "settled_branch_record's prose names SETTLED_BRANCH without braces" \
-    's/delivered to `spawn_and_await` under the name\n`SETTLED_BRANCH`/delivered to `spawn_and_await` under the name\n`{{SETTLED_BRANCH}}`/'
-mutate "the no-braces reason dropped from settled_branch_record" \
-    "settled_branch_record's prose names SETTLED_BRANCH without braces" \
-    's/That name is written without braces here on purpose: /That name is written this way: /'
-mutate "the current-context.md step back in spawn_and_await" \
-    "no directive tells the agent to build current-context.md" \
-    's/(it builds no context file)/write current-context.md into the next child; $1/'
+    mutate "an assignment writing home_pr from evidence" \
+        "no context_assignments block writes home_pr" \
+        's/(          merge_exec: refused\n        context_assignments:\n)/$1          home_pr: "\${evidence.merge_line}"\n/'
+    mutate "an overridable merge_intent gate" \
+        "merge_attempt carries the non-overridable merge_intent gate" \
+        's/(command: .test "\{\{MERGE\}\}" = true.\n        overridable: )false/${1}true/'
+    mutate "ci_monitor's green edge back on done" \
+        "no transition targets done" \
+        's/(      - target: )merge_readiness(\n        when:\n          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_ci_passing.exit_code: 0)/${1}done$2/'
+    mutate "an overridable owned_pr_merged gate" \
+        "owned_pr_merged is a non-overridable command gate" \
+        's/(      owned_pr_merged:\n        type: command\n        overridable: )false/${1}true/'
+    mutate "ci_monitor's merged edge needing green CI" \
+        "ci_monitor routes a MERGED owned PR to merge_readiness on the lookup and owned_pr_merged alone" \
+        's/(          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_pr_merged.exit_code: 0\n)/$1          gates.owned_ci_passing.exit_code: 0\n/'
+    mutate "a second edge into merged" \
+        "merged's only incoming edge is from merge_confirm" \
+        's/(      - target: )ready_awaiting_merge(\n        when:\n          gates.merge_intent.exit_code: 0\n          merge_exec: refused)/${1}merged$2/'
+    mutate "a \${context. in a default action" \
+        "no default_action command holds \${context." \
+        's/--head-branch "\$\(koto context get execute-\{\{PLAN_SLUG\}\} settled_branch\)"(.\n      fallback: >-\n        koto could not record the merge verdict)/--head-branch "\${context.settled_branch}"$1/'
+    mutate "worktree_sync rebasing again" \
+        "no default action or gate runs git rebase" \
+        's/command: git merge --no-edit origin\/main/command: git rebase origin\/main/'
+    mutate "the phase-6-pr.md pointer back in ci_monitor" \
+        "ci_monitor does not load /work-on's phase-6-pr.md" \
+        's/(Monitor CI on the shared branch until all checks pass AND merge state is clean\.\n)/$1\nRead phase-6-pr.md for CI monitoring guidance.\n/'
+    mutate "ci_monitor's CI cap removed" \
+        "ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable" \
+        's/\*\*CI repair is capped at 3 fix pushes, all within this one visit to `ci_monitor`\.\*\*/**CI repair is not capped.**/'
+    mutate "worktree_sync's gate reduced to the merge exit code" \
+        "worktree_sync's gate tests ancestry with no merge in progress" \
+        's/command: .test -x "\{\{PLUGIN_ROOT\}\}\/skills\/work-on\/scripts\/check-branch-output.sh" \|\| exit 2; "\{\{PLUGIN_ROOT\}\}\/skills\/work-on\/scripts\/check-branch-output.sh" --synced.\n/command: true\n/'
+    mutate "a braced SETTLED_BRANCH in settled_branch_record" \
+        "settled_branch_record's prose names SETTLED_BRANCH without braces" \
+        's/delivered to `spawn_and_await` under the name\n`SETTLED_BRANCH`/delivered to `spawn_and_await` under the name\n`{{SETTLED_BRANCH}}`/'
+    mutate "the no-braces reason dropped from settled_branch_record" \
+        "settled_branch_record's prose names SETTLED_BRANCH without braces" \
+        's/That name is written without braces here on purpose: /That name is written this way: /'
+    mutate "the current-context.md step back in spawn_and_await" \
+        "no directive tells the agent to build current-context.md" \
+        's/(it builds no context file)/write current-context.md into the next child; $1/'
+fi
 
 # No file under skills/execute outside its evals tells the agent to build
-# current-context.md: carry-forward is koto calls, not a file.
+# current-context.md: carry-forward between the work-on.md children is koto
+# calls, not a file. Runs under HANDOFF_ROUTE=work-on too.
 BUILDERS=$(grep -rln 'current-context' "$SKILL_DIR" --exclude-dir=evals --exclude="$(basename "$0")" 2>/dev/null || true)
 [ -z "$BUILDERS" ] && pass "no skills/execute file outside evals names current-context.md" \
     || fail "current-context.md is still named in: $BUILDERS"

@@ -27,9 +27,17 @@
 #      its last 60 lines; the run opens with the load at its start;
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
 #      SKILL.md declares disable-model-invocation: true may have none);
-#   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
+#   6. runs the script cases that check the skill's hand-offs, with the
+#      tree's own runner, `scripts/lib/script-cases.py --for <skill>`: the
+#      skill's own `grader: script` cases and every other skill's whose
+#      `handoff` names it, so a change to a skill fails the cases other skills
+#      keep on their hand-offs to it. Each failing case is its own failure,
+#      `script case: <skill> <id> <name>`, with the runner's reason under it.
+#      A runner that is missing or exits with anything but 0 or 1 (an
+#      evals.json it can't parse, say) fails the check closed;
+#   7. runs scripts/check-pipe-readers.sh over the skill's directory, which
 #      refuses a printf, echo or cat piped into grep -q or head;
-#   7. runs scripts/check-mktemp-guards.sh over the skill's directory, which
+#   8. runs scripts/check-mktemp-guards.sh over the skill's directory, which
 #      refuses an unchecked mktemp whose value a cd, rm, mv or git acts on.
 #
 # Every check runs even after one fails. Each failure is reported with the
@@ -39,11 +47,14 @@
 #   Run from anywhere; paths resolve against the repository root.
 #   <skill> is the directory name under skills/, matching ^[a-z0-9][a-z0-9-]*$.
 #   --changed  Run only the suites the branch's changes touch (step 4); every
-#              other check runs as before. Used by the verification map, never
-#              by CI. See "Selecting suites" below.
+#              other check runs as before, the script cases (step 6) in full
+#              whatever changed: a branch that changes only an evals/ selects
+#              few suites or none, and its cases still run. Used by the
+#              verification map, never by CI. See "Selecting suites" below.
 #   --list     With --changed: print the selected suites, costliest first, and
-#              the reason for the selection, then exit 0 without running any
-#              check.
+#              the reason for the selection, then the script cases step 6
+#              would run, one `script case: <skill> <id> <name>` line each,
+#              then exit 0 without running any check.
 #
 # Selecting suites (--changed). The changed paths are `git diff --name-only
 # --no-renames <merge-base>` plus untracked files, where the merge-base is
@@ -87,8 +98,10 @@
 #   CHECK_SKILL_ROOT   TEST-ONLY. Replaces the repository root, so
 #                      scripts/check-skill_test.sh can point the checks at a
 #                      throwaway skills/ tree. The shape helper always comes
-#                      from this script's own checkout. No extension file or
-#                      workflow sets it.
+#                      from this script's own checkout; the script-case runner
+#                      always comes from the tree, since it runs the cases of
+#                      the repository two levels above its own file. No
+#                      extension file or workflow sets it.
 #   CHECK_SKILL_CHANGED
 #                      TEST-ONLY. With --changed, the changed paths, one per
 #                      line, in place of the ones git reports. No extension
@@ -110,6 +123,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHAPE_CHECK="$SCRIPT_DIR/lib/check-evals-shape.py"
+# The tree's own script-case runner, relative to the root (step 6).
+CASE_RUNNER="scripts/lib/script-cases.py"
 ROOT="${CHECK_SKILL_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
@@ -504,6 +519,17 @@ if [ "$LIST" = 1 ]; then
     for i in "${ORDER[@]+"${ORDER[@]}"}"; do
         echo "${suites[$i]}"
     done
+    # The script cases step 6 would run, listed by the runner, which runs none.
+    if [ ! -f "$CASE_RUNNER" ]; then
+        echo "check-skill: script cases: no runner at $CASE_RUNNER" >&2
+        exit 2
+    fi
+    if ! python3 "$CASE_RUNNER" --for "$SKILL" --list >"$LOG" 2>&1; then
+        show_log >&2
+        echo "check-skill: script cases: the runner could not list them" >&2
+        exit 2
+    fi
+    sed -e '/^$/d' -e 's/^/script case: /' "$LOG"
     exit 0
 fi
 
@@ -650,7 +676,58 @@ else
     fail "eval shape: $evals_json"
 fi
 
-# 6. No shell value piped into a reader that stops early (grep -q, head):
+# 6. The script cases that check the skill's hand-offs. The runner runs in the
+#    background and is waited for, because bash runs a trap only once the
+#    foreground command has ended: a TERM to this script has to reach
+#    stop_suites, which stops the runner, while a case is still running. The
+#    runner kills the running case's process group when it is signalled.
+#
+# report_script_cases <rc>: one failure per failing case, named
+# `script case: <skill> <id> <name>` with its reason under it, read from the
+# runner's `== <skill>` headers and FAIL lines in $LOG. Anything else but a
+# pass fails closed, with the runner's output.
+report_script_cases() {
+    local rc="$1" total line failed
+    total=$(sed -n 's/^script cases: \([0-9][0-9]* of [0-9][0-9]* passed\)$/\1/p' "$LOG" | tail -n 1)
+    if [ "$rc" = 0 ] && [ -n "$total" ]; then
+        echo "ok: script cases ($total)"
+        return
+    fi
+    failed=$(awk '
+        /^== / { skill = substr($0, 4); d = 0; next }
+        /^FAIL / {
+            rest = substr($0, 6); sp = index(rest, " ")
+            id = substr(rest, 1, sp - 1); rest = substr(rest, sp + 1)
+            c = index(rest, ": ")
+            print "@@ " skill " " id " " substr(rest, 1, c - 1)
+            print "    " substr(rest, c + 2); d = 1; next
+        }
+        d && /^    / { print "    " $0; next }
+        { d = 0 }' "$LOG")
+    if [ "$rc" = 1 ] && [ -n "$total" ] && [ -n "$failed" ]; then
+        while IFS= read -r line; do
+            case "$line" in
+                "@@ "*) fail "script case: ${line#@@ }" ;;
+                *) printf '%s\n' "$line" ;;
+            esac
+        done <<EOF
+$failed
+EOF
+        echo "    script cases: $total"
+        return
+    fi
+    show_log
+    fail "script cases: the runner exited $rc ($CASE_RUNNER --for $SKILL)"
+}
+if [ ! -f "$CASE_RUNNER" ]; then
+    fail "script cases: no runner at $CASE_RUNNER"
+else
+    python3 "$CASE_RUNNER" --for "$SKILL" >"$LOG" 2>&1 &
+    wait "$!"
+    report_script_cases "$?"
+fi
+
+# 7. No shell value piped into a reader that stops early (grep -q, head):
 #    under pipefail the writer can be cut off and a match read as no match.
 if bash "$SCRIPT_DIR/check-pipe-readers.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
     echo "ok: pipe readers ($SKILL_DIR)"
@@ -659,7 +736,7 @@ else
     fail "pipe readers: $SKILL_DIR (scripts/check-pipe-readers.sh)"
 fi
 
-# 7. No unchecked mktemp feeding a cd, rm, mv or git: a failed mktemp leaves
+# 8. No unchecked mktemp feeding a cd, rm, mv or git: a failed mktemp leaves
 #    the value empty, and `cd ""` stays in the caller's directory.
 if bash "$SCRIPT_DIR/check-mktemp-guards.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
     echo "ok: mktemp guards ($SKILL_DIR)"
