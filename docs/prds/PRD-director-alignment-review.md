@@ -17,7 +17,8 @@ goals: |
   director shows up at the next director start. A lane's question reaches the
   owner once, through the director, with relayed words checked against what
   the owner wrote, and no director blocks on an owner who didn't start the turn.
-upstream: docs/briefs/BRIEF-director-alignment-review.md
+absorbed:
+  - docs/briefs/BRIEF-director-alignment-review.md
 motivating_context: |
   Named roles give the workspace a director: a coordinator session over the
   managers that run its lanes. The reviewer concept already makes each
@@ -32,6 +33,40 @@ motivating_context: |
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-director-alignment-review](docs/briefs/BRIEF-director-alignment-review.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed why this feature exists: a director's review of a lane's
+finished pull request asks whether the work fits the roadmap, the strategy
+and the owner's recorded decisions, not whether the code is right, and the
+coordinate skill never said how it asks that, what it does with a no, or
+where the answer goes. Its four gaps (a divergent pull request with no stop,
+a merge that leaves no judgment behind, owner questions that multiply and
+drift, and a director that stalls on the owner) are this document's Problem
+Statement, and the timing it gave, that the first director runs as soon as
+named roles are installed, closes it.
+
+The outcome it asked for is what the manager, the director and the owner each
+see once this lands: a held pull request whose hold names its reason,
+receiver and release and lifts only after a new head and a re-read; a list of
+every merge or recommendation with the call for its head, a milestone
+verdict's call naming its Evidence clauses, and an uncalled merge surfacing at
+the next director start; and a lane's question reaching the owner once, with
+relayed words checked and no director waiting on an absent owner. Those are
+this document's Goals. Its five journeys (holding a pull request that
+contradicts a recorded decision, a new head on a held pull request, a
+one-line call and a milestone verdict call, a merge that skipped the
+director, and a mismatched relay alongside an unanswered question) are
+carried in the User Stories and exercised by the Acceptance Criteria.
+
+Its scope boundary is carried as the Requirements (in: the purpose of the
+review, the hold and its release, the recorded call, the unreviewed-merge
+report, the single route to the owner with the relay check, and no blocking
+on the owner) and the Out of Scope list (out: correctness review, granting
+authority, standing-rule provenance and its neighbours, defining the named
+roles, succession telemetry, and implementation).
 
 ## Problem Statement
 
