@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A director gets its lanes' finished pull requests, most of them marking a
   milestone done, and the coordinate skill gives it no written way to judge
@@ -32,7 +32,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-director-alignment-review](docs/briefs/BRIEF-director-alignment-review.md); carried in Absorbed Brief.
 
