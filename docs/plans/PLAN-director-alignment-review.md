@@ -55,7 +55,7 @@ already works.
 - [ ] `state-entry.sh --kind alignment --on <owner/repo#n>` refuses a malformed alignment text (a missing, extra or reordered line, a head that isn't 40 hex, or `diverges` with Sources `none`) with exit 65 and writes nothing to the record; a well-formed seven-line text is written and stays in the session.
 - [ ] `alignment-call.sh` with a `diverges` call on a pull request with no director hold standing writes the call entry, adds a hold named `align-<repo name>-<n>-<40-hex placed-on head>` to the director's record with `until` `lifted`, and prints a message holding the pull request, the hold row, the reason, the receiver and the release.
 - [ ] Passing that printed message to `alignment-call.sh --copy --add` in a scratch manager record whose dispatcher is the director adds the identical hold row to the manager's record and writes a `hold` entry naming the event the message arrived in.
-- [ ] `alignment-call.sh --copy --add` refuses a message whose sender isn't the dispatcher address the manager's record names: it exits non-zero, says so, and leaves the manager's Holds section and entries unchanged.
+- [ ] `alignment-call.sh --copy --add` refuses a message whose sender isn't the dispatcher address the manager's record names: it exits non-zero, says so, and leaves the manager's Holds section and entries unchanged. It refuses a malformed message the same way: a hold name not of the `align-` form, or a head that isn't 40 hex.
 - [ ] `land-check.sh` on the manager record reports the pull request unready, and its output names the `align-` hold.
 - [ ] A second `diverges` call on the same pull request while the director's hold still stands writes its entry but places no second hold; the director's record still holds exactly one `align-` row.
 - [ ] A `diverges` call on a merged pull request is written as an entry but places no hold, and no `align-` row is added to the director's record.
@@ -85,9 +85,9 @@ already works.
 
 **Files**: `skills/coordinate/scripts/alignment-call.sh`, `skills/coordinate/references/state-keys.md`
 
-### Step 3: The director's start lists every call and reports an unreviewed merge
+### Step 3: Every call, merge and hold can be listed, with unreviewed heads marked
 
-`alignment-read.sh` lists calls, merges and recommendations with their call status, standing `align-` holds and lineage gaps, and the director's start reports a merged head with no call as unreviewed.
+`alignment-read.sh` lists calls, merges and recommendations with their call status, standing `align-` holds and lineage gaps, and marks a merged head with no call as unreviewed; the director's start reads it in step 5.
 
 ### Step 4: The director finds what a pull request touches and its call cites it
 
@@ -95,7 +95,7 @@ already works.
 
 ### Step 5: A director can't merge or recommend a head with no alignment call
 
-`land-check.sh` reports `no-alignment-call` when the Run `role` row reads `director`, shipping with the director's alignment section, the manager's hold duty and the template changes; it needs the named-roles build that shirabe#1483 plans.
+`land-check.sh` reports `no-alignment-call` when the Run `role` row reads `director`, shipping with the director's alignment section, the start's unreviewed list and hold listing, the manager's hold duty and the template changes; it needs the named-roles build that shirabe#1483 plans.
 
 ### Step 6: A lane's question reaches the owner once and a mismatched relay is declined
 
@@ -105,7 +105,9 @@ Owner questions ride Decisions entries and Work rows, so a second lane's ask joi
 
 The steps run in order. Before step 2 starts, a short read of the coordinate
 template's `wait` evidence confirms which wait events carry a manager's pull
-request links, since step 3's lane set rests on it. Steps 3 and 4 each need only step 2, so they can run
+request links. Step 3's lane set rests on that answer, and checking it first
+keeps step 2's hold and lift messages from settling on a shape step 3 can't
+read. Steps 3 and 4 each need only step 2, so they can run
 beside each other. Step 5 ships the land-check gate together with the skill
 text and template changes that tell a director to record calls, so no director
 meets a gate its skill doesn't explain; it needs step 3's start listing and the
