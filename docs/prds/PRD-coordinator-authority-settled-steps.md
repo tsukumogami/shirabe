@@ -131,7 +131,7 @@ or script.
   that fails, times out or is skipped (no niwa, no session id, no instance
   root); an answer R3 refuses; an answer with no entry for the point asked;
   a settler whose target the answer doesn't give; an answer that names the
-  session as settler without the grant; and a step whose command a Claude
+  session as settler, with author exclusion off, without the grant; and a step whose command a Claude
   Code deny or ask rule covers, where the answer would let the session take
   it. The coordinator doesn't
   take the step, records it as held with the reason, and reports the step,
@@ -176,8 +176,11 @@ or script.
 
 - **R12. Cost.** At most one niwa read per finishing-step visit, and two when
   the act reads again under R2.
-- **R13. No grant model.** shirabe keeps no table of grants, levels or settlers;
-  R1's step-to-point mapping is its only table.
+- **R13. No grant model.** What a coordinator is expected to do is fixed in the
+  skill; what it is allowed to do, who settles a step included, is configured
+  per workspace and reaches the skill only through the authority answer. So
+  shirabe keeps no table of grants, levels or settlers; R1's step-to-point
+  mapping is its only table.
 - **R14. The guarantee is stated narrowly.** `SKILL.md` says the coordinator
   never acts more widely than the answer and that no row of its own widens it,
   and makes no claim that the answer can't be forged: the workspace gate stays

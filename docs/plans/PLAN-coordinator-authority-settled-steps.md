@@ -134,7 +134,7 @@ skills/coordinate/scripts/board-lib.sh
 
 ### Step 3: closes and verdict merges read their own point at their state
 
-Roadmap closes, close-out issue and pull request closes, and verdict and reopen merges each run `settle-check.sh` at their state, with a held outcome added beside each state's existing ones, closing the PRD criteria Mapping, Read at the step, Forged record and Done is GitHub's for closes.
+Roadmap closes, close-out issue and pull request closes, and verdict and reopen merges each run `settle-check.sh` at their state, with a held outcome added beside each state's existing ones, closing the PRD criteria Mapping, Read at the step, Forged record, Done is GitHub's and Permission hold for closes.
 
 ### Step 4: a handed-back merge, close or release goes to the settler the answer names
 
@@ -142,7 +142,7 @@ Roadmap closes, close-out issue and pull request closes, and verdict and reopen 
 
 ### Step 5: a release the coordinator runs itself reads cut-release at its step
 
-A release the coordinator runs itself takes, routes or holds on a fresh `cut-release` read, and a mid-run change to the answer applies at the next step, closing the PRD criteria Mid-run change and Mapping for releases.
+A release the coordinator runs itself takes, routes or holds on a fresh `cut-release` read, and a mid-run change to the answer applies at the next step, closing the PRD criteria Mid-run change, Mapping and Permission hold for releases.
 
 ### Step 6: the start read and the standing-rule read go through the one reader
 
