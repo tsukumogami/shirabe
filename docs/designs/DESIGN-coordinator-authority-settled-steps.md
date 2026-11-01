@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   The coordinate skill decides who settles a merge, a close, a release or a
   step a worker hands back from one authority read taken at start, folded
@@ -35,7 +35,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
