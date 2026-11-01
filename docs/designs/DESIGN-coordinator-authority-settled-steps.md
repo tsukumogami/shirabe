@@ -14,10 +14,11 @@ decision: |
   settle-check.sh, runs at each finishing state, asks the one point that
   step maps to, and prints a sealed take, route or hold verdict the state's
   transitions follow; it writes what the read said into a per-step evidence
-  key that nothing reads back. The merge reads at land and again at
-  land_merge and takes only when both say take. Teardown and the
-  always-expected review keep their current sources, and every missing piece
-  of the workspace authority work is a named dependency the step holds on.
+  key that only the next start report reads, to show the routing. The
+  merge reads at land and again at land_merge and takes only when both
+  say take. Teardown and the always-expected review keep their current
+  sources, and every missing piece of the workspace authority work is a
+  named dependency the step holds on.
 rationale: |
   A check action runs the read itself, so the coordinator never supplies the
   answer, and its sealed token is koto's capture rather than a key the agent
@@ -129,10 +130,11 @@ From the PRD, carried here as what each asks:
 - **Two passages keep today's source (R9, R10).** Teardown's settler stays the
   permission posture only until the workspace authority work names a teardown
   point (PRD D4); then teardown reads that point at its step like every other
-  finishing step. The posture read is interim, not teardown's lasting source. The review the skill
-  always expects before a merge stays sourced from the Verdicts rules (whoever
-  writes a verdict never approves its own Done; the reviewer is the dispatching
-  coordinator when bound and a person at the root).
+  finishing step. The posture read is interim, not teardown's lasting
+  source. The review the skill always expects before a merge stays sourced
+  from the Verdicts rules (whoever writes a verdict never approves its own
+  Done; the reviewer is the dispatching coordinator when bound and a person
+  at the root).
 - **Workers unchanged (R11).** A worker brief's `Named authority:` line stays
   as tsukumogami/shirabe#1449 left it.
 - **Narrow claim (R14).** `SKILL.md` says the coordinator never acts more widely
@@ -205,7 +207,9 @@ or `hold <point> <reason>`. The state's transitions follow the captured token
 and accept no submitted evidence field in its place, so the coordinator acts
 on what koto captured, not on anything it submits.
 Before printing, it writes the read into the step's evidence key with
-`coord-log.sh seal --file --key`. No gate or script reads that key.
+`coord-log.sh seal --file --key`. No gate, router or routing script reads
+that key; the coordinator's next start report prints it and decides nothing
+from it.
 
 #### Alternatives Considered
 
@@ -449,8 +453,9 @@ because shipping first would hold every root coordinator's finishing steps.
 ### Phase 1: The reader
 
 `authority-read.sh` and its tests against a fake niwa; `posture-read.sh` and
-`state-stored-set.sh --rules` moved onto it with no change in output. This can
-land before the dependencies: it changes no routing.
+`state-stored-set.sh --rules` moved onto it with no change in output. It changes no
+routing, but like every phase it lands in its own pull request after the dependencies ship,
+as the PLAN orders it.
 
 ### Phase 2: The verdict and the merge
 

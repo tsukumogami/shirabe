@@ -143,7 +143,7 @@ skills/coordinate/scripts/board-lib.sh
 
 ### Step 3: closes and verdict merges read their own point at their state
 
-Roadmap closes, close-out issue and pull request closes, and verdict and reopen merges each run `settle-check.sh` at their state, with a held outcome added beside each state's existing ones, closing the PRD criteria Mapping, Read at the step, Forged record, Done is GitHub's and Permission hold for closes.
+Roadmap closes, close-out issue and pull request closes, and verdict and reopen merges each run `settle-check.sh` at their state, with a held outcome added beside each state's existing ones, closing the PRD criteria Mapping, Read at the step, Forged record, Done is GitHub's, Permission hold, Record is evidence and Routing shown for closes.
 
 ### Step 4: a handed-back merge, close or release goes to the settler the answer names
 

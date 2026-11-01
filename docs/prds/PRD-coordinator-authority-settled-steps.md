@@ -140,8 +140,9 @@ or script.
   settler. It never falls back to the bound-or-root rule or to "not
   dispatched means a person".
 - **R7. The record is evidence, never input.** At each finishing step the
-  coordinator writes what the read said for that point (state, settler,
-  author exclusion, the target given, the read's time) into that step's entry
+  coordinator writes what the read said for that point (step, point,
+  state, settler, author exclusion, the target given, the read's time, and
+  the verdict with its hold reason) into that step's entry
   in its own record (its koto session context). No gate, router or later step
   reads that entry, or `coord/posture.json`, to choose a settler or to decide
   whether to take a step. The entry has one reader: the coordinator's next
@@ -262,8 +263,9 @@ wording as a run with the same fake answer and no record rows written.
   or to take a step. The start report is the one reader the test allows.
 - [ ] Routing shown: after a merge sent to the dispatcher and a close held
   for `no-grant`, the coordinator's next start report lists both reads with
-  step, point, verdict, settler and reason; with both entries edited before
-  that start, every transition is unchanged.
+  step, point, verdict, settler and reason; with the held close's entry edited
+  from hold to take before that start, the report shows the edit and every
+  transition is unchanged.
 - [ ] Done is GitHub's: a step sent to another settler is marked done only
   after GitHub reports the pull request merged, the issue closed or the
   release published, and a record row claiming it is done changes nothing.
