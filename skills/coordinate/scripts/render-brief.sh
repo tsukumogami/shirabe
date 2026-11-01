@@ -91,8 +91,9 @@
 #                                 back to the coordinator. A non-empty grant
 #                                 also tells the worker to report for review
 #                                 before it merges, to merge only at a head
-#                                 the coordinator's own message clears, and
-#                                 never to merge a roadmap pull request.
+#                                 the coordinator's own message clears.
+#                                 Whether a step is allowed is the grant's
+#                                 to say; the line adds no ban of its own.
 #                                 Absent, the brief
 #                                 is what it was before the field existed.
 #   launch              optional  how niwa dispatch launches the worker, an
@@ -468,7 +469,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   ( if (.grant | type) == "array" then
       ( if (.grant | length) > 0
-        then "Named authority: you hold \(.grant | join(", ")) and nothing else. Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator'"'"'s own message clears that pull request at a head it names, and merge it pinned to that head. Never merge a pull request that changes a roadmap under docs/roadmaps/, whatever your grant; when unsure, hand it back. A merge, close or release that needs an authority you don'"'"'t hold isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way."
+        then "Named authority: you hold \(.grant | join(", ")) and nothing else. Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator'"'"'s own message clears that pull request at a head it names, and merge it pinned to that head. A merge, close or release that needs an authority you don'"'"'t hold isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way."
         else "Named authority: you hold no named authority. A merge, close or release isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way." end ),
       ""
     else empty end ),
