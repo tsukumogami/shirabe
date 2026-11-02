@@ -339,18 +339,29 @@ confirmation rule for bound and root included), the Decisions grounds, the
 record's `handed-over` state, the Verdicts rules' chain for who merges a
 verdict pull request, the template's dispatch and roadmap-close passages, and
 the close passage in `references/state-keys.md`. Only the sentence naming the
-Verdicts reviewer keeps its wording (R10); teardown's sentence sends a
-teardown to a person and names neither (R9). `posture-read.sh`'s grant fold
+Verdicts reviewer keeps its wording (R10), with its copy in
+`references/state-keys.md`. Teardown's clause, which shares the merge
+sentences in Bounds and Authority and the Decisions grounds today, is split
+out of them and sends a teardown to a person, naming neither bound nor root
+(R9). `posture-read.sh`'s grant fold
 table goes, the start token's word comes from teardown's reading alone, and
-`posture_ask` asks only about teardown. It closes the PRD criteria Wording,
+`posture_ask` asks only about teardown, which follows from R2 once merge,
+close and release stop reading the start posture. It closes the PRD criteria Wording,
 the `SKILL.md` read, No new table and the unchanged worker brief line.
 
 **Acceptance Criteria**:
 
-- [ ] `grep -nE 'session is bound|root coordinator|where you are
-  bound|grant_check\.state|--dispatcher'` over the coordinate skill's text and
-  scripts, tests aside, matches only the Verdicts reviewer sentence, and runs
-  as a test.
+- [ ] `grep -nE '(your|its|the|whose) session is bound|you are a root
+  coordinator|it is a root coordinator|for a root coordinator|root
+  coordinator.s reserved|where you are bound|for a bound session'` over
+  `SKILL.md`, `koto-templates/coordinate.md` and `references/*.md` except
+  `references/brief-template.md` (the worker brief, unchanged under R11)
+  matches only the Verdicts reviewer sentence in `SKILL.md`'s Verdicts rules
+  and its copy in `references/state-keys.md`; `grant_check\.state` matches
+  nothing in `need-check.sh`, and `--dispatcher` matches nothing in
+  `progress-view.sh` or the template's calls to it. The search runs as a test, and
+  `render-result.sh`'s own `--dispatcher` flag, which workers use, is
+  untouched.
 - [ ] A verdict or reopen pull request's merge is settled by the `merge-pr`
   read alone; no passage says it falls to the next one up the chain.
 - [ ] `SKILL.md` names the read as `niwa authority check -C <instance>
@@ -398,7 +409,7 @@ in either order. Step 6 lands last. After Step 6, two passages still keep
 today's sources: teardown reads the permission posture (R9) and the review
 before a merge names the Verdicts rules' reviewer, which is the dispatching
 coordinator when bound and a person at the root (R10). That reviewer sentence
-is the one place the skill still names a parent, so the claim that the skill
-keeps no rule of its own about levels, parents or who may decide a step holds
+is the one place the skill still names a parent, so the PRD's goal that the
+skill keeps no rule of its own about levels, parents or who may decide a step holds
 only once D4 and D5 ship and those two passages read the answer too. Moving
 them is follow-up work for that point, not a step of this plan.

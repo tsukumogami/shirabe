@@ -283,8 +283,9 @@ because a record row can only hold, no ordering of settlers is needed anywhere.
 
 The skill gets one reader, one verdict script and one evidence key per step
 visit. The start read stays for the board and teardown. The bound-or-root
-sentences and the `grant_check.state` routing go, except in the teardown and
-reviewer passages.
+sentences and the `grant_check.state` routing go, except the sentence naming
+the Verdicts reviewer (R10). Teardown keeps its source (R9) in a sentence of
+its own that names neither bound nor root.
 
 ### Components
 
@@ -388,7 +389,8 @@ whose merge or close reading is unread no longer stops to ask a person about
 steps the answer now settles.
 
 **`board-lib.sh`.** `bl_merge_posture` and `bl_human_holds_merge` go;
-`land-check.sh` and `land-merge.sh` call `settle-check.sh` instead.
+`land-check.sh` calls `settle-check.sh` instead, and `land_merge` runs it as
+its own check, so the merge reads twice, not three times.
 
 **`state-stored-set.sh --rules`.** Calls `authority-read.sh` with no `--point`
 in place of its own call. `under_session_grant` and `session_allows` print as
@@ -549,6 +551,10 @@ verdict field at a finishing state and expects the transition unchanged. Editing
 `posture_ask` answer or a review round changes no step but teardown, which
 reads the posture copy until a teardown point is named (R9) and so keeps
 today's exposure. The PRD's forged-record criterion tests the other steps.
+`dispatch-worker.sh` also builds a successor coordinator's grant from the
+`grant_check` copy in `coord/posture.json`, which the coordinator can edit;
+there the control is niwa's dispatch cap, and tsukumogami/niwa#422 is its
+known gap.
 
 The settings files behind the permission lists may be within the agent's
 reach, but those lists can only turn a take into a hold, never widen one.
@@ -568,8 +574,9 @@ answer didn't name.
 **Stale answer.** Reading at each visit, and twice for the merge, closes the
 window in which a declaration tightened mid-run would be ignored. A
 declaration changed between `land_merge`'s read and the merge command itself is
-the remaining window, a few seconds, and the workspace gate still applies to
-the command.
+the remaining window. The read runs as the state is entered, so the window
+lasts as long as the agent takes to run `land-merge.sh`, and the workspace
+gate still applies to the command.
 
 **Permission scope and data exposure.** The new scripts run one bounded niwa
 call and write one context key. They read no settings file's `env` block, print

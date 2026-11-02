@@ -104,7 +104,7 @@ or script.
 - **R2. The answer is read at the step.** Each visit to a finishing step reads
   the answer for its point, fresh, bounded at `NIWA_LOOKUP_SECONDS` (3 seconds
   by default) as `posture-read.sh` bounds it today, and acts on that read in
-  the same visit. A step whose act reads again (as `land-merge.sh` does for
+  the same visit. A step whose act reads again (as `land_merge` does for
   the merge) is held if either read holds it. The start read stays only for
   the board, the start report and teardown's interim settler (R9); no other
   step acts on it.
@@ -278,9 +278,15 @@ wording as a run with the same fake answer and no record rows written.
 - [ ] Done is GitHub's: a step sent to another settler is marked done only
   after GitHub reports the pull request merged, the issue closed or the
   release published, and a record row claiming it is done changes nothing.
-- [ ] Wording: `grep -nE 'session is bound|root coordinator|where you are
-  bound|grant_check\.state|--dispatcher'` over the coordinate skill's text and
-  scripts, tests aside, matches only R10's reviewer sentence. Teardown's
+- [ ] Wording: `grep -nE '(your|its|the|whose) session is bound|you are a root
+  coordinator|it is a root coordinator|for a root coordinator|root
+  coordinator.s reserved|where you are bound|for a bound session'` over
+  `SKILL.md`, `koto-templates/coordinate.md` and `references/*.md` except
+  `references/brief-template.md` (the worker brief, unchanged under R11)
+  matches only the R10 reviewer sentence in `SKILL.md`'s Verdicts rules
+  and its copy in `references/state-keys.md`; `grant_check\.state` matches
+  nothing in `need-check.sh`, and `--dispatcher` matches nothing in
+  `progress-view.sh` or the template's calls to it. Teardown's
   passage says a teardown goes to a person and names neither bound nor root
   (R9). The Verdicts rules' chain for who merges a verdict pull request is
   replaced by the `merge-pr` read like every other merge; only the sentence
