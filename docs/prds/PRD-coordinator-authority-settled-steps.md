@@ -280,12 +280,14 @@ wording as a run with the same fake answer and no record rows written.
   release published, and a record row claiming it is done changes nothing.
 - [ ] Wording: `grep -nE '(your|its|the|whose) session is bound|you are a root
   coordinator|it is a root coordinator|for a root coordinator|root
-  coordinator.s reserved|where you are bound|for a bound session'` over
+  coordinator.s reserved|only a root coordinator|where you are bound|for a
+  bound session'` over
   `SKILL.md`, `koto-templates/coordinate.md` and `references/*.md` except
   `references/brief-template.md` (the worker brief, unchanged under R11)
   matches only the R10 reviewer sentence in `SKILL.md`'s Verdicts rules
-  and its copy in `references/state-keys.md`; `grant_check\.state` matches
-  nothing in `need-check.sh`, and `--dispatcher` matches nothing in
+  and its copy in `references/state-keys.md`; `need-check.sh` has no
+  comparison of the start posture's `grant_check` state with `bound`, and
+  `--dispatcher` matches nothing in
   `progress-view.sh` or the template's calls to it. Teardown's
   passage says a teardown goes to a person and names neither bound nor root
   (R9). The Verdicts rules' chain for who merges a verdict pull request is

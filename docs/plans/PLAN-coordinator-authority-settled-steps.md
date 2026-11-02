@@ -340,7 +340,9 @@ record's `handed-over` state, the Verdicts rules' chain for who merges a
 verdict pull request, the template's dispatch and roadmap-close passages, and
 the close passage in `references/state-keys.md`. Only the sentence naming the
 Verdicts reviewer keeps its wording (R10), with its copy in
-`references/state-keys.md`. Teardown's clause, which shares the merge
+`references/state-keys.md` and the review-sourcing lines beside it in Bounds
+and Authority (a coordinator that can't tell whether it is bound sends its
+review to a person). Teardown's clause, which shares the merge
 sentences in Bounds and Authority and the Decisions grounds today, is split
 out of them and sends a teardown to a person, naming neither bound nor root
 (R9). `posture-read.sh`'s grant fold
@@ -353,12 +355,14 @@ the `SKILL.md` read, No new table and the unchanged worker brief line.
 
 - [ ] `grep -nE '(your|its|the|whose) session is bound|you are a root
   coordinator|it is a root coordinator|for a root coordinator|root
-  coordinator.s reserved|where you are bound|for a bound session'` over
+  coordinator.s reserved|only a root coordinator|where you are bound|for a
+  bound session'` over
   `SKILL.md`, `koto-templates/coordinate.md` and `references/*.md` except
   `references/brief-template.md` (the worker brief, unchanged under R11)
   matches only the Verdicts reviewer sentence in `SKILL.md`'s Verdicts rules
-  and its copy in `references/state-keys.md`; `grant_check\.state` matches
-  nothing in `need-check.sh`, and `--dispatcher` matches nothing in
+  and its copy in `references/state-keys.md`; `need-check.sh` has no
+  comparison of the start posture's `grant_check` state with `bound`, and
+  `--dispatcher` matches nothing in
   `progress-view.sh` or the template's calls to it. The search runs as a test, and
   `render-result.sh`'s own `--dispatcher` flag, which workers use, is
   untouched.
@@ -385,7 +389,7 @@ the `SKILL.md` read, No new table and the unchanged worker brief line.
 **Check**: Run the wording test, `posture-read_test.sh`, the start-state
 engine tests and `dispatch-worker.sh`'s tests, and compare the worker brief's
 `Named authority:` line against main. The wording test reports the reviewer
-sentence alone, the fold cases are gone, a start with an unread merge reading
+sentence and its `references/state-keys.md` copy alone, the fold cases are gone, a start with an unread merge reading
 and a readable teardown reading passes `posture_ask` by, a search under
 `skills/coordinate/` for a table mapping levels, grants or settlers finds only
 `settle-check.sh`'s step-to-point mapping, and the comparison is empty.
