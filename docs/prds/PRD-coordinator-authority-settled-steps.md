@@ -9,9 +9,12 @@ problem: |
   grant route it anyway, and the copy can be rewritten to change later steps.
 goals: |
   Every finishing step a coordinator takes or hands over is settled by the
-  settler the authority answer names, read fresh at the step. The skill keeps
-  no rule of its own about levels, parents or who may decide, and nothing in
-  the coordinator's record can widen what the answer allows.
+  settler the authority answer names, read fresh at the step. Apart from
+  teardown and the review before a merge, which keep today's sources until
+  the authority work names a teardown point and where a review goes (R9,
+  R10), the skill keeps no rule of its own about levels, parents or who may
+  decide, and nothing in the coordinator's record can widen what the answer
+  allows.
 upstream: docs/briefs/BRIEF-coordinator-authority-settled-steps.md
 ---
 
@@ -50,7 +53,9 @@ the skill at all.
 ## Goals
 
 - Who settles a finishing step comes from the authority answer, read at that
-  step, and from nowhere else.
+  step, and from nowhere else. Teardown and the review before a merge keep
+  today's sources until D4 and D5 ship (R9, R10); they are the only
+  exceptions, and they are named as interim.
 - Where the workspace declares a step needs review, the step goes to the
   settler the answer names whether or not the coordinator holds the grant;
   without the declaration it proceeds as the grant allows, after the review
@@ -101,7 +106,8 @@ or script.
   by default) as `posture-read.sh` bounds it today, and acts on that read in
   the same visit. A step whose act reads again (as `land-merge.sh` does for
   the merge) is held if either read holds it. The start read stays only for
-  the board and the start report; no step acts on it.
+  the board, the start report and teardown's interim settler (R9); no other
+  step acts on it.
 - **R3. One reader.** Every finishing step, and the `--rules` read from
   tsukumogami/shirabe#1473, gets the answer from one shared script, the only
   code in `skills/coordinate/` that runs `niwa authority check`. It accepts an
@@ -272,9 +278,13 @@ wording as a run with the same fake answer and no record rows written.
 - [ ] Done is GitHub's: a step sent to another settler is marked done only
   after GitHub reports the pull request merged, the issue closed or the
   release published, and a record row claiming it is done changes nothing.
-- [ ] Wording: `grep -nE 'when your session is bound|only when you are a root
-  coordinator|grant_check\.state'` over the coordinate skill's text and
-  scripts matches only R9's teardown and R10's reviewer passages.
+- [ ] Wording: `grep -nE 'session is bound|root coordinator|where you are
+  bound|grant_check\.state|--dispatcher'` over the coordinate skill's text and
+  scripts, tests aside, matches only R10's reviewer sentence. Teardown's
+  passage says a teardown goes to a person and names neither bound nor root
+  (R9). The Verdicts rules' chain for who merges a verdict pull request is
+  replaced by the `merge-pr` read like every other merge; only the sentence
+  naming the reviewer stays.
 - [ ] Teardown: with the fake answer changed, teardown's outcome is unchanged
   and follows the permission posture.
 - [ ] Review kept: a coordinator the answer lets merge still sends a pull

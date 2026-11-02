@@ -219,7 +219,7 @@ from it.
 read and submit the result, so it could submit any answer it liked.
 
 **A read inside each existing check** (`land-check.sh`, `need-check.sh` and each
-close-out's own check). Rejected: four copies of R1's mapping and R4's take rule
+finishing state's own check). Rejected: four copies of R1's mapping and R4's take rule
 drift, which is the failure R3 exists to stop.
 
 **One start read kept in a sealed key.** Rejected: R2 forbids acting on a start
@@ -231,14 +231,18 @@ Resolved inline. The merge is the one step whose act reads again today, and its 
 folds in the start capture, the permission lists and the `posture_ask` answer.
 
 Key assumptions:
-- `land-merge.sh` keeps a read immediately before the merge command.
+- The merge keeps a read at `land_merge`, the state the merge command runs
+  from, as it has one today inside `land-merge.sh`.
 
 #### Chosen: Take only when both reads say take and the permission lists allow it
 
 `land-check.sh`'s eighth check calls `settle-check.sh --step merge` in place of
-`bl_merge_posture`, and `land-merge.sh` calls it again just before the merge
-command. The merge runs only when both print `take`; either `hold` or `route`
-holds or routes it (R2). The start capture stops deciding the merge, and the
+`bl_merge_posture`, and `land_merge` runs it again as the state's own sealed
+check, the last read before the merge command. `land_merge` is agent-run, so
+its transitions follow that token rather than the agent's submitted value, and
+`land-merge.sh` refuses to call the merge unless the token says `take`. The
+merge runs only when both reads print `take`; either `hold` or `route` holds or
+routes it (R2). The start capture stops deciding the merge, and the
 `posture_ask` answer can no longer lift an unread result to `permit`, since a
 relayed row can only hold (R8). When the answer lets the session take a merge
 but a Claude Code deny or ask rule covers the command, the step is held with
@@ -250,7 +254,7 @@ settler, so the step goes nowhere the answer didn't name.
 **Keep the start capture as a floor.** Rejected: a stored copy deciding a later
 step is the problem R2 removes.
 
-**Drop `land-merge.sh`'s re-read.** Rejected: the merge loses the check at the
+**Drop the second read.** Rejected: the merge loses the check at the
 moment of the act it has today.
 
 **Send a permission-denied merge to a person.** Rejected: that invents a settler
@@ -321,9 +325,9 @@ only turn a take into a hold.
 
 It writes the evidence key, then seals and prints the token. Run as a state's
 own check action it seals its token to the visit. Called from inside another
-check action (`land-check.sh`, `land-merge.sh`, `need-check.sh`) it runs
-unsealed and returns its verdict to the caller, whose one sealed token carries
-it, so each state has one seal and its transitions follow that token. It never
+check action (`land-check.sh`, `need-check.sh`) it runs unsealed and returns
+its verdict to the caller, whose one sealed token carries it, so each state has
+one seal and its transitions follow that token. It never
 reads `coord/posture.json`, a Standing or Reversals row, the `posture_ask`
 answer, a review round or any earlier evidence key. A hold's reason is always
 one word from the closed list below, never text taken from the answer.
@@ -333,17 +337,35 @@ their posture read for it:
 
 | Step | Where it runs | Point |
 |------|---------------|-------|
-| Merge a worker's pull request | `land` (in `land-check.sh`) and `land_merge` (in `land-merge.sh`) | `merge-pr` |
+| Merge a worker's pull request | `land` (in `land-check.sh`) and `land_merge` (its own check, which `land-merge.sh` confirms) | `merge-pr` |
 | Merge a verdict or reopen pull request | `milestone_verdict`, `milestone_reopen` | `merge-pr` |
-| Close an issue or pull request in a close-out | the close-out's state, per `references/loop.md` | `close-issue` |
 | Close a roadmap | `roadmap_close_step` | `close-issue` |
-| Release the coordinator runs itself | the state that runs it | `cut-release` |
-| A merge, close or release a worker hands back | `surface_check` (in `need-check.sh`) | the step's own |
+| A merge, an issue or pull request close, or a release a worker hands back | `surface_check` (in `need-check.sh`) | the step's own |
 | Teardown, own or handed back | `teardown` and its states | none (R9) |
 
-A release unit dispatched to a worker settles under the worker's own grant and
-brief (R11), so only a release the coordinator runs itself reads `cut-release`
-here.
+The template has no state where the coordinator closes an issue or a pull
+request, or cuts a release, itself: a release unit goes to a worker running
+`/shirabe:release` and settles under the worker's own grant and brief (R11),
+and an issue or pull request close is a worker's step. Either reaches the
+coordinator only when a worker hands it back, so `close-issue` for those
+closes and `cut-release` are asked at `surface_check`.
+
+**`land_merge`.** The state is agent-run today: the agent runs
+`land-merge.sh` and submits `merge`. It gains `settle-check.sh` as its own
+check action, which is the merge's second read. Its transitions follow that
+sealed token: `take` lets the agent run `land-merge.sh`, and `route` or `hold`
+leave by the paths `land` uses for them, so a second read's route or hold
+never passes through the agent's submitted value. `land-merge.sh` refuses to
+call the merge unless the visit's sealed token says `take`, and reads nothing
+else to decide it.
+
+**`coord-verdict.sh`.** Every verdict word the check adds (`route person`,
+`route target`, `hold`) gets an arm in the verdict table each state's
+transitions are written against, beside the words it already has.
+
+**`reconcile-report.sh`.** The start report is the evidence key's one reader.
+It lists each settle key written since the previous start (step, point,
+verdict, settler and hold reason) and decides nothing from them.
 
 **`need-check.sh`.** A `reserved-step <merge|close|release>` need calls
 `settle-check.sh` for that step. `take` means the coordinator takes the step
@@ -357,7 +379,13 @@ it (R9).
 `coord/posture.json` for the board, the start report and teardown. It calls
 `authority-read.sh` from Phase 1 on. Its grant fold table goes (R13) in Phase
 3, once no step routes on it, and from then it stores the answer as data under
-`grant_check` for display only.
+`grant_check`. The board shows it, and `dispatch-worker.sh` still builds a
+successor coordinator's grant from it as it does today; no step chooses a
+settler from it. From the same phase the start token's `readable` or `unread`
+word comes from teardown's reading alone, and `posture_ask` asks only about
+teardown: merge, close and release no longer read the posture, so a start
+whose merge or close reading is unread no longer stops to ask a person about
+steps the answer now settles.
 
 **`board-lib.sh`.** `bl_merge_posture` and `bl_human_holds_merge` go;
 `land-check.sh` and `land-merge.sh` call `settle-check.sh` instead.
@@ -375,8 +403,12 @@ or root becomes "the step goes to the settler the authority answer names; when
 it names none you can reach, hold it and report". `SKILL.md` names the read as
 `niwa authority check -C <instance> --session <id> --point <p>`, says a record
 row may restrict its answer but never widen it, and claims nothing about the
-answer being unforgeable. The teardown passage and the Verdicts reviewer
-passage keep their wording.
+answer being unforgeable. Teardown's passage keeps its wording, which sends a
+teardown to a person and names neither bound nor root. Of the Verdicts rules,
+only the sentence naming the reviewer keeps its wording; the chain that says
+who merges a verdict pull request (the author, else the reviewer, else the
+next one up the chain) is replaced by the `merge-pr` read like every other
+merge.
 
 ### Key Interfaces
 
@@ -468,11 +500,11 @@ suites. These are the PLAN's Steps 2 and 3.
 
 ### Phase 3: The other steps and the text
 
-The close, release and handed-back states wired to the check, `need-check.sh`
-and `progress-view.sh` changed, `posture-read.sh`'s grant fold table removed
-once nothing routes on it, the bound-or-root sentences replaced, and the
+The verdict, reopen, roadmap-close and handed-back states wired to the check,
+`need-check.sh` and `progress-view.sh` changed, `posture-read.sh`'s grant fold
+table removed once nothing routes on it, `posture_ask` narrowed to teardown, the bound-or-root sentences replaced, and the
 wording `grep` from the PRD's acceptance criteria added as a test. These are
-the PLAN's Steps 4 to 7.
+the PLAN's Steps 4 to 6.
 
 ### Dependencies on the workspace authority work
 
@@ -557,8 +589,9 @@ accepted until niwa names a teardown point and says where a review goes.
   next visit, without restarting the coordinator.
 - Merge, close, release and handed-back steps read the same answer through the
   same code, so they can't disagree about what it means.
-- Nothing the coordinator writes can move a step, and a reviewer can check that
-  by reading one script.
+- Nothing the coordinator writes can move a merge, close, release or
+  handed-back step, and a reviewer can check that by reading one script.
+  Teardown is the exception until D4 ships (R9).
 - The bound-or-root sentence leaves about twenty places.
 
 ### Negative
