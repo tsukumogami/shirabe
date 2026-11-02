@@ -195,8 +195,11 @@ whose authority read fails, times out, finds no niwa, or answers anything but
 **R10. A lane's own cap is unchanged.** A coordinator writing the cap of the
 record it drives, at its first start or when a person's word sets it, behaves
 as it does today, with no authority read added. The one exception is a
-coordinator with no session id: it can't show the record is its own, so its
-cap write is refused under R7 as `no-session`, its own record included.
+writer that can't show the record is its own: one with no session id, or, on
+a record with no driver, one whose session name can't be found. Its cap
+write is treated as cross-lane and refused under R7 (`no-session` for a
+missing id), its own record included, and a refused write to its own record
+raises no decision entry.
 
 **R11. The skill defines no authority.** The skill names the cap-change
 authority only as something niwa grants. It holds no definition of it, no
@@ -285,8 +288,8 @@ dependency, never assumed.
 - Defining the cap-change authority, levels, grants or ceilings, or how niwa
   computes any of them. The workspace authority work owns those; this
   feature reads niwa's answer.
-- A session moving its own cap. The question here is one lane acting on
-  another.
+- A session moving its own cap, except as R10 notes. The question here is
+  one lane acting on another.
 - Changing a grant from the skill. The workspace changes grants; the director
   only observes the change.
 - A lane's answer read from outside the workspace or from another host.
@@ -304,11 +307,12 @@ dependency, never assumed.
   That is the intended state, not a gap in this feature: no session can move
   a sibling's cap through the skill until the workspace authority work, whose
   design is in progress, gives the authority a name and a grant.
-- **A coordinator with no session id can't set its own cap.** It can't show
-  that a record is its own, so its cap write is refused as `no-session` (R10).
-  Under Claude Code the id is always set; the sessions this reaches are
-  scripts and tests run without one, which have to set an id or expect the
-  refusal.
+- **A coordinator that can't name itself can't set its own cap.** With no
+  session id, or with no driver recorded and a session name that can't be
+  found, it can't show that a record is its own, so its cap write is refused
+  (R10). The sessions this reaches are scripts and tests run without an id or
+  a findable name, which have to give the caller a driver or a findable name,
+  or expect the refusal, and any session in that state.
 - **The parent the answer names is only as sound as niwa's dispatch record.**
   Until tsukumogami/niwa#422 is fixed, a child launched by a session without
   a grant can carry a record that looks operator-launched, so "the parent is

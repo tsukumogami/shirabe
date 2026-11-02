@@ -87,9 +87,8 @@ lane nor its dispatcher:
   vocabulary today is `merge-pr`, `close-issue` and `cut-release`.
 
 The read named the point `merge`; niwa takes any point name of the right
-form, and the skill's settler read names the merge point `merge-pr`, so the
-answer for `merge-pr` from a third session hasn't been measured either; the
-PLAN's last step measures it.
+form. The skill's settler read names the merge point `merge-pr`, which no
+third-session read has used yet; the PLAN's last step measures it.
 
 That read was of a lane whose grant was empty. A third session's read of a
 lane whose role grants at least one authority, and of a grant changed between
@@ -113,7 +112,8 @@ Implementation Approach.
 - `niwa authority check` runs from one place under `skills/coordinate/` (R12),
   and that place is the reader the settled-steps scoping adds, not a second
   one.
-- A coordinator's own cap writes behave as they do today, with no read (R10).
+- A coordinator's own cap writes behave as they do today, with no read, except
+  for a writer that can't show the record is its own (R10).
 - Bounded like the existing reads, three seconds by default (R13), and working
   on niwa 0.40.0 (R14).
 
@@ -158,19 +158,26 @@ Resolved inline. The ownership rule is the one the takeover already applies.
 
 #### Chosen: inside `state-stored-set.sh --run cap`, by the takeover's ownership rule
 
-`--run cap` first decides whose record it is writing, by the rule
-`coordinate-open.sh` applies to a takeover: the record is the caller's own
-when its `record/meta` names `CLAUDE_CODE_SESSION_ID` as its driver, or, with
-no driver recorded, when its coordinator row names the caller's session name.
-Every other case is cross-lane: another driver, no driver and another
+`--run cap` first decides whose record it is writing, by a strict reading of
+the rule `coordinate-open.sh` applies to a takeover: the record is the
+caller's own only on a positive match, when its `record/meta` names
+`CLAUDE_CODE_SESSION_ID` as its driver, or, with no driver recorded, when its
+coordinator row equals a session name that was found for the caller. The
+takeover's own test, `driven_by_another`, is permissive: it answers "not
+someone else's" with no caller id, with no driver and no coordinator row, and
+when the caller's name can't be found. That reading stays the takeover's.
+The shared file gains the strict test beside it, and the cap check calls only
+the strict one. Every other case is cross-lane, a caller whose name can't be
+found included: another driver, no driver and another
 coordinator, no caller session id at all (with or without a driver recorded),
 or a meta or coordinator row that can't be read. The takeover lets a caller
 with no session id resume an untouched run; the cap write doesn't take that
 exception, because a caller that can't name itself can't show the record is
 its own, and taking it would let any such caller write a sibling's cap. The
 cost is that a coordinator with no session id can't set its own cap either.
-Under Claude Code the id is always set; the callers this reaches are scripts
-and tests that run without one. Today `state-stored-set_test.sh` unsets the
+The same holds for a caller with an id but no driver recorded whose session
+name can't be found. The callers this reaches are scripts and tests that run
+without an id or a findable name, and any session in that state. Today `state-stored-set_test.sh` unsets the
 id and then sets and changes a cap, and the engine tests that open a
 coordinator run without one in CI; the cap-move step changes each to set an
 id or to expect `no-session`.
@@ -425,11 +432,15 @@ walk a refused move through a scratch record to see one escalated entry.
 
 ### Phase 5: The whole-feature check
 
-On this host, on niwa 0.40.0. The director dispatches the lane by hand with
-`niwa dispatch --role <role>`, naming a role the workspace's
+On this host, on niwa 0.40.0. The director is itself a dispatched session
+(it has a dispatch id of its own in `niwa list`) and holds at least what the
+lane's role grants, since niwa keeps a lane's grant inside its dispatcher's.
+It dispatches the lane by hand with `niwa dispatch --role <role>
+--parent-from <director instance>`, naming a role the workspace's
 `[authority.roles]` grants at least one authority, because the skill's own
 lane dispatch gives a lane coordinator no grant (the PLAN's Proposed
-Follow-up). The lane is then read twice over: from the director, whose answer
+Follow-up). If that setup can't be made on this host when the step runs, the
+step says so and the director-side half stays open. The lane is then read twice over: from the director, whose answer
 shows `parent_is_mine` true, and from a session that is neither the lane nor
 its dispatcher. Both read the lane from niwa's records alone, and both see a
 grant changed between two asks; a refused cross-lane move closes the run.
@@ -477,7 +488,7 @@ director's own report.
 
 The cap check closes a gap rather than opening one: today any session can
 rewrite a sibling lane's cap. Its failure direction is refusal: a meta it can't
-read, a missing caller id with a driver recorded, a failed or slow read, and an
+read, a missing caller id or unfound caller name, a failed or slow read, and an
 answer the reader refuses all keep the target cap as it is. The refusal's text
 is fixed and carries only the case word, never text from niwa's answer. A
 caller with no session id is cross-lane, so unsetting the session variable

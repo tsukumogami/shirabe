@@ -72,8 +72,10 @@ step lands later in its own pull request, after the steps it depends on. Step
 **Goal**: `authority-read.sh` exists with the interface and acceptance the
 settled-steps design gives it, answers about a session other than the
 caller's when given `--session` and `--instance-root`, and the takeover's
-ownership test lives in `dispatch-common.sh` with `coordinate-open.sh`
-calling it. It closes the PRD criterion One reader for the two new callers.
+ownership test (`driven_by_another`, permissive) lives in `dispatch-common.sh`
+with `coordinate-open.sh` calling it, beside a new strict test that answers
+own only on a positive match (the driver is the caller, or no driver and the
+coordinator row equals a name found for the caller). It closes the PRD criterion One reader for the two new callers.
 
 **Acceptance Criteria**:
 
@@ -133,15 +135,18 @@ no niwa on the path.
   `not-dispatched` is refused with the couldn't-be-read refusal and its case
   word; with no niwa on PATH it is refused with the case word `no-niwa` and
   the reader isn't called. The target is unchanged in every case.
-- [ ] A coordinator with no session id writing its own record's cap is
-  refused as `no-session`. The existing tests that set a cap with no session
-  id (`state-stored-set_test.sh`, and the engine tests that open a
-  coordinator without one) are changed to set an id or to expect the
-  refusal, and pass.
-- [ ] A cap write with `CLAUDE_CODE_SESSION_ID` unset is refused as
-  cross-lane with the couldn't-be-read refusal and the case word
-  `no-session`, whether or not the record has a driver, and the stand-in's
-  log shows no call.
+- [ ] A cap write with `CLAUDE_CODE_SESSION_ID` unset is refused with the
+  couldn't-be-read refusal and the case word `no-session`, whether or not the
+  record has a driver and whether or not it is the writer's own record, and
+  the stand-in's log shows no call. A writer with an id, on a record with no
+  driver, whose session name can't be found is refused as cross-lane. The
+  cap check calls the strict own test, never `driven_by_another`, and a case
+  shows the two disagree on a record with no driver and no coordinator row.
+  A refused write to the writer's own record raises no decision entry.
+- [ ] Every existing test that writes `--run cap` without a driver or a
+  findable name for the caller (`state-stored-set_test.sh`, and the engine
+  tests that write `--run cap`) is changed to give the caller one or to
+  expect the refusal, and passes.
 - [ ] A coordinator's first-start cap write, run through the template's own
   order, succeeds with no read.
 - [ ] A search of the changed files finds no literal naming the cap-change
@@ -150,9 +155,10 @@ no niwa on the path.
   to any record, the caller's included.
 
 **Check**: Run `state-stored-set_test.sh` with the stand-in niwa, and the
-coordinate engine tests that set a cap (among them `coordinate_1`,
-`coordinate_4`, `session-store`, `discipline-session` and `fresh-run-calls`);
-every case above passes.
+coordinate engine test that writes `--run cap` (`coordinate_1`,
+`coordinate_4`, `session-store`, `discipline-session`, `fresh-run-calls`,
+`legacy-records`, `handover`, `coordinate-takeover` and
+`coordinate-import-takeover` among them); every case above passes.
 
 **Dependencies**: Step 1
 
@@ -287,6 +293,11 @@ and a lane it dispatched.
 
 **Acceptance Criteria**:
 
+- [ ] The director is itself a dispatched session with its own dispatch id
+  in `niwa list`, holds at least what the lane's role grants, and dispatches
+  the lane with `niwa dispatch --role <role> --parent-from <director
+  instance>`. If that can't be set up on this host, the step's record says so
+  and the director-side criterion below stays open.
 - [ ] From the dispatching director, `lane-read.sh` returns the lane's bound
   answer with `parent_is_mine` true, the lane found from niwa's records alone
   and sent no message.
