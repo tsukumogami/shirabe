@@ -11,10 +11,11 @@ decision: |
   A new script, lane-read.sh, finds a lane's instance and session id from
   niwa's dispatch records (niwa list, then niwa lineage show) and asks niwa
   about it through authority-read.sh, the one reader the settled-steps
-  scoping adds, reading fresh on every ask. Every new run records its opener
-  as driver, and state-stored-set.sh --run cap sorts a write into own or
-  cross-lane by the ownership rule the takeover already applies, leaves an
-  own write as it is, and for a cross-lane write
+  scoping adds, reading fresh on every ask. Every new run records the session
+  that opened it in a record/meta field of its own, opened_by, which leaves
+  the takeover's driver as it is, and state-stored-set.sh --run cap sorts a
+  write into own or cross-lane by a strict form of the takeover's ownership
+  rule that reads it, leaves an own write as it is, and for a cross-lane write
   reads the moving session's authority through the same reader and refuses,
   naming the cap-change authority as one niwa grants. The skill spells no
   token for that authority, so until niwa grants one every cross-lane move is
@@ -24,8 +25,9 @@ rationale: |
   one file and puts the lane answer under the same acceptance as every other
   authority read. Finding the lane through niwa's list and lineage, rather
   than the director's record or anything the lane wrote, is what keeps the
-  lane out of the answer. Reusing the takeover's ownership rule means a
-  coordinator's own cap writes keep working with no read, and a write that
+  lane out of the answer. Building on the takeover's ownership rule means a
+  coordinator's own cap writes keep working with no read, a separate field
+  keeps the takeover's contract unchanged, and a write that
   can't prove it's the writer's own is treated as cross-lane, the safe side.
   Spelling no token costs nothing today, since niwa grants no such authority,
   and keeps the skill from holding a definition niwa can't see.
@@ -128,19 +130,24 @@ Resolved inline. The lookup and the read were settled against what niwa 0.40.0 a
 
 `lane-read.sh --lane <topic>...` takes the lanes a question names, by the
 dispatch topic the director's record already uses for each worker. It runs
-`niwa list --json` once, from the workspace root (`dc_workspace_root`), the
-way `dc_find_session` already does, and for each topic takes the rows whose
-`session_name` `dc_session_matches` accepts: the topic's niwa slug, `-`, and
-eight lowercase hex digits, never a prefix. `dc_find_session` stops at its
-first match and has no deadline, so this feature extends it with a mode its
-existing callers don't use, which counts every matching row (more than one is
-`ambiguous-lane`) and runs the listing under `dc_with_deadline`. From the one
-matching row it takes `path` and `dispatch_id`, and runs `niwa lineage show
+`niwa list --json` once per question, from the workspace root
+(`dc_workspace_root`), with the niwa binary the shared lookup found and under
+`dc_with_deadline`, and matches every topic against that one listing: for
+each topic it takes the rows whose `session_name` `dc_session_matches`
+accepts, the topic's niwa slug, `-`, and eight lowercase hex digits, never a
+prefix. `dc_find_session` can't be called once per lane for this: it runs
+`niwa list` itself on every call, with `${NIWA:-niwa}` rather than the shared
+lookup, has no deadline, and stops at its first match. So `dispatch-common.sh`
+gains, beside it, a helper that takes a listing already fetched and a topic
+and counts every matching row (more than one is `ambiguous-lane`);
+`dc_find_session` and its callers stay as they are. From the one matching
+row it takes `path` and `dispatch_id`, and runs `niwa lineage show
 <dispatch_id> --json` for the session id the dispatch launched. It then calls
 `authority-read.sh --session <lane session id> --instance-root <lane path>
 [--point <p>]...` and prints one result per lane.
 
-The director finds its own row in the same listing: the row whose `path` is
+The director finds its own row in that same listing, with no second `niwa
+list` call: the row whose `path` is
 its own instance root, the nearest directory at or above its working
 directory holding `.niwa/instance.json`, resolved with `pwd -P`. That row's
 `dispatch_id` is the director's own, so saying whether the lane's parent is
@@ -166,54 +173,84 @@ where niwa puts instances. `niwa list` gives the path itself.
 
 ### Decision 2: Where the cap-move check sits and how it decides
 
-Resolved inline. The ownership rule is the one the takeover already applies.
+Resolved inline. The ownership rule is a strict form of the one the takeover
+already applies, reading one new field the takeover never reads.
 
-#### Chosen: inside `state-stored-set.sh --run cap`, by the takeover's ownership rule, with a driver on every new run
+#### Chosen: inside `state-stored-set.sh --run cap`, by a strict ownership test, with the opener recorded on every new run
 
-**Every new run names its driver.** Ownership rests on `record/meta.driver`,
-which today only a takeover or an import writes, so a run no one has taken
-over has none. This design has the caller's session id recorded as the run's
-driver at every start that opens a fresh run with a valid id: a new run, and
-a carry or a carried rotation into a fresh session. The id is the one
-`coordinate-open.sh` already checks (`CLAUDE_CODE_SESSION_ID` matching
-`^[0-9a-f][0-9a-f-]{7,63}$`, a malformed id counting as none). It is recorded
-where `record/meta` is born or arrives: the opener writes it after its own
-carry and after a fresh start's legacy import, and the seed `state-open.sh`
-makes at `record_open` (and its `--carry` for a discipline's next rotation)
-writes it there, since a fresh start's record is seeded after the opener
-returns. Ownership then rests on the driver for every run opened after this
-change. A start with no valid id records no driver, as today.
+**The driver stays as it is.** `record/meta.driver` is written only by a
+takeover, so a run no one has taken over has none, and the takeover reads a
+recorded driver as "a takeover has touched this run": a caller with no id is
+refused `taken-over` on a run with a driver or a predecessor, and resumes any
+other. None of that changes. `driven_by_another`, the caller-with-no-id
+branch, `takeover_check`'s outcomes and the takeover text in `SKILL.md` stay
+exactly as they are, so a run opened under one Claude session id and later
+started under another resumes, carries or is taken over just as it does
+today.
 
-The takeover reads "a driver recorded" today as "a takeover has touched this
-run": a caller with no id is refused `taken-over` on a run with a driver or a
-predecessor, and resumes any other (`coordinate-open.sh`'s caller-with-no-id
-branch). With every new run holding a driver, that reading changes to the
-run's `record/meta.takeover` being set or the run continuing a predecessor, so
-a fresh run with a driver and no takeover still resumes for a caller with no
-id as it does today. Because every new run now names its driver, a later
-start of that run from a different Claude session id reads it as another
-session's run and the takeover rule applies, where today a run with no driver
-and no findable name resumes in whichever session starts it.
+**Every new run names the session that opened it.** A new field,
+`record/meta.opened_by`, holds the Claude session id that admitted the run:
+the id `coordinate-open.sh` already checks (`CLAUDE_CODE_SESSION_ID` matching
+`^[0-9a-f][0-9a-f-]{7,63}$`, a malformed id counting as none). Only the cap
+check reads it. It is written in the write that births `record/meta`, so no
+crash between two writes can leave a fresh run without it:
+
+- the seed's meta, which `core_write_session` builds when `state-open.sh`
+  seeds the record at `record_open` or `--carry`s a discipline's next
+  rotation (a fresh start's record is seeded after the opener returns);
+- `core_carry`'s meta, when the opener carries a run into a new one;
+- `core_import_meta`'s meta, when a fresh start's legacy import
+  (`legacy-import/import.sh`) fills the record.
+
+`state-open.sh`, the opener and the importer pass the caller's id into the
+write core, which puts it in that meta. A seed's first `record/meta` write,
+the pending one, already holds it, and a seed cut short and seeded again
+writes it again. The seed with the test override (`--skip-session-checks`)
+writes it the same way when a valid id is set, and none when it isn't.
+
+After birth, the opener writes it through its existing meta write
+(`meta_set`, through `core_write_meta`) in two places: on a resume it admits
+as the caller's own or as unknown (the permissive reading the takeover
+already has), and after an import it resumes on a koto older than 0.32.0,
+whose copy keeps the source host's `record/meta`. A caller with no valid id
+writes nothing. A failed write there doesn't fail the start: it prints
+`warning=opener-unrecorded` after `session=`, the reason on stderr, and the
+next start writes it, as a failed rules-digest write does. Every other
+record write keeps the field as it is. The comments that say only the opener
+writes record/meta's extra fields, and only between the fence and the end of
+a takeover (`coordinate-open.sh`'s `meta_set`, `state-write-core.sh`'s
+`core_write_meta`), are rewritten to name `opened_by` and its writers.
 
 **The ownership test.** `--run cap` first decides whose record it is writing.
 The takeover's `driven_by_another` reads the record itself and exits with
 takeover output when a read fails (`failed=takeover_read`), and its coordinator
 read calls `state-stored-set.sh --list`, which the cap check can't call from
-inside itself. So the shared piece in `dispatch-common.sh` is a predicate over
-values, not a moved function: given the record's driver, its coordinator row,
-the caller's id and the caller's name, it answers own, another or unknown.
+inside itself. So the shared pieces in `dispatch-common.sh` are predicates
+over values, not a moved function, each answering own, another or unknown.
 
-- With a driver recorded: own when it equals the caller's id, another when it
-  doesn't.
-- With no driver (a run from before this change): own when the coordinator row
-  equals the caller's found name, another when the row and the name are both
-  present and differ, unknown when either is missing.
+The takeover's test, given the record's driver, its coordinator row, the
+caller's id and the caller's name, is today's rule restated with its meaning
+unchanged: with a driver recorded, own when it equals the caller's id and
+another when it doesn't; with none, own when the coordinator row equals the
+caller's found name, another when the row and the name are both present and
+differ, unknown when either is missing. It never reads `opened_by`.
+
+The cap's strict test takes `opened_by` as well:
+
+- a driver equal to the caller's id is own;
+- any other driver is another;
+- no driver and `opened_by` equal to the caller's id is own;
+- no driver and a coordinator row equal to the caller's found name is own;
+- anything else is unknown.
+
+A run from before this feature has no `opened_by` and falls to the driver and
+coordinator-row branches, as before.
 
 The name is the one `dc_claude_name` gives for the caller's id, from a Claude
 Code background job's state file under `${DC_CLAUDE_HOME:-$HOME/.claude}`; a
 coordinator run in the foreground has none. The coordinator row has to equal
 that name exactly; a row holding a dispatch topic or any other address doesn't
-match. Beside the predicate, `dispatch-common.sh` gets the caller-id check and
+match. Beside the predicates, `dispatch-common.sh` gets the caller-id check and
 the name derivation, so the opener and the cap check can't read the caller
 differently.
 
@@ -221,30 +258,39 @@ Each caller decides what unknown means and keeps its own reads.
 `coordinate-open.sh` reads the driver and the coordinator row as it does now,
 keeps its `driver_unread` and `read_failed` exits, and reads unknown as "not
 someone else's", the permissive reading the takeover has today.
-`state-stored-set.sh` feeds the predicate from the record it has already
-parsed: the driver from `$WD/parsed.json.meta`, as `rules_grant_read` reads it,
-and the coordinator row from the Run section of `$WD/parsed.json`. It reads
-unknown, and a meta or coordinator row that won't parse, as a write it can't
-show is its own. A caller with no valid id never reaches the predicate: it is
-refused `no-session` first.
+`state-stored-set.sh` feeds the strict test from the record it has already
+parsed: the driver and `opened_by` from `$WD/parsed.json.meta`, as
+`rules_grant_read` reads the driver, and the coordinator row from the Run
+section of `$WD/parsed.json`. It reads unknown, and a driver or `opened_by`
+that isn't a string, as a write it can't show is its own. A record the schema
+refuses never gets this far: a write mode refuses it with 10, as today. A
+caller with no valid id never reaches the test: it is refused `no-session`
+first.
+
+The two parse the driver differently, and that's named rather than shared:
+the opener's `meta_field` reads a number as no driver and a boolean as its
+text, while the cap check reads any driver that isn't a string as unreadable,
+the strict side. Only a takeover writes the driver, always as a string, so
+the two parses part only on a record edited by hand.
 
 **The first start needs no reorder.** A coordinator's first cap write happens
-at reconcile, after `record_open` seeded the record with the driver, so it is
-own by the driver whichever of the cap and the coordinator row is written
+at reconcile, after `record_open` seeded the record with `opened_by`, so it
+is own by `opened_by` whichever of the cap and the coordinator row is written
 first. The reconcile text's order (the cap, then the coordinator's address)
 and `state-handover.sh --check`'s gap order (`no-cap` before
-`no-coordinator`) stay as they are: neither affects a write the driver already
-proves.
+`no-coordinator`) stay as they are: neither affects a write `opened_by`
+already proves.
 
 **The refusal.** An own write goes ahead with no read, exactly as today. In
 order, the check refuses:
 
 - a caller with no valid session id with the case `no-session`, with no read:
   there is no session to read;
-- a write the predicate answers unknown for, or whose meta or coordinator row
-  won't parse, with the case `unproven-owner`, with no read: the writer can't
-  show the record is its own, so the write is treated as cross-lane, and its
-  own line says that rather than blaming a missing grant;
+- a write the strict test answers unknown for, or whose driver or
+  `opened_by` isn't a string, with the case `unproven-owner`, with no read:
+  the writer can't show the record is its own, so the write is treated as
+  cross-lane, and its own line names the cause that fired rather than
+  blaming a missing grant;
 - a cross-lane write with no niwa found with the case `no-niwa`, before the
   read, so the reader isn't called;
 - any other cross-lane write after calling `authority-read.sh` for the
@@ -265,7 +311,8 @@ and 65 today, so 13 is free and tells a cap-move refusal from a usage error
 A refused move isn't dropped. The skill text routes it through the record's
 existing decision path, in the order that path already takes:
 
-1. **Raise.** Cap writes happen in `wait`, on a person's word. After a refused
+1. **Raise.** A cross-lane cap write is made only from `wait`, on a person's
+   word (the session's own first cap is written at reconcile). After a refused
    cap write whose `--session` named a record other than the session's own
    (`{{SESSION_NAME}}`), the session submits `event: raise`, the only route from
    `wait` to `decision_raise`. A refusal on its own record (`no-session` or
@@ -288,8 +335,10 @@ existing decision path, in the order that path already takes:
    `--option` with its explanation for each option. The escalation goes to
    whoever the session reports to.
 
-The same move is the same target session and the same cap value. While an
-entry for that move is open, a second refusal of it doesn't submit `event:
+The same move is the same target session and the same cap value. An entry
+is open while it's `proposed`, `coordinator-verdict` or `escalated`, and no
+longer once it's `settled`, so a refusal after the answer raises again. While
+an entry for that move is open, a second refusal of it doesn't submit `event:
 raise`: the session stays in `wait` and the open entry stays the one record
 of the move. That is a new instruction the skill-text step adds to `wait`'s
 text. The template's existing `decision_raise` rule about not opening a
@@ -307,6 +356,13 @@ target lane's record stays untouched.
 
 #### Alternatives Considered
 
+**Record the opener as the run's driver.** Rejected: the takeover reads a
+recorded driver as a run a takeover has touched, so every later start under
+a new Claude session id would become a takeover, a carry of a live run on an
+old template or with several live runs would be refused where it carries
+today, and an import a koto older than 0.32.0 resumes would keep the source
+host's driver. A field only the cap check reads changes none of that.
+
 **Refuse every write to a record the caller doesn't drive, with no read.**
 Rejected: it gives the same result today but no place for niwa's answer to land
 when the authority exists, and R7 and R9 ask for the read and its reason.
@@ -320,7 +376,7 @@ this change has no driver recorded, and every cap write of its own would be
 refused even where its coordinator row shows the run is the writer's, breaking
 R10.
 
-**Leave fresh runs with no driver and order the first start instead.**
+**Leave fresh runs with no opener recorded and order the first start instead.**
 Rejected: the coordinator row would have to be written before the cap, and
 the row only proves ownership for a coordinator that runs as a named
 background job, so a foreground coordinator's first cap write would still be
@@ -353,6 +409,20 @@ scripts are called unchanged. With no Holdings row for the topic,
 the read a session that is neither the lane nor its dispatcher makes, which
 holds no record about the lane.
 
+A narrowing that can't be read is never printed as `[]`, which would report a
+lane no pause holds. When `dc_record_read` returns 2, `state-stored-set.sh
+--list` fails or exits 65, or `pause-read.sh` exits 2 (a file it couldn't
+read, or a condition read that ran out of time), the line prints
+`narrowed_by: null` and `narrowing_unread` naming the read that failed, cut
+like any other reason, and still prints niwa's grant: the lane's answer is
+niwa's, and only the director's narrowing is unknown.
+
+With `--session`, `pause-read.sh` reads each pause's condition live from
+GitHub (`gh pr view <n> --repo R --json state` for a `merged` condition, `gh
+api --method GET repos/R/git/ref/tags/T` for a `tag` condition), under
+board-lib's own deadline. Those reads aren't niwa calls and aren't counted
+with them.
+
 #### Alternatives Considered
 
 **Merge the rows into one effective grant.** Rejected: a pause stops work, it
@@ -366,7 +436,7 @@ its own session and any points the question names. The script makes one `niwa li
 question, one `niwa lineage show` and one authority read per lane, and reads
 again on every ask, so a grant the workspace changes shows on the next ask.
 A cross-lane cap write is caught where the cap is written: every new run names
-its driver, own writes pass untouched, cross-lane writes read the mover's
+the session that opened it, own writes pass untouched, cross-lane writes read the mover's
 authority and are refused by the name of an authority niwa grants. The skill holds no token, rule or table for
 that authority; when niwa grants one, its name comes from niwa.
 
@@ -396,30 +466,34 @@ reader lands, its first step adds the reader to that design's interface and
 acceptance, and the settled-steps work picks it up rather than adding
 another. The reader finds niwa through the shared lookup below.
 
-**`skills/coordinate/scripts/dispatch-common.sh`.** Gains the ownership
-predicate, the caller-id check and the caller-name derivation (Decision 2),
-the niwa lookup (PATH, else an executable `$NIWA_BIN`), and the counting,
-bounded mode of `dc_find_session` (Decision 1). Each returns a status and
-prints only its answer, as the file's other helpers do; the caller decides
-what a failure means.
+**`skills/coordinate/scripts/dispatch-common.sh`.** Gains the two ownership
+predicates, the caller-id check and the caller-name derivation (Decision 2),
+the niwa lookup (PATH, else an executable `$NIWA_BIN`), and the helper that
+counts a topic's matching rows in a listing already fetched (Decision 1).
+Each returns a status and prints only its answer, as the file's other helpers
+do; the caller decides what a failure means.
 
-**`skills/coordinate/scripts/coordinate-open.sh` and `state-open.sh`.** Record
-the caller's id as the driver at every fresh start with a valid id (Decision
-2): the opener after its carry and a fresh start's legacy import, the seed at
-`record_open` and its `--carry`. The opener's caller-with-no-id branch reads a
-touched run as one whose `record/meta.takeover` is set or which continues a
-predecessor. The opener calls the shared predicate with the values it reads
-itself and keeps its own exits.
+**`skills/coordinate/scripts/state-write-core.sh`, `state-open.sh`,
+`coordinate-open.sh` and `legacy-import/import.sh`.** Record the caller's id
+as `record/meta.opened_by` in the write that births `record/meta` (Decision
+2): the seed's meta in `core_write_session`, for `state-open.sh` at
+`record_open` and its `--carry`; `core_carry`'s meta, for the opener's carry;
+and `core_import_meta`'s, for the legacy importer. The opener also writes it
+on a resume it admits as own or unknown and after an import it resumes on a
+koto older than 0.32.0. The opener calls the takeover's predicate with the
+values it reads itself and keeps its own exits; its takeover rules don't
+change.
 
 **`skills/coordinate/scripts/lane-read.sh` (new).** The lookup, the read and
 the result per lane, as Decision 1 and Decision 3 describe. It makes no
 `authority check` call itself; the reader does. Each niwa call it makes, the
-listing and each lineage read, is bounded at `NIWA_LOOKUP_SECONDS` (three
+listing and each lineage read, runs the binary the shared lookup found and is
+bounded at `NIWA_LOOKUP_SECONDS` (three
 seconds by default) through `dc_with_deadline`.
 
 **`skills/coordinate/scripts/state-stored-set.sh --run cap`.** Gains the
-ownership check and the cross-lane refusal, feeding the shared predicate
-from the record it has already parsed. `--rules` stops calling niwa through
+ownership check and the cross-lane refusal, feeding the strict test from
+the record it has already parsed. `--rules` stops calling niwa through
 its own `rules_grant_read` and calls the reader instead. That move is the
 settled-steps scoping's Phase 1; if that work hasn't landed, this feature's
 first phase makes the move along with adding the reader, so R12's one-reader
@@ -437,7 +511,11 @@ about who should hold it.
 lane-read.sh --lane <topic> [--lane <topic>]... [--point <p>]... [--session <director's koto session>]
 ```
 
-prints one JSON line per lane:
+`--session` here is the director's koto session, as it is for the record
+scripts (`state-stored-set.sh`, `state-decision.sh`), not a Claude session
+id as it is for `authority-read.sh`. `lane-read.sh` passes the reader the
+lane's Claude session id, which it takes from niwa's lineage. It prints one
+JSON line per lane:
 
 ```json
 {"lane": "<topic>", "instance": "<path>", "session": "<id>",
@@ -448,6 +526,10 @@ prints one JSON line per lane:
 {"lane": "<topic>", "result": "cant_tell", "reason": "not-dispatched: <niwa's reason>"}
 ```
 
+A bound answer whose narrowing couldn't be read carries `"narrowed_by": null,
+"narrowing_unread": "<the read that failed>"` in place of the list
+(Decision 3).
+
 A can't-tell reason is one of niwa's state with its reason (`not-dispatched`,
 `record-unusable`), `no-lane` (no `niwa list` row or no lineage session),
 `ambiguous-lane` (more than one `niwa list` row matches the topic, as a
@@ -457,7 +539,10 @@ lowercase UUID), `no-niwa` (the shared lookup finds none, checked before the
 listing), `timeout: niwa list`, `failed: niwa list`, `timeout: niwa lineage
 show` or `failed: niwa lineage show` (that call ran past its bound or exited
 non-zero), or the reader's `skipped`, `timeout`, `failed` or `refused`. The
-lane read and the cap check both say `no-niwa` for a missing niwa: the lane
+lane's session id is held to a lowercase UUID, stricter than the caller-id
+check, because it comes from niwa's record rather than this session's own
+environment and is passed straight to `niwa authority check`; the lane
+read's stand-in niwa gives UUIDs. The lane read and the cap check both say `no-niwa` for a missing niwa: the lane
 read needs niwa for its listing before the reader is ever called, so the
 reader's `skipped` reaches it only for the reader's other skips. Any reason
 text taken from niwa or the reader is cut to one line of at most 200
@@ -469,21 +554,39 @@ niwa's reason `other-instance`. A session started by hand has no dispatch, so
 no `niwa list` row matches its topic and the answer is `no-lane`. A lane
 niwa can't use the record of is `record-unusable` with niwa's reason.
 
-The cross-lane cap refusal, on stderr with exit 13, takes one of three forms.
-For a bound answer:
+The cap refusal, on stderr with exit 13, takes one of four forms. For a
+cross-lane write and a bound answer:
 
 ```
 refused: moving another lane's cap needs the cap-change authority, which niwa grants and this session doesn't hold (not-held)
 ```
 
-For a write the writer can't show is its own (`unproven-owner`), with no read:
+For a writer with no valid session id (`no-session`), on any record, its own
+included, with no read:
 
 ```
-refused: this session can't show <session>'s record is its own (no recorded driver and no session name found); a cap write it can't show is its own is treated as cross-lane, which needs the cap-change authority niwa grants (unproven-owner)
+refused: this session has no session id (CLAUDE_CODE_SESSION_ID), so it can't show whose record <session> is; a cap write it can't show is its own is treated as cross-lane, which needs the cap-change authority niwa grants (no-session)
 ```
 
-For any other result, where the read couldn't say, and for `no-session` and
-`no-niwa`, where there was no session to read or no niwa to ask:
+For a write the writer can't show is its own (`unproven-owner`), with no read,
+naming the cause that fired:
+
+```
+refused: this session can't show <session>'s record is its own (<cause>); a cap write it can't show is its own is treated as cross-lane, which needs the cap-change authority niwa grants (unproven-owner)
+```
+
+The cause is one of a closed set, in the order the strict test reaches them:
+
+- `the record's driver or opener couldn't be read` (a driver or `opened_by`
+  that isn't a string);
+- `no recorded driver, not opened by this session, and no session name found
+  for it`;
+- `no recorded driver, not opened by this session, and no coordinator row`;
+- `no recorded driver, not opened by this session, and the coordinator row
+  names another session`.
+
+For a cross-lane write whose read couldn't say, and for `no-niwa`, where there
+was no niwa to ask:
 
 ```
 refused: moving another lane's cap needs the cap-change authority, which niwa grants, and this session's authority couldn't be read (<case>)
@@ -516,18 +619,20 @@ fields don't change.
 
 ## Implementation Approach
 
-### Phase 1: The shared ownership pieces, the driver at every fresh start, and the reader
+### Phase 1: The shared ownership pieces, the opener on every new run, and the reader
 
-Add the ownership predicate, the caller-id check, the caller-name derivation
-and the niwa lookup to `dispatch-common.sh`, and have `coordinate-open.sh`
-call the predicate with the values it reads, keeping its own exits. Record the
-caller's id as the driver at every fresh start with a valid id, and change the
-opener's caller-with-no-id branch to read a touched run by `.takeover` or a
-predecessor. The takeover's engine tests pass, plus new cases: a fresh run
-records its opener as driver, and a fresh run with a driver and no takeover
-still resumes for a caller with no id. Use `authority-read.sh` from the
-settled-steps work, changing it if `--session` doesn't override the
-environment, or, if it hasn't landed, add it to that design's interface and
+Add the two ownership predicates, the caller-id check, the caller-name
+derivation and the niwa lookup to `dispatch-common.sh`, and have
+`coordinate-open.sh` call the takeover's predicate with the values it reads,
+keeping its own exits. Record `opened_by` in the seed's, the carry's and the
+legacy import's `record/meta`, passed into the write core, and have the opener
+write it on a resume it admits as own or unknown and after an import it
+resumes on an older koto. The takeover's contract doesn't change: its engine
+tests pass unchanged, a run opened under one id and started under another
+behaves exactly as today, and new cases show `opened_by` set at each place it
+is written. Use `authority-read.sh` from the settled-steps work, changing it
+if `--session` doesn't override the environment or it doesn't use the shared
+niwa lookup, or, if it hasn't landed, add it to that design's interface and
 move `posture-read.sh` and `state-stored-set.sh --rules` onto it, so no
 second call site survives.
 
@@ -538,30 +643,36 @@ cap`, with tests against a stand-in niwa for each case: own write with no
 read, cross-lane bound with no such grant, read failure, timeout, no niwa
 (`no-niwa`), `not-dispatched`, no valid caller session id (unset or
 malformed) with and without a driver recorded (`no-session`), and a write the
-writer can't show is its own, an unreadable meta included (`unproven-owner`),
-the last two with no call on the stand-in's log and its own record included.
-Every refusal exits 13. The existing tests that write a cap get a driver (the
-run opened with an id through the opener) or an id plus a `DC_CLAUDE_HOME` job
+writer can't show is its own, one case per cause (`unproven-owner`), the last
+two with no call on the stand-in's log and its own record included. Every
+refusal exits 13. The existing tests that write a cap set or unset both
+`CLAUDE_CODE_SESSION_ID` and `DC_CLAUDE_HOME` themselves, so none depends on
+the environment it runs in, and either seed their run with the caller's id
+(so `opened_by` is the caller) or give an id plus a `DC_CLAUDE_HOME` job
 fixture whose name equals the coordinator row, or expect the refusal.
+`references/state-keys.md` gets exit 13 and the case words.
 
 ### Phase 3: The lane read
 
 Add `lane-read.sh` and its tests against a stand-in niwa: bound answer passed
 through, a grant changed between two asks showing on the second, a point's
-settler, each can't-tell case, a pause row in `narrowed_by` and a go-ahead
-that lets the unit through, and two lanes making exactly one `niwa list`, two
-`niwa lineage show` and two `niwa authority check` calls.
+settler, each can't-tell case, a pause row in `narrowed_by`, a go-ahead
+that lets the unit through, a narrowing that can't be read, niwa found only
+in `NIWA_BIN`, and two lanes making exactly one `niwa list`, two `niwa
+lineage show` and two `niwa authority check` calls.
 
 ### Phase 4: The skill text
 
 Update the Bounds and Authority text and the template, including the text that
 takes a refused cross-lane move through raise, take and escalate as Decision 2
 lays out, raises nothing for a refusal on the session's own record, and keeps
-a second refusal of the same move in `wait` while its entry is open. Check
-that a search of the executable lines of `skills/coordinate/scripts/*.sh`,
-test files (`*_test.sh`) and comment lines excluded, finds an `authority
-check` call only in `authority-read.sh`; prose in `SKILL.md`, the references
-and comments doesn't count. That closes R12's criterion for the callers that
+a second refusal of the same move in `wait` while its entry is open, and the
+reconcile text that has a session report a refused first cap's line and stay
+at reconcile. Check that a search of the executable lines of
+`skills/coordinate/scripts/*.sh`, test files (`*_test.sh`) and comment lines
+excluded, finds a line that runs niwa's `authority check` as a command only
+in `authority-read.sh`; a message string naming the command doesn't count,
+nor does prose in `SKILL.md`, the references and comments. That closes R12's criterion for the callers that
 exist; the finishing-step read's half closes with the settled-steps work.
 Walk a refused move through a scratch record to see one escalated entry.
 
@@ -575,20 +686,38 @@ It dispatches the lane by hand with `niwa dispatch --role <role>
 `[authority.roles]` grants at least one authority, because the skill's own
 lane dispatch gives a lane coordinator no grant (the PLAN's Proposed
 Follow-up). If that setup can't be made on this host when the step runs, the
-step says so and the director-side criteria stay open. The lane is then read twice over: from the director, whose answer
+step says so, both lanes are dispatched the same way from a session with no
+dispatch of its own (so `parent_is_mine` is false), the third-session read
+and the refusal still run, and only the director-side criteria stay open.
+The lane is then read twice over: from the director, whose answer
 shows `parent_is_mine` true, and from a session that is neither the lane nor
-its dispatcher. Both read the lane from niwa's records alone, and both see a
+its dispatcher, which asks with `--point merge-pr` so the `merge-pr` settler
+is measured. Both read the lane from niwa's records alone, and both see a
 grant changed between two asks, the change removing an authority from the
 lane's role, since niwa keeps a lane's grant inside its dispatcher's and a
 widening past that shows no change. A refused cross-lane move closes the run:
-the director dispatches a second lane the same way, running
-`/shirabe:coordinate` with its own record, and the first lane tries to move
-that sibling's cap through the skill.
+both lanes run `/shirabe:coordinate` with their own records, and the first
+lane, from its `wait` as the skill directs, tries to move the second lane's
+cap. The record names the niwa version the run used; if it isn't 0.40.0,
+R14's claim about 0.40.0 stays unmeasured.
 This is where the third-session read of a lane holding grants is measured. The record lands in "What a third session can read today" above,
 as commands with host paths replaced and the result lines read, never full
 niwa answers.
 
 Phases 1 to 5 are the PLAN's Steps 1 to 5, each in its own pull request.
+
+### The template's compat number
+
+Phases 1, 2 and 3 change scripts in the coordinate template's gate-script
+closure (`dispatch-common.sh`, `state-write-core.sh`, `state-stored-set.sh`
+and, when this feature moves it, `posture-read.sh`), so each records the new
+`gate_scripts` digest in `skills/coordinate/koto-templates/coordinate.compat.json`
+(`scripts/check-template-compat.sh --print` gives it) and the
+`check-template-compat` job passes. Compat stays at 2. A run compiled before
+this feature has no `opened_by` and is read by the existing branches, so it
+keeps resuming, carrying and being taken over as it does now. Raising compat
+would make every such run template-incompatible and force a carry, for a
+change that adds one meta field and one refusal.
 
 ### Dependencies on the workspace authority work
 
@@ -620,12 +749,19 @@ The acceptance criterion that two lanes make exactly two niwa calls counts
 `niwa authority check` calls, the reads R13 bounds. The lookup adds one
 `niwa list` per question and one `niwa lineage show` per lane, and the lane
 read's tests count those too: one question about two lanes makes one `list`
-and two `lineage show` calls on the stand-in's log.
+and two `lineage show` calls on the stand-in's log. With `--session`, the
+narrowing read adds `pause-read.sh`'s condition reads (Decision 3), one per
+condition a pause row on the lane's unit names; they are bounded by
+board-lib's deadline, not by `NIWA_LOOKUP_SECONDS`, and the lane read's
+bound criterion covers only its niwa calls.
 
 ## Security Considerations
 
 The lane read is read-only and asks niwa about sessions in the same workspace;
-it reads no file the lane wrote and sends the lane nothing. The lane's
+it reads no file the lane wrote and sends the lane nothing. With `--session`
+it also reads, through `pause-read.sh`, the GitHub state of the conditions the
+director's own pause rows name (a pull request's state, a tag's ref), the
+same read-only calls pick already makes for those rows. The lane's
 grant, level and dispatch ids are workspace-internal and go no further than the
 director's own report.
 
@@ -647,7 +783,7 @@ instance and calls no messaging command.
 A forged record can't widen anything. The lane answer comes from niwa, not the
 director's record, and record rows only appear as `narrowed_by`. The cap
 check's ownership test reads `record/meta`, which a session could edit to name
-itself as driver; doing so lets it write that cap as its own. That is the same
+itself as driver or opener; doing so lets it write that cap as its own. That is the same
 exposure the takeover rule has today, and this design doesn't widen it.
 
 ## Consequences
@@ -666,24 +802,31 @@ exposure the takeover rule has today, and this design doesn't widen it.
 - Every cross-lane cap move is refused until niwa grants the cap-change
   authority, including moves a person would have approved.
 - A lane question costs two niwa calls per lane plus one list.
-- The ownership test trusts `record/meta`'s driver, which a session can edit.
-- A run from before this change, with no driver and no findable name for its
-  coordinator (a coordinator in the foreground, say), can't change its cap
-  until a takeover records a driver; its cap stays as it is.
-- A start with no valid session id records no driver, so a run opened that way
-  can't write its first cap and stays at reconcile with its `no-cap` gap open.
-  Scripts and tests that open a run must give it an id.
-- A later start of a new run from a different Claude session id is read as
-  another session's run and goes through the takeover rule, where today a run
-  with no driver and no findable name resumes wherever it's started.
+- The ownership test trusts `record/meta`'s driver and `opened_by`, which a
+  session can edit.
+- A run from before this change has no `opened_by`. Unless its coordinator
+  row names the writer's found session name (a coordinator in the foreground
+  has none), it can't change its cap until a start from a session with an id
+  resumes it, which records that session as its opener, or a takeover records
+  a driver; its cap stays as it is until then.
+- A start with no valid session id records no opener, so a run opened that
+  way can't write its first cap and stays at reconcile with its `no-cap` gap
+  open. Scripts and tests that open a run must give it an id.
+- A run resumed by a second session that the takeover reads as unknown
+  records that session as its opener, so the first session, if it's still
+  running, can no longer prove the record is its own and its cap writes are
+  refused `unproven-owner`.
 
 ### Mitigations
 
 - The refusal names the missing authority, so the person sees what the
   workspace would have to grant.
 - The calls are bounded and made only when a question is asked.
-- A pre-change run's limit ends at its next takeover, and every run opened
-  after this change names its driver from the start.
+- A pre-change run's limit ends at its next start from a session with an id,
+  or its next takeover, and every run opened after this change names its
+  opener from the start.
+- The takeover's contract is untouched: no restart, carry or import that
+  resumes today becomes a takeover or a refusal.
 - A stronger identity check than the record's driver belongs in niwa, which
   already binds each dispatched session to its instance; the cap check can
   move to that once niwa answers whose lane a record is.

@@ -170,7 +170,8 @@ grant holds the cap-change authority. Otherwise the skill refuses, names the
 cap-change authority as one niwa grants and the session doesn't hold, and
 leaves the target lane's cap and record unchanged. A record is the moving
 session's own when its recorded driver is the moving session, or, with no
-driver recorded, when its coordinator is the moving session. Every other case
+driver recorded, when the moving session opened the run or is its
+coordinator. Every other case
 counts as cross-lane, including a writer with no session id, which is refused
 without a read under the reason `no-session`.
 
@@ -194,14 +195,18 @@ whose authority read fails, times out, finds no niwa, or answers anything but
 
 **R10. A lane's own cap is unchanged.** A coordinator writing the cap of the
 record it drives, at its first start or when a person's word sets it, behaves
-as it does today, with no authority read added. A coordinator's run names it
-as the driver from the run's first start, so its own record shows as its own
-from the start. The one exception is a writer that can't show the record is
-its own: one with no session id, or, on a record with no driver (a run from
-before this feature), one whose session name can't be found. Its cap write is
+as it does today, with no authority read added. A run records the session
+that opened it from its first start, so a coordinator's own record shows as
+its own from the start. Recording that changes nothing about how a later
+start resumes, carries or takes the run over. The one exception is a writer
+that can't show the record is its own: one with no session id, or, on a
+record with no driver, one that neither opened the run nor is the
+coordinator its record names (a run from before this feature, say, whose
+coordinator has no findable session name). Its cap write is
 treated as cross-lane and refused under R7 (`no-session` for a missing id,
-`unproven-owner` for a record it can't show is its own), its own record
-included, and a refused write to its own record raises no decision entry.
+`unproven-owner` for a record it can't show is its own, with the cause),
+its own record included, and a refused write to its own record raises no
+decision entry.
 
 **R11. The skill defines no authority.** The skill names the cap-change
 authority only as something niwa grants. It holds no definition of it, no
@@ -246,7 +251,9 @@ dependency, never assumed.
 - [ ] With a pause on a lane in the director's record, the director's answer
   for that lane still shows niwa's grant and says the pause narrows it; with
   a row whose words name an authority niwa's answer doesn't hold, the answer
-  doesn't include that authority.
+  doesn't include that authority; and when the director's record can't be
+  read for that narrowing, the answer still shows niwa's grant and says the
+  narrowing couldn't be read, never that nothing narrows it.
 - [ ] From a lane without the cap-change authority, a reviewer has it try to
   move a sibling's cap through the skill and sees a refusal that names the
   cap-change authority as one niwa grants and the session lacks; the
@@ -261,24 +268,29 @@ dependency, never assumed.
   time out or answer `not-dispatched`, is refused with the reason, and the
   sibling's cap is unchanged.
 - [ ] A coordinator with a session id setting its own cap at first start and
-  on a person's word, on a run whose driver is that id or whose coordinator
-  row names its found session name, succeeds as before, and makes no
-  authority read for it.
+  on a person's word, on a run whose driver is that id, that it opened under
+  that id, or whose coordinator row names its found session name, succeeds
+  as before, and makes no authority read for it.
+- [ ] A run opened under one session id and started again under another
+  resumes, carries or is taken over exactly as it did before this feature.
 - [ ] A cap write against a record whose driver is a different session from
   the writer is treated as cross-lane and refused; a write whose writer can't
   be told (no session id for the writer, with or without a driver recorded)
-  is refused the same way, with the reason `no-session` and no read; and a
-  writer with an id that can't show a record with no driver is its own is
-  refused with the reason `unproven-owner` and no read.
+  is refused with the reason `no-session`, a line saying the writer has no
+  session id to show whose record it is, and no read; and a writer with an
+  id that can't show a record with no driver is its own is refused with the
+  reason `unproven-owner`, a line naming which of the closed set of causes
+  fired, and no read.
 - [ ] A reviewer reads the skill after the change and finds the cap-change
   authority named only as something niwa grants: no definition, no rule for
   who holds it, no level rule and no grant table.
 - [ ] A search of the executable lines of `skills/coordinate/scripts/*.sh`,
-  test files (`*_test.sh`) and comment lines excluded, finds an `authority
-  check` call only in the one reader, which the lane read, the cap-move
-  check, the start read, the standing-rule read and, once it exists, the
-  finishing-step read all call. Prose in `SKILL.md`, the references and
-  comments doesn't count. This feature's skill-text step closes the criterion
+  test files (`*_test.sh`) and comment lines excluded, finds a line that runs
+  niwa's `authority check` as a command only in the one reader, which the
+  lane read, the cap-move check, the start read, the standing-rule read and,
+  once it exists, the finishing-step read all call. A message string naming
+  the command doesn't count, nor does prose in `SKILL.md`, the references and
+  comments. This feature's skill-text step closes the criterion
   for the callers that exist; the finishing-step half closes with the
   settled-steps work.
 - [ ] A lane read whose niwa never answers returns can't tell within the
@@ -326,14 +338,16 @@ dependency, never assumed.
   design is in progress, gives the authority a name and a grant.
 - **A coordinator that can't name itself can't set its own cap.** With no
   session id it can't show that a record is its own, so its cap write is
-  refused `no-session` (R10), and a run it opens records no driver and can't
+  refused `no-session` (R10), and a run it opens records no opener and can't
   write its first cap. Scripts and tests that open a run have to give it an
   id.
 - **A run from before this feature may not be able to change its cap.** Such
-  a run has no driver recorded. When its coordinator has no findable session
-  name either (a coordinator in the foreground has none), its cap write is
-  refused `unproven-owner` until a takeover records a driver; its cap stays
-  as it is.
+  a run records no driver and no opener. Unless its coordinator row names the
+  writer's found session name (a coordinator in the foreground has none, and
+  a row holding a dispatch topic or another address doesn't match), its cap
+  write is refused `unproven-owner` until a start from a session with an id
+  resumes it, which records that session as its opener, or a takeover
+  records a driver; its cap stays as it is until then.
 - **The parent the answer names is only as sound as niwa's dispatch record.**
   Until tsukumogami/niwa#422 is fixed, a child launched by a session without
   a grant can carry a record that looks operator-launched, so "the parent is
