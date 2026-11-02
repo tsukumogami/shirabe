@@ -129,6 +129,7 @@ cost	dispatch-common_test.sh	1
 cost	panel-evidence_test.sh	1
 cost	review-round_test.sh	1
 cost	pause-read_test.sh	1
+cost	cloud-hosts_engine_test.sh	1
 cost	coordinate-report_test.sh	0
 cost	skill-states_test.sh	0
 cost	board-lib_test.sh	0
