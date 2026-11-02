@@ -694,12 +694,10 @@ lines, and the rows and refusals behind them, are in
   the coordinator that dispatched this one when its session is bound, and
   a person when it is a root coordinator, for its own verdict edits too:
   whoever writes a verdict never approves its own Done.
-  Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval,
-  at the head that was approved: the author itself when its grant lets it
-  merge, otherwise the reviewer that approved it when its own grant does,
-  otherwise the next one up the chain, and a person at the root.
-  No coordinator approves its own verdict pull request or hands its merge to a worker;
-  that rule wins over any `Named authority:` line. A repository that merges
+  Someone other than the author approves it, and no coordinator approves its
+  own verdict pull request. Who merges it after that approval, at the head
+  that was approved, is not this passage's to say: it comes from the merge
+  grant, which Bounds and Authority reads. A repository that merges
   them automatically gives up the review that Done rests on.
 
 Two points of the shipped behaviour follow the milestone verdicts PRD where
