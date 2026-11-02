@@ -85,6 +85,12 @@ lane nor its dispatcher:
 - No authority niwa's policy names is a cap-change authority. The grant
   vocabulary today is `merge-pr`, `close-issue` and `cut-release`.
 
+That read was of a lane whose grant was empty. A third session's read of a
+lane whose role grants at least one authority, and of a grant changed between
+two reads, hasn't been measured, so this design doesn't claim either works
+today. The PLAN's last step measures both on this host, and the PLAN proposes
+measuring them before the lane read is built.
+
 Everything else this design touches is a dependency, listed under
 Implementation Approach.
 
@@ -170,6 +176,15 @@ niwa returns today can hold it. The refusal prints which case applied
 `skipped`, `timeout`, `failed` or `refused`), names the cap-change authority as
 one niwa grants and the session doesn't hold, exits non-zero, and writes
 nothing to the target record.
+
+A refused move isn't dropped. The skill text has the moving session raise it
+once as a decision entry in its own record, through the record's existing
+decision path (`decision_raise`, source `self`), with the refusal as its
+evidence and a recommendation, and escalate it under the skill's existing
+rules, so the change reaches whoever that session reports to. An open entry
+for the same move is reused rather than raised again. The entry's routing is
+the decision path's, unchanged; this design adds none, and the target lane's
+record stays untouched.
 
 #### Alternatives Considered
 
@@ -348,8 +363,20 @@ making exactly two `niwa authority check` calls.
 
 ### Phase 4: The skill text
 
-Update the Bounds and Authority text and the template, and check that a search
-for `niwa authority check` under `skills/coordinate/` finds only the reader.
+Update the Bounds and Authority text and the template, including the text that
+has a session raise a refused cross-lane move once as a decision entry, and
+check that a search for `niwa authority check` under `skills/coordinate/` finds
+only the reader.
+
+### Phase 5: The whole-feature check
+
+On this host, on niwa 0.40.0, from a session that is neither the lane nor its
+dispatcher: a dispatched lane whose role grants an authority, read from niwa's
+records alone, a grant changed between two asks, and a refused cross-lane
+move. This is where the third-session read of a lane holding grants is
+measured.
+
+Phases 1 to 5 are the PLAN's Steps 1 to 5, each in its own pull request.
 
 ### Dependencies on the workspace authority work
 

@@ -171,7 +171,10 @@ cap-change authority as one niwa grants and the session doesn't hold, and
 leaves the target lane's cap and record unchanged. A record is the moving
 session's own only when the session driving it is the moving session; a
 write whose session can't be told from a recorded driver counts as
-cross-lane.
+cross-lane. A refused move isn't dropped: the moving session raises it once as
+a decision entry in its own record, with the refusal as its evidence and a
+recommendation, and escalates it under the skill's existing decision rules.
+It doesn't retry the write or reach the same cap another way.
 
 **R8. No cap-change authority exists yet, so every cross-lane move is
 refused.** niwa grants no cap-change authority today. Until it does, every
@@ -233,6 +236,10 @@ dependency, never assumed.
   move a sibling's cap through the skill and sees a refusal that names the
   cap-change authority as one niwa grants and the session lacks; the
   sibling's cap in force and record entries are unchanged afterward.
+- [ ] After that refusal, the moving session's record holds one decision entry
+  proposing the move, with the refusal as its evidence and a recommendation,
+  escalated once; a second refusal of the same move adds no second entry, and
+  the sibling's cap is still unchanged.
 - [ ] The same cross-lane move, with the moving session's read made to fail,
   time out or answer `not-dispatched`, is refused with the reason, and the
   sibling's cap is unchanged.
@@ -292,6 +299,11 @@ dependency, never assumed.
   it.** niwa answers who settles a point today, but tying that answer to the
   authority level is work that hasn't started; the director reports what
   niwa answers and claims nothing beyond it.
+- **A third session's read of a lane that holds grants is unmeasured.** The
+  read measured on this host was of a lane whose grant was empty. Whether a
+  session that is neither the lane nor its dispatcher reads a lane holding
+  grants, and sees a changed grant, is what the whole-feature check measures;
+  nothing here claims it before then.
 
 ## Decisions and Trade-offs
 

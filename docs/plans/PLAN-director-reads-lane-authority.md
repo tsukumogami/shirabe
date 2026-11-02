@@ -1,8 +1,13 @@
 ---
 schema: plan/v2
 status: Active
-execution_mode: single-pr
-split_mode_source: none
+execution_mode: multi-pr
+split_mode_source: intent
+split_rationale: |
+  Incremental Value. Step 2's cross-lane cap refusal closes a gap on its
+  own, before the lane read exists, and the documents merge ahead of the
+  build so later work can plan against them. Each step lands later as its
+  own pull request.
 tracking_level: none
 upstream: docs/designs/DESIGN-director-reads-lane-authority.md
 milestone: "Director reads lane authority"
@@ -48,8 +53,10 @@ Walking skeleton. Step 1 puts the shared pieces in place: the reader and the
 ownership test the takeover already applies, moved where the cap check can
 call it. Step 2 closes the cap gap end to end, Step 3 adds the lane read,
 Step 4 the skill text, and Step 5 runs the PRD's whole-feature checks.
-Everything lands in one pull request: the repository prefers one, no split
-condition fires, and the text in Step 4 is only true once Steps 2 and 3 exist.
+
+None of it lands with this plan: the plan merges ahead of its build, and each
+step lands later in its own pull request, after the steps it depends on. Step
+4's text is only true once Steps 2 and 3 exist, which its dependencies keep.
 
 ## Steps
 
@@ -119,6 +126,9 @@ no niwa on the path.
   order, succeeds with no read.
 - [ ] A search of the changed files finds no literal naming the cap-change
   authority's token, and no rule for who holds it.
+- [ ] The refusal is the end of the write, not of the move: `--run cap` exits
+  non-zero after printing it, and Step 4's text has the session raise the move
+  as a decision entry.
 
 **Check**: Run `state-stored-set.sh`'s tests under
 `skills/coordinate/scripts/` with the stand-in niwa; every case above passes.
@@ -134,15 +144,129 @@ skills/coordinate/koto-templates/coordinate.md
 
 ### Step 3: a director reads a lane's grant and level from niwa
 
-`lane-read.sh --lane <topic>... [--point <p>]...` finds each lane's path and dispatch id in `niwa list --json` and its session id in `niwa lineage show --json`, reads it through `authority-read.sh`, and prints the answer with `parent_is_mine` and `narrowed_by`, or `cant_tell` with the reason; closes the PRD criteria for the bound read, the changed grant on the next ask, a point's settler, each can't-tell case, a pause row narrowing, the bound plus a second's slack, and two lanes making exactly two `niwa authority check` calls on the stand-in's log.
+**Goal**: `lane-read.sh --lane <topic>... [--point <p>]...` finds each lane's
+instance and dispatch id in `niwa list --json` and its session id in
+`niwa lineage show --json`, reads it through `authority-read.sh`, and prints
+the answer with `parent_is_mine` and `narrowed_by`, or `cant_tell` with the
+reason. It closes the PRD criteria for the bound read, the changed grant on
+the next ask, a point's settler, each can't-tell case, a pause row narrowing,
+the bound plus a second's slack, and two lanes making two reads.
+
+**Acceptance Criteria**:
+
+- [ ] With a stand-in niwa whose list, lineage and authority answers describe a
+  lane the director dispatched, `lane-read.sh --lane <topic>` prints one line
+  with the lane's grant, level, level source, dispatch and parent exactly as
+  the stand-in's authority check prints them, and `parent_is_mine` true; the
+  stand-in's log shows no message to the lane and no read of a file it wrote.
+- [ ] With the stand-in's grant changed between two asks, the second line shows
+  the new grant.
+- [ ] With `--point merge-pr`, the line gives that point's settler as the
+  stand-in answers it.
+- [ ] Each can't-tell case prints `cant_tell` with its reason and no grant:
+  niwa's `not-dispatched` with its reason, `record-unusable`, `no-lane`,
+  `ambiguous-lane`, `bad-lookup`, and the reader's `skipped` (naming the
+  missing niwa), `timeout`, `failed` and `refused`. A reason taken from niwa is
+  cut to one line of at most 200 characters.
+- [ ] With a pause row on the lane in the director's record, the line still
+  shows niwa's grant and lists the row under `narrowed_by`; a row whose words
+  name an authority niwa's answer doesn't hold adds nothing to the grant.
+- [ ] A stand-in that never answers gives `cant_tell` within
+  `NIWA_LOOKUP_SECONDS` plus one second.
+- [ ] One call with two `--lane` arguments makes exactly two `niwa authority
+  check` calls on the stand-in's log, none of them about the director's own
+  session, and `lane-read.sh` itself contains no `niwa authority check`.
+
+**Check**: Run `lane-read.sh`'s new test under `skills/coordinate/scripts/`
+with the stand-in niwa; every case above passes and the call counts match.
+
+**Dependencies**: Step 1
+
+**Files**: skills/coordinate/scripts/lane-read.sh,
+skills/coordinate/scripts/dispatch-common.sh
+
+**Type**: code
+
+**Complexity**: testable
 
 ### Step 4: the skill sends a reader to niwa for lane allowances and the cap rule
 
-The Bounds and Authority text in `SKILL.md` and the template says a director reads a lane's allowances with `lane-read.sh`, never from the lane or the brief, and names the cap-change authority only as something niwa grants; closes the PRD criteria that the skill holds no definition, rule, level rule or grant table for it, and that a search for `niwa authority check` under `skills/coordinate/` finds only the reader.
+**Goal**: The Bounds and Authority text in `SKILL.md` and the template says a
+director reads a lane's allowances with `lane-read.sh`, never from the lane or
+the brief, names the cap-change authority only as something niwa grants, and
+has a session whose cross-lane cap move was refused raise the move once as a
+decision entry. It closes the PRD criteria that the skill holds no definition,
+rule, level rule or grant table for the authority, that a refused move is
+escalated once, and that a search for `niwa authority check` under
+`skills/coordinate/` finds only the reader.
+
+**Acceptance Criteria**:
+
+- [ ] `SKILL.md` and the template say a director reads what a lane may do with
+  `lane-read.sh` when it's asked, and never from the lane's report, the brief
+  or an earlier answer.
+- [ ] A reader finds the cap-change authority named only as something niwa
+  grants: no definition, no rule for who holds it, no level rule, no grant
+  table, and no text that grants or withholds it on the skill's own terms.
+- [ ] After a refused cross-lane move, the moving session's record holds one
+  decision entry proposing that move, with the refusal as its evidence and a
+  recommendation, escalated once under the skill's existing decision rules; a
+  second refusal of the same move adds no second entry, and the sibling's cap
+  is unchanged.
+- [ ] A search for `niwa authority check` under `skills/coordinate/` finds it
+  in `authority-read.sh` alone.
+
+**Check**: Run the coordinate engine test for a refused cross-lane cap move,
+which ends with one escalated decision entry and an unchanged sibling record,
+and the one-reader search; read the changed Bounds and Authority text for any
+rule about who holds the cap-change authority and find none.
+
+**Dependencies**: Step 2, Step 3
+
+**Files**: skills/coordinate/SKILL.md,
+skills/coordinate/koto-templates/coordinate.md
+
+**Type**: code
+
+**Complexity**: testable
 
 ### Step 5: the whole feature is checked on today's niwa
 
-From a session that is neither the lane nor its dispatcher, on niwa 0.40.0, the lane read returns a bound answer for a real dispatched lane found from niwa's records alone, and a grant changed in the workspace configuration shows on the next ask; closes the PRD's end-to-end criteria for a director and a lane it dispatched.
+**Goal**: On this host, on niwa 0.40.0, from a session that is neither the
+lane nor its dispatcher, the lane read returns a real dispatched lane's bound
+answer found from niwa's records alone, for a lane whose role grants at least
+one authority, and a grant changed in the workspace configuration shows on the
+next ask. This is where the third-session read of a lane holding grants is
+measured; the design doesn't claim it before then. It closes the PRD's
+end-to-end criteria for a director and a lane it dispatched.
+
+**Acceptance Criteria**:
+
+- [ ] From a session that is neither the lane nor its dispatcher, on niwa
+  0.40.0, `lane-read.sh` returns the lane's bound answer, with its instance and
+  session id found from `niwa list` and `niwa lineage show` alone; no file the
+  lane wrote is read and the lane receives no message.
+- [ ] The lane's role grants at least one authority and the answer lists it;
+  after the grant is changed in the workspace configuration, the next ask shows
+  the new grant without restarting the director or the lane.
+- [ ] From a lane without the cap-change authority, a move of a sibling's cap
+  through the skill is refused naming the cap-change authority as one niwa
+  grants and the session lacks, and the sibling's cap in force and record
+  entries are unchanged.
+- [ ] The run records the niwa version, each command and each answer, so the
+  measurement can be read back.
+
+**Check**: A walkthrough on this host with a dispatched lane holding a grant:
+the director-side read shows the grant, the changed grant shows on the second
+ask, and the cross-lane move is refused; the recorded commands and answers
+show each.
+
+**Dependencies**: Step 4
+
+
+**Type**: task
+
+**Complexity**: testable
 
 ## Proposed Follow-up
 
@@ -156,3 +280,8 @@ acceptance criterion becomes a step or a follow-up, not a wider design.
   feature says belongs to the workspace. A follow-up would have the skill
   dispatch a lane coordinator with whatever the workspace's role grants it and
   drop the sentence.
+- **Measure the third-session read of a lane holding grants before Step 3.**
+  The design's measurement covered a lane whose grant was empty. A follow-up
+  would run that read on this host against a lane whose role grants at least
+  one authority, and change the grant between two reads, so Step 3 is built
+  against a measured answer rather than waiting for Step 5 to find out.
