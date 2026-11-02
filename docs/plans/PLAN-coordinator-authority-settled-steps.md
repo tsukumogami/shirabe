@@ -49,22 +49,68 @@ when the answer names the session as settler.
 
 ## Decomposition Strategy
 
-Walking skeleton. Step 1 crosses the whole path for one step, the merge at
-`land`: the reader, the verdict, the evidence key and the transition that
-follows the sealed token, all against a fake `niwa` first on PATH. Later steps
-add the merge's second read, then each remaining finishing step, then move the
-start read and the standing-rule read onto the one reader, and end with the
-skill text. None of it lands with this plan: the plan merges ahead of its
-build, and each step lands later in its own pull request, in step order, once
-the niwa work above ships. Step 1 is the first of those pull requests.
+The reader first, then a walking skeleton, in the design's three phases.
+Step 1 is the first phase on its own: the one reader, `authority-read.sh`,
+with `posture-read.sh` and `state-stored-set.sh --rules` moved onto it and
+their output unchanged. It changes no routing, so the reader is proved
+before any step depends on it. Steps 2 and 3 are the second phase. Step 2
+crosses the whole path for one step, the merge at `land`: the verdict, the
+evidence key and the transition that follows the sealed token, all against a
+fake `niwa` first on PATH. Step 3 adds the merge's second read and the
+forged-record and mid-run suites. Steps 4 to 7 are the third phase: each
+remaining finishing step, then the fold table and the skill text.
+
+None of it lands with this plan: the plan merges ahead of its build, and each
+step lands later in its own pull request, in step order, once the niwa work
+above ships. Step 1 is the first of those pull requests.
 
 ## Steps
 
-### Step 1: a merge at land is taken, routed or held by a fresh authority read
+### Step 1: one reader answers every authority read the skill makes
 
-**Goal**: `land` decides the merge from one read of `merge-pr` through
-`authority-read.sh` and `settle-check.sh`, writes the read into the step's
-evidence key, and follows the sealed token, never the start capture. It
+**Goal**: `authority-read.sh` becomes the only code under `skills/coordinate/`
+that runs `niwa authority check`, and `posture-read.sh` and
+`state-stored-set.sh --rules` call it in place of their own calls, printing
+and storing what they do today. No step's routing changes. It closes the PRD
+criterion One reader, and the reader's half of Refused answers and Holds.
+
+**Acceptance Criteria**:
+
+- [ ] With a fake niwa giving an accepted answer, `authority-read.sh
+  --session <id> --point merge-pr` prints the answer as JSON and exits 0.
+- [ ] With no niwa on PATH and no executable `$NIWA_BIN`, no session id, or no
+  instance root it prints `skipped`; a read past `NIWA_LOOKUP_SECONDS` prints
+  `timeout`; a non-zero exit prints `failed`; an unknown schema, or a `state`,
+  `decider`, `author_exclusion`, `level` or grant value outside the
+  vocabularies `posture-read.sh` accepts today, prints `refused`. Each gives
+  its reason on stderr.
+- [ ] Against the same fake niwa fixtures, `posture-read.sh` and
+  `state-stored-set.sh --rules` print the same output and write the same
+  `coord/posture.json` before and after the change.
+- [ ] A search finds `niwa authority check` run from exactly one script under
+  `skills/coordinate/`, `authority-read.sh`.
+
+**Check**: Run the new `authority-read` test and the existing
+`posture-read_test.sh` and `state-stored-set_test.sh` under
+`skills/coordinate/scripts/` against the fake niwa fixtures; every case
+passes, the before-and-after output comparison is empty, and the search lists
+`authority-read.sh` alone.
+
+**Dependencies**: None
+
+**Files**: skills/coordinate/scripts/authority-read.sh,
+skills/coordinate/scripts/posture-read.sh,
+skills/coordinate/scripts/state-stored-set.sh
+
+**Type**: code
+
+**Complexity**: testable
+
+### Step 2: a merge at land is taken, routed or held by a fresh authority read
+
+**Goal**: `land` decides the merge from one read of `merge-pr` through Step
+1's `authority-read.sh` and the new `settle-check.sh`, writes the read into the
+step's evidence key, and follows the sealed token, never the start capture. It
 closes the PRD criteria Declared merge (supervised and root), No declaration,
 Excluded author, Refused answers, Holds, Record is evidence and Routing shown,
 for the merge.
@@ -94,10 +140,9 @@ for the merge.
 `skills/coordinate/scripts/` with the fake niwa fixtures; every case above
 passes and the log assertion reports one read per visit.
 
-**Dependencies**: None
+**Dependencies**: Step 1
 
-**Files**: skills/coordinate/scripts/authority-read.sh,
-skills/coordinate/scripts/settle-check.sh,
+**Files**: skills/coordinate/scripts/settle-check.sh,
 skills/coordinate/scripts/land-check.sh,
 skills/coordinate/koto-templates/coordinate.md
 
@@ -105,23 +150,29 @@ skills/coordinate/koto-templates/coordinate.md
 
 **Complexity**: critical
 
-### Step 2: the merge is taken only when land and land_merge both say take
+### Step 3: the merge is taken only when land and land_merge both say take
 
 **Goal**: `land-merge.sh` reads `merge-pr` again just before the merge command,
 the start capture and the `posture_ask` answer stop deciding the merge, and a
 Claude Code deny or ask rule on the merge command holds it. It closes the PRD
-criteria Forged record, Done is GitHub's, Review kept and Permission hold, for
-the merge.
+criteria Forged record, Done is GitHub's, Review kept, Permission hold and
+Mid-run change, for the merge.
 
 **Acceptance Criteria**:
 
 - [ ] With the fake answer changed between `land` and `land_merge` from take to
   settler `person`, no merge runs and the merge goes to a person.
+- [ ] With the fake answer changed between two merges of one run, from take to
+  settler `person`, the first pull request is merged and the second goes to a
+  person.
 - [ ] The fake niwa's log shows two `--point merge-pr` reads for a merge that
   reaches the command, and none of them acts on the start read.
 - [ ] With an approval Standing row, a Reversals row, a relayed `posture_ask`
   answer, a forged review round and an edited `coord/posture.json` written, the
   merge has the same outcome as a run with no record rows.
+- [ ] A merge sent to another settler is marked done only after GitHub reports
+  the pull request merged, and a record row claiming it merged changes
+  nothing.
 - [ ] With the answer letting the session take the merge and a deny rule on
   the merge command, the merge is held with reason `permission`.
 - [ ] `bl_merge_posture` and `bl_human_holds_merge` are gone, and a coordinator
@@ -132,7 +183,7 @@ the merge.
 forged-record fixtures; each case reports the expected outcome and the read
 count.
 
-**Dependencies**: Step 1
+**Dependencies**: Step 2
 
 **Files**: skills/coordinate/scripts/land-merge.sh,
 skills/coordinate/scripts/board-lib.sh
@@ -141,22 +192,188 @@ skills/coordinate/scripts/board-lib.sh
 
 **Complexity**: critical
 
-### Step 3: closes and verdict merges read their own point at their state
+### Step 4: closes and verdict merges read their own point at their state
 
-Roadmap closes, close-out issue and pull request closes, and verdict and reopen merges each run `settle-check.sh` at their state, with a held outcome added beside each state's existing ones, closing the PRD criteria Mapping, Read at the step, Forged record, Done is GitHub's, Permission hold, Record is evidence and Routing shown for closes.
+**Goal**: Close-out issue and pull request closes, roadmap closes
+(`roadmap_close_step`), and verdict and reopen merges (`milestone_verdict`,
+`milestone_reopen`) each run `settle-check.sh` at their state, with a held
+outcome added beside each state's existing ones. It closes the PRD criteria
+Mapping, Read at the step, Forged record, Done is GitHub's, Permission hold,
+Record is evidence and Routing shown, for closes and verdict merges.
 
-### Step 4: a handed-back merge, close or release goes to the settler the answer names
+**Acceptance Criteria**:
 
-`need-check.sh` and `progress-view.sh` word a worker's reserved step from a fresh read of its point, the `grant_check.state` routing and `--dispatcher` wording gone, teardown still for a person, closing the PRD criteria Holds and Teardown for handed-back steps.
+- [ ] Verdict and reopen merges ask `merge-pr`, and close-out closes and
+  `roadmap_close_step` ask `close-issue`; the fake niwa's log shows one read
+  per visit and no other point asked.
+- [ ] With the grant held, settler `session` and author exclusion off, each
+  state takes its step; with settler `person` it routes the step to a person
+  and closes or merges nothing; with settler `dispatcher` and no target it
+  holds with reason `no-target`; with the grant not held and settler `session`
+  with exclusion off it holds with reason `no-grant`.
+- [ ] With the answer letting the session take the step and a deny or ask rule
+  covering the step's close or merge command, the step is held with reason
+  `permission` and goes to no other settler.
+- [ ] With Step 3's forged-record fixtures written, each close and verdict
+  merge has the same outcome as a run with no record rows.
+- [ ] A close sent to another settler is marked done only after GitHub reports
+  the issue or pull request closed, and a record row claiming it closed
+  changes nothing.
+- [ ] Each visit's evidence key holds step, point, read time, state, settler,
+  author exclusion, target, verdict and reason. After a merge sent to the
+  dispatcher and a close held for `no-grant`, the next start report lists both
+  reads with step, point, verdict, settler and reason; with the held close's
+  entry edited from hold to take before that start, the report shows the edit
+  and every transition is unchanged.
+- [ ] A test fails if any gate, router or `need-check.sh` reads an evidence key
+  or `coord/posture.json` to choose a settler or to take a step, allowing only
+  the start report printing the entries and teardown's interim read under R9.
 
-### Step 5: a release the coordinator runs itself reads cut-release at its step
+**Check**: Run the coordinate engine tests for `milestone_verdict`,
+`milestone_reopen`, `roadmap_close_step` and the close-out with the fake niwa
+and the forged-record fixtures; each case reports the expected outcome, point
+and read count, and the record-reader test passes.
 
-A release the coordinator runs itself takes, routes or holds on a fresh `cut-release` read, and a mid-run change to the answer applies at the next step, closing the PRD criteria Mid-run change, Mapping and Permission hold for releases.
+**Dependencies**: Step 3
 
-### Step 6: the start read and the standing-rule read go through the one reader
+**Files**: skills/coordinate/koto-templates/coordinate.md,
+skills/coordinate/references/loop.md,
+skills/coordinate/scripts/settle-check.sh
 
-`posture-read.sh` and `state-stored-set.sh --rules` call `authority-read.sh`, the grant fold table goes, and a search finds `niwa authority check` in exactly one script, closing the PRD criteria One reader and No new table.
+**Type**: code
+
+**Complexity**: critical
+
+### Step 5: a handed-back merge, close or release goes to the settler the answer names
+
+**Goal**: At `surface_check`, `need-check.sh` words a worker's
+`reserved-step <merge|close|release>` need from a fresh `settle-check.sh` read
+of that step's point, and `progress-view.sh` shows the settler and reason from
+the stored need. The `grant_check.state` routing and the `--dispatcher`
+wording go; `reserved-step teardown` stays for a person (R9). It closes the PRD
+criteria Holds and Teardown, and Read at the step and Mapping for handed-back
+steps.
+
+**Acceptance Criteria**:
+
+- [ ] For each of a handed-back merge, close and release, the fake niwa's log
+  shows one read of that step's own point per `surface_check` visit.
+- [ ] A `take` verdict has the coordinator take the step itself; `route person`
+  words the cell for a person; `route target` names the answer's target; a
+  `hold` words the cell as held with its reason. No cell reads
+  `for dispatcher <instance>`.
+- [ ] A timed-out read, a skipped read (no niwa; no session id; no instance
+  root), an answer with no entry for the point and a settler with no target
+  each hold the step, record the reason and send one report naming the step,
+  point and reason, with the same wording for a bound and a root session.
+- [ ] A handed-back teardown goes to a person, and with the fake answer
+  changed, teardown's outcome is unchanged and follows the permission posture.
+- [ ] `need-check.sh` has no `grant_check.state` branch and `progress-view.sh`
+  has no `--dispatcher` option.
+
+**Check**: Run `need-check_test.sh` and `progress-view_test.sh` with fake niwa
+fixtures for each handed-back step and each hold reason, as a bound and as a
+root session; every outcome and wording matches, and the teardown case is
+unchanged.
+
+**Dependencies**: Step 2
+
+**Files**: skills/coordinate/scripts/need-check.sh,
+skills/coordinate/scripts/progress-view.sh,
+skills/coordinate/koto-templates/coordinate.md
+
+**Type**: code
+
+**Complexity**: critical
+
+### Step 6: a release the coordinator runs itself reads cut-release at its step
+
+**Goal**: A release the coordinator runs itself takes, routes or holds on a
+fresh `cut-release` read at the state that runs it, and a mid-run change to the
+answer applies at the next step. A release unit dispatched to a worker still
+settles under the worker's own grant and brief (R11). It closes the PRD
+criteria Mid-run change, Mapping, Permission hold, Forged record and Done is
+GitHub's, for releases.
+
+**Acceptance Criteria**:
+
+- [ ] A release the coordinator runs itself reads `cut-release` once per visit
+  and takes, routes or holds as `settle-check.sh` decides; a release unit
+  dispatched to a worker asks no point.
+- [ ] With the fake answer changed between a merge and a release of one run,
+  from take to settler `person`, the merge is taken and the release goes to a
+  person.
+- [ ] With the answer letting the session take the release and a deny or ask
+  rule covering the release command, the release is held with reason
+  `permission`.
+- [ ] With Step 3's forged-record fixtures written, the release has the same
+  outcome as a run with no record rows, and a release sent to another settler
+  is marked done only after GitHub reports it published.
+
+**Check**: Run the coordinate engine test for the release state with the fake
+niwa and the forged-record fixtures; each case reports the expected outcome
+and one `--point cut-release` read per visit.
+
+**Dependencies**: Step 3
+
+**Files**: skills/coordinate/koto-templates/coordinate.md,
+skills/coordinate/scripts/settle-check.sh
+
+**Type**: code
+
+**Complexity**: critical
 
 ### Step 7: the skill names the settler from the answer and the bound-or-root rule is gone
 
-`SKILL.md`, the template and the references replace every bound-or-root sentence except teardown and the Verdicts reviewer, name the read, say a row may restrict but never widen, and the PRD's wording search passes as a test, closing the PRD criteria Wording, the `SKILL.md` read and the unchanged worker brief line.
+**Goal**: `SKILL.md`, the template and the references replace every
+bound-or-root sentence except teardown's (R9) and the Verdicts reviewer's
+(R10), name the read, and say a record row may restrict but never widen.
+`posture-read.sh`'s grant fold table goes, and the answer is kept under
+`grant_check` for display only. It closes the PRD criteria Wording, the
+`SKILL.md` read, No new table and the unchanged worker brief line.
+
+**Acceptance Criteria**:
+
+- [ ] `grep -nE 'when your session is bound|only when you are a root
+  coordinator|grant_check\.state'` over the coordinate skill's text and
+  scripts matches only teardown's passage and the Verdicts reviewer passage,
+  and runs as a test.
+- [ ] `SKILL.md` names the read as `niwa authority check -C <instance>
+  --session <id> --point <p>`, says a record row may restrict its answer but
+  never widen it, and claims nothing about the answer being unforgeable.
+- [ ] `SKILL.md` says, at the two passages, that they keep today's sources
+  only until the workspace authority work names a teardown point and where a
+  review goes (D4, D5), so the Verdicts reviewer is the one rule left that
+  names a parent and teardown's posture read is marked interim.
+- [ ] `posture-read.sh` folds no grant into `permit`, `deny` or `confirm`, and
+  no file under `skills/coordinate/` maps levels, grants or settlers except
+  `settle-check.sh`'s step-to-point mapping.
+- [ ] The worker brief's `Named authority:` line is byte-for-byte unchanged.
+
+**Check**: Run the wording test, `posture-read_test.sh` and a comparison of the
+worker brief's `Named authority:` line against main; the wording test reports
+the two passages alone, the fold cases are gone, and the comparison is empty.
+
+**Dependencies**: Step 4, Step 5, Step 6
+
+**Files**: skills/coordinate/SKILL.md,
+skills/coordinate/koto-templates/coordinate.md,
+skills/coordinate/references/loop.md,
+skills/coordinate/scripts/posture-read.sh
+
+**Type**: code
+
+**Complexity**: testable
+
+## Implementation Sequence
+
+Steps 1, 2 and 3 run in order. Steps 4, 5 and 6 each follow their dependency
+and can land in any order among themselves. Step 7 lands last. After Step 7,
+two passages still keep today's sources: teardown reads the permission posture
+(R9) and the review before a merge names the Verdicts rules' reviewer, which
+is the dispatching coordinator when bound and a person at the root (R10).
+That reviewer rule is the one place the skill still names a parent, so the
+claim that the skill keeps no rule of its own about levels, parents or who may
+decide a step holds only once D4 and D5 ship and those two passages read the
+answer too. Moving them is follow-up work for that point, not a step of this
+plan.

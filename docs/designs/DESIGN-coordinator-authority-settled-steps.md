@@ -354,9 +354,10 @@ answer's target; `hold` words the cell as held with its reason. The
 it (R9).
 
 **`posture-read.sh`.** Keeps the settings reading, the verdict token and
-`coord/posture.json` for the board, the start report and teardown. Its grant
-fold table goes (R13): it calls `authority-read.sh` and stores the answer as
-data under `grant_check` for display only.
+`coord/posture.json` for the board, the start report and teardown. It calls
+`authority-read.sh` from Phase 1 on. Its grant fold table goes (R13) in Phase
+3, once no step routes on it, and from then it stores the answer as data under
+`grant_check` for display only.
 
 **`board-lib.sh`.** `bl_merge_posture` and `bl_human_holds_merge` go;
 `land-check.sh` and `land-merge.sh` call `settle-check.sh` instead.
@@ -455,21 +456,23 @@ because shipping first would hold every root coordinator's finishing steps.
 ### Phase 1: The reader
 
 `authority-read.sh` and its tests against a fake niwa; `posture-read.sh` and
-`state-stored-set.sh --rules` moved onto it with no change in output. It changes no
-routing, but like every phase it lands in its own pull request after the dependencies ship,
-as the PLAN orders it.
+`state-stored-set.sh --rules` moved onto it with no change in output, so the grant
+fold table stays until Phase 3. It changes no routing, but like every phase it lands in its
+own pull request after the dependencies ship. It is the PLAN's Step 1.
 
 ### Phase 2: The verdict and the merge
 
 `settle-check.sh`, its evidence key and seal; `land-check.sh` and
 `land-merge.sh` moved off `bl_merge_posture`; the forged-record and mid-run
-suites.
+suites. These are the PLAN's Steps 2 and 3.
 
 ### Phase 3: The other steps and the text
 
 The close, release and handed-back states wired to the check, `need-check.sh`
-and `progress-view.sh` changed, the bound-or-root sentences replaced, and the
-wording `grep` from the PRD's acceptance criteria added as a test.
+and `progress-view.sh` changed, `posture-read.sh`'s grant fold table removed
+once nothing routes on it, the bound-or-root sentences replaced, and the
+wording `grep` from the PRD's acceptance criteria added as a test. These are
+the PLAN's Steps 4 to 7.
 
 ### Dependencies on the workspace authority work
 
@@ -565,8 +568,13 @@ accepted until niwa names a teardown point and says where a review goes.
   answer gives a target. That's why the implementation waits.
 - One more niwa call per finishing-step visit (two for a merge), each up to
   3 seconds.
-- Teardown and the reviewer passage still name a parent, by design, until their
-  dependencies land.
+- Two passages keep today's sources, by design, until their dependencies land.
+  The Verdicts reviewer passage still names a parent (R10, D5), and teardown
+  still reads the stored permission posture rather than the answer at its
+  step (R9, D4). Until both land, the skill can't be read as holding no rule
+  of its own about levels, parents or who may decide a step; it holds the
+  answer's reading everywhere else and names those two as interim. Moving
+  them is follow-up work for when D4 and D5 ship, not a phase here.
 
 ### Mitigations
 

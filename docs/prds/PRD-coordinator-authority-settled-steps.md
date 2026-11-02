@@ -306,6 +306,13 @@ wording as a run with the same fake answer and no record rows written.
   root coordinators, which is why it waits.
 - R10 keeps the Verdicts rules' bound-or-root reviewer until D5 ships: the one
   place the skill still names a parent.
+- R9 keeps teardown's settler on the stored permission posture until D4 ships,
+  so teardown doesn't read the answer at its step.
+- Because of those two passages, this feature alone doesn't leave the skill
+  with no rule of its own about levels, parents or who may decide a step. A
+  reader after this change finds the answer read at every other finishing
+  step, and those two passages named as interim. The rest is follow-up work
+  once D4 and D5 ship.
 
 ## Decisions and Trade-offs
 
