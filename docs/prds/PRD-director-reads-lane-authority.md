@@ -179,7 +179,7 @@ entry in its own record, with the refused move and the refusal line in the
 entry's question, and escalates that entry under the skill's existing
 decision rules with a recommendation. While that entry is open, a second
 refusal of the same move (the same target session and the same cap value)
-reuses it rather than raising another. The session doesn't retry the write or
+raises nothing and leaves that entry as the one record of the move. The session doesn't retry the write or
 reach the same cap another way, and no answer to the entry authorizes the
 write: the cross-lane write stays refused until niwa grants the authority.
 
@@ -194,16 +194,19 @@ whose authority read fails, times out, finds no niwa, or answers anything but
 
 **R10. A lane's own cap is unchanged.** A coordinator writing the cap of the
 record it drives, at its first start or when a person's word sets it, behaves
-as it does today, with no authority read added.
+as it does today, with no authority read added. The one exception is a
+coordinator with no session id: it can't show the record is its own, so its
+cap write is refused under R7 as `no-session`, its own record included.
 
 **R11. The skill defines no authority.** The skill names the cap-change
 authority only as something niwa grants. It holds no definition of it, no
 rule for who gets it, no level rule and no grant table, and no text that
 reads as the skill granting or withholding it on its own terms.
 
-**R12. One reader.** The lane read and the cap-move check go through the same
-reader the coordinator already uses to read its own authority at start, for
-the standing-rule grant fields, and for who settles each finishing step, so
+**R12. One reader.** The lane read and the cap-move check go through the
+reader the settled-steps work adds, the same one the coordinator is to use to
+read its own authority at start, for the standing-rule grant fields, and for
+who settles each finishing step, so
 `niwa authority check` is still run from one place in the skill.
 
 ### Non-functional
@@ -252,8 +255,8 @@ dependency, never assumed.
 - [ ] The same cross-lane move, with the moving session's read made to fail,
   time out or answer `not-dispatched`, is refused with the reason, and the
   sibling's cap is unchanged.
-- [ ] A coordinator setting its own cap at first start and on a person's word
-  succeeds as before, and makes no authority read for it.
+- [ ] A coordinator with a session id setting its own cap at first start and
+  on a person's word succeeds as before, and makes no authority read for it.
 - [ ] A cap write against a record whose driver is a different session from
   the writer is treated as cross-lane and refused; a write whose writer can't
   be told (no session id for the writer, with or without a driver recorded)
@@ -267,8 +270,9 @@ dependency, never assumed.
 - [ ] A lane read whose niwa never answers returns can't tell within the
   bound (three seconds by default) plus a second's slack.
 - [ ] With no niwa on the path, a lane read answers can't tell naming the
-  missing niwa, and a cross-lane cap move is refused naming it.
-- [ ] One question about two lanes makes exactly two niwa calls, counted on a
+  missing niwa, and a cross-lane cap move is refused naming it (`no-niwa`).
+- [ ] One question about two lanes makes exactly two `niwa authority check`
+  calls, counted on a
   stand-in niwa's call log, and none of them is about the director's own
   session unless the question is.
 - [ ] On niwa 0.40.0, run from a session that is neither the lane nor its
@@ -300,6 +304,11 @@ dependency, never assumed.
   That is the intended state, not a gap in this feature: no session can move
   a sibling's cap through the skill until the workspace authority work, whose
   design is in progress, gives the authority a name and a grant.
+- **A coordinator with no session id can't set its own cap.** It can't show
+  that a record is its own, so its cap write is refused as `no-session` (R10).
+  Under Claude Code the id is always set; the sessions this reaches are
+  scripts and tests run without one, which have to set an id or expect the
+  refusal.
 - **The parent the answer names is only as sound as niwa's dispatch record.**
   Until tsukumogami/niwa#422 is fixed, a child launched by a session without
   a grant can carry a record that looks operator-launched, so "the parent is

@@ -92,7 +92,9 @@ calling it. It closes the PRD criterion One reader for the two new callers.
   `skills/coordinate/` finds only the reader.
 
 **Check**: Run the reader's test and `coordinate-open.sh`'s existing tests
-under `skills/coordinate/scripts/`; every case passes.
+under `skills/coordinate/scripts/`, and, when this step moves them onto the
+reader, `posture-read.sh`'s and `state-stored-set.sh`'s existing tests; every
+case passes.
 
 **Dependencies**: None
 
@@ -127,9 +129,15 @@ no niwa on the path.
   answering `bound` and an empty grant, exits non-zero with the `not-held`
   refusal naming the cap-change authority as one niwa grants, and the target
   record's Run section and entries are byte-identical afterward.
-- [ ] The same write with the read failing, timing out, answering
-  `not-dispatched`, or with no niwa on PATH, is refused with the
-  couldn't-be-read refusal and its case word, and the target is unchanged.
+- [ ] The same write with the read failing, timing out or answering
+  `not-dispatched` is refused with the couldn't-be-read refusal and its case
+  word; with no niwa on PATH it is refused with the case word `no-niwa` and
+  the reader isn't called. The target is unchanged in every case.
+- [ ] A coordinator with no session id writing its own record's cap is
+  refused as `no-session`. The existing tests that set a cap with no session
+  id (`state-stored-set_test.sh`, and the engine tests that open a
+  coordinator without one) are changed to set an id or to expect the
+  refusal, and pass.
 - [ ] A cap write with `CLAUDE_CODE_SESSION_ID` unset is refused as
   cross-lane with the couldn't-be-read refusal and the case word
   `no-session`, whether or not the record has a driver, and the stand-in's
@@ -141,13 +149,19 @@ no niwa on the path.
 - [ ] Every refusal exits non-zero after printing its line, and writes nothing
   to any record, the caller's included.
 
-**Check**: Run `state-stored-set.sh`'s tests under
-`skills/coordinate/scripts/` with the stand-in niwa; every case above passes.
+**Check**: Run `state-stored-set_test.sh` with the stand-in niwa, and the
+coordinate engine tests that set a cap (among them `coordinate_1`,
+`coordinate_4`, `session-store`, `discipline-session` and `fresh-run-calls`);
+every case above passes.
 
 **Dependencies**: Step 1
 
 **Files**: skills/coordinate/scripts/state-stored-set.sh,
-skills/coordinate/koto-templates/coordinate.md
+skills/coordinate/scripts/state-stored-set_test.sh,
+skills/coordinate/koto-templates/coordinate.md, the engine tests above where
+they set a cap with no session id, and
+skills/coordinate/scripts/state-handover.sh if its gap order has to change
+for the first-start cap write
 
 **Type**: code
 
@@ -224,18 +238,22 @@ escalated once, and that a search for `niwa authority check` under
   `state-decision.sh --open --source self` with a question naming the move
   (target session and cap value) and quoting the refusal line; and its
   `decision_verdict` text has it escalate that entry with `--escalate`,
-  writing the recommendation there and the refusal line as `--context`.
+  writing the recommendation there, the refusal line as `--context`, the
+  need behind the move as `--problem`, a `--reason`, `--grounds
+  outside-scope`, and an explained `--option` for each option.
 - [ ] The text defines the same move as the same target session and the same
-  cap value, and cites the existing `decision_raise` rule that an open entry
-  holding the question is reused, not opened again. It says this reuse is
-  the agent's instruction, not an engine guard.
+  cap value, and adds to `wait`'s text that a second refusal of a move whose
+  entry is still open submits no `event: raise` and stays in `wait`. It says
+  this is the agent's instruction, not an engine guard, and doesn't lean on
+  the existing `decision_raise` rule, which covers only a parked unit.
 - [ ] The text says the refusal stands and no answer to the entry authorizes
   the cross-lane write; a person who wants the target's cap changed has the
   target lane set its own cap.
 - [ ] Walking a refused move through a scratch record ends with one decision
   entry whose question carries the refusal line, escalated once with a
-  recommendation; a second refusal of the same move while that entry is open
-  adds no entry, and the sibling's record is byte-identical throughout.
+  recommendation and `--grounds outside-scope`; a second refusal of the same
+  move while that entry is open submits no `raise` and adds no entry, and the
+  sibling's record is byte-identical throughout.
 - [ ] A search for `niwa authority check` under `skills/coordinate/` finds it
   in `authority-read.sh` alone.
 
@@ -256,16 +274,22 @@ skills/coordinate/koto-templates/coordinate.md
 
 ### Step 5: the whole feature is checked on today's niwa
 
-**Goal**: On this host, on niwa 0.40.0, from a session that is neither the
-lane nor its dispatcher, the lane read returns a real dispatched lane's bound
-answer found from niwa's records alone, for a lane whose role grants at least
-one authority, and a grant changed in the workspace configuration shows on the
-next ask. This is where the third-session read of a lane holding grants is
-measured; the design doesn't claim it before then. It closes the PRD's
-end-to-end criteria for a director and a lane it dispatched.
+**Goal**: On this host, on niwa 0.40.0, a director dispatches a lane by hand
+with `niwa dispatch --role <role>`, naming a role the workspace grants at
+least one authority (the skill's own lane dispatch gives a lane coordinator
+no grant; see Proposed Follow-up). The lane read returns that lane's bound
+answer from niwa's records alone, both from the director and from a session
+that is neither the lane nor its dispatcher, and a grant changed in the
+workspace configuration shows on the next ask. This is where the
+third-session read of a lane holding grants is measured; the design doesn't
+claim it before then. It closes the PRD's end-to-end criteria for a director
+and a lane it dispatched.
 
 **Acceptance Criteria**:
 
+- [ ] From the dispatching director, `lane-read.sh` returns the lane's bound
+  answer with `parent_is_mine` true, the lane found from niwa's records alone
+  and sent no message.
 - [ ] From a session that is neither the lane nor its dispatcher, on niwa
   0.40.0, `lane-read.sh` returns the lane's bound answer, with its instance and
   session id found from `niwa list` and `niwa lineage show` alone; no file the
@@ -283,10 +307,11 @@ end-to-end criteria for a director and a lane it dispatched.
   read (state, grant, level, level source and the `merge-pr` settler), never
   a full niwa answer, which carries host paths.
 
-**Check**: A walkthrough on this host with a dispatched lane holding a grant:
-the director-side read shows the grant, the changed grant shows on the second
-ask, and the cross-lane move is refused; the design's updated section shows
-each command and its result lines.
+**Check**: A walkthrough on this host with a lane dispatched by hand holding
+a grant: the director's read shows the grant with `parent_is_mine` true, the
+third session's read shows the same grant, the changed grant shows on the
+second ask from each, and the cross-lane move is refused; the design's
+updated section shows each command and its result lines.
 
 **Dependencies**: Step 4
 
