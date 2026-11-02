@@ -4,10 +4,15 @@ status: Active
 execution_mode: multi-pr
 split_mode_source: intent
 split_rationale: |
-  Incremental Value. Step 2's cross-lane cap refusal closes a gap on its
-  own, before the lane read exists, and the documents merge ahead of the
-  build so later work can plan against them. Each step lands later as its
-  own pull request.
+  Incremental Value. Each step leaves the skill better on its own: Step 1
+  leaves one place that runs niwa's authority check and one ownership test
+  instead of two copies; Step 2 closes the cross-lane cap gap before any
+  lane read exists; Step 3 gives a director a lane read it can call even
+  before the skill text points to it; Step 4 makes the skill send readers
+  to niwa and routes a refused move upward; Step 5 measures the whole
+  feature on this host. The documents merge ahead of the build so later
+  work can plan against them, and each step lands later in its own pull
+  request.
 tracking_level: none
 upstream: docs/designs/DESIGN-director-reads-lane-authority.md
 milestone: "Director reads lane authority"
@@ -26,8 +31,9 @@ A director reads what a lane it dispatched may do from niwa's authority
 answer for that lane, found through niwa's list and lineage and read fresh on
 every ask, and a cross-lane move of a lane's active-worker cap is refused by
 the name of an authority niwa grants. Both reads go through
-`authority-read.sh`, the one reader the settled-steps scoping
-(tsukumogami/shirabe#1496) adds, and the skill defines no authority of its
+`authority-read.sh`, the one reader the settled-steps design
+(`docs/designs/DESIGN-coordinator-authority-settled-steps.md`) adds, and the
+skill defines no authority of its
 own. The design is `docs/designs/DESIGN-director-reads-lane-authority.md`; the
 acceptance criteria every step is checked against are in
 `docs/prds/PRD-director-reads-lane-authority.md`.
@@ -43,9 +49,10 @@ cap-change authority. Its dependencies, none assumed shipped:
   operator-launched, so "the parent is my dispatch" rests on that fix;
 - tying a point's settler to the authority level, work that hasn't started, so
   the lane read reports what niwa answers and nothing past it;
-- `authority-read.sh` from tsukumogami/shirabe#1496, not yet merged; Step 1
-  adds it to that design's interface if it hasn't landed, and the
-  settled-steps work then uses that file rather than adding another.
+- `authority-read.sh`, which the settled-steps PLAN builds first and which
+  isn't built yet; Step 1 adds it to that design's interface if it hasn't
+  landed, and the settled-steps work then uses that file rather than adding
+  another.
 
 ## Decomposition Strategy
 
@@ -91,7 +98,10 @@ under `skills/coordinate/scripts/`; every case passes.
 
 **Files**: skills/coordinate/scripts/authority-read.sh,
 skills/coordinate/scripts/dispatch-common.sh,
-skills/coordinate/scripts/coordinate-open.sh
+skills/coordinate/scripts/coordinate-open.sh, and, only when the reader
+hasn't landed from the settled-steps work,
+skills/coordinate/scripts/posture-read.sh and
+skills/coordinate/scripts/state-stored-set.sh
 
 **Type**: code
 
@@ -121,14 +131,15 @@ no niwa on the path.
   `not-dispatched`, or with no niwa on PATH, is refused with the
   couldn't-be-read refusal and its case word, and the target is unchanged.
 - [ ] A cap write with `CLAUDE_CODE_SESSION_ID` unset is refused as
-  cross-lane, whether or not the record has a driver.
+  cross-lane with the couldn't-be-read refusal and the case word
+  `no-session`, whether or not the record has a driver, and the stand-in's
+  log shows no call.
 - [ ] A coordinator's first-start cap write, run through the template's own
   order, succeeds with no read.
 - [ ] A search of the changed files finds no literal naming the cap-change
   authority's token, and no rule for who holds it.
-- [ ] The refusal is the end of the write, not of the move: `--run cap` exits
-  non-zero after printing it, and Step 4's text has the session raise the move
-  as a decision entry.
+- [ ] Every refusal exits non-zero after printing its line, and writes nothing
+  to any record, the caller's included.
 
 **Check**: Run `state-stored-set.sh`'s tests under
 `skills/coordinate/scripts/` with the stand-in niwa; every case above passes.
@@ -208,18 +219,31 @@ escalated once, and that a search for `niwa authority check` under
 - [ ] A reader finds the cap-change authority named only as something niwa
   grants: no definition, no rule for who holds it, no level rule, no grant
   table, and no text that grants or withholds it on the skill's own terms.
-- [ ] After a refused cross-lane move, the moving session's record holds one
-  decision entry proposing that move, with the refusal as its evidence and a
-  recommendation, escalated once under the skill's existing decision rules; a
-  second refusal of the same move adds no second entry, and the sibling's cap
-  is unchanged.
+- [ ] The template's `wait` text has a session whose cross-lane cap write was
+  refused submit `event: raise`; its `decision_raise` text has it run
+  `state-decision.sh --open --source self` with a question naming the move
+  (target session and cap value) and quoting the refusal line; and its
+  `decision_verdict` text has it escalate that entry with `--escalate`,
+  writing the recommendation there and the refusal line as `--context`.
+- [ ] The text defines the same move as the same target session and the same
+  cap value, and cites the existing `decision_raise` rule that an open entry
+  holding the question is reused, not opened again. It says this reuse is
+  the agent's instruction, not an engine guard.
+- [ ] The text says the refusal stands and no answer to the entry authorizes
+  the cross-lane write; a person who wants the target's cap changed has the
+  target lane set its own cap.
+- [ ] Walking a refused move through a scratch record ends with one decision
+  entry whose question carries the refusal line, escalated once with a
+  recommendation; a second refusal of the same move while that entry is open
+  adds no entry, and the sibling's record is byte-identical throughout.
 - [ ] A search for `niwa authority check` under `skills/coordinate/` finds it
   in `authority-read.sh` alone.
 
-**Check**: Run the coordinate engine test for a refused cross-lane cap move,
-which ends with one escalated decision entry and an unchanged sibling record,
-and the one-reader search; read the changed Bounds and Authority text for any
-rule about who holds the cap-change authority and find none.
+**Check**: A walkthrough on a scratch record, driving the template by hand
+through two refusals of the same move, then reading the record: one entry,
+escalated once, the sibling's record unchanged. Then the one-reader search,
+and a read of the changed Bounds and Authority text for any rule about who
+holds the cap-change authority, finding none.
 
 **Dependencies**: Step 2, Step 3
 
@@ -253,16 +277,20 @@ end-to-end criteria for a director and a lane it dispatched.
   through the skill is refused naming the cap-change authority as one niwa
   grants and the session lacks, and the sibling's cap in force and record
   entries are unchanged.
-- [ ] The run records the niwa version, each command and each answer, so the
-  measurement can be read back.
+- [ ] The run's record lands in the design's "What a third session can read
+  today" section, replacing its unmeasured sentence: the niwa version, each
+  command with host paths replaced by placeholders, and the result lines it
+  read (state, grant, level, level source and the `merge-pr` settler), never
+  a full niwa answer, which carries host paths.
 
 **Check**: A walkthrough on this host with a dispatched lane holding a grant:
 the director-side read shows the grant, the changed grant shows on the second
-ask, and the cross-lane move is refused; the recorded commands and answers
-show each.
+ask, and the cross-lane move is refused; the design's updated section shows
+each command and its result lines.
 
 **Dependencies**: Step 4
 
+**Files**: docs/designs/DESIGN-director-reads-lane-authority.md
 
 **Type**: task
 

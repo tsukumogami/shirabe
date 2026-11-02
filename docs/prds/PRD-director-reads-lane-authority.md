@@ -169,12 +169,19 @@ from niwa first. The move goes ahead only when that answer is `bound` and its
 grant holds the cap-change authority. Otherwise the skill refuses, names the
 cap-change authority as one niwa grants and the session doesn't hold, and
 leaves the target lane's cap and record unchanged. A record is the moving
-session's own only when the session driving it is the moving session; a
-write whose session can't be told from a recorded driver counts as
-cross-lane. A refused move isn't dropped: the moving session raises it once as
-a decision entry in its own record, with the refusal as its evidence and a
-recommendation, and escalates it under the skill's existing decision rules.
-It doesn't retry the write or reach the same cap another way.
+session's own when its recorded driver is the moving session, or, with no
+driver recorded, when its coordinator is the moving session. Every other case
+counts as cross-lane, including a writer with no session id, which is refused
+without a read under the reason `no-session`.
+
+A refused move isn't dropped. The moving session raises it as a decision
+entry in its own record, with the refused move and the refusal line in the
+entry's question, and escalates that entry under the skill's existing
+decision rules with a recommendation. While that entry is open, a second
+refusal of the same move (the same target session and the same cap value)
+reuses it rather than raising another. The session doesn't retry the write or
+reach the same cap another way, and no answer to the entry authorizes the
+write: the cross-lane write stays refused until niwa grants the authority.
 
 **R8. No cap-change authority exists yet, so every cross-lane move is
 refused.** niwa grants no cap-change authority today. Until it does, every
@@ -203,8 +210,8 @@ the standing-rule grant fields, and for who settles each finishing step, so
 
 **R13. Bounded.** Each read is bounded the way the skill's existing authority
 reads are (three seconds by default). One question costs at most one read
-per lane asked about, and a cross-lane cap move costs one read of the moving
-session.
+per lane asked about, and a cross-lane cap move costs at most one read of the
+moving session (none when the writer has no session id).
 
 **R14. Works on today's niwa.** The lane read works on niwa 0.40.0 from a
 session that is neither the lane nor its dispatcher, using only what that
@@ -237,9 +244,11 @@ dependency, never assumed.
   cap-change authority as one niwa grants and the session lacks; the
   sibling's cap in force and record entries are unchanged afterward.
 - [ ] After that refusal, the moving session's record holds one decision entry
-  proposing the move, with the refusal as its evidence and a recommendation,
-  escalated once; a second refusal of the same move adds no second entry, and
-  the sibling's cap is still unchanged.
+  whose question names the move and carries the refusal line, escalated once
+  with a recommendation; a second refusal of the same move (same target
+  session, same cap value) while that entry is open adds no second entry; an
+  answer to the entry writes nothing to the sibling's record, and the
+  sibling's cap is still unchanged.
 - [ ] The same cross-lane move, with the moving session's read made to fail,
   time out or answer `not-dispatched`, is refused with the reason, and the
   sibling's cap is unchanged.
@@ -247,8 +256,8 @@ dependency, never assumed.
   succeeds as before, and makes no authority read for it.
 - [ ] A cap write against a record whose driver is a different session from
   the writer is treated as cross-lane and refused; a write whose writer can't
-  be told from the record's driver (no session id for the writer, with a
-  driver recorded) is refused the same way, with that reason.
+  be told (no session id for the writer, with or without a driver recorded)
+  is refused the same way, with the reason `no-session` and no read.
 - [ ] A reviewer reads the skill after the change and finds the cap-change
   authority named only as something niwa grants: no definition, no rule for
   who holds it, no level rule and no grant table.
@@ -319,7 +328,11 @@ dependency, never assumed.
 - **Refuse, don't ask.** Until niwa grants the authority, a cross-lane cap
   move is refused and reported, rather than routed to a person for approval.
   Routing it would make a person the source of an allowance the workspace
-  hasn't declared.
+  hasn't declared. R7's decision entry doesn't reopen that: the refusal
+  stands, and an answer to the entry, from a person or anyone else, can't
+  authorize the cross-lane write. What the entry carries upward is the need
+  behind the move. A person who wants the target's cap changed has the
+  target lane set its own cap on their word, which R10 already allows.
 - **Read fresh, never cache.** Caching an answer across asks would save a
   three-second read and would hide exactly the change R4 exists to show.
 - **Own cap stays as it is.** Adding a read to a lane's own cap write would

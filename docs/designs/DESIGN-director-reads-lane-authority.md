@@ -51,7 +51,8 @@ Neither source the director has moves when the workspace changes.
 The skill already reads niwa's authority answer in three places, each for the
 coordinator's own session: `posture-read.sh` at start, `state-stored-set.sh
 --rules` for the standing-rule grant fields, and `need-check.sh` through the
-stored copy. The settled-steps scoping in tsukumogami/shirabe#1496 replaces
+stored copy. The settled-steps design
+(`docs/designs/DESIGN-coordinator-authority-settled-steps.md`) replaces
 those call sites with one reader, `authority-read.sh`, and adds a per-step read
 for merges, closes and releases. No code reads another session's answer.
 
@@ -84,6 +85,10 @@ lane nor its dispatcher:
   `workspace`, and for the merge point a `decider` and an `author_exclusion`.
 - No authority niwa's policy names is a cap-change authority. The grant
   vocabulary today is `merge-pr`, `close-issue` and `cut-release`.
+
+The read named the point `merge`; niwa takes any point name of the right
+form, and the skill's settler read names the merge point `merge-pr`, so the
+answer for `merge-pr` from a third session is measured with the rest below.
 
 That read was of a lane whose grant was empty. A third session's read of a
 lane whose role grants at least one authority, and of a grant changed between
@@ -169,22 +174,49 @@ order in the template and moves the cap write after the coordinator row if it
 isn't already there.
 
 An own write goes ahead with no read, exactly as today. A cross-lane write
-calls `authority-read.sh` for the caller's own session and instance, then
-refuses: the skill names no token for the cap-change authority, so no grant
-niwa returns today can hold it. The refusal prints which case applied
-(`not-held` for a bound answer, niwa's state for any other, or the reader's
-`skipped`, `timeout`, `failed` or `refused`), names the cap-change authority as
-one niwa grants and the session doesn't hold, exits non-zero, and writes
-nothing to the target record.
+from a caller with no session id is refused at once with the case
+`no-session`: there is no session to read. Any other cross-lane write calls
+`authority-read.sh` for the caller's own session and instance, then refuses:
+the skill names no token for the cap-change authority, so no grant niwa
+returns today can hold it. The refusal prints which case applied (`not-held`
+for a bound answer, niwa's state for any other, the reader's `skipped`,
+`timeout`, `failed` or `refused`, or `no-session`), names the cap-change
+authority as one niwa grants and the session doesn't hold, exits non-zero, and
+writes nothing to the target record.
 
-A refused move isn't dropped. The skill text has the moving session raise it
-once as a decision entry in its own record, through the record's existing
-decision path (`decision_raise`, source `self`), with the refusal as its
-evidence and a recommendation, and escalate it under the skill's existing
-rules, so the change reaches whoever that session reports to. An open entry
-for the same move is reused rather than raised again. The entry's routing is
-the decision path's, unchanged; this design adds none, and the target lane's
-record stays untouched.
+A refused move isn't dropped. The skill text routes it through the record's
+existing decision path, in the order that path already takes:
+
+1. **Raise.** Cap writes happen in `wait`, on a person's word. After a refused
+   cross-lane write the session submits `event: raise`, the only route from
+   `wait` to `decision_raise`. There it runs `state-decision.sh --open
+   --source self` with a question that names the move (the target session and
+   the cap value) and quotes the refusal line, and options such as the target
+   lane setting its own cap on a person's word, or leaving it. `--open` writes
+   only the question, the options and the source, so the refusal goes in the
+   question: entry evidence is tied to an arrival event at
+   `decision_evidence`, and a refusal isn't one.
+2. **Take.** `decision_next` routes the new entry to `decision_take`, where
+   `--take` hands it to the coordinator's verdict.
+3. **Escalate.** At `decision_verdict` the session gives the verdict
+   `escalate` with `state-decision.sh --escalate`, which is where the
+   recommendation is written, with the refusal line as its `--context`. The
+   escalation goes to whoever the session reports to.
+
+The same move is the same target session and the same cap value. While an
+entry for it is open, a second refusal of that move raises nothing: the
+template's existing `decision_raise` rule ("When the question is already an
+open entry ... don't open a second one") has the session reuse it. That rule
+is an instruction to the agent. The engine stops only a second raise in the
+same visit to `decision_raise`, and nothing in `state-decision.sh` refuses a
+repeated question across visits, so the reuse rests on the template text and
+is checked by a walkthrough, not by an engine test.
+
+No answer to the entry authorizes the write. The refusal stands until niwa
+grants the authority; an answer can lead to the target lane setting its own
+cap on a person's word, which the own-write path already allows. The entry's
+routing is the decision path's, unchanged; this design adds none, and the
+target lane's record stays untouched.
 
 #### Alternatives Considered
 
@@ -245,7 +277,7 @@ cap write --state-stored-set.sh --run cap--> own?   --> write as today
 
 ### Components
 
-**`skills/coordinate/scripts/authority-read.sh` (from tsukumogami/shirabe#1496).**
+**`skills/coordinate/scripts/authority-read.sh` (from the settled-steps design).**
 Unchanged in shape. This design relies on its `--session` and
 `--instance-root` flags naming the session and instance asked about, so a
 caller can ask about a session other than its own. If this feature is built
@@ -306,7 +338,8 @@ forms. For a bound answer:
 refused: moving another lane's cap needs the cap-change authority, which niwa grants and this session doesn't hold (not-held)
 ```
 
-For any other result, where the read couldn't say:
+For any other result, where the read couldn't say, and for `no-session`,
+where there was no session to read:
 
 ```
 refused: moving another lane's cap needs the cap-change authority, which niwa grants, and this session's authority couldn't be read (<case>)
@@ -321,7 +354,7 @@ entries stay as they were.
 
 ### Where this meets the earlier work
 
-tsukumogami/shirabe#1496 makes a coordinator take who settles each finishing
+The settled-steps design makes a coordinator take who settles each finishing
 step from a fresh authority answer and adds `authority-read.sh` as the only
 code that runs `niwa authority check`. This design adds two callers to that
 reader and no other call site, so the one-file search both scopings ask for
@@ -352,7 +385,8 @@ it to that design's interface and move `posture-read.sh` and
 Add the own-or-cross-lane split and the refusal to `state-stored-set.sh --run
 cap`, with tests against a stand-in niwa for each case: own write with no
 read, cross-lane bound with no such grant, read failure, timeout, no niwa,
-`not-dispatched`, and a driver recorded with no caller session id.
+`not-dispatched`, and no caller session id with and without a driver
+recorded (`no-session`, with no call on the stand-in's log).
 
 ### Phase 3: The lane read
 
@@ -364,9 +398,10 @@ making exactly two `niwa authority check` calls.
 ### Phase 4: The skill text
 
 Update the Bounds and Authority text and the template, including the text that
-has a session raise a refused cross-lane move once as a decision entry, and
-check that a search for `niwa authority check` under `skills/coordinate/` finds
-only the reader.
+takes a refused cross-lane move through raise, take and escalate as Decision 2
+lays out, and reuses an open entry for the same move. Check that a search for
+`niwa authority check` under `skills/coordinate/` finds only the reader, and
+walk a refused move through a scratch record to see one escalated entry.
 
 ### Phase 5: The whole-feature check
 
@@ -374,7 +409,9 @@ On this host, on niwa 0.40.0, from a session that is neither the lane nor its
 dispatcher: a dispatched lane whose role grants an authority, read from niwa's
 records alone, a grant changed between two asks, and a refused cross-lane
 move. This is where the third-session read of a lane holding grants is
-measured.
+measured. The record lands in "What a third session can read today" above,
+as commands with host paths replaced and the result lines read, never full
+niwa answers.
 
 Phases 1 to 5 are the PLAN's Steps 1 to 5, each in its own pull request.
 
@@ -397,7 +434,8 @@ None of these is assumed shipped.
 - **The per-point settler.** niwa answers a point's settler today, but tying it
   to the authority level is work that hasn't started; the lane read reports
   what niwa answers and claims nothing past it.
-- **The settled-steps reader** (tsukumogami/shirabe#1496), not yet merged.
+- **The settled-steps reader.** The settled-steps design is Planned and its
+  PLAN builds `authority-read.sh` first; it isn't built yet.
 
 ### Call counts
 
