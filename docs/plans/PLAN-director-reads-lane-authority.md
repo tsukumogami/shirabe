@@ -453,8 +453,10 @@ half of that criterion closes with the settled-steps work.
   table, and no text that grants or withholds it on the skill's own terms.
 - [ ] The template's `wait` text has a session submit `event: raise` only when
   a refused cap write's `--session` named a record other than
-  `{{SESSION_NAME}}`; a refusal on its own record (`unproven-owner`,
-  `no-session`) raises nothing and the session reports the refusal line. Its
+  `{{SESSION_NAME}}`; a refusal on its own record raises nothing, whatever
+  its case (`unproven-owner`, `no-session`, or `not-held` for a session whose
+  run another session has resumed since), and the session reports the
+  refusal line. Its
   `decision_raise` text has it run `state-decision.sh --open --source self`
   with a question naming the move (target session and cap value) and quoting
   the refusal line; and its `decision_verdict` text has it escalate that
@@ -483,8 +485,10 @@ half of that criterion closes with the settled-steps work.
 - [ ] Walking a refused move through a scratch record ends with one decision
   entry whose question carries the refusal line, escalated once with a
   recommendation and `--grounds outside-scope`; a second refusal of the same
-  move while that entry is open submits no `raise` and adds no entry; and a
-  `unproven-owner` refusal on the session's own record raises no entry. The
+  move while that entry is open submits no `raise` and adds no entry; and an
+  `unproven-owner` refusal on the session's own record, and a `not-held`
+  refusal on its own run after a second session resumed it, each raise no
+  entry. The
   escalated entry is then answered through the existing path (an `answer`
   event from `wait` to `decision_answer`, which runs `state-decision.sh
   --answer --outcome <option>`), and the sibling's record, read afterward, is

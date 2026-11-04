@@ -206,7 +206,8 @@ one that isn't the coordinator its record names (a run from before this
 feature, say, whose coordinator has no findable session name); and a session
 whose run another session has resumed since, which is no longer the latest
 opener and, unless its record's coordinator row names it, writes as another
-lane under R7. The first kind's cap write is
+lane under R7, except that its refusal, being on its own record, raises no
+decision entry. The first kind's cap write is
 treated as cross-lane and refused under R7 (`no-session` for a missing id,
 `unproven-owner` for a record it can't show is its own, with the cause),
 its own record included, and a refused write to its own record raises no

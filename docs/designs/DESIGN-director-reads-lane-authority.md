@@ -223,9 +223,15 @@ a takeover (`coordinate-open.sh`'s `meta_set`, `state-write-core.sh`'s
 rewrite drops the claim that no one else writes while the meta is written:
 a resume's write can run while the earlier session is still writing. So the
 resume write is skipped when `opened_by` already names the caller, and
-otherwise re-reads the meta and rewrites only `opened_by`. Two sessions
-writing the same record at once can still lose one write, which ends in a
-refusal, never a widened write. `SKILL.md` lists `warning=opener-unrecorded`
+otherwise re-reads the meta and rewrites only `opened_by`. That narrows the
+window but doesn't close it: two sessions writing the same record at once can
+still lose one write. A lost `opened_by` ends in a refusal, never a widened
+write. A resume write that lands over the other session's record write can
+roll back the meta's other fields (`written`, `standing_used`, `pending`),
+and a rolled-back `standing_used` could hand out a Standing id twice. Nothing
+here adds a lock for it; the window is the one moment a second session
+resumes a run the first is still writing, and the Negative consequences name
+it. `SKILL.md` lists `warning=opener-unrecorded`
 beside `warning=rules-unrecorded`, saying what it means and that the next
 start writes the opener.
 
@@ -288,8 +294,11 @@ refuses never gets this far: a write mode refuses it with 10, as today. A
 caller with no valid id never reaches the test: it is refused `no-session`
 first. The check runs right after that parse and before `lib_write_guard`,
 so a cross-lane move is refused by the authority's name and never by the
-guard's exit 10 for a session that isn't the writer's own live one. An own
-write passes the check and then meets the guard exactly as today.
+guard's exit 10, which refuses a target run that fails provenance or isn't
+its scope's live run. An own write passes the check and then meets the guard
+exactly as today. The cost is that a cross-lane write to a target that isn't
+live makes one niwa read before it's refused, which changes nothing it
+writes.
 
 The two parse the driver differently, and that's named rather than shared:
 the opener's `meta_field` reads a number as no driver and a boolean as its
@@ -339,9 +348,10 @@ existing decision path, in the order that path already takes:
    word (the session's own first cap is written at reconcile). After a refused
    cap write whose `--session` named a record other than the session's own
    (`{{SESSION_NAME}}`), the session submits `event: raise`, the only route from
-   `wait` to `decision_raise`. A refusal on its own record (`no-session` or
-   `unproven-owner`) raises nothing: the session reports the refusal line and
-   stays in `wait`. At `decision_raise` the session runs `state-decision.sh --open
+   `wait` to `decision_raise`. A refusal on its own record raises nothing,
+   whatever its case: `no-session`, `unproven-owner`, or `not-held` (or a
+   couldn't-be-read case) for a session whose run another session has resumed
+   since. The session reports the refusal line and stays in `wait`. At `decision_raise` the session runs `state-decision.sh --open
    --source self` with a question that names the move (the target session and
    the cap value) and quotes the refusal line, and options such as the target
    lane setting its own cap on a person's word, or leaving it. `--open` writes
@@ -825,6 +835,10 @@ exposure the takeover rule has today, and this design doesn't widen it.
 
 ### Negative
 
+- A resume's `opened_by` write that lands while the earlier session is still
+  writing the record can roll back that session's meta fields, a
+  rolled-back `standing_used` included. The resume write re-reads the meta
+  first, which narrows the window, and nothing adds a lock.
 - Every cross-lane cap move is refused until niwa grants the cap-change
   authority, including moves a person would have approved.
 - A lane question costs two niwa calls per lane plus one list.
@@ -842,8 +856,8 @@ exposure the takeover rule has today, and this design doesn't widen it.
   records that session as its latest opener. The first session, if it's
   still running, can no longer prove the record is its own by its opener.
   Unless the coordinator row names its found session name, its cap writes
-  on that run are treated as cross-lane: read, refused `not-held` today, and
-  raised as a decision entry like any other cross-lane move.
+  on that run are treated as cross-lane: read and refused `not-held` today,
+  and, as a refusal on its own record, reported without raising an entry.
 
 ### Mitigations
 
