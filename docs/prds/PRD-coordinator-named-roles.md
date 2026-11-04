@@ -556,11 +556,14 @@ Checks and content:
 - A third role, or a director over directors. The two roles are the whole set
   this change names.
 - Rewording the coordinate evals. They say "coordinator" for either role,
-  which stays correct under R11. The scenarios still change where R2 changes
-  what they grade: a start with no role now stops at the role ask, so a
-  scenario whose start names no role gains one, and new scenarios cover the
-  role ask and a refused mismatch, as the repository's rule for a changed
-  skill requires.
+  which stays correct under R11. The scenarios still change where this change
+  alters what they grade or adds a behaviour, as the repository's rule for a
+  changed skill requires: a start with no role now stops at the role ask (R2),
+  so a scenario whose start names no role gains one; a report now carries the
+  record line (R6), so a scenario grading how a report names the record
+  expects it; and new scenarios cover the role ask, a refused mismatch, a
+  later report's record line, a brief's role (R7), a progress event that no
+  longer links a coordinate holding, and each role's list (R10).
 - Worker briefs, which start no coordinator and get no role line.
 
 ## Known Limitations

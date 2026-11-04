@@ -326,9 +326,14 @@ as {recorded}; this start names {asked}. A continuation keeps its role unless an
 intervention from above changes it; nothing was written and {run} goes on as it was. Start again
 naming {recorded}, or no role, or start {asked} as a new lineage." An import
 runs the same check on the copy right after it lands, before the
-`record/host` write, the rebind and the fence, and an import re-run on koto
-0.32 or later whose copy is already here (the branch that resumes it or calls
-`finish_takeover`) runs it on that copy before either. By then the copy is on this
+`record/host` write, the rebind and the fence. An import re-run on koto 0.32
+or later whose copy is already here and fenced runs it, before it resumes or
+calls `finish_takeover`, on the run that branch continues. After a finished
+import that is the successor `$FENCE_BY`, which the re-run resumes: its row,
+written by `finish_takeover` with any accepted change, is the run's role,
+while the fenced copy's still holds the role from before the change. After a
+cut-short import it is the successor when that takeover already wrote its
+`role` row, and the copy otherwise. By then the copy is on this
 host and the source is marked migrated, so importing again would be refused
 `import_name_taken`; every role refusal on an import therefore ends with one
 more wording row, `role_import_copy`: "The run's copy is on this host now and
@@ -415,7 +420,8 @@ An accepted change is written through `state-stored-set.sh --run role <new>
 
 An import's "no other setting" rule accepts the two change flags beside
 `--role`, and its change is decided on the copy at the mismatch check, before
-the `record/host` write. `state-stored-set.sh --run role` with
+the `record/host` write (on a re-run, on the run the re-run continues, as the
+mismatch check says). `state-stored-set.sh --run role` with
 `--intervention` may write before the find, as `--rule-files` does; without
 `--intervention` it keeps its current rule. `--intervention` is the one way the set-once
 writer replaces a different value; without it a different value still exits

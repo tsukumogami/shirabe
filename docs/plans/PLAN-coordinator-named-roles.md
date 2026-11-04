@@ -92,6 +92,26 @@ Issue 4, a lane a brief starts carries no `--role` on its invocation line and
 stops at `ask=role` with exit 10, so Issue 4 lands right after Issue 2 and no
 lane is dispatched between them.
 
+Three rules hold for every issue. A rule-coverage row's key phrase is 8 to 60
+characters and sits on one line of its file, because `rule-coverage_test.sh`
+refuses any other length and matches with `grep -F` line by line; where a
+criterion below pins a sentence longer than that, it pins short phrases from
+it, one per clause or source. And each pull request passes the PRD's
+public-content check over its own diff: its added lines, every commit message
+on its branch, and its title and description hold no word
+`skills/writing-style/rules.yaml` bans (checked against that file, not a
+copied list), no emoji, no `Co-Authored-By` or other AI attribution, no path or
+name from a private repository, no session name and no internal figure. Each
+issue's public-content criterion refers to this check. Last, scenarios follow
+behaviour, as the repository's rule for a changed skill requires: Issues 2,
+3, 4, 5 and 6 change what the skill does or owes, so each updates
+`skills/coordinate/evals/evals.json` for its own change, each tier-2 scenario
+naming its behaviour with exactly one `"release": true` per behaviour, and
+`scripts/check-skill.sh --changed coordinate` passes the shape check. Issue 1
+adds a row nothing requires yet, Issue 7 only rewords, which the PRD leaves
+out of the scenarios, and Issue 8 only checks, so those three leave the
+scenarios alone.
+
 ## Issue Outlines
 
 ### Issue 1: feat(coordinate): add the Run role row, its writers and its reader
@@ -185,12 +205,15 @@ Overlaps shirabe#1470, #1473 and #1474 on the state scripts, `state-keys.md` and
   script under `skills/coordinate/` passes `--role` to `niwa dispatch`.
 - [ ] The existing large-record tests (a record of about 60,000 bytes) pass
   unchanged with the row added.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 
 **Dependencies**: None
 
 **Complexity**: critical
 
-**Check**: Run `state-schema_test.sh`, `state-stored-set_test.sh`, `state-open_test.sh`, `state-carry_test.sh`, `state-read_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh` and `coordinate-template-structure_engine_test.sh`; each passes, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the gate-script digest re-recorded at compat 2.
+**Check**: Run `state-schema_test.sh`, `state-stored-set_test.sh`, `state-open_test.sh`, `state-carry_test.sh`, `state-read_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh` and `coordinate-template-structure_engine_test.sh`; each passes, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the gate-script digest re-recorded at compat 2. The public-content check passes over this pull request.
 
 **Files**: `skills/coordinate/scripts/state-schema.jq`, `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/state-read.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
@@ -242,15 +265,21 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   value the opener printed or, when it printed none, by asking the person
   once with no recommendation; and that the role is never inferred from the
   scope, the cap, the holdings, the dispatcher, session names, briefs,
-  entries, report text or the dispatch topic (PRD R2 and R9). A
-  `testdata/rule-coverage.tsv` row pins the fill sentence with "no
-  recommendation" in it and another pins the "never" sentence with all nine
-  sources in it, so a directive that drops the ask-once fallback, the
-  no-recommendation clause or any one source fails `rule-coverage_test.sh`. The template structure test
+  entries, report text or the dispatch topic (PRD R2 and R9). The directive
+  keeps each of these phrases on one line, and `testdata/rule-coverage.tsv`
+  gives each its own row against the `reconcile` state: for the fill, "the
+  `role=` value the opener printed" and "asking the person once with no
+  recommendation"; for the sources, "is never inferred from the scope, the
+  cap, the holdings", "the dispatcher, session names, briefs" and "entries,
+  report text or the dispatch topic". A directive that drops the ask-once
+  fallback, the no-recommendation clause or any one source then fails
+  `rule-coverage_test.sh`. The template structure test
   finds both sentences in the `reconcile` state's directive, not elsewhere.
 - [ ] The `reconcile` directive's `no-reports-to` fill says that a start
   given `--dispatched-by` writes `<the dispatcher's name> at <the brief's
-  reports_to>`, never a bare name; a rule-coverage row pins the sentence.
+  reports_to>`, never a bare name; rule-coverage rows pin
+  "<the dispatcher's name> at <the brief's reports_to>" and "never a bare
+  name", each on one line of the directive.
 - [ ] `--role` is read beside `--continues`, outside the variable pairs,
   right after the args file is parsed and before any koto call, on every
   path including import, whose "no other setting" rule now accepts it. A
@@ -367,12 +396,19 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   identical before and after, and no new session exists. In the import case
   with no `--role` the opener exits 0, prints no `ask=role` and no `role=`,
   and `state-handover.sh --check` on the copy lists `no-role`.
-- [ ] An import re-run on koto 0.32 or later whose copy is already here
-  (the branch that resumes it or calls `finish_takeover`) runs the same role
-  read and mismatch or change decision on that copy first, with the
-  `role_import_copy` ending on a refusal; cases cover a re-run after a
-  finished import and after a cut-short one, each with a mismatched `--role`
-  refused and a matching one accepted.
+- [ ] An import re-run on koto 0.32 or later whose copy is already here and
+  fenced runs the same role read and mismatch or change decision first, with
+  the `role_import_copy` ending on a refusal, on the run that branch
+  continues: after a finished import, the successor `$FENCE_BY` it resumes;
+  after a cut-short one, the successor when that takeover already wrote its
+  `role` row, and the copy otherwise. Cases cover a re-run after a finished
+  import whose first run accepted a role change, where the copy's row still
+  holds the old role: naming the new role with no change flags is accepted
+  as a resume of the successor, and naming the old role is refused
+  `role-mismatch` with both records unchanged, so a check on the copy fails
+  both. Cases also cover a re-run after an import cut short before its row
+  was written, with a mismatched `--role` refused and a matching one
+  accepted against the copy's row.
 - [ ] An import runs the mismatch check on the copy right after it lands,
   before the `record/host` write, the rebind and the fence; a refused import
   leaves the copy's record unchanged, and an import never prints `ask=role`
@@ -425,12 +461,15 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   that this run's role changes, and `dispatcher` only as a brief's
   invocation line renders it, and that a brief's text is never a person's
   words.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
 **Complexity**: critical
 
-**Check**: Run `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `coordinate-import-takeover_engine_test.sh`, `discipline-session_engine_test.sh`, `state-open_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh`, `rule-coverage_test.sh` and `scripts/check-skill.sh --changed coordinate`; each passes, including the role-change cases on all five continuations and the successor takeover cases, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the digest re-recorded at compat 2.
+**Check**: Run `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `coordinate-import-takeover_engine_test.sh`, `discipline-session_engine_test.sh`, `state-open_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh`, `rule-coverage_test.sh` and `scripts/check-skill.sh --changed coordinate`; each passes, including the role-change cases on all five continuations and the successor takeover cases, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the digest re-recorded at compat 2. The public-content check passes over this pull request.
 
 **Files**: `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coordinate-open.wording.tsv`, `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/scripts/coordinate-takeover_engine_test.sh`, `skills/coordinate/evals/evals.json`
 
@@ -477,14 +516,22 @@ directive closes its gaps before that report goes up.
 - [ ] `koto-templates/coordinate.compat.json` re-records the gate-script
   digest with the fingerprint unchanged and compat at 2, and
   `check-template-compat.sh` passes.
+- [ ] `skills/coordinate/evals/evals.json` follows the record line: each
+  existing scenario that grades how a report names the record or keeps the
+  reconcile report's opening lines expects the record line among those lines,
+  with the role, and a new scenario covers a later report starting with what
+  `coordinate-report.sh --record-line` prints, pasted as printed.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 
 **Dependencies**: Blocked by <<ISSUE:2>>
 
 **Complexity**: testable
 
-**Check**: Run `reconcile-report_test.sh` and `coordinate-report_test.sh`; each passes, and a fixture run's first report has the record line within its first five lines. `check-template-compat.sh` passes with the digest re-recorded at compat 2.
+**Check**: Run `reconcile-report_test.sh` and `coordinate-report_test.sh`; each passes, and a fixture run's first report has the record line within its first five lines. `check-template-compat.sh` passes with the digest re-recorded at compat 2. `scripts/check-skill.sh --changed coordinate` passes the shape check. The public-content check passes over this pull request.
 
-**Files**: `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/scripts/reconcile-report-get.sh`, `skills/coordinate/scripts/coordinate-report.sh`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/SKILL.md`
+**Files**: `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/scripts/reconcile-report-get.sh`, `skills/coordinate/scripts/coordinate-report.sh`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/SKILL.md`, `skills/coordinate/evals/evals.json`
 
 ### Issue 4: feat(coordinate): carry the role on a coordinator brief's invocation line
 
@@ -605,14 +652,21 @@ they are.
 - [ ] `coordinate.compat.json` re-records the gate-script digest with the
   fingerprint unchanged and compat at 2 (`dispatch-common.sh` is sourced by
   gate scripts, so the digest moves), and `check-template-compat.sh` passes.
+- [ ] `skills/coordinate/evals/evals.json` gains scenarios for a director
+  dispatching a lane, whose brief's invocation line carries `--role manager`,
+  and for a successor started from its brief, which passes the `--role` the
+  line names and infers none.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 
 **Dependencies**: Blocked by <<ISSUE:2>>
 
 **Complexity**: testable
 
-**Check**: Run `render-brief_test.sh`, `dispatch-worker_test.sh` and `coordinate-takeover_engine_test.sh`; each passes, the successor brief opening end to end, the worker golden files are unchanged in the diff, a plain `--rebrief` of a held lane exits 0 with a brief that carries no `--role` and the fresh-args-file sentence, and the `role_change` cases render and refuse as the criteria say. `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes.
+**Check**: Run `render-brief_test.sh`, `dispatch-worker_test.sh` and `coordinate-takeover_engine_test.sh`; each passes, the successor brief opening end to end, the worker golden files are unchanged in the diff, a plain `--rebrief` of a held lane exits 0 with a brief that carries no `--role` and the fresh-args-file sentence, and the `role_change` cases render and refuse as the criteria say. `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes. `scripts/check-skill.sh --changed coordinate` passes the shape check. The public-content check passes over this pull request.
 
-**Files**: `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/references/entry-points.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/coordinate-takeover_engine_test.sh`
+**Files**: `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/references/entry-points.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/coordinate-takeover_engine_test.sh`, `skills/coordinate/evals/evals.json`
 
 ### Issue 5: fix(coordinate): don't link a progress event's pull request onto a coordinate holding
 
@@ -640,14 +694,22 @@ to `report_link`, where `holding-link.sh` writes the link, so
 - [ ] `coordinate.compat.json` re-records the gate-script digest with the
   fingerprint unchanged and compat at 2 (`report-facts.sh` runs behind the
   `report_facts` gate), and `check-template-compat.sh` passes.
+- [ ] `skills/coordinate/evals/evals.json` gains a scenario in which a
+  dispatched coordinator's progress event names a pull request on a coordinate
+  holding with an empty Pull request cell: the run doesn't enter `report_link`
+  and the holding stays as it was. The existing scenario for a report naming
+  a pull request its holding lacks still grades as it does.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 
 **Dependencies**: None
 
 **Complexity**: testable
 
-**Check**: Run `report-facts_test.sh` and the round-trip cases; they pass, with a coordinate holding's progress event giving no `link` verdict, its report still linking and reaching `verify`, and worker holdings linking as before. `check-template-compat.sh` passes.
+**Check**: Run `report-facts_test.sh` and the round-trip cases; they pass, with a coordinate holding's progress event giving no `link` verdict, its report still linking and reaching `verify`, and worker holdings linking as before. `check-template-compat.sh` passes. `scripts/check-skill.sh --changed coordinate` passes the shape check. The public-content check passes over this pull request.
 
-**Files**: `skills/coordinate/scripts/report-facts.sh`, `skills/coordinate/koto-templates/coordinate.compat.json`
+**Files**: `skills/coordinate/scripts/report-facts.sh`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/evals/evals.json`
 
 ### Issue 6: docs(coordinate): add the Glossary roles, the Roles section and the allowance paragraph
 
@@ -667,7 +729,7 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
   the sentence that a list says what you owe, never what you're allowed to
   do, and holds the design's Both roles, Manager and Director lists.
 - [ ] Each list holds the design's items, and a rule-coverage row pins one
-  sentence from each item, so a dropped or paraphrased item fails
+  phrase from each item, so a dropped or paraphrased item fails
   `rule-coverage_test.sh`: Both roles holds the design's three items ("Call
   yourself only by the role your record holds", "Report up to your
   reviewer", "Brief a successor with the role your record holds") and no
@@ -694,21 +756,25 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
   doesn't contain "your reviewer". The Roles section adds no second
   definition of the reviewer.
 - [ ] The Director's alignment item holds all three parts the PRD's
-  acceptance criterion names, each pinned by its own rule-coverage row: its
-  scope (the pull requests a manager authors and sends, and the worker pull
-  requests each manager reports ready or landed in its lane), its purpose
-  ("It isn't a correctness review", with correctness left to the worker's
-  review round, the manager's land step and the manager's own checks), and
-  its call-out ("name the pull requests and the conflict to every manager
-  involved and in your next report"). The call-out row pins the whole
-  sentence, so an item that tells only one manager, drops the pull
-  requests, drops the conflict or leaves out the next report fails
-  `rule-coverage_test.sh`.
+  acceptance criterion names, each pinned by rule-coverage rows of its own:
+  its scope (the pull requests a manager authors and sends, and the worker
+  pull requests each manager reports ready or landed in its lane), pinned by
+  "the pull requests a manager authors and sends" and "worker pull requests
+  each manager reports"; its purpose ("It isn't a correctness review", with
+  correctness left to the worker's review round, the manager's land step and
+  the manager's own checks); and its call-out ("name the pull requests and
+  the conflict to every manager involved and in your next report"), pinned by
+  "name the pull requests and the conflict" and "to every manager involved
+  and in your next report". The item keeps each phrase on one line, so an
+  item that tells only one manager, drops the pull requests, drops the
+  conflict or leaves out the next report fails `rule-coverage_test.sh`.
 - [ ] The alignment item ends with the PRD R10 sentence that whether the
   reading holds a land isn't set by the role, worded as "Whether your reading
   holds a land isn't set by your role: Bounds and Authority and the
-  workspace's authority configuration say who merges." A rule-coverage row
-  pins it, so an item that leaves this unsaid fails. Beyond that sentence the
+  workspace's authority configuration say who merges." Rule-coverage rows pin
+  "Whether your reading holds a land isn't set by your role" and "the
+  workspace's authority configuration say who merges", each on one line, so
+  an item that leaves this unsaid fails. Beyond that sentence the
   item states no answer either way, as the PRD's criterion requires. The
   requirements are the PRD's R10 (the alignment item and this sentence) and
   R14 (a role never reaches an allowance). Under them, the alignment reading
@@ -727,21 +793,32 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 - [ ] The template's start state lists `manager` and `director` among the
   Glossary's words and tells the session to read the Roles list for the role
   its record holds.
-- [ ] `testdata/rule-coverage.tsv` gains rows for the new pinned sentences
+- [ ] `testdata/rule-coverage.tsv` gains rows for the new pinned phrases
   ("It isn't a correctness review" and "which of your lanes advance" among
   them), and `rule-coverage_test.sh` passes.
 - [ ] Once the lists exist, `references/brief-template.md`'s Goal text (from
   Issue 4) gains the clause that the started coordinator reads its duties
   from the skill's list for its role, as the design's Decision 2 says, and a
   rule-coverage row pins it.
+- [ ] `skills/coordinate/evals/evals.json` gains scenarios for the Roles lists,
+  one each for Both roles, Manager and Director: a session calls itself only
+  by its recorded role; a manager sends a pull request it authored to its
+  reviewer and reports its lane's worker pull requests by link; a director
+  reads a manager's reported pull requests for alignment, not correctness,
+  and on a conflict names the pull requests and the conflict to every manager
+  involved and in its next report, without treating its role as settling the
+  merge.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 
 **Dependencies**: Blocked by <<ISSUE:3>>, <<ISSUE:4>>
 
 **Complexity**: testable
 
-**Check**: Run `rule-coverage_test.sh` and the `## Roles` item-count text check; both pass, `git grep -n "owner's" skills/coordinate/SKILL.md` finds nothing the Roles section added, and `brief-template.md` carries the duties clause.
+**Check**: Run `rule-coverage_test.sh` and the `## Roles` item-count text check; both pass, `git grep -n "owner's" skills/coordinate/SKILL.md` finds nothing the Roles section added, and `brief-template.md` carries the duties clause. `scripts/check-skill.sh --changed coordinate` passes the shape check. The public-content check passes over this pull request.
 
-**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`
+**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/evals/evals.json`
 
 ### Issue 7: docs(coordinate): class every "coordinator" and readdress one-role duties
 
@@ -788,12 +865,15 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 - [ ] Citing PRD R12: the final table has one row per occurrence that
   `grep -oiwE 'coordinators?'` counts over the three file sets at the head,
   and no row is classed one role.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 
 **Dependencies**: Blocked by <<ISSUE:2>>, <<ISSUE:3>>, <<ISSUE:4>>, <<ISSUE:6>>
 
 **Complexity**: testable
 
-**Check**: Count `grep -oiwE 'coordinators?'` over the three file sets at the head and find it equal to the final table's row count, with no row classed one role, then run `rule-coverage_test.sh` and `scripts/check-skill.sh coordinate`; both pass, and the positional-name grep finds nothing.
+**Check**: Count `grep -oiwE 'coordinators?'` over the three file sets at the head and find it equal to the final table's row count, with no row classed one role, then run `rule-coverage_test.sh` and `scripts/check-skill.sh coordinate`; both pass, and the positional-name grep finds nothing. The public-content check passes over this pull request.
 
 **Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`
 
@@ -820,8 +900,9 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
 - [ ] The positional-name grep ("lane coordinator", "nested coordinator")
   finds nothing in the three file sets, per line and over each file squeezed
   by `tr -s '[:space:]' ' '`.
-- [ ] The banned-word check from `skills/writing-style/rules.yaml` finds
-  nothing in the added lines, the commit messages or the pull request text.
+- [ ] This pull request passes the public-content check the Decomposition
+  Strategy names, over its own added lines, commit messages, title and
+  description (PRD R20).
 - [ ] `posture-read.sh` and `niwa authority check --json` print
   byte-identical answers for a fixture run recorded `manager` and the same
   run recorded `director`, as a case in `posture-read_test.sh`. This is the
@@ -848,7 +929,7 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
 
 **Complexity**: testable
 
-**Check**: Run `scripts/check-skill.sh coordinate`, `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`, `scripts/ablation/check-public-content.sh` and `posture-read_test.sh`; each exits 0.
+**Check**: Run `scripts/check-skill.sh coordinate`, `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`, `scripts/ablation/check-public-content.sh` and `posture-read_test.sh`; each exits 0. The public-content check passes over this pull request.
 
 **Files**: `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/check-skill.tsv`
 
@@ -890,6 +971,8 @@ it goes last.
 | PRD R10: the alignment item's scope, purpose and call-out, and that whether the reading holds a land isn't set by the role | Issue 6 |
 | The design's owner funnel as an expectation only, with no mechanism | Issue 6 (the item), Issue 8 (the check that nothing else ships) |
 | PRD R14 and the design's Phase 6: a role never reaches an allowance | Issue 8, with Issue 1's reader allow-list |
+| PRD R20: public content over each pull request's added lines, commit messages, title and description | Every issue, for its own pull request |
+| The PRD's scenario changes under the repository's rule for a changed skill | Issues 2, 3, 4, 5 and 6, each for its own change |
 
 **How the milestone's Evidence is shown.** The PRD's four acceptance groups
 labelled with Milestone 2's Evidence (starting and recording, the successor
