@@ -906,10 +906,9 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
 - [ ] `scripts/check-skill.sh coordinate`,
   `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`
   and `scripts/ablation/check-public-content.sh` each exit 0.
-- [ ] In this issue's checks over the finished change, the base is main just
-  before Issue 1 merged and the diff runs from there to this issue's head, not
-  this pull request's own base, which already holds Issues 1 to 7.
-- [ ] The keep-alive sentence is found in the same files as at the base.
+- [ ] The keep-alive sentence is found in the same files on main just before
+  Issue 1 merged and at this issue's head. This pull request's own base already
+  holds Issues 1 to 7, so it can't show this or the diff read below.
 - [ ] The PRD's positional-name grep (`grep -niwE 'lane coordinators?|(top-level|top|lead|head|parent) (coordinators?|sessions?)|head of effort'`),
   plus "nested coordinator", finds nothing in the three file sets, per line and
   over each file squeezed by `tr -s '[:space:]' ' '`.
@@ -931,10 +930,11 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
   `git grep -niE 'owner[ -]funnel'` under
   `skills/coordinate/` finds matches only in `SKILL.md` and
   `scripts/testdata/rule-coverage.tsv`: none in a script, a wording table, a
-  koto template or `state-schema.jq`. The diff adds no file under
+  koto template or `state-schema.jq`. The diff from main just before Issue 1
+  merged through this issue's head adds no file under
   `skills/coordinate/scripts/` other than tests, no Run or Stored row other
   than `role`, and no koto state, gate or variable (the template's state and
-  gate names are identical at base and head, and the compat fingerprint is
+  gate names are identical at those two points, and the compat fingerprint is
   unchanged).
 - [ ] A text check over `SKILL.md` finds the Roles sentence that a list says
   what a role owes, never what it's allowed to do, and no Roles item that
