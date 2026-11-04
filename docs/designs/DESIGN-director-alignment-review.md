@@ -384,21 +384,37 @@ director's own; a milestone verdict pull request, which goes from
 edit the template sends to the reviewer directly. Their directives run
 `alignment-call.sh --require --on <owner/repo#n>` first. It exits 0 only when a
 standing `fits` or `fits with follow-ups` call exists for the pull request's live
-head, and non-zero naming the head otherwise or when that head can't be read. On
-non-zero the directive does `align_call`'s work where it stands: it writes the
-refusal line once per pull request and head, runs `alignment-sources.sh` and
-`alignment-call.sh`, and runs `--require` again. It doesn't go to `align_call`,
-whose only way forward is `land`. A pull request still refused leaves by an
+head and no unlifted `align-` hold on the pull request stands, and non-zero naming
+the head or the hold otherwise or when that head can't be read, so a `fits` call at
+a held head doesn't pass it (R7, R9). On non-zero for a missing call the directive
+does `align_call`'s work where it stands: it writes the refusal line once per pull
+request and head, runs `alignment-sources.sh` and `alignment-call.sh`, and runs
+`--require` again. It doesn't go to `align_call`, whose only way forward is `land`.
+On non-zero for a hold it writes no refusal line, since a held head is never counted
+as a head with no call. It runs `alignment-call.sh --lift-releasable`, which lifts a
+hold whose guarded lift failed on a `fits` call for a new head and leaves any other
+standing, and runs `--require` again. A pull request still refused leaves by an
 existing edge, naming what stopped it, so these paths add no edge.
 
 A director checks a worker pull request a manager sends up ready at
 `classify_report`, before it submits `classification: done` or `blocked` for that
 report. Passing, `blocked` goes to `surface`, which submits `surfaced: blocker` with
 `need: reserved-step merge <link>`; `need-check.sh` accepts it, `surface_check` goes
-on to `wait`, and the report up names the called head. Still refused, the director
-submits `classification: needs_fix`, whose edge goes to `rebrief`: the message tells
-the manager what stopped the pull request and to report again once that's changed,
-and `rebrief` goes back to `wait` or on to `pick_facts`. The check can't sit at
+on to `wait`, and the report up names the called head. A passing `done` that
+`verify_board` sends to `surface` on `unlinked` goes up the same way. Still refused
+on a `diverges` call or a standing hold, the director submits `classification:
+needs_fix`, whose edge goes to `rebrief`: the message tells the manager what stopped
+the pull request and that a new head releases it, and `rebrief` goes back to `wait`
+or on to `pick_facts`. Still refused with no call, because a plan source or the live
+head can't be read, the manager can't fix it, for the reason `uncalled` avoids
+`rebrief` below. The director submits `classification: blocked`, and `surface` submits
+`surfaced: blocker` with `need: access <owner/repo>` for the repository it can't read.
+`need-check.sh` accepts it, `surface_check` goes on to `wait`, and the report up names
+the source (R2) and recommends nothing. `done` doesn't fit this branch: it goes
+through `verify_board`, whose `unlinked` exit reaches `surface` with no call and no
+need that names it. A record the director can't read isn't this branch: it's a read
+failure, fixed and ticked again at whatever state it stops, as every record read is.
+The check can't sit at
 `surface`, where a refused pull request has no way out: `need-check.sh` takes only
 credential, reserved-step and access needs and a refused need comes back to
 `surface`; `surfaced: merge_table` goes to a `record` step that waits for a Verified
@@ -739,7 +755,7 @@ and relays follow the skill text in the director's section.
 | `alignment-call.sh --copy` | new mode | The manager's side, run on the edge of a `director-hold` wait event: `--copy --add` records a director's hold as sent and `--copy --lift` lifts the manager's copy, each taking `--message-file F --event <n> --from <sender>` and refused unless `--from` is the address in the manager's Run `reports-to` row; the lift is also refused unless the head it names equals the `verified_head` of the manager's holding for the pull request, or the live head when no holding links it, and isn't the placed-on head in the hold's name (R7, R8, R9). `--copy --reports-to` rewrites that row for a successor, refused unless the message names the row's current address and `--from` as the new one (R7, R9). Each writes a `hold` entry naming event `<n>`. |
 | `board-record.sh` | changed | When the latest entry into `verify` came from `director_hold`, reads the pull request from the holding `report_topic` names instead of `report_facts`' capture (R8, R9). |
 | `state-common.sh` | changed | `lib_unit` counts a `director-hold` event with a non-empty `unit` as an arrival (R8, R9). |
-| `alignment-call.sh --require --on <owner/repo#n>` | new mode | Read-only. Exits 0 only when a standing `fits` or `fits with follow-ups` call exists for the live head; run by the directives of the recommendations that skip `land` (R5, R6). |
+| `alignment-call.sh --require --on <owner/repo#n>` | new mode | Read-only. Exits 0 only when a standing `fits` or `fits with follow-ups` call exists for the live head and no unlifted `align-` hold on the pull request stands; run by the directives of the recommendations that skip `land` (R5, R6). |
 | `state-hold.sh` | unchanged | Stays the only writer of the Holds section; every lift calls its `--lift`. |
 | `land-check.sh` | changed | When the Run `role` row reads `director`, after the hold read and before the posture: reports `uncalled <pr> <sha>` unless a standing non-`diverges` call exists for the pinned head (R5). No `role` row: no gate. A `role` row that can't be read: `unready <pr> <sha>`, reason `role-unreadable`. Reads the row in one function, which joins the named-roles reader allow-list test. Own record only. Nothing else in the merge path changes. |
 | `coord-verdict.sh` | changed | `uncalled` exits 86, with its template arm (R5). |
@@ -910,8 +926,10 @@ item of the run. This is the one read R11 names; the start report quotes its
    at the called head. A worker pull request a manager sends up ready doesn't
    enter the director's `land`: at `classify_report`, `alignment-call.sh --require`
    checks its call, the directive records one on a refusal, and `surface` sends it
-   to the reviewer as `need: reserved-step merge <link>`. One still refused goes
-   back to the manager through `needs_fix` and `rebrief`.
+   to the reviewer as `need: reserved-step merge <link>`. One still refused on a
+   `diverges` call or a standing hold goes back to the manager through `needs_fix`
+   and `rebrief`; one with no call goes up as `need: access <owner/repo>`, which
+   recommends nothing.
    On a worker pull request the manager lands, the call is
    recorded with `Action: none`. Any standing `align-` hold is released if the
    guard allows, and the lift message goes to the manager.
