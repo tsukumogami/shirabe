@@ -84,12 +84,14 @@ work, so splitting it off costs the design's rule nothing.
 - [ ] `land-check.sh` on the manager record reports the pull request unready, and its output names the `align-` hold.
 - [ ] A second `diverges` call on the same pull request while the director's hold still stands writes its entry but places no second hold; the director's record still holds exactly one `align-` row.
 - [ ] A `diverges` call on a merged pull request is written as an entry but places no hold, and no `align-` row is added to the director's record.
+- [ ] `state-entry.sh`'s list of entry kinds gains exactly one value, `alignment`, and every existing kind's check is unchanged: `state-entry_test.sh` and `state-entry-on_test.sh` pass with no existing case edited.
+- [ ] `state-entry.sh` is among the scripts the template's gates and actions reach, so the step records the new `gate_scripts` digest in `coordinate.compat.json` at the current compat (`scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md --print`), and `check-template-compat.sh --base-table <base table>` passes as the `check-template-compat` job runs it.
 
-**Check**: Run the step's test. It creates a scratch director record and a scratch manager record whose dispatcher is the director, then plants one pull request head. It runs `alignment-call.sh` with `diverges` in the director record and checks the entry and the `align-` hold row named after that head. It passes the printed message to `alignment-call.sh --copy --add` in the manager record, and then runs `land-check.sh` on the manager record: the result is unready with the `align-` hold named. The test also feeds `state-entry.sh` a malformed alignment line and sees exit 65 with the record unchanged, sends the copy from a wrong sender and sees the refusal, repeats the `diverges` call and sees one hold, and calls `diverges` on a merged pull request and sees an entry and no hold.
+**Check**: Run `alignment-call_test.sh`. It creates a scratch director record and a scratch manager record whose dispatcher is the director, then plants one pull request head. It runs `alignment-call.sh` with `diverges` in the director record and checks the entry and the `align-` hold row named after that head. It passes the printed message to `alignment-call.sh --copy --add` in the manager record, and then runs `land-check.sh` on the manager record: the result is unready with the `align-` hold named. The test also feeds `state-entry.sh` a malformed alignment line and sees exit 65 with the record unchanged, sends the copy from a wrong sender and sees the refusal, repeats the `diverges` call and sees one hold, and calls `diverges` on a merged pull request and sees an entry and no hold. Then run `state-entry_test.sh` (with a case for every refusal `alignment_check` makes), `state-entry-on_test.sh`, `land-check_test.sh`, `check-template-compat.sh` against the base's table and `scripts/check-skill.sh --changed coordinate`. Every case passes.
 
 **Dependencies**: None
 
-**Files**: `skills/coordinate/scripts/state-entry.sh`, `skills/coordinate/scripts/alignment-call.sh`, `skills/coordinate/references/state-keys.md`
+**Files**: `skills/coordinate/scripts/state-entry.sh`, `skills/coordinate/scripts/state-entry_test.sh`, `skills/coordinate/scripts/alignment-call.sh`, `skills/coordinate/scripts/alignment-call_test.sh`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
 ### Step 2: The hold lifts only after a new head and a later fits call
 
@@ -105,27 +107,107 @@ work, so splitting it off costs the design's rule nothing.
 - [ ] In the manager's record, a `--copy --lift` at the placed-on head, a replayed lift naming an older head than the manager's verified head, and a lift from a sender that isn't the dispatcher address the record names are each refused with a message saying why, and the hold still makes `land-check.sh` report the pull request held.
 - [ ] Read from the records alone, every hold and lift the step writes names who decided it (the director and its address in the Set by and Lifted cells) and what it decided on (the pull request, the placed-on head in the hold's name, the head it was released on and the `fits` call's entry number), and the step adds no field for koto's decision record.
 
-**Check**: Run the fixture test for this step. It places a hold with a `diverges` call (as step 1 does) and copies it into the manager's record. It then asserts that a `fits` call at the same head lifts nothing, moves the fixture pull request to a new head, records `fits`, and checks the director's Lifted cell and the printed lift message. It feeds that message to `alignment-call.sh --copy --lift` in the manager's record and checks that `land-check.sh` reports the pull request ready and that the `hold` entry carries the hold name and the call's entry number. It then repeats the lift against fresh copies of the held record at the placed-on head, with a replayed lift naming an older head, and from a non-dispatcher sender, and checks each is refused with `land-check.sh` still reporting held. It makes the live-head read fail and checks the lift is blocked with the hold standing. Finally it reads the director's hold row and Lifted cell and the manager's `hold` entries and finds the decider, the pull request, both heads and the call's entry number in them, with the Holds grammar unchanged.
+**Check**: Run `alignment-call_test.sh` with this step's cases. It places a hold with a `diverges` call (as step 1 does) and copies it into the manager's record. It then asserts that a `fits` call at the same head lifts nothing, moves the fixture pull request to a new head, records `fits`, and checks the director's Lifted cell and the printed lift message. It feeds that message to `alignment-call.sh --copy --lift` in the manager's record and checks that `land-check.sh` reports the pull request ready and that the `hold` entry carries the hold name and the call's entry number. It then repeats the lift against fresh copies of the held record at the placed-on head, with a replayed lift naming an older head, and from a non-dispatcher sender, and checks each is refused with `land-check.sh` still reporting held. It makes the live-head read fail and checks the lift is blocked with the hold standing. Finally it reads the director's hold row and Lifted cell and the manager's `hold` entries and finds the decider, the pull request, both heads and the call's entry number in them, with the Holds grammar unchanged.
 
 **Dependencies**: Step 1
 
-**Files**: `skills/coordinate/scripts/alignment-call.sh`, `skills/coordinate/references/state-keys.md`
+**Files**: `skills/coordinate/scripts/alignment-call.sh`, `skills/coordinate/scripts/alignment-call_test.sh`, `skills/coordinate/references/state-keys.md`
 
 ### Step 3: Every call, merge and hold can be listed, with unreviewed heads marked
 
-`alignment-read.sh` lists calls, merges and recommendations with their call status, standing `align-` holds and lineage gaps, marks a finished unit's final head or a manager-authored pull request merged with no call as unreviewed, and lists a worker pull request a granted manager landed short of a finished unit as `manager-reviewed`, not unreviewed; the director's start reads it in step 5.
+**Goal**: One read-only script, `alignment-read.sh --session S [--since <stamp>]`, lists what the director's run recorded and what merged in its lanes, from the director's own entries, its own Holdings rows, its own `wait` events and GitHub. It prints `{calls, merges, recommendations, holds, refusals, gaps}` as the design's Key Interfaces section gives them. This is the one read R11 names, and the director's start reads it in Step 5.
+
+**Acceptance Criteria**:
+
+- [ ] On a planted director record, `alignment-read.sh --session S` prints one JSON object with exactly the keys `calls`, `merges`, `recommendations`, `holds`, `refusals` and `gaps`, and exits 0.
+- [ ] `calls` lists every `alignment` entry oldest first, each with `entry`, `stamp`, `pull_request`, `head`, `call`, `read`, `sources`, `reason`, `evidence`, `follow_ups`, `action` and `standing`, with `sources`, `evidence` and `follow_ups` as arrays split on `; `. Two calls on the same pull request and head are both listed, and only the later one has `standing` true; a call on an older head of that pull request is never marked standing for a newer head.
+- [ ] The lane pull request set is every pull request a call names, every pull request linked in the director's own Holdings rows, and every pull request a `report` or `progress` event the director's runs submitted names, as the event's pull request or as a link in its message. A merged pull request found only through a `progress` event's message link is listed.
+- [ ] Each merged lane pull request owed a call (a manager-authored one by the director's Holdings rows, or a finished unit's final head: a report names its unit done, reopened or dropped at it, it is a milestone verdict pull request, or GitHub shows it changes a roadmap or strategy document) is listed with `pull_request`, `merged_head`, `merged_at` and `review`: `reviewed` when a call for its merged head was stamped before the merge, `after merge` when the first call for that head was stamped after it, and `unreviewed` when none exists.
+- [ ] A worker pull request its manager reported landing short of a finished unit, with no call before it merged, is listed with `review` `manager-reviewed` and is never `unreviewed`.
+- [ ] `recommendations` lists each call whose Action is `recommend`, with that call.
+- [ ] `holds` lists each `align-` hold with the reason from the `diverges` call its name points to and a state: `lifted` when its Lifted cell is filled; otherwise `merged while held`, `closed while held`, `releasable` when the guarded lift's three conditions hold, or `standing`, flagged `needs re-read` when the live head has no call. Each standing hold carries the latest manager report that named it, or shows as unconfirmed when none did.
+- [ ] `refusals` counts the gate's refusal entries stamped since `--since`, or all of them without it. A refusal is an `entry`-kind entry whose text is the one line `references/state-keys.md` documents in this step, `Alignment refusal: <owner/repo#n> at <40-hex head> -- no-alignment-call`; Step 5's land step writes it.
+- [ ] With `--since <stamp>`, `merges` and `refusals` cover only what is stamped or merged after the stamp; `calls` and `holds` stay whole.
+- [ ] An earlier session of the director's lineage whose log can't be read is listed in `gaps` by name, and the read still exits 0 with everything it could read.
+- [ ] The read writes nothing: the director's record is byte-identical before and after every case.
+- [ ] A script outside the coordinate skill reads every call's five fields with `jq` alone, with no free-text matching (R16).
+
+**Check**: Run `alignment-read_test.sh`. It plants a director record with `alignment` entries (two calls on one head, one on an older head), Holdings rows linking two manager-authored pull requests, `report` and `progress` events naming worker pull requests (one only as a message link), refusal entries on both sides of a stamp, and `align-` holds in each state, and runs the read against a stand-in `gh` that answers each pull request's state, merge time, merged head, live head and changed files. It checks each field and status above, runs once with `--since` and once without, makes one lineage session's log unreadable and finds it in `gaps`, compares the record's bytes before and after, and reads the calls with a `jq` filter kept outside the skill. Then run `scripts/check-skill.sh --changed coordinate`. Every case passes.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/coordinate/scripts/alignment-read.sh`, `skills/coordinate/scripts/alignment-read_test.sh`, `skills/coordinate/references/state-keys.md`
 
 ### Step 4: The director finds what a pull request touches and its call cites it
 
-`alignment-sources.sh` returns the unit, roadmap clauses and Evidence, the strategy path, changed files, the other lanes' open holdings and pull requests, full-read triggers (an `other-lane` trigger naming the lane when the pull request changes a document, path or roadmap another lane has open work on, which the call then names in Sources) and candidate owner decisions, and a milestone-verdict call cites the Evidence clause it was judged against.
+**Goal**: A read-only helper, `alignment-sources.sh`, does the mechanical half of finding a lane pull request's plan sources and prints them as JSON: the unit, that unit's roadmap clauses and milestone Evidence read from the roadmap on the default branch at a named commit (with the roadmap reader `pick-facts.sh` already uses, unchanged), the strategy path the roadmap names, the changed files, the other lanes' open work, the full-read triggers it found and the candidate owner decisions. Which candidates' scope covers the pull request stays the director's judgment, in Step 5's skill text.
+
+**Acceptance Criteria**:
+
+- [ ] On a planted roadmap, strategy and director record with two lanes, the helper prints the pull request's unit, each of its roadmap clauses and its milestone's Evidence clauses by number with the 40-hex commit they were read at, and the strategy path from the roadmap's `upstream:`; with no `upstream:`, the strategy is `none`.
+- [ ] The other lanes' open work lists, for each Holdings row other than the pull request's own lane, the open pull requests its manager's latest report names (with their changed files from GitHub) and the documents, paths and roadmap units its Holdings and Work rows name. The pull request's own lane is never listed.
+- [ ] Triggers: a pull request whose unit a report marks done, reopened or dropped, or that is a milestone verdict pull request, or that changes a roadmap or strategy document, gets a trigger whose reason names that condition. One that changes a file another lane's open pull request also changes, or a document, path or roadmap unit another lane's rows name, gets an `other-lane` trigger naming the lane and the matching open work. A pull request with none of these gets no trigger.
+- [ ] Candidate owner decisions are every Standing row and settled decision whose On or text names the unit or a changed path; a Standing row that names neither isn't listed.
+- [ ] When a source it needs can't be read (the roadmap, the milestone's Evidence, the strategy or the record's owner decisions), the helper exits non-zero naming that source, prints no partial result on stdout, and writes nothing.
+- [ ] A milestone verdict pull request's output lists every Evidence clause of its milestone by number, and a call written with `alignment-call.sh` whose Evidence line gives each of those numbers `met` or `not met` and whose Sources name the roadmap clause at that commit passes `alignment_check` (R6).
+- [ ] An `other-lane` trigger's lane and open work, written into a call's Sources as `lane <holding> <owner/repo#n | path>`, pass `alignment_check`.
+- [ ] The helper writes nothing: the director's record is byte-identical before and after every case.
+
+**Check**: Run `alignment-sources_test.sh`. It builds a scratch git repository holding a planted roadmap (with and without `upstream:`) and strategy, a director record with two lane Holdings rows, Work rows naming a document and a path, Standing rows and a settled decision, and a stand-in `gh` that answers each pull request's changed files and the other lane's open pull request. It runs the helper on a pull request for each trigger, one with no trigger, and a milestone verdict pull request, and checks every field above; it writes the calls from the verdict and `other-lane` outputs with `alignment-call.sh` and sees them accepted; it makes each source unreadable in turn and sees the exit name it with nothing on stdout; and it compares the record's bytes before and after. Then run `pick-facts_test.sh` unchanged and `scripts/check-skill.sh --changed coordinate`. Every case passes.
+
+**Dependencies**: Step 1
+
+**Files**: `skills/coordinate/scripts/alignment-sources.sh`, `skills/coordinate/scripts/alignment-sources_test.sh`
 
 ### Step 5: A director can't merge or recommend a head with no alignment call
 
-`land-check.sh` reports `no-alignment-call` when the Run `role` row reads `director`, and the land step records each refusal once per pull request and head so the next start report prints their count; it ships with the director's alignment section, the start's unreviewed list and hold listing, the manager's hold duty and the template changes, and needs the named-roles build that shirabe#1483 plans.
+**Goal**: The land check requires a standing call when the session is a director, and it ships with everything that tells a director and a manager what to do about it: the director's alignment section in the skill (the triage line stated once, the call, the hold and its release), the director's start reading `alignment-read.sh --since`, the director's land step recording each refusal, the manager's `wait` handling of a director's hold and lift messages, the manager's hold duty in its reports, and the manager's land step lifting its copy only at the head the lift names. The gate and the text land in one pull request, so no director meets a gate its skill doesn't explain. It reads the Run `role` row, so it needs the named-roles build that shirabe#1483 plans.
+
+**Acceptance Criteria**:
+
+- [ ] With the Run `role` row reading `director`, `land-check.sh` reports `unready <pr> <sha>` with reason `no-alignment-call` for a pull request whose pinned head has no standing call, or whose standing call for that head is `diverges`, or whose only call is for another head; it reports the pull request ready on that count when a standing `fits` or `fits with follow-ups` call exists for the pinned head.
+- [ ] A `role` row that can't be read makes `land-check.sh` report `unready` too. With the row reading `manager`, its output on every existing fixture is unchanged: `land-check_test.sh` passes with no existing case edited.
+- [ ] The director's land step writes one refusal entry, in the line Step 3 documents, per pull request and head the gate stops, however many ticks it stops it; a new head stopped later writes one more.
+- [ ] At each director start (a new run, a resume, a takeover and a successor's first run) the start runs `alignment-read.sh --since` the previous director start, or since each lane was dispatched on the run's first start, and its report names each unreviewed merge with its pull request and head, each standing hold (a closed one as closed while held), each releasable hold, which the start lifts with Step 2's guarded lift and whose lift message it sends the manager, the refusal count, and each lineage gap with the ask it sent each manager.
+- [ ] A director without the merge grant that calls a manager-authored pull request `fits` doesn't merge it and sends the call and its own reading to its reviewer; the merge the grant holder makes is at the head the call names (R17).
+- [ ] The manager's `wait` step records a director's hold message with `alignment-call.sh --copy --add` and a lift message as it arrives, and its land step runs `alignment-call.sh --copy --lift` only at its verified head for that pull request. While the copy stands, its land check reports the pull request held, the merge step refuses it, the work goes back to the worker through the existing rework route, and no message asks another session to land it.
+- [ ] Every manager report from the first after a hold was placed until it lifts names the held pull request, the reason, the director as the one it waits on, and the release (R8). A director report that finds a standing hold missing from the manager's latest report re-sends the hold message.
+- [ ] `SKILL.md`'s director section states the triage line once: a search of the skill and its references finds that line's text in exactly one place, and its conditions are the ones `alignment-sources.sh` names in its trigger reasons. The section also names `alignment-sources.sh`, `alignment-call.sh` and `alignment-read.sh` and when each runs, and says a person's lift is relayed to the other record.
+- [ ] Every sentence the feature adds that contains "grant", "level", "authority" or "role" is listed in the pull request body, and none of them says a call, a hold or a role gives, needs or changes a grant, a level, an authority or a role (R17, R18).
+- [ ] Across the feature, the record's list of entry kinds gains exactly one value, `alignment`, no record section is added, and every existing kind's grammar in `state-schema.jq` and `references/state-keys.md` is byte-identical to the base before Step 1 (R15).
+- [ ] The changed template structure is listed in `coordinate.compat.json` at a compat number above the base's, with the `gate_scripts` digest `check-template-compat.sh --print` gives, and `check-template-compat.sh --base-table <base table>` passes. `coordinate.mermaid.md` matches the template and `scripts/validate-template-mermaid.sh` passes.
+
+**Check**: Run `land-check_test.sh` with new cases for each `role` row value and each call state above, then a new `alignment_engine_test.sh` that compiles the template, runs a director and a manager session against a stand-in `gh` and stand-in niwa, and walks: a manager-authored pull request with no call (one refusal entry over three ticks, a count of one at the next start); a `diverges` call (the manager's copy, its land check held, the rework route, the hold named in each report); a new head with a `fits` call (both lifts, the manager's land check ready); a director start of each of the four kinds with an unreviewed merge, a closed held pull request and a lineage gap; and a director with no merge grant sending the call up. Then run the existing `coordinate_1_engine_test.sh` to `coordinate_4_engine_test.sh`, `coordinate-template-structure_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `check-template-compat.sh` against the base's table, `scripts/validate-template-mermaid.sh` and `scripts/check-skill.sh --changed coordinate`, and diff the entry kinds and kind grammars against the base. Every case passes.
+
+**Dependencies**: Step 2, Step 3, Step 4
+
+Outside this plan, Step 5 also waits for the named-roles build that shirabe#1483 plans to land, as its Goal says.
+
+**Files**: `skills/coordinate/scripts/land-check.sh`, `skills/coordinate/scripts/land-check_test.sh`, `skills/coordinate/scripts/alignment_engine_test.sh`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.mermaid.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/state-keys.md`
 
 ### Step 6: A lane reaches the owner only through the director, once per subject, and a mismatched relay is declined
 
-Owner questions ride Decisions entries and Work rows, so a second lane's ask joins the waiting question with its age and a relay that doesn't match recorded owner text is declined with both texts shown; every director report to the owner carries each call since the last, `diverges` first and one message per subject, nothing from a lane reaches the owner but through the director, and a call the owner reverses is recorded as a Standing `answer` row naming the reversed call, which the lane can cite and the director's next call on that head names.
+**Goal**: The owner funnel, owner questions and relays, as skill text over the record's existing Decisions entries, Work rows and Standing rows (PRD R12 to R14). Nothing from a lane reaches the owner except through the director; the owner sees every alignment call, `diverges` first, one message per subject; a second lane's question joins the one already waiting; a relay that doesn't match recorded owner text is declined with both texts shown; and a call the owner reverses becomes a Standing row the lane can cite.
+
+**Acceptance Criteria**:
+
+- [ ] The manager's expectation list in `SKILL.md` says it sends its questions, reports and pull requests to its director and never to the owner, and a manager's Run `reports-to` row names the director. In the eval run, every message the owner receives comes from the director's session.
+- [ ] A lane question the director can't answer from the record becomes one decision opened and escalated to the owner with `state-decision.sh`, sent as a message, and the asking lane's Work row Next reads `waits on decision <n>`.
+- [ ] A second lane's question on the same subject adds no decision and no evidence to the waiting one: that lane's Work row Next points at the same decision, the owner receives no second message, and the reply to the lane names decision `<n>` as the matched record.
+- [ ] A lane question the owner already answered in the record is answered from it, naming the matched Standing row or settled decision, and the owner is sent nothing.
+- [ ] When the owner answers, the decision is settled with the answer and every lane whose Work row names it gets a message with it.
+- [ ] Every director report lists each escalated decision with its age (now minus Asked) and the lanes pointing at it. With the clock 24 hours past the ask, the age reads at least 24 hours, a lane that doesn't depend on it is dispatched and landed in that time, and no second message on that subject reaches the owner except the re-ask the skill's existing rule schedules.
+- [ ] In a director turn a lane's message started, the director makes no ask that waits for the owner's reply before the turn ends (R14).
+- [ ] A relay of "the owner said X" is acted on only when a Standing row whose Owner is the owner and whose Relayed by is empty, or a decision the owner settled, says X; the reply names that record. When the recorded text says something else, the director takes no action grounded on the relay, and its reply and its next report show both texts; with none recorded, the reply says so. It asks the owner only when no question on that subject is already waiting.
+- [ ] Each director report to the owner carries every call `alignment-read.sh --since <previous report>` lists, `diverges` calls first, and a pull request's calls, its hold and any lane question on it go in one message however many lanes or calls touched it.
+- [ ] A call the owner reverses is recorded as a Standing `answer` row with the owner as Owner, Relayed by empty, and What naming the reversed call's entry number, pull request and head. The director's next call on that head has `standing s<n>` in Sources, the lane is told the row id, and where the owner reversed a `diverges`, the owner's lift is recorded on the `align-` hold as a person's lift and relayed to the manager's copy. A later relay citing `s<n>` is acted on with that row named.
+- [ ] For each call, hold, lift and owner reversal in the eval's record, a reader finds from the record alone who decided it and what it decided on (the pull request, the head, and the call's entry number or the hold's name). The feature adds no field for koto's decision record, and no sentence it adds states a requirement on that work (R19).
+
+**Check**: Add eval cases to `skills/coordinate/evals/evals.json`, with fixtures under `skills/coordinate/evals/fixtures/`, in a test workspace with two lanes, a fixed clock and a planted roadmap, strategy and owner decision: two lanes asking one question, a question already answered, the owner's answer, a 24-hour wait with an independent lane landing, a lane-started turn, a matching, a mismatched and an unrecorded relay, a report to the owner after a `diverges` and two `fits` calls, and an owner reversal followed by a citing relay. Run them with `scripts/run-evals.sh` for the coordinate skill, then `scripts/check-skill.sh --changed coordinate`. Every case passes.
+
+**Dependencies**: Step 5
+
+**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/references/loop.md`, `skills/coordinate/evals/evals.json`, `skills/coordinate/evals/fixtures/`
 
 ## Implementation Sequence
 
@@ -134,12 +216,14 @@ next step that depends on it starts. Before step 2 starts, a short read of the c
 template's `wait` evidence confirms which wait events carry a manager's pull
 request links. Step 3's lane set rests on that answer, and checking it first
 keeps step 2's hold and lift messages from settling on a shape step 3 can't
-read. Steps 3 and 4 each need only step 2, so they can run
-beside each other. Step 5 ships the land-check gate together with the skill
-text and template changes that tell a director to record calls, so no director
-meets a gate its skill doesn't explain; it needs step 3's start listing and the
-named-roles build. Step 6 is skill text over the existing record and follows
-step 5's alignment section.
+read. Step 3 needs step 2's hold and lift; step 4 reads no hold and needs
+only step 1's call grammar, so the two can run beside each other. Step 5
+ships the land-check gate together with the skill text and template changes
+that tell a director to record calls, so no director meets a gate its skill
+doesn't explain; it needs step 3's start listing, step 4's helper, which its
+alignment section tells a director to run, and the named-roles build. Step 6
+is skill text over the existing record and follows step 5's alignment
+section.
 
 **What these steps can't show yet.** The milestone this plan delivers is
 judged by a reviewer walking a live director over two lanes through five
