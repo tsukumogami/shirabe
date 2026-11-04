@@ -173,9 +173,10 @@ reports ready or landed in its lane. A pull request's **unit** is the roadmap
 unit it closes or moves, as the lane's brief or the pull request names it. An
 **alignment call** is the director's recorded judgment of one lane pull
 request at one head. The **plan sources** of a lane pull request are its
-unit's roadmap clauses and milestone Evidence, the strategy, and each recorded
+unit's roadmap clauses and milestone Evidence, the strategy, each recorded
 owner decision whose scope covers the pull request's unit or the files it
-changes. A **matched record** is the entry or row the director names when it
+changes, and the open holdings and open pull requests of the director's other
+lanes. A **matched record** is the entry or row the director names when it
 treats two questions, or a relay and a recorded text, as the same subject.
 
 ### Functional
@@ -186,10 +187,14 @@ treats two questions, or a relay and a recorded text, as the same subject.
   for, without contradicting any of them. The director doesn't re-review the
   code, doesn't launch correctness reviewers and doesn't repeat the worker's
   review round or the manager's land step. Code quality stays with them.
+  Its plan sources include the open holdings and pull requests of the
+  director's other lanes, so a pull request that changes a document, a path
+  or a roadmap another lane has open work on is judged against that work too,
+  and the call names that lane.
 - **R2. A call names what it was judged against.** Each alignment call names
   the plan sources the director read for it: each roadmap clause, the strategy
-  passage and each recorded owner decision it compared the pull request
-  against, or `none` where it found none. When the director can't read a plan
+  passage, each recorded owner decision and each other lane's open work it
+  compared the pull request against, or `none` where it found none. When the director can't read a plan
   source it needs (the roadmap, the milestone's Evidence, the strategy or the
   record's owner decisions), it records no call for that head, says in its
   report which source it couldn't read, and neither merges nor recommends the
@@ -197,8 +202,9 @@ treats two questions, or a relay and a recorded text, as the same subject.
 - **R3. Two depths of reading.** The director gives a lane pull request a full
   read when any of these holds: its unit is marked done, reopened or dropped by
   it, or it is a milestone verdict pull request; it changes a roadmap or
-  strategy document; or the director found a recorded owner decision among its
-  plan sources. A full read compares the pull request against every plan
+  strategy document; it changes a document, a path or a roadmap that another
+  of the director's lanes has open work on, and the call names that lane; or
+  the director found a recorded owner decision among its plan sources. A full read compares the pull request against every plan
   source the call names. Any other lane pull request gets a one-line call:
   the plan sources it names (or `none`), call `fits`, and a reason of one
   line. The skill states
@@ -212,7 +218,11 @@ treats two questions, or a relay and a recorded text, as the same subject.
   records an alignment call for the exact head commit of a lane pull request
   before it merges it or recommends it to its own reviewer. A new head needs a
   new call: a call for one head never covers another. When two calls exist
-  for the same head, the later one stands and both stay listed.
+  for the same head, the later one stands and both stay listed. The check
+  that keeps the director from merging or recommending a head with no call
+  records each refusal in the director's record, once per pull request and
+  head, and the director's next start report prints how many it recorded
+  since the previous start.
 - **R6. A milestone verdict call cites its Evidence clauses.** The call for a
   milestone verdict pull request names, by number, each Evidence clause of
   that milestone it was judged against and says for each whether the pull
@@ -247,22 +257,37 @@ treats two questions, or a relay and a recorded text, as the same subject.
   director's hold adds no second one. Every director start lists each
   standing hold. A held pull request that is closed stays held in the record
   and is listed as closed while held.
-- **R10. A merge with no call is reported as unreviewed.** At every director
-  start (a new run, a resume, a takeover or a successor's first run), the
-  director lists each lane pull request merged since the previous director
-  start of its run, or since each lane was dispatched on the run's first
-  start, whose merged head had no alignment call when it merged, and reports
-  each as unreviewed, naming the pull request and the head. A call recorded
-  for that head afterwards says it was recorded after the merge. A merge whose
-  head had a call when it merged is not listed.
+- **R10. A merge with no call is reported as unreviewed.** For this report,
+  the unit a call is owed for is the manager's finished unit at its final
+  head (a unit the lane marks done, reopened or dropped, a milestone verdict
+  pull request, or a roadmap or strategy change), alongside the
+  manager-authored pull requests R5 already covers. At every director start (a new run, a resume, a
+  takeover or a successor's first run), the director lists each finished
+  unit's final head, and each pull request a manager authored, merged since
+  the previous director start of its run, or since each lane was dispatched
+  on the run's first start, that had no alignment call when it merged, and
+  reports each as unreviewed, naming the pull request and the head. A call
+  recorded for that head afterwards says it was recorded after the merge. A
+  merge whose head had a call when it merged is not listed. A worker pull
+  request that a manager holding the merge grant lands short of finishing its
+  unit is reviewed work, not a debt: the manager's land step reviewed it, and
+  it isn't listed as unreviewed.
 - **R11. The calls can be listed.** The owner can list every alignment call a
   director's run recorded, oldest first, each with the pull request, the head,
   the call, the plan sources and the reason, through one read the skill
   names. The same read lists the run's merges and recommendations, each with
-  the call for its head, `after merge` where the call came later, or
-  `unreviewed` where there is none.
-- **R12. A lane's question goes to the owner once, through the director.** A
-  manager sends a question it can't settle to its director, never to the owner.
+  the call for its head, `after merge` where the call came later,
+  `unreviewed` where there is none, or `manager-reviewed` for a worker pull
+  request R10 counts as reviewed work.
+- **R12. A lane reaches the owner only through the director, once per
+  subject.** Nothing from a lane reaches the owner except through the
+  director: a manager sends its questions, reports and pull requests to its
+  director, never to the owner. The owner sees every alignment call the
+  director's run records: each director report to the owner carries the calls
+  recorded since its previous report, `diverges` calls first, and a subject
+  (a pull request, or a question's subject) reaches the owner in one message,
+  however many lanes or calls touch it. A manager sends a question it can't
+  settle to its director, never to the owner.
   Before asking the owner, the director looks for a matched record: a
   question already waiting on the owner on the same subject, from any of its
   lanes, or an answer the owner already recorded on it. With a waiting
@@ -281,7 +306,10 @@ treats two questions, or a relay and a recorded text, as the same subject.
   says something else, or there is none, the director declines to act on the
   relay, shows the relayed text and the recorded text (or says none is
   recorded) side by side in its reply and its next report, and asks the owner
-  only if no question on that subject already waits (R12).
+  only if no question on that subject already waits (R12). A call the owner
+  reverses is recorded as an owner decision that names the call it reverses,
+  so the lane can cite it and a relay that cites it matches; the director's
+  next call on that head names it among its plan sources.
 - **R14. No director blocks on the owner.** A director never waits on the
   owner's reply from a turn the owner didn't start: in such a turn it makes no
   ask that holds the turn open until the owner replies. It asks in a message,
@@ -328,7 +356,12 @@ treats two questions, or a relay and a recorded text, as the same subject.
   standing-rule provenance gives entries a source. Where the relay check of
   R13 reads recorded owner text, it reads the record's existing owner-decision
   rows and settled decisions; the later provenance work may change where that
-  text is read from, and the design names where.
+  text is read from, and the design names where. What koto's decision record
+  would take from this feature (who decided each call, hold, lift and owner
+  reversal, and what it decided on) is stated as inputs this feature already
+  records, not as requirements on that work. The authority a deciding session
+  held stays with the workspace's authority configuration (R17); this feature
+  records none.
 
 ## Acceptance Criteria
 
@@ -345,6 +378,10 @@ Alignment calls:
   plan sources name at least one roadmap clause. (R3)
 - [ ] A lane pull request whose scope a planted owner decision covers gets a
   call whose plan sources name that decision. (R2, R3)
+- [ ] A lane pull request that changes a file the other lane's open pull
+  request also changes, or a document or roadmap the other lane's holding
+  names, gets a full-read call whose plan sources name that lane and its open
+  work. (R1, R2, R3)
 - [ ] A milestone verdict pull request that is recommended has a call for its
   head that names, by number, each Evidence clause of its milestone and says
   for each whether it is met. (R3, R6)
@@ -356,6 +393,10 @@ Alignment calls:
 - [ ] After a new push, the list read reports the new head without a call
   until one is recorded; a second call for the same head is listed beside the
   first, with the later one marked as standing. (R5, R11)
+- [ ] With no standing call for a manager-authored pull request's head, the
+  director's land step neither merges nor recommends it, the record gains one
+  refusal naming the pull request and the head however many ticks refuse it,
+  and the next director start report prints a refusal count of one. (R5)
 - [ ] The record's write check exits non-zero and records nothing for a call
   entry missing any one of the pull request, head, call value, plan sources
   or reason, and for one whose call value is not one of the three. (R4, R16)
@@ -392,12 +433,17 @@ Holds:
 
 Unreviewed merges and the list:
 
-- [ ] A lane pull request merged with no call for its merged head is reported
-  as unreviewed, with its pull request and head, at the next director start,
-  for each of a new run, a resume, a takeover and a successor's first run. A
-  call recorded for that head afterwards is listed as `after merge`. (R10, R11)
+- [ ] A manager-authored pull request, and a finished unit's final head (a
+  unit marked done, a milestone verdict pull request, a roadmap change), each
+  merged with no call for its merged head, is reported as unreviewed, with
+  its pull request and head, at the next director start, for each of a new
+  run, a resume, a takeover and a successor's first run. A call recorded for
+  that head afterwards is listed as `after merge`. (R10, R11)
 - [ ] A lane pull request merged with a call for its merged head is not
   reported as unreviewed. (R10)
+- [ ] A worker pull request that the manager, holding the merge grant, lands
+  short of finishing its unit isn't reported as unreviewed, and the list read
+  shows it as `manager-reviewed`. (R10, R11)
 - [ ] The read the skill names lists every call oldest first with its five
   fields, and every merge or recommendation with its head's call, `after
   merge` or `unreviewed`. (R11)
@@ -425,6 +471,16 @@ Owner questions:
   the re-ask the skill's rule schedules. (R12, R14)
 - [ ] In a director turn started by a lane's message, the director issues no
   ask that waits for the owner's reply before the turn ends. (R14)
+- [ ] Every alignment call the run records appears in the director's next
+  report to the owner, `diverges` calls ahead of the others, and calls or
+  questions that both lanes raise on one subject reach the owner in one
+  message. (R12)
+- [ ] Every message the owner receives during the test run comes from the
+  director's session; none comes from a manager or a worker. (R12)
+- [ ] After the owner reverses a call, the record holds the reversal as an
+  owner decision naming the call it reverses, the director's next call on
+  that head names it among its plan sources, and a lane's relay citing it is
+  acted on with that record named. (R13)
 
 Boundaries:
 
@@ -438,6 +494,11 @@ Boundaries:
 - [ ] A director with no merge grant that calls a lane pull request `fits`
   doesn't merge it and sends the call and its own reading to its reviewer;
   the grant holder's merge is at the head the call names. (R17)
+- [ ] For each call, hold, lift and owner reversal in the test record, a
+  reader finds from the record alone who decided it and what it decided on
+  (the pull request, the head, and the call's entry number or the hold's
+  name). The feature adds no field for koto's decision record, and no
+  sentence it adds states a requirement on that work. (R19)
 
 ## Out of Scope
 
@@ -471,10 +532,12 @@ Boundaries:
   role in the record and the director's expectation list in the skill, which
   the named-roles plan (shirabe#1483) builds and which isn't merged. Until it
   lands, nothing tells a session it is a director, so none of this applies.
-  The named-roles work is also being amended so that a continuation keeps its
-  role and a role changes mid-lineage only on an intervention from a session
-  above it in its calling hierarchy, or from a person, recorded with who and
-  when. R18 relies on that amendment and doesn't restate it.
+  The named-roles work is also being amended, in R5 of
+  `docs/prds/PRD-coordinator-named-roles.md` ("The role doesn't change across
+  a succession"), so that a continuation keeps its role and a role changes
+  mid-lineage only on an intervention from a session above it in its calling
+  hierarchy, or from a person, recorded with who and when. R18 relies on that
+  amendment and doesn't restate it.
 - **The relay check is only as good as the recorded text.** Until
   standing-rule provenance lands, the director checks a relay against the
   owner-decision rows the record already keeps. An owner decision that was
@@ -490,8 +553,9 @@ Boundaries:
 ## Decisions and Trade-offs
 
 - **Triage line.** A full read for pull requests that mark their unit done,
-  reopened or dropped, change a roadmap or strategy document, or have a
-  recorded owner decision among their plan sources; a one-line call for the
+  reopened or dropped, change a roadmap or strategy document, change what
+  another lane has open work on, or have a recorded owner decision among
+  their plan sources; a one-line call for the
   rest (R3). Alternatives: a full read for every pull request, which makes
   the routine case cost what a milestone costs and stalls the director; or
   leaving the depth to the director's judgment each time, which leaves no way
