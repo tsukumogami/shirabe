@@ -63,7 +63,7 @@ Today the roles live in words only, and that shows in four places:
   nowhere in the skill. The word "manager" appears about ten times, every time
   meaning the workspace manager (niwa), which collides with the role's name.
 
-The workspace owner's rule for the split is that what a session is expected to
+The rule this split rests on is that what a session is expected to
 do and what it is allowed to do are different things: expectations are fixed
 in the skill and its roles, and allowances are configured per workspace and
 host. So naming a role must change what a session owes and how it's described,
@@ -152,12 +152,17 @@ brief a director writes to dispatch a manager.
   started before this change) takes it from the start setting under R1, or asks
   under R2. A discipline rotation that doesn't carry its predecessor's state is
   a new run under R1.
-- **R5. The role doesn't change across a succession.** A start that continues a
-  recorded role and names a different one is refused, naming the recorded role
-  and the one asked for, and the run keeps going as it was. Naming the
-  recorded role again is accepted. Naming a role for a record that holds none
-  is not a change. A session that should run under the other role is started as
-  a new lineage.
+- **R5. A continuation keeps its role unless an intervention from above
+  changes it.** A start that continues a recorded role and names a different
+  one is refused, naming the recorded role and the one asked for, and the run
+  keeps going as it was, unless the change is an intervention from above: the
+  dispatching session higher in the calling hierarchy, or a person. An
+  accepted change is written to the record, which keeps who intervened and
+  when, and names the old role and the new one. The opener refuses any other
+  change, including one a session names for itself or one claimed for a
+  session the run doesn't report to, and a refused change writes nothing.
+  Naming the recorded role again is accepted. Naming a role for a record that
+  holds none is not a change.
 - **R6. Reports name the role.** Every report names the record (its session
   name and host repository) as the skill already requires, and the role is
   named on that same line. In the run's first report, at reconcile, that line
@@ -310,9 +315,7 @@ file as it is. "The record line" is a report's line naming the record's session
 name and host repository (R6), and "its remainder" is that line with the
 session name, the host repository and any session address removed.
 
-Starting and recording (Evidence: a reviewer starts one session as a manager
-over a roadmap and one as a director over two managers, and sees each name its
-role in its first report and in its record):
+Starting and recording:
 
 - [ ] A start of a roadmap run with the role setting `manager` opens; its first
   report's record line is within its first five lines, `grep -oiwE
@@ -366,9 +369,7 @@ role in its first report and in its record):
   for every key today), and a record holding it stays within the record's size
   budget in the existing size test.
 
-Successor brief and first report (Evidence: each session hands off to a
-successor, whose brief and first report name the same role, with no prose
-paragraph describing the role from scratch):
+Successor brief and first report:
 
 - [ ] The brief renderer, given role `director` for a successor brief, writes
   exactly one role line (the line the renderer writes from the role it's
@@ -412,14 +413,25 @@ paragraph describing the role from scratch):
   refusal that only lists the two allowed values fails. After each refused
   start the record is unchanged: every key reads as it did before the attempt,
   its role value prints `manager`, no new session is opened for it, and the
-  run's state (live, stalled or stopped) is the one it had before. The same
+  run's state (live, stalled or stopped) is the one it had before. A refused
+  import lands no copy on this host and doesn't mark its source migrated, so
+  the record checked is the source's, read where it is. The same
   five starts of a run recorded as `director` with the setting `manager` are
   refused the same way, with the roles swapped in the refusal. Each of the
   five started with the recorded role is accepted.
+- [ ] The same five starts of a run recorded as `manager`, each started with
+  `director` as an intervention from the session its record says it reports
+  to, are each accepted: afterwards its role value prints `director`, the
+  record names that session as who changed it and the time it did, an entry
+  names `manager` as the old role and `director` as the new one, and the
+  first report's record line names `director`. The same five starts as a
+  person's intervention are accepted the same way, with the record naming the
+  person. Each of the five started with `director` as an intervention named
+  by a session the record doesn't report to, the run's own session or its
+  predecessor included, is refused, names the session the run reports to, and
+  leaves the record and the run's state as they were.
 
-The Glossary and duties (Evidence: the Glossary defines "coordinator" as a
-session of either role with the two roles under it, and no duty that belongs to
-only one role is addressed to "the coordinator"):
+The Glossary and duties:
 
 - [ ] `SKILL.md`'s Glossary entry for Coordinator says a session of either role,
   and `grep -c '^- \*\*Manager\*\* --' skills/coordinate/SKILL.md` and
@@ -478,9 +490,7 @@ only one role is addressed to "the coordinator"):
   value with the word `role`, and an existing `reports-to` row (`the human`)
   still passes the record's schema check.
 
-A lineage from before the change (Evidence: from a lineage created before this
-change whose briefs called the top session by three different names, a
-successor reports as a director and nothing else):
+A lineage from before the change:
 
 - [ ] Given a record with no role whose earlier briefs and entries call the top
   session by three different names (for example "lead coordinator", "top
@@ -539,25 +549,44 @@ Checks and content:
   tells each role what it owes; mechanical enforcement is separate work.
 - A third role, or a director over directors. The two roles are the whole set
   this change names.
-- Rewriting the coordinate evals. They say "coordinator" for either role, which
-  stays correct under R11; new eval cases for roles are later work.
+- Rewording the coordinate evals. They say "coordinator" for either role,
+  which stays correct under R11. The scenarios still change where this change
+  alters what they grade or adds a behaviour, as the repository's rule for a
+  changed skill requires: a start with no role now stops at the role ask (R2),
+  so a scenario whose start names no role gains one; a report now carries the
+  record line (R6), so a scenario grading how a report names the record
+  expects it; and new scenarios cover the role ask, a refused mismatch, a
+  later report's record line, a brief's role (R7), a progress event that no
+  longer links a coordinate holding, and each role's list (R10).
 - Worker briefs, which start no coordinator and get no role line.
 
 ## Known Limitations
 
+- A source that keeps moving while it's imported can change its role after the
+  check. The role is read from the source's last pushed copy before `koto
+  session import` runs, and koto can't tell whether a source is still moving;
+  its import already requires a stopped source.
+- A role refusal on an import whose copy is already on this host, from an
+  earlier start that landed it, leaves that copy here. The refusal writes
+  nothing to the record it read, and it says to run the same import again, which
+  marks the source if that's still to do, naming the recorded role or none.
 - The role is stated and recorded, not enforced. A session recorded as a manager
   that dispatches a coordinator isn't stopped by this change; the skill's text
   and its reviewer are what keep it in its role.
-- Refusing a role change means a lane that grows into an effort with its own
-  managers starts its director as a new lineage, and the old lineage's record
-  stays readable but isn't carried into the new one.
+- A role change from the dispatching session is checked against the session
+  the record says the run reports to. That shows the change names the session
+  above; it doesn't prove the start came from it, and a person's change rests
+  on the start's stated decisions, as the first role does. Either way the
+  change grants nothing, and who made it and when stay on the record. A
+  dispatcher replaced since the run was briefed no longer matches the record,
+  so its change is refused and has to come as a person's.
 - The classification table in R12 describes the files at the time of the
   implementation; line numbers drift, and the phrases are what a reviewer
   checks.
 
 ## Decisions and Trade-offs
 
-The workspace owner left three points open. This document settles one and
+Three points were left open. This document settles one and
 names two as questions for the design.
 
 - **How the role is passed at start and stored in the record. Left to the
@@ -576,20 +605,25 @@ names two as questions for the design.
   rewrites are the design's, because they depend on the sweep's results and on
   the sentences the skill's rule coverage test pins, which only an
   occurrence-by-occurrence pass can see.
-- **Whether a role can change across a succession. Settled: no.** A successor
-  keeps the recorded role, and a start naming another role is refused (R5).
-  Alternative: allow a change named at start and record it as an entry naming
-  the old and new role. Rejected for now because the role is what the
-  successor's own reviewer and the managers under a director rely on: a silent
-  or casual change shifts what the session owes in the middle of a lineage, and
-  that's the drift this change exists to stop. Refusing is also the narrower
-  choice: allowing a recorded change later adds behaviour without breaking any
-  run, while allowing it now and taking it back later would strand runs whose
-  role already changed. A lineage with no recorded role isn't a change, so the
-  lineages started before this change aren't blocked. The dispatcher reviewing
-  this document is where this is confirmed or reversed.
+- **Whether a role can change across a succession. Settled: only by an
+  intervention from above.** A successor keeps the recorded role, and a start
+  naming another role is refused unless the dispatching session or a person
+  makes the change, which the record keeps with who and when (R5). The role is
+  what the successor's own reviewer and the managers under a director rely
+  on, so a silent or casual change, or one a session names for itself, shifts
+  what the session owes in the middle of a lineage, and that's the drift this
+  change exists to stop. A change from above isn't that drift: the session
+  above is the one the run answers to, and a lane that grows into an effort
+  with its own managers can then keep its record rather than start its
+  director as a new lineage. Alternatives: refuse every change (rejected,
+  because it forces a new lineage and drops the record whenever the effort
+  above reshapes a lane), and accept a change from any start that records it
+  (rejected, because nothing would show the change came from above). How the
+  opener tells a change from above is left to the design. A lineage with no
+  recorded role isn't a change, so the lineages started before this change
+  aren't blocked.
 - **Allocating across lanes. Decided: the duty is an expectation, the budget
-  an allowance.** The workspace owner's split is that what a session is
+  an allowance.** The split is that what a session is
   expected to do is fixed in the skill and its roles, while what it's allowed
   to do is configured per workspace and host. Deciding which lanes advance is
   something every director owes, whatever workspace it runs in, so it sits in
