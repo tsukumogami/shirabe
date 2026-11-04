@@ -4,14 +4,17 @@ status: Active
 execution_mode: multi-pr
 split_mode_source: intent
 split_rationale: |
-  Incremental Value. Each issue leaves the skill working on its own: Issue 1
-  gives the record a role row, its set-once writer and its reader, with
-  nothing yet requiring the row; Issue 2 makes the opener check, ask for and
-  guard it, an intervention from above included, and turns on the seed's
-  requirement, the record_open change and the no-role gap with its fill
-  text in the same pull request, so no fresh start or reconcile is held
-  between two issues; Issue 3 puts it in every report; Issue 4 carries it to a
-  successor; Issue 5 fixes holding links on its own; Issues 6 and 7 give the
+  Incremental Value. Each issue leaves the skill working on its own, with
+  one stated gap: Issue 1 gives the record a role row, its set-once writer
+  and its reader, with nothing yet requiring the row; Issue 2 makes the
+  opener check, ask for and guard it, an intervention from above included,
+  and turns on the seed's requirement, the record_open change and the
+  no-role gap with its fill text in the same pull request, so no fresh start
+  or reconcile is held between two issues; but until Issue 4 a brief's
+  invocation line carries no --role, so a lane a brief starts in that window
+  stops at ask=role, and Issue 4 lands right after Issue 2 with no lane
+  dispatched between them; Issue 3 puts it in every report; Issue 4 carries
+  it to a lane and a successor; Issue 5 fixes holding links on its own; Issues 6 and 7 give the
   skill its Roles text and readdress one-role duties; Issue 8 checks the
   whole change. The documents merge ahead of the build so later work can
   plan against them, and each issue lands later in its own pull request on
@@ -62,7 +65,7 @@ template), so each issue is one layer tested against the layers below. A
 walking skeleton doesn't fit: the row and its set-once writer come before
 every other piece, and no thin slice exercises the opener, the report and the
 brief without them. The design's Phase 5 is split three ways, since the
-`holding-link.sh` fix, the Roles text and the sweep have different
+progress-event link fix, the Roles text and the sweep have different
 dependencies and the sweep runs last over finished text.
 
 Each issue lands later in its own pull request, after these documents merge.
@@ -84,7 +87,10 @@ every run at the reconcile gate with no text saying how to fill it. Issue 1
 keeps the row, its writers and its reader, which nothing requires yet, and
 Issues 3 and 4 wait on Issue 2 for the same reason: the record line has no
 role to print, and a coordinator brief's `--role` has no opener to accept it,
-until Issue 2 lands.
+until Issue 2 lands. The reverse gap is stated, not hidden: from Issue 2 until
+Issue 4, a lane a brief starts carries no `--role` on its invocation line and
+stops at `ask=role` with exit 10, so Issue 4 lands right after Issue 2 and no
+lane is dispatched between them.
 
 ## Issue Outlines
 
@@ -260,25 +266,38 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   start missing both host and role prints `ask=host`, never `ask=role`.
 - [ ] After the candidate read and before `takeover_check`, the rebind,
   `koto init` or a carry, the opener reads the candidate's role through
-  `state-read.sh --run`. A `--role` that differs prints `outcome=refused` and
-  `reason=role-mismatch`, exits 2, and uses the `role_mismatch` row with the
-  run, recorded and asked values, the run name cleaned as `invalid_role`'s
-  value is. Naming the recorded role, or any role for a role-less record, is
-  accepted.
+  `state-read.sh --run`, after the existing candidate refusals
+  (`candidate-unreadable`, `not-newest-member`, `not_self`). A read that
+  fails prints `failed=role_read`, exits 1 and writes nothing, never asks
+  and never accepts a role; a case per continuation makes the read fail on a
+  run recorded `manager` and finds exactly that. A `--role` that differs
+  prints `outcome=refused` and `reason=role-mismatch`, exits 2, and uses the
+  `role_mismatch` row with the run, recorded and asked values, the run name
+  with backticks and control characters removed and never cut. Naming the
+  recorded role, or any role for a role-less record, is accepted.
 - [ ] A refusal case asserts the whole `role_mismatch` message, not only the
   `reason=` line: it equals the wording row with `{run}`, `{recorded}` and
   `{asked}` filled in (for a run recorded `director` asked `manager`, the
   message names the run, then `director`, then `manager`, and ends "or start
-  manager as a new lineage."). A second case gives a candidate run whose name
-  is 200 characters long and holds a backtick and a control character within
-  its first 32, and finds the name in the message with both removed first
-  and the rest then cut to 32 characters, asserted as the exact expected
-  string; the `invalid_role` case asserts the same cleaning of its value.
+  manager as a new lineage."). A second case gives a candidate run with a
+  realistic name over 32 characters (`coordinate-<scope>-<name>-<stamp>`)
+  and finds the whole name in the message, asserted as the exact expected
+  string; the `invalid_role` case asserts its value's removal of backticks
+  and control characters and its cut to 32.
+- [ ] On an import, every role refusal (`role_mismatch` and the four
+  role-change rows) ends with the `role_import_copy` row, which says the
+  copy is on this host, not to import again, and to start again without
+  `--import` naming the recorded role or none; the import cases assert it in
+  the whole message, and a start without `--import` afterwards continues the
+  copy.
 - [ ] Every successful start that knows the role prints `role=<value>`.
 - [ ] Citing PRD R5: `--role-change-by` and `--role-change-source` are read
   beside `--role`; either one without the other, or both without `--role`,
-  or a source other than `dispatcher` or `person`, is a usage error (exit
-  64) and nothing opens. On a run recorded `manager` whose `reports-to` row
+  a source other than `dispatcher` or `person`, a flag given twice, or a
+  `--role-change-by` value that is empty, longer than 80 characters, or
+  holds a control character or backtick, is a usage error (exit 64) found
+  when the arguments are parsed, before any koto call, and nothing opens;
+  each is a case. On a run recorded `manager` whose `reports-to` row
   is `<D> at <addr>`, `--role director --role-change-by <addr>
   --role-change-source dispatcher` is accepted; the start prints
   `role=director` and `role_changed_from=manager`. The same with
@@ -290,14 +309,14 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   the design's table names them: `role_change_not_reports_to` for a name
   that isn't the row's address (`<D>` included), `role_change_no_address`
   for a row with no address or no row, `role_change_self` for the run's own
-  session, predecessor or address (this message and `role_change_no_address`
-  name the row's value as who the run reports to, `the human` included, or
-  `no session on its record` when there's no row), and `role_change_brief_person` for a
+  session, predecessor or address (every one of the four messages names the
+  row's value as who the run reports to, `the human` included, or `no
+  session on its record` when there's no row), and `role_change_brief_person` for a
   `person` change on a start given `--dispatched-by`; each echoed value is
-  cleaned as `invalid_role`'s value is, except that `{reports_to}` keeps its
-  `at <address>` half whole: a case with a realistic row (a name, then ` at `
-  and a `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` address over 32 characters)
-  finds the whole address in the message. A case where two causes hold (the
+  stripped of backticks and control characters and never cut: a case with a
+  realistic row (a name, then ` at ` and a
+  `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` address over 32 characters) finds
+  the whole row value in the message. A case where two causes hold (the
   run's own address on a record with no `reports-to` row) gets the
   `role_change_self` message, the design's order.
 - [ ] Citing PRD R5: with either source, a `--role-change-by` naming the
@@ -365,9 +384,9 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
 - [ ] `SKILL.md`'s flag table lists `--role manager|director`, and its
   "stated in words" sentence says a role this run's decisions state ("role:
   director") is passed as `--role`, a mention of another session's role
-  doesn't count, in doubt nothing is passed and the opener asks, and a
-  dispatched coordinator's role comes from the `--role` on its brief's
-  invocation line. The flag table also lists `--role-change-by` and
+  doesn't count, and in doubt nothing is passed and the opener asks (the
+  sentence that a dispatched coordinator's role comes from its brief's
+  `--role` lands with Issue 4, which puts it there). The flag table also lists `--role-change-by` and
   `--role-change-source dispatcher|person`, and a sentence says the agent
   passes `person` only when the start's decisions state in a person's words
   that this run's role changes, and `dispatcher` only as a brief's
@@ -432,7 +451,7 @@ directive closes its gaps before that report goes up.
 
 **Check**: Run `reconcile-report_test.sh` and `coordinate-report_test.sh`; each passes, and a fixture run's first report has the record line within its first five lines. `check-template-compat.sh` passes with the digest re-recorded at compat 2.
 
-**Files**: `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/scripts/reconcile-report-get.sh`, `skills/coordinate/scripts/coordinate-report.sh`, `skills/coordinate/references/loop.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/SKILL.md`
+**Files**: `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/scripts/reconcile-report-get.sh`, `skills/coordinate/scripts/coordinate-report.sh`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/SKILL.md`
 
 ### Issue 4: feat(coordinate): carry the role on a coordinator brief's invocation line
 
@@ -467,12 +486,13 @@ they are.
   overwriting the input: deleted for an entry point other than `coordinate`;
   the record's `role` row when the positional names this run's own roadmap;
   `manager` for any other roadmap on a new dispatch; and none on `--rebrief`
-  or `--releg` of a held lane, unless a `--rebrief` input has `role_change`,
-  so the invocation line carries no `--role`. Because `read_inputs` runs
-  before the holding row is read, the `--rebrief` and `--releg` input jq
-  settles these from the row's entry point: for `coordinate` it deletes
-  `role` and sets `held_rerender: true`; for any other entry point it
-  deletes `role` and `role_change_by` and sets no `held_rerender`.
+  of a held lane unless its input has `role_change`, so the invocation line
+  carries no `--role`. Because `read_inputs` runs before the holding row is
+  read, the `--rebrief` input jq settles these from the row's entry point:
+  for `coordinate` it deletes `role` and sets `held_rerender: true`; for any
+  other entry point (and in the `--releg` jq, which only a worker holding
+  with a leg reaches) it deletes `role` and `role_change_by` and sets no
+  `held_rerender`.
   `read_inputs` deletes `held_rerender` and `role_change_by` from every
   input, so a new-dispatch input that sets `held_rerender` renders `--role
   manager`. A `/work-on` re-brief and a `/deliver` re-brief render
@@ -501,8 +521,9 @@ they are.
   the field, writing no brief and launching nothing, on a new dispatch of a
   lane (a new lane starts as a manager), on a successor input (the
   positional names this run's own roadmap, and a predecessor isn't above its
-  successor), on a `--releg` of a held lane (no report is being handled), on
-  a worker entry point, and with a value other than `manager` or
+  successor), with `--releg` (refused in `read_inputs` before the holding is
+  read, since a coordinate holding has no leg and `--releg` exits 9 on one),
+  on a worker entry point, and with a value other than `manager` or
   `director`. Each is a case in `dispatch-worker_test.sh`, the `--rebrief`
   case, the new-dispatch refusal and the `--releg` refusal among them, and
   `brief-template.md` documents the field and that only `--rebrief` carries
@@ -553,31 +574,29 @@ they are.
 
 **Files**: `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/references/entry-points.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
-### Issue 5: fix(coordinate): don't link a pull request onto a coordinate holding
+### Issue 5: fix(coordinate): don't link a progress event's pull request onto a coordinate holding
 
-**Goal**: `holding-link.sh` stops a progress event from linking a pull
-request onto a holding whose entry is `coordinate`, so a director's count of
-its managers doesn't drift, and `report-facts.sh` stops asking for that link,
-so the report doesn't cycle between `report_facts` and `report_link`.
+**Goal**: A progress event from a manager stops linking a pull request onto
+its coordinate holding, so a director's count of its managers doesn't drift,
+while a manager's report still links the pull request it sends up, as the
+director's verify and land path needs. `report-facts.sh` makes the change:
+it already tells a progress event from a report, and it is what sends a run
+to `report_link`, where `holding-link.sh` writes the link, so
+`holding-link.sh` itself is unchanged.
 
 **Acceptance Criteria**:
-- [ ] At `report_link`, a progress event with a pull request link for a
-  holding whose entry is `coordinate` writes no link: `holding-link.sh`
-  exits 0 and prints `not linked: coordinate holding`, never the record's
-  URL or `already linked`, and the holding's record is byte-identical before
-  and after.
-- [ ] The same event for a worker holding still links the pull request,
-  exits 0 and prints the record's URL, as it does today.
-- [ ] `report-facts.sh` never gives `link` for a holding whose entry is
-  `coordinate`: with its Pull request cell empty, a report that names a pull
-  request gives `holding none <topic>` and a progress event `progress none
-  <topic>`, as a report naming none does today. `report-facts_test.sh` adds
-  both cases, and a worker holding still gives `link`.
-- [ ] A round-trip case feeds a manager's report naming a pull request
-  through `report_facts` on a coordinate holding and finds the run at
-  `report_questions` without entering `report_link`.
-- [ ] `holding-link_test.sh` adds both cases, and its existing cases pass
-  unchanged.
+- [ ] `report-facts.sh` on a progress event for a holding whose entry is
+  `coordinate` and whose Pull request cell is empty gives `progress none
+  <topic>`, never `link`, when the event names a pull request; the holding's
+  record is byte-identical before and after.
+- [ ] A report (not a progress event) on the same holding naming a pull
+  request still gives `link`, as today, and a progress event on a worker
+  holding still gives `link`. `report-facts_test.sh` adds all three cases.
+- [ ] A round-trip case feeds a manager's progress event naming a pull
+  request through `report_facts` on a coordinate holding and finds the run
+  back at the hub without entering `report_link`; a second feeds that
+  manager's ordinary report naming the pull request and finds it linked and
+  the run reaching `verify`, so the change can't cut the report path.
 - [ ] `coordinate.compat.json` re-records the gate-script digest with the
   fingerprint unchanged and compat at 2 (`report-facts.sh` runs behind the
   `report_facts` gate), and `check-template-compat.sh` passes.
@@ -586,9 +605,9 @@ so the report doesn't cycle between `report_facts` and `report_link`.
 
 **Complexity**: testable
 
-**Check**: Run `holding-link_test.sh` and `report-facts_test.sh`; both pass, with the coordinate-holding cases refusing the link and giving no `link` verdict and the other entry points linking as before. The round-trip case reaches `report_questions`, and `check-template-compat.sh` passes.
+**Check**: Run `report-facts_test.sh` and the round-trip cases; they pass, with a coordinate holding's progress event giving no `link` verdict, its report still linking and reaching `verify`, and worker holdings linking as before. `check-template-compat.sh` passes.
 
-**Files**: `skills/coordinate/scripts/holding-link.sh`, `skills/coordinate/scripts/report-facts.sh`, `skills/coordinate/koto-templates/coordinate.compat.json`
+**Files**: `skills/coordinate/scripts/report-facts.sh`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
 ### Issue 6: docs(coordinate): add the Glossary roles, the Roles section and the allowance paragraph
 
@@ -669,14 +688,18 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 - [ ] `testdata/rule-coverage.tsv` gains rows for the new pinned sentences
   ("It isn't a correctness review" and "which of your lanes advance" among
   them), and `rule-coverage_test.sh` passes.
+- [ ] Once the lists exist, `references/brief-template.md`'s Goal text (from
+  Issue 4) gains the clause that the started coordinator reads its duties
+  from the skill's list for its role, as the design's Decision 2 says, and a
+  rule-coverage row pins it.
 
-**Dependencies**: Blocked by <<ISSUE:3>>
+**Dependencies**: Blocked by <<ISSUE:3>>, <<ISSUE:4>>
 
 **Complexity**: testable
 
-**Check**: Run `rule-coverage_test.sh` and the `## Roles` item-count text check; both pass, and `git grep -n "owner's" skills/coordinate/SKILL.md` finds nothing the Roles section added.
+**Check**: Run `rule-coverage_test.sh` and the `## Roles` item-count text check; both pass, `git grep -n "owner's" skills/coordinate/SKILL.md` finds nothing the Roles section added, and `brief-template.md` carries the duties clause.
 
-**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`
+**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`
 
 ### Issue 7: docs(coordinate): class every "coordinator" and readdress one-role duties
 
@@ -796,10 +819,13 @@ requires it until Issue 2, which turns on the seed's requirement, the
 `record_open` change and the `no-role` gap together with the opener that
 prints the role. Issues 3 and 4 each wait on Issue 2 and can then go in
 either order: the record line has no role to print, and the opener refuses a
-brief's `--role` as an unknown option, until Issue 2 lands. Each extends the
-reader allow-list test with its own caller.
+brief's `--role` as an unknown option, until Issue 2 lands. Issue 4 goes
+right after Issue 2 all the same, since until it lands a lane a brief starts
+stops at `ask=role`, and no lane is dispatched between the two. Each extends
+the reader allow-list test with its own caller.
 Issue 5 stands alone and can land at any point. The Roles text cites the
-record line, so Issue 6 waits on Issue 3. The sweep has to run over finished
+record line, so Issue 6 waits on Issue 3, and it adds the duties clause to
+`brief-template.md`'s Goal text, so it waits on Issue 4. The sweep has to run over finished
 text, so Issue 7 waits on every issue that writes skill prose (2, 3, 4 and
 6) and regenerates its table after the last of them. Each issue that changes
 a gate script re-records the compat digest in its own pull request; Issue 8
@@ -817,8 +843,18 @@ it goes last.
 | Decision 5: the sweep of "coordinator" | Issue 7, checked in Issue 8 |
 | Decision 1's asking rule: which role-less continuations ask and which go on (the Asking paragraph, the components table, Data Flow step 6) | Issue 2, its Role-less continuations table |
 | Decision 1's gap: the reconcile directive's `no-role` fill | Issue 2 |
-| Decision 1 and 2: a dispatched coordinator's role comes from its brief's `--role` | Issues 4 and 2 |
+| Decision 1 and 2: a dispatched coordinator's role comes from its brief's `--role` | Issue 4, with Issue 6 for the brief's duties clause |
 | PRD R5: a continuation keeps its role unless an intervention from above changes it, with who and when on the record | Issues 1 and 2, with Issue 4 for the brief's `role_change` |
 | PRD R10: the alignment item's scope, purpose and call-out, and that whether the reading holds a land isn't set by the role | Issue 6 |
 | The design's owner funnel as an expectation only, with no mechanism | Issue 6 (the item), Issue 8 (the check that nothing else ships) |
 | PRD R14 and the design's Phase 6: a role never reaches an allowance | Issue 8, with Issue 1's reader allow-list |
+
+**How the milestone's Evidence is shown.** The PRD's four acceptance groups
+labelled with Milestone 2's Evidence (starting and recording, the successor
+brief and first report, the Glossary and duties, and a lineage from before
+the change) are shown by a reviewer's live run after Issue 8 lands,
+not by any one issue's tests. Each issue's criteria pin the mechanism a
+group rests on; the criteria about report prose (a report names its role by
+no other word, and a successor's reports carry none of the earlier names) are
+checked only in that live run, since no script reads report prose. The
+Evidence stays as the milestone writes it.

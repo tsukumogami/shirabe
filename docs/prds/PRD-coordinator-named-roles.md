@@ -63,7 +63,7 @@ Today the roles live in words only, and that shows in four places:
   nowhere in the skill. The word "manager" appears about ten times, every time
   meaning the workspace manager (niwa), which collides with the role's name.
 
-The workspace owner's rule for the split is that what a session is expected to
+The rule this split rests on is that what a session is expected to
 do and what it is allowed to do are different things: expectations are fixed
 in the skill and its roles, and allowances are configured per workspace and
 host. So naming a role must change what a session owes and how it's described,
@@ -577,7 +577,7 @@ Checks and content:
 
 ## Decisions and Trade-offs
 
-The workspace owner left three points open. This document settles one and
+Three points were left open. This document settles one and
 names two as questions for the design.
 
 - **How the role is passed at start and stored in the record. Left to the
@@ -614,7 +614,7 @@ names two as questions for the design.
   recorded role isn't a change, so the lineages started before this change
   aren't blocked.
 - **Allocating across lanes. Decided: the duty is an expectation, the budget
-  an allowance.** The workspace owner's split is that what a session is
+  an allowance.** The split is that what a session is
   expected to do is fixed in the skill and its roles, while what it's allowed
   to do is configured per workspace and host. Deciding which lanes advance is
   something every director owes, whatever workspace it runs in, so it sits in
