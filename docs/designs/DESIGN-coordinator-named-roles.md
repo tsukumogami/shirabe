@@ -296,9 +296,24 @@ cap, the holdings, the dispatcher, session names, briefs, entries, report
 text or the dispatch topic. The
 handover gate holds until it is filled, as it does for `no-reports-to`.
 
+**A successor's brief opens.** A successor starts from the brief its
+predecessor dispatched, and that brief's opener line passes `--dispatched-by`
+naming the predecessor's run: `dispatch-worker.sh` writes the dispatching run
+as `dispatcher_session` on every brief, and `dispatch-common.sh`'s `dc_opener`
+renders it. On that start the candidate is the predecessor, so today's
+`not_self "$OLD"` before `takeover_check` exits 64 and nothing opens. The
+opener narrows `not_self` on the candidate: when the start takes the
+candidate over (the takeover branch, a finished interrupted takeover
+included), a dispatcher equal to the candidate is the successor's brief and
+is accepted; on a resume or a carry of the candidate it is still refused, and
+a dispatcher naming the new run's own session is refused on every path. The
+dispatcher stays on the line, so the role read below and the
+`role_change_brief_person` refusal cover a successor's start as they cover a
+lane's.
+
 **Refusing a change.** After the candidate read and its existing refusals
 (`refused=candidate-unreadable`, `not-newest-member`, and `not_self` for a
-dispatcher that names the run), and before `takeover_check`, the rebind,
+dispatcher that names the run, narrowed as the paragraph above says), and before `takeover_check`, the rebind,
 `koto init` or a carry, the opener reads the candidate run's role through
 `state-read.sh --run`. A read that fails prints `failed=role_read`, exits 1
 and writes nothing; it is never taken as a role-less record, so a failed read

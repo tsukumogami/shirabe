@@ -391,6 +391,25 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   `reports-to` row value and finds the record and the run's state as they
   were, so a change accepted on one path and refused on another, or a path
   that skips the address match, fails.
+- [ ] A successor's brief opens. `not_self` on the candidate accepts a
+  `--dispatched-by` equal to the candidate only when the start takes it over
+  (a takeover, or the re-run that finds a finished interrupted one), and
+  still refuses it with exit 64 on a resume or a carry of the candidate; a
+  dispatcher naming the new run's own session is refused on every path.
+  `coordinate-takeover_engine_test.sh` covers a takeover of a predecessor
+  recorded `director` started with `--dispatched-by` naming that
+  predecessor, accepted with the successor's Run `role` row reading
+  `director`; the same start with `--role manager`, refused as
+  `role-mismatch` with the record unchanged; and a resume whose
+  `--dispatched-by` names the resumed run, still exiting 64.
+- [ ] `skills/coordinate/evals/evals.json` follows the opener's change: each
+  existing scenario whose start runs the opener with no recorded or given
+  role gains `--role` (or a recorded role) in its prompt, so it still reaches
+  and grades the behaviour it did, and new scenarios cover a start with no
+  role stopping at `ask=role` with no recommendation, and a mismatched
+  `--role` refused with the record unchanged. Each tier-2 scenario names its
+  behaviour, with exactly one `"release": true` per behaviour, and
+  `scripts/check-skill.sh --changed coordinate` passes the shape check.
 - [ ] The reader allow-list test gains `coordinate-open.sh`.
 - [ ] `koto-templates/coordinate.compat.json` re-records the gate-script
   digest with the fingerprint unchanged and compat at 2, and
@@ -411,9 +430,9 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
 
 **Complexity**: critical
 
-**Check**: Run `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `coordinate-import-takeover_engine_test.sh`, `discipline-session_engine_test.sh`, `state-open_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh` and `rule-coverage_test.sh`; each passes, including the role-change cases on all five continuations, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the digest re-recorded at compat 2.
+**Check**: Run `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `coordinate-import-takeover_engine_test.sh`, `discipline-session_engine_test.sh`, `state-open_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh`, `rule-coverage_test.sh` and `scripts/check-skill.sh --changed coordinate`; each passes, including the role-change cases on all five continuations and the successor takeover cases, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the digest re-recorded at compat 2.
 
-**Files**: `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coordinate-open.wording.tsv`, `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/SKILL.md`
+**Files**: `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coordinate-open.wording.tsv`, `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/scripts/coordinate-takeover_engine_test.sh`, `skills/coordinate/evals/evals.json`
 
 ### Issue 3: feat(coordinate): print the record line every report starts with
 
@@ -518,6 +537,11 @@ they are.
 - [ ] `dispatch-worker_test.sh` points its successor input at the fixture
   run's own roadmap with a `director` row and gets `--role director`, and
   adds lane, worker (no field) and missing-row (exit 1) cases.
+- [ ] A successor brief opens end to end: `coordinate-takeover_engine_test.sh`
+  renders a successor brief with `dispatch-worker.sh` from a fixture
+  predecessor recorded `director`, runs its opener line exactly as rendered
+  (`--role director` and `--dispatched-by` naming the predecessor), and finds
+  the takeover done and the successor's Run `role` row reading `director`.
 - [ ] An input whose Goal says "you are the director", or that sets `role` to
   `director`, still renders `--role manager` for a lane.
 - [ ] Citing PRD R5: `dispatch-worker.sh --rebrief` of a held coordinate
@@ -586,9 +610,9 @@ they are.
 
 **Complexity**: testable
 
-**Check**: Run `render-brief_test.sh` and `dispatch-worker_test.sh`; both pass, the worker golden files are unchanged in the diff, a plain `--rebrief` of a held lane exits 0 with a brief that carries no `--role` and the fresh-args-file sentence, and the `role_change` cases render and refuse as the criteria say. `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes.
+**Check**: Run `render-brief_test.sh`, `dispatch-worker_test.sh` and `coordinate-takeover_engine_test.sh`; each passes, the successor brief opening end to end, the worker golden files are unchanged in the diff, a plain `--rebrief` of a held lane exits 0 with a brief that carries no `--role` and the fresh-args-file sentence, and the `role_change` cases render and refuse as the criteria say. `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes.
 
-**Files**: `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/references/entry-points.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/koto-templates/coordinate.compat.json`
+**Files**: `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/references/entry-points.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/coordinate-takeover_engine_test.sh`
 
 ### Issue 5: fix(coordinate): don't link a progress event's pull request onto a coordinate holding
 
@@ -662,11 +686,13 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
   ready one in the verify report and the `Ready to merge` rows, and in the
   report owed after a land every one merged in the lane since the last
   report, whoever merged it.
-- [ ] The Manager items "Review your workers' pull requests at your land
-  step" and "Send every pull request you author ... to your reviewer before
-  it merges" use "your reviewer" as the existing Glossary entry
-  `**The reviewer** --` defines it (the dispatcher-review design's term), and
-  the Roles section adds no second definition of the reviewer.
+- [ ] The Manager item "Send every pull request you author ... to your
+  reviewer before it merges" uses "your reviewer" as the existing Glossary
+  entry `**The reviewer** --` defines it (the dispatcher-review design's
+  term). The item "Review your workers' pull requests at your land step" is
+  the design's wording, in which the manager is its workers' reviewer, and
+  doesn't contain "your reviewer". The Roles section adds no second
+  definition of the reviewer.
 - [ ] The Director's alignment item holds all three parts the PRD's
   acceptance criterion names, each pinned by its own rule-coverage row: its
   scope (the pull requests a manager authors and sends, and the worker pull
