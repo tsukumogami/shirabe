@@ -31,7 +31,7 @@ issue_count: 8
 
 Active
 
-The upstream design is Planned. Its reviewer accepted it on this plan,
+The upstream design is Planned. Its reviewer accepts it on this plan,
 which shows where each of the design's five decisions lands and which
 requirement each criterion traces to.
 
