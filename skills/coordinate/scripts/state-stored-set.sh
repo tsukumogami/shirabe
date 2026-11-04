@@ -8,6 +8,7 @@
 # Usage:
 #   state-stored-set.sh --session S --run KEY VALUE --by WHO
 #   state-stored-set.sh --session S --host KEY VALUE [--host KEY VALUE]...
+#   state-stored-set.sh --session S --rule-files FILE --by WHO
 #   state-stored-set.sh --session S --rotation FILE
 #   state-stored-set.sh --session S --reasoning-file FILE
 #   state-stored-set.sh --session S --reasoning-check
@@ -19,6 +20,7 @@
 #   state-stored-set.sh --session S --done ITEM [--kind K]
 #   state-stored-set.sh --session S --list
 #   state-stored-set.sh --session S --rules [--id s<n>]...
+#   state-stored-set.sh --session S --rules --counts
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                                  (tests)
 #
@@ -60,6 +62,26 @@
 # character or a token-shaped string is refused (65); a workspace path may be
 # a home-directory path, which a row's field never is. It prints the record/host
 # object.
+#
+# --rule-files FILE writes the `rules` rows of the files the session loaded
+# as rules, from rule-files.sh's list in FILE: one {label, path, digest}
+# object per line, each label `skill-...` or `workspace-...` in the label
+# grammar, each path absolute with no control character or token-shaped
+# string, each digest 64 hex, and no label twice; any other list is refused
+# (65) before anything is read or written. It replaces the Run `rules` rows
+# whose labels carry either prefix with one `rules <label> sha256:<digest>`
+# row per listed file, keeping a row whose digest didn't change as written,
+# Set included, and every other `rules` row and every `briefs` row. It sets
+# record/host's rules:<label> to each file's path and drops the rules: key of
+# any `skill-` or `workspace-` label no longer listed. One `run` entry names
+# each label added, changed (old and new digest) or removed, written only when
+# a Run row changed; with nothing changed nothing is written or printed. The
+# opener and state-open.sh run it, --by the run's session name, at every
+# start that leaves the run holding a record; a person never writes these
+# rows. Such a start may come before the run's find has sealed the record (a
+# carry, or the seed record_open makes), so this mode needs the session to
+# hold a record rather than a found one (the write core's START_WRITER and
+# state-entry.sh --before-find).
 #
 # A discipline rotation keeps two keys of its own beside its tables (docs/designs/current/DESIGN-coordinator-record-teardown.md,
 # Decision 3), and only this script writes them, with STATE_WRITER open:
@@ -110,12 +132,43 @@
 # reversal, confirm); a relayed row's pointer names the entry its --standing
 # wrote, read from the record's entries, or the row itself when no entry
 # matches. A `decision` Source reads class and status `unreadable` until what
-# koto recorded about the decision is read. With --id, only those rows, still
+# koto recorded about the decision is read.
+# Each object also carries under_session_grant and session_allows
+# (state-schema.jq's rule_grants). A row grants nothing: the grant is the
+# session's, and these two fields say whether the row stands under it and
+# what it allows. A pause, an inferred, `pinned` or unreadable row, a row not
+# in force and a row with a reversal never stand under it (the floor); a
+# `skill` row citing any repository but the one the installed plugin's
+# .claude-plugin/plugin.json names as `repository`
+# (https://github.com/<owner>/<repo>), and a `doc` row citing any but the
+# record's host, never do either (the anchor). Those rows print
+# under_session_grant false and session_allows [] with no read. When at least
+# one printed row passes both, --rules reads the coordinator session's grant
+# once, `niwa authority check -C <instance root> --session
+# <CLAUDE_CODE_SESSION_ID> --json` (rules_grant_read below says when it makes
+# no read), and every such row prints under_session_grant true and
+# session_allows the answer's grant, in niwa's order, when the read exits 0
+# with a bound niwa.authority.check/v1 document whose grant and level are in
+# niwa's vocabularies. Any other answer, or no read, gives every row
+# under_session_grant false and session_allows [], and --rules still exits 0.
+# A row's words never widen session_allows past the session's grant; no
+# --point is asked, and no gate reads either field. With --id, only those rows, still
 # in record order; an --id that isn't s<n> is a usage error (64), and one the
 # record has no row for is refused (65, naming it) before anything is
 # printed. A record that breaks a rule of state-schema.jq is refused (65), the
-# rule on stderr naming the row (`standing.s3: ...`). --rules reads; it writes
-# no key and tells no entry.
+# rule on stderr naming the row (`standing.s3: ...`). After the Standing
+# objects, and only without --id, it prints one object per Run `rules` row in
+# record order, {run: "rules", kind, label, digest}: kind `skill` or
+# `workspace` for a label with that prefix (the rows --rule-files writes),
+# `other` for any other label, and digest the row's sha256:<64 hex>. --rules
+# reads; it writes no key and tells no entry.
+# --rules --counts prints seven lines instead, one per class in a fixed order
+# (state-schema.jq's rule_classes: relayed, owner-said, dispatcher-said,
+# inferred, skill-says, charter, unreadable), each `<class> <count>`, a class
+# no row reads printed with 0. It counts every Standing row by the class
+# --rules gives it, whatever the row's status, so `grep '^inferred '` gives
+# the unsourced rules the record holds. It reads the record's Standing alone:
+# no entry and no Run row. --counts takes no --id (64).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -185,6 +238,7 @@ SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 # --rules' --id values, one per line.
 RIDS=
+COUNTS=0
 SKIP_CHECKS=0
 # --host pairs, one `key<TAB>value` line each.
 HOSTKV=
@@ -202,6 +256,7 @@ while [ $# -gt 0 ]; do
                 case "$2$3" in *$'\t'*|*$'\n'*) echo "$PROG: refused: a --host key or value holds a tab or a newline" >&2; exit 65 ;; esac
                 HOSTKV="$HOSTKV$2"$'\t'"$3"$'\n'; shift 3 ;;
         --rotation) [ $# -ge 2 ] || usage; setmode rotation; RFILE=$2; shift 2 ;;
+        --rule-files) [ $# -ge 2 ] || usage; setmode rule-files; RFILE=$2; shift 2 ;;
         --reasoning-file) [ $# -ge 2 ] || usage; setmode reasoning; RFILE=$2; shift 2 ;;
         --reasoning-check) setmode reasoning-check; shift ;;
         --told) [ $# -ge 2 ] || usage; setmode told; WHO=$2; shift 2 ;;
@@ -212,6 +267,7 @@ while [ $# -gt 0 ]; do
         --done) [ $# -ge 2 ] || usage; setmode done; ITEM=$2; shift 2 ;;
         --list) setmode list; shift ;;
         --rules) setmode rules; shift ;;
+        --counts) COUNTS=1; shift ;;
         --id) [ $# -ge 2 ] || usage; RIDS="$RIDS$2"$'\n'; shift 2 ;;
         --by) [ $# -ge 2 ] || usage; BY=$2; shift 2 ;;
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
@@ -232,6 +288,7 @@ case "$MODE" in
          case "$KEY" in arguments|cap|coordinator|rules|briefs|friction|reports-to) ;;
              *) echo "$PROG: --run takes arguments, cap, coordinator, rules, briefs, friction or reports-to" >&2; exit 64 ;; esac ;;
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    rule-files) [ -n "$BY" ] && [ -r "$RFILE" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     told|pending) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -250,24 +307,34 @@ EOF
     *) usage ;;
 esac
 [ -z "$RIDS" ] || [ "$MODE" = rules ] || usage
+[ "$COUNTS" = 0 ] || { [ "$MODE" = rules ] && [ -z "$RIDS" ]; } || usage
 . "$HERE/state-common.sh"
 lib_facts
+TOKEN_RE='(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})'
+TAB=$'\t'
+# host_check <key> <value> [<what>]: one record/host fact, checked as --host
+# checks it: a label in the grammar and an absolute path, a session name or
+# 64 hex, as the key takes, with no control character or token-shaped string.
+# Exits 65 on a value that breaks a rule, naming <what> (--host <key> when not
+# given), and 64 on a key record/host doesn't keep.
+host_check() {
+    local HK=$1 HV=$2 HW=${3:-"--host $1"}
+    case "$HK" in
+        source_workspace|friction|rules:*|briefs:*)
+            case "$HK" in rules:*|briefs:*) [[ ${HK#*:} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "$PROG: refused: $HW: the label is letters, digits, \`.\`, \`_\` and \`-\`" >&2; exit 65; } ;; esac
+            case "$HV" in /*) ;; *) echo "$PROG: refused: $HW takes an absolute path" >&2; exit 65 ;; esac ;;
+        source_session) [[ $HV =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || { echo "$PROG: refused: --host source_session takes a coordinator session name, coordinate-<slug>-<stamp>" >&2; exit 65; } ;;
+        template_hash) [[ $HV =~ ^[0-9a-f]{64}$ ]] || { echo "$PROG: refused: --host template_hash takes 64 hex" >&2; exit 65; } ;;
+        *) echo "$PROG: --host takes source_workspace, source_session, template_hash, rules:<label>, briefs:<label> or friction" >&2; exit 64 ;;
+    esac
+    if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$HV"; then echo "$PROG: refused: $HW: a control character" >&2; exit 65; fi
+    if grep -Eq "$TOKEN_RE" <<< "$HV"; then echo "$PROG: refused: $HW: a token-shaped string" >&2; exit 65; fi
+}
 if [ "$MODE" = host ]; then
     # Each key and value checked, then merged into the current record/host.
-    TOKEN_RE='(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})'
-    TAB=$'\t'
     while IFS="$TAB" read -r HK HV; do
         [ -n "$HK" ] || continue
-        case "$HK" in
-            source_workspace|friction|rules:*|briefs:*)
-                case "$HK" in rules:*|briefs:*) [[ ${HK#*:} =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || { echo "$PROG: refused: --host $HK: the label is letters, digits, \`.\`, \`_\` and \`-\`" >&2; exit 65; } ;; esac
-                case "$HV" in /*) ;; *) echo "$PROG: refused: --host $HK takes an absolute path" >&2; exit 65 ;; esac ;;
-            source_session) [[ $HV =~ ^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$ ]] || { echo "$PROG: refused: --host source_session takes a coordinator session name, coordinate-<slug>-<stamp>" >&2; exit 65; } ;;
-            template_hash) [[ $HV =~ ^[0-9a-f]{64}$ ]] || { echo "$PROG: refused: --host template_hash takes 64 hex" >&2; exit 65; } ;;
-            *) echo "$PROG: --host takes source_workspace, source_session, template_hash, rules:<label>, briefs:<label> or friction" >&2; exit 64 ;;
-        esac
-        if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$HV"; then echo "$PROG: refused: --host $HK: a control character" >&2; exit 65; fi
-        if grep -Eq "$TOKEN_RE" <<< "$HV"; then echo "$PROG: refused: --host $HK: a token-shaped string" >&2; exit 65; fi
+        host_check "$HK" "$HV"
     done <<EOF
 $HOSTKV
 EOF
@@ -343,7 +410,31 @@ if [ "$MODE" = rotation ] || [ "$MODE" = reasoning ] || [ "$MODE" = reasoning-ch
     cat "$WD/value.json"
     exit 0
 fi
-lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
+# The rule files' list, every entry checked before anything is read: each a
+# {label, path, digest} of strings with no control character, the label
+# skill- or workspace-, the path one record/host keeps for that label
+# (host_check), the digest 64 hex, and no label twice.
+if [ "$MODE" = rule-files ]; then
+    rf_refuse() { echo "$PROG: refused: --rule-files: $*" >&2; exit 65; }
+    jq -s -e 'all(.[]; type == "object" and (keys == ["digest", "label", "path"]) and all(.[]; type == "string"))' "$RFILE" > /dev/null 2>&1 \
+        || rf_refuse "the list isn't rule-files.sh's, one {label, path, digest} object of strings per line"
+    jq -s -e 'any(.[][]; test("[\u0000-\u001f\u007f]"))' "$RFILE" > /dev/null \
+        && rf_refuse "an entry holds a control character"
+    jq -s -e 'any(.[][]; . == "")' "$RFILE" > /dev/null \
+        && rf_refuse "an entry's label, path or digest is empty"
+    jq -s -e '(map(.label) | unique | length) == length' "$RFILE" > /dev/null \
+        || rf_refuse "a label is listed twice: $(jq -s -r 'group_by(.label) | map(select(length > 1) | .[0].label) | join(", ")' "$RFILE")"
+    while IFS=$'\037' read -r RL RP RD; do
+        [ -n "$RL$RP$RD" ] || continue
+        case "$RL" in skill-*|workspace-*) ;; *) rf_refuse "$RL is neither a skill- nor a workspace- label" ;; esac
+        [[ $RD =~ ^[0-9a-f]{64}$ ]] || rf_refuse "$RL's digest isn't 64 hex"
+        host_check "rules:$RL" "$RP" "--rule-files $RL"
+    done <<EOF
+$(jq -s -r '.[] | [.label, .path, .digest] | join("\u001f")' "$RFILE")
+EOF
+else
+    lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
+fi
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/state-stored-set.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
@@ -353,6 +444,8 @@ trap 'rm -rf "$WD"' EXIT
 FIELDS=
 [ "$MODE" = list ] && FIELDS="run standing work"
 [ "$MODE" = rules ] && FIELDS="standing"
+# Without --id or --counts, --rules also lists the Run section's rules rows.
+[ "$MODE" = rules ] && [ "$COUNTS" = 0 ] && [ -z "$RIDS" ] && FIELDS="standing run"
 rs_record "$WD/parsed.json" "$FIELDS"
 RC=$?
 # --rules is a read of the rows themselves, so a row that breaks a rule is
@@ -377,6 +470,41 @@ if [ "$MODE" = list ]; then
     jq -c -L "$HERE" 'include "state-schema"; state_list' "$WD/parsed.json"
     exit 0
 fi
+# rules_grant_read <out>: niwa's answer about this coordinator session's grant
+# into <out>, as posture-read.sh finds and bounds niwa. Returns non-zero, with
+# no read made, when niwa isn't found (on PATH, else an executable $NIWA_BIN),
+# CLAUDE_CODE_SESSION_ID isn't a session id, no directory at or above this one
+# holds .niwa/instance.json, or record/meta names a driver other than this
+# session (or one that isn't a string); and non-zero when the read exits
+# non-zero or runs past NIWA_LOOKUP_SECONDS (3).
+rules_grant_read() {
+    local niwa sid d root= drv
+    niwa=$(command -v niwa 2> /dev/null)
+    if [ -z "$niwa" ]; then
+        [ -n "${NIWA_BIN:-}" ] && [ -f "$NIWA_BIN" ] && [ -x "$NIWA_BIN" ] || return 1
+        niwa=$NIWA_BIN
+    fi
+    sid=${CLAUDE_CODE_SESSION_ID:-}
+    [[ $sid =~ ^[0-9a-f][0-9a-f-]{7,63}$ ]] || return 1
+    d=$(pwd -P) || return 1
+    while :; do
+        if [ -f "$d/.niwa/instance.json" ]; then root=$d; break; fi
+        [ "$d" = / ] && break
+        d=$(dirname "$d")
+    done
+    [ -n "$root" ] && root=$(cd "$root" 2> /dev/null && pwd -P) && [ -n "$root" ] || return 1
+    drv=$(jq -r 'if (.driver // "") == "" then "" elif (.driver | type) == "string" then .driver else error("driver") end' \
+        "$WD/parsed.json.meta" 2> /dev/null) || return 1
+    [ -z "$drv" ] || [ "$drv" = "$sid" ] || return 1
+    # shellcheck source=dispatch-common.sh
+    . "$HERE/dispatch-common.sh" || return 1
+    dc_with_deadline "${NIWA_LOOKUP_SECONDS:-3}" dc_tree "$niwa" authority check -C "$root" --session "$sid" --json \
+        < /dev/null > "$1" 2> /dev/null
+}
+if [ "$MODE" = rules ] && [ "$COUNTS" = 1 ]; then
+    jq -r -L "$HERE" 'include "state-schema"; (.standing // []) | rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
+    exit 0
+fi
 if [ "$MODE" = rules ]; then
     printf '%s' "$RIDS" | jq -R -s -c 'split("\n") | map(select(. != "")) | unique' > "$WD/ids.json" || lib_die2 "jq failed"
     MISSING=$(jq -r --slurpfile ids "$WD/ids.json" '[(.standing // [])[] | .standing] as $have
@@ -394,7 +522,31 @@ if [ "$MODE" = rules ]; then
     fi
     jq -c -L "$HERE" --arg s "${RS_SESSION:-$SESSION}" --slurpfile e "$WD/entries.json" --slurpfile ids "$WD/ids.json" 'include "state-schema";
         (.standing // [])[] | select(($ids[0] | length) == 0 or (.standing as $i | $ids[0] | index($i)) != null)
-        | rule_view($s; $e[0])' "$WD/parsed.json" || lib_die2 "jq failed"
+        | rule_view($s; $e[0])' "$WD/parsed.json" > "$WD/views.json" || lib_die2 "jq failed"
+    # The anchor's two repositories: the one the installed plugin's manifest
+    # names as its source, and the record's host.
+    PLUGIN_REPO=$(jq -r '.repository // "" | if type == "string" then . else "" end' \
+        "$(cd "$HERE/../../.." && pwd -P)/.claude-plugin/plugin.json" 2> /dev/null)
+    RE_MANIFEST_REPO='^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)$'
+    if [[ $PLUGIN_REPO =~ $RE_MANIFEST_REPO ]]; then PLUGIN_REPO=${BASH_REMATCH[1]}; else PLUGIN_REPO=; fi
+    jq -n --arg p "$PLUGIN_REPO" --arg h "$REPO" \
+        '{plugin_repo: (if $p == "" then null else $p end), host_repo: $h, answer: null}' > "$WD/facts.json" || lib_die2 "jq failed"
+    # The authority read, made at most once, and only when a printed row
+    # passes the floor and the anchor. Any failure leaves the answer null.
+    echo null > "$WD/answer.json"
+    if jq -e -s -L "$HERE" --slurpfile f "$WD/facts.json" 'include "state-schema"; any(.[]; rule_passes($f[0]))' \
+            "$WD/views.json" > /dev/null 2>&1 \
+        && rules_grant_read "$WD/check.json"; then
+        jq -c -s 'if length == 1 then .[0] else null end' "$WD/check.json" > "$WD/answer.json" 2> /dev/null \
+            || echo null > "$WD/answer.json"
+    fi
+    jq -c -L "$HERE" --slurpfile f "$WD/facts.json" --slurpfile a "$WD/answer.json" 'include "state-schema";
+        . + rule_grants($f[0] + {answer: $a[0]})' "$WD/views.json" || lib_die2 "jq failed"
+    if [ -z "$RIDS" ]; then
+        jq -c '(.run // [])[] | select(.key == "rules") | (.value | split(" ")) as $p
+            | {run: "rules", kind: (if ($p[0] | startswith("skill-")) then "skill" elif ($p[0] | startswith("workspace-")) then "workspace" else "other" end),
+               label: $p[0], digest: $p[1]}' "$WD/parsed.json" || lib_die2 "jq failed"
+    fi
     exit 0
 fi
 
@@ -424,6 +576,52 @@ refuse() { echo "$PROG: refused: $*" >&2; exit 65; }
 # The entry that tells the change: its kind and text.
 EKIND= ETEXT=
 case "$MODE" in
+rule-files)
+    # The rows and host keys the list owns: a `rules` row or rules: key whose
+    # label is skill- or workspace-. A listed file's row is kept as written
+    # when its digest is the same, replaced in place when it changed, and
+    # added after the Run rows when new; an owned row no longer listed goes.
+    jq -s -c . "$RFILE" > "$WD/files.json" || lib_die2 "jq failed"
+    jq -c --slurpfile l "$WD/files.json" '
+        def owned: test("^(skill|workspace)-");
+        ([(.run // [])[] | select(.key == "rules") | (.value | split(" ")) | select(.[0] | owned) | {key: .[0], value: .[1]}] | from_entries) as $have
+        | ($l[0] | map({key: .label, value: ("sha256:" + .digest)}) | from_entries) as $want
+        | {added: [$l[0][] | select($have[.label] == null) | "\(.label) sha256:\(.digest)"],
+           changed: [$l[0][] | select($have[.label] != null and $have[.label] != "sha256:" + .digest) | "\(.label) \($have[.label]) to sha256:\(.digest)"],
+           removed: [$have | keys_unsorted[] | select($want[.] == null)]}' "$P" > "$WD/changes.json" || lib_die2 "jq failed"
+    RUN_CHANGED=$(jq -r '(.added + .changed + .removed | length) > 0' "$WD/changes.json")
+    rs_host "${RS_SESSION:-$SESSION}" "$WD/host" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.err")"
+    jq -c --slurpfile l "$WD/files.json" '($l[0] | map(.label)) as $ls
+        | with_entries(select((.key | test("^rules:(skill|workspace)-") | not) or ((.key | ltrimstr("rules:")) as $k | $ls | index($k) != null)))
+          + ($l[0] | map({key: ("rules:" + .label), value: .path}) | from_entries)' "$WD/host" > "$WD/host.next" || lib_die2 "jq failed"
+    HOST_CHANGED=false
+    [ "$(jq -cS . "$WD/host")" = "$(jq -cS . "$WD/host.next")" ] || HOST_CHANGED=true
+    [ "$RUN_CHANGED" = true ] || [ "$HOST_CHANGED" = true ] || exit 0
+    if [ "$RUN_CHANGED" = false ]; then
+        # The paths alone moved: record/host is written, no row and no entry.
+        lib_write_guard
+        . "$HERE/state-write-core.sh"
+        core_write_host "$WD/host.next"
+        exit 0
+    fi
+    jq --slurpfile l "$WD/files.json" --arg b "$BY" --arg t "$NOW" '
+        def owned: test("^(skill|workspace)-");
+        ($l[0] | map({key: .label, value: ("sha256:" + .digest)}) | from_entries) as $want
+        | ([(.run // [])[] | select(.key == "rules") | (.value | split(" ")[0])]) as $had
+        | .run = ([(.run // [])[] | (.value | split(" ")) as $p
+                   | if .key == "rules" and ($p[0] | owned) then
+                       if $want[$p[0]] == null then empty
+                       elif $want[$p[0]] == $p[1] then .
+                       else {key: "rules", value: "\($p[0]) \($want[$p[0]])", set_by: $b, set: $t} end
+                     else . end]
+                  + [$l[0][] | select(.label as $x | $had | index($x) | not)
+                     | {key: "rules", value: "\(.label) sha256:\(.digest)", set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    EKIND=run
+    ETEXT=$(jq -r --arg b "$BY" '[(if (.added | length) > 0 then "added " + (.added | join(", ")) else empty end),
+            (if (.changed | length) > 0 then "changed " + (.changed | join(", ")) else empty end),
+            (if (.removed | length) > 0 then "removed " + (.removed | join(", ")) else empty end)]
+        | "Run rules digests of the files this start loaded, set by \($b): \(join("; "))."' "$WD/changes.json") || lib_die2 "jq failed"
+    ;;
 run)
     if [ "$KEY" = coordinator ]; then
         PROG_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
@@ -640,9 +838,18 @@ lib_write_guard
 . "$HERE/state-write-core.sh"
 STATE_WRITER=1
 CORE_STANDING_USED=${STANDING_USED:-}
+# The rule files' write may come before the run's find (START_WRITER), and
+# writes record/host first, so a write cut short after it leaves a Run row
+# the next start still finds changed, and tells.
+EARGS=("${ADDR_ARGS[@]}")
+if [ "$MODE" = rule-files ]; then
+    START_WRITER=1
+    [ "$OVERRIDE" = 1 ] || EARGS+=(--before-find)
+    [ "$HOST_CHANGED" = false ] || core_write_host "$WD/host.next"
+fi
 core_write
 
-if ! bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
+if ! bash "$HERE/state-entry.sh" "${EARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
     echo "$PROG: the record was written, but its entry wasn't posted; post it with state-entry.sh --kind $EKIND: $(cat "$ENTRY_FILE")" >&2
     while IFS= read -r LINE; do
         [ -n "$LINE" ] && echo "$PROG: and post with state-entry.sh --kind work: $LINE" >&2

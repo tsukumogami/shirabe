@@ -244,7 +244,8 @@ OUT=$(bash "$HERE/state-open.sh" --session "$S" --start "$TODAY" --end "$TOMORRO
 eq "the first rotation opens" "0 record=$S" "$? $OUT"
 eq "  ... with its window and no predecessor" "$(jq -nc --arg s "$TODAY" --arg e "$TOMORROW" '{start: $s, end: $e, host_repo: "acme/widgets", predecessor: null}')" \
     "$(key "$S" record/rotation | jq -c .)"
-eq "  ... and no store row: the session holds no Run section" "" "$(key "$S" record/run)"
+eq "  ... and no store row: its Run section holds the start's eight skill- rules rows and nothing but skill- and workspace- rows" "8 0" \
+    "$(key "$S" record/run | jq -r '"\([.[] | select(.key == "rules" and (.value | startswith("skill-")))] | length) \([.[] | select(.key != "rules" or (.value | test("^(skill|workspace)-") | not))] | length)"')"
 grep -Eq '^(pr create|pr ready|api --method (POST|DELETE|PUT))' "$GH_DB.calls" && bad "  ... with no GitHub write" "$(calls)" || ok "  ... with no GitHub write"
 eq "  ... and the find then reads it as found" found "$(run_find "$S" first)"
 

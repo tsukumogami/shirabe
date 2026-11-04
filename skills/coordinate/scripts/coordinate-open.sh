@@ -184,6 +184,16 @@
 # visit. A state koto doesn't report reads `state=unknown`. A resume or a
 # carry on the same host prints neither line: nothing moved.
 #
+# Every start that leaves the run holding a record (a resume, a carry, a
+# takeover, an import, and a fresh start the legacy importer filled) then
+# writes the Run section's `rules` digests of the files this session loaded as
+# rules: rule-files.sh lists them from --plugin-root and the working
+# directory, and state-stored-set.sh --rule-files writes them --by the run's
+# session name. A fresh start's record is seeded later, by the run's find, and
+# state-open.sh writes them there. A failed digest write never fails the
+# start: it prints `warning=rules-unrecorded` after `session=` and the
+# start's other lines, the reason on stderr, and the next start writes them.
+#
 # Tokens, in order, from a JSON array of strings in <args-file>:
 #   <roadmap-path>               roadmap scope (docs/roadmaps/.../ROADMAP-<name>.md)
 #   --discipline <name>          discipline scope
@@ -293,6 +303,26 @@ not_self() {
 # failed link has printed its warning and recorded it; the run stands.
 link_dispatcher() {
     [ "$HAVE_DISPATCHER" -eq 0 ] || dl_link "$KOTO" "$1" "$DISPATCHER" || true
+}
+# rules_record <run>: the Run rules digests of the files this session loaded
+# as rules, written into <run>, which holds a record. rule-files.sh names a
+# file it leaves out on stderr; a failure prints warning=rules-unrecorded, the
+# reason on stderr, and the start goes on.
+rules_record() {
+    local d
+    d=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-rules.XXXXXX") || {
+        echo "warning=rules-unrecorded"
+        echo "coordinate-open: $1's rules digests weren't written: no scratch directory; the next start writes them" >&2
+        return 0
+    }
+    if ! bash "$HERE/rule-files.sh" --plugin-root "$PLUGIN_ROOT" < /dev/null > "$d/files"; then
+        echo "warning=rules-unrecorded"
+        echo "coordinate-open: $1's rules digests weren't written: the rule files couldn't be listed; the next start writes them" >&2
+    elif ! bash "$HERE/state-stored-set.sh" --session "$1" --rule-files "$d/files" --by "$1" < /dev/null > /dev/null 2> "$d/err"; then
+        echo "warning=rules-unrecorded"
+        echo "coordinate-open: $1's rules digests weren't written: $(tr -s '\t\n' '  ' < "$d/err" | head -c 400); the next start writes them" >&2
+    fi
+    rm -rf "$d"
 }
 [ -n "$PLUGIN_ROOT" ] || PLUGIN_ROOT=$(cd "$HERE/../../.." && pwd)
 command -v jq >/dev/null 2>&1 || { echo "failed=jq_missing"; exit 127; }
@@ -694,6 +724,7 @@ finish_takeover() {
     printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\nwatcher=%s\nleg_wake=%s\n' \
         "$pred" "$succ" "$stopped" "$(watcher_result "$pred")" "$(leg_wake)"
     link_dispatcher "$succ"
+    rules_record "$succ"
     exit 0
 }
 # takeover <predecessor>: continue the predecessor's run in a new session
@@ -898,6 +929,7 @@ if [ -n "$IMPORT" ]; then
                 if [ "$(meta_field "$FENCE_BY" driver)" = "$CALLER" ] && [ "$(meta_field "$FENCE_BY" takeover_done)" = true ]; then
                     printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$FENCE_BY"
                     link_dispatcher "$FENCE_BY"
+                    rules_record "$FENCE_BY"
                     exit 0
                 fi
                 printf 'imported=%s\n' "$IMPORT"
@@ -992,6 +1024,7 @@ EOF
     link_dispatcher "$IMPORT"
     # The run reconciles again on this host.
     moved_lines "$IMPORT"
+    rules_record "$IMPORT"
     exit 0
 fi
 # refuse_bound <run> <what this start left>: koto refused a read of <run> as
@@ -1019,6 +1052,9 @@ refuse_bound() {
 # ended (by date, or by closing) opens the next rotation as a new run, whose find
 # carries the predecessor.
 CARRY_FROM=
+# HELD: the new run holds a record once the start is done (a carry, or the
+# legacy importer's import), so the start writes its rules digests.
+HELD=0
 # FRESH: no session here holds the scope's record (the candidate names none).
 # Only a fresh start asks the legacy importer.
 FRESH=0
@@ -1072,6 +1108,7 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
                 || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
             printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$OLD"
             link_dispatcher "$OLD"
+            rules_record "$OLD"
             exit 0 ;;
         carry) CARRY_FROM=$(printf '%s' "$CAND" | jq -r '.session')
                echo "coordinate-open: carrying $CARRY_FROM into a new run: $(printf '%s' "$CAND" | jq -r '.reason')" >&2 ;;
@@ -1178,6 +1215,7 @@ if [ -n "$CARRY_FROM" ]; then
     # link has printed its warning and recorded it; the carry stands.
     dl_link "$KOTO" "$SESSION" "$CARRY_FROM" || true
     cancel_others
+    HELD=1
 elif [ "$FRESH" = 1 ]; then
     # A fresh start: no session here holds the scope's record (a discipline's
     # next rotation, whose ended rotation's session is here, isn't one). The legacy
@@ -1213,7 +1251,7 @@ elif [ "$FRESH" = 1 ]; then
             # Any refusal (65) is the record's: a body that doesn't parse, or
             # one whose state the write core's checks refuse.
             case "$RC:$IMPORTED" in
-                "0:imported=$REF "*) echo "record-imported=$REF" ;;
+                "0:imported=$REF "*) echo "record-imported=$REF"; HELD=1 ;;
                 65:*) stop_fresh refused record-unreadable \
                     "the coordinator record $HOST#$REF on GitHub can't be read into this run: $(head -c 400 "$IMP_ERR"); fix or close it, then start again" ;;
                 *) stop_fresh failed import "the import of the coordinator record $HOST#$REF stopped part way (exit $RC): $(head -c 400 "$IMP_ERR"); start again to import it" ;;
@@ -1225,4 +1263,5 @@ elif [ "$FRESH" = 1 ]; then
 fi
 printf 'session=%s\n' "$SESSION"
 link_dispatcher "$SESSION"
+[ "$HELD" = 0 ] || rules_record "$SESSION"
 exit 0

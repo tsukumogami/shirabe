@@ -498,21 +498,29 @@ def check_state($sec; $rows; $private):
 #   relayed     no Source: an event a person owns, carried here by --standing
 #   inferred    `inferred`, with or without its brief
 #   skill-says  `skill ...`
-#   doc         `doc ...`
-#   charter     `pinned ...`
+#   charter     `doc ...` or `pinned ...`
 #   unreadable  `decision ...`: what koto recorded about the decision isn't
 #               read yet, so the row is neither the owner's word nor anyone
 #               else's until it is
+# owner-said and dispatcher-said are a cited decision's, once its decider is
+# read; until then no row reads either.
 # rule_status, over a class: in-force, unconfirmed (an inferred row, waiting
 # for a person to confirm it) or unreadable.
+# rule_classes: every class, in the order state-stored-set.sh --rules --counts
+# prints them.
+# rule_counts: a Standing value's `<class> <count>` lines, one per class in
+# that order, a class no row reads printed with 0.
+def rule_classes: ["relayed", "owner-said", "dispatcher-said", "inferred", "skill-says", "charter", "unreadable"];
 def rule_class:
   ((.source // "") | split(" ")[0] // "") as $f
   | if $f == "" then "relayed"
     elif $f == "inferred" then "inferred"
     elif $f == "skill" then "skill-says"
-    elif $f == "doc" then "doc"
-    elif $f == "pinned" then "charter"
+    elif $f == "doc" or $f == "pinned" then "charter"
     else "unreadable" end;
+def rule_counts:
+  [.[] | rule_class] as $c
+  | rule_classes[] | . as $k | "\($k) \([$c[] | select(. == $k)] | length)";
 def rule_status:
   if . == "inferred" then "unconfirmed" elif . == "unreadable" then "unreadable" else "in-force" end;
 
@@ -551,13 +559,66 @@ def rule_view($session; $entries):
                  | if $e == null then $self
                    else {entry: "\($session) record/entries/\("000000\($e.id)" | .[-6:])"} end
                elif $c == "unreadable" then {decision: "\($p[1]) \($p[2])"}
-               elif $c == "skill-says" or $c == "doc" then {repo: $p[1], path: $p[2], commit: $p[3]}
+               elif $p[0] == "skill" or $p[0] == "doc" then {repo: $p[1], path: $p[2], commit: $p[3]}
                elif $c == "charter" then {pinned: $p[1], digest: $p[2]}
                elif ($p | length) == 4 then {brief: $p[2], digest: $p[3]}
                else $self end),
      words: null,
      source: (if ($r.source // "") == "" then null else $r.source end),
      status: ($c | rule_status), reversal: null, confirm: ($c == "inferred")};
+
+# Whether a row may grant, over one rule_view object
+# (docs/designs/DESIGN-coordinator-standing-rule-provenance.md). shirabe keeps
+# two expectations about a row's text and builds no grant model: what a grant
+# allows is the session's, as niwa's authority read answers it.
+#
+# rule_floor: true for a row that can only restrict: a pause, an inferred row,
+# a `pinned` row, an unreadable row, a row not in force (superseded,
+# unconfirmed) and a row with a reversal (an `asserted` one leaves it in force
+# but never lets it grant).
+def rule_floor:
+  ((.source // "") | split(" ")[0] // "") as $f
+  | .kind == "pause" or .class == "inferred" or .class == "unreadable" or $f == "pinned"
+    or .status != "in-force" or .reversal != null;
+# rule_anchored($facts): false for a `skill` row citing any repository but the
+# one the installed plugin's manifest names ($facts.plugin_repo, null when it
+# names none) and for a `doc` row citing any repository but the record's host
+# ($facts.host_repo); true for every other row. It is a rule about whose
+# merged words a row may quote, and the authority read doesn't replace it.
+def rule_anchored($facts):
+  ((.source // "") | split(" ")) as $p
+  | def same($r): ($r | type) == "string" and $r != "" and ($p[1] | ascii_downcase) == ($r | ascii_downcase);
+    if $p[0] == "skill" then same($facts.plugin_repo)
+    elif $p[0] == "doc" then same($facts.host_repo)
+    else true end;
+# rule_passes($facts): the row passes the floor and the anchor, so only the
+# authority read settles it.
+def rule_passes($facts): (rule_floor | not) and rule_anchored($facts);
+# grant_allows: over `niwa authority check --json`'s document, the authorities
+# its grant holds, in niwa's order, when it is a niwa.authority.check/v1
+# document with state bound, a grant array whose every authority is merge-pr,
+# close-issue or cut-release, and a level of autonomous, supervised or strict;
+# null for any other document or value.
+def grant_allows:
+  def in_set($s): . as $v | any($s[]; . == $v);
+  if type == "object"
+     and .schema == "niwa.authority.check/v1"
+     and .state == "bound"
+     and (.grant | type == "array")
+     and all(.grant[]; type == "object" and (.authority | in_set(["merge-pr", "close-issue", "cut-release"])))
+     and (.level | in_set(["autonomous", "supervised", "strict"]))
+  then [.grant[].authority] else null end;
+# rule_grants($facts): {under_session_grant, session_allows} for one
+# rule_view object. $facts is {plugin_repo, host_repo, answer}, answer the
+# authority read's document, or null when no read was made or it failed. The
+# row grants nothing itself: under_session_grant is true only for a row that
+# passes the floor and the anchor under a bound answer, and session_allows is
+# then the session's grant as that answer gives it, never more whatever the
+# row's words say, and [] otherwise.
+def rule_grants($facts):
+  (if $facts.answer == null then null else ($facts.answer | grant_allows) end) as $a
+  | if $a != null and rule_passes($facts) then {under_session_grant: true, session_allows: $a}
+    else {under_session_grant: false, session_allows: []} end;
 
 def decisions_cols: [
   ["decision", "Decision"], ["round", "Round"], ["question", "Question"],

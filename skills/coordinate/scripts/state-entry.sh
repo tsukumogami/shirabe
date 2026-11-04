@@ -56,12 +56,18 @@
 #   state-entry.sh --session S --text-file F [--kind K] [--on <owner/repo#n>|none]
 #   state-entry.sh --session S --list
 #   state-entry.sh --session S --repost N --on <owner/repo#n>
+#   state-entry.sh --session S --before-find --kind run --text-file F
 #   state-entry.sh --scope roadmap|discipline --name N --repo O/R [...]
 #                    (tests: RS_SESSION names the session holding the record)
 #
 # The session gives the scope, name and host (coord-log.sh vars), and must
 # have a found record (coord-log.sh run-facts). An entry needs no other session
-# check, because an entry changes nothing a check reads.
+# check, because an entry changes nothing a check reads. --before-find is the
+# one exception: the `run` entry state-stored-set.sh --rule-files posts for a
+# start, which may come before the run's find has sealed its record (a carry,
+# or the seed record_open makes). It takes the session holding a record, its
+# record/meta written and not pending, in place of a found one, and goes only
+# with --session, --kind run and no --on.
 #
 # The entry is stamped from the host clock in UTC to the second; an outward
 # entry is posted as one comment:
@@ -128,7 +134,7 @@ set -uo pipefail
 PROG=state-entry
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= TEXTFILE= KIND=entry REPOST= ON=
-MODE=append
+MODE=append BEFORE_FIND=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -142,6 +148,7 @@ while [ $# -gt 0 ]; do
         --list) MODE=list; shift ;;
         --repost) [ $# -ge 2 ] || usage; MODE=repost; REPOST=$2; shift 2 ;;
         --on) [ $# -ge 2 ] || usage; ON=$2; shift 2 ;;
+        --before-find) BEFORE_FIND=1; shift ;;
         *) usage ;;
     esac
 done
@@ -173,11 +180,24 @@ fi
 ENTRY_BUDGET=60000
 
 . "$HERE/state-common.sh"
+if [ "$BEFORE_FIND" = 1 ]; then
+    [ "$MODE" = append ] && [ "$KIND" = run ] && [ -z "$ON$SCOPE$NAME$REPO" ] && [ -n "$SESSION" ] || usage
+fi
 lib_facts
-lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
 WD=$(mktemp -d "${TMPDIR:-/tmp}/state-entry.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
+if ! lib_run_found; then
+    [ "$BEFORE_FIND" = 1 ] || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
+    # A start's own entry: the session holds a record, written and not pending.
+    rs_key "$SESSION" record/meta "$WD/meta.json"
+    case $? in
+        0) jq -e '.pending != true and (.written // "") != ""' "$WD/meta.json" > /dev/null \
+               || { echo "$PROG: refused: session $SESSION's record is still being written" >&2; exit 10; } ;;
+        1) echo "$PROG: refused: session $SESSION holds no record" >&2; exit 10 ;;
+        *) lib_die2 "cannot read session $SESSION's record/meta: $(lib_scrub < "$WD/meta.json.err")" ;;
+    esac
+fi
 
 # The session that holds the entries.
 ES=${RS_SESSION:-$SESSION}

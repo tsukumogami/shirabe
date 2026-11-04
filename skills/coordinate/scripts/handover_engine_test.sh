@@ -312,8 +312,17 @@ eq "the hold, with who and when" "after-release acme/widgets#12 the human 2026-0
     "$(printf '%s' "$H" | jq -r '.holds[0] | "\(.hold) \(.on) \(.set_by) \(.set)"')"
 eq "the coordinator's address and who has been told it" "lane-v1: worker-f1 worker-f2" \
     "$(printf '%s' "$H" | jq -r '"\(.coordinator): \(.told | join(" "))"')"
+# A's start wrote the skill's own rules rows (skill- labels, and workspace-
+# ones for any instruction file above the workspace) before the fixture's
+# `coordinate` row; the fixture's is the only other rules row.
 eq "the crash set: rules, briefs, friction and reports-to" "coordinate sha256:$RULES|lane sha256:$BRIEFS|lane-friction|the human" \
-    "$(printf '%s' "$H" | jq -r '[(.rules[0] // ""), (.briefs[0] // ""), .friction, .reports_to] | join("|")')"
+    "$(printf '%s' "$H" | jq -r '[([.rules[] | select(test("^(skill|workspace)-") | not)] | join(",")), (.briefs[0] // ""), .friction, .reports_to] | join("|")')"
+# The skill rows are the ones rule-files.sh lists for this plugin tree, so the
+# count follows the skill's files rather than a number written here.
+host_on a bash "$PS/rule-files.sh" --plugin-root "$PR" > "$T/rule-files" 2> "$T/rule-files.err"
+eq "  ... beside the skill- rules rows rule-files.sh lists for A's start" \
+    "$(jq -s '[.[] | select(.label | startswith("skill-"))] | length' "$T/rule-files")" \
+    "$(printf '%s' "$H" | jq '[.rules[] | select(startswith("skill-"))] | length')"
 eq "  ... and where the files live" "$WS_A/rules.md $WS_A/friction.md" "$(printf '%s' "$H" | jq -r '"\(.host["rules:coordinate"]) \(.host.friction)"')"
 eq "worker-f1's pushed head" "$SHA_HEAD" "$(run state-holding.sh --topic worker-f1 --read | jq -r .pushed_head)"
 eq "and, for the old coordinator, no gaps" "0" "$(printf '%s' "$H" | jq '.gaps | length')"

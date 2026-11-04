@@ -444,7 +444,12 @@ what never goes to GitHub. In the Run section, written with
 `state-stored-set.sh --run`: `rules` and `briefs` (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with), `friction` (a label) and
 `reports-to` (`<role>` or `<role> at <address>`, who this coordinator reports
-up to). Where those files live goes in `record/host` through `state-stored-set.sh
+up to). The `rules` rows of the files this session loads as rules, the
+skill's own (`skill-<file name>`) and the workspace's `CLAUDE.md`,
+`CLAUDE.local.md` and `.claude/rules/*.md` (`workspace-<depth>-...`), are
+written by every start that leaves the run holding a record, never by you; a
+failed write prints `warning=rules-unrecorded` and the next start writes them.
+Where those files live goes in `record/host` through `state-stored-set.sh
 --host`, never in a table, and so do an import's facts (`source_workspace`,
 `source_session`, `template_hash`); host facts never go to GitHub. A holding
 keeps its last pushed head, the pull request head a report or a link last read,
@@ -689,12 +694,10 @@ lines, and the rows and refusals behind them, are in
   the coordinator that dispatched this one when its session is bound, and
   a person when it is a root coordinator, for its own verdict edits too:
   whoever writes a verdict never approves its own Done.
-  Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval,
-  at the head that was approved: the author itself when its grant lets it
-  merge, otherwise the reviewer that approved it when its own grant does,
-  otherwise the next one up the chain, and a person at the root.
-  No coordinator approves its own verdict pull request or hands its merge to a worker;
-  that rule wins over any `Named authority:` line. A repository that merges
+  Someone other than the author approves it, and no coordinator approves its
+  own verdict pull request. Who merges it after that approval, at the head
+  that was approved, is not this passage's to say: it comes from the merge
+  grant, which Bounds and Authority reads. A repository that merges
   them automatically gives up the review that Done rests on.
 
 Two points of the shipped behaviour follow the milestone verdicts PRD where

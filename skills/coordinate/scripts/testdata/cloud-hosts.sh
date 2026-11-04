@@ -16,11 +16,15 @@
 # miss the move and not refuse as session_migrated. Every command runs with
 # the AWS_* variables and CLAUDE_CODE_SESSION_ID removed, so neither a real
 # credential nor this session's identity reaches koto, and with every
-# KOTO_SESSION_* variable, KOTO_SESSIONS_BASE and XDG_CONFIG_HOME removed, so
-# each host reads only its own configuration: a KOTO_SESSION_* variable
-# overrides the workspace's config, and the shell running a suite may point
-# koto at a real bucket. ws_make checks what a workspace resolves before any
-# session is written, and exits the suite when it isn't the fake server.
+# KOTO_SESSION_* variable, KOTO_SESSIONS_BASE, KOTO_HOME and XDG_CONFIG_HOME
+# removed, so each host reads only its own configuration: a KOTO_SESSION_*
+# variable overrides the workspace's config, KOTO_HOME moves koto's whole
+# root, and the shell running a suite may point koto at a real bucket.
+# koto 0.34.0 and later apply a workspace's .koto/config.toml only once
+# `koto config trust` has granted it, so ws_make trusts each config it
+# writes; the grant goes to the host's own HOME ($HOME/.koto/trust.toml),
+# never the caller's. ws_make then checks what the workspace resolves before
+# any session is written, and exits the suite when it isn't the fake server.
 #
 #   s3_start            start the server; sets S3_ENDPOINT and S3_PID
 #   s3_stop             stop it (only the server this suite started)
@@ -30,6 +34,12 @@
 #                       run a command in the host's workspace, as that host
 #   ws_make <label> <ws>
 #                       lay out a second workspace <ws> on a host host_make made
+#   ws_config <label> <ws> <backend> <endpoint> <bucket>
+#                       write that workspace's .koto/config.toml and, on koto
+#                       0.34.0 and later, trust it as that host
+#   ws_check <label> <ws>
+#                       exit the suite 1 unless that workspace resolves the
+#                       fake server's backend, endpoint and bucket
 #   ws_path <label> <ws>
 #                       that workspace, canonical
 #   ws_on <label> <ws> <command...>
@@ -40,6 +50,9 @@
 #                       reads from its last pushed copy and refuses every write
 #                       as session_migrated. An older koto's source refuses its
 #                       reads too, and the entry-floor job runs the suites on one.
+#   koto_trusts_config  exit 0 when the koto on PATH is from 0.34.0 on, whose
+#                       project config applies only once trusted. An older
+#                       koto has no `config trust` and applies the file as is.
 #
 # Two workspaces on one host share HOME, the koto cache and the request store,
 # as two checkouts on one machine do; each has its own .koto/config.toml, so
@@ -86,10 +99,21 @@ host_make() {
 }
 
 ws_make() {
-    local w="$T/hosts/$1/$2"
-    mkdir -p "$w/.koto"
-    printf '[session]\nbackend = "cloud"\n\n[session.cloud]\nendpoint = "%s"\nbucket = "%s"\nregion = "us-east-1"\npath_style = true\n' \
-        "$S3_ENDPOINT" "$S3_BUCKET" > "$w/.koto/config.toml"
+    mkdir -p "$T/hosts/$1/$2/.koto"
+    ws_config "$1" "$2" cloud "$S3_ENDPOINT" "$S3_BUCKET"
+    ws_check "$1" "$2"
+}
+
+ws_config() {
+    printf '[session]\nbackend = "%s"\n\n[session.cloud]\nendpoint = "%s"\nbucket = "%s"\nregion = "us-east-1"\npath_style = true\n' \
+        "$3" "$4" "$5" > "$T/hosts/$1/$2/.koto/config.toml"
+    # The grant lands in the host's own HOME (ws_on). A trust that fails
+    # leaves the file ignored, and ws_check then stops the suite.
+    koto_trusts_config || return 0
+    ws_on "$1" "$2" koto config trust > /dev/null
+}
+
+ws_check() {
     # Fail closed: a workspace that resolves any other backend, endpoint or
     # bucket would write the suite's sessions somewhere real.
     local got
@@ -102,11 +126,16 @@ ws_make() {
 
 host_ws() { ws_path "$1" work; }
 
-koto_keeps_source() {
+koto_keeps_source() { koto_from 32; }
+
+koto_trusts_config() { koto_from 34; }
+
+# koto_from <minor>: exit 0 when the koto on PATH is 0.<minor>.0 or later.
+koto_from() {
     local v maj min
     v=$(koto version | head -n 1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9]*\)\.\([0-9][0-9]*\)\..*$/\1 \2/p')
     read -r maj min <<< "${v:-0 0}"
-    [ "$maj" -gt 0 ] || [ "$min" -ge 32 ]
+    [ "$maj" -gt 0 ] || [ "$min" -ge "$1" ]
 }
 
 ws_path() { (cd "$T/hosts/$1/$2" && pwd -P); }
@@ -125,6 +154,6 @@ ws_on() {
     (cd "$b/$w" || exit 1
         for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
         exec env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_PROFILE \
-            -u CLAUDE_CODE_SESSION_ID -u XDG_CONFIG_HOME -u KOTO_SESSIONS_BASE \
+            -u CLAUDE_CODE_SESSION_ID -u XDG_CONFIG_HOME -u KOTO_SESSIONS_BASE -u KOTO_HOME \
             HOME="$b/userhome" XDG_CACHE_HOME="$b/cache" "$@")
 }

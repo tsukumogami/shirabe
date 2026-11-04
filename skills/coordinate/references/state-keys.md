@@ -211,7 +211,18 @@ if it is). A new address clears the `told` and `pending` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<role>` or `<role>
-at <address>`, who this coordinator reports up to). A session opened before the
+at <address>`, who this coordinator reports up to). The start writes the
+`rules` rows of the files the session loads as rules, never you: `skill-<file
+name>` for the skill's `SKILL.md`, template and references at the plugin root,
+and `workspace-<depth>-<file name>` or `workspace-<depth>-rules-<file name>`
+for each `CLAUDE.md`, `CLAUDE.local.md` and `.claude/rules/*.md` from the
+working directory up to below the home directory (`scripts/rule-files.sh`
+lists them, `state-stored-set.sh --rule-files` writes them). The opener writes
+them on a resume, a carry, a takeover and an import, and `state-open.sh` after
+each seed; a row whose digest didn't change is kept as written, and one `run`
+entry names each label added, changed or removed. A failed write prints
+`warning=rules-unrecorded` and the next start writes them. Any other `rules`
+label is yours, through `--run rules`. A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
 refused, exit 65: `store` is no Run key it writes). Every
@@ -252,6 +263,7 @@ written to the state and then told as an entry:
 state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <who>
 state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
 state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
+state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>
 state-stored-set.sh --session S --pending <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
@@ -461,8 +473,9 @@ Two more things live only in the session. `record/host` holds host facts, never
 sent to GitHub: where the crash set's files are
 (`rules:<label>`, `briefs:<label>` and `friction`, each an absolute path) and,
 after an import, where the state came from (`source_workspace`,
-`source_session`, `template_hash`). Only `state-stored-set.sh --host` writes it, and
-the opener calls it after an import. And each holding keeps its pushed head
+`source_session`, `template_hash`). Only `state-stored-set.sh` writes it: `--host`,
+which the opener calls after an import, and `--rule-files`, which keeps the
+`rules:<label>` key of each `skill-` and `workspace-` row. And each holding keeps its pushed head
 beside its row in `record/holdings` (`pushed_head`, 40 hex), set with
 `state-holding.sh --topic T --pushed-head <sha>`, by `holding-link.sh` when it
 links a pull request and by the report check when a report reads a new head;

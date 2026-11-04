@@ -38,7 +38,9 @@ and **fails closed** (never reads as "verified").
 
   The gate runs it as `scripts/check-skill.sh --changed <skill>`, which runs only the suites
   the branch's changes touch, as described in the next section. Every other check runs in
-  full.
+  full. Each invocation gets 3600 seconds (`timeout_secs`) instead of the gate's default of
+  1800: when `--changed` falls back to every suite, `/coordinate`'s script and engine suites
+  run back to back in one invocation and take longer than 1800 seconds.
 
   It does not run the evals. A pull request that changes a skill writes or updates the
   scenarios in `evals/evals.json`; the scenarios run at release, through the eval check

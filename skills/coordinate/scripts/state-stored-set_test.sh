@@ -43,6 +43,21 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 RS="$HERE/state-stored-set.sh"
 RH="$HERE/state-handover.sh"
 RA="$HERE/state-entry.sh"
+# --rules may read the session's grant from niwa. A fake niwa goes first on
+# PATH, logging its arguments to $T/niwa.calls and printing $T/niwa.answer,
+# and no session id is set unless a case sets one, so no niwa on this host is
+# ever asked.
+mkdir -p "$T/fake-niwa"
+cat > "$T/fake-niwa/niwa" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$T/niwa.calls"
+cat "$T/niwa.answer"
+EOF
+chmod +x "$T/fake-niwa/niwa"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
+PATH="$T/fake-niwa:$PATH"
+export PATH
+unset CLAUDE_CODE_SESSION_ID NIWA_BIN
 
 SR=coordinate-roadmap-plugin-system-20260926T070000Z
 export RS_SESSION=$SR
@@ -612,7 +627,23 @@ eq "--rules prints one object per row, in record order" "0 s1 s2 s6 s7 s8 s9" "$
 eq "  ... each with its class and status" "relayed:in-force relayed:in-force inferred:unconfirmed skill-says:in-force charter:in-force unreadable:unreadable" \
     "$(jq -r '"\(.class):\(.status)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... the relayed rows their Owner, the rule rows none" "the human|the human|null|null|null|null" "$(jq -r '.owner // "null"' "$T/rules.out" | tr '\n' '|' | sed 's/|$//')"
-eq "  ... and no grants key" 0 "$(jq -s 'map(select(has("grants"))) | length' "$T/rules.out")"
+eq "  ... and, with no session id, under_session_grant false and session_allows [] on every one, with no read" "false:[] false:[] false:[] false:[] false:[] false:[]|" \
+    "$(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')|$(cat "$T/niwa.calls" 2>/dev/null)"
+# From an instance, as this session, under a bound answer granting merge-pr:
+# one read, and only the relayed approval (s2) is under the grant; the pause, the
+# inferred, pinned and unreadable rows and the skill row citing the host
+# rather than the plugin's repository don't.
+mkdir -p "$T/inst/.niwa" "$T/inst/repo"; printf '{}' > "$T/inst/.niwa/instance.json"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"bound","grant":[{"authority":"merge-pr","sources":["dispatch"]}],"level":"supervised"}' > "$T/niwa.answer"
+rm -f "$T/niwa.calls"
+GSID=$(printf "%s-%s-%s-%s-%s" 0f1e2d3c 4b5a 6978 8796 a5b4c3d2e1f0)
+(cd "$T/inst/repo" && CLAUDE_CODE_SESSION_ID=$GSID bash "$RS" "${RM[@]}" --rules) > "$T/rules.bound" 2>"$T/err"
+eq "--rules as a bound session puts the relayed approval alone under the grant" "0 false:[] true:[\"merge-pr\"] false:[] false:[] false:[] false:[]" \
+    "$? $(jq -r '"\(.under_session_grant):\(.session_allows | tojson)"' "$T/rules.bound" | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... from one read of the session's grant" "authority check -C $(cd "$T/inst" && pwd -P) --session $GSID --json" "$(cat "$T/niwa.calls" 2>/dev/null)"
+eq "  ... every other field as without it" "$(jq -c 'del(.under_session_grant, .session_allows)' "$T/rules.out")" "$(jq -c 'del(.under_session_grant, .session_allows)' "$T/rules.bound")"
+printf '%s\n' '{"schema":"niwa.authority.check/v1","state":"not-dispatched","reason":"no-mapping","grant":[]}' > "$T/niwa.answer"
+rm -f "$T/niwa.calls"
 # Each relayed row names the entry its own --standing wrote: s1's is the
 # older of the two, not the newest.
 P1=$(jq -r 'select(.standing == "s1") | .pointer.entry' "$T/rules.out")
@@ -627,6 +658,13 @@ eq "--rules --id of a row the record lacks exits 65 and prints nothing" "65 0" "
 grep -q 's99' "$T/err" && ok "  ... naming it on stderr" || bad "  ... naming it on stderr" "$(cat "$T/err")"
 bash "$RS" "${RM[@]}" --rules --id 7 > /dev/null 2>&1; eq "an --id that isn't s<n> is a usage error" 64 $?
 bash "$RS" "${RM[@]}" --list --id s7 > /dev/null 2>&1; eq "  ... and --id belongs to --rules alone" 64 $?
+bash "$RS" "${RM[@]}" --rules --counts > "$T/counts.out" 2>"$T/err"
+eq "--rules --counts prints each class's count, in the fixed order, zeros included" \
+    "0 relayed 2|owner-said 0|dispatcher-said 0|inferred 1|skill-says 1|charter 1|unreadable 1" \
+    "$? $(tr '\n' '|' < "$T/counts.out" | sed 's/|$//')"
+bash "$RS" "${RM[@]}" --rules --counts --id s1 > "$T/counts.out" 2>/dev/null; rc=$?
+eq "--rules --counts --id is a usage error, printing nothing on stdout" "64 0" "$rc $(wc -c < "$T/counts.out" | tr -d ' ')"
+bash "$RS" "${RM[@]}" --list --counts > /dev/null 2>&1; eq "  ... and --counts belongs to --rules alone" 64 $?
 # A rule row whose What reads like a pause holds nothing.
 jq '{standing: .}' "$SK" > "$T/st.json"; printf '["Feature 2", "Feature 3"]' > "$T/units.json"
 bash "$HERE/pause-read.sh" --standing "$T/st.json" --units "$T/units.json" > "$T/pauses.json" 2>"$T/err"
@@ -666,5 +704,69 @@ put_standing "$SD/standing-empty-source.json"
 bash "$RS" "${W[@]}" --run friction friction-last --by "the human" >/dev/null 2>"$T/err"
 eq "an unrelated write over a row stored with an empty Source exits 0" 0 $?
 cmp -s "$SD/standing-today.json" "$SK" && ok "  ... and writes it back with the key left out" || bad "  ... and writes it back with the key left out" "$(cat "$SK")"
+
+echo "== --rule-files: the start's rules rows, and the lists it refuses =="
+DA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DB=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+DC=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+rf() { jq -nc --arg l "$1" --arg p "$2" --arg d "$3" '{label: $l, path: $p, digest: $d}'; } # rf <label> <path> <digest>: one line of the list
+HK="$KOTO_STORE/context/$SR/record/host"
+seed "$TWO"
+bash "$RS" "${W[@]}" --run rules "notes sha256:$DC" --by "the human" >/dev/null 2>"$T/err" \
+    && bash "$RS" "${W[@]}" --run briefs "brief-1 sha256:$DC" --by "the human" >/dev/null 2>"$T/err" \
+    && bash "$RS" "${W[@]}" --host rules:notes /srv/notes.md >/dev/null 2>"$T/err"
+eq "a person's rules row, a briefs row and its host key are written" 0 $?
+{ rf skill-SKILL.md /p/skills/coordinate/SKILL.md "$DA"; rf workspace-0-CLAUDE.md /w/repo/CLAUDE.md "$DA"; } > "$T/rf1"
+N0=$(entries | jq length)
+bash "$RS" "${W[@]}" --rule-files "$T/rf1" --by coord-run >/dev/null 2>"$T/err"
+eq "--rule-files writes a rules row per listed file" "0 notes sha256:$DC|skill-SKILL.md sha256:$DA|workspace-0-CLAUDE.md sha256:$DA" \
+    "$? $(live | jq -r '[.run[] | select(.key == "rules") | .value] | join("|")')"
+eq "  ... set by its --by" "coord-run coord-run" "$(live | jq -r '[.run[] | select(.key == "rules" and (.value | startswith("notes") | not)) | .set_by] | join(" ")')"
+eq "  ... the host keys naming each path, the person's kept" "/p/skills/coordinate/SKILL.md|/w/repo/CLAUDE.md|/srv/notes.md" \
+    "$(jq -r '"\(.["rules:skill-SKILL.md"])|\(.["rules:workspace-0-CLAUDE.md"])|\(.["rules:notes"])"' "$HK")"
+eq "  ... and one run entry naming both labels as added" "1 run" "$(entries | jq -r --argjson n "$N0" '.[$n:] | "\(length) \(.[0].kind)"')"
+entries | jq -e '.[-1].text | test("added skill-SKILL.md sha256:a{64}, workspace-0-CLAUDE.md sha256:a{64}")' >/dev/null \
+    && ok "  ... with their digests" || bad "  ... with their digests" "$(entries | jq -r '.[-1].text')"
+SNAP=$(session_snapshot "$SR"); N1=$(entries | jq length)
+bash "$RS" "${W[@]}" --rule-files "$T/rf1" --by coord-run > "$T/out" 2>"$T/err"
+eq "the same list again exits 0 and prints nothing" "0 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+eq "  ... writing no key" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... and no entry" "$N1" "$(entries | jq length)"
+bash "$RS" "${RM[@]}" --rules > "$T/rules.out" 2>"$T/err"
+eq "--rules lists each Run rules row after the Standing objects, with its kind" \
+    "0 other:notes:sha256:$DC skill:skill-SKILL.md:sha256:$DA workspace:workspace-0-CLAUDE.md:sha256:$DA" \
+    "$? $(jq -r 'select(.run == "rules") | "\(.kind):\(.label):\(.digest)"' "$T/rules.out" | tr '\n' ' ' | sed 's/ $//')"
+{ rf skill-SKILL.md /p/skills/coordinate/SKILL.md "$DB"; } > "$T/rf2"
+bash "$RS" "${W[@]}" --rule-files "$T/rf2" --by coord-run >/dev/null 2>"$T/err"
+eq "a changed digest replaces its row and an unlisted one goes" "0 notes sha256:$DC|skill-SKILL.md sha256:$DB" \
+    "$? $(live | jq -r '[.run[] | select(.key == "rules") | .value] | join("|")')"
+eq "  ... its host key with it, the person's and the briefs row kept" "null /srv/notes.md brief-1 sha256:$DC" \
+    "$(jq -r '.["rules:workspace-0-CLAUDE.md"] // "null"' "$HK") $(jq -r '.["rules:notes"]' "$HK") $(live | jq -r '.run[] | select(.key == "briefs") | .value')"
+entries | jq -e '.[-1].text | test("changed skill-SKILL.md sha256:a{64} to sha256:b{64}; removed workspace-0-CLAUDE.md\\.$")' >/dev/null \
+    && ok "  ... and its entry names the old and new digests and the label removed" || bad "  ... and its entry names the old and new digests and the label removed" "$(entries | jq -r '.[-1].text')"
+{ rf skill-SKILL.md /q/skills/coordinate/SKILL.md "$DB"; } > "$T/rf3"
+N2=$(entries | jq length); RUN_BEFORE=$(koto context get "$SR" record/run)
+bash "$RS" "${W[@]}" --rule-files "$T/rf3" --by coord-run >/dev/null 2>"$T/err"
+eq "a file that moved with its digest unchanged moves its host key" "0 /q/skills/coordinate/SKILL.md" "$? $(jq -r '.["rules:skill-SKILL.md"]' "$HK")"
+eq "  ... leaving the Run section and the entries as they were" "$RUN_BEFORE $N2" "$(koto context get "$SR" record/run) $(entries | jq length)"
+# Each list is refused (65) before anything is read or written.
+rf_refused() { # rf_refused <what> <list-file>
+    local snap n rc
+    snap=$(session_snapshot "$SR"); n=$(entries | jq length)
+    bash "$RS" "${W[@]}" --rule-files "$2" --by coord-run >/dev/null 2>"$T/err"; rc=$?
+    if [ "$rc" = 65 ] && [ "$snap" = "$(session_snapshot "$SR")" ] && [ "$n" = "$(entries | jq length)" ]; then
+        ok "--rule-files refuses $1 (65), writing no key and no entry"
+    else bad "--rule-files refuses $1 (65), writing no key and no entry" "$rc $(cat "$T/err")"; fi
+}
+rf notes /p/notes.md "$DA" > "$T/bad"; rf_refused "a label with neither prefix" "$T/bad"
+rf "skill-two words.md" /p/x.md "$DA" > "$T/bad"; rf_refused "a label outside the grammar" "$T/bad"
+rf skill-SKILL.md skills/coordinate/SKILL.md "$DA" > "$T/bad"; rf_refused "a relative path" "$T/bad"
+rf skill-SKILL.md /p/SKILL.md "sha256:$DA" > "$T/bad"; rf_refused "a digest that isn't 64 hex" "$T/bad"
+rf skill-SKILL.md "$(printf '/p/a\tb.md')" "$DA" > "$T/bad"; rf_refused "a path holding a control character" "$T/bad"
+rf skill-SKILL.md "/p/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa.md" "$DA" > "$T/bad"; rf_refused "a path holding a token-shaped string" "$T/bad"
+{ rf skill-SKILL.md /p/a.md "$DA"; rf skill-SKILL.md /p/b.md "$DB"; } > "$T/bad"; rf_refused "one label twice" "$T/bad"
+printf 'not json\n' > "$T/bad"; rf_refused "a list that isn't rule-files.sh's" "$T/bad"
+bash "$RS" "${W[@]}" --rule-files "$T/rf1" >/dev/null 2>&1; eq "--rule-files without --by is a usage error" 64 $?
+eq "no write in this section reached GitHub" "" "$(gh_writes)"
 
 done_tests state-stored-set_test

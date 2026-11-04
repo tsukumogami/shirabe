@@ -33,6 +33,16 @@
 # carry run again after it landed reads as carried; one cut short is seeded
 # again.
 #
+# After each seed it makes (a roadmap's record, a first rotation, a carry),
+# it writes the Run section's `rules` digests of the files this session
+# loaded as rules: rule-files.sh lists them from this plugin's root and the
+# working directory, and state-stored-set.sh --rule-files writes them --by the
+# run's session name, as coordinate-open.sh does at a start that finds a
+# record. A failed digest write never fails the seed: it prints
+# `warning=rules-unrecorded` after record= (or carried=), the reason on
+# stderr, and the next start writes them. With the test override flags it
+# writes none.
+#
 # Usage:
 #   state-open.sh --session S [--start YYYY-MM-DD --end YYYY-MM-DD]
 #   state-open.sh --session S --carry
@@ -79,6 +89,26 @@ fi
 lib_facts
 [ "$CARRY" = 0 ] || [ "$SCOPE" = discipline ] || usage
 
+# rules_record: the Run rules digests of the files this session loaded as
+# rules, written into the run's session once a seed has given it a record. A
+# failure prints warning=rules-unrecorded, the reason on stderr, and returns 0.
+rules_record() {
+    local d
+    [ "$OVERRIDE" = 1 ] && return 0
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-open-rules.XXXXXX") || {
+        echo "warning=rules-unrecorded"; echo "$PROG: $SESSION's rules digests weren't written: no scratch directory; the next start writes them" >&2
+        return 0
+    }
+    if ! bash "$HERE/rule-files.sh" --plugin-root "$HERE/../../.." < /dev/null > "$d/files"; then
+        echo "warning=rules-unrecorded"
+        echo "$PROG: $SESSION's rules digests weren't written: the rule files couldn't be listed; the next start writes them" >&2
+    elif ! bash "$HERE/state-stored-set.sh" --session "$SESSION" --rule-files "$d/files" --by "$SESSION" < /dev/null > /dev/null 2> "$d/err"; then
+        echo "warning=rules-unrecorded"
+        echo "$PROG: $SESSION's rules digests weren't written: $(tr -s '\t\n' '  ' < "$d/err" | head -c 400); the next start writes them" >&2
+    fi
+    rm -rf "$d"
+}
+
 # rotation_write <start> <end> <predecessor-or-empty>: record/rotation for this
 # run's rotation, through state-stored-set.sh (its writer). Exits with its code on a
 # refusal.
@@ -111,6 +141,7 @@ if [ "$CARRY" = 1 ]; then
         cat "$T/report.json"
         if [ "$1" = carried ]; then
             echo "carried=$PRED"
+            [ "${SEEDED:-0}" = 0 ] || rules_record
             exit 0
         fi
         echo "refused"
@@ -167,6 +198,7 @@ if [ "$CARRY" = 1 ]; then
     if ! rotation_write "$TODAY" "$ENDD" "$PRED" 2> "$T/rot.err"; then
         carry_report refused "the rotation's window wasn't written: $(lib_scrub < "$T/rot.err" | head -1)" "$T/next.json"
     fi
+    SEEDED=1
     carry_report carried "carried from $PRED" "$T/next.json"
 fi
 
@@ -215,4 +247,5 @@ if [ "$SCOPE" = discipline ]; then
     rotation_write "$START" "$END" "" || exit $?
 fi
 echo "record=$OPEN_S"
+rules_record
 exit 0
