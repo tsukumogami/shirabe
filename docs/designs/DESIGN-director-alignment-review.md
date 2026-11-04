@@ -410,7 +410,11 @@ recorded`. Still refused, it leaves with `verdict: deferred`, which goes to `wai
 A `landed` tick brings the run back through `roadmap_status`, whose script prints
 `verdict-owed` again, and that visit checks the same pull request and writes no
 second entry, since `roadmap-status.sh --verdict` refuses a new entry while the
-first one's row is pending. `roadmap_status` checks the edit before it's handed to
+first one's row is pending. Passing on that visit, the director writes the called
+head into that Side effects row's Verified head with `state-write.sh` before
+`verdict: recorded`: the record step waits for a record write later than the latest
+`wait`, and the call and the refusal line are entries, which don't write the record.
+`roadmap_status` checks the edit before it's handed to
 whoever merges. Still refused, it submits `status: opened` with the edit not handed;
 the record step confirms the Side effects row the script already wrote and goes on
 to `pick_facts`. The template has no state of its own for a strategy edit, so a
