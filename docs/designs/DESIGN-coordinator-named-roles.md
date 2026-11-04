@@ -14,9 +14,9 @@ decision: |
   any koto call; a missing role is asked for and a role that differs from the
   recorded one is refused, naming both, unless the start names an
   intervention from above with --role-change-by and --role-change-source: a
-  dispatcher change is accepted when its name is in the run's reports-to row,
-  a person's change on the start's decisions, and the record keeps who and
-  when. The record holds it as one Run row,
+  dispatcher change is accepted when its name is the address in the run's
+  reports-to row, a person's change on the start's decisions but never on a
+  start a brief launched, and the record keeps who and when. The record holds it as one Run row,
   role, set once and carried by every existing continuation; a record without
   it is the handover gap no-role. Every report starts with a record line a
   script prints from the live record, ending "Role: manager." or "Role:
@@ -244,10 +244,21 @@ a sealed find and treats a failed read as an error. A structure test pins the
 two writer scripts (`state-stored-set.sh`, and `state-open.sh` for both its
 seed and its `--carry --role` path), and pins the readers as an allow-list of
 callers: only the scripts this design names (the opener, `state-handover.sh`,
-the report's record line and `dispatch-worker.sh`'s brief path) may call
-`state-read.sh --run` or read `record/run` whole, so a script added later that
-reads the role fails the test. The test lands with the row and gains each
-named caller in the phase that adds it. That keeps `posture-read.sh`,
+the report's record line and `dispatch-worker.sh`'s brief path) may read the
+row. The test counts two read forms: a call to `state-read.sh --run`, and a
+filter that selects the Run key `role` (a `.key == "role"` comparison) in any
+script, whatever it read the record with. Eleven scripts read the whole Run
+section or the whole record today for other rows, through
+`state-stored-set.sh --list`, `--record`, `rs_record` or `rs_record_api`:
+`board-lib.sh`, `closeout-read.sh`, `deferral-check.sh`, `dispatch-common.sh`,
+`dispatch-worker.sh`, `land-check.sh`, `land-merge.sh`, `pick-facts.sh`,
+`reconcile-read.sh`, `roadmap-status.sh` and `wait-target.sh`. Those reads
+stay, and the test keeps each of them from selecting the row. A whole read
+alone isn't counted, since a script that never selects the row can't branch
+on it, and the byte-identical grant and posture cases (Phases 4 and 6) check
+the outputs that matter. A script added later that selects the role fails the
+test. The test lands with the row and gains each named caller in the phase
+that adds it. That keeps `posture-read.sh`,
 `need-check.sh`, `board-lib.sh` and `dispatch-worker.sh`'s grant path off the
 row without naming each one, and the same test pins that no script passes
 `--role` to `niwa dispatch`.
@@ -288,8 +299,8 @@ resume, carry, takeover (including a re-run after a cut-short fence) and a
 carried rotation, whose candidate is the ended rotation. A given `--role` that
 differs from the recorded one exits 2 with `outcome=refused`,
 `reason=role-mismatch`, and a `role_mismatch` wording row: "{run} is recorded
-as {recorded}; this start names {asked}. A run keeps its role across every
-continuation; nothing was written and {run} goes on as it was. Start again
+as {recorded}; this start names {asked}. A continuation keeps its role unless an
+intervention from above changes it; nothing was written and {run} goes on as it was. Start again
 naming {recorded}, or no role, or start {asked} as a new lineage." An import
 runs the same check on the copy right after it lands, before the
 `record/host` write, the rebind and the fence. Naming the recorded role again
@@ -305,51 +316,79 @@ check above, a `--role` that differs from the recorded one is decided this
 way:
 
 - With no change flags, it is refused `role-mismatch` as above.
-- With source `dispatcher`, it is accepted only when `<name>` equals the name
-  or the address in the candidate's Run `reports-to` row (`<name>` or `<name>
-  at <address>`), the session this run reports up to. Otherwise it is refused
-  with `outcome=refused`, `reason=role-change-refused`, exit 2, nothing
-  written, and a `role_change_refused` wording row: "{run} reports to
-  {reports_to}; a role change from a dispatcher has to come from the session
-  it reports to, and {by} isn't it. Nothing was written and {run} goes on as
-  {recorded}." A record with no `reports-to` row refuses every `dispatcher`
-  change the same way.
-- With source `person`, it is accepted. The agent passes `person` only when
-  the start's decisions state in a person's words that this run's role
-  changes ("this run is now the director"), the same rule that passes
-  `--role` from the decisions; a mention of another session's role doesn't
-  count, and in doubt it passes nothing and the mismatch refusal stands.
+- With source `dispatcher`, it is accepted only when `<name>` equals the
+  address in the candidate's Run `reports-to` row, the `<address>` half of
+  `<name> at <address>`, where the session this run reports up to receives
+  messages. The name half is free text (`the human` passes the schema), so it
+  is never matched, and a row with no address refuses every `dispatcher`
+  change, as does a record with no `reports-to` row. A refusal prints
+  `outcome=refused` and `reason=role-change-refused`, exits 2, writes
+  nothing, and uses a `role_change_refused` wording row: "{run} reports to
+  {reports_to}; a role change from a dispatcher has to name the address that
+  row holds, and {by} isn't it. Nothing was written and {run} goes on as
+  {recorded}." The run name, the row's value and `{by}` are cleaned as
+  `invalid_role`'s value is.
+- With source `person`, it is accepted except on a start a brief launched
+  (one given `--dispatched-by`, which the opener line of every coordinate
+  brief carries), which is refused `role-change-refused` the same way: a
+  brief's text is never a person's words, so a predecessor that writes "this
+  run is now the director" into its successor's brief writes as the run, not
+  as a person above it. The agent passes `person` only when the start's
+  decisions state in a person's words that this run's role changes ("this
+  run is now the director"), the same rule that passes `--role` from the
+  decisions; a mention of another session's role doesn't count, and in doubt
+  it passes nothing and the mismatch refusal stands.
+- With either source, a `<name>` equal to the run's own session, its
+  predecessor or its own Run `coordinator` address is refused
+  `role-change-refused`, even when the `reports-to` row holds it.
 
 Naming the recorded role again with the change flags, or naming any role for
 a role-less record with them, isn't a change: the flags are ignored and the
 start goes on as it would without them.
 
-An accepted change is written where each path writes a role-less row today,
-through `state-stored-set.sh --run role <new> --by <name> --intervention
-dispatcher|person`: on a resume by the opener before `outcome=resumed`, on a
-takeover or a koto 0.32 or later import by `finish_takeover`, on an older
-import as a resume, and on a carry or a carried rotation by `state-open.sh
---carry --role <new> --role-change-by <name> --role-change-source <source>`,
-which replaces the carried row. `--intervention` is the one way the set-once
+An accepted change is written through `state-stored-set.sh --run role <new>
+--by <name> --intervention dispatcher|person`, by the writer each path runs:
+
+| Path | Writer of an accepted change |
+|---|---|
+| Resume | the opener, before `outcome=resumed` |
+| Takeover, and an import on koto 0.32 or later | `finish_takeover`, beside the `coordinator` row |
+| Import on an older koto | the opener, as on a resume |
+| Carry on the same host | the opener, right after `core_carry` lands and `carried=` prints, before `session=`, through the before-find path `--rule-files` already uses (the write core's `START_WRITER`), since the run's find hasn't sealed the copy yet; `state-open.sh --carry` runs only at discipline scope, so it isn't on this path |
+| Carried discipline rotation | `state-open.sh --carry --role <new> --role-change-by <name> --role-change-source <source>`, which replaces the carried row; the `predecessor_carry` directive runs it, passing the `role=`, `role_change_by=` and `role_change_source=` lines the opener printed |
+
+An import's "no other setting" rule accepts the two change flags beside
+`--role`, and its change is decided on the copy at the mismatch check, before
+the `record/host` write. `state-stored-set.sh --run role` with
+`--intervention` may write before the find, as `--rule-files` does; without
+`--intervention` it keeps its current rule. `--intervention` is the one way the set-once
 writer replaces a different value; without it a different value still exits
 65. The row's `set_by` is `<name>` and its `set` is the write's time, so the
 record keeps who intervened and when, and the entry the writer appends names
 the old role, the new one and the source. The opener prints `role=<new>` and
-`role_changed_from=<old>` with its result lines. Every refusal above happens
+`role_changed_from=<old>` with its result lines, and on a carried rotation
+also `role_change_by=<name>` and `role_change_source=<source>` for the
+directive. Every refusal above happens
 before any write, so a refused change leaves the record as it was.
 
-**The brief path.** A dispatcher that wants a coordinator it dispatched to run
-under another role writes the change on the coordinate brief it renders for
-that coordinator. `dispatch-worker.sh` takes a `role_change` field (the new
-role) on a coordinate brief and renders `--role <new> --role-change-by
-<address> --role-change-source dispatcher` on the invocation line, with
-`<address>` taken from the dispatching session's own Run `coordinator` row,
-the same value it writes as the brief's `reports_to`, never from its input.
-A predecessor writing its own successor's brief isn't above the run, so
-`dispatch-worker.sh` refuses `role_change` on a successor brief (exit 2,
-naming the field); and its address isn't the one in the run's `reports-to`
-row, so a change it typed by hand is refused `role-change-refused` at the
-opener, as is a `dispatcher` change naming anyone else.
+**The brief path.** A dispatcher that wants a manager it dispatched to run
+under another role re-renders that manager's brief with
+`dispatch-worker.sh --rebrief`, the mode that rewrites a held worker's brief
+and messages the worker to read it. On a `--rebrief` of a coordinate holding,
+`dispatch-worker.sh` takes a `role_change` field (the new role) and renders
+`--role <new> --role-change-by <address> --role-change-source dispatcher` on
+the invocation line, with `<address>` taken from the dispatching session's
+own Run `coordinator` row, the same value it writes as the brief's
+`reports_to`, never from its input. The manager re-runs the invocation its
+re-rendered brief shows; as its scope's only live run it is resumed, and the
+change is written on the resume path. `role_change` anywhere else is refused
+with exit 1, the brief refusal, naming the field, and nothing is written: on
+a new dispatch, because a new lane starts as a manager and a dispatch of a
+topic already held renders no brief; on a successor brief, because a
+predecessor isn't above its successor; and on a worker entry point. A change
+a predecessor types by hand into its successor's invocation line names its
+own address, which the opener refuses outright, and any other name that isn't
+the `reports-to` row's address is refused `role-change-refused`.
 
 **`reports-to` in other words.** The value is described as `<name>` or `<name>
 at <address>`: who this run reports up to (a person, or the coordinator that
@@ -403,6 +442,14 @@ now a director" as a Standing rule, and reconcile rewrites the Run row from
 it. Rejected because the role then sits in two places between the start and
 reconcile, the record line printed in that window names the old role, and a
 Standing row is read as a rule, not as the run's own value.
+
+**Check against `--dispatched-by` or koto's dispatched-by link.** The
+opener already takes `--dispatched-by <session>`, and koto keeps a run's
+dispatched-by link, so the change could be matched to either instead of to a
+row the run writes. Rejected because neither shows more: `--dispatched-by`
+comes from the same brief as the change flags, so matching one to the other
+proves nothing, and a carried run's koto link names the run it carried, its
+predecessor, which is exactly the session a change must not come from.
 
 **Keep refusing every change.** A session that should run under the other role
 starts as a new lineage, as before. Rejected because R5 now requires that an
@@ -904,7 +951,8 @@ described the `reports-to` value with different placeholders; this design uses
 
 The role reaches no allowance. It isn't a koto variable, it isn't passed to
 `niwa dispatch`, and a structure test pins that the posture read, the
-reserved-step check, the merge re-read and the grant path never read the row.
+reserved-step check, the merge re-read and the grant path never select the
+row (the merge re-read reads the whole record for its holds and pauses).
 What a director allocates is read from its cap and its scope and decisions,
 neither of which looks at the role, and the design defines no cap change.
 
@@ -957,7 +1005,7 @@ variable is added, so the template stays at compat 2.
 
 | Component | Change |
 |---|---|
-| `scripts/coordinate-open.sh` | parses `--role` outside the variable pairs; refuses `invalid_role` before any koto call; reads the candidate's role through `state-read.sh --run` and refuses `role-mismatch` before any write, unless the change flags name an intervention from above, refusing `role-change-refused` for a `dispatcher` change whose name isn't in the `reports-to` row and writing an accepted change through `--intervention`; prints `ask=role` (exit 10) for a new run or a role-less continuation without one; prints `role=<value>`; writes the row on a resume of a role-less record; runs the mismatch check on an import's copy right after it lands |
+| `scripts/coordinate-open.sh` | parses `--role` outside the variable pairs; refuses `invalid_role` before any koto call; reads the candidate's role through `state-read.sh --run` and refuses `role-mismatch` before any write, unless the change flags name an intervention from above, refusing `role-change-refused` for a `dispatcher` change whose name isn't the `reports-to` row's address, a `person` change on a start given `--dispatched-by`, and a change naming the run's own session, predecessor or address, and writing an accepted change through `--intervention` (on a same-host carry right after `carried=`, through the before-find path); prints `ask=role` (exit 10) for a new run or a role-less continuation without one; prints `role=<value>`; writes the row on a resume of a role-less record; runs the mismatch check on an import's copy right after it lands |
 | `scripts/coordinate-open.wording.tsv` | `invalid_role`, `role_mismatch`, `role_change_refused` and the `ask=role` message |
 | `scripts/state-open.sh` | `--role` required on a fresh seed and written in it; `--carry --role` adds the row only when the copy has none, or, with the change flags, replaces it through the intervention write |
 | `scripts/holding-link.sh` | doesn't link a pull request onto a holding whose entry is `coordinate` |
@@ -969,8 +1017,8 @@ variable is added, so the template stays at compat 2.
 | `scripts/reconcile-report-get.sh` | `--md` adds the record line as line 3, exits 4 with no role |
 | `scripts/coordinate-report.sh` | `--record-line`; `record=` accepts a session name |
 | `scripts/render-brief.sh`, `scripts/dispatch-common.sh` | the `role` input field; `dc_invocation` appends `--role` |
-| `scripts/dispatch-worker.sh` | writes `.role` in `read_inputs`: deleted for workers, the record's row for a successor (refused when missing), `manager` for a lane; with a `role_change` field on a lane brief (refused on a successor brief), `.role` is the new role and the invocation line gains `--role-change-by` (its own Run `coordinator` row) and `--role-change-source dispatcher` |
-| `koto-templates/coordinate.md` | `record_open` directive passes `role=`; `reconcile` directive closes gaps before printing the report; start state names the two roles and the Roles section; swept prose |
+| `scripts/dispatch-worker.sh` | writes `.role` in `read_inputs`: deleted for workers, the record's row for a successor (refused when missing), `manager` for a lane; with a `role_change` field on a `--rebrief` of a coordinate holding (refused, exit 1, on a new dispatch, a successor brief or a worker entry point), `.role` is the new role and the invocation line gains `--role-change-by` (its own Run `coordinator` row) and `--role-change-source dispatcher` |
+| `koto-templates/coordinate.md` | `record_open` directive passes `role=`; `predecessor_carry` directive passes `role=`, `role_change_by=` and `role_change_source=` to `state-open.sh --carry`; `reconcile` directive closes gaps before printing the report; start state names the two roles and the Roles section; swept prose |
 | `SKILL.md` | flag table, Glossary entries, `## Roles`, the Bounds and Authority allowance paragraph, the own-reading sentence, the record line in Reporting, `reports-to` wording, swept prose |
 | `references/state-keys.md`, `brief-template.md`, `loop.md`, `entry-points.tsv` header | the Run `role` row and its writers; the Goal rule and the `role` field; the record line; where `--role` comes from |
 | Tests | `state-stored-set_test.sh`, `state-schema_test.sh`, `coordinate-open` tests, `render-brief_test.sh`, `dispatch-worker_test.sh`, `coordinate-report_test.sh`, reconcile report tests, the template structure test (writers and non-readers of the row), `testdata/rule-coverage.tsv` rows for the new sentences |
@@ -985,18 +1033,23 @@ variable is added, so the template stays at compat 2.
 - **Role change flags.** `--role-change-by <name>` and `--role-change-source
   dispatcher|person`, both or neither, only with `--role` (exit 64
   otherwise). Results: `outcome=refused` with `reason=role-change-refused`
-  (exit 2) for a `dispatcher` change whose name isn't in the `reports-to`
-  row, and `role=<new>` with `role_changed_from=<old>` on an accepted change.
+  (exit 2) for a `dispatcher` change whose name isn't the `reports-to` row's
+  address, a `person` change on a start given `--dispatched-by`, or a change
+  naming the run's own session, predecessor or address; `role=<new>` with
+  `role_changed_from=<old>` on an accepted change, and on a carried rotation
+  `role_change_by=` and `role_change_source=` for the `predecessor_carry`
+  directive.
 - **Record row.** Run key `role`, value `manager` or `director`, at most one.
   Writers: `state-open.sh` (seed, and `--carry --role` with the change flags)
   and `state-stored-set.sh --run role` (set once, exit 65 on a different
   value unless `--intervention dispatcher|person` is given, which replaces it
   with `set_by` and `set` as who and when and an entry naming the old role,
   the new one and the source). Reader: `state-read.sh --run`.
-- **Brief role change.** `role_change` in the render input of a coordinate
-  brief, rendered by `dispatch-worker.sh` as `--role <new> --role-change-by
-  <address> --role-change-source dispatcher`, with `<address>` from the
-  dispatcher's own Run `coordinator` row.
+- **Brief role change.** `role_change` in the input of a `--rebrief` of a
+  coordinate holding, rendered by `dispatch-worker.sh` as `--role <new>
+  --role-change-by <address> --role-change-source dispatcher`, with
+  `<address>` from the dispatcher's own Run `coordinator` row; refused with
+  exit 1 anywhere else.
 - **Handover read.** `state-handover.sh` prints `role`; gap `no-role`, fix
   `state-stored-set.sh --run role <manager|director> --by <who named it>`.
 - **Record line.** `` Record: session `<session>` on `<owner>/<repo>`[, address `<address>`]. Role: <manager|director>. ``,
@@ -1064,10 +1117,11 @@ Deliverables: the five scripts, the `record_open` directive line,
 candidate's role and refuses `role-mismatch`, asks `ask=role`, prints `role=`,
 writes the row on a resume and in `finish_takeover` for a role-less record,
 and checks an import's copy. It parses `--role-change-by` and
-`--role-change-source`, accepts a `dispatcher` change whose name is in the
-candidate's `reports-to` row and a `person` change, refuses
-`role-change-refused` otherwise, and writes an accepted change on each path
-through `--intervention`. Add the wording rows. Tests cover each refusal
+`--role-change-source`, accepts a `dispatcher` change whose name is the
+address in the candidate's `reports-to` row and a `person` change on a start
+no brief launched, refuses `role-change-refused` otherwise, and writes an
+accepted change through `--intervention` by the writer each path runs, the
+same-host carry's write right after `carried=`. Add the wording rows. Tests cover each refusal
 leaving the record and the run's state unchanged, for all five continuations
 and both directions of mismatch, and an accepted change from each source on
 each continuation, with the row's `set_by`, `set` and entry checked.
@@ -1088,8 +1142,9 @@ Deliverables: the three scripts, their tests, the directive text.
 ### Phase 4: The brief
 
 The `role` field in `render-brief.sh`, `dc_invocation`'s `--role`,
-`dispatch-worker.sh`'s fill rule, its `role_change` field rendered as the
-change flags with the address from the dispatcher's own record,
+`dispatch-worker.sh`'s fill rule, its `role_change` field on a `--rebrief`
+rendered as the change flags with the address from the dispatcher's own
+record,
 `brief-template.md`'s field and Goal text, and the `entry-points.tsv` header
 comment. The worker golden files must not change.
 
@@ -1147,9 +1202,10 @@ to `niwa dispatch`, whose `--role` flag grants the authorities a workspace
 declares for a named role; a coordinator named `director` in a workspace that
 happens to declare an `[authority.roles]` entry called `director` still gets
 nothing from it. The posture read, the reserved-step check, the merge re-read
-and the grant path don't read the Run `role` row, and a structure test pins
-that with an allow-list of the row's readers, so a script added later that
-reads the role fails the test instead of slipping past a list of known
+and the grant path don't select the Run `role` row, and a structure test pins
+that with an allow-list of the row's readers, counting a `state-read.sh --run`
+call or a `.key == "role"` filter wherever a script read the record from, so a
+script added later that reads the role fails the test instead of slipping past a list of known
 offenders. A director with no merge grant still may not merge, and a manager holding
 one still merges only after its reviewer's review.
 
@@ -1184,12 +1240,18 @@ because it changes only which expectation list the session follows, and
 nothing it grants has to be revoked.
 
 **A role change from above is checked as far as the record can check it.** A
-`dispatcher` change is accepted only when its name is the one the run's own
-`reports-to` row holds, and the brief path takes that name from the
-dispatching session's record, not from input. That shows the name is the
-session above the run; it doesn't prove the start came from that session. A
-session that types its dispatcher's name by hand passes the check, and a
-`person` change rests on the start's decisions, as the first role does. Both
+`dispatcher` change is accepted only when its name is the address the run's
+own `reports-to` row holds, never the row's free-text name half, and the
+brief path takes that address from the dispatching session's record, not
+from input. That shows the name is the session above the run; it doesn't
+prove the start came from that session. A session that types its
+dispatcher's address by hand passes the check. The run also writes its own
+`reports-to` row, and `state-stored-set.sh` replaces that row on any write,
+so the check guards against drift (an agent that misreads its brief, or a
+predecessor's words carried into a successor), not against a session that
+rewrites its own row first. A `person` change rests on the start's
+decisions, as the first role does, and is refused on a start a brief
+launched, since brief text is never a person's words. Both
 are bounded the same way the first role is: a change grants and revokes
 nothing, and it's visible. The row's `set_by` names who intervened, its
 `set` says when, the entry names the old and new role and the source, and the
@@ -1259,9 +1321,10 @@ first and refuses the second with exit 65, naming both values.
   later work defines cap changes; until then each one is a decision entry.
 - No brief can start a discipline coordinator today, so a director can't
   dispatch a discipline manager through a brief.
-- A `dispatcher` role change is checked against the run's `reports-to` row,
-  which shows the name is the session above, not that the start came from
-  it; a hand-typed change naming the dispatcher passes. A dispatcher taken
+- A `dispatcher` role change is checked against the address in the run's
+  `reports-to` row, a row the run itself writes and can replace, which shows
+  the name is the session above, not that the start came from it; a
+  hand-typed change naming the dispatcher's address passes. A dispatcher taken
   over since the run was briefed is refused and the change has to come as a
   person's.
 
