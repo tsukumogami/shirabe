@@ -227,7 +227,8 @@ through `authority-read.sh` and refuses with the fixed refusal and its case
 word. Every refusal exits 13 and writes nothing to the target record. It
 closes the PRD criteria for the cap refusal, the failed, timed-out or
 `not-dispatched` read, the own cap at first start and on a person's word, and
-the driver-mismatch, no-writer-id and unproven-owner cases. It covers the
+the driver-mismatch, latest-opener, no-writer-id and unproven-owner cases.
+It covers the
 cap-check half of the no-niwa criterion, which closes once Step 3 lands too.
 
 **Acceptance Criteria**:
@@ -464,7 +465,7 @@ half of that criterion closes with the settled-steps work.
   as `--context`, the need behind the move as `--problem`, a `--reason`,
   `--grounds outside-scope`, and an explained `--option` for each option.
 - [ ] The template's reconcile text has one line saying that a refused first
-  cap write (`no-session` or `unproven-owner`) is reported with its refusal
+  cap write, whatever its case word, is reported with its refusal
   line and the run stays at reconcile, its `no-cap` gap open.
 - [ ] The text defines the same move as the same target session and the same
   cap value, and an open entry as one that is `proposed`,
