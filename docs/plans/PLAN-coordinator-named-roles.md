@@ -290,7 +290,9 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   the design's table names them: `role_change_not_reports_to` for a name
   that isn't the row's address (`<D>` included), `role_change_no_address`
   for a row with no address or no row, `role_change_self` for the run's own
-  session, predecessor or address, and `role_change_brief_person` for a
+  session, predecessor or address (its message names the row's whole value
+  as the session the run reports to, or `no session on its record` when
+  there's no row), and `role_change_brief_person` for a
   `person` change on a start given `--dispatched-by`; each echoed value is
   cleaned as `invalid_role`'s value is.
 - [ ] Citing PRD R5: with either source, a `--role-change-by` naming the
@@ -309,7 +311,8 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   `session=` on a same-host carry, through the before-find path (a case in
   which that write fails finds the carry standing, `role=` the recorded
   role, `warning=role-change-unwritten`, `session=` printed and exit 0, and
-  a start again with the same flags applying the change as a resume); and on a
+  a later start with the same flags, once that run's find has recorded its
+  store, applying the change as a resume); and on a
   carried rotation `state-open.sh --carry --role <new> --role-change-by
   <name> --role-change-source <source>`, run by the `predecessor_carry`
   directive from the `role=`, `role_change_by=` and `role_change_source=`
@@ -317,8 +320,9 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   rule-coverage row pins it. An import accepts the two change flags beside
   `--role` under its "no other setting" rule. In each case the row, its
   `set_by` and `set`, and the entry naming old role, new role and source are
-  asserted afterwards, and a write that fails exits non-zero with no
-  `outcome=resumed` or `session=`.
+  asserted afterwards. On a resume, an import and a takeover, a write that
+  fails exits non-zero with no `outcome=resumed` or `session=`; a same-host
+  carry's failed write is instead the exit-0 warning case above.
 - [ ] A resume of a role-less record given `--role director` writes the row
   through `state-stored-set.sh` before printing `outcome=resumed` (a case
   whose write fails exits non-zero and prints no `outcome=resumed`);
@@ -431,10 +435,17 @@ they are.
 
 **Acceptance Criteria**:
 - [ ] `render-brief.sh` refuses a `coordinate` brief whose `role` is `lead`,
-  `Director`, empty or missing, a `role` on any other entry point, and
-  `--role` in `entry_args`; each exits 1, the renderer's existing input
-  refusal, prints a stderr line naming the field and the refused value, and
-  writes no brief; each is a case in `render-brief_test.sh`.
+  `Director` or empty, or missing without `held_rerender: true`, a `role` or
+  `held_rerender` on any other entry point, and `--role` in `entry_args`;
+  each exits 1, the renderer's existing input refusal, prints a stderr line
+  naming the field and the refused value, and writes no brief; each is a
+  case in `render-brief_test.sh`. A `coordinate` brief with no `role` and
+  `held_rerender: true` exits 0, writes the brief and renders no `--role`.
+- [ ] On a `held_rerender` coordinate brief, the opener line's "If your
+  session is already open" sentence says to write the invocation's tokens
+  into a fresh `$ARGS_DIR/args.json` first, replacing the old one, then run
+  the opener; `render-brief_test.sh` finds that sentence on a
+  `held_rerender` coordinate brief and not on a new lane's brief.
 - [ ] `dc_invocation` appends `--role <role>` after the positional, so the
   Goal reads
   `` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``
@@ -446,10 +457,13 @@ they are.
   the record's `role` row when the positional names this run's own roadmap;
   `manager` for any other roadmap on a new dispatch; and none on `--rebrief`
   or `--releg` of a held lane unless `role_change` is given, so the
-  invocation line carries no `--role`. A successor dispatch with no row exits
-  1 and names the command that sets it. A case renders a `role_change:
-  director` rebrief and then a plain rebrief of the same lane, and finds no
-  `--role manager` in the second.
+  invocation line carries no `--role`. The `--rebrief` and `--releg` input
+  jq sets `held_rerender: true`, and `read_inputs` deletes it from every
+  other input; a new-dispatch input that sets it renders `--role manager`. A
+  successor dispatch with no row exits 1 and names the command that sets it.
+  A case renders a `role_change: director` rebrief and then a plain rebrief
+  of the same lane: both exit 0 and write a brief, and the second has no
+  `--role` at all.
 - [ ] `dispatch-worker_test.sh` points its successor input at the fixture
   run's own roadmap with a `director` row and gets `--role director`, and
   adds lane, worker (no field) and missing-row (exit 1) cases.
@@ -472,7 +486,10 @@ they are.
   it.
 - [ ] The template's `rebrief` directive says a role change for the manager
   whose report the director is handling goes in as `role_change`, pinned by
-  a rule-coverage row. The coordinate brief tells the started coordinator to
+  a rule-coverage row. A role change alone never makes a report `needs_fix`:
+  the classification rules are unchanged, and the directive says a change
+  rides the manager's next report that needs a fix, or the director stops
+  the lane and dispatches a new one. The coordinate brief tells the started coordinator to
   fill `no-reports-to` with `<the dispatcher's name> at <reports_to>`. An
   end-to-end case feeds a `role_change: director` rebrief's invocation line
   to the opener on the fixture lane, whose `reports-to` row was written from
@@ -508,7 +525,7 @@ they are.
 
 **Complexity**: testable
 
-**Check**: Run `render-brief_test.sh` and `dispatch-worker_test.sh`; both pass, the worker golden files are unchanged in the diff, and the `role_change` cases render and refuse as the criteria say. `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes.
+**Check**: Run `render-brief_test.sh` and `dispatch-worker_test.sh`; both pass, the worker golden files are unchanged in the diff, a plain `--rebrief` of a held lane exits 0 with a brief that carries no `--role` and the fresh-args-file sentence, and the `role_change` cases render and refuse as the criteria say. `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes.
 
 **Files**: `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/references/entry-points.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
