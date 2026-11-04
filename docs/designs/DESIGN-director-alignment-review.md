@@ -407,10 +407,27 @@ needs_fix`, whose edge goes to `rebrief`: the message tells the manager what sto
 the pull request and that a new head releases it, and `rebrief` goes back to `wait`
 or on to `pick_facts`. Still refused with no call, because a plan source or the live
 head can't be read, the manager can't fix it, for the reason `uncalled` avoids
-`rebrief` below. The director submits `classification: blocked`, and `surface` submits
-`surfaced: blocker` with `need: access <owner/repo>` for the repository it can't read.
-`need-check.sh` accepts it, `surface_check` goes on to `wait`, and the report up names
-the source (R2) and recommends nothing. `done` doesn't fit this branch: it goes
+`rebrief` below. The director submits `classification: blocked`, and what `surface`
+submits depends on what failed. When a repository can't be read (the pull request's
+own, named in `--on`, when the live head can't be read, or the one
+`alignment-sources.sh` names with `repository`), `surface` submits `surfaced: blocker`
+with `need: access <owner/repo>` for that repository. `need-check.sh` accepts it,
+`surface_check` goes on to `wait`, and the report up names the source (R2) and
+recommends nothing. When the repository reads and the file doesn't (the helper names
+it with `file`: a roadmap missing at the commit it read, a milestone with no
+Evidence, an `upstream:` that names no file), no repository is unreadable, and an
+access need would ask for access the director already holds and pass `need-check.sh`
+all the same; no need kind names a missing file. `surface` then submits `surfaced:
+decision`, and at `decision_raise` the director opens an entry naming the pull
+request and the path, with two options: restore the file at that path, or point the
+document that names it at a readable one. Either fix is to a roadmap or strategy
+document, which is neither the director's to change nor the manager's, so the
+director gives the entry an `escalate` verdict. `decision_next` goes through
+`decision_verdict`, `escalate` and `escalate_send`, and once the escalation is sent
+nothing is owed, so it goes on to `pick_facts` by `clear`. The escalation names the
+source (R2), and nothing is recommended. Neither route enters `rebrief`, `verify` or
+`land`, and either way the pull request comes back to `classify_report` with the
+manager's next report of it, where `--require` runs again. `done` doesn't fit this branch: it goes
 through `verify_board`, whose `unlinked` exit reaches `surface` with no call and no
 need that names it. A record the director can't read isn't this branch: it's a read
 failure, fixed and ticked again at whatever state it stops, as every record read is.
@@ -419,7 +436,9 @@ The check can't sit at
 credential, reserved-step and access needs and a refused need comes back to
 `surface`; `surfaced: merge_table` goes to a `record` step that waits for a Verified
 head this path never wrote; and `surfaced: decision` raises a choice the call has
-already made.
+already made. That last reason holds only for a pull request that has a call. With no
+call, nothing has chosen how a missing file gets restored, which is why the no-call
+case above can raise it as a decision.
 
 `milestone_verdict` checks the pull request once it's open and before `verdict:
 recorded`. Still refused, it leaves with `verdict: deferred`, which goes to `wait`.
@@ -516,8 +535,10 @@ names, the helper reports an `other-lane` trigger naming the lane, the read
 is full, and the call names the lane and its open work in Sources (R1, R3). The
 director keeps the candidates whose scope covers the pull request and names
 each in Sources; a kept owner decision makes the read full. A source the
-helper can't read makes it exit naming that source, and the director records
-no call, names the source in its report and neither merges nor recommends
+helper can't read makes it exit naming that source as `<owner/repo> <path>`,
+followed by `repository` when the repository itself can't be read or `file`
+when it reads and the file, or the part of it the helper needs, doesn't. The
+director records no call, names the source in its report and neither merges nor recommends
 (R2). The triage line is stated once, in the director's section of the skill,
 and the helper's reasons cite it.
 
@@ -760,7 +781,7 @@ and relays follow the skill text in the director's section.
 | `land-check.sh` | changed | When the Run `role` row reads `director`, after the hold read and before the posture: reports `uncalled <pr> <sha>` unless a standing non-`diverges` call exists for the pinned head (R5). No `role` row: no gate. A `role` row that can't be read: `unready <pr> <sha>`, reason `role-unreadable`. Reads the row in one function, which joins the named-roles reader allow-list test. Own record only. Nothing else in the merge path changes. |
 | `coord-verdict.sh` | changed | `uncalled` exits 86, with its template arm (R5). |
 | `render-result.sh` | changed | Repeatable `--unit '<topic> <done\|reopened\|dropped> <owner/repo#n>'`, `--open <owner/repo#n>` and `--worker <owner/repo#n>`, printed as `unit=`, `open=` and `worker=` lines inside the result block (R10, R1). |
-| `alignment-sources.sh` | new | Read-only: unit, roadmap clauses and Evidence at a commit, strategy path, changed files, the other lanes' open work (from managers' `open=` lines), mechanical full-read triggers (an `other-lane` trigger among them), candidate owner decisions. Exits naming any source it couldn't read. |
+| `alignment-sources.sh` | new | Read-only: unit, roadmap clauses and Evidence at a commit, strategy path, changed files, the other lanes' open work (from managers' `open=` lines), mechanical full-read triggers (an `other-lane` trigger among them), candidate owner decisions. Exits naming any source it couldn't read as `<owner/repo> <path>` and `repository` or `file`. |
 | `alignment-read.sh` | new | Read-only: calls, the lane pull request set, merges and recommendations with their call status (`manager-reviewed` among them), standing `align-` holds with their state (standing, closed while held, releasable), the gate's refusal count, and lineage gaps. JSON out. It reports a releasable hold; it lifts nothing. |
 | Coordinate template | changed | The `uncalled` arm from `land` to a new director agent state, `align_call`, which writes the refusal entry once per pull request and head, runs `alignment-sources.sh` and `alignment-call.sh`, and goes back to `land` (or to `wait` when a source can't be read) (R5, R2). A new `wait` event, `director-hold`, with evidence fields `message`, `from` and `unit`, whose edge goes to a new manager agent state, `director_hold`, that runs `alignment-call.sh --copy --add`, `--copy --lift` or `--copy --reports-to` and leaves by its `rework`, `reverify` or `wait` edge (R7, R8, R9). The director's start runs `alignment-read.sh --since`, `--lift-releasable` on each releasable hold, reports its unreviewed list, holds and refusal count, and writes its `Director start:` entry (R10, R9, R5). |
 | `SKILL.md`, `references/state-keys.md` | changed | The director's alignment section (the triage line stated once, the call, the hold, the owner funnel, owner questions, relays, recording an owner's reversal, the `Owner report:` entry); the manager's hold duty in its reports, its `unit=` and `open=` lines, and its rule that nothing goes to the owner but through the director; the entry grammar, the refusal, `Director start:` and `Owner report:` lines, the `align-` hold name and Lifted text; the corrected line on who a person's word names as relayer. |
@@ -928,8 +949,9 @@ item of the run. This is the one read R11 names; the start report quotes its
    checks its call, the directive records one on a refusal, and `surface` sends it
    to the reviewer as `need: reserved-step merge <link>`. One still refused on a
    `diverges` call or a standing hold goes back to the manager through `needs_fix`
-   and `rebrief`; one with no call goes up as `need: access <owner/repo>`, which
-   recommends nothing.
+   and `rebrief`. One with no call goes up as `need: access <owner/repo>` when a
+   repository can't be read, or as an escalated decision entry naming the path
+   when a file in a readable repository can't, and neither recommends anything.
    On a worker pull request the manager lands, the call is
    recorded with `Action: none`. Any standing `align-` hold is released if the
    guard allows, and the lift message goes to the manager.
