@@ -228,10 +228,12 @@ window but doesn't close it: two sessions writing the same record at once can
 still lose one write. A lost `opened_by` ends in a refusal, never a widened
 write. A resume write that lands over the other session's record write can
 roll back the meta's other fields (`written`, `standing_used`, `pending`),
-and a rolled-back `standing_used` could hand out a Standing id twice. Nothing
-here adds a lock for it; the window is the one moment a second session
-resumes a run the first is still writing, and the Negative consequences name
-it. `SKILL.md` lists `warning=opener-unrecorded`
+and a rolled-back `standing_used` could hand out a Standing id twice. The
+build must close that: a resume that runs while another session is writing
+the record never rolls back `record/meta` and never produces a duplicate
+Standing id. That is a constraint on Step 1, with its own criterion there;
+how it's met (a lock, a compare-and-write on `written`, or another way) is
+the build's choice, made in Step 1's pull request. `SKILL.md` lists `warning=opener-unrecorded`
 beside `warning=rules-unrecorded`, saying what it means and that the next
 start writes the opener.
 
@@ -835,10 +837,11 @@ exposure the takeover rule has today, and this design doesn't widen it.
 
 ### Negative
 
-- A resume's `opened_by` write that lands while the earlier session is still
-  writing the record can roll back that session's meta fields, a
-  rolled-back `standing_used` included. The resume write re-reads the meta
-  first, which narrows the window, and nothing adds a lock.
+- A resume's `opened_by` write adds a writer to `record/meta` that can run
+  while the earlier session is still writing the record. Left alone, it
+  could roll back that session's meta fields and hand out a Standing id
+  twice, so Step 1 must show it never does; the mechanism is Step 1's to
+  choose.
 - Every cross-lane cap move is refused until niwa grants the cap-change
   authority, including moves a person would have approved.
 - A lane question costs two niwa calls per lane plus one list.

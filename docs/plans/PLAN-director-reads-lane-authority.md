@@ -138,6 +138,13 @@ change. It prepares the PRD's one-reader criterion; Step 4 closes it.
   `warning=rules-unrecorded`, saying the opener wasn't recorded and the next
   start writes it, and `references/state-keys.md` lists `opened_by` among
   `record/meta`'s fields with its writers.
+- [ ] A resume that runs while the session is live never rolls back
+  `record/meta` or produces a duplicate Standing id: a test that runs a
+  resume's `opened_by` write while another session's `--standing` write is
+  in progress finds, afterwards, that session's `written`, `standing_used`
+  and `pending` values as its own write left them, and every Standing id
+  distinct. The mechanism is this step's to choose and to name in its pull
+  request.
 - [ ] A fresh seed's first `record/meta` write, the pending one, already
   holds `opened_by`, checked by reading that write rather than by cutting
   the seed short.
