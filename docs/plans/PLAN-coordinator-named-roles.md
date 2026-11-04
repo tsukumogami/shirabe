@@ -51,8 +51,7 @@ Out of scope:
 - the director's alignment holding of diverging work;
 - an owner-funnel mechanism (no routing script, queue or gate);
 - a discipline route for briefs;
-- opener-seeded records;
-- import checks in place, before the copy lands.
+- opener-seeded records.
 
 ## Decomposition Strategy
 
@@ -242,7 +241,7 @@ record keeps who intervened and when. The mechanism is the design's
 **Role-less continuations.** The plan follows the design's Asking paragraph,
 its components table and its Data Flow step 6: a start with no `--role` and
 no recorded role to continue is asked, before anything is written, on every
-path but an import whose copy has landed. The path table's rows say how the
+path but an import. The path table's rows say how the
 row arrives once a role is given. Path by path, for a record with no `role`
 row:
 
@@ -252,7 +251,7 @@ row:
 | Takeover | `ask=role`, exit 10, before `takeover_check` | `finish_takeover` writes the row beside the `coordinator` row (a koto 0.32 or later import included) |
 | Carry on the same host | `ask=role`, exit 10, before the carry | the copy goes over role-less; the `no-role` gap fix writes the printed `role=` at `reconcile` |
 | Carried discipline rotation | `ask=role`, exit 10, before the carry | `state-open.sh --carry --role` adds the row |
-| Import (any koto), after its copy lands | goes on; `no-role` is left for `reconcile`, which asks the person once | the mismatch check runs on the copy, then the row is written as for a takeover (0.32 or later) or a resume (older) |
+| Import (any koto) | goes on; `no-role` is left for `reconcile`, which asks the person once | the mismatch check runs before `koto session import`, then, once the copy lands, the row is written as for a takeover (0.32 or later) or a resume (older) |
 
 Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebase onto it if it lands first; don't wait on it.
 
@@ -323,12 +322,13 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   and finds the whole name in the message, asserted as the exact expected
   string; the `invalid_role` case asserts its value's removal of backticks
   and control characters and its cut to 32.
-- [ ] On an import, every role refusal (`role_mismatch` and the four
-  role-change rows) ends with the `role_import_copy` row, which says the
-  copy is on this host, not to import again, and to start again without
-  `--import` naming the recorded role or none; the import cases assert it in
-  the whole message, and a start without `--import` afterwards continues the
-  copy.
+- [ ] On an import whose copy is already here, every role refusal
+  (`role_mismatch` and the four role-change rows) ends with the
+  `role_import_copy` row, which says the copy is on this host, not to import
+  again, and to start again without `--import` naming the recorded role or
+  none; those cases assert it in the whole message, and a start without
+  `--import` afterwards continues the copy. On an import with no copy here, the
+  whole message has no such row.
 - [ ] Every successful start that knows the role prints `role=<value>`.
 - [ ] Citing PRD R5: `--role-change-by` and `--role-change-source` are read
   beside `--role`; either one without the other, or both without `--role`,
@@ -415,11 +415,29 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   both. Cases also cover a re-run after an import cut short before its row
   was written, with a mismatched `--role` refused and a matching one
   accepted against the copy's row.
-- [ ] An import runs the mismatch check on the copy right after it lands,
-  before the `record/host` write, the rebind and the fence; a refused import
-  leaves the copy's record unchanged and opens no new session, its copy stays
-  here and its source stays marked migrated, as the PRD's Known Limitations
-  says, and an import never prints `ask=role` after its copy lands.
+- [ ] Citing PRD R5's criterion for refused starts: an import given `--role`
+  with no copy here runs the mismatch and change decision on the source, through
+  `state-read.sh --run --workspace <from> --session <run>`, before `koto session
+  import`. After a refused one, `coordinate-import-takeover_engine_test.sh`
+  finds no migration marker beside the source and no session under this
+  workspace's prefix, finds the source's record and koto state as they were,
+  and has a write from the source's workspace accepted; the same import then
+  started with the recorded role lands. An import never prints `ask=role`.
+- [ ] An import given `--role` whose source has no `record/run` key, or no
+  `role` row, goes on and gets its row once the copy lands. On the local backend
+  it prints `refused=workspace_needs_cloud` and exits 2; a source the bucket
+  doesn't hold prints `refused=session_not_found` and exits 2; a bucket read that
+  fails prints `failed=role_read` and exits 1, and isn't taken as role-less.
+  Each of those refusals lands nothing. An import with no `--role` makes no such
+  read. `state-read_test.sh` covers the `--workspace` form for a present key, an
+  absent key, a koto refusal and a failed read.
+- [ ] An import re-run whose copy is here but not fenced, known by a
+  `koto/imported-from` record naming the run, checks the copy's row rather than
+  the source's. A case on koto older than 0.32 re-runs a finished import whose
+  first run accepted a role change: naming the new role with no change flags is
+  accepted and naming the old role is refused `role-mismatch`, so a check on the
+  source fails both. A case on koto 0.32 or later re-runs an import cut short
+  before the fence: a mismatched `--role` is refused and a matching one goes on.
 - [ ] `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`,
   `coordinate-import-takeover_engine_test.sh` and
   `discipline-session_engine_test.sh` cover all five continuations (resume,
@@ -476,9 +494,9 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
 
 **Complexity**: critical
 
-**Check**: Run `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `coordinate-import-takeover_engine_test.sh`, `discipline-session_engine_test.sh`, `state-open_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh`, `rule-coverage_test.sh` and `scripts/check-skill.sh --changed coordinate`; each passes, including the role-change cases on all five continuations and the successor takeover cases, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the digest re-recorded at compat 2. The public-content check passes over this pull request.
+**Check**: Run `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `coordinate-import-takeover_engine_test.sh`, `discipline-session_engine_test.sh`, `state-open_test.sh`, `state-read_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh`, `rule-coverage_test.sh` and `scripts/check-skill.sh --changed coordinate`; each passes, including the role-change cases on all five continuations and the successor takeover cases, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the digest re-recorded at compat 2. The public-content check passes over this pull request.
 
-**Files**: `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coordinate-open.wording.tsv`, `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/scripts/coordinate-takeover_engine_test.sh`, `skills/coordinate/evals/evals.json`
+**Files**: `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coordinate-open.wording.tsv`, `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/state-read.sh`, `skills/coordinate/scripts/state-read_test.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/SKILL.md`, `skills/coordinate/scripts/coordinate-takeover_engine_test.sh`, `skills/coordinate/scripts/coordinate-import-takeover_engine_test.sh`, `skills/coordinate/evals/evals.json`
 
 ### Issue 3: feat(coordinate): print the record line every report starts with
 
@@ -995,8 +1013,10 @@ it goes last.
 **How the acceptance groups are shown.** The PRD has six acceptance groups.
 Four of them (starting and recording, the successor
 brief and first report, the Glossary and duties, and a lineage from before
-the change) are shown by a reviewer's live run after Issue 8 lands,
-not by any one issue's tests. The other two (allowances and the
+the change) are shown by a reviewer's live run after Issue 8 lands, apart from
+the criteria they state as issue-level checks: the renderer test (Issue 4), the
+occurrence table (Issue 7) and the name grep (Issue 8), which those issues' own
+checks show. The other two (allowances and the
 dispatcher-review requirements, and checks and content) are shown by the
 criteria and Check lines of Issues 4, 6, 7 and 8, and by each issue's check
 over its own pull request, not by the live run. Each issue's criteria pin the

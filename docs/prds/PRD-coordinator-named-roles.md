@@ -413,10 +413,9 @@ Successor brief and first report:
   refusal that only lists the two allowed values fails. After each refused
   start the record is unchanged: every key reads as it did before the attempt,
   its role value prints `manager`, no new session is opened for it, and the
-  run's state (live, stalled or stopped) is the one it had before. An import
-  differs in one way, which Known Limitations describes: its copy has landed
-  on this host and its source is marked migrated by the time it can be
-  refused, so the record checked is the copy's, and the run has moved. The same
+  run's state (live, stalled or stopped) is the one it had before. A refused
+  import lands no copy on this host and doesn't mark its source migrated, so
+  the record checked is the source's, read where it is. The same
   five starts of a run recorded as `director` with the setting `manager` are
   refused the same way, with the roles swapped in the refusal. Each of the
   five started with the recorded role is accepted.
@@ -563,12 +562,14 @@ Checks and content:
 
 ## Known Limitations
 
-- A refused import isn't undone. koto can't read a copy in place, so the role
-  is checked only after `koto session import` has landed the copy on this host
-  and marked its source migrated, and a migrated source refuses writes. The
-  refusal writes nothing to the copy's record and opens no new session, and it
-  says to start again without `--import` to continue the copy here. The run
-  has still moved, so its state isn't the one it had before the attempt.
+- A source that keeps moving while it's imported can change its role after the
+  check. The role is read from the source's last pushed copy before `koto
+  session import` runs, and koto can't tell whether a source is still moving;
+  its import already requires a stopped source.
+- A role refusal on an import whose copy is already on this host, from an
+  earlier start that landed it, leaves that copy here. The refusal writes
+  nothing to the record it read, and it says to start again without `--import`
+  to continue the copy.
 - The role is stated and recorded, not enforced. A session recorded as a manager
   that dispatches a coordinator isn't stopped by this change; the skill's text
   and its reviewer are what keep it in its role.

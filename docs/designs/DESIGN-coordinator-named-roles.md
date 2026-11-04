@@ -205,12 +205,15 @@ Key assumptions:
   compat raise from 2 to 3, which refuses a takeover or import of a live run
   opened on the older template. Those runs are the pre-change lineages the
   PRD's fourth outcome is about.
-- An import can only be checked after `koto session import` lands the copy on
-  this host, because koto can't read a copy in place. A refused import leaves
-  the copy here with nothing in its record written, and that copy is the run
-  moved, not a new session. Its source stays marked migrated and refuses
-  writes, so a refused import doesn't leave the run's state as it was. The
-  PRD's criterion for refused starts and its Known Limitations say so.
+- An import can be checked before `koto session import` runs. `koto --workspace
+  <from> context get <run> <key>` reads the source's last pushed copy where it
+  is and writes nothing: no object in the bucket, no read record, no copy on
+  this host and no migration marker. The read and the import both need koto's
+  cloud backend; on the local backend each refuses before anything lands. The
+  option shipped in koto 0.25.0 and `/coordinate`'s floor is koto 0.31.0, so
+  every koto the opener runs on has it.
+- That read and the import agree only while the source is stopped, which koto's
+  import already requires and can't detect. The PRD's Known Limitations says so.
 - A new run has no record while the opener runs (`state-open.sh` seeds it later
   in `record_open`), so the role reaches the seed as a value the opener prints.
 
@@ -285,9 +288,8 @@ call, manager or director, asked once with no recommendation, and never
 inferred from the scope, the cap, the holdings, the dispatcher, session
 names, or any brief or report text (PRD R2 and R9), and that the start is
 then re-run with `--role`. A discipline start missing both host and role asks for the host
-first. An import never asks after its copy lands (a re-run would be refused
-`import_name_taken`); a role-less import with no `--role` goes on, and the
-`no-role` gap asks at reconcile before anything is dispatched.
+first. An import never asks: a role-less import with no `--role` goes on, and
+the `no-role` gap asks at reconcile before anything is dispatched.
 
 **The gap.** `state-handover.sh` prints `role` (the row's value, or null). With
 no row it lists the gap `no-role`, fix `state-stored-set.sh --run role
@@ -326,23 +328,51 @@ differs from the recorded one exits 2 with `outcome=refused`,
 `reason=role-mismatch`, and a `role_mismatch` wording row: "{run} is recorded
 as {recorded}; this start names {asked}. A continuation keeps its role unless an
 intervention from above changes it; nothing was written and {run} goes on as it was. Start again
-naming {recorded}, or no role, or start {asked} as a new lineage." An import
-runs the same check on the copy right after it lands, before the
-`record/host` write, the rebind and the fence. An import re-run on koto 0.32
-or later whose copy is already here and fenced runs it, before it resumes or
-calls `finish_takeover`, on the run that branch continues. After a finished
-import that is the successor `$FENCE_BY`, which the re-run resumes: its row,
-written by `finish_takeover` with any accepted change, is the run's role,
-while the fenced copy's still holds the role from before the change. After a
-cut-short import it is the successor when that takeover already wrote its
-`role` row, and the copy otherwise. By then the copy is on this
-host and the source is marked migrated, so importing again would be refused
-`import_name_taken`; every role refusal on an import therefore ends with one
-more wording row, `role_import_copy`: "The run's copy is on this host now and
-its source is marked migrated, so don't import it again: start again without
-`--import`, naming {recorded} or no role, to continue it here." Naming the
+naming {recorded}, or no role, or start {asked} as a new lineage." Naming the
 recorded role again is accepted; naming one for a role-less record isn't a
 change.
+
+**Refusing a change on an import (PRD R5).** R5's criterion for refused starts
+asks that a refused start leave the record and the run's state as they were, and
+an import is one of its five starts. So an import makes the same check before
+`koto session import`, and a refused one moves nothing: no copy lands here, the
+source isn't marked migrated, and the source still takes writes. The check runs
+only when the start gives `--role`; with no `--role` there's nothing to compare,
+and the recorded role rides the copy. Which record it reads depends on whether
+this import's copy is already on this host.
+
+With no copy here, it reads the source where it is, through `state-read.sh --run
+--workspace <from> --session <run>`, which is the same read run through koto's
+`--workspace` option, so the role and the `reports-to` row a change needs both
+come from the source. Presence comes from a `context list --prefix` listing, as
+`rs_key` reads it, because `context get` exits 3 for a missing key and for an
+unreadable bucket alike. A source with no `record/run` key or no `role` row is
+role-less, and the start goes on. A refusal koto makes to the read
+(`workspace_needs_cloud` on the local backend, `workspace_not_found`,
+`session_not_found`, `invalid_workspace`) prints `refused=<code>` with koto's
+message and exits 2, as its import refusals do. Any other failed read prints
+`failed=role_read` and exits 1, and is never taken as role-less. Nothing has
+landed in any of these cases.
+
+With a copy here, from an earlier start of this import, the check runs on the
+run the re-run continues. On koto 0.32 or later, when the copy is fenced, it
+runs before the re-run resumes or calls `finish_takeover`. After a finished
+import that run is the successor `$FENCE_BY`, which the re-run resumes: its row,
+written by `finish_takeover` with any accepted change, is the run's role, while
+the fenced copy's still holds the role from before the change. After a cut-short
+import it is the successor when that takeover already wrote its `role` row, and
+the copy otherwise. When the copy isn't fenced (an import cut short before the
+fence, or a finished import on a koto older than 0.32), the run is the copy,
+whose row is the one an accepted change wrote on the older koto. The source's row
+can't answer here, since it never sees that change. The opener knows the copy by
+its `koto/imported-from` record, which koto writes into every copy and whose
+`from_session` names the run. On one host a source that was itself imported under
+the same name carries that record too; the record read there is still the run's,
+because the host's store holds one session of that name. On this branch every
+role refusal ends with one more wording row, `role_import_copy`: "The run's copy
+is on this host now and its source is marked migrated, so don't import it again:
+start again without `--import`, naming {recorded} or no role, to continue it
+here."
 
 **Changing a role from above (PRD R5).** A continuation keeps its role unless
 the change is an intervention from above: the dispatching session, which sits
@@ -421,9 +451,9 @@ An accepted change is written through `state-stored-set.sh --run role <new>
 | Carried discipline rotation | `state-open.sh --carry --role <new> --role-change-by <name> --role-change-source <source>`, which replaces the carried row; the `predecessor_carry` directive runs it, passing the `role=`, `role_change_by=` and `role_change_source=` lines the opener printed |
 
 An import's "no other setting" rule accepts the two change flags beside
-`--role`, and its change is decided on the copy at the mismatch check, before
-the `record/host` write (on a re-run, on the run the re-run continues, as the
-mismatch check says). `state-stored-set.sh --run role` with
+`--role`, and its change is decided at that check, before `koto session import`,
+and written after the copy lands by the writer the table names (on a re-run, on
+the run the re-run continues, as the check says). `state-stored-set.sh --run role` with
 `--intervention` may write before the find, as `--rule-files` does; without
 `--intervention` it keeps its current rule. `--intervention` is the one way the set-once
 writer replaces a different value; without it a different value still exits
@@ -522,6 +552,18 @@ without a sealed find, so it could fill a carried run while it runs. Rejected
 because `core_carry`, the seed and the legacy import all rebuild `record/meta`,
 so every carry and rotation would drop the role unless three sites learned a
 new field, and meta has no section writer whose fix line could close a gap.
+
+**Checking an import's role on the copy, after it lands.** One check in one
+place, on a local record. Rejected because by then the run has moved: the source
+is marked migrated and refuses writes, so a refused import can't leave the run's
+state as it was, which R5's criterion asks of every refused start. The one reason
+to accept that would be that koto can't read a source before importing it, and
+it can.
+
+**Undoing an import after a refusal.** Keep the check on the copy and put the run
+back when it fails. Rejected because koto has no undo for an import: a marked
+source stays read-only, and removing a marker and a copy by hand is a destructive
+step to take on a run that was only refused.
 
 The role change from above (PRD R5) weighed these against the start flags
 chosen above:
@@ -1135,13 +1177,13 @@ variable is added, so the template stays at compat 2.
 
 | Component | Change |
 |---|---|
-| `scripts/coordinate-open.sh` | parses `--role` outside the variable pairs; refuses `invalid_role` before any koto call; reads the candidate's role through `state-read.sh --run` and refuses `role-mismatch` before any write, unless the change flags name an intervention from above, refusing `role-change-refused` for a `dispatcher` change whose name isn't the `reports-to` row's address, a `person` change on a start given `--dispatched-by`, and a change naming the run's own session, predecessor or address, and writing an accepted change through `--intervention` (on a same-host carry after `cancel_others`, through the before-find path); prints `ask=role` (exit 10) for a new run or a role-less continuation without one; prints `role=<value>`; writes the row on a resume of a role-less record; runs the mismatch check on an import's copy right after it lands |
-| `scripts/coordinate-open.wording.tsv` | `invalid_role`, `role_mismatch`, the four role-change refusal rows (`role_change_not_reports_to`, `role_change_no_address`, `role_change_self`, `role_change_brief_person`), the `role_import_copy` row an import's role refusal ends with, and the `ask=role` message |
+| `scripts/coordinate-open.sh` | parses `--role` outside the variable pairs; refuses `invalid_role` before any koto call; reads the candidate's role through `state-read.sh --run` and refuses `role-mismatch` before any write, unless the change flags name an intervention from above, refusing `role-change-refused` for a `dispatcher` change whose name isn't the `reports-to` row's address, a `person` change on a start given `--dispatched-by`, and a change naming the run's own session, predecessor or address, and writing an accepted change through `--intervention` (on a same-host carry after `cancel_others`, through the before-find path); prints `ask=role` (exit 10) for a new run or a role-less continuation without one; prints `role=<value>`; writes the row on a resume of a role-less record; runs the same check on an import before `koto session import`, on the source where it is or on a copy already here |
+| `scripts/coordinate-open.wording.tsv` | `invalid_role`, `role_mismatch`, the four role-change refusal rows (`role_change_not_reports_to`, `role_change_no_address`, `role_change_self`, `role_change_brief_person`), the `role_import_copy` row a role refusal ends with when the import's copy is already here, and the `ask=role` message |
 | `scripts/state-open.sh` | `--role` required on a fresh seed and written in it; `--carry --role` adds the row only when the copy has none, or, with the change flags, replaces it through the intervention write |
 | `scripts/report-facts.sh` | gives no `link` verdict for a progress event on a holding whose entry is `coordinate`, so `report_link`, where `holding-link.sh` writes the link, isn't reached from one; a manager's report still links its pull request |
 | `scripts/state-stored-set.sh` | `--run role <manager\|director>`, set-once, replaced only with `--intervention dispatcher\|person`, whose entry names the old role, the new one and the source; `reports-to` usage reworded |
 | `scripts/state-schema.jq` | `role` among the Run keys, two values, one row; `reports-to` comment and message reworded |
-| `scripts/state-read.sh` | a `--run` mode that reads `record/run` without a sealed find |
+| `scripts/state-read.sh` | a `--run` mode that reads `record/run` without a sealed find; its `--workspace <from>` form reads a source where it is, through the same listing and get, and passes on the code of a koto refusal |
 | `scripts/state-handover.sh` | prints `role`; gap `no-role` with its fix; `no-reports-to` fix reworded |
 | `scripts/reconcile-report.sh` | `def record_line`, a `line` mode, and `md --record-line <line>` |
 | `scripts/reconcile-report-get.sh` | `--md` adds the record line as line 3, exits 4 with no role |
@@ -1253,7 +1295,8 @@ Deliverables: the five scripts, the `record_open` directive line,
 `coordinate-open.sh` parses `--role`, refuses `invalid_role`, reads the
 candidate's role and refuses `role-mismatch`, asks `ask=role`, prints `role=`,
 writes the row on a resume and in `finish_takeover` for a role-less record,
-and checks an import's copy. It parses `--role-change-by` and
+and checks an import before `koto session import`, on the source where it is
+through `state-read.sh --run --workspace` or on a copy already here. It parses `--role-change-by` and
 `--role-change-source`, accepts a `dispatcher` change whose name is the
 address in the candidate's `reports-to` row and a `person` change on a start
 no brief launched, refuses `role-change-refused` otherwise, and writes an
@@ -1263,7 +1306,8 @@ leaving the record and the run's state unchanged, for all five continuations
 and both directions of mismatch, and an accepted change from each source on
 each continuation, with the row's `set_by`, `set` and entry checked.
 
-Deliverables: `coordinate-open.sh`, `coordinate-open.wording.tsv`, the opener's
+Deliverables: `coordinate-open.sh`, `coordinate-open.wording.tsv`, the
+`--workspace` form of `state-read.sh --run`, the opener's and the reader's
 tests, `SKILL.md`'s flag table and the "stated in words" sentence.
 
 ### Phase 3: The record line
@@ -1452,8 +1496,10 @@ first and refuses the second with exit 65, naming both values.
 - A new run's role travels from the opener's `role=` line to `state-open.sh
   --role` through the agent across a few states. A missing value is refused,
   but a wrong copy is caught only by the record line in the first report.
-- A refused import leaves its copy on this host, because koto can't check a
-  copy before it lands. The record inside is unchanged, but the copy exists.
+- An import's role check and koto's import are two reads of the source. A source
+  still moving between them can change its role unseen. A refusal that isn't
+  about the role (a template, provenance) still comes after the copy lands and
+  leaves it here, as it does today.
 - A role-less carry's role is written at the handover gate, not by the opener,
   so it depends on the reconcile directive's gap fix.
 - The record line moves the reconcile report's `Scope:` line from line 3 to
@@ -1483,10 +1529,9 @@ first and refuses the second with exit 65, naming both values.
   proposed follow-up lets the opener seed a fresh roadmap record itself, which
   removes the copy, but it changes when a record is born, which the record's
   own effort owns.
-- The import copy: the refusal's `role_import_copy` row says the copy stays
-  and how to continue it (start again without `--import`, naming the
-  recorded role or none). Checking a copy in place needs a
-  koto feature, proposed as a follow-up.
+- The two reads: both take the source's last pushed copy, and a stopped source,
+  which koto's import already requires, can't differ between them. The first
+  report's record line shows the role the run holds, and its reviewer reads it.
 - The gap-fix dependency: the handover gate holds until the row exists, and
   `reconcile-report-get.sh --md` prints nothing without it, so no report goes
   up roleless.
