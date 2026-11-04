@@ -290,11 +290,16 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   the design's table names them: `role_change_not_reports_to` for a name
   that isn't the row's address (`<D>` included), `role_change_no_address`
   for a row with no address or no row, `role_change_self` for the run's own
-  session, predecessor or address (its message names the row's whole value
-  as the session the run reports to, or `no session on its record` when
-  there's no row), and `role_change_brief_person` for a
+  session, predecessor or address (this message and `role_change_no_address`
+  name the row's value as who the run reports to, `the human` included, or
+  `no session on its record` when there's no row), and `role_change_brief_person` for a
   `person` change on a start given `--dispatched-by`; each echoed value is
-  cleaned as `invalid_role`'s value is.
+  cleaned as `invalid_role`'s value is, except that `{reports_to}` keeps its
+  `at <address>` half whole: a case with a realistic row (a name, then ` at `
+  and a `coordinate-<slug>-<YYYYMMDDTHHMMSSZ>` address over 32 characters)
+  finds the whole address in the message. A case where two causes hold (the
+  run's own address on a record with no `reports-to` row) gets the
+  `role_change_self` message, the design's order.
 - [ ] Citing PRD R5: with either source, a `--role-change-by` naming the
   run's own session, its predecessor or its own Run `coordinator` address is
   refused `role-change-refused`, including a run whose `reports-to` row holds
@@ -347,9 +352,12 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   `director`, and the reverse). Every refusal case finds the record and the
   run's koto state identical before and after. The same suites cover, on
   each of the five continuations, an accepted `dispatcher` change, an
-  accepted `person` change and a refused `dispatcher` change naming the
-  run's own session, so a change accepted on one path and refused on another
-  fails.
+  accepted `person` change, and three refused `dispatcher` changes, naming a
+  session the record doesn't report to, the run's own session and its
+  predecessor. Each refused case asserts the message names the run's
+  `reports-to` row value and finds the record and the run's state as they
+  were, so a change accepted on one path and refused on another, or a path
+  that skips the address match, fails.
 - [ ] The reader allow-list test gains `coordinate-open.sh`.
 - [ ] `koto-templates/coordinate.compat.json` re-records the gate-script
   digest with the fingerprint unchanged and compat at 2, and
@@ -442,10 +450,13 @@ they are.
   case in `render-brief_test.sh`. A `coordinate` brief with no `role` and
   `held_rerender: true` exits 0, writes the brief and renders no `--role`.
 - [ ] On a `held_rerender` coordinate brief, the opener line's "If your
-  session is already open" sentence says to write the invocation's tokens
-  into a fresh `$ARGS_DIR/args.json` first, replacing the old one, then run
-  the opener; `render-brief_test.sh` finds that sentence on a
-  `held_rerender` coordinate brief and not on a new lane's brief.
+  session is already open" sentence gains a clause saying to write the
+  invocation's tokens into a fresh `$ARGS_DIR/args.json` first (the opener
+  removes the file once read), then run the opener; `render-brief_test.sh`
+  finds that clause on a `held_rerender` coordinate brief, a `role_change`
+  re-render included, and not on a new lane's brief, and the end-to-end case
+  below runs the opener from a fresh `args.json` written from the
+  re-rendered invocation.
 - [ ] `dc_invocation` appends `--role <role>` after the positional, so the
   Goal reads
   `` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``
@@ -456,10 +467,16 @@ they are.
   overwriting the input: deleted for an entry point other than `coordinate`;
   the record's `role` row when the positional names this run's own roadmap;
   `manager` for any other roadmap on a new dispatch; and none on `--rebrief`
-  or `--releg` of a held lane unless `role_change` is given, so the
-  invocation line carries no `--role`. The `--rebrief` and `--releg` input
-  jq sets `held_rerender: true`, and `read_inputs` deletes it from every
-  other input; a new-dispatch input that sets it renders `--role manager`. A
+  or `--releg` of a held lane, unless a `--rebrief` input has `role_change`,
+  so the invocation line carries no `--role`. Because `read_inputs` runs
+  before the holding row is read, the `--rebrief` and `--releg` input jq
+  settles these from the row's entry point: for `coordinate` it deletes
+  `role` and sets `held_rerender: true`; for any other entry point it
+  deletes `role` and `role_change_by` and sets no `held_rerender`.
+  `read_inputs` deletes `held_rerender` and `role_change_by` from every
+  input, so a new-dispatch input that sets `held_rerender` renders `--role
+  manager`. A `/work-on` re-brief and a `/deliver` re-brief render
+  byte-identical to today's, each a case in `dispatch-worker_test.sh`. A
   successor dispatch with no row exits 1 and names the command that sets it.
   A case renders a `role_change: director` rebrief and then a plain rebrief
   of the same lane: both exit 0 and write a brief, and the second has no
@@ -475,21 +492,28 @@ they are.
   re-rendered brief's invocation line, with `<address>` the dispatching
   session's own Run `coordinator` row, equal to the brief's `reports_to`; an
   input that also sets `role_change_by` or any other name still renders that
-  address. `role_change` is refused with exit 1 (the brief refusal), naming
+  address. `dispatch-worker.sh` carries it in the render field
+  `role_change_by`, which it alone writes, and `dc_invocation` appends
+  `--role-change-by <role_change_by> --role-change-source dispatcher` after
+  `--role` when it's set. `render-brief.sh` refuses `role_change_by` at
+  exit 1 without `role` and `held_rerender`, and on any other entry point,
+  each a case in `render-brief_test.sh`. `role_change` is refused with exit 1 (the brief refusal), naming
   the field, writing no brief and launching nothing, on a new dispatch of a
   lane (a new lane starts as a manager), on a successor input (the
   positional names this run's own roadmap, and a predecessor isn't above its
-  successor), on a worker entry point, and with a value other than `manager`
-  or `director`. Each is a case in `dispatch-worker_test.sh`, the
-  `--rebrief` case and the new-dispatch refusal among them, and
+  successor), on a `--releg` of a held lane (no report is being handled), on
+  a worker entry point, and with a value other than `manager` or
+  `director`. Each is a case in `dispatch-worker_test.sh`, the `--rebrief`
+  case, the new-dispatch refusal and the `--releg` refusal among them, and
   `brief-template.md` documents the field and that only `--rebrief` carries
   it.
 - [ ] The template's `rebrief` directive says a role change for the manager
   whose report the director is handling goes in as `role_change`, pinned by
-  a rule-coverage row. A role change alone never makes a report `needs_fix`:
-  the classification rules are unchanged, and the directive says a change
-  rides the manager's next report that needs a fix, or the director stops
-  the lane and dispatches a new one. The coordinate brief tells the started coordinator to
+  a rule-coverage row. A role change alone never sends a report to
+  `rebrief`: the classification rules and the template's other routes into
+  `rebrief` (question overflow, verify and land outcomes) are unchanged, and
+  the directive says a change rides the manager's next report that takes one
+  of those routes, or the director stops the lane and dispatches a new one. The coordinate brief tells the started coordinator to
   fill `no-reports-to` with `<the dispatcher's name> at <reports_to>`. An
   end-to-end case feeds a `role_change: director` rebrief's invocation line
   to the opener on the fixture lane, whose `reports-to` row was written from
@@ -533,7 +557,8 @@ they are.
 
 **Goal**: `holding-link.sh` stops a progress event from linking a pull
 request onto a holding whose entry is `coordinate`, so a director's count of
-its managers doesn't drift.
+its managers doesn't drift, and `report-facts.sh` stops asking for that link,
+so the report doesn't cycle between `report_facts` and `report_link`.
 
 **Acceptance Criteria**:
 - [ ] At `report_link`, a progress event with a pull request link for a
@@ -543,16 +568,27 @@ its managers doesn't drift.
   and after.
 - [ ] The same event for a worker holding still links the pull request,
   exits 0 and prints the record's URL, as it does today.
+- [ ] `report-facts.sh` never gives `link` for a holding whose entry is
+  `coordinate`: with its Pull request cell empty, a report that names a pull
+  request gives `holding none <topic>` and a progress event `progress none
+  <topic>`, as a report naming none does today. `report-facts_test.sh` adds
+  both cases, and a worker holding still gives `link`.
+- [ ] A round-trip case feeds a manager's report naming a pull request
+  through `report_facts` on a coordinate holding and finds the run at
+  `report_questions` without entering `report_link`.
 - [ ] `holding-link_test.sh` adds both cases, and its existing cases pass
   unchanged.
+- [ ] `coordinate.compat.json` re-records the gate-script digest with the
+  fingerprint unchanged and compat at 2 (`report-facts.sh` runs behind the
+  `report_facts` gate), and `check-template-compat.sh` passes.
 
 **Dependencies**: None
 
 **Complexity**: testable
 
-**Check**: Run `holding-link_test.sh`; it passes, with the coordinate-holding case refusing the link and the other entry points linking as before.
+**Check**: Run `holding-link_test.sh` and `report-facts_test.sh`; both pass, with the coordinate-holding cases refusing the link and giving no `link` verdict and the other entry points linking as before. The round-trip case reaches `report_questions`, and `check-template-compat.sh` passes.
 
-**Files**: `skills/coordinate/scripts/holding-link.sh`
+**Files**: `skills/coordinate/scripts/holding-link.sh`, `skills/coordinate/scripts/report-facts.sh`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
 ### Issue 6: docs(coordinate): add the Glossary roles, the Roles section and the allowance paragraph
 

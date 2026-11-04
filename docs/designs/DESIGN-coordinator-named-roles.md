@@ -339,20 +339,26 @@ way:
 Every refusal here prints `outcome=refused` and `reason=role-change-refused`,
 exits 2 and writes nothing, and its message names the cause, one wording row
 per cause, each ending "Nothing was written and {run} goes on as
-{recorded}.":
+{recorded}.". When more than one cause holds, the first in this order wins:
+`role_change_self`, then `role_change_brief_person`, then
+`role_change_no_address`, then `role_change_not_reports_to`.
 
 | Wording row | Cause | Message opens |
 |---|---|---|
 | `role_change_not_reports_to` | a `dispatcher` name that isn't the row's address | "{run} reports to {reports_to}; a role change from a dispatcher has to name the address in that row, and {by} isn't it." |
-| `role_change_no_address` | a `dispatcher` change on a record with no `reports-to` row, or one with no address | "{run}'s record names no address it reports to, so no dispatcher change can be checked." |
+| `role_change_no_address` | a `dispatcher` change on a record with no `reports-to` row, or one with no address | "{run} reports to {reports_to}, which names no address, so no dispatcher change can be checked." |
 | `role_change_self` | a name equal to the run's own session, predecessor or address | "{run} reports to {reports_to}, and {by} is {run} itself or the run it continues: a run can't change its own role." |
 | `role_change_brief_person` | a `person` change on a start a brief launched | "This start came from a brief, and a brief's text is never a person's words, so it can't carry a person's role change." |
 
-`{reports_to}` is the `reports-to` row's whole value, so every refused
-dispatcher change that isn't `role_change_no_address` names the session the
-run reports to (PRD R5); on a record with no `reports-to` row,
-`role_change_self` fills it with `no session on its record`. The run name,
-the row's value and `{by}` are cleaned as `invalid_role`'s value is.
+`{reports_to}` is the `reports-to` row's value, so every refused dispatcher
+change names who the run reports to (PRD R5); on a record with no
+`reports-to` row, `role_change_self` and `role_change_no_address` fill it
+with `no session on its record`. The run name
+and `{by}` are cleaned as `invalid_role`'s value is. `{reports_to}` has
+backticks and control characters removed the same way, but only its name
+half is cut to 32 characters: the `at <address>` half is printed whole, since
+a session address alone is often longer than 32 characters and cutting it
+would drop the session the message has to name.
 
 Naming the recorded role again with the change flags, or naming any role for
 a role-less record with them, isn't a change: the flags are ignored and the
@@ -391,23 +397,33 @@ and messages the worker to read it. On a `--rebrief` of a coordinate holding,
 `--role <new> --role-change-by <address> --role-change-source dispatcher` on
 the invocation line, with `<address>` taken from the dispatching session's
 own Run `coordinator` row, the same value it writes as the brief's
-`reports_to`, never from its input. The manager re-runs the invocation its
-re-rendered brief shows. Its session already has an args file from its first
-start, and the opener reads `$ARGS_DIR/args.json`, so the opener line of a
-`held_rerender` coordinate brief says, in the sentence that already covers a
-re-briefed session ("If your session is already open"), to write this
-invocation's tokens into a fresh `$ARGS_DIR/args.json` first, replacing the
-old one, and then run the opener; without that the old file's tokens, which
-carry no change flags, are what the opener reads. `render-brief_test.sh` pins
-that sentence on a `held_rerender` coordinate brief and its absence from a
+`reports_to`, never from its input. It does so through two render fields it
+alone writes: `role`, set to the new role, and `role_change_by`, set to that
+address (`read_inputs` deletes an input's `role_change_by`). `dc_invocation`
+appends `--role-change-by <role_change_by> --role-change-source dispatcher`
+after `--role` when `role_change_by` is set, since the `coordinate` row of
+`entry-points.tsv` allows no flags in `entry_args`; `render-brief.sh` refuses
+`role_change_by` at exit 1 without `role` and `held_rerender`, or on any
+other entry point. The manager re-runs the invocation its
+re-rendered brief shows. The opener reads `$ARGS_DIR/args.json` and removes
+it once read (`coordinate-open.sh`), and a re-briefed session's first step
+already ran, so nothing writes that file again on its own: the opener would
+exit 64 on a missing file. The opener line of a `held_rerender` coordinate
+brief therefore adds a clause to the sentence that already covers a
+re-briefed session ("If your session is already open"): write this
+invocation's tokens into a fresh `$ARGS_DIR/args.json` first, then run the
+opener. `render-brief_test.sh` pins that clause on a `held_rerender`
+coordinate brief, a `role_change` re-render included, and its absence from a
 new lane's brief. As its scope's only live run the manager is resumed, and
 the change is written on the resume path. The template reaches the `rebrief`
-state only from a report classified `needs_fix`, while the director handles
-that manager's report, so the director's `rebrief` directive gains a
-sentence: a role change for the manager whose report it's handling goes in as
-`role_change`. A role change alone never makes a report `needs_fix`, so a
-change rides the manager's next report that needs a fix; a director that
-can't wait for one stops the lane and dispatches a new one. A plain
+state only while the director handles that manager's report, on a route that
+sends work back to it: a report classified `needs_fix`, a question overflow,
+or a verify or land outcome that returns the work. So the director's
+`rebrief` directive gains a sentence: a role change for the manager whose
+report it's handling goes in as `role_change`. A role change alone puts a
+report on none of those routes, so a change rides the manager's next report
+that takes one; a director that can't wait for one stops the lane and
+dispatches a new one. A plain
 `--rebrief` or `--releg` of a held lane renders no `--role`, so it never
 undoes a change (Decision 2).
 
@@ -419,7 +435,9 @@ says the same for a start given `--dispatched-by`. `role_change` anywhere else i
 with exit 1, the brief refusal, naming the field, and nothing is written: on
 a new dispatch, because a new lane starts as a manager and a dispatch of a
 topic already held renders no brief; on a successor brief, because a
-predecessor isn't above its successor; and on a worker entry point. A change
+predecessor isn't above its successor; on a `--releg`, because it replaces a
+leg spent before the manager reported, so no report is being handled; and on
+a worker entry point. A change
 a predecessor types by hand into its successor's invocation line names its
 own address, which the opener refuses outright, and any other name that isn't
 the `reports-to` row's address is refused `role-change-refused`.
@@ -518,12 +536,15 @@ Key assumptions:
 re-render of a held lane, refused on every other entry point, and absent from
 worker briefs, so the `base`, `min` and `leg` golden files don't change. The
 re-render is marked by a second field, `held_rerender: true`, which
-`dispatch-worker.sh` sets in the jq that builds its `--rebrief` and `--releg`
-input from the holding and deletes from every other input in `read_inputs`, so
-an agent's input can't set it. `render-brief.sh` accepts a `coordinate` brief
-with no `role` only when `held_rerender` is true, and then renders no
-`--role`; it refuses `held_rerender` on any other entry point. `dc_invocation` in
-`dispatch-common.sh` appends `--role <role>` after the positional, so the
+`dispatch-worker.sh` sets only in the jq that builds its `--rebrief` and
+`--releg` input from the holding, and only when the holding row's entry point
+is `coordinate`; `read_inputs` deletes it from every input first, so an
+agent's input can't set it and a worker's re-brief never carries it.
+`render-brief.sh` accepts a `coordinate` brief with no `role` only when
+`held_rerender` is true, and then renders no `--role`; it refuses
+`held_rerender` on any other entry point. `dc_invocation` in
+`dispatch-common.sh` appends `--role <role>` after the positional when `role`
+is set, so the
 Goal's existing invocation line becomes the one role line, with the fixed
 wording:
 
@@ -540,18 +561,27 @@ disagree, and no prose reaches either.
 overwriting anything the input gave:
 
 - an entry point other than `coordinate`: the field is deleted;
-- `coordinate` with a positional naming this run's own roadmap (the scope
-  comparison `dispatch-worker.sh` already makes): a successor, whose role is
+- `coordinate` with a positional naming this run's own roadmap (a new
+  comparison of the positional's roadmap file name with the scope slug
+  `dc_scope_slug` reads from this run's session name): a successor, whose role is
   the record's Run `role` row; with no row the dispatch is refused at exit 1,
   naming the command that sets it;
 - `coordinate` with any other roadmap, on a new dispatch: a lane brief, role
   `manager`;
-- `coordinate` with any other roadmap, on `--rebrief` or `--releg` of a held
-  lane: no `role` and `held_rerender: true`, so `render-brief.sh` accepts the
-  brief, the invocation line carries no `--role` and the lane's next start
-  continues its recorded role, unless the input's `role_change` sets `role`
-  (Decision 1, "The brief path"). A lane a director changed to
-  `director` isn't turned back to `manager` by a later brief.
+- `--rebrief` or `--releg`: `read_inputs` runs before the holding row is
+  read, so these fields are settled again in the jq that builds the
+  re-render's input from the row, which already replaces the entry point
+  with the row's. When the row's entry point is `coordinate`, that jq
+  deletes `role` and sets `held_rerender: true`, so `render-brief.sh`
+  accepts the brief, the invocation line carries no `--role` and the lane's
+  next start continues its recorded role, unless the input of a `--rebrief`
+  has a `role_change`, which sets `role` and `role_change_by` (Decision 1,
+  "The brief path"; `held_rerender` stays true, and a `--releg` refuses
+  `role_change`). When the row's entry point is anything else, it deletes
+  `role` and `role_change_by`, sets no `held_rerender`, and refuses
+  `role_change`, so a worker's re-brief renders as it does today. A lane a
+  director changed to `director` isn't turned back to `manager` by a later
+  brief.
 
 Scope decides, not the `"own"` grant, because scope is what makes the started
 session take the run over, and a grant is an allowance.
@@ -936,7 +966,7 @@ sets, carries each class forward by phrase, classes the occurrences the change
 adds (the Glossary, the Roles section, the role setting text), and publishes
 the table in the pull request description with columns File, Line, Phrase,
 Class and Note, line numbers stated "as of" the head commit. Working copies
-live outside the work tree; nothing goes under `wip/`.
+live outside the work tree; nothing goes in the workflow staging directory.
 
 **Pinned sentences.** The dispatcher-review fragments (`never whether the
 review happens`, `once its review is done`, `your own reading`, `without the
@@ -1056,7 +1086,7 @@ variable is added, so the template stays at compat 2.
 | `scripts/coordinate-open.sh` | parses `--role` outside the variable pairs; refuses `invalid_role` before any koto call; reads the candidate's role through `state-read.sh --run` and refuses `role-mismatch` before any write, unless the change flags name an intervention from above, refusing `role-change-refused` for a `dispatcher` change whose name isn't the `reports-to` row's address, a `person` change on a start given `--dispatched-by`, and a change naming the run's own session, predecessor or address, and writing an accepted change through `--intervention` (on a same-host carry after `cancel_others`, through the before-find path); prints `ask=role` (exit 10) for a new run or a role-less continuation without one; prints `role=<value>`; writes the row on a resume of a role-less record; runs the mismatch check on an import's copy right after it lands |
 | `scripts/coordinate-open.wording.tsv` | `invalid_role`, `role_mismatch`, the four role-change refusal rows (`role_change_not_reports_to`, `role_change_no_address`, `role_change_self`, `role_change_brief_person`) and the `ask=role` message |
 | `scripts/state-open.sh` | `--role` required on a fresh seed and written in it; `--carry --role` adds the row only when the copy has none, or, with the change flags, replaces it through the intervention write |
-| `scripts/holding-link.sh` | doesn't link a pull request onto a holding whose entry is `coordinate` |
+| `scripts/holding-link.sh`, `scripts/report-facts.sh` | `holding-link.sh` doesn't link a pull request onto a holding whose entry is `coordinate`; `report-facts.sh` gives no `link` verdict for one, so `report_link` isn't reached for it |
 | `scripts/state-stored-set.sh` | `--run role <manager\|director>`, set-once, replaced only with `--intervention dispatcher\|person`, whose entry names the old role, the new one and the source; `reports-to` usage reworded |
 | `scripts/state-schema.jq` | `role` among the Run keys, two values, one row; `reports-to` comment and message reworded |
 | `scripts/state-read.sh` | a `--run` mode that reads `record/run` without a sealed find |
@@ -1064,8 +1094,8 @@ variable is added, so the template stays at compat 2.
 | `scripts/reconcile-report.sh` | `def record_line`, a `line` mode, and `md --record-line <line>` |
 | `scripts/reconcile-report-get.sh` | `--md` adds the record line as line 3, exits 4 with no role |
 | `scripts/coordinate-report.sh` | `--record-line`; `record=` accepts a session name |
-| `scripts/render-brief.sh`, `scripts/dispatch-common.sh` | the `role` input field, not required on a `coordinate` brief marked `held_rerender`; `dc_invocation` appends `--role` when `role` is set; a `held_rerender` coordinate opener line says to write the invocation's tokens into a fresh args file first |
-| `scripts/dispatch-worker.sh` | writes `.role` in `read_inputs`: deleted for workers, the record's row for a successor (refused when missing), `manager` for a lane on a new dispatch, none on `--rebrief` or `--releg` of a held lane, which set `held_rerender: true` (deleted from every other input); with a `role_change` field on a `--rebrief` of a coordinate holding (refused, exit 1, on a new dispatch, a successor brief or a worker entry point), `.role` is the new role and the invocation line gains `--role-change-by` (its own Run `coordinator` row) and `--role-change-source dispatcher` |
+| `scripts/render-brief.sh`, `scripts/dispatch-common.sh` | the `role` input field, not required on a `coordinate` brief marked `held_rerender`, and the `role_change_by` field; `dc_invocation` appends `--role` when `role` is set and the two change flags after it when `role_change_by` is set; a `held_rerender` coordinate opener line says to write the invocation's tokens into a fresh args file first |
+| `scripts/dispatch-worker.sh` | writes `.role` in `read_inputs`: deleted for workers, the record's row for a successor (refused when missing), `manager` for a lane on a new dispatch, none on `--rebrief` or `--releg` of a held coordinate lane, whose holding-built input jq sets `held_rerender: true` from the row's entry point (`read_inputs` deletes it, and an input's `role_change_by`, from every input); with a `role_change` field on a `--rebrief` of a coordinate holding (refused, exit 1, on a new dispatch, a successor brief, a `--releg` or a worker entry point), `.role` is the new role and the invocation line gains `--role-change-by` (its own Run `coordinator` row) and `--role-change-source dispatcher` |
 | `koto-templates/coordinate.md` | `record_open` directive passes `role=`; `predecessor_carry` directive passes `role=`, `role_change_by=` and `role_change_source=` to `state-open.sh --carry`; `reconcile` directive closes gaps before printing the report; start state names the two roles and the Roles section; swept prose |
 | `SKILL.md` | flag table, Glossary entries, `## Roles`, the Bounds and Authority allowance paragraph, the own-reading sentence, the record line in Reporting, `reports-to` wording, swept prose |
 | `references/state-keys.md`, `brief-template.md`, `loop.md`, `entry-points.tsv` header | the Run `role` row and its writers; the Goal rule and the `role` field; the record line; where `--role` comes from |
@@ -1086,7 +1116,8 @@ variable is added, so the template stays at compat 2.
   naming the run's own session, predecessor or address; `role=<new>` with
   `role_changed_from=<old>` on an accepted change, and on a carried rotation
   `role_change_by=` and `role_change_source=` for the `predecessor_carry`
-  directive.
+  directive; on a same-host carry whose change write fails,
+  `role=<recorded>` with `warning=role-change-unwritten` (exit 0).
 - **Record row.** Run key `role`, value `manager` or `director`, at most one.
   Writers: `state-open.sh` (seed, and `--carry --role` with the change flags)
   and `state-stored-set.sh --run role` (set once, exit 65 on a different
@@ -1096,8 +1127,9 @@ variable is added, so the template stays at compat 2.
 - **Brief role change.** `role_change` in the input of a `--rebrief` of a
   coordinate holding, rendered by `dispatch-worker.sh` as `--role <new>
   --role-change-by <address> --role-change-source dispatcher`, with
-  `<address>` from the dispatcher's own Run `coordinator` row; refused with
-  exit 1 anywhere else.
+  `<address>` from the dispatcher's own Run `coordinator` row, carried to
+  `dc_invocation` in the render field `role_change_by`; refused with exit 1
+  anywhere else.
 - **Handover read.** `state-handover.sh` prints `role`; gap `no-role`, fix
   `state-stored-set.sh --run role <manager|director> --by <who named it>`.
 - **Record line.** `` Record: session `<session>` on `<owner>/<repo>`[, address `<address>`]. Role: <manager|director>. ``,
@@ -1105,8 +1137,10 @@ variable is added, so the template stays at compat 2.
   role) and as line 3 of `reconcile-report-get.sh --md`.
 - **Brief field.** `role` in the render input: only allowed when the entry
   point is `coordinate`, and required there unless `held_rerender` is true
-  (set only by `dispatch-worker.sh`'s `--rebrief` and `--releg`); written by
-  `dispatch-worker.sh`. Rendered
+  (set only by `dispatch-worker.sh`'s `--rebrief` and `--releg` of a
+  coordinate holding); written by `dispatch-worker.sh`. `role_change_by`, also
+  written only by `dispatch-worker.sh`, adds `--role-change-by
+  <role_change_by> --role-change-source dispatcher` after `--role`. Rendered
   as `` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``
 - **Allowance reads (unchanged interfaces).** The Run `cap` row and the
   start's scope and decisions. No cap-change interface is added.
@@ -1214,7 +1248,9 @@ Plan steps the decisions surfaced, each small and inside this change:
 
 - stop a progress event from linking a pull request onto a holding whose entry
   is `coordinate` (the link is written by `scripts/holding-link.sh` at
-  `report_link`), so a director's count of its managers doesn't drift;
+  `report_link`, which `report-facts.sh` reaches by giving `link`, so both
+  change: `report-facts.sh` gives none for a coordinate holding), so a
+  director's count of its managers doesn't drift;
 - read one-role duties that SKILL.md addresses to "you" without the word
   "coordinator" (for example "Your land step...") against the two lists and
   readdress any that only one role owes, since the classification table only
@@ -1379,10 +1415,11 @@ first and refuses the second with exit 65, naming both values.
   person's, from a start the person makes by hand, since a start re-run from
   the brief carries `--dispatched-by` and refuses `person`.
 - A director's role change for a lane rides `--rebrief`, which the template
-  reaches only from a manager's report classified `needs_fix`, and a role
-  change alone never makes a report `needs_fix`, so the change waits for the
-  manager's next report that needs a fix, or the director stops the lane and
-  dispatches a new one.
+  reaches only on a route that sends a manager's report back to it (a
+  `needs_fix` classification, a question overflow, or a verify or land
+  outcome that returns the work), and a role change alone puts a report on
+  none of them, so the change waits for the manager's next report that takes
+  one, or the director stops the lane and dispatches a new one.
 
 ### Mitigations
 
