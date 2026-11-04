@@ -221,9 +221,10 @@ done
 # Absent, the brief is the golden one; present, the Goal gains one line after
 # the authority sentence, naming exactly the grant or saying it holds none.
 # A non-empty grant's line tells the worker to report for review before it
-# merges, to merge only at a head the coordinator clears, and never to merge a
-# roadmap pull request, then sends what the grant doesn't cover back.
-NAMED_REVIEW="Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator's own message clears that pull request at a head it names, and merge it pinned to that head. Never merge a pull request that changes a roadmap under docs/roadmaps/, whatever your grant; when unsure, hand it back."
+# merges and to merge only at a head the coordinator clears, then sends what
+# the grant doesn't cover back. It bans nothing the grant allows: whether a
+# merge is allowed is the grant's to say, not the brief's.
+NAMED_REVIEW="Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator's own message clears that pull request at a head it names, and merge it pinned to that head."
 NAMED_HANDBACK="A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way."
 NAMED_REST="$NAMED_REVIEW $NAMED_HANDBACK"
 G1=$(bash "$S" --input "$(variant grant-merge '.grant = ["merge-pr"]')" --stdout)
@@ -231,7 +232,8 @@ has "grant: names merge-pr and nothing else" "$G1" "Named authority: you hold me
 G1_LINE=$(printf '%s\n' "$G1" | grep '^Named authority:')
 has "grant: merge-pr reports for review before it merges" "$G1_LINE" "Report your finished work to the coordinator for review before you merge anything"
 has "grant: merge-pr merges only at a head the coordinator clears" "$G1_LINE" "clears that pull request at a head it names"
-has "grant: merge-pr never merges a roadmap pull request" "$G1_LINE" "Never merge a pull request that changes a roadmap under docs/roadmaps/, whatever your grant"
+lacks "grant: merge-pr's line bans no roadmap merge of its own" "$G1_LINE" "docs/roadmaps/"
+lacks "grant: merge-pr's line overrides no grant" "$G1_LINE" "whatever your grant"
 case "$G1_LINE" in
     *" $NAMED_HANDBACK") ok "grant: merge-pr's line still ends with the hand-back sentence" ;;
     *) bad "grant: merge-pr's line still ends with the hand-back sentence" "$G1_LINE" ;;
