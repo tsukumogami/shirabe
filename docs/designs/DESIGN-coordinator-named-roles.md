@@ -344,14 +344,21 @@ this import's copy is already on this host.
 With no copy here, it reads the source where it is, through `state-read.sh --run
 --workspace <from> --session <run>`, which is the same read run through koto's
 `--workspace` option, so the role and the `reports-to` row a change needs both
-come from the source. Presence comes from a `context list --prefix` listing, as
+come from the source. The predecessor the self check below compares has its own
+read, because `pred_of` runs `koto session hierarchy`, a verb `--workspace`
+refuses. When a `--role` that differs from the source's comes with the change
+flags, `state-read.sh --predecessors --workspace <from> --session <run>` lists
+the source's `koto/links/continues/` keys, the relation `coord-log.sh` already
+lists on a run here, and prints the name after that prefix, one a line. Each name
+counts as the predecessor, and an empty listing means none. Presence comes from a `context list --prefix` listing, as
 `rs_key` reads it, because `context get` exits 3 for a missing key and for an
 unreadable bucket alike. A source with no `record/run` key or no `role` row is
 role-less, and the start goes on. A refusal koto makes to the read
 (`workspace_needs_cloud` on the local backend, `workspace_not_found`,
 `session_not_found`, `invalid_workspace`) prints `refused=<code>` with koto's
 message and exits 2, as its import refusals do. Any other failed read prints
-`failed=role_read` and exits 1, and is never taken as role-less. Nothing has
+`failed=role_read` and exits 1, and is never taken as role-less or as no
+predecessor. Both hold for the predecessor listing too. Nothing has
 landed in any of these cases.
 
 With a copy here, from an earlier start of this import, the check runs on the
@@ -369,10 +376,22 @@ its `koto/imported-from` record, which koto writes into every copy and whose
 `from_session` names the run. On one host a source that was itself imported under
 the same name carries that record too; the record read there is still the run's,
 because the host's store holds one session of that name. On this branch every
-role refusal ends with one more wording row, `role_import_copy`: "The run's copy
-is on this host now and its source is marked migrated, so don't import it again:
-start again without `--import`, naming {recorded} or no role, to continue it
-here."
+role refusal ends with one more wording row, `role_import_copy`: "{run} is on
+this host already, so its role here is {recorded}. Run the same import again,
+naming {recorded} or no role, not a plain start: the import marks the source if
+that's still to do, and its result says how the run goes on here."
+
+The opener doesn't read the marker, and the row doesn't need it, because the same
+import is right in every state this branch finds. After `refused=import_unmarked`
+the copy is complete but the source isn't marked and its host may still write:
+the re-run writes only the marker, and a plain start would carry a run whose
+source may still write. After a finished import, koto finds its own marker and
+writes nothing, and the opener goes on to the resume. A same-host source that was
+itself imported hasn't been marked by this import, and the import moves it here.
+A copy the opener can't continue gets its own refusal from the re-run
+(`template-incompatible`, `session-provenance`, `session-source`,
+`session-directed`), which says what comes next, so the row promises no plain
+start: after `session-source` a plain start opens a new run and cancels the copy.
 
 **Changing a role from above (PRD R5).** A continuation keeps its role unless
 the change is an intervention from above: the dispatching session, which sits
@@ -1183,7 +1202,7 @@ variable is added, so the template stays at compat 2.
 | `scripts/report-facts.sh` | gives no `link` verdict for a progress event on a holding whose entry is `coordinate`, so `report_link`, where `holding-link.sh` writes the link, isn't reached from one; a manager's report still links its pull request |
 | `scripts/state-stored-set.sh` | `--run role <manager\|director>`, set-once, replaced only with `--intervention dispatcher\|person`, whose entry names the old role, the new one and the source; `reports-to` usage reworded |
 | `scripts/state-schema.jq` | `role` among the Run keys, two values, one row; `reports-to` comment and message reworded |
-| `scripts/state-read.sh` | a `--run` mode that reads `record/run` without a sealed find; its `--workspace <from>` form reads a source where it is, through the same listing and get, and passes on the code of a koto refusal |
+| `scripts/state-read.sh` | a `--run` mode that reads `record/run` without a sealed find; its `--workspace <from>` form reads a source where it is, through the same listing and get, and passes on the code of a koto refusal; a `--predecessors --workspace <from>` mode lists the source's `koto/links/continues/` keys the same way |
 | `scripts/state-handover.sh` | prints `role`; gap `no-role` with its fix; `no-reports-to` fix reworded |
 | `scripts/reconcile-report.sh` | `def record_line`, a `line` mode, and `md --record-line <line>` |
 | `scripts/reconcile-report-get.sh` | `--md` adds the record line as line 3, exits 4 with no role |
@@ -1307,7 +1326,7 @@ and both directions of mismatch, and an accepted change from each source on
 each continuation, with the row's `set_by`, `set` and entry checked.
 
 Deliverables: `coordinate-open.sh`, `coordinate-open.wording.tsv`, the
-`--workspace` form of `state-read.sh --run`, the opener's and the reader's
+`--workspace` form of `state-read.sh --run`, `state-read.sh --predecessors`, the opener's and the reader's
 tests, `SKILL.md`'s flag table and the "stated in words" sentence.
 
 ### Phase 3: The record line

@@ -568,8 +568,8 @@ Checks and content:
   its import already requires a stopped source.
 - A role refusal on an import whose copy is already on this host, from an
   earlier start that landed it, leaves that copy here. The refusal writes
-  nothing to the record it read, and it says to start again without `--import`
-  to continue the copy.
+  nothing to the record it read, and it says to run the same import again, which
+  marks the source if that's still to do, naming the recorded role or none.
 - The role is stated and recorded, not enforced. A session recorded as a manager
   that dispatches a coordinator isn't stopped by this change; the skill's text
   and its reviewer are what keep it in its role.

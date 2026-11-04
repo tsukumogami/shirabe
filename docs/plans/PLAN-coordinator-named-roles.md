@@ -324,11 +324,14 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   and control characters and its cut to 32.
 - [ ] On an import whose copy is already here, every role refusal
   (`role_mismatch` and the four role-change rows) ends with the
-  `role_import_copy` row, which says the copy is on this host, not to import
-  again, and to start again without `--import` naming the recorded role or
-  none; those cases assert it in the whole message, and a start without
-  `--import` afterwards continues the copy. On an import with no copy here, the
-  whole message has no such row.
+  `role_import_copy` row, which says the run is on this host and to run the
+  same import again naming the recorded role or none, not a plain start; those
+  cases assert it in the whole message, and the same import afterwards, naming
+  the recorded role, continues the run. A case on a copy whose source has no
+  marker, the state `refused=import_unmarked` leaves, finds no marker after the
+  refused start, finds one after the same import, and then has a write from the
+  source's workspace refused. On an import with no copy here, the whole message
+  has no such row.
 - [ ] Every successful start that knows the role prints `role=<value>`.
 - [ ] Citing PRD R5: `--role-change-by` and `--role-change-source` are read
   beside `--role`; either one without the other, or both without `--role`,
@@ -431,6 +434,19 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   Each of those refusals lands nothing. An import with no `--role` makes no such
   read. `state-read_test.sh` covers the `--workspace` form for a present key, an
   absent key, a koto refusal and a failed read.
+- [ ] Citing PRD R5's refusal of a change named by the run's predecessor: an
+  import with no copy here, given a `--role` that differs from the source's and
+  the change flags, reads the predecessor through `state-read.sh --predecessors
+  --workspace <from> --session <run>`, which prints the names under the source's
+  `koto/links/continues/` keys. `coordinate-import-takeover_engine_test.sh` runs
+  a source that continues another run, with a `person` change naming that run
+  and with a `dispatcher` change naming it where the source's `reports-to` row
+  holds its address. Each is refused `role_change_self` before `koto session
+  import`, with no migration marker and no session under this workspace's prefix
+  afterwards. A koto refusal of that listing prints `refused=<code>` and exits 2,
+  and a failed listing prints `failed=role_read` and exits 1; neither is taken as
+  no predecessor. `state-read_test.sh` covers the mode for a source with a
+  relation, one with none, a koto refusal and a failed read.
 - [ ] An import re-run whose copy is here but not fenced, known by a
   `koto/imported-from` record naming the run, checks the copy's row rather than
   the source's. A case on koto older than 0.32 re-runs a finished import whose
