@@ -1,7 +1,18 @@
 ---
 schema: plan/v1
 status: Active
-execution_mode: single-pr
+execution_mode: multi-pr
+split_mode_source: intent
+split_rationale: |
+  Incremental Value. Each issue leaves the skill better on its own: Issue 1
+  gives every new record its role and a gap that names a missing one; Issue
+  2 makes the opener check, ask for and guard it, an intervention from above
+  included; Issue 3 puts it in every report; Issue 4 carries it to a
+  successor; Issue 5 fixes holding links on its own; Issues 6 and 7 give the
+  skill its Roles text and readdress one-role duties; Issue 8 checks the
+  whole change. The documents merge ahead of the build so later work can
+  plan against them, and each issue lands later in its own pull request on
+  its own branch.
 tracking_level: none
 upstream: docs/designs/DESIGN-coordinator-named-roles.md
 milestone: "Coordinator named roles"
@@ -49,8 +60,18 @@ walking skeleton doesn't fit: the row and its set-once writer come before
 every other piece, and no thin slice exercises the opener, the report and the
 brief without them. The design's Phase 5 is split three ways, since the
 `holding-link.sh` fix, the Roles text and the sweep have different
-dependencies and the sweep runs last over finished text. It all lands in one
-pull request, because the phases share fixtures and the compat record.
+dependencies and the sweep runs last over finished text.
+
+Each issue lands later in its own pull request, after these documents merge.
+That departs from the design's Implementation Approach, which calls one pull
+request the expected shape because the phases share fixtures and the compat
+record. The PLAN splits it so each layer is reviewed against the one below
+and lands with value of its own, and it handles the two shared pieces this
+way: a fixture lands with the first issue that uses it, and every issue that
+changes a script the template's gates run re-records the gate-script digest
+in `coordinate.compat.json` at compat 2 in its own pull request, so
+`check-template-compat.sh` passes on each one. Issue 8 then checks the digest
+once more over the finished change.
 
 ## Issue Outlines
 
@@ -61,10 +82,12 @@ pull request, because the phases share fixtures and the compat record.
 `state-stored-set.sh --run role`, read through a new `state-read.sh --run`,
 and missing only as the handover gap `no-role`.
 
-The set-once rule is the PRD's R5, and the PRD's open question on it is
-marked "Settled: no": a successor keeps the recorded role, and a start that
-names another is refused. This issue's set-once writer and Issue 2's
-role-mismatch refusal both implement it.
+The set-once rule is the PRD's R5: a continuation keeps its role, and a
+different role is refused unless the change is an intervention from above
+(the dispatching session higher in the calling hierarchy, or a person), with
+the record keeping who intervened and when. This issue's set-once writer and
+its `--intervention` write, and Issue 2's refusals and change flags, both
+implement it.
 
 Overlaps shirabe#1470, #1473 and #1474 on the state scripts, `state-keys.md` and their tests; rebase onto them if they land first; don't wait on them.
 
@@ -77,11 +100,23 @@ Overlaps shirabe#1470, #1473 and #1474 on the state scripts, `state-keys.md` and
   byte-identical; with `manager` it exits 65, stderr names both values, and
   the row still reads `director`. A `--by` over 80 characters or holding a
   line break is refused. Each case is in `state-stored-set_test.sh`.
+- [ ] Citing PRD R5: `state-stored-set.sh --run role manager --by
+  <who> --intervention dispatcher` on a row holding `director` replaces it:
+  the row reads `manager`, its `set_by` is `<who>` and its `set` the write's
+  time, and the appended entry names `director` as the old role, `manager`
+  as the new one and `dispatcher` as the source; the same with
+  `--intervention person` names `person`. `--intervention` with any other
+  value, or on a `--run` key other than `role`, exits 64 and writes nothing;
+  with no row or the same value it writes as without it. Each case is in
+  `state-stored-set_test.sh`.
 - [ ] `state-open.sh` on a fresh seed with no `--role` exits non-zero and
   writes nothing; with `--role manager` the seed holds `role=manager`.
   `--carry --role director` adds the row only when the copy has none, and a
-  copy holding `manager` keeps it (`state-open_test.sh`,
-  `state-carry_test.sh`).
+  copy holding `manager` keeps it; `--carry --role director --role-change-by
+  <who> --role-change-source person` on a copy holding `manager` replaces it
+  through the intervention write, with the same `set_by`, `set` and entry,
+  and one of the two change flags without the other exits 64
+  (`state-open_test.sh`, `state-carry_test.sh`).
 - [ ] `state-read.sh --run` prints `record/run` with no sealed find, and a
   failed read exits non-zero rather than printing an empty section
   (`state-read_test.sh`).
@@ -99,7 +134,8 @@ Overlaps shirabe#1470, #1473 and #1474 on the state scripts, `state-keys.md` and
   `state-stored-set.sh --run reports-to "<name>[ at <address>]" --by <who>`;
   none of them uses the word "role" for it, and `the human` still passes.
 - [ ] `references/state-keys.md` lists the Run `role` row, its two values,
-  its two writers and its reader.
+  its two writers, its reader, and that only `--intervention` replaces a
+  different value.
 - [ ] The writer structure test in
   `coordinate-template-structure_engine_test.sh` pins the `role` row to
   `state-stored-set.sh` and `state-open.sh` (seed and `--carry --role`); a
@@ -120,6 +156,8 @@ Overlaps shirabe#1470, #1473 and #1474 on the state scripts, `state-keys.md` and
 
 **Complexity**: critical
 
+**Check**: Run `state-schema_test.sh`, `state-stored-set_test.sh`, `state-open_test.sh`, `state-carry_test.sh`, `state-read_test.sh`, `state-handover_test.sh`, `handover_engine_test.sh` and `coordinate-template-structure_engine_test.sh`; each passes, and `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md` passes with the gate-script digest re-recorded at compat 2.
+
 **Files**: `skills/coordinate/scripts/state-schema.jq`, `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-open.sh`, `skills/coordinate/scripts/state-read.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/references/state-keys.md`
 
 ### Issue 2: feat(coordinate): check, ask for and guard --role in the opener
@@ -129,8 +167,11 @@ value or a change of a recorded role before anything is written, asks for a
 missing one, prints `role=<value>`, and writes the row for a role-less record
 on resume, takeover and import.
 
-The role-mismatch refusal implements the PRD's R5, which the PRD marks
-"Settled: no" (a role doesn't change across a succession).
+The role-mismatch refusal and the change flags implement the PRD's R5: a
+continuation keeps its role, a different role is refused unless the change
+is an intervention from above (the dispatching session or a person), and the
+record keeps who intervened and when. The mechanism is the design's
+"Changing a role from above" paragraph in Decision 1.
 
 **Role-less continuations.** The plan follows the design's Asking paragraph,
 its components table and its Data Flow step 6: a start with no `--role` and
@@ -182,6 +223,31 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   and the rest then cut to 32 characters, asserted as the exact expected
   string; the `invalid_role` case asserts the same cleaning of its value.
 - [ ] Every successful start that knows the role prints `role=<value>`.
+- [ ] Citing PRD R5: `--role-change-by` and `--role-change-source` are read
+  beside `--role`; either one without the other, or both without `--role`,
+  or a source other than `dispatcher` or `person`, is a usage error (exit
+  64) and nothing opens. On a run recorded `manager` whose `reports-to` row
+  is `<D> at <addr>`, `--role director --role-change-by <addr>
+  --role-change-source dispatcher` is accepted, and so is the same with
+  `<D>`; the start prints `role=director` and `role_changed_from=manager`.
+  The same with `--role-change-by` naming the run's own session, its
+  predecessor or any name not in the row, or on a record with no
+  `reports-to` row, prints `outcome=refused` and `reason=role-change-refused`,
+  exits 2, and uses the `role_change_refused` row with the run, the row's
+  value, the name given and the recorded role, the run name cleaned as for
+  `role_mismatch`. `--role-change-source person` with any name is accepted
+  the same way. With the change flags and the recorded role, or on a
+  role-less record, the flags change nothing and the start is the one it
+  would be without them.
+- [ ] An accepted change is written through `state-stored-set.sh --run role
+  <new> --by <name> --intervention <source>` on each continuation where a
+  role-less row is written today: before `outcome=resumed` on a resume, in
+  `finish_takeover` on a takeover and a koto 0.32 or later import, as a
+  resume on an older import, and through `state-open.sh --carry` with the
+  change flags on a carry and a carried rotation. In each case the row, its
+  `set_by` and `set`, and the entry naming old role, new role and source are
+  asserted afterwards, and a write that fails exits non-zero with no
+  `outcome=resumed`.
 - [ ] A resume of a role-less record given `--role director` writes the row
   through `state-stored-set.sh` before printing `outcome=resumed` (a case
   whose write fails exits non-zero and prints no `outcome=resumed`);
@@ -204,18 +270,28 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   carry, takeover, import, carried rotation), each accepting a matching role
   and refusing both directions of mismatch (recorded `manager` asked
   `director`, and the reverse). Every refusal case finds the record and the
-  run's koto state identical before and after.
+  run's koto state identical before and after. The same suites cover, on
+  each of the five continuations, an accepted `dispatcher` change, an
+  accepted `person` change and a refused `dispatcher` change naming the
+  run's own session, so a change accepted on one path and refused on another
+  fails.
 - [ ] The reader allow-list test gains `coordinate-open.sh`.
 - [ ] `SKILL.md`'s flag table lists `--role manager|director`, and its
   "stated in words" sentence says a role this run's decisions state ("role:
   director") is passed as `--role`, a mention of another session's role
   doesn't count, in doubt nothing is passed and the opener asks, and a
   dispatched coordinator's role comes from the `--role` on its brief's
-  invocation line.
+  invocation line. The flag table also lists `--role-change-by` and
+  `--role-change-source dispatcher|person`, and a sentence says the agent
+  passes `person` only when the start's decisions state in a person's words
+  that this run's role changes, and `dispatcher` only as a brief's
+  invocation line renders it.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
 **Complexity**: critical
+
+**Check**: Run `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`, `coordinate-import-takeover_engine_test.sh`, `discipline-session_engine_test.sh`; each passes, including the role-change cases on all five continuations, and `check-template-compat.sh` passes if a gate script changed.
 
 **Files**: `skills/coordinate/scripts/coordinate-open.sh`, `skills/coordinate/scripts/coordinate-open.wording.tsv`, `skills/coordinate/SKILL.md`
 
@@ -272,6 +348,8 @@ directive closes its gaps before that report goes up.
 
 **Complexity**: testable
 
+**Check**: Run `reconcile-report_test.sh` and `coordinate-report_test.sh`; each passes, and a fixture run's first report has the record line within its first five lines. `check-template-compat.sh` passes with the digest re-recorded at compat 2.
+
 **Files**: `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/scripts/reconcile-report-get.sh`, `skills/coordinate/scripts/coordinate-report.sh`, `skills/coordinate/references/loop.md`
 
 ### Issue 4: feat(coordinate): carry the role on a coordinator brief's invocation line
@@ -303,6 +381,16 @@ they are.
   adds lane, worker (no field) and missing-row (exit 1) cases.
 - [ ] An input whose Goal says "you are the director", or that sets `role` to
   `director`, still renders `--role manager` for a lane.
+- [ ] Citing PRD R5: a lane input with `role_change: director` renders
+  `--role director --role-change-by <address> --role-change-source
+  dispatcher` on the invocation line, with `<address>` the dispatching
+  session's own Run `coordinator` row, equal to the brief's `reports_to`;
+  an input that also sets `role_change_by` or any other name still renders
+  that address. `role_change` on a successor input (the positional names
+  this run's own roadmap) exits 2 naming the field, since a predecessor
+  isn't above its successor, and so does a `role_change` value other than
+  `manager` or `director` or one on a worker entry point. Each is a case in
+  `dispatch-worker_test.sh`, and `brief-template.md` documents the field.
 - [ ] The worker golden files `testdata/brief-golden/base.txt`, `min.txt`
   and `leg.txt` are unchanged in the diff, and their tests pass.
 - [ ] The PRD's role-name grep passes over a rendered lane fixture and a
@@ -331,6 +419,8 @@ they are.
 
 **Complexity**: testable
 
+**Check**: Run `render-brief_test.sh` and `dispatch-worker_test.sh`; both pass, the worker golden files are unchanged in the diff, and the `role_change` cases render and refuse as the criteria say.
+
 **Files**: `skills/coordinate/scripts/render-brief.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/references/entry-points.tsv`
 
 ### Issue 5: fix(coordinate): don't link a pull request onto a coordinate holding
@@ -353,6 +443,8 @@ its managers doesn't drift.
 **Dependencies**: None
 
 **Complexity**: testable
+
+**Check**: Run `holding-link_test.sh`; it passes, with the coordinate-holding case refusing the link and the other entry points linking as before.
 
 **Files**: `skills/coordinate/scripts/holding-link.sh`
 
@@ -416,15 +508,10 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
   pins it, so an item that leaves this unsaid fails. Beyond that sentence the
   item states no answer either way, as the PRD's criterion requires. The
   requirements are the PRD's R10 (the alignment item and this sentence) and
-  R14 (a role never reaches an allowance). Their source is the owner's
-  direction to the director role: "Your PR reviews are not for correctness,
-  they are for alignment ... I expect you to be able to make the call on
-  whether to merge it or not, and push work back to the session if needed."
-  Read with the owner's other ruling, "Expectations are hardcoded in skills
-  and roles, allowances are configurable per workspace/host/etc.", the
-  alignment reading and the push-back to every manager involved are the
-  expectation this item holds, and the merge call is decided by the
-  authority configuration, which this sentence points to.
+  R14 (a role never reaches an allowance). Under them, the alignment reading
+  and the push-back to every manager involved are the expectation this item
+  holds, and the merge call is left to the authority configuration this
+  sentence points to.
 - [ ] No item in the three lists contains `grant`, `merge authority`,
   `may merge` or `settle`; the allocation item names no cap value; no added
   text says a director may change a cap.
@@ -444,6 +531,8 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 **Dependencies**: Blocked by <<ISSUE:3>>
 
 **Complexity**: testable
+
+**Check**: Run `rule-coverage_test.sh` and the `## Roles` item-count text check; both pass, and `git grep -n "owner's" skills/coordinate/SKILL.md` finds nothing the Roles section added.
 
 **Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`
 
@@ -494,12 +583,15 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 
 **Complexity**: testable
 
+**Check**: Count `grep -oiwE 'coordinators?'` over the three file sets at the branch base and find it equal to the classification table's row count, then run `rule-coverage_test.sh` and `scripts/check-skill.sh coordinate`; both pass, and the positional-name grep finds nothing.
+
 **Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`
 
 ### Issue 8: chore(coordinate): re-record the compat digest and run the final checks
 
-**Goal**: The template's compat record matches the changed gate scripts, and
-every check the design names passes over the finished change.
+**Goal**: The template's compat record matches the changed gate scripts,
+which each earlier issue that changed one re-recorded in its own pull
+request, and every check the design names passes over the finished change.
 
 Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.compat.json`; rebase onto them if they land first; don't wait on them.
 
@@ -544,6 +636,8 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
 
 **Complexity**: testable
 
+**Check**: Run `scripts/check-skill.sh coordinate`, `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`, `scripts/ablation/check-public-content.sh` and `posture-read_test.sh`; each exits 0.
+
 **Files**: `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/check-skill.tsv`
 
 ## Implementation Sequence
@@ -557,9 +651,10 @@ any order; each extends the reader allow-list test with its own caller.
 Issue 5 stands alone and can land at any point. The Roles text cites the
 record line, so Issue 6 waits on Issue 3. The sweep has to run over finished
 text, so Issue 7 waits on every issue that writes skill prose (2, 3, 4 and
-6) and regenerates its table after the last of them. Issue 8 re-records the
-compat digest once the gate scripts are final and checks the whole change,
-so it goes last.
+6) and regenerates its table after the last of them. Each issue that changes
+a gate script re-records the compat digest in its own pull request; Issue 8
+checks the digest and the whole change once the gate scripts are final, so
+it goes last.
 
 **Where each decision and follow-up lands:**
 
@@ -573,7 +668,7 @@ so it goes last.
 | Decision 1's asking rule: which role-less continuations ask and which go on (the Asking paragraph, the components table, Data Flow step 6) | Issue 2, its Role-less continuations table |
 | Decision 1's gap: the reconcile directive's `no-role` fill | Issue 3 |
 | Decision 1 and 2: a dispatched coordinator's role comes from its brief's `--role` | Issues 4 and 2 |
-| PRD R5, settled in the PRD: no role change across a succession | Issues 1 and 2 |
+| PRD R5: a continuation keeps its role unless an intervention from above changes it, with who and when on the record | Issues 1 and 2, with Issue 4 for the brief's `role_change` |
 | PRD R10: the alignment item's scope, purpose and call-out, and that whether the reading holds a land isn't set by the role | Issue 6 |
 | The design's owner funnel as an expectation only, with no mechanism | Issue 6 (the item), Issue 8 (the check that nothing else ships) |
 | PRD R14 and the design's Phase 6: a role never reaches an allowance | Issue 8, with Issue 1's reader allow-list |
