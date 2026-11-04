@@ -282,17 +282,29 @@ on an unchanged head doesn't use this check: each side records it with
 `state-hold.sh --lift`, as the template's `surface` text already says for a
 person's word (R9). The manager's `director_hold` state then leaves by one of three
 edges: `rework` to `rebrief` after a hold on a pull request with a holding,
-`reverify` to `verify` after a lift on one, clearing the holding's Phase `held`,
-and `wait` otherwise. The event's `unit` evidence names the holding's Worker topic,
-and `wait`'s edge writes it to `report_topic` as a report's does, so a hold reaches
-the worker and a lift reaches `land` with no fresh worker report (R8, R9). Every land check that would merge or pass up the pull
+`reverify` to `verify` after a lift on one, and `wait` otherwise. The event's
+`unit` evidence names the holding's Worker topic, and `wait`'s edge writes it to
+`report_topic` as a report's does, so a hold reaches the worker and a lift reaches
+`land` with no fresh worker report (R8, R9). Every land check that would merge or pass up the pull
 request now reads the hold from its own record.
+
+The `reverify` edge needs three things the report path otherwise supplies. Before
+taking it, the manager rewrites a row at Phase `held` to the Phase its entry point
+and mode give (`scoping` or `executing`), so a lifted holding stops reading as held.
+`board-record.sh` takes its pull request from `report_facts`' REPORT capture, which
+this edge never refreshes and which may name another worker's pull request, so when
+the latest entry into `verify` came from `director_hold` it reads the pull request
+from the holding `report_topic` names. And `lib_unit`, which `state-confirm.sh
+--verified` reads the unit through, counts a `director-hold` event with a non-empty
+`unit` as an arrival. `land-check.sh` needs nothing here: it reads the VERIFIED
+capture that `verify_board` writes on this visit.
 
 The sender check reads the manager's Run `reports-to` row, `director at <address>`.
 Nothing else rewrites that row after a successor takes over, so a successor's first
 message to a lane names the row's current address and its own, and `--copy
---reports-to` rewrites the row through `state-stored-set.sh --run reports-to` at that
-`director-hold` event. A message naming any other current address changes nothing,
+--reports-to` rewrites the row through `state-stored-set.sh --run reports-to`, with
+`--by` the sender, at that `director-hold` event. Its `--from` is the new address the
+message names, not the row's. A message naming any other current address changes nothing,
 and neither does one sent to a row holding no address, which stays the handover
 gate's gap to fill (R7, R9).
 The hold path leaves the Holds grammar, `bl_holds_eval`, `land-merge.sh`
@@ -684,7 +696,9 @@ and relays follow the skill text in the director's section.
 | `state-entry.sh` | changed | Adds `alignment` to `ENTRY_KINDS` and an `alignment_check` beside `goal_fit_check`. Not an outward kind. A third `--on` mode, for `alignment` only (R16): the first line must name the `--on` pull request, `on_admitted` runs, the host-visibility scan stays, `--on none` is refused, and nothing is posted. Every other kind that stays in the session still exits 64 on `--on`. |
 | `alignment-call.sh` | new | The director's one writer of a call: writes the entry through `state-entry.sh`; on `diverges` with no director hold standing on the pull request, adds the `align-` hold through `state-hold.sh` and prints the message to send the manager; on `fits` or `fits with follow-ups`, runs the guarded lift on any standing `align-` hold and prints the lift message. A call on a merged pull request is written (it is what `after merge` lists); only placing a hold on one is refused. |
 | `alignment-call.sh --lift-releasable --on <owner/repo#n>` | new mode | Runs the same guarded lift on each releasable `align-` hold on the pull request, writes no call, and prints the lift message for each hold it lifts (R9). The director's start runs it for each hold `alignment-read.sh` reports `releasable`. |
-| `alignment-call.sh --copy` | new mode | The manager's side, run on the edge of a `director-hold` wait event: `--copy --add` records a director's hold as sent and `--copy --lift` lifts the manager's copy, each taking `--message-file F --event <n> --from <sender>` and refused unless `--from` is the address in the manager's Run `reports-to` row; the lift is also refused unless the head it names equals the `verified_head` of the manager's holding for the pull request, or the live head when no holding links it, and isn't the placed-on head in the hold's name (R7, R8, R9). `--copy --reports-to` rewrites that row for a successor (R7, R9). Each writes a `hold` entry naming event `<n>`. |
+| `alignment-call.sh --copy` | new mode | The manager's side, run on the edge of a `director-hold` wait event: `--copy --add` records a director's hold as sent and `--copy --lift` lifts the manager's copy, each taking `--message-file F --event <n> --from <sender>` and refused unless `--from` is the address in the manager's Run `reports-to` row; the lift is also refused unless the head it names equals the `verified_head` of the manager's holding for the pull request, or the live head when no holding links it, and isn't the placed-on head in the hold's name (R7, R8, R9). `--copy --reports-to` rewrites that row for a successor, refused unless the message names the row's current address and `--from` as the new one (R7, R9). Each writes a `hold` entry naming event `<n>`. |
+| `board-record.sh` | changed | When the latest entry into `verify` came from `director_hold`, reads the pull request from the holding `report_topic` names instead of `report_facts`' capture (R8, R9). |
+| `state-common.sh` | changed | `lib_unit` counts a `director-hold` event with a non-empty `unit` as an arrival (R8, R9). |
 | `alignment-call.sh --require --on <owner/repo#n>` | new mode | Read-only. Exits 0 only when a standing `fits` or `fits with follow-ups` call exists for the live head; run by the directives of the recommendations that skip `land` (R5, R6). |
 | `state-hold.sh` | unchanged | Stays the only writer of the Holds section; every lift calls its `--lift`. |
 | `land-check.sh` | changed | When the Run `role` row reads `director`, after the hold read and before the posture: reports `uncalled <pr> <sha>` unless a standing non-`diverges` call exists for the pinned head (R5). No `role` row: no gate. A `role` row that can't be read: `unready <pr> <sha>`, reason `role-unreadable`. Reads the row in one function, which joins the named-roles reader allow-list test. Own record only. Nothing else in the merge path changes. |
@@ -768,15 +782,17 @@ the reason (the call's Sources and Reason), the receiver and the release. On
 a lift: the hold name, the head it was released on and the entry number of
 the `fits` call it rests on. Each arrives at the manager's `wait` hub as a
 `director-hold` event, whose evidence carries `message` (the whole text, as
-it arrived) and `from` (the sender as the arriving message names it, which
-the agent supplies), and whose edge goes to the `director_hold` state. There
+it arrived), `from` (the sender as the arriving message names it, which
+the agent supplies) and `unit` (the holding's Worker topic, empty when no
+holding links the pull request), and whose edge goes to the `director_hold` state. There
 the manager runs `alignment-call.sh --copy --add` or `--copy --lift` with
 `--message-file` holding the message, `--event` the event's log sequence and
 `--from` the evidence's sender (R7, R9). `--copy --add` adds the row as sent,
 through `state-hold.sh`, and writes a `hold` entry carrying the reason, the
 release and event `<n>`. `--copy --lift` lifts the copy at once, refused
 unless the head the lift names equals the `verified_head` of the manager's
-holding for that pull request and isn't the placed-on head, and its `hold`
+holding for that pull request, or the live head when no holding links it, and
+isn't the placed-on head, and its `hold`
 entry carries the hold name, the `fits` call's entry number and event
 `<n>`. Neither waits for the manager's land step.
 
@@ -945,9 +961,9 @@ Deliverables:
 
 `alignment-call.sh` writes calls, places `align-` holds through
 `state-hold.sh`, prints the messages, runs the guarded lift, and has the
-`--lift-releasable` and `--copy` modes, the latter taking the message, event
-number and sender as arguments until the template's `director-hold` event
-lands in Phase 4.
+`--lift-releasable`, `--require` and `--copy` modes (`--add`, `--lift` and
+`--reports-to`), the last taking the message, event number and sender as
+arguments until the template's `director-hold` event lands in Phase 4.
 
 Deliverables:
 - `skills/coordinate/scripts/alignment-call.sh`, its test
@@ -957,7 +973,8 @@ Deliverables:
 
 `alignment-sources.sh` and `alignment-read.sh`, read-only, with tests over a
 planted roadmap, strategy, Standing rows and wait events whose reports carry
-`unit=` and `open=` lines; neither reads a report's free text. Which wait events
+`unit=` and `open=` lines; neither reads a report's free text. `alignment-read.sh`
+gives each open lane pull request's live head and call under its `open` key. Which wait events
 carry a manager's pull request links is confirmed before Phase 2 starts, as
 a short check of the template's `wait` evidence, since the read's lane set
 rests on it.
@@ -974,7 +991,9 @@ manager's hold duty and its handling of a director's hold and lift messages
 hold), the start's unreviewed list, hold listing and refusal count, the
 owner funnel, owner questions and relays; the manager's `unit=` and `open=`
 lines through `render-result.sh`; the `director-hold` wait event and the
-`director_hold` and `align_call` states; the `Director start:` and `Owner
+`director_hold` and `align_call` states, with `director_hold`'s `rework` and
+`reverify` edges and the two reads `reverify` needs; `alignment-call.sh --require`
+in the directives of the three paths that skip `land`; the `Director start:` and `Owner
 report:` entries; and `land-check.sh` reporting `uncalled` for a pinned head
 with no standing non-`diverges` call when the Run `role` row reads
 `director`, with `align_call` recording each refusal. The gate ships in the
@@ -987,6 +1006,8 @@ Deliverables:
 - `skills/coordinate/scripts/land-check.sh`, its test
 - `skills/coordinate/scripts/coord-verdict.sh`, its table test
 - `skills/coordinate/scripts/render-result.sh`, its test
+- `skills/coordinate/scripts/board-record.sh`, its test
+- `skills/coordinate/scripts/state-common.sh`, with `state-confirm_test.sh` covering `lib_unit`'s change
 - `skills/coordinate/scripts/coordinate-template-structure_engine_test.sh`
   (the named-roles reader allow-list test)
 - `skills/coordinate/SKILL.md`
@@ -1009,10 +1030,16 @@ all of which the coordinator already reads.
   arriving message names it; the `wait` evidence has no sender of its own. So the check
   catches a wrong or stale sender (a message from a worker, or from a
   dispatcher the record no longer names), not a forgery: an agent that
-  writes the dispatcher's address into `from` passes it. Its lift is refused
-  unless the named head equals the `verified_head` of the manager's holding
-  and isn't the placed-on head, so a replayed lift for an older head lifts
-  nothing. A forged message naming the dispatcher's address and the current
+  writes the dispatcher's address into `from` passes it. `--copy --reports-to`
+  is the one mode that takes a `from` the row doesn't name, since a successor's
+  address isn't there yet: it checks only that the message names the row's
+  current address, so a message that knows that address can repoint the row, and
+  holds and lifts from the new address then pass. The rewrite writes a `hold`
+  entry naming the event and the old and new addresses, so it shows in the
+  manager's own account, and the director's own record keeps its holds. Its lift is refused
+  unless the named head equals the `verified_head` of the manager's holding, or
+  the live head when no holding links it, and isn't the placed-on head, so a
+  replayed lift for an older head lifts nothing. A forged message naming the dispatcher's address and the current
   verified head would still release the copy; that is the exposure the
   dispatcher-review design accepts for a reviewer's clearance, and the
   director's own record keeps the hold until its guarded lift.
@@ -1038,8 +1065,12 @@ all of which the coordinator already reads.
   number of the `fits` call it rests on, and the manager's `hold` entry
   records both, so a lift without a matching call is visible in the
   manager's own account.
-- **Residual risks a person accepts.** Two remain by design, each with a
+- **Residual risks a person accepts.** Three remain by design, each with a
   stated limit, for the owner to accept or close later:
+  - A forged `--copy --reports-to` message naming the row's current address,
+    which repoints the manager's row, as above. Its limit is that the rewrite
+    is on the manager's record with both addresses, and that it releases
+    nothing in the director's own record.
   - A worker pull request merged in the delivery window between the call
     and the manager's copy. The window is bounded by the manager's next
     tick, since the copy is taken when the manager next reads its messages,
@@ -1071,7 +1102,8 @@ all of which the coordinator already reads.
   existing checks (no private repository, no home path, no token-shaped
   string); the Set by text names roles and addresses only.
 - **Fail closed.** An unreadable plan source records no call and blocks the
-  merge or recommendation; an unreadable live head blocks the guarded lift;
+  merge or recommendation; an unreadable live head blocks the guarded lift,
+  a copy lift with no holding and an `alignment-call.sh --require` check;
   a lost lift message leaves the manager's copy standing. Each delays a land
   rather than letting one through.
 - **No authority change.** A call or a hold grants or withholds no merge,
