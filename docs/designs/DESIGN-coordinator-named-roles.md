@@ -279,9 +279,10 @@ row without naming each one, and the same test pins that no script passes
 **Asking.** After the candidate read and before anything is written, the
 opener prints `ask=role` and exits 10 when the start has no `--role` and there
 is no recorded role to continue. Its message says the role is the person's
-call, manager or director, asked once with no recommendation drawn from the
-scope, cap, holdings or names, and that the start is then re-run with
-`--role`. A discipline start missing both host and role asks for the host
+call, manager or director, asked once with no recommendation, and never
+inferred from the scope, the cap, the holdings, the dispatcher, session
+names, or any brief or report text (PRD R2 and R9), and that the start is
+then re-run with `--role`. A discipline start missing both host and role asks for the host
 first. An import never asks after its copy lands (a re-run would be refused
 `import_name_taken`); a role-less import with no `--role` goes on, and the
 `no-role` gap asks at reconcile before anything is dispatched.
@@ -290,7 +291,9 @@ first. An import never asks after its copy lands (a re-run would be refused
 no row it lists the gap `no-role`, fix `state-stored-set.sh --run role
 <manager|director> --by <who named it>`. The reconcile directive says to fill
 it from the `role=` the opener printed or, if it printed none, by asking the
-person once, never from names, briefs, entries or the dispatch topic. The
+person once with no recommendation, never inferring it from the scope, the
+cap, the holdings, the dispatcher, session names, briefs, entries, report
+text or the dispatch topic. The
 handover gate holds until it is filled, as it does for `no-reports-to`.
 
 **Refusing a change.** After the candidate read and its existing refusals
@@ -308,7 +311,9 @@ as {recorded}; this start names {asked}. A continuation keeps its role unless an
 intervention from above changes it; nothing was written and {run} goes on as it was. Start again
 naming {recorded}, or no role, or start {asked} as a new lineage." An import
 runs the same check on the copy right after it lands, before the
-`record/host` write, the rebind and the fence. By then the copy is on this
+`record/host` write, the rebind and the fence, and an import re-run on koto
+0.32 or later whose copy is already here (the branch that resumes it or calls
+`finish_takeover`) runs it on that copy before either. By then the copy is on this
 host and the source is marked migrated, so importing again would be refused
 `import_name_taken`; every role refusal on an import therefore ends with one
 more wording row, `role_import_copy`: "The run's copy is on this host now and
@@ -348,13 +353,16 @@ way:
   decisions; a mention of another session's role doesn't count, and in doubt
   it passes nothing and the mismatch refusal stands.
 - With either source, a `<name>` equal to the run's own session, its
-  predecessor or its own Run `coordinator` address is refused, even when the
-  `reports-to` row holds it.
+  predecessor, its own Run `coordinator` address, the session making this
+  start (the new run's session name, and the caller's address the opener
+  reads as `CALLER_NAME`, which a takeover writes as the new `coordinator`
+  row) is refused, even when the `reports-to` row holds it.
 
 Every refusal here prints `outcome=refused` and `reason=role-change-refused`,
 exits 2 and writes nothing, and its message names the cause, one wording row
-per cause, each ending "Nothing was written and {run} goes on as
-{recorded}.". When more than one cause holds, the first in this order wins:
+per cause, each ending "This start names {asked}; nothing was written and
+{run} goes on as {recorded}.", so every refusal names both the recorded role
+and the one asked for (PRD R5). When more than one cause holds, the first in this order wins:
 `role_change_self`, then `role_change_brief_person`, then
 `role_change_no_address`, then `role_change_not_reports_to`.
 
@@ -538,9 +546,11 @@ Key assumptions:
   route wouldn't reach it.
 - Fixed text in every rendered brief already uses lowercase "head" (the review
   round line and the grant line). The PRD's grep allows only `HEAD` in
-  capitals, and rewording that text would break the worker golden files. This
-  design reads the allowance as git's head ref in either case; the
-  implementation's reviewer applies it so.
+  capitals, so on a `coordinate` brief only, `render-brief.sh` words those two
+  sentences with "commit" in place of "head" ("at the commit you report
+  ready", "at a commit it names", "pinned to that commit"). Worker briefs keep
+  today's wording, so the worker golden files don't change, and the PRD's
+  grep runs on coordinate briefs as written.
 - A brief can start a roadmap coordinator only: the `coordinate` row of
   `references/entry-points.tsv` takes a positional and no flags, so no brief
   starts a discipline coordinator today, and this design adds no route for one.

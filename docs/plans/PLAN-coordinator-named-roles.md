@@ -240,11 +240,13 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   with the row lists no `no-role`.
 - [ ] The `reconcile` directive says how to fill `no-role`: with the `role=`
   value the opener printed or, when it printed none, by asking the person
-  once; and that the role is never taken from session names, briefs, entries
-  or the dispatch topic. A `testdata/rule-coverage.tsv` row pins the fill
-  sentence and another pins the "never from" sentence with all four sources
-  in it, so a directive that drops the ask-once fallback or any one of the
-  four sources fails `rule-coverage_test.sh`. The template structure test
+  once with no recommendation; and that the role is never inferred from the
+  scope, the cap, the holdings, the dispatcher, session names, briefs,
+  entries, report text or the dispatch topic (PRD R2 and R9). A
+  `testdata/rule-coverage.tsv` row pins the fill sentence with "no
+  recommendation" in it and another pins the "never" sentence with all nine
+  sources in it, so a directive that drops the ask-once fallback, the
+  no-recommendation clause or any one source fails `rule-coverage_test.sh`. The template structure test
   finds both sentences in the `reconcile` state's directive, not elsewhere.
 - [ ] The `reconcile` directive's `no-reports-to` fill says that a start
   given `--dispatched-by` writes `<the dispatcher's name> at <the brief's
@@ -261,8 +263,10 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
 - [ ] A new run with no `--role` and nothing recorded prints `ask=role` and
   exits 10 before anything is written, and so does each continuation the
   Role-less continuations table above marks `ask=role`; the message says the role is the
-  person's call, manager or director, asked once with no recommendation from
-  the scope, cap, holdings or names, then re-run with `--role`. A discipline
+  person's call, manager or director, asked once with no recommendation and
+  never inferred from the scope, the cap, the holdings, the dispatcher,
+  session names, or any brief or report text, then re-run with `--role`;
+  the case asserts the whole message. A discipline
   start missing both host and role prints `ask=host`, never `ask=role`.
 - [ ] After the candidate read and before `takeover_check`, the rebind,
   `koto init` or a carry, the opener reads the candidate's role through
@@ -320,9 +324,13 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   run's own address on a record with no `reports-to` row) gets the
   `role_change_self` message, the design's order.
 - [ ] Citing PRD R5: with either source, a `--role-change-by` naming the
-  run's own session, its predecessor or its own Run `coordinator` address is
+  run's own session, its predecessor, its own Run `coordinator` address, the
+  new run's session name or the caller's own address (`CALLER_NAME`) is
   refused `role-change-refused`, including a run whose `reports-to` row holds
-  that address. `--role-change-source person` naming anyone else is accepted
+  that address; a `person`-source takeover whose change names the caller's
+  own address is one of the cases. Every role-change refusal's message ends
+  "This start names {asked}; nothing was written and {run} goes on as
+  {recorded}.", asserted in the whole-message cases. `--role-change-source person` naming anyone else is accepted
   on a start with no `--dispatched-by`, and refused `role-change-refused` on a
   start given `--dispatched-by` (a start a brief launched). With the change
   flags and the recorded role, or on a role-less record, the flags change
@@ -359,6 +367,12 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   identical before and after, and no new session exists. In the import case
   with no `--role` the opener exits 0, prints no `ask=role` and no `role=`,
   and `state-handover.sh --check` on the copy lists `no-role`.
+- [ ] An import re-run on koto 0.32 or later whose copy is already here
+  (the branch that resumes it or calls `finish_takeover`) runs the same role
+  read and mismatch or change decision on that copy first, with the
+  `role_import_copy` ending on a refusal; cases cover a re-run after a
+  finished import and after a cut-short one, each with a mismatched `--role`
+  refused and a matching one accepted.
 - [ ] An import runs the mismatch check on the copy right after it lands,
   before the `record/host` write, the rebind and the fence; a refused import
   leaves the copy's record unchanged, and an import never prints `ask=role`
@@ -541,9 +555,11 @@ they are.
   its brief, and finds the change accepted and written.
 - [ ] The worker golden files `testdata/brief-golden/base.txt`, `min.txt`
   and `leg.txt` are unchanged in the diff, and their tests pass.
-- [ ] The PRD's role-name grep passes over a rendered lane fixture and a
-  rendered successor fixture, reading lowercase "head" in fixed brief text as
-  git's head ref.
+- [ ] On a `coordinate` brief only, the review round line and the grant
+  line say "commit" where worker briefs say "head", and the PRD's role-name
+  grep, run exactly as the PRD writes it (only `HEAD` in capitals allowed),
+  passes over a rendered lane fixture and a rendered successor fixture; the
+  worker golden files are unchanged.
 - [ ] `references/brief-template.md` documents the field (written by the
   script, never by hand, absent from worker briefs); its Goal text says the
   Goal names the concrete scope and work, makes no general statement of what
