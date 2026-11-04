@@ -388,16 +388,35 @@ head, and non-zero naming the head otherwise or when that head can't be read. On
 non-zero the directive does `align_call`'s work where it stands: it writes the
 refusal line once per pull request and head, runs `alignment-sources.sh` and
 `alignment-call.sh`, and runs `--require` again. It doesn't go to `align_call`,
-whose only way forward is `land`. The check sits at the agent turn that hands the
-pull request up, and a pull request still refused leaves by that state's existing
-edge, naming what stopped it, so these paths add no edge: `surface`, before
-`need: merge_table`, leaves with `need: blocker`; `milestone_verdict`, once the
-pull request is open and before `verdict: recorded`, leaves with `verdict:
-deferred`, and the state's next visit finds the same pull request; and
-`roadmap_status`, before the edit is handed to whoever merges, submits `status:
-opened` with the edit not handed. The template has no state of its own for a
-strategy edit, so a strategy pull request is checked at `surface` or `land`, as any
-lane pull request is. These three are held by a directive's check, not by a gate, and the engine walk covers each (R5, R6).
+whose only way forward is `land`. A pull request still refused leaves by an
+existing edge, naming what stopped it, so these paths add no edge.
+
+A director checks a worker pull request a manager sends up ready at
+`classify_report`, before it submits `classification: done` or `blocked` for that
+report. Passing, `blocked` goes to `surface`, which submits `surfaced: blocker` with
+`need: reserved-step merge <link>`; `need-check.sh` accepts it, `surface_check` goes
+on to `wait`, and the report up names the called head. Still refused, the director
+submits `classification: needs_fix`, whose edge goes to `rebrief`: the message tells
+the manager what stopped the pull request and to report again once that's changed,
+and `rebrief` goes back to `wait` or on to `pick_facts`. The check can't sit at
+`surface`, where a refused pull request has no way out: `need-check.sh` takes only
+credential, reserved-step and access needs and a refused need comes back to
+`surface`; `surfaced: merge_table` goes to a `record` step that waits for a Verified
+head this path never wrote; and `surfaced: decision` raises a choice the call has
+already made.
+
+`milestone_verdict` checks the pull request once it's open and before `verdict:
+recorded`. Still refused, it leaves with `verdict: deferred`, which goes to `wait`.
+A `landed` tick brings the run back through `roadmap_status`, whose script prints
+`verdict-owed` again, and that visit checks the same pull request and writes no
+second entry, since `roadmap-status.sh --verdict` refuses a new entry while the
+first one's row is pending. `roadmap_status` checks the edit before it's handed to
+whoever merges. Still refused, it submits `status: opened` with the edit not handed;
+the record step confirms the Side effects row the script already wrote and goes on
+to `pick_facts`. The template has no state of its own for a strategy edit, so a
+strategy pull request is checked at `classify_report` or `land`, as any lane pull
+request is. These three are held by a directive's check, not by a gate, and the
+engine walk covers each (R5, R6).
 
 The gate applies only when the Run `role` row reads `director`. A record with
 no `role` row gets no gate, and the session runs as it does today; a `role`
@@ -542,11 +561,13 @@ one. The block is the place because it is the one part of a report the
 template already passes on whole as the event's `report` evidence and a
 script already parses line by line.
 
-A pull request is manager-authored when it was the `pull_request` of a
-`report` or `progress` event whose `unit` is a holding's topic and no `worker=`
-line names it (a manager reports its workers' pull requests the same way, so the
-field alone can't tell them apart), or when one of the director's Holdings rows
-has a `verified_head` equal to GitHub's merged head. A manager that leaves out a
+A pull request is manager-authored when no `worker=` line names it and either
+it was the `pull_request` of a `report` or `progress` event whose `unit` is a
+holding's topic (a manager reports its workers' pull requests the same way, so the
+field alone can't tell them apart), or one of the director's Holdings rows has a
+`verified_head` equal to GitHub's merged head. The `worker=` test covers both
+because a director can verify an open worker pull request that its manager then
+lands at that head, which leaves that head on the row. A manager that leaves out a
 `worker=` line lists its worker's merge as `unreviewed`, a visible false debt
 rather than a hidden one (R10). The Holdings link alone
 can't say it: `merge_confirm` and `merged_facts` clear a row's Pull request
@@ -883,9 +904,10 @@ item of the run. This is the one read R11 names; the start report quotes its
    land step merges (posture allows) or surfaces the pull request with the
    call and its own reading to its reviewer, and the grant holder above merges
    at the called head. A worker pull request a manager sends up ready doesn't
-   enter the director's `land`: at `surface`, `alignment-call.sh --require` checks
-   its call, the directive records one on a refusal, and the director surfaces it
-   to its reviewer.
+   enter the director's `land`: at `classify_report`, `alignment-call.sh --require`
+   checks its call, the directive records one on a refusal, and `surface` sends it
+   to the reviewer as `need: reserved-step merge <link>`. One still refused goes
+   back to the manager through `needs_fix` and `rebrief`.
    On a worker pull request the manager lands, the call is
    recorded with `Action: none`. Any standing `align-` hold is released if the
    guard allows, and the lift message goes to the manager.
