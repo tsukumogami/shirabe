@@ -31,7 +31,7 @@ issue_count: 8
 
 Active
 
-The upstream design is Proposed, and its reviewer accepts it on this plan,
+The upstream design is Planned. Its reviewer accepted it on this plan,
 which shows where each of the design's five decisions lands and which
 requirement each criterion traces to.
 
@@ -417,8 +417,9 @@ Overlaps shirabe#1470 on `coordinate-open.sh`, `SKILL.md` and their tests; rebas
   accepted against the copy's row.
 - [ ] An import runs the mismatch check on the copy right after it lands,
   before the `record/host` write, the rebind and the fence; a refused import
-  leaves the copy's record unchanged, and an import never prints `ask=role`
-  after its copy lands.
+  leaves the copy's record unchanged and opens no new session, its copy stays
+  here and its source stays marked migrated, as the PRD's Known Limitations
+  says, and an import never prints `ask=role` after its copy lands.
 - [ ] `coordinate-open_engine_test.sh`, `coordinate-takeover_engine_test.sh`,
   `coordinate-import-takeover_engine_test.sh` and
   `discipline-session_engine_test.sh` cover all five continuations (resume,
@@ -991,11 +992,14 @@ it goes last.
 | PRD R13's criteria: the positional-name grep and the reviewer's read of its matches | Issue 8 (the grep), Issue 7 (the read) |
 | The PRD's scenario changes under the repository's rule for a changed skill | Issues 2, 3, 4, 5 and 6, each for its own change |
 
-**How the acceptance groups are shown.** The PRD's four acceptance groups
-(starting and recording, the successor
+**How the acceptance groups are shown.** The PRD has six acceptance groups.
+Four of them (starting and recording, the successor
 brief and first report, the Glossary and duties, and a lineage from before
 the change) are shown by a reviewer's live run after Issue 8 lands,
-not by any one issue's tests. Each issue's criteria pin the mechanism a
-group rests on; the criteria about report prose (a report names its role by
+not by any one issue's tests. The other two (allowances and the
+dispatcher-review requirements, and checks and content) are shown by the
+criteria and Check lines of Issues 4, 6, 7 and 8, and by each issue's check
+over its own pull request, not by the live run. Each issue's criteria pin the
+mechanism a group rests on; the criteria about report prose (a report names its role by
 no other word, and a successor's reports carry none of the earlier names) are
 checked only in that live run, since no script reads report prose.

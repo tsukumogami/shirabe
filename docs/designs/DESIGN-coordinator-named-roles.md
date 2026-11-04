@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 problem: |
   The coordinate skill has two coordinator roles, a manager over one lane and a
   director over managers, but no start setting, record row, brief field or
@@ -46,7 +46,7 @@ upstream: docs/prds/PRD-coordinator-named-roles.md
 
 ## Status
 
-Proposed
+Planned
 
 ## Context and Problem Statement
 
@@ -208,7 +208,9 @@ Key assumptions:
 - An import can only be checked after `koto session import` lands the copy on
   this host, because koto can't read a copy in place. A refused import leaves
   the copy here with nothing in its record written, and that copy is the run
-  moved, not a new session.
+  moved, not a new session. Its source stays marked migrated and refuses
+  writes, so a refused import doesn't leave the run's state as it was. The
+  PRD's criterion for refused starts and its Known Limitations say so.
 - A new run has no record while the opener runs (`state-open.sh` seeds it later
   in `record_open`), so the role reaches the seed as a value the opener prints.
 
