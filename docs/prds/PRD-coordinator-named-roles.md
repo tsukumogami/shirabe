@@ -315,9 +315,7 @@ file as it is. "The record line" is a report's line naming the record's session
 name and host repository (R6), and "its remainder" is that line with the
 session name, the host repository and any session address removed.
 
-Starting and recording (Evidence: a reviewer starts one session as a manager
-over a roadmap and one as a director over two managers, and sees each name its
-role in its first report and in its record):
+Starting and recording:
 
 - [ ] A start of a roadmap run with the role setting `manager` opens; its first
   report's record line is within its first five lines, `grep -oiwE
@@ -371,9 +369,7 @@ role in its first report and in its record):
   for every key today), and a record holding it stays within the record's size
   budget in the existing size test.
 
-Successor brief and first report (Evidence: each session hands off to a
-successor, whose brief and first report name the same role, with no prose
-paragraph describing the role from scratch):
+Successor brief and first report:
 
 - [ ] The brief renderer, given role `director` for a successor brief, writes
   exactly one role line (the line the renderer writes from the role it's
@@ -433,9 +429,7 @@ paragraph describing the role from scratch):
   predecessor included, is refused, names the session the run reports to, and
   leaves the record and the run's state as they were.
 
-The Glossary and duties (Evidence: the Glossary defines "coordinator" as a
-session of either role with the two roles under it, and no duty that belongs to
-only one role is addressed to "the coordinator"):
+The Glossary and duties:
 
 - [ ] `SKILL.md`'s Glossary entry for Coordinator says a session of either role,
   and `grep -c '^- \*\*Manager\*\* --' skills/coordinate/SKILL.md` and
@@ -494,9 +488,7 @@ only one role is addressed to "the coordinator"):
   value with the word `role`, and an existing `reports-to` row (`the human`)
   still passes the record's schema check.
 
-A lineage from before the change (Evidence: from a lineage created before this
-change whose briefs called the top session by three different names, a
-successor reports as a director and nothing else):
+A lineage from before the change:
 
 - [ ] Given a record with no role whose earlier briefs and entries call the top
   session by three different names (for example "lead coordinator", "top

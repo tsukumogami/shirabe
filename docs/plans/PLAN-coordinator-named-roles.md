@@ -92,7 +92,7 @@ Issue 4, a lane a brief starts carries no `--role` on its invocation line and
 stops at `ask=role` with exit 10, so Issue 4 lands right after Issue 2 and no
 lane is dispatched between them.
 
-Three rules hold for every issue. A rule-coverage row's key phrase is 8 to 60
+These rules hold for every issue. A rule-coverage row's key phrase is 8 to 60
 characters and sits on one line of its file, because `rule-coverage_test.sh`
 refuses any other length and matches with `grep -F` line by line; where a
 criterion below pins a sentence longer than that, it pins short phrases from
@@ -102,7 +102,13 @@ on its branch, and its title and description hold no word
 `skills/writing-style/rules.yaml` bans (checked against that file, not a
 copied list), no emoji, no `Co-Authored-By` or other AI attribution, no path or
 name from a private repository, no session name and no internal figure. Each
-issue's public-content criterion refers to this check. Last, scenarios follow
+issue's public-content criterion refers to this check, and that check also
+holds the PRD's R14 read: a reviewer reads each added sentence naming
+`manager` or `director` and finds none saying a role holds, needs or implies
+a grant, a merge, close or release authority, a cap or the right to change
+one, or the right to settle a step. Every issue's definition of done also
+includes `scripts/check-skill.sh --changed coordinate`, as the repository's
+rules require, whether or not its Check line repeats it. Last, scenarios follow
 behaviour, as the repository's rule for a changed skill requires: Issues 2,
 3, 4, 5 and 6 change what the skill does or owes, so each updates
 `skills/coordinate/evals/evals.json` for its own change, each tier-2 scenario
@@ -619,7 +625,8 @@ they are.
   `rebrief`: the classification rules and the template's other routes into
   `rebrief` (question overflow, verify and land outcomes) are unchanged, and
   the directive says a change rides the manager's next report that takes one
-  of those routes, or the director stops the lane and dispatches a new one. The coordinate brief tells the started coordinator to
+  of those routes, or the director asks a person, whose hand-made start can
+  make it, and that stopping the lane and dispatching a new one can't. The coordinate brief tells the started coordinator to
   fill `no-reports-to` with `<the dispatcher's name> at <reports_to>`. An
   end-to-end case feeds a `role_change: director` rebrief's invocation line
   to the opener on the fixture lane, whose `reports-to` row was written from
@@ -861,6 +868,9 @@ Overlaps shirabe#1470 on `SKILL.md` and `rule-coverage.tsv`; rebase onto it if i
 - [ ] A `testdata/rule-coverage.tsv` row whose phrase changes is edited in
   place with a `changed:` note; no row is retired, and the row count doesn't
   drop.
+- [ ] After the rewrite, a reviewer reads every match
+  `grep -oiwE 'lead|top|head|parent'` prints over the three file sets and finds
+  none used as a name for a coordinator's role, as the PRD's criterion requires.
 - [ ] Every mention of the tool keeps "workspace" before "manager".
 - [ ] Citing PRD R12: the final table has one row per occurrence that
   `grep -oiwE 'coordinators?'` counts over the three file sets at the head,
@@ -896,19 +906,24 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
 - [ ] `scripts/check-skill.sh coordinate`,
   `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`
   and `scripts/ablation/check-public-content.sh` each exit 0.
+- [ ] In this issue's checks over the finished change, the base is main just
+  before Issue 1 merged and the diff runs from there to this issue's head, not
+  this pull request's own base, which already holds Issues 1 to 7.
 - [ ] The keep-alive sentence is found in the same files as at the base.
-- [ ] The positional-name grep ("lane coordinator", "nested coordinator")
-  finds nothing in the three file sets, per line and over each file squeezed
-  by `tr -s '[:space:]' ' '`.
+- [ ] The PRD's positional-name grep (`grep -niwE 'lane coordinators?|(top-level|top|lead|head|parent) (coordinators?|sessions?)|head of effort'`),
+  plus "nested coordinator", finds nothing in the three file sets, per line and
+  over each file squeezed by `tr -s '[:space:]' ' '`.
 - [ ] This pull request passes the public-content check the Decomposition
   Strategy names, over its own added lines, commit messages, title and
   description (PRD R20).
 - [ ] `posture-read.sh` and `niwa authority check --json` print
   byte-identical answers for a fixture run recorded `manager` and the same
   run recorded `director`, as a case in `posture-read_test.sh`. This is the
-  PRD's R14 check (a role never reaches an allowance), and it is tested only
-  against the posture read and the authority check because that is exactly
-  what the design's Phase 6 names. The reader allow-list test from Issue 1
+  PRD's R14 check (a role never reaches an allowance), and these two answers
+  are the ones the design's Phase 6 names. A case in
+  `coordinate-open_engine_test.sh` starts one run with `--role manager` and one
+  with `--role director` on the same `--cap`, and finds the same cap recorded
+  for each, as the PRD's criterion requires. The reader allow-list test from Issue 1
   keeps the row out of every other script's reach, and Issue 4's grant case
   covers `dispatch-worker.sh`, the one script that both reads the row and
   passes a grant.
@@ -929,9 +944,9 @@ Overlaps shirabe#1470, #1473 and #1474 on `check-skill.tsv` and `coordinate.comp
 
 **Complexity**: testable
 
-**Check**: Run `scripts/check-skill.sh coordinate`, `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`, `scripts/ablation/check-public-content.sh` and `posture-read_test.sh`; each exits 0. The public-content check passes over this pull request.
+**Check**: Run `scripts/check-skill.sh coordinate`, `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md`, `scripts/ablation/check-public-content.sh`, `posture-read_test.sh` and `coordinate-open_engine_test.sh`; each exits 0. The public-content check passes over this pull request.
 
-**Files**: `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/check-skill.tsv`
+**Files**: `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/check-skill.tsv`, `skills/coordinate/scripts/coordinate-open_engine_test.sh`
 
 ## Implementation Sequence
 
@@ -972,14 +987,15 @@ it goes last.
 | The design's owner funnel as an expectation only, with no mechanism | Issue 6 (the item), Issue 8 (the check that nothing else ships) |
 | PRD R14 and the design's Phase 6: a role never reaches an allowance | Issue 8, with Issue 1's reader allow-list |
 | PRD R20: public content over each pull request's added lines, commit messages, title and description | Every issue, for its own pull request |
+| PRD R14's criteria: the same cap for either role, and no added sentence tying a role to an allowance | Issue 8 (the cap), every issue for its own added sentences |
+| PRD R13's criteria: the positional-name grep and the reviewer's read of its matches | Issue 8 (the grep), Issue 7 (the read) |
 | The PRD's scenario changes under the repository's rule for a changed skill | Issues 2, 3, 4, 5 and 6, each for its own change |
 
-**How the milestone's Evidence is shown.** The PRD's four acceptance groups
-labelled with Milestone 2's Evidence (starting and recording, the successor
+**How the acceptance groups are shown.** The PRD's four acceptance groups
+(starting and recording, the successor
 brief and first report, the Glossary and duties, and a lineage from before
 the change) are shown by a reviewer's live run after Issue 8 lands,
 not by any one issue's tests. Each issue's criteria pin the mechanism a
 group rests on; the criteria about report prose (a report names its role by
 no other word, and a successor's reports carry none of the earlier names) are
-checked only in that live run, since no script reads report prose. The
-Evidence stays as the milestone writes it.
+checked only in that live run, since no script reads report prose.

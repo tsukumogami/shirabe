@@ -466,8 +466,11 @@ or a verify or land outcome that returns the work. So the director's
 `rebrief` directive gains a sentence: a role change for the manager whose
 report it's handling goes in as `role_change`. A role change alone puts a
 report on none of those routes, so a change rides the manager's next report
-that takes one; a director that can't wait for one stops the lane and
-dispatches a new one. A plain
+that takes one; a director that can't wait for one asks a person, whose
+hand-made start can make the change. Stopping the lane and dispatching a new
+one can't: a new dispatch renders `--role manager` and refuses `role_change`,
+and on the same roadmap the opener continues the stopped lane under its
+recorded role, or refuses `role-mismatch` when that role is `director`. A plain
 `--rebrief` of a held lane renders no `--role`, so it never undoes a change
 (Decision 2).
 
@@ -1469,7 +1472,7 @@ first and refuses the second with exit 65, naming both values.
   `needs_fix` classification, a question overflow, or a verify or land
   outcome that returns the work), and a role change alone puts a report on
   none of them, so the change waits for the manager's next report that takes
-  one, or the director stops the lane and dispatches a new one.
+  one, or the director asks a person, whose hand-made start can make it.
 
 ### Mitigations
 
