@@ -385,9 +385,19 @@ edit the template sends to the reviewer directly. Their directives run
 `alignment-call.sh --require --on <owner/repo#n>` first. It exits 0 only when a
 standing `fits` or `fits with follow-ups` call exists for the pull request's live
 head, and non-zero naming the head otherwise or when that head can't be read. On
-non-zero the directive writes the refusal line and goes to `align_call`. These
-three are held by a directive's check, not by a gate, and the engine walk covers
-each (R5, R6).
+non-zero the directive does `align_call`'s work where it stands: it writes the
+refusal line once per pull request and head, runs `alignment-sources.sh` and
+`alignment-call.sh`, and runs `--require` again. It doesn't go to `align_call`,
+whose only way forward is `land`. The check sits at the agent turn that hands the
+pull request up, and a pull request still refused leaves by that state's existing
+edge, naming what stopped it, so these paths add no edge: `surface`, before
+`need: merge_table`, leaves with `need: blocker`; `milestone_verdict`, once the
+pull request is open and before `verdict: recorded`, leaves with `verdict:
+deferred`, and the state's next visit finds the same pull request; and
+`roadmap_status`, before the edit is handed to whoever merges, submits `status:
+opened` with the edit not handed. The template has no state of its own for a
+strategy edit, so a strategy pull request is checked at `surface` or `land`, as any
+lane pull request is. These three are held by a directive's check, not by a gate, and the engine walk covers each (R5, R6).
 
 The gate applies only when the Run `role` row reads `director`. A record with
 no `role` row gets no gate, and the session runs as it does today; a `role`
@@ -521,19 +531,24 @@ are open, in fixed lines its result block carries, so no reader matches free
 text (R10, and R1 and R3 for the other lanes' open work):
 `unit=<topic> <done|reopened|dropped> <owner/repo#n>` for each unit it
 finished since its last report, `<topic>` the Worker topic of its holding for
-that unit, and `open=<owner/repo#n>` for each open lane pull request.
+that unit, `open=<owner/repo#n>` for each open lane pull request, and
+`worker=<owner/repo#n>` for each pull request the report names or lands that a
+worker wrote, not the manager.
 `render-result.sh` prints them inside the block it already prints
-(`=== RESULT ===` to `=== END RESULT ===`), from new repeatable `--unit` and
-`--open` arguments, beside the `pr=` and `review_round=` lines, and the
+(`=== RESULT ===` to `=== END RESULT ===`), from new repeatable `--unit`,
+`--open` and `--worker` arguments, beside the `pr=` and `review_round=` lines, and the
 manager runs it for every report it sends its director, not only its final
 one. The block is the place because it is the one part of a report the
 template already passes on whole as the event's `report` evidence and a
 script already parses line by line.
 
 A pull request is manager-authored when it was the `pull_request` of a
-`report` or `progress` event whose `unit` is a holding's topic (the manager
-reporting its own pull request), or when one of the director's Holdings rows
-has a `verified_head` equal to GitHub's merged head. The Holdings link alone
+`report` or `progress` event whose `unit` is a holding's topic and no `worker=`
+line names it (a manager reports its workers' pull requests the same way, so the
+field alone can't tell them apart), or when one of the director's Holdings rows
+has a `verified_head` equal to GitHub's merged head. A manager that leaves out a
+`worker=` line lists its worker's merge as `unreviewed`, a visible false debt
+rather than a hidden one (R10). The Holdings link alone
 can't say it: `merge_confirm` and `merged_facts` clear a row's Pull request
 cell at the merge, keeping its `verified_head`, and the row goes at teardown.
 
@@ -703,7 +718,7 @@ and relays follow the skill text in the director's section.
 | `state-hold.sh` | unchanged | Stays the only writer of the Holds section; every lift calls its `--lift`. |
 | `land-check.sh` | changed | When the Run `role` row reads `director`, after the hold read and before the posture: reports `uncalled <pr> <sha>` unless a standing non-`diverges` call exists for the pinned head (R5). No `role` row: no gate. A `role` row that can't be read: `unready <pr> <sha>`, reason `role-unreadable`. Reads the row in one function, which joins the named-roles reader allow-list test. Own record only. Nothing else in the merge path changes. |
 | `coord-verdict.sh` | changed | `uncalled` exits 86, with its template arm (R5). |
-| `render-result.sh` | changed | Repeatable `--unit '<topic> <done\|reopened\|dropped> <owner/repo#n>'` and `--open <owner/repo#n>`, printed as `unit=` and `open=` lines inside the result block (R10, R1). |
+| `render-result.sh` | changed | Repeatable `--unit '<topic> <done\|reopened\|dropped> <owner/repo#n>'`, `--open <owner/repo#n>` and `--worker <owner/repo#n>`, printed as `unit=`, `open=` and `worker=` lines inside the result block (R10, R1). |
 | `alignment-sources.sh` | new | Read-only: unit, roadmap clauses and Evidence at a commit, strategy path, changed files, the other lanes' open work (from managers' `open=` lines), mechanical full-read triggers (an `other-lane` trigger among them), candidate owner decisions. Exits naming any source it couldn't read. |
 | `alignment-read.sh` | new | Read-only: calls, the lane pull request set, merges and recommendations with their call status (`manager-reviewed` among them), standing `align-` holds with their state (standing, closed while held, releasable), the gate's refusal count, and lineage gaps. JSON out. It reports a releasable hold; it lifts nothing. |
 | Coordinate template | changed | The `uncalled` arm from `land` to a new director agent state, `align_call`, which writes the refusal entry once per pull request and head, runs `alignment-sources.sh` and `alignment-call.sh`, and goes back to `land` (or to `wait` when a source can't be read) (R5, R2). A new `wait` event, `director-hold`, with evidence fields `message`, `from` and `unit`, whose edge goes to a new manager agent state, `director_hold`, that runs `alignment-call.sh --copy --add`, `--copy --lift` or `--copy --reports-to` and leaves by its `rework`, `reverify` or `wait` edge (R7, R8, R9). The director's start runs `alignment-read.sh --since`, `--lift-releasable` on each releasable hold, reports its unreviewed list, holds and refusal count, and writes its `Director start:` entry (R10, R9, R5). |
@@ -802,11 +817,13 @@ prints, one line per item, before `=== END RESULT ===`:
 ```
 unit=<topic> <done|reopened|dropped> <owner/repo#n>
 open=<owner/repo#n>
+worker=<owner/repo#n>
 ```
 
 `unit=` names each unit the manager finished since its last report, by the
 Worker topic of its holding, with the pull request that finished it; `open=`
-names each open lane pull request. The manager prints the block in every
+names each open lane pull request; `worker=` names each pull request the report
+names or lands that a worker wrote. The manager prints the block in every
 report it sends its director. `alignment-read.sh` and `alignment-sources.sh`
 read these lines from the `report` evidence of the director's `report` and
 `progress` events and nothing else in the message (R10, R1, R3).
@@ -866,8 +883,9 @@ item of the run. This is the one read R11 names; the start report quotes its
    land step merges (posture allows) or surfaces the pull request with the
    call and its own reading to its reviewer, and the grant holder above merges
    at the called head. A worker pull request a manager sends up ready doesn't
-   enter the director's `land`: `alignment-call.sh --require` checks its call,
-   with `align_call` on a refusal, and the director surfaces it to its reviewer.
+   enter the director's `land`: at `surface`, `alignment-call.sh --require` checks
+   its call, the directive records one on a refusal, and the director surfaces it
+   to its reviewer.
    On a worker pull request the manager lands, the call is
    recorded with `Action: none`. Any standing `align-` hold is released if the
    guard allows, and the lift message goes to the manager.
