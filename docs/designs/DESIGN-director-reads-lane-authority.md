@@ -223,8 +223,8 @@ a takeover (`coordinate-open.sh`'s `meta_set`, `state-write-core.sh`'s
 rewrite drops the claim that no one else writes while the meta is written:
 a resume's write can run while the earlier session is still writing. So the
 resume write is skipped when `opened_by` already names the caller, and
-otherwise re-reads the meta and rewrites only `opened_by`. That narrows the
-window but doesn't close it: two sessions writing the same record at once can
+otherwise re-reads the meta and rewrites only `opened_by`. The re-read alone
+narrows the window but doesn't close it: two sessions writing the same record at once can
 still lose one write. A lost `opened_by` ends in a refusal, never a widened
 write. A resume write that lands over the other session's record write can
 roll back the meta's other fields (`written`, `standing_used`, `pending`),
