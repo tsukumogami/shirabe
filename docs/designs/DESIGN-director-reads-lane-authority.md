@@ -219,7 +219,15 @@ next start writes it, as a failed rules-digest write does. Every other
 record write keeps the field as it is. The comments that say only the opener
 writes record/meta's extra fields, and only between the fence and the end of
 a takeover (`coordinate-open.sh`'s `meta_set`, `state-write-core.sh`'s
-`core_write_meta`), are rewritten to name `opened_by` and its writers.
+`core_write_meta`), are rewritten to name `opened_by` and its writers. The
+rewrite drops the claim that no one else writes while the meta is written:
+a resume's write can run while the earlier session is still writing. So the
+resume write is skipped when `opened_by` already names the caller, and
+otherwise re-reads the meta and rewrites only `opened_by`. Two sessions
+writing the same record at once can still lose one write, which ends in a
+refusal, never a widened write. `SKILL.md` lists `warning=opener-unrecorded`
+beside `warning=rules-unrecorded`, saying what it means and that the next
+start writes the opener.
 
 **The ownership test.** `--run cap` first decides whose record it is writing.
 The takeover's `driven_by_another` reads the record itself and exits with
@@ -241,18 +249,31 @@ The cap's strict test takes `opened_by` as well:
 - any other driver is another;
 - no driver and `opened_by` equal to the caller's id is own;
 - no driver and a coordinator row equal to the caller's found name is own;
+- no driver and an `opened_by` that names another session is another;
 - anything else is unknown.
 
-A run from before this feature has no `opened_by` and falls to the driver and
-coordinator-row branches, as before.
+The fifth branch is what lets a real sibling reach the read. Only a takeover
+writes the driver, so a lane's run that no takeover has touched has none, and
+its `opened_by` names the lane. Without that branch a sibling's record would
+read unknown and be refused `unproven-owner` with no read, and the authority
+would never be asked about. A run from before this feature has no `opened_by`
+and falls to the driver and coordinator-row branches, as before. A takeover's
+new run keeps its predecessor's `opened_by`, but the takeover records a
+driver, which the first two branches read first, so `opened_by` decides
+nothing there and `finish_takeover` doesn't write it.
+
+`opened_by` names the run's latest opener: the session that opened it, or the
+last one to resume it (see below). "Own" for the cap means the latest opener,
+or the coordinator its row names, not whichever session first opened it.
 
 The name is the one `dc_claude_name` gives for the caller's id, from a Claude
 Code background job's state file under `${DC_CLAUDE_HOME:-$HOME/.claude}`; a
 coordinator run in the foreground has none. The coordinator row has to equal
 that name exactly; a row holding a dispatch topic or any other address doesn't
 match. Beside the predicates, `dispatch-common.sh` gets the caller-id check and
-the name derivation, so the opener and the cap check can't read the caller
-differently.
+the name derivation. The cap check and every writer of `opened_by` (the
+opener, `state-open.sh` and the importer) source them, so none reads the
+caller differently.
 
 Each caller decides what unknown means and keeps its own reads.
 `coordinate-open.sh` reads the driver and the coordinator row as it does now,
@@ -265,7 +286,10 @@ section of `$WD/parsed.json`. It reads unknown, and a driver or `opened_by`
 that isn't a string, as a write it can't show is its own. A record the schema
 refuses never gets this far: a write mode refuses it with 10, as today. A
 caller with no valid id never reaches the test: it is refused `no-session`
-first.
+first. The check runs right after that parse and before `lib_write_guard`,
+so a cross-lane move is refused by the authority's name and never by the
+guard's exit 10 for a session that isn't the writer's own live one. An own
+write passes the check and then meets the guard exactly as today.
 
 The two parse the driver differently, and that's named rather than shared:
 the opener's `meta_field` reads a number as no driver and a boolean as its
@@ -579,11 +603,13 @@ The cause is one of a closed set, in the order the strict test reaches them:
 
 - `the record's driver or opener couldn't be read` (a driver or `opened_by`
   that isn't a string);
-- `no recorded driver, not opened by this session, and no session name found
-  for it`;
-- `no recorded driver, not opened by this session, and no coordinator row`;
-- `no recorded driver, not opened by this session, and the coordinator row
-  names another session`.
+- `no recorded driver or opener, and no session name found for it`;
+- `no recorded driver or opener, and no coordinator row`;
+- `no recorded driver or opener, and the coordinator row names another
+  session`.
+
+An `opened_by` naming another session never reaches this list: the strict
+test reads it as another, so the write takes the read below.
 
 For a cross-lane write whose read couldn't say, and for `no-niwa`, where there
 was no niwa to ask:
@@ -813,9 +839,11 @@ exposure the takeover rule has today, and this design doesn't widen it.
   way can't write its first cap and stays at reconcile with its `no-cap` gap
   open. Scripts and tests that open a run must give it an id.
 - A run resumed by a second session that the takeover reads as unknown
-  records that session as its opener, so the first session, if it's still
-  running, can no longer prove the record is its own and its cap writes are
-  refused `unproven-owner`.
+  records that session as its latest opener. The first session, if it's
+  still running, can no longer prove the record is its own by its opener.
+  Unless the coordinator row names its found session name, its cap writes
+  on that run are treated as cross-lane: read, refused `not-held` today, and
+  raised as a decision entry like any other cross-lane move.
 
 ### Mitigations
 

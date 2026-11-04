@@ -117,9 +117,11 @@ change. It prepares the PRD's one-reader criterion; Step 4 closes it.
   name that differ is another, and no row or no name is unknown. It covers
   the strict predicate: a driver equal to the caller's id is own, another
   driver is another, no driver and `opened_by` equal to the caller's id is
-  own, no driver and a coordinator row equal to the caller's name is own, and
-  everything else (`opened_by` another id or none, with no row, no name or a
-  row and a name that differ) is unknown. The caller-id check answers none
+  own, no driver and a coordinator row equal to the caller's name is own, no
+  driver and `opened_by` another id (with no row, no name, or a row and a
+  name that differ) is another, and everything else (no driver and no
+  `opened_by`, with no row, no name or a row and a name that differ) is
+  unknown. The caller-id check answers none
   for an unset id and for a malformed one, and the niwa lookup finds PATH
   first, then an executable `NIWA_BIN`, else none.
 - [ ] `opened_by` is set to the caller's valid id by the seed (`state-open.sh`
@@ -127,7 +129,15 @@ change. It prepares the PRD's one-reader criterion; Step 4 closes it.
   `--carry`, the opener's carry, the legacy import, a resume the opener
   admits as own or unknown, and an import resumed on a koto older than
   0.32.0; a caller with no id or a malformed one writes none. A failed write
-  on a resume prints `warning=opener-unrecorded` and the start stands.
+  on a resume, and on an import resumed on a koto older than 0.32.0, prints
+  `warning=opener-unrecorded` and the start stands. A resume whose
+  `opened_by` already names the caller writes nothing. `state-open.sh` and
+  the importer check the caller's id with `dispatch-common.sh`'s check, as
+  the opener does.
+- [ ] `SKILL.md` lists `warning=opener-unrecorded` beside
+  `warning=rules-unrecorded`, saying the opener wasn't recorded and the next
+  start writes it, and `references/state-keys.md` lists `opened_by` among
+  `record/meta`'s fields with its writers.
 - [ ] A fresh seed's first `record/meta` write, the pending one, already
   holds `opened_by`, checked by reading that write rather than by cutting
   the seed short.
@@ -141,7 +151,8 @@ change. It prepares the PRD's one-reader criterion; Step 4 closes it.
 - [ ] The comments that say only the opener writes record/meta's extra
   fields (`coordinate-open.sh` above `meta_set`, `state-write-core.sh` above
   `core_write_meta` and where it lists what record/meta's birth writes
-  record) name `opened_by` and its writers.
+  record) name `opened_by` and its writers, and no longer say no one else
+  writes while the meta is written.
 - [ ] If `authority-read.sh` already exists from the settled-steps work, no
   second reader is added; it's changed if a given `--session` doesn't
   override `CLAUDE_CODE_SESSION_ID` or if it finds niwa by a lookup of its
@@ -190,7 +201,9 @@ skills/coordinate/legacy-import/legacy-import_test.sh,
 skills/coordinate/scripts/coordinate-open_engine_test.sh,
 skills/coordinate/scripts/importer-call_engine_test.sh,
 skills/coordinate/scripts/coordinate-import-takeover_engine_test.sh,
-skills/coordinate/koto-templates/coordinate.compat.json, and,
+skills/coordinate/koto-templates/coordinate.compat.json,
+skills/coordinate/SKILL.md,
+skills/coordinate/references/state-keys.md, and,
 only when the reader hasn't landed from the settled-steps work,
 skills/coordinate/scripts/posture-read.sh,
 skills/coordinate/scripts/posture-read_test.sh,
@@ -229,6 +242,15 @@ cap-check half of the no-niwa criterion, which closes once Step 3 lands too.
   answering `bound` and an empty grant, exits 13 with the `not-held`
   refusal naming the cap-change authority as one niwa grants, and the target
   record's Run section and entries are byte-identical afterward.
+- [ ] A cap write to a sibling's record as a lane's own run leaves it (no
+  driver, `opened_by` the sibling's id, a coordinator row naming the
+  sibling), from a writer with an id and a `DC_CLAUDE_HOME` job fixture,
+  makes exactly one call to the stand-in, which answers `bound` with an
+  empty grant, and exits 13 with the `not-held` refusal, never
+  `unproven-owner`; the target is byte-identical afterward. The same write
+  from a session that isn't the target's live one is refused by the cap
+  check, not by `lib_write_guard`'s exit 10, because the check runs right
+  after the record parse and before the guard.
 - [ ] The same write with the read failing, timing out or answering
   `not-dispatched` exits 13 with the couldn't-be-read refusal and its case
   word; with no niwa found (none on PATH and no executable `NIWA_BIN`) it
@@ -245,8 +267,8 @@ cap-check half of the no-niwa criterion, which closes once Step 3 lands too.
   exits 13 with the `unproven-owner` line ("refused: this session can't show
   <session>'s record is its own (<cause>); ..."), one case per cause: a
   driver or `opened_by` that isn't a string (`the record's driver or opener
-  couldn't be read`); no driver, `opened_by` another id or none, and no job
-  fixture (`... and no session name found for it`); the same with a job
+  couldn't be read`); no driver, no `opened_by`, and no job fixture (`no
+  recorded driver or opener, and no session name found for it`); the same with a job
   fixture and no coordinator row (`... and no coordinator row`); and the
   same with a coordinator row naming another session (`... and the
   coordinator row names another session`). The stand-in's log shows no call
