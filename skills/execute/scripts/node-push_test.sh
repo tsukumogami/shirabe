@@ -1257,7 +1257,7 @@ fi
 OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" \
     --verification hosted-ci --reason "see private/plans/notes.md" --public-reason "$PUBLIC_W" 2>"$CASE/stderr"); RC=$?
-if [ "$RC" -eq 0 ] && pushed && ! db_pr 50 | jq -r '.body' | grep -qF 'private/'; then
+if [ "$RC" -eq 0 ] && pushed && ! grep -qF 'private/' <<<"$(db_pr 50 | jq -r '.body')"; then
     pass "an internal reason naming a private/ path with a public wording: pushed, the reason not published"
 else
     fail "vis-public-reason, internal reason: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
