@@ -306,9 +306,13 @@ seed
 BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
 log_to "$S" wait report_facts
+: > "$KOTO_STORE/calls"
 KOTO_ADD_DELAY="record/holdings:$SLOW" bash "$RF" --session "$S" > /dev/null 2>&1 &
 RFPID=$!
-for _ in $(seq 1 100); do pgrep -f "sleep $SLOW" > /dev/null && break; sleep 0.1; done
+# The stand-in logs the add before its delay; a loaded host can take a while
+# to reach it.
+for _ in $(seq 1 600); do grep -q "^context add $S record/holdings" "$KOTO_STORE/calls" && break; sleep 0.1; done
+sleep 0.3
 pgrep -f "sleep $SLOW" > /dev/null && ok "a write killed with its script: the write was running" || bad "a write killed with its script: the write was running"
 kill -KILL "$RFPID"; wait "$RFPID" 2> /dev/null
 for _ in $(seq 1 20); do pgrep -f "sleep $SLOW" > /dev/null || break; sleep 0.1; done
