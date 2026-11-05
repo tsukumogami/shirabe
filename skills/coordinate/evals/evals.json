@@ -811,6 +811,25 @@
         "It does no hand repair: no record edit, rebind, cancel or fresh run",
         "It drives the successor once the opener prints it, not the fenced run"
       ]
+    },
+    {
+      "id": 43,
+      "name": "a-dispatched-coordinators-progress-naming-a-pull-request-isnt-linked",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. The holding on topic plugin-registry has entry point /shirabe:coordinate: you dispatched a coordinator to run that feature's own units, and it reports by message. Its holding has empty Branch and Pull request cells, as dispatch left them. It sends a progress message: \"Checkpoint: the registry-index worker opened https://github.com/acme/widgets/pull/415.\" Walk through how the workflow takes this message up, including what you submit at each step.",
+      "expected_output": "The coordinator ticks wait with event progress, unit plugin-registry, the message as report, and the pull request the message names as pull_request. report_facts finds the holding with no pull request, sees its entry point is coordinate, and reads progress none: the pull request belongs to a worker that coordinator runs, not to the holding. The run never enters report_link, holding-link.sh isn't run, and the holding stays as it was, with Branch and Pull request still empty and its phase unchanged. report_questions finds no question and the run goes back to wait with no classification and no verify. The coordinator never writes the pull request onto the holding by hand.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The wait tick carries event progress, the unit plugin-registry, the message as report and the pull request it names as pull_request",
+        "The run doesn't enter report_link and holding-link.sh isn't run",
+        "The holding stays as it was: Branch and Pull request still empty, no state-holding.sh or state-write.sh row written by the coordinator",
+        "The message goes back to wait without reaching classify_report or verify"
+      ],
+      "requirements": [
+        "R13",
+        "R10"
+      ]
     }
   ]
 }
