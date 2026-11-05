@@ -242,7 +242,7 @@ shirabe, after step 6, needing nothing from koto (the design's Decision 5): `--r
 
 ### Step 19: a write from a session that isn't the record's driver is refused, so a stray copy can't take a reversal or keep ticking
 
-shirabe, with step 6, needing nothing from koto (the design's Decision 6, part 2): every write mode of `state-stored-set.sh` and `state-write.sh`, and a tick's gate, refuses with a message naming both sessions when the writing session isn't `record/meta.driver`, writing no key and appending no entry, whatever the writer's local koto store says about the fence.
+shirabe, with step 6, needing nothing from koto (the design's Decision 6, part 2): every write mode of `state-stored-set.sh` and `state-write.sh`, and a tick's gate, refuses with a message naming both sessions when the writing session isn't `record/meta.driver`, writing no key and appending no entry, whatever the writer's local koto store says about the fence. A record with no driver (a run nobody has taken over) is judged by the test `coordinate-open.sh` already uses for such a run: the write goes through when the run's coordinator row names the writing session, and is refused otherwise.
 
 ### Step 20: the skill's reversal step refuses a reversal without a reason, and --rules prints the reason of the winning reversal
 

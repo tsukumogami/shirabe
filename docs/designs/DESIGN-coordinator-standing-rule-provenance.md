@@ -723,8 +723,11 @@ what stands instead. Five parts:
    enters a reversal, or any write, only through the session the run's
    resolver names as newest member. The writer refuses a write from a
    session that isn't the record's driver (`record/meta.driver` compared
-   with the writing session), whatever its local koto store says. A copy
-   still running in another worktree then can't take the owner's reversal
+   with the writing session), whatever its local koto store says. A run
+   nobody has taken over has no driver recorded; there the writer applies
+   the test the opener already uses to tell a run is its own, the run's
+   coordinator row naming the writing session. A copy still running in
+   another worktree after a takeover then can't take the owner's reversal
    or tick past it. This part needs nothing from koto and ships with
    Phase 2.
 3. **The live-session block is read as ending that member's run.** If the
@@ -1447,8 +1450,39 @@ fence's below, belong with koto's decision record as open items: it is the
 only place they could be closed, by a verified identity for a person
 decider and dispatch links koto writes itself.
 
+**Writes come only from the record's driver.** The writer and a tick's gate
+refuse any write, an end or a reversal entry included, from a session that
+isn't `record/meta.driver`, whatever that session's local koto store says.
+Only the opener sets the driver, at a takeover through the fence, so a
+predecessor still running in another worktree can't write, end a rule or
+take a reversal once its successor has taken over. A run nobody has taken
+over has no driver and is judged by its coordinator row, as the opener
+judges it today. That row names a session by name, so two copies of the
+same never-taken-over coordinator aren't told apart until a takeover
+records a driver; that residual is today's and this design doesn't widen
+it. A driver that can't be read refuses the write.
+
+**Rows the coordinator writes about its own readings.** An `inferred` row
+the coordinator writes when it acts on a reading, such as a superior it
+worked out, has the same limits as an inferred brief rule: it restricts
+only, counts against the cap of 60 inferred rows, and the start report
+lists it as unconfirmed. Writing it also clears the `reports-to-unsourced`
+gap for that superior, so a coordinator can't use the row to hide an
+unsourced superior; the row is the place a successor and the owner see it.
+
+**No interim reversal.** Until koto's reversal ships, an owner taking back
+an uncited or inferred rule is not a reversal: the coordinator ends the row
+with `--end`, and an event row that grants keeps granting until it does.
+The skill never reports that end as the owner's reversal, and the rules
+view never lists it as superseded. This gap is stated rather than closed by
+a second mechanism, and it disappears for cited rows once koto's reversal
+ships, because then the owner reverses the cited decision and no
+coordinator write is involved.
+
 **Reversal through the fence.** A successor reverses with the standing its
-predecessor had, read from koto's supersede fence and never higher. Any
+predecessor had, read from koto's supersede fence and never higher. The
+skill enters a reversal only through the session the run's resolver names
+as its newest member, and the driver check above refuses it from any other. Any
 session that can name another can fence it, so a wrong fence now moves
 reversal standing over one coordinator's subtree as well as stopping that
 coordinator, and, since dispatcher-said follows the same hop, the fencing
