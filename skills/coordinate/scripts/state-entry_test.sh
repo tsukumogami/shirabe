@@ -21,6 +21,17 @@
 # without --on, refused; usage errors. Posting on an item (--on) is
 # state-entry-on_test.sh's.
 #
+# The alignment entry: a well-formed seven-line text of each call written and
+# kept in the session, under its kind, with every source form accepted; and
+# every refusal alignment_check makes, each 65 with nothing written: a
+# missing, extra or reordered line, a blank line, an empty value, a first
+# line naming another pull request, a head that isn't 40 hex, a call, Read,
+# source, Evidence item, follow-up or Action outside its set, `fits with
+# follow-ups` with no follow-up, another call with one, `diverges` with
+# Sources `none` or an Action other than `hold`, `hold` on another call, a
+# one-line read on a call other than `fits`, and a text over 16 KiB; and
+# `--kind alignment` with no --on (65).
+#
 # Usage: bash skills/coordinate/scripts/state-entry_test.sh
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
@@ -182,5 +193,90 @@ bash "$RA" "${RM[@]}" --kind cost --on acme/widgets --text-file "$T/entry.txt" >
 bash "$RA" "${RM[@]}" --kind answer --on none --text-file "$T/entry.txt" >/dev/null 2>&1; eq "--on with a kind that stays in the session" 64 $?
 bash "$RA" "${RM[@]}" --repost 2 --on none >/dev/null 2>&1; eq "--repost --on none" 64 $?
 bash "$RA" "${RM[@]}" --repost two --on acme/widgets#12 >/dev/null 2>&1; eq "--repost of no number" 64 $?
+
+echo "== alignment entries =="
+seed
+ALH=0123456789abcdef0123456789abcdef01234567
+ALS="roadmap docs/roadmaps/ROADMAP-plugin-system.md at $SHA_MAIN Feature 2 clause 1"
+# al <call> [Read] [Sources] [Evidence] [Follow-ups] [Action]: a seven-line
+# alignment text on acme/widgets#12 at ALH, in $T/al.txt.
+al() {
+    printf 'Alignment: acme/widgets#12 at %s -- %s\nRead: %s\nSources: %s\nReason: %s\nEvidence: %s\nFollow-ups: %s\nAction: %s\n' \
+        "$ALH" "$1" "${2:-full}" "${3:-$ALS}" "the loader skips the manifest the roadmap names" "${4:-1 not met}" "${5:-none}" "${6:-hold}" > "$T/al.txt"
+}
+alw() { bash "$RA" "${RM[@]}" --kind alignment --on acme/widgets#12 --text-file "$T/al.txt" 2>"$T/err"; }
+al diverges
+OUT=$(alw); rc=$?
+eq "a well-formed diverges call is written" "0 record/entries/000001" "$rc $OUT"
+eq "  ... under its kind, its text as written" "alignment|$(cat "$T/al.txt")" "$(key 000001 | jq -r '"\(.kind)|\(.text)"')"
+eq "  ... kept in the session, nothing on GitHub" "" "$(gh_writes)"
+al fits full "standing s1; decision 3; lane feat-a acme/gadgets#4; lane feat-b docs/designs/x.md; strategy docs/STRATEGY.md at $SHA_MAIN The bet" "1 met; 2 met" none merge
+OUT=$(alw); rc=$?
+eq "a fits call naming every other source form is written" "0 record/entries/000002" "$rc $OUT"
+al fits one-line none none none recommend
+OUT=$(alw); rc=$?
+eq "a one-line fits call with no sources is written" "0 record/entries/000003" "$rc $OUT"
+al "fits with follow-ups" full "$ALS" "1 met" "new: document the flag; new: a second loader" recommend
+OUT=$(alw); rc=$?
+eq "a fits with follow-ups call is written" "0 record/entries/000004" "$rc $OUT"
+N0=$(list "${RM[@]}" | jq length)
+# refused <label>: the text in $T/al.txt is refused, 65, nothing written.
+refused() {
+    alw >/dev/null; local rc=$?
+    eq "$1" "65 $N0" "$rc $(list "${RM[@]}" | jq length)"
+}
+al diverges; sed '7d' "$T/al.txt" > "$T/al.new" && mv "$T/al.new" "$T/al.txt"
+refused "a missing line is refused, nothing written"
+al diverges; printf 'Note: an eighth line\n' >> "$T/al.txt"
+refused "an extra line is refused"
+al diverges; awk 'NR == 2 { r = $0; next } NR == 3 { print; print r; next } { print }' "$T/al.txt" > "$T/al.new" && mv "$T/al.new" "$T/al.txt"
+refused "a reordered line is refused"
+al diverges; awk 'NR == 3 { print; print ""; next } { print }' "$T/al.txt" > "$T/al.new" && mv "$T/al.new" "$T/al.txt"
+refused "a blank line between the lines is refused"
+al diverges; sed 's/^Reason: .*/Reason: /' "$T/al.txt" > "$T/al.new" && mv "$T/al.new" "$T/al.txt"
+refused "an empty Reason is refused"
+al diverges; sed 's/acme\/widgets#12/acme\/widgets#13/' "$T/al.txt" > "$T/al.new" && mv "$T/al.new" "$T/al.txt"
+refused "a first line naming another pull request is refused"
+grep -q 'names acme/widgets#13, not acme/widgets#12' "$T/err" && ok "  ... naming both" || bad "  ... naming both" "$(cat "$T/err")"
+ALH=0123456789abcdef; al diverges
+refused "a head that isn't 40 hex is refused"
+ALH=0123456789ABCDEF0123456789ABCDEF01234567; al diverges
+refused "  ... and one in upper case"
+ALH=0123456789abcdef0123456789abcdef01234567
+al "fits, mostly" full "$ALS" "1 met" none merge
+refused "a call outside fits, fits with follow-ups and diverges is refused"
+al diverges skimmed
+refused "a Read outside full and one-line is refused"
+al diverges full "a hunch"
+refused "a source of no known form is refused"
+al diverges full "roadmap docs/roadmaps/ROADMAP-plugin-system.md at $SHA_MAIN Feature 2"
+refused "  ... and a roadmap source with no clause"
+al diverges full "$ALS" "1 mostly"
+refused "an Evidence item that isn't met or not met is refused"
+al "fits with follow-ups" full "$ALS" "1 met" "document the flag" recommend
+refused "a follow-up that isn't \`new: <title>\` is refused"
+al diverges full "$ALS" "1 not met" none block
+refused "an Action outside merge, recommend, hold and none is refused"
+al "fits with follow-ups" full "$ALS" "1 met" none recommend
+refused "fits with follow-ups and Follow-ups none is refused"
+al fits full "$ALS" "1 met" "new: document the flag" merge
+refused "fits with a follow-up is refused"
+al diverges full none
+refused "diverges with Sources none is refused"
+al diverges full "$ALS" "1 not met" none none
+refused "diverges with an Action other than hold is refused"
+al fits full "$ALS" "1 met" none hold
+refused "Action hold on a fits call is refused"
+al diverges one-line
+refused "a one-line read on a diverges call is refused"
+al "fits with follow-ups" one-line "$ALS" "1 met" "new: document the flag" recommend
+refused "  ... and on a fits with follow-ups call"
+al diverges; { head -c 16400 /dev/zero | tr '\0' 'a'; echo; } > "$T/long"
+awk -v l="$(cat "$T/long")" 'NR == 4 { print "Reason: " l; next } { print }' "$T/al.txt" > "$T/al.new" && mv "$T/al.new" "$T/al.txt"
+refused "an alignment text over 16 KiB is refused"
+al diverges
+bash "$RA" "${RM[@]}" --kind alignment --text-file "$T/al.txt" >/dev/null 2>"$T/err"; rc=$?
+eq "an alignment entry with no --on is refused" "65 $N0" "$rc $(list "${RM[@]}" | jq length)"
+eq "nothing in the alignment cases reached GitHub" "" "$(gh_writes)"
 
 done_tests state-entry_test
