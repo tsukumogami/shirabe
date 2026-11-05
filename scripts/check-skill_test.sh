@@ -101,6 +101,9 @@ RC=0
 new_tree() {
     ROOT=$(mktemp -d "$WORK/root.XXXXXX") || exit 1
     mkdir -p "$ROOT/skills/demo/evals"
+    # The script-case check runs the tree's own runner, so each tree has a copy.
+    mkdir -p "$ROOT/scripts/lib"
+    cp "$SCRIPT_DIR/lib/script-cases.py" "$ROOT/scripts/lib/"
     printf -- '---\nname: demo\ndescription: A demo skill.\n---\n\n# Demo\n' \
         > "$ROOT/skills/demo/SKILL.md"
     cat > "$ROOT/skills/demo/evals/evals.json" <<'EOF'
@@ -853,6 +856,340 @@ RC=$?
 LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
 expect_listed "  ... and counts an untracked file" "$ALL_DEMO" "untracked.sh"
 
+# -- Script cases (check 6) -------------------------------------------------------
+# The trees new_tree builds hold no script case and no git repository, and
+# the check passes them having run none.
+new_tree
+run_check
+expect "a tree with no script cases passes the script-case check" 0 \
+    "ok: script cases (0 of 0 passed)" "check-skill: demo passed"
+
+new_tree
+rm "$ROOT/skills/demo/evals/evals.json"
+printf -- '---\nname: demo\ndescription: d\ndisable-model-invocation: true\n---\n' \
+    > "$ROOT/skills/demo/SKILL.md"
+run_check
+expect "a skill with no evals.json has no script cases of its own" 0 \
+    "ok: script cases (0 of 0 passed)"
+
+new_tree
+rm "$ROOT/scripts/lib/script-cases.py"
+run_check
+expect "a tree with no runner fails the check closed, naming the path" 1 \
+    "FAIL: script cases: no runner at scripts/lib/script-cases.py"
+
+# case_repo: a fixture repository (git init, git add -A) with a copy of the
+# runner and these skills and cases:
+#   demo       1 graded; 2 own-check (handoff caller, ok.sh); a suite,
+#              plain_test.sh, that leaves suite.ran
+#   caller     7 handoff-demo (handoff demo, ok.sh); 8 graded-mark, graded,
+#              whose run is mark.sh
+#   bystander  3 handoff-caller (handoff caller, broken.sh)
+# scripts/cases/: ok.sh exits 0; broken.sh prints the reason line and exits
+# 1; mark.sh leaves mark.ran; hang.sh starts `sleep 300 &`, writes its own
+# pid and its child's to case.pid and child.pid, and waits.
+CASE_EDIT="$WORK/case-edit.py"
+cat > "$CASE_EDIT" <<'EOF'
+import json, sys
+path, cid, key, value = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+with open(path) as fh:
+    data = json.load(fh)
+for case in data["evals"]:
+    if case.get("id") == cid:
+        case[key] = value
+with open(path, "w") as fh:
+    json.dump(data, fh, indent=1)
+EOF
+# set_case <skill> <id> <key> <value>: set one field of one case.
+set_case() { python3 "$CASE_EDIT" "$ROOT/skills/$1/evals/evals.json" "$2" "$3" "$4"; }
+REASON="outcome word landed is not expected"
+case_repo() {
+    local s
+    new_tree
+    mkdir -p "$ROOT/scripts/cases" "$ROOT/skills/demo/scripts"
+    printf '#!/bin/sh\nexit 0\n' > "$ROOT/scripts/cases/ok.sh"
+    printf '#!/bin/sh\necho "%s"\nexit 1\n' "$REASON" > "$ROOT/scripts/cases/broken.sh"
+    printf '#!/bin/sh\n: > mark.ran\nexit 0\n' > "$ROOT/scripts/cases/mark.sh"
+    printf '#!/bin/sh\nsleep 300 &\necho $! > child.pid\necho $$ > case.pid\nwait\n' \
+        > "$ROOT/scripts/cases/hang.sh"
+    chmod +x "$ROOT"/scripts/cases/*.sh
+    printf ': > "$PWD/suite.ran"\n' > "$ROOT/skills/demo/scripts/plain_test.sh"
+    for s in caller bystander; do
+        mkdir -p "$ROOT/skills/$s/evals"
+        printf -- '---\nname: %s\ndescription: A %s skill.\n---\n\n# %s\n' "$s" "$s" "$s" \
+            > "$ROOT/skills/$s/SKILL.md"
+    done
+    cat > "$ROOT/skills/demo/evals/evals.json" <<'EOF'
+{"skill_name": "demo", "evals": [
+  {"id": 1, "name": "first", "prompt": "do the thing", "expectations": ["it does the thing"]},
+  {"id": 2, "name": "own-check", "grader": "script", "handoff": "caller", "run": "scripts/cases/ok.sh"}
+]}
+EOF
+    cat > "$ROOT/skills/caller/evals/evals.json" <<'EOF'
+{"skill_name": "caller", "evals": [
+  {"id": 7, "name": "handoff-demo", "grader": "script", "handoff": "demo", "run": "scripts/cases/ok.sh"},
+  {"id": 8, "name": "graded-mark", "prompt": "p", "expectations": ["e"], "run": "scripts/cases/mark.sh"}
+]}
+EOF
+    cat > "$ROOT/skills/bystander/evals/evals.json" <<'EOF'
+{"skill_name": "bystander", "evals": [
+  {"id": 3, "name": "handoff-caller", "grader": "script", "handoff": "caller", "run": "scripts/cases/broken.sh"}
+]}
+EOF
+    (cd "$ROOT" && git init -q . && git add -A) >/dev/null 2>&1
+}
+
+# closing_has <text>: whether the closing `check-skill: <skill> failed:` list
+# holds <text>.
+closing_has() {
+    awk -v t="$1" '/^check-skill: .* failed:$/ { s = 1; next } s && index($0, t) { f = 1 } END { exit !f }' <<EOF
+$OUT
+EOF
+}
+# below <first> <second>: whether a line holding <second> comes after the
+# first line holding <first>.
+below() {
+    awk -v a="$1" -v b="$2" 'index($0, a) && !n { n = NR } n && NR > n && index($0, b) { f = 1 } END { exit !f }' <<EOF
+$OUT
+EOF
+}
+# count_of <text>: how many lines of $OUT hold <text>.
+count_of() {
+    awk -v t="$1" 'index($0, t) { c++ } END { print c + 0 }' <<EOF
+$OUT
+EOF
+}
+
+case_repo
+run_check
+expect "a skill's own script case and another skill's case that targets it pass" 0 \
+    "ok: script cases (2 of 2 passed)" "check-skill: demo passed"
+if out_has bystander || out_has handoff-caller || out_has graded-mark; then
+    fail "  ... the check named a case that doesn't target demo"
+    printf '%s\n' "$OUT" | sed 's/^/    /'
+else
+    pass "  ... and names neither a case aimed elsewhere nor a graded case"
+fi
+if [ -e "$ROOT/mark.ran" ]; then
+    fail "  ... a graded case's run was executed"
+else
+    pass "  ... and no graded case's run is executed"
+fi
+
+case_repo
+set_case caller 7 run scripts/cases/broken.sh
+run_check
+expect "another skill's failing case fails this skill's check" 1 \
+    "FAIL: script case: caller 7 handoff-demo" "ok: bash skills/demo/scripts/plain_test.sh" \
+    "ok: eval shape" "check-skill: demo failed:"
+if below "FAIL: script case: caller 7 handoff-demo" "$REASON" \
+    && closing_has "script case: caller 7 handoff-demo" \
+    && [ "$(awk '/^check-skill: demo failed:$/ { s = 1; next } s && NF { c++ } END { print c + 0 }' <<EOF
+$OUT
+EOF
+)" = 1 ]; then
+    pass "  ... with its reason under it and only it in the closing list"
+else
+    fail "  ... the reason or the closing list is wrong"
+    printf '%s\n' "$OUT" | sed 's/^/    /'
+fi
+
+case_repo
+SKILL_ARG=caller run_check
+expect "a case that targets the skill fails its check" 1 \
+    "FAIL: script case: bystander 3 handoff-caller" "script cases: 2 of 3 passed"
+if closing_has "script case: bystander 3 handoff-caller"; then
+    pass "  ... and the closing list names it"
+else
+    fail "  ... the closing list lacks it"
+fi
+
+case_repo
+set_case bystander 3 handoff demo
+run_check
+expect "the selection follows a case's handoff, not the skills its run names" 1 \
+    "FAIL: script case: bystander 3 handoff-caller"
+
+case_repo
+python3 - "$ROOT/skills/demo/evals/evals.json" <<'EOF'
+import json, sys
+with open(sys.argv[1]) as fh:
+    data = json.load(fh)
+data["evals"].append({"id": 4, "name": "self-check", "grader": "script", "handoff": "demo",
+                      "run": "scripts/cases/broken.sh"})
+with open(sys.argv[1], "w") as fh:
+    json.dump(data, fh, indent=1)
+EOF
+run_check
+expect "a skill's case on a hand-off to itself fails its check" 1 \
+    "FAIL: script case: demo 4 self-check" "script cases: 2 of 3 passed"
+if [ "$(count_of "FAIL: script case: demo 4 self-check")" = 1 ]; then
+    pass "  ... and runs once"
+else
+    fail "  ... it ran $(count_of "FAIL: script case: demo 4 self-check") times"
+fi
+
+case_repo
+set_case caller 7 run scripts/cases/broken.sh
+set_case demo 2 run scripts/cases/broken.sh
+run_check
+expect "every failing case is listed" 1 \
+    "FAIL: script case: demo 2 own-check" "FAIL: script case: caller 7 handoff-demo"
+if closing_has "script case: demo 2 own-check" && closing_has "script case: caller 7 handoff-demo" \
+    && ! out_has "ok: script cases"; then
+    pass "  ... in the closing list, with no ok line"
+else
+    fail "  ... the closing list or the ok line is wrong"
+    printf '%s\n' "$OUT" | sed 's/^/    /'
+fi
+
+case_repo
+printf '{"evals": [\n' > "$ROOT/skills/bystander/evals/evals.json"
+run_check
+expect "a runner that can't run fails the check closed" 1 \
+    "skills/bystander/evals/evals.json" "script cases: the runner exited 2"
+
+# --changed: the suites narrow, the script cases run in full.
+case_repo
+set_case caller 7 run scripts/cases/broken.sh
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" \
+    CHECK_SKILL_CHANGED=skills/demo/evals/evals.json "$BASH_BIN" "$CHECK_SH" --changed demo 2>&1)
+RC=$?
+expect "--changed on an evals-only change runs no suite but every script case" 1 \
+    "--changed selects 0 of 1 suites" "FAIL: script case: caller 7 handoff-demo"
+if [ -e "$ROOT/suite.ran" ]; then
+    fail "  ... a suite ran"
+else
+    pass "  ... and no suite ran"
+fi
+
+case_repo
+set_case demo 2 run scripts/cases/mark.sh
+set_case caller 7 run scripts/cases/broken.sh
+run_list skills/demo/evals/evals.json
+expect "--changed --list lists the script cases and runs none" 0 \
+    "script case: demo 2 own-check" "script case: caller 7 handoff-demo"
+if [ ! -e "$ROOT/mark.ran" ] && [ ! -s "$SHIRABE_LOG" ] && [ ! -e "$ROOT/suite.ran" ]; then
+    pass "  ... no case, check or suite ran"
+else
+    fail "  ... something ran: $(ls "$ROOT"), shirabe log $(wc -c < "$SHIRABE_LOG") bytes"
+fi
+run_list "skills/demo/evals/evals.json
+skills/demo/scripts/plain_test.sh"
+if [ "$RC" = 0 ] && below "skills/demo/scripts/plain_test.sh" "script case: demo 2 own-check" \
+    && [ "$(printf '%s\n' "$OUT" | grep -c '^script case: ')" = 2 ]; then
+    pass "  ... after the selected suites"
+else
+    fail "  ... the script cases don't follow the suites"
+    printf '%s\n' "$OUT" | sed 's/^/    /'
+fi
+
+# The runner's --for selection and its usage errors.
+case_repo
+RUNNER="$ROOT/scripts/lib/script-cases.py"
+OUT=$(python3 "$RUNNER" --for demo --list 2>&1); RC=$?
+if [ "$RC" = 0 ] && [ "$OUT" = "demo 2 own-check
+caller 7 handoff-demo" ]; then
+    pass "script-cases.py --for --list prints each selected case as <skill> <id> <name>"
+else
+    fail "script-cases.py --for --list: exit $RC, got [$OUT]"
+fi
+for c in \
+    "--for demo --scenario own-check|--scenario" \
+    "--for demo --summary-out s.json|--summary-out" \
+    "--for nosuchskill|nosuchskill" \
+    "--for demo --all|--all" \
+    "--for demo caller|skill name" \
+    "demo --list|--list"; do
+    args=${c%%|*}
+    # shellcheck disable=SC2086 # the arguments are words
+    OUT=$(python3 "$RUNNER" $args 2>&1); RC=$?
+    expect "script-cases.py $args is a usage error" 2 "${c#*|}"
+done
+if [ -e "$ROOT/s.json" ]; then
+    fail "  ... a summary was written"
+else
+    pass "  ... and no summary is written"
+fi
+
+# <skill> and --all keep their output and summary.
+case_repo
+RUNNER="$ROOT/scripts/lib/script-cases.py"
+OUT=$(python3 "$RUNNER" demo --summary-out "$WORK/one.json" 2>&1); RC=$?
+expect "script-cases.py <skill> lists graded cases as refused and runs the rest" 0 \
+    "REFUSED 1 first: graded cases don't run" "PASS 2 own-check" "script cases: 1 of 1 passed"
+if python3 - "$WORK/one.json" <<'EOF'
+import json, sys
+s = json.load(open(sys.argv[1]))
+d = s["skills"]["demo"]
+assert s["schema"] == "script-cases-summary/v1"
+assert list(s["skills"]) == ["demo"]
+assert d["cases_run"] == 1 and d["cases_passed"] == 1 and d["pass_rate"] == 1.0
+assert d["refused"] == [{"id": 1, "name": "first"}]
+assert d["cases"] == [{"id": 2, "name": "own-check", "verdict": "pass"}]
+EOF
+then
+    pass "  ... and writes its summary as before"
+else
+    fail "  ... its summary changed"
+fi
+OUT=$(python3 "$RUNNER" --all 2>&1); RC=$?
+expect "script-cases.py --all runs every skill's cases under their headers" 1 \
+    "== bystander" "FAIL 3 handoff-caller: exited 1" "== caller" "REFUSED 8 graded-mark" \
+    "== demo" "script cases: 2 of 3 passed"
+
+# A stopped check leaves no case running: hang.sh records its pid and its
+# child's, and the check (then the runner alone) is sent TERM while it waits.
+# wait_for_case: up to 60 seconds for both pid files.
+wait_for_case() {
+    local n=0
+    while { [ ! -s "$ROOT/case.pid" ] || [ ! -s "$ROOT/child.pid" ]; } && [ "$n" -lt 600 ]; do
+        sleep 0.1; n=$((n + 1))
+    done
+}
+# case_alive: the recorded pids still alive, or nothing.
+case_alive() {
+    local f alive=""
+    for f in "$ROOT/case.pid" "$ROOT/child.pid"; do
+        [ -s "$f" ] && kill -0 "$(cat "$f")" 2>/dev/null && alive="$alive $(cat "$f")"
+    done
+    printf '%s' "$alive"
+}
+case_repo
+set_case demo 2 run scripts/cases/hang.sh
+cd "$WORK" || exit 1
+CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" demo >/dev/null 2>&1 &
+CHECKER=$!
+cd - >/dev/null || exit 1
+wait_for_case
+kill -TERM "$CHECKER"
+wait "$CHECKER"
+RC=$?
+sleep 0.5
+alive=$(case_alive)
+if [ "$RC" = 143 ] && [ -s "$ROOT/child.pid" ] && [ -z "$alive" ]; then
+    pass "TERM to the check while a case runs exits 143 and leaves neither the case nor its child"
+else
+    fail "TERM to the check while a case runs: exit $RC, still alive:${alive:- none}"
+    for p in $alive; do kill -KILL "$p" 2>/dev/null; done
+fi
+
+rm -f "$ROOT/case.pid" "$ROOT/child.pid"
+python3 "$ROOT/scripts/lib/script-cases.py" --for demo >/dev/null 2>&1 &
+CHECKER=$!
+wait_for_case
+kill -TERM "$CHECKER"
+wait "$CHECKER"
+RC=$?
+sleep 0.5
+alive=$(case_alive)
+if [ "$RC" = 143 ] && [ -s "$ROOT/child.pid" ] && [ -z "$alive" ]; then
+    pass "TERM to the runner alone kills the running case's group before it exits"
+else
+    fail "TERM to the runner alone: exit $RC, still alive:${alive:- none}"
+    for p in $alive; do kill -KILL "$p" 2>/dev/null; done
+fi
+
 # -- The coordinate skill's own selection ----------------------------------------
 # Against the real skills/coordinate: a change to anything shared selects every
 # suite, and a one-script change selects only that script's suites.
@@ -896,6 +1233,30 @@ if OUT=$("$BASH_BIN" "$SCRIPT_DIR/check-cost-rows.sh" coordinate 2>&1); then
 else
     fail "coordinate: cost rows and suites differ: $(printf '%s\n' "$OUT" | sed -n 's/^coordinate: //p' | tr '\n' ';')"
 fi
+
+# -- The real tree's script cases -------------------------------------------------
+# What check 6 runs for each skill, read from --changed --list on an evals-only
+# change, the way the coordinate cases read the real tree: a skill's own cases,
+# then every other skill's whose handoff names it.
+for c in \
+    "execute|execute 86 handoff-work-on-contract;coordinate 44 handoff-execute-contract;deliver 34 handoff-execute-contract" \
+    "work-on|coordinate 46 handoff-work-on-contract;execute 86 handoff-work-on-contract" \
+    "scope|coordinate 45 handoff-scope-contract;deliver 35 handoff-scope-contract" \
+    "deliver|deliver 34 handoff-execute-contract;deliver 35 handoff-scope-contract;coordinate 43 handoff-deliver-contract" \
+    "coordinate|coordinate 43 handoff-deliver-contract;coordinate 44 handoff-execute-contract;coordinate 45 handoff-scope-contract;coordinate 46 handoff-work-on-contract" \
+    "plan|"; do
+    skill=${c%%|*}
+    want=${c#*|}
+    OUT=$(cd "$REPO_ROOT" && PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="skills/$skill/evals/evals.json" \
+        "$BASH_BIN" "$CHECK_SH" --changed --list "$skill" 2>&1)
+    RC=$?
+    got=$(printf '%s\n' "$OUT" | sed -n 's/^script case: //p' | tr '\n' ';' | sed 's/;$//')
+    if [ "$RC" = 0 ] && [ "$got" = "$want" ]; then
+        pass "real tree: $skill's check runs [${want:-no script case}]"
+    else
+        fail "real tree: $skill's check: exit $RC, got [$got], want [$want]"
+    fi
+done
 
 echo ""
 echo "check-skill_test: $PASS_COUNT passed, $FAIL_COUNT failed"

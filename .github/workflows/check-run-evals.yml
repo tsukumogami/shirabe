@@ -1,12 +1,13 @@
 name: Check run-evals
 
-# scripts/run-evals.sh starts a nested claude session with a pinned permission
-# mode and reports a distinct failure when that session executes nothing. Its
-# suite drives the runner end to end against a stub claude and a throwaway
-# suite, so it needs no model, no network and no API key. Ubuntu only: the
-# runner is an operator tool that no skill invokes on a user's machine, and
-# scripts/check-bash-floor.sh lists it and this suite among the exemptions from
-# the bash 3.2 floor.
+# scripts/run-evals.sh runs script-graded eval cases only, through
+# scripts/lib/script-cases.py, and refuses every graded case. Its suite drives
+# the runner end to end against a failing claude stub that records every call,
+# a throwaway fixture skill, and /deliver's hand-off case, so it needs no
+# model, no network and no API key. The hand-off case and
+# scripts/check-handoff_test.sh compile koto templates, so the job installs
+# koto and checks it against the floor first: both suites fail rather than
+# skip without it.
 #
 # The release eval check (scripts/release-eval-check.sh) and its pass-rate
 # record script (scripts/lib/eval-pass-rates.py) run their suites here too:
@@ -21,6 +22,18 @@ on:
       - 'scripts/run-evals.sh'
       - 'scripts/run-evals_test.sh'
       - 'scripts/lib/classify-eval-session.py'
+      - 'scripts/lib/script-cases.py'
+      - 'scripts/lib/koto-test-guard.sh'
+      - 'scripts/check-handoff.sh'
+      - 'scripts/check-handoff_test.sh'
+      # The hand-off case /deliver's evals carry reads these templates.
+      - 'skills/deliver/evals/evals.json'
+      - 'skills/deliver/koto-templates/**'
+      - 'skills/execute/koto-templates/**'
+      - 'skills/execute/SKILL.md'
+      - 'skills/work-on/koto-templates/**'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
       - 'scripts/run-evals/fixtures/**'
       - 'scripts/release-eval-check.sh'
       - 'scripts/release-eval-check_test.sh'
@@ -40,8 +53,27 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto
+        env:
+          TSUKU_TELEMETRY: "0"
+          # tsuku install calls the GitHub API; the token keeps shared runners
+          # from hitting the unauthenticated rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tsuku install -y
+
+      - name: Assert koto meets the floor
+        run: |
+          command -v koto
+          bash scripts/assert-koto-floor.sh
+
       - name: Run run-evals tests
         run: bash scripts/run-evals_test.sh
+
+      - name: Run check-handoff tests
+        run: bash scripts/check-handoff_test.sh
 
   test-eval-pass-rates:
     runs-on: ubuntu-latest

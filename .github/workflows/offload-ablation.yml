@@ -189,7 +189,10 @@ jobs:
         working-directory: scripts/ablation
 
   # Without --withhold, the eval runner takes exactly the path it took before
-  # this feature.
+  # this feature. run-evals_test.sh runs /deliver's hand-off case, which
+  # compiles koto templates and fails rather than skips without koto, so the
+  # job installs koto and checks it against the floor first, as
+  # check-run-evals.yml does for the same suite.
   run-evals-unchanged:
     runs-on: ubuntu-latest
     steps:
@@ -198,6 +201,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto
+        env:
+          TSUKU_TELEMETRY: "0"
+          # tsuku install calls the GitHub API; the token keeps shared runners
+          # from hitting the unauthenticated rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tsuku install -y
+
+      - name: Assert koto meets the floor
+        run: |
+          command -v koto
+          bash scripts/assert-koto-floor.sh
 
       - name: Run run-evals tests
         run: bash scripts/run-evals_test.sh

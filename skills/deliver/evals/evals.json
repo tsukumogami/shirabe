@@ -505,6 +505,20 @@
         "/execute runs in the owning session, not in the scope agent",
         "The `koto status deliver-dlv-scopeagent` result payload has outcome `merged`, and gh-calls.log contains exactly one line starting `pr merge`"
       ]
+    },
+    {
+      "id": 34,
+      "name": "handoff-execute-contract",
+      "grader": "script",
+      "handoff": "execute",
+      "run": "scripts/check-handoff.sh deliver execute"
+    },
+    {
+      "id": 35,
+      "name": "handoff-scope-contract",
+      "grader": "script",
+      "handoff": "scope",
+      "run": "scripts/check-handoff.sh deliver scope"
     }
   ]
 }
