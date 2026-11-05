@@ -1335,6 +1335,236 @@ live-session block as the end of that member's run, never a rewind. The
 reversal half of the requirement is met when this phase ships, and not
 before.
 
+### Acceptance terms for the rule write and the driver check
+
+This subsection settles terms the decisions above left open for two plan
+steps: the rule write Phase 2 adds and the driver check it carries. It
+changes none of those decisions, and the plan's step text follows from it.
+Script lines cited here are in `skills/coordinate/scripts/`.
+
+#### The rule write (`--standing rule` with `--source`)
+
+Criteria are numbered across the items. "Nothing written" means the
+record's keys are byte-identical (`cmp`) and no entry is added. The new
+`standing-rule-write_engine_test.sh` is set up as step 1's suite is, with
+`testdata/gh` behind a `gh` wrapper, runs on the public host `acme/widgets`
+unless a criterion says otherwise, and counts forge reads by the call log.
+
+1. Sentence splitting. A cited file splits into candidate sentences, and
+What must equal exactly one under Decision 3's one normalized match,
+unchanged. `\r` is dropped and a blank line ends a block. A heading, a
+table line and a fence line each stand alone, a line inside a fence is no
+candidate, a list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then
+a space) starts a block, and any other line joins the one above with one
+space. A block splits after `.`, `!` or `?`, plus any closing `)`, `]`,
+`"`, `'`, `` ` ``, `*` or `_`, where whitespace follows. Markup stays in.
+The skill's text wraps near 75 columns and states rules in wrapped list
+items, so a split by line would leave most of it unquotable; the join and
+break follow an existing parser's rules 3 and 6 (`state-common.sh:378-390`).
+Stripping markup would be a second normalization. `e.g.` splits a
+sentence, which is deterministic and costs only a sentence that can't be
+cited whole. Step 7's intake splits a brief the same way, so
+`file_sentences` and `norm_match` live in `state-schema.jq`. Criteria, in
+`state-schema_test.sh` over `testdata/standing-rules/cited.md`:
+
+- R1. A sentence wrapped over two lines matches. A What running from one paragraph's last sentence across the blank line into the next doesn't.
+- R2. A list item wrapped onto an indented line matches, with and without a leading `- ` in What.
+- R3. A line's second sentence matches. Half a sentence doesn't, and neither does a What running over a sentence break.
+- R4. A sentence holding `` `koto next` `` matches only with its backticks. A heading's text without its `#`s doesn't, a table cell alone doesn't while the whole row with its pipes does, and a sentence inside a fence never does.
+- R5. A matching What still matches when it differs only in case, a leading `- `, a trailing `.` and doubled spaces. A one-word paraphrase doesn't.
+
+2. The default branch on a host that isn't public, within two reads. The
+ancestry read is `gh api --method GET repos/<r>/compare/<commit>...HEAD
+--jq .status` on every host. GitHub resolves `HEAD` to the default branch
+and won't create a branch named `HEAD`, so the name is never read and
+can't be shadowed. `identical` and `ahead` mean the default branch holds
+the commit, `behind` and `diverged` mean it doesn't, and a 404 is item 5's.
+The order is visibility (public host only, the core's own call at
+`state-write-core.sh:763`), then ancestry, then
+`contents/<path>?ref=<commit>`: three reads on a public host and two
+elsewhere, the order Security Considerations gives and the count the
+plan carries. Reading the branch name (`state-common.sh:290-294`) would
+add a third read on a private host. `lib_file_at` (`state-common.sh:305`)
+gains a repository argument; `testdata/gh` needs no change
+(`testdata/gh:361-366`). Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R6. Private host: a `skill acme/gadgets <path> <c>` row whose What is a sentence of the file at `<c>` exits 0. The log's lines naming `acme/gadgets` are exactly the compare read `repos/acme/gadgets/compare/<c>...HEAD --jq .status` and then the contents read; no `repos/acme/gadgets` read appears.
+- R7. On each host, a commit the stand-in answers `diverged` or `behind` exits 65 with item 5's ancestry message, the log holds no contents read for `acme/gadgets`, and nothing is written.
+- R8. A sentence the file holds at the default branch's tip but not at `<c>` exits 65 with item 5's What message, and nothing is written.
+
+3. What a bare name is. This item is open, pending a decision about the
+bare-name guarantee in Security Considerations (the Data exposure
+paragraph). Until that's decided, the existing link and `owner/repo#n`
+checks on What stand, the writer makes no forge read of a bare token in
+What, and the item has no criteria.
+
+4. A forge read that fails or doesn't answer. Each of the three reads runs
+under `dc_with_deadline "${FORGE_READ_SECONDS:-10}"`
+(`dispatch-common.sh:667`), as the grant read runs under its own bound
+(`state-stored-set.sh:546`). A read that runs past the bound, fails with
+anything but HTTP 404, or answers something it can't parse (a status
+outside the four, a body that won't decode) exits 2, writes nothing, makes
+no later read, and names what it couldn't read: `cannot read <r>'s
+visibility`, `cannot read whether <r>'s default branch holds <c>` or
+`cannot read <path> at <c> in <r>`. That meets Security Considerations'
+"any of them that fails or doesn't answer refuses the row". Exit 2 is the
+script's "a read failed" (`state-stored-set.sh:239-240`) and the core's
+own (`state-write-core.sh:736`, `:764`): retry, don't change the row. Ten
+seconds is a liveness bound with room for a compare on a large repository.
+Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R9. With the stand-in's `fail` matching, in turn, the visibility, compare and contents reads with `HTTP 502`, the write exits 2, stderr names that read, the log holds no read after it, and nothing is written.
+- R10. A `gh` wrapper that sleeps 5 seconds on `compare/`, under `FORGE_READ_SECONDS=1`, gives exit 2 within 4 seconds, no contents read, and nothing written.
+
+5. One refusal for a missing and an unreadable repository. "Can't read"
+means HTTP 404, as everywhere in the record's scripts
+(`state-write-core.sh:764`, `state-entry.sh:482`). A 403, a 5xx or a
+network failure is item 4's failed read, since it describes the token or
+the forge and not the repository. On a public host, a visibility answer
+other than `false` puts the repository on the core's list of repositories
+that aren't public, and the existing refusal follows: `refused:
+standing.s<n>: the Source names <r>, a repository that isn't public`
+(`state-schema.jq:480`), then `private, or unreadable from the public host
+<host>: <r>` (`state-write-core.sh:592`). On any host, an ancestry answer
+other than `identical` or `ahead`, a 404 included, gives `refused:
+standing.s<n>: the Source names a commit <r>'s default branch doesn't
+hold, or a repository that can't be read`. A path missing at a readable
+commit gives `refused: standing.s<n>: the Source names <path>, which <r>
+doesn't hold at <c>`, and a What no candidate matches gives `refused:
+standing.s<n>: the What isn't a sentence of <path> at <c>`; the repository
+was read, so neither hints at a private one. All exit 65, which is the
+Components entry's one refusal for a missing and an unreadable repository.
+Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R11. Public host: one name, absent from the stand-in, present with `private: true`, and present with `fail` `HTTP 404` on `repos/<r>`, exits 65 with byte-identical stderr (`cmp`) each time, and the log holds no compare or contents read naming it.
+- R12. Private host: an absent repository, `fail` `HTTP 404` on the compare, and a commit the stand-in answers `notfound` each exit 65 with byte-identical stderr.
+- R13. `fail` `HTTP 403` on the visibility read exits 2, not 65, and nothing is written.
+
+6. Where the caps and the 400-byte What are enforced. The writer enforces
+them on the row it writes, and the schema gets no read-side check: a
+schema refusal stops a takeover (Implementation Approach's opening), so a
+record over a limit stays readable and writable by every other mode, for
+the reason the Components entry keeps repository checks off stored rows.
+The writer counts every `rule` row, superseded ones included as the plan
+carries, and the rows `rule_class` reads `inferred`, checking the 60 cap
+first for an inferred row, since the Components entry says it binds first.
+What is measured with `utf8bytelength`; a line break is already refused
+(`state-schema.jq:389`). The refusals, all exit 65: `refused: standing:
+the record holds 60 inferred rule rows, the most it keeps; confirm or end
+one first`, its twin for `120 rule rows` ending `end one first`, and
+`refused: standing.s<n>: a rule row's What is at most 400 bytes; this one
+is <n>`. Rows are seeded with `koto context add` from `jq`-built fixtures.
+
+- R14 (`standing-rule-write_engine_test.sh`). With 120 rule rows (60 inferred) and one row of each event kind, one more rule row of each Source form exits 65 naming its cap, and nothing is written; `--standing pause --on all --until lifted` on that record exits 0.
+- R15 (same suite). With 60 inferred among 100 rule rows, an `inferred` or `inferred brief` row exits 65 naming 60, and a `pinned` row exits 0.
+- R16 (same suite). With 119 rule rows (59 inferred) and 30 event rows, one more `inferred` row exits 0 and `--rules --counts` prints `inferred 60`.
+- R17 (same suite). With 121 rule rows seeded, `--run friction <value> --by x` and `--rules` each exit 0.
+- R18 (`state-stored-set_test.sh`). A 400-byte What exits 0. A 401-byte one, and a 400-character one whose last character takes two bytes, each exit 65 with the What message, and nothing is written.
+
+7. `pinned` and `inferred brief` against the Run section. A `pinned
+<label> <digest>` row exits 65 unless the Run section holds a `rules` or
+`briefs` row with that label and digest: `refused: standing.s<n>: the
+Source pins <label> <digest>, which no Run rules or briefs row holds`.
+That's the form's definition in Decision 1, read from the record already
+in hand, with no file read and no content comparison, so Data exposure's
+"a pinned or brief digest records what was read" stands. An `inferred
+brief` row gets no Run check: step 7 writes the `briefs` row beside its
+rows (Decision 3), and that row clears `brief-unread`, so requiring it
+first would let an interrupted intake read as done. Step 7 settles that
+order. Criteria, in `state-stored-set_test.sh`:
+
+- R19. With a Run row `rules charter sha256:<A>`, `pinned charter sha256:<A>` exits 0, while `pinned charter sha256:<B>` and `pinned other sha256:<A>` each exit 65 with that message, and nothing is written.
+- R20. `inferred brief worker sha256:<C>` exits 0 on a record with no `briefs` row.
+
+8. `--source` on event kinds. In step 6, `--source` goes only with
+`--standing rule`; with any other kind it's usage, `--source goes only
+with --standing rule`, exit 64, as with `--intervention`
+(`state-stored-set.sh:337`). An event row's Source is a citation, which
+waits for Phase 3's `decision` form and `--confirm`; Phase 2 adds only
+the four uncited forms. Criteria, in `state-stored-set_test.sh`:
+
+- R21. `--standing pause --on all --until lifted --what x --owner y --source inferred` exits 64 with that message, and nothing is written.
+- R22. The same holds for `go-ahead`, `approval`, `answer` and `assignment`, each given otherwise valid flags.
+
+9. A rule row's entry. `rule` joins `ENTRY_KINDS` (`state-entry.sh:155`),
+not the outward kinds (`:157`). The entry reads `s<n> (rule): <What>.
+Source: <Source>.`, opening `s<n> (` so the next-id fallback
+(`state-stored-set.sh:761`) counts it, with no Owner since a rule row has
+none (Decision 1). The relayed pointer (`state-schema.jq:570`) never reads
+it; a rule row's pointer comes from its Source.
+
+- R23 (`standing-rule-write_engine_test.sh`). A `skill` rule write exits 0 printing the record's URL and an entry URL. The new row is `{standing, kind: "rule", on: "", until: "", what, owner: "", relayed_by: "", set, source}` as Key Interfaces shows, and the newest entry has kind `rule` and text exactly `s<n> (rule): <What>. Source: skill acme/gadgets <path> <c>.`
+- R24 (same suite). On a record with no `standing_used`, the next write after a rule write takes `s<n+1>`.
+- R25 (`state-stored-set_test.sh`). The existing event-row cases in its Standing and assignment sections pass unchanged.
+
+10. A `doc` row citing the host repository. The writer must know whether
+the host is public before its checks, so it reads `repos/<host> --jq
+.private` once and the core reuses the answer rather than reading again
+(`state-write-core.sh:736`). For a host-cited row that read is the row's
+visibility read, so the row adds only ancestry and the file. The entry
+post's host read (`state-entry.sh:475`) is the entry's. Criteria, in
+`standing-rule-write_engine_test.sh`, records seeded alike, logs by `cmp`:
+
+- R26. The log of a `doc acme/widgets <path> <c>` write, less the log of an `inferred` write with the same What, is exactly the compare line and then the contents line.
+- R27. For `skill acme/gadgets <path> <c>` the difference is exactly `repos/acme/gadgets`, the compare, then the contents.
+- R28. An `inferred` write's log holds exactly two `repos/acme/widgets` reads: the writer's, which the core reuses, and the entry post's.
+
+11. Exit codes for misuse. The script gives 64 for a flag a mode doesn't
+take or lacks and 65 for a value that breaks a rule
+(`state-stored-set.sh:722-725`, `:346`); its usage check (`:319`) stops
+requiring `--owner` for `rule`. Exit 64: a missing or empty `--source` on
+a rule (`a rule takes --source`), `--on` or `--until` on a rule (`:725`'s
+message) and item 8's case. Exit 65: `--owner` or `--relayed-by` on a rule
+(`state-schema.jq:456-457`), every grammar refusal (`source_problem`'s
+text), items 2 and 5 to 7, and a `decision` Source, with `refused:
+standing.s<n>: the Source's decision form isn't written before koto's
+decision commands; write the row as inferred`, since Decision 3 writes it
+only once those commands exist. `re_source_path` (`state-schema.jq:330`)
+gains the Components entry's "no leading `-`"; no released writer wrote a
+Source, so no stored row is affected.
+
+- R29 (`state-stored-set_test.sh`). Each exit-64 case exits 64 with its message, and nothing is written.
+- R30 (same suite). `--owner alice` and `--relayed-by bob` on a rule each exit 65 with stderr holding `a rule row's Owner is blank; its Source says who said it` or its Relayed by twin, and nothing is written.
+- R31 (`standing-rule-write_engine_test.sh`). `--source "decision example 000000000007"` exits 65 with that message, nothing is written, and a logging `KOTO_BIN` wrapper shows no `decisions` subcommand.
+- R32 (`state-stored-set_test.sh`). Each of these exits 65 with `standing.s<n>: the Source <why>`, and nothing is written: a 39-hex commit, a `..` segment, a path starting with `-`, a repository that isn't `owner/repo`, a bad label, a digest that isn't sha256, `inferred brief x` with no digest, and an unknown first word.
+- R33 (`state-schema_test.sh`). `source_problem` on `skill a/b -x/y <40 hex>` is non-null.
+
+12. Stored rows re-checked at every write. Step 6 changes the write core to
+match the Components entry's statement that these repository checks run on
+the row being written and never on rows already stored; that statement
+stays as it is. The core drops `source_repo` (`state-write-core.sh:751`)
+from the repositories it gathers across the whole state. The writer reads
+the new row's Source repository itself (item 5) and hands one that isn't
+public to the core through a variable the core appends after resetting
+its list at `:735`, so the schema's existing message refuses it. The
+generic link and `#n` scan over every string (`:758`) stays: it predates
+this design and isn't one of these repository checks. When the new row
+names a repository a stored row also cites, the check at
+`state-schema.jq:479` may name the stored row's id; the write is refused
+either way. Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R34. After a `skill acme/gadgets <path> <c>` row is written and the stand-in then marks `acme/gadgets` private, `--run friction <value> --by x` exits 0, its log names no `acme/gadgets`, and `--rules` still prints the row as `skill-says`.
+- R35. On that record, a new rule row citing `acme/gadgets` exits 65 naming it, and nothing is written.
+- R36. Step 1's unrelated-write criteria still pass, the record byte-identical.
+
+Existing tests that change. No existing assertion changes; the files
+below gain cases or rows, or keep passing as they are.
+
+- `state-schema_test.sh` gains R1 to R5, R33 and unit cases for the cap counts.
+- `state-stored-set_test.sh` gains R18 to R22, R29, R30 and R32. Its unknown-kind case (`rumour`, exit 64) and event-row usage cases keep their exits.
+- `standing-rules_engine_test.sh`, `rule-grants_engine_test.sh` and `standing-counts_engine_test.sh` keep their assertions: they count niwa calls, not forge reads, so item 12's dropped read doesn't show.
+- `check-skill.tsv` gains a cost row for the new engine suite, and `coordinate.compat.json` records the new `gate_scripts` digest, since scripts the gates run change.
+
+Follow-ups, proposed only; none blocks an item.
+
+- Teach the sentence split common abbreviations, so a sentence holding `e.g.` can be cited whole.
+- Give `testdata/gh` a mode that sleeps, so a hang needs no wrapper in each suite.
+- Make the check at `state-schema.jq:479-480` name the new row's id when a stored row cites the same repository.
+
+#### The driver check
+
+Terms follow.
+
 ### Carried back to the authority work
 
 Decision 4's answer, yes with its six conditions, goes to koto's decision
