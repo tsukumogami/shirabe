@@ -46,11 +46,14 @@
 #   Receiver: manager at <address>
 #   Release: a new head that the director re-reads and calls fits or fits with follow-ups
 #
-# The copy (the manager's record), run on a director-hold message. The
-# sender, --from, must be the address in the record's Run `reports-to` row
-# (`<name> at <address>`); one sent to a row with no address, or from anyone
-# else, changes nothing (65). --event is the log sequence of the event the
-# message arrived on, named in the entry each mode writes.
+# The copy (the manager's record), run on a director-hold message. Both modes
+# need the record's Run `reports-to` row to hold an address (`<name> at
+# <address>`); a message sent to a row with none changes nothing (65). For
+# --copy --add the sender, --from, must be that address. --copy --reports-to
+# is the one exception: its sender is a successor, never the row's address
+# yet, so it checks instead that the message names the row's address as the
+# current one (below). --event is the log sequence of the event the message
+# arrived on, named in the entry each mode writes.
 #
 # --copy --add takes the hold message above. It refuses (65, nothing changed)
 # a message that isn't those six lines in that order, whose head isn't 40
@@ -218,6 +221,8 @@ fi
 # ---- the manager's copy -----------------------------------------------------
 read_record
 reports_to_address
+# A successor's address message comes from an address the row doesn't hold
+# yet; that mode checks the current address the message names instead.
 [ "$FROM" = "$RT_ADDR" ] || [ "$COPY" = reports-to ] \
     || refuse "the message is from $FROM, but this record reports to $RT_NAME at $RT_ADDR; nothing changed"
 # The message as it arrived, line endings normalised and blank edge lines dropped.
