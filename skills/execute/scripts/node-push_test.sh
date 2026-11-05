@@ -525,6 +525,80 @@ unset KOTO_FAIL_EXISTS
     --verification hosted-ci >/dev/null 2>&1); rc=$?
 [ "$rc" -eq 64 ] && pass "--verification in the order mode: 64" || fail "order --verification: rc=$rc"
 
+# --public-reason: the deferral worded for a public reader (#1537). The new
+# node PR carries one Reason: line with it in place of the verbatim reasons,
+# the run record keeps it, and a later push without the flag still uses it.
+PUBLIC_W="The change was verified by the hosted CI run on this pull request."
+np_case defer-public
+ct_write_db
+fresh_repo defer-public
+defer_child 2 "$REASON2"
+push_node --public-reason "$PUBLIC_W"
+P2=$(part2)
+if [ "$RC" -eq 0 ] && [ "$(grep '^Reason: ' <<<"$P2")" = "Reason: $PUBLIC_W" ] \
+    && ! grep -qF "$REASON2" <<<"$P2"; then
+    pass "--public-reason: the new node PR's one Reason: line is the public wording, the internal reason left out"
+else
+    fail "defer-public: rc=$RC part2=[$P2] $(tail -2 "$CASE/stderr")"
+fi
+if [ "$(rec_node "$CT_CORE" | jq -c '[.deferrals, .public_reason]')" = "$(jq -cn --arg a "$REASON2" --arg w "$PUBLIC_W" '[[$a], $w]')" ]; then
+    pass "--public-reason: run/node/<node> records public_reason beside the unchanged deferrals"
+else
+    fail "defer-public record: [$(rec_node "$CT_CORE")]"
+fi
+if bash "$SCRIPT_DIR/../../work-on/scripts/check-pr-output.sh" --deferral-record --reason "$REASON2" \
+        --public-reason "$PUBLIC_W" --body --owned --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open \
+        >/dev/null 2>"$CASE/check.err"; then
+    pass "work-on's own --deferral-record check, given the wording, passes the body node-push.sh wrote"
+else
+    fail "check-pr-output.sh refused the public body: $(cat "$CASE/check.err")"
+fi
+(cd "$WT" && git commit -q --allow-empty -m "feat: more work")
+push_node
+if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$(git -C "$WT" rev-parse HEAD)" ] \
+    && [ "$(rec_node "$CT_CORE" | jq -r .public_reason)" = "$PUBLIC_W" ]; then
+    pass "a later push without --public-reason keeps the recorded wording and the adopted PR passes its check with it"
+else
+    fail "defer-public second push: rc=$RC record=[$(rec_node "$CT_CORE")] $(tail -2 "$CASE/stderr")"
+fi
+
+# An adopted PR whose body a person reworded to the public line: held until
+# the node has that wording, then pushed with it.
+np_case defer-public-adopt
+ct_write_db
+fresh_repo defer-public-adopt
+push_node
+defer_child 2 "$REASON2"
+(cd "$WT" && git commit -q --allow-empty -m "feat: second item")
+db_pr 50 | jq -r '.body' > "$CASE/body.md"
+printf '\n## Verification\n\nLocal verification did not run: it was deferred to hosted CI.\nReason: %s\nHosted CI is the build of record for this change.\n' \
+    "$PUBLIC_W" >> "$CASE/body.md"
+set_body 50 "$CASE/body.md"
+FIRST=$(remote_head)
+push_node
+[ "$RC" -eq 80 ] && [ "$(remote_head)" = "$FIRST" ] \
+    && pass "an adopted PR with only the public line and no wording recorded or given: 80, nothing pushed" \
+    || fail "defer-public-adopt hold: rc=$RC"
+push_node --public-reason "$PUBLIC_W"
+if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$(git -C "$WT" rev-parse HEAD)" ] \
+    && [ "$(rec_node "$CT_CORE" | jq -r .public_reason)" = "$PUBLIC_W" ]; then
+    pass "the same adopted PR passes with --public-reason, which is recorded"
+else
+    fail "defer-public-adopt with the wording: rc=$RC record=[$(rec_node "$CT_CORE")] $(tail -2 "$CASE/stderr")"
+fi
+
+for bad in "" "   " "$(printf 'one\ntwo')" "$(printf 'one\rtwo')"; do
+    push_node --public-reason "$bad"
+    [ "$RC" -eq 64 ] && pass "--public-reason [$(printf '%s' "$bad" | tr '\n\r' '^^')]: 64" \
+        || fail "--public-reason [$bad]: rc=$RC"
+done
+(cd "$REPO" && bash "$PUSH" order --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" \
+    --public-reason "$PUBLIC_W" >/dev/null 2>&1); rc=$?
+[ "$rc" -eq 64 ] && pass "--public-reason in the order mode: 64" || fail "order --public-reason: rc=$rc"
+(cd "$REPO" && bash "$PUSH" coordination --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" \
+    --public-reason "$PUBLIC_W" >/dev/null 2>&1); rc=$?
+[ "$rc" -eq 64 ] && pass "--public-reason in the coordination mode: 64" || fail "coordination --public-reason: rc=$rc"
+
 np_case adopt-missing
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'author="someone-else"'
@@ -1162,6 +1236,31 @@ if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; th
     pass "a deferral reason naming a private/ path, public node under a private home: 78, nothing pushed"
 else
     fail "vis-reason: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
+fi
+
+# With a public wording the wording is what the node PR publishes, so it is
+# scanned and the internal reason is not.
+np_case vis-public-reason
+CT_VIS_A=private
+CT_VIS_B=public
+ct_write_db
+fresh_repo vis-public-reason
+node_clone vis-public-reason
+OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" \
+    --verification hosted-ci --reason "host is busy" --public-reason "see private/plans/notes.md" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
+    pass "a public wording naming a private/ path, public node under a private home: 78, nothing pushed"
+else
+    fail "vis-public-reason: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
+fi
+OUT=$(cd "$REPO" && bash "$PUSH" node --session "$S" --worktree "$WT" --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" \
+    --verification hosted-ci --reason "see private/plans/notes.md" --public-reason "$PUBLIC_W" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 0 ] && pushed && ! db_pr 50 | jq -r '.body' | grep -qF 'private/'; then
+    pass "an internal reason naming a private/ path with a public wording: pushed, the reason not published"
+else
+    fail "vis-public-reason, internal reason: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
 fi
 
 # The visibility check runs before the ownership read, whose diagnostics name

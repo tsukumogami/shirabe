@@ -39,7 +39,11 @@
 #                            the children bound to a node worktree: a reason
 #                            the body lacks holds, one it records evaluates,
 #                            an empty list reads no body, the PLAN gone lists
-#                            no sessions, and no case reads a child
+#                            no sessions, and no case reads a child; with a
+#                            public_reason recorded beside them, a body whose
+#                            one Reason line reads it evaluates and one with
+#                            no Reason line holds, and without one recorded a
+#                            body with only that line holds until it is added
 #   a record without deferrals, the children bound to a node worktree
 #                            (pushed before node-push.sh recorded them, or
 #                            rebuilt by recover): each child is read where
@@ -582,6 +586,66 @@ out=$(run_next "$GONEDIR" --merge true)
 expect "the PLAN gone, a recorded deferral its body lacks" "error:execute:deferral-record" "$out"
 grep -Eq '^(workflows|session list)' "$CASE/koto-calls.log" && fail "the PLAN gone with deferrals recorded listed koto's sessions" \
     || pass "the PLAN gone with deferrals recorded: no session listing, no child read"
+
+# A public wording node-push.sh recorded beside the deferrals (public_reason,
+# #1537): a body whose one Reason line reads exactly that wording records the
+# deferral in place of the verbatim reason. A body with no Reason line still
+# holds, and a wording the record doesn't hold counts for nothing.
+DPUBLIC="The change was verified by the hosted CI run on this pull request."
+PUBLIC_BODY="body=\"x\\n\\n---\\n\\n## Verification\\n\\nLocal verification did not run: it was deferred to hosted CI.\\nReason: $DPUBLIC\\nHosted CI is the build of record for this change.\\n\""
+NO_REASON_BODY="body=\"x\\n\\n---\\n\\n## Verification\\n\\nLocal verification did not run: it was deferred to hosted CI.\\nHosted CI is the build of record for this change.\\n\""
+record_node_public() { # record_node_public <node> <pr> <deferrals-json> <public wording>
+    ct_record push "$(jq -cn --arg k "run/node/$1" --arg r "$CT_REPO" --argjson p "$2" --arg h "$CT_HEAD" \
+        --argjson d "$3" --arg w "$4" '{($k): {repo: $r, pr: $p, head: $h, deferrals: $d, public_reason: $w}}')"
+}
+
+ct_case recorded-public-body
+ct_record_setup
+record_node_public "$CT_CORE" 11 "$(jq -cn --arg r "$DREASON" '[$r]')" "$DPUBLIC"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$PUBLIC_BODY"
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "a recorded public wording, the body's one Reason line reading it" "evaluate:$CT_CORE" "$out"
+[ "$(child_reads)" -eq 0 ] && [ -z "$(ct_refused)" ] && pass "the public wording check: no koto call on a child" \
+    || fail "the public wording check read a child: $(ct_refused)"
+
+ct_case recorded-public-no-reason
+ct_record_setup
+record_node_public "$CT_CORE" 11 "$(jq -cn --arg r "$DREASON" '[$r]')" "$DPUBLIC"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$NO_REASON_BODY"
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "a recorded public wording, a body with no Reason line" "error:execute:deferral-record" "$out"
+grep -qF "public wording either: Reason: $DPUBLIC" "$CASE/stderr" && pass "the hold names the public wording's line" \
+    || fail "the public wording hold's stderr: [$(cat "$CASE/stderr")]"
+
+# A live run's record: deferrals recorded before any wording was.
+ct_case recorded-live-verbatim
+ct_record_setup
+record_node_deferrals "$CT_CORE" 11 "$(jq -cn --arg r "$DREASON" '[$r]')"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$RECORDED_BODY"
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "no public wording recorded, the verbatim Reason line: evaluated as before" "evaluate:$CT_CORE" "$out"
+
+ct_case recorded-live-public
+ct_record_setup
+record_node_deferrals "$CT_CORE" 11 "$(jq -cn --arg r "$DREASON" '[$r]')"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' "$PUBLIC_BODY"
+ct_write_db
+bound_children
+out=$(run_next "$PLANDIR" --merge true)
+expect "no public wording recorded, a body with only the public line" "error:execute:deferral-record" "$out"
+ct_record push "$(jq -cn --arg k "run/node/$CT_CORE" --arg w "$DPUBLIC" '{($k): {public_reason: $w}}')"
+[ "$(jq -c '[.deferrals, .public_reason]' "$CASE/ctx/$CT_RECORD_SESSION/run/node/$CT_CORE")" \
+    = "$(jq -cn --arg r "$DREASON" --arg w "$DPUBLIC" '[[$r], $w]')" ] \
+    && pass "public_reason added beside the recorded deferrals, which are unchanged" \
+    || fail "after adding public_reason: $(cat "$CASE/ctx/$CT_RECORD_SESSION/run/node/$CT_CORE")"
+out=$(run_next "$PLANDIR" --merge true)
+expect "the same record with public_reason added, deferrals unchanged" "evaluate:$CT_CORE" "$out"
 
 # A record without deferrals: the node was pushed before node-push.sh
 # recorded them, or the record was rebuilt by record-coord-setup.sh's
