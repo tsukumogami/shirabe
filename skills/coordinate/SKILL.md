@@ -443,8 +443,9 @@ The record also keeps the crash set, what a replacement needs after a crash and
 what never goes to GitHub. In the Run section, written with
 `state-stored-set.sh --run`: `rules` and `briefs` (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with), `friction` (a label) and
-`reports-to` (`<role>` or `<role> at <address>`, who this coordinator reports
-up to). The `rules` rows of the files this session loads as rules, the
+`reports-to` (`<name>` or `<name> at <address>`: who this coordinator reports
+up to, a person or the coordinator that dispatched it, and for a coordinator
+its messaging address). The `rules` rows of the files this session loads as rules, the
 skill's own (`skill-<file name>`) and the workspace's `CLAUDE.md`,
 `CLAUDE.local.md` and `.claude/rules/*.md` (`workspace-<depth>-...`), are
 written by every start that leaves the run holding a record, never by you; a

@@ -81,7 +81,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/side-effects` | an array of Side effects rows | `state-write.sh` through `state-holding.sh`; `roadmap-status.sh` adds the roadmap edits' rows |
 | `record/reversals` | an array of Reversals rows | `state-write.sh` through `state-holding.sh` |
 | `record/holds` | an array of Holds rows, a key only once it has one | `state-hold.sh` (`HOLDS_WRITER`) |
-| `record/run`, `record/standing`, `record/work` | the stored set's rows, each a key only once it has one | `state-stored-set.sh` (`STATE_WRITER`); `roadmap-status.sh` (`VERDICT_WRITER`) writes the `verdict-owed` and `rework` Work rows |
+| `record/run`, `record/standing`, `record/work` | the stored set's rows, each a key only once it has one | `state-stored-set.sh` (`STATE_WRITER`); `roadmap-status.sh` (`VERDICT_WRITER`) writes the `verdict-owed` and `rework` Work rows; `state-open.sh`'s seed writes the Run `role` row too |
 | `record/decisions` | `{next, entries}` (with `archived` and `kept` on a record moved from GitHub), a key from the first decision on | `state-decision.sh` (`DECISIONS_WRITER`) |
 | `record/rotation`, `record/reasoning` | a discipline rotation's window, host and predecessor, and the reasoning it leaves the next rotation | `state-stored-set.sh` (`STATE_WRITER`) |
 | `record/host` | the host facts (see Where State Lives), never sent to GitHub | `state-stored-set.sh --host` |
@@ -185,7 +185,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction or reports-to>",
+{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction, reports-to or role>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer or assignment>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -210,8 +210,9 @@ started again. A worker is never both told and pending (the record is refused
 if it is). A new address clears the `told` and `pending` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
-replacing the first), a `friction` label, and `reports-to` (`<role>` or `<role>
-at <address>`, who this coordinator reports up to). The start writes the
+replacing the first), a `friction` label, and `reports-to` (`<name>` or `<name>
+at <address>`: who this coordinator reports up to, a person or the coordinator
+that dispatched it, and for a coordinator its messaging address). The start writes the
 `rules` rows of the files the session loads as rules, never you: `skill-<file
 name>` for the skill's `SKILL.md`, template and references at the plugin root,
 and `workspace-<depth>-<file name>` or `workspace-<depth>-rules-<file name>`
@@ -225,7 +226,25 @@ entry names each label added, changed or removed. A failed write prints
 label is yours, through `--run rules`. A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
-refused, exit 65: `store` is no Run key it writes). Every
+refused, exit 65: `store` is no Run key it writes). Run also holds the run's
+`role` row, one at most, reading `manager` or `director`. It has two writers:
+`state-open.sh`, in the seed it makes when given `--role` and on `--carry
+--role`, which adds the row only when the carried copy has none; and
+`state-stored-set.sh --run role <manager|director> --by <who>`, which sets it
+once. With no row that writes one, the same value again changes nothing (exit
+0, the record byte for byte as it was), and a different value is refused (exit
+65), naming both. Only `--intervention dispatcher|person` replaces a different
+value: a change from above, the dispatching session or a person. The row then
+reads the new value, its Set by and Set say who and when, and the entry names
+the old role, the new one and the source. `--intervention` with any other
+source, or on any other key, is a usage error (exit 64). With it the write may
+come before the run's find, as the rules rows' does; without it `--run role`
+needs a found record, as every other Run key does. `--by` there is one line of
+at most 80 characters. `state-open.sh --carry --role <new> --role-change-by
+<who> --role-change-source <source>` replaces a carried row through that same
+write. Its reader is `state-read.sh --session S --run`, which prints
+`record/run` with no found record needed and exits 2, never an empty section,
+when the read fails. The handover read prints it as `role`, or null. Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
 **Standing** holds the events only a person owns while they still bind: a
@@ -262,6 +281,7 @@ written to the state and then told as an entry:
 ```
 state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <who>
 state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
+state-stored-set.sh --session S --run role manager|director --by <who> [--intervention dispatcher|person]
 state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>

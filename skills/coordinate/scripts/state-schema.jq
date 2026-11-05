@@ -208,7 +208,7 @@ def check_holds($h; $private):
 # Run, one row per key from a closed set; `told` and `pending` repeat, and
 # `rules` and `briefs` once per label:
 #   Key      arguments | cap | coordinator | told | pending | store | rules |
-#            briefs | friction | reports-to
+#            briefs | friction | reports-to | role
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address; pending: a worker
@@ -216,8 +216,10 @@ def check_holds($h; $private):
 #            still exists), never one that is also told. The last three are
 #            messaging addresses (check_worker): a dispatch topic or a session
 #            name, which may hold `_`, never an id or a path.
-#            store: session only, the legacy row (see run_keys below). The
-#            last four are the crash set (see run_keys below).
+#            store: session only, the legacy row (see run_keys below).
+#            rules, briefs, friction and reports-to are the crash set (see
+#            run_keys below). role: manager or director, at most one row
+#            (see run_keys below).
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run, and the
@@ -299,9 +301,16 @@ def state_secs: [
 #                  coordinator ran with, one row per label; its location is in
 #                  record/host, never here
 #   friction       a label, one row; its location is in record/host
-#   reports-to     `<role>` or `<role> at <address>`: words naming who the
-#                  coordinator reports up to, and their messaging address
-def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "store", "rules", "briefs", "friction", "reports-to"];
+#   reports-to     `<name>` or `<name> at <address>`: words naming who the
+#                  coordinator reports up to (a person, or the coordinator
+#                  that dispatched it), and for a coordinator its messaging
+#                  address
+# role: the run's role, `manager` or `director`, one row at most
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1). Its writers are
+# state-open.sh's seed (and its --carry --role) and state-stored-set.sh --run
+# role, which sets it once; only --intervention replaces a different value.
+def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "store", "rules", "briefs", "friction", "reports-to", "role"];
+def run_roles: ["manager", "director"];
 def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment", "rule"];
 # A Standing row's Source, where its words come from, in one of five forms
@@ -420,10 +429,12 @@ def check_srow($sec; $private):
          (if (.value | test(re_label)) then . else refuse("run.value: a friction row is a label: letters, digits, `.`, `_` and `-`") end)
        elif .key == "reports-to" then
          (if (.value | test(" at ")) then
-            (.value | sub("^.* at "; "")) as $addr | (.value | sub(" at [^ ]*$"; "")) as $role
-            | if ($addr | test(" ")) or $role == "" then refuse("run.value: a reports-to row is `<role>` or `<role> at <address>`")
+            (.value | sub("^.* at "; "")) as $addr | (.value | sub(" at [^ ]*$"; "")) as $name
+            | if ($addr | test(" ")) or $name == "" then refuse("run.value: a reports-to row is `<name>` or `<name> at <address>`")
               else ($addr | check_worker) as $_ | . end
           else . end)
+       elif .key == "role" then
+         (.value as $v | if any(run_roles[]; . == $v) then . else refuse("run.value: a role row is manager or director") end)
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
     elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
@@ -480,6 +491,7 @@ def check_state($sec; $rows; $private):
         | ($r | map(select(.key == "pending") | .value)) as $pending
         | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
         | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: the store row is used twice")
+          elif ($once | map(select(. == "role")) | length) > 1 then refuse("run: the role row is used twice; a run has one role")
           elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, pending, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
           elif ($pending | unique | length) != ($pending | length) then refuse("run: a worker is pending twice")

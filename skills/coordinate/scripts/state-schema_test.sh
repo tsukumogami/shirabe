@@ -11,6 +11,8 @@
 # private repository name, a home-directory path and a token-shaped string);
 # the legacy `store session` Run row accepted, a `store github` row and any
 # other value refused, and the crash-set rows allowed with no store row; the
+# Run `role` row, manager or director, passing alone and beside the other rows,
+# and `Director`, `lead`, an empty value and two role rows refused; the
 # scan over every string in the state (scan_strings): each string path of a
 # full state found, a field added at any depth found, a string no column check
 # reads refused through check_record, a rotation's reasoning scanned; a valid
@@ -192,7 +194,18 @@ same "a reports-to address shaped like a path" "$(RUNS "$STORE, $(RR reports-to 
 same "a rules digest that isn't sha256 hex" "$(RUNS "$STORE, $(RR rules "a sha256:abc")")" "<label> sha256:<64 hex>"
 same "a rules label used twice" "$(RUNS "$STORE, $(RR rules "a sha256:$SHA64"), $(RR rules "a sha256:$SHA64")")" "label is used twice"
 same "a friction row that isn't a label" "$(RUNS "$STORE, $(RR friction "a b")")" "a friction row is a label"
-same "a reports-to address that is two words" "$(RUNS "$STORE, $(RR reports-to "the lead at ws lead")")" "is \`<role>\` or \`<role> at <address>\`"
+same "a reports-to address that is two words" "$(RUNS "$STORE, $(RR reports-to "the lead at ws lead")")" "is \`<name>\` or \`<name> at <address>\`"
+passes "a reports-to row naming a person, the human, passes" "$(RUNS "$(RR reports-to "the human")")"
+# The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1):
+# one row, manager or director.
+passes "a role row reading manager passes" "$(RUNS "$(RR role manager)")"
+passes "  ... and one reading director, beside the other Run rows" \
+    "$(RUNS "$STORE, $(RR cap 2), $(RR reports-to "the human"), $(RR role director)")"
+same "a role row reading Director is refused" "$(RUNS "$(RR role Director)")" "a role row is manager or director"
+same "  ... and one reading lead" "$(RUNS "$(RR role lead)")" "a role row is manager or director"
+same "  ... and an empty one" "$(RUNS "$(RR role "")")" "run.value: empty"
+same "  ... and two role rows" "$(RUNS "$(RR role manager), $(RR role director)")" "the role row is used twice"
+same "  ... even two of the same role" "$(RUNS "$(RR role director), $(RR role director)")" "the role row is used twice"
 ST() { jq -nc --arg k "$1" --arg on "$2" --arg u "$3" '{standing: "s1", kind: $k, on: $on, until: $u, what: "hold the merges", owner: "the human", relayed_by: "", set: "2026-10-13T10:00Z"}'; }
 STS() { full_record | jq -c --argjson s "[$1]" '.standing = $s'; }
 passes "a pause until a time passes" "$(STS "$(ST pause all "time 2026-10-14T00:00Z")")"
