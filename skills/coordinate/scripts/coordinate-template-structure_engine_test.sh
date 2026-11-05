@@ -426,7 +426,7 @@ RW=$(role_writers "$HERE/..") || RW="the writer check failed: $RW"
     || fail "only state-stored-set.sh and state-open.sh's seed and carry build the Run role row" "$RW"
 RH_ALL=$(role_hits "$HERE/..")
 for w in "scripts/state-stored-set.sh	-" "scripts/state-open.sh	seed_state" "scripts/state-open.sh	carry_role"; do
-    printf '%s\n' "$RH_ALL" | grep -q "^$w	role-row	" && pass "${w%%	*} (${w#*	}) builds the role row" || fail "${w%%	*} (${w#*	}) builds the role row" "$RH_ALL"
+    grep -q "^$w	role-row	" <<<"$RH_ALL" && pass "${w%%	*} (${w#*	}) builds the role row" || fail "${w%%	*} (${w#*	}) builds the role row" "$RH_ALL"
 done
 grep -nE '^[^#]*(^|[^A-Za-z_])seed_state "' "$HERE/state-open.sh" | grep -v 'seed_state()' > /dev/null \
     && grep -nE '^[^#]*(^|[^A-Za-z_])carry_role "' "$HERE/state-open.sh" | grep -v 'carry_role()' > /dev/null \
@@ -513,7 +513,7 @@ role_readers() {
 RR=$(role_readers "$HERE/..") || RR="the reader check failed: $RR"
 [ -z "$RR" ] && pass "only the writers and state-handover.sh read the Run role row, and only the listed readers read record/run" \
     || fail "only the writers and state-handover.sh read the Run role row, and only the listed readers read record/run" "$RR"
-printf '%s\n' "$RH_ALL" | grep -q '^scripts/state-handover.sh	-	role-key	' && pass "state-handover.sh reads it, a reader the check sees" \
+grep -q '^scripts/state-handover.sh	-	role-key	' <<<"$RH_ALL" && pass "state-handover.sh reads it, a reader the check sees" \
     || fail "state-handover.sh reads it, a reader the check sees" "$RH_ALL"
 # role_fixture <name> <script> <line>: a skill directory holding a copy of
 # <script> (from scripts/, or a new empty one) with <line> appended; prints

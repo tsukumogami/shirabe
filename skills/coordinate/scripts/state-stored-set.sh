@@ -342,7 +342,8 @@ fi
 if [ "$MODE" = run ] && [ "$KEY" = role ]; then
     case "$VALUE" in
         manager|director) ;;
-        *) echo "$PROG: refused: run.value: a role is manager or director, not $(printf '%s' "$VALUE" | tr -d '[:cntrl:]`' | head -c 80)" >&2; exit 65 ;;
+        *) SHOWN=$(tr -d '[:cntrl:]`' <<<"$VALUE")
+           echo "$PROG: refused: run.value: a role is manager or director, not ${SHOWN:0:80}" >&2; exit 65 ;;
     esac
     case "$BY" in *[[:cntrl:]]*) echo "$PROG: refused: --by for --run role is one line, with no line break or control character" >&2; exit 65 ;; esac
     [ "$(jq -rn --arg b "$BY" '$b | length')" -le 80 ] || { echo "$PROG: refused: --by for --run role is at most 80 characters" >&2; exit 65; }

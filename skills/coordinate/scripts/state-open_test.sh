@@ -130,7 +130,7 @@ log_to "$SDR" start_posture record_find
 log_capture "$SDR" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$SDR" --state record_find --token first)"
 log_to "$SDR" record_find record_open
 OUT=$(bash "$O" --session "$SDR" --role director --start 2026-09-26 --end 2026-10-03 2>"$T/err"); rc=$?
-eq "a rotation given --role director opens" "0 record=$SDR" "$rc $(printf '%s\n' "$OUT" | head -1)"
+eq "a rotation given --role director opens" "0 record=$SDR" "$rc ${OUT%%$'\n'*}"
 eq "  ... its role row set by its session" "director|$SDR" "$(key "$SDR" record/run | jq -r '.[] | select(.key == "role") | "\(.value)|\(.set_by)"')"
 eq "  ... beside its window" "2026-09-26" "$(key "$SDR" record/rotation | jq -r .start)"
 eq "  ... and nothing written on GitHub" "" "$(gh_writes)"
