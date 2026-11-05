@@ -176,7 +176,7 @@ echo "== 1. the scope whose record moved =="
 if open_run moved; then
     eq "1: no record to import: the run stops at record_open" record_open "$(at)"
     eq "1:   ... with nothing posted on the moved record" 0 "$(posts 50)"
-    write_as_agent state-open.sh
+    write_as_agent state-open.sh --role manager
     eq "1: state-open.sh (agent-run) opens the record in the session" 0 $?
     eq "1: the run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
     write_as_agent state-stored-set.sh --run arguments "docs/roadmaps/ROADMAP-moved.md" --by "the human" \
@@ -196,6 +196,12 @@ if open_run unmoved; then
     eq "2: the importer posted one note on the record" 1 "$(posts 60)"
     eq "2: the run's session holds the record's holding" feat-1 "$(live_body | jq -r '[.holdings[].worker] | join(" ")')"
     eq "2: the run reaches reconcile" reconcile "$(at)"
+    # A record from before the role row: the handover gap no-role, which the
+    # reconcile fills from the role= the opener printed.
+    eq "2: the imported record holds no role: the gap no-role" no-role \
+        "$( (cd "$WD" && bash "$PS/state-handover.sh" --session "$S") | jq -r '[.gaps[].gap | select(. == "no-role")] | join(" ")')"
+    write_as_agent state-stored-set.sh --run role "$(sed -n 's/^role=//p' <<< "$OPEN_OUT")" --by "the human"
+    eq "2: the reconcile fills it from the role= the opener printed" "0 manager" "$? $(sed -n 's/^role=//p' <<< "$OPEN_OUT")"
     eq "2: and pick, on the imported stored set" pick "$(at --with-data '{"reconciled":"reported"}')"
     eq "2: and holds into wait" wait "$(at --with-data '{"choice":"hold"}')"
 else
@@ -204,7 +210,7 @@ fi
 
 # ---- 3. the rotation's discipline ----------------------------------------------------
 echo "== 3. the discipline whose rotation is still on GitHub =="
-printf '["--discipline", "legacyops", "--host", "acme/widgets"]' > "$T/args.json"
+printf '["--discipline", "legacyops", "--host", "acme/widgets", "--role", "manager"]' > "$T/args.json"
 OPEN_OUT=$(cd "$T/work" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
 S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p') WD=$T/work
 if [ -n "$S" ]; then

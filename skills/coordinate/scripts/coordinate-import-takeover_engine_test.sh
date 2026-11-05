@@ -37,7 +37,24 @@
 #      table doesn't list) is imported into `second` and refused
 #      template-incompatible,
 #      the refusal naming coordinate.md and both compat numbers, with no run
-#      taking it over.
+#      taking it over;
+#   8. the run's role (docs/designs/DESIGN-coordinator-named-roles.md,
+#      Decision 1; PRD R5): an import given --role is checked on the source
+#      where it is before koto imports, so a mismatch, a dispatcher change
+#      naming a session the source doesn't report to, a failed bucket read
+#      or a failed predecessor listing (failed=role_read) land nothing: no
+#      session here, no migration marker on the source, its record and koto
+#      state as they were, and a write from its workspace still accepted; an
+#      accepted dispatcher change is written by finish_takeover with its
+#      set_by, set and entry, the copy's row keeping the old role; the same
+#      import again naming the new role resumes the successor, and naming the
+#      old one is refused with the role_import_copy row ending the message
+#      and both records unchanged; a source that continues another run
+#      refuses a person change, and a dispatcher change whose address its
+#      reports-to row holds, naming that run (role_change_self); a role-less
+#      source given --role gets its row once the copy lands, and with no
+#      --role lands unasked with no role= line, the handover check listing
+#      no-role; a source the bucket doesn't hold is refused with koto's code.
 # On a koto older than 0.32.0, whose cloud backend can't fence, the import
 # resumes the copy as before (imported=, resumed=1, no outcome=), and only
 # that is checked.
@@ -195,6 +212,145 @@ eq "6: the same import again resumes B" "0 resumed $B" "$ORC $(line outcome) $(l
 eq "6:   ... adding no takeover entry" 1 \
     "$(cd "$W2" && bash "$PS/state-entry.sh" --session "$B" --list | jq '[.[] | select(.kind == "takeover")] | length')"
 
+# ---- 8. the run's role on an import ----------------------------------------------
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1; PRD R5. An import
+# given --role checks it before koto session import, on the source where it
+# is (state-read.sh --run --workspace), so a refused one lands nothing; a copy
+# already here is checked on the run its re-run continues. A shim in front of
+# the real koto fails every --workspace read (WS_FAIL=1), or only the source's
+# predecessor listing (WS_FAIL=continues), with a plain error.
+REAL_KOTO=$(command -v koto)
+cat > "$T/wsshim" <<EOF
+#!/bin/sh
+if [ "\$1" = --workspace ]; then
+    case "\${WS_FAIL:-}:\$*" in
+        1:*|continues:*koto/links/continues/*) echo "koto: the bucket read failed" >&2; exit 1 ;;
+    esac
+fi
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/wsshim"
+# role_src <scope> <run-rows-json>: a run in work, opened by A's Claude session
+# as a manager, holding a record whose Run section is <rows>, its find run;
+# sets R.
+role_src() {
+    export CLAUDE_CODE_SESSION_ID=$A_ID
+    seed_roadmap "$1"
+    RAW_RECORD=1 seed_record "$1" "$(record_json roadmap "$1" | jq -c --argjson r "$2" '.run = $r')"
+    open_run "$1" "$W1" && at > /dev/null || { bad "8: $1's run opens in work" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"; unset CLAUDE_CODE_SESSION_ID; return 1; }
+    unset CLAUDE_CODE_SESSION_ID
+    R=$S
+    # Two workspaces on one host share koto's local cache, so what `second`
+    # lists of the source before any import is the baseline a refusal keeps.
+    HERE_BEFORE=$(here "$R")
+}
+# rimport <scope> <run> <args-after-the-import json> [KOTO_BIN]: the opener in
+# `second` as B; OUT, ORC.
+rimport() {
+    jq -nc --arg r "docs/roadmaps/ROADMAP-$1.md" --arg i "$2" --arg f "$W1" --argjson a "$3" '[$r, "--import", $i, "--from", $f] + $a' > "$T/args.json"
+    OUT=$(cd "$W2" && KOTO_BIN="${4:-koto}" CLAUDE_CODE_SESSION_ID=$B_ID bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
+}
+imsg() { grep '^coordinate-open: ' "$T/open.err" | tail -1; }
+migrated() { (cd "$W1" && koto dashboard "$1" --detail 2>/dev/null) | jq -r '.migrated.target // empty'; }
+here() { (cd "$W2" && koto session list 2>/dev/null) | jq -r --arg s "$1" '.[] | select(.id == $s) | .id'; }
+srcstate() { printf '%s %s' "$(keyset "$1" "$W1" | $SHA256)" "$(wc -l < "$(cd "$W1" && koto session dir "$1")/koto-$1.state.jsonl" | tr -d ' ')"; }
+irow() { (cd "$2" && koto context get "$1" record/run) | jq -r '[.[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+ientry() { (cd "$W2" && bash "$PS/state-entry.sh" --session "$1" --list 2>/dev/null) | jq -r '[.[] | select(.text | startswith("Run role"))] | last | .text // empty'; }
+# refused_clean <label> <run> <state before>: nothing landed: no copy here (no
+# session `second` didn't list before, and none holding koto/imported-from),
+# no marker on the source, which is as it was.
+copies() { # copies <run>: the koto/imported-from keys `second` holds for it, [] for none
+    local x
+    x=$( (cd "$W2" && koto context list "$1" --prefix koto/imported-from 2>/dev/null) | jq -c 'if type == "array" then . else [] end' 2>/dev/null)
+    printf '%s' "${x:-[]}"
+}
+refused_clean() {
+    eq "$1:   ... no session under this workspace's prefix" "$HERE_BEFORE|[]" "$(here "$2")|$(copies "$2")"
+    eq "$1:   ... no migration marker beside the source" "" "$(migrated "$2")"
+    eq "$1:   ... the source's record and koto state as they were" "$3" "$(srcstate "$2")"
+}
+row() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "the human", set: "2026-09-26T08:00Z"}'; }
+IADDR=coordinate-roadmap-director-plan-20260926T080000Z
+IRT="Lane lead at $IADDR"
+if role_src imp-r1 "[$(row role manager),$(row reports-to "$IRT"),$(row coordinator coord-a)]"; then
+    I1=$R; I1ST=$(srcstate "$I1")
+    rimport imp-r1 "$I1" '["--role","director"]'
+    eq "8: an import naming director for a source recorded manager is refused role-mismatch before koto imports" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
+    eq "8:   ... the whole message, with no import-copy row" "coordinate-open: $I1 is recorded as manager; this start names director. A continuation keeps its role unless an intervention from above changes it; nothing was written and $I1 goes on as it was. Start again naming manager, or no role, or start director as a new lineage." "$(imsg)"
+    refused_clean 8 "$I1" "$I1ST"
+    rimport imp-r1 "$I1" '["--role","director","--role-change-by","lane-other","--role-change-source","dispatcher"]'
+    eq "8: an import's dispatcher change naming a session the source doesn't report to is refused" "2 role-change-refused" "$ORC $(line reason)"
+    eq "8:   ... naming the source's reports-to row" "coordinate-open: $I1 reports to $IRT; a role change from a dispatcher has to name the address in that row, and lane-other isn't it. This start names director; nothing was written and $I1 goes on as manager." "$(imsg)"
+    refused_clean 8 "$I1" "$I1ST"
+    WS_FAIL=1 rimport imp-r1 "$I1" '["--role","manager"]' "$T/wsshim"
+    eq "8: a bucket read of the source's role that fails is failed=role_read, exit 1, never role-less" "1 role_read" "$ORC $(line failed)"
+    refused_clean 8 "$I1" "$I1ST"
+    WS_FAIL=continues rimport imp-r1 "$I1" '["--role","director","--role-change-by","lane-other","--role-change-source","person"]' "$T/wsshim"
+    eq "8: a predecessor listing that fails is failed=role_read, exit 1, never no predecessor" "1 role_read" "$ORC $(line failed)"
+    refused_clean 8 "$I1" "$I1ST"
+    (cd "$W1" && CLAUDE_CODE_SESSION_ID=$A_ID bash "$PS/state-stored-set.sh" --session "$I1" --run cap 3 --by coord-a) > "$T/w.out" 2>&1
+    eq "8: after the refusals a write from the source's workspace is accepted" 0 $?
+    T0=$(date -u +%Y-%m-%dT%H:%MZ)
+    rimport imp-r1 "$I1" "[\"--role\",\"director\",\"--role-change-by\",\"$IADDR\",\"--role-change-source\",\"dispatcher\"]"
+    T1=$(date -u +%Y-%m-%dT%H:%MZ)
+    I1B=$(line session)
+    eq "8: an accepted dispatcher change imports and takes the copy over" "0 $I1 continued director manager" "$ORC $(line imported) $(line outcome) $(line role) $(line role_changed_from)"
+    eq "8:   ... finish_takeover writing the row, set by the address" "director|$IADDR" "$(irow "$I1B" "$W2")"
+    ISET=$( (cd "$W2" && koto context get "$I1B" record/run) | jq -r '.[] | select(.key == "role") | .set')
+    [[ ! $ISET < $T0 ]] && [[ ! $ISET > $T1 ]] && ok "8:   ... at the write's time" || bad "8:   ... at the write's time" "$T0 <= $ISET <= $T1"
+    eq "8:   ... with its entry" "Run role changed from manager to director by $IADDR, an intervention from above; source: dispatcher." "$(ientry "$I1B")"
+    eq "8:   ... the copy's row still the old role" "manager|the human" "$(irow "$I1" "$W2")"
+    # The same import again, its copy here and fenced: checked on the successor.
+    rimport imp-r1 "$I1" '["--role","director"]'
+    eq "8: the same import again naming the new role is a resume of the successor" "0 resumed $I1B director" "$ORC $(line outcome) $(line session) $(line role)"
+    BSNAP=$(keyset "$I1B" "$W2"); CSNAP=$(keyset "$I1" "$W2")
+    rimport imp-r1 "$I1" '["--role","manager"]'
+    eq "8: the same import again naming the old role is refused role-mismatch" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
+    eq "8:   ... the whole message ending with the role_import_copy row" "coordinate-open: $I1B is recorded as director; this start names manager. A continuation keeps its role unless an intervention from above changes it; nothing was written and $I1B goes on as it was. Start again naming director, or no role, or start manager as a new lineage. $I1B is on this host already, so its role here is director. Run the same import again, naming director or no role, not a plain start: the import marks the source if that's still to do, and its result says how the run goes on here." "$(imsg)"
+    eq "8:   ... both records as they were" "$BSNAP|$CSNAP" "$(keyset "$I1B" "$W2")|$(keyset "$I1" "$W2")"
+    rimport imp-r1 "$I1" '["--role","manager","--role-change-by","lane-other","--role-change-source","dispatcher"]'
+    case "$(imsg)" in "coordinate-open: $I1B reports to $IRT; "*"goes on as director. $I1B is on this host already, so its role here is director. Run the same import again"*) pass "8:   ... and a role-change refusal there ends with it too" ;;
+        *) fail "8:   ... and a role-change refusal there ends with it too" "$(imsg)" ;; esac
+fi
+# A source that continues another run: P1 took P0 over in work. A change
+# naming P0, as a person or as a dispatcher whose address the source's
+# reports-to row holds, is the run changing its own role.
+if role_src imp-r2 "[$(row role manager),$(row reports-to "the human"),$(row coordinator coord-x)]"; then
+    P0=$R
+    printf '["docs/roadmaps/ROADMAP-imp-r2.md","--role","manager"]' > "$T/args.json"
+    OUT=$(cd "$W1" && CLAUDE_CODE_SESSION_ID=$B_ID bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    P1=$(line session)
+    eq "8: in work, a run takes P0 over" "continued $P0" "$(line outcome) $(line predecessor)"
+    (cd "$W1" && CLAUDE_CODE_SESSION_ID=$B_ID bash "$PS/state-stored-set.sh" --session "$P1" --run reports-to "Prev at $P0" --by coord-a) > /dev/null 2>&1
+    P1ST=$(srcstate "$P1") HERE_BEFORE=$(here "$P1")
+    rimport imp-r2 "$P1" "[\"--role\",\"director\",\"--role-change-by\",\"$P0\",\"--role-change-source\",\"person\"]"
+    eq "8: an import's person change naming the source's predecessor is refused before koto imports" "2 role-change-refused" "$ORC $(line reason)"
+    eq "8:   ... as role_change_self" "coordinate-open: $P1 reports to Prev at $P0, and $P0 is $P1 itself or the run it continues: a run can't change its own role. This start names director; nothing was written and $P1 goes on as manager." "$(imsg)"
+    refused_clean 8 "$P1" "$P1ST"
+    rimport imp-r2 "$P1" "[\"--role\",\"director\",\"--role-change-by\",\"$P0\",\"--role-change-source\",\"dispatcher\"]"
+    eq "8: a dispatcher change naming it, the address the reports-to row holds, is refused the same" "2 role-change-refused" "$ORC $(line reason)"
+    case "$(imsg)" in "coordinate-open: $P1 reports to Prev at $P0, and $P0 is $P1 itself"*) pass "8:   ... as role_change_self" ;; *) fail "8:   ... as role_change_self" "$(imsg)" ;; esac
+    refused_clean 8 "$P1" "$P1ST"
+fi
+# A source with no role row: given --role it goes on and gets its row once the
+# copy lands; with no --role it goes on unasked, the gap left for reconcile.
+if role_src imp-r3 "[$(row reports-to "the human"),$(row coordinator coord-a)]"; then
+    rimport imp-r3 "$R" '["--role","manager"]'
+    eq "8: an import given --role of a role-less source lands" "0 $R continued manager" "$ORC $(line imported) $(line outcome) $(line role)"
+    eq "8:   ... its row written once the copy landed, set by the start's --role" "manager|start --role" "$(irow "$(line session)" "$W2")"
+fi
+if role_src imp-r4 "[$(row reports-to "the human"),$(row coordinator coord-a)]"; then
+    rimport imp-r4 "$R" '[]'
+    eq "8: an import with no --role of a role-less source lands, printing no ask=role and no role=" "0 $R continued " "$ORC $(line imported) $(line outcome) $(line role)$(line ask)"
+    (cd "$W2" && bash "$PS/state-handover.sh" --session "$(line session)" --check) > /dev/null 2> "$T/gate"
+    grep -q '^  no-role: ' "$T/gate" && ok "8:   ... and the handover check on it lists no-role" || bad "8:   ... and the handover check on it lists no-role" "$(cat "$T/gate")"
+fi
+# A source the bucket doesn't hold.
+rimport imp-r9 coordinate-roadmap-imp-r9-20260101T000000Z '["--role","manager"]'
+case "$ORC $(line refused)" in "2 session_not_found"|"2 workspace_not_found") ok "8: an import given --role of a source the bucket doesn't hold is refused with koto's code, exit 2 ($(line refused))" ;;
+    *) bad "8: an import given --role of a source the bucket doesn't hold is refused with koto's code, exit 2" "$ORC $OUT $(cat "$T/open.err")" ;; esac
+eq "8:   ... landing nothing" "" "$(here coordinate-roadmap-imp-r9-20260101T000000Z)"
+
 # ---- 7. a changed template refuses by name ---------------------------------------------
 # The copy's template gains a variable, so its structure (the compat
 # fingerprint) differs, and its own compat table raises compat and lists the
@@ -207,7 +363,7 @@ awk '{ print } /^variables:$/ && !d { print "  COMPAT_PROBE:\n    description: A
     "$PT/coordinate.md" > "$T/p2.md" && mv "$T/p2.md" "$PT/coordinate.md"
 PFP=$(bash "$T/plugin2/skills/coordinate/scripts/template-fingerprint.sh" "$(koto template compile "$PT/coordinate.md" 2>/dev/null)")
 jq --arg f "$PFP" '.compat += 1 | .fingerprints[$f] = .compat' "$PT/coordinate.compat.json" > "$T/p2compat.json" && mv "$T/p2compat.json" "$PT/coordinate.compat.json"
-printf '["docs/roadmaps/ROADMAP-imp2.md"]' > "$T/args.json"
+printf '["docs/roadmaps/ROADMAP-imp2.md","--role","manager"]' > "$T/args.json"
 OTHER=$(cd "$W1" && CLAUDE_CODE_SESSION_ID=$A_ID bash "$T/plugin2/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$T/plugin2" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
 [ -n "$OTHER" ] && ok "7: work opens a run from a plugin whose coordinate.md differs" || bad "7: work opens a run from a plugin whose coordinate.md differs" "$(cat "$T/open.err")"
 importer imp2 "$OTHER"

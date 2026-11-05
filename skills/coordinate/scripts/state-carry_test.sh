@@ -22,7 +22,7 @@
 # run, before that run's find, state-stored-set.sh --run role --intervention
 # writes the change there (its row, set_by, set and entry) while a plain --run
 # role is refused for want of a found record. state-open.sh --carry --role adds
-# the row to a role-less copy, set by the run's session, and leaves a copy
+# the row to a role-less copy, set by `start --role`, and leaves a copy
 # holding a role as it is; with --role-change-by and --role-change-source it
 # replaces a carried role through the intervention write. A carry run again
 # after it landed settles the role first: a change its first run didn't write
@@ -308,7 +308,7 @@ db_init
 pred_rotation roleless '[]'
 OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role director 2>"$T/err"); rc=$?
 eq "--carry --role director on a role-less copy carries" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep '^carried=')"
-eq "  ... adding the row, set by the run's session" "director|$S" "$(srole)"
+eq "  ... adding the row, set by the start's --role" "director|start --role" "$(srole)"
 eq "  ... in the seed: no role entry" 0 "$(sentries | jq '[.[] | select(.text | startswith("Run role"))] | length')"
 
 pred_rotation keeps "$MGR"
@@ -361,7 +361,7 @@ bash "$HERE/state-open.sh" --session "$S" --carry >/dev/null 2>"$T/err"
 eq "a role-less carry lands with no --role and no row" "0 none" "$? $(srole)"
 OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role manager 2>"$T/err"); rc=$?
 eq "  ... run again with --role it reads as carried" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep '^carried=')"
-eq "  ... having written the row, set by the run's session" "manager|$S" "$(srole)"
+eq "  ... having written the row, set by the start's --role" "manager|start --role" "$(srole)"
 grep -Eq '^(pr create|pr ready|api --method (POST|DELETE|PUT))' "$GH_DB.calls" && bad "no role write reached GitHub" "$(cat "$GH_DB.calls")" || ok "no role write reached GitHub"
 
 done_tests state-carry_test

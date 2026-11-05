@@ -141,7 +141,7 @@ jq -n --arg s "$B_ID" '{sessionId: $s, name: "coord-b", state: "working"}' > "$D
 # opener <roadmap name> <workdir> <plugin root>: coordinate-open.sh as the agent
 # runs it; OUT its stdout, ORC its exit, $T/open.err its stderr.
 opener() {
-    printf '["docs/roadmaps/ROADMAP-%s.md"]' "$1" > "$T/args.json"
+    printf '["docs/roadmaps/ROADMAP-%s.md","--role","manager"]' "$1" > "$T/args.json"
     OUT=$(cd "$2" && bash "$3/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$3" "$T/args.json" 2>"$T/open.err"); ORC=$?
 }
 line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
@@ -182,7 +182,7 @@ A=$(line session)
 [ "$ORC" = 0 ] && [ -n "$A" ] || stop "run A opens" "$OUT $(cat "$T/open.err")"
 need "the fresh start, which holds no record yet, prints no warning" "" "$(line warning)"
 [ "$(next_at "$A")" = record_open ] || stop "run A's find reads no record" "$(cat "$T/tick.err")"
-(cd "$WS" && bash "$SKA/scripts/state-open.sh" --session "$A") > "$T/so.out" 2> "$T/so.err"
+(cd "$WS" && bash "$SKA/scripts/state-open.sh" --session "$A" --role manager) > "$T/so.out" 2> "$T/so.err"
 need "state-open.sh opens the record" "0 $A" "$? $(sed -n 's/^record=//p' "$T/so.out")"
 need "  ... with no warning" "" "$(sed -n 's/^warning=//p' "$T/so.out")"
 need "the Run section holds exactly the eleven rows, each digest its file's" "$(want_values)" "$(rules_values "$A")"
@@ -325,7 +325,7 @@ else
     F=$(line session)
     [ "$ORC" = 0 ] && [ -n "$F" ] || stop "run F opens" "$OUT $(cat "$T/open.err")"
     [ "$(next_at "$F")" = record_open ] || stop "run F's find reads no record" "$(cat "$T/tick.err")"
-    (cd "$WS" && bash "$SKA/scripts/state-open.sh" --session "$F") > "$T/so.out" 2> "$T/so.err"
+    (cd "$WS" && bash "$SKA/scripts/state-open.sh" --session "$F" --role manager) > "$T/so.out" 2> "$T/so.err"
     need "state-open.sh opens F's record and warns" "0 $F rules-unrecorded" "$? $(sed -n 's/^record=//p' "$T/so.out") $(sed -n 's/^warning=//p' "$T/so.out")"
     ST=$(next_at "$F" --with-data '{"opened":"opened"}')
     case "$ST" in ''|record_open|record_conflict) stop "run F's find reads the record" "$ST $(cat "$T/tick.err")" ;; esac

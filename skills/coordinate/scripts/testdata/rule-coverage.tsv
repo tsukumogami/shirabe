@@ -260,3 +260,12 @@ S21	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	the handove
 S22	skills/coordinate/koto-templates/coordinate.md	rotation_end	Writing it closes the rotation
 S23	skills/coordinate/koto-templates/coordinate.md	record_open	the same command with `--start` and `--end` opens
 S24	skills/coordinate/koto-templates/coordinate.md	record_conflict	whether that session is the predecessor
+S25	skills/coordinate/koto-templates/coordinate.md	reconcile	the `role=` value the opener printed
+S26	skills/coordinate/koto-templates/coordinate.md	reconcile	asking the person once with no recommendation
+S27	skills/coordinate/koto-templates/coordinate.md	reconcile	is never inferred from the scope, the cap, the holdings
+S28	skills/coordinate/koto-templates/coordinate.md	reconcile	the dispatcher, session names, briefs
+S29	skills/coordinate/koto-templates/coordinate.md	reconcile	entries, report text or the dispatch topic
+S30	skills/coordinate/koto-templates/coordinate.md	reconcile	<the dispatcher's name> at <the brief's reports_to>
+S31	skills/coordinate/koto-templates/coordinate.md	reconcile	never a bare name
+S32	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	When the opener also printed `role_change_by=`
+S33	skills/coordinate/koto-templates/coordinate.md	record_open	passing the `role=` value the opener printed as `--role`

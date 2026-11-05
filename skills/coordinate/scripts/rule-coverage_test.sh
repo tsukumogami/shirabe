@@ -34,8 +34,11 @@ MTOTAL=20
 # The record's store and its one reader
 # (docs/designs/DESIGN-coordinator-session-record.md), and discipline scope on
 # the session (docs/designs/current/DESIGN-coordinator-record-teardown.md,
-# Decision 3, from S20): S1..S$STOTAL.
-STOTAL=24
+# Decision 3, from S20), and the run's role as the record_open,
+# predecessor_carry and reconcile directives state it
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1, from S25):
+# S1..S$STOTAL.
+STOTAL=33
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }

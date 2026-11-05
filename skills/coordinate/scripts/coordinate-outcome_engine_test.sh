@@ -107,12 +107,12 @@ wd_for() { # wd_for <claude-id>: the directory that session runs in; A's for non
     case "$1" in "$B_ID") echo "$T/work2" ;; "$C_ID") echo "$T/work3" ;; "$D_ID") echo "$T/work4" ;; *) echo "$T/work" ;; esac
 }
 
-opener() { # opener <name> <workdir> [token...]: coordinate-open.sh as the agent runs it; OUT its stdout, ORC its exit. NOID=1 unsets CLAUDE_CODE_SESSION_ID
+opener() { # opener <name> <workdir> [token...]: coordinate-open.sh as the agent runs it, as a manager (the role every run here records); OUT its stdout, ORC its exit. NOID=1 unsets CLAUDE_CODE_SESSION_ID
     local n=$1 w=$2 a
     shift 2
     # One token a line, read raw: jq would take a token like --continues for
     # its own option.
-    for a in "docs/roadmaps/ROADMAP-$n.md" "$@"; do printf '%s\n' "$a"; done | jq -Rsc 'split("\n")[:-1]' > "$T/args.json"
+    for a in "docs/roadmaps/ROADMAP-$n.md" --role manager "$@"; do printf '%s\n' "$a"; done | jq -Rsc 'split("\n")[:-1]' > "$T/args.json"
     if [ "${NOID-}" = 1 ]; then
         OUT=$(cd "$w" && env -u CLAUDE_CODE_SESSION_ID bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
     else
@@ -497,7 +497,7 @@ BEFORE_S=$(scope_sessions outcome)
 PLOG=$(logf_of "$PRED")
 PLINES=$(wc -l < "$PLOG" | tr -d ' ')
 race() { # race <id> <workdir> <tag>: the opener through the barrier, its output in race-<tag>.*
-    printf '["docs/roadmaps/ROADMAP-outcome.md"]' > "$T/args-$3.json"
+    printf '["docs/roadmaps/ROADMAP-outcome.md","--role","manager"]' > "$T/args-$3.json"
     (cd "$2" && CLAUDE_CODE_SESSION_ID=$1 KOTO_BIN=$T/kb/koto bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args-$3.json" \
         > "$T/race-$3.out" 2> "$T/race-$3.err"; echo $? > "$T/race-$3.rc")
 }

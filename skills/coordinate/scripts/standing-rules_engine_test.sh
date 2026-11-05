@@ -218,7 +218,7 @@ FEAT_2=$(holding feat-2 '{"unit": "Feature 2"}')
 run_row() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "the human", set: "2026-10-20T08:00Z"}'; }
 stored_record() { # stored_record <name> <holdings-json>: a record whose stored set is complete
     record_json roadmap "$1" | jq -c --argjson h "$2" \
-        --argjson r "[$(run_row arguments "--roadmap docs/roadmaps/ROADMAP-$1.md"),$(run_row cap 2),$(run_row coordinator rules-coord),$(run_row reports-to "the human")]" '
+        --argjson r "[$(run_row arguments "--roadmap docs/roadmaps/ROADMAP-$1.md"),$(run_row cap 2),$(run_row coordinator rules-coord),$(run_row reports-to "the human"),$(run_row role manager)]" '
         .holdings = $h
         | .run = ($r + [$h[] | {key: "told", value: .worker, set_by: "rules-coord", set: "2026-10-20T08:00Z"}])
         | .work = [$h[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-10-20T08:00Z"}]
@@ -368,7 +368,7 @@ crit "3. the rule row reading \`Pause all work on Feature 2 until lifted.\` hold
 # its window ended, and the next rotation's find naming it its predecessor.
 day() { jq -rn --argjson n "$1" 'now + ($n * 86400) | strftime("%Y-%m-%d")'; }
 open_discipline() { # prints the new run's session; the opener's output in $T/open.out
-    printf '["--discipline", "rules", "--host", "acme/widgets"]' > "$T/args.json"
+    printf '["--discipline", "rules", "--host", "acme/widgets", "--role", "manager"]' > "$T/args.json"
     (cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json") > "$T/open.out" 2> "$T/open.err"
     sed -n 's/^session=//p' "$T/open.out"
 }
@@ -377,7 +377,7 @@ carry_case() {
     p=$(open_discipline)
     [ -n "$p" ] || { needf "the first rotation opens: $(cat "$T/open.err")"; return; }
     [ "$(at "$p")" = record_open ] || { needf "the first rotation's find reads first: $(cat "$T/tick.err")"; return; }
-    agent "$p" state-open.sh --start "$(day -7)" --end "$(day 6)" > /dev/null 2> "$T/w.err" || { needf "the first rotation opens its record: $(cat "$T/w.err")"; return; }
+    agent "$p" state-open.sh --role manager --start "$(day -7)" --end "$(day 6)" > /dev/null 2> "$T/w.err" || { needf "the first rotation opens its record: $(cat "$T/w.err")"; return; }
     [ "$(at "$p" --with-data '{"opened":"opened"}')" = reconcile ] || { needf "the first rotation reaches reconcile: $(cat "$T/tick.err")"; return; }
     put "$p" record/standing "$T/A.standing" || { needf "A's record/standing goes into the rotation"; return; }
     ctx "$p" record/rotation | jq -c --arg e "$(day -1)" '.end = $e' > "$T/rot.json"

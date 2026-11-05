@@ -228,7 +228,7 @@ FEAT_2=$(holding feat-2 '{"unit": "Feature 2"}')
 run_row() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "the human", set: "2026-10-20T08:00Z"}'; }
 stored_record() { # stored_record <name> <holdings-json>: a record whose stored set is complete
     record_json roadmap "$1" | jq -c --argjson h "$2" \
-        --argjson r "[$(run_row arguments "--roadmap docs/roadmaps/ROADMAP-$1.md"),$(run_row cap 2),$(run_row coordinator rules-coord),$(run_row reports-to "the human")]" '
+        --argjson r "[$(run_row arguments "--roadmap docs/roadmaps/ROADMAP-$1.md"),$(run_row cap 2),$(run_row coordinator rules-coord),$(run_row reports-to "the human"),$(run_row role manager)]" '
         .holdings = $h
         | .run = ($r + [$h[] | {key: "told", value: .worker, set_by: "rules-coord", set: "2026-10-20T08:00Z"}])
         | .work = [$h[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-10-20T08:00Z"}]
