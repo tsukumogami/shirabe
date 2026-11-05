@@ -688,9 +688,12 @@ of them:
   so here. It doesn't treat the answer as given.
 
 Key assumptions:
-- koto ships recording, reading and reversal (its plan's Issues 1 and 3) in
-  the shapes its design gives. Session retention, which that plan once named
-  as a gate, has shipped (PRD lines 22-24) and isn't on this path.
+- koto ships recording, reading and reversal (its plan's Issues 1 and 3)
+  and the block that stops a live workflow on a reversed decision (Issue 4,
+  which depends only on Issue 3) in the shapes its design gives. koto's
+  plan makes session retention a dependency of its Issues 7 and 13 only
+  (`docs/plans/PLAN-decision-record.md` lines 377-378), so retention isn't
+  on this path.
 - Reversing a decision of a live session blocks that session's `koto next`
   until a rewind or a replacement decision (PRD lines 328-340). Whether the
   person who entered the reversal through that same session may clear the
