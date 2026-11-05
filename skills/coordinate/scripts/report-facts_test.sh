@@ -302,6 +302,7 @@ grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write was stopped at th
     && ok "  ... and stderr names the head the stopped write didn't keep" \
     || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
 eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
+[ -s "$KOTO_STORE/add-delay.pid" ] && ok "  ... the slow write started" || bad "  ... the slow write started" "no pid recorded"
 slow_running && bad "  ... no write is left running" "pid $(cat "$KOTO_STORE/add-delay.pid")" || ok "  ... no write is left running"
 report '{"event":"report","unit":"alpha"}'
 eq "the next visit with a fast write: the same verdict" "holding 12 alpha" "${OUT% sealed:*}"

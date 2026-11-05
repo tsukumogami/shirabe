@@ -29,8 +29,9 @@
 # that long first, as a real koto call does (about 0.1 s each, measured), so a
 # suite can show what a read costs in calls rather than on a stand-in that
 # answers at once. KOTO_ADD_DELAY=<key>:<seconds> delays only the `context add`
-# of that one key, writing the delay's pid to $KOTO_STORE/add-delay.pid, and KOTO_FAIL_ADD (1, or a key's name) fails every add or
-# only that key's. KOTO_BOUND_ELSEWHERE=<session> refuses every `context` read
+# of that one key, writing the delay's pid to $KOTO_STORE/add-delay.pid, and
+# KOTO_FAIL_ADD (1, or a key's name) fails every add or only that key's.
+# KOTO_BOUND_ELSEWHERE=<session> refuses every `context` read
 # and `status` of that session as koto's cloud backend refuses a run bound to
 # another directory (session_bound_elsewhere, its JSON on stdout, exit 2), and
 # KOTO_READ_FAIL=<session> fails them with another error (exit 1).
