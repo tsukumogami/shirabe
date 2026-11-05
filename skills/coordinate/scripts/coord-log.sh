@@ -464,8 +464,23 @@ chain-start)
     START=$(head -1 "$LOG" | jq -er '.created_at') || die "no created_at in the header"
     CUR=$SESSION CUR_LOG=$LOG SEEN=" $SESSION " HOPS=0
     while [ "$HOPS" -lt 1024 ]; do
-        REL=$("$KOTO" context list "$CUR" --prefix koto/links/continues/ </dev/null) || die "can't list $CUR's continues relation"
-        PREV=$(printf '%s' "$REL" | jq -r '.[0] // "" | ltrimstr("koto/links/continues/")') || die "$CUR's continues relation isn't a key list"
+        # The relation as CUR's own log records it, read without a koto call:
+        # koto writes the link with writer koto and logs a context_added event
+        # for its key, and a removal through the context store logs
+        # context_removed. Folded in log order, the keys still added, first in
+        # key order as the listing gives them. A log that names none (the
+        # chain's root, a link added and removed, an event koto couldn't
+        # append, a run imported from another host) or that jq can't read
+        # falls back to the listing.
+        PREV=$(jq -rn --arg p koto/links/continues/ 'reduce (inputs
+                | select((.type == "context_added" and .payload.writer == "koto") or .type == "context_removed")
+                | select(.payload.key | strings | startswith($p))) as $e ({};
+                    if $e.type == "context_added" then .[$e.payload.key] = 1 else del(.[$e.payload.key]) end)
+            | keys | .[0] // "" | ltrimstr($p)' "$CUR_LOG" 2>/dev/null) || PREV=
+        if [ -z "$PREV" ]; then
+            REL=$("$KOTO" context list "$CUR" --prefix koto/links/continues/ </dev/null) || die "can't list $CUR's continues relation"
+            PREV=$(printf '%s' "$REL" | jq -r '.[0] // "" | ltrimstr("koto/links/continues/")') || die "$CUR's continues relation isn't a key list"
+        fi
         if [ -n "$PREV" ]; then
             PREV_LOG=$(session_log "$PREV") || break
         else
