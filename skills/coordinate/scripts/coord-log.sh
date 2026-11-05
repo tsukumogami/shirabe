@@ -468,20 +468,32 @@ chain-start)
         # a koto call. koto's listing is this manifest's keys, plus any key
         # only the bucket holds, sorted; every local write or removal of the
         # link updates the manifest, a take-back after a failed push and an
-        # import's rewrite included, which the session log can miss. A
-        # manifest that is missing, unreadable, not exactly one JSON document
-        # shaped as {"keys": {<key>: {...}}}, or that names no continues key,
-        # falls back to the listing. Two cases read differently. A session
+        # import's rewrite included, which the session log can miss. The
+        # manifest is read only when it is the bytes jq prints for it (koto
+        # writes it pretty-printed, so a byte-order mark, a duplicate key, a
+        # non-integer number or a stray escape fails) and is one document of
+        # koto's manifest shape, {"keys": {<key>: {"created_at": <string>,
+        # "size": <unsigned integer>, "hash": <string>, "writer": <string or
+        # absent>}}}. Any other manifest, and one that names no continues
+        # key, falls back to the listing, which then reads, or refuses, the
+        # manifest as koto does. Two cases read differently. A session
         # whose manifest names one predecessor while the bucket alone holds a
         # second that sorts first: koto refuses a second predecessor, so only
         # a race between two hosts writing the link leaves that state. And a
         # member imported into another workspace: the listing refuses it,
         # which only the bucket can tell, while its local manifest still
         # names the predecessor it had before the import.
-        PREV=$(jq -rs --arg p koto/links/continues/ 'if length == 1 then .[0] else error("not one document") end
-            | .keys
-            | if type == "object" and all(.[]; type == "object") then [keys[] | select(startswith($p))] else error("not a manifest") end
-            | .[0] // "" | ltrimstr($p)' "${CUR_LOG%/*}/ctx/manifest.json" 2>/dev/null) || PREV=
+        CUR_MANIFEST=${CUR_LOG%/*}/ctx/manifest.json PREV=
+        if CANON=$(jq . "$CUR_MANIFEST" 2>/dev/null) && [ "$CANON" = "$(cat "$CUR_MANIFEST" 2>/dev/null)" ]; then
+            PREV=$(jq -rs --arg p koto/links/continues/ 'if length == 1 then .[0] else error("not one document") end
+                | .keys
+                | if type == "object" and all(.[]; type == "object"
+                        and (.created_at | type == "string") and (.hash | type == "string")
+                        and (.writer | . == null or type == "string")
+                        and (.size | type == "number" and (tojson | test("^(0|[1-9][0-9]{0,19})$") and (length < 20 or . <= "18446744073709551615"))))
+                    then [keys[] | select(startswith($p))] else error("not a manifest") end
+                | .[0] // "" | ltrimstr($p)' "$CUR_MANIFEST" 2>/dev/null) || PREV=
+        fi
         if [ -z "$PREV" ]; then
             REL=$("$KOTO" context list "$CUR" --prefix koto/links/continues/ </dev/null) || die "can't list $CUR's continues relation"
             PREV=$(printf '%s' "$REL" | jq -r '.[0] // "" | ltrimstr("koto/links/continues/")') || die "$CUR's continues relation isn't a key list"

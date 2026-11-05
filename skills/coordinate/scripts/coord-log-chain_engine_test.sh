@@ -26,7 +26,8 @@
 #     holds is followed even when the listing says none; a link the log
 #     records but the manifest no longer holds (taken back after a failed
 #     push) is not; a manifest that is missing, unreadable, not one JSON
-#     document or shaped differently falls back to the listing; a member
+#     document or shaped differently falls back to the listing, and one
+#     koto's own reader refuses exits as the listing does; a member
 #     whose manifest names no link follows a link only the bucket holds,
 #     through the listing; a member whose manifest names one link follows it
 #     even when the listing would put a bucket-only second link first (the
@@ -315,6 +316,21 @@ if needs_takeover "a link the manifest holds is followed with the listing hidden
         show "fb-b ($shape manifest)" "$GOT"
         eq "a $shape manifest falls back to the listing" 2026-10-05T00:00:00.000Z "$GOT"
         eq "a $shape manifest lists that member and the root" "fb-a fb-b" "$(listed)"
+    done
+    # A manifest koto's own reader refuses is refused here too: the walk
+    # goes to koto's listing, which refuses it, and exits as the listing
+    # walk does.
+    for shape in byte-order-mark duplicate-keys-field float-size lone-surrogate; do
+        cp "$T/fb-b.manifest" "$M" && chmod 644 "$M"
+        case $shape in
+            byte-order-mark) { printf '\357\273\277'; cat "$T/fb-b.manifest"; } > "$M" ;;
+            duplicate-keys-field) { printf '{"keys": {}, '; tail -c +2 "$T/fb-b.manifest"; } > "$M" ;;
+            float-size) jq '.keys["koto/links/continues/fb-a"].size = 1.0' "$T/fb-b.manifest" > "$M" ;;
+            lone-surrogate) jq '.keys["koto/links/continues/fb-a"].hash = "HASH"' "$T/fb-b.manifest" | sed 's/"HASH"/"\\ud800"/' > "$M" ;;
+        esac
+        GOT=$(counted fb-b); RC=$?
+        show "fb-b ($shape manifest)" "$GOT"
+        eq "a $shape manifest exits as koto's listing does" "2 " "$RC $GOT"
     done
     chmod 644 "$M" 2>/dev/null; cp "$T/fb-b.manifest" "$M"
 
