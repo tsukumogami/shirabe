@@ -1563,7 +1563,123 @@ Follow-ups, proposed only; none blocks an item.
 
 #### The driver check
 
-Terms follow.
+Criteria are numbered D1 onward, and "nothing written" means what it
+means above. They run in a new `driver-check_engine_test.sh` that sources
+`scripts/lib/koto-test-guard.sh`, unsets `CLAUDE_CODE_SESSION_ID` and sets
+it per command. A driven record is one whose `record/meta` holds a
+`driver` id, seeded with `koto context add`; no takeover is needed to make
+one. `D_ID` is that id and `X_ID` another of the same shape.
+
+1. Exit code. A write the check refuses exits 10, prints nothing on
+stdout, and writes one stderr line opening `<prog>: refused: driver:`. Ten
+is the write guard's code for a session check (`state-common.sh:125-157`),
+and the writers already document it as a refusal over provenance or a
+directed transition (`state-stored-set.sh:239-243`); 65 is a value that
+breaks a rule, which a write from the wrong session isn't. Security
+Considerations says a driver that can't be read refuses the write, so a
+failed `record/meta` read, or a `driver` that isn't an id-shaped string,
+exits 10 too, not 2.
+
+2. The writing session. It's the Claude Code session id in
+`CLAUDE_CODE_SESSION_ID`, held to the shape the opener holds it to
+(`coordinate-open.sh:557-558`), and compared with `record/meta.driver`.
+That's the value a takeover writes as the driver
+(`coordinate-open.sh:779-781`), so the two compare like for like. It isn't
+the koto session, since `--session` names the record being written, not
+who's writing it. The Claude name a coordinator row holds isn't compared
+against a driver. The messages name both ids:
+
+- `<session> is driven by Claude session <driver id>, not this one (<caller id>); nothing was written`
+- `<session>'s driver couldn't be read (<reason>); nothing was written`
+
+Criteria, in `driver-check_engine_test.sh`:
+
+- D1. On a driven record, each write mode of `state-stored-set.sh` (`--run`, `--host`, `--rule-files`, `--told`, `--pending`, `--standing`, `--end`, `--work`, `--done`, and on a discipline record `--rotation` and `--reasoning-file`), `state-write.sh` (`--state-file`, `--pushed-head`), `state-decision.sh`, `state-hold.sh`, `roadmap-status.sh`'s write and a `state-entry.sh` post, each run as `X_ID`, exits 10 with stdout empty and the first message naming `D_ID` and `X_ID`, and nothing is written.
+- D2. The same calls run as `D_ID` exit as they do today.
+- D3. With a job file under `DC_CLAUDE_HOME` naming `X_ID` with the name the record's coordinator row holds, `X_ID` is still refused as in D1, and `D_ID` with no job file passes.
+- D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper failing `context get <s> record/meta`, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written.
+
+3. How a run with no driver is judged. This item is open, pending a
+decision. It turns on whether the writer applies the plan's rule (the
+coordinator row must name the writing session) or the test the opener
+already uses, which also lets a write through in cases the rule refuses.
+No Step 19 build starts until it's settled, the statement in Security
+Considerations stands meanwhile, and the item has no criteria.
+
+4. Which gate carries the check. This item is open, pending a decision.
+It turns on whether a tick's gate in Phase 2 carries the check at all,
+since no Phase 2 state names one. Meanwhile the writer check carries the
+rule alone, and the item has no criteria.
+
+5. `--skip-session-checks`. The check is part of `lib_write_guard`, so
+the flag skips it along with the rest of the write guard, and the flag is
+still refused without the test override flags (`state-common.sh:133-135`).
+Under those flags no live session runs the record, so a driver means
+nothing there. `state-entry.sh`'s check is skipped the same way under its
+`--scope`, `--name`, `--repo` test form. Offline suites stay as they are,
+and the engine suite tests the check.
+
+- D5. On a driven record, `state-stored-set.sh --run cap <value> --by x` with the override flags and `--skip-session-checks`, as `X_ID`, exits as it does today; without the override flags it exits 64.
+
+6. Compat. It stays at 2, with `gate_scripts` re-recorded. Step 19
+changes no state, gate, transition or variable, so the fingerprint and
+`coordinate.compat.json`'s `fingerprints` don't move. It changes
+`state-common.sh` and `state-stored-set.sh`, which the template reaches
+through the `--reasoning-check` gate (`coordinate.md:2261`) and the
+`rebrief_record` action (`coordinate.md:1512`), so `gate_scripts` does.
+Recording it at the same number is the statement that those scripts keep
+their meaning (`scripts/check-template-compat.sh:27-28`):
+`--reasoning-check` only reads, and the action's write carries no session
+id (item 9). If item 3's settlement changes that write's outcome, this
+item is revisited with it.
+
+- D6 (`scripts/check-template-compat_test.sh` and the CI compat-table check). `check-template-compat.sh` against the base table exits 0 with compat 2, the fingerprint list unchanged and the new `gate_scripts` digest.
+
+7. Which record a stray copy reads. This item is open, pending a
+decision. It turns on whether the design's claim that a predecessor in
+another worktree can't write holds for a copy whose own koto store lacks
+the fence. Meanwhile the writer reads the record `--session` names, and
+the item has no criteria.
+
+8. Writers in scope. Every caller of `lib_write_guard` gets the check:
+`state-stored-set.sh`, `state-write.sh`, `state-decision.sh`,
+`state-hold.sh`, `roadmap-status.sh` and `state-open.sh`, and through them
+`state-holding.sh` (which runs `state-write.sh`), `rebrief-record.sh` and
+`handover-classify.sh` (which write through `state-stored-set.sh`).
+Security Considerations covers any write, an end or a reversal entry
+included, and `state-entry.sh` posts with no session check
+(`state-entry.sh:64-65`), so its posting path calls the check too. Reads
+aren't writes and get none. The opener's own `record/meta` write
+(`meta_set`, `coordinate-open.sh:627-634`) doesn't go through the guard.
+
+- D7. On a driven record, `--list`, `--rules`, `--rules --counts` and `--reasoning-check` as `X_ID` give output and exit codes identical to `D_ID`'s.
+- D8. `state-holding.sh` as `X_ID` exits 10 with D1's message, and `handover-classify.sh` as `X_ID` writes nothing.
+
+9. A gate's environment. koto doesn't pass `CLAUDE_CODE_SESSION_ID` to
+a gate or a default action. In koto's `src/engine/command_env.rs`,
+`DEFAULT_LIVE_NAMES` doesn't list it, and `build_command_env` gives a
+command only those names, a template's `pass_env:` names and koto's own;
+only a session created with `--legacy-environment` inherits the caller's
+environment. `coordinate.md` declares no `pass_env`. So a write a gate or
+action makes carries no id, and today that's `rebrief-record.sh`'s
+`--told` and `--pending`. How a write with no id is judged rides with
+item 3, since the opener's test passes a caller with no id. Step 19 adds
+no `pass_env`, since the writer carries the rule alone (item 4).
+
+- D9 (`driver-check_engine_test.sh`). `coordinate.md` holds no `pass_env`, and Step 19 adds no gate to it.
+
+Existing tests that change, for items 1, 2, 5, 6, 8 and 9:
+
+- `handover_engine_test.sh` writes through its `state` helper (`:134`) to runs taken over at `:238`, `:395` and `:468` without setting an id, so an ambient `CLAUDE_CODE_SESSION_ID` from a developer's own session is refused there; those writes set the taking session's id.
+- `coordinate-watch-handover_engine_test.sh` and `coordinate-takeover-load_engine_test.sh` export `B_ID` for their takeovers; their later writes to that run are checked to run as `B_ID`.
+- `coordinate.compat.json` records the new `gate_scripts` digest, or the CI compat-table check fails.
+- `state-stored-set_test.sh` and `state-write_test.sh` run under `--skip-session-checks` and gain no driver cases.
+- `check-skill.tsv` gains a cost row for the new engine suite.
+
+Follow-ups, proposed only; none blocks an item.
+
+- Add `CLAUDE_CODE_SESSION_ID` to `koto-test-guard.sh`'s unset list (`:76`), so no engine suite depends on the session it's run from.
+- Share one fixture that seeds a driven record, so suites don't each build their own `record/meta`.
 
 ### Carried back to the authority work
 
