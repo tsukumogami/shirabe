@@ -21,6 +21,13 @@
 #     own, so deferral-check.sh still reads a carry made before the takeover
 #     but after that chain start as disposed, and one made before the chain
 #     start as open.
+# And that each member's continues relation is read from its own log, with no
+#     koto context list call: a link the log records is followed even when
+#     the listing says none, a link the log records as added and then
+#     removed is not, a log with no continues event falls back to the
+#     listing, and a 40-member chain lists only its root, so with each
+#     listing taking 0.75 s (a remote store) it finishes well inside koto's
+#     30-second action limit.
 #
 # Every session lives in a scratch HOME and KOTO_HOME (koto-test-guard.sh
 # clears every KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME first).
@@ -231,6 +238,77 @@ if needs_takeover "a takeover's chain start is its predecessor's; the takeover's
     OUT=$(row 'carried 2026-08-31T12:00Z: before the chain'); RC=$?
     printf '     deferral carried 2026-08-31T12:00Z -> %s\n' "$OUT"
     eq "a carry made before the chain start is open" "1 undisposed carried-before-chain-start" "$RC $OUT"
+fi
+
+echo "== the relation comes from each member's log =="
+# A koto that records every continues listing to $T/listings, answers it with
+# no keys when HIDE is set, and sleeps DELAY seconds before it when DELAY is
+# set, so a walk that still lists shows up in the count, one that needed the
+# listing ends early, and one that lists every hop is as slow as on a remote
+# store.
+cat > "$T/koto-counting" <<'WRAPEOF'
+#!/usr/bin/env bash
+case " $* " in
+    *" context list "*" --prefix koto/links/continues/ "*)
+        printf '%s\n' "$3" >> "$COUNT_FILE"
+        [ -z "${DELAY:-}" ] || sleep "$DELAY"
+        [ -z "${HIDE:-}" ] || { echo '[]'; exit 0; } ;;
+esac
+exec koto "$@"
+WRAPEOF
+chmod +x "$T/koto-counting"
+counted() { : > "$T/listings"; KOTO_BIN="$T/koto-counting" COUNT_FILE="$T/listings" HIDE="${HIDE:-}" DELAY="${DELAY:-}" bash "$CL" chain-start --session "$1" 2>"$T/chain.err"; }
+listed() { sort "$T/listings" | tr '\n' ' ' | sed 's/ $//'; } # the members whose continues relation was listed
+logfile() { printf '%s/koto-%s.state.jsonl' "$(koto session dir "$1")" "$1"; }
+if needs_takeover "a link the log records is followed with the listing hidden; a link added and then removed is not; a log with no continues event falls back to the listing; a 40-member chain lists only its root and finishes inside koto's limit"; then
+    open lg-a && takeover lg-b lg-a
+    stamp lg-a 2026-10-01T00:00:00.000Z
+    stamp lg-b 2026-10-02T00:00:00.000Z
+    GOT=$(HIDE=1 counted lg-b)
+    show lg-b "$GOT"
+    eq "a link the log records is followed with the listing hidden" 2026-10-01T00:00:00.000Z "$GOT"
+    eq "only the root's relation is listed" lg-a "$(listed)"
+
+    open rm-a && takeover rm-b rm-a
+    stamp rm-a 2026-10-03T00:00:00.000Z
+    stamp rm-b 2026-10-04T00:00:00.000Z
+    F=$(logfile rm-b)
+    jq -c --argjson q "$(jq -s 'map(.seq // 0) | max + 1' "$F")" -n '{seq: $q, timestamp: "2026-10-04T00:00:01.000Z", type: "context_removed", payload: {key: "koto/links/continues/rm-a", writer: "koto"}}' >> "$F"
+    GOT=$(HIDE=1 counted rm-b)
+    show rm-b "$GOT"
+    eq "a link added and then removed is not followed" 2026-10-04T00:00:00.000Z "$GOT"
+    eq "a removed link falls back to the listing" rm-b "$(listed)"
+
+    open fb-a && takeover fb-b fb-a
+    stamp fb-a 2026-10-05T00:00:00.000Z
+    stamp fb-b 2026-10-06T00:00:00.000Z
+    F=$(logfile fb-b)
+    jq -c 'select(.type == "context_added" and (.payload.key // "" | startswith("koto/links/continues/")) | not)' "$F" > "$F.new" && mv "$F.new" "$F"
+    GOT=$(counted fb-b)
+    show fb-b "$GOT"
+    eq "a log with no continues event falls back to the listing" 2026-10-05T00:00:00.000Z "$GOT"
+    eq "the listing is read for that member and the root" "fb-a fb-b" "$(listed)"
+
+    open lc-0
+    i=1
+    while [ "$i" -lt 40 ]; do takeover "lc-$i" "lc-$((i - 1))" || break; i=$((i + 1)); done
+    stamp lc-0 2026-10-07T00:00:00.000Z
+    stamp lc-39 2026-10-08T00:00:00.000Z
+    GOT=$(counted lc-39)
+    show lc-39 "$GOT"
+    eq "a 40-member chain reaches its first member" 2026-10-07T00:00:00.000Z "$GOT"
+    eq "a 40-member chain lists only its root" lc-0 "$(listed)"
+    # 0.75 s a listing, the cost on a remote store: a walk that listed every
+    # hop would take 30 s here, koto's whole action limit.
+    BEGAN=$SECONDS
+    GOT=$(DELAY=0.75 counted lc-39)
+    TOOK=$((SECONDS - BEGAN))
+    printf '     chain-start lc-39 with 0.75 s listings -> %s in %s s\n' "$GOT" "$TOOK"
+    if [ "$GOT" = 2026-10-07T00:00:00.000Z ] && [ "$TOOK" -lt 30 ]; then
+        pass "a 40-member chain on 0.75 s listings finishes inside koto's limit"
+    else
+        fail "a 40-member chain on 0.75 s listings finishes inside koto's limit" "took ${TOOK} s and returned [$GOT]; a koto action running it would have timed out after 30 seconds"
+    fi
 fi
 
 echo "== reads that fail =="
