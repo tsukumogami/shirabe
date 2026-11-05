@@ -469,7 +469,7 @@ if role_run tk-m "[$(trow role manager),$(trow reports-to "$RT"),$(trow coordina
     eq "10:   ... as role_change_self, naming the row" "coordinate-open: $TM reports to $RT, and $TM is $TM itself or the run it continues: a run can't change its own role. This start names director; nothing was written and $TM goes on as manager." "$(tmsg)"
     topen tk-m "$B_ID" '["--role","director","--role-change-by","coord-b","--role-change-source","person"]'
     eq "10: a person change naming the caller's own address (the takeover's new coordinator) is refused" "2 role-change-refused" "$ORC $(line reason)"
-    case "$(tmsg)" in "coordinate-open: $TM reports to $RT, and coord-b is $TM itself"*) pass "10:   ... as role_change_self" ;; *) fail "10:   ... as role_change_self" "$(tmsg)" ;; esac
+    case "$(tmsg)" in "coordinate-open: $TM reports to $RT, and coord-b is $TM itself"*) ok "10:   ... as role_change_self" ;; *) bad "10:   ... as role_change_self" "$(tmsg)" ;; esac
     eq "10:   ... and every refusal left the record, the run's state and the session list as they were" "$TMSNAP" "$(tsnap "$TM")"
     T0=$(date -u +%Y-%m-%dT%H:%MZ)
     topen tk-m "$B_ID" "[\"--role\",\"director\",\"--role-change-by\",\"$ADDR\",\"--role-change-source\",\"dispatcher\"]"
@@ -486,7 +486,7 @@ if role_run tk-m "[$(trow role manager),$(trow reports-to "$RT"),$(trow coordina
     TMBSNAP=$(tsnap "$TMB")
     topen tk-m "$C_ID" "[\"--role\",\"manager\",\"--role-change-by\",\"$TM\",\"--role-change-source\",\"dispatcher\"]"
     eq "10: a dispatcher change naming the run's predecessor is refused" "2 role-change-refused" "$ORC $(line reason)"
-    case "$(tmsg)" in "coordinate-open: $TMB reports to $RT, and $TM is $TMB itself or the run it continues"*) pass "10:   ... as role_change_self, naming the row" ;; *) fail "10:   ... as role_change_self, naming the row" "$(tmsg)" ;; esac
+    case "$(tmsg)" in "coordinate-open: $TMB reports to $RT, and $TM is $TMB itself or the run it continues"*) ok "10:   ... as role_change_self, naming the row" ;; *) bad "10:   ... as role_change_self, naming the row" "$(tmsg)" ;; esac
     topen tk-m "$C_ID" '["--role","manager"]'
     eq "10: a takeover naming manager for a run recorded director is refused role-mismatch" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
     eq "10:   ... the record as it was" "$TMBSNAP" "$(tsnap "$TMB")"
