@@ -11,7 +11,11 @@
 # record/rotation; an end before the start refused (65); --body-file,
 # --state-file, --store and --recut usage
 # errors; provenance and directed-transition refusals through a prepared
-# session log (10).
+# session log (10); the Run `role` row: a seed given --role holding it, set by
+# the session the record opens in, at roadmap and discipline scope, a seed
+# without --role holding no Run section, and a bad --role, a repeated one and
+# the role change flags in any combination but both on a carry refused as
+# usage errors (64) writing nothing. state-carry_test.sh covers --carry --role.
 #
 # Usage: bash skills/coordinate/scripts/state-open_test.sh
 set -uo pipefail
@@ -62,6 +66,50 @@ RS_SESSION=$S2 bash "$O" "${RM[@]}" --store session >/dev/null 2>&1; eq "--store
 RS_SESSION=$S2 bash "$O" "${RM[@]}" --recut >/dev/null 2>&1; eq "--recut is a usage error" 64 $?
 eq "  ... and neither wrote anything" none "$(session_snapshot "$S2")"
 
+echo "== the role in the seed =="
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1.
+db_init
+SRR=coordinate-roadmap-plugin-system-20260926T073000Z
+BEFORE=$(date -u +%Y-%m-%dT%H:%MZ)
+OUT=$(RS_SESSION=$SRR bash "$O" "${RM[@]}" --role manager 2>"$T/err"); rc=$?
+AFTER=$(date -u +%Y-%m-%dT%H:%MZ)
+eq "a seed given --role manager opens" "0 record=$SRR" "$rc $OUT"
+eq "  ... its Run section one row, role=manager, set by the session it opens in" "1 role=manager|$SRR" \
+    "$(key "$SRR" record/run | jq -r '"\(length) \(.[0].key)=\(.[0].value)|\(.[0].set_by)"')"
+RSET=$(key "$SRR" record/run | jq -r '.[0].set')
+[[ ! $RSET < $BEFORE ]] && [[ ! $RSET > $AFTER ]] && ok "  ... set at the seed's time" || bad "  ... set at the seed's time" "$BEFORE <= $RSET <= $AFTER"
+eq "  ... and the record reads back" "manager" \
+    "$(RS_SESSION=$SRR bash "$HERE/state-read.sh" --scope roadmap --name plugin-system --repo "$REPO" --run 2>"$T/err" | jq -r '.[] | select(.key == "role") | .value')"
+eq "a seed with no --role still holds no Run section (above)" "" "$(key "$SR" record/run)"
+S2R=coordinate-roadmap-plugin-system-20260926T074000Z
+RS_SESSION=$S2R bash "$O" "${RM[@]}" --role Director >/dev/null 2>"$T/err"; eq "--role Director is a usage error" 64 $?
+RS_SESSION=$S2R bash "$O" "${RM[@]}" --role lead >/dev/null 2>"$T/err"; eq "  ... and --role lead" 64 $?
+RS_SESSION=$S2R bash "$O" "${RM[@]}" --role "" >/dev/null 2>"$T/err"; eq "  ... and an empty --role" 64 $?
+RS_SESSION=$S2R bash "$O" "${RM[@]}" --role manager --role director >/dev/null 2>"$T/err"; eq "  ... and --role given twice" 64 $?
+RS_SESSION=$S2R bash "$O" "${RM[@]}" --role manager --role-change-by "the human" --role-change-source person >/dev/null 2>"$T/err"
+eq "the role change flags on a seed are a usage error: only a carry changes a role" 64 $?
+eq "  ... and none of them wrote anything" none "$(session_snapshot "$S2R")"
+# The change flags' own rules, checked before any read: a carry's session
+# isn't even looked at.
+SC=coordinate-discipline-ci-health-20260926T090000Z
+bash "$O" --session "$SC" --carry --role director --role-change-by "the human" >/dev/null 2>"$T/err"
+eq "--role-change-by without --role-change-source is a usage error" 64 $?
+bash "$O" --session "$SC" --carry --role director --role-change-source person >/dev/null 2>"$T/err"
+eq "  ... and --role-change-source without --role-change-by" 64 $?
+bash "$O" --session "$SC" --carry --role-change-by "the human" --role-change-source person >/dev/null 2>"$T/err"
+eq "  ... and both without --role" 64 $?
+bash "$O" --session "$SC" --carry --role director --role-change-by "the human" --role-change-source boss >/dev/null 2>"$T/err"
+eq "  ... and a source other than dispatcher or person" 64 $?
+bash "$O" --session "$SC" --carry --role director --role-change-by "$(head -c 81 /dev/zero | tr '\0' 'a')" --role-change-source person >/dev/null 2>"$T/err"
+eq "  ... and a --role-change-by over 80 characters" 64 $?
+bash "$O" --session "$SC" --carry --role director --role-change-by 'the `human`' --role-change-source person >/dev/null 2>"$T/err"
+eq "  ... and one holding a backtick" 64 $?
+bash "$O" --session "$SC" --carry --role director --role-change-by "$(printf 'the\nhuman')" --role-change-source person >/dev/null 2>"$T/err"
+eq "  ... and one holding a line break" 64 $?
+bash "$O" --session "$SC" --carry --role director --role-change-by "" --role-change-source person >/dev/null 2>"$T/err"
+eq "  ... and an empty one" 64 $?
+eq "  ... none of them writing anything" none "$(session_snapshot "$SC")"
+
 echo "== discipline =="
 # A rotation's window goes to record/rotation through state-stored-set.sh, which
 # needs the run's session: the run is opened and its find sealed `first`.
@@ -74,6 +122,17 @@ log_to "$SD" record_find record_open
 OUT=$(bash "$O" --session "$SD" --start 2026-09-26 --end 2026-10-03 2>"$T/err"); rc=$?
 eq "a rotation opens in the session" "0 record=$SD" "$rc $OUT"
 eq "  ... with its window" '{"start":"2026-09-26","end":"2026-10-03","host_repo":"acme/widgets","predecessor":null}' "$(key "$SD" record/rotation | jq -c .)"
+eq "  ... and, given no --role, no role row" 0 "$(key "$SD" record/run | jq '[.[] | select(.key == "role")] | length')"
+log_end "$SD"
+SDR=coordinate-discipline-ci-health-20260926T082000Z
+log_new "$SDR" "$(discipline_vars ci-health)"
+log_to "$SDR" start_posture record_find
+log_capture "$SDR" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$SDR" --state record_find --token first)"
+log_to "$SDR" record_find record_open
+OUT=$(bash "$O" --session "$SDR" --role director --start 2026-09-26 --end 2026-10-03 2>"$T/err"); rc=$?
+eq "a rotation given --role director opens" "0 record=$SDR" "$rc ${OUT%%$'\n'*}"
+eq "  ... its role row set by its session" "director|$SDR" "$(key "$SDR" record/run | jq -r '.[] | select(.key == "role") | "\(.value)|\(.set_by)"')"
+eq "  ... beside its window" "2026-09-26" "$(key "$SDR" record/rotation | jq -r .start)"
 eq "  ... and nothing written on GitHub" "" "$(gh_writes)"
 DS=(--scope discipline --name ci-health --repo "$REPO" --skip-session-checks)
 S3=coordinate-discipline-ci-health-20260926T081000Z

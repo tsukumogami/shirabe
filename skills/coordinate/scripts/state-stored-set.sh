@@ -7,6 +7,7 @@
 #
 # Usage:
 #   state-stored-set.sh --session S --run KEY VALUE --by WHO
+#   state-stored-set.sh --session S --run role manager|director --by WHO [--intervention dispatcher|person]
 #   state-stored-set.sh --session S --host KEY VALUE [--host KEY VALUE]...
 #   state-stored-set.sh --session S --rule-files FILE --by WHO
 #   state-stored-set.sh --session S --rotation FILE
@@ -50,8 +51,10 @@
 # what a replacement needs after a crash: --run rules and --run briefs, each
 # `<label> sha256:<64 hex>`, the digest of a file this coordinator ran with
 # (a second row with the same label replaces the first; other labels are
-# kept); --run friction, a label; and --run reports-to, `<role>` or `<role>
-# at <address>`, who this coordinator reports up to. Where those files live
+# kept); --run friction, a label; and --run reports-to, `<name>` or `<name>
+# at <address>`, who this coordinator reports up to (a person, or the
+# coordinator that dispatched it) and, for a coordinator, its messaging
+# address. Where those files live
 # goes in record/host, through
 # --host, never in the record's tables: KEY is rules:<label>, briefs:<label>
 # or friction with an absolute path, or one of the import's facts,
@@ -62,6 +65,24 @@
 # character or a token-shaped string is refused (65); a workspace path may be
 # a home-directory path, which a row's field never is. It prints the record/host
 # object.
+#
+# --run role sets the run's role, `manager` or `director`, once
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1; PRD R5): with
+# no row it writes one; with the same value it writes and prints nothing and
+# exits 0; with a different value it is refused (65), naming the recorded role
+# and the one asked for, and the row stays as it was. --intervention
+# dispatcher|person is the one way it replaces a different value: a change
+# from above, from the dispatching session or a person. The row then reads the
+# new value, its Set by WHO and its Set the write's time, and the `run` entry
+# names the old role, the new one and the source. With no row or the same
+# value --intervention writes as a plain --run role does. --intervention on
+# any other mode or Run key, or with any other source, is a usage error (64)
+# made before anything is read. WHO, for --run role, is one line of at most 80
+# characters (65 otherwise). With --intervention the write may come before the
+# run's find has sealed the record (a carry the opener made, whose find hasn't
+# run yet), the path --rule-files takes below; without it --run role needs a
+# found record, as every other --run key does. The only other writer of the
+# row is state-open.sh's seed. Readers read it through state-read.sh --run.
 #
 # --rule-files FILE writes the `rules` rows of the files the session loaded
 # as rules, from rule-files.sh's list in FILE: one {label, path, digest}
@@ -236,6 +257,8 @@ PROG=state-stored-set
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
+# --intervention's source, and whether it was given.
+INTERVENTION= HAS_INTERVENTION=0
 # --rules' --id values, one per line.
 RIDS=
 COUNTS=0
@@ -270,6 +293,7 @@ while [ $# -gt 0 ]; do
         --counts) COUNTS=1; shift ;;
         --id) [ $# -ge 2 ] || usage; RIDS="$RIDS$2"$'\n'; shift 2 ;;
         --by) [ $# -ge 2 ] || usage; BY=$2; shift 2 ;;
+        --intervention) [ $# -ge 2 ] && [ "$HAS_INTERVENTION" = 0 ] || usage; HAS_INTERVENTION=1; INTERVENTION=$2; shift 2 ;;
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
         --owner) [ $# -ge 2 ] || usage; OWNER=$2; shift 2 ;;
         --relayed-by) [ $# -ge 2 ] || usage; RELAYED=$2; shift 2 ;;
@@ -285,8 +309,8 @@ done
 case "$MODE" in
     run) [ "$KEY" != store ] || { echo "$PROG: refused: run.key: store is not a Run key this script sets; the record's store is always the coordinator's session" >&2; exit 65; }
          [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
-         case "$KEY" in arguments|cap|coordinator|rules|briefs|friction|reports-to) ;;
-             *) echo "$PROG: --run takes arguments, cap, coordinator, rules, briefs, friction or reports-to" >&2; exit 64 ;; esac ;;
+         case "$KEY" in arguments|cap|coordinator|rules|briefs|friction|reports-to|role) ;;
+             *) echo "$PROG: --run takes arguments, cap, coordinator, rules, briefs, friction, reports-to or role" >&2; exit 64 ;; esac ;;
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rule-files) [ -n "$BY" ] && [ -r "$RFILE" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -307,6 +331,23 @@ EOF
     *) usage ;;
 esac
 [ -z "$RIDS" ] || [ "$MODE" = rules ] || usage
+# --intervention goes only with --run role, and names where the change comes
+# from: the dispatching session or a person.
+if [ "$HAS_INTERVENTION" = 1 ]; then
+    { [ "$MODE" = run ] && [ "$KEY" = role ]; } || { echo "$PROG: --intervention goes only with --run role" >&2; exit 64; }
+    case "$INTERVENTION" in dispatcher|person) ;; *) echo "$PROG: --intervention takes dispatcher or person" >&2; exit 64 ;; esac
+fi
+# The role and who set it, checked before anything is read: the value one of
+# the two roles, and WHO one line of at most 80 characters.
+if [ "$MODE" = run ] && [ "$KEY" = role ]; then
+    case "$VALUE" in
+        manager|director) ;;
+        *) SHOWN=$(tr -d '[:cntrl:]`' <<<"$VALUE")
+           echo "$PROG: refused: run.value: a role is manager or director, not ${SHOWN:0:80}" >&2; exit 65 ;;
+    esac
+    case "$BY" in *[[:cntrl:]]*) echo "$PROG: refused: --by for --run role is one line, with no line break or control character" >&2; exit 65 ;; esac
+    [ "$(jq -rn --arg b "$BY" '$b | length')" -le 80 ] || { echo "$PROG: refused: --by for --run role is at most 80 characters" >&2; exit 65; }
+fi
 [ "$COUNTS" = 0 ] || { [ "$MODE" = rules ] && [ -z "$RIDS" ]; } || usage
 . "$HERE/state-common.sh"
 lib_facts
@@ -432,7 +473,11 @@ if [ "$MODE" = rule-files ]; then
     done <<EOF
 $(jq -s -r '.[] | [.label, .path, .digest] | join("\u001f")' "$RFILE")
 EOF
-else
+elif [ "$HAS_INTERVENTION" = 0 ]; then
+    # A role change from above (--intervention) may come before the run's
+    # find, as the rule files' write does; the write core still needs the
+    # session to hold a record (START_WRITER below). Every other write needs
+    # a found one.
     lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 fi
 
@@ -623,7 +668,21 @@ rule-files)
         | "Run rules digests of the files this start loaded, set by \($b): \(join("; "))."' "$WD/changes.json") || lib_die2 "jq failed"
     ;;
 run)
-    if [ "$KEY" = coordinator ]; then
+    if [ "$KEY" = role ]; then
+        # Set once: a different value only through --intervention.
+        OLD=$(jq -r '[(.run // [])[] | select(.key == "role") | .value][0] // ""' "$P") || lib_die2 "jq failed"
+        [ "$OLD" != "$VALUE" ] || exit 0
+        if [ -n "$OLD" ] && [ "$HAS_INTERVENTION" = 0 ]; then
+            refuse "the run's role is $OLD and this write names $VALUE; a recorded role changes only through --intervention dispatcher|person, a change from above"
+        fi
+        if [ -n "$OLD" ]; then
+            ETEXT="Run role changed from $OLD to $VALUE by $BY, an intervention from above; source: $INTERVENTION."
+        else
+            ETEXT="Run role set to $VALUE by $BY."
+        fi
+        jq --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" \
+            '.run = ([(.run // [])[] | select(.key != "role")] + [{key: "role", value: $v, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    elif [ "$KEY" = coordinator ]; then
         PROG_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
         ETEXT="The coordinator's address is now $VALUE, set by $BY. Nobody has been told it yet."
     elif [ "$KEY" = rules ] || [ "$KEY" = briefs ]; then
@@ -635,7 +694,9 @@ run)
         PROG_JQ='.run = ([(.run // [])[] | select(.key != $k)] + [{key: $k, value: $v, set_by: $b, set: $t}])'
         ETEXT="Run $KEY set to $VALUE by $BY."
     fi
-    jq --arg k "$KEY" --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" "$PROG_JQ" "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    if [ "$KEY" != role ]; then
+        jq --arg k "$KEY" --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" "$PROG_JQ" "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    fi
     EKIND=run
     ;;
 told)
@@ -846,6 +907,11 @@ if [ "$MODE" = rule-files ]; then
     START_WRITER=1
     [ "$OVERRIDE" = 1 ] || EARGS+=(--before-find)
     [ "$HOST_CHANGED" = false ] || core_write_host "$WD/host.next"
+fi
+# A role change from above takes the same before-find path.
+if [ "$HAS_INTERVENTION" = 1 ]; then
+    START_WRITER=1
+    [ "$OVERRIDE" = 1 ] || EARGS+=(--before-find)
 fi
 core_write
 

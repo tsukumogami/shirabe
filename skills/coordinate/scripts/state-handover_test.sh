@@ -9,7 +9,8 @@
 # nor pending holds it with not-told; told passes; a cleared address holds on
 # every live worker again; a merged holding needs neither; and state-schema.jq
 # refusing a record that holds one worker as both told and pending, or as
-# pending twice, so a reader stops on it (10).
+# pending twice, so a reader stops on it (10); the Run `role` row printed as
+# role, manager, director or null, with --check listing no gap for it.
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -48,7 +49,7 @@ echo "== a record with no pending rows =="
 seed "$(record "[$(row told worker-f2)]")"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the read prints" 0 $?
 eq "it reads as before pending rows existed: the same top-level fields" \
-    "arguments briefs cap coordinator friction gaps holds host reports_to rules standing told work workers" \
+    "arguments briefs cap coordinator friction gaps holds host reports_to role rules standing told work workers" \
     "$(printf '%s' "$H" | jq -r 'keys | join(" ")')"
 eq "  ... each worker with the same fields" "next phase told unit worker|next phase told unit worker" \
     "$(printf '%s' "$H" | jq -r '[.workers[] | keys | join(" ")] | join("|")')"
@@ -81,13 +82,29 @@ RULE='{"standing":"s3","kind":"rule","on":"","until":"","what":"Read a CI run'"'
 seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c --argjson s "$EVENTS" '.standing = $s')"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "a record whose Standing holds no rule row reads" 0 $?
 eq "  ... with no rule_lists key: the same top-level fields as before" \
-    "arguments briefs cap coordinator friction gaps holds host reports_to rules standing told work workers" \
+    "arguments briefs cap coordinator friction gaps holds host reports_to role rules standing told work workers" \
     "$(printf '%s' "$H" | jq -r 'keys | join(" ")')"
 seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c --argjson s "$EVENTS" --argjson r "$RULE" '.standing = $s + [$r]')"
 H2=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the same record with a rule row reads" 0 $?
 eq "  ... with rule_lists, its inferred row awaiting confirmation" "awaiting-confirmation:s3 superseded: asserted-reversal: authorized-by:" \
     "$(printf '%s' "$H2" | jq -r '[.rule_lists[] | "\(.list):\([.rows[].standing] | join(","))"] | join(" ")')"
 eq "  ... and everything else as the record without it reads" "$(printf '%s' "$H" | jq -cS .)" "$(printf '%s' "$H2" | jq -cS 'del(.rule_lists)')"
+
+echo "== the role =="
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1: the role is
+# printed; nothing requires it yet, so no gap comes from it.
+seed "$(record "[$(row told worker-f2),$(row told worker-f3)]")"
+eq "a record with no role row prints role null" null "$(bash "$RH" "${RM[@]}" 2>"$T/err" | jq -c .role)"
+gate; eq "  ... and the gate lists no gap for it" "0 " "$G"
+for r in manager director; do
+    seed "$(record "[$(row told worker-f2),$(row told worker-f3),$(row role "$r")]")"
+    eq "a record whose role row reads $r prints it" "\"$r\"" "$(bash "$RH" "${RM[@]}" 2>"$T/err" | jq -c .role)"
+    gate; eq "  ... and the gate still passes" "0 " "$G"
+done
+seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c '.run = [.run[] | select(.key != "reports-to")]')"
+bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/gate"
+grep -qF 'no-reports-to: state-stored-set.sh --run reports-to "<name>[ at <address>]" --by <who>' "$T/gate" \
+    && ok "the no-reports-to fix names <name>[ at <address>]" || bad "the no-reports-to fix names <name>[ at <address>]" "$(cat "$T/gate")"
 
 echo "== the schema =="
 state_json "$(record "[$(row told worker-f2),$(row pending worker-f2)]")" >/dev/null 2>"$T/err"

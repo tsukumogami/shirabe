@@ -26,7 +26,15 @@
 # rotation's end (pick_facts's rotation-over and the hub's `end`) goes straight
 # to rotation_end, and a roadmap's close ends the run with nothing to close.
 # Every state-entry.sh call the templates, SKILL.md or the references give
-# with an outward kind passes --on, which state-entry.sh requires.
+# with an outward kind passes --on, which state-entry.sh requires. The Run
+# `role` row is built only by state-stored-set.sh and state-open.sh's seed and
+# --carry --role, a fixture script that builds it failing; its readers are an
+# allow-list (the writers and state-handover.sh) over three read forms
+# (state-read.sh --run, `role` used as a Run key, a direct record/run read),
+# with the scripts that read the Run section or the record at the branch base
+# listed for a direct record/run read, an entry naming a function for a script
+# with two paths, and fixtures adding each form failing; and no script passes
+# --role to niwa dispatch.
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -355,6 +363,267 @@ printf '\n"$KOTO" context add "$S" record/meta --from-file f\n' >> "$T/keyw/stat
 printf '\n"$KOTO" context add "$S" "record/entries/$N" --from-file f\n' >> "$T/keyw/state-write-core.sh"
 [ "$(record_key_writers "$T/keyw" | grep -c 'state-write-core')" = 1 ] && pass "the check names the write core writing an entry" ||
     fail "the check names the write core writing an entry" "$(record_key_writers "$T/keyw")"
+
+# ---- The Run role row: its writers and its readers ---------------------------
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1. The row is built
+# only by state-stored-set.sh and by state-open.sh's seed (seed_state) and its
+# --carry --role (carry_role); every other change to it goes through
+# state-stored-set.sh --run role. Its readers are held to an allow-list, which
+# gains each named caller in the change that adds it.
+#
+# role_hits <root>: one line per counted use in every script under <root> (a
+# skill directory) but the tests and testdata, `<path>\t<function>\t<form>\t<line>`,
+# <path> relative to <root> and <function> the bash function the line sits in
+# (`-` outside one, and in a jq file). Comment lines aren't counted. The forms:
+#   run-read    a call to state-read.sh --run
+#   role-key    the literal role used as a Run key: a `.key == "role"` or
+#               `.key != "role"` comparison, or passed to a helper that takes
+#               a Run key (`run_has role`, `runval("role")`)
+#   record-run  a direct read of record/run (an rs_key, a koto context call)
+#   role-row    a Run row built with the key role (`key: "role"`)
+# A whole read (state-stored-set.sh --list, --record, rs_record,
+# rs_record_api) names no row, so it isn't counted. A file the scan can't read
+# prints a `scan-failed` line, which every check below reports.
+cat > "$T/role-hits.awk" <<'AWK'
+{
+    line = $0
+    if (line ~ /^[[:space:]]*#/) next
+    fn = (n > 0 ? names[n] : "-")
+    if (path ~ /\.sh$/ && match(line, /^[[:space:]]*(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*\{/)) {
+        def = substr(line, RSTART, RLENGTH)
+        ind = def; sub(/[^[:space:]].*$/, "", ind)
+        name = def; sub(/^[[:space:]]*(function[[:space:]]+)?/, "", name); sub(/[[:space:]]*\(.*$/, "", name)
+        fn = name
+        rest = substr(line, RSTART + RLENGTH)
+        if (rest !~ /\}[[:space:]]*;?[[:space:]]*$/) { n++; names[n] = name; inds[n] = ind }
+    } else if (n > 0 && line ~ ("^" inds[n] "\\}")) {
+        n--
+    }
+    if (line ~ /state-read\.sh[^|;&#]*--run([^A-Za-z0-9_-]|$)/) print path "\t" fn "\trun-read\t" FNR
+    if (line ~ /\.key[[:space:]]*[!=]=[[:space:]]*\\?"role\\?"/ || line ~ /run_has[[:space:]]+\\?"?role([^A-Za-z0-9_-]|$)/ \
+        || line ~ /runval\([[:space:]]*\\?"role\\?"[[:space:]]*\)/) print path "\t" fn "\trole-key\t" FNR
+    if (line ~ /record\/run([^A-Za-z0-9_\/-]|$)/) print path "\t" fn "\trecord-run\t" FNR
+    if (line ~ /(^|[^.A-Za-z0-9_])"?key"?[[:space:]]*:[[:space:]]*\\?"role\\?"/ || line ~ /\.key[[:space:]]*=[[:space:]]*\\?"role/) \
+        print path "\t" fn "\trole-row\t" FNR
+}
+AWK
+role_hits() {
+    local f
+    (cd "$1" && find . -type f \( -name '*.sh' -o -name '*.jq' \) ! -name '*_test.sh' ! -path './scripts/testdata/*' | sed 's|^\./||' | LC_ALL=C sort) \
+        | while IFS= read -r f; do
+            awk -v path="$f" -f "$T/role-hits.awk" "$1/$f" || printf '%s\t-\tscan-failed\t0\n' "$f"
+        done
+}
+
+# The writers: a role row built anywhere but state-stored-set.sh and
+# state-open.sh's seed_state and carry_role fails.
+role_writers() {
+    role_hits "$1" | awk -F'\t' '$3 == "scan-failed" || ($3 == "role-row" && $1 != "scripts/state-stored-set.sh" \
+        && ($1 ":" $2) != "scripts/state-open.sh:seed_state" && ($1 ":" $2) != "scripts/state-open.sh:carry_role")'
+}
+RW=$(role_writers "$HERE/..") || RW="the writer check failed: $RW"
+[ -z "$RW" ] && pass "only state-stored-set.sh and state-open.sh's seed and carry build the Run role row" \
+    || fail "only state-stored-set.sh and state-open.sh's seed and carry build the Run role row" "$RW"
+RH_ALL=$(role_hits "$HERE/..")
+for w in "scripts/state-stored-set.sh	-" "scripts/state-open.sh	seed_state" "scripts/state-open.sh	carry_role"; do
+    grep -q "^$w	role-row	" <<<"$RH_ALL" && pass "${w%%	*} (${w#*	}) builds the role row" || fail "${w%%	*} (${w#*	}) builds the role row" "$RH_ALL"
+done
+grep -nE '^[^#]*(^|[^A-Za-z_])seed_state "' "$HERE/state-open.sh" | grep -v 'seed_state()' > /dev/null \
+    && grep -nE '^[^#]*(^|[^A-Za-z_])carry_role "' "$HERE/state-open.sh" | grep -v 'carry_role()' > /dev/null \
+    && pass "state-open.sh writes it in its seed and its --carry --role" || fail "state-open.sh writes it in its seed and its --carry --role"
+rm -rf "$T/rolew" && mkdir -p "$T/rolew/scripts" && cp "$HERE/state-write.sh" "$T/rolew/scripts/"
+printf '%s\n' "jq '.run += [{key: \"role\", value: \"director\", set_by: \"x\", set: \"2026-09-26T08:00Z\"}]' \"\$F\" > \"\$F.next\"" >> "$T/rolew/scripts/state-write.sh"
+[ "$(role_writers "$T/rolew" | cut -f1 | sort -u)" = scripts/state-write.sh ] && pass "the check names a fixture script that writes the role row" \
+    || fail "the check names a fixture script that writes the role row" "$(role_writers "$T/rolew")"
+mkdir -p "$T/rolew2/scripts" && cp "$HERE/state-open.sh" "$T/rolew2/scripts/"
+printf '%s\n' 'rotation_role() {' "    jq '.run = [{key: \"role\", value: \"manager\", set_by: \"x\", set: \"y\"}]' \"\$1\"" '}' >> "$T/rolew2/scripts/state-open.sh"
+[ "$(role_writers "$T/rolew2" | cut -f1,2 | sort -u)" = "scripts/state-open.sh	rotation_role" ] \
+    && pass "  ... and one in another function of state-open.sh" || fail "  ... and one in another function of state-open.sh" "$(role_writers "$T/rolew2")"
+
+# The readers. ROLE_ALLOW names who may read the row by any of the three read
+# forms: the writers and state-handover.sh. An entry `<path>:<function>` pins a
+# script with two paths to the function that may read it, so a read in any
+# other function of that script (or outside one) fails, the readers' list
+# below included.
+ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh"
+# ROLE_READERS: the scripts that read the Run section or the record at the
+# branch base this test landed on. Each may keep its whole reads for other rows,
+# and may read record/run directly; any other script that adds a direct
+# record/run read fails. The list is the output of this grep, run at that base
+# (c17f9b0e) from the repository root, not typed:
+#   git grep -lE '^[^#]*(rs_record|rs_session_state|rs_session_read|rs_facts|state-read\.sh|state-handover\.sh|state-stored-set\.sh[^#]*--(list|rules)|record/run|[^A-Za-z0-9_]\.run([^A-Za-z0-9_]|$))' \
+#       c17f9b0e -- 'skills/coordinate/*.sh' 'skills/coordinate/*.jq' ':!:*_test.sh' ':!:skills/coordinate/scripts/testdata/*' \
+#       | sed 's/^[^:]*:skills\/coordinate\///'
+ROLE_READERS="legacy-import/import.sh
+scripts/board-lib.sh
+scripts/board-verdict.sh
+scripts/closeout-read.sh
+scripts/coord-log.sh
+scripts/coordinate-open.sh
+scripts/coordinate-report.sh
+scripts/decision-next.sh
+scripts/decision-render.sh
+scripts/deferral-check.sh
+scripts/dispatch-worker.sh
+scripts/handover-classify.sh
+scripts/land-check.sh
+scripts/land-merge.sh
+scripts/panel-evidence.sh
+scripts/pick-facts.sh
+scripts/quiet-check.sh
+scripts/rebrief-record.sh
+scripts/reconcile-deps.sh
+scripts/reconcile-read.sh
+scripts/resolve-coordinator.sh
+scripts/roadmap-status.sh
+scripts/state-common.sh
+scripts/state-confirm.sh
+scripts/state-decision.sh
+scripts/state-entry.sh
+scripts/state-find.sh
+scripts/state-handover.sh
+scripts/state-hold.sh
+scripts/state-holding.sh
+scripts/state-open.sh
+scripts/state-read.sh
+scripts/state-schema.jq
+scripts/state-stored-set.sh
+scripts/state-write-core.sh"
+# role_readers <root> [<allow> [<readers>]]: each counted read the lists don't
+# admit. The lists reach awk through its environment, which may hold a newline.
+role_readers() {
+    role_hits "$1" | ROLE_A="${2-$ROLE_ALLOW}" ROLE_R="${3-$ROLE_READERS}" awk -F'\t' '
+        BEGIN {
+            allow = ENVIRON["ROLE_A"]; readers = ENVIRON["ROLE_R"]
+            na = split(allow, a, /[[:space:]]+/)
+            for (i = 1; i <= na; i++) {
+                if (a[i] == "") continue
+                if (index(a[i], ":")) { p = a[i]; sub(/:.*/, "", p); pinned[p] = 1; okfn[a[i]] = 1 } else okfile[a[i]] = 1
+            }
+            nr = split(readers, r, /[[:space:]]+/)
+            for (i = 1; i <= nr; i++) if (r[i] != "") rd[r[i]] = 1
+        }
+        $3 == "scan-failed" { print; next }
+        $3 == "role-row" { next }
+        ($1 in pinned) { if (!(($1 ":" $2) in okfn)) print; next }
+        ($1 in okfile) { next }
+        $3 == "record-run" && ($1 in rd) { next }
+        { print }'
+}
+RR=$(role_readers "$HERE/..") || RR="the reader check failed: $RR"
+[ -z "$RR" ] && pass "only the writers and state-handover.sh read the Run role row, and only the listed readers read record/run" \
+    || fail "only the writers and state-handover.sh read the Run role row, and only the listed readers read record/run" "$RR"
+grep -q '^scripts/state-handover.sh	-	role-key	' <<<"$RH_ALL" && pass "state-handover.sh reads it, a reader the check sees" \
+    || fail "state-handover.sh reads it, a reader the check sees" "$RH_ALL"
+# role_fixture <name> <script> <line>: a skill directory holding a copy of
+# <script> (from scripts/, or a new empty one) with <line> appended; prints
+# what role_readers reports there, path and form.
+role_fixture() {
+    rm -rf "$T/roler-$1" && mkdir -p "$T/roler-$1/scripts"
+    if [ -f "$HERE/$2" ]; then cp "$HERE/$2" "$T/roler-$1/scripts/"; else printf '#!/usr/bin/env bash\n' > "$T/roler-$1/scripts/$2"; fi
+    printf '%s\n' "$3" >> "$T/roler-$1/scripts/$2"
+    role_readers "$T/roler-$1" | cut -f1,3 | sort -u
+}
+eq_fx() { [ "$2" = "$3" ] && pass "$1" || fail "$1" "want [$2], got [$3]"; }
+eq_fx "a fixture adding .key == \"role\" to land-merge.sh fails" "scripts/land-merge.sh	role-key" \
+    "$(role_fixture lm land-merge.sh "R=\$(jq -r '[.run[] | select(.key == \"role\") | .value][0]' \"\$F\")")"
+eq_fx "a fixture adding run_has role director to rebrief-record.sh fails" "scripts/rebrief-record.sh	role-key" \
+    "$(role_fixture rb rebrief-record.sh 'run_has role director && echo yes')"
+eq_fx "a fixture adding runval(\"role\") to a listed reader fails" "scripts/pick-facts.sh	role-key" \
+    "$(role_fixture pf pick-facts.sh "jq -r 'runval(\"role\")' \"\$F\"")"
+eq_fx "a fixture calling state-read.sh --run from a script not on the list fails" "scripts/posture-read.sh	run-read" \
+    "$(role_fixture pr posture-read.sh 'bash "$HERE/state-read.sh" --session "$S" --run > "$T/run.json"')"
+eq_fx "a fixture adding a record/run read to a new script fails" "scripts/new-reader.sh	record-run" \
+    "$(role_fixture nr new-reader.sh 'koto context get "$S" record/run > "$T/run.json"')"
+eq_fx "  ... and to need-check.sh, which reads no record today" "scripts/need-check.sh	record-run" \
+    "$(role_fixture nc need-check.sh 'rs_key "$S" record/run "$T/run.json"')"
+eq_fx "a record/run read added to a listed reader is its own to keep" "" \
+    "$(role_fixture rc reconcile-read.sh 'rs_key "$S" record/run "$T/run.json"')"
+eq_fx "a whole read (rs_record, --list) isn't counted by itself" "" \
+    "$(role_fixture wr need-check.sh 'rs_record "$T/rec"; bash "$HERE/state-stored-set.sh" --session "$S" --list > "$T/l"')"
+# A script with two paths, its allow-list entry naming the function that may read the row.
+rm -rf "$T/roler-two" && mkdir -p "$T/roler-two/scripts"
+printf '%s\n' '#!/usr/bin/env bash' 'brief_path() {' '    R=$(bash "$HERE/state-read.sh" --session "$S" --run)' \
+    "    jq -r '[.[] | select(.key == \"role\") | .value][0]' <<<\"\$R\"" '}' 'grant_path() {' '    G=$(posture)' '}' \
+    > "$T/roler-two/scripts/two-path.sh"
+eq_fx "a read in the function the list names passes" "" \
+    "$(role_readers "$T/roler-two" "scripts/two-path.sh:brief_path" "" | cut -f1,2,3)"
+printf '%s\n' 'grant_path_role() {' "    jq -r '[.run[] | select(.key == \"role\")][0]' \"\$F\"" '}' >> "$T/roler-two/scripts/two-path.sh"
+eq_fx "  ... and one in another function of that script fails" "scripts/two-path.sh	grant_path_role	role-key" \
+    "$(role_readers "$T/roler-two" "scripts/two-path.sh:brief_path" "" | cut -f1,2,3)"
+printf '%s\n' 'koto context get "$S" record/run > "$T/r"' >> "$T/roler-two/scripts/two-path.sh"
+eq_fx "  ... as does one outside any function, even for a listed reader" \
+    "scripts/two-path.sh	-	record-run
+scripts/two-path.sh	grant_path_role	role-key" \
+    "$(role_readers "$T/roler-two" "scripts/two-path.sh:brief_path" "scripts/two-path.sh" | cut -f1,2,3 | sort)"
+
+# No script passes --role to niwa dispatch, whose own --role grants
+# authorities: not on the dispatch command, not in an array that command
+# expands, and not through a helper that appends to one (launch_flag).
+cat > "$T/dispatch-role.awk" <<'AWK'
+function has_role(s) { return s ~ /(^|[^A-Za-z0-9_-])--role([^A-Za-z0-9_-]|$)/ }
+NR == FNR {
+    line = $0
+    if (line ~ /^[[:space:]]*#/) { cmd = ""; next }
+    fn = (n > 0 ? names[n] : "-")
+    if (match(line, /^[[:space:]]*(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)[[:space:]]*\{/)) {
+        def = substr(line, RSTART, RLENGTH)
+        ind = def; sub(/[^[:space:]].*$/, "", ind)
+        name = def; sub(/^[[:space:]]*(function[[:space:]]+)?/, "", name); sub(/[[:space:]]*\(.*$/, "", name)
+        fn = name
+        if (substr(line, RSTART + RLENGTH) !~ /\}[[:space:]]*;?[[:space:]]*$/) { n++; names[n] = name; inds[n] = ind }
+    } else if (n > 0 && line ~ ("^" inds[n] "\\}")) {
+        n--
+    }
+    # Each array a line appends to or sets, by function.
+    s = line
+    while (match(s, /(^|[^A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*\+?=\(/)) {
+        a = substr(s, RSTART, RLENGTH); sub(/^[^A-Za-z_]/, "", a); sub(/\+?=\($/, "", a)
+        sets[fn SUBSEP a] = 1
+        s = substr(s, RSTART + RLENGTH)
+    }
+    # A command continued over lines is read whole.
+    cmd = cmd " " line
+    if (line ~ /\\$/) next
+    if (cmd ~ /(niwa|NIWA)[}"']*[[:space:]]+dispatch([[:space:]]|$)/) {
+        if (has_role(cmd)) print FILENAME ":" FNR ": --role on the niwa dispatch command"
+        s = cmd
+        while (match(s, /\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]/)) {
+            a = substr(s, RSTART + 2, RLENGTH - 5); arr[a] = 1
+            s = substr(s, RSTART + RLENGTH)
+        }
+    }
+    cmd = ""
+    next
+}
+FNR == 1 {
+    for (k in sets) { split(k, kk, SUBSEP); if ((kk[2] in arr) && kk[1] != "-") helper[kk[1]] = 1 }
+}
+{
+    line = $0
+    if (line ~ /^[[:space:]]*#/ || !has_role(line)) next
+    for (a in arr) if (line ~ ("(^|[^A-Za-z0-9_])" a "\\+?=\\(")) { print FILENAME ":" FNR ": --role into " a ", which niwa dispatch is given"; next }
+    for (h in helper) if (line ~ ("(^|[^A-Za-z0-9_])" h "([[:space:]]|$)") && line !~ ("^[[:space:]]*" h "[[:space:]]*\\(\\)")) {
+        print FILENAME ":" FNR ": --role through " h ", which feeds niwa dispatch"; next
+    }
+}
+AWK
+dispatch_role() {
+    local f
+    find "$1" -type f -name '*.sh' ! -name '*_test.sh' ! -path '*/testdata/*' | LC_ALL=C sort | while IFS= read -r f; do
+        awk -f "$T/dispatch-role.awk" "$f" "$f" || echo "$f: the check couldn't read it"
+    done
+}
+DR=$(dispatch_role "$HERE/..")
+[ -z "$DR" ] && pass "no script under skills/coordinate passes --role to niwa dispatch" \
+    || fail "no script under skills/coordinate passes --role to niwa dispatch" "$DR"
+rm -rf "$T/dispr" && mkdir -p "$T/dispr" && cp "$HERE/dispatch-worker.sh" "$T/dispr/a.sh" && cp "$HERE/dispatch-worker.sh" "$T/dispr/b.sh"
+printf '%s\n' 'launch_flag --role --role manager' >> "$T/dispr/a.sh"
+printf '%s\n' 'LAUNCH_ARGS+=(--role "$ROLE")' >> "$T/dispr/b.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'dc_with_deadline 30 "$NIWA" dispatch "$PROMPT" --name "$TOPIC" \' '    --role director --detach' > "$T/dispr/c.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'PROMPT="Run /shirabe:coordinate x --role manager"' '"$NIWA" dispatch "$PROMPT" --name "$TOPIC" --detach' > "$T/dispr/d.sh"
+eq_fx "the check names --role through launch_flag, into LAUNCH_ARGS and on the command, not in the prompt" "a.sh b.sh c.sh" \
+    "$(dispatch_role "$T/dispr" | sed 's|^.*/||; s|:.*||' | sort -u | tr '\n' ' ' | sed 's/ $//')"
 
 # Every call that writes an outward kind names where the entry goes:
 # state-entry.sh refuses one without --on (exit 65). The kinds are its own
