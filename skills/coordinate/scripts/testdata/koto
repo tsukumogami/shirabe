@@ -28,7 +28,9 @@
 # else exits 9. With KOTO_CALL_DELAY=<seconds> set, every context call takes
 # that long first, as a real koto call does (about 0.1 s each, measured), so a
 # suite can show what a read costs in calls rather than on a stand-in that
-# answers at once. KOTO_BOUND_ELSEWHERE=<session> refuses every `context` read
+# answers at once. KOTO_ADD_DELAY=<key>:<seconds> delays only the `context add`
+# of that one key, and KOTO_FAIL_ADD (1, or a key's name) fails every add or
+# only that key's. KOTO_BOUND_ELSEWHERE=<session> refuses every `context` read
 # and `status` of that session as koto's cloud backend refuses a run bound to
 # another directory (session_bound_elsewhere, its JSON on stdout, exit 2), and
 # KOTO_READ_FAIL=<session> fails them with another error (exit 1).
@@ -71,6 +73,9 @@ case "${1:-} ${2:-}" in
     "context add")
         # KOTO_FAIL_ADD=1 fails every add; set to a key's name, only that key's.
         case "${KOTO_FAIL_ADD:-}" in "") ;; 1|"${4:-}") exit 1 ;; esac
+        # KOTO_ADD_DELAY=<key>:<seconds> makes only that key's add take that
+        # long before it writes, as a slow storage backend's write would.
+        [ -n "${KOTO_ADD_DELAY:-}" ] && [ "${KOTO_ADD_DELAY%:*}" = "${4:-}" ] && sleep "${KOTO_ADD_DELAY##*:}"
         d="$KOTO_STORE/context/${3:-none}"
         mkdir -p "$(dirname "$d/$4")"
         if [ "${5:-}" = --from-file ]; then cat "$6" > "$d/$4" || exit 1; else cat > "$d/$4"; fi

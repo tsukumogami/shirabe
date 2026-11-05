@@ -15,7 +15,11 @@
 # other form, pr-held when another row links it, and by the scope, fork and
 # Branch rules; `unknown` for a topic with no row and `unknown -` for evidence naming
 # no dispatch topic; a failed read (2); the sealed token; every token in
-# koto's capture alphabet. The record is the run's session's.
+# koto's capture alphabet; a holding's moved pull request head kept after the
+# verdict is sealed, an unchanged one written never, and a slow write stopped
+# at the deadline or a failing one naming the head on stderr with the verdict,
+# coord/report.json and the exit code unchanged and the head kept on a later
+# visit (shirabe#1123). The record is the run's session's.
 #
 # Usage: bash skills/coordinate/scripts/report-facts_test.sh
 set -uo pipefail
@@ -250,5 +254,59 @@ eq "the same token and koto calls with 3 entries and with 300 (${FEW##* } calls)
 eq "  ... the holding found" "holding 12 alpha" "${MANY% *}"
 eq "  ... reading no entry and never listing record/" "0 0" \
     "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+
+echo "== the pushed head: kept after the verdict, the write bounded (shirabe#1123) =="
+# kept <topic>: the pushed head the record keeps for that holding.
+kept() { jq -r --arg t "$1" '.[] | select(.worker == $t) | .pushed_head // "none"' "$KOTO_STORE/context/$S/record/holdings"; }
+holdings_adds() { grep -c "^context add $S record/holdings" "$KOTO_STORE/calls"; }
+seed
+eq "a holding starts with no pushed head" none "$(kept alpha)"
+: > "$KOTO_STORE/calls"
+report '{"event":"report","unit":"alpha"}'
+eq "a moved head: the verdict is unchanged" "holding 12 alpha" "${OUT% sealed:*}"
+eq "  ... and the new head is kept" "$SHA_HEAD" "$(kept alpha)"
+eq "  ... in one record/holdings write" 1 "$(holdings_adds)"
+eq "  ... coord/report.json written before it" "context add $S coord/report.json" \
+    "$(grep -E "^context add $S (coord/report.json|record/holdings)" "$KOTO_STORE/calls" | head -1 | cut -d' ' -f1-4)"
+: > "$KOTO_STORE/calls"
+report '{"event":"report","unit":"alpha"}'
+eq "an unchanged head: the same verdict" "holding 12 alpha" "${OUT% sealed:*}"
+eq "  ... and no record/holdings write" 0 "$(holdings_adds)"
+report '{"event":"progress","unit":"alpha","report":"checkpoint"}'
+eq "  ... progress the same" "progress 12 alpha 0" "${OUT% sealed:*} $(holdings_adds)"
+
+seed
+BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
+rm -f "$KOTO_STORE/context/$S/coord/report.json"
+START=$SECONDS
+KOTO_ADD_DELAY=record/holdings:20 REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+TOOK=$((SECONDS - START))
+eq "a slow write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
+[ "$TOOK" -le 5 ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
+    || bad "  ... the action returns within the deadline and a small margin" "${TOOK} s"
+log_to "$S" wait report_facts
+bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit && ok "  ... the token is sealed" || bad "  ... the token is sealed"
+log_to "$S" report_facts wait
+[ -s "$KOTO_STORE/context/$S/coord/report.json" ] && ok "  ... coord/report.json is written" || bad "  ... coord/report.json is written"
+eq "  ... record/holdings is unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
+grep -q "alpha's pushed head $SHA_HEAD wasn't kept: the write was stopped at the action's 3 s deadline" "$T/err" \
+    && ok "  ... and stderr names the head the stopped write didn't keep" \
+    || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
+eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
+pgrep -f "sleep 20" > /dev/null && bad "  ... no write is left running" "$(pgrep -fl 'sleep 20')" || ok "  ... no write is left running"
+report '{"event":"report","unit":"alpha"}'
+eq "the next visit with a fast write: the same verdict" "holding 12 alpha" "${OUT% sealed:*}"
+eq "  ... and the head is kept" "$SHA_HEAD" "$(kept alpha)"
+
+seed
+KOTO_FAIL_ADD=record/holdings report '{"event":"report","unit":"alpha"}'
+eq "a failing write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
+eq "  ... no head kept" none "$(kept alpha)"
+grep -q "alpha's pushed head $SHA_HEAD wasn't kept: .*record/holdings write failed" "$T/err" && ok "  ... and stderr names it" \
+    || bad "  ... and stderr names it" "$(cat "$T/err")"
+REPORT_FACTS_DEADLINE=0 report '{"event":"report","unit":"alpha"}'
+eq "no time left: the same verdict, no write tried" "holding 12 alpha 0 none" "${OUT% sealed:*} $RC $(kept alpha)"
+REPORT_FACTS_DEADLINE=soon report '{"event":"report","unit":"alpha"}'
+eq "a deadline that isn't whole seconds is a usage error" 64 "$RC"
 
 done_tests report-facts
