@@ -29,12 +29,15 @@
 # with an outward kind passes --on, which state-entry.sh requires. The Run
 # `role` row is built only by state-stored-set.sh and state-open.sh's seed and
 # --carry --role, a fixture script that builds it failing; its readers are an
-# allow-list (the writers and state-handover.sh) over three read forms
+# allow-list (the writers, state-handover.sh and coordinate-open.sh) over three read forms
 # (state-read.sh --run, `role` used as a Run key, a direct record/run read),
 # with the scripts that read the Run section or the record at the branch base
 # listed for a direct record/run read, an entry naming a function for a script
 # with two paths, and fixtures adding each form failing; and no script passes
-# --role to niwa dispatch.
+# --role to niwa dispatch. The reconcile directive's no-role fill (the
+# opener's role= or one ask with no recommendation, never inferred) and its
+# no-reports-to fill for a start given --dispatched-by sit in the reconcile
+# state's directive and in no other state's text.
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -441,11 +444,12 @@ printf '%s\n' 'rotation_role() {' "    jq '.run = [{key: \"role\", value: \"mana
     && pass "  ... and one in another function of state-open.sh" || fail "  ... and one in another function of state-open.sh" "$(role_writers "$T/rolew2")"
 
 # The readers. ROLE_ALLOW names who may read the row by any of the three read
-# forms: the writers and state-handover.sh. An entry `<path>:<function>` pins a
+# forms: the writers, state-handover.sh and coordinate-open.sh, which reads the
+# role of the run a start continues. An entry `<path>:<function>` pins a
 # script with two paths to the function that may read it, so a read in any
 # other function of that script (or outside one) fails, the readers' list
 # below included.
-ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh"
+ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/coordinate-open.sh"
 # ROLE_READERS: the scripts that read the Run section or the record at the
 # branch base this test landed on. Each may keep its whole reads for other rows,
 # and may read record/run directly; any other script that adds a direct
@@ -511,10 +515,27 @@ role_readers() {
         { print }'
 }
 RR=$(role_readers "$HERE/..") || RR="the reader check failed: $RR"
-[ -z "$RR" ] && pass "only the writers and state-handover.sh read the Run role row, and only the listed readers read record/run" \
-    || fail "only the writers and state-handover.sh read the Run role row, and only the listed readers read record/run" "$RR"
+[ -z "$RR" ] && pass "only the writers, state-handover.sh and coordinate-open.sh read the Run role row, and only the listed readers read record/run" \
+    || fail "only the writers, state-handover.sh and coordinate-open.sh read the Run role row, and only the listed readers read record/run" "$RR"
 grep -q '^scripts/state-handover.sh	-	role-key	' <<<"$RH_ALL" && pass "state-handover.sh reads it, a reader the check sees" \
     || fail "state-handover.sh reads it, a reader the check sees" "$RH_ALL"
+grep -q '^scripts/coordinate-open.sh	[^	]*	run-read	' <<<"$RH_ALL" && pass "coordinate-open.sh reads it through state-read.sh --run, a reader the check sees" \
+    || fail "coordinate-open.sh reads it through state-read.sh --run, a reader the check sees" "$RH_ALL"
+eq_fx() { [ "$2" = "$3" ] && pass "$1" || fail "$1" "want [$2], got [$3]"; }
+eq_fx "  ... and with coordinate-open.sh off the list, its reads fail the check" "scripts/coordinate-open.sh" \
+    "$(role_readers "$HERE/.." "scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh" | cut -f1 | sort -u)"
+
+# The reconcile directive's no-role and no-reports-to fills (Decision 1;
+# PRD R2 and R9): in the reconcile state's directive, the part shown, and in
+# no other state's directive or details.
+for phrase in '`no-role` with the `role=` value the opener printed' 'is never inferred from the scope, the cap, the holdings,' \
+              'A start given `--dispatched-by`'; do
+    jq -e --arg p "$phrase" '.states.reconcile.directive | contains($p)' "$J" > /dev/null \
+        && pass "reconcile's directive says: $phrase" || fail "reconcile's directive says: $phrase"
+    OTHERS=$(jq -r --arg p "$phrase" '.states | to_entries[] | select(.key != "reconcile")
+        | select(((.value.directive // "") + (.value.details // "")) | contains($p)) | .key' "$J")
+    [ -z "$OTHERS" ] && pass "  ... and no other state does" || fail "  ... and no other state does" "$OTHERS"
+done
 # role_fixture <name> <script> <line>: a skill directory holding a copy of
 # <script> (from scripts/, or a new empty one) with <line> appended; prints
 # what role_readers reports there, path and form.
@@ -524,7 +545,6 @@ role_fixture() {
     printf '%s\n' "$3" >> "$T/roler-$1/scripts/$2"
     role_readers "$T/roler-$1" | cut -f1,3 | sort -u
 }
-eq_fx() { [ "$2" = "$3" ] && pass "$1" || fail "$1" "want [$2], got [$3]"; }
 eq_fx "a fixture adding .key == \"role\" to land-merge.sh fails" "scripts/land-merge.sh	role-key" \
     "$(role_fixture lm land-merge.sh "R=\$(jq -r '[.run[] | select(.key == \"role\") | .value][0]' \"\$F\")")"
 eq_fx "a fixture adding run_has role director to rebrief-record.sh fails" "scripts/rebrief-record.sh	role-key" \

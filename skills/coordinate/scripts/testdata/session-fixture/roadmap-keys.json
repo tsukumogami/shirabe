@@ -159,6 +159,12 @@
       "set": "2026-10-18T13:58Z",
       "set_by": "the human",
       "value": "the human"
+    },
+    {
+      "key": "role",
+      "set": "2026-10-18T13:58Z",
+      "set_by": "start --role",
+      "value": "manager"
     }
   ],
   "record/side-effects": [],

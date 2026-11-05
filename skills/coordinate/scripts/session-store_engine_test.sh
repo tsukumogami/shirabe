@@ -81,7 +81,7 @@ at() { tick "$@" | jq -r '.state // empty'; }
 # file away; sets S, and OPEN_OUT to the opener's output.
 open_run() { # open_run [plugin-root]
     local root=${1:-$PR}
-    printf '["docs/roadmaps/ROADMAP-store.md"]' > "$T/args.json"
+    printf '["docs/roadmaps/ROADMAP-store.md","--role","manager"]' > "$T/args.json"
     OPEN_OUT=$(cd "$WD" && bash "$root/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$root" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
@@ -136,7 +136,7 @@ ok "the session opens"
 eq "  ... with no STORE variable" "" "$(cd "$WD" && bash "$PS/coord-log.sh" vars --session "$S" | jq -r '.STORE // ""')"
 eq "with no record it stops at record_open" record_open "$(at)"
 reset_calls
-write state-open.sh; eq "state-open.sh opens the record" 0 $?
+write state-open.sh --role manager; eq "state-open.sh opens the record" 0 $?
 (cd "$WD" && koto context exists "$S" record/meta) && ok "  ... in the run's record/meta" || bad "  ... in the run's record/meta" "$(cat "$T/w.err")"
 eq "  ... opening nothing on GitHub" "" "$(gh_writes)"
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"

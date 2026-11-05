@@ -134,8 +134,9 @@ seed_roadmap() { # seed_roadmap <name> [status]; ROADMAP_TEXT, when set, is the 
 # stored <record-json>: the record with a complete stored set, so the
 # reconcile's handover gate passes: the run's arguments and cap, this
 # coordinator's address, who it reports to (every run is on the session, so the
-# gate asks every run for it), and for every live holding a next step and its
-# worker told. The handover cases build theirs by hand.
+# gate asks every run for it), its role (manager, the role open_run starts
+# with), and for every live holding a next step and its worker told. The
+# handover cases build theirs by hand.
 stored() {
     printf '%s' "$1" | jq -c '
         ([.holdings[] | select(.dispatch_status == "dispatched")
@@ -143,7 +144,8 @@ stored() {
         | .run = ((.run // []) + [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-test.md", set_by: "the human", set: "2026-09-26T08:00Z"},
                                   {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
                                   {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"},
-                                  {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T08:00Z"}]
+                                  {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T08:00Z"},
+                                  {key: "role", value: "manager", set_by: "start --role", set: "2026-09-26T08:00Z"}]
                  + [$live[] | {key: "told", value: .worker, set_by: "coord-test", set: "2026-09-26T08:00Z"}])
         | .work = ((.work // []) + [$live[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-09-26T08:00Z"}])
         | if (.work | length) == 0 then del(.work) else . end'
@@ -164,10 +166,14 @@ seed_record() {
 # choose; sets S, WD and OPEN_OUT (the opener's output). A fresh start opens a
 # new session (named to the second, so two opens of one scope wait), into
 # which the record seed_record left for <name>, if any, is written; a start
-# while the scope's run is live and resumable resumes that run.
+# while the scope's run is live and resumable resumes that run. It passes
+# --role $OPEN_ROLE (manager when unset, none when set empty), the role the
+# stored set records, so a fresh start isn't asked for one and a resume
+# continues the role it holds.
 open_run() {
     WD=${2:-$T/work}
-    printf '["docs/roadmaps/ROADMAP-%s.md"]' "$1" > "$T/args.json"
+    jq -nc --arg r "docs/roadmaps/ROADMAP-$1.md" --arg role "${OPEN_ROLE-manager}" \
+        '[$r] + (if $role == "" then [] else ["--role", $role] end)' > "$T/args.json"
     OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ] || return 1

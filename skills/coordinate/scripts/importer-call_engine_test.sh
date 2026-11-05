@@ -111,9 +111,10 @@ tick() { host_on "$ON" koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"; }
 at() { tick "$@" | jq -r '.state // empty'; }
 run() { local s=$1; shift; host_on "$ON" bash "$PS/$s" --session "$S" "$@"; } # run <script> <args...>: on session $S, on host $ON
 # start <args json>: the opener on host $ON, as the Claude session $CALLER_ID
-# when it is set; OPEN_OUT its output, S the session.
+# when it is set, as a manager (--role manager added unless the args name a
+# role or import a run); OPEN_OUT its output, S the session.
 start() {
-    printf '%s' "$1" > "$T/args.json"
+    jq -c 'if index("--role") or index("--import") then . else . + ["--role", "manager"] end' <<< "$1" > "$T/args.json"
     OPEN_OUT=$(host_on "$ON" env ${CALLER_ID:+CLAUDE_CODE_SESSION_ID=$CALLER_ID} bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
@@ -139,7 +140,7 @@ has_args 1 "--scope roadmap" "--name calls" "--repo acme/widgets" && ok "1:   ..
 grep -q -- '--ref' "$T/import.calls" && bad "1:   ... and with no record on GitHub, no import" "$(cat "$T/import.calls")" \
     || ok "1:   ... and with no record on GitHub, no import"
 eq "1: the run stops at record_open" record_open "$(at)"
-run state-open.sh > /dev/null 2> "$T/w.err"; eq "1: state-open.sh opens the record in the session" 0 $?
+run state-open.sh --role manager > /dev/null 2> "$T/w.err"; eq "1: state-open.sh opens the record in the session" 0 $?
 eq "1: the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 echo "== 2. a resume =="

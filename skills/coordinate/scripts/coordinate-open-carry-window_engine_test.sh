@@ -77,7 +77,7 @@ chmod +x "$T/wshim/koto"
 cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin2/"
 printf '\n<!-- a change to the template, for the carry case -->\n' >> "$T/plugin2/skills/coordinate/koto-templates/coordinate.md"
 jq '.compat += 1' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json" > "$T/plugin2/skills/coordinate/koto-templates/coordinate.compat.json"
-RMW='["docs/roadmaps/ROADMAP-window.md"]'
+RMW='["docs/roadmaps/ROADMAP-window.md","--role","manager"]'
 open_w() { # open_w [fail]: a start from the plugin copy behind the shim; output in $T/out, calls in $T/wcalls
     printf '%s' "$RMW" > "$T/args.json"
     : > "$T/wcalls"

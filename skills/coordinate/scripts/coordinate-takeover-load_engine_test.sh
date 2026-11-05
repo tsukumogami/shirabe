@@ -165,7 +165,7 @@ echo "  note: the one-minute load average read ${L:-nothing} after ${SECONDS}s o
 export CLAUDE_CODE_SESSION_ID=$B_ID
 : > "$T/kt.log"
 START_LOAD=$(load1)
-printf '["docs/roadmaps/ROADMAP-load.md"]' > "$T/args.json"
+printf '["docs/roadmaps/ROADMAP-load.md","--role","manager"]' > "$T/args.json"
 SECONDS=0
 OUT=$(cd "$T/work2" && KOTO_BIN=$T/kt/koto bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
 TOOK=$SECONDS

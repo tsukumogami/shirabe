@@ -20,3 +20,14 @@ import_template_unavailable	The template the run was compiled from isn't on this
 import_source_unreadable	The run in the bucket couldn't be read; nothing was imported. Try again.
 import_push_failed	The run couldn't be marked migrated in the bucket; nothing was imported. Try again.
 import_unmarked	The run was imported, but the source couldn't be marked migrated, so its host may still write to it; run the same import again to mark it.
+# The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1),
+# read by coordinate-open.sh itself: {value} {run} {recorded} {asked} {by}
+# {reports_to} are filled in one pass, never evaluated.
+invalid_role	The role `{value}` must be manager or director.
+role_mismatch	{run} is recorded as {recorded}; this start names {asked}. A continuation keeps its role unless an intervention from above changes it; nothing was written and {run} goes on as it was. Start again naming {recorded}, or no role, or start {asked} as a new lineage.
+role_change_not_reports_to	{run} reports to {reports_to}; a role change from a dispatcher has to name the address in that row, and {by} isn't it. This start names {asked}; nothing was written and {run} goes on as {recorded}.
+role_change_no_address	{run} reports to {reports_to}, which names no address, so no dispatcher change can be checked. This start names {asked}; nothing was written and {run} goes on as {recorded}.
+role_change_self	{run} reports to {reports_to}, and {by} is {run} itself or the run it continues: a run can't change its own role. This start names {asked}; nothing was written and {run} goes on as {recorded}.
+role_change_brief_person	{run} reports to {reports_to}, and this start came from a brief; a brief's text is never a person's words, so it can't carry a person's role change. This start names {asked}; nothing was written and {run} goes on as {recorded}.
+role_import_copy	{run} is on this host already, so its role here is {recorded}. Run the same import again, naming {recorded} or no role, not a plain start: the import marks the source if that's still to do, and its result says how the run goes on here.
+ask_role	This run's role is the person's call: manager or director. Ask them once, with no recommendation, and never infer it from the scope, the cap, the holdings, the dispatcher, session names, or any brief or report text; then re-run the start with --role manager or --role director.

@@ -49,7 +49,9 @@
 #      as owner and itself as relayer, and the entry it appends tells it;
 #   4. past the gate the run reaches pick with the cap of one from the
 #      record, not the default the session was opened with;
-#   5. a holding with no next step holds the gate too, and a Work row clears it;
+#   5. a holding with no next step holds the gate too, and a Work row clears
+#      it; a record with no role row lists the gap no-role, and its fix
+#      (state-stored-set.sh --run role) clears it;
 #   6. a run imported while it waits at the hub (on a third host): before
 #      koto 0.32.0 it is printed as `state=wait` with `tick=moved`; the check
 #      the hub's directive asks on every visit says a reconcile is owed, and
@@ -183,12 +185,12 @@ if ! koto_store_ready; then
     done_tests handover-engine
     exit $?
 fi
-printf '["docs/roadmaps/ROADMAP-handover.md"]' > "$T/args.json"
+printf '["docs/roadmaps/ROADMAP-handover.md", "--role", "manager"]' > "$T/args.json"
 S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
 [ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests handover-engine; exit 1; }
 ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
-run state-open.sh >/dev/null 2>"$T/w.err"; eq "state-open.sh opens the record in the run's session" 0 $?
+run state-open.sh --role manager >/dev/null 2>"$T/w.err"; eq "state-open.sh opens the record in the run's session" 0 $?
 grep -Eq '^(issue|pr) create' "$GH_DB.calls" && bad "  ... opening nothing on GitHub" "$(grep -E '^(issue|pr) create' "$GH_DB.calls")" \
     || ok "  ... opening nothing on GitHub"
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
@@ -365,6 +367,16 @@ echo "== 5. a holding with no next step holds the gate =="
 state --done "Feature 2"; eq "Feature 2's next step is removed" 0 $?
 eq "  ... and the gaps name it" "no-next-step Feature 2" "$(handover | jq -r '[.gaps[].gap] | join(" ")')"
 state --work "Feature 2" --kind holding --who worker-f2 --next "a ready report"; eq "a Work row clears it" "" "$(handover | jq -r '[.gaps[].gap] | join(" ")')"
+# A record with no role row (a lineage from before the row): the gap no-role,
+# fixed through the set-once writer. The row is taken out around the writers,
+# as no writer removes it.
+host_on b koto context get "$S" record/run | jq -c '[.[] | select(.key != "role")]' > "$T/run.json" \
+    && host_on b koto context add "$S" record/run --from-file "$T/run.json" > /dev/null
+eq "a record with no role row lists the gap no-role" "no-role" "$(handover | jq -r '[.gaps[].gap] | join(" ")')"
+handover --check > /dev/null 2> "$T/gaps"
+grep -qF 'no-role: state-stored-set.sh --run role <manager|director> --by <who named it>' "$T/gaps" \
+    && ok "  ... with the set-once writer as its fix" || bad "  ... with the set-once writer as its fix" "$(cat "$T/gaps")"
+state --run role manager --by "the human"; eq "the fix clears it, and a record with the row lists no no-role" "" "$(handover | jq -r '[.gaps[].gap] | join(" ")')"
 
 echo "== the closing lines name the source =="
 eq "coordinate-report.sh prints the import facts" "outcome=stopped|source_workspace=$WS_A|source_session=$SRC|template_hash=$HASH" \
@@ -417,14 +429,14 @@ echo "== 7. a discipline rotation on the session: the carry, its gate and the im
 # set after its start; host B then imports the second rotation.
 ON=a
 rota_open() { # rota_open: a run of the rota discipline on host A, its session in S
-    printf '["--discipline", "rota", "--host", "acme/widgets"]' > "$T/args.json"
+    printf '["--discipline", "rota", "--host", "acme/widgets", "--role", "manager"]' > "$T/args.json"
     S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
     [ -n "$S" ]
 }
 rota_open || bad "the first rotation's run opens" "$(cat "$T/open.err")"
 R1=$S
 eq "the first rotation stops at record_open" record_open "$(at)"
-run state-open.sh --start "$(date -u +%Y-%m-%d)" --end "$(date -u +%Y-%m-%d)" > /dev/null 2> "$T/w.err"
+run state-open.sh --role manager --start "$(date -u +%Y-%m-%d)" --end "$(date -u +%Y-%m-%d)" > /dev/null 2> "$T/w.err"
 eq "  ... opens in its session" 0 $?
 eq "  ... and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 jq -n '{hold: "after-cutover", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-10-01T10:00Z", lifted: ""}' > "$T/rhold.json"
@@ -437,7 +449,7 @@ rota_open || bad "the second rotation's run opens" "$(cat "$T/open.err")"
 R2=$S
 [ "$R2" != "$R1" ] && ok "the next start opens the second rotation" || bad "the next start opens the second rotation" "$R2"
 eq "  ... whose find reads the predecessor" predecessor_carry "$(at)"
-run state-open.sh --carry > "$T/rcarry.out" 2> "$T/w.err"; eq "  ... and carries it" 0 $?
+run state-open.sh --carry --role manager > "$T/rcarry.out" 2> "$T/w.err"; eq "  ... and carries it" 0 $?
 eq "  ... reporting the hold and the go-ahead" "after-cutover|go-ahead:the human" \
     "$(host_on a koto context get "$R2" coord/predecessor_carry.json | jq -r '"\([.holds[].hold] | join(" "))|\([.standing[] | "\(.kind):\(.owner)"] | join(" "))"')"
 eq "  ... and reaches reconcile" reconcile "$(at --with-data '{"carry":"carried"}')"

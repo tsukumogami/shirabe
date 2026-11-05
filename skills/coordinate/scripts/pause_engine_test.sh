@@ -79,6 +79,7 @@ RECORD=$(record_json roadmap pause | jq -c --argjson a "$A" --argjson b "$B" '
               {key: "cap", value: "5", set_by: "the human", set: "2026-10-07T10:00Z"},
               {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
               {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"},
+              {key: "role", value: "manager", set_by: "start --role", set: "2026-10-07T10:00Z"},
               {key: "told", value: "lane-a", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
               {key: "told", value: "lane-b", set_by: "lane-coord", set: "2026-10-07T10:00Z"}]
     | .work = [{item: "Feature 1", kind: "holding", who: "lane-a", next: "scoping, then its execution", updated: "2026-10-07T10:00Z"},
@@ -86,7 +87,7 @@ RECORD=$(record_json roadmap pause | jq -c --argjson a "$A" --argjson b "$B" '
 # open_run: a start from coordinate-open.sh; sets S, and OPEN_OUT to the
 # opener's output.
 open_run() {
-    printf '["%s"]' "$RM" > "$T/args.json"
+    printf '["%s","--role","manager"]' "$RM" > "$T/args.json"
     OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ] || { bad "the run opens" "$(cat "$T/open.err")"; done_tests pause-engine; exit 1; }

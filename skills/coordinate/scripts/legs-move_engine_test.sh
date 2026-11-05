@@ -158,12 +158,12 @@ if ! koto_store_ready; then
     done_tests legs-move-engine
     exit $?
 fi
-printf '["docs/roadmaps/ROADMAP-legs.md"]' > "$T/args.json"
+printf '["docs/roadmaps/ROADMAP-legs.md","--role","manager"]' > "$T/args.json"
 S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
 [ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests legs-move-engine; exit 1; }
 ok "host A's run opens"
 eq "with no record it stops at record_open" record_open "$(at)"
-run state-open.sh >/dev/null 2>"$T/w.err"; eq "the record opens in the run's session" 0 $?
+run state-open.sh --role manager >/dev/null 2>"$T/w.err"; eq "the record opens in the run's session" 0 $?
 eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 
 # leg <topic>: a request on A's store with one deliver leg pinning TOPIC, as
