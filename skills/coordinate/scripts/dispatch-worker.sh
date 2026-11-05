@@ -36,6 +36,25 @@
 #                      written into the input as reports_to, the address
 #                      every brief tells its worker to report to; none
 #                      exits 1 with nothing written
+#   the record's Run   its `role` row, for a successor: a coordinate brief
+#   `role`             whose positional names this run's own roadmap. The
+#                      input's `role` is written over (input_role): the row
+#                      for a successor (none exits 1, naming the command that
+#                      sets it), manager for a lane on a new dispatch,
+#                      nothing for a worker or a --rebrief of a held lane, so
+#                      the invocation line carries `--role` only when this
+#                      script set it. `held_rerender` and `role_change_by`
+#                      are deleted from every input: only this script writes
+#                      them (docs/designs/DESIGN-coordinator-named-roles.md,
+#                      Decision 2). niwa dispatch is passed no --role of its
+#                      own: the role travels in the prompt's invocation
+#   role_change        --rebrief of a held coordinate lane only: the new role,
+#                      manager or director, rendered as `--role <new>
+#                      --role-change-by <the record's coordinator address>
+#                      --role-change-source dispatcher` (PRD R5). Refused,
+#                      exit 1 with nothing written, on a new dispatch, a
+#                      successor, --releg, a worker holding, or any other
+#                      value
 #   --session          the coordinator run itself, written into the input as
 #                      dispatcher_session, over any value the input gave: the
 #                      run a leg names as its requester, and the run a
@@ -147,7 +166,12 @@
 # which the report just used, so the holding moves to the message path (its
 # spent request is abandoned) and its `dispatched` date, which records when
 # the worker was last briefed, is updated. The coordinator then sends the
-# worker a message pointing at the brief.
+# worker a message pointing at the brief. A held coordinate lane's re-brief
+# carries no --role, since it isn't a new dispatch: the lane continues the
+# role its record holds, so a plain re-brief never undoes a change. Its
+# opener line tells it to write the invocation's tokens into a fresh args
+# file first, and only an input's role_change puts a role, with the change
+# flags, on its invocation line.
 #
 # send_execution. A topic held `dispatched` at phase `scoping-ahead`, reached
 # from a pick whose choice is send_execution for that topic (the latest
@@ -218,7 +242,8 @@
 # Exit codes:
 #   0  dispatched, confirmed, already dispatched, re-briefed, a leg
 #      replaced (--releg), or an execution sent
-#   1  brief refused, a send_execution brief input that isn't the
+#   1  brief refused, a role_change refused, a successor brief whose run
+#      records no role, a send_execution brief input that isn't the
 #      execution's, or a /shirabe:deliver or /shirabe:scope brief for a unit
 #      whose scoping landed (pick's follow_up); nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
@@ -335,6 +360,72 @@ read_inputs() {
     # rendered the new brief, whatever an older input said. A new leg's
     # --requested-by is read from the same field, so it names this run too.
     jq --arg a "$ADDRESS" --arg s "$SESSION" '.reports_to = $a | .dispatcher_session = $s' "$INPUT" >"$WORK/in.json" \
+        && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+    input_role
+}
+
+# input_role: the role of the coordinator a brief starts, written into the
+# input as `role` over anything it gave, before resolve_grant
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 2). The render
+# fields `held_rerender` and `role_change_by` are this script's alone, so
+# they are deleted from every input first. Then:
+#   - an entry point other than coordinate: `role` is deleted, so a worker
+#     brief has no role line;
+#   - coordinate, the positional naming this run's own roadmap (its scope
+#     slug, from coord-log.sh slug as the opener derives it, equal to the one
+#     this run's session name carries): a successor, whose role is the
+#     record's Run `role` row; with no row the dispatch is refused (exit 1),
+#     naming the command that sets it;
+#   - coordinate, any other roadmap, on a new dispatch: a lane, `manager`;
+#   - --rebrief and --releg: deleted here and settled again from the holding
+#     row's entry point, in the jq that builds the re-render's input.
+# The input's `role_change` (a --rebrief of a held coordinate lane only) is
+# refused here on a new dispatch, a successor, a --releg, or with a value
+# other than manager or director; on a worker holding the --rebrief refuses
+# it. Each refusal exits 1 before anything is written or launched.
+input_role() {
+    local ep pos name slug run_slug own=0 change role
+    ep=$(jq -r '.entry_point // "" | strings' "$INPUT") || die 2 "jq failed"
+    pos=$(jq -r '(.entry_args // [])[0] // "" | strings' "$INPUT") || die 2 "jq failed"
+    if run_slug=$(dc_scope_slug "$SESSION") && [ -n "$pos" ]; then
+        name=$(basename -- "$pos" .md)
+        name=${name#ROADMAP-}
+        slug=$(bash "$HERE/coord-log.sh" slug --scope roadmap --name "$name") || die 2 "cannot derive the scope slug of $pos"
+        [ "$slug" = "$run_slug" ] && own=1
+    fi
+    if jq -e 'has("role_change")' "$INPUT" >/dev/null; then
+        change=$(jq -r '.role_change | tojson | .[0:60]' "$INPUT")
+        if ! jq -e '.role_change | IN("manager", "director")' "$INPUT" >/dev/null; then
+            printf '%s: refused: role_change: manager or director, not %s\n' "$PROG" "$change" >&2
+            exit 1
+        elif [ "$RELEG" = 1 ]; then
+            printf '%s: refused: role_change: %s goes only on a --rebrief of a held coordinate lane, never with --releg, which no coordinate holding reaches\n' "$PROG" "$change" >&2
+            exit 1
+        elif [ "$REBRIEF" != 1 ]; then
+            printf '%s: refused: role_change: %s on a new dispatch, which starts a lane as a manager; a change goes on a --rebrief of the held lane\n' "$PROG" "$change" >&2
+            exit 1
+        elif [ "$own" = 1 ]; then
+            printf "%s: refused: role_change: %s on a brief whose positional names this run's own roadmap, a successor's, and a predecessor isn't above its successor\n" "$PROG" "$change" >&2
+            exit 1
+        fi
+    fi
+    if [ "$REBRIEF" = 1 ] || [ "$RELEG" = 1 ]; then
+        jq 'del(.role, .held_rerender, .role_change_by)' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+        return 0
+    fi
+    if [ "$ep" != coordinate ]; then
+        role=""
+    elif [ "$own" = 1 ]; then
+        role=$(jq -r '[(.run // [])[] | select(.key == "role") | .value][0] // empty | strings' "$WORK/state.json") ||
+            die 2 "the record's Run section is not state-stored-set.sh's JSON"
+        if [ -z "$role" ]; then
+            printf "%s: refused: role: this brief starts a successor of this run, whose role is the record's Run role row, and the record has none; set it with state-stored-set.sh --session %s --run role <manager|director> --by <who named it>\n" "$PROG" "$SESSION" >&2
+            exit 1
+        fi
+    else
+        role=manager
+    fi
+    jq --arg r "$role" 'del(.role, .held_rerender, .role_change_by, .role_change) | if $r == "" then . else .role = $r end' "$INPUT" >"$WORK/in.json" \
         && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 }
 
@@ -941,8 +1032,10 @@ if [ "$RELEG" = 1 ]; then
         succeeded) die 9 "the leg $OLD_RP of $TOPIC was resolved as a success: the work was done, so its leg isn't spent early" ;;
     esac
     # Entry point, repository and flags from the holding, as for --rebrief.
+    # Only a worker holding with a leg gets here, so no role field renders.
     jq --argjson row "$ROW" '.repo = $row.repo | .entry_point = $row.entry_point
-        | .run_mode = $row.mode | .entry_args = [.entry_args[0]]' "$INPUT" >"$WORK/releg.json" ||
+        | .run_mode = $row.mode | .entry_args = [.entry_args[0]]
+        | del(.role, .role_change_by, .held_rerender, .role_change)' "$INPUT" >"$WORK/releg.json" ||
         die 2 "cannot build the re-bound brief input"
     rebind "$WORK/releg.json" "the leg $OLD_RP of $TOPIC was spent before the worker reported; it is replaced" \
         '.return_path = $rp | .dispatched = $d' yes
@@ -957,8 +1050,28 @@ if [ "$REBRIEF" = 1 ]; then
     # the brief input: a report is text the worker wrote.
     # Flags too: the holding's mode is the flags the worker was launched with,
     # and they become the re-brief's run mode, whatever the brief input says.
-    jq --argjson row "$ROW" '.repo = $row.repo | .entry_point = $row.entry_point
-        | .run_mode = $row.mode | .entry_args = [.entry_args[0]]' "$INPUT" >"$WORK/rebrief.json" ||
+    # The role fields are settled from the row's entry point
+    # (docs/designs/DESIGN-coordinator-named-roles.md, Decision 2): a held
+    # coordinate lane is re-rendered with held_rerender and no role, so its
+    # invocation carries no --role and its next start continues the role
+    # its record holds, unless the input has role_change, which renders
+    # --role <new> with --role-change-by this run's own address (the
+    # reports_to above, never the input's) and --role-change-source
+    # dispatcher (PRD R5). Any other entry point renders as it always has,
+    # and refuses role_change.
+    if [ "$(printf '%s' "$ROW" | jq -r '.entry_point // "" | strings | ltrimstr("/shirabe:")')" != coordinate ] &&
+        jq -e 'has("role_change")' "$INPUT" >/dev/null; then
+        printf '%s: refused: role_change: only a held coordinate lane takes it, and %s is held on /shirabe:%s\n' "$PROG" "$TOPIC" \
+            "$(printf '%s' "$ROW" | jq -r '.entry_point // "" | strings')" >&2
+        exit 1
+    fi
+    jq --argjson row "$ROW" --arg a "$ADDRESS" '.repo = $row.repo | .entry_point = $row.entry_point
+        | .run_mode = $row.mode | .entry_args = [.entry_args[0]]
+        | if ($row.entry_point // "" | ltrimstr("/shirabe:")) == "coordinate" then
+            del(.role, .role_change_by) | .held_rerender = true
+            | if has("role_change") then .role = .role_change | .role_change_by = $a else . end
+          else del(.role, .role_change_by, .held_rerender) end
+        | del(.role_change)' "$INPUT" >"$WORK/rebrief.json" ||
         die 2 "cannot build the re-brief input"
     # A worker's leg carries one result, and the fix comes after it, so a
     # re-briefed worker reports by message: the holding moves to the message

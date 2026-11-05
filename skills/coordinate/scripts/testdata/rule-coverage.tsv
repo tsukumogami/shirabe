@@ -269,3 +269,8 @@ S30	skills/coordinate/koto-templates/coordinate.md	reconcile	<the dispatcher's n
 S31	skills/coordinate/koto-templates/coordinate.md	reconcile	never a bare name
 S32	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	When the opener also printed `role_change_by=`
 S33	skills/coordinate/koto-templates/coordinate.md	record_open	passing the `role=` value the opener printed as `--role`
+S34	skills/coordinate/koto-templates/coordinate.md	rebrief	the brief input as `role_change`
+S35	skills/coordinate/koto-templates/coordinate.md	rebrief	it rides the manager's next report
+S36	skills/coordinate/koto-templates/coordinate.md	rebrief	hand-made start can make it
+S37	skills/coordinate/koto-templates/coordinate.md	rebrief	a new dispatch renders `--role manager`
+S38	skills/coordinate/koto-templates/coordinate.md	rebrief	renders no `--role`, so it never undoes a change

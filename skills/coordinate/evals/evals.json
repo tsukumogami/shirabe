@@ -869,6 +869,43 @@
       "requirements": [
         "R5"
       ]
+    },
+    {
+      "id": 46,
+      "name": "a-director-dispatches-a-lane-as-a-manager",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets; your run is recorded director. Feature 4 is its own roadmap, docs/roadmaps/ROADMAP-plugin-registry.md, and pick chose to dispatch it under the topic plugin-registry to a coordinator that runs that roadmap's units. Walk through the brief input you write and what the rendered brief's invocation line and the dispatch prompt carry.",
+      "expected_output": "The coordinator writes a brief input with entry point coordinate and the lane's roadmap path as its one positional, and leaves the role out: dispatch-worker.sh writes it, and for a roadmap other than this run's own it writes manager on every new dispatch, whatever the input says or the dispatching run's own role. The Goal names the concrete scope (the registry roadmap and its units) and doesn't say what a manager owes or call the recipient by any role; it may name this director as the reviewer the manager reports to. The rendered Goal's invocation line reads Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager` in acme/widgets., the brief's one role line, and the niwa dispatch prompt carries the same invocation. No --role goes to niwa dispatch as a flag of its own.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The brief input has entry point coordinate, the lane's roadmap path as its positional, and no role field written by hand",
+        "The rendered invocation line is `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager`, the brief's one role line",
+        "The dispatch prompt carries the same invocation, and no --role is passed to niwa dispatch as its own flag",
+        "The Goal names the registry roadmap's scope and work, makes no general statement of a role's duties, and names no role for the coordinator it starts"
+      ],
+      "requirements": [
+        "R7"
+      ]
+    },
+    {
+      "id": 47,
+      "name": "a-successor-started-from-its-brief-passes-the-briefs-role",
+      "prompt": "You were dispatched with a brief whose Goal says: Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director` in acme/widgets. Its opener line reads `\"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"${CLAUDE_PLUGIN_ROOT}\" --dispatched-by coordinate-roadmap-plugin-system-20261101T090000Z \"$ARGS_DIR/args.json\"`. The brief's Goal also describes the roadmap's remaining features and says you take over from the run that sent it. Say how you start, what role you pass, and what your first report names as your role.",
+      "expected_output": "The coordinator writes the invocation's tokens, in order, into $ARGS_DIR/args.json: the roadmap path, --role and director. It then runs the opener line exactly as the brief renders it, with --dispatched-by naming its predecessor, and passes the role the invocation line names, director, inferring none from the Goal's prose, the scope, the grant or anything else. The opener takes the predecessor's run over and prints role=director, and the successor's record holds director. Its first report's record line names its role as director, the role its brief's line named, with no other word for it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The args file holds the invocation's tokens in order, --role director among them",
+        "The opener is run as the brief's opener line renders it, --dispatched-by naming the predecessor",
+        "The role passed is the one the invocation line names, director, and none is inferred from the Goal or anything else",
+        "The first report names the role director, matching the brief's role line"
+      ],
+      "requirements": [
+        "R7",
+        "R8"
+      ]
     }
   ]
 }

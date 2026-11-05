@@ -14,12 +14,20 @@
 #
 #   dc_invocation <brief-input-file> [<return-path>]
 #       Prints the worker's invocation: `/shirabe:<entry> <positional>
-#       <run_mode flags> <entry_args flags>`, then `--review-floor=<x>` and
+#       [--role <role>] [--role-change-by <role_change_by>
+#       --role-change-source dispatcher] <run_mode flags> <entry_args
+#       flags>`, then `--review-floor=<x>` and
 #       `--review-ceiling=<y>` from the input's `review_level` when it gives
 #       them, then `--koto-leg=<return-path>` when a return path other than
 #       `message` is given. The one place the invocation is built: the brief
 #       shows it, the dispatch prompt carries it, and the holding's mode is
 #       the run_mode and entry_args part of it, so the three can't disagree.
+#       `--role` comes from the input's `role` and the two change flags from
+#       its `role_change_by`, render fields only dispatch-worker.sh writes
+#       on a coordinate brief (docs/designs/DESIGN-coordinator-named-roles.md,
+#       Decision 2), so the invocation line is a coordinator brief's one role
+#       line and the dispatch prompt carries the same setting. Neither is in
+#       the holding's mode.
 #
 #   dc_opener <brief-input-file>
 #       Prints, tab-separated, how a message-path worker records the
@@ -390,7 +398,10 @@ dc_invocation() {
              ([ (.review_level.floor // empty | strings | "--review-floor=" + .),
                 (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) ])
            else [] end) as $bound
-        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] + $bound | join(" "))' "$1") || return 2
+        | (if (.role | type) == "string" and .role != "" then ["--role", .role] else [] end) as $role
+        | (if (.role_change_by | type) == "string" and .role_change_by != ""
+             then ["--role-change-by", .role_change_by, "--role-change-source", "dispatcher"] else [] end) as $change
+        | "/shirabe:" + .entry_point + " " + ([$pos] + $role + $change + $t[1:] + $bound | join(" "))' "$1") || return 2
     case "${2:-message}" in
         message) ;;
         *) inv="$inv --koto-leg=$2" ;;
