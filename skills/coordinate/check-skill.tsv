@@ -143,3 +143,4 @@ cost	standing-counts_engine_test.sh	31
 cost	rule-files_engine_test.sh	31
 cost	rule-files_test.sh	1
 cost	alignment-call_test.sh	12
+cost	alignment-sources_test.sh	11
