@@ -1310,6 +1310,90 @@ run --deferral-record --owned $OWNED_ARGS
 [ "$RC" -eq 2 ] && pass "--deferral-record: --owned with no --reason is a usage error (2)" \
     || fail "--deferral-record: --owned without a reason rc $RC"
 
+# --- --deferral-record --public-reason: a public wording in place of the reasons (#1537)
+
+PREASON="The change was verified by the hosted CI run on this pull request."
+public_body() {
+    # public_body <local line> <reason lines> <record line>: an owned PR's body.
+    pr_json "feat: a deferred node change" "A change.
+
+---
+
+## Verification
+
+$1
+$2
+$3"
+}
+FAKE_GH_OWNED_JSON=$(public_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $PREASON" "Hosted CI is the build of record for this change.")
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --reason "$DREASON2" --public-reason "$PREASON" --body --owned $OWNED_ARGS
+[ "$RC" -eq 0 ] && pass "--deferral-record --public-reason: the public wording's line stands in for the verbatim ones (0)" \
+    || fail "--deferral-record --public-reason: public line rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --reason "$DREASON2" --body --owned $OWNED_ARGS
+[ "$RC" -eq 1 ] && pass "--deferral-record: without --public-reason the public wording's line is not enough (1)" \
+    || fail "--deferral-record: public line without the flag rc $RC"
+
+FAKE_GH_OWNED_JSON=$(public_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $DREASON
+Reason: $DREASON2" "Hosted CI is the build of record for this change.")
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --reason "$DREASON2" --public-reason "$PREASON" --body --owned $OWNED_ARGS
+[ "$RC" -eq 0 ] && pass "--deferral-record --public-reason: the verbatim lines still pass (0)" \
+    || fail "--deferral-record --public-reason: verbatim lines rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+
+FAKE_GH_OWNED_JSON=$(public_body "Local verification did not run: it was deferred to hosted CI." \
+    "" "Hosted CI is the build of record for this change.")
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --public-reason "$PREASON" --body --owned $OWNED_ARGS
+if [ "$RC" -eq 1 ] && grep -qF "public wording either: Reason: $PREASON" "$WORKDIR/stderr" \
+    && grep -qF "exactly: Reason: $DREASON" "$WORKDIR/stderr"; then
+    pass "--deferral-record --public-reason: a body with no Reason line fails (1), naming the verbatim and the public line"
+else
+    fail "--deferral-record --public-reason: no Reason line rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+FAKE_GH_OWNED_JSON=$(public_body "Tests were skipped." \
+    "Reason: $PREASON" "Hosted CI is the build of record for this change.")
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --public-reason "$PREASON" --body --owned $OWNED_ARGS
+if [ "$RC" -eq 1 ] && grep -qF 'local verification did not run' "$WORKDIR/stderr"; then
+    pass "--deferral-record --public-reason: the public line doesn't excuse the local-verification line (1)"
+else
+    fail "--deferral-record --public-reason: no local line rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+FAKE_GH_OWNED_JSON=$(public_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $PREASON Also, more." "Hosted CI is the build of record for this change.")
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --public-reason "$PREASON" --body --owned $OWNED_ARGS
+[ "$RC" -eq 1 ] && pass "--deferral-record --public-reason: the wording only inside a longer line fails (1)" \
+    || fail "--deferral-record --public-reason: wording inside a longer line rc $RC"
+
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --public-reason "" --body --owned $OWNED_ARGS
+[ "$RC" -eq 2 ] && pass "--deferral-record: an empty --public-reason can't be decided (2)" \
+    || fail "--deferral-record: empty --public-reason rc $RC"
+# shellcheck disable=SC2086
+run --deferral-record --reason "$DREASON" --public-reason "$PREASON
+Hosted CI is the build of record for this change." --body --owned $OWNED_ARGS
+[ "$RC" -eq 2 ] && pass "--deferral-record: a --public-reason over two lines can't be decided (2)" \
+    || fail "--deferral-record: two-line --public-reason rc $RC"
+for blank in " " "   " "$(printf '\t')"; do
+    # shellcheck disable=SC2086
+    run --deferral-record --reason "$DREASON" --public-reason "$blank" --body --owned $OWNED_ARGS
+    [ "$RC" -eq 2 ] && pass "--deferral-record: a --public-reason of spaces alone can't be decided (2)" \
+        || fail "--deferral-record: blank --public-reason [$blank] rc $RC"
+done
+run --deferral-record --reason "$DREASON" --public-reason
+[ "$RC" -eq 2 ] && pass "--deferral-record: a --public-reason with no value is a usage error (2)" \
+    || fail "--deferral-record: dangling --public-reason rc $RC"
+run --deferral-record --public-reason "$PREASON" --reason "$DREASON"
+[ "$RC" -eq 2 ] && pass "--deferral-record: --public-reason before the --reasons is a usage error (2)" \
+    || fail "--deferral-record: --public-reason first rc $RC"
+
 # --- workflow content: the default omits it, a repository opts in (#1114) ------
 
 cd "$WORKDIR/omit-repo" || exit 2

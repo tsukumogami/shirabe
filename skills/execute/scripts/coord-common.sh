@@ -541,11 +541,17 @@ cc_pr_node() {
 # so this is a node left open with its PLAN missing, which must not be read as
 # having no deferral.
 #
+# The record's `public_reason`, when node-push.sh wrote one, is the deferral
+# worded for a public reader; it goes to shared-deferral-record.sh as
+# --public-reason, so a body whose one Reason line reads exactly that wording
+# records the deferral in place of the verbatim reasons. A record without it
+# is checked as before.
+#
 # Called from cc_pr_node, in coord_compute's scope. Returns 1 once it has set
 # CC_ACTION: error:execute:deferral-record when the body misses a part,
 # error:execute:status-read when it can't be decided.
 cc_deferral_record() {
-    local item rc err args has recorded
+    local item rc err args has recorded public
     args=(--session "$CC_SESSION" --verification "")
     has=$(printf '%s' "$5" | jq -r 'has("deferrals")') || has=""
     case "$has" in
@@ -564,6 +570,10 @@ cc_deferral_record() {
     while IFS= read -r item; do
         args+=(--recorded "$item")
     done <<< "$recorded"
+    # run-record.sh holds the wording to one line with more than spaces.
+    public=$(printf '%s' "$5" | jq -r '.public_reason // ""') \
+        || { CC_ACTION="error:execute:status-read"; return 1; }
+    [ -z "$public" ] || args+=(--public-reason "$public")
     # --body: a node PR's body carries the record whatever the repository's
     # PR Workflow Content setting.
     args+=(--body -- --repo "$3" --head "$4" --state open)
