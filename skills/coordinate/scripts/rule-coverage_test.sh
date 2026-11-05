@@ -36,9 +36,11 @@ MTOTAL=20
 # the session (docs/designs/current/DESIGN-coordinator-record-teardown.md,
 # Decision 3, from S20), and the run's role as the record_open,
 # predecessor_carry and reconcile directives state it
-# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1, from S25):
-# S1..S$STOTAL.
-STOTAL=33
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1, from S25), and
+# the record line every report starts with, the reconcile directive closing
+# the gaps before the first report and SKILL.md's Reporting (Decision 3, from
+# S34): S1..S$STOTAL.
+STOTAL=38
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
