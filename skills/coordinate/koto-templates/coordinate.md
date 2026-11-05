@@ -3529,6 +3529,17 @@ moves a leg-bound worker to the message path, so its report can come back by
 message. A re-brief for a fix while its unit is paused is sent the same way,
 with its message saying the fix starts at the resume.
 
+A role change for the manager whose report the director is handling goes in
+the brief input as `role_change` (`manager` or `director`): the script
+renders `--role <new> --role-change-by <this run's address>
+--role-change-source dispatcher` on the re-rendered invocation line, which
+the manager's opener accepts as a change from above. A role change alone
+never sends a report here: it rides the manager's next report that takes
+one of the routes into this state, or the director asks a person, whose
+hand-made start can make it. Stopping the lane and dispatching a new one
+can't: a new dispatch renders `--role manager`. A re-brief without
+`role_change` renders no `--role`, so it never undoes a change.
+
 <!-- details -->
 
 The re-brief is for the worker in `report_topic`. Its repository, entry point

@@ -96,6 +96,37 @@
 #                                 to say; the line adds no ban of its own.
 #                                 Absent, the brief
 #                                 is what it was before the field existed.
+#   role                coordinate only, written by dispatch-worker.sh and
+#                                 never by hand: manager or director, the
+#                                 role of the coordinator the brief starts
+#                                 (docs/designs/DESIGN-coordinator-named-roles.md,
+#                                 Decision 2). dispatch-common.sh dc_invocation
+#                                 renders it as `--role <role>` after the
+#                                 positional, so the Goal's invocation line is
+#                                 the brief's one role line and the dispatch
+#                                 prompt carries the same setting: a
+#                                 successor's comes from the record's Run
+#                                 `role` row, a lane's is manager. Required on
+#                                 a coordinate brief unless held_rerender is
+#                                 true; refused on every other entry point,
+#                                 so a worker brief has no role line
+#   held_rerender       coordinate only, written by dispatch-worker.sh: true
+#                                 on a re-brief of a held coordinate lane,
+#                                 which renders no `--role` unless
+#                                 role_change_by is set (the lane keeps its
+#                                 recorded role), and whose opener line says
+#                                 to write the invocation's tokens into a
+#                                 fresh args file first
+#   role_change_by      coordinate only, written by dispatch-worker.sh on a
+#                                 --rebrief whose input has role_change: the
+#                                 dispatching run's own address, equal to
+#                                 reports_to. dc_invocation adds
+#                                 `--role-change-by <it> --role-change-source
+#                                 dispatcher` after `--role`. Refused without
+#                                 role and held_rerender, and when it is
+#                                 longer than 80 characters (the opener's
+#                                 limit for --role-change-by) or isn't
+#                                 reports_to
 #   launch              optional  how niwa dispatch launches the worker, an
 #                                 object with one or more of: model, one of
 #                                 balanced, fast or powerful (niwa's
@@ -219,6 +250,7 @@ JQ_CHECKS='
 def str($k): (.[$k] | type == "string") and ((.[$k] // "") | test("\\S"));
 def oneline($s): ($s | test("[\\r\\n]") | not);
 def strs($k): (.[$k] | type == "array") and all(.[$k][]; type == "string" and test("\\S"));
+def shown($v): $v | tojson | .[0:60];
 def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 . as $in | (
 ( ["topic","repo","unit","entry_point","phase","authority","goal","dispatcher_session","reports_to"][]
@@ -297,6 +329,29 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
             then "launch: accept_session_messages must be true or false" else empty end )
         end )
   else empty end ),
+( (.entry_point // "" | strings) as $ep
+  | if $ep == "coordinate" then
+    ( if has("held_rerender") and .held_rerender != true
+      then "held_rerender: true or absent, never \(shown(.held_rerender))" else empty end ),
+    ( if has("role") then
+        ( if (.role | type) == "string" and (.role | IN("manager", "director")) then empty
+          else "role: must be manager or director, not \(shown(.role))" end )
+      elif .held_rerender == true then empty
+      else "role: required on a coordinate brief, manager or director, and missing (dispatch-worker.sh writes it)" end ),
+    ( if has("role_change_by") then
+        ( if (has("role") | not) or .held_rerender != true
+          then "role_change_by: only with role on a held_rerender coordinate brief, not \(shown(.role_change_by))"
+          elif (.role_change_by | type) != "string" or (.role_change_by | length) == 0 or (.role_change_by | length) > 80
+               or (.role_change_by | test("^[A-Za-z0-9][A-Za-z0-9_.-]*$") | not)
+          then "role_change_by: one address of 1 to 80 characters, letters, digits, dots, dashes and underscores (the opener'"'"'s --role-change-by limit), not \(shown(.role_change_by))"
+          elif .role_change_by != .reports_to
+          then "role_change_by: must be reports_to, the dispatching run'"'"'s own address, not \(shown(.role_change_by))"
+          else empty end )
+      else empty end )
+  else
+    ( ["role", "held_rerender", "role_change_by"][] as $k | select($in | has($k))
+      | "\($k): only on a coordinate brief, not on \($ep): \(shown($in[$k]))" )
+  end ),
 ( if ([.. | strings | select(uuid)] | length) > 0 then "input: a value carries a UUID-shaped token; a session id never goes in a brief" else empty end )
 )
 '
@@ -320,6 +375,8 @@ if [ -n "$ENTRY" ]; then
             case "$flag" in
                 --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*)
                     refuse "$field: ${flag%%=*} goes in review_level, not in $field" ;;
+                --role | --role=* | --role-change-by | --role-change-by=* | --role-change-source | --role-change-source=*)
+                    refuse "$field: ${flag%%=*} is written from the role field by dispatch-worker.sh, never given in $field" ;;
             esac
         done <<EOF
 $(jq -r '(if (.entry_args | type) == "array" then .entry_args[1:][] | strings | ["entry_args", .] else empty end),
@@ -335,14 +392,14 @@ $(jq -r 'if (.review_level | type) == "object" then
 EOF
         while IFS= read -r flag; do
             [ -n "$flag" ] || continue
-            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*) continue ;; esac
+            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=* | --role | --role=* | --role-change-*) continue ;; esac
             dc_flag_allowed "$ENTRY" "$flag" || refuse "entry_args: $ENTRY doesn't allow $flag"
         done <<EOF
 $(jq -r 'if (.entry_args | type) == "array" then .entry_args[1:][] | strings else empty end' "$INPUT")
 EOF
         while IFS= read -r flag; do
             [ -n "$flag" ] || continue
-            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*) continue ;; esac
+            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=* | --role | --role=* | --role-change-*) continue ;; esac
             dc_flag_allowed "$ENTRY" "$flag" || refuse "run_mode: $ENTRY doesn't allow $flag"
         done <<EOF
 $(jq -r '.run_mode // "" | strings | split(" ")[] | select(. != "")' "$INPUT")
@@ -460,7 +517,11 @@ fi
 
 JQ_RENDER='
 def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n")) else $none end;
-[
+# A coordinate brief says "commit" where a worker brief says "head", so the
+# only capitalised HEAD a reader meets in it is git'"'"'s ref (PRD R7'"'"'s grep);
+# a worker brief keeps its wording, and its golden files.
+(if .entry_point == "coordinate" then "commit" else "head" end) as $at
+| [
   "# Brief: \(.topic)",
   "",
   "## Goal",
@@ -469,7 +530,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   ( if (.grant | type) == "array" then
       ( if (.grant | length) > 0
-        then "Named authority: you hold \(.grant | join(", ")) and nothing else. Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator'"'"'s own message clears that pull request at a head it names, and merge it pinned to that head. A merge, close or release that needs an authority you don'"'"'t hold isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way."
+        then "Named authority: you hold \(.grant | join(", ")) and nothing else. Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator'"'"'s own message clears that pull request at a \($at) it names, and merge it pinned to that \($at). A merge, close or release that needs an authority you don'"'"'t hold isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way."
         else "Named authority: you hold no named authority. A merge, close or release isn'"'"'t yours to take: hand it back to the coordinator in a report, and don'"'"'t reach the same result another way." end ),
       ""
     else empty end ),
@@ -495,9 +556,16 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
             elif ($opener | test("<topic>")) then ", and `<topic>` the topic it derives"
             else "" end )
         + ". Run it from the directory your session is opened in."
-        + ( if $opener_kind == "open" then " If your session is already open (this brief re-briefs you), run it anyway: it attaches to that session and records the link." else "" end )
+        + ( if $opener_kind != "open" then ""
+            elif .entry_point == "coordinate" and .held_rerender == true then
+              " If your session is already open (this brief re-briefs you), write the tokens of the invocation above, everything after `/shirabe:" + .entry_point + "` in order, as a JSON array of strings into a fresh `$ARGS_DIR/args.json` first, as your first step does, since the opener removes that file once it has read it; then run it anyway: it attaches to that session and records the link."
+            else " If your session is already open (this brief re-briefs you), run it anyway: it attaches to that session and records the link." end )
         + " If it prints `warning=link-failed`, go on: your session is open, and your result carries the warning (see Reporting)." ),
-      ""
+      "",
+      ( if .entry_point == "coordinate" then
+          "When your reconcile'"'"'s handover check lists the `no-reports-to` gap, fill it with `<the dispatcher'"'"'s name> at \(.reports_to)`, the address this brief reports to, never a bare name.",
+          ""
+        else empty end )
     end ),
   ( if (.run_mode | test("\\S")) then "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for."
     else "Run mode: none; `/shirabe:\(.entry_point)` takes no execution mode." end ),
@@ -528,7 +596,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
             + ([ (.review_level.floor // empty | "floor " + .), (.review_level.ceiling // empty | "ceiling " + .) ] | join(", "))
             + "; /work-on'"'"'s choice must fall inside it." ]
         else [] end )
-    + [ "- [ ] Each pull request has your review round recorded in your /work-on run'"'"'s session with shirabe'"'"'s `skills/coordinate/scripts/review-round.sh record --session <your run> <round.json>`: one entry per seat with its Seat, Model, Run and Verdict (at least three, each with its own Seat and a Run unique to that seat'"'"'s run), every verdict pass, at the head you report ready. The land step reads it from there, through your leg or in the result block your report step prints, and runs no review of its own. It never reads a round from the pull request body, so don'"'"'t put one there." ]
+    + [ "- [ ] Each pull request has your review round recorded in your /work-on run'"'"'s session with shirabe'"'"'s `skills/coordinate/scripts/review-round.sh record --session <your run> <round.json>`: one entry per seat with its Seat, Model, Run and Verdict (at least three, each with its own Seat and a Run unique to that seat'"'"'s run), every verdict pass, at the \($at) you report ready. The land step reads it from there, through your leg or in the result block your report step prints, and runs no review of its own. It never reads a round from the pull request body, so don'"'"'t put one there." ]
     + ( if $rework == "" then []
         elif ($rework | test("^Evidence clause [0-9]+ failed: ")) then
           [ "- [ ] A failure reported after the milestone read Done sent it back; the report below names the clause. Your work makes every clause of the milestone'"'"'s Evidence hold, judged against the Evidence on the roadmap.",
