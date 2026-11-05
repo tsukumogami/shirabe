@@ -178,6 +178,60 @@ while held` and who merged it, as GitHub names them; the record step waits for
 it. The section's grammars are `scripts/state-schema.jq`'s, and the write
 core refuses any other writer's change to it.
 
+A director's `diverges` call places an `align-` hold (The alignment entry,
+under Entries), a row of the same grammar, in the director's record and,
+copied, in the manager's:
+
+```json
+{"hold": "align-<repo name>-<n>-<40-hex placed-on head>[-<k>]",
+ "on": "<owner/repo#n>", "until": "lifted",
+ "set_by": "director at <address>, receiver manager at <address>",
+ "set": "<YYYY-MM-DDTHH:MMZ>", "lifted": ""}
+```
+
+The placed-on head is the call's, and `-<k>` (from 2) is added only when the
+same head is held again after a lift. The name is also how the `diverges`
+call it was placed on is found: the reason lives in that call. Its release is
+the same for every `align-` hold: a new head that the director re-reads and
+calls `fits` or `fits with follow-ups`. `scripts/alignment-call.sh` places it
+through `state-hold.sh --add` when no unlifted `align-` hold on the pull
+request stands and the pull request hasn't merged, and prints the message the
+director sends the manager:
+
+```
+Alignment hold: <owner/repo#n> at <40-hex placed-on head>
+Row: <the hold row, one line of JSON>
+Sources: <the call's Sources>
+Reason: <the call's Reason>
+Receiver: manager at <address>
+Release: a new head that the director re-reads and calls fits or fits with follow-ups
+```
+
+The director's address is its Run `coordinator` row; the receiver is the
+Worker of the Holdings row that links the pull request, or the call's
+`--receiver`. The manager copies the hold from that message, as it arrived:
+
+```
+alignment-call.sh --session S --copy --add --message-file <the message> --event <n> --from <sender>
+```
+
+`--from` must be the address in the manager's Run `reports-to` row
+(`director at <address>`), and the message must be those six lines, its head
+40 hex, its row a hold row with `until` lifted and Lifted empty, named
+`align-<repo name>-<n>-<that head>[-<k>]` for the pull request it names, and
+set by `director at <sender>`; anything else is refused (65) with nothing
+changed. It adds the identical row through `state-hold.sh` and writes a `hold`
+entry naming event `<n>`, the sender, the reason and the release; the same
+message again changes nothing. The manager's land check then reads the hold
+from its own record and reports the pull request `held`. A successor
+director's first message to a lane names the row's current address and its
+own, in one line, `Director address: <current address> is now <new address>`;
+`--copy --reports-to`, with the same three options and `--from` the new
+address, rewrites the row through `state-stored-set.sh --run reports-to`,
+`--by` the sender, and writes a `hold` entry naming the event and both
+addresses. A message naming any other current address, and one sent to a row
+holding no address, change nothing (65).
+
 ### The stored set: Run, Standing and Work
 
 What a replacement coordinator needs to continue from the record alone, and
@@ -463,6 +517,52 @@ its account, never its only copy. GitHub limits how fast comments are
 created; at most one post per outward entry stays far inside it, and a refused post
 (exit 14, the entry written but not posted) is finished once, later, with
 `state-entry.sh --repost <n> --on <item>`, never in a loop.
+
+### The alignment entry
+
+A director's call on a lane pull request is an `alignment` entry. It stays in
+the session, yet it names its pull request with `--on`, the one kind kept in
+the session that takes it (any other exits 64 on `--on`):
+
+```
+state-entry.sh --session <session> --kind alignment --on <owner/repo#n> --text-file <file>
+```
+
+Its first line must name the `--on` pull request; the pull request must be in
+the host or a holding's repository; on a public host its text is scanned as
+any entry kept in the session is; and it is never posted, whatever the
+repository's opt-in. `--on none` and no `--on` are refused (65). The text is
+at most 16 KiB, these seven lines in this order with no blank line:
+
+```
+Alignment: <owner/repo#n> at <40-hex head> -- <fits|fits with follow-ups|diverges>
+Read: <full|one-line>
+Sources: <none | <source>; <source>; ...>
+Reason: <one line>
+Evidence: <none | <n> <met|not met>; ...>
+Follow-ups: <none | new: <title>; ...>
+Action: <merge|recommend|hold|none>
+```
+
+A source is one of `roadmap <path> at <40-hex> <unit> clause <n>`, `strategy
+<path> at <40-hex> <section heading>`, `standing s<n>`, `decision <n>` or
+`lane <holding> <owner/repo#n | path>` (another lane's open pull request, or
+the document or path its rows name). A reader splits each line once on `: `
+and a list on `; `. `state-entry.sh` refuses (65, nothing written) a missing,
+extra or reordered line; a first line whose pull request isn't `--on`; a head
+that isn't 40 hex; a value outside each line's set; `fits with follow-ups`
+with Follow-ups `none`, or another call with a follow-up; `diverges` with
+Sources `none`; `Read: one-line` with a call other than `fits`; `Action:
+hold` with a call other than `diverges`, or `diverges` with another Action.
+
+Write a call with `scripts/alignment-call.sh --session S --on <owner/repo#n>
+--text-file <file> [--receiver <address>]`, which writes the entry through
+`state-entry.sh` and, for `diverges`, places the `align-` hold and prints its
+message (The Holds section). A second `diverges` call while a director's hold
+on the pull request stands, and one on a merged pull request, write the entry
+and place no hold. The pull request's state, the director's address and the
+receiver are read before anything is written, so a call that can't place its
+hold writes nothing.
 
 ## Where State Lives
 

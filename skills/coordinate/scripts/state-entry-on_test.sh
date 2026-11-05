@@ -36,6 +36,15 @@
 # --list, with a kind that stays in the session, and `--repost --on none`.
 # The record is the session's; no record issue exists to read.
 #
+# The alignment entry's --on mode: one whose first line names another pull
+# request refused (65); one on a repository that is neither the host nor a
+# holding's refused by on_admitted (65); `--on none` refused (65); on a
+# public host, one naming a private repository refused (65); each with
+# nothing written. A well-formed one on a repository that opts in posts
+# nothing (no comment POST, no record/posted/<n>) and prints its
+# record/entries/<n> key, as does one on a holding's repository; and
+# `--kind entry --on owner/repo#n` is still a usage error (64).
+#
 # Usage: bash skills/coordinate/scripts/state-entry-on_test.sh
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
@@ -298,5 +307,36 @@ ra --list --on acme/widgets#12 >/dev/null 2>&1; eq "--on with --list is a usage 
 ra --kind entry --on acme/widgets#12 --text-file "$T/entry.txt" >/dev/null 2>&1; eq "--on with a kind that stays in the session is a usage error" 64 $?
 ra --repost 1 --on none >/dev/null 2>&1; eq "--repost --on none is a usage error" 64 $?
 eq "  ... nothing posted" 0 "$(ncomments)"
+
+echo "== an alignment entry names its pull request and is never posted =="
+seed
+opt_in
+# al <pr> [reason]: a well-formed diverges call on <pr>, in $T/al.txt.
+al() {
+    printf 'Alignment: %s at 2222222222222222222222222222222222222222 -- diverges\nRead: full\nSources: standing s1\nReason: %s\nEvidence: none\nFollow-ups: none\nAction: hold\n' \
+        "$1" "${2:-the change drops the cap the standing row sets}" > "$T/al.txt"
+}
+nposts() { grep -c 'method POST' "$GH_DB.calls"; }
+reset_calls
+al acme/widgets#8
+ra --kind alignment --on acme/widgets#12 --text-file "$T/al.txt" >/dev/null 2>"$T/err"; eq "a first line naming another pull request than --on is refused" 65 $?
+al other/place#1
+ra --kind alignment --on other/place#1 --text-file "$T/al.txt" >/dev/null 2>"$T/err"; eq "a pull request in neither the host nor a holding's repository is refused" 65 $?
+grep -q 'neither the host' "$T/err" && ok "  ... by on_admitted" || bad "  ... by on_admitted" "$(cat "$T/err")"
+al acme/widgets#12
+ra --kind alignment --on none --text-file "$T/al.txt" >/dev/null 2>"$T/err"; eq "--on none is refused for an alignment entry" 65 $?
+al acme/widgets#12 "it waits on acme/secret#3, which nobody has read"
+ra --kind alignment --on acme/widgets#12 --text-file "$T/al.txt" >/dev/null 2>"$T/err"; eq "on a public host, one naming a private repository is refused" 65 $?
+grep -q 'acme/secret' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
+eq "  ... each refusal writing nothing and posting nothing" "0 0 0" "$(nentries) $(ncomments) $(nposts)"
+al acme/widgets#12
+O=$(ra --kind alignment --on acme/widgets#12 --text-file "$T/al.txt" 2>"$T/err"); rc=$?
+eq "a well-formed one on a repository that opts in prints its entry's key" "0 record/entries/000001" "$rc $O"
+eq "  ... under its kind" alignment "$(koto context get "$SE" record/entries/000001 | jq -r .kind)"
+eq "  ... with no comment POST and no record/posted key" "0 0 none" "$(nposts) $(ncomments) $(posted 000001 || echo none)"
+al acme/gadgets#4
+O=$(ra --kind alignment --on acme/gadgets#4 --text-file "$T/al.txt" 2>"$T/err"); rc=$?
+eq "one on a holding's repository is written the same way" "0 record/entries/000002 0" "$rc $O $(nposts)"
+ra --kind entry --on acme/widgets#12 --text-file "$T/al.txt" >/dev/null 2>&1; eq "--kind entry --on owner/repo#n is still a usage error" 64 $?
 
 done_tests state-entry-on_test
