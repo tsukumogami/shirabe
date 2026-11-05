@@ -38,6 +38,9 @@
 #          --child or when it is no directory;
 #        - --recorded checks the body against the reasons given, with no
 #          koto call, and is a 2 with --child, empty, or over two lines.
+#        - --public-reason reaches check-pr-output.sh, so a body with only
+#          the public wording's line passes with --recorded and one lacking
+#          it holds, naming it; --list ignores it.
 #   2. Engine: a parent session and two children made with `koto init
 #      --parent`, one from a fixture holding work-on.md's SHIPPED
 #      verification_deferred state (extracted at run time) with
@@ -437,6 +440,46 @@ RC=$?
 expect "--recorded with an empty reason: usage" 2
 run_recorded "$(printf 'line one\nline two')"
 expect "--recorded with a reason over two lines: undecided" 2
+
+# --public-reason: the node's public wording, passed to check-pr-output.sh,
+# stands in for the recorded reasons' lines; --list ignores it.
+PUBLIC="The change was verified by the hosted CI run on this pull request."
+run_public() { # run_public <public wording> <reason>...
+    local r p=$1 args=()
+    shift
+    for r in "$@"; do args+=(--recorded "$r"); done
+    # shellcheck disable=SC2086 # OWNED_ARGS is a word list
+    (PATH="$BIN:$PATH" SDR_STUB="$STUB" CHECK_PR_OUTPUT_OWNED_PR="$BIN/owned-pr.sh" \
+        "$GATE" --session execute-x --verification "" "${args[@]}" --public-reason "$p" --body -- $OWNED_ARGS) \
+        >"$WORKDIR/out" 2>"$WORKDIR/err"
+    RC=$?
+}
+reset_stub
+body "$PUBLIC"
+run_public "$PUBLIC" "$REASON" "$REASON2"
+expect "--public-reason: a body with only the public wording's line passes with --recorded" 0
+run_recorded "$REASON" "$REASON2"
+expect "--recorded without --public-reason: the public wording's line alone holds" 1
+run_public "a wording the body lacks" "$REASON"
+if [ "$RC" -eq 1 ] && grep -qF "public wording either: Reason: a wording the body lacks" "$WORKDIR/err"; then
+    pass "--public-reason: a wording the body lacks holds (1), named on stderr"
+else
+    fail "--public-reason: wording the body lacks rc $RC, stderr [$(cat "$WORKDIR/err")]"
+fi
+run_public "$(printf 'line one\nline two')" "$REASON"
+expect "--public-reason over two lines: check-pr-output.sh's undecided" 2
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification "" \
+    --recorded "$REASON" --public-reason "" --list) >/dev/null 2>"$WORKDIR/err"
+RC=$?
+expect "--public-reason empty: usage" 2
+: > "$STUB/gh.calls"
+(PATH="$BIN:$PATH" SDR_STUB="$STUB" "$GATE" --session execute-x --verification "" \
+    --recorded "$REASON" --public-reason "$PUBLIC" --list) >"$WORKDIR/out" 2>"$WORKDIR/err"
+RC=$?
+expect "--list with --public-reason: listed" 0
+[ "$(cat "$WORKDIR/out")" = "$REASON" ] && [ "$(count gh.calls)" = 0 ] \
+    && pass "--list ignores --public-reason: prints only the reasons, no GitHub read" \
+    || fail "--list with --public-reason printed [$(cat "$WORKDIR/out")], gh calls $(count gh.calls)"
 
 reset_stub
 children execute-x.o-a

@@ -11,6 +11,7 @@
 #                     --home-repo <owner/repo> --coord-branch <branch>
 #                     --plan <path> [--remote <name>] [--run-id <id>]
 #                     [--verification <local|hosted-ci|""> [--reason <text>]]
+#                     [--public-reason <text>]
 #
 #     Run in the coordination checkout, the directory the run's session was
 #     opened in, after the node's work items committed on impl/<slug>-<node-id>
@@ -30,7 +31,8 @@
 #     recorded plan_abs), since the node branch doesn't carry it: the node
 #     must be one of its nodes, and each work item's goal comes from it.
 #     --verification and --reason are the run's VERIFICATION and
-#     VERIFICATION_DEFERRAL_REASON: see "The verification deferral" below.
+#     VERIFICATION_DEFERRAL_REASON, and --public-reason the deferral worded
+#     for a public reader: see "The verification deferral" below.
 #
 #   node-push.sh coordination --session <S> --slug <slug>
 #                             --home-repo <owner/repo> --coord-branch <branch>
@@ -110,6 +112,20 @@
 # to that wording changes the text below, and node-push_test.sh runs work-on's
 # own check over the body written here.
 #
+# A run's reason is fixed for the life of the run, and may be worded for the
+# people running it, not for a public repository's readers. --public-reason
+# <text> (one line, more than spaces) is the deferral in public terms. The
+# node's wording is that flag, else the public_reason its run record already
+# holds (run/node/<node>, written by an earlier push given the flag). When the
+# node carries a deferral and has a wording, a new node PR's section carries
+# one `Reason: <wording>` line in place of the verbatim reasons, the
+# public-content scan reads the wording in their place (they are no longer
+# published), and an adopted PR is checked with shared-deferral-record.sh
+# --public-reason, which accepts that line in place of the verbatim ones. The
+# flag is recorded as run/node/<node>'s public_reason, so a later push without
+# it, and the loop's check (coord-common.sh), use it too; a push without it
+# leaves a recorded one as it is. With no wording nothing changes.
+#
 # In order:
 #   1. check every value against its closed pattern (slug ^[a-z0-9-]+$, node
 #      id ^[a-z][a-z0-9-]*$, repositories owner/repo, issues a comma-joined
@@ -117,7 +133,8 @@
 #      plan-to-tasks.sh, refuse a PLAN that has no node named --node, and read
 #      each --issues work item's goal from the PLAN into the node's
 #      description, all before anything is pushed or edited; then collect the
-#      node's deferral reasons;
+#      node's deferral reasons, and read its run record (the PR it names and
+#      its public wording);
 #   (the order mode skips steps 2, 4, 5, 5b, and the node-branch check in 3)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
 #      one (in node mode, the worktree's), and the remote's default branch;
@@ -157,8 +174,9 @@
 #      (`run/node/<node>`), which must then be the one adopted: zero
 #      survivors, or a survivor other than the recorded PR, refuse;
 #   5b. record the pushed commit in the run record: node mode
-#      `run/node/<node>` {repo, pr, head, deferrals} (`run-record.sh push`,
-#      which keeps a recorded merged_head), deferrals being the node's
+#      `run/node/<node>` {repo, pr, head, deferrals}, with public_reason when
+#      --public-reason was given (`run-record.sh push`, which keeps a
+#      recorded merged_head and public_reason), deferrals being the node's
 #      reasons step 1 collected, `[]` when none, so the loop checks the node
 #      PR's body against them without reading a work item's session from
 #      the coordination checkout; coordination mode `run/cascade` {verdict:
@@ -209,8 +227,8 @@
 #       push and the record write, with nothing posted (the caller's
 #       execute:visibility)
 #   78  node mode: a public node under a private coordination PR whose
-#       commits, description or deferral reasons carry private-repository
-#       markers, or whose
+#       commits, description or deferral reasons (or their public wording)
+#       carry private-repository markers, or whose
 #       commits the check couldn't read; nothing was pushed or edited
 #       (execute:visibility)
 #   79  node mode: the node names a repository other than the coordination
@@ -242,7 +260,7 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: node-push.sh node --session <koto-session> --worktree <node worktree> --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>] [--verification <local|hosted-ci|\"\"> [--reason <text>]]" >&2
+    echo "usage: node-push.sh node --session <koto-session> --worktree <node worktree> --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>] [--verification <local|hosted-ci|\"\"> [--reason <text>]] [--public-reason <text>]" >&2
     echo "       (run in the coordination checkout; --worktree is the node's worktree, node-cut.sh's worktree=)" >&2
     echo "       node-push.sh coordination --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
     echo "       node-push.sh order --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--run-id <id>]" >&2
@@ -254,11 +272,11 @@ MODE="$1"; shift
 case "$MODE" in node|coordination|order) ;; *) usage_error "mode must be node, coordination, or order, got [$MODE]" ;; esac
 
 SESSION=""; SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; PLAN=""; REMOTE="origin"
-VERIFICATION=""; RUN_REASON=""; NODE_WT=""
+VERIFICATION=""; RUN_REASON=""; NODE_WT=""; PUBLIC_FLAG=""
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --session|--worktree|--slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id|--verification|--reason)
+        --session|--worktree|--slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id|--verification|--reason|--public-reason)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
@@ -276,6 +294,7 @@ while [ $# -gt 0 ]; do
                 --remote) REMOTE="$2" ;;
                 --verification) VERIFICATION="$2" ;;
                 --reason) RUN_REASON="$2" ;;
+                --public-reason) PUBLIC_FLAG="$2" ;;
             esac
             shift 2
             ;;
@@ -300,6 +319,17 @@ if [ "$MODE" = node ]; then
     case "$SEEN" in *" --plan "*) ;; *) usage_error "--plan is required in the node mode" ;; esac
     [ -f "$PLAN" ] || usage_error "--plan [$PLAN] is not a file"
     case "$VERIFICATION" in ""|local|hosted-ci) ;; *) usage_error "--verification must be local or hosted-ci, got [$VERIFICATION]" ;; esac
+    # The wording becomes a whole `Reason: ` line, matched as one, so it is
+    # held to a reason's rules: one line, more than spaces.
+    case "$SEEN" in
+        *" --public-reason "*)
+            case "$PUBLIC_FLAG" in
+                *$'\n'*|*$'\r'*) usage_error "--public-reason must be one line" ;;
+                *[![:space:]]*) ;;
+                *) usage_error "--public-reason must have more than spaces" ;;
+            esac
+            ;;
+    esac
     case "$SEEN" in *" --worktree "*) ;; *) usage_error "--worktree is required in the node mode: the node's worktree, run from the coordination checkout" ;; esac
     # The node's git work runs in its worktree (git -C), and this script's
     # koto calls in the directory it was started in, the session's own.
@@ -310,12 +340,12 @@ if [ "$MODE" = node ]; then
 elif [ "$MODE" = order ]; then
     # The merge order renders from run/setup's node list, so the order mode
     # reads no PLAN.
-    for f in --worktree --node --repo --issues --remote --plan --verification --reason; do
+    for f in --worktree --node --repo --issues --remote --plan --verification --reason --public-reason; do
         case "$SEEN" in *" $f "*) usage_error "$f does not belong to the order mode" ;; esac
     done
     GIT_WT=.
 else
-    for f in --worktree --node --repo --issues --plan --verification --reason; do
+    for f in --worktree --node --repo --issues --plan --verification --reason --public-reason; do
         case "$SEEN" in *" $f "*) usage_error "$f belongs to the node mode" ;; esac
     done
     # The coordination branch is pushed from this checkout itself.
@@ -456,6 +486,25 @@ if [ "$MODE" = node ]; then
     }
 fi
 
+# The node's run record, read before the scan and the adopted PR's check:
+# the PR it already names for this node, if any (step 5 must adopt that
+# one), and the deferral's public wording an earlier push recorded, which
+# --public-reason replaces. PUBLIC is the wording in force, used only when
+# the node carries a deferral.
+REC_PR=""
+PUBLIC=""
+if [ "$MODE" = node ]; then
+    REC_NODE=$(rr_node "$SESSION" "$NODE")
+    case $? in
+        0) REC_PR=$(printf '%s' "$REC_NODE" | jq -r '.pr // ""')
+           PUBLIC=$(printf '%s' "$REC_NODE" | jq -r '.public_reason // ""') ;;
+        1) ;;
+        *) echo "$PROG: could not read node $NODE's run record; nothing pushed" >&2; exit 72 ;;
+    esac
+    case "$SEEN" in *" --public-reason "*) PUBLIC=$PUBLIC_FLAG ;; esac
+    [ -n "$DEFERRAL" ] || PUBLIC=""
+fi
+
 # Step 2 prepares a branch to push; the order mode pushes nothing.
 if [ "$MODE" != order ]; then
     # 2. The branch: in node mode the worktree's, in the coordination mode
@@ -549,9 +598,15 @@ if [ "$MODE" = node ]; then
         fi
         grep '^+' "$SCAN_DIR/diff" | grep -v '^+++ ' >>"$SCAN_DIR/text"
         # The node PR's description comes from the same private PLAN, and a
-        # new node PR publishes it, with any deferral reason it records.
+        # new node PR publishes it, with any deferral reason it records: the
+        # public wording when the node has one, which the reasons then stay
+        # out of.
         printf '%s\n' "$NODE_DESC" >>"$SCAN_DIR/text"
-        [ -z "$DEFERRAL" ] || printf '%s\n' "$DEFERRAL" >>"$SCAN_DIR/text"
+        if [ -n "$PUBLIC" ]; then
+            printf '%s\n' "$PUBLIC" >>"$SCAN_DIR/text"
+        elif [ -n "$DEFERRAL" ]; then
+            printf '%s\n' "$DEFERRAL" >>"$SCAN_DIR/text"
+        fi
         SCAN=0
         grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCAN_DIR/text" || SCAN=$?
         rm -rf "$SCAN_DIR"
@@ -577,7 +632,6 @@ case $? in
 esac
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
 trap 'rm -rf "$WORK"' EXIT
-REC_PR=""
 if [ "$MODE" = node ]; then
     # owned-pr-callers_test.sh matches this line to check the lookup comes
     # before the push.
@@ -590,11 +644,15 @@ if [ "$MODE" = node ]; then
     # A node PR already open that carries a deferred work item gets no push
     # until its body records the deferral: the check /execute's single-pr
     # gate makes, over the same owned PR. --body: a node PR's body carries
-    # the record whatever the repository's PR Workflow Content setting.
+    # the record whatever the repository's PR Workflow Content setting. The
+    # node's public wording, when it has one, stands in for the reasons'
+    # lines.
     if [ -n "$DEFERRAL" ] && [ -n "$OWNED_NOW" ]; then
         OWNED_ARGS=(--repo "$REPO" --head "$BRANCH" --state open)
         [ -n "$COORD_RUN_ID" ] && OWNED_ARGS+=(--run-id "$COORD_RUN_ID")
-        "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${DEFERRAL_ARGS[@]}" --body -- "${OWNED_ARGS[@]}" </dev/null
+        CHECK_ARGS=("${DEFERRAL_ARGS[@]}")
+        [ -z "$PUBLIC" ] || CHECK_ARGS+=(--public-reason "$PUBLIC")
+        "$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${CHECK_ARGS[@]}" --body -- "${OWNED_ARGS[@]}" </dev/null
         case $? in
             0) ;;
             1) echo "$PROG: node $NODE carries a verification deferral that $OWNED_NOW's body doesn't record; nothing was pushed. Add the ## Verification section to its body and push again" >&2
@@ -603,13 +661,6 @@ if [ "$MODE" = node ]; then
                exit 72 ;;
         esac
     fi
-    # The PR the run record already names for this node, if any.
-    REC_NODE=$(rr_node "$SESSION" "$NODE")
-    case $? in
-        0) REC_PR=$(printf '%s' "$REC_NODE" | jq -r '.pr // ""') ;;
-        1) ;;
-        *) echo "$PROG: could not read node $NODE's run record; nothing pushed" >&2; exit 72 ;;
-    esac
 fi
 
 # 4. The push: the explicit refspec, never a force option. The order mode
@@ -702,12 +753,16 @@ if [ "$MODE" = node ]; then
                 printf '\nCoordination PR: %s\n' "$C_URL"
             fi
             # The deferral's record, in phase-6-pr.md's words, one Reason:
-            # line per reason.
+            # line per reason, or one for the node's public wording.
             if [ -n "$DEFERRAL" ]; then
                 printf '\n## Verification\n\nLocal verification did not run: it was deferred to hosted CI.\n'
-                while IFS= read -r r; do
-                    printf 'Reason: %s\n' "$r"
-                done <<<"$DEFERRAL"
+                if [ -n "$PUBLIC" ]; then
+                    printf 'Reason: %s\n' "$PUBLIC"
+                else
+                    while IFS= read -r r; do
+                        printf 'Reason: %s\n' "$r"
+                    done <<<"$DEFERRAL"
+                fi
                 printf 'Hosted CI is the build of record for this change.\n'
             fi
         } > "$WORK/node-body.md"
@@ -754,8 +809,14 @@ PR_NUM="${PR_URL##*/}"
 # post that fails after this leaves the head recorded, and a write that fails
 # here renders nothing.
 if [ "$MODE" = node ]; then
+    # public_reason only when --public-reason was given: without it the
+    # push merges, and a recorded wording stays.
+    PUB_JSON=null
+    case "$SEEN" in *" --public-reason "*) PUB_JSON=$(jq -cn --arg w "$PUBLIC_FLAG" '$w') ;; esac
     jq -cn --arg k "run/node/$NODE" --arg r "$REPO" --argjson p "$PR_NUM" --arg h "$SHA" --arg d "$DEFERRAL" \
-        '{($k): {repo: $r, pr: $p, head: $h, deferrals: ($d | split("\n") | map(select(length > 0)))}}' \
+        --argjson w "$PUB_JSON" \
+        '{($k): ({repo: $r, pr: $p, head: $h, deferrals: ($d | split("\n") | map(select(length > 0)))}
+                 + (if $w == null then {} else {public_reason: $w} end))}' \
         > "$WORK/record.json"
     RR_VERB=push
 else
