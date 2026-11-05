@@ -48,9 +48,21 @@
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
+# Environment (tests only): REPORT_FACTS_DEADLINE=<seconds>, counted from the
+# script's start, after which a pushed-head write still running is stopped.
+#
 # The record through state-holding.sh --read and --list, which share one read
 # of it (rs_once_begin), and state-holding.sh --pushed-head writes a changed
 # head into the one session key that keeps it, reading and writing no body.
+# That write's time is set by the storage backend, so it never decides the
+# verdict or the time this action takes (shirabe#1123): the verdict is written
+# and sealed first, the write then runs in its own process group, and it is
+# stopped once the action has run REPORT_FACTS_DEADLINE seconds (26 by
+# default, under koto's 30 s action limit), or skipped when about a second or
+# less is left (the clock is whole seconds). A writer whose script is killed
+# first is stopped by a watcher in its own group. A head that wasn't kept is named on stderr and tried again on the
+# holding's next visit, which compares the pull request's head with the row's
+# pushed_head again.
 # GitHub reads:
 # gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
 # koto reads: on the leg path with Pull request empty, koto request get <request>.
@@ -73,12 +85,18 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$SESSION" ] || usage
+DEADLINE=${REPORT_FACTS_DEADLINE:-26}
+[[ $DEADLINE =~ ^[0-9]+$ ]] || { echo "$PROG: REPORT_FACTS_DEADLINE is a whole number of seconds" >&2; exit 64; }
 . "$HERE/state-common.sh"
 lib_facts
 lib_log_readable || lib_die2 "no readable log for $SESSION"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
-trap 'rm -rf "$T"' EXIT
+WRITER=
+trap 'stop_writer; rm -rf "$T"' EXIT
+# A signal ends the script through the EXIT trap, so a pushed-head write still
+# running is stopped rather than left to land after the action.
+trap 'exit 2' TERM INT HUP
 # One record read for the whole step: every state-holding.sh call below (the
 # leg's holding list, the holding's row, the list again) takes it from here
 # rather than reading the record again (shirabe#1094).
@@ -93,7 +111,69 @@ finish() {
     jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" '
         {unit: $u, pull_request: $pr, state: ($v.state // null), draft: (if ($v | has("isDraft")) then $v.isDraft else null end),
          head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row}' > "$T/report.json"
-    lib_emit report_facts "$tok" coord/report.json "$T/report.json"
+    # finish <token>: write the facts, seal and print the verdict, and exit
+    # (lib_emit never returns).
+    [ -n "${2:-}" ] || lib_emit report_facts "$tok" coord/report.json "$T/report.json"
+    # finish <token> <head>: the verdict is written and sealed before the
+    # pushed-head write and printed after it, so the write, however it ends,
+    # changes neither.
+    local sealed
+    sealed=$(lib_emit report_facts "$tok" coord/report.json "$T/report.json") || exit $?
+    keep_head "$2"
+    printf '%s\n' "$sealed"
+    exit 0
+}
+
+# stop_writer: stop the pushed-head write's process group, TERM and then KILL
+# after a short grace, and reap it.
+stop_writer() {
+    [ -n "$WRITER" ] || return 0
+    local i
+    kill -TERM -- "-$WRITER" 2> /dev/null
+    for i in 1 2 3 4 5; do
+        kill -0 -- "-$WRITER" 2> /dev/null || break
+        sleep 0.1
+    done
+    kill -KILL -- "-$WRITER" 2> /dev/null
+    wait "$WRITER" 2> /dev/null
+    WRITER=
+}
+
+# keep_head <sha>: write the holding's pushed head, bounded by the deadline.
+# A write that fails, is refused or is stopped is named on stderr; none
+# changes the verdict or the exit code.
+keep_head() {
+    local newh=$1 rc
+    if [ $((DEADLINE - SECONDS)) -le 1 ]; then
+        echo "$PROG: $TOPIC's pushed head $newh wasn't kept: no time was left for the write" >&2
+        return 0
+    fi
+    # Its own process group (job control on for this one job), so stopping
+    # it stops every koto call under it. That takes it out of the group koto
+    # kills when the action runs out of time, so a watcher in the group stops
+    # the group when this script is gone, whatever ended it.
+    set -m
+    (
+        ( while kill -0 "$$" 2> /dev/null; do sleep 0.2; done; kill -KILL 0 ) &
+        w=$!
+        hold --topic "$TOPIC" --pushed-head "$newh"
+        rc=$?
+        kill "$w" 2> /dev/null
+        exit "$rc"
+    ) < /dev/null > "$T/push.out" 2> "$T/push.err" &
+    WRITER=$!
+    set +m
+    while kill -0 "$WRITER" 2> /dev/null && [ "$SECONDS" -lt "$DEADLINE" ]; do sleep 0.1; done
+    if kill -0 "$WRITER" 2> /dev/null; then
+        stop_writer
+        echo "$PROG: $TOPIC's pushed head $newh wasn't kept: the write was stopped at the action's $DEADLINE s deadline (a store that keeps writes until the tick ends may still land it)" >&2
+        return 0
+    fi
+    wait "$WRITER"
+    rc=$?
+    WRITER=
+    [ "$rc" = 0 ] || echo "$PROG: $TOPIC's pushed head $newh wasn't kept: $(lib_scrub < "$T/push.err" | head -1)" >&2
+    return 0
 }
 
 hold() { # hold <mode args...>: state-holding.sh with this run's facts
@@ -156,14 +236,14 @@ if [ -n "$BR" ] && [ "$(printf '%s' "$PRVIEW" | jq -r '.headRefName // ""')" != 
 fi
 # A holding keeps the head this read saw (PRD R17). This
 # script is a check and writes nothing itself: state-holding.sh writes it in
-# its own process, its output kept off the verdict line, and a write that fails
-# or is refused is named on stderr and changes no verdict. A link's head is
-# written by holding-link.sh with the link.
+# its own process, its output kept off the verdict line, after the verdict is
+# sealed and bounded by the deadline (keep_head), and a write that fails, is
+# refused or is stopped is named on stderr and changes no verdict. A link's
+# head is written by holding-link.sh with the link.
 if [ "$WORD" = holding ]; then
     NEWH=$(printf '%s' "$PRVIEW" | jq -r '.headRefOid // ""')
     if [[ $NEWH =~ ^[0-9a-f]{40}$ ]] && [ "$NEWH" != "$(printf '%s' "$ROW" | jq -r '.pushed_head // ""')" ]; then
-        hold --topic "$TOPIC" --pushed-head "$NEWH" > "$T/push.out" 2> "$T/push.err" \
-            || echo "$PROG: $TOPIC's pushed head $NEWH wasn't kept: $(lib_scrub < "$T/push.err" | head -1)" >&2
+        finish "$WORD $LINK_NUM $TOPIC" "$NEWH"
     fi
 fi
 finish "$WORD $LINK_NUM $TOPIC"
