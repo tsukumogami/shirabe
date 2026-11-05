@@ -259,6 +259,13 @@ echo "== the pushed head: kept after the verdict, the write bounded (shirabe#112
 # kept <topic>: the pushed head the record keeps for that holding.
 kept() { jq -r --arg t "$1" '.[] | select(.worker == $t) | .pushed_head // "none"' "$KOTO_STORE/context/$S/record/holdings"; }
 holdings_adds() { grep -c "^context add $S record/holdings" "$KOTO_STORE/calls"; }
+# slow_running: the delayed add's sleep, whose pid the stand-in records, is
+# still running. ps rather than kill -0, which also finds a reaped-late zombie.
+slow_running() {
+    local pid
+    pid=$(cat "$KOTO_STORE/add-delay.pid" 2> /dev/null) && [ -n "$pid" ] || return 1
+    case "$(ps -o stat= -p "$pid" 2> /dev/null | tr -d ' ')" in "" | Z*) return 1 ;; esac
+}
 seed
 eq "a holding starts with no pushed head" none "$(kept alpha)"
 : > "$KOTO_STORE/calls"
@@ -278,8 +285,8 @@ eq "  ... progress the same" "progress 12 alpha 0" "${OUT% sealed:*} $(holdings_
 seed
 BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
-# A delay this run alone sleeps, so a leftover write is found by it.
-SLOW="20.$$"
+SLOW=20
+rm -f "$KOTO_STORE/add-delay.pid"
 START=$SECONDS
 KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
 TOOK=$((SECONDS - START))
@@ -295,7 +302,7 @@ grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write was stopped at th
     && ok "  ... and stderr names the head the stopped write didn't keep" \
     || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
 eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
-pgrep -f "sleep $SLOW" > /dev/null && bad "  ... no write is left running" "$(pgrep -fl "sleep $SLOW")" || ok "  ... no write is left running"
+slow_running && bad "  ... no write is left running" "pid $(cat "$KOTO_STORE/add-delay.pid")" || ok "  ... no write is left running"
 report '{"event":"report","unit":"alpha"}'
 eq "the next visit with a fast write: the same verdict" "holding 12 alpha" "${OUT% sealed:*}"
 eq "  ... and the head is kept" "$SHA_HEAD" "$(kept alpha)"
@@ -306,17 +313,18 @@ seed
 BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
 log_to "$S" wait report_facts
-: > "$KOTO_STORE/calls"
+rm -f "$KOTO_STORE/add-delay.pid"
 KOTO_ADD_DELAY="record/holdings:$SLOW" bash "$RF" --session "$S" > /dev/null 2>&1 &
 RFPID=$!
-# The stand-in logs the add before its delay; a loaded host can take a while
-# to reach it.
-for _ in $(seq 1 600); do grep -q "^context add $S record/holdings" "$KOTO_STORE/calls" && break; sleep 0.1; done
-sleep 0.3
-pgrep -f "sleep $SLOW" > /dev/null && ok "a write killed with its script: the write was running" || bad "a write killed with its script: the write was running"
+# The stand-in records the delay's pid as the add starts; a loaded host can
+# take a while to reach it.
+i=0
+while [ "$i" -lt 600 ] && ! [ -s "$KOTO_STORE/add-delay.pid" ]; do sleep 0.1; i=$((i + 1)); done
+slow_running && ok "a write killed with its script: the write was running" || bad "a write killed with its script: the write was running"
 kill -KILL "$RFPID"; wait "$RFPID" 2> /dev/null
-for _ in $(seq 1 20); do pgrep -f "sleep $SLOW" > /dev/null || break; sleep 0.1; done
-pgrep -f "sleep $SLOW" > /dev/null && bad "  ... and is stopped within 2 s of it" "$(pgrep -fl "sleep $SLOW")" || ok "  ... and is stopped within 2 s of it"
+i=0
+while [ "$i" -lt 20 ] && slow_running; do sleep 0.1; i=$((i + 1)); done
+slow_running && bad "  ... and is stopped within 2 s of it" "pid $(cat "$KOTO_STORE/add-delay.pid")" || ok "  ... and is stopped within 2 s of it"
 eq "  ... record/holdings unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
 log_to "$S" report_facts wait
 
