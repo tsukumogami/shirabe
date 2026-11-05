@@ -23,6 +23,10 @@
 # (the Holds section as it stands) and gaps. It also prints the crash set (PRD
 # R17): each worker's pushed_head when kept, reports_to (the row, or null),
 # rules and briefs (their rows' values), friction, and host (record/host).
+# It prints role, the Run `role` row's value (manager or director), or null
+# when the record holds none
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1); no gap comes
+# from it.
 #
 # A record holding a `rule` row also prints rule_lists: four report lists, in
 # this order, each {list, heading, rows}, the heading naming the list and
@@ -202,7 +206,7 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
        work: (.work // []), standing: [(.standing // [])[] | select(.kind != "rule")], holds: (.holds // [])}
     | if ($pending | length) > 0 then .pending = $pending else . end
     | .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
-    | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
+    | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), role: ([$run[] | select(.key == "role") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
          briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
          host: $host[0]}
     | (if $carry[0].carried then
@@ -218,7 +222,7 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
         (if .arguments == null then {gap: "no-arguments", fix: "state-stored-set.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
         (if .cap == null then {gap: "no-cap", fix: "state-stored-set.sh --run cap <n> --by <who set it>"} else empty end),
         (if .coordinator == null then {gap: "no-coordinator", fix: "state-stored-set.sh --run coordinator <your address> --by <you>"} else empty end),
-        (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
+        (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<name>[ at <address>]\" --by <who>"} else empty end),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select((.told or .pending) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"}) else empty end)
