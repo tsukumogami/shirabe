@@ -30,8 +30,15 @@
 # --host; --pending (its refusals, its row and entry, the gate passing a pending
 # worker while holding on an untold one, --told turning it told, a new address
 # clearing told and pending, a holding's first Work row never leaving both),
-# with each gate result printed. Every record is the session's; nothing is
-# written on GitHub.
+# with each gate result printed; the Run `role` row (--run role): written once,
+# the same value again exiting 0 with the record byte-identical, a different
+# value refused (65) naming both and the row unchanged, a --by over 80
+# characters or holding a line break refused, --intervention dispatcher and
+# person replacing it (the row's set_by and set, and the entry naming the old
+# role, the new one and the source), --intervention with another source or on
+# another key a usage error (64) writing nothing, --intervention on no row or
+# the same value writing as without it, and a record of about 60,000 bytes
+# taking the row. Every record is the session's; nothing is written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail
@@ -768,5 +775,88 @@ rf skill-SKILL.md "/p/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa.md" "$DA" > "$T/bad"; rf_re
 printf 'not json\n' > "$T/bad"; rf_refused "a list that isn't rule-files.sh's" "$T/bad"
 bash "$RS" "${W[@]}" --rule-files "$T/rf1" >/dev/null 2>&1; eq "--rule-files without --by is a usage error" 64 $?
 eq "no write in this section reached GitHub" "" "$(gh_writes)"
+
+echo "== --run role: set once, replaced only from above =="
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1; PRD R5.
+role_of() { live | jq -r '[(.run // [])[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+role_set() { live | jq -r '[(.run // [])[] | select(.key == "role") | .set][0] // ""'; }
+seed "$TWO"
+N0=$(entries | jq length)
+BEFORE=$(date -u +%Y-%m-%dT%H:%MZ)
+bash "$RS" "${W[@]}" --run role director --by "the human" >/dev/null 2>"$T/err"
+eq "--run role director with no row writes one" "0 director|the human" "$? $(role_of)"
+AFTER=$(date -u +%Y-%m-%dT%H:%MZ)
+S1=$(role_set)
+[[ ! $S1 < $BEFORE ]] && [[ ! $S1 > $AFTER ]] && ok "  ... its Set the write's time" || bad "  ... its Set the write's time" "$BEFORE <= $S1 <= $AFTER"
+eq "  ... and one run entry naming it" "1 run|Run role set to director by the human." \
+    "$(entries | jq -r --argjson n "$N0" '.[$n:] | "\(length) \(.[0].kind)|\(.[0].text)"')"
+SNAP=$(session_snapshot "$SR"); N1=$(entries | jq length)
+bash "$RS" "${W[@]}" --run role director --by "someone else" > "$T/out" 2>"$T/err"
+eq "the same value again exits 0 and prints nothing" "0 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+eq "  ... the record byte-identical" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... and no entry posted" "$N1" "$(entries | jq length)"
+bash "$RS" "${W[@]}" --run role manager --by "someone else" > "$T/out" 2>"$T/err"
+eq "a different value is refused (65)" 65 $?
+grep -q 'role is director' "$T/err" && grep -q 'names manager' "$T/err" \
+    && ok "  ... stderr naming the recorded role and the one asked for" || bad "  ... stderr naming the recorded role and the one asked for" "$(cat "$T/err")"
+eq "  ... the row still reading director" "director|the human" "$(role_of)"
+eq "  ... and nothing written" "$SNAP $N1" "$(session_snapshot "$SR") $(entries | jq length)"
+LONG=$(head -c 81 /dev/zero | tr '\0' 'a')
+bash "$RS" "${W[@]}" --run role director --by "$LONG" >/dev/null 2>"$T/err"
+eq "a --by over 80 characters is refused" 65 $?
+grep -q 'at most 80 characters' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --run role director --by "${LONG%a}" >/dev/null 2>"$T/err"
+eq "  ... and one of exactly 80 is taken (the same value: nothing to write)" 0 $?
+bash "$RS" "${W[@]}" --run role director --by "$(printf 'the\nhuman')" >/dev/null 2>"$T/err"
+eq "a --by holding a line break is refused" 65 $?
+grep -q 'no line break' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+eq "  ... and neither wrote anything" "$SNAP $N1" "$(session_snapshot "$SR") $(entries | jq length)"
+bash "$RS" "${W[@]}" --run role lead --by "the human" >/dev/null 2>"$T/err"
+eq "a role that isn't manager or director is refused" 65 $?
+
+echo "== --run role --intervention: a change from above =="
+BEFORE=$(date -u +%Y-%m-%dT%H:%MZ)
+bash "$RS" "${W[@]}" --run role manager --by lane-lead --intervention dispatcher >/dev/null 2>"$T/err"
+eq "--intervention dispatcher replaces director" "0 manager|lane-lead" "$? $(role_of)"
+AFTER=$(date -u +%Y-%m-%dT%H:%MZ)
+S2=$(role_set)
+[[ ! $S2 < $BEFORE ]] && [[ ! $S2 > $AFTER ]] && ok "  ... its Set the write's time" || bad "  ... its Set the write's time" "$BEFORE <= $S2 <= $AFTER"
+eq "  ... one role row" 1 "$(live | jq '[.run[] | select(.key == "role")] | length')"
+eq "  ... and an entry naming the old role, the new one and the source" \
+    "run|Run role changed from director to manager by lane-lead, an intervention from above; source: dispatcher." \
+    "$(entries | jq -r '.[-1] | "\(.kind)|\(.text)"')"
+bash "$RS" "${W[@]}" --run role director --by "the human" --intervention person >/dev/null 2>"$T/err"
+eq "--intervention person replaces it back" "0 director|the human" "$? $(role_of)"
+eq "  ... its entry naming person" "Run role changed from manager to director by the human, an intervention from above; source: person." \
+    "$(entries | jq -r '.[-1].text')"
+SNAP=$(session_snapshot "$SR"); N1=$(entries | jq length)
+bash "$RS" "${W[@]}" --run role manager --by x --intervention boss >/dev/null 2>"$T/err"
+eq "--intervention with another source is a usage error" 64 $?
+bash "$RS" "${W[@]}" --run cap 3 --by x --intervention person >/dev/null 2>"$T/err"
+eq "--intervention on another Run key is a usage error" 64 $?
+bash "$RS" "${W[@]}" --run role manager --by x --intervention >/dev/null 2>"$T/err"
+eq "--intervention with no source is a usage error" 64 $?
+bash "$RS" "${W[@]}" --run role manager --by x --intervention person --intervention dispatcher >/dev/null 2>"$T/err"
+eq "  ... and so is --intervention given twice" 64 $?
+bash "$RS" "${W[@]}" --told worker-f2 --by x --intervention person >/dev/null 2>"$T/err"
+eq "  ... and --intervention on another mode" 64 $?
+eq "  ... none of them writing anything" "$SNAP $N1" "$(session_snapshot "$SR") $(entries | jq length)"
+bash "$RS" "${W[@]}" --run role director --by "the human" --intervention dispatcher > "$T/out" 2>"$T/err"
+eq "--intervention naming the recorded role writes as without it: nothing" "0 0 $SNAP" "$? $(wc -c < "$T/out" | tr -d ' ') $(session_snapshot "$SR")"
+seed "$TWO"
+bash "$RS" "${W[@]}" --run role manager --by lane-lead --intervention person >/dev/null 2>"$T/err"
+eq "--intervention on a record with no row writes the row as without it" "0 manager|lane-lead" "$? $(role_of)"
+eq "  ... and its entry is a plain set" "Run role set to manager by lane-lead." "$(entries | jq -r '.[-1].text')"
+
+echo "== --run role on a record of about 60,000 bytes =="
+BIG=$(head -c 61000 /dev/zero | tr '\0' 'x')
+seed "$(printf '%s' "$TWO" | jq -c --arg r "$BIG" '.deferrals = [{deferral: "the long one", reason: $r, raised: "2026-09-26T09:00Z", disposition: ""}]')"
+[ "$(live | wc -c | tr -d ' ')" -gt 60000 ] && ok "the record is over 60,000 bytes" || bad "the record is over 60,000 bytes" "$(live | wc -c)"
+bash "$RS" "${W[@]}" --run role director --by "the human" >/dev/null 2>"$T/err"
+eq "  ... and takes the role row" "0 director|the human" "$? $(role_of)"
+eq "  ... keeping the long deferral whole" 61000 "$(live | jq -r '.deferrals[0].reason | length')"
+bash "$RS" "${RM[@]}" --list > "$T/list" 2>"$T/err"
+eq "  ... and --list reads it back" "0 director" "$? $(jq -r '.run[] | select(.key == "role") | .value' "$T/list")"
+eq "no role write reached GitHub" "" "$(gh_writes)"
 
 done_tests state-stored-set_test
