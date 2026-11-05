@@ -459,6 +459,27 @@ entry-naming check stays as a second signal.
   row against the 120-rule cap and not the 60-inferred cap, and the start
   report names each superseded row `--end` would now accept, so the cap
   can't fill with rows nobody can see are ready to go.
+- **A full inferred cap at a reading's write.** Step 18's `--inferred`
+  write refuses the Run value and its row together when the 60-inferred
+  cap is full, naming the cap, and its test covers that case: neither the
+  value nor the row lands.
+- **The driver check races a takeover.** Step 19 reads the driver and then
+  writes; it isn't a compare-and-set. A write that passed the check just
+  before a takeover can still land, and the successor's start reads the
+  record after its fence. Step 19's tests cover a driver that can't be
+  read (refused) and a run with no driver (judged by its coordinator row).
+- **Older plugins don't check the driver.** A copy running a plugin from
+  before step 19 doesn't refuse its own writes, so step 19 protects only
+  copies on its release or later, which the writer-release ordering
+  already assumes.
+- **Proposed follow-ups, outside this plan.** Three things the review
+  raised don't block an acceptance criterion: moving the per-script
+  grammar, limits and done criteria in the design's Solution Architecture
+  and Implementation Approach into this plan or the scripts' reference
+  text; a start-report list of uncited event rows that grant, with their
+  age, so the owner can re-confirm them while no reversal exists for them;
+  and saying in the skill's reference text how the writer finds the
+  installed plugin's source repository for a `skill` row's anchor.
 
 ### What each outcome rests on
 
