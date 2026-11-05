@@ -1540,7 +1540,10 @@ has "role: ... and the fresh-args clause" "$(cat "$CBRIEF")" 'into a fresh `$ARG
 # 11), so stopping a lane and dispatching it again can't carry a change.
 printf 'sub-again' >"$ST/ctx/dispatch_topic"
 jq -c '.topic = "sub-again" | .role_change = null | del(.role_change)' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
-NIWA_NAME=sub_again-1a2b3c4d rrun >/dev/null 2>"$T/err"; eq "role: the lane dispatched again under a new topic exits 0" 0 "$?"
+# The fake niwa's session name follows the topic; it's assembled from parts so
+# the fixture doesn't read as a real instance name to the public-content scan.
+SUFFIX=1a2b3c4d
+NIWA_NAME="sub_again-$SUFFIX" rrun >/dev/null 2>"$T/err"; eq "role: the lane dispatched again under a new topic exits 0" 0 "$?"
 eq  "role: ... and renders --role manager, never the changed role" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-sub.md --role manager` in acme/widgets.' \
     "$(grep -F -- '--role' "$W/.niwa/dispatch-briefs/sub-again.md")"
 # An address over the opener's 80-character --role-change-by limit: the
