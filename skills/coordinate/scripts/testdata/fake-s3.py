@@ -17,6 +17,9 @@ It follows koto's own test stand-in (koto's tests/support/fake_s3.rs).
 Usage: python3 -I fake-s3.py <bucket> <port-file>
 Binds an ephemeral port, writes it to <port-file> (through a temporary name and
 a rename, so a reader never sees a partial number), and serves until killed.
+A file <port-file>.fail-put, when a suite writes one, lists key suffixes, one a
+line: a PUT of a key ending with one answers 500 InternalError and stores
+nothing (an unreachable bucket, for a write the suite needs to fail).
 """
 
 import os
@@ -29,6 +32,21 @@ from xml.sax.saxutils import escape
 OBJECTS = {}
 LOCK = threading.Lock()
 BUCKET = ""
+
+
+FAIL_FILE = ""
+
+
+def put_fails(key):
+    """A PUT the suite asked to fail: FAIL_FILE (<port-file>.fail-put) lists key
+    suffixes, one a line, and a PUT of a key ending with one answers 500, as an
+    unreachable bucket would. With no such file every PUT is served."""
+    try:
+        with open(FAIL_FILE) as f:
+            suffixes = [line.strip() for line in f if line.strip()]
+    except OSError:
+        return False
+    return any(key.endswith(s) for s in suffixes)
 
 
 def error_body(code, message):
@@ -131,6 +149,9 @@ class Handler(BaseHTTPRequestHandler):
                            [("Content-Type", "application/xml")])
             else:
                 self.reply(200, data, [("ETag", etag(data))])
+        elif self.command == "PUT" and put_fails(key):
+            self.reply(500, error_body("InternalError", "We encountered an internal error. Please try again."),
+                       [("Content-Type", "application/xml")])
         elif self.command == "PUT":
             want = self.headers.get("If-Match")
             none = self.headers.get("If-None-Match")
@@ -160,11 +181,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global BUCKET
+    global BUCKET, FAIL_FILE
     if len(sys.argv) != 3:
         sys.stderr.write("usage: fake-s3.py <bucket> <port-file>\n")
         return 64
     BUCKET, port_file = sys.argv[1], sys.argv[2]
+    FAIL_FILE = port_file + ".fail-put"
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
     tmp = port_file + ".tmp"

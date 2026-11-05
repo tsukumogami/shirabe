@@ -298,8 +298,8 @@ eq "8:   ... nothing opened, nothing written" "$R1SNAP" "$(dsnap "$R1")"
 for who in lane-other "$R1"; do
     open_run rot "[\"--role\",\"director\",\"--role-change-by\",\"$who\",\"--role-change-source\",\"dispatcher\"]"
     eq "8: a dispatcher change naming $who is refused" "2 role-change-refused" "$OPEN_RC $(oline reason)"
-    case "$(rmsg)" in "coordinate-open: $R1 reports to $RRT"*"This start names director; nothing was written and $R1 goes on as manager.") pass "8:   ... naming the reports-to row and both roles" ;;
-        *) fail "8:   ... naming the reports-to row and both roles" "$(rmsg)" ;; esac
+    case "$(rmsg)" in "coordinate-open: $R1 reports to $RRT"*"This start names director; nothing was written and $R1 goes on as manager.") ok "8:   ... naming the reports-to row and both roles" ;;
+        *) bad "8:   ... naming the reports-to row and both roles" "$(rmsg)" ;; esac
 done
 eq "8:   ... nothing opened, nothing written" "$R1SNAP" "$(dsnap "$R1")"
 T0=$(date -u +%Y-%m-%dT%H:%MZ)
@@ -319,7 +319,7 @@ rotation_end_date "$R2" "$YESTERDAY"
 R2SNAP=$(dsnap "$R2")
 open_run rot "[\"--role\",\"manager\",\"--role-change-by\",\"$R1\",\"--role-change-source\",\"dispatcher\"]"
 eq "8: a dispatcher change naming the ended rotation's predecessor is refused" "2 role-change-refused" "$OPEN_RC $(oline reason)"
-case "$(rmsg)" in "coordinate-open: $R2 reports to $RRT, and $R1 is $R2 itself or the run it continues"*) pass "8:   ... as role_change_self, naming the row" ;; *) fail "8:   ... as role_change_self, naming the row" "$(rmsg)" ;; esac
+case "$(rmsg)" in "coordinate-open: $R2 reports to $RRT, and $R1 is $R2 itself or the run it continues"*) ok "8:   ... as role_change_self, naming the row" ;; *) bad "8:   ... as role_change_self, naming the row" "$(rmsg)" ;; esac
 open_run rot
 eq "8: a start naming manager after a rotation recorded director ended is refused role-mismatch" "2 refused role-mismatch" "$OPEN_RC $(oline outcome) $(oline reason)"
 eq "8:   ... nothing opened, nothing written" "$R2SNAP" "$(dsnap "$R2")"
