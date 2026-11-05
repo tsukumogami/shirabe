@@ -278,8 +278,10 @@ eq "  ... progress the same" "progress 12 alpha 0" "${OUT% sealed:*} $(holdings_
 seed
 BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
+# A delay this run alone sleeps, so a leftover write is found by it.
+SLOW="20.$$"
 START=$SECONDS
-KOTO_ADD_DELAY=record/holdings:20 REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
 TOOK=$((SECONDS - START))
 eq "a slow write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
 [ "$TOOK" -le 5 ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
@@ -289,14 +291,30 @@ bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit
 log_to "$S" report_facts wait
 [ -s "$KOTO_STORE/context/$S/coord/report.json" ] && ok "  ... coord/report.json is written" || bad "  ... coord/report.json is written"
 eq "  ... record/holdings is unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
-grep -q "alpha's pushed head $SHA_HEAD wasn't kept: the write was stopped at the action's 3 s deadline" "$T/err" \
+grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write was stopped at the action's 3 s deadline" "$T/err" \
     && ok "  ... and stderr names the head the stopped write didn't keep" \
     || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
 eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
-pgrep -f "sleep 20" > /dev/null && bad "  ... no write is left running" "$(pgrep -fl 'sleep 20')" || ok "  ... no write is left running"
+pgrep -f "sleep $SLOW" > /dev/null && bad "  ... no write is left running" "$(pgrep -fl "sleep $SLOW")" || ok "  ... no write is left running"
 report '{"event":"report","unit":"alpha"}'
 eq "the next visit with a fast write: the same verdict" "holding 12 alpha" "${OUT% sealed:*}"
 eq "  ... and the head is kept" "$SHA_HEAD" "$(kept alpha)"
+
+# koto kills a timed-out action's own process group, which the write is not
+# in: the write's watcher stops it once the script is gone.
+seed
+BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
+log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
+log_to "$S" wait report_facts
+KOTO_ADD_DELAY="record/holdings:$SLOW" bash "$RF" --session "$S" > /dev/null 2>&1 &
+RFPID=$!
+for _ in $(seq 1 100); do pgrep -f "sleep $SLOW" > /dev/null && break; sleep 0.1; done
+pgrep -f "sleep $SLOW" > /dev/null && ok "a write killed with its script: the write was running" || bad "a write killed with its script: the write was running"
+kill -KILL "$RFPID"; wait "$RFPID" 2> /dev/null
+for _ in $(seq 1 20); do pgrep -f "sleep $SLOW" > /dev/null || break; sleep 0.1; done
+pgrep -f "sleep $SLOW" > /dev/null && bad "  ... and is stopped within 2 s of it" "$(pgrep -fl "sleep $SLOW")" || ok "  ... and is stopped within 2 s of it"
+eq "  ... record/holdings unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
+log_to "$S" report_facts wait
 
 seed
 KOTO_FAIL_ADD=record/holdings report '{"event":"report","unit":"alpha"}'
@@ -306,6 +324,8 @@ grep -q "alpha's pushed head $SHA_HEAD wasn't kept: .*record/holdings write fail
     || bad "  ... and stderr names it" "$(cat "$T/err")"
 REPORT_FACTS_DEADLINE=0 report '{"event":"report","unit":"alpha"}'
 eq "no time left: the same verdict, no write tried" "holding 12 alpha 0 none" "${OUT% sealed:*} $RC $(kept alpha)"
+grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: no time was left for the write" "$T/err" && ok "  ... and stderr says so" \
+    || bad "  ... and stderr says so" "$(cat "$T/err")"
 REPORT_FACTS_DEADLINE=soon report '{"event":"report","unit":"alpha"}'
 eq "a deadline that isn't whole seconds is a usage error" 64 "$RC"
 

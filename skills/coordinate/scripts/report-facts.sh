@@ -58,8 +58,9 @@
 # verdict or the time this action takes (shirabe#1123): the verdict is written
 # and sealed first, the write then runs in its own process group, and it is
 # stopped once the action has run REPORT_FACTS_DEADLINE seconds (26 by
-# default, under koto's 30 s action limit), or skipped when a second or less
-# is left. A head that wasn't kept is named on stderr and tried again on the
+# default, under koto's 30 s action limit), or skipped when about a second or
+# less is left (the clock is whole seconds). A writer whose script is killed
+# first is stopped by a watcher in its own group. A head that wasn't kept is named on stderr and tried again on the
 # holding's next visit, which compares the pull request's head with the row's
 # pushed_head again.
 # GitHub reads:
@@ -93,6 +94,8 @@ lib_log_readable || lib_die2 "no readable log for $SESSION"
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
 WRITER=
 trap 'stop_writer; rm -rf "$T"' EXIT
+# A signal ends the script through the EXIT trap, so a pushed-head write still
+# running is stopped rather than left to land after the action.
 trap 'exit 2' TERM INT HUP
 # One record read for the whole step: every state-holding.sh call below (the
 # leg's holding list, the holding's row, the list again) takes it from here
@@ -108,6 +111,8 @@ finish() {
     jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" '
         {unit: $u, pull_request: $pr, state: ($v.state // null), draft: (if ($v | has("isDraft")) then $v.isDraft else null end),
          head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row}' > "$T/report.json"
+    # finish <token>: write the facts, seal and print the verdict, and exit
+    # (lib_emit never returns).
     [ -n "${2:-}" ] || lib_emit report_facts "$tok" coord/report.json "$T/report.json"
     # finish <token> <head>: the verdict is written and sealed before the
     # pushed-head write and printed after it, so the write, however it ends,
@@ -144,15 +149,24 @@ keep_head() {
         return 0
     fi
     # Its own process group (job control on for this one job), so stopping
-    # it stops every koto call under it.
+    # it stops every koto call under it. That takes it out of the group koto
+    # kills when the action runs out of time, so a watcher in the group stops
+    # the group when this script is gone, whatever ended it.
     set -m
-    hold --topic "$TOPIC" --pushed-head "$newh" < /dev/null > "$T/push.out" 2> "$T/push.err" &
+    (
+        ( while kill -0 "$$" 2> /dev/null; do sleep 0.2; done; kill -KILL 0 ) &
+        w=$!
+        hold --topic "$TOPIC" --pushed-head "$newh"
+        rc=$?
+        kill "$w" 2> /dev/null
+        exit "$rc"
+    ) < /dev/null > "$T/push.out" 2> "$T/push.err" &
     WRITER=$!
     set +m
     while kill -0 "$WRITER" 2> /dev/null && [ "$SECONDS" -lt "$DEADLINE" ]; do sleep 0.1; done
     if kill -0 "$WRITER" 2> /dev/null; then
         stop_writer
-        echo "$PROG: $TOPIC's pushed head $newh wasn't kept: the write was stopped at the action's $DEADLINE s deadline" >&2
+        echo "$PROG: $TOPIC's pushed head $newh wasn't kept: the write was stopped at the action's $DEADLINE s deadline (a store that keeps writes until the tick ends may still land it)" >&2
         return 0
     fi
     wait "$WRITER"
