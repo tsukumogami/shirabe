@@ -28,7 +28,9 @@
 #   6. the session read: the same state from rs_record and rs_record_api,
 #      pending (record-changed), absent (session-absent) and another scope's
 #      record, record/host kept out of the state, --host, and --show an unknown
-#      option (64); a read of some sections handing back only those, never
+#      option (64); --run printing record/run on a run with no sealed find, []
+#      for a record with no Run section, and a failed or malformed read exiting
+#      2 with nothing on stdout; a read of some sections handing back only those, never
 #      listing record/, refusing a field with no section and reading again when
 #      a listed section's get failed while record/meta moved;
 #   7. one read per step (rs_once_begin): reads under one shared read take one
@@ -390,6 +392,31 @@ eq "  ... is the session's state" "$(jq -cS . "$T/rec.json")" "$(jq -cS . "$T/w"
 grep -q 'host-only-marker' "$T/w" "$T/w.state" && bad "  ... and holds nothing from record/host" "$(cat "$T/w")" || ok "  ... and holds nothing from record/host"
 bash "$RS" --session "$SW" --show >/dev/null 2>"$T/err"; eq "--show is an unknown option" 64 $?
 eq "--host prints record/host" "/srv/ws/host-only-marker" "$(bash "$RS" --session "$SW" --host 2>"$T/err" | jq -r .source_workspace)"
+
+# --run: record/run with no sealed find, the read of the Run `role` row
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1).
+SU=coordinate-roadmap-plugin-system-20260926T110700Z
+log_new "$SU" "$(roadmap_vars plugin-system)"
+seed_session "$SU" "$(printf '%s' "$REC" | jq -c '.run += [{key: "role", value: "director", set_by: "the human", set: "2026-09-28T11:28Z"}]')"
+bash "$RS" --session "$SU" --record >/dev/null 2>"$T/err"
+eq "a run whose find sealed nothing has no record for --record" 2 $?
+OUT=$(bash "$RS" --session "$SU" --run 2>"$T/err"); rc=$?
+eq "--run prints its Run section all the same" "0 arguments:the human role:director" \
+    "$rc $(printf '%s' "$OUT" | jq -r '[.[] | "\(.key):\(if .key == "role" then .value else .set_by end)"] | join(" ")')"
+eq "  ... as the record/run key holds it" "$(koto context get "$SU" record/run | jq -c .)" "$OUT"
+eq "  ... and the override flags read the same" "$OUT" \
+    "$(RS_SESSION=$SU bash "$RS" --scope roadmap --name plugin-system --repo "$REPO" --run 2>"$T/err")"
+SV=coordinate-roadmap-plugin-system-20260926T110800Z
+log_new "$SV" "$(roadmap_vars plugin-system)"
+seed_session "$SV" "$(record_json roadmap plugin-system)"
+OUT=$(bash "$RS" --session "$SV" --run 2>"$T/err"); rc=$?
+eq "a record with no Run section prints [], exit 0" "0 []" "$rc $OUT"
+OUT=$(RS_SESSION=$SU KOTO_READ_FAIL=$SU bash "$RS" --scope roadmap --name plugin-system --repo "$REPO" --run 2>"$T/err"); rc=$?
+eq "a read that fails exits 2 with nothing on stdout, never an empty section" "2 " "$rc $OUT"
+grep -q "record/run couldn't be read" "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+printf '%s' '{"key": "role"}' | koto context add "$SV" record/run
+OUT=$(bash "$RS" --session "$SV" --run 2>"$T/err"); rc=$?
+eq "a record/run that isn't an array exits 2 with nothing on stdout" "2 " "$rc $OUT"
 
 echo "== 7. one read per step (rs_once_begin) =="
 # once_reads <dir>: reads of session $SW's record under one shared read kept in

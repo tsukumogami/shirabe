@@ -86,6 +86,7 @@
 #   state-read.sh --session S --facts <topic>
 #   state-read.sh --session S --host
 #   state-read.sh --session S --meta
+#   state-read.sh --session S --run
 #   state-read.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
 #   state-read.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>|--record
@@ -98,7 +99,14 @@
 # the row: `standing.s3: ...`); --host prints record/host, the object
 # rs_host reads; --meta prints record/meta as it stands, pending or not, or
 # {} when the session holds none (coordinate-open.sh reads a run's driver
-# and takeover fields there).
+# and takeover fields there). --run prints record/run, the Run section's rows
+# as one JSON array, or [] when the record holds no Run section; it needs no
+# found record, so it reads a run whose find hasn't sealed one (a candidate
+# before its start, a carry before its find). It is the one read of the Run
+# `role` row (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1). A
+# read that fails, or a key that isn't an array, exits 2 with nothing on
+# stdout, never as an empty section, so a failed read can't pass for a run
+# with no role.
 #
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
 # failed; 4 the session holds no record/meta; 12 the session record was still
@@ -722,6 +730,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --repo) [ $# -ge 2 ] || rs_usage; REPO=$2; shift 2 ;;
             --host) ACTION=host; shift ;;
             --meta) ACTION=meta; shift ;;
+            --run) ACTION=run; shift ;;
             --candidate) ACTION=candidate; shift ;;
             --hash) [ $# -ge 2 ] || rs_usage; HASH=$2; shift 2 ;;
             --today) [ $# -ge 2 ] || rs_usage; TODAY=$2; shift 2 ;;
@@ -757,6 +766,17 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                 0) jq -c . "$RS_T/meta" 2> /dev/null || { echo "$PROG: record/meta isn't JSON" >&2; exit 2; } ;;
                 1) echo '{}' ;;
                 *) echo "$PROG: record/meta couldn't be read: $(lib_scrub < "$RS_T/meta.err" | head -3)" >&2; exit 2 ;;
+            esac
+            exit 0 ;;
+        run)
+            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || { echo "$PROG: cannot make a temporary directory" >&2; exit 2; }
+            trap 'rm -rf "$RS_T"' EXIT
+            rs_key "${RS_SESSION:-$SESSION}" record/run "$RS_T/run"
+            case $? in
+                0) jq -e 'type == "array"' "$RS_T/run" > /dev/null 2>&1 || { echo "$PROG: record/run isn't a JSON array" >&2; exit 2; }
+                   jq -c . "$RS_T/run" || exit 2 ;;
+                1) echo '[]' ;;
+                *) echo "$PROG: record/run couldn't be read: $(lib_scrub < "$RS_T/run.err" | head -3)" >&2; exit 2 ;;
             esac
             exit 0 ;;
     esac
