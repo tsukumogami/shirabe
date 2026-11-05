@@ -1644,12 +1644,84 @@ Criteria, in `driver-check_engine_test.sh`:
 - D3. With a job file under `DC_CLAUDE_HOME` naming `X_ID` with the name the record's coordinator row holds, `X_ID` is still refused as in D1, and `D_ID` with no job file passes.
 - D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper failing `context get <s> record/meta`, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written.
 
-3. How a run with no driver is judged. This item is open, pending a
-decision. It turns on whether the writer applies the plan's rule (the
-coordinator row must name the writing session) or the test the opener
-already uses, which also lets a write through in cases the rule refuses.
-No Step 19 build starts until it's settled, the statement in Security
-Considerations stands meanwhile, and the item has no criteria.
+3. How a run with no driver is judged. The writer uses the opener's
+test, as Security Considerations says: a run nobody has taken over is
+judged as the opener judges it today (`driven_by_another`,
+`coordinate-open.sh:619-626`). It's one check, the last step of
+`lib_write_guard` (`state-common.sh:132-159`), after provenance, the
+live session and the directed transition. It reads the `record/meta` and
+the Run coordinator row of the session `--session` names, and decides in
+this order:
+
+- (a) No `record/meta` at all passes. That's a clean answer, not a
+  failed read; the opener's reader gives `{}` for it
+  (`coordinate-open.sh:569-573`). It's a fresh seed: `state-open.sh`'s
+  guard runs before the seed writes `record/meta` (`state-open.sh:283`,
+  `:312`), and the seed's own `--run role`, `--rule-files` and
+  `--rotation` writes (`state-open.sh:194`, `:157`, `:215`) then find
+  meta with no driver (`state-write-core.sh:238-239`) and no coordinator
+  row, which (e) passes.
+- (b) A `record/meta` that can't be read, or a `driver` key that holds
+  anything but an id-shaped string, refuses, exit 10, with item 2's second
+  message. That's stricter than the opener, which reads a non-string
+  driver as none (`coordinate-open.sh:579`); a driver that can't be read
+  refuses the write, as Security Considerations says.
+- (c) No caller id passes. With `CLAUDE_CODE_SESSION_ID` unset, or not
+  of the shape `coordinate-open.sh:557-558` holds it to, the write goes
+  through, as the opener treats such a caller as not another
+  (`coordinate-open.sh:621`). The opener's own refusal of a caller with
+  no id guards recording a driver, which a write never does.
+- (d) A recorded driver must equal the caller id
+  (`coordinate-open.sh:622-623`); otherwise the write is refused, exit 10,
+  with item 2's first message.
+- (e) With no driver, the write is refused only when the coordinator row
+  is non-empty, the caller's name reads (its job state file, through
+  `dc_claude_name`, as at `coordinate-open.sh:559-560`), and the row names
+  someone else (`coordinate-open.sh:624-625`). Otherwise it passes. The
+  refusal exits 10 with one line: `<session> has no driver and its
+  coordinator row names <row>, not this Claude session (<name>, <caller
+  id>); nothing was written`.
+
+The two passes the opener's test doesn't spell out, (a) and (c), are
+there because without them the check would refuse writes that have to
+go through. Without (a), a fresh seed's writes would be refused before
+any driver or coordinator row exists. Without (c), every write from a
+process with no session id would be refused, and that's how engine
+suites and CI run, and how `rebrief-record.sh` runs as koto's action
+(item 9). Every suite that opens a run relies on (a). These engine suites
+write with no caller id and rely on (c): `standing-rules`,
+`standing-counts`, `coordinate_1` through `coordinate_4`,
+`coordinate-template-structure`, `fresh-run-calls`, `session-start`,
+`session-store`, `discipline-session`, `legacy-records`,
+`dispatch-path`, `handover-classify`, `rebrief-record`,
+`teardown-pass`, `legs-move` and `importer-call` (each
+`<name>_engine_test.sh`; `legs-move` and `importer-call` set an id only
+for the opener).
+
+(c) leaves a residual: a write with no caller id passes even on a
+driven record, so a process outside any Claude session can still write
+a driven run's record. What bounds it is the existing write guard ahead
+of the check: the session must pass provenance, be its scope's one live
+session, and carry no directed transition.
+
+A carry writes `record/meta` with no driver (`state-write-core.sh:569-573`)
+but keeps the predecessor's coordinator row: the opener's carry copies
+every `record/` key, and a rotation carry copies the Run rows
+(`state-open.sh:275`). When that row names another session and the
+carrier's name reads, the carrier's writes pass (e) only if the
+carrier's own row is written first. Whether and where a carry writes it
+is a separate question, open here.
+
+Criteria, in `driver-check_engine_test.sh` unless named:
+
+- D10 (a). On a scope with no record yet, `state-open.sh --role manager` on a roadmap and `--start`/`--end` on a discipline, as `X_ID` with a job file, exit 0 with no `warning=rules-unrecorded`, and the record holds the role, rules and rotation rows.
+- D11 (c). On a driven record, the D1 calls run with `CLAUDE_CODE_SESSION_ID` unset, and again with it set to a value that isn't id-shaped, exit as they do today.
+- D12 (d). On a driven record whose coordinator row names another session's name, a `--run cap` write as `D_ID` exits 0; the driver decides, not the row.
+- D13 (d). After `coordinate-open.sh` as `B_ID` takes run A over into B, a `--standing` write and an `--end` as `A_ID` with `--session B` exit 10 with stdout empty and the first message naming `B_ID` and `A_ID`; every `record/` key is `cmp`-identical and the entry count unchanged.
+- D14 (b). A `driver` of `["<D_ID>"]`, `{"id": "<D_ID>"}` or `""`, run as `D_ID`, exits 10 with the second message for every D1 call, and nothing is written.
+- D15 (e). On a record with no driver and no coordinator row, a `--run cap` write as `X_ID` with a job file exits 0.
+- D16 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with no job file under `DC_CLAUDE_HOME` exits 0.
+- D17 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with a job file naming `coord-x` exits 10, stdout empty, the one-line message naming `coord-a`, `coord-x` and `X_ID`, and nothing is written; the same write as `A_ID` with a job file naming `coord-a` exits 0.
 
 4. Which gate carries the check. This item is open, pending a decision.
 It turns on whether a tick's gate in Phase 2 carries the check at all,
@@ -1675,8 +1747,7 @@ through the `--reasoning-check` gate (`coordinate.md:2261`) and the
 Recording it at the same number is the statement that those scripts keep
 their meaning (`scripts/check-template-compat.sh:27-28`):
 `--reasoning-check` only reads, and the action's write carries no session
-id (item 9). If item 3's settlement changes that write's outcome, this
-item is revisited with it.
+id (item 9), which item 3's (c) passes, so its outcome doesn't change.
 
 - D6 (`scripts/check-template-compat_test.sh` and the CI compat-table check). `check-template-compat.sh` against the base table exits 0 with compat 2, the fingerprint list unchanged and the new `gate_scripts` digest.
 
@@ -1707,8 +1778,8 @@ command only those names, a template's `pass_env:` names and koto's own;
 only a session created with `--legacy-environment` inherits the caller's
 environment. `coordinate.md` declares no `pass_env`. So a write a gate or
 action makes carries no id, and today that's `rebrief-record.sh`'s
-`--told` and `--pending`. How a write with no id is judged rides with
-item 3, since the opener's test passes a caller with no id. Step 19 adds
+`--told` and `--pending`. Item 3's (c) passes a write with no id, as the
+opener's test passes a caller with none. Step 19 adds
 no `pass_env`, since the writer carries the rule alone (item 4).
 
 - D9 (`driver-check_engine_test.sh`). `coordinate.md` holds no `pass_env`, and Step 19 adds no gate to it.
