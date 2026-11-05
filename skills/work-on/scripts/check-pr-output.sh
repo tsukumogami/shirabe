@@ -59,6 +59,7 @@
 #       `--take-over` is refused: a gate never writes to GitHub.
 #
 #   --deferral-record --reason <reason> [--reason <reason>]...
+#                     [--public-reason <text>]
 #                     [--body] [--owned <owned-pr.sh arguments>]
 #       For a run that deferred verification to hosted CI (work-on.md's
 #       VERIFICATION=hosted-ci, #1012). In a repository that doesn't opt in
@@ -79,15 +80,27 @@
 #       other text (a short one inside the build-of-record phrase) or that
 #       starts a longer reason's line does not count. A CRLF or a lone CR in
 #       the body is a line break, as GitHub renders it. A reason must be one
-#       line with more than spaces in it. Without
+#       line with more than spaces in it.
+#       --public-reason <text> is a wording of the deferral for a public
+#       reader, recorded for a coordinated node in its run record
+#       (run/node/<node>'s public_reason): a body with a line reading exactly
+#       `Reason: <text>` passes the reason part in place of the verbatim
+#       lines, which then need not appear. A body with the verbatim lines
+#       still passes, and one with neither fails, so a deferral is never
+#       silent. The other two parts are required either way. The text is held
+#       to the same one-line, more-than-spaces rule as a reason. Without
 #       --owned the pull request is the checked-out branch's (/work-on's
 #       pr_creation, one reason); with --owned it is the one owned-pr.sh
 #       resolves, as --pr-body --owned reads it (/execute's shared PR, whose
 #       children may each have deferred, through shared-deferral-record.sh).
 #         all present                                -> 0
 #         any missing                                -> 1, one stderr line each
-#         an empty reason, no single owned pull request, gh missing or
-#         failing, no body                           -> 2
+#                                                       (with --public-reason
+#                                                       and no line of either
+#                                                       kind, one more naming
+#                                                       its line)
+#         an empty reason or public wording, no single owned pull request,
+#         gh missing or failing, no body             -> 2
 #       It prints no ::koto-finding:: line. Like pr_creation's closing
 #       keyword, the obligation is the template's own, with no registry rule
 #       behind it, and the stderr lines say what is missing.
@@ -148,7 +161,7 @@ usage() {
     cat >&2 <<'EOF'
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
-       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--body] [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--public-reason <text>] [--body] [--owned <owned-pr.sh arguments>]
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
@@ -474,6 +487,22 @@ check_deferral_record() {
         shift 2
     done
     [ "${#reasons[@]}" -gt 0 ] || { usage; exit 2; }
+    # One public wording may stand in for the verbatim reasons' lines; it is
+    # matched as a whole line too, so it is held to the same rules.
+    public_reason=""
+    if [ $# -gt 0 ] && [ "$1" = --public-reason ]; then
+        [ $# -ge 2 ] || { usage; exit 2; }
+        [ -n "$2" ] || undecided "--deferral-record needs a non-empty --public-reason"
+        case "$2" in
+            *$'\n'*|*$'\r'*) undecided "--deferral-record: a --public-reason must be one line" ;;
+        esac
+        case "$2" in
+            *[![:space:]]*) ;;
+            *) undecided "--deferral-record: a --public-reason must have more than spaces" ;;
+        esac
+        public_reason=$2
+        shift 2
+    fi
     body_always=0
     if [ $# -gt 0 ] && [ "$1" = --body ]; then
         body_always=1
@@ -526,13 +555,24 @@ check_deferral_record() {
     fi
     # Each reason must be a whole line, `Reason: <reason>`, not just appear
     # somewhere: a short reason ("CI") sits inside the required phrase below,
-    # and a reason that starts another one sits inside that one's line.
-    for reason in "${reasons[@]}"; do
-        if ! grep -qxF -- "Reason: $reason" "$WORK/body.md"; then
-            echo "check-pr-output: the PR body has no line reading exactly: Reason: $reason" >&2
+    # and a reason that starts another one sits inside that one's line. A
+    # whole `Reason: <public wording>` line, when one was given, stands in for
+    # all of them; without it, each verbatim line missing is reported, and
+    # the public wording's line once more.
+    if [ -z "$public_reason" ] || ! grep -qxF -- "Reason: $public_reason" "$WORK/body.md"; then
+        verbatim_missing=0
+        for reason in "${reasons[@]}"; do
+            if ! grep -qxF -- "Reason: $reason" "$WORK/body.md"; then
+                echo "check-pr-output: the PR body has no line reading exactly: Reason: $reason" >&2
+                missing=$((missing + 1))
+                verbatim_missing=1
+            fi
+        done
+        if [ -n "$public_reason" ] && [ "$verbatim_missing" = 1 ]; then
+            echo "check-pr-output: the PR body has no line reading exactly the public wording either: Reason: $public_reason" >&2
             missing=$((missing + 1))
         fi
-    done
+    fi
     if ! grep -qiF -- "hosted CI is the build of record" "$WORK/body.md"; then
         echo "check-pr-output: the PR body does not say that hosted CI is the build of record" >&2
         missing=$((missing + 1))

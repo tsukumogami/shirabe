@@ -16,7 +16,7 @@
 # Usage: shared-deferral-record.sh --session <execute session>
 #            --verification <local|hosted-ci|""> [--reason <reason>]
 #            [--child <session>]... [--child-dir <dir>] [--recorded <reason>]...
-#            [--body] [--list | -- <owned-pr.sh arguments>]
+#            [--public-reason <text>] [--body] [--list | -- <owned-pr.sh arguments>]
 #
 # The reasons the PR must carry, each once:
 #
@@ -52,6 +52,13 @@
 # from a directory koto's cloud backend refuses. It can't be given with
 # --child or --child-dir. The run's own reason (--verification hosted-ci)
 # still counts first.
+#
+# --public-reason <text> is the node's deferral worded for a public reader
+# (run/node/<node>'s public_reason, which node-push.sh records). It is passed
+# to check-pr-output.sh as --public-reason, so a body whose one Reason line
+# reads exactly `Reason: <text>` records the deferral in place of a line per
+# reason; a body with the verbatim lines still passes. It changes neither the
+# reasons gathered nor --list, which prints only the reasons and ignores it.
 #
 # With --list the script prints the reasons, one per line in the order above,
 # and exits 0 without reading GitHub; nothing after --list is read. koto's
@@ -132,6 +139,7 @@ CHILDREN=()
 CHILD_DIR=""
 RECORDED=()
 SAW_RECORDED=0
+PUBLIC_REASON=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
@@ -140,6 +148,7 @@ while [ $# -gt 0 ]; do
         --child) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILDREN+=("$2"); shift 2 ;;
         --child-dir) [ $# -ge 2 ] && [ -n "$2" ] || usage; CHILD_DIR=$2; shift 2 ;;
         --recorded) [ $# -ge 2 ] && [ -n "$2" ] || usage; RECORDED+=("$2"); SAW_RECORDED=1; shift 2 ;;
+        --public-reason) [ $# -ge 2 ] && [ -n "$2" ] || usage; PUBLIC_REASON=$2; shift 2 ;;
         --body) BODY_ALWAYS=1; shift ;;
         --list) LIST=1; shift; break ;;
         --) shift; break ;;
@@ -301,6 +310,9 @@ ARGS=()
 for r in "${REASONS[@]}"; do
     ARGS+=(--reason "$r")
 done
+# check-pr-output.sh reads the wording after the reasons; it holds the
+# wording to one line with more than spaces.
+[ -z "$PUBLIC_REASON" ] || ARGS+=(--public-reason "$PUBLIC_REASON")
 [ "$BODY_ALWAYS" = 0 ] || ARGS+=(--body)
 # SECONDS counts from the script's start, so the child reads are spent too.
 OWNED_SECS=$((TOTAL_SECS - SECONDS - 5))
