@@ -469,13 +469,17 @@ chain-start)
         # only the bucket holds, sorted; every local write or removal of the
         # link updates the manifest, a take-back after a failed push and an
         # import's rewrite included, which the session log can miss. A
-        # manifest that is missing, unreadable or not shaped as
-        # {"keys": {<key>: {...}}}, or that names no continues key, falls
-        # back to the listing. One case reads differently: a session whose
-        # manifest names one predecessor while the bucket alone holds a
-        # second that sorts first. koto refuses a second predecessor, so only
-        # a race between two hosts writing the link leaves that state.
-        PREV=$(jq -r --arg p koto/links/continues/ '.keys
+        # manifest that is missing, unreadable, not exactly one JSON document
+        # shaped as {"keys": {<key>: {...}}}, or that names no continues key,
+        # falls back to the listing. Two cases read differently. A session
+        # whose manifest names one predecessor while the bucket alone holds a
+        # second that sorts first: koto refuses a second predecessor, so only
+        # a race between two hosts writing the link leaves that state. And a
+        # member imported into another workspace: the listing refuses it,
+        # which only the bucket can tell, while its local manifest still
+        # names the predecessor it had before the import.
+        PREV=$(jq -rs --arg p koto/links/continues/ 'if length == 1 then .[0] else error("not one document") end
+            | .keys
             | if type == "object" and all(.[]; type == "object") then [keys[] | select(startswith($p))] else error("not a manifest") end
             | .[0] // "" | ltrimstr($p)' "${CUR_LOG%/*}/ctx/manifest.json" 2>/dev/null) || PREV=
         if [ -z "$PREV" ]; then

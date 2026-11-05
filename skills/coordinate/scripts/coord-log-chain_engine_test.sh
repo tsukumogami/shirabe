@@ -25,12 +25,14 @@
 #     context manifest, with no koto context list call: a link the manifest
 #     holds is followed even when the listing says none; a link the log
 #     records but the manifest no longer holds (taken back after a failed
-#     push) is not; a manifest that is missing, unreadable or shaped
-#     differently falls back to the listing; a member whose manifest names
-#     no link follows a link only the bucket holds, through the listing; a
-#     member whose manifest names one link follows it even when the listing
-#     would put a bucket-only second link first (the two-host race, pinned
-#     here so a change to it shows); and a 40-member chain lists only its
+#     push) is not; a manifest that is missing, unreadable, not one JSON
+#     document or shaped differently falls back to the listing; a member
+#     whose manifest names no link follows a link only the bucket holds,
+#     through the listing; a member whose manifest names one link follows it
+#     even when the listing would put a bucket-only second link first (the
+#     two-host race) or would refuse the member as imported into another
+#     workspace, both pinned here so a change to them shows; and a 40-member
+#     chain lists only its
 #     root, so with each listing taking 0.75 s (a remote store) it finishes
 #     well inside koto's 30-second action limit.
 #
@@ -258,13 +260,14 @@ case " $* " in
     *" context list "*" --prefix koto/links/continues/ "*)
         printf '%s\n' "$3" >> "$COUNT_FILE"
         [ -z "${DELAY:-}" ] || sleep "$DELAY"
+        [ "$3" != "${REFUSE_FOR:-}" ] || { echo "error: session '$3' was imported into another workspace" >&2; exit 1; }
         [ -z "${HIDE:-}" ] || { echo '[]'; exit 0; }
         [ -z "${LISTING:-}" ] || [ "$3" != "${LISTING_FOR:-}" ] || { printf '%s\n' "$LISTING"; exit 0; } ;;
 esac
 exec koto "$@"
 WRAPEOF
 chmod +x "$T/koto-counting"
-counted() { : > "$T/listings"; KOTO_BIN="$T/koto-counting" COUNT_FILE="$T/listings" HIDE="${HIDE:-}" DELAY="${DELAY:-}" LISTING="${LISTING:-}" LISTING_FOR="${LISTING_FOR:-}" bash "$CL" chain-start --session "$1" 2>"$T/chain.err"; }
+counted() { : > "$T/listings"; KOTO_BIN="$T/koto-counting" COUNT_FILE="$T/listings" HIDE="${HIDE:-}" DELAY="${DELAY:-}" LISTING="${LISTING:-}" LISTING_FOR="${LISTING_FOR:-}" REFUSE_FOR="${REFUSE_FOR:-}" bash "$CL" chain-start --session "$1" 2>"$T/chain.err"; }
 listed() { sort "$T/listings" | tr '\n' ' ' | sed 's/ $//'; } # the members whose continues relation was listed
 manifest() { printf '%s/ctx/manifest.json' "$(koto session dir "$1")"; }
 if needs_takeover "a link the manifest holds is followed with the listing hidden; a link the manifest no longer holds is not; a manifest that is missing, unreadable or shaped differently falls back to the listing; a bucket-only link is followed through the listing; the two-host race follows the local link; a 40-member chain lists only its root and finishes inside koto's limit"; then
@@ -295,7 +298,7 @@ if needs_takeover "a link the manifest holds is followed with the listing hidden
     stamp fb-b 2026-10-06T00:00:00.000Z
     M=$(manifest fb-b)
     cp "$M" "$T/fb-b.manifest"
-    for shape in missing unreadable truncated other-field keys-array not-object entry-not-object; do
+    for shape in missing unreadable truncated empty other-field keys-array not-object entry-not-object two-documents; do
         cp "$T/fb-b.manifest" "$M" && chmod 644 "$M"
         case $shape in
             missing) rm -f "$M" ;;
@@ -305,6 +308,8 @@ if needs_takeover "a link the manifest holds is followed with the listing hidden
             keys-array) jq '.keys |= keys' "$T/fb-b.manifest" > "$M" ;;
             not-object) echo '["koto/links/continues/fb-a"]' > "$M" ;;
             entry-not-object) jq '.keys["koto/links/continues/fb-a"] = "x"' "$T/fb-b.manifest" > "$M" ;;
+            empty) : > "$M" ;;
+            two-documents) { echo '{"keys": {}}'; cat "$T/fb-b.manifest"; } > "$M" ;;
         esac
         GOT=$(LISTING_FOR=fb-b LISTING='["koto/links/continues/fb-a"]' counted fb-b)
         show "fb-b ($shape manifest)" "$GOT"
@@ -334,6 +339,24 @@ if needs_takeover "a link the manifest holds is followed with the listing hidden
     show rc-b "$GOT"
     eq "the two-host race follows the link the manifest holds" 2026-10-12T00:00:00.000Z "$GOT"
     eq "the two-host race lists only the root" rc-a "$(listed)"
+
+    # A member imported into another workspace: koto's listing refuses it,
+    # which only the bucket can tell, and the listing walk exits 2. The local
+    # manifest still names the predecessor it had before the import, so this
+    # walk follows it. Pinned, at the walk's start and mid-chain, so a change
+    # to it shows.
+    open mg-a && takeover mg-b mg-a && takeover mg-c mg-b
+    stamp mg-a 2026-10-14T00:00:00.000Z
+    stamp mg-b 2026-10-15T00:00:00.000Z
+    stamp mg-c 2026-10-16T00:00:00.000Z
+    GOT=$(REFUSE_FOR=mg-c counted mg-c); RC=$?
+    show "mg-c (its listing refused)" "$GOT"
+    eq "an imported start follows the predecessor its manifest names" "0 2026-10-14T00:00:00.000Z" "$RC $GOT"
+    eq "an imported start is never listed" mg-a "$(listed)"
+    GOT=$(REFUSE_FOR=mg-b counted mg-c); RC=$?
+    show "mg-c (mg-b's listing refused)" "$GOT"
+    eq "an imported member mid-chain is walked through" "0 2026-10-14T00:00:00.000Z" "$RC $GOT"
+    eq "an imported member mid-chain is never listed" mg-a "$(listed)"
 
     open lc-0
     i=1
