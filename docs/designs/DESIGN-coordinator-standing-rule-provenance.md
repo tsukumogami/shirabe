@@ -21,7 +21,14 @@ decision: |
   relayed, keeping their owner, time and recording entry, and brief rules come
   in once as flagged inferred rows. A successor that continues a run may
   reverse below its predecessor, standing where the predecessor stood, read
-  from koto's supersede fence and never higher.
+  from koto's supersede fence and never higher. A reading the coordinator
+  acts on (a superior it worked out, say) is written as an inferred row in
+  the same write that sets the value, and skill files read as dated lines. An
+  owner's reversal reaches the next successor only through koto's
+  `reverse`, entered at the run's newest member with a reason. That waits on
+  koto's decision record shipping recording, reversal and the supersede hop,
+  and on koto's answer on successor standing. Until then no interim reversal
+  is added, and an ended row is never shown as superseded.
 rationale: |
   Citing instead of copying keeps one set of provenance fields and one
   reversal, and deriving the class leaves a coordinator no field in which to
@@ -72,7 +79,7 @@ status every reader computes the same way. An owner ruling is a decision a
 person made. This design reuses those fields and that reversal for standing
 rules rather than defining a second set beside them.
 
-The design has to settle four things:
+The design has to settle these things:
 
 1. The field names a rule row carries, and where process rules live beside
    owner rulings.
@@ -82,6 +89,14 @@ The design has to settle four things:
 4. Whether a successor that continues a predecessor's run may reverse a
    decision made below that predecessor, a question koto's decision record
    left open for this work to answer.
+
+The first release, the reader release, fell short in two places when it was
+checked against a real lineage. That adds two more:
+
+5. How a rule nobody sourced is marked inferred in the record itself, not
+   only in a successor's prose.
+6. How an owner's reversal reaches the next successor as a superseded rule
+   with its reason, and what that waits on in koto.
 
 Out of scope: compiling a successor's brief from the rows and a receiver's
 restatement at handoff, which are later work that reads the interface this
@@ -552,9 +567,217 @@ escalated, and the shirabe phase that writes cited rows waits for them.
   further exclusion would stop the owner reversing, through the current
   coordinator, what they told a predecessor.
 
+### Decision 5: How a rule nobody sourced is marked inferred in the record itself
+
+The first release of this work shipped the reader release only (Phase 1).
+Nothing in it writes a `rule` row or an `inferred` Source: `--standing`
+still takes the five event kinds and no `--source`, no script raises the
+`brief-unread` gap, and no script writes a Run `briefs` row. Phase 2 needs
+nothing from koto, but it hasn't been built. So when a successor in a
+lineage begun before the change was asked for the source of its rules, it
+could give a kind, a date and a pointer only for its relayed event rows. It
+named three more behaviours as unsourced, in prose and nowhere in the record:
+the `reports-to` coordinator it had worked out for itself, the run cap it
+had taken from the template's default, and the skill's own rules. The
+record's inferred count was zero before and after.
+
+Building Phase 2 as designed covers the brief's rules, but not those three.
+The intake quotes brief sentences only. A `reports-to` row is typed by the
+coordinator to clear the `no-reports-to` gap, and nothing records where the
+value came from. The cap comes from the template (`coordinate.md`), which is
+skill text, and Decision 1 keeps skill text out of rows. And `--rules` lists
+the Run `rules` digests as bare `{run, kind, label, digest}` objects, with no
+date and no pointer, which `--rules --counts` doesn't count.
+
+Key assumptions:
+- A coordinator can tell a Run value it read (from its brief, its dispatch
+  link or a person's message) from one it worked out. The writer can't check
+  that distinction, and the gap below only catches the `reports-to` case.
+- The flag a reviewer looks for on a row is the row's own Source. Decision 1
+  stores no class, and that holds here too.
+
+#### Chosen: Phase 2 as designed, plus rows for the coordinator's own readings and dated skill lines
+
+Three additions to Phase 2. None of them needs koto.
+
+1. **A reading the coordinator acts on is written as an `inferred` rule row
+   when the coordinator writes the value it produces.** The writer sets a Run
+   value and its rule row in one write. The rule row's What states the
+   reading in one sentence ("Report to `<session>`: worked out from the
+   session that opened this run, not given in the brief"), and its Source
+   is the bare `inferred` form Decision 1 already defines. Owner stays blank.
+   The handover read names a new gap, `reports-to-unsourced`, when the Run
+   `reports-to` row names a session that isn't the session's koto
+   dispatched-by link and isn't held by a Standing row (a `rule` row of any
+   Source, or an event row naming that session). Then a successor can't
+   carry an inferred superior forward silently: the next start either finds
+   the row or names the gap.
+2. **The skill and workspace rule files read as sourced lines with a date
+   and a pointer.** Each `--rules` object for a Run `rules` row gains a
+   `class` (`skill-says` for a `skill-` label, `charter` for a `workspace-`
+   label, `inferred` for any other), a `said` equal to the row's Set, and a
+   `pointer` carrying its label, digest and `record/host` key. `--rules
+   --counts` counts them in those classes. A default the template sets, such
+   as the run cap, is skill text: asked for its source, a successor points
+   at the template's `skill-` line, and no row is copied. These are
+   read-time objects. The schema is unchanged, and no file is copied into
+   Standing.
+3. **A successor answers a source question from the record.** The skill
+   text says that a coordinator asked why it follows something answers from
+   `--rules`. If it can name a behaviour that `--rules` doesn't list, it
+   writes that behaviour as an `inferred` rule row first and answers second,
+   so its answer and the record never disagree.
+
+The mark on the row is the Source cell itself. In `koto context get
+<session> record/standing`, an unsourced rule's row reads `"source":
+"inferred"` or `"source": "inferred brief <label> sha256:<digest>"`. Every
+reader derives `class` `inferred` and `confirm` true from that cell, and
+the handover read lists the row under awaiting-confirmation until
+`--confirm` (Phase 3) cites a decision in its place or `--end` ends it.
+
+#### Alternatives Considered
+
+- **A stored `confirm` column.** Rejected because it is a second claim
+  beside the Source that can disagree with it, which Decision 1 rejected
+  for the class.
+- **The successor's start report lists its unsourced behaviours.** That is
+  what the shipped walkthrough produced. Rejected because the requirement
+  asks for the flag in the record, where a reviewer and the next successor
+  can count it, not in prose that leaves with the session.
+- **Copying the template's defaults and the skill's rules into rows.**
+  Rejected for the reasons Decision 1 gives. Dating the `rules` lines gives
+  each skill rule a kind, a date and a pointer without copying anything.
+
+### Decision 6: How an owner's reversal reaches the next successor, and what it waits on
+
+When the owner reversed a rule in the shipped walkthrough, nothing in the
+record read the rule as superseded. The rule was a relayed event row, the
+reversal was recorded with `--end`, and `--end` deletes the row and logs
+`s<n> (<kind>: <what>) ended by <who>.` with no reason. The handover read's
+superseded list has nothing to read, since this release has no cited row
+whose koto status could be superseded. The record held no Reversals row,
+and that table wouldn't have helped: its rows are free text (`date,
+reversed, now, reason, from`) that point at no Standing id, and no reader
+treats one as superseding anything. The reversal also went to a copy of the
+predecessor that was still running from another worktree. That copy took
+the writes and kept ticking, because the skill's only guard against a
+superseded writer is koto's fence, read from the copy's own koto store.
+
+koto's decision record has designed the pieces this needs, but it hasn't
+built them yet (koto's `docs/prds/PRD-decision-record.md` and
+`docs/designs/DESIGN-decision-record.md`). A `judgment` is "settling a
+judgment call" with the one outcome `settled`, and nothing limits who
+decides it (PRD lines 172, 229-230). So a person's judgment whose subject
+holds the rule's words can carry an owner's standing ruling, which is the
+mapping Decision 2 already assumes. Only a person reverses a person's
+decision (PRD lines 284-289). A `reverse` names the session and id of the
+decision it overrules (line 191) and may carry a reason (lines 196-199).
+Two questions are still open there, and this design doesn't answer either
+of them:
+
+- **Successor standing.** koto leaves open whether a successor that
+  continues a run may reverse a decision made below its predecessor (design
+  lines 885-891). A continues link grants no authority there (lines
+  836-839). Decision 4 is this design's answer, carried back. Until koto
+  adopts an answer, a ruling recorded under an earlier member of the run
+  can't be reversed through its successor.
+- **No koto kind names a standing ruling as such.** koto's nine kinds don't
+  include one. Whether a person's `judgment` is the form koto intends for a
+  ruling that binds a session until it is reversed is a question for koto.
+  This design relies on that mapping, as Decision 2 already does, and says
+  so here. It doesn't treat the answer as given.
+
+Key assumptions:
+- koto ships recording, reading and reversal (its plan's Issues 1 and 3)
+  and the block that stops a live workflow on a reversed decision (Issue 4,
+  which depends only on Issue 3) in the shapes its design gives. koto's
+  plan makes session retention a dependency of its Issues 7 and 13 only
+  (`docs/plans/PLAN-decision-record.md` lines 377-378), so retention isn't
+  on this path.
+- Reversing a decision of a live session blocks that session's `koto next`
+  until a rewind or a replacement decision (PRD lines 328-340). Whether the
+  person who entered the reversal through that same session may clear the
+  block with a replacement isn't stated. This design treats it as open.
+
+#### Chosen: Wait for koto's reversal, add no interim one, and make the reversal reach the live member
+
+The reversal parts of the requirement can't be met until two things exist:
+koto's decision record must be released with its recording and reversal,
+and koto must answer successor standing the way Decision 4 asks, with the
+supersede hop. Retention isn't on that path, and no new decision kind is
+needed. Until both exist, this design adds no second reversal and states
+what stands instead. Five parts:
+
+1. **The path once koto ships** is Phase 3 as designed, with one addition.
+   The root records the owner's ruling as a person `judgment` whose subject
+   holds the rule's words, and the row cites it. The owner reverses it
+   through the run's newest member with `koto decisions reverse`, entered
+   by the skill's reversal step. That step refuses a reversal with no
+   reason, although koto's reason field is optional, because the next
+   successor has to list the reason. `--rules` then reads the row's status
+   from koto as `superseded` and prints the reversal's reason, decider and
+   time in `reversal`. The handover read lists the row under superseded,
+   the start report names it, and every tick's gate output lists only the
+   rule ids still in force (the tick's `--rules --in-force` gate under
+   Solution Architecture), so no tick acts on it.
+2. **The reversal reaches the live member, never a stray copy.** The skill
+   enters a reversal, or any write, only through the session the run's
+   resolver names as newest member. The writer refuses a write from a
+   session that isn't the record's driver (`record/meta.driver` compared
+   with the writing session), whatever its local koto store says. A run
+   nobody has taken over has no driver recorded; there the writer applies
+   the test the opener already uses to tell a run is its own, the run's
+   coordinator row naming the writing session. A copy still running in
+   another worktree after a takeover then can't take the owner's reversal
+   or tick past it. This part needs nothing from koto and ships with
+   Phase 2.
+3. **The live-session block is read as ending that member's run.** If the
+   reversed ruling was recorded in the live member's own session, koto's
+   block stops that member. Until koto answers the question above, the
+   design reads that as the end of that member's run: its successor takes
+   over through the fence and starts with the rule listed as superseded.
+   The skill never rewinds the session. If koto lets the reversing person
+   clear the block with a replacement, the member can continue instead, and
+   nothing else here changes.
+4. **What stands in the meantime.** The owner's rules are written as
+   today's uncited event rows, which read relayed, or as `inferred` rule
+   rows. Ending one is `--end`, which records an end, not a reversal. The
+   rules view never lists an ended row as superseded, and the skill never
+   reports an end as the owner's reversal. While that holds, the
+   requirement that a reversed rule reach the next successor as superseded
+   is not met, and this design says so rather than meeting it with a second
+   mechanism.
+5. **Nothing writes a second status.** No Reversals row, Standing column,
+   end flag or entry text stands in for koto's status, now or later. koto's
+   plan adds a decision citation to the Reversals table rather than
+   replacing the table (its Issue 11). A Reversals row for a rule would
+   therefore stay a second record beside koto's `reverse` even after koto
+   ships.
+
+#### Alternatives Considered
+
+- **An interim reversal in `record/reversals`, read as superseded until
+  koto ships.** Rejected. It would be a second reversal beside koto's. The
+  table is free text that points at no Standing id. koto's plan keeps the
+  table rather than folding it in, so the interim wouldn't fold in either.
+  And the check of the shipped work found that a Reversals row doesn't
+  meet the requirement for how a reversal is recorded.
+- **An ended row that keeps its reason and reads as superseded.** Rejected
+  because an end isn't a reversal. It would be a status the record keeps
+  beside koto's, which the One reversal mechanism driver rules out, and the
+  requirement says plainly that an ended row doesn't count.
+- **An early citation phase on koto's recording and reversal alone, before
+  the hop.** Rejected because any ruling recorded under a member would
+  become irreversible at that member's first takeover. Decision 4 rejected
+  that outcome.
+- **Asking koto for a new decision kind for standing rulings.** Rejected as
+  a design input, because koto's `judgment` already carries the ruling and
+  koto owns its kinds. If koto decides a ruling needs its own kind, only the
+  kind a citation reads changes.
+
 ## Decision Outcome
 
-The four choices make one path. A rule enters a coordinator's record as a
+The first four choices make one path. A rule enters a coordinator's record as a
 Standing row, and its Source says where it came from: a koto decision, a
 line of a skill, a document, a pinned file, or the coordinator's own
 reading. Nothing in the row says what class it is. `rule_class` works that
@@ -581,6 +804,18 @@ successor is asked (who, when, where the words are, whether it still stands)
 through one read, `state-stored-set.sh --rules`, and the later work on
 compiled briefs and handoff restatement reads that and nothing else.
 
+The last two choices close the gaps the first release left. A rule nobody
+sourced (a brief sentence, or something the coordinator worked out and acts
+on) is a row whose own Source cell reads `inferred`. It is written when the
+reading first produces a value, and the handover read catches a `reports-to`
+superior that has no such row. The skill's own files answer with a date and
+a pointer, and nothing is copied. An owner's reversal reaches the next
+successor only as koto's `reverse`, entered at the run's newest member with
+a reason. That waits on koto's decision record and on its answer about
+successor standing, and nothing stands in for it meanwhile. The writer
+refuses any session that isn't the record's driver, so a stray copy can't
+take the reversal and keep acting.
+
 ## Solution Architecture
 
 ### Overview
@@ -591,7 +826,9 @@ Source column; one schema function classes a row and another says whether
 it may grant; one new helper reads what
 koto recorded about a cited decision; the writer gains a flag, an intake and
 a read view; the pause read learns to ask koto about the few rows that cite
-a decision; and the handover read lists rules and names one new gap. Nothing
+a decision; the handover read lists rules and names two new gaps; and the
+writer and the tick's gate refuse any session that isn't the record's
+driver. Nothing
 writes outside `record/standing` except the Run `briefs` row and the
 `record/host` path the crash set already defines, and nothing reads or
 writes `record/decisions` or `record/reversals`.
@@ -808,8 +1045,9 @@ writes `record/decisions` or `record/reversals`.
   names the session koto couldn't read so a person can act. Uncited rows read exactly as now, so a record with no
   citation pays no koto read on the pick, dispatch, land or merge path.
 
-- **`skills/coordinate/scripts/state-handover.sh`.** The handover read adds
-  five things. A gap, `brief-unread <label>`, when `record/host` names the
+- **`skills/coordinate/scripts/state-handover.sh`.** For rule rows the
+  handover read adds five things, and Decision 5 adds the
+  `reports-to-unsourced` gap described under the next component. A gap, `brief-unread <label>`, when `record/host` names the
   brief this start ran with and no Run `briefs` row carries its digest; it
   clears once the intake writes that row. A report list of every row
   `--rules` shows superseded, with its reversal's reason, which the start
@@ -836,6 +1074,24 @@ writes `record/decisions` or `record/reversals`.
   same exit 10 a missing record gives. The fix has `--list` pass the 65
   through unchanged, and `run_address` maps it to `takeover_read`. That turns a too-old plugin meeting a newer record into a clean
   refusal that leaves the predecessor driving.
+
+- **What Decisions 5 and 6 add to these scripts.** In Phase 2, with no
+  koto: `state-stored-set.sh` writes a Run value the coordinator worked out
+  (a `reports-to` superior, say) together with its `inferred` rule row, so
+  neither lands without the other. `state-handover.sh` names
+  `reports-to-unsourced` when the Run `reports-to` row names a session that
+  is neither the koto dispatched-by link nor held by a Standing row.
+  `--rules` gives each Run `rules` row a `class`, `said` and `pointer`, and
+  `--counts` counts them; those classes are for reading only, since
+  `rule_grants` judges Standing rows alone. Every write mode of
+  `state-stored-set.sh` and `state-write.sh`, and the tick's gate, refuse a
+  writing session that isn't `record/meta.driver`, or, in a run with no
+  driver, isn't the session its coordinator row names; only
+  `coordinate-open.sh` sets the driver, at a takeover. In Phase 3, after
+  koto ships: the coordinate template's tick runs `--rules --in-force` as a
+  gate whose output lists only the rule ids in force, and `SKILL.md`'s
+  reversal step enters `koto decisions reverse` through the run's newest
+  member and refuses a reversal with no reason.
 
 - **Text.** `references/state-keys.md` describes the `rule` kind, the
   Source forms, the classes and the two read modes, and drops "yourself as
@@ -960,18 +1216,37 @@ the change runs them like this:
   rule its brief stated is there as an inferred row naming the brief. The
   skill and workspace text the lineage ran under isn't copied into rows;
   the Run section's `rules` digests name its versions.
-- **Three sources on request.** `--rules --id s<a> --id s<b> --id s<c>`
-  gives a class, a date and a pointer for each. Following each pointer
-  (`koto decisions show`, the entry, the file at its commit) reaches the
-  words. A row with no source anywhere (a brief rule, or the coordinator's
-  own reading) reads inferred with `confirm` true; an old event row with an
-  owner and a time reads relayed with `confirm` false.
-- **A reversed rule is never acted on.** Reverse one cited rule as the
-  owner. The next successor's `--rules` shows it superseded with the
-  reason, and its start report lists it. No entry written after the
-  reversal's time names that Standing id as the reason for an action, and
-  for a cited pause or go-ahead the pause read's output shows it holding or
-  granting nothing.
+- **Three sources on request, and the inferred flag on the record.** Run
+  these from the successor's own instance, in the directory its session was
+  opened in. `--rules --id s<a> --id s<b> --id s<c>` gives a class, a date
+  and a pointer for each, and following each pointer (`koto decisions
+  show`, the entry, the file at its commit) reaches the words. Ask the
+  successor where its superior, its run cap and its skill rules come from.
+  The superior's answer is a Standing row, and the cap and the skill rules
+  answer with a `skill-` line from `--rules`. Then read `koto context get
+  <successor> record/standing` and find, on each row with no source
+  anywhere (a brief rule, or the coordinator's own reading, such as a
+  `reports-to` it worked out), a Source cell that starts with `inferred`.
+  `--rules` reads each of those rows as inferred with `confirm` true, the
+  handover read lists it under awaiting-confirmation, and `--rules
+  --counts` gives an inferred count above zero. An old event row with an
+  owner and a time reads relayed with `confirm` false. Strip the
+  `reports-to` row's Standing row from a copy, and the handover read names
+  `reports-to-unsourced`.
+- **A reversed rule is never acted on.** This check can be run only once
+  koto's decision record has shipped recording, reversal and the supersede
+  hop (Decision 6). Until then it fails, and the design says it fails.
+  Reverse one cited rule as the owner, through the session the run's
+  resolver names as newest member, with a reason. Start the next successor
+  and, from its own instance, run `--rules --id s<n>`: it shows `status`
+  `superseded` and a `reversal` carrying the reason, the decider and the
+  time. The rule is also in the handover read's superseded list and in the
+  start report. Every tick's gate output written after the reversal lists
+  the rule ids in force without `s<n>`. No entry written after the
+  reversal's time names `s<n>` as the reason for an action. For a cited
+  pause or go-ahead, the pause read's output shows it holding or granting
+  nothing. A write sent from any other session (an old member still running
+  in another worktree) is refused, and that session's record gains no entry.
 - **Unsourced rules stop accreting.** `--rules --counts` on each member of
   a lineage, oldest to newest, gives the inferred count (the unsourced
   rules) and, beside it, the relayed count per succession, so the rate of
@@ -1027,6 +1302,15 @@ intake is idempotent on one digest, a brief line shaped like a pause comes
 in as a restrict-only `rule` row, and a full set of rules still leaves room
 for a pause.
 
+Phase 2 also carries Decision 5's additions and Decision 6's driver check.
+Run values the coordinator works out are written together with their
+`inferred` rule row. The `reports-to-unsourced` gap lands. The `--rules`
+lines for Run `rules` rows gain class, date and pointer, and `--counts`
+counts them. The skill text says to answer a source question from
+`--rules`. And the writer refuses a write from a session that isn't
+`record/meta.driver`. None of this waits on koto, so the sourcing half of
+the requirement is met once Phase 2 ships.
+
 ### Phase 3: Citations, owner-said and reversal
 
 Phase 3 waits on a koto release that ships the decision record's
@@ -1045,6 +1329,11 @@ rule restricting and a cited pause holding, a citation koto can't read or a hop
 it can't confirm fails closed, a leg pointing at the writer's own run or
 at a session younger than the writer earns no dispatcher-said, and a
 manager can't reach owner-said except by citing its director's decision.
+Decision 6 adds the reversal step's refusal of a reversal with no reason,
+the reason printed in `--rules`' `reversal`, and the reading of koto's
+live-session block as the end of that member's run, never a rewind. The
+reversal half of the requirement is met when this phase ships, and not
+before.
 
 ### Carried back to the authority work
 
@@ -1062,8 +1351,12 @@ manager skipping its own link and of a coordinator dispatching itself from
 a session it opened; a carry that rides koto's fence, which would let a
 carried director stay a root; and a rule for who may fence a session,
 since a session that fences a director takes its verified reversal
-standing, over its pauses included. This
-design proposes that work; it files nothing.
+standing, over its pauses included. Decision 6 adds two questions. First,
+whether a person's `judgment` is the form koto intends for a standing
+ruling. Second, whether the person who entered a reversal through the
+deciding session may clear that session's `koto next` block with a
+replacement. Until koto answers the second, the block ends that member's
+run. This design proposes that work; it files nothing.
 
 ## Security Considerations
 
@@ -1071,8 +1364,10 @@ This design adds no new dependency and no credential. Its network reads
 are the writer's, at write, for a `skill` or `doc` Source: up to three forge
 reads through the `gh` the record's scripts already call (the repository's
 visibility, the commit's ancestry on the default branch, and the cited
-file's text at that commit, used only to compare with What). Any of them
-that fails or doesn't answer refuses the row. It reads koto decisions and a coordinator's
+file's text at that commit, used only to compare with What). They run in
+that order, so on a public host a repository that isn't public is refused
+before any of its text is read, and the comparison can't be used to probe
+a private file. Any of them that fails or doesn't answer refuses the row. It reads koto decisions and a coordinator's
 brief, and it writes rows inside the record's existing Standing key. Its security questions are about who can
 make a rule look like the owner's, who can reverse one, and what text
 reaches a public host.
@@ -1179,8 +1474,51 @@ fence's below, belong with koto's decision record as open items: it is the
 only place they could be closed, by a verified identity for a person
 decider and dispatch links koto writes itself.
 
+**Writes come only from the record's driver.** The writer and a tick's gate
+refuse any write, an end or a reversal entry included, from a session that
+isn't `record/meta.driver`, whatever that session's local koto store says.
+Only the opener sets the driver, at a takeover through the fence, so a
+predecessor still running in another worktree can't write, end a rule or
+take a reversal once its successor has taken over. A run nobody has taken
+over has no driver and is judged by its coordinator row, as the opener
+judges it today. That row names a session by name, so two copies of the
+same never-taken-over coordinator aren't told apart until a takeover
+records a driver; that residual is today's and this design doesn't widen
+it. A driver that can't be read refuses the write. The check reads the
+driver before it writes and isn't a compare-and-set, so a write that passed
+it just before a takeover can still land; the successor's start reads the
+record after its fence and sees that write. A stray copy can't move the
+driver itself, since only a takeover through koto's fence sets it.
+
+**Rows the coordinator writes about its own readings.** An `inferred` row
+the coordinator writes when it acts on a reading, such as a superior it
+worked out, has the same limits as an inferred brief rule: it restricts
+only, counts against the cap of 60 inferred rows, and the start report
+lists it as unconfirmed. Writing it also clears the `reports-to-unsourced`
+gap for that superior, so a coordinator can't use the row to hide an
+unsourced superior; the row is the place a successor and the owner see it.
+A wrong superior still receives reports until someone confirms or ends the
+row, as it does today; the row makes that reading visible, not safe. With
+the inferred cap full, the writer refuses the value and its row together
+and names the cap, so the coordinator stops on a named refusal rather than
+acting on a reading the record doesn't hold. The class `--rules` gives a
+Run `rules` row (`skill-says`, `charter`) comes from a label and is for
+reading only: `rule_grants` judges Standing rows alone, so no label makes a
+Run row grant.
+
+**No interim reversal.** Until koto's reversal ships, an owner taking back
+an uncited or inferred rule is not a reversal: the coordinator ends the row
+with `--end`, and an event row that grants keeps granting until it does.
+The skill never reports that end as the owner's reversal, and the rules
+view never lists it as superseded. This gap is stated rather than closed by
+a second mechanism, and it disappears for cited rows once koto's reversal
+ships, because then the owner reverses the cited decision and no
+coordinator write is involved.
+
 **Reversal through the fence.** A successor reverses with the standing its
-predecessor had, read from koto's supersede fence and never higher. Any
+predecessor had, read from koto's supersede fence and never higher. The
+skill enters a reversal only through the session the run's resolver names
+as its newest member, and the driver check above refuses it from any other. Any
 session that can name another can fence it, so a wrong fence now moves
 reversal standing over one coordinator's subtree as well as stopping that
 coordinator, and, since dispatcher-said follows the same hop, the fencing

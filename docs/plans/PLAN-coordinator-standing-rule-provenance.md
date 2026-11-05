@@ -6,14 +6,14 @@ split_mode_source: default
 split_rationale: |
   Hard Constraint. The design ships readers before writers: the reader
   release (steps 1 to 5) must be out at least one plugin release before
-  anything writes a `rule` row (steps 6 to 8), and the citation steps (9 to
-  17) can only be built on a koto release carrying the decision record and
+  anything writes a `rule` row (steps 6 to 8, 18 and 19), and the citation steps (9 to
+  17, and 20) can only be built on a koto release carrying the decision record and
   the supersede hop. Each step lands as its own pull request so those
   release gates can sit between them.
 tracking_level: none
 upstream: docs/designs/DESIGN-coordinator-standing-rule-provenance.md
 milestone: "Standing rules that carry their provenance"
-step_count: 17
+step_count: 20
 ---
 
 # PLAN: Standing rules that carry their provenance
@@ -236,6 +236,18 @@ shirabe, after steps 5, 8, 11 and 14: the owner-said procedure, the manager rule
 
 shirabe, after steps 3, 4, 11, 13, 14 and 15: an end-to-end walkthrough a reviewer can rerun, over a fixture lineage of at least six successions whose every handover writes its carry acknowledgement in one of step 14's forms, that runs the design's five checks with the observations described below for the old lineage, the reversed rule and the accretion threshold.
 
+### Step 18: a reading the coordinator acts on is written with an inferred rule row, the reports-to-unsourced gap catches one that isn't, and skill lines read with a date and a pointer
+
+shirabe, after step 6, needing nothing from koto (the design's Decision 5): `--run reports-to` and `--run cap` take `--inferred "<sentence>"` and write the Run row and a `rule` row with Source exactly `inferred` in one write; the handover read names `reports-to-unsourced` when the Run `reports-to` names a session that is neither the koto dispatched-by link nor held by a Standing row; each `--rules` object for a Run `rules` row gains `class`, `said` and `pointer` and `--rules --counts` counts them; and `SKILL.md` says a source question is answered from `--rules`, writing any unlisted behaviour as an `inferred` row first.
+
+### Step 19: a write from a session that isn't the record's driver is refused, so a stray copy can't take a reversal or keep ticking
+
+shirabe, with step 6, needing nothing from koto (the design's Decision 6, part 2): every write mode of `state-stored-set.sh` and `state-write.sh`, and a tick's gate, refuses with a message naming both sessions when the writing session isn't `record/meta.driver`, writing no key and appending no entry, whatever the writer's local koto store says about the fence. A record with no driver (a run nobody has taken over) is judged by the test `coordinate-open.sh` already uses for such a run: the write goes through when the run's coordinator row names the writing session, and is refused otherwise.
+
+### Step 20: the skill's reversal step refuses a reversal without a reason, and --rules prints the reason of the winning reversal
+
+shirabe, after step 13 and gated as step 10 (the design's Decision 6, part 1): the reversal step refuses an empty reason and runs no `koto decisions reverse`; `--rules` prints `status` `superseded` and `reversal` `{reason, decider, at}` as `koto decisions show` reports them, and the next successor's handover read lists the rule under superseded; a row ended with `--end` never reads superseded; and koto's block on the session holding a reversed ruling leads to a takeover by the run's next member, never `koto rewind`.
+
 ## Implementation Sequence
 
 The steps run in order where they depend on each other and side by side
@@ -261,7 +273,18 @@ start now that the design is accepted.
 | 14 | citations | 10 | as step 10; its dispatcher-said criterion also waits on the cross-session decision read |
 | 15 | citations | 12 | as step 10 |
 | 16 | citations | 5, 8, 11, 14 | as step 11 |
-| 17 | citations | 3, 4, 11, 13, 14, 15 | as step 11 |
+| 17 | citations | 3, 4, 11, 13, 14, 15, 18, 20 | as step 11 |
+| 18 | writer release | 6 | as step 6 |
+| 19 | writer release | none | as step 6 |
+| 20 | citations | 13 | as step 10 |
+
+Steps 18 and 19 came from a check of the reader release against a real
+lineage. Step 18 is the sourcing half of that check and needs nothing from
+koto. Step 19 keeps a stray copy of an earlier member from accepting writes.
+Step 20 is the reversal half, and like every citation step it waits on
+koto's decision record releasing recording, reversal and the supersede hop,
+and on koto's answer on successor standing. Step 17's walkthrough runs
+after step 20 as well.
 
 Steps 1 to 5 need no koto change and can be built first. Step 5 reads
 only `niwa authority check`, which niwa already ships, and nothing in
@@ -436,6 +459,27 @@ entry-naming check stays as a second signal.
   row against the 120-rule cap and not the 60-inferred cap, and the start
   report names each superseded row `--end` would now accept, so the cap
   can't fill with rows nobody can see are ready to go.
+- **A full inferred cap at a reading's write.** Step 18's `--inferred`
+  write refuses the Run value and its row together when the 60-inferred
+  cap is full, naming the cap, and its test covers that case: neither the
+  value nor the row lands.
+- **The driver check races a takeover.** Step 19 reads the driver and then
+  writes; it isn't a compare-and-set. A write that passed the check just
+  before a takeover can still land, and the successor's start reads the
+  record after its fence. Step 19's tests cover a driver that can't be
+  read (refused) and a run with no driver (judged by its coordinator row).
+- **Older plugins don't check the driver.** A copy running a plugin from
+  before step 19 doesn't refuse its own writes, so step 19 protects only
+  copies on its release or later, which the writer-release ordering
+  already assumes.
+- **Proposed follow-ups, outside this plan.** Three things the review
+  raised don't block an acceptance criterion: moving the per-script
+  grammar, limits and done criteria in the design's Solution Architecture
+  and Implementation Approach into this plan or the scripts' reference
+  text; a start-report list of uncited event rows that grant, with their
+  age, so the owner can re-confirm them while no reversal exists for them;
+  and saying in the skill's reference text how the writer finds the
+  installed plugin's source repository for a `skill` row's anchor.
 
 ### What each outcome rests on
 
