@@ -50,6 +50,8 @@ HOLDINGS=$(jq -nc \
     --argjson k "$(h kappa acme/widgets '' '' | jq -c '.return_path = "leg req-2:deliver"')" \
     --argjson l "$(h lambda acme/widgets feat/lambda '')" \
     '[$a, $b, $c, $d, $e, $f, $g, $i, $j, $k, $l]')
+# mu: a dispatched coordinator's holding, its Pull request cell empty.
+HOLDINGS=$(printf '%s' "$HOLDINGS" | jq -c --argjson m "$(h mu acme/widgets '' '' | jq -c '.entry_point = "/shirabe:coordinate"')" '. + [$m]')
 pr() { # pr <repo> <n> <headRefName> [cross]
     db '.prs += [{repo: $r, number: $n, title: "w", body: "", state: "OPEN", isDraft: false, isCrossRepository: ($x == "true"),
         baseRefName: "main", headRefName: $b, headRefOid: $h, author: "alice", editor: null, mergeStateStatus: "CLEAN"}]' \
@@ -63,6 +65,7 @@ seed() { # the pull requests, and the record in the run's session
     pr acme/widgets 15 feat/other; pr acme/widgets 16 anything; pr acme/widgets 17 feat/iota; pr acme/widgets 18 feat/theta
     db '.repos["acme/other"] = {private: false, default_branch: "main"}'; pr acme/other 3 feat/gamma
     pr acme/widgets 20 feat/zeta; pr acme/widgets 21 feat/kappa; pr acme/widgets 22 feat/forked true
+    pr acme/widgets 23 feat/mu
 }
 seed
 found_session "$S" "$(roadmap_vars plugin-system)"
@@ -201,6 +204,21 @@ report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"ac
 eq "progress naming a pull request out of scope is refused as a report is" "refused zeta out-of-scope-repo" "${OUT% sealed:*}"
 report '{"event":"report","unit":"alpha"}'
 eq "a report after progress is classified as before" "holding 12 alpha" "${OUT% sealed:*}"
+
+echo "== progress on a coordinate holding =="
+# A dispatched coordinator's progress event names a pull request of a worker
+# it runs; its holding is not linked to it. Its report still links.
+MU_BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
+: > "$KOTO_STORE/calls"
+report '{"event":"progress","unit":"mu","report":"a worker opened a PR","pull_request":"acme/widgets#23"}'
+eq "progress on a coordinate holding naming a pull request gives no link" "progress none mu" "${OUT% sealed:*}"
+eq "  ... and the holding's record is byte-identical" "$MU_BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
+eq "  ... with no record/holdings write" 0 "$(grep -c "^context add $S record/holdings" "$KOTO_STORE/calls")"
+eq "  ... and no pull request in its facts" null "$(facts | jq -c '.pull_request')"
+report '{"event":"report","unit":"mu","pull_request":"acme/widgets#23"}'
+eq "a coordinate holding's report naming a pull request still links it" "link 23 mu" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/widgets#20"}'
+eq "a worker holding's progress naming a pull request still links it" "link 20 zeta" "${OUT% sealed:*}"
 
 echo "== failures =="
 db '.fail = [{match: "pr view 12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'

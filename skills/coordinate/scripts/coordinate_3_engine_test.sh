@@ -30,6 +30,10 @@
 #      report naming one gets through; blocked and needs_fix still route with
 #      no pull request, and a leg-bound worker whose result names none takes
 #      needs_fix to rebrief, the directive's route once its leg is spent.
+#      On a holding whose entry point is /shirabe:coordinate, a progress
+#      event naming a pull request goes back to wait with the holding as it
+#      was and report_link never entered, while that holding's report naming
+#      the same pull request goes through report_link and on to verify.
 #      verify_board's no-pr arm is unreachable here by design (the gate above
 #      keeps such a report out of verify), so its sealed verdict is
 #      board-record_test.sh's and its arm the structure test's.
@@ -206,6 +210,35 @@ for c in "blocked surface" "needs_fix rebrief"; do
         bad "16 none: reach wait for $1" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
     fi
 done
+# A coordinate holding: the pull request its progress event names is one a
+# worker under that coordinator opened, so it is never linked; the pull
+# request its report sends up is, and the run goes on to verify. The run is
+# empty_run's with the holding's entry point set to /shirabe:coordinate.
+db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+    isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
+    mergeStateStatus: "CLEAN"}]' --arg h "$H"
+bt_board complete-board
+COORD_ROW=$(empty_row | jq -c '.entry_point = "/shirabe:coordinate"')
+if to_pick linkcoord "$(record_json roadmap linkcoord | jq -c --argjson h "$COORD_ROW" '.holdings = [$h]')" \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    ROW0=$(live_body | jq -c '.holdings[] | select(.worker == "feat-1")')
+    eq "16 coordinate: progress naming a pull request goes back to wait" wait \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"A worker opened a PR.","pull_request":"acme/widgets#12"}')"
+    from_to take_report report_facts && from_to report_facts report_questions && from_to report_questions wait \
+        && ok "16 coordinate: through take_report, report_facts and report_questions" \
+        || bad "16 coordinate: through take_report, report_facts and report_questions"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name REPORT)" in
+        "progress none feat-1 "*) ok "16 coordinate: report_facts reads progress none" ;;
+        *) bad "16 coordinate: report_facts reads progress none" ;;
+    esac
+    eq "16 coordinate: report_link is never entered" 0 "$(entered report_link)"
+    eq "16 coordinate: the holding is as it was" "$ROW0" "$(live_body | jq -c '.holdings[] | select(.worker == "feat-1")')"
+    eq "16 coordinate: its report naming the same pull request goes to report_link" report_link \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"Done: PR #12 is ready.","pull_request":"acme/widgets#12"}')"
+    link_through coordinate
+else
+    bad "16 coordinate: reach wait with an empty coordinate holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
 # ---- 12 to 15. the decision loop ----------------------------------------------

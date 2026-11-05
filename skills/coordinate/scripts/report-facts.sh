@@ -31,7 +31,12 @@
 # the holding through holding-link.sh, and a refusal is `refused` as for any
 # report. Where a report reads `holding`, progress reads `progress <pr|none>
 # <topic>`: report_questions still reads its questions, and it then goes
-# back to the hub, never to classification, with no phase change.
+# back to the hub, never to classification, with no phase change. The one
+# exception is a holding whose entry point is `coordinate`: a progress event
+# there names a pull request of a worker the dispatched coordinator runs, not
+# its own, so with the Pull request cell empty it gives `progress none`, never
+# `link`, and the holding is left as it was. That coordinator's report still
+# links the pull request it sends up.
 #
 # Verdict tokens: holding <pr|none> <topic> | link <pr> <topic> | progress
 # <pr|none> <topic> | unknown <topic> (no row, or `-` when the evidence names
@@ -217,6 +222,13 @@ WORD=holding
 if [ -n "$CELL" ]; then
     lib_pr_link "$CELL" || finish "refused $TOPIC bad-link"
 else
+    # A coordinate holding's progress event links nothing: the pull request
+    # it names belongs to a worker under that coordinator, not to the
+    # holding, and linking it would count the holding as one with a pull
+    # request in flight. Its report still links what it sends up.
+    if [ "$PROGRESS" = 1 ] && printf '%s' "$ROW" | jq -e '(.entry_point // "") | ltrimstr("/shirabe:") == "coordinate"' > /dev/null; then
+        finish "holding none $TOPIC"
+    fi
     lib_report_pr
     [ -n "$REPORT_PR" ] || finish "holding none $TOPIC"
     lib_pr_ref "$REPORT_PR" || finish "refused $TOPIC bad-report-pr"
