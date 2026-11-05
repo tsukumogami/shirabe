@@ -850,9 +850,22 @@ writes `record/decisions` or `record/reversals`.
   already stored, so a repository that turns private later can't make an
   existing record unreadable and stop a takeover; the check is a write-time
   one, and such a row keeps reading as it was written. The same repository
-  check runs on What, so a brief
-  sentence or a rule's words that name a private repository by its bare
-  name are refused on a public host too. That is why a workspace file a
+  check runs on a rule row's What, where a bare name is a two-part
+  `owner/repo` token that isn't in a link and isn't followed by `#n`; a
+  three-part path such as `skills/coordinate/SKILL.md` isn't one. A token
+  on the list of repositories that aren't public is refused with no forge
+  read, by the whole-token match (`names_repo`) the other columns already
+  use. On a public host each other distinct token gets one visibility
+  read: a private answer is refused, a 404 is refused when the token's
+  owner is the host's owner and passes under any other owner, and any other
+  failure is a read failure. So a brief sentence or a rule's words can't
+  name, by its bare name, a private repository the writer can see or any
+  repository of the host's owner. The guarantee stops there because telling
+  a repository from prose such as `and/or`, `CI/CD` or `work/notes.md`
+  takes a forge answer, and a 404 can't tell an absent repository from a
+  hidden one; failing closed on every two-part token would refuse ordinary
+  prose, so most skill sentences couldn't be cited from a public host.
+  That is why a workspace file a
   public host can't name is cited only through `pinned`. A `skill` or `doc`
   Source's repository is `<owner>/<repo>` of letters, digits, `.`, `_` and
   `-`, its path is relative with no `..` segment and no leading `-`, and its
@@ -1383,7 +1396,8 @@ The order is visibility (public host only, the core's own call at
 `state-write-core.sh:763`), then ancestry, then
 `contents/<path>?ref=<commit>`: three reads on a public host and two
 elsewhere, the order Security Considerations gives and the count the
-plan carries. Reading the branch name (`state-common.sh:290-294`) would
+plan carries, for a What holding no two-part token; on a public host
+item 3's token reads come on top. Reading the branch name (`state-common.sh:290-294`) would
 add a third read on a private host. `lib_file_at` (`state-common.sh:305`)
 gains a repository argument; `testdata/gh` needs no change
 (`testdata/gh:361-366`). Criteria, in `standing-rule-write_engine_test.sh`:
@@ -1392,11 +1406,42 @@ gains a repository argument; `testdata/gh` needs no change
 - R7. On each host, a commit the stand-in answers `diverged` or `behind` exits 65 with item 5's ancestry message, the log holds no contents read for `acme/gadgets`, and nothing is written.
 - R8. A sentence the file holds at the default branch's tip but not at `<c>` exits 65 with item 5's What message, and nothing is written.
 
-3. What a bare name is. This item is open, pending a decision about the
-bare-name guarantee in Security Considerations (the Data exposure
-paragraph). Until that's decided, the existing link and `owner/repo#n`
-checks on What stand, the writer makes no forge read of a bare token in
-What, and the item has no criteria.
+3. What a bare name is. It's a two-part `owner/repo` token in a rule
+row's What, never a repository name alone, and bare means not in a link
+and not followed by `#n`, since the existing checks already catch those
+forms. To find the tokens, URLs are blanked first, as the core does for a
+Side effects Target (`state-write-core.sh:754`); a token is
+`[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+` whose two ends touch no letter, digit,
+`_`, `.`, `-` or `/`, so the three-part path `skills/coordinate/SKILL.md`
+isn't one; and trailing `.`s and `.git` are dropped, as `clean` does
+(`state-schema.jq:108`). The extractor lives in `state-schema.jq` beside
+`text_named_repos`. A name alone has no owner to look up, and `names_repo`,
+the whole-token match the Components entry's "same repository check"
+means, matches only `owner/repo` (`state-schema.jq:93-95`). A token
+already on the core's list of repositories that aren't public is refused
+with no read. On a public host each other distinct token, the host
+excepted, gets one visibility read: `private: false` passes, `private:
+true` is refused, a 404 is refused when the token's owner is the host's
+owner (case-insensitive) and passes otherwise, so `and/or`, `CI/CD` and
+`work/notes.md` pass, and any other failure is item 4's, exit 2 with
+`cannot read <r>'s visibility`. A refused token goes on the core's list,
+so the existing check (`state-schema.jq:406-408`) refuses the row with
+`standing.what: names <r>, a repository that isn't public`, exit 65. On a
+private host the list is empty (`state-schema.jq:19-21`) and no token is
+read. The check covers rule rows only; event rows keep today's checks.
+Telling prose from a repository takes a forge answer and a 404 can't tell
+an absent repository from a hidden one, which is why `text_named_repos`
+keeps bare tokens out of prose checks (`state-schema.jq:97-103`); failing
+closed on every token would refuse ordinary prose. Criteria, in
+`standing-rule-write_engine_test.sh` on the public host `acme/widgets`
+unless a criterion says otherwise, with the stand-in holding
+`acme/secret` and `other/hidden` private and no `acme/ghost` or
+`other/absent`:
+
+- R37. An `inferred` row whose What names `acme/secret`, `` `acme/secret` ``, `other/hidden` or `acme/ghost` exits 65, stderr holds `names <r>, a repository that isn't public`, and nothing is written.
+- R38. Whats holding `and/or`, `CI/CD`, `other/absent` and `skills/coordinate/SKILL.md` are each written. The log holds one `repos/<token>` read for each two-part token and none for the three-part path.
+- R39. Private host: R37's Whats are each written, and the log holds no `repos/` read naming any token.
+- R40 (`state-schema_test.sh`). The token extractor's output on `see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4` is exactly `["acme/secret","and/or"]`.
 
 4. A forge read that fails or doesn't answer. Each of the three reads runs
 under `dc_with_deadline "${FORGE_READ_SECONDS:-10}"`
@@ -1413,7 +1458,7 @@ own (`state-write-core.sh:736`, `:764`): retry, don't change the row. Ten
 seconds is a liveness bound with room for a compare on a large repository.
 Criteria, in `standing-rule-write_engine_test.sh`:
 
-- R9. With the stand-in's `fail` matching, in turn, the visibility, compare and contents reads with `HTTP 502`, the write exits 2, stderr names that read, the log holds no read after it, and nothing is written.
+- R9. With a What holding no two-part token and the stand-in's `fail` matching, in turn, the visibility, compare and contents reads with `HTTP 502`, the write exits 2, stderr names that read, the log holds no read after it, and nothing is written.
 - R10. A `gh` wrapper that sleeps 5 seconds on `compare/`, under `FORGE_READ_SECONDS=1`, gives exit 2 within 4 seconds, no contents read, and nothing written.
 
 5. One refusal for a missing and an unreadable repository. "Can't read"
@@ -1550,7 +1595,7 @@ either way. Criteria, in `standing-rule-write_engine_test.sh`:
 Existing tests that change. No existing assertion changes; the files
 below gain cases or rows, or keep passing as they are.
 
-- `state-schema_test.sh` gains R1 to R5, R33 and unit cases for the cap counts.
+- `state-schema_test.sh` gains R1 to R5, R33, R40 and unit cases for the cap counts.
 - `state-stored-set_test.sh` gains R18 to R22, R29, R30 and R32. Its unknown-kind case (`rumour`, exit 64) and event-row usage cases keep their exits.
 - `standing-rules_engine_test.sh`, `rule-grants_engine_test.sh` and `standing-counts_engine_test.sh` keep their assertions: they count niwa calls, not forge reads, so item 12's dropped read doesn't show.
 - `check-skill.tsv` gains a cost row for the new engine suite, and `coordinate.compat.json` records the new `gate_scripts` digest, since scripts the gates run change.
@@ -1902,9 +1947,13 @@ references, so the grammar checks the bare repository of a `skill` or `doc`
 Source, and the repository in a cited session's name, against the list of
 repositories that aren't public. A workspace file a public host can't name
 is cited only by label and digest, with its location kept in
-`record/host`, and the same repository check runs on What, so neither a
-brief sentence nor a rule's words can name a private repository by its bare
-name on a public host. A refusal reads the same for a repository that
+`record/host`, and the same repository check runs on What's two-part
+`owner/repo` tokens, so on a public host neither a brief sentence nor a
+rule's words can name by its bare name a private repository the writer can
+see, or any repository of the host's owner. Another owner's token that
+reads as a 404 passes, since a 404 can't tell an absent repository from a
+hidden one and refusing every such token would refuse ordinary prose like
+`and/or`. A refusal reads the same for a repository that
 doesn't exist as for one the writer can't read. A pinned or brief digest records what was read; comparing it
 with the file's current contents is the compiled-brief work's, so this
 design doesn't present it as an integrity check, and that is why a pinned
@@ -1916,7 +1965,11 @@ closed, so a private repository missing from the list of non-public ones
 is still refused. A repository made private after a row cites it keeps
 its row, since the checks run at write and a stored row is never rejected
 later. That residual is accepted, because rejecting it would make the
-record unreadable and stop its takeover. Person
+record unreadable and stop its takeover. A second residual is accepted
+with it: another owner's private repository that the writer's credentials
+can't see reads as a 404 and passes, so its bare name can reach a public
+host's record. A link or an `owner/repo#n` form of it is still checked as
+before. Person
 handles already sit in Owner today; the ones koto hands back go only into
 entries kept in the session.
 
