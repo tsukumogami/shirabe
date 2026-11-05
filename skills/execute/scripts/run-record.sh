@@ -19,8 +19,9 @@
 # structure test checks the callers; this script does not):
 #
 #   setup      record-coord-setup.sh, sealing a new run's run/setup
-#   push       node-push.sh node: a node's repo, pr, pushed head, and the
-#              verification deferral reasons it carried at the push
+#   push       node-push.sh node: a node's repo, pr, pushed head, the
+#              verification deferral reasons it carried at the push, and the
+#              deferral's public wording when one was given
 #   observe    coord-render.sh, the coordination body's renderer: a merged
 #              head it read live (the merge commit GitHub reports)
 #   cascade    node-push.sh coordination (pushed, with the head) and
@@ -40,6 +41,7 @@
 #   run/setup              store coordination_pr repos mode nodes run_lines
 #                                                    setup recover carry
 #   run/node/*             repo pr head deferrals    push recover carry
+#                          public_reason
 #   run/node/*             merged_head               observe recover carry
 #   run/follow-up/*/*      repo pr head removed      follow-up recover carry
 #   run/follow-up/*/*      merged_head               observe recover carry
@@ -54,7 +56,8 @@
 # run_lines an object whose keys are among topic, exit, outcome, intent, mode,
 # each value ^[A-Za-z0-9._-]{1,64}$; repo owner/repo; head and merged_head 40
 # hex; deferrals an array of distinct non-empty one-line strings (empty when
-# the node deferred nothing); removed a boolean; verdict not-run|pushed|failed; step
+# the node deferred nothing); public_reason a one-line string with more than
+# whitespace in it; removed a boolean; verdict not-run|pushed|failed; step
 # ^execute:[a-z-]+$; recovered's pr a pull request URL and source
 # carried|run-line|markers|minted|adopted; id 32 hex; login a GitHub login; at
 # UTC YYYY-MM-DDTHH:MM:SSZ. A follow-up's pr equals the <n> in its key.
@@ -62,8 +65,9 @@
 # Write semantics. A verb that owns every field of the key's kind replaces the
 # key (setup, cascade, recover, adopt, carry); any other merges into the
 # stored object (push, observe, follow-up), so a push never clobbers a
-# recorded merged_head. The result must hold the kind's required fields
-# (run/setup all but run_lines; a node or follow-up repo, pr, head; run/cascade
+# recorded merged_head, and a push without public_reason keeps a recorded
+# one. The result must hold the kind's required fields (run/setup all but
+# run_lines; a node or follow-up repo, pr, head; run/cascade
 # verdict, with head exactly when pushed and step exactly when failed;
 # run/recovered and run/adopted all of theirs).
 #
@@ -110,7 +114,7 @@ RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 
 # The verb-to-field table, as data: <kind> TAB <fields> TAB <owning verbs>.
 OWNERS='setup	store coordination_pr repos mode nodes run_lines	setup recover carry
-node	repo pr head deferrals	push recover carry
+node	repo pr head deferrals public_reason	push recover carry
 node	merged_head	observe recover carry
 follow-up	repo pr head removed	follow-up recover carry
 follow-up	merged_head	observe recover carry
@@ -213,6 +217,8 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
         elif $f == "deferrals" then type == "array"
           and all(.[]; type == "string" and length > 0 and (test("[\n\r]") | not))
           and ((unique | length) == length)
+        elif $f == "public_reason" then type == "string" and test("[^[:space:]]")
+          and (test("[\n\r]") | not)
         elif $f == "removed" then type == "boolean"
         elif $f == "verdict" then . == "not-run" or . == "pushed" or . == "failed"
         elif $f == "step" then is_str("^execute:[a-z-]+$")

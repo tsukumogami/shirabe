@@ -25,8 +25,10 @@
 # rules and briefs (their rows' values), friction, and host (record/host).
 # It prints role, the Run `role` row's value (manager or director), or null
 # when the record holds none
-# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1); no gap comes
-# from it.
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1). With no row it
+# lists the gap `no-role`, fix `state-stored-set.sh --run role
+# <manager|director> --by <who named it>`: the reconcile directive fills it
+# from the role= the opener printed or, with none, by asking the person once.
 #
 # A record holding a `rule` row also prints rule_lists: four report lists, in
 # this order, each {list, heading, rows}, the heading naming the list and
@@ -47,6 +49,7 @@
 # A gap is {gap, fix}:
 #   no-arguments | no-cap | no-coordinator   a Run row is missing
 #   no-reports-to                            the reports-to row is missing
+#   no-role                                  the role row is missing
 #   no-next-step <unit>                      a live holding has no Work row
 #   leg-unclassified <worker>                a live holding's leg names a
 #                                            request this host's store
@@ -223,6 +226,7 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
         (if .cap == null then {gap: "no-cap", fix: "state-stored-set.sh --run cap <n> --by <who set it>"} else empty end),
         (if .coordinator == null then {gap: "no-coordinator", fix: "state-stored-set.sh --run coordinator <your address> --by <you>"} else empty end),
         (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<name>[ at <address>]\" --by <who>"} else empty end),
+        (if .role == null then {gap: "no-role", fix: "state-stored-set.sh --run role <manager|director> --by <who named it>"} else empty end),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select((.told or .pending) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"}) else empty end)

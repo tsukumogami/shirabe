@@ -91,6 +91,7 @@ run_rows() { # run_rows <active worker>: the Run rows, the worker told the addre
     {key: "cap", value: "2", set_by: "the human", set: "2026-10-07T10:00Z"},
     {key: "coordinator", value: "lane-coord", set_by: "lane-coord", set: "2026-10-07T10:00Z"},
     {key: "reports-to", value: "the human", set_by: "the human", set: "2026-10-07T10:00Z"},
+    {key: "role", value: "manager", set_by: "start --role", set: "2026-10-07T10:00Z"},
     {key: "told", value: $w, set_by: "lane-coord", set: "2026-10-07T10:00Z"}]'; }
 work_row() { # work_row <unit> <worker>: the active holding's next step
     jq -nc --arg u "$1" --arg w "$2" '[{item: $u, kind: "holding", who: $w, next: "report when finished", wakes: "0", updated: "2026-10-07T10:00Z"}]'; }
@@ -109,7 +110,7 @@ open_run() {
     if [ "$4" = yes ]; then mkdir -p "$WD/docs/roadmaps"; printf '%s\n' "$2" > "$WD/$RM"; fi
     db_init
     db '.files["acme/widgets"]["main:" + $p] = $t' --arg p "$RM" --arg t "$2"
-    printf '["%s"]' "$RM" > "$T/args.json"
+    printf '["%s","--role","manager"]' "$RM" > "$T/args.json"
     S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
     [ -n "$S" ] || { bad "the $1 run opens" "$(cat "$T/open.err")"; return 1; }
     (cd "$WD" && session_seed "$S" "$3" 2026-10-07T10:00:00Z) || { bad "the $1 record is seeded into the run" ""; return 1; }

@@ -206,6 +206,12 @@
 #                                there (REPORTS_TO)
 #   --continues <run>            the run a takeover continues; it must be the
 #                                scope's newest member (not with --import)
+#   --role manager|director      this run's role (docs/designs/DESIGN-coordinator-named-roles.md,
+#                                Decision 1), read outside the variable pairs
+#                                on every path, an import's included
+#   --role-change-by <name>, --role-change-source dispatcher|person
+#                                with --role, both or neither: a change of the
+#                                recorded role from above (PRD R5)
 #   --import <session>, --from <workspace path>, [--trust-template]
 #                                import that run from the bucket (with the
 #                                roadmap path, or a discipline's --discipline
@@ -217,7 +223,8 @@
 # (milestone.sh is-milestone), else feature; no token sets it.
 # Values reach koto only through a vars file, mapped with jq; koto checks each
 # against its variable's pattern and refuses a bad or repeated one at init,
-# with no session left behind.
+# with no session left behind. --role and the change flags aren't variables:
+# this script checks them before any koto call (below, "The run's role").
 #
 # Usage: coordinate-open.sh [--plugin-root <path>] [--dispatched-by <name>] <args-file>
 # Prints koto-open.sh's result line, then `session=<name>` on success. At
@@ -250,7 +257,23 @@
 # The order matters only for reading the output; the session/link-warning key
 # keeps one line per dispatcher either way (dispatch-link.sh).
 #
-# Exit codes: 0 opened or resumed; 10 the human must name the host first; 2
+# The role. Every start that knows the run's role prints role=<manager|director>
+# with its result lines, and role_changed_from=<old> for an accepted change
+# from above (with role_change_by= and role_change_source= on a carried
+# rotation, for predecessor_carry). A start with no --role and no recorded
+# role to continue prints ask=role (exit 10) before anything is written; a
+# role other than manager or director is refused=invalid_role (exit 2); a
+# --role differing from the recorded one is outcome=refused with
+# reason=role-mismatch, or reason=role-change-refused for a change the
+# change flags don't carry from above (exit 2); a recorded role that can't be
+# read is failed=role_read (exit 1). The row is written on a resume (before
+# outcome=resumed), by finish_takeover on a takeover, after cancel_others on
+# a same-host carry for an accepted change (warning=role-change-unwritten
+# when that write fails, exit 0), and on an import once the copy lands; a
+# write that fails on a resume, takeover or import is failed=role_write or
+# failed=takeover_record (exit 1) with no result lines.
+#
+# Exit codes: 0 opened or resumed; 10 the human must name the host or the role first; 2
 # this koto lacks the session store's features (`refused=store-unsupported`),
 # or the legacy importer refused the start (`refused=record-unreadable` or
 # `refused=several`), or koto refused a read of the run the start would
@@ -333,11 +356,14 @@ MAP='
 if (type != "array") or (map(type == "string") | all | not) then error("not a JSON array of strings") else . end
 | (index("--") // length) as $cut
 | .[:$cut] as $s
-| reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null, import: {}, continues: []};
+| reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null, import: {}, continues: [], role: {}};
     if .skip then .skip = false
     elif $s[$i] == "--continues" then
       if $i + 1 >= ($s | length) then .bad = "--continues needs a value"
       else .skip = true | .continues += [$s[$i + 1]] end
+    elif ($s[$i] | IN("--role", "--role-change-by", "--role-change-source")) then
+      if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
+      else .skip = true | .role[$s[$i] | ltrimstr("--")] += [$s[$i + 1]] end
     elif ($s[$i] | IN("--import", "--from")) then
       if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
       else .skip = true | .import[$s[$i] | ltrimstr("--")] += [$s[$i + 1]] end
@@ -355,6 +381,60 @@ MAPPED=$(jq -c "$MAP" < "$ARGS_FILE") || usage "the args file is not a JSON arra
 rm -f -- "$ARGS_FILE"
 BAD=$(printf '%s' "$MAPPED" | jq -r '.bad // empty')
 [ -z "$BAD" ] || usage "$BAD"
+
+# wording <code> <fields>: the wording row <code> with each {field} filled from
+# the JSON object <fields> in one pass, so a value is never read as a field.
+wording() {
+    local t
+    t=$(awk -F'\t' -v c="$1" '$1 == c { print $2; exit }' "$WORDING")
+    jq -rn --arg t "$t" --argjson f "$2" '$t | gsub("\\{(?<k>[a-z_]+)\\}"; ($f[.k] // "{\(.k)}"))'
+}
+# The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1;
+# PRD R5): --role, and a change from above, --role-change-by and
+# --role-change-source, read beside --continues and outside the variable
+# pairs, so no koto variable carries them and an import's "no other setting"
+# rule doesn't count them. Each is checked here, before any koto call: a flag
+# given twice, a change flag without the other or without --role, a source
+# other than dispatcher or person, and a --role-change-by that is empty,
+# longer than 80 characters (the set-once writer's --by limit) or holds a
+# control character or backtick, are usage; a role other than manager or
+# director is refused=invalid_role, its value echoed with backticks and
+# control characters removed and cut to 32 characters. Nothing opens.
+RCHECK=$(printf '%s' "$MAPPED" | jq -c '
+    .role as $r
+    | def one($k): ($r[$k] // []) as $v | if ($v | length) > 1 then "--\($k) goes once" else null end;
+      def bad_text: test("[[:cntrl:]`]");
+    {bad: (one("role") // one("role-change-by") // one("role-change-source")
+        // (if (($r["role-change-by"] // []) | length) != (($r["role-change-source"] // []) | length)
+            then "--role-change-by and --role-change-source go together" else null end)
+        // (if ($r["role-change-by"] // []) != [] and ($r.role // []) == []
+            then "--role-change-by and --role-change-source go only with --role" else null end)
+        // (if ($r["role-change-source"] // []) != [] and (($r["role-change-source"][0]) | IN("dispatcher", "person") | not)
+            then "--role-change-source takes dispatcher or person" else null end)
+        // (($r["role-change-by"] // [])[0] as $b
+            | if $b == null then null
+              elif ($b | length) == 0 or ($b | length) > 80 or ($b | bad_text)
+              then "--role-change-by takes one name of 1 to 80 characters, with no control character or backtick"
+              else null end)),
+     given: (($r.role // []) != []),
+     role: (($r.role // [])[0] // ""),
+     shown: (($r.role // [])[0] // "" | gsub("[[:cntrl:]`]"; "") | .[0:32]),
+     by: (($r["role-change-by"] // [])[0] // ""),
+     source: (($r["role-change-source"] // [])[0] // "")}') || usage "the role flags couldn't be read"
+BAD=$(jq -r '.bad // empty' <<< "$RCHECK")
+[ -z "$BAD" ] || usage "$BAD"
+ROLE= CHANGE_BY= CHANGE_SOURCE=
+if [ "$(jq -r '.given' <<< "$RCHECK")" = true ]; then
+    ROLE=$(jq -r '.role' <<< "$RCHECK")
+    case "$ROLE" in
+        manager|director) ;;
+        *) echo "refused=invalid_role"
+           echo "coordinate-open: $(wording invalid_role "$(jq -c '{value: .shown}' <<< "$RCHECK")")" >&2
+           exit 2 ;;
+    esac
+    CHANGE_BY=$(jq -r '.by' <<< "$RCHECK")
+    CHANGE_SOURCE=$(jq -r '.source' <<< "$RCHECK")
+fi
 
 # An import (PRD R14): --import <session> --from <workspace path>, and
 # --trust-template only when the operator passes it. It resumes an existing run,
@@ -709,6 +789,11 @@ finish_takeover() {
     else
         echo "coordinate-open: this session's name couldn't be read, so $succ's coordinator row still names the predecessor's; write yours with state-stored-set.sh --run coordinator" >&2
     fi
+    # The run's role beside its coordinator row: a role-less record's first,
+    # or an accepted change from above. The writer is set-once, so a re-run
+    # after a crash writes nothing it already wrote.
+    role_write "$succ" \
+        || { echo "failed=takeover_record"; echo "coordinate-open: $succ's role row ($ROLE_OUT) wasn't written: $(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400); run the opener again from this session to finish" >&2; exit 1; }
     if ! bash "$HERE/state-entry.sh" --session "$succ" --list 2> "$T_ERR" \
             | jq -e --arg p "takeover $succ:" 'any(.[]; .kind == "takeover" and (.text | startswith($p)))' > /dev/null; then
         d=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-entry.XXXXXX") || { echo "failed=takeover_record"; exit 1; }
@@ -723,6 +808,7 @@ finish_takeover() {
     [ -n "${WATCH_READ:-}" ] || read_watch "$pred"
     printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\nwatcher=%s\nleg_wake=%s\n' \
         "$pred" "$succ" "$stopped" "$(watcher_result "$pred")" "$(leg_wake)"
+    role_lines
     link_dispatcher "$succ"
     rules_record "$succ"
     exit 0
@@ -762,6 +848,9 @@ takeover() {
             while [ "$succ" = "$pred" ]; do sleep 1; succ="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"; done
         fi
         not_self "$succ"
+        # A change named by the new run's own session is the run changing its
+        # own role, refused before the fence like every other.
+        if [ -n "$ROLE_FROM" ] && [ "$CHANGE_BY" = "$succ" ]; then role_refuse role-change-refused role_change_self; fi
         d=$(bash "$KOTO_OPEN" --alloc-dir) || usage "could not allocate a vars directory"
         bash "$HERE/coord-log.sh" vars --session "$pred" 2> "$T_ERR" \
             | jq -c --arg r "$PLUGIN_ROOT" '. + {PLUGIN_ROOT: $r} | to_entries | map([.key, (.value | tostring)])' > "$d/vars.json" \
@@ -894,6 +983,206 @@ $v
 EOF
     [ -n "$ma" ] && [ -n "$mi" ] && { [ "$ma" -gt 0 ] || [ "$mi" -ge 32 ]; }
 }
+# refuse_bound <run> <what this start left>: koto refused a read of <run> as
+# session_bound_elsewhere, its cloud backend answering a run only in the
+# directory it is bound to (shirabe#1257). The way out, in its order: the
+# predecessor stops, the run is rebound here (or carried), and only then is
+# the predecessor's instance reaped. Exit 2.
+refuse_bound() {
+    local here
+    here=$(pwd -P)
+    echo "refused=bound-elsewhere"
+    echo "coordinate-open: koto refused a read of $1 from $here as session_bound_elsewhere: it is bound to another directory, and $2. In this order: stop the coordinator session that drives $1, run koto session rebind $1 --to $here from $here, start again here to carry it, and only then reap the predecessor's instance" >&2
+    exit 2
+}
+
+# ---- The run's role ------------------------------------------------------------
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1; PRD R2, R5, R9.
+# A start reads the role of the run it continues through state-read.sh --run,
+# after the candidate's own refusals and before anything is written. An absent
+# record/run reads as [], a role-less record; a read that fails is
+# failed=role_read (exit 1), never role-less, except that koto's
+# session_bound_elsewhere keeps its own refusal and its rebind order. A start
+# with no --role and no recorded role to continue is asked (ask=role, exit
+# 10); an import never is. A --role that differs from the recorded one is
+# refused role-mismatch unless the change flags name an intervention from
+# above, decided in the design's order (role_change_self, then
+# role_change_brief_person, role_change_no_address and
+# role_change_not_reports_to), each refusal exiting 2 with nothing written.
+#
+# ROLE_BY is who a role the start names is set by when it is the run's first:
+# the start's own --role. It is one short line whatever the run is named (a
+# run name can pass the writer's 80-character --by limit, and CALLER_NAME can
+# be empty), and state-open.sh's seed uses the same words.
+ROLE_BY="start --role"
+# What the decision leaves:
+#   ROLE_OUT     the run's role once the start is done, printed as role=; ""
+#                when the start doesn't know it (an import given no --role)
+#   ROLE_FIRST   1 when the row is written for the first time: a role-less
+#                record given --role
+#   ROLE_FROM    the recorded role an accepted change replaces, "" with none
+#   ROLE_RUN, ROLE_REC, ROLE_REPORTS  the run decided on, its recorded role and
+#                its reports-to row, which a refusal names
+#   ROLE_IMPORT_COPY  1 when the run is an import's copy already on this host,
+#                whose refusals end with the role_import_copy row
+#   CARRIED_ROTATION  1 when the run is a discipline's ended rotation, which
+#                the new run's find carries (predecessor_carry writes its row)
+ROLE_OUT=$ROLE ROLE_FIRST=0 ROLE_FROM= ROLE_RUN= ROLE_REC= ROLE_REPORTS= ROLE_IMPORT_COPY=0 CARRIED_ROTATION=0 ROLE_WARN=0
+# role_clean <text>: a run name, a row or a name, echoed with backticks and
+# control characters removed and never cut.
+role_clean() { printf '%s' "$1" | tr -d '[:cntrl:]`'; }
+# role_fields: the role rows' fields, as wording reads them.
+role_fields() {
+    jq -nc --arg run "$(role_clean "$ROLE_RUN")" --arg recorded "$ROLE_REC" --arg asked "$ROLE" \
+        --arg by "$(role_clean "$CHANGE_BY")" --arg rt "$(role_clean "${ROLE_REPORTS:-no session on its record}")" \
+        '{run: $run, recorded: $recorded, asked: $asked, by: $by, reports_to: $rt}'
+}
+# role_refuse <reason> <wording row>: a refused role, before anything was
+# written. On an import whose copy is here, the role_import_copy row ends it.
+role_refuse() {
+    local msg
+    msg=$(wording "$2" "$(role_fields)")
+    [ "$ROLE_IMPORT_COPY" = 0 ] || msg="$msg $(wording role_import_copy "$(role_fields)")"
+    printf 'outcome=refused\nreason=%s\n' "$1"
+    echo "coordinate-open: $msg" >&2
+    exit 2
+}
+role_ask() {
+    echo "ask=role"
+    echo "coordinate-open: $(wording ask_role '{}')" >&2
+    exit 10
+}
+# role_unread <run> <workspace or ""> <reader's exit> <reader's stdout>: the
+# role, or the predecessors a change is checked against, couldn't be read.
+# koto's refusal of a --workspace read (the reader's exit 3) is refused=<code>,
+# exit 2, as koto's import refusals are; a local read koto refuses as
+# session_bound_elsewhere is refused=bound-elsewhere; any other is
+# failed=role_read, exit 1. Nothing was written in any of them.
+role_unread() {
+    local why code out
+    why=$(tr -s '\t\n' '  ' < "$T_ERR" 2> /dev/null); why=${why:0:400}
+    if [ "$3" = 3 ]; then
+        code=$(sed -n 's/^refused=//p' <<< "$4" | head -1)
+        echo "refused=${code:-koto-refused}"
+        echo "coordinate-open: koto refused a read of $1 in $2${why:+: $why}; nothing was imported" >&2
+        exit 2
+    fi
+    if [ -z "$2" ]; then
+        out=$("$KOTO" context list "$1" --prefix record/run < /dev/null 2>&1)
+        case "$out" in *session_bound_elsewhere*) refuse_bound "$1" "nothing was opened" ;; esac
+    fi
+    echo "failed=role_read"
+    echo "coordinate-open: $1's role couldn't be read${why:+ ($why)}; nothing was written. Make its record readable here, then start again" >&2
+    exit 1
+}
+# read_rows <run> [<workspace>]: ROWS, the run's Run rows (state-read.sh
+# --run), read here or, with <workspace>, where the source is.
+read_rows() {
+    local rc
+    if [ -n "${2:-}" ]; then
+        ROWS=$(bash "$HERE/state-read.sh" --run --workspace "$2" --session "$1" < /dev/null 2> "$T_ERR")
+    else
+        ROWS=$(bash "$HERE/state-read.sh" --session "$1" --run < /dev/null 2> "$T_ERR")
+    fi
+    rc=$?
+    [ $rc -eq 0 ] && jq -e 'type == "array"' <<< "$ROWS" > /dev/null 2>&1 && return 0
+    role_unread "$1" "${2:-}" "$rc" "$ROWS"
+}
+# role_is_self <run> [<workspace>]: the change names the run itself: its own
+# session, a predecessor (state-read.sh --predecessors: koto's continues
+# relation, a rotation's predecessor and the run a carry linked), its own Run
+# coordinator address, the new run's session name or this caller's address.
+role_is_self() {
+    local coord preds rc
+    if [ "$CHANGE_BY" = "$1" ] || [ "$CHANGE_BY" = "$SESSION" ]; then return 0; fi
+    if [ -n "$CALLER_NAME" ] && [ "$CHANGE_BY" = "$CALLER_NAME" ]; then return 0; fi
+    coord=$(jq -r '[.[] | select(.key == "coordinator") | .value][0] // ""' <<< "$ROWS")
+    if [ -n "$coord" ] && [ "$CHANGE_BY" = "$coord" ]; then return 0; fi
+    if [ -n "${2:-}" ]; then
+        preds=$(bash "$HERE/state-read.sh" --predecessors --workspace "$2" --session "$1" < /dev/null 2> "$T_ERR")
+    else
+        preds=$(bash "$HERE/state-read.sh" --predecessors --session "$1" < /dev/null 2> "$T_ERR")
+    fi
+    rc=$?
+    [ $rc -eq 0 ] || role_unread "$1" "${2:-}" "$rc" "$preds"
+    grep -qxF -e "$CHANGE_BY" <<< "$preds"
+}
+# role_decide <run> [<workspace>]: the role this start gives the run it
+# continues, or its refusal. With no --role it is the recorded one ("" for a
+# role-less record, which the caller asks about). A --role for a role-less
+# record is its first; the recorded one again changes nothing; any other is a
+# change, refused unless the change flags name an intervention from above.
+# The change flags with the recorded role, or with a role-less record, change
+# nothing.
+role_decide() {
+    local addr cause=
+    ROLE_RUN=$1
+    read_rows "$1" "${2:-}"
+    ROLE_REC=$(jq -r '[.[] | select(.key == "role") | .value][0] // ""' <<< "$ROWS")
+    ROLE_REPORTS=$(jq -r '[.[] | select(.key == "reports-to") | .value][0] // ""' <<< "$ROWS")
+    ROLE_FIRST=0 ROLE_FROM=
+    if [ -z "$ROLE" ]; then ROLE_OUT=$ROLE_REC; return 0; fi
+    ROLE_OUT=$ROLE
+    if [ -z "$ROLE_REC" ]; then ROLE_FIRST=1; return 0; fi
+    [ "$ROLE_REC" != "$ROLE" ] || return 0
+    [ -n "$CHANGE_SOURCE" ] || role_refuse role-mismatch role_mismatch
+    # The address half of `<name> at <address>`; the name half is free text
+    # and never matched.
+    addr=$(sed -n 's/^.* at \([^ ][^ ]*\)$/\1/p' <<< "$ROLE_REPORTS")
+    if role_is_self "$1" "${2:-}"; then cause=role_change_self
+    elif [ "$CHANGE_SOURCE" = person ] && [ "$HAVE_DISPATCHER" -gt 0 ]; then cause=role_change_brief_person
+    elif [ "$CHANGE_SOURCE" = dispatcher ] && [ -z "$addr" ]; then cause=role_change_no_address
+    elif [ "$CHANGE_SOURCE" = dispatcher ] && [ "$CHANGE_BY" != "$addr" ]; then cause=role_change_not_reports_to
+    fi
+    [ -z "$cause" ] || role_refuse role-change-refused "$cause"
+    ROLE_FROM=$ROLE_REC
+}
+# role_write <run>: the row the decision left, written into <run> through the
+# set-once writer: an accepted change with --intervention, by the name the
+# change gives; a first role by ROLE_BY. Nothing to write returns 0.
+role_write() {
+    if [ -n "$ROLE_FROM" ]; then
+        bash "$HERE/state-stored-set.sh" --session "$1" --run role "$ROLE_OUT" --by "$CHANGE_BY" \
+            --intervention "$CHANGE_SOURCE" < /dev/null > /dev/null 2> "$T_ERR"
+    elif [ "$ROLE_FIRST" = 1 ]; then
+        bash "$HERE/state-stored-set.sh" --session "$1" --run role "$ROLE_OUT" --by "$ROLE_BY" < /dev/null > /dev/null 2> "$T_ERR"
+    fi
+}
+# role_write_or_stop <run> <what comes next>: role_write, and a write that
+# fails stops the start before its result lines.
+role_write_or_stop() {
+    role_write "$1" && return 0
+    echo "failed=role_write"
+    echo "coordinate-open: $1's role row ($ROLE_OUT) wasn't written: $(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400); $2" >&2
+    exit 1
+}
+# role_lines: role=, and for an accepted change role_changed_from=, with the
+# change's name and source for predecessor_carry on a carried rotation.
+role_lines() {
+    [ -n "$ROLE_OUT" ] || return 0
+    echo "role=$ROLE_OUT"
+    [ -n "$ROLE_FROM" ] || return 0
+    echo "role_changed_from=$ROLE_FROM"
+    [ "$CARRIED_ROTATION" = 0 ] || printf 'role_change_by=%s\nrole_change_source=%s\n' "$CHANGE_BY" "$CHANGE_SOURCE"
+}
+# takes_over <run> <action>: the start takes the candidate over (takeover_check's
+# branches, read without writing): it is fenced by this session's own
+# takeover, cut short, or it would be resumed and another session drives it.
+# A run continuing a predecessor this session fenced is this session's own
+# takeover, finished or finishing, so it isn't taken over.
+takes_over() {
+    local p
+    fence_of "$1"
+    if [ -n "$FENCE" ]; then [ -n "$CALLER" ] && [ "$FENCE_ACTOR" = "$CALLER" ]; return; fi
+    [ -n "$CALLER" ] && [ "$2" = resume ] || return 1
+    p=$(pred_of "$1")
+    if [ -n "$p" ]; then
+        fence_of "$p"
+        if [ "$FENCE_BY" = "$1" ] && [ "$FENCE_ACTOR" = "$CALLER" ]; then return 1; fi
+    fi
+    driven_by_another "$1"
+}
+
 # The import: the session another workspace ran, from the bucket (PRD R14).
 # The name and a live run of the scope are refused before koto runs; koto's
 # own refusals are printed with its code and leave no session; then the
@@ -926,14 +1215,33 @@ if [ -n "$IMPORT" ]; then
                 [ "$FENCE_ACTOR" = "$CALLER" ] || refuse_takeover taken-over \
                     "$IMPORT was imported here and taken over by $FENCE_BY from another Claude session; nothing was written"
                 not_self "$FENCE_BY"
-                if [ "$(meta_field "$FENCE_BY" driver)" = "$CALLER" ] && [ "$(meta_field "$FENCE_BY" takeover_done)" = true ]; then
-                    printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$FENCE_BY"
-                    link_dispatcher "$FENCE_BY"
-                    rules_record "$FENCE_BY"
+                IMPORT_SUCC=$FENCE_BY
+                FINISHED=
+                if [ "$(meta_field "$IMPORT_SUCC" driver)" = "$CALLER" ] && [ "$(meta_field "$IMPORT_SUCC" takeover_done)" = true ]; then FINISHED=1; fi
+                # The role, checked first on the run this branch continues:
+                # after a finished import the successor, whose row holds any
+                # change the first run accepted; after one cut short the
+                # successor once its takeover wrote a role row, and the copy
+                # otherwise. A refusal ends with the role_import_copy row.
+                if [ -n "$ROLE" ]; then
+                    ROLE_IMPORT_COPY=1
+                    if [ -n "$FINISHED" ]; then role_decide "$IMPORT_SUCC"
+                    elif "$KOTO" status "$IMPORT_SUCC" < /dev/null > /dev/null 2>&1 \
+                        && read_rows "$IMPORT_SUCC" && jq -e 'any(.[]; .key == "role")' <<< "$ROWS" > /dev/null 2>&1; then
+                        role_decide "$IMPORT_SUCC"
+                    else role_decide "$IMPORT"
+                    fi
+                fi
+                if [ -n "$FINISHED" ]; then
+                    role_write_or_stop "$IMPORT_SUCC" "run the same import again to resume $IMPORT_SUCC"
+                    printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$IMPORT_SUCC"
+                    role_lines
+                    link_dispatcher "$IMPORT_SUCC"
+                    rules_record "$IMPORT_SUCC"
                     exit 0
                 fi
                 printf 'imported=%s\n' "$IMPORT"
-                takeover "$IMPORT" "$FENCE_BY"
+                takeover "$IMPORT" "$IMPORT_SUCC"
             fi
         fi
     fi
@@ -946,6 +1254,26 @@ if [ -n "$IMPORT" ]; then
         1) ;;
         *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;;
     esac
+    # The role, given --role, checked before koto session import (PRD R5), so
+    # a refused import lands nothing: no copy here, no migration marker on the
+    # source, which still takes writes. A copy of this import already here,
+    # known by the koto/imported-from record koto writes into every copy, is
+    # the run (its row holds any change an older koto's import accepted);
+    # otherwise the source is read where it is (state-read.sh --workspace).
+    # With no --role nothing is read: the recorded role rides the copy.
+    if [ -n "$ROLE" ]; then
+        IMPORTED_FROM=
+        if KEYS=$("$KOTO" context list "$IMPORT" --prefix koto/imported-from < /dev/null 2> /dev/null) \
+            && jq -e 'index("koto/imported-from") != null' <<< "$KEYS" > /dev/null 2>&1; then
+            IMPORTED_FROM=$("$KOTO" context get "$IMPORT" koto/imported-from < /dev/null 2> /dev/null | jq -r '.from_session // empty' 2> /dev/null)
+        fi
+        if [ -n "$IMPORTED_FROM" ] && [ "$IMPORTED_FROM" = "$IMPORT" ]; then
+            ROLE_IMPORT_COPY=1
+            role_decide "$IMPORT"
+        else
+            role_decide "$IMPORT" "$FROM"
+        fi
+    fi
     DIR=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-import.XXXXXX") || usage "could not make a scratch directory"
     set -- session import "$IMPORT" --from "$FROM"
     [ -z "$TRUST" ] || set -- "$@" --trust-template
@@ -1020,25 +1348,17 @@ EOF
     # the copy's successor, so its next tick is refused session_superseded
     # naming the new run.
     [ -z "$TAKES_OVER" ] || takeover "$IMPORT"
+    # An older koto's import is a resume of the copy: its role row is written
+    # as a resume writes it, before the result lines.
+    role_write_or_stop "$IMPORT" "$IMPORT is imported here; run the same import again to write it"
     printf 'resumed=1\nsession=%s\n' "$IMPORT"
+    role_lines
     link_dispatcher "$IMPORT"
     # The run reconciles again on this host.
     moved_lines "$IMPORT"
     rules_record "$IMPORT"
     exit 0
 fi
-# refuse_bound <run> <what this start left>: koto refused a read of <run> as
-# session_bound_elsewhere, its cloud backend answering a run only in the
-# directory it is bound to (shirabe#1257). The way out, in its order: the
-# predecessor stops, the run is rebound here (or carried), and only then is
-# the predecessor's instance reaped. Exit 2.
-refuse_bound() {
-    local here
-    here=$(pwd -P)
-    echo "refused=bound-elsewhere"
-    echo "coordinate-open: koto refused a read of $1 from $here as session_bound_elsewhere: it is bound to another directory, and $2. In this order: stop the coordinator session that drives $1, run koto session rebind $1 --to $here from $here, start again here to carry it, and only then reap the predecessor's instance" >&2
-    exit 2
-}
 
 # The record lives in a run's session on this host, so a start first looks
 # here for the scope's run that holds it
@@ -1085,12 +1405,35 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
         [ "$NAMED" = "$OLD" ] \
             || refuse_takeover not-newest-member "$NAMED isn't the newest member of $SLUG's run, $OLD is; name it, or name none; nothing was written"
     fi
+    # A dispatcher that names the candidate is a successor's brief, whose
+    # dispatcher is the predecessor it continues: accepted when the start
+    # takes the candidate over (a takeover, or this session's own one cut
+    # short), and refused on a resume or a carry of it, where the run would
+    # be its own dispatcher. A dispatcher naming the new run is refused on
+    # every path (not_self below and in takeover).
+    if [ -n "$OLD" ] && [ "$ACTION" != none ] && [ "$HAVE_DISPATCHER" -gt 0 ] && [ "$DISPATCHER" = "$OLD" ] \
+        && ! takes_over "$OLD" "$ACTION"; then
+        usage "--dispatched-by names $OLD, which this start resumes or carries rather than takes over, so the run would be its own dispatcher; start again without --dispatched-by (a carry links the new run to $OLD itself)"
+    fi
+    # The role (Decision 1), after the candidate's refusals and before
+    # takeover_check, the rebind, koto init or a carry: the role of the run
+    # this start continues, or, at discipline scope, of the ended rotation the
+    # new run's find carries (a candidate with action none and a session). At
+    # roadmap scope a candidate with action none (its find never recorded the
+    # session) isn't carried, so the start is a new run's. With no role to go
+    # on, the start is asked, before anything is written.
+    if [ -n "$OLD" ] && [ "$ACTION" != none ]; then
+        role_decide "$OLD"
+    elif [ -n "$OLD" ] && [ "$SCOPE" = discipline ]; then
+        CARRIED_ROTATION=1
+        role_decide "$OLD"
+    fi
+    [ -n "$ROLE_OUT" ] || role_ask
     # The takeover decision (takeover_check exits on a takeover, a finished
     # interrupted one, or a refusal). It comes before any rebind: the takeover
     # passes this plugin root to the new run itself, and a run this session
     # doesn't drive is never written.
     if [ -n "$OLD" ] && [ "$ACTION" != none ]; then
-        not_self "$OLD"
         takeover_check "$OLD" "$ACTION" "$(printf '%s' "$CAND" | jq -r '.code // empty')"
     fi
     case "$ACTION" in
@@ -1106,7 +1449,11 @@ if [ "$SCOPE" = roadmap ] || [ "$SCOPE" = discipline ]; then
         resume)
             [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] \
                 || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
+            # A role-less record's first row, or an accepted change, before
+            # the result lines: a write that fails resumes nothing.
+            role_write_or_stop "$OLD" "nothing was resumed; start again"
             printf 'outcome=resumed\nresumed=1\nsession=%s\n' "$OLD"
+            role_lines
             link_dispatcher "$OLD"
             rules_record "$OLD"
             exit 0 ;;
@@ -1216,6 +1563,17 @@ if [ -n "$CARRY_FROM" ]; then
     dl_link "$KOTO" "$SESSION" "$CARRY_FROM" || true
     cancel_others
     HELD=1
+    # An accepted role change, once the new run is the scope's only live run
+    # (so the write guard admits it) and before session=, through the
+    # before-find path (--intervention). A role-less copy's first row is left
+    # to the no-role gap, filled at reconcile from the printed role=. A
+    # change that isn't written leaves the carry standing under the recorded
+    # role; a later start with the same flags, once this run's find has
+    # recorded its store, applies it as a resume.
+    if [ -n "$ROLE_FROM" ] && ! role_write "$SESSION"; then
+        echo "coordinate-open: $SESSION carries $CARRY_FROM, but its role change from $ROLE_FROM to $ROLE_OUT wasn't written ($(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400)); it goes on as $ROLE_FROM, and the same start again, once this run's find has recorded its store, applies the change as a resume" >&2
+        ROLE_OUT=$ROLE_FROM ROLE_FROM= ROLE_WARN=1
+    fi
 elif [ "$FRESH" = 1 ]; then
     # A fresh start: no session here holds the scope's record (a discipline's
     # next rotation, whose ended rotation's session is here, isn't one). The legacy
@@ -1261,6 +1619,8 @@ elif [ "$FRESH" = 1 ]; then
         *) stop_fresh failed import "the legacy importer's lookup failed (exit $RC): $(head -c 400 "$IMP_ERR"); start again" ;;
     esac
 fi
+role_lines
+[ "$ROLE_WARN" = 0 ] || echo "warning=role-change-unwritten"
 printf 'session=%s\n' "$SESSION"
 link_dispatcher "$SESSION"
 [ "$HELD" = 0 ] || rules_record "$SESSION"

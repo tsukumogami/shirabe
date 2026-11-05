@@ -21,6 +21,21 @@
 #     own, so deferral-check.sh still reads a carry made before the takeover
 #     but after that chain start as disposed, and one made before the chain
 #     start as open.
+# And that each member's continues relation is read from its own local
+#     context manifest, with no koto context list call: a link the manifest
+#     holds is followed even when the listing says none; a link the log
+#     records but the manifest no longer holds (taken back after a failed
+#     push) is not; a manifest that is missing, unreadable, not one JSON
+#     document or shaped differently falls back to the listing, and one
+#     koto's own reader refuses exits as the listing does; a member
+#     whose manifest names no link follows a link only the bucket holds,
+#     through the listing; a member whose manifest names one link follows it
+#     even when the listing would put a bucket-only second link first (the
+#     two-host race) or would refuse the member as imported into another
+#     workspace, both pinned here so a change to them shows; and a 40-member
+#     chain lists only its
+#     root, so with each listing taking 0.75 s (a remote store) it finishes
+#     well inside koto's 30-second action limit.
 #
 # Every session lives in a scratch HOME and KOTO_HOME (koto-test-guard.sh
 # clears every KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME first).
@@ -231,6 +246,154 @@ if needs_takeover "a takeover's chain start is its predecessor's; the takeover's
     OUT=$(row 'carried 2026-08-31T12:00Z: before the chain'); RC=$?
     printf '     deferral carried 2026-08-31T12:00Z -> %s\n' "$OUT"
     eq "a carry made before the chain start is open" "1 undisposed carried-before-chain-start" "$RC $OUT"
+fi
+
+echo "== the relation comes from each member's local manifest =="
+# A koto that records every continues listing to $T/listings, answers it with
+# no keys when HIDE is set, answers LISTING_FOR's with LISTING when both are
+# set (a key only the bucket holds), and sleeps DELAY seconds before it when
+# DELAY is set, so a walk that still lists shows up in the count, one that
+# needed the listing ends early, and one that lists every hop is as slow as
+# on a remote store.
+cat > "$T/koto-counting" <<'WRAPEOF'
+#!/usr/bin/env bash
+case " $* " in
+    *" context list "*" --prefix koto/links/continues/ "*)
+        printf '%s\n' "$3" >> "$COUNT_FILE"
+        [ -z "${DELAY:-}" ] || sleep "$DELAY"
+        [ "$3" != "${REFUSE_FOR:-}" ] || { echo "error: session '$3' was imported into another workspace" >&2; exit 1; }
+        [ -z "${HIDE:-}" ] || { echo '[]'; exit 0; }
+        [ -z "${LISTING:-}" ] || [ "$3" != "${LISTING_FOR:-}" ] || { printf '%s\n' "$LISTING"; exit 0; } ;;
+esac
+exec koto "$@"
+WRAPEOF
+chmod +x "$T/koto-counting"
+counted() { : > "$T/listings"; KOTO_BIN="$T/koto-counting" COUNT_FILE="$T/listings" HIDE="${HIDE:-}" DELAY="${DELAY:-}" LISTING="${LISTING:-}" LISTING_FOR="${LISTING_FOR:-}" REFUSE_FOR="${REFUSE_FOR:-}" bash "$CL" chain-start --session "$1" 2>"$T/chain.err"; }
+listed() { sort "$T/listings" | tr '\n' ' ' | sed 's/ $//'; } # the members whose continues relation was listed
+manifest() { printf '%s/ctx/manifest.json' "$(koto session dir "$1")"; }
+if needs_takeover "a link the manifest holds is followed with the listing hidden; a link the manifest no longer holds is not; a manifest that is missing, unreadable or shaped differently falls back to the listing; a bucket-only link is followed through the listing; the two-host race follows the local link; a 40-member chain lists only its root and finishes inside koto's limit"; then
+    open lg-a && takeover lg-b lg-a
+    stamp lg-a 2026-10-01T00:00:00.000Z
+    stamp lg-b 2026-10-02T00:00:00.000Z
+    GOT=$(HIDE=1 counted lg-b)
+    show lg-b "$GOT"
+    eq "a link the manifest holds is followed with the listing hidden" 2026-10-01T00:00:00.000Z "$GOT"
+    eq "only the root's relation is listed" lg-a "$(listed)"
+
+    # A take-back after a failed push removes the key from the store and
+    # logs no context_removed, so the log still names the link.
+    open rm-a && takeover rm-b rm-a
+    stamp rm-a 2026-10-03T00:00:00.000Z
+    stamp rm-b 2026-10-04T00:00:00.000Z
+    M=$(manifest rm-b)
+    jq 'del(.keys["koto/links/continues/rm-a"])' "$M" > "$M.new" && mv "$M.new" "$M"
+    GOT=$(counted rm-b)
+    show rm-b "$GOT"
+    eq "a link the manifest no longer holds is not followed" 2026-10-04T00:00:00.000Z "$GOT"
+    eq "a member with no link in its manifest is listed" rm-b "$(listed)"
+
+    # Each manifest koto might not write falls back to the listing, here
+    # answered as the store would, and reaches the same start.
+    open fb-a && takeover fb-b fb-a
+    stamp fb-a 2026-10-05T00:00:00.000Z
+    stamp fb-b 2026-10-06T00:00:00.000Z
+    M=$(manifest fb-b)
+    cp "$M" "$T/fb-b.manifest"
+    for shape in missing unreadable truncated empty other-field keys-array not-object entry-not-object two-documents; do
+        cp "$T/fb-b.manifest" "$M" && chmod 644 "$M"
+        case $shape in
+            missing) rm -f "$M" ;;
+            unreadable) chmod 000 "$M" ;;
+            truncated) head -c 40 "$T/fb-b.manifest" > "$M" ;;
+            other-field) jq '{entries: .keys}' "$T/fb-b.manifest" > "$M" ;;
+            keys-array) jq '.keys |= keys' "$T/fb-b.manifest" > "$M" ;;
+            not-object) echo '["koto/links/continues/fb-a"]' > "$M" ;;
+            entry-not-object) jq '.keys["koto/links/continues/fb-a"] = "x"' "$T/fb-b.manifest" > "$M" ;;
+            empty) : > "$M" ;;
+            two-documents) { echo '{"keys": {}}'; cat "$T/fb-b.manifest"; } > "$M" ;;
+        esac
+        GOT=$(LISTING_FOR=fb-b LISTING='["koto/links/continues/fb-a"]' counted fb-b)
+        show "fb-b ($shape manifest)" "$GOT"
+        eq "a $shape manifest falls back to the listing" 2026-10-05T00:00:00.000Z "$GOT"
+        eq "a $shape manifest lists that member and the root" "fb-a fb-b" "$(listed)"
+    done
+    # A manifest koto's own reader refuses is refused here too: the walk
+    # goes to koto's listing, which refuses it, and exits as the listing
+    # walk does.
+    for shape in byte-order-mark duplicate-keys-field float-size lone-surrogate; do
+        cp "$T/fb-b.manifest" "$M" && chmod 644 "$M"
+        case $shape in
+            byte-order-mark) { printf '\357\273\277'; cat "$T/fb-b.manifest"; } > "$M" ;;
+            duplicate-keys-field) { printf '{"keys": {}, '; tail -c +2 "$T/fb-b.manifest"; } > "$M" ;;
+            float-size) jq '.keys["koto/links/continues/fb-a"].size = 1.0' "$T/fb-b.manifest" > "$M" ;;
+            lone-surrogate) jq '.keys["koto/links/continues/fb-a"].hash = "HASH"' "$T/fb-b.manifest" | sed 's/"HASH"/"\\ud800"/' > "$M" ;;
+        esac
+        GOT=$(counted fb-b); RC=$?
+        show "fb-b ($shape manifest)" "$GOT"
+        eq "a $shape manifest exits as koto's listing does" "2 " "$RC $GOT"
+    done
+    chmod 644 "$M" 2>/dev/null; cp "$T/fb-b.manifest" "$M"
+
+    # A link only the bucket holds, on a member whose manifest names none.
+    open ro-a && open ro-b
+    stamp ro-a 2026-10-09T00:00:00.000Z
+    stamp ro-b 2026-10-10T00:00:00.000Z
+    GOT=$(LISTING_FOR=ro-b LISTING='["koto/links/continues/ro-a"]' counted ro-b)
+    show ro-b "$GOT"
+    eq "a bucket-only link is followed through the listing" 2026-10-09T00:00:00.000Z "$GOT"
+
+    # The two-host race: the manifest names one predecessor while the bucket
+    # alone holds a second that sorts first. koto refuses a second
+    # predecessor, so only a race leaves this state; the walk follows the
+    # local link where the listing's first key would be the other. Pinned so
+    # a change to it shows.
+    open rc-0 && open rc-a && takeover rc-b rc-a
+    stamp rc-0 2026-10-11T00:00:00.000Z
+    stamp rc-a 2026-10-12T00:00:00.000Z
+    stamp rc-b 2026-10-13T00:00:00.000Z
+    GOT=$(LISTING_FOR=rc-b LISTING='["koto/links/continues/rc-0","koto/links/continues/rc-a"]' counted rc-b)
+    show rc-b "$GOT"
+    eq "the two-host race follows the link the manifest holds" 2026-10-12T00:00:00.000Z "$GOT"
+    eq "the two-host race lists only the root" rc-a "$(listed)"
+
+    # A member imported into another workspace: koto's listing refuses it,
+    # which only the bucket can tell, and the listing walk exits 2. The local
+    # manifest still names the predecessor it had before the import, so this
+    # walk follows it. Pinned, at the walk's start and mid-chain, so a change
+    # to it shows.
+    open mg-a && takeover mg-b mg-a && takeover mg-c mg-b
+    stamp mg-a 2026-10-14T00:00:00.000Z
+    stamp mg-b 2026-10-15T00:00:00.000Z
+    stamp mg-c 2026-10-16T00:00:00.000Z
+    GOT=$(REFUSE_FOR=mg-c counted mg-c); RC=$?
+    show "mg-c (its listing refused)" "$GOT"
+    eq "an imported start follows the predecessor its manifest names" "0 2026-10-14T00:00:00.000Z" "$RC $GOT"
+    eq "an imported start is never listed" mg-a "$(listed)"
+    GOT=$(REFUSE_FOR=mg-b counted mg-c); RC=$?
+    show "mg-c (mg-b's listing refused)" "$GOT"
+    eq "an imported member mid-chain is walked through" "0 2026-10-14T00:00:00.000Z" "$RC $GOT"
+    eq "an imported member mid-chain is never listed" mg-a "$(listed)"
+
+    open lc-0
+    i=1
+    while [ "$i" -lt 40 ]; do takeover "lc-$i" "lc-$((i - 1))" || break; i=$((i + 1)); done
+    stamp lc-0 2026-10-07T00:00:00.000Z
+    stamp lc-39 2026-10-08T00:00:00.000Z
+    GOT=$(counted lc-39)
+    show lc-39 "$GOT"
+    eq "a 40-member chain reaches its first member" 2026-10-07T00:00:00.000Z "$GOT"
+    eq "a 40-member chain lists only its root" lc-0 "$(listed)"
+    # 0.75 s a listing, the cost on a remote store: a walk that listed every
+    # hop would take 30 s here, koto's whole action limit.
+    BEGAN=$SECONDS
+    GOT=$(DELAY=0.75 counted lc-39)
+    TOOK=$((SECONDS - BEGAN))
+    printf '     chain-start lc-39 with 0.75 s listings -> %s in %s s\n' "$GOT" "$TOOK"
+    if [ "$GOT" = 2026-10-07T00:00:00.000Z ] && [ "$TOOK" -lt 30 ]; then
+        pass "a 40-member chain on 0.75 s listings finishes inside koto's limit"
+    else
+        fail "a 40-member chain on 0.75 s listings finishes inside koto's limit" "took ${TOOK} s and returned [$GOT]; a koto action running it would have timed out after 30 seconds"
+    fi
 fi
 
 echo "== reads that fail =="

@@ -9,7 +9,8 @@
 # The fixture, testdata/session-fixture/roadmap-keys.json, is every key such a
 # coordinator's session held, by name: record/meta with `store: session`, a key
 # per section, the Run section holding the legacy `store session` row beside
-# the stored set and two crash-set rows, a holding's pushed head, three entries
+# the stored set, two crash-set rows and the run's role (manager, the role
+# each start here names), a holding's pushed head, three entries
 # (record/entries/<n>), a finished leg's key (legs/<request>/<leg>) and
 # coord/source.json reading `session`. The sections are in state-schema.jq's
 # normal form, so each row has the columns a writer leaves.
@@ -99,9 +100,10 @@ B_ID=$(printf '%s-0000-4000-8000-%012d' bbbbbbbb 2)
 CALLER_ID=
 tick() { host_on "$ON" koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"; }
 # start <args json>: the opener on host $ON, as the Claude session $CALLER_ID
-# when it is set; OPEN_OUT its output, S the session.
+# when it is set, as a manager (--role manager added unless the args name a
+# role or import a run); OPEN_OUT its output, S the session.
 start() {
-    printf '%s' "$1" > "$T/args.json"
+    jq -c 'if index("--role") or index("--import") then . else . + ["--role", "manager"] end' <<< "$1" > "$T/args.json"
     OPEN_OUT=$(host_on "$ON" env ${CALLER_ID:+CLAUDE_CODE_SESSION_ID=$CALLER_ID} bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]

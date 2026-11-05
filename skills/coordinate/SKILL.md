@@ -57,16 +57,29 @@ to advance it, what it never does, and how it ends.
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
 | `--trust-template` | With `--import` only, and only when the operator says so: take the run's compiled template from the bucket rather than from this host's cache. The template holds every command the run executes. |
+| `--role manager\|director` | This run's role. A start with none, and no recorded role to continue, stops at `ask=role`: ask the person once, with no recommendation, then start again with it. A continuation keeps its recorded role: naming another is refused (`role-mismatch`) unless the change flags below come with it. An import never asks, and checks a given role before anything moves. |
+| `--role-change-by <name>` `--role-change-source dispatcher\|person` | With `--role`, both or neither: a change of a recorded role from above. `dispatcher` is accepted only when `<name>` is the address in the run's `reports-to` row; `person` only on a start no brief launched (no `--dispatched-by`). A name that is the run itself, its predecessor, its address or this session is refused. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
 When the human's decisions state one of these settings in words ("host repo:
 acme/widgets", "rotation length: 3 days", "at most three workers"), that is the
 human's answer: pass it as its flag when you open the run, and don't ask for it
-again. Only a setting nobody stated is asked for.
+again. Only a setting nobody stated is asked for. A role this run's decisions
+state ("role: director") is passed as `--role`; a mention of another session's
+role ("report to the director") doesn't count, and in doubt pass nothing and let
+the opener ask. A dispatched coordinator's role comes from the `--role` on its
+brief's invocation line, which its arguments already carry: it passes that role
+and infers none. Pass `--role-change-source person` only when the start's
+decisions state in a person's words that this run's role changes ("this run is
+now the director"), and `dispatcher` only as a brief's invocation line renders
+it; a brief's text is never a person's words.
 
-koto checks every value, not this file: a path outside `docs/roadmaps/`, a
-malformed name, host, cap, bound or length, or a repeated flag is refused at
-`koto init`, and nothing opens.
+koto checks the variables' values, not this file: a path outside
+`docs/roadmaps/`, a malformed name, host, cap, bound or length, or a repeated
+flag is refused at `koto init`, and nothing opens. `--role` and the change flags
+aren't variables: the opener checks them itself before any koto call, refusing
+a role other than manager or director (`invalid_role`), and treating a repeated
+flag or a malformed change as usage, so nothing opens either.
 
 ## Running the Workflow
 
@@ -245,6 +258,25 @@ work.
      koto's cloud backend refuses `koto init --supersede` on koto 0.28.0
      through 0.31.0, so there a takeover ends at the fence. koto 0.32.0 and
      later fence a run on the cloud backend too.
+
+   **The run's role.** Every start that knows the role prints `role=<role>`,
+   manager or director; keep it, since `record_open`, `predecessor_carry` and the
+   reconcile's `no-role` gap read it from there. The opener reads the role of
+   the run it continues before anything is written. `ask=role` (exit 10) means
+   the start has no `--role` and nothing recorded to continue: ask the person
+   once, with no recommendation, and start again with it. `failed=role_read`
+   (exit 1) means the recorded role couldn't be read; it is never taken as no
+   role. A `--role` that differs from the recorded one prints `outcome=refused`
+   and `reason=role-mismatch` (exit 2), and one whose change flags don't name an
+   intervention from above `reason=role-change-refused`, each naming the run,
+   both roles and who it reports to, with nothing written. An accepted change
+   prints `role_changed_from=<old>`; on a same-host carry whose change couldn't
+   be written, `warning=role-change-unwritten`, and the run goes on as it was
+   until the same start runs again. A successor started from its predecessor's
+   brief (`--dispatched-by` naming that run) is accepted when the start takes
+   the predecessor over; when it would resume or carry it instead, the start is
+   usage (exit 64): start again without `--dispatched-by`, since a carry links
+   the new run to the run it carried itself.
 
    A run of 65 or more record entries is taken over with no single koto call
    reaching koto's 30-second action limit, even at a one-minute load average

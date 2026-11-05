@@ -53,6 +53,14 @@
 # and --no-issues are left out: they belong to `populate <path>`, whose second
 # positional a brief can't give.
 #
+# /coordinate's row allows no flags. A coordinator's brief carries its role as
+# `--role manager|director` after the positional, and a re-brief that changes
+# it `--role-change-by <address> --role-change-source dispatcher` after that,
+# from the brief input's `role` and `role_change_by` fields, which only
+# dispatch-worker.sh writes and dispatch-common.sh's dc_invocation renders;
+# render-brief.sh refuses them in entry_args and run_mode
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 2).
+#
 scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*	any	-
 execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge,--review-floor=*,--review-ceiling=*	any	-
 deliver	deliver	deliver.md	TOPIC=arg	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*,--review-floor=*,--review-ceiling=*	any	-

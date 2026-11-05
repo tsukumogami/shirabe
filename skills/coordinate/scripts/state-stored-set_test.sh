@@ -342,7 +342,7 @@ bash "$RS" "${W[@]}" --standing assignment --on "acme/secret#4" --what x --owner
 echo "== the handover read =="
 seed "$TWO"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the read prints" 0 $?
-eq "an old record has every gap" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
+eq "an old record has every gap" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2 no-next-step Feature 3" \
     "$(printf '%s' "$H" | jq -r '[.gaps[].gap] | join(" ")')"
 eq "  ... a holding with no next step named with its fix" 'state-stored-set.sh --work "Feature 2" --kind holding --who worker-f2 --next "<what happens next>"' \
     "$(printf '%s' "$H" | jq -r '.gaps[] | select(.gap == "no-next-step Feature 2") | .fix')"
@@ -351,6 +351,7 @@ grep -q 'state-stored-set.sh --run cap' "$T/err" && ok "  ... naming the fix" ||
 bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run reports-to "the human" --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run role manager --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
 eq "a new address leaves every live worker untold" "no-next-step Feature 3 not-told worker-f2 not-told worker-f3" \
@@ -365,7 +366,7 @@ bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
 # A merged holding (a Verified head, its Pull request cleared) is exempt.
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
-eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2" \
+eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 # PRD R15: a live holding whose leg names a request this host's store doesn't
 # hold (the run was imported here) holds the gate until its leg has an end.
@@ -388,13 +389,15 @@ SD=coordinate-roadmap-plugin-system-20260926T170000Z
 SEN=(env RS_SESSION="$SD")
 db_init; seed_session "$SD" "$TWO"
 eq "the session holds no store row" "" "$(koto context get "$SD" record/run 2>/dev/null)"
-eq "the handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
+eq "the handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2 no-next-step Feature 3" \
     "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 "${SEN[@]}" bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run reports-to "the lane's dispatcher at ws-lead" --by "the human" >/dev/null 2>"$T/err"
 eq "a reports-to row is written with no store row" 0 $?
+"${SEN[@]}" bash "$RS" "${W[@]}" --run role manager --by "the human" >/dev/null 2>"$T/err"
+eq "  ... and a role row" 0 $?
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
@@ -458,6 +461,7 @@ bash "$RS" "${W[@]}" --pending worker-f2 >/dev/null 2>"$T/err"; eq "--pending wi
 bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run reports-to "the human" --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run role manager --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run coordinator lane-v3 --by lane-v3 >/dev/null 2>&1
@@ -589,7 +593,7 @@ eq "  ... the next --standing reads none" "0 s9" \
 
 # A seed into a session with no entry starts it from the seeded rows.
 SO=coordinate-roadmap-plugin-system-20260926T180000Z
-RS_SESSION=$SO bash "$HERE/state-open.sh" "${RM[@]}" --skip-session-checks >/dev/null 2>"$T/err"
+RS_SESSION=$SO bash "$HERE/state-open.sh" "${RM[@]}" --skip-session-checks --role manager >/dev/null 2>"$T/err"
 eq "a record the opener seeds starts standing_used at 0" 0 "$(meta_used "$SO")"
 
 # A carry sets it from the source's entries and rows, as it copies them.

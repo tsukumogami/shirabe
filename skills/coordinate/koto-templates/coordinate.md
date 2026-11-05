@@ -2409,8 +2409,9 @@ and `record/reasoning`):
 ## record_open
 
 No record exists for this scope ({{RECORD_FIND}}). Open exactly one with
-`state-open.sh`, then submit `opened: opened`; the next state reads the record
-again from this run's session, and only that read satisfies the check.
+`state-open.sh`, passing the `role=` value the opener printed as `--role`, then
+submit `opened: opened`; the next state reads the record again from this run's
+session, and only that read satisfies the check.
 
 <!-- details -->
 
@@ -2419,8 +2420,13 @@ discipline rotation that follows another carries its predecessor through
 `predecessor_carry`, not here. At roadmap scope:
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}"
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}" --role <the role= value the opener printed>
 ```
+
+The role is the one the opener printed as `role=` when this run started, manager
+or director; the seed writes it as the record's Run `role` row and refuses to
+open a record without it. The opener asked for it, or read it, before this run
+opened, so never pick one here.
 
 The script refuses when a record now exists (a restart that finds its record
 never opens one). It seeds the record's keys in this run's session, opening
@@ -2464,8 +2470,12 @@ Carry the predecessor's state into this rotation ({{RECORD_FIND}}), then submit
 with its reason as the detail when it refuses; the find then runs again.
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}" --carry
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}" --carry --role <the role= value the opener printed>
 ```
+
+When the opener also printed `role_change_by=` and `role_change_source=`, add
+`--role-change-by <role_change_by> --role-change-source <role_change_source>` after `--role`.
+That is a change from above the opener accepted, and the carry writes it.
 
 <!-- details -->
 
@@ -2518,7 +2528,15 @@ Before you submit, make the record one a replacement could continue from: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-handover.sh" --session {{SESSION_NAME}} --check`
 and close every gap it names with the `state-stored-set.sh` call it gives. Write
 this run's arguments and the cap if the record has neither, and your own address
-(`--run coordinator`) if the record names another coordinator's or none. A new
+(`--run coordinator`) if the record names another coordinator's or none. Fill
+`no-role` with the `role=` value the opener printed or, when it printed none, by
+asking the person once with no recommendation, manager or director; the role
+is never inferred from the scope, the cap, the holdings,
+the dispatcher, session names, briefs,
+entries, report text or the dispatch topic. A start given `--dispatched-by`
+fills `no-reports-to` with
+`<the dispatcher's name> at <the brief's reports_to>`,
+never a bare name. A new
 address leaves every live worker untold: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/handover-classify.sh" --session {{SESSION_NAME}}`,
 which records a worker whose session isn't live as pending and a pending
@@ -3510,6 +3528,17 @@ ready report again when the resume line arrives and not before. The script
 moves a leg-bound worker to the message path, so its report can come back by
 message. A re-brief for a fix while its unit is paused is sent the same way,
 with its message saying the fix starts at the resume.
+
+A role change for the manager whose report the director is handling goes in
+the brief input as `role_change` (`manager` or `director`): the script
+renders `--role <new> --role-change-by <this run's address>
+--role-change-source dispatcher` on the re-rendered invocation line, which
+the manager's opener accepts as a change from above. A role change alone
+never sends a report here: it rides the manager's next report that takes
+one of the routes into this state, or the director asks a person, whose
+hand-made start can make it. Stopping the lane and dispatching a new one
+can't: a new dispatch renders `--role manager`. A re-brief without
+`role_change` renders no `--role`, so it never undoes a change.
 
 <!-- details -->
 

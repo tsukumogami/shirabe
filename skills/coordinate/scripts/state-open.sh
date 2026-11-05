@@ -35,11 +35,14 @@
 # again.
 #
 # The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1;
-# PRD R5) is a Run row, `role`, manager or director. --role writes it in the
-# seed, set by the run's session name, the name every start-time write here
-# uses. Without --role a seed holds no role row, as before the row existed.
-# --carry --role adds the row only when the predecessor's copy holds none, set
-# the same way; a copy holding a role keeps it. With --role-change-by WHO and
+# PRD R5) is a Run row, `role`, manager or director. A fresh seed takes
+# --role, the role= value coordinate-open.sh printed, and writes the row in the
+# seed, set by `start --role` (ROLE_BY: the words coordinate-open.sh writes a
+# first role with, one short line whatever the run is named); without --role
+# it is a usage error (64) and nothing is written. --carry needs no --role: a
+# copy keeps the role it holds. --carry --role adds the row only when the
+# predecessor's copy holds none, set the same way; a copy holding a role keeps
+# it. With --role-change-by WHO and
 # --role-change-source dispatcher|person, a change from above, a copy holding
 # another role has it replaced once the carry lands, through
 # state-stored-set.sh --run role --intervention: the row reads the new role,
@@ -63,10 +66,10 @@
 # writes none.
 #
 # Usage:
-#   state-open.sh --session S [--role manager|director] [--start YYYY-MM-DD --end YYYY-MM-DD]
+#   state-open.sh --session S --role manager|director [--start YYYY-MM-DD --end YYYY-MM-DD]
 #   state-open.sh --session S --carry [--role manager|director
 #                  [--role-change-by WHO --role-change-source dispatcher|person]]
-#   state-open.sh --scope roadmap|discipline --name N --repo O/R
+#   state-open.sh --scope roadmap|discipline --name N --repo O/R --role manager|director
 #                  --skip-session-checks [...]                        (tests)
 #
 # --start and --end are required at discipline scope and refused at roadmap
@@ -89,6 +92,8 @@ PROG=state-open
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= START= END=
 SKIP_CHECKS=0 CARRY=0 NO_SEAL=0
+# Who a run's first role is set by, as coordinate-open.sh writes it.
+ROLE_BY="start --role"
 # The run's role and a change from above: each flag at most once.
 ROLE= CHANGE_BY= CHANGE_SOURCE= SEEN_ROLE=0 SEEN_BY=0 SEEN_SOURCE=0
 
@@ -115,6 +120,11 @@ fi
 if [ "$SEEN_ROLE" = 1 ]; then
     case "$ROLE" in manager|director) ;; *) echo "$PROG: --role takes manager or director" >&2; exit 64 ;; esac
 fi
+# A fresh seed is a new run's record, and a new run always knows its role:
+# the opener asked for it or read it, and record_open passes the role= it
+# printed. Without --role nothing is written.
+[ "$CARRY" = 1 ] || [ "$SEEN_ROLE" = 1 ] \
+    || { echo "$PROG: a new record takes --role manager|director, the role= value coordinate-open.sh printed" >&2; exit 64; }
 # A change from above names who and where from, both or neither, and only on a
 # carry naming the role it changes to.
 if [ "$SEEN_BY$SEEN_SOURCE" != 00 ]; then
@@ -152,11 +162,11 @@ rules_record() {
 }
 
 # carry_role <state-file>: the carried state given the Run `role` row when the
-# predecessor's copy holds none: ROLE, set by this run's session at NOW. A copy
+# predecessor's copy holds none: ROLE, set by ROLE_BY at NOW. A copy
 # holding a role keeps it, and with no --role nothing is added.
 carry_role() {
     [ -n "$ROLE" ] || return 0
-    jq -c --arg r "$ROLE" --arg b "$SESSION" --arg t "$NOW" '
+    jq -c --arg r "$ROLE" --arg b "$ROLE_BY" --arg t "$NOW" '
         if any((.run // [])[]; .key == "role") then .
         else .run = ((.run // []) + [{key: "role", value: $r, set_by: $b, set: $t}]) end' "$1" > "$1.role" \
         && mv "$1.role" "$1" || lib_die2 "jq failed"
@@ -165,7 +175,7 @@ carry_role() {
 # carry_role_settle <state-file>: once the carry has landed, in this run or an
 # earlier one, the role the rotation holds (read from <state-file>) made the one
 # this step names. A role-less record given --role gets the row through
-# state-stored-set.sh --run role, set by this run's session, as the seed sets
+# state-stored-set.sh --run role, set by ROLE_BY, as the seed sets
 # it; with the change flags, a record holding another role has it replaced
 # through the intervention write. A record holding a role, with no change flags,
 # keeps it. A write that fails exits with the writer's code, the carry standing.
@@ -175,7 +185,7 @@ carry_role_settle() {
     have=$(jq -r '[(.run // [])[] | select(.key == "role") | .value][0] // ""' "$1") || lib_die2 "jq failed"
     [ "$have" != "$ROLE" ] || return 0
     if [ -z "$have" ]; then
-        set -- --by "$SESSION"
+        set -- --by "$ROLE_BY"
     elif [ -n "$CHANGE_SOURCE" ]; then
         set -- --by "$CHANGE_BY" --intervention "$CHANGE_SOURCE"
     else
@@ -188,9 +198,9 @@ carry_role_settle() {
 }
 
 # seed_state <out>: the scope's empty record, and with --role the Run `role`
-# row, set by the session the record opens in at NOW.
+# row, set by ROLE_BY at NOW.
 seed_state() {
-    jq -nc --arg k "$SCOPE" --arg n "$NAME" --arg r "$ROLE" --arg b "$OPEN_S" --arg t "$NOW" \
+    jq -nc --arg k "$SCOPE" --arg n "$NAME" --arg r "$ROLE" --arg b "$ROLE_BY" --arg t "$NOW" \
         '{scope: {kind: $k, name: $n}, holdings: [], deferrals: [], side_effects: [], reversals: []}
          + (if $r == "" then {} else {run: [{key: "role", value: $r, set_by: $b, set: $t}]} end)' > "$1"
 }

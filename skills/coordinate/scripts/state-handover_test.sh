@@ -10,7 +10,8 @@
 # every live worker again; a merged holding needs neither; and state-schema.jq
 # refusing a record that holds one worker as both told and pending, or as
 # pending twice, so a reader stops on it (10); the Run `role` row printed as
-# role, manager, director or null, with --check listing no gap for it.
+# role, manager, director or null, --check listing the gap no-role with its
+# fix when the record holds none and no such gap when it holds either.
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -28,11 +29,11 @@ RM=(--scope roadmap --name plugin-system --repo "$REPO")
 # row <key> <value>: a Run row.
 row() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "lane-v1", set: "2026-09-26T08:00Z"}'; }
 # record <run-rows-json>: two live holdings, each with a next step, and the Run
-# rows given beside the arguments, cap, reports-to and coordinator rows.
+# rows given beside the arguments, cap, reports-to, coordinator and role rows.
 record() {
     record_json roadmap plugin-system | jq -c --argjson a "$(holding worker-f2)" \
         --argjson b "$(holding worker-f3 '{"unit": "Feature 3", "pull_request": ""}')" \
-        --argjson base "[$(row arguments "--roadmap x"),$(row cap 2),$(row reports-to "the human"),$(row coordinator lane-v1)]" \
+        --argjson base "[$(row arguments "--roadmap x"),$(row cap 2),$(row reports-to "the human"),$(row coordinator lane-v1),$(row role manager)]" \
         --argjson extra "$1" '.holdings = [$a, $b] | .run = ($base + $extra)
         | .work = [{item: "Feature 2", kind: "holding", who: "worker-f2", next: "x", wakes: "0", updated: "2026-09-26T08:00Z"},
                    {item: "Feature 3", kind: "holding", who: "worker-f3", next: "y", wakes: "0", updated: "2026-09-26T08:00Z"}]'
@@ -92,14 +93,16 @@ eq "  ... and everything else as the record without it reads" "$(printf '%s' "$H
 
 echo "== the role =="
 # docs/designs/DESIGN-coordinator-named-roles.md, Decision 1: the role is
-# printed; nothing requires it yet, so no gap comes from it.
-seed "$(record "[$(row told worker-f2),$(row told worker-f3)]")"
+# printed, and a record without it holds the gate on no-role.
+seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c '.run = [.run[] | select(.key != "role")]')"
 eq "a record with no role row prints role null" null "$(bash "$RH" "${RM[@]}" 2>"$T/err" | jq -c .role)"
-gate; eq "  ... and the gate lists no gap for it" "0 " "$G"
+gate; eq "  ... and the gate holds on no-role" "1 no-role" "$G"
+grep -qxF '  no-role: state-stored-set.sh --run role <manager|director> --by <who named it>' "$T/gate" \
+    && ok "  ... its fix the set-once writer's --run role" || bad "  ... its fix the set-once writer's --run role" "$(cat "$T/gate")"
 for r in manager director; do
-    seed "$(record "[$(row told worker-f2),$(row told worker-f3),$(row role "$r")]")"
+    seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c --arg r "$r" '.run |= map(if .key == "role" then .value = $r else . end)')"
     eq "a record whose role row reads $r prints it" "\"$r\"" "$(bash "$RH" "${RM[@]}" 2>"$T/err" | jq -c .role)"
-    gate; eq "  ... and the gate still passes" "0 " "$G"
+    gate; eq "  ... and the gate lists no no-role" "0 " "$G"
 done
 seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c '.run = [.run[] | select(.key != "reports-to")]')"
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/gate"

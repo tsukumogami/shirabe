@@ -58,7 +58,7 @@ if open_run one; then
     tick --with-data '{"choice":"dispatch","unit":"feat-1"}' >/dev/null
     eq "1: record_open refuses pick's evidence and stays" record_open "$(now_at)"
     eq "1: dispatch is never entered without a record" 0 "$(entered dispatch)"
-    write_as_agent state-open.sh; rc=$?
+    write_as_agent state-open.sh --role manager; rc=$?
     eq "1: state-open.sh (agent-run) opens the record" 0 $rc
     (cd "$WD" && koto context exists "$S" record/meta) && ok "1:   ... in the run's session" || bad "1:   ... in the run's session" "$(cat "$T/w.err")"
     grep -Eq '^(issue (create|edit|close)|pr create)' "$GH_DB.calls" \
@@ -83,7 +83,7 @@ fi
 echo "== 2. a restart resumes the run =="
 seed_roadmap restart
 if open_run restart && [ "$(at)" = record_open ]; then
-    write_as_agent state-open.sh
+    write_as_agent state-open.sh --role manager
     eq "2: the first run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
     from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" \
         || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
@@ -128,7 +128,7 @@ plugin_copy() {
 }
 seed_roadmap rebind
 if plugin_copy "$T/plugin-b" 0 && plugin_copy "$T/plugin-c" 1 && open_run rebind && [ "$(at)" = record_open ]; then
-    write_as_agent state-open.sh
+    write_as_agent state-open.sh --role manager
     eq "2b: the first run reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
     FIRST=$S
     sleep 1
