@@ -1727,22 +1727,33 @@ A carry writes `record/meta` with no driver (`state-write-core.sh:569-573`)
 but keeps the predecessor's coordinator row: the opener's carry copies
 every `record/` key, and a rotation carry copies the Run rows
 (`state-open.sh:275`). When that row names another session and the
-carrier's name reads, the carrier's writes pass (e) only if the
-carrier's own row is written first. So a carry writes it, as a
-takeover's `finish_takeover` already does (`coordinate-open.sh:786-790`):
-once the copy lands, the carrier writes the Run coordinator row naming
-itself when its name reads and the row names anyone else. That's a
-precondition of Step 19's build, since without it a carrier's next write
-is refused. It changes a contract another design records: the
-session-record design's Decision 6
+carrier's name reads, every guarded write after the copy fails (e), a
+write of the carrier's own row through `state-stored-set.sh` included,
+and a rotation carry already makes one: its window, through
+`state-stored-set.sh --rotation` (`state-open.sh:215`, `:298`). A takeover
+gets past this only because it sets the driver before it writes the row
+(`finish_takeover`, `coordinate-open.sh:779-790`), and a carry sets none.
+So the carrier's row goes into the state the carry copies: when the
+carrier's name reads and the predecessor's row names anyone else, the
+Run coordinator row naming the carrier replaces it in `state-open.sh`'s
+`next.json` (`:271-280`) for a rotation carry, and in the `record/run`
+value `core_carry` reads before it copies (`state-write-core.sh:520-557`)
+for the opener's. The row then lands with the copy, and no guarded write
+runs before it. That's a precondition of Step 19's build, since without
+it a carrier's guarded writes are refused. It changes a contract another
+design records: the session-record design's Decision 6
 (`docs/designs/current/DESIGN-coordinator-session-record.md:272-286`)
 says a carry copies every `record/` and `legs/` key into the new run, and
-names no write of the carrier's own after the copy. That design is amended as Step 19's first
-deliverable, landing before any carry code changes. The amendment covers
-the takeover's existing post-copy writes (the driver, the coordinator row,
-the role row, the takeover entry and `takeover_done`, which the contract
-doesn't cover today; tsukumogami/shirabe#1555) as well as the new carry
-write. This design doesn't edit that one's text.
+names no write of the carrier's own. That design is amended as Step 19's
+first deliverable, landing before any carry code changes. The amendment
+names the in-copy coordinator row as an exception to every key copied,
+beside the one a carry already makes on a template change: `record/meta`
+isn't copied but written fresh with the new run's template compat
+(`state-write-core.sh:523`, `:565-575`). It covers the takeover's
+existing post-copy writes as well (the driver, the coordinator row, the
+role row, the takeover entry and `takeover_done`, which the contract
+doesn't cover today; tsukumogami/shirabe#1555). This design doesn't edit
+that one's text.
 
 Criteria, in `driver-check_engine_test.sh` unless named:
 
@@ -1754,7 +1765,7 @@ Criteria, in `driver-check_engine_test.sh` unless named:
 - D15 (e). On a record with no driver and no coordinator row, a `--run cap` write as `X_ID` with a job file exits 0.
 - D16 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with no job file under `DC_CLAUDE_HOME` exits 0.
 - D17 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with a job file naming `coord-x` exits 10, stdout empty, the one-line message naming `coord-a`, `coord-x` and `X_ID`, and nothing is written; the same write as `A_ID` with a job file naming `coord-a` exits 0.
-- D18 (the carry's coordinator row, for both carries: the opener's template-change carry and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x`, and a `--run cap` write as `X_ID` then exits 0. With no job file the row stays `coord-a` and the same write exits 0 by (e). Every other carried key is `cmp`-identical to the predecessor's.
+- D18 (the carry's coordinator row, for both carries: the opener's template-change carry and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x` in the copy itself, and a `--run cap` write as `X_ID` then exits 0; `state-open.sh --carry` also exits 0 with the rotation's window written. With no job file the row stays `coord-a` and the same write exits 0 by (e). Every other carried key is `cmp`-identical to the predecessor's.
 
 4. Which gate carries the check. Step 19 builds the writer check only.
 The design's clause has the tick's gate refuse the same sessions, and that
