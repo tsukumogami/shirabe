@@ -908,6 +908,103 @@
       ]
     },
     {
+      "id": 48,
+      "name": "a-fits-call-on-a-new-head-lifts-the-alignment-hold",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets; your record's Run coordinator row is your address. It holds align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 on acme/widgets#42, placed by your diverges call at entry 7 on head 3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6. Before the worker pushed anything you were asked to re-read the pull request at that same head, and you found it fits. Later the worker pushed 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e, you re-read it there, and it fits. Say how you record each call, what each does to the hold, and what you send the manager.",
+      "expected_output": "Both calls are written with alignment-call.sh --on acme/widgets#42 --text-file F, whose first line names the pull request, the head read and the call. The fits call at 3f6c2a9e... writes its alignment entry and lifts nothing: the live head is still the placed-on head, so the hold stands and no lift message prints, and nothing goes to the manager. The fits call at 9d8e7f6a... writes its entry and then runs the guarded lift in the same run: the live head from GitHub is 9d8e7f6a..., not the placed-on head; the latest call for it is that fits call; and its entry number is above the diverges call at entry 7. The hold is lifted through state-hold.sh --lift, its Lifted cell reading `<minute> by director at <address>, fits at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, a hold entry names the hold, the head and the call's entry number, and the script prints three lines: `Alignment lift: acme/widgets#42 at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, `Hold: align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6`, `Call: fits, entry <n>`. The director sends that message to the manager as printed. It doesn't lift the hold by hand with state-hold.sh, and a push alone, without the re-read and its call, would have lifted nothing.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Each call is recorded with alignment-call.sh --on acme/widgets#42 --text-file, not by writing the hold table",
+        "The fits call at the placed-on head lifts nothing, prints no lift message and sends the manager nothing",
+        "The fits call at the new head lifts the hold in the same run, because the live head isn't the placed-on head and the call comes after the diverges call at entry 7",
+        "The Lifted cell reads `<minute> by director at <address>, fits at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`",
+        "The printed lift message names the pull request and the new head, the hold, and the fits call's entry number, and that message is what the manager is sent",
+        "The director doesn't lift the hold with state-hold.sh --lift for this release"
+      ],
+      "requirements": [
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 49,
+      "name": "a-manager-lifts-its-alignment-copy-only-at-its-verified-head",
+      "prompt": "You are the manager for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. Your Run reports-to row reads `director at 7c1e0f4a`. Your record holds a copy of align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 on acme/widgets#42, and the Holdings row for #42 has verified head 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e, which your last verify read. Three messages arrive, each in the lift message's three-line form: at event 29 from 2b5d8e1c, naming 9d8e7f6a...; at event 30 from 7c1e0f4a, naming b4e2c1d0a9f8e7d6c5b4a3928170f6e5d4c3b2a1, a head the worker pushed before 9d8e7f6a...; and at event 31 from 7c1e0f4a, `Alignment lift: acme/widgets#42 at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, `Hold: align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6`, `Call: fits, entry 12`. What do you run for each, what happens, and what does the land check say about #42 afterwards?",
+      "expected_output": "For each message the manager runs alignment-call.sh --session S --copy --lift --message-file <the message as it arrived> --event <n> --from <sender>. Event 29 is refused (65, nothing changed): its sender isn't the reports-to address 7c1e0f4a. Event 30 is refused (65, nothing changed): it names b4e2c1d0..., which isn't the holding's verified head 9d8e7f6a..., so an older head is never taken. Event 31 is accepted: the sender is the reports-to address, the head isn't the placed-on head 3f6c2a9e..., and it is the holding's verified head. The copy's Lifted cell carries `director at 7c1e0f4a, fits at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, and a hold entry names the hold, the head, the director's entry 12 and event 31, so a lift with no matching call would show in the manager's own record. After the refusals land-check.sh still reports `held` for #42; after event 31 it reports a posture token (permit, deny or confirm). The manager doesn't lift the copy with state-hold.sh --lift to get past a refusal.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Each message is passed to alignment-call.sh --copy --lift with its event number and its sender as --from",
+        "The message from 2b5d8e1c is refused because the sender isn't the reports-to address, and nothing changes",
+        "The message naming the older head is refused because it isn't the holding's verified head, and nothing changes",
+        "The event 31 message lifts the copy, and its hold entry names the hold, the head, the director's entry 12 and event 31",
+        "land-check.sh reports held for #42 while the copy stands and a posture token (permit, deny or confirm) after the lift",
+        "The manager doesn't use state-hold.sh --lift to lift the copy on a director's lift message"
+      ],
+      "requirements": [
+        "director-alignment R8",
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 50,
+      "name": "a-lift-blocked-on-an-unreadable-head-runs-the-guard-again",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. acme/widgets#42 is held by align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6. The worker pushed 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e, you re-read it and called fits with alignment-call.sh, and it exited 13 with: `alignment-call: lift blocked: acme/widgets#42's live head can't be read (HTTP 502), so align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 stands; alignment-call.sh --lift-releasable --on acme/widgets#42 runs the guard again`. What was written, what do you tell the manager now, and what do you do next?",
+      "expected_output": "The fits call was written as an alignment entry before the lift was tried; the lift failed closed, so the hold stands and no lift message was printed, and there is nothing to send the manager yet. The director doesn't record the call again and doesn't lift the hold by hand with state-hold.sh --lift. Once GitHub answers again it runs alignment-call.sh --session S --lift-releasable --on acme/widgets#42, which runs the same guard with no call and writes no alignment entry: with the live head 9d8e7f6a... and the fits call above the diverges call, it lifts the hold with the same Lifted text and prints the lift message naming the hold, the head and the fits call's entry number, which the director then sends the manager. If the head still can't be read it exits 13 again and the hold stands; on a hold that isn't releasable it lifts nothing and prints nothing.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The director says the fits call was written and the hold still stands, because the live head couldn't be read",
+        "Nothing is sent to the manager while the hold stands",
+        "The director neither records the call a second time nor lifts the hold with state-hold.sh --lift",
+        "The director runs alignment-call.sh --lift-releasable --on acme/widgets#42 once the head can be read, and says it writes no new alignment entry",
+        "The lift message that run prints is what the director sends the manager"
+      ],
+      "requirements": [
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 51,
+      "name": "a-lift-on-a-manager-authored-pull-request-checks-the-live-head",
+      "prompt": "You are the manager for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, and your reports-to row is `director at 7c1e0f4a`. You opened acme/widgets#57 yourself, so no Holdings row links it. The director held it as align-widgets-57-5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b, and you hold the copy. At event 40 a lift message arrives from 7c1e0f4a naming head e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e and `Call: fits with follow-ups, entry 19`. What does the lift check here that it would otherwise check against a holding, and what happens in each of these cases: GitHub's head for #57 is e1d2c3b4..., it is some other head, or it can't be read?",
+      "expected_output": "With no holding there is no verified head to compare against, so alignment-call.sh --copy --lift --message-file <the message> --event 40 --from 7c1e0f4a checks the head the message names against #57's live head from GitHub. It still refuses a sender other than the reports-to address and a head equal to the placed-on head. When the live head is e1d2c3b4..., the copy is lifted with `director at 7c1e0f4a, fits with follow-ups at e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e` and a hold entry naming the hold, the head, entry 19 and event 40, and land-check.sh then gives a posture token. When the live head is another head, the lift is refused (65, nothing changed). When the live head can't be read, the script exits 2, the hold stands, and the manager runs the same command again later rather than lifting the copy by hand.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The manager says that with no holding the named head is checked against #57's live head from GitHub",
+        "A lift at the live head lifts the copy and writes a hold entry naming the hold, the head, entry 19 and event 40",
+        "A lift naming any other head is refused and changes nothing",
+        "When the live head can't be read the hold stands and the manager runs the lift again later, not state-hold.sh --lift"
+      ],
+      "requirements": [
+        "director-alignment R8",
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 52,
+      "name": "a-persons-lift-on-an-unchanged-head-is-recorded-on-both-sides",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. acme/widgets#42 is held by align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 and is still at that head. The owner, dana, read the pull request and told you to lift the hold as it stands. How is the lift recorded in your record and in the manager's, and what does the manager's land check say afterwards?",
+      "expected_output": "A person's lift on an unchanged head doesn't go through a fits call or alignment-call.sh --copy --lift (which would refuse a lift at the placed-on head). The director records it with state-hold.sh --session S --lift --hold align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 --by dana, so the Lifted cell names the person who lifted it, and relays dana's word to the manager. The manager records the relayed word on its copy the same way, state-hold.sh --lift with --by naming dana, as the template's surface text says for a person's word. land-check.sh then reports a posture token (permit, deny or confirm) for #42 at 3f6c2a9e..., the placed-on head, instead of held.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The director records the lift with state-hold.sh --lift --by dana, not with a fits call or alignment-call.sh",
+        "The director doesn't send a lift message for --copy --lift, which refuses a lift at the placed-on head",
+        "The manager records the relayed word on its copy with state-hold.sh --lift naming dana",
+        "land-check.sh reports a posture token for #42 at the placed-on head after both lifts"
+      ],
+      "requirements": [
+        "director-alignment R9"
+      ]
+    },
+    {
       "id": 53,
       "name": "a-milestone-verdict-call-cites-every-evidence-clause",
       "prompt": "You are the director for docs/roadmaps/ROADMAP-milestones.md, hosted in acme/widgets, in session coordinate-roadmap-milestones-20261101T090000Z. Lane pull request acme/widgets#31 is MV1's milestone verdict pull request, at head a7d3b9e15c2f4086d1e7b3a9c5f2e8d4b0a6c3f1; its body says a reviewer ran `widgets list` from a clean install and saw exactly the three sample names, then removed one manifest and saw it named as skipped. alignment-sources.sh --session coordinate-roadmap-milestones-20261101T090000Z --on acme/widgets#31 printed: {\"unit\":\"MV1\",\"clauses\":[{\"n\":1,\"field\":\"Outcome\",\"text\":\"A maintainer lists the plugins they installed.\"},{\"n\":2,\"field\":\"Left open\",\"text\":\"the output layout.\"}],\"evidence\":[{\"n\":1,\"text\":\"A reviewer, from a clean install with three sample plugins, runs `widgets list` and sees exactly those three names.\"},{\"n\":2,\"text\":\"The same reviewer removes one manifest and sees it named as skipped.\"}],\"commit\":\"9c41e0d27b5a8f3e6d1c4b7a2e9f0d8c3b6a5e41\",\"strategy\":\"none\",\"changed_files\":[\"docs/roadmaps/ROADMAP-milestones.md\"],\"other_lanes\":[],\"triggers\":[{\"reason\":\"milestone-verdict\"},{\"reason\":\"roadmap-change\",\"path\":\"docs/roadmaps/ROADMAP-milestones.md\"}],\"candidates\":[]}. Write the call and say how you record it.",

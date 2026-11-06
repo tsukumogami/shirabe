@@ -232,6 +232,59 @@ address, rewrites the row through `state-stored-set.sh --run reports-to`,
 addresses. A message naming any other current address, and one sent to a row
 holding no address, change nothing (65).
 
+The hold lifts only on its release. A `fits` or `fits with follow-ups` call
+written with `alignment-call.sh` runs the guarded lift in the same run, after
+the call: for each unlifted `align-` hold on the pull request it reads the
+live head from GitHub, and lifts the hold only when the live head isn't the
+placed-on head in its name, the latest call for the live head is `fits` or
+`fits with follow-ups` and is the call just written or a later one, and that
+call's entry number is above the hold's `diverges` call (the latest
+`diverges` entry at the placed-on head). It lifts through `state-hold.sh
+--lift`, the Lifted cell reading
+
+```
+<YYYY-MM-DDTHH:MMZ> by director at <address>, <fits|fits with follow-ups> at <40-hex head>
+```
+
+writes a `hold` entry naming the hold, that head and the call's entry number,
+and prints the lift message the director sends the manager:
+
+```
+Alignment lift: <owner/repo#n> at <40-hex head it was released on>
+Hold: <the hold's name>
+Call: <fits|fits with follow-ups>, entry <n>
+```
+
+A fits call at the placed-on head, or at a head that isn't the live head,
+lifts nothing. When the live head can't be read, the call is still written,
+the hold stands, and the script exits 13 naming it. A hold that became
+releasable without a lift (that read failed, or the call came before the
+push) is lifted by `alignment-call.sh --session S --lift-releasable --on
+<owner/repo#n>`, which runs the same guard with no call, writes no
+`alignment` entry and prints one lift message per hold it lifts; on a hold
+that isn't releasable it lifts and prints nothing.
+
+The manager lifts its copy from that message, as it arrived:
+
+```
+alignment-call.sh --session S --copy --lift --message-file <the message> --event <n> --from <sender>
+```
+
+The sender must be the `reports-to` address, as for `--copy --add`. The lift
+is refused (65, nothing changed) when its head is the placed-on head, and
+unless its head is the `verified_head` of the Holdings row that links the
+pull request, so a replayed lift naming an older head is refused too. A pull
+request no holding links, one the manager wrote, is checked against its live
+head from GitHub instead: another head is refused (65), and a head that can't
+be read leaves the hold standing (2). An accepted lift stamps the copy's
+Lifted cell with the director's text and writes a `hold` entry naming the
+hold, the head, the call's entry number and event `<n>`, so a lift with no
+matching call shows in the manager's own record; a hold already lifted
+changes nothing. A person's lift on an unchanged head doesn't come this way:
+the director records it with `state-hold.sh --lift --by <person>`, and the
+manager records the relayed word on its copy the same way, as `surface` says
+for a person's word. Either lift ends the hold for the land check.
+
 ### The stored set: Run, Standing and Work
 
 What a replacement coordinator needs to continue from the record alone, and
@@ -562,7 +615,9 @@ message (The Holds section). A second `diverges` call while a director's hold
 on the pull request stands, and one on a merged pull request, write the entry
 and place no hold. The pull request's state, the director's address and the
 receiver are read before anything is written, so a call that can't place its
-hold writes nothing.
+hold writes nothing. A `fits` or `fits with follow-ups` call then runs the
+guarded lift on the pull request's `align-` holds and prints a lift message
+for each it lifts (The Holds section).
 
 ## Where State Lives
 
