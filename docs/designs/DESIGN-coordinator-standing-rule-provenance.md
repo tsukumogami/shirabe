@@ -835,7 +835,9 @@ koto recorded about a cited decision; the writer gains a flag, an intake and
 a read view; the pause read learns to ask koto about the few rows that cite
 a decision; the handover read lists rules and names two new gaps; and the
 writer and the tick's gate refuse any session that isn't the driver of the
-record it writes. Nothing
+record it writes, the writer from Phase 2 and the gate from the plan's
+step 15, once koto passes a gate the tick's driver (the driver check's
+item 4). Nothing
 writes outside `record/standing` except the Run `briefs` row and the
 `record/host` path the crash set already defines, and nothing reads or
 writes `record/decisions` or `record/reversals`.
@@ -1107,7 +1109,10 @@ writes `record/decisions` or `record/reversals`.
   `state-stored-set.sh` and `state-write.sh`, and the tick's gate, refuse a
   writing session that isn't `record/meta.driver`, or, in a run with no
   driver, isn't the session its coordinator row names; only
-  `coordinate-open.sh` sets the driver, at a takeover. In Phase 3, after
+  `coordinate-open.sh` sets the driver, at a takeover. Phase 2 builds the
+  writers' half. The gate's half lands with the plan's step 15, since no
+  Phase 2 gate exists and koto doesn't yet pass a gate the tick's driver
+  (the driver check's item 4). In Phase 3, after
   koto ships: the coordinate template's tick runs `--rules --in-force` as a
   gate whose output lists only the rule ids in force, and `SKILL.md`'s
   reversal step enters `koto decisions reverse` through the run's newest
@@ -1362,11 +1367,8 @@ before.
 
 This subsection settles terms the decisions above left open for two plan
 steps: the rule write Phase 2 adds and the driver check it carries. It
-changes none of those decisions' choices. Where an item finds a claim
-wider than what can be built, it narrows the claim and names the residual
-(the bare-name guarantee, and Decision 6's claim about a stray copy, in
-the driver check's item 7), and the decision's text reads the narrowed
-claim. The plan's step text follows from this subsection.
+changes none of those decisions' choices. The plan's step text follows
+from this subsection.
 Script lines cited here are in `skills/coordinate/scripts/`.
 
 #### The rule write (`--standing rule` with `--source`)
@@ -1765,6 +1767,12 @@ doesn't reach a gate (item 9). The gate half waits on koto passing it
 scripts, a raw `koto context add` to a driven record say, goes unrefused;
 the writer check is the whole guarantee in the meantime. Step 19's
 criterion for this item is D9: it adds no gate and no `pass_env`.
+Proposed follow-up for step 15's terms: the gate half is judged by the
+writer's own cases run as ticks, a tick driven by `X_ID` on a driven
+record failing its gate as D1's write is refused, one driven by `D_ID`
+passing as in D2, and a run with no driver judged by D15 to D17. Which
+name the gate reads the driver from is tsukumogami/koto#600's to settle,
+so those terms are written when it lands.
 
 5. `--skip-session-checks`. The check is part of `lib_write_guard`, so
 the flag skips it along with the rest of the write guard, and the flag is
@@ -1836,8 +1844,9 @@ no `pass_env`, since the writer carries the rule alone (item 4).
 
 - D9 (`driver-check_engine_test.sh`). `coordinate.md` holds no `pass_env`, and Step 19 adds no gate to it.
 
-Existing tests that change, for items 1 to 3 and 5 to 9 (item 4 adds
-no test, and D19 is new in the engine suite):
+Existing tests that change, for items 1 to 3 and 5 to 9 (item 4 changes
+no existing test, and its D9, like item 7's D19, is new in
+`driver-check_engine_test.sh`):
 
 - `coordinate-open_engine_test.sh` (the opener's carry) and `coordinate-open-carry-window_engine_test.sh` (a rotation's `state-open.sh --carry`) run carries the new write changes: where they check the carried Run coordinator row with a job file in place, it reads the carrier's name, as D18 says.
 
@@ -1991,16 +2000,18 @@ fence's below, belong with koto's decision record as open items: it is the
 only place they could be closed, by a verified identity for a person
 decider and dispatch links koto writes itself.
 
-**Writes come only from the record's driver.** The writer and a tick's gate
-refuse any write, an end or a reversal entry included, from a session that
-isn't the `record/meta.driver` of the record it writes, whatever that
-session's local koto store says about the fence. Only the opener sets the
-driver, at a takeover through the fence, so once its successor has taken
-over, a predecessor still running in another worktree can't write, end a
-rule or take a reversal in the successor's record, read from a store that
-holds the driver. Until koto passes a gate the tick's driver
-(tsukumogami/koto#600), the writer scripts carry the check alone, and a
-write that bypasses them isn't refused (the driver check's item 4).
+**Writes come only from the record's driver.** The writer scripts refuse
+any write, an end or a reversal entry included, from a session that isn't
+the `record/meta.driver` of the record it writes, whatever that session's
+local koto store says about the fence. A tick's gate makes the same check
+from the plan's step 15, once koto passes a gate the tick's driver
+(tsukumogami/koto#600); until then the writer scripts carry the check
+alone, and a write that bypasses them isn't refused (the driver check's
+item 4). Only the opener sets the driver, at a takeover through the fence,
+so once its successor has taken over, a predecessor still running in
+another worktree can't write, end a rule or take a reversal through the
+writer scripts in the successor's record, read from a store that holds the
+driver.
 
 The check doesn't reach a predecessor writing its own run. That run's
 record has no driver, and its coordinator row still names the predecessor,
