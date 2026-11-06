@@ -1666,7 +1666,7 @@ Criteria, in `driver-check_engine_test.sh`:
 - D1. On a driven record, each write mode of `state-stored-set.sh` (`--run`, `--host`, `--rule-files`, `--told`, `--pending`, `--standing`, `--end`, `--work`, `--done`, and on a discipline record `--rotation` and `--reasoning-file`), `state-write.sh` (`--state-file`, `--pushed-head`), `state-decision.sh`, `state-hold.sh`, `roadmap-status.sh`'s write, `state-open.sh`'s discipline seed (`--role <r> --start <d> --end <d>`) on a driven discipline record and a `state-entry.sh` post, each run as `X_ID`, exits 10 with stdout empty and the first message naming `D_ID` and `X_ID`, and nothing is written.
 - D2. The same calls run as `D_ID` exit as they do today.
 - D3. With a job file under `DC_CLAUDE_HOME` naming `X_ID` with the name the record's coordinator row holds, `X_ID` is still refused as in D1, and `D_ID` with no job file passes.
-- D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper that answers every `context get <s> record/meta` before the check runs and fails the check's own, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written. For a writer that reads the record before its guard (`rs_record`, as `state-stored-set.sh`'s record-reading modes do), a wrapper failing that first `record/meta` read exits 2 as today, with nothing written.
+- D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper that answers every `context get <s> record/meta` before the check runs and fails the check's own, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written. On a record with no driver, a wrapper that fails the check's read of `record/run` exits 10 with the second message the same way. For a writer that reads the record before its guard (`rs_record`, as `state-stored-set.sh`'s record-reading modes do), a wrapper failing every `record/meta` read exits 2 as today, with nothing written.
 
 3. How a run with no driver is judged. The writer uses the opener's
 test, as Security Considerations says: a run nobody has taken over is
@@ -1693,7 +1693,10 @@ this order:
   anything but an id-shaped string, refuses, exit 10, with item 2's second
   message. That's stricter than the opener, which reads a non-string
   driver as none (`coordinate-open.sh:579`); a driver that can't be read
-  refuses the write, as Security Considerations says.
+  refuses the write, as Security Considerations says. With no driver, a
+  Run coordinator row that can't be read refuses the same way, as the
+  opener's test does (`address_unread`, `coordinate-open.sh:615-617`,
+  `:624`), and (e) is reached only once the row has read.
 - (c) No caller id passes. With `CLAUDE_CODE_SESSION_ID` unset, or not
   of the shape `coordinate-open.sh:557-558` holds it to, the write goes
   through, as the opener treats such a caller as not another
