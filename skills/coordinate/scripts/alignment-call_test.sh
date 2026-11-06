@@ -268,6 +268,8 @@ lifted_by() {
 elist() { bash "$HERE/state-entry.sh" --session "$1" --list; }
 nalignment() { elist "$1" | jq '[.[] | select(.kind == "alignment")] | length'; }
 last_call() { elist "$1" | jq '[.[] | select(.kind == "alignment")] | last | .id'; }
+# joined <file>: its lines joined by `|`. Plain bash: run-tests.sh's PATH has no paste.
+joined() { local l j=; while IFS= read -r l; do j=${j:+$j|}$l; done < "$1"; printf '%s' "$j"; }
 move() { db '(.prs[] | select(.repo == "acme/widgets" and .number == ($n | tonumber))).headRefOid = $h' --arg n "$1" --arg h "$2"; }
 headfail() { db '.fail = [{match: $m, rc: 1, stderr: "gh: Server Error (HTTP 502)"}]' --arg m "pr view $1 --repo acme/widgets --json headRefOid"; }
 headok() { db '.fail = []'; }
@@ -331,7 +333,7 @@ FIT12=$(last_call "$SD")
 eq "a fits with follow-ups call at the new head lifts the hold" 0 "$rc"
 eq "  ... its Lifted cell naming the director, the call and the head" "director at director-a, fits with follow-ups at $MOVED" "$(lifted_by "$SD" "$H12")"
 eq "  ... and printing the lift message: the hold, the head and the call's entry" \
-    "Alignment lift: acme/widgets#12 at $MOVED|Hold: $H12|Call: fits with follow-ups, entry $FIT12" "$(paste -sd '|' "$T/lift12")"
+    "Alignment lift: acme/widgets#12 at $MOVED|Hold: $H12|Call: fits with follow-ups, entry $FIT12" "$(joined "$T/lift12")"
 eq "  ... and the director's account naming the hold, the head and the call's entry" "hold" \
     "$(last_entry "$SD" | jq -r --arg h "$H12" --arg m "$MOVED" --arg e "entry $FIT12" 'select(.text | contains($h) and contains($m) and contains($e)) | .kind')"
 
@@ -394,7 +396,7 @@ headok
 releasable acme/widgets#13 > "$T/lift13" 2>"$T/err"; rc=$?
 eq "--lift-releasable lifts the releasable hold" "0 director at director-a, fits at $MOVED" "$rc $(lifted_by "$SD" "$H13")"
 eq "  ... writing no alignment entry" "$((C0 + 1))" "$(nalignment "$SD")"
-eq "  ... and printing the lift message" "Alignment lift: acme/widgets#13 at $MOVED|Hold: $H13|Call: fits, entry $FIT13" "$(paste -sd '|' "$T/lift13")"
+eq "  ... and printing the lift message" "Alignment lift: acme/widgets#13 at $MOVED|Hold: $H13|Call: fits, entry $FIT13" "$(joined "$T/lift13")"
 N1=$(entries "$SD")
 releasable acme/widgets#13 > "$T/out" 2>"$T/err"; rc=$?
 eq "--lift-releasable with no hold standing lifts and prints nothing" "0 $N1 " "$rc $(entries "$SD") $(cat "$T/out")"

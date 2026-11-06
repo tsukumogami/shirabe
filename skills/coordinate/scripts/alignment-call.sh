@@ -223,6 +223,13 @@ standing_align_holds() {
     jq -r --arg on "$(lc "$ON")" '(.holds // [])[] | select((.hold | startswith("align-")) and (.on | ascii_downcase) == $on
         and .until == "lifted" and .lifted == "") | .hold' "$WD/rec.json" > "$WD/standing" || lib_die2 "the record's holds are not JSON"
 }
+# standing_names: $WD/standing's names on one line, a space between. Plain
+# bash: paste isn't among the tools this script may run.
+standing_names() {
+    local h names=
+    while IFS= read -r h; do names=${names:+$names }$h; done < "$WD/standing"
+    printf '%s' "$names"
+}
 
 # guard_lift <min entry>: the guarded lift (the header) on every standing
 # align- hold on $ON. The latest call for the live head must be numbered at
@@ -235,9 +242,9 @@ guard_lift() {
     standing_align_holds
     [ -s "$WD/standing" ] || return 0
     DIRECTOR=$(run_value coordinator)
-    [ -n "$DIRECTOR" ] || refuse "the record has no Run coordinator row, the director's address a lift names; $(paste -sd ' ' "$WD/standing") stands"
+    [ -n "$DIRECTOR" ] || refuse "the record has no Run coordinator row, the director's address a lift names; $(standing_names) stands"
     if ! live=$(live_head "$ON_REPO" "$ON_NUM"); then
-        echo "$PROG: lift blocked: $ON's live head can't be read ($(lib_scrub < "$WD/gh.err")), so $(paste -sd ' ' "$WD/standing") stands; alignment-call.sh --lift-releasable --on $ON runs the guard again" >&2
+        echo "$PROG: lift blocked: $ON's live head can't be read ($(lib_scrub < "$WD/gh.err")), so $(standing_names) stands; alignment-call.sh --lift-releasable --on $ON runs the guard again" >&2
         exit 13
     fi
     # The calls on $ON, from each alignment entry's first line: {n, head, call}.
@@ -333,7 +340,7 @@ if [ "$MODE" = call ]; then
         read_record
         standing_align_holds
         [ ! -s "$WD/standing" ] || [ -n "$(run_value coordinator)" ] \
-            || refuse "the record has no Run coordinator row, the director's address a lift of $(paste -sd ' ' "$WD/standing") names; nothing written"
+            || refuse "the record has no Run coordinator row, the director's address a lift of $(standing_names) names; nothing written"
     fi
 
     KEY=$(bash "$HERE/state-entry.sh" --session "$SESSION" --kind alignment --on "$ON" --text-file "$WD/text")
