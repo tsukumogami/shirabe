@@ -619,6 +619,62 @@ hold writes nothing. A `fits` or `fits with follow-ups` call then runs the
 guarded lift on the pull request's `align-` holds and prints a lift message
 for each it lifts (The Holds section).
 
+### The refusal entry
+
+When a director's land check stops a head that has no alignment call, the
+director records it in one entry of the plain `entry` kind, whose first line
+is:
+
+```
+Refused: no-alignment-call <owner/repo#n> at <40-hex head>
+```
+
+It is written once per pull request and head: when the record already holds
+that line for the head, a later refusal of the same head writes nothing, so
+the count is of heads stopped, not of visits. It adds no entry kind and no
+grammar to `state-entry.sh`.
+
+### Reading the calls back
+
+`scripts/alignment-read.sh --session S [--since <YYYY-MM-DDTHH:MM:SSZ>]` is
+the one read of a director's calls, and it writes nothing. It prints one JSON
+object with seven keys:
+
+- `calls`: every `alignment` entry, oldest first, with its entry number, its
+  stamp, the first line's pull request, head and call, and the other lines,
+  Sources, Evidence and Follow-ups as lists split on `; ` (`none` is an empty
+  list). `standing` is true only for the latest call on its pull request and
+  head, so a call on an older head never stands for a newer one.
+- `merges`: each merged lane pull request owed a call (one the manager wrote,
+  or one that finishes a unit: a `unit=` line names it, it is a milestone
+  verdict pull request, or it changes a roadmap or strategy document), with
+  its merged head, merge time, the latest call's value for that head and its
+  review: `reviewed` (a call for the merged head stamped at or before the
+  merge), `after merge` or `unreviewed`. A pull request a `worker=` line
+  names that finishes no unit is `manager-reviewed` instead.
+- `recommendations`: each call whose Action is `recommend`.
+- `holds`: each `align-` hold, with the latest `diverges` call at the head its
+  name carries and that call's reason, and a state: `lifted`, `merged while
+  held`, `closed while held`, `releasable` (the guarded lift's three
+  conditions hold) or `standing`, flagged `needs_re_read` when the live head
+  has no call. A standing or releasable hold carries the latest report that
+  names it, or `unconfirmed`.
+- `open`: each open lane pull request at its live head, with the standing
+  call's value for that head or `none`.
+- `refusals`: how many refusal entries the record holds.
+- `gaps`: each earlier session of the run's lineage whose log couldn't be
+  read.
+
+The lane pull requests are those the calls name, the Holdings rows link and
+the `align-` holds are on, and those the director's `report` and `progress`
+events name, in their `pull_request`, as links in their message, or in the
+`unit=`, `open=` and `worker=` lines of the result block, from every session
+of the lineage. Whether a unit finished, and whether a worker wrote a pull
+request, is read from those lines alone. With `--since`, `calls`, `merges`,
+`recommendations` and `refusals` keep to what is stamped or merged after the
+stamp, while each judgment is still made against every call; `holds` and
+`open` stay whole. The script's header has the full rules and exit codes.
+
 ## Where State Lives
 
 Every script reads the record's state through `scripts/state-read.sh`, from
