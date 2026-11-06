@@ -1461,8 +1461,8 @@ unless a criterion says otherwise, with the stand-in holding
 - R40 (`state-schema_test.sh`). The token extractor's output on `see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4` is exactly `["acme/secret","and/or"]`.
 - R41 (`standing-rule-write_engine_test.sh`). An `inferred` row whose What holds `other/absent`, with the stand-in's `fail` matching `repos/other/absent` with `HTTP 502`, exits 2 with stderr holding `cannot read other/absent's visibility`, not 65, and nothing is written.
 
-4. A forge read that fails or doesn't answer. Each of the three reads runs
-under `dc_with_deadline "${FORGE_READ_SECONDS:-10}"`
+4. A forge read that fails or doesn't answer. Each of the three reads,
+and each of item 3's token reads, runs under `dc_with_deadline "${FORGE_READ_SECONDS:-10}"`
 (`dispatch-common.sh:667`), as the grant read runs under its own bound
 (`state-stored-set.sh:546`). A read that runs past the bound, fails with
 anything but HTTP 404, or answers something it can't parse (a status
@@ -1478,18 +1478,19 @@ Criteria, in `standing-rule-write_engine_test.sh`:
 
 - R9. With a What holding no two-part token and the stand-in's `fail` matching, in turn, the visibility, compare and contents reads with `HTTP 502`, the write exits 2, stderr names that read, the log holds no read after it, and nothing is written.
 - R10. A `gh` wrapper that sleeps 5 seconds on `compare/`, under `FORGE_READ_SECONDS=1`, gives exit 2 within 4 seconds, no contents read, and nothing written.
+- R42. A commit the stand-in's compare answers with the status `bogus` exits 2 with `cannot read whether acme/widgets's default branch holds <c>`, not 65, makes no contents read, and writes nothing.
 
 5. One refusal for a missing and an unreadable repository. "Can't read"
 means HTTP 404, as everywhere in the record's scripts
 (`state-write-core.sh:764`, `state-entry.sh:482`). A 403, a 5xx or a
 network failure is item 4's failed read, since it describes the token or
 the forge and not the repository. On a public host, a visibility answer
-other than `false` puts the repository on the core's list of repositories
+of `true`, or a 404, puts the repository on the core's list of repositories
 that aren't public, and the existing refusal follows: `refused:
 standing.s<n>: the Source names <r>, a repository that isn't public`
 (`state-schema.jq:480`), then `private, or unreadable from the public host
 <host>: <r>` (`state-write-core.sh:592`). On any host, an ancestry answer
-other than `identical` or `ahead`, a 404 included, gives `refused:
+of `behind` or `diverged`, or a 404, gives `refused:
 standing.s<n>: the Source names a commit <r>'s default branch doesn't
 hold, or a repository that can't be read`. A path missing at a readable
 commit gives `refused: standing.s<n>: the Source names <path>, which <r>
@@ -1738,8 +1739,15 @@ carrier's name reads and the predecessor's row names anyone else, the
 Run coordinator row naming the carrier replaces it in `state-open.sh`'s
 `next.json` (`:271-280`) for a rotation carry, and in the `record/run`
 value `core_carry` reads before it copies (`state-write-core.sh:520-557`)
-for the opener's. The row then lands with the copy, and no guarded write
-runs before it. That's a precondition of Step 19's build, since without
+for the opener's. The change is the one a `--run coordinator` write
+makes (`state-stored-set.sh:685-687`): the coordinator, `told` and
+`pending` rows go, since nobody has been told the carrier's address, and
+the row `{key: "coordinator", value: <carrier>, set_by: <carrier>, set:
+<the carry's time>}` takes their place. The row then lands with the copy,
+and no guarded write runs before it. Right after the copy the carry
+posts that write's entry, `The coordinator's address is now <carrier>,
+set by <carrier>. Nobody has been told it yet.`, which passes (e) now
+that the row names the carrier. That's a precondition of Step 19's build, since without
 it a carrier's guarded writes are refused. It changes a contract another
 design records: the session-record design's Decision 6
 (`docs/designs/current/DESIGN-coordinator-session-record.md:272-286`)
@@ -1747,8 +1755,9 @@ says a carry copies every `record/` and `legs/` key into the new run, and
 names no write of the carrier's own. That design is amended as Step 19's
 first deliverable, landing before any carry code changes. The amendment
 names the in-copy coordinator row as an exception to every key copied,
-beside the template-change one that Decision 6 already states
-(`DESIGN-coordinator-session-record.md:276`). It covers the takeover's
+beside the one a template-change carry already makes, whose `record/meta`
+isn't copied but written fresh with the new run's template compat
+(`state-write-core.sh:523`, `:565-576`). It covers the takeover's
 existing post-copy writes as well (the driver, the coordinator row, the
 role row, the takeover entry and `takeover_done`, which the contract
 doesn't cover today; tsukumogami/shirabe#1555). This design doesn't edit
@@ -1764,7 +1773,7 @@ Criteria, in `driver-check_engine_test.sh` unless named:
 - D15 (e). On a record with no driver and no coordinator row, a `--run cap` write as `X_ID` with a job file exits 0.
 - D16 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with no job file under `DC_CLAUDE_HOME` exits 0.
 - D17 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with a job file naming `coord-x` exits 10, stdout empty, the one-line message naming `coord-a`, `coord-x` and `X_ID`, and nothing is written; the same write as `A_ID` with a job file naming `coord-a` exits 0.
-- D18 (the carry's coordinator row, for both carries: the opener's template-change carry and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x` in the copy itself, and a `--run cap` write as `X_ID` then exits 0; `state-open.sh --carry` also exits 0 with the rotation's window written. With no job file the row stays `coord-a` and the same write exits 0 by (e). Every other carried key is `cmp`-identical to the predecessor's.
+- D18 (the carry's coordinator row, for both carries: the opener's template-change carry and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x` with `set_by` `coord-x` in the copy itself, with none of the predecessor's `told` or `pending` rows, and the new run's first entry after the copy reads `The coordinator's address is now coord-x, set by coord-x. Nobody has been told it yet.`; a `--run cap` write as `X_ID` then exits 0, and `state-open.sh --carry` also exits 0 with the rotation's window written. With no job file the row stays `coord-a`, the `told` and `pending` rows stay, no address entry is posted, and the same write exits 0 by (e). Every other carried key is `cmp`-identical to the predecessor's, `record/run` less those rows.
 
 4. Which gate carries the check. Step 19 builds the writer check only.
 The design's clause has the tick's gate refuse the same sessions, and that
