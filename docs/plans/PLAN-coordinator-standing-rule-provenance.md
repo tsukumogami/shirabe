@@ -224,9 +224,9 @@ shirabe, gated as step 10: `--confirm` keeps id, kind, On, Until, What and Set a
 
 shirabe, gated on the supersede hop: a director's taken-over successor cites a person decision it records and reads owner-said; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise, including while koto's cross-session decision read is missing, writes today's uncited event row naming the director's session as Owner, which reads relayed.
 
-### Step 15: every tick's gate output lists the rule ids in force, and after a reversal no tick lists the reversed rule as in force
+### Step 15: every tick's gate output lists the rule ids in force, after a reversal no tick lists the reversed rule as in force, and the gate refuses a tick from a session that isn't the record's driver
 
-shirabe, gated as step 12: the coordinate template's tick runs `--rules --in-force` as a gate whose output koto records in the session log, so the reversal check reads ticks from koto's log rather than from entries naming a Standing id; the template's compat number moves with it.
+shirabe, gated as step 12: the coordinate template's tick runs `--rules --in-force` as a gate whose output koto records in the session log, so the reversal check reads ticks from koto's log rather than from entries naming a Standing id; the template's compat number moves with it. The same gate carries the gate half of the design's driver check, which step 19 leaves out: it refuses a tick whose driving Claude session isn't the record's driver, judging a run with no driver as step 19's writer does. That half depends on koto setting the tick's driver id on every gate, which it doesn't today (tsukumogami/koto#600).
 
 ### Step 16: SKILL.md tells a root to record the owner's word before writing the row and a manager to cite its director's
 
@@ -240,9 +240,9 @@ shirabe, after steps 3, 4, 11, 13, 14 and 15: an end-to-end walkthrough a review
 
 shirabe, after step 6, needing nothing from koto (the design's Decision 5): `--run reports-to` and `--run cap` take `--inferred "<sentence>"` and write the Run row and a `rule` row with Source exactly `inferred` in one write; the handover read names `reports-to-unsourced` when the Run `reports-to` names a session that is neither the koto dispatched-by link nor held by a Standing row; each `--rules` object for a Run `rules` row gains `class`, `said` and `pointer` and `--rules --counts` counts them; and `SKILL.md` says a source question is answered from `--rules`, writing any unlisted behaviour as an `inferred` row first.
 
-### Step 19: a write from a session that isn't the record's driver is refused, so a stray copy can't take a reversal or keep ticking
+### Step 19: a write from a session that isn't the record's driver is refused, so a stray copy can't write a reversal or anything else into its successor's record
 
-shirabe, with step 6, needing nothing from koto (the design's Decision 6, part 2): every write mode of `state-stored-set.sh` and `state-write.sh`, and a tick's gate, refuses with a message naming both sessions when the writing session isn't `record/meta.driver`, writing no key and appending no entry, whatever the writer's local koto store says about the fence. A record with no driver (a run nobody has taken over) is judged by the test `coordinate-open.sh` already uses for such a run, as the design's acceptance terms for the driver check set out: the write goes through when the record has no `record/meta` yet (a fresh seed), when the writer has no Claude session id, or, with no driver, when the run's coordinator row is empty, names the writing session, or the writing session's name can't be read.
+shirabe, with step 6, needing nothing from koto (the design's Decision 6, part 2): the writer check only. Every write mode of `state-stored-set.sh` and `state-write.sh` refuses with a message naming both sessions when the writing session isn't `record/meta.driver`, writing no key and appending no entry, whatever the writer's local koto store says about the fence. The tick gate's half of the check is step 15's; until it lands, a write that bypasses the writer scripts goes unrefused. A predecessor writing its own superseded run from a store that lacks koto's fence isn't refused either, which is koto's gap (tsukumogami/koto#601). Its precondition is that a carry writes the carrier's own Run coordinator row once the copy lands, as a takeover already does, since otherwise a carrier's next write is refused; that changes the every-key-copied carry contract in the session-record design's Decision 6 (`docs/designs/current/DESIGN-coordinator-session-record.md:272-286`). Step 19's first deliverable amends that design, landing before any carry code changes, and the amendment covers the takeover's existing post-copy writes (tsukumogami/shirabe#1555) as well as the new carry write. A record with no driver (a run nobody has taken over) is judged by the test `coordinate-open.sh` already uses for such a run, as the design's acceptance terms for the driver check set out: the write goes through when the record has no `record/meta` yet (a fresh seed), when the writer has no Claude session id, or, with no driver, when the run's coordinator row is empty, names the writing session, or the writing session's name can't be read.
 
 ### Step 20: the skill's reversal step refuses a reversal without a reason, and --rules prints the reason of the winning reversal
 
@@ -271,7 +271,7 @@ start now that the design is accepted.
 | 12 | citations | 9 | as step 10 |
 | 13 | citations | 7, 10 | as step 10 |
 | 14 | citations | 10 | as step 10; its dispatcher-said criterion also waits on the cross-session decision read |
-| 15 | citations | 12 | as step 10 |
+| 15 | citations | 12 | as step 10, plus koto passing the tick's driver id to gates (tsukumogami/koto#600) |
 | 16 | citations | 5, 8, 11, 14 | as step 11 |
 | 17 | citations | 3, 4, 11, 13, 14, 15, 18, 20 | as step 11 |
 | 18 | writer release | 6 | as step 6 |
@@ -280,7 +280,8 @@ start now that the design is accepted.
 
 Steps 18 and 19 came from a check of the reader release against a real
 lineage. Step 18 is the sourcing half of that check and needs nothing from
-koto. Step 19 keeps a stray copy of an earlier member from accepting writes.
+koto. Step 19 keeps a stray copy of an earlier member from writing into its
+successor's record.
 Step 20 is the reversal half, and like every citation step it waits on
 koto's decision record releasing recording, reversal and the supersede hop,
 and on koto's answer on successor standing. Step 17's walkthrough runs
@@ -311,6 +312,7 @@ what it needs.
 | The supersede hop with Decision 4's six conditions: a fenced predecessor records no decision, a write-once supersede marker readable at listing cost, the chain walk following the marker with id checks, refusal on a hop it can't confirm, the hop recorded in the reversal's standing path, and person-reverses-person unchanged | steps 10 to 17 |
 | The reads koto's decision design doesn't name yet: a decision's status, the entering session of a person decision, the frozen chain with each link's kind, the winning reversal's standing path, the supersede marker, and ideally one read of the chain walk so shirabe keeps none of its own | steps 9 to 17 |
 | A cross-session decision read: `koto decisions show` on a decision held in another session on the same host, which the design states as an assumption with a fallback | step 11, the dispatcher-said half of step 10, and the manager successor's dispatcher-said citation in step 14 |
+| The tick's driver id on every gate: a name koto sets beside `KOTO_TICK_SESSION` holding the Claude session driving the tick (tsukumogami/koto#600) | the driver half of step 15 |
 
 The cross-session read is the one the design assumes rather than requires.
 Without it a manager's citation of its director's decision reads unreadable,

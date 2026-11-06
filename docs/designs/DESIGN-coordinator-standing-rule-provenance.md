@@ -662,6 +662,9 @@ treats one as superseding anything. The reversal also went to a copy of the
 predecessor that was still running from another worktree. That copy took
 the writes and kept ticking, because the skill's only guard against a
 superseded writer is koto's fence, read from the copy's own koto store.
+The driver check below stops such a copy writing to its successor's
+record, but not writing its own run from a store that lacks the fence;
+Security Considerations names that residual.
 
 koto's decision record has designed the pieces this needs, but it hasn't
 built them yet (koto's `docs/prds/PRD-decision-record.md` and
@@ -728,9 +731,12 @@ what stands instead. Five parts:
    nobody has taken over has no driver recorded; there the writer applies
    the test the opener already uses to tell a run is its own, the run's
    coordinator row naming the writing session. A copy still running in
-   another worktree after a takeover then can't take the owner's reversal
-   or tick past it. This part needs nothing from koto and ships with
-   Phase 2.
+   another worktree after a takeover then can't write the owner's reversal,
+   or anything else, into the record the takeover gave a driver, as long as
+   the store it writes through holds that driver. A copy writing its own
+   superseded run is stopped only by koto's fence, and only where its own
+   store holds the fence (Security Considerations). This part needs nothing
+   from koto and ships with Phase 2.
 3. **The live-session block is read as ending that member's run.** If the
    reversed ruling was recorded in the live member's own session, koto's
    block stops that member. Until koto answers the question above, the
@@ -813,8 +819,9 @@ a pointer, and nothing is copied. An owner's reversal reaches the next
 successor only as koto's `reverse`, entered at the run's newest member with
 a reason. That waits on koto's decision record and on its answer about
 successor standing, and nothing stands in for it meanwhile. The writer
-refuses any session that isn't the record's driver, so a stray copy can't
-take the reversal and keep acting.
+refuses any session that isn't the driver of the record it writes, so a
+stray copy can't take the reversal into its successor's record; a copy
+writing its own run from a store without koto's fence isn't caught.
 
 ## Solution Architecture
 
@@ -827,8 +834,8 @@ it may grant; one new helper reads what
 koto recorded about a cited decision; the writer gains a flag, an intake and
 a read view; the pause read learns to ask koto about the few rows that cite
 a decision; the handover read lists rules and names two new gaps; and the
-writer and the tick's gate refuse any session that isn't the record's
-driver. Nothing
+writer and the tick's gate refuse any session that isn't the driver of the
+record it writes. Nothing
 writes outside `record/standing` except the Run `briefs` row and the
 `record/host` path the crash set already defines, and nothing reads or
 writes `record/decisions` or `record/reversals`.
@@ -1258,8 +1265,11 @@ the change runs them like this:
   the rule ids in force without `s<n>`. No entry written after the
   reversal's time names `s<n>` as the reason for an action. For a cited
   pause or go-ahead, the pause read's output shows it holding or granting
-  nothing. A write sent from any other session (an old member still running
-  in another worktree) is refused, and that session's record gains no entry.
+  nothing. A write to the successor's record sent from any other session
+  (an old member still running in another worktree) is refused, and the
+  record gains no entry. An old member writing its own superseded run from
+  a store without koto's fence isn't part of this check (Security
+  Considerations).
 - **Unsourced rules stop accreting.** `--rules --counts` on each member of
   a lineage, oldest to newest, gives the inferred count (the unsourced
   rules) and, beside it, the relayed count per succession, so the rate of
@@ -1352,7 +1362,11 @@ before.
 
 This subsection settles terms the decisions above left open for two plan
 steps: the rule write Phase 2 adds and the driver check it carries. It
-changes none of those decisions, and the plan's step text follows from it.
+changes none of those decisions' choices. Where an item finds a claim
+wider than what can be built, it narrows the claim and names the residual
+(the bare-name guarantee, and Decision 6's claim about a stray copy, in
+the driver check's item 7), and the decision's text reads the narrowed
+claim. The plan's step text follows from this subsection.
 Script lines cited here are in `skills/coordinate/scripts/`.
 
 #### The rule write (`--standing rule` with `--source`)
@@ -1709,8 +1723,21 @@ but keeps the predecessor's coordinator row: the opener's carry copies
 every `record/` key, and a rotation carry copies the Run rows
 (`state-open.sh:275`). When that row names another session and the
 carrier's name reads, the carrier's writes pass (e) only if the
-carrier's own row is written first. Whether and where a carry writes it
-is a separate question, open here.
+carrier's own row is written first. So a carry writes it, as a
+takeover's `finish_takeover` already does (`coordinate-open.sh:786-790`):
+once the copy lands, the carrier writes the Run coordinator row naming
+itself when its name reads and the row names anyone else. That's a
+precondition of Step 19's build, since without it a carrier's next write
+is refused. It changes a contract another design records: the
+session-record design's Decision 6
+(`docs/designs/current/DESIGN-coordinator-session-record.md:272-286`)
+says a carry copies every `record/` and `legs/` key into the new run, and
+names no write of the carrier's own after the copy. That design is amended as Step 19's first
+deliverable, landing before any carry code changes. The amendment covers
+the takeover's existing post-copy writes (the driver, the coordinator row,
+the role row, the takeover entry and `takeover_done`, which the contract
+doesn't cover today; tsukumogami/shirabe#1555) as well as the new carry
+write. This design doesn't edit that one's text.
 
 Criteria, in `driver-check_engine_test.sh` unless named:
 
@@ -1722,11 +1749,22 @@ Criteria, in `driver-check_engine_test.sh` unless named:
 - D15 (e). On a record with no driver and no coordinator row, a `--run cap` write as `X_ID` with a job file exits 0.
 - D16 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with no job file under `DC_CLAUDE_HOME` exits 0.
 - D17 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with a job file naming `coord-x` exits 10, stdout empty, the one-line message naming `coord-a`, `coord-x` and `X_ID`, and nothing is written; the same write as `A_ID` with a job file naming `coord-a` exits 0.
+- D18 (the carry's coordinator row, for both carries: the opener's template-change carry and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x`, and a `--run cap` write as `X_ID` then exits 0. With no job file the row stays `coord-a` and the same write exits 0 by (e). Every other carried key is `cmp`-identical to the predecessor's.
 
-4. Which gate carries the check. This item is open, pending a decision.
-It turns on whether a tick's gate in Phase 2 carries the check at all,
-since no Phase 2 state names one. Meanwhile the writer check carries the
-rule alone, and the item has no criteria.
+4. Which gate carries the check. Step 19 builds the writer check only.
+The design's clause has the tick's gate refuse the same sessions, and that
+half moves to the step that adds a tick gate, the plan's step 15, whose
+`--rules --in-force` gate is the first one the coordinate template's tick
+runs for this design. No Phase 2 state names a gate to carry it, and a gate
+couldn't make the check yet: koto sets `KOTO_TICK_SESSION` and
+`KOTO_SESSIONS_BASE` on every gate (`KOTO_SET_NAMES`, koto's
+`src/engine/command_env.rs:28-33`), and `KOTO_TICK_SESSION` names the koto
+session being ticked, not the Claude session driving it. That driver id
+doesn't reach a gate (item 9). The gate half waits on koto passing it
+(tsukumogami/koto#600). Until it lands, a write that bypasses the writer
+scripts, a raw `koto context add` to a driven record say, goes unrefused;
+the writer check is the whole guarantee in the meantime. Step 19's
+criterion for this item is D9: it adds no gate and no `pass_env`.
 
 5. `--skip-session-checks`. The check is part of `lib_write_guard`, so
 the flag skips it along with the rest of the write guard, and the flag is
@@ -1751,11 +1789,21 @@ id (item 9), which item 3's (c) passes, so its outcome doesn't change.
 
 - D6 (`scripts/check-template-compat_test.sh` and the CI compat-table check). `check-template-compat.sh` against the base table exits 0 with compat 2, the fingerprint list unchanged and the new `gate_scripts` digest.
 
-7. Which record a stray copy reads. This item is open, pending a
-decision. It turns on whether the design's claim that a predecessor in
-another worktree can't write holds for a copy whose own koto store lacks
-the fence. Meanwhile the writer reads the record `--session` names, and
-the item has no criteria.
+7. Which record a stray copy reads. The writer reads `record/meta` and
+the Run coordinator row of the session `--session` names, from the koto
+store the writer itself runs against, and nowhere else. That's what the
+guarantee rests on, and it's narrower than "a predecessor in another
+worktree can't write". A predecessor's write to its successor's record is
+refused wherever the store it writes through holds the driver the takeover
+set (D13). A predecessor writing its own superseded run isn't refused: that
+record has no driver, and its row still names the predecessor, so (e)
+passes it. koto's fence is the only guard there, and it fails where the
+predecessor's store lacks the fence, as Security Considerations sets out
+(tsukumogami/koto#601). The check doesn't try to find the successor's
+record from the predecessor's side, since a store without the fence has
+nothing that names the successor.
+
+- D19 (`driver-check_engine_test.sh`). Seed run A under one `KOTO_SESSIONS_BASE` and copy it to a second; take A over into B as `B_ID` under the first. Under the first base, a `--standing` write as `A_ID` with `--session B` exits 10 as in D13. Under the second, a `--run cap` write as `A_ID` with `--session A` exits 0 and lands. That second result is the residual, tested so the check is held to the narrowed claim and not the wider one.
 
 8. Writers in scope. Every caller of `lib_write_guard` gets the check:
 `state-stored-set.sh`, `state-write.sh`, `state-decision.sh`,
@@ -1774,8 +1822,12 @@ aren't writes and get none. The opener's own `record/meta` write
 9. A gate's environment. koto doesn't pass `CLAUDE_CODE_SESSION_ID` to
 a gate or a default action. In koto's `src/engine/command_env.rs`,
 `DEFAULT_LIVE_NAMES` doesn't list it, and `build_command_env` gives a
-command only those names, a template's `pass_env:` names and koto's own;
-only a session created with `--legacy-environment` inherits the caller's
+command only those names, a template's `pass_env:` names and koto's own.
+koto's own are `KOTO_TICK_SESSION` and `KOTO_SESSIONS_BASE`
+(`KOTO_SET_NAMES`, `src/engine/command_env.rs:28-33`): `KOTO_TICK_SESSION`
+reaches every gate, but it names the koto session being ticked, and the
+Claude session driving the tick reaches none (tsukumogami/koto#600). Only
+a session created with `--legacy-environment` inherits the caller's
 environment. `coordinate.md` declares no `pass_env`. So a write a gate or
 action makes carries no id, and today that's `rebrief-record.sh`'s
 `--told` and `--pending`. Item 3's (c) passes a write with no id, as the
@@ -1784,7 +1836,10 @@ no `pass_env`, since the writer carries the rule alone (item 4).
 
 - D9 (`driver-check_engine_test.sh`). `coordinate.md` holds no `pass_env`, and Step 19 adds no gate to it.
 
-Existing tests that change, for items 1, 2, 5, 6, 8 and 9:
+Existing tests that change, for items 1 to 3 and 5 to 9 (item 4 adds
+no test, and D19 is new in the engine suite):
+
+- `coordinate-open_engine_test.sh` (the opener's carry) and `coordinate-open-carry-window_engine_test.sh` (a rotation's `state-open.sh --carry`) run carries the new write changes: where they check the carried Run coordinator row with a job file in place, it reads the carrier's name, as D18 says.
 
 - `handover_engine_test.sh` writes through its `state` helper (`:134`) to runs taken over at `:238`, `:395` and `:468` without setting an id, so an ambient `CLAUDE_CODE_SESSION_ID` from a developer's own session is refused there; those writes set the taking session's id.
 - `coordinate-watch-handover_engine_test.sh` and `coordinate-takeover-load_engine_test.sh` export `B_ID` for their takeovers; their later writes to that run are checked to run as `B_ID`.
@@ -1938,10 +1993,31 @@ decider and dispatch links koto writes itself.
 
 **Writes come only from the record's driver.** The writer and a tick's gate
 refuse any write, an end or a reversal entry included, from a session that
-isn't `record/meta.driver`, whatever that session's local koto store says.
-Only the opener sets the driver, at a takeover through the fence, so a
-predecessor still running in another worktree can't write, end a rule or
-take a reversal once its successor has taken over. A run nobody has taken
+isn't the `record/meta.driver` of the record it writes, whatever that
+session's local koto store says about the fence. Only the opener sets the
+driver, at a takeover through the fence, so once its successor has taken
+over, a predecessor still running in another worktree can't write, end a
+rule or take a reversal in the successor's record, read from a store that
+holds the driver. Until koto passes a gate the tick's driver
+(tsukumogami/koto#600), the writer scripts carry the check alone, and a
+write that bypasses them isn't refused (the driver check's item 4).
+
+The check doesn't reach a predecessor writing its own run. That run's
+record has no driver, and its coordinator row still names the predecessor,
+so the opener's test passes the write; koto's fence, read from the
+predecessor's own store, is the only guard, and it holds only where that
+store has the fence. It doesn't in two cases. Each `KOTO_SESSIONS_BASE` is
+a separate local store, so a fence recorded under the successor's base
+never reaches a predecessor working from another. Under the cloud backend
+a copy whose local state hasn't seen the bucket's fence takes writes
+locally until its next push is refused. In both, the predecessor keeps
+writing and ticking its own run, which no successor reads; the gap is
+koto's (tsukumogami/koto#601). The incident under Context and Problem
+Statement is part caught and part not. A reversal entered through the
+run's newest member goes to the successor, and the copy's writes to the
+successor's record are refused. The copy that took the writes into its own
+run and kept ticking did so from a store without the fence, and this
+design doesn't catch that. A run nobody has taken
 over has no driver and is judged by its coordinator row, as the opener
 judges it today. That row names a session by name, so two copies of the
 same never-taken-over coordinator aren't told apart until a takeover
@@ -1980,7 +2056,8 @@ coordinator write is involved.
 **Reversal through the fence.** A successor reverses with the standing its
 predecessor had, read from koto's supersede fence and never higher. The
 skill enters a reversal only through the session the run's resolver names
-as its newest member, and the driver check above refuses it from any other. Any
+as its newest member, and the driver check above refuses it from any other
+session writing that member's record, within the bounds that check states. Any
 session that can name another can fence it, so a wrong fence now moves
 reversal standing over one coordinator's subtree as well as stopping that
 coordinator, and, since dispatcher-said follows the same hop, the fencing
