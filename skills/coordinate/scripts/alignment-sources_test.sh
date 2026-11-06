@@ -21,8 +21,13 @@
 # them; the candidate owner decisions; each repository source unreadable, by
 # an unreadable repository and by a missing file, naming it with `repository`
 # or `file` and printing nothing; an unreadable record, exit 2 naming the
-# record; refusals; and the record's keys and log byte-identical around every
-# run, with no GitHub write.
+# record; refusals; the record's keys and log byte-identical around every
+# run, with no GitHub write; and, last since they write entries, calls built
+# from the output with alignment-call.sh and accepted by state-entry.sh's
+# alignment_check: the milestone verdict pull request's, its Sources naming
+# each roadmap clause at the commit and its Evidence line every Evidence
+# number met or not met, and each other-lane trigger's, its Sources `lane
+# <lane> <item>` for each item of the open work.
 #
 # Every script runs on the koto stand-in (testdata/koto) and one scratch
 # store. GitHub is testdata/gh behind a wrapper in the suite's own directory
@@ -337,16 +342,50 @@ run --on acme/widgets#12 --unit none
 eq "--unit none is usage" 64 "$RC"
 eq "nothing it ran wrote to GitHub" "" "$(gh_writes)"
 
-# TODO(alignment-call): two acceptance cases wait for alignment-call.sh and the
-# `alignment` entry kind, which aren't on this base yet. Once they are, add:
-#   1. From the milestone verdict pull request's output (#15), a call written
-#      with alignment-call.sh whose Evidence line gives every `evidence[].n`
-#      `met` or `not met` and whose Sources name `roadmap <path> at <commit>
-#      <unit> clause <n>` is accepted by alignment_check (exit 0, an
-#      `alignment` entry written).
-#   2. From each other-lane trigger's output (#17, #18, #19), a call whose
-#      Sources are `lane <lane> <open_work item>` for each item, joined with
-#      `; `, is accepted by alignment_check.
-# Both write entries, so they run after every byte-identity check above.
+# The calls below write entries, so they run after every case above that
+# compares the record's bytes. Each is a `fits` call, which places no hold.
+entries() { koto context list --prefix record/entries/ "$SD" | jq length; }
+last_entry() { koto context get "$SD" "record/entries/$(printf '%06d' "$(entries)")"; }
+# call <pr> <Sources> <Evidence>: a fits call on <pr> at its head, written
+# with alignment-call.sh from $T/call.txt. RC holds its exit.
+call() {
+    printf 'Alignment: %s at %s -- fits\nRead: full\nSources: %s\nReason: %s\nEvidence: %s\nFollow-ups: none\nAction: recommend\n' \
+        "$1" "$SHA_HEAD" "$2" "it does what the sources it names ask" "$3" > "$T/call.txt"
+    bash "$HERE/alignment-call.sh" --session "$SD" --on "$1" --text-file "$T/call.txt" > "$T/call.out" 2> "$T/call.err"
+    RC=$?
+}
+# written <label>: the call exited 0 and the newest entry is an alignment
+# entry holding its text.
+written() {
+    eq "$1: accepted" 0 "$RC"
+    [ "$RC" = 0 ] || printf '     %s\n' "$(cat "$T/call.err")"
+    eq "  ... written as an alignment entry holding the call" "alignment|$(cat "$T/call.txt")" "$(last_entry | jq -r '"\(.kind)|\(.text)"')"
+}
+
+echo "== a milestone verdict call cites its Evidence =="
+run --on acme/widgets#15
+# The roadmap's path is the run's own, which the director knows from its scope.
+SRC=$(jq -r --arg rm "$RM" '[.unit as $u | .commit as $c | .clauses[] | "roadmap \($rm) at \($c) \($u) clause \(.n)"] | join("; ")' "$T/out")
+EVD=$(jq -r '[.evidence | to_entries[] | "\(.value.n) \(if .key == 0 then "met" else "not met" end)"] | join("; ")' "$T/out")
+eq "the Sources name each roadmap clause at the commit" "roadmap $RM at $SHA_MAIN MV1 clause 1; roadmap $RM at $SHA_MAIN MV1 clause 2" "$SRC"
+eq "the Evidence line gives every Evidence number met or not met" "1 met; 2 not met" "$EVD"
+call acme/widgets#15 "$SRC" "$EVD"
+written "the verdict call"
+
+echo "== an other-lane trigger cited as lane sources =="
+# lane_call <n> <want Sources>: the call on #n whose Sources are `lane <lane>
+# <item>` for each other-lane trigger's open work, joined with `; `.
+lane_call() {
+    run --on "acme/widgets#$1"
+    SRC=$(jq -r '[.triggers[] | select(.reason == "other-lane") | .lane as $l | .open_work[] | "lane \($l) \(.)"] | join("; ")' "$T/out")
+    eq "#$1's Sources from its other-lane trigger" "$2" "$SRC"
+    call "acme/widgets#$1" "$SRC" none
+    written "#$1's call"
+}
+lane_call 17 "lane mgr-b acme/widgets#21"
+lane_call 18 "lane mgr-b docs/guides/plugins.md"
+lane_call 19 "lane mgr-b $RM"
+lane_call 20 "lane mgr-b skills/widgets/"
+eq "nothing a call wrote reached GitHub" "" "$(gh_writes)"
 
 done_tests alignment-sources_test.sh
