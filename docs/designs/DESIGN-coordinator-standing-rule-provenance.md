@@ -662,6 +662,9 @@ treats one as superseding anything. The reversal also went to a copy of the
 predecessor that was still running from another worktree. That copy took
 the writes and kept ticking, because the skill's only guard against a
 superseded writer is koto's fence, read from the copy's own koto store.
+The driver check below stops such a copy writing to its successor's
+record, but not writing its own run from a store that lacks the fence;
+Security Considerations names that residual.
 
 koto's decision record has designed the pieces this needs, but it hasn't
 built them yet (koto's `docs/prds/PRD-decision-record.md` and
@@ -728,9 +731,12 @@ what stands instead. Five parts:
    nobody has taken over has no driver recorded; there the writer applies
    the test the opener already uses to tell a run is its own, the run's
    coordinator row naming the writing session. A copy still running in
-   another worktree after a takeover then can't take the owner's reversal
-   or tick past it. This part needs nothing from koto and ships with
-   Phase 2.
+   another worktree after a takeover then can't write the owner's reversal,
+   or anything else, into the record the takeover gave a driver, as long as
+   the store it writes through holds that driver. A copy writing its own
+   superseded run is stopped only by koto's fence, and only where its own
+   store holds the fence (Security Considerations). This part needs nothing
+   from koto and ships with Phase 2.
 3. **The live-session block is read as ending that member's run.** If the
    reversed ruling was recorded in the live member's own session, koto's
    block stops that member. Until koto answers the question above, the
@@ -813,8 +819,9 @@ a pointer, and nothing is copied. An owner's reversal reaches the next
 successor only as koto's `reverse`, entered at the run's newest member with
 a reason. That waits on koto's decision record and on its answer about
 successor standing, and nothing stands in for it meanwhile. The writer
-refuses any session that isn't the record's driver, so a stray copy can't
-take the reversal and keep acting.
+refuses any session that isn't the driver of the record it writes, so a
+stray copy can't take the reversal into its successor's record; a copy
+writing its own run from a store without koto's fence isn't caught.
 
 ## Solution Architecture
 
@@ -827,8 +834,10 @@ it may grant; one new helper reads what
 koto recorded about a cited decision; the writer gains a flag, an intake and
 a read view; the pause read learns to ask koto about the few rows that cite
 a decision; the handover read lists rules and names two new gaps; and the
-writer and the tick's gate refuse any session that isn't the record's
-driver. Nothing
+writer and the tick's gate refuse any session that isn't the driver of the
+record it writes, the writer from Phase 2 and the gate from the plan's
+step 15, once koto passes a gate the tick's driver (the driver check's
+item 4). Nothing
 writes outside `record/standing` except the Run `briefs` row and the
 `record/host` path the crash set already defines, and nothing reads or
 writes `record/decisions` or `record/reversals`.
@@ -850,9 +859,22 @@ writes `record/decisions` or `record/reversals`.
   already stored, so a repository that turns private later can't make an
   existing record unreadable and stop a takeover; the check is a write-time
   one, and such a row keeps reading as it was written. The same repository
-  check runs on What, so a brief
-  sentence or a rule's words that name a private repository by its bare
-  name are refused on a public host too. That is why a workspace file a
+  check runs on a rule row's What, where a bare name is a two-part
+  `owner/repo` token that isn't in a link and isn't followed by `#n`; a
+  three-part path such as `skills/coordinate/SKILL.md` isn't one. A token
+  on the list of repositories that aren't public is refused with no forge
+  read, by the whole-token match (`names_repo`) the other columns already
+  use. On a public host each other distinct token gets one visibility
+  read: a private answer is refused, a 404 is refused when the token's
+  owner is the host's owner and passes under any other owner, and any other
+  failure is a read failure. So a brief sentence or a rule's words can't
+  name, by its bare name, a private repository the writer can see or any
+  repository of the host's owner. The guarantee stops there because telling
+  a repository from prose such as `and/or`, `CI/CD` or `work/notes.md`
+  takes a forge answer, and a 404 can't tell an absent repository from a
+  hidden one; failing closed on every two-part token would refuse ordinary
+  prose, so most skill sentences couldn't be cited from a public host.
+  That is why a workspace file a
   public host can't name is cited only through `pinned`. A `skill` or `doc`
   Source's repository is `<owner>/<repo>` of letters, digits, `.`, `_` and
   `-`, its path is relative with no `..` segment and no leading `-`, and its
@@ -1087,7 +1109,10 @@ writes `record/decisions` or `record/reversals`.
   `state-stored-set.sh` and `state-write.sh`, and the tick's gate, refuse a
   writing session that isn't `record/meta.driver`, or, in a run with no
   driver, isn't the session its coordinator row names; only
-  `coordinate-open.sh` sets the driver, at a takeover. In Phase 3, after
+  `coordinate-open.sh` sets the driver, at a takeover. Phase 2 builds the
+  writers' half. The gate's half lands with the plan's step 15, since no
+  Phase 2 gate exists and koto doesn't yet pass a gate the tick's driver
+  (the driver check's item 4). In Phase 3, after
   koto ships: the coordinate template's tick runs `--rules --in-force` as a
   gate whose output lists only the rule ids in force, and `SKILL.md`'s
   reversal step enters `koto decisions reverse` through the run's newest
@@ -1245,8 +1270,11 @@ the change runs them like this:
   the rule ids in force without `s<n>`. No entry written after the
   reversal's time names `s<n>` as the reason for an action. For a cited
   pause or go-ahead, the pause read's output shows it holding or granting
-  nothing. A write sent from any other session (an old member still running
-  in another worktree) is refused, and that session's record gains no entry.
+  nothing. A write to the successor's record sent from any other session
+  (an old member still running in another worktree) is refused, and the
+  record gains no entry. An old member writing its own superseded run from
+  a store without koto's fence isn't part of this check (Security
+  Considerations).
 - **Unsourced rules stop accreting.** `--rules --counts` on each member of
   a lineage, oldest to newest, gives the inferred count (the unsourced
   rules) and, beside it, the relayed count per succession, so the rate of
@@ -1335,6 +1363,541 @@ live-session block as the end of that member's run, never a rewind. The
 reversal half of the requirement is met when this phase ships, and not
 before.
 
+### Acceptance terms for the rule write and the driver check
+
+This subsection settles terms the decisions above left open for two plan
+steps: the rule write Phase 2 adds and the driver check it carries. It
+changes none of those decisions' choices. The plan's step text follows
+from this subsection.
+Script lines cited here are in `skills/coordinate/scripts/`.
+
+#### The rule write (`--standing rule` with `--source`)
+
+Criteria are numbered across the items. "Nothing written" means the
+record's keys are byte-identical (`cmp`) and no entry is added. The new
+`standing-rule-write_engine_test.sh` is set up as step 1's suite is, with
+`testdata/gh` behind a `gh` wrapper, runs on the public host `acme/widgets`
+unless a criterion says otherwise, and counts forge reads by the call log.
+
+1. Sentence splitting. A cited file splits into candidate sentences, and
+What must equal exactly one under Decision 3's one normalized match,
+unchanged. `\r` is dropped and a blank line ends a block. A heading, a
+table line and a fence line each stand alone, a line inside a fence is no
+candidate, a list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then
+a space) starts a block, and any other line joins the one above with one
+space. A block splits after `.`, `!` or `?`, plus any closing `)`, `]`,
+`"`, `'`, `` ` ``, `*` or `_`, where whitespace follows. Markup stays in.
+The skill's text wraps near 75 columns and states rules in wrapped list
+items, so a split by line would leave most of it unquotable; the join and
+break follow an existing parser's rules 3 and 6 (`state-common.sh:378-390`).
+Stripping markup would be a second normalization. `e.g.` splits a
+sentence, which is deterministic and costs only a sentence that can't be
+cited whole. Step 7's intake splits a brief the same way, so
+`file_sentences` and `norm_match` live in `state-schema.jq`. Criteria, in
+`state-schema_test.sh` over `testdata/standing-rules/cited.md`:
+
+- R1. A sentence wrapped over two lines matches. A What running from one paragraph's last sentence across the blank line into the next doesn't.
+- R2. A list item wrapped onto an indented line matches, with and without a leading `- ` in What.
+- R3. A line's second sentence matches. Half a sentence doesn't, and neither does a What running over a sentence break.
+- R4. A sentence holding `` `koto next` `` matches only with its backticks. A heading's text without its `#`s doesn't, a table cell alone doesn't while the whole row with its pipes does, and a sentence inside a fence never does.
+- R5. A matching What still matches when it differs only in case, a leading `- `, a trailing `.` and doubled spaces. A one-word paraphrase doesn't.
+
+2. The default branch on a host that isn't public, within two reads. The
+ancestry read is `gh api --method GET repos/<r>/compare/<commit>...HEAD
+--jq .status` on every host. GitHub resolves `HEAD` to the default branch
+and won't create a branch named `HEAD`, so the name is never read and
+can't be shadowed. `identical` and `ahead` mean the default branch holds
+the commit, `behind` and `diverged` mean it doesn't, and a 404 is item 5's.
+The order is visibility (public host only, the writer's own read, the
+same call the core makes at `state-write-core.sh:763`, which item 12
+takes out of the core), then ancestry, then
+`contents/<path>?ref=<commit>`: three reads on a public host and two
+elsewhere, the order Security Considerations gives and the count the
+plan carries, for a What holding no two-part token; on a public host
+item 3's token reads come on top. Reading the branch name (`state-common.sh:290-294`) would
+add a third read on a private host. `lib_file_at` (`state-common.sh:305`)
+gains a repository argument; `testdata/gh` needs no change
+(`testdata/gh:361-366`). Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R6. Private host: a `skill acme/gadgets <path> <c>` row whose What is a sentence of the file at `<c>` exits 0. The log's lines naming `acme/gadgets` are exactly the compare read `repos/acme/gadgets/compare/<c>...HEAD --jq .status` and then the contents read; no `repos/acme/gadgets` read appears.
+- R7. On each host, a commit the stand-in answers `diverged` or `behind` exits 65 with item 5's ancestry message, the log holds no contents read for `acme/gadgets`, and nothing is written.
+- R8. A sentence the file holds at the default branch's tip but not at `<c>` exits 65 with item 5's What message, and nothing is written.
+
+3. What a bare name is. It's a two-part `owner/repo` token in a rule
+row's What, never a repository name alone, and bare means not in a link
+and not followed by `#n`, since the existing checks already catch those
+forms. To find the tokens, URLs are blanked first, as the core does for a
+Side effects Target (`state-write-core.sh:754`); a token is
+`[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+` whose two ends touch no letter, digit,
+`_`, `.`, `-` or `/`, so the three-part path `skills/coordinate/SKILL.md`
+isn't one; and trailing `.`s and `.git` are dropped, as `clean` does
+(`state-schema.jq:108`). The extractor lives in `state-schema.jq` beside
+`text_named_repos`. A name alone has no owner to look up, and `names_repo`,
+the whole-token match the Components entry's "same repository check"
+means, matches only `owner/repo` (`state-schema.jq:93-95`). A token
+already on the core's list of repositories that aren't public is refused
+with no read. On a public host each other distinct token, the host
+excepted, gets one visibility read: `private: false` passes, `private:
+true` is refused, a 404 is refused when the token's owner is the host's
+owner (case-insensitive) and passes otherwise, so `and/or`, `CI/CD` and
+`work/notes.md` pass, and any other failure is item 4's, exit 2 with
+`cannot read <r>'s visibility`. A refused token goes on the core's list,
+so the existing check (`state-schema.jq:406-408`) refuses the row with
+`standing.what: names <r>, a repository that isn't public`, exit 65. On a
+private host the list is empty (`state-schema.jq:19-21`) and no token is
+read. The check covers rule rows only; event rows keep today's checks.
+Telling prose from a repository takes a forge answer and a 404 can't tell
+an absent repository from a hidden one, which is why `text_named_repos`
+keeps bare tokens out of prose checks (`state-schema.jq:97-103`); failing
+closed on every token would refuse ordinary prose. Criteria, in
+`standing-rule-write_engine_test.sh` on the public host `acme/widgets`
+unless a criterion says otherwise, with the stand-in holding
+`acme/secret` and `other/hidden` private and no `acme/ghost` or
+`other/absent`:
+
+- R37. An `inferred` row whose What names `acme/secret`, `` `acme/secret` ``, `other/hidden` or `acme/ghost` exits 65, stderr holds `names <r>, a repository that isn't public`, and nothing is written.
+- R38. Whats holding `and/or`, `CI/CD`, `other/absent` and `skills/coordinate/SKILL.md` are each written. The log holds one `repos/<token>` read for each two-part token and none for the three-part path.
+- R39. Private host: R37's Whats are each written, and the log holds no `repos/` read naming any token.
+- R40 (`state-schema_test.sh`). The token extractor's output on `see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4` is exactly `["acme/secret","and/or"]`.
+- R41 (`standing-rule-write_engine_test.sh`). An `inferred` row whose What holds `other/absent`, with the stand-in's `fail` matching `repos/other/absent` with `HTTP 502`, exits 2 with stderr holding `cannot read other/absent's visibility`, not 65, and nothing is written.
+
+4. A forge read that fails or doesn't answer. Each of the three reads,
+and each of item 3's token reads, runs under `dc_with_deadline "${FORGE_READ_SECONDS:-10}"`
+(`dispatch-common.sh:667`), as the grant read runs under its own bound
+(`state-stored-set.sh:546`). A read that runs past the bound, fails with
+anything but HTTP 404, or answers something it can't parse (a status
+outside the four, a body that won't decode) exits 2, writes nothing, makes
+no later read, and names what it couldn't read: `cannot read <r>'s
+visibility`, `cannot read whether <r>'s default branch holds <c>` or
+`cannot read <path> at <c> in <r>`. That meets Security Considerations'
+"any of them that fails or doesn't answer refuses the row". Exit 2 is the
+script's "a read failed" (`state-stored-set.sh:239-240`) and the core's
+own (`state-write-core.sh:736`, `:764`): retry, don't change the row. Ten
+seconds is a liveness bound with room for a compare on a large repository.
+Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R9. With a What holding no two-part token and the stand-in's `fail` matching, in turn, the visibility, compare and contents reads with `HTTP 502`, the write exits 2, stderr names that read, the log holds no read after it, and nothing is written.
+- R10. A `gh` wrapper that sleeps 5 seconds on `compare/`, under `FORGE_READ_SECONDS=1`, gives exit 2 within 4 seconds, no contents read, and nothing written.
+- R42. A commit the stand-in's compare answers with the status `bogus` exits 2 with `cannot read whether acme/widgets's default branch holds <c>`, not 65, makes no contents read, and writes nothing. A `gh` wrapper that answers the visibility read, and in turn the contents read, with a body that isn't JSON exits 2 with that read's `cannot read` message, makes no later read, and writes nothing.
+
+5. One refusal for a missing and an unreadable repository. "Can't read"
+means HTTP 404, as everywhere in the record's scripts
+(`state-write-core.sh:764`, `state-entry.sh:482`). A 403, a 5xx or a
+network failure is item 4's failed read, since it describes the token or
+the forge and not the repository. On a public host, a visibility answer
+of `true`, or a 404, puts the repository on the core's list of repositories
+that aren't public, and the existing refusal follows: `refused:
+standing.s<n>: the Source names <r>, a repository that isn't public`
+(`state-schema.jq:480`), then `private, or unreadable from the public host
+<host>: <r>` (`state-write-core.sh:592`). On any host, an ancestry answer
+of `behind` or `diverged`, or a 404, gives `refused:
+standing.s<n>: the Source names a commit <r>'s default branch doesn't
+hold, or a repository that can't be read`. A path missing at a readable
+commit gives `refused: standing.s<n>: the Source names <path>, which <r>
+doesn't hold at <c>`, and a What no candidate matches gives `refused:
+standing.s<n>: the What isn't a sentence of <path> at <c>`; the repository
+was read, so neither hints at a private one. All exit 65, which is the
+Components entry's one refusal for a missing and an unreadable repository.
+Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R11. Public host: one name, absent from the stand-in, present with `private: true`, and present with `fail` `HTTP 404` on `repos/<r>`, exits 65 with byte-identical stderr (`cmp`) each time, and the log holds no compare or contents read naming it.
+- R12. Private host: an absent repository, `fail` `HTTP 404` on the compare, and a commit the stand-in answers `notfound` each exit 65 with byte-identical stderr.
+- R13. `fail` `HTTP 403` on the visibility read exits 2, not 65, and nothing is written.
+- R43. On each host, with the compare answering `ahead` and `fail` `HTTP 404` on the contents read, the write exits 65 with `refused: standing.s<n>: the Source names <path>, which acme/widgets doesn't hold at <c>`, and nothing is written.
+
+6. Where the caps and the 400-byte What are enforced. The writer enforces
+them on the row it writes, and the schema gets no read-side check: a
+schema refusal stops a takeover (Implementation Approach's opening), so a
+record over a limit stays readable and writable by every other mode, for
+the reason the Components entry keeps repository checks off stored rows.
+The writer counts every `rule` row, superseded ones included as the plan
+carries, and the rows `rule_class` reads `inferred`, checking the 60 cap
+first for an inferred row, since the Components entry says it binds first.
+What is measured with `utf8bytelength`; a line break is already refused
+(`state-schema.jq:389`). The refusals, all exit 65: `refused: standing:
+the record holds 60 inferred rule rows, the most it keeps; confirm or end
+one first`, its twin for `120 rule rows` ending `end one first`, and
+`refused: standing.s<n>: a rule row's What is at most 400 bytes; this one
+is <n>`. Rows are seeded with `koto context add` from `jq`-built fixtures.
+
+- R14 (`standing-rule-write_engine_test.sh`). With 120 rule rows (60 inferred) and one row of each event kind, one more rule row of each Source form exits 65 naming its cap, and nothing is written; `--standing pause --on all --until lifted` on that record exits 0.
+- R15 (same suite). With 60 inferred among 100 rule rows, an `inferred` or `inferred brief` row exits 65 naming 60, and a `pinned` row exits 0.
+- R16 (same suite). With 119 rule rows (59 inferred) and 30 event rows, one more `inferred` row exits 0 and `--rules --counts` prints `inferred 60`.
+- R17 (same suite). With 121 rule rows seeded, `--run friction <value> --by x` and `--rules` each exit 0.
+- R18 (`state-stored-set_test.sh`). A 400-byte What exits 0. A 401-byte one, and a 400-character one whose last character takes two bytes, each exit 65 with the What message, and nothing is written.
+
+7. `pinned` and `inferred brief` against the Run section. A `pinned
+<label> <digest>` row exits 65 unless the Run section holds a `rules` or
+`briefs` row with that label and digest: `refused: standing.s<n>: the
+Source pins <label> <digest>, which no Run rules or briefs row holds`.
+That's the form's definition in Decision 1, read from the record already
+in hand, with no file read and no content comparison, so Data exposure's
+"a pinned or brief digest records what was read" stands. An `inferred
+brief` row gets no Run check: step 7 writes the `briefs` row beside its
+rows (Decision 3), and that row clears `brief-unread`, so requiring it
+first would let an interrupted intake read as done. Step 7 settles that
+order. Criteria, in `state-stored-set_test.sh`:
+
+- R19. With a Run row `rules charter sha256:<A>`, `pinned charter sha256:<A>` exits 0, while `pinned charter sha256:<B>` and `pinned other sha256:<A>` each exit 65 with that message, and nothing is written.
+- R20. `inferred brief worker sha256:<C>` exits 0 on a record with no `briefs` row.
+
+8. `--source` on event kinds. In step 6, `--source` goes only with
+`--standing rule`; with any other kind it's usage, `--source goes only
+with --standing rule`, exit 64, as with `--intervention`
+(`state-stored-set.sh:337`). An event row's Source is a citation, which
+waits for Phase 3's `decision` form and `--confirm`; Phase 2 adds only
+the four uncited forms. Criteria, in `state-stored-set_test.sh`:
+
+- R21. `--standing pause --on all --until lifted --what x --owner y --source inferred` exits 64 with that message, and nothing is written.
+- R22. The same holds for `go-ahead`, `approval`, `answer` and `assignment`, each given otherwise valid flags.
+
+9. A rule row's entry. `rule` joins `ENTRY_KINDS` (`state-entry.sh:155`),
+not the outward kinds (`:157`). The entry reads `s<n> (rule): <What>.
+Source: <Source>.`, opening `s<n> (` so the next-id fallback
+(`state-stored-set.sh:761`) counts it, with no Owner since a rule row has
+none (Decision 1). The relayed pointer (`state-schema.jq:570`) never reads
+it; a rule row's pointer comes from its Source.
+
+- R23 (`standing-rule-write_engine_test.sh`). A `skill` rule write exits 0 printing the record's URL and an entry URL. The new row is `{standing, kind: "rule", on: "", until: "", what, owner: "", relayed_by: "", set, source}` as Key Interfaces shows, and the newest entry has kind `rule` and text exactly `s<n> (rule): <What>. Source: skill acme/gadgets <path> <c>.`
+- R24 (same suite). On a record with no `standing_used`, the next write after a rule write takes `s<n+1>`.
+- R25 (`state-stored-set_test.sh`). The existing event-row cases in its Standing and assignment sections pass unchanged.
+
+10. A `doc` row citing the host repository. The writer must know whether
+the host is public before its checks, so it reads `repos/<host> --jq
+.private` once and the core reuses the answer rather than reading again
+(`state-write-core.sh:736`). For a host-cited row that read is the row's
+visibility read, so the row adds only ancestry and the file. The entry
+post's host read (`state-entry.sh:475`) is the entry's. Criteria, in
+`standing-rule-write_engine_test.sh`, records seeded alike, logs by `cmp`:
+
+- R26. The log of a `doc acme/widgets <path> <c>` write, less the log of an `inferred` write with the same What, is exactly the compare line and then the contents line.
+- R27. For `skill acme/gadgets <path> <c>` the difference is exactly `repos/acme/gadgets`, the compare, then the contents.
+- R28. An `inferred` write's log holds exactly two `repos/acme/widgets` reads: the writer's, which the core reuses, and the entry post's.
+
+11. Exit codes for misuse. The script gives 64 for a flag a mode doesn't
+take or lacks and 65 for a value that breaks a rule
+(`state-stored-set.sh:722-725`, `:346`); its usage check (`:319`) stops
+requiring `--owner` for `rule`. Exit 64: a missing or empty `--source` on
+a rule (`a rule takes --source`), `--on` or `--until` on a rule (`:725`'s
+message) and item 8's case. Exit 65: `--owner` or `--relayed-by` on a rule
+(`state-schema.jq:456-457`), every grammar refusal (`source_problem`'s
+text), items 2 and 5 to 7, and a `decision` Source, with `refused:
+standing.s<n>: the Source's decision form isn't written before koto's
+decision commands; write the row as inferred`, since Decision 3 writes it
+only once those commands exist. `re_source_path` (`state-schema.jq:330`)
+gains the Components entry's "no leading `-`"; no released writer wrote a
+Source, so no stored row is affected.
+
+- R29 (`state-stored-set_test.sh`). Each exit-64 case exits 64 with its message, and nothing is written.
+- R30 (same suite). `--owner alice` and `--relayed-by bob` on a rule each exit 65 with stderr holding `a rule row's Owner is blank; its Source says who said it` or its Relayed by twin, and nothing is written.
+- R31 (`standing-rule-write_engine_test.sh`). `--source "decision example 000000000007"` exits 65 with that message, nothing is written, and a logging `KOTO_BIN` wrapper shows no `decisions` subcommand.
+- R32 (`state-stored-set_test.sh`). Each of these exits 65 with `standing.s<n>: the Source <why>`, and nothing is written: a 39-hex commit, a `..` segment, a path starting with `-`, a repository that isn't `owner/repo`, a bad label, a digest that isn't sha256, `inferred brief x` with no digest, and an unknown first word.
+- R33 (`state-schema_test.sh`). `source_problem` on `skill a/b -x/y <40 hex>` is non-null.
+
+12. Stored rows re-checked at every write. Step 6 changes the write core to
+match the Components entry's statement that these repository checks run on
+the row being written and never on rows already stored; that statement
+stays as it is. The core drops `source_repo` (`state-write-core.sh:751`)
+from the repositories it gathers across the whole state. The writer reads
+the new row's Source repository itself (item 5) and hands one that isn't
+public to the core through a variable the core appends after resetting
+its list at `:735`, so the schema's existing message refuses it. The
+generic link and `#n` scan over every string (`:758`) stays: it predates
+this design and isn't one of these repository checks. When the new row
+names a repository a stored row also cites, the check at
+`state-schema.jq:479` may name the stored row's id; the write is refused
+either way. Criteria, in `standing-rule-write_engine_test.sh`:
+
+- R34. After a `skill acme/gadgets <path> <c>` row is written and the stand-in then marks `acme/gadgets` private, `--run friction <value> --by x` exits 0, its log names no `acme/gadgets`, and `--rules` still prints the row as `skill-says`.
+- R35. On that record, a new rule row citing `acme/gadgets` exits 65 naming it, and nothing is written.
+- R36. Step 1's unrelated-write criteria still pass, the record byte-identical.
+
+Existing tests that change. No existing assertion changes; the files
+below gain cases or rows, or keep passing as they are.
+
+- `state-schema_test.sh` gains R1 to R5, R33, R40 and unit cases for the cap counts.
+- `state-stored-set_test.sh` gains R18 to R22, R29, R30 and R32. Its unknown-kind case (`rumour`, exit 64) and event-row usage cases keep their exits.
+- `standing-rules_engine_test.sh`, `rule-grants_engine_test.sh` and `standing-counts_engine_test.sh` keep their assertions: they count niwa calls, not forge reads, so item 12's dropped read doesn't show.
+- `check-skill.tsv` gains a cost row for the new engine suite, and `coordinate.compat.json` records the new `gate_scripts` digest, since scripts the gates run change.
+
+Follow-ups, proposed only; none blocks an item.
+
+- Teach the sentence split common abbreviations, so a sentence holding `e.g.` can be cited whole.
+- Give `testdata/gh` a mode that sleeps, so a hang needs no wrapper in each suite.
+- Make the check at `state-schema.jq:479-480` name the new row's id when a stored row cites the same repository.
+
+#### The driver check
+
+Criteria are numbered D1 onward, and "nothing written" means what it
+means above. They run in a new `driver-check_engine_test.sh` that sources
+`scripts/lib/koto-test-guard.sh`, unsets `CLAUDE_CODE_SESSION_ID` and sets
+it per command. A driven record is one whose `record/meta` holds a
+`driver` id, seeded with `koto context add`; no takeover is needed to make
+one. `D_ID` is that id and `X_ID` another of the same shape.
+
+1. Exit code. A write the check refuses exits 10, prints nothing on
+stdout, and writes one stderr line opening `<prog>: refused: driver:`. Ten
+is the write guard's code for a session check (`state-common.sh:125-159`),
+and the writers already document it as a refusal over provenance or a
+directed transition (`state-stored-set.sh:239-243`); 65 is a value that
+breaks a rule, which a write from the wrong session isn't. Security
+Considerations says a driver that can't be read refuses the write, so the
+check's own failed `record/meta` read, or a `driver` that isn't an
+id-shaped string, exits 10 too, not 2. Where a writer reads the record
+before its guard (`rs_record`, `state-stored-set.sh:494`, through
+`state-read.sh:214`), that read's failure keeps today's exit 2 (`:511`);
+elsewhere the check's read comes first and its failure exits 10. Nothing
+is written either way.
+
+2. The writing session. It's the Claude Code session id in
+`CLAUDE_CODE_SESSION_ID`, held to the shape the opener holds it to
+(`coordinate-open.sh:557-558`), and compared with `record/meta.driver`.
+That's the value a takeover writes as the driver
+(`coordinate-open.sh:779-781`), so the two compare like for like. It isn't
+the koto session, since `--session` names the record being written, not
+who's writing it. The Claude name a coordinator row holds isn't compared
+against a driver. The messages name both ids:
+
+- `<session> is driven by Claude session <driver id>, not this one (<caller id>); nothing was written`
+- `<session>'s driver couldn't be read (<reason>); nothing was written`
+
+Criteria, in `driver-check_engine_test.sh`:
+
+- D1. On a driven record, each write mode of `state-stored-set.sh` (`--run`, `--host`, `--rule-files`, `--told`, `--pending`, `--standing`, `--end`, `--work`, `--done`, and on a discipline record `--rotation` and `--reasoning-file`), `state-write.sh` (`--state-file`, `--pushed-head`), `state-decision.sh`, `state-hold.sh`, `roadmap-status.sh`'s write, `state-open.sh`'s discipline seed (`--role <r> --start <d> --end <d>`) on a driven discipline record and a `state-entry.sh` post, each run as `X_ID`, exits 10 with stdout empty and the first message naming `D_ID` and `X_ID`, and nothing is written.
+- D2. The same calls run as `D_ID` exit as they do today.
+- D3. With a job file under `DC_CLAUDE_HOME` naming `X_ID` with the name the record's coordinator row holds, `X_ID` is still refused as in D1, and `D_ID` with no job file passes.
+- D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper that answers every `context get <s> record/meta` before the check runs and fails the check's own, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written. On a record with no driver, a wrapper that fails the check's read of `record/run` exits 10 with the second message the same way. For a writer that reads the record before its guard (`rs_record`, as `state-stored-set.sh`'s record-reading modes do), a wrapper failing every `record/meta` read exits 2 as today, with nothing written.
+
+3. How a run with no driver is judged. The writer uses the opener's
+test, as Security Considerations says: a run nobody has taken over is
+judged as the opener judges it today (`driven_by_another`,
+`coordinate-open.sh:619-626`). It's one check, the last step of
+`lib_write_guard` (`state-common.sh:132-159`), after provenance, the
+live session and the directed transition, and `state-entry.sh`'s post,
+which doesn't run that function, calls the same check (item 8). It reads the `record/meta` and
+the Run coordinator row of the session `--session` names, and decides in
+this order:
+
+- (a) No `record/meta` at all passes. That's a clean answer, not a
+  failed read; the opener's reader gives `{}` for it
+  (`coordinate-open.sh:569-573`). It's a fresh seed: `state-open.sh`'s
+  guard runs before the seed writes `record/meta` (`state-open.sh:283`,
+  `:312`), the seed's role row is built into the seeded state
+  (`seed_state`, `state-open.sh:202-206`), and the seed's own
+  `--rule-files` and `--rotation` writes (`:157`, `:215`) then find meta
+  with no driver (`state-write-core.sh:238-239`) and no coordinator row,
+  which (e) passes. The carry's role write (`carry_role_settle`, `:194`)
+  runs after the copy, under the carrier's in-copy row, which (e) passes
+  too.
+- (b) A `record/meta` that can't be read, or a `driver` key that holds
+  anything but an id-shaped string, refuses, exit 10, with item 2's second
+  message. That's stricter than the opener, which reads a non-string
+  driver as none (`coordinate-open.sh:579`); a driver that can't be read
+  refuses the write, as Security Considerations says. With no driver, a
+  Run coordinator row that can't be read refuses the same way, as the
+  opener's test does (`address_unread`, `coordinate-open.sh:615-617`,
+  `:624`), and (e) is reached only once the row has read.
+- (c) No caller id passes. With `CLAUDE_CODE_SESSION_ID` unset, or not
+  of the shape `coordinate-open.sh:557-558` holds it to, the write goes
+  through, as the opener treats such a caller as not another
+  (`coordinate-open.sh:621`). The opener's own refusal of a caller with
+  no id guards recording a driver, which a write never does.
+- (d) A recorded driver must equal the caller id
+  (`coordinate-open.sh:622-623`); otherwise the write is refused, exit 10,
+  with item 2's first message.
+- (e) With no driver, the write is refused only when the coordinator row
+  is non-empty, the caller's name reads (its job state file, through
+  `dc_claude_name`, as at `coordinate-open.sh:559-560`), and the row names
+  someone else (`coordinate-open.sh:624-625`). Otherwise it passes. The
+  refusal exits 10 with one line: `<session> has no driver and its
+  coordinator row names <row>, not this Claude session (<name>, <caller
+  id>); nothing was written`.
+
+The two passes the opener's test doesn't spell out, (a) and (c), are
+there because without them the check would refuse writes that have to
+go through. Without (a), a fresh seed's writes would be refused before
+any driver or coordinator row exists. Without (c), every write from a
+process with no session id would be refused, and that's how engine
+suites and CI run, and how `rebrief-record.sh` runs as koto's action
+(item 9). Every suite that opens a run relies on (a). These engine suites
+write with no caller id and rely on (c): `standing-rules`,
+`standing-counts`, `coordinate_1` through `coordinate_4`,
+`coordinate-template-structure`, `fresh-run-calls`, `session-start`,
+`session-store`, `discipline-session`, `legacy-records`,
+`dispatch-path`, `handover-classify`, `rebrief-record`,
+`teardown-pass`, `legs-move` and `importer-call` (each
+`<name>_engine_test.sh`; `legs-move` and `importer-call` set an id only
+for the opener).
+
+(c) leaves a residual: a write with no caller id passes even on a
+driven record, so a process outside any Claude session can still write
+a driven run's record. What bounds it is the existing write guard ahead
+of the check: the session must pass provenance, be its scope's one live
+session, and carry no directed transition.
+
+A carry writes `record/meta` with no driver (`state-write-core.sh:569-573`)
+but keeps the predecessor's coordinator row: the opener's carry copies
+every `record/` key, and a rotation carry copies the Run rows
+(`state-open.sh:275`). When that row names another session and the
+carrier's name reads, every guarded write after the copy fails (e), a
+write of the carrier's own row through `state-stored-set.sh` included,
+and a rotation carry already makes one: its window, through
+`state-stored-set.sh --rotation` (`state-open.sh:215`, `:298`). A takeover
+gets past this only because it sets the driver before it writes the row
+(`finish_takeover`, `coordinate-open.sh:779-790`), and a carry sets none.
+So the carrier's row goes into the state the carry copies: when the
+carrier's name reads and the predecessor's row names anyone else, the
+Run coordinator row naming the carrier replaces it in `state-open.sh`'s
+`next.json` (`:271-280`) for a rotation carry, and in the `record/run`
+value `core_carry` reads before it copies (`state-write-core.sh:520-557`)
+for the opener's. The opener reaches that copy with a foreign row only for
+a predecessor it doesn't take over, a finished or cancelled run say: a
+template-change carry of a run whose row names another session that
+reads is refused before any copy (`coordinate-open.sh:947-952`). The change is the one a `--run coordinator` write
+makes (`state-stored-set.sh:685-687`): the coordinator, `told` and
+`pending` rows go, since nobody has been told the carrier's address, and
+the row `{key: "coordinator", value: <carrier>, set_by: <carrier>, set:
+<the carry's time>}` takes their place. The row then lands with the copy,
+and no guarded write runs before it. Right after the copy the carry
+posts that write's entry, `The coordinator's address is now <carrier>,
+set by <carrier>. Nobody has been told it yet.`, which passes (e) now
+that the row names the carrier. That's a precondition of Step 19's build, since without
+it a carrier's guarded writes are refused. It changes a contract another
+design records: the session-record design's Decision 6
+(`docs/designs/current/DESIGN-coordinator-session-record.md:272-286`)
+says a carry copies every `record/` and `legs/` key into the new run, and
+names no write of the carrier's own. That design is amended as Step 19's
+first deliverable, landing before any carry code changes. The amendment
+names the in-copy coordinator row as an exception to every key copied,
+beside the one a template-change carry already makes, whose `record/meta`
+isn't copied but written fresh with the new run's template compat
+(`state-write-core.sh:523`, `:565-576`). It covers the takeover's
+existing post-copy writes as well (the driver, the coordinator row, the
+role row, the takeover entry and `takeover_done`, which the contract
+doesn't cover today; tsukumogami/shirabe#1555). This design doesn't edit
+that one's text.
+
+Criteria, in `driver-check_engine_test.sh` unless named:
+
+- D10 (a). On a scope with no record yet, `state-open.sh --role manager` on a roadmap and `--start`/`--end` on a discipline, as `X_ID` with a job file, exit 0 with no `warning=rules-unrecorded`, and the record holds the role and rules rows, and on the discipline its rotation row.
+- D11 (c). On a driven record, the D1 calls run with `CLAUDE_CODE_SESSION_ID` unset, and again with it set to a value that isn't id-shaped, exit as they do today.
+- D12 (d). On a driven record whose coordinator row names another session's name, a `--run cap` write as `D_ID` exits 0; the driver decides, not the row.
+- D13 (d). After `coordinate-open.sh` as `B_ID` takes run A over into B, a `--standing` write and an `--end` as `A_ID` with `--session B` exit 10 with stdout empty and the first message naming `B_ID` and `A_ID`; every `record/` key is `cmp`-identical and the entry count unchanged.
+- D14 (b). A `driver` of `["<D_ID>"]`, `{"id": "<D_ID>"}` or `""`, run as `D_ID`, exits 10 with the second message for every D1 call, and nothing is written.
+- D15 (e). On a record with no driver and no coordinator row, a `--run cap` write as `X_ID` with a job file exits 0.
+- D16 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with no job file under `DC_CLAUDE_HOME` exits 0.
+- D17 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with a job file naming `coord-x` exits 10, stdout empty, the one-line message naming `coord-a`, `coord-x` and `X_ID`, and nothing is written; the same write as `A_ID` with a job file naming `coord-a` exits 0.
+- D18 (the carry's coordinator row, for both carries: the opener's carry of a finished or cancelled predecessor and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x` with `set_by` `coord-x` in the copy itself, with none of the predecessor's `told` or `pending` rows, and the new run's first entry after the copy reads `The coordinator's address is now coord-x, set by coord-x. Nobody has been told it yet.`; a `--run cap` write as `X_ID` then exits 0, and `state-open.sh --carry` also exits 0 with the rotation's window written. With no job file the row stays `coord-a`, the `told` and `pending` rows stay, no address entry is posted, and the same write exits 0 by (e). For the opener's carry, every other carried key is `cmp`-identical to the predecessor's, `record/run` less those rows; for a rotation carry, the new state is otherwise what `state-open.sh` builds today (`:271-280`).
+
+4. Which gate carries the check. Step 19 builds the writer check only.
+The design's clause has the tick's gate refuse the same sessions, and that
+half moves to the step that adds a tick gate, the plan's step 15, whose
+`--rules --in-force` gate is the first one the coordinate template's tick
+runs for this design. No Phase 2 state names a gate to carry it, and a gate
+couldn't make the check yet: koto sets `KOTO_TICK_SESSION` and
+`KOTO_SESSIONS_BASE` on every gate (`KOTO_SET_NAMES`, koto's
+`src/engine/command_env.rs:28-33`), and `KOTO_TICK_SESSION` names the koto
+session being ticked, not the Claude session driving it. That driver id
+doesn't reach a gate (item 9). The gate half waits on koto passing it
+(tsukumogami/koto#600). Until it lands, a write that bypasses the writer
+scripts, a raw `koto context add` to a driven record say, goes unrefused;
+the writer check is the whole guarantee in the meantime. Step 19's
+criterion for this item is D9: it adds no gate and no `pass_env`.
+Proposed follow-up for step 15's terms: the gate half is judged by the
+writer's own cases run as ticks, a tick driven by `X_ID` on a driven
+record failing its gate as D1's write is refused, one driven by `D_ID`
+passing as in D2, and a run with no driver judged by D15 to D17. Which
+name the gate reads the driver from is tsukumogami/koto#600's to settle,
+so those terms are written when it lands.
+
+5. `--skip-session-checks`. The check is part of `lib_write_guard`, so
+the flag skips it along with the rest of the write guard, and the flag is
+still refused without the test override flags (`state-common.sh:133-135`).
+Under those flags no live session runs the record, so a driver means
+nothing there. `state-entry.sh`'s check is skipped the same way under its
+`--scope`, `--name`, `--repo` test form. Offline suites stay as they are,
+and the engine suite tests the check.
+
+- D5. On a driven record, `state-stored-set.sh --run cap <value> --by x` with the override flags and `--skip-session-checks`, as `X_ID`, exits as it does today; without the override flags it exits 64.
+
+6. Compat. It stays at 2, with `gate_scripts` re-recorded. Step 19
+changes no state, gate, transition or variable, so the fingerprint and
+`coordinate.compat.json`'s `fingerprints` don't move. It changes
+`state-common.sh` and `state-stored-set.sh`, which the template reaches
+through the `--reasoning-check` gate (`coordinate.md:2261`) and the
+`rebrief_record` action (`coordinate.md:1512`), so `gate_scripts` does.
+Recording it at the same number is the statement that those scripts keep
+their meaning (`scripts/check-template-compat.sh:27-28`):
+`--reasoning-check` only reads, and the action's write carries no session
+id (item 9), which item 3's (c) passes, so its outcome doesn't change.
+
+- D6 (`scripts/check-template-compat_test.sh` and the CI compat-table check). `check-template-compat.sh` against the base table exits 0 with compat 2, the fingerprint list unchanged and the new `gate_scripts` digest.
+
+7. Which record a stray copy reads. The writer reads `record/meta` and
+the Run coordinator row of the session `--session` names, from the koto
+store the writer itself runs against, and nowhere else. That's what the
+guarantee rests on, and it's narrower than "a predecessor in another
+worktree can't write". A predecessor's write to its successor's record is
+refused wherever the store it writes through holds the driver the takeover
+set (D13). A predecessor writing its own superseded run isn't refused: that
+record has no driver, and its row still names the predecessor, so (e)
+passes it. koto's fence is the only guard there, and it fails where the
+predecessor's store lacks the fence, as Security Considerations sets out
+(tsukumogami/koto#601). The check doesn't try to find the successor's
+record from the predecessor's side, since a store without the fence has
+nothing that names the successor.
+
+- D19 (`driver-check_engine_test.sh`). Seed run A under one `KOTO_SESSIONS_BASE` and copy it to a second; take A over into B as `B_ID` under the first. Under the first base, a `--standing` write as `A_ID` with `--session B` exits 10 as in D13. Under the second, a `--run cap` write as `A_ID` with `--session A` exits 0 and lands. That second result is the residual, tested so the check is held to the narrowed claim and not the wider one.
+
+8. Writers in scope. Every caller of `lib_write_guard` gets the check:
+`state-stored-set.sh`, `state-write.sh`, `state-decision.sh`,
+`state-hold.sh`, `roadmap-status.sh` and `state-open.sh`, and through them
+`state-holding.sh` (which runs `state-write.sh`), `rebrief-record.sh` and
+`handover-classify.sh` (which write through `state-stored-set.sh`).
+Security Considerations covers any write, an end or a reversal entry
+included, and `state-entry.sh` posts with no session check
+(`state-entry.sh:64-65`), so its posting path calls the check too. Reads
+aren't writes and get none. The opener's own `record/meta` write
+(`meta_set`, `coordinate-open.sh:627-634`) doesn't go through the guard.
+
+- D7. On a driven record, `--list`, `--rules`, `--rules --counts` and `--reasoning-check` as `X_ID` give output and exit codes identical to `D_ID`'s.
+- D8. `state-holding.sh` as `X_ID` exits 10 with D1's message, and `handover-classify.sh` as `X_ID` writes nothing.
+
+9. A gate's environment. koto doesn't pass `CLAUDE_CODE_SESSION_ID` to
+a gate or a default action. In koto's `src/engine/command_env.rs`,
+`DEFAULT_LIVE_NAMES` doesn't list it, and `build_command_env` gives a
+command only those names, a template's `pass_env:` names and koto's own.
+koto's own are `KOTO_TICK_SESSION` and `KOTO_SESSIONS_BASE`
+(`KOTO_SET_NAMES`, `src/engine/command_env.rs:28-33`): `KOTO_TICK_SESSION`
+reaches every gate, but it names the koto session being ticked, and the
+Claude session driving the tick reaches none (tsukumogami/koto#600). Only
+a session created with `--legacy-environment` inherits the caller's
+environment. `coordinate.md` declares no `pass_env`. So a write a gate or
+action makes carries no id, and today that's `rebrief-record.sh`'s
+`--told` and `--pending`. Item 3's (c) passes a write with no id, as the
+opener's test passes a caller with none. Step 19 adds
+no `pass_env`, since the writer carries the rule alone (item 4).
+
+- D9 (`driver-check_engine_test.sh`). `coordinate.md` holds no `pass_env`, and Step 19 adds no gate to it.
+
+Existing tests that change, for items 1 to 3 and 5 to 9 (item 4 changes
+no existing test; its criterion is item 9's D9, which, like item 7's D19,
+is new in `driver-check_engine_test.sh`):
+
+- `coordinate-open_engine_test.sh` (the opener's carry) and `coordinate-open-carry-window_engine_test.sh` (a rotation's `state-open.sh --carry`) run carries the new write changes: where they check the carried Run coordinator row with a job file in place, it reads the carrier's name, as D18 says.
+- `state-carry_test.sh` calls `core_carry` directly with no carrier name, so no name reads, the carried rows stay as they are, and it keeps passing unchanged.
+
+- `handover_engine_test.sh` writes through its `state` helper (`:134`) to runs taken over at `:238`, `:395` and `:468` without setting an id, so an ambient `CLAUDE_CODE_SESSION_ID` from a developer's own session is refused there; those writes set the taking session's id.
+- `coordinate-watch-handover_engine_test.sh` and `coordinate-takeover-load_engine_test.sh` export `B_ID` for their takeovers; their later writes to that run are checked to run as `B_ID`.
+- `coordinate.compat.json` records the new `gate_scripts` digest, or the CI compat-table check fails.
+- `state-stored-set_test.sh` and `state-write_test.sh` run under `--skip-session-checks` and gain no driver cases.
+- `check-skill.tsv` gains a cost row for the new engine suite.
+
+Follow-ups, proposed only; none blocks an item.
+
+- Add `CLAUDE_CODE_SESSION_ID` to `koto-test-guard.sh`'s unset list (`:76`), so no engine suite depends on the session it's run from.
+- Share one fixture that seeds a driven record, so suites don't each build their own `record/meta`.
+
 ### Carried back to the authority work
 
 Decision 4's answer, yes with its six conditions, goes to koto's decision
@@ -1364,7 +1927,8 @@ This design adds no new dependency and no credential. Its network reads
 are the writer's, at write, for a `skill` or `doc` Source: up to three forge
 reads through the `gh` the record's scripts already call (the repository's
 visibility, the commit's ancestry on the default branch, and the cited
-file's text at that commit, used only to compare with What). They run in
+file's text at that commit, used only to compare with What), and one
+visibility read for each two-part token in a rule row's What. They run in
 that order, so on a public host a repository that isn't public is refused
 before any of its text is read, and the comparison can't be used to probe
 a private file. Any of them that fails or doesn't answer refuses the row. It reads koto decisions and a coordinator's
@@ -1474,12 +2038,40 @@ fence's below, belong with koto's decision record as open items: it is the
 only place they could be closed, by a verified identity for a person
 decider and dispatch links koto writes itself.
 
-**Writes come only from the record's driver.** The writer and a tick's gate
-refuse any write, an end or a reversal entry included, from a session that
-isn't `record/meta.driver`, whatever that session's local koto store says.
-Only the opener sets the driver, at a takeover through the fence, so a
-predecessor still running in another worktree can't write, end a rule or
-take a reversal once its successor has taken over. A run nobody has taken
+**Writes come only from the record's driver.** The writer scripts refuse
+any write, an end or a reversal entry included, from a session that isn't
+the `record/meta.driver` of the record it writes, whatever that session's
+local koto store says about the fence. A tick's gate makes the same check
+from the plan's step 15, once koto passes a gate the tick's driver
+(tsukumogami/koto#600); until then the writer scripts carry the check
+alone, and a write that bypasses them isn't refused (the driver check's
+item 4). A write with no Claude session id passes the check even on a
+driven record, so a process outside any Claude session can still write a
+driven run's record; the existing write guard ahead of the check bounds
+it, since that session must pass provenance, be its scope's one live
+session and carry no directed transition (the driver check's item 3).
+Only the opener sets the driver, at a takeover through the fence,
+so once its successor has taken over, a predecessor still running in
+another worktree can't write, end a rule or take a reversal through the
+writer scripts in the successor's record, read from a store that holds the
+driver.
+
+The check doesn't reach a predecessor writing its own run. That run's
+record has no driver, and its coordinator row still names the predecessor,
+so the opener's test passes the write; koto's fence, read from the
+predecessor's own store, is the only guard, and it holds only where that
+store has the fence. It doesn't in two cases. Each `KOTO_SESSIONS_BASE` is
+a separate local store, so a fence recorded under the successor's base
+never reaches a predecessor working from another. Under the cloud backend
+a copy whose local state hasn't seen the bucket's fence takes writes
+locally until its next push is refused. In both, the predecessor keeps
+writing and ticking its own run, which no successor reads; the gap is
+koto's (tsukumogami/koto#601). The incident under Context and Problem
+Statement is part caught and part not. A reversal entered through the
+run's newest member goes to the successor, and the copy's writes to the
+successor's record are refused. The copy that took the writes into its own
+run and kept ticking did so from a store without the fence, and this
+design doesn't catch that. A run nobody has taken
 over has no driver and is judged by its coordinator row, as the opener
 judges it today. That row names a session by name, so two copies of the
 same never-taken-over coordinator aren't told apart until a takeover
@@ -1518,7 +2110,8 @@ coordinator write is involved.
 **Reversal through the fence.** A successor reverses with the standing its
 predecessor had, read from koto's supersede fence and never higher. The
 skill enters a reversal only through the session the run's resolver names
-as its newest member, and the driver check above refuses it from any other. Any
+as its newest member, and the driver check above refuses it from any other
+session writing that member's record, within the bounds that check states. Any
 session that can name another can fence it, so a wrong fence now moves
 reversal standing over one coordinator's subtree as well as stopping that
 coordinator, and, since dispatcher-said follows the same hop, the fencing
@@ -1556,9 +2149,13 @@ references, so the grammar checks the bare repository of a `skill` or `doc`
 Source, and the repository in a cited session's name, against the list of
 repositories that aren't public. A workspace file a public host can't name
 is cited only by label and digest, with its location kept in
-`record/host`, and the same repository check runs on What, so neither a
-brief sentence nor a rule's words can name a private repository by its bare
-name on a public host. A refusal reads the same for a repository that
+`record/host`, and the same repository check runs on What's two-part
+`owner/repo` tokens, so on a public host neither a brief sentence nor a
+rule's words can name by its bare name a private repository the writer can
+see, or any repository of the host's owner that isn't public. Another owner's token that
+reads as a 404 passes, since a 404 can't tell an absent repository from a
+hidden one and refusing every such token would refuse ordinary prose like
+`and/or`. A refusal reads the same for a repository that
 doesn't exist as for one the writer can't read. A pinned or brief digest records what was read; comparing it
 with the file's current contents is the compiled-brief work's, so this
 design doesn't present it as an integrity check, and that is why a pinned
@@ -1570,7 +2167,11 @@ closed, so a private repository missing from the list of non-public ones
 is still refused. A repository made private after a row cites it keeps
 its row, since the checks run at write and a stored row is never rejected
 later. That residual is accepted, because rejecting it would make the
-record unreadable and stop its takeover. Person
+record unreadable and stop its takeover. A second residual is accepted
+with it: another owner's private repository that the writer's credentials
+can't see reads as a 404 and passes, so its bare name can reach a public
+host's record. A link or an `owner/repo#n` form of it is still checked as
+before. Person
 handles already sit in Owner today; the ones koto hands back go only into
 entries kept in the session.
 
