@@ -1641,9 +1641,12 @@ is the write guard's code for a session check (`state-common.sh:125-159`),
 and the writers already document it as a refusal over provenance or a
 directed transition (`state-stored-set.sh:239-243`); 65 is a value that
 breaks a rule, which a write from the wrong session isn't. Security
-Considerations says a driver that can't be read refuses the write, so a
-failed `record/meta` read, or a `driver` that isn't an id-shaped string,
-exits 10 too, not 2.
+Considerations says a driver that can't be read refuses the write, so the
+check's own failed `record/meta` read, or a `driver` that isn't an
+id-shaped string, exits 10 too, not 2. A writer's earlier read of the
+record (`rs_record`, `state-stored-set.sh:494`, through
+`state-read.sh:214`) runs before the guard, and its failure keeps
+today's exit 2 (`:511`); nothing is written either way.
 
 2. The writing session. It's the Claude Code session id in
 `CLAUDE_CODE_SESSION_ID`, held to the shape the opener holds it to
@@ -1662,7 +1665,7 @@ Criteria, in `driver-check_engine_test.sh`:
 - D1. On a driven record, each write mode of `state-stored-set.sh` (`--run`, `--host`, `--rule-files`, `--told`, `--pending`, `--standing`, `--end`, `--work`, `--done`, and on a discipline record `--rotation` and `--reasoning-file`), `state-write.sh` (`--state-file`, `--pushed-head`), `state-decision.sh`, `state-hold.sh`, `roadmap-status.sh`'s write, `state-open.sh --end` on a discipline record and a `state-entry.sh` post, each run as `X_ID`, exits 10 with stdout empty and the first message naming `D_ID` and `X_ID`, and nothing is written.
 - D2. The same calls run as `D_ID` exit as they do today.
 - D3. With a job file under `DC_CLAUDE_HOME` naming `X_ID` with the name the record's coordinator row holds, `X_ID` is still refused as in D1, and `D_ID` with no job file passes.
-- D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper failing `context get <s> record/meta`, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written.
+- D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper that answers every `context get <s> record/meta` before the check runs and fails the check's own, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written. A wrapper failing the writer's first `record/meta` read exits 2 as today, with nothing written.
 
 3. How a run with no driver is judged. The writer uses the opener's
 test, as Security Considerations says: a run nobody has taken over is
@@ -1772,7 +1775,7 @@ that one's text.
 
 Criteria, in `driver-check_engine_test.sh` unless named:
 
-- D10 (a). On a scope with no record yet, `state-open.sh --role manager` on a roadmap and `--start`/`--end` on a discipline, as `X_ID` with a job file, exit 0 with no `warning=rules-unrecorded`, and the record holds the role, rules and rotation rows.
+- D10 (a). On a scope with no record yet, `state-open.sh --role manager` on a roadmap and `--start`/`--end` on a discipline, as `X_ID` with a job file, exit 0 with no `warning=rules-unrecorded`, and the record holds the role and rules rows, and on the discipline its rotation row.
 - D11 (c). On a driven record, the D1 calls run with `CLAUDE_CODE_SESSION_ID` unset, and again with it set to a value that isn't id-shaped, exit as they do today.
 - D12 (d). On a driven record whose coordinator row names another session's name, a `--run cap` write as `D_ID` exits 0; the driver decides, not the row.
 - D13 (d). After `coordinate-open.sh` as `B_ID` takes run A over into B, a `--standing` write and an `--end` as `A_ID` with `--session B` exit 10 with stdout empty and the first message naming `B_ID` and `A_ID`; every `record/` key is `cmp`-identical and the entry count unchanged.
@@ -1878,6 +1881,7 @@ no existing test; its criterion is item 9's D9, which, like item 7's D19,
 is new in `driver-check_engine_test.sh`):
 
 - `coordinate-open_engine_test.sh` (the opener's carry) and `coordinate-open-carry-window_engine_test.sh` (a rotation's `state-open.sh --carry`) run carries the new write changes: where they check the carried Run coordinator row with a job file in place, it reads the carrier's name, as D18 says.
+- `state-carry_test.sh` calls `core_carry` directly with no carrier name, so no name reads, the carried rows stay as they are, and it keeps passing unchanged.
 
 - `handover_engine_test.sh` writes through its `state` helper (`:134`) to runs taken over at `:238`, `:395` and `:468` without setting an id, so an ambient `CLAUDE_CODE_SESSION_ID` from a developer's own session is refused there; those writes set the taking session's id.
 - `coordinate-watch-handover_engine_test.sh` and `coordinate-takeover-load_engine_test.sh` export `B_ID` for their takeovers; their later writes to that run are checked to run as `B_ID`.
