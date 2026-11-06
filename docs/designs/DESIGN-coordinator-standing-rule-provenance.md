@@ -1478,7 +1478,7 @@ Criteria, in `standing-rule-write_engine_test.sh`:
 
 - R9. With a What holding no two-part token and the stand-in's `fail` matching, in turn, the visibility, compare and contents reads with `HTTP 502`, the write exits 2, stderr names that read, the log holds no read after it, and nothing is written.
 - R10. A `gh` wrapper that sleeps 5 seconds on `compare/`, under `FORGE_READ_SECONDS=1`, gives exit 2 within 4 seconds, no contents read, and nothing written.
-- R42. A commit the stand-in's compare answers with the status `bogus` exits 2 with `cannot read whether acme/widgets's default branch holds <c>`, not 65, makes no contents read, and writes nothing.
+- R42. A commit the stand-in's compare answers with the status `bogus` exits 2 with `cannot read whether acme/widgets's default branch holds <c>`, not 65, makes no contents read, and writes nothing. A `gh` wrapper that answers the visibility read, and in turn the contents read, with a body that isn't JSON exits 2 with that read's `cannot read` message, makes no later read, and writes nothing.
 
 5. One refusal for a missing and an unreadable repository. "Can't read"
 means HTTP 404, as everywhere in the record's scripts
@@ -1503,6 +1503,7 @@ Criteria, in `standing-rule-write_engine_test.sh`:
 - R11. Public host: one name, absent from the stand-in, present with `private: true`, and present with `fail` `HTTP 404` on `repos/<r>`, exits 65 with byte-identical stderr (`cmp`) each time, and the log holds no compare or contents read naming it.
 - R12. Private host: an absent repository, `fail` `HTTP 404` on the compare, and a commit the stand-in answers `notfound` each exit 65 with byte-identical stderr.
 - R13. `fail` `HTTP 403` on the visibility read exits 2, not 65, and nothing is written.
+- R43. On each host, with the compare answering `ahead` and `fail` `HTTP 404` on the contents read, the write exits 65 with `refused: standing.s<n>: the Source names <path>, which acme/widgets doesn't hold at <c>`, and nothing is written.
 
 6. Where the caps and the 400-byte What are enforced. The writer enforces
 them on the row it writes, and the schema gets no read-side check: a
@@ -1658,7 +1659,7 @@ against a driver. The messages name both ids:
 
 Criteria, in `driver-check_engine_test.sh`:
 
-- D1. On a driven record, each write mode of `state-stored-set.sh` (`--run`, `--host`, `--rule-files`, `--told`, `--pending`, `--standing`, `--end`, `--work`, `--done`, and on a discipline record `--rotation` and `--reasoning-file`), `state-write.sh` (`--state-file`, `--pushed-head`), `state-decision.sh`, `state-hold.sh`, `roadmap-status.sh`'s write and a `state-entry.sh` post, each run as `X_ID`, exits 10 with stdout empty and the first message naming `D_ID` and `X_ID`, and nothing is written.
+- D1. On a driven record, each write mode of `state-stored-set.sh` (`--run`, `--host`, `--rule-files`, `--told`, `--pending`, `--standing`, `--end`, `--work`, `--done`, and on a discipline record `--rotation` and `--reasoning-file`), `state-write.sh` (`--state-file`, `--pushed-head`), `state-decision.sh`, `state-hold.sh`, `roadmap-status.sh`'s write, `state-open.sh --end` on a discipline record and a `state-entry.sh` post, each run as `X_ID`, exits 10 with stdout empty and the first message naming `D_ID` and `X_ID`, and nothing is written.
 - D2. The same calls run as `D_ID` exit as they do today.
 - D3. With a job file under `DC_CLAUDE_HOME` naming `X_ID` with the name the record's coordinator row holds, `X_ID` is still refused as in D1, and `D_ID` with no job file passes.
 - D4. A `driver` of `7` or `{}`, and a `KOTO_BIN` wrapper failing `context get <s> record/meta`, each exit 10 with the second message for every D1 call, run as `D_ID`, and nothing is written.
@@ -1677,10 +1678,13 @@ this order:
   failed read; the opener's reader gives `{}` for it
   (`coordinate-open.sh:569-573`). It's a fresh seed: `state-open.sh`'s
   guard runs before the seed writes `record/meta` (`state-open.sh:283`,
-  `:312`), and the seed's own `--run role`, `--rule-files` and
-  `--rotation` writes (`state-open.sh:194`, `:157`, `:215`) then find
-  meta with no driver (`state-write-core.sh:238-239`) and no coordinator
-  row, which (e) passes.
+  `:312`), the seed's role row is built into the seeded state
+  (`seed_state`, `state-open.sh:202-206`), and the seed's own
+  `--rule-files` and `--rotation` writes (`:157`, `:215`) then find meta
+  with no driver (`state-write-core.sh:238-239`) and no coordinator row,
+  which (e) passes. The carry's role write (`carry_role_settle`, `:194`)
+  runs after the copy, under the carrier's in-copy row, which (e) passes
+  too.
 - (b) A `record/meta` that can't be read, or a `driver` key that holds
   anything but an id-shaped string, refuses, exit 10, with item 2's second
   message. That's stricter than the opener, which reads a non-string
@@ -1739,7 +1743,10 @@ carrier's name reads and the predecessor's row names anyone else, the
 Run coordinator row naming the carrier replaces it in `state-open.sh`'s
 `next.json` (`:271-280`) for a rotation carry, and in the `record/run`
 value `core_carry` reads before it copies (`state-write-core.sh:520-557`)
-for the opener's. The change is the one a `--run coordinator` write
+for the opener's. The opener reaches that copy with a foreign row only for
+a predecessor it doesn't take over, a finished or cancelled run say: a
+template-change carry of a run whose row names another session that
+reads is refused before any copy (`coordinate-open.sh:947-952`). The change is the one a `--run coordinator` write
 makes (`state-stored-set.sh:685-687`): the coordinator, `told` and
 `pending` rows go, since nobody has been told the carrier's address, and
 the row `{key: "coordinator", value: <carrier>, set_by: <carrier>, set:
@@ -1773,7 +1780,7 @@ Criteria, in `driver-check_engine_test.sh` unless named:
 - D15 (e). On a record with no driver and no coordinator row, a `--run cap` write as `X_ID` with a job file exits 0.
 - D16 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with no job file under `DC_CLAUDE_HOME` exits 0.
 - D17 (e). On a record with no driver whose row is `coord-a`, a write as `X_ID` with a job file naming `coord-x` exits 10, stdout empty, the one-line message naming `coord-a`, `coord-x` and `X_ID`, and nothing is written; the same write as `A_ID` with a job file naming `coord-a` exits 0.
-- D18 (the carry's coordinator row, for both carries: the opener's template-change carry and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x` with `set_by` `coord-x` in the copy itself, with none of the predecessor's `told` or `pending` rows, and the new run's first entry after the copy reads `The coordinator's address is now coord-x, set by coord-x. Nobody has been told it yet.`; a `--run cap` write as `X_ID` then exits 0, and `state-open.sh --carry` also exits 0 with the rotation's window written. With no job file the row stays `coord-a`, the `told` and `pending` rows stay, no address entry is posted, and the same write exits 0 by (e). Every other carried key is `cmp`-identical to the predecessor's, `record/run` less those rows.
+- D18 (the carry's coordinator row, for both carries: the opener's carry of a finished or cancelled predecessor and `state-open.sh --carry`). Carrying a predecessor whose row is `coord-a`, as `X_ID` with a job file naming `coord-x`, leaves the new run's Run coordinator row reading `coord-x` with `set_by` `coord-x` in the copy itself, with none of the predecessor's `told` or `pending` rows, and the new run's first entry after the copy reads `The coordinator's address is now coord-x, set by coord-x. Nobody has been told it yet.`; a `--run cap` write as `X_ID` then exits 0, and `state-open.sh --carry` also exits 0 with the rotation's window written. With no job file the row stays `coord-a`, the `told` and `pending` rows stay, no address entry is posted, and the same write exits 0 by (e). For the opener's carry, every other carried key is `cmp`-identical to the predecessor's, `record/run` less those rows; for a rotation carry, the new state is otherwise what `state-open.sh` builds today (`:271-280`).
 
 4. Which gate carries the check. Step 19 builds the writer check only.
 The design's clause has the tick's gate refuse the same sessions, and that
