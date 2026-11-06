@@ -1003,6 +1003,45 @@
       "requirements": [
         "director-alignment R9"
       ]
+    },
+    {
+      "id": 53,
+      "name": "a-milestone-verdict-call-cites-every-evidence-clause",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-milestones.md, hosted in acme/widgets, in session coordinate-roadmap-milestones-20261101T090000Z. Lane pull request acme/widgets#31 is MV1's milestone verdict pull request, at head a7d3b9e15c2f4086d1e7b3a9c5f2e8d4b0a6c3f1; its body says a reviewer ran `widgets list` from a clean install and saw exactly the three sample names, then removed one manifest and saw it named as skipped. alignment-sources.sh --session coordinate-roadmap-milestones-20261101T090000Z --on acme/widgets#31 printed: {\"unit\":\"MV1\",\"clauses\":[{\"n\":1,\"field\":\"Outcome\",\"text\":\"A maintainer lists the plugins they installed.\"},{\"n\":2,\"field\":\"Left open\",\"text\":\"the output layout.\"}],\"evidence\":[{\"n\":1,\"text\":\"A reviewer, from a clean install with three sample plugins, runs `widgets list` and sees exactly those three names.\"},{\"n\":2,\"text\":\"The same reviewer removes one manifest and sees it named as skipped.\"}],\"commit\":\"9c41e0d27b5a8f3e6d1c4b7a2e9f0d8c3b6a5e41\",\"strategy\":\"none\",\"changed_files\":[\"docs/roadmaps/ROADMAP-milestones.md\"],\"other_lanes\":[],\"triggers\":[{\"reason\":\"milestone-verdict\"},{\"reason\":\"roadmap-change\",\"path\":\"docs/roadmaps/ROADMAP-milestones.md\"}],\"candidates\":[]}. Write the call and say how you record it.",
+      "expected_output": "The triggers make this a full read, so the call reads `Read: full`. Its Sources name the roadmap clauses it was judged against at the commit the helper read, each as `roadmap docs/roadmaps/ROADMAP-milestones.md at 9c41e0d27b5a8f3e6d1c4b7a2e9f0d8c3b6a5e41 MV1 clause <n>`, joined with `; `; there is no strategy source, since the strategy is none, and no Standing row or decision, since there are no candidates. The Evidence line names both of MV1's Evidence clauses by number and says for each whether the pull request meets it: `1 met; 2 met`. The call is the seven lines in order (Alignment naming acme/widgets#31 at its head, Read, Sources, Reason, Evidence, Follow-ups, Action), and it is written with alignment-call.sh --session coordinate-roadmap-milestones-20261101T090000Z --on acme/widgets#31 --text-file, which state-entry.sh checks before writing; it isn't written to the record by hand.",
+      "files": [
+        "docs/roadmaps/ROADMAP-milestones.md"
+      ],
+      "expectations": [
+        "The call reads `Read: full`, because the pull request is a milestone verdict pull request",
+        "The Sources name the roadmap clauses as `roadmap docs/roadmaps/ROADMAP-milestones.md at 9c41e0d27b5a8f3e6d1c4b7a2e9f0d8c3b6a5e41 MV1 clause <n>`, at the commit the helper printed",
+        "The Evidence line names Evidence clauses 1 and 2 by number, each `met` or `not met`, and leaves neither out",
+        "No strategy, Standing or decision source is invented: the strategy is none and there are no candidates",
+        "The call is written with alignment-call.sh --on acme/widgets#31 --text-file, not by editing the record"
+      ],
+      "requirements": [
+        "R2",
+        "R6"
+      ]
+    },
+    {
+      "id": 54,
+      "name": "an-other-lane-trigger-is-cited-as-a-lane-source",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-roadmap-plugin-system-20261101T090000Z. Lane pull request acme/widgets#18, in mgr-a's lane on feature 1, is at head a7d3b9e15c2f4086d1e7b3a9c5f2e8d4b0a6c3f1 and rewrites the plugin guide. alignment-sources.sh --session coordinate-roadmap-plugin-system-20261101T090000Z --on acme/widgets#18 printed, besides feature 1's clauses: {\"changed_files\":[\"docs/guides/plugins.md\"],\"other_lanes\":[{\"lane\":\"mgr-b\",\"open\":[{\"pull_request\":\"acme/widgets#21\",\"changed_files\":[\"src/serve.go\"]}],\"units\":[\"Feature 2\"],\"paths\":[\"docs/guides/plugins.md\"]}],\"triggers\":[{\"reason\":\"other-lane\",\"lane\":\"mgr-b\",\"open_work\":[\"docs/guides/plugins.md\"],\"files\":[\"docs/guides/plugins.md\"]}],\"candidates\":[]}. mgr-b's Work row says it is rewriting docs/guides/plugins.md for feature 2. What does the call's Read and Sources lines say, and how is it recorded?",
+      "expected_output": "The other-lane trigger makes this a full read, so the call reads `Read: full`, never one-line. The call compares the pull request against mgr-b's work on the guide and names it in its Sources as `lane mgr-b docs/guides/plugins.md`, the lane and the open work the trigger names, beside the roadmap clauses it read for feature 1. It doesn't cite mgr-b's open pull request acme/widgets#21, which changes none of this pull request's files, and the trigger's `files` aren't sources of their own. The call is the seven lines in order and is written with alignment-call.sh --session coordinate-roadmap-plugin-system-20261101T090000Z --on acme/widgets#18 --text-file, not by editing the record.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The call reads `Read: full`, because an other-lane trigger is a full-read condition",
+        "The Sources include `lane mgr-b docs/guides/plugins.md`, the trigger's lane and open work",
+        "The Sources don't cite acme/widgets#21, which the trigger doesn't name",
+        "The call is written with alignment-call.sh --on acme/widgets#18 --text-file, not by editing the record"
+      ],
+      "requirements": [
+        "R2",
+        "R3"
+      ]
     }
   ]
 }
