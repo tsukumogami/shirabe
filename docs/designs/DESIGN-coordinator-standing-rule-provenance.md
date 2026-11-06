@@ -1408,8 +1408,9 @@ ancestry read is `gh api --method GET repos/<r>/compare/<commit>...HEAD
 and won't create a branch named `HEAD`, so the name is never read and
 can't be shadowed. `identical` and `ahead` mean the default branch holds
 the commit, `behind` and `diverged` mean it doesn't, and a 404 is item 5's.
-The order is visibility (public host only, the core's own call at
-`state-write-core.sh:763`), then ancestry, then
+The order is visibility (public host only, the writer's own read, the
+same call the core makes at `state-write-core.sh:763`, which item 12
+takes out of the core), then ancestry, then
 `contents/<path>?ref=<commit>`: three reads on a public host and two
 elsewhere, the order Security Considerations gives and the count the
 plan carries, for a What holding no two-part token; on a public host
@@ -1458,6 +1459,7 @@ unless a criterion says otherwise, with the stand-in holding
 - R38. Whats holding `and/or`, `CI/CD`, `other/absent` and `skills/coordinate/SKILL.md` are each written. The log holds one `repos/<token>` read for each two-part token and none for the three-part path.
 - R39. Private host: R37's Whats are each written, and the log holds no `repos/` read naming any token.
 - R40 (`state-schema_test.sh`). The token extractor's output on `see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4` is exactly `["acme/secret","and/or"]`.
+- R41 (`standing-rule-write_engine_test.sh`). An `inferred` row whose What holds `other/absent`, with the stand-in's `fail` matching `repos/other/absent` with `HTTP 502`, exits 2 with stderr holding `cannot read other/absent's visibility`, not 65, and nothing is written.
 
 4. A forge read that fails or doesn't answer. Each of the three reads runs
 under `dc_with_deadline "${FORGE_READ_SECONDS:-10}"`
@@ -1633,7 +1635,7 @@ one. `D_ID` is that id and `X_ID` another of the same shape.
 
 1. Exit code. A write the check refuses exits 10, prints nothing on
 stdout, and writes one stderr line opening `<prog>: refused: driver:`. Ten
-is the write guard's code for a session check (`state-common.sh:125-157`),
+is the write guard's code for a session check (`state-common.sh:125-159`),
 and the writers already document it as a refusal over provenance or a
 directed transition (`state-stored-set.sh:239-243`); 65 is a value that
 breaks a rule, which a write from the wrong session isn't. Security
@@ -1665,7 +1667,8 @@ test, as Security Considerations says: a run nobody has taken over is
 judged as the opener judges it today (`driven_by_another`,
 `coordinate-open.sh:619-626`). It's one check, the last step of
 `lib_write_guard` (`state-common.sh:132-159`), after provenance, the
-live session and the directed transition. It reads the `record/meta` and
+live session and the directed transition, and `state-entry.sh`'s post,
+which doesn't run that function, calls the same check (item 8). It reads the `record/meta` and
 the Run coordinator row of the session `--session` names, and decides in
 this order:
 
@@ -1845,8 +1848,8 @@ no `pass_env`, since the writer carries the rule alone (item 4).
 - D9 (`driver-check_engine_test.sh`). `coordinate.md` holds no `pass_env`, and Step 19 adds no gate to it.
 
 Existing tests that change, for items 1 to 3 and 5 to 9 (item 4 changes
-no existing test, and its D9, like item 7's D19, is new in
-`driver-check_engine_test.sh`):
+no existing test; its criterion is item 9's D9, which, like item 7's D19,
+is new in `driver-check_engine_test.sh`):
 
 - `coordinate-open_engine_test.sh` (the opener's carry) and `coordinate-open-carry-window_engine_test.sh` (a rotation's `state-open.sh --carry`) run carries the new write changes: where they check the carried Run coordinator row with a job file in place, it reads the carrier's name, as D18 says.
 
@@ -2007,7 +2010,12 @@ local koto store says about the fence. A tick's gate makes the same check
 from the plan's step 15, once koto passes a gate the tick's driver
 (tsukumogami/koto#600); until then the writer scripts carry the check
 alone, and a write that bypasses them isn't refused (the driver check's
-item 4). Only the opener sets the driver, at a takeover through the fence,
+item 4). A write with no Claude session id passes the check even on a
+driven record, so a process outside any Claude session can still write a
+driven run's record; the existing write guard ahead of the check bounds
+it, since that session must pass provenance, be its scope's one live
+session and carry no directed transition (the driver check's item 3).
+Only the opener sets the driver, at a takeover through the fence,
 so once its successor has taken over, a predecessor still running in
 another worktree can't write, end a rule or take a reversal through the
 writer scripts in the successor's record, read from a store that holds the
