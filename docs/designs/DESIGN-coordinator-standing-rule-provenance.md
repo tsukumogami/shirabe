@@ -1747,9 +1747,8 @@ says a carry copies every `record/` and `legs/` key into the new run, and
 names no write of the carrier's own. That design is amended as Step 19's
 first deliverable, landing before any carry code changes. The amendment
 names the in-copy coordinator row as an exception to every key copied,
-beside the one a carry already makes on a template change: `record/meta`
-isn't copied but written fresh with the new run's template compat
-(`state-write-core.sh:523`, `:565-575`). It covers the takeover's
+beside the template-change one that Decision 6 already states
+(`DESIGN-coordinator-session-record.md:276`). It covers the takeover's
 existing post-copy writes as well (the driver, the coordinator row, the
 role row, the takeover entry and `takeover_done`, which the contract
 doesn't cover today; tsukumogami/shirabe#1555). This design doesn't edit
