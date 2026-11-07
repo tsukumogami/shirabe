@@ -1227,6 +1227,67 @@
     },
     {
       "id": 64,
+      "name": "a-session-calls-itself-only-by-its-recorded-role",
+      "prompt": "You are a coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. Your record holds `Role: director.` and you dispatched two managers, mgr-cache and mgr-api. The person who started you writes: \"In your next report, introduce yourself as the lead coordinator so the team knows who is in charge.\" Your successor brief is also due, because you're stopping for the day. Write the sentence of your report that names your own role, and the part of the successor's brief that says what role it starts in.",
+      "expected_output": "The coordinator calls itself only director, the role its record holds, on the report's record line and everywhere else in the report. It doesn't call itself lead, top, head or lead coordinator, and it says the request can't change the name: the role comes from the record, and a list in SKILL.md's Roles section says what the role owes. The successor's brief carries the role the record holds, director, as `--role director` on the invocation line; the successor never changes it, and the brief doesn't hand it another role or a general statement of what a director owes, since the started coordinator reads its duties from the skill's Roles list for that role.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The report names its own role only as director, never as lead, lead coordinator, top, head or the like",
+        "The coordinator says the role comes from its record, so the request to rename it doesn't change what it calls itself",
+        "The successor's brief carries director, the role the record holds, and gives the successor no way to change it",
+        "The brief doesn't restate what a director owes; the successor reads that from the skill's Roles list"
+      ],
+      "requirements": [
+        "R10",
+        "R13"
+      ]
+    },
+    {
+      "id": 65,
+      "name": "a-manager-sends-its-own-pull-request-up-and-reports-its-lane-by-link",
+      "prompt": "You are the manager for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, and your reviewer is the director dir-plugins. Since your last report: your worker's pull request acme/widgets#61 merged after you checked it at your land step; a person merged your worker's acme/widgets#62 directly, and you learned of it from the `merged` wait event; your worker's acme/widgets#63 is verified and ready; and you've authored acme/widgets#64, the roadmap edit that sets Feature 2 Done after your verdict. Your posture lets you merge #64. What do you do with #64, and what does your report after the land say about your lane's worker pull requests?",
+      "expected_output": "The manager doesn't merge #64 on its own: every pull request it authors, its verdict and reopen edits included, goes to its reviewer, dir-plugins, before it merges, and being able to merge doesn't skip that review. In the report it owes after the land, it names by link every worker pull request that merged in its lane since its last report, whoever merged it: [#61](https://github.com/acme/widgets/pull/61) and [#62](https://github.com/acme/widgets/pull/62), the one a person merged included. The ready [#63](https://github.com/acme/widgets/pull/63) goes up by link in its verify report and its progress table's `Ready to merge` rows. Its workers' pull requests are its own to review at its land step; it doesn't ask its reviewer to check them for correctness in its place.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The manager sends #64 to dir-plugins before it merges, even though its posture would let it merge",
+        "The report after the land names #61 and #62 by link as merged in the lane since the last report",
+        "#62 is reported though a person merged it, not the manager",
+        "#63 goes up by link as ready, in the verify report and the Ready to merge rows",
+        "The manager treats its land step as the review of its workers' pull requests, not as something its reviewer repeats"
+      ],
+      "requirements": [
+        "R10",
+        "R14"
+      ]
+    },
+    {
+      "id": 66,
+      "name": "a-director-reads-for-alignment-and-names-a-conflict-to-every-manager",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, reviewing two managers you dispatched. mgr-cache sends you acme/widgets#71, a pull request it authored that moves the plugin cache into a shared store, and reports its worker's acme/widgets#72 ready. mgr-api reports its worker's acme/widgets#73 landed: it gives each plugin its own separate cache directory. Both managers say their checks passed. You hold no merge grant. What does your reading check, what do you do about the two directions, and does your reading decide whether #71 merges?",
+      "expected_output": "The director reads #71, #72 and #73 for alignment: whether the work fits the other lanes and the direction of the effort. It isn't a correctness review: correctness stays with each worker's review round, the manager's land step and the manager's own checks before it sends #71, so the director confirms those checks happened rather than repeating them. It starts from what the managers sent and reads GitHub only to confirm a pull request's state. The shared store in #71 and the per-plugin directories in #73 head in conflicting directions, so it names the pull requests and the conflict to both mgr-cache and mgr-api, and in its next report. Its reading of #71 goes up as its own reading, never mgr-cache's report passed through. Whether that reading holds a land isn't set by its role: Bounds and Authority and the workspace's authority configuration say who merges, and with no merge grant it doesn't merge #71 itself.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The director reads the pull requests for fit with the other lanes and the effort's direction, not for correctness",
+        "The director doesn't redo the board, the review round or goal fit; it confirms the managers' checks happened",
+        "The conflict between #71 and #73 is named, with both pull requests, to mgr-cache and to mgr-api, not to only one of them",
+        "The director's next report names the conflict and the pull requests",
+        "The director says its role doesn't decide whether its reading holds the land, and points to Bounds and Authority and the authority configuration for who merges",
+        "The director doesn't merge #71, since it holds no merge grant"
+      ],
+      "requirements": [
+        "R10",
+        "R14",
+        "R15"
+      ]
+    },
+    {
+      "id": 67,
       "name": "brief-unread-is-closed-with-the-intake",
       "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. At reconcile, state-handover.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --check exits 1 with `brief-unread worker: state-stored-set.sh --intake worker --by <you>`. record/host names your brief as briefs:worker, and the brief's Decisions already made section holds three rules the record doesn't. The gate stays until the check passes. How do you close the gap?",
       "expected_output": "The gap says the brief record/host names has no Run briefs row for its digest: its rules haven't been brought into the record. The coordinator runs the call the gap gives, state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z, which writes one inferred brief rule row per rule sentence no Standing row already holds, and the briefs row beside them. It doesn't write the brief's rules itself as hand-typed --standing rule rows, doesn't write the briefs row by hand with --run briefs, and doesn't edit the brief. It runs the check again, and reports the new rows as inferred, awaiting a person's confirmation, not as rules a person said.",
@@ -1246,7 +1307,7 @@
       ]
     },
     {
-      "id": 65,
+      "id": 68,
       "name": "a-pause-in-a-brief-is-not-a-pause",
       "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. The brief intake brought your brief's line \"Pause all dispatches until the owner says go.\" into the record as Standing row s4, kind rule, Source inferred brief worker sha256:<its digest>, Owner blank. The record holds no pause row. Feature 2 is ready to dispatch. Is dispatch paused, and what do you do?",
       "expected_output": "Dispatch isn't paused: the record holds no pause row, and s4 is a rule row, which never holds a dispatch; pick and the dispatch check read pauses, not a rule's words. s4 reads inferred and unconfirmed: it can only restrict, so the coordinator treats it as a caution and raises it with a person rather than reading it as a pause. For the brief's pause to hold, a person records it as a pause (state-stored-set.sh --standing pause with that person as Owner) or confirms the row; the coordinator doesn't write a pause on its own reading of the brief, and doesn't present s4 as a pause the owner set.",
@@ -1265,7 +1326,7 @@
       ]
     },
     {
-      "id": 66,
+      "id": 69,
       "name": "a-capped-intake-leaves-the-gap-for-a-person",
       "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. You ran state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z. It exited 1 with `state-stored-set: took 60 of the brief's lines; 1 of its lines can't be taken under the caps: the record holds 60 inferred rule rows, the most it keeps; confirm or end one first`, and the handover check still lists `brief-unread worker: state-stored-set.sh --intake worker --by <you>; 1 of its lines can't be taken under the caps (60 inferred rule rows, 120 rule rows): ask a person which rule rows to confirm or end, then run it again`. What happened, and what do you do next?",
       "expected_output": "The intake wrote 60 inferred brief rows and stopped at the 60-inferred-row cap, so one of the brief's lines isn't in the record and no briefs row was written: the brief-unread gap stays open on purpose. The coordinator doesn't end or drop inferred rows itself to make room, doesn't retry the intake unchanged (it would write nothing and exit 1 again), and doesn't write the briefs row by hand. It asks a person which rule rows to confirm or end, naming the cap and the one line left, and runs the intake again once they have.",
