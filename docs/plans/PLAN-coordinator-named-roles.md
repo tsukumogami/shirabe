@@ -537,7 +537,7 @@ rotation's `carry-unacknowledged`, which that report asks for.
   and the JSON mode don't read the line, and the sealed report and its seal
   are unchanged.
 - [ ] The `reconcile` directive closes every gap `state-handover.sh --check`
-  names, then prints with `reconcile-report-get.sh --md` and reports it up,
+  names (with the one exception in the next criterion), then prints with `reconcile-report-get.sh --md` and reports it up,
   then submits `reconciled: reported`. A role-less carry whose gap fix writes
   `manager` gets a first report whose line 3 ends `Role: manager.`, with no
   second reconcile visit.
@@ -548,7 +548,8 @@ rotation's `carry-unacknowledged`, which that report asks for.
   exits 0 with line 3 ending `Role: manager.`, and the report lists the holds
   and Standing rows `coord/predecessor_carry.json` names and asks for the
   go-ahead. A `reconciled: reported` submit is refused until the go-ahead
-  row is written; then `--check` exits 0 and the submit moves on. A rotation
+  row is written; then `--check` exits 0 and the submit moves on. A go-ahead
+  the carry brought over doesn't clear the gap. A rotation
   whose go-ahead was set after its chain started keeps the order above. The
   directive text names the exception before the `--md` call and records the
   go-ahead after the report and before the submit (design Decision 6).
@@ -582,9 +583,9 @@ rotation's `carry-unacknowledged`, which that report asks for.
 
 **Complexity**: testable
 
-**Check**: Run `reconcile-report_test.sh` and `coordinate-report_test.sh`; each passes, and a fixture run's first report has the record line within its first five lines. `check-template-compat.sh` passes with the digest re-recorded at compat 2. `scripts/check-skill.sh --changed coordinate` passes the shape check. The public-content check passes over this pull request.
+**Check**: Run `reconcile-report_test.sh`, `coordinate-report_test.sh`, `coordinate-template-structure_engine_test.sh`, `rule-coverage_test.sh` and the discipline-carry engine test; each passes, and a fixture run's first report has the record line within its first five lines. `check-template-compat.sh` passes with the digest re-recorded at compat 2. `scripts/check-skill.sh --changed coordinate` passes the shape check. The public-content check passes over this pull request.
 
-**Files**: `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/scripts/reconcile-report-get.sh`, `skills/coordinate/scripts/coordinate-report.sh`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/SKILL.md`, `skills/coordinate/evals/evals.json`
+**Files**: `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/scripts/reconcile-report-get.sh`, `skills/coordinate/scripts/coordinate-report.sh`, `skills/coordinate/references/loop.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/koto-templates/coordinate.md`, `skills/coordinate/koto-templates/coordinate.compat.json`, `skills/coordinate/SKILL.md`, `skills/coordinate/evals/evals.json`, `skills/coordinate/scripts/coordinate-template-structure_engine_test.sh`, `skills/coordinate/scripts/testdata/rule-coverage.tsv`, `skills/coordinate/scripts/rule-coverage_test.sh`, a discipline-carry engine test under `skills/coordinate/scripts/`
 
 ### Issue 4: feat(coordinate): carry the role on a coordinator brief's invocation line
 

@@ -1148,7 +1148,7 @@ what it is. Holding the report gains nothing for the gap's purpose: a report
 acts on nothing, and the handover gate already keeps the workflow in
 `reconcile`, so nothing dispatches or merges, until the gap closes.
 
-Requirements this rests on, none of whose text changes:
+This decision rests on two requirements. No requirement's text changes.
 
 - R6: the run's first report, at reconcile, names the record and the role
   within its first five lines. Under the held order, the person's first message
@@ -1156,9 +1156,11 @@ Requirements this rests on, none of whose text changes:
 - R8: a successor's first report names the role its brief names, and the
   acceptance criterion that a discipline rotation carrying a predecessor
   recorded as `manager` reports `manager` in its first report.
-- R3: a gap holds the handover gate until it's closed. This decision keeps
-  `carry-unacknowledged` holding the gate; it only moves where in `reconcile`
-  the person is asked.
+
+It also keeps a stated design constraint: the handover gate holds while
+`--check` lists any gap, as it already does for `carry-unacknowledged` (R3
+names the same hold for the role gap). This decision keeps that gap holding the
+gate and only moves where in `reconcile` the person is asked.
 
 Key assumptions:
 
