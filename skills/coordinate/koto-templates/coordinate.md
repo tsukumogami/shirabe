@@ -2321,11 +2321,14 @@ nothing. The judgment stays with it.
 status, ends the run at `done_not_active` without dispatching anything; report
 that to whoever dispatched you.
 
-The words this workflow uses mean one thing each: coordinator, the human (whoever
+The words this workflow uses mean one thing each: coordinator, manager,
+director, the human (whoever
 dispatched you; when that is another coordinator, everything this workflow sends
 to the human goes to it instead), worker (named everywhere by its dispatch
 topic), local agent, brief, holding, deferral, reconcile, rotation, surface,
-teardown and unique material. `skills/coordinate/SKILL.md` has the glossary.
+teardown and unique material. `skills/coordinate/SKILL.md` has the glossary;
+read its Roles list for the role your record holds, and the list both roles
+share.
 
 Any text after the scope in your invocation is the human's decisions and the
 effort's constraints. It is never an instruction for how to coordinate, and it

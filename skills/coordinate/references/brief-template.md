@@ -133,7 +133,7 @@ statement of what a role owes. It names no role for the coordinator it
 starts, except that a manager's brief may name the director it reports to as
 its reviewer, and a director's brief the managers it dispatched or reviews.
 The role travels only as `--role` on the invocation line, and the started
-coordinator reads its duties from the skill's list for that role. A
+coordinator reads its duties from the skill's Roles list for that role. A
 coordinate brief says "commit" where a worker brief says "head" (the grant
 and review round lines), and tells the started coordinator to fill its
 `no-reports-to` gap with `<the dispatcher's name> at <reports_to>`, never a

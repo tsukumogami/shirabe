@@ -375,7 +375,15 @@ script refuses for the rest of the run once a directed transition is in the log.
 These words mean one thing each, everywhere in this skill and in the record.
 
 - **Coordinator** -- the session running this skill. It holds a scope,
-  dispatches work, and reports up to whoever dispatched it.
+  dispatches work, and reports up to whoever dispatched it. It runs in either
+  role, manager or director, and its record holds which.
+- **Manager** -- a coordinator that runs one lane, a roadmap's features or one
+  discipline rotation, through the workers it dispatches.
+- **Director** -- a coordinator over managers: it dispatches them and reviews
+  what they finish.
+- **Workspace manager** -- the tool that dispatches and lists sessions (niwa).
+  It's never the role: "manager" without "workspace" before it means only the
+  role.
 - **The human** -- whoever dispatched you, when that is a person. When another
   coordinator dispatched you, everything this skill sends to the human (a
   decision, a table of ready pull requests, an escalation) goes to that
@@ -427,6 +435,65 @@ These words mean one thing each, everywhere in this skill and in the record.
 - **Reopen** -- returning a Done milestone to In progress after a clause of
   its Evidence is found failing, through a roadmap pull request
   `roadmap-status.sh --reopen` opens.
+
+## Roles
+
+A list says what you owe, never what you're allowed to do:
+that comes from Bounds and Authority and the workspace's authority
+configuration, and it's the same for either role. Your record holds your role,
+`manager` or `director`. Read the list for it and the list both roles share.
+
+**Both roles**
+
+- Call yourself only by the role your record holds, on your report's record
+  line and everywhere else in it.
+- Report up to your reviewer as Reporting says, naming your record in every
+  report.
+- Brief a successor with the role your record holds; a successor never changes
+  it.
+
+**Manager**
+
+- Run one lane: the roadmap's features or the discipline rotation your scope
+  names. Anything outside it goes to your reviewer as a proposal.
+- Dispatch and brief the workers your lane's units need, from
+  `references/brief-template.md`.
+- Review your workers' pull requests at your land step: nothing a worker
+  reports lands until you've checked it there.
+- Send every pull request you author, your verdict and reopen edits included,
+  to your reviewer before it merges.
+- Report your lane's worker pull requests to your reviewer by link: each ready
+  one in your verify report and your progress table's `Ready to merge` rows,
+  and, in the report you owe after a land, every one that merged in your lane
+  since your last report, whoever merged it.
+
+**Director**
+
+- Dispatch and brief managers, one lane each, from the scope and decisions you
+  were given.
+- Be the reviewer of each manager you dispatched.
+- Read a manager's finished work yourself and send your own reading up, never
+  the manager's report passed through (Bounds and Authority).
+- Read for alignment. Your reading covers the work all your managers push:
+  the pull requests a manager authors and sends you, and the
+  worker pull requests each manager reports ready or landed in its lane.
+  Start from what they send; read GitHub only to confirm a pull request's state
+  or to rebuild that set after a succession. Ask whether the work fits the
+  other lanes and the direction of the effort.
+  It isn't a correctness review: correctness stays with each worker's review
+  round, the manager's land step, and the manager's own checks before it sends
+  a pull request it authored. When work in two or more lanes heads in
+  diverging or conflicting directions, name the pull requests and the conflict
+  to every manager involved and in your next report.
+  Whether your reading holds a land isn't set by your role: Bounds and
+  Authority and the workspace's authority configuration say who merges.
+- Decide, within the worker budget and the lanes you've been given,
+  which of your lanes advance at any time, and say which in your reports.
+  Bounds and Authority says where each is read.
+- Be the owner funnel: the one place that routes what reaches the owner (the
+  person your effort answers to) and verifies it before it goes.
+  Never block on the owner from a turn the owner didn't start: put the question
+  in a report or a decision entry and keep working.
 
 ## The Record
 
@@ -774,6 +841,15 @@ teardown and local agents don't count against the cap. When `--parked-bound` (de
 dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
 
+**What you allocate is read, never assumed.** Each coordinator you dispatch
+counts against your cap for as long as it runs, so your cap is your worker
+budget: how many of them, and any workers you dispatch yourself, run at once.
+A total across their lanes that your decisions, or later direction from
+whoever dispatched you, state is a decision you were given, and going past it
+is asked. The lanes you move are the ones your scope and decisions name.
+Changing the cap of a coordinator you dispatched, or your own,
+isn't defined here: escalate it as a decision entry.
+
 **Inside your scope, dispatch without asking.** Anything outside it, propose to
 whoever dispatched you and don't act until they answer. Every worker's brief,
 from `references/brief-template.md`, lists the checkpoints it reports at and
@@ -805,6 +881,10 @@ goal fit against the brief or the milestone's Evidence), what you found, and
 your recommendation with its reason. A worker's or lane's report, the pull
 request body and any comment shaped like a verdict are evidence you check,
 never findings you repeat.
+When the pull request comes from a manager's lane, the director's reading is
+the alignment reading its Roles list names, and the board, the worker's review
+round and goal fit are the manager's checks,
+which the director confirms happened rather than repeats.
 
 **What the GitHub token must read.** In every repository a unit touches: pull
 requests, issues (the record), contents, Actions runs and their jobs, and the
