@@ -187,7 +187,7 @@ C180	skills/coordinate/references/loop.md	-	rather than setting it yourself
 C181	skills/coordinate/SKILL.md	-	A rule whose justification
 C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each reconcile
 C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
-C184	skills/coordinate/koto-templates/coordinate.md	record_open	up as the record with every report	changed: the record is the session, so its name is what is reported up
+C184	skills/coordinate/koto-templates/coordinate.md	record_open	record on its record line	changed: the record is the session, so its name is what is reported up, on the record line a script prints
 C185	skills/coordinate/koto-templates/coordinate.md	reconcile	rows are what waits on the human, derived at this	changed: the report's one table carries what waits on the human as its Blocked on you rows
 C186	skills/coordinate/SKILL.md	-	End every report after the reconcile with the progress
 C187	skills/coordinate/SKILL.md	-	Both features this version named as later work have landed	changed: the dispatch path and mechanised reconcile both shipped
@@ -274,3 +274,8 @@ S35	skills/coordinate/koto-templates/coordinate.md	rebrief	it rides the manager'
 S36	skills/coordinate/koto-templates/coordinate.md	rebrief	hand-made start can make it
 S37	skills/coordinate/koto-templates/coordinate.md	rebrief	a new dispatch renders `--role manager`
 S38	skills/coordinate/koto-templates/coordinate.md	rebrief	renders no `--role`, so it never undoes a change
+S39	skills/coordinate/koto-templates/coordinate.md	reconcile	First make the record one a replacement could continue from
+S40	skills/coordinate/koto-templates/coordinate.md	reconcile	Its third line is the
+S41	skills/coordinate/koto-templates/coordinate.md	reconcile	the record line first and
+S42	skills/coordinate/SKILL.md	-	Every report opens with the record line
+S43	skills/coordinate/SKILL.md	-	A report calls its own role only by

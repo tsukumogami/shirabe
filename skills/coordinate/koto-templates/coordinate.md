@@ -2430,8 +2430,9 @@ opened, so never pick one here.
 
 The script refuses when a record now exists (a restart that finds its record
 never opens one). It seeds the record's keys in this run's session, opening
-nothing on GitHub, and prints `record=<this session>`. Report the session name
-up as the record with every report, so a successor is handed it as a decision.
+nothing on GitHub, and prints `record=<this session>`. Every report names the
+record on its record line (SKILL.md, "Reporting"), so a successor is handed the
+session name as a decision.
 
 At discipline scope the find reads `first` (the discipline's first rotation),
 the start is today and the end is
@@ -2440,8 +2441,8 @@ the start plus `{{ROTATION_DAYS}}` days less one, so the rotation is
 the same command with `--start` and `--end` opens the rotation in this run's
 session (`--start <YYYY-MM-DD> --end <YYYY-MM-DD>`): no branch, no commit, no
 pull request. It writes the window to
-`record/rotation` and prints `record=<this session>`; report the session name up
-as the record.
+`record/rotation` and prints `record=<this session>`; every report names it on
+its record line.
 
 ## record_conflict
 
@@ -2515,16 +2516,14 @@ still due; ticking again after the wait finishes it. There is no need to hand th
 engine runs them. When every re-check is done the pass writes
 `reconcile/report.json` and `reconcile/report.md` (and, at discipline scope,
 `reconcile/reasoning.md` with the previous rotation's reasoning) and seals the
-report to this visit. The gate lets you through only on that seal.
+report to this visit. The gate lets you through only on that seal. What goes up
+is what `reconcile-report-get.sh --md` prints in `reconcile`, not the stored
+`reconcile/report.md`: the sealed report checked against its seal, with the
+record line read live as its third line.
 
 ## reconcile
 
-Print the report the reconcile pass sealed, checked against its seal, with
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
-and report it up; then submit `reconciled: reported`. Load `references/loop.md`, "A Full
-Reconcile, in Order", for how to present it.
-
-Before you submit, make the record one a replacement could continue from: run
+First make the record one a replacement could continue from: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-handover.sh" --session {{SESSION_NAME}} --check`
 and close every gap it names with the `state-stored-set.sh` call it gives. Write
 this run's arguments and the cap if the record has neither, and your own address
@@ -2544,6 +2543,14 @@ worker whose report reached you as told, then send each worker it prints as
 `live` a line naming the address and record it with `--told`. The workflow
 stays here until the check passes.
 
+Then print the report the reconcile pass sealed, checked against its seal, with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
+and report it up; then submit `reconciled: reported`. Its third line is the
+record line, read from the record as it is now, so it names the role the
+`no-role` fix wrote; with no role row it prints nothing and exits 4, and the
+report waits for that gap. Load `references/loop.md`, "A Full
+Reconcile, in Order", for how to present it.
+
 <!-- details -->
 
 Report three things: what changed since the record was written, what you
@@ -2555,7 +2562,8 @@ scope read that follows. Keep that one table, its order and its form (pull
 requests as links, sessions as code, no commit hash) when you report it up;
 its "Blocked on you" rows are what waits on the human, derived at this
 report and never stored. Pass the report's own words on for its header and
-its section names: its opening lines as written, including where the reconcile
+its section names: its opening lines as written, the record line first and
+pasted as printed, then the Scope line, including where the reconcile
 scripts ran and, for a run imported from another host, the sentence naming
 the session, workspace and template it came from, which the next import needs,
 and each section under the name the report gives it, such as

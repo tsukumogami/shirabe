@@ -9,6 +9,12 @@
 # name reaches the report; an imported run's facts (record.import) reach the
 # header and one sentence naming the source session, workspace and template
 # hash (PRD R14 names them in every report up), and a malformed one is dropped.
+# The record line (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3):
+# the line mode prints it from {session, host, address, role}, with the
+# address clause only for an address that differs from the session, matching
+# the line's pattern, and refuses values the line can't hold; md
+# --record-line puts it third and the Scope line fifth, as given, and refuses
+# a value that isn't a record line.
 # One case runs the script with a PATH holding only jq. Needs bash and jq only.
 #
 # Usage: bash skills/coordinate/scripts/reconcile-report_test.sh
@@ -447,6 +453,62 @@ done
 o=$(facts '[]' | report | jq -c '.header.import = {source_session: 5}')
 printf '%s' "$o" | render > /dev/null 2>&1 && { r=$(printf '%s' "$o" | render); ! grep -q 'imported from' <<<"$r"; } \
   && ok "md renders a report whose import isn't well formed without the sentence" || bad "md and a malformed import" "$(r=$(printf '%s' "$o" | render 2>&1); head -3 <<<"$r")"
+
+echo "== the record line (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3) =="
+RL_RE='^Record: session `[^`]+` on `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+`(, address `[^`]+`)?\. Role: (manager|director)\.$'
+SESS=coordinate-roadmap-demo-20261101T090000Z
+# rline <session> <host> <address|-> <role>: the line mode's output; RC its exit.
+rline() {
+    local a=$3
+    [ "$a" = - ] && a=null || a=$(jq -nc --arg a "$a" '$a')
+    RL=$(jq -nc --arg s "$1" --arg h "$2" --argjson a "$a" --arg r "$4" '{session: $s, host: $h, address: $a, role: $r}' | "$BASH" "$S" line 2>/dev/null); RC=$?
+}
+rl_eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2] got [$3]"; fi; }
+rline "$SESS" acme/widgets lane-plugins manager
+rl_eq "an address that differs from the session gets the address clause" "0 Record: session \`$SESS\` on \`acme/widgets\`, address \`lane-plugins\`. Role: manager." "$RC $RL"
+[[ $RL =~ $RL_RE ]] && ok "  ... and matches the record line's pattern" || bad "  ... and matches the record line's pattern" "$RL"
+rline "$SESS" acme/widgets "$SESS" director
+rl_eq "an address equal to the session name gets no address clause" "0 Record: session \`$SESS\` on \`acme/widgets\`. Role: director." "$RC $RL"
+[[ $RL =~ $RL_RE ]] && ok "  ... and matches the record line's pattern" || bad "  ... and matches the record line's pattern" "$RL"
+rline "$SESS" acme/widgets - manager
+rl_eq "no coordinator row gets no address clause" "0 Record: session \`$SESS\` on \`acme/widgets\`. Role: manager." "$RC $RL"
+rline "$SESS" acme/widgets "" director
+rl_eq "an empty address gets no address clause" "0 Record: session \`$SESS\` on \`acme/widgets\`. Role: director." "$RC $RL"
+for odd in "lead|$SESS|acme/widgets|-" "|$SESS|acme/widgets|-" "director (lanes)|$SESS|acme/widgets|-" \
+           "manager|a\`b|acme/widgets|-" "manager||acme/widgets|-" "manager|$SESS|acme|-" "manager|$SESS|acme/wid gets|-" \
+           "manager|$SESS|acme/widgets|x\`y" "manager|$SESS|acme/widgets|x
+y"; do
+    IFS='|' read -r r s h a <<<"$odd"
+    [ "$odd" = "manager|$SESS|acme/widgets|x
+y" ] && { r=manager; s=$SESS; h=acme/widgets; a='x
+y'; }
+    rline "$s" "$h" "$a" "$r"
+    rl_eq "the line mode refuses values a record line can't hold, exit 65: $(printf '%s' "$odd" | tr '\n' ' ')" "65 " "$RC $RL"
+done
+printf 'not json' | "$BASH" "$S" line >/dev/null 2>&1; rl_eq "  ... and input that isn't JSON" 65 $?
+"$BASH" "$S" line extra </dev/null >/dev/null 2>&1; rl_eq "the line mode takes no argument (64)" 64 $?
+grep -c '^def record_line:' "$S" | grep -qx 1 && ok "the template is held once, as a jq def record_line" || bad "the template is held once, as a jq def record_line"
+
+LINE3="Record: session \`$SESS\` on \`acme/widgets\`. Role: manager."
+REP=$(facts '[]' | report)
+md_rl=$(printf '%s' "$REP" | "$BASH" "$S" md --record-line "$LINE3")
+rl_eq "md --record-line: the title, a blank line, the record line as line 3, a blank line" "# Reconcile report||$LINE3|" \
+    "$(printf '%s\n' "$md_rl" | sed -n '1,4p' | tr '\n' '|' | sed 's/|$//')"
+case "$(printf '%s\n' "$md_rl" | sed -n 5p)" in "Scope: roadmap demo. Record written $W; reconciled $NOW."*) ok "  ... and the unchanged Scope line as line 5" ;;
+    *) bad "  ... and the unchanged Scope line as line 5" "$md_rl" ;; esac
+rl_eq "  ... and below the record line, the text md prints without it" "$(printf '%s' "$REP" | render | sed '1,2d')" "$(printf '%s\n' "$md_rl" | sed '1,4d')"
+HEXSESS=coordinate-roadmap-$VH-20261101T090000Z
+HEXLINE="Record: session \`$HEXSESS\` on \`acme/widgets\`. Role: director."
+rl_eq "the record line is passed on as given, a 40-hex run in it not rewritten" "$HEXLINE" \
+    "$(printf '%s' "$REP" | "$BASH" "$S" md --record-line "$HEXLINE" | sed -n 3p)"
+for odd in "Record: session \`$SESS\` on \`acme/widgets\`. Role: lead." "Record: session \`$SESS\` on \`acme/widgets\`." \
+           "$LINE3 More." "Record: session \`$SESS\` on \`acme/widgets\`. Role: manager.
+Scope: injected"; do
+    out=$(printf '%s' "$REP" | "$BASH" "$S" md --record-line "$odd" 2>/dev/null); rc=$?
+    rl_eq "md refuses a --record-line value that isn't a record line, exit 64, printing nothing: $(head -1 <<<"$odd")" "64 " "$rc $out"
+done
+printf '%s' "$REP" | "$BASH" "$S" md --record-line >/dev/null 2>&1; rl_eq "  ... and a --record-line with no value" 64 $?
+printf '%s' "$REP" | "$BASH" "$S" json --record-line "$LINE3" >/dev/null 2>&1; rl_eq "json takes no --record-line (64)" 64 $?
 
 echo "== purity =="
 EMPTYBIN=$(mktemp -d) || exit 1
