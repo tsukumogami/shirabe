@@ -49,6 +49,22 @@
 # A gap is {gap, fix}:
 #   no-arguments | no-cap | no-coordinator   a Run row is missing
 #   no-reports-to                            the reports-to row is missing
+#   reports-to-unsourced                     the reports-to row names a
+#                                            session, `<name> at <address>`,
+#                                            whose address is neither a
+#                                            koto/links/dispatched-by/
+#                                            <address> key in the run's own
+#                                            session nor held by a Standing
+#                                            row (a rule row of any Source,
+#                                            or an event row) whose What,
+#                                            Owner or Relayed by names it as
+#                                            a whole word; a bare `<name>`
+#                                            names no session and never
+#                                            holds it (the design's
+#                                            Decision 5). Its fix is the
+#                                            --inferred write, or a koto
+#                                            dispatched-by link for a
+#                                            superior that dispatched the run
 #   no-role                                  the role row is missing
 #   no-next-step <unit>                      a live holding has no Work row
 #   leg-unclassified <worker>                a live holding's leg names a
@@ -83,8 +99,11 @@
 # 2 a read failed; 10 the run has no found record, or the target isn't a
 # canonical record of this scope; 64 usage.
 #
-# koto reads: the record through state-read.sh, and koto request get
-# <request> for each live holding on a leg. It reads nothing on GitHub.
+# koto reads: the record through state-read.sh, koto request get <request>
+# for each live holding on a leg, and, when the reports-to row names a
+# session, koto context list <session> --prefix koto/links/dispatched-by/ on
+# the run's own session (RS_SESSION under the test flags). It reads nothing on
+# GitHub.
 set -uo pipefail
 
 PROG=state-handover
@@ -121,6 +140,15 @@ esac
 # (PRD R17).
 rs_host "${RS_SESSION:-$SESSION}" "$WD/host.json" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.json.err")"
 [ -s "$WD/parsed.json.pushed" ] || echo '{}' > "$WD/parsed.json.pushed"
+# The run's dispatched-by links, read only when the reports-to row names a
+# session (`<name> at <address>`): one naming that address sources the row.
+echo '[]' > "$WD/dispatched-by.json"
+RT_ADDR=$(jq -r '[(.run // [])[] | select(.key == "reports-to") | .value][0] // ""
+    | if test(" at ") then sub("^.* at "; "") else "" end' "$WD/parsed.json") || lib_die2 "jq failed"
+if [ -n "$RT_ADDR" ]; then
+    rs_list "${RS_SESSION:-$SESSION}" koto/links/dispatched-by/ "$WD/dispatched-by.json" \
+        || lib_die2 "cannot list the run's dispatched-by links: $(lib_scrub < "$WD/dispatched-by.json.err")"
+fi
 
 # A live holding on a leg whose request this host's store doesn't hold (the run
 # was imported here) has no end yet: the gap holds until reconcile-legs.sh
@@ -175,9 +203,26 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
 fi
 
 jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
-    --slurpfile carry "$WD/carry.json" '
+    --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
+    # names_word($w): does this cell name $w (case-insensitive) as a whole
+    # word, as names_repo matches a repository: no letter, digit, `_`, `.` or
+    # `-` beside it, trailing full stops allowed.
+    def names_word($w):
+      ascii_downcase as $v | ($w | ascii_downcase | gsub("\\."; "\\.")) as $l
+      | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "\\.*($|[^A-Za-z0-9_.-])");
+    # The reports-to row names a session in its `<name> at <address>` form,
+    # the address; it is sourced by a dispatched-by link to that address or
+    # by any Standing row naming it.
+    def unsourced_superior($rows; $links):
+      (.reports_to // "") as $rt
+      | if ($rt | test(" at ")) then
+          ($rt | sub("^.* at "; "")) as $addr
+          | if ($links | index($addr)) != null then null
+            elif any($rows[]; [.what, .owner, .relayed_by] | any(.[]; (. // "") | names_word($addr))) then null
+            else $addr end
+        else null end;
     # The report lists over the rule rows, each under a heading that says its
     # rows are quoted data; only an inferred row fills one yet.
     def rule_lists($rows):
@@ -226,6 +271,9 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
         (if .cap == null then {gap: "no-cap", fix: "state-stored-set.sh --run cap <n> --by <who set it>"} else empty end),
         (if .coordinator == null then {gap: "no-coordinator", fix: "state-stored-set.sh --run coordinator <your address> --by <you>"} else empty end),
         (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<name>[ at <address>]\" --by <who>"} else empty end),
+        (unsourced_superior($rows; [$dby[0][] | ltrimstr("koto/links/dispatched-by/")]) as $a
+         | if $a == null then empty
+           else {gap: "reports-to-unsourced", fix: "state-stored-set.sh --run reports-to \"\(.reports_to)\" --inferred \"Report to \($a): worked out from <where>, not given in the brief\" --by <you>; or, when \($a) dispatched this run, koto session link <this run> --dispatched-by \($a)"} end),
         (if .role == null then {gap: "no-role", fix: "state-stored-set.sh --run role <manager|director> --by <who named it>"} else empty end),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
