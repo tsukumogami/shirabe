@@ -294,11 +294,13 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 ```json
 {"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction, reports-to or role>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
- "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer or assignment>",
+ "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer, assignment or rule>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
                "until": "<a pause's resume condition, or empty>", "what": "<what it says>",
-               "owner": "<the person who decided it>", "relayed_by": "<who carried it here, or empty>",
-               "set": "<YYYY-MM-DDTHH:MMZ>"}],
+               "owner": "<the person who decided it; empty on a rule row>",
+               "relayed_by": "<who carried it here, or empty; empty on a rule row>",
+               "set": "<YYYY-MM-DDTHH:MMZ>",
+               "source": "<where its words come from; a rule row's always, left out when blank>"}],
  "work": [{"item": "<a holding's unit, a parked or follow-up unit, a milestone's tag, or what the work is>",
            "kind": "<holding, local-agent, decision, follow-up, verdict-owed or rework>",
            "who": "<its worker, who does it, decision <n>, owner/repo#n, none, verdict <id> or failure <id>>",
@@ -330,7 +332,10 @@ them on a resume, a carry, a takeover and an import, and `state-open.sh` after
 each seed; a row whose digest didn't change is kept as written, and one `run`
 entry names each label added, changed or removed. A failed write prints
 `warning=rules-unrecorded` and the next start writes them. Any other `rules`
-label is yours, through `--run rules`. A session opened before the
+label is yours, through `--run rules`. A `briefs` row is the brief intake's:
+you record the brief's path with `--host briefs:<label> <path>`, and
+`--intake <label>` writes the row once it has taken the brief's lines (Rule
+rows, below). A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
 refused, exit 65: `store` is no Run key it writes). Run also holds the run's
@@ -371,7 +376,9 @@ unit through any pause until it is used and ended. A resume, a used
 go-ahead or approval, or a withdrawn answer ends the row. An assignment is work a
 person assigned outside the scope, named in On as an issue (`#12`,
 `owner/repo#12`) or `release owner/repo <tag>`: pick lists it as a unit from
-then on, at roadmap scope too, and its row ends once the work is done. **Work** has a next
+then on, at roadmap scope too, and its row ends once the work is done. A
+rule binds the coordinator until it is ended, and its row is described under
+Rule rows below. **Work** has a next
 step for every holding and a row for any work no holding covers, a local
 agent's above all: without its row a successor can't see it. Two kinds keep a
 unit's later work, Item the unit as pick lists it: `decision`, a unit pick
@@ -394,10 +401,14 @@ state-stored-set.sh --session S --rule-files <file> --by <session>    (the start
 state-stored-set.sh --session S --told <topic> --by <who>
 state-stored-set.sh --session S --pending <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
+state-stored-set.sh --session S --standing rule --what <text> --source <form>
 state-stored-set.sh --session S --end <s<n>> --by <who>
+state-stored-set.sh --session S --intake <label> --by <who>
 state-stored-set.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
 state-stored-set.sh --session S --done <item> [--kind <kind>]
 state-stored-set.sh --session S --list
+state-stored-set.sh --session S --rules [--id <s<n>>]...
+state-stored-set.sh --session S --rules --counts
 ```
 
 `--list` prints the three sections as JSON. On a session with no record it
@@ -428,10 +439,100 @@ message was refused or no instance is left. `--told` for a pending worker
 turns its `pending` row into a `told` one; `--pending` refuses a worker already
 told or already pending.
 
+**Rule rows.** A Standing row of kind `rule` is a rule that binds the
+coordinator until `--end` ends it. It has no On and no Until, a blank Owner
+and Relayed by, and a Source saying where its words come from, and it holds
+nothing: pick, the dispatch check, the land check and the merge read pauses,
+go-aheads and assignments only, whatever a rule's What says. `--standing rule
+--what <text> --source <form>` writes one, its What one line of at most 400
+bytes and its Source in one of four forms:
+
+```
+skill <owner/repo> <path> <commit>         a line of a skill's text
+doc <owner/repo> <path> <commit>           a document a public host can name
+pinned <label> sha256:<64 hex>             a file a Run rules or briefs row pins with that label and digest
+inferred [brief <label> sha256:<64 hex>]   your own reading, with the brief you read it from
+```
+
+A path is relative, with no `.` or `..` segment and no leading `-`; a commit
+is 40 hex. A rule takes no `--on` or `--until` (64), and `--owner` or
+`--relayed-by` on one is refused (65), since its Source says who said it. The
+checks run in this order, each refusal 65 with nothing written: the Source's
+grammar and the row's columns; the What's 400 bytes; the caps, at most 120
+rule rows, of which at most 60 read inferred (the event kinds count against
+neither, so a pause can always be written); a `pinned` Source's Run row; then
+the forge reads. For a `skill` or `doc` Source naming repository R at commit
+C, on a public host R must be public; R's default branch must hold C (a
+repository that doesn't exist and one that can't be read get the same
+refusal); the file must exist at C; and the What must equal one of its
+sentences under the normalized match. On a public host each `owner/repo` in
+the What, the host excepted, must be public too: a 404 under the host's owner
+is refused, one under another owner passes. A read that fails, runs past 10
+seconds or can't be parsed exits 2. The entry reads `s<n> (rule): <What>.
+Source: <Source>.`, and a stored row is never checked again. `--run
+reports-to` or `--run cap` with `--inferred "<sentence>"` writes its value and
+a bare `inferred` row quoting the sentence in one write, under the same
+checks.
+
+A row's class is worked out from its Source when it's read; no column stores
+it. A row with no Source, an event row, reads `relayed`; `inferred` reads
+`inferred`, with status `unconfirmed` and `confirm` true, since it waits for a
+person; `skill` reads `skill-says`; `doc` and `pinned` read `charter`. The
+Run `rules` rows read beside them: a `skill-` label `skill-says`, a
+`workspace-` label `charter`, any other label `inferred`. `owner-said`,
+`dispatcher-said` and `unreadable` belong to cited decisions, which
+`--standing rule` doesn't write.
+
+`state-stored-set.sh` reads rules two ways. `--rules` prints one JSON object
+per Standing row in record order (`standing`, `kind`, `class`, `what`,
+`owner` for a relayed row, `said`, `set`, `pointer`, `words`, `source`, `status`,
+`reversal`, `confirm`), then, without `--id`, one per Run `rules` row
+(`{run: "rules", kind, label, digest, class, said, pointer}`, the pointer
+naming the `rules:<label>` host key, which isn't read). A pointer is where
+the words are: a relayed row's entry (the row itself when no entry matches),
+a `skill` or `doc` row's `{repo, path, commit}`, a `pinned` row's `{pinned,
+digest}`, an inferred brief row's `{brief, digest}`, a bare inferred row's own
+row. Each Standing object also carries `under_session_grant` and
+`session_allows`: a row grants nothing itself, and these say whether it
+stands under the session's niwa grant and what that grant allows. A pause, an
+inferred or `pinned` row, a `skill` row citing a repository other than the
+installed plugin's, and a `doc` row citing one other than the record's host
+never do, and print `false` and `[]`; when any row may, `--rules` reads the
+grant once with `niwa authority check`. No gate reads either field. `--id`
+prints only those rows (one the record lacks is refused, 65). `--rules
+--counts` prints seven `<class> <count>` lines instead, in the order
+`relayed`, `owner-said`, `dispatcher-said`, `inferred`, `skill-says`,
+`charter`, `unreadable`, counting every Standing row whatever its status and
+each Run `rules` row, so `grep '^inferred '` gives the unsourced rules the
+record holds. Neither mode writes.
+
+The brief intake brings a brief's rules in once. You record the brief's path
+with `--host briefs:<label> <path>`; `--intake <label> --by <who>` reads that
+file once, never edits it and never prints its path. When a Run `briefs` row
+already reads `<label> sha256:<its digest>` it writes nothing and exits 0.
+Otherwise its candidates are the brief's sentences, less heading lines and
+the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting
+and Keep-alive sections. Each row whose Source is `inferred brief <label>`
+with another digest, and whose What no candidate states, ends; each candidate
+no remaining row (of any kind or Source) holds under the normalized match is
+written as a rule row, Source `inferred brief <label> sha256:<digest>`. A line
+that fails a What check (over 400 bytes, a home-directory path, a
+token-shaped string, or on a public host a repository that isn't public) is
+left out and named on stderr. When every line is taken it also writes the
+`briefs` row, Set by `<who>`; when a cap stops it, it writes the rows up to
+the cap and no `briefs` row, and exits 1 naming how many lines it couldn't
+take, so a person says which rows to confirm or end. A read that fails exits
+2 with nothing written. The rows, the ended rows and the `briefs` row go in
+one write, then their entries: one rule entry per row, one end entry per
+ended row, and `Run briefs <label> sha256:<digest> set by <who>.`
+
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
-has been neither told the current address nor recorded pending. The reconcile
+has been neither told the current address nor recorded pending; a brief
+`record/host` names as `briefs:<label>` whose digest no Run `briefs` row
+carries (`brief-unread <label>`, its fix the intake, naming how many lines
+the caps would leave out; a key whose file can't be read raises none). The
 step's gate runs it at every start, so a replacement that writes its own
 address can't go on until each live worker is told or pending. A pending
 worker doesn't hold the gate; it is told when it can be. A record with no

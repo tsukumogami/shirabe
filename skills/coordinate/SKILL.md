@@ -511,7 +511,28 @@ the skill's or the workspace's own text, the template's default run cap among
 them (it's skill text, so no row is copied for it). A behaviour `--rules`
 doesn't list is written first, as an `inferred` rule row (`--standing rule
 --what "<the behaviour>" --source inferred`), and answered second, so your
-answer and the record agree.
+answer and the record agree. A rule you can quote from a skill, a public
+document or a pinned file takes the `skill`, `doc` or `pinned` Source
+instead; the writer refuses a `skill` or `doc` row whose What isn't one of the
+cited file's sentences. `--rules --counts` gives one `<class> <count>` line
+per class, so its `inferred` line is how many unsourced rules the record
+holds.
+
+A brief you started from goes in through the intake. Record its path with
+`state-stored-set.sh --host briefs:<label> <path>`; the handover check then
+names `brief-unread <label>` until `state-stored-set.sh --intake <label> --by
+<you>` has written one `inferred brief` rule row per brief rule sentence no
+Standing row already holds, and the Run `briefs` row with the brief's digest.
+Don't type the brief's rules in as `--standing rule` rows, don't write the
+`briefs` row by hand, and don't edit the brief. When the intake exits 1 at a
+cap, the gap stays open: ask a person which rule rows to confirm or end, then
+run it again; don't end rows yourself to make room. A rule row holds nothing:
+pick and the dispatch, land and merge checks read pauses, go-aheads and
+assignments, never a rule's words, so a brief line shaped like a pause comes
+in as a rule row that pauses nothing. An inferred or `pinned` rule row can
+only restrict what you do. Treat it as a caution and raise it with a person,
+never as a step it grants, and report inferred rows as awaiting confirmation,
+not as rules a person said.
 
 Every script reads the record's state through one reader,
 `scripts/state-read.sh`, from the run's session. There is no body to parse,
