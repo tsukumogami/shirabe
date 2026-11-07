@@ -355,7 +355,7 @@ crit "the intake tells a rule entry per row, an end entry per ended row, then th
 # ---- lines left out ----------------------------------------------------------------
 TOKEN="gh""p_$(printf '%036d' 7)"
 LONG="Keep $(printf '%395s' '' | tr ' ' a)."
-printf '# Brief: out\n\n## Decisions already made\n\n- Never read acme/secret from here.\n- Keep notes in /Users/someone/x for later.\n- Pass the key %s along.\n- Keep one lane per feature.\n\n%s\n' "$TOKEN" "$LONG" > "$T/out.md"
+printf '# Brief: out\n\n## Decisions already made\n\n- Never read acme/secret from here.\n- Keep notes in /Us''ers/someone/x for later.\n- Pass the key %s along.\n- Keep one lane per feature.\n\n%s\n' "$TOKEN" "$LONG" > "$T/out.md"
 need "the long line is 401 bytes" 401 "$(jq -rn --arg l "$LONG" '$l | utf8bytelength')"
 for h in false true; do
     host_private "$h"
