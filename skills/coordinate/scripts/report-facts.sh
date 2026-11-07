@@ -172,7 +172,10 @@ bounded() {
     (
         (
             # The guard outlives the TERM it sends its own group, to send
-            # the KILL after the grace.
+            # the KILL after the grace. "$$" is meant: in a subshell it is
+            # still this script's pid, and the guard has to follow the
+            # script. $BASHPID would be the subshell's own pid, which lives
+            # as long as the call does.
             trap '' TERM
             while kill -0 "$$" 2> /dev/null && [ "$SECONDS" -lt "$DEADLINE" ]; do sleep 0.2; done
             kill -0 "$$" 2> /dev/null && : > "$T/$n.late"
@@ -227,7 +230,7 @@ keep_head() {
     rc=$?
     case $rc in
         0) ;;
-        124) echo "$PROG: $TOPIC's pushed head $newh wasn't kept: the write was stopped at the action's $DEADLINE s deadline (a store that keeps writes until the tick ends may still land it)" >&2 ;;
+        124) echo "$PROG: $TOPIC's pushed head $newh wasn't kept: the write took longer than the $DEADLINE s the action allows; it's tried again on the holding's next visit" >&2 ;;
         *) echo "$PROG: $TOPIC's pushed head $newh wasn't kept: $(lib_scrub < "$T/push.err" | head -1)" >&2 ;;
     esac
     return 0

@@ -321,7 +321,7 @@ bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit
 log_to "$S" report_facts wait
 [ -s "$KOTO_STORE/context/$S/coord/report.json" ] && ok "  ... coord/report.json is written" || bad "  ... coord/report.json is written"
 eq "  ... record/holdings is unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
-grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write was stopped at the action's 3 s deadline" "$T/err" \
+grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the 3 s the action allows; it's tried again on the holding's next visit" "$T/err" \
     && ok "  ... and stderr names the head the stopped write didn't keep" \
     || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
 eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
