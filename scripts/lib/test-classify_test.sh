@@ -120,6 +120,41 @@ command -v jq >/dev/null 2>&1 && {
 test_classify_unit 0123456789abcdef0123456789abcdef01234567 "$HEAD_SHA" "$RULES" >/dev/null 2>&1
 eq "test_classify_unit passes test_classify's exit 2 on" 2 $?
 
+# A merge of the default branch (#1234): the branch edits one test, main then
+# adds a test and edits another, and the branch merges main in. Only the
+# branch's own edit is the unit's; main's tests were accepted there.
+M="$W/merged"
+mkdir -p "$M/tests"
+cd "$M" || exit 1
+git init -q -b main .
+git config user.email t@example.com
+git config user.name t
+printf 'o1\no2\n' > tests/own_test.sh
+printf 'x1\nx2\n' > tests/main_test.sh
+git add -A
+git commit -q -m base
+M_BASE=$(git rev-parse HEAD)
+git checkout -q -b work
+printf 'o1\n' > tests/own_test.sh
+git commit -q -am own
+git checkout -q main
+printf 'n1\n' > tests/merged_new_test.sh
+printf 'x1\n' > tests/main_test.sh
+git add -A
+git commit -q -m main-moves
+git update-ref refs/remotes/origin/main "$(git rev-parse main)"
+git checkout -q work
+git merge -q --no-edit main
+M_HEAD=$(git rev-parse HEAD)
+MU=$(test_classify_unit "$M_BASE" "$M_HEAD" "$RULES")
+if [ "$MU" = "edited	tests/own_test.sh	$(git rev-parse "$M_HEAD:tests/own_test.sh")" ]; then
+    ok "after a merge of main, test_classify_unit lists only the run's own test edit"
+else
+    bad "after a merge of main, test_classify_unit lists only the run's own test edit" \
+        "it counts every test the merge brought in as the run's own edit: [$MU]"
+fi
+cd "$R" || exit 1
+
 echo
 echo "test-classify: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
