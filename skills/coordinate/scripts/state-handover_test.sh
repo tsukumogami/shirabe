@@ -16,8 +16,8 @@
 # reports-to-unsourced: none for a reports-to naming a person, listed for one
 # naming a session with its fix, cleared by a dispatched-by link to that
 # session (not one to another) and by a rule row's What or an event row's
-# Relayed by naming it as a whole word (not a longer name holding it); and
-# the gap brief-unread <label>: listed, its fix exactly the intake, when
+# Relayed by naming it as a whole word (not a longer name holding it).
+# And the gap brief-unread <label>: listed, its fix exactly the intake, when
 # record/host names a readable brief no Run briefs row carries the digest of,
 # and for a stale digest; not listed for a matching row, nor when record/host
 # names no brief (the read's fields as before) or a file that can't be read;

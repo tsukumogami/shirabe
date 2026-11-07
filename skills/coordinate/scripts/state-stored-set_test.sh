@@ -48,12 +48,13 @@
 # (64) that reads and writes nothing; --run reports-to and --run cap without
 # it writing as before; with it, the Run row and an inferred rule row in one
 # write, told by the run entry and then the rule entry, and a bad cap or a
-# What over 400 bytes writing neither. --intake: without --by, with --what,
-# with --source, with no label or a label `-x`, a usage error (64) that reads
-# and writes nothing; a record/host with no briefs:<label>, or one naming a
-# relative path, refused (65), and a key naming a missing file exiting 2
-# without naming the path, each writing nothing. Every record is the
-# session's; nothing is written on GitHub.
+# What over 400 bytes writing neither. Every record is the session's; nothing
+# is written on GitHub.
+# --intake: without --by, with --what, with --source, with no label or a
+# label `-x`, a usage error (64) that reads and writes nothing; a record/host
+# with no briefs:<label>, or one naming a relative path, refused (65), and a
+# key naming a missing file exiting 2 without naming the path, each writing
+# nothing.
 #
 # Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail

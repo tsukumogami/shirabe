@@ -24,7 +24,8 @@
 # every key as it was. For a rule row the writer writes: a cited file's
 # sentence split and the normalized match over testdata/standing-rules/cited.md,
 # the What's two-part repository tokens, a path starting with `-` refused, and
-# the 120-rule and 60-inferred caps. For the brief intake: brief_candidates on
+# the 120-rule and 60-inferred caps.
+# For the brief intake: brief_candidates on
 # the testdata/brief-golden briefs (7, 11 and 11 sentences, the ones
 # testdata/standing-rules/brief-kept.json lists) and its section rule, and
 # brief_intake_plan's writes, ends, room and untaken.
