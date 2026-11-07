@@ -60,14 +60,16 @@
 # The record through state-holding.sh --read and --list, which share one read
 # of it (rs_once_begin), and state-holding.sh --pushed-head writes a changed
 # head into the one session key that keeps it, reading and writing no body.
-# Every call to the storage backend or GitHub (those reads, gh pr view, the
-# coord/report.json add, the seal and the pushed-head write) runs in its own
-# process group and is stopped once the action has run REPORT_FACTS_DEADLINE
-# seconds (26 by default, under koto's 30 s action limit; the clock is whole
-# seconds), so a slow backend never runs the action into koto's kill
-# (shirabe#1123, #1531). A call whose script is killed first is stopped by a
-# watcher in its own group. A read, the add or the seal the deadline stops
-# exits 2 naming it on stderr, before any verdict is printed.
+# Those reads, gh pr view, the coord/report.json add, the seal and the
+# pushed-head write each run in their own process group and are stopped once
+# the action has run REPORT_FACTS_DEADLINE seconds (26 by default, under
+# koto's 30 s action limit; the clock is whole seconds), so a slow backend
+# never runs the action into koto's kill (shirabe#1123, #1531). A call whose
+# script is killed first is stopped by a watcher in its own group. A read, the
+# add or the seal the deadline stops exits 2 naming it on stderr, before any
+# verdict is printed. Not bounded: the session log reads coord-log.sh makes
+# for the session's facts, the log check, the unit and the progress evidence,
+# and on the leg path with Pull request empty, koto request get.
 #
 # The pushed-head write's time never decides the verdict or the exit code:
 # the verdict is written and sealed first, and the write is skipped when about
@@ -124,7 +126,9 @@ finish() {
         {unit: $u, pull_request: $pr, state: ($v.state // null), draft: (if ($v | has("isDraft")) then $v.isDraft else null end),
          head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row}' > "$T/report.json"
     # The facts go to coord/report.json as data and the verdict is sealed to
-    # this visit, as lib_emit does, with each call bounded by the deadline.
+    # this visit, as lib_emit does. lib_emit isn't used because it runs the
+    # add and the seal in this shell, unbounded, and exits after printing,
+    # before the pushed-head write; here each call is bounded by the deadline.
     # Under --no-seal the token is printed bare and nothing is written.
     local sealed=$tok
     if [ "$NO_SEAL" != 1 ]; then
