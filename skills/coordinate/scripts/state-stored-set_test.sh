@@ -43,8 +43,13 @@
 # rule, each Source grammar refusal, a What over 400 bytes and a pinned Source
 # no Run row holds (65), each writing nothing; a 400-byte What, a pinned
 # Source a Run rules row holds and an inferred brief row with no briefs row
-# written, with the rule entry. Every record is the session's; nothing is
-# written on GitHub.
+# written, with the rule entry. --inferred: with any Run key but reports-to
+# and cap, with another mode, twice, empty or with no sentence, a usage error
+# (64) that reads and writes nothing; --run reports-to and --run cap without
+# it writing as before; with it, the Run row and an inferred rule row in one
+# write, told by the run entry and then the rule entry, and a bad cap or a
+# What over 400 bytes writing neither. Every record is the session's; nothing
+# is written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail
@@ -407,6 +412,9 @@ eq "  ... and a role row" 0 $?
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
+# The reports-to row names ws-lead, the session that dispatched the lane, so
+# the run's session holds its dispatched-by link (else reports-to-unsourced).
+printf '{}' | koto context add "$SD" koto/links/dispatched-by/ws-lead
 "${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err" && ok "  ... and the gaps close as state-stored-set.sh writes the keys" \
     || bad "  ... and the gaps close as state-stored-set.sh writes the keys" "$(cat "$T/err")"
 "${SEN[@]}" bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human" --relayed-by lane-v2 >/dev/null 2>"$T/err"
@@ -793,6 +801,58 @@ eq "  ... its row blank in On, Until, Owner and Relayed by, and its entry kind r
 # R25: the event rows' usage is as before.
 rule_case "R25. an unknown kind is still usage, 64" 64 "--standing takes pause, go-ahead, approval, answer, assignment or rule" --standing rumour --what x --owner y
 rule_case "  ... and an event row with no --owner" 64 "Usage" --standing approval --what x
+
+echo "== --inferred: a worked-out reports-to or cap and its rule row =="
+# The design's Decision 5: --inferred goes only with --run reports-to and
+# --run cap, once and not empty, a usage error (64) made before anything is
+# read (no koto call, no forge read) or written.
+seed "$TWO"
+# usage_case <label> <stderr text> <args...>: 64, the text on stderr, no koto
+# or gh call, and no key changed.
+usage_case() {
+    local label=$1 msg=$2 snap rc
+    shift 2
+    snap=$(session_snapshot "$SR")
+    : > "$KOTO_STORE/calls"; reset_calls
+    bash "$RS" "${W[@]}" "$@" >/dev/null 2>"$T/err"; rc=$?
+    if [ "$rc" = 64 ] && grep -qF -- "$msg" "$T/err" && [ ! -s "$KOTO_STORE/calls" ] && [ ! -s "$GH_DB.calls" ] \
+        && [ "$snap" = "$(session_snapshot "$SR")" ]; then ok "$label"
+    else bad "$label" "exit $rc: $(cat "$T/err") koto: $(cat "$KOTO_STORE/calls") gh: $(calls)"; fi
+}
+ONLY="--inferred goes only with --run reports-to or --run cap"
+for k in "arguments|--roadmap x" "coordinator|lane-v1" "rules|notes sha256:$DA64" "briefs|worker sha256:$DA64" "friction|rules-friction" "role|manager"; do
+    usage_case "--inferred with --run ${k%%|*} is usage, 64, nothing read or written" "$ONLY" --run "${k%%|*}" "${k#*|}" --by x --inferred "Worked out."
+done
+usage_case "  ... with --standing rule" "$ONLY" --standing rule --what "Keep one lane per feature." --source inferred --inferred "Worked out."
+usage_case "  ... with --told" "$ONLY" --told worker-f2 --by x --inferred "Worked out."
+usage_case "  ... with --rules" "$ONLY" --rules --inferred "Worked out."
+usage_case "  ... given twice" "Usage" --run cap 2 --by x --inferred "Worked out." --inferred "Worked out again."
+usage_case "  ... empty" "--inferred takes the reading's sentence" --run reports-to "director at coord-lead" --by x --inferred ""
+usage_case "  ... or with no sentence" "Usage" --run cap 2 --by x --inferred
+# Without --inferred a Run write is as it was: one row, one run entry, no
+# Standing row.
+seed "$TWO"
+N_BEFORE=$(entries | jq length)
+bash "$RS" "${W[@]}" --run reports-to "director at coord-lead" --by x >/dev/null 2>"$T/err"
+eq "--run reports-to without --inferred writes the Run row alone, told in one run entry" \
+    "0 director at coord-lead|0|1|run Run reports-to set to director at coord-lead by x." \
+    "$? $(live | jq -r '"\([.run[] | select(.key == "reports-to") | .value][0])|\((.standing // []) | length)"')|$(entries | jq -r --argjson n "$N_BEFORE" '"\(length - $n)|\(.[-1].kind) \(.[-1].text)"')"
+bash "$RS" "${W[@]}" --run cap 3 --by x >/dev/null 2>"$T/err"
+eq "  ... and so does --run cap" "0 3|0" "$? $(live | jq -r '"\([.run[] | select(.key == "cap") | .value][0])|\((.standing // []) | length)"')"
+# With it, one write holds both rows, and two entries tell them.
+seed "$TWO"
+N_BEFORE=$(entries | jq length)
+bash "$RS" "${W[@]}" --run reports-to "director at coord-lead" --inferred "Report to coord-lead: worked out from the session that opened this run." --by x >/dev/null 2>"$T/err"
+eq "--run reports-to --inferred writes the Run row and an inferred rule row" \
+    '0 director at coord-lead|[{"standing":"s1","kind":"rule","on":"","until":"","what":"Report to coord-lead: worked out from the session that opened this run.","owner":"","relayed_by":"","source":"inferred"}]' \
+    "$? $(live | jq -c -r '"\([.run[] | select(.key == "reports-to") | .value][0])|\(.standing | map(del(.set)))"')"
+eq "  ... and tells the run entry, then the rule entry" \
+    "2|run Run reports-to set to director at coord-lead by x.|rule s1 (rule): Report to coord-lead: worked out from the session that opened this run.. Source: inferred." \
+    "$(entries | jq -r --argjson n "$N_BEFORE" '"\(length - $n)|\(.[-2].kind) \(.[-2].text)|\(.[-1].kind) \(.[-1].text)"')"
+rule_case "  ... a cap outside 1-99 with --inferred is refused, 65, writing neither" 65 "a cap is a number from 1 to 99" \
+    --run cap 100 --inferred "The cap is worked out from the open lanes." --by x
+rule_case "  ... and so is a What over 400 bytes" 65 "a rule row's What is at most 400 bytes; this one is 401" \
+    --run cap 2 --inferred "$(printf '%401s' '' | tr ' ' a)" --by x
 
 echo "== --rule-files: the start's rules rows, and the lists it refuses =="
 DA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

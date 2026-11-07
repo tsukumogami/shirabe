@@ -483,8 +483,11 @@ crit "R15. with 60 inferred among 100 rule rows, an inferred or inferred brief r
 standing_fixture 119 59 30
 try --standing rule --what "$WHAT" --source inferred
 written "the 60th inferred row"
-need "  ... --rules --counts prints inferred 60" "inferred 60" "$(w --rules --counts 2>/dev/null | grep '^inferred ')"
-crit "R16. with 119 rule rows (59 inferred) and 30 event rows, one more inferred row is written and --rules --counts prints inferred 60"
+# --counts also counts each Run rules row in its class, and the record's
+# `rules charter` row, a label neither skill- nor workspace-, reads inferred:
+# the 60 inferred Standing rows and that row.
+need "  ... --rules --counts prints inferred 61, the 60 rows and the charter Run row" "inferred 61" "$(w --rules --counts 2>/dev/null | grep '^inferred ')"
+crit "R16. with 119 rule rows (59 inferred) and 30 event rows, one more inferred row is written and --rules --counts counts the 60 inferred rows (inferred 61 beside the record's charter Run row)"
 standing_fixture 121 0 0
 try --run friction rules-friction --by x
 written "an unrelated write over 121 rule rows"
