@@ -45,6 +45,21 @@
 # record file, or an empty one, the rows are test_classify's. Returns what
 # test_classify returns, or 2 when the record doesn't parse.
 #
+# test_classify_unit diffs from test_classify_base's answer, not from <base>
+# as given:
+#
+#   test_classify_base <base> <head>
+#
+# prints the commit the unit's own changes start from. That is <base> (the
+# run's impl_base) unless the branch has since merged the default branch:
+# then it is the merge-base of <head> with the default branch, when <base> is
+# an ancestor of it, so tests main added or edited, already accepted there,
+# aren't counted as the unit's. The default branch is origin's HEAD, else
+# origin/main, else a local main. A shared branch's base isn't on the default
+# branch, so it stays <base>; so does any base when no default branch
+# resolves, and when <head> is itself on the default branch (the merge-base
+# is <head>, so nothing would be left to classify). Always returns 0.
+#
 # Callers: skills/work-on/scripts/red-first.sh, for the tests a red copies onto
 # the base; skills/work-on/scripts/test-change.sh (the hold),
 # skills/work-on/scripts/review-level.sh (the `tests_edited` floor),
@@ -180,9 +195,30 @@ test_classify() {
     return 0
 }
 
+test_classify_base() {
+    local base="$1" head="$2" ref="" mb
+    ref=$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || ref=""
+    if [ -z "$ref" ]; then
+        if git rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
+            ref=refs/remotes/origin/main
+        elif git rev-parse -q --verify refs/heads/main >/dev/null 2>&1; then
+            ref=refs/heads/main
+        fi
+    fi
+    head=$(git rev-parse -q --verify "$head^{commit}" 2>/dev/null) || head=""
+    if [ -n "$ref" ] && [ -n "$head" ] && mb=$(git merge-base "$head" "$ref" 2>/dev/null) && [ -n "$mb" ] \
+        && [ "$mb" != "$head" ] && git merge-base --is-ancestor "$base" "$mb" 2>/dev/null; then
+        printf '%s\n' "$mb"
+    else
+        printf '%s\n' "$base"
+    fi
+    return 0
+}
+
 test_classify_unit() {
     local base="$1" head="$2" rules="$3" record="${4:-}" w tab p b cur rc
     tab=$(printf '\t')
+    git cat-file -e "$base^{commit}" 2>/dev/null && base=$(test_classify_base "$base" "$head")
     w=$(mktemp -d "${TMPDIR:-/tmp}/test-classify.XXXXXX") || { echo "test-classify: could not create a temporary directory" >&2; return 2; }
     test_classify "$base" "$head" "$rules" > "$w/rows"
     rc=$?

@@ -65,9 +65,9 @@
 # stopped once the action has run REPORT_FACTS_DEADLINE seconds (26 by
 # default, under koto's 30 s action limit), or skipped when about a second or
 # less is left (the clock is whole seconds). A writer whose script is killed
-# first is stopped by a watcher in its own group. A head that wasn't kept is named on stderr and tried again on the
-# holding's next visit, which compares the pull request's head with the row's
-# pushed_head again.
+# first is stopped by a watcher in its own group. A head that wasn't kept is
+# named on stderr and tried again on the holding's next visit, which compares
+# the pull request's head with the row's pushed_head again.
 # GitHub reads:
 # gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
 # koto reads: on the leg path with Pull request empty, koto request get <request>.
@@ -159,6 +159,9 @@ keep_head() {
     # the group when this script is gone, whatever ended it.
     set -m
     (
+        # "$$" is meant: in a subshell it is still this script's pid, and the
+        # watcher has to follow the script. $BASHPID would be the subshell's
+        # own pid, which lives as long as the write does.
         ( while kill -0 "$$" 2> /dev/null; do sleep 0.2; done; kill -KILL 0 ) &
         w=$!
         hold --topic "$TOPIC" --pushed-head "$newh"
@@ -171,7 +174,7 @@ keep_head() {
     while kill -0 "$WRITER" 2> /dev/null && [ "$SECONDS" -lt "$DEADLINE" ]; do sleep 0.1; done
     if kill -0 "$WRITER" 2> /dev/null; then
         stop_writer
-        echo "$PROG: $TOPIC's pushed head $newh wasn't kept: the write was stopped at the action's $DEADLINE s deadline (a store that keeps writes until the tick ends may still land it)" >&2
+        echo "$PROG: $TOPIC's pushed head $newh wasn't kept: the write took longer than the $DEADLINE s the action allows; it's tried again on the holding's next visit" >&2
         return 0
     fi
     wait "$WRITER"
