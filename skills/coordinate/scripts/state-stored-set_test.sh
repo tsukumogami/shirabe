@@ -38,7 +38,13 @@
 # role, the new one and the source), --intervention with another source or on
 # another key a usage error (64) writing nothing, --intervention on no row or
 # the same value writing as without it, and a record of about 60,000 bytes
-# taking the row. Every record is the session's; nothing is written on GitHub.
+# taking the row. --standing rule: --source with any other kind, a rule with
+# no --source or with an --on or --until (64); --owner or --relayed-by on a
+# rule, each Source grammar refusal, a What over 400 bytes and a pinned Source
+# no Run row holds (65), each writing nothing; a 400-byte What, a pinned
+# Source a Run rules row holds and an inferred brief row with no briefs row
+# written, with the rule entry. Every record is the session's; nothing is
+# written on GitHub.
 #
 # Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail
@@ -715,6 +721,78 @@ put_standing "$SD/standing-empty-source.json"
 bash "$RS" "${W[@]}" --run friction friction-last --by "the human" >/dev/null 2>"$T/err"
 eq "an unrelated write over a row stored with an empty Source exits 0" 0 $?
 cmp -s "$SD/standing-today.json" "$SK" && ok "  ... and writes it back with the key left out" || bad "  ... and writes it back with the key left out" "$(cat "$SK")"
+
+echo "== --standing rule: the usage, the Source's grammar, the What's 400 bytes and the Run check =="
+# rule_case <label> <exit> <stderr text> <args...>: the write exits so, its
+# stderr holding the text, and no key changes.
+rule_case() {
+    local label=$1 want=$2 msg=$3 snap rc
+    shift 3
+    snap=$(session_snapshot "$SR")
+    bash "$RS" "${W[@]}" "$@" >/dev/null 2>"$T/err"; rc=$?
+    if [ "$rc" = "$want" ] && grep -qF -- "$msg" "$T/err" && [ "$snap" = "$(session_snapshot "$SR")" ]; then ok "$label"
+    else bad "$label" "exit $rc: $(cat "$T/err")"; fi
+}
+DA64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DB64=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+DC64=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+C40=0123456789abcdef0123456789abcdef01234567
+seed "$(printf '%s' "$TWO" | jq -c --arg v "charter sha256:$DA64" '.run = [{key: "rules", value: $v, set_by: "the human", set: "2026-10-20T08:00Z"}]')"
+# R21, R22: --source goes with --standing rule alone.
+rule_case "R21. a pause with --source is usage, 64" 64 "--source goes only with --standing rule" \
+    --standing pause --on all --until lifted --what x --owner y --source inferred
+rule_case "R22. so is a go-ahead with --source" 64 "--source goes only with --standing rule" \
+    --standing go-ahead --on "Feature 2" --what x --owner y --source inferred
+rule_case "  ... an approval" 64 "--source goes only with --standing rule" --standing approval --what x --owner y --source inferred
+rule_case "  ... an answer" 64 "--source goes only with --standing rule" --standing answer --what x --owner y --source inferred
+rule_case "  ... and an assignment" 64 "--source goes only with --standing rule" --standing assignment --on "#7" --what x --owner y --source inferred
+rule_case "  ... and so is --source on another mode" 64 "--source goes only with --standing rule" --run cap 2 --by x --source inferred
+# R29: a rule's own usage.
+rule_case "R29. a rule with no --source is usage, 64" 64 "a rule takes --source" --standing rule --what x
+rule_case "  ... and one with an empty --source" 64 "a rule takes --source" --standing rule --what x --source ""
+rule_case "  ... a rule with an --on" 64 "only a pause, a go-ahead or an assignment takes --on, and only a pause --until" \
+    --standing rule --on all --what x --source inferred
+rule_case "  ... and one with an --until" 64 "only a pause, a go-ahead or an assignment takes --on, and only a pause --until" \
+    --standing rule --until lifted --what x --source inferred
+# R30: Owner and Relayed by stay blank on a rule row.
+rule_case "R30. a rule with --owner is refused, 65" 65 "a rule row's Owner is blank; its Source says who said it" \
+    --standing rule --what x --owner alice --source inferred
+rule_case "  ... and one with --relayed-by" 65 "a rule row's Relayed by is blank; its Source says where it came from" \
+    --standing rule --what x --relayed-by bob --source inferred
+# R32: the Source's grammar, each refusal naming the row.
+for c in "a 39-hex commit|skill acme/widgets docs/x.md ${C40%?}" "a .. segment|doc acme/widgets docs/../x.md $C40" \
+    "a path starting with -|skill acme/widgets -x/y.md $C40" "a repository that isn't owner/repo|doc acme docs/x.md $C40" \
+    "a bad label|pinned a/b sha256:$DA64" "a digest that isn't sha256|pinned charter md5:$DA64" \
+    "inferred brief with no digest|inferred brief x" "an unknown first word|memo from the lead"; do
+    rule_case "R32. a Source with ${c%%|*} is refused, 65, naming the row" 65 "refused: standing.s1: the Source " \
+        --standing rule --what "Keep one lane per feature." --source "${c#*|}"
+done
+# R18: the What is measured in bytes.
+A400=$(printf '%400s' '' | tr ' ' a)
+rule_case "R18. a 401-byte What is refused, 65" 65 "refused: standing.s1: a rule row's What is at most 400 bytes; this one is 401" \
+    --standing rule --what "${A400}a" --source inferred
+rule_case "  ... and a 400-character one whose last character takes two bytes" 65 \
+    "refused: standing.s1: a rule row's What is at most 400 bytes; this one is 401" --standing rule --what "${A400%a}é" --source inferred
+bash "$RS" "${W[@]}" --standing rule --what "$A400" --source inferred >/dev/null 2>"$T/err"
+eq "  ... while a 400-byte one is written" "0 s1 rule 400" "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.kind) \(.what | utf8bytelength)"')"
+# R19, R20: a pinned Source names a Run rules or briefs row; an inferred brief doesn't.
+rule_case "R19. a pinned Source no Run row holds is refused, 65" 65 \
+    "refused: standing.s2: the Source pins charter sha256:$DB64, which no Run rules or briefs row holds" \
+    --standing rule --what "Keep one lane per feature." --source "pinned charter sha256:$DB64"
+rule_case "  ... and one naming another label" 65 \
+    "refused: standing.s2: the Source pins other sha256:$DA64, which no Run rules or briefs row holds" \
+    --standing rule --what "Keep one lane per feature." --source "pinned other sha256:$DA64"
+bash "$RS" "${W[@]}" --standing rule --what "Keep one lane per feature." --source "pinned charter sha256:$DA64" >/dev/null 2>"$T/err"
+eq "  ... while the Run row's label and digest are written" "0 s2 pinned charter sha256:$DA64" "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.source)"')"
+bash "$RS" "${W[@]}" --standing rule --what "Read the brief first." --source "inferred brief worker sha256:$DC64" >/dev/null 2>"$T/err"
+eq "R20. an inferred brief row is written on a record with no briefs row" "0 s3 inferred brief worker sha256:$DC64 0" \
+    "$? $(live | jq -r '"\(.standing[-1] | "\(.standing) \(.source)") \([.run[] | select(.key == "briefs")] | length)"')"
+eq "  ... its row blank in On, Until, Owner and Relayed by, and its entry kind rule" \
+    "|||rule s3 (rule): Read the brief first.. Source: inferred brief worker sha256:$DC64." \
+    "$(live | jq -r '.standing[-1] | "\(.on)|\(.until)|\(.owner)|\(.relayed_by)"')$(entries | jq -r '.[-1] | "\(.kind) \(.text)"')"
+# R25: the event rows' usage is as before.
+rule_case "R25. an unknown kind is still usage, 64" 64 "--standing takes pause, go-ahead, approval, answer, assignment or rule" --standing rumour --what x --owner y
+rule_case "  ... and an event row with no --owner" 64 "Usage" --standing approval --what x
 
 echo "== --rule-files: the start's rules rows, and the lists it refuses =="
 DA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

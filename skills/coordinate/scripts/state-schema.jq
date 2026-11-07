@@ -110,6 +110,22 @@ def text_named_repos:
     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
      | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) ]
   | map(select(. != "")) | unique;
+# what_repo_tokens: the bare repository names a rule row's What holds, which
+# state-stored-set.sh checks when it writes the row (text_named_repos keeps
+# them out of the prose checks). A bare name is a two-part owner/repo token
+# that isn't in a link and isn't followed by #<n>, the forms text_named_repos
+# already finds: URLs are blanked first, a token is letters, digits, `_`, `.`
+# and `-` either side of one `/`, and its two ends touch no letter, digit,
+# `_`, `.`, `-` or `/`, so a three-part path such as skills/coordinate/SKILL.md
+# isn't one. Trailing `.`s and `.git` are dropped, as clean does, and a token
+# with a `.` or `..` part, which no repository is named, is left out. Each
+# token once, sorted.
+def what_repo_tokens:
+  def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
+  gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
+  | [scan("(?<![A-Za-z0-9_./-])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?![A-Za-z0-9_./-]|#[0-9])") | clean
+     | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$") and all(split("/")[]; . != "." and . != ".."))]
+  | unique;
 def text_problem($private):
   . as $v
   | ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
@@ -320,14 +336,16 @@ def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment", "r
 #   skill <owner/repo> <path> <commit>    a line of a skill's text
 #   doc <owner/repo> <path> <commit>      a document a public host can name
 #                                         (<path> relative, with no `.` or
-#                                         `..` segment; <commit> 40 hex)
+#                                         `..` segment and no leading `-`;
+#                                         <commit> 40 hex)
 #   pinned <label> sha256:<64 hex>        a file the Run section pins as
 #                                         `rules <label>` or `briefs <label>`
 #   inferred [brief <label> sha256:<64 hex>]
 #                                         the coordinator's own reading, with
 #                                         the brief it read it from
 # source_problem: null for a Source in one of them, or what is wrong with it.
-def re_source_path: "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$";
+# A path never starts with `-`, so nothing a writer types there reads as a flag.
+def re_source_path: "^[A-Za-z0-9._][A-Za-z0-9._-]*(/[A-Za-z0-9._-]+)*$";
 def re_digest: "^sha256:[0-9a-f]{64}$";
 def source_problem:
   split(" ") as $p
@@ -356,6 +374,44 @@ def source_problem:
     else "is not one of `decision <session> <id>`, `skill <owner/repo> <path> <commit>`, `doc <owner/repo> <path> <commit>`, `pinned <label> sha256:<64 hex>` or `inferred [brief <label> sha256:<64 hex>]`" end;
 # The repository a `skill` or `doc` Source names, or nothing.
 def source_repo: (.source // "") | split(" ") | select(.[0] == "skill" or .[0] == "doc") | .[1] // empty;
+# A cited file's candidate sentences, which a `skill` or `doc` row's What must
+# equal one of under norm_match (file_holds), over the file's text. `\r` is
+# dropped and a blank line ends a block. A line standing alone (sentence_alone)
+# is a candidate of its own, unsplit, and a line inside a ``` fence is none. A
+# list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then a space) starts a
+# block, and any other line joins the one above with one space, its own
+# indentation dropped. A block splits after `.`, `!` or `?`, and any closing
+# `)`, `]`, `"`, `'`, `` ` ``, `*` or `_` after it, where whitespace follows
+# (a leading list marker is never split off); markup stays in.
+# sentence_alone: a heading, a table line or a fence line.
+def sentence_fence: startswith("```");
+def sentence_alone: test("^#{1,6}( |$)") or startswith("|") or sentence_fence;
+def sentence_split:
+  capture("^(?<m>(?:[-*+]|[0-9]+[.)]) )?(?<r>.*)$") as $c
+  | ($c.r | gsub("(?<e>[.!?][)\\]\"'`*_]*)\\s+"; "\(.e)\n") | split("\n")) as $s
+  | [($c.m // "") + $s[0]] + $s[1:];
+def file_sentences:
+  def flush: if .cur == null then . else .out += [{block: .cur}] | .cur = null end;
+  gsub("\r"; "") | split("\n")
+  | reduce (.[] | sub("^\\s+"; "") | sub("\\s+$"; "")) as $l ({out: [], cur: null, fence: false};
+      if .fence then (if $l | sentence_fence then .fence = false | .out += [{alone: $l}] else . end)
+      elif $l == "" then flush
+      elif ($l | sentence_alone) then flush | .out += [{alone: $l}] | .fence = ($l | sentence_fence)
+      elif ($l | test("^(?:[-*+]|[0-9]+[.)]) ")) then flush | .cur = $l
+      else .cur = (if .cur == null then $l else .cur + " " + $l end) end)
+  | flush
+  | [.out[] | if has("alone") then .alone else (.block | sentence_split[]) end | select(. != "")];
+# The one normalized match the writer uses for a cited row's What: both texts
+# lowercased, runs of whitespace collapsed to one space, the ends trimmed, a
+# leading list marker dropped and the trailing punctuation norm_punct names
+# dropped, then compared byte for byte. A paraphrase doesn't match.
+# norm_punct: the trailing punctuation the match drops, a `.`.
+def norm_punct: sub("\\.$"; "");
+def norm_text: ascii_downcase | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "")
+  | sub("^(?:[-*+]|[0-9]+[.)]) "; "") | norm_punct;
+def norm_match($b): norm_text == ($b | norm_text);
+# file_holds($what): the file's text, over which $what is one of its sentences.
+def file_holds($what): any(file_sentences[]; norm_match($what));
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
 def work_kinds: ["holding", "local-agent", "decision", "follow-up", "verdict-owed", "rework"];
@@ -535,6 +591,24 @@ def rule_counts:
   | rule_classes[] | . as $k | "\($k) \([$c[] | select(. == $k)] | length)";
 def rule_status:
   if . == "inferred" then "unconfirmed" elif . == "unreadable" then "unreadable" else "in-force" end;
+# The caps state-stored-set.sh holds a new rule row to, over a Standing value:
+# at most 120 `rule` rows, of which at most 60 read inferred. Every rule row
+# counts, whatever its status; the event kinds count against neither. The
+# writer enforces them on the row it writes, and no read checks them, so a
+# record over a cap stays readable.
+# rule_cap_counts: {rule, inferred}, the rule rows and those rule_class reads
+# inferred. rule_cap_problem($row): null when $row fits, else which cap it
+# breaks, the inferred one tested first for an inferred row.
+def rule_cap: 120;
+def inferred_cap: 60;
+def rule_cap_counts:
+  [.[] | select(.kind == "rule")] | {rule: length, inferred: ([.[] | select(rule_class == "inferred")] | length)};
+def rule_cap_problem($row):
+  rule_cap_counts as $n
+  | if ($row | rule_class) == "inferred" and $n.inferred >= inferred_cap then
+      "the record holds \(inferred_cap) inferred rule rows, the most it keeps; confirm or end one first"
+    elif $n.rule >= rule_cap then "the record holds \(rule_cap) rule rows, the most it keeps; end one first"
+    else null end;
 
 # rule_view($session; $entries): one Standing row, as state-stored-set.sh
 # --rules prints it, for the record in $session whose entries
