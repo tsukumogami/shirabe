@@ -18,3 +18,24 @@ Run `git fetch` before every tick. Then read what it says.
 ```
 Never merge on a red board.
 ```
+
+```bash
+Never deploy on a Friday.
+```
+
+~~~~
+Never skip the board.
+```
+Still inside the tildes.
+~~~~
+
+```` ```bash ```` opens a fenced block in Markdown.
+
+Fences hold code.
+
+- Keep the board green on every
+    release day.
+
+## Done. Next steps
+
+| a. b | c. |
