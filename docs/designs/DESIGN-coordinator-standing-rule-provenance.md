@@ -443,7 +443,8 @@ relayed, so nothing needs rework when koto arrives.
 Brief rules come in once per brief digest. At a start whose brief has no Run
 `briefs` row for its digest, the reconcile gate names a gap, and the
 coordinator writes one `rule` row per rule its brief states that no Standing
-row already holds, a brief's rules being the sentences Decision 10 counts: the brief's sentence in What, Owner blank, Source
+row already holds, a brief's rules being the sentences Decision 10
+counts: the brief's sentence in What, Owner blank, Source
 `inferred brief <label> sha256:<digest>`, and the `briefs` row beside them.
 The match is mechanical, and the writer, `--end` and the intake all use
 the one normalized match: both texts lowercased, runs of whitespace
@@ -789,8 +790,14 @@ Building the rule write (plan step 6) and specifying the intake (step 7)
 turned up five places where this design's text admits two readings. Each is
 settled here with the exact rule its step builds; the acceptance terms and
 the Components text carry the same rule where the builder reads it. None
-changes another decision above, and only Decision 10 changes a plan step's
-outline (step 7); step 6 stands as outlined.
+changes another decision's choice above; Decision 3's text gains only the
+exact rule and a pointer here. Decision 10 changes step 7's outline.
+Step 6 merged before these were settled, and its code differs from
+Decisions 7, 8 and 9: `norm_punct` drops one trailing `.`, a fence is
+```` ``` ```` only, closed by any ```` ``` ```` line, with its fence lines kept
+as candidates, and repositories compare byte for byte. That change lands
+through #1582, the follow-up for step 6's open points, with R44 to R46 as
+its criteria, not as a new plan step; step 6's outline says so.
 
 #### Decision 7: Which trailing punctuation the normalized match drops
 
@@ -828,8 +835,8 @@ already lets a whole row with its pipes match, which a split inside the row
 would break, and a heading such as `### Chosen: Yes; ...` reads as one
 statement. R45 checks it.
 
-- **Fences of ```` ``` ```` and `~~~` only, the builder's proposal.** Close to
-  the chosen rule; rejected only in its fixed length, since a four-backtick
+- **Fences of exactly ```` ``` ```` and `~~~`.** Close to the chosen rule;
+  rejected only in its fixed length, since a four-backtick
   fence that quotes a three-backtick one would close early and leak the
   quoted lines in as candidates.
 - **Indented code blocks as fences too.** Rejected because R2 needs an
@@ -871,14 +878,22 @@ under Decision 1), and the unit's own description, deliverable and
 checkpoints, which a brief gives rather than imposes as standing rules.
 Read whole, the splitter yields 62 candidates on the smallest rendered brief
 in `testdata/brief-golden/min.txt`, 65 on `leg.txt` and 74 on `base.txt`,
-every one above the cap; filtered, about 7, 11 and 11 by a model of the
-splitter's rules, so the first intake of any of them on an empty record
+every one above the cap; filtered, 7, 11 and 11, measured by running the
+merged `file_sentences` on those files, the longest kept sentence 251
+bytes, so the first intake of any of them on an empty record
 stays well under 60. "The brief no longer states" a row's words, both where
 a new digest ends an earlier digest's rows and in `--end`, is tested against
 the same filtered set, so a sentence the intake can't take can't hold a row
 in place. A hand-written brief with none of those headings is taken whole
 less its headings, and an intake that would pass the cap there stops at it
 as designed, leaving the gap open for a person to decide.
+
+- R47 (step 7's intake suite). The first intake of `min.txt`, `leg.txt`
+  and `base.txt`, each on an empty record, writes exactly 7, 11 and 11
+  `inferred brief` rows and clears `brief-unread`; none of the rows' Whats
+  is a heading or a sentence from the six excluded sections. A brief whose
+  kept sections hold 61 sentences writes 60 and leaves the gap open naming
+  1 line it couldn't take.
 
 - **Count every candidate, the literal reading.** Rejected because the
   first intake of every rendered brief would pass the cap and leave
@@ -903,7 +918,7 @@ everywhere, and a row nobody revisits survives every succession. Both
 failures are real; neither is fixed by a column this design could fill
 honestly.
 
-- **Scope is part of the rule's words.** When a rule applies and what it
+Scope is part of the rule's words. When a rule applies and what it
   defers to are words its source states, and What quotes the source's
   sentence whole, with `--rules` giving the pointer to the rest. A scope
   column the writing coordinator filled would be its own paraphrase beside
@@ -912,7 +927,8 @@ honestly.
   scope mechanically either: deciding that a rule doesn't apply here is a
   reading. Carried by the compiled-brief work, where rules stop riding in
   prose and a rule's condition can be a structured field its source sets.
-- **Review already happens per class, at every succession.** An inferred
+
+Review already happens per class, at every succession. An inferred
   row is listed by the handover read and the start report at every start
   until it's confirmed or ended, a trigger of one succession, stricter than
   any count. A cited row's standing is read from koto each time it's read,
@@ -1181,7 +1197,8 @@ writes `record/decisions` or `record/reversals`.
   brief's rule sentences as Decision 10 sets them: the splitter's output
   less heading lines and less every sentence under the renderer's
   `## Goal`, `## Checkpoints`, `## Read first`, `## Acceptance criteria`,
-  `## Reporting` and `## Keep-alive` sections. "The brief no longer
+  `## Reporting` and `## Keep-alive` sections, each running from its
+  heading to the next level-one or level-two heading. "The brief no longer
   states" a row's words, here and in `--end`, is tested against the same
   set. An intake that would pass either cap (60 inferred rows binds first)
   writes nothing past it and
@@ -1545,7 +1562,8 @@ three or more `` ` `` or three or more `~`) opens a fence that the next fence
 line of the same character, at least as long and followed only by
 whitespace, closes, an unclosed fence running to the file's end, and
 neither fence line nor any line between them is a candidate. An indented
-line is never a fence, a list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then
+fence line is still a fence line, but indentation alone never makes a
+code block, a list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then
 a space) starts a block, and any other line joins the one above with one
 space. A block splits after `.`, `!` or `?`, plus any closing `)`, `]`,
 `"`, `'`, `` ` ``, `*` or `_`, where whitespace follows. Markup stays in.

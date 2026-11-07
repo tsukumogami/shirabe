@@ -190,7 +190,7 @@ The headings are fixed strings:
 
 ### Step 6: --standing rule writes a skill, doc, pinned or inferred rule row and refuses one that cites words its source doesn't hold
 
-shirabe, after the reader release has shipped: the writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind.
+shirabe, after the reader release has shipped: the writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind. The design's Decisions 7, 8 and 9, settled after this step merged, change its trailing-punctuation set, its fence rule and its repository comparison and shared visibility read; that change lands through #1582 with criteria R44 to R46.
 
 ### Step 7: a start whose brief has no briefs row names brief-unread, and the intake brings each brief rule in once as an inferred row
 
