@@ -7,6 +7,7 @@
 #
 # Usage:
 #   state-stored-set.sh --session S --run KEY VALUE --by WHO
+#   state-stored-set.sh --session S --run reports-to|cap VALUE --inferred SENTENCE --by WHO
 #   state-stored-set.sh --session S --run role manager|director --by WHO [--intervention dispatcher|person]
 #   state-stored-set.sh --session S --host KEY VALUE [--host KEY VALUE]...
 #   state-stored-set.sh --session S --rule-files FILE --by WHO
@@ -55,7 +56,21 @@
 # kept); --run friction, a label; and --run reports-to, `<name>` or `<name>
 # at <address>`, who this coordinator reports up to (a person, or the
 # coordinator that dispatched it) and, for a coordinator, its messaging
-# address. Where those files live
+# address.
+# --inferred SENTENCE marks a `reports-to` or `cap` value the coordinator
+# worked out rather than read from its brief, its dispatch link or a
+# person's message (docs/designs/DESIGN-coordinator-standing-rule-provenance.md,
+# Decision 5): the same write also adds a Standing `rule` row whose What is
+# SENTENCE, the reading in one sentence, and whose Source is exactly
+# `inferred`, with the next id as --standing rule takes one. The Run row and
+# the rule row go in one state write, after the Run value's grammar and every
+# check --standing rule makes on a rule row (below: one line of at most 400
+# bytes, the 120-rule and 60-inferred caps, the forge reads), so a refusal
+# of either writes neither (65, or 2 for a read that fails). Two entries
+# follow it: the `run` entry, then the `rule` entry `s<n> (rule): SENTENCE.
+# Source: inferred.` --inferred goes only with --run reports-to or --run cap,
+# once, and not empty (64, before anything is read).
+# Where those files live
 # goes in record/host, through
 # --host, never in the record's tables: KEY is rules:<label>, briefs:<label>
 # or friction with an absolute path, or one of the import's facts,
@@ -217,17 +232,25 @@
 # printed. A record that breaks a rule of state-schema.jq is refused (65), the
 # rule on stderr naming the row (`standing.s3: ...`). After the Standing
 # objects, and only without --id, it prints one object per Run `rules` row in
-# record order, {run: "rules", kind, label, digest}: kind `skill` or
-# `workspace` for a label with that prefix (the rows --rule-files writes),
-# `other` for any other label, and digest the row's sha256:<64 hex>. --rules
-# reads; it writes no key and tells no entry.
+# record order (state-schema.jq's run_rule_view), {run: "rules", kind, label,
+# digest, class, said, pointer}: kind `skill` or `workspace` for a label with
+# that prefix (the rows --rule-files writes), `other` for any other label;
+# digest the row's sha256:<64 hex>; class `skill-says` for a `skill-` label,
+# `charter` for a `workspace-` label, `inferred` for any other; said the
+# row's Set; and pointer {label, digest, host}, host `rules:<label>`, the
+# record/host key naming the file, which isn't read. A Run object carries no
+# status, confirm or grant field and never takes part in the authority read:
+# its class is for reading only. --rules reads; it writes no key and tells no
+# entry.
 # --rules --counts prints seven lines instead, one per class in a fixed order
 # (state-schema.jq's rule_classes: relayed, owner-said, dispatcher-said,
 # inferred, skill-says, charter, unreadable), each `<class> <count>`, a class
 # no row reads printed with 0. It counts every Standing row by the class
 # --rules gives it, whatever the row's status, so `grep '^inferred '` gives
-# the unsourced rules the record holds. It reads the record's Standing alone:
-# no entry and no Run row. --counts takes no --id (64).
+# the unsourced rules the record holds. It counts each Run `rules` row too, in
+# the class --rules gives its object, so the lines add up to the Standing rows
+# plus the Run `rules` rows. It reads the record's Standing and Run sections
+# and no entry. --counts takes no --id (64).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -299,6 +322,8 @@ KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFIL
 INTERVENTION= HAS_INTERVENTION=0
 # --source's form, and whether it was given.
 SOURCE= HAS_SOURCE=0
+# --inferred's sentence, and whether it was given.
+INFERRED= HAS_INFERRED=0
 # --rules' --id values, one per line.
 RIDS=
 COUNTS=0
@@ -336,6 +361,7 @@ while [ $# -gt 0 ]; do
         --intervention) [ $# -ge 2 ] && [ "$HAS_INTERVENTION" = 0 ] || usage; HAS_INTERVENTION=1; INTERVENTION=$2; shift 2 ;;
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
         --source) [ $# -ge 2 ] && [ "$HAS_SOURCE" = 0 ] || usage; HAS_SOURCE=1; SOURCE=$2; shift 2 ;;
+        --inferred) [ $# -ge 2 ] && [ "$HAS_INFERRED" = 0 ] || usage; HAS_INFERRED=1; INFERRED=$2; shift 2 ;;
         --owner) [ $# -ge 2 ] || usage; OWNER=$2; shift 2 ;;
         --relayed-by) [ $# -ge 2 ] || usage; RELAYED=$2; shift 2 ;;
         --on) [ $# -ge 2 ] || usage; ON=$2; shift 2 ;;
@@ -382,6 +408,13 @@ fi
 # or --until; an event row's Source is a citation, which isn't written here.
 if [ "$HAS_SOURCE" = 1 ] && { [ "$MODE" != standing ] || [ "$KIND" != rule ]; }; then
     echo "$PROG: --source goes only with --standing rule" >&2; exit 64
+fi
+# --inferred goes only with --run reports-to or --run cap, a value the
+# coordinator worked out, and carries the reading's sentence.
+if [ "$HAS_INFERRED" = 1 ]; then
+    { [ "$MODE" = run ] && { [ "$KEY" = reports-to ] || [ "$KEY" = cap ]; }; } \
+        || { echo "$PROG: --inferred goes only with --run reports-to or --run cap" >&2; exit 64; }
+    [ -n "$INFERRED" ] || { echo "$PROG: --inferred takes the reading's sentence" >&2; exit 64; }
 fi
 if [ "$MODE" = standing ] && [ "$KIND" = rule ]; then
     [ -n "$SOURCE" ] || { echo "$PROG: a rule takes --source" >&2; exit 64; }
@@ -539,8 +572,9 @@ trap 'rm -rf "$WD"' EXIT
 FIELDS=
 [ "$MODE" = list ] && FIELDS="run standing work"
 [ "$MODE" = rules ] && FIELDS="standing"
-# Without --id or --counts, --rules also lists the Run section's rules rows.
-[ "$MODE" = rules ] && [ "$COUNTS" = 0 ] && [ -z "$RIDS" ] && FIELDS="standing run"
+# Without --id, --rules also lists the Run section's rules rows, and --counts
+# counts them.
+[ "$MODE" = rules ] && [ -z "$RIDS" ] && FIELDS="standing run"
 rs_record "$WD/parsed.json" "$FIELDS"
 RC=$?
 # --rules is a read of the rows themselves, so a row that breaks a rule is
@@ -597,7 +631,7 @@ rules_grant_read() {
         < /dev/null > "$1" 2> /dev/null
 }
 if [ "$MODE" = rules ] && [ "$COUNTS" = 1 ]; then
-    jq -r -L "$HERE" 'include "state-schema"; (.standing // []) | rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
+    jq -r -L "$HERE" 'include "state-schema"; record_rule_counts' "$WD/parsed.json" || lib_die2 "jq failed"
     exit 0
 fi
 if [ "$MODE" = rules ]; then
@@ -637,10 +671,11 @@ if [ "$MODE" = rules ]; then
     fi
     jq -c -L "$HERE" --slurpfile f "$WD/facts.json" --slurpfile a "$WD/answer.json" 'include "state-schema";
         . + rule_grants($f[0] + {answer: $a[0]})' "$WD/views.json" || lib_die2 "jq failed"
+    # The Run rules rows' objects are printed after the grant read and never
+    # join $WD/views.json, so none of them can trigger it or stand under it.
     if [ -z "$RIDS" ]; then
-        jq -c '(.run // [])[] | select(.key == "rules") | (.value | split(" ")) as $p
-            | {run: "rules", kind: (if ($p[0] | startswith("skill-")) then "skill" elif ($p[0] | startswith("workspace-")) then "workspace" else "other" end),
-               label: $p[0], digest: $p[1]}' "$WD/parsed.json" || lib_die2 "jq failed"
+        jq -c -L "$HERE" 'include "state-schema"; (.run // [])[] | select(.key == "rules") | run_rule_view' "$WD/parsed.json" \
+            || lib_die2 "jq failed"
     fi
     exit 0
 fi
@@ -786,8 +821,40 @@ rule_checks() {
         esac
     done < "$WD/tokens"
 }
-# The entry that tells the change: its kind and text.
-EKIND= ETEXT=
+# next_standing_id: SID, the id a new Standing row in the record read ($P)
+# gets, and STANDING_USED, its number, which the write core keeps in
+# record/meta. The next id never reuses an ended one. record/meta keeps the
+# highest id the record has given out (standing_used, read with the record),
+# so no entry is read (shirabe#1283). The entries are still listed, in one
+# call, as a check before the write: state-entry.sh appends this write's entry
+# after the record is written and numbers it from its own listing, so a
+# stream that can't be listed is refused here (2), before the row is written,
+# rather than leaving a row with no entry (14).
+next_standing_id() {
+    local used n entries
+    SID=$(jq -r '"s\(([(.standing // [])[] | .standing[1:] | tonumber] | max // 0) + 1)"' "$P")
+    rs_list "${RS_SESSION:-$SESSION}" record/entries/ "$WD/entry-keys" \
+        || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/entry-keys.err")"
+    used=$(jq -r '.standing_used | select(type == "number" and . >= 0 and . == floor)' "$P.meta") \
+        || lib_die2 "the record's record/meta is not JSON"
+    if [ -z "$used" ]; then
+        # A record written before record/meta kept it, one the legacy importer
+        # wrote, or one re-seeded over entries: the entries name the ids, so
+        # the highest id ever used is read from the stream, once; this write
+        # then records it. Once it is kept, an entry written by hand whose text
+        # starts with an id above it no longer moves the next id: only this
+        # script's --standing, --end and --inferred write such entries.
+        entries=$(bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --list 2> "$WD/list.err") \
+            || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/list.err")"
+        used=$(printf '%s' "$entries" | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0') \
+            || lib_die2 "the record's entries are not JSON"
+    fi
+    n=${SID#s}; [ "$used" -ge "$n" ] && SID="s$((used + 1))"
+    STANDING_USED=${SID#s}
+}
+# The entry that tells the change: its kind and text, and a second one, its
+# kind and text, that --inferred's rule row adds after it.
+EKIND= ETEXT= EKIND2= ETEXT2=
 case "$MODE" in
 rule-files)
     # The rows and host keys the list owns: a `rules` row or rules: key whose
@@ -866,6 +933,26 @@ run)
         jq --arg k "$KEY" --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" "$PROG_JQ" "$P" > "$WD/next.json" || lib_die2 "jq failed"
     fi
     EKIND=run
+    if [ "$HAS_INFERRED" = 1 ]; then
+        # A value the coordinator worked out lands with its reading: a rule
+        # row, Source `inferred`, in the same state, so the one core_write
+        # below writes both or neither. The Run value's grammar is checked
+        # first, then the rule row's checks, before any forge read.
+        if ! jq -L "$HERE" 'include "state-schema";
+                (state_secs[] | select(.key == "run")) as $sec | check_state($sec; .run; []) | empty' \
+                "$WD/next.json" 2> "$WD/run.err" < /dev/null; then
+            grep -q 'refused: ' "$WD/run.err" || lib_die2 "state-schema.jq failed: $(lib_scrub < "$WD/run.err")"
+            refuse "$(sed -n 's/.*refused: //p' "$WD/run.err" | head -1 | lib_scrub)"
+        fi
+        next_standing_id
+        WHAT=$INFERRED SOURCE=inferred
+        jq --arg s "$SID" --arg w "$WHAT" --arg t "$NOW" \
+            '.standing = ((.standing // []) + [{standing: $s, kind: "rule", on: "", until: "", what: $w, owner: "", relayed_by: "", set: $t, source: "inferred"}])' \
+            "$WD/next.json" > "$WD/next.rule.json" || lib_die2 "jq failed"
+        mv "$WD/next.rule.json" "$WD/next.json" || lib_die2 "cannot write the state file"
+        rule_checks
+        EKIND2=rule ETEXT2="$SID (rule): $WHAT. Source: $SOURCE."
+    fi
     ;;
 told)
     jq -e 'any((.run // [])[]; .key == "coordinator")' "$P" > /dev/null || refuse "the record names no coordinator address to have told anyone; set it with --run coordinator first"
@@ -905,32 +992,7 @@ standing)
                 || refuse "--on $ON is not a unit pick lists; it takes one of: $(jq -r '[.units[].unit] | join(", ")' "$WD/pick.json")"
         fi
     fi
-    SID=$(jq -r '"s\(([(.standing // [])[] | .standing[1:] | tonumber] | max // 0) + 1)"' "$P")
-    # The next id never reuses an ended one. record/meta keeps the highest id
-    # the record has given out (standing_used, read with the record), so no
-    # entry is read (shirabe#1283). The entries are still listed, in one call,
-    # as a check before the write: state-entry.sh appends this write's entry
-    # after the record is written and numbers it from its own listing, so a
-    # stream that can't be listed is refused here (2), before the row is
-    # written, rather than leaving a row with no entry (14).
-    rs_list "${RS_SESSION:-$SESSION}" record/entries/ "$WD/entry-keys" \
-        || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/entry-keys.err")"
-    USED=$(jq -r '.standing_used | select(type == "number" and . >= 0 and . == floor)' "$P.meta") \
-        || lib_die2 "the record's record/meta is not JSON"
-    if [ -z "$USED" ]; then
-        # A record written before record/meta kept it, one the legacy importer
-        # wrote, or one re-seeded over entries: the entries name the ids, so
-        # the highest id ever used is read from the stream, once; this write
-        # then records it. Once it is kept, an entry written by hand whose text
-        # starts with an id above it no longer moves the next id: only this
-        # script's --standing and --end write such entries.
-        ENTRIES=$(bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --list 2> "$WD/list.err") \
-            || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/list.err")"
-        USED=$(printf '%s' "$ENTRIES" | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0') \
-            || lib_die2 "the record's entries are not JSON"
-    fi
-    N=${SID#s}; [ "$USED" -ge "$N" ] && SID="s$((USED + 1))"
-    STANDING_USED=${SID#s}
+    next_standing_id
     # A rule row carries its Source; an event row is written as before, with
     # none.
     jq --arg s "$SID" --arg k "$KIND" --arg on "$ON" --arg u "$UNTIL" --arg w "$WHAT" --arg o "$OWNER" --arg r "$RELAYED" --arg t "$NOW" --arg src "$SOURCE" \
@@ -1069,6 +1131,13 @@ cp "$WD/entry.txt" "$ENTRY_FILE"
 LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/state-stored-set-leaving.XXXXXX") \
     || { rm -f "$ENTRY_FILE"; lib_die2 "cannot make a temporary file"; }
 cp "$WD/leaving.txt" "$LEAVING_FILE"
+# --inferred's rule entry, told after the run entry.
+ENTRY_FILE2=
+if [ -n "$EKIND2" ]; then
+    ENTRY_FILE2=$(mktemp "${TMPDIR:-/tmp}/state-stored-set-entry.XXXXXX") \
+        || { rm -f "$ENTRY_FILE" "$LEAVING_FILE"; lib_die2 "cannot make a temporary file"; }
+    printf '%s\n' "$ETEXT2" > "$ENTRY_FILE2"
+fi
 
 STATE_FILE="$WD/final.json" CORE_CLEANUP=$WD
 lib_write_guard
@@ -1097,16 +1166,24 @@ core_write
 
 if ! bash "$HERE/state-entry.sh" "${EARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
     echo "$PROG: the record was written, but its entry wasn't posted; post it with state-entry.sh --kind $EKIND: $(cat "$ENTRY_FILE")" >&2
+    [ -z "$ENTRY_FILE2" ] || echo "$PROG: and post with state-entry.sh --kind $EKIND2: $(cat "$ENTRY_FILE2")" >&2
     while IFS= read -r LINE; do
         [ -n "$LINE" ] && echo "$PROG: and post with state-entry.sh --kind work: $LINE" >&2
     done < "$LEAVING_FILE"
-    rm -f "$ENTRY_FILE" "$LEAVING_FILE"
+    rm -f "$ENTRY_FILE" "$ENTRY_FILE2" "$LEAVING_FILE"
     exit 14
 fi
 rm -f "$ENTRY_FILE"
+UNPOSTED=0
+if [ -n "$ENTRY_FILE2" ]; then
+    if ! bash "$HERE/state-entry.sh" "${EARGS[@]}" --kind "$EKIND2" --text-file "$ENTRY_FILE2"; then
+        echo "$PROG: the record was written, but its rule entry wasn't posted; post it with state-entry.sh --kind $EKIND2: $(cat "$ENTRY_FILE2")" >&2
+        UNPOSTED=1
+    fi
+    rm -f "$ENTRY_FILE2"
+fi
 # Each holding row that left Work, told with its final count. Every line is
 # tried; any that didn't post are named together, for state-entry.sh.
-UNPOSTED=0
 while IFS= read -r LINE; do
     [ -n "$LINE" ] || continue
     printf '%s\n' "$LINE" > "$LEAVING_FILE.one"

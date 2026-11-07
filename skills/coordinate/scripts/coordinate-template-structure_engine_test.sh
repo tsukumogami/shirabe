@@ -43,7 +43,9 @@
 # state's directive and in no other state's text, and that directive closes
 # every handover gap before it prints the first report with
 # reconcile-report-get.sh --md, and submits reconciled: reported after both
-# (Decision 3).
+# (Decision 3), all but carry-unacknowledged, which it names before the --md
+# call and whose go-ahead it records, checking again, after the report and
+# before the submit (Decision 6).
 #
 # Needs koto (to compile) and jq; SKIPs without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -559,15 +561,31 @@ eq_fx "  ... while dispatch-worker.sh as it is passes" "" \
     "$(role_readers "$HERE/.." | grep '^scripts/dispatch-worker.sh' | cut -f1,2,3)"
 # The reconcile directive's order (Decision 3): every handover gap is closed
 # before the first report is printed, so a role the no-role fix writes is the
-# one its record line names, and the submit comes last.
+# one its record line names, and the submit comes last. The one gap left open
+# for the first report (Decision 6), carry-unacknowledged, is named in the gap
+# paragraph before the --md call; the report asks for its go-ahead, and the
+# go-ahead's record and the second check come after the report and before the
+# submit.
 RD=$(jq -r '.states.reconcile.directive' "$J")
 pos() { awk -v p="$1" 'BEGIN { RS = "\001" } { i = index($0, p); print (i ? i : 0) }' <<<"$RD"; }
 P_GAPS=$(pos 'state-handover.sh" --session {{SESSION_NAME}} --check')
+P_EXC=$(pos 'all but `carry-unacknowledged`')
 P_MD=$(pos 'reconcile-report-get.sh" --session {{SESSION_NAME}} --md')
+P_ASK=$(pos 'and ask the person for a')
+P_GO=$(pos '`state-stored-set.sh --standing go-ahead` call')
+P_AGAIN=$(pos 'run the check again')
 P_SUB=$(pos 'submit `reconciled: reported`')
 [ "$P_GAPS" -gt 0 ] && [ "$P_MD" -gt "$P_GAPS" ] && [ "$P_SUB" -gt "$P_MD" ] \
     && pass "reconcile's directive closes the handover gaps, then prints with reconcile-report-get.sh --md, then submits" \
     || fail "reconcile's directive closes the handover gaps, then prints with reconcile-report-get.sh --md, then submits" "gaps=$P_GAPS md=$P_MD submit=$P_SUB"
+[ "$P_EXC" -gt "$P_GAPS" ] && [ "$P_MD" -gt "$P_EXC" ] \
+    && pass "  ... all but carry-unacknowledged, named in the gap paragraph before the --md call" \
+    || fail "  ... all but carry-unacknowledged, named in the gap paragraph before the --md call" "gaps=$P_GAPS exception=$P_EXC md=$P_MD"
+[ "$P_ASK" -gt "$P_MD" ] && [ "$P_GO" -gt "$P_ASK" ] && [ "$P_AGAIN" -gt "$P_GO" ] && [ "$P_SUB" -gt "$P_AGAIN" ] \
+    && pass "  ... which the report asks for, its go-ahead recorded and the check run again after the report and before the submit" \
+    || fail "  ... which the report asks for, its go-ahead recorded and the check run again after the report and before the submit" "md=$P_MD ask=$P_ASK go-ahead=$P_GO again=$P_AGAIN submit=$P_SUB"
+N_SUB=$(grep -o 'submit `reconciled: reported`' <<<"$RD" | wc -l | tr -d ' ')
+[ "$N_SUB" = 1 ] && pass "  ... the directive naming the submit once" || fail "  ... the directive naming the submit once" "$N_SUB"
 
 # The reconcile directive's no-role and no-reports-to fills (Decision 1;
 # PRD R2 and R9): in the reconcile state's directive, the part shown, and in

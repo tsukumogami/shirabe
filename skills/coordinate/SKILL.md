@@ -559,6 +559,27 @@ holds the handover gate. The reconcile report and the
 closing lines of an imported run name its source, so the next import knows what
 to pass.
 
+A `reports-to` or a cap you worked out yourself, rather than read from your
+brief, your dispatch link or a person's message, is written with
+`--inferred "<the reading, in one sentence>"` beside `--run reports-to` or
+`--run cap`. The same write adds a Standing `rule` row whose Source is
+`inferred`, which the start report lists as awaiting confirmation; a refusal
+of either writes neither (the 60-inferred cap full, say), so don't act on that
+value then. A `reports-to` naming a session (`<name> at <address>`) whose
+address is neither one of this run's dispatched-by links nor named by a
+Standing row is a gap too (`reports-to-unsourced`): the `--inferred` write
+closes it when its sentence names the address, or `koto session link <this
+run> --dispatched-by <address>` when that session did dispatch the run. Don't
+rewrite the row to a person's name to clear it.
+
+Asked why you follow something, answer from `state-stored-set.sh --rules`: a
+Standing row with its class and pointer, or a `skill-` or `workspace-` line for
+the skill's or the workspace's own text, the template's default run cap among
+them (it's skill text, so no row is copied for it). A behaviour `--rules`
+doesn't list is written first, as an `inferred` rule row (`--standing rule
+--what "<the behaviour>" --source inferred`), and answered second, so your
+answer and the record agree.
+
 Every script reads the record's state through one reader,
 `scripts/state-read.sh`, from the run's session. There is no body to parse,
 and a test holds every script to that one reader.

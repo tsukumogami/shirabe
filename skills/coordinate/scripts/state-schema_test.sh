@@ -278,6 +278,17 @@ eq "the class order --rules --counts prints" "relayed owner-said dispatcher-said
 eq "rule_counts counts each row by its class, a class no row reads with 0" \
     "relayed 1|owner-said 0|dispatcher-said 0|inferred 1|skill-says 1|charter 2|unreadable 1" \
     "$(jq -r -L "$HERE" --arg d "doc acme/widgets docs/x.md $SHA40" 'include "state-schema"; . + [{source: $d}, {source: ""}] | rule_counts' "$SD/rule-rows.json" | tr '\n' '|' | sed 's/|$//')"
+RUNR=$(jq -nc --arg d "sha256:$(printf '%064d' 0)" '[{key: "rules", value: "skill-SKILL.md \($d)", set_by: "s", set: "2026-10-20T08:00Z"},
+    {key: "rules", value: "workspace-0-CLAUDE.md \($d)", set_by: "s", set: "2026-10-20T08:01Z"},
+    {key: "rules", value: "notes \($d)", set_by: "s", set: "2026-10-20T08:02Z"}, {key: "cap", value: "2", set_by: "s", set: "2026-10-20T08:00Z"}]')
+eq "run_rule_view reads a Run rules row's class by its label, said its Set, pointer its label, digest and host key" \
+    "skill|skill-says|2026-10-20T08:00Z|rules:skill-SKILL.md workspace|charter|2026-10-20T08:01Z|rules:workspace-0-CLAUDE.md other|inferred|2026-10-20T08:02Z|rules:notes" \
+    "$(printf '%s' "$RUNR" | jq -r -L "$HERE" 'include "state-schema"; .[] | select(.key == "rules") | run_rule_view | "\(.kind)|\(.class)|\(.said)|\(.pointer.host)"' | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... with exactly run, kind, label, digest, class, said and pointer" "run kind label digest class said pointer|label digest host" \
+    "$(printf '%s' "$RUNR" | jq -r -L "$HERE" 'include "state-schema"; .[0] | run_rule_view | "\(keys_unsorted | join(" "))|\(.pointer | keys_unsorted | join(" "))"')"
+eq "record_rule_counts counts the Standing rows and the Run rules rows each in its class" \
+    "relayed 0|owner-said 0|dispatcher-said 0|inferred 2|skill-says 2|charter 2|unreadable 1" \
+    "$(jq -r -L "$HERE" --argjson r "$RUNR" 'include "state-schema"; {standing: ., run: $r} | record_rule_counts' "$SD/rule-rows.json" | tr '\n' '|' | sed 's/|$//')"
 eq "a bare inferred rule points at its own row" "inferred|{\"row\":\"$SESS record/standing s4\"}" \
     "$(view '[{"standing":"s4","kind":"rule","what":"x","set":"2026-10-20T09:00Z","source":"inferred"}]' | cut -d'|' -f1,8)"
 ENT='[{"id":1,"kind":"pause","text":"s1 (pause on Feature 1, until lifted): hold. Owner: the human."},{"id":2,"kind":"answer","text":"s2 (answer): panels. Owner: the human."},{"id":3,"kind":"end","text":"s1 (pause: hold) ended by the human."}]'
