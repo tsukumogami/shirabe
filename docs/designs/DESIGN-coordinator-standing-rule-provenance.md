@@ -1029,7 +1029,9 @@ writes `record/decisions` or `record/reversals`.
   on the list of repositories that aren't public is refused with no forge
   read, by the whole-token match (`names_repo`) the other columns already
   use. On a public host each other distinct token gets one visibility
-  read: a private answer is refused, a 404 is refused when the token's
+  read, except that a token naming the repository a `skill` or `doc`
+  Source cites shares that Source's read, with tokens and that repository
+  compared case-insensitively (Decision 9): a private answer is refused, a 404 is refused when the token's
   owner is the host's owner and passes under any other owner, and any other
   failure is a read failure. So a brief sentence or a rule's words can't
   name, by its bare name, a private repository the writer can see or any
