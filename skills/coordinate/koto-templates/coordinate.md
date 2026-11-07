@@ -2728,7 +2728,7 @@ and drive every worker to landed work.
 | An open question | `/shirabe:explore` |
 | A contested choice | `/shirabe:decision` |
 | A release a person assigned (`release owner/repo <tag>`) | `/shirabe:release <version>`, with `--dry-run` when asked for one; no run mode |
-| A sub-effort that is itself a roadmap or a discipline | `/shirabe:coordinate`, only when the human's decisions allow a nested coordinator |
+| A director's lane: a sub-effort that is itself a roadmap or a discipline | `/shirabe:coordinate`, dispatched as a manager, only when the human's decisions allow the lane |
 
 Three kinds of decision, three routes. A contested choice inside your scope is
 settled by dispatching `/shirabe:decision`, not by offering the human options. A
@@ -2858,8 +2858,8 @@ the repositories its issues land in.
 Its `grant` is what the worker is dispatched holding: the authorities for the
 landing steps the brief hands it to take itself (`merge-pr`, `close-issue`,
 `cut-release`), left out for a worker you hand none, and `own` for your
-successor (entry point `coordinate`), which passes your own grant. A lane
-coordinator gets none. The script passes it to `niwa dispatch` as `--grant`,
+successor (entry point `coordinate`), which passes your own grant. A manager
+you dispatch as a lane gets none. The script passes it to `niwa dispatch` as `--grant`,
 with your instance as `--parent-from`, when niwa takes those flags, and the
 brief's authority line names exactly what the launch asked for, or says the
 worker holds none. niwa refuses a grant wider than yours: the script exits 11
@@ -3386,7 +3386,7 @@ supplied.
 
 The entry and round come from the answer's own event, never an argument. An
 outcome that isn't one of the options needs `--reason`; `--final` names the
-decider a nested coordinator's reply names. An answer to an earlier round, or to
+decider the reply of the coordinator you escalated to names. An answer to an earlier round, or to
 an entry that isn't escalated, is recorded as evidence and brings the entry back
 for a new verdict. A reversal goes on to `decision_apply`, which records it.
 
