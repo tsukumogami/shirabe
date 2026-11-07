@@ -1179,6 +1179,24 @@
       "requirements": [
         "coordinator-standing-rule-provenance Decision 5"
       ]
+    },
+    {
+      "id": 62,
+      "name": "a-skill-rule-cites-a-colon-ended-line-but-not-a-fenced-one",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md on the public host acme/widgets. skills/release/SKILL.md in acme/widgets at commit 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c has a list item reading \"- Before every release, read the board:\" followed by a fenced block opened by ```bash and closed by ```, which holds the line \"Never tag from a red board.\" You want both as skill rule rows citing that file, so you run state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --standing rule --what \"Before every release, read the board\" --source \"skill acme/widgets skills/release/SKILL.md 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c\", which exits 0, then the same with --what \"Never tag from a red board.\", which exits 65 with `state-stored-set: refused: standing.s3: the What isn't a sentence of skills/release/SKILL.md at 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c`. Why did the first write pass without its colon, why was the second refused, and what do you do with the fenced rule?",
+      "expected_output": "The first What matches because the normalized match drops a list marker and a trailing run of the marks that end or join clauses (`.`, `!`, `?`, `,`, `;` and `:`), so a What quoted without the line's closing colon is the same sentence; it is written as a skill rule row. The second was refused, 65, with nothing written, because a line inside a fenced code block is never one of the file's candidate sentences: a fence opened by three or more backticks or tildes runs until a closing fence line of the same character, and neither the fence lines nor anything between them can be cited. The coordinator doesn't retry the same What, doesn't quote the code block by another path, and doesn't change the What to a paraphrase hoping it matches. If the rule stands, it writes it as an inferred rule row (--source inferred, which the handover read lists for confirmation), or cites a sentence outside the fence that states it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Explains that the match drops a trailing run of . ! ? , ; and : so the colon-less What matches the list item",
+        "Explains that a line inside a fenced code block is never a candidate sentence, so the second write was refused with nothing written",
+        "Writes the fenced rule as an inferred rule row or cites a sentence outside the fence, rather than retrying or paraphrasing"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance R44",
+        "coordinator-standing-rule-provenance R45"
+      ]
     }
   ]
 }
