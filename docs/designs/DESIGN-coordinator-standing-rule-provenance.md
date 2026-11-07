@@ -443,12 +443,14 @@ relayed, so nothing needs rework when koto arrives.
 Brief rules come in once per brief digest. At a start whose brief has no Run
 `briefs` row for its digest, the reconcile gate names a gap, and the
 coordinator writes one `rule` row per rule its brief states that no Standing
-row already holds: the brief's sentence in What, Owner blank, Source
+row already holds, a brief's rules being the sentences Decision 10 counts: the brief's sentence in What, Owner blank, Source
 `inferred brief <label> sha256:<digest>`, and the `briefs` row beside them.
 The match is mechanical, and the writer, `--end` and the intake all use
-the one normalized match: both texts lowercased, a leading list marker and
-trailing punctuation dropped, runs of whitespace collapsed to one space,
-then compared byte for byte. A paraphrase doesn't match. A sentence that
+the one normalized match: both texts lowercased, runs of whitespace
+collapsed to one space and trimmed at both ends, a leading list marker and
+its space dropped, then the longest trailing run of `.`, `!`, `?`, `,`,
+`;` and `:` dropped and any space it leaves trimmed, then compared byte for
+byte (Decision 7). A paraphrase doesn't match. A sentence that
 matches a row already held, superseded rows included, is not written
 again; one matching a superseded row is named in the start
 report as a reversed rule the brief still carries, so prose the owner took
@@ -781,6 +783,152 @@ what stands instead. Five parts:
   koto owns its kinds. If koto decides a ruling needs its own kind, only the
   kind a citation reads changes.
 
+### Decisions 7 to 11: points the rule write and the intake left open
+
+Building the rule write (plan step 6) and specifying the intake (step 7)
+turned up five places where this design's text admits two readings. Each is
+settled here with the exact rule its step builds; the acceptance terms and
+the Components text carry the same rule where the builder reads it. None
+changes another decision above, and only Decision 10 changes a plan step's
+outline (step 7); step 6 stands as outlined.
+
+#### Decision 7: Which trailing punctuation the normalized match drops
+
+**Chosen: the longest trailing run of `.`, `!`, `?`, `,`, `;` and `:`,
+after whitespace is collapsed and trimmed and the list marker dropped.**
+These are the marks that end or join clauses, so a What quoted with or
+without its full stop, or copied from a line ending in a colon, still
+matches. Backticks, brackets, parentheses, quotes, `*` and `_` stay
+significant, since they're markup the splitter keeps (Markup stays in) and
+R4 already makes backticks count. The order is fixed so the result is
+deterministic: lowercase, collapse and trim, drop the marker, drop the run,
+trim again. R44 checks it.
+
+- **Every ASCII punctuation character.** Rejected because it would drop a
+  closing backtick or bracket, so `` `koto next` `` and `` `koto next ``
+  would match and R4's backtick rule would fail at the end of a sentence.
+- **Only the sentence ends the splitter breaks on (`.`, `!`, `?`).**
+  Rejected because a rule copied from a line ending in `:` or `;` wouldn't
+  match its own source line, and nothing is gained by keeping those
+  significant.
+
+#### Decision 8: What the splitter takes as a fence, a heading and a table line
+
+**Chosen: a fence line is one whose first non-blank characters are three or
+more backticks or three or more tildes; it opens a fence that the next fence
+line of the same character, at least as long and followed only by
+whitespace, closes, and an unclosed fence runs to the file's end. Neither
+fence line nor anything between them is a candidate. A heading line (one to
+six `#`s, then a space or the line's end) and a table line (first non-blank
+character `|`) are each one candidate kept whole, never split at a sentence
+end.** This is the fenced-code rule of CommonMark that briefs and skill
+files actually use, without its indentation limit, since fences inside list
+items sit indented. A heading or table row is one unit of meaning: R4
+already lets a whole row with its pipes match, which a split inside the row
+would break, and a heading such as `### Chosen: Yes; ...` reads as one
+statement. R45 checks it.
+
+- **Fences of ```` ``` ```` and `~~~` only, the builder's proposal.** Close to
+  the chosen rule; rejected only in its fixed length, since a four-backtick
+  fence that quotes a three-backtick one would close early and leak the
+  quoted lines in as candidates.
+- **Indented code blocks as fences too.** Rejected because R2 needs an
+  indented continuation of a list item to join the item.
+- **Split headings and table lines like any block.** Rejected because a
+  table row holding `. ` would yield halves that neither R4 nor a reader
+  would call a rule.
+
+#### Decision 9: How many visibility reads a What token naming the Source's repository costs
+
+**Chosen: one. A What token that names the repository a `skill` or `doc`
+Source cites takes the Source's visibility answer and adds no read, and
+repositories are compared case-insensitively, as GitHub names them.** It's
+the reuse item 10 already makes for a host-cited `doc` row: one repository,
+one answer per write. A second read of the same repository in the same write
+can only agree with the first or fail on its own, and a failure there would
+refuse a row whose Source read already passed. R46 checks it.
+
+- **Two reads, the literal reading of "each other distinct token".**
+  Rejected because it spends a forge read and a failure path on a question
+  the write has already answered.
+- **Case-sensitive comparison.** Rejected because `Acme/Gadgets` and
+  `acme/gadgets` are one repository to the forge, and treating them as two
+  would make the read count depend on how prose capitalized a name.
+
+#### Decision 10: What a brief intake counts against the inferred cap
+
+**Chosen: the intake's candidates, and all it counts against either cap,
+are the splitter's output less heading lines and less every sentence under
+the renderer's non-rule sections: `## Goal`, `## Checkpoints`, `## Read
+first`, `## Acceptance criteria`, `## Reporting` and `## Keep-alive`. A
+section runs from its heading line to the next level-one or level-two
+heading.** What remains is what a brief states as standing rules: its
+decisions, its out-of-scope lines, its workspace rules, and any section a
+hand-written brief names otherwise. The excluded sections hold the
+renderer's own template text, which is skill text the Run rules digests
+already name (the reason mirroring skill rules into Standing was rejected
+under Decision 1), and the unit's own description, deliverable and
+checkpoints, which a brief gives rather than imposes as standing rules.
+Read whole, the splitter yields 62 candidates on the smallest rendered brief
+in `testdata/brief-golden/min.txt`, 65 on `leg.txt` and 74 on `base.txt`,
+every one above the cap; filtered, about 7, 11 and 11 by a model of the
+splitter's rules, so the first intake of any of them on an empty record
+stays well under 60. "The brief no longer states" a row's words, both where
+a new digest ends an earlier digest's rows and in `--end`, is tested against
+the same filtered set, so a sentence the intake can't take can't hold a row
+in place. A hand-written brief with none of those headings is taken whole
+less its headings, and an intake that would pass the cap there stops at it
+as designed, leaving the gap open for a person to decide.
+
+- **Count every candidate, the literal reading.** Rejected because the
+  first intake of every rendered brief would pass the cap and leave
+  `brief-unread` open on every start, so the stop meant for a long brief
+  would become the normal path.
+- **Drop heading lines only.** Rejected because it leaves 53, 55 and 64:
+  one golden brief still passes the cap, the others sit within a few
+  sentences of it, and template text still comes in as inferred rules.
+- **Raise the inferred cap.** Rejected because it changes Decision 3's
+  bound to fit text that isn't rules, and template text grows with the
+  skill.
+- **Subtract the renderer's fixed sentences.** Rejected because many
+  template sentences carry substituted values (the address, the run
+  command, the dispatcher's session), so a byte match misses them and a
+  pattern match would be a second normalization.
+
+#### Decision 11: Whether a rule row carries a scope and a review trigger
+
+**Chosen: neither field is added; this records why each is left out and
+which later work carries it.** A row with no scope can be read as applying
+everywhere, and a row nobody revisits survives every succession. Both
+failures are real; neither is fixed by a column this design could fill
+honestly.
+
+- **Scope is part of the rule's words.** When a rule applies and what it
+  defers to are words its source states, and What quotes the source's
+  sentence whole, with `--rules` giving the pointer to the rest. A scope
+  column the writing coordinator filled would be its own paraphrase beside
+  the quoted words, a second copy that can disagree with the source, which
+  is why Owner stays blank (Decision 1). No reader could honor a free-text
+  scope mechanically either: deciding that a rule doesn't apply here is a
+  reading. Carried by the compiled-brief work, where rules stop riding in
+  prose and a rule's condition can be a structured field its source sets.
+- **Review already happens per class, at every succession.** An inferred
+  row is listed by the handover read and the start report at every start
+  until it's confirmed or ended, a trigger of one succession, stricter than
+  any count. A cited row's standing is read from koto each time it's read,
+  so a reversal takes effect without review. A `skill`, `doc` or `pinned`
+  row is pinned to words at a commit, and comparing those with the file's
+  current contents is already the compiled-brief work's (Security
+  Considerations); accretion is bounded by the caps and step 17's
+  threshold.
+
+- **Add both fields, counted in successions, with readers that honor
+  them.** Rejected because the readers of steps 1 to 5 have shipped
+  against the current row shape, and Decision 3 widens the row only in a
+  reader release before anything writes it, so the fields would need a new
+  reader release ahead of step 6 and would reorder the plan. The scope
+  field would also be the unsourced copy described above.
+
 ## Decision Outcome
 
 The first four choices make one path. A rule enters a coordinator's record as a
@@ -1029,7 +1177,13 @@ writes `record/decisions` or `record/reversals`.
   is mechanical: a brief sentence whose normalized text matches a row's What,
   superseded rows included, is not written again, and a new digest of the same brief label ends the
   inferred rows from the earlier digest that the new brief no longer states.
-  An intake that would pass either cap (60 inferred rows binds first)
+  The intake's candidates, and all it counts against either cap, are the
+  brief's rule sentences as Decision 10 sets them: the splitter's output
+  less heading lines and less every sentence under the renderer's
+  `## Goal`, `## Checkpoints`, `## Read first`, `## Acceptance criteria`,
+  `## Reporting` and `## Keep-alive` sections. "The brief no longer
+  states" a row's words, here and in `--end`, is tested against the same
+  set. An intake that would pass either cap (60 inferred rows binds first)
   writes nothing past it and
   leaves the `brief-unread` gap open, naming how many lines it couldn't
   take, so a person decides which rules to end rather than the coordinator
@@ -1383,7 +1537,15 @@ unless a criterion says otherwise, and counts forge reads by the call log.
 What must equal exactly one under Decision 3's one normalized match,
 unchanged. `\r` is dropped and a blank line ends a block. A heading, a
 table line and a fence line each stand alone, a line inside a fence is no
-candidate, a list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then
+candidate, as Decision 8 sets out: a heading line (first non-blank
+characters one to six `#`s, then a space or the line's end) and a table
+line (first non-blank character `|`) are each one candidate kept whole and
+never split at a sentence end; a fence line (first non-blank characters
+three or more `` ` `` or three or more `~`) opens a fence that the next fence
+line of the same character, at least as long and followed only by
+whitespace, closes, an unclosed fence running to the file's end, and
+neither fence line nor any line between them is a candidate. An indented
+line is never a fence, a list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then
 a space) starts a block, and any other line joins the one above with one
 space. A block splits after `.`, `!` or `?`, plus any closing `)`, `]`,
 `"`, `'`, `` ` ``, `*` or `_`, where whitespace follows. Markup stays in.
@@ -1401,6 +1563,8 @@ cited whole. Step 7's intake splits a brief the same way, so
 - R3. A line's second sentence matches. Half a sentence doesn't, and neither does a What running over a sentence break.
 - R4. A sentence holding `` `koto next` `` matches only with its backticks. A heading's text without its `#`s doesn't, a table cell alone doesn't while the whole row with its pipes does, and a sentence inside a fence never does.
 - R5. A matching What still matches when it differs only in case, a leading `- `, a trailing `.` and doubled spaces. A one-word paraphrase doesn't.
+- R44 (Decision 7). `norm_match` holds for each of `Wait for CI.`, `wait for ci;`, `wait for ci?!` and `- Wait for CI :` against `Wait for CI`, and fails for `Wait for CI)`, `Wait for CI"` and `Wait for CI]`; a What ending in a backtick doesn't match the same text without it.
+- R45 (Decision 8). In `cited.md`, a ```` ```bash ```` fence closed by ```` ``` ```` and a `~~~~` fence closed by `~~~~` yield no candidate from either fence line or the lines between; a ```` ``` ```` line inside the `~~~~` fence doesn't close it; a line indented four spaces under a list item joins that item; a heading `## Done. Next steps` and a table row `| a. b | c. |` are each exactly one candidate.
 
 2. The default branch on a host that isn't public, within two reads. The
 ancestry read is `gh api --method GET repos/<r>/compare/<commit>...HEAD
@@ -1437,7 +1601,10 @@ the whole-token match the Components entry's "same repository check"
 means, matches only `owner/repo` (`state-schema.jq:93-95`). A token
 already on the core's list of repositories that aren't public is refused
 with no read. On a public host each other distinct token, the host
-excepted, gets one visibility read: `private: false` passes, `private:
+excepted, gets one visibility read, and a token naming the repository a
+`skill` or `doc` Source cites shares that Source's visibility read rather
+than taking its own (Decision 9); tokens, the host and the Source's
+repository are compared case-insensitively throughout this item: `private: false` passes, `private:
 true` is refused, a 404 is refused when the token's owner is the host's
 owner (case-insensitive) and passes otherwise, so `and/or`, `CI/CD` and
 `work/notes.md` pass, and any other failure is item 4's, exit 2 with
@@ -1460,6 +1627,7 @@ unless a criterion says otherwise, with the stand-in holding
 - R39. Private host: R37's Whats are each written, and the log holds no `repos/` read naming any token.
 - R40 (`state-schema_test.sh`). The token extractor's output on `see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4` is exactly `["acme/secret","and/or"]`.
 - R41 (`standing-rule-write_engine_test.sh`). An `inferred` row whose What holds `other/absent`, with the stand-in's `fail` matching `repos/other/absent` with `HTTP 502`, exits 2 with stderr holding `cannot read other/absent's visibility`, not 65, and nothing is written.
+- R46 (same suite, Decision 9). A `skill acme/gadgets <path> <c>` write whose What holds `acme/gadgets` and `Acme/Gadgets` gives a log that differs from R27's write with the same What less both tokens by nothing: exactly one `repos/acme/gadgets` read. A What holding `other/absent` and `Other/Absent` adds exactly one `repos/other/absent` read.
 
 4. A forge read that fails or doesn't answer. Each of the three reads,
 and each of item 3's token reads, runs under `dc_with_deadline "${FORGE_READ_SECONDS:-10}"`

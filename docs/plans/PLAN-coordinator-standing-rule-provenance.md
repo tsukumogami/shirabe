@@ -194,7 +194,7 @@ shirabe, after the reader release has shipped: the writer takes `rule` and `--so
 
 ### Step 7: a start whose brief has no briefs row names brief-unread, and the intake brings each brief rule in once as an inferred row
 
-shirabe, after step 6: `record/host` names the brief, the handover read raises `brief-unread <label>`, the intake writes one `inferred brief` rule row per unmatched brief sentence by the normalized match plus the `briefs` row, is idempotent on one digest, brings a pause-shaped line in as a restrict-only `rule` row, ends the earlier digest's inferred rows the new brief no longer states, and leaves the gap open naming the count when a cap would be passed.
+shirabe, after step 6: `record/host` names the brief, the handover read raises `brief-unread <label>`, the intake writes one `inferred brief` rule row per unmatched brief rule sentence by the normalized match plus the `briefs` row, its candidates being the splitter's output less heading lines and less the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting and Keep-alive sections (the design's Decision 10), so the first intake of each `testdata/brief-golden` brief on an empty record stays under the 60-inferred cap, is idempotent on one digest, brings a pause-shaped line in as a restrict-only `rule` row, ends the earlier digest's inferred rows the new brief no longer states, and leaves the gap open naming the count when a cap would be passed.
 
 ### Step 8: state-keys.md and SKILL.md describe rule rows, Source forms, classes and the two read modes
 
