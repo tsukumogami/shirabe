@@ -97,18 +97,6 @@ for f in "$BIN"/*; do
     [ "$(basename "$f")" = timeout ] || ln -s "$f" "$NOTO/$(basename "$f")"
 done
 
-echo "== PROBE (temporary) =="
-bash --version | head -n 1
-tp=$(command -v timeout) && echo "timeout: $tp -> $(readlink -f "$tp")" && timeout --version 2>&1 | head -n 1
-grep -E '^Sig(Ign|Blk)' /proc/$$/status 2>/dev/null
-for sg in KILL TERM; do
-    timeout -s "$sg" 2 sh -c 'sleep 47 & sleep 47'; echo "probe timeout -s $sg rc=$?"; sleep 1
-    pgrep -fa 'sleep 47' || echo "probe -s $sg: none left"; pkill -f 'sleep 47'
-done
-mkdir -p "$T/pm"; chmod 700 "$T/pm"; ls -ld -- "$T/pm"
-seq 1 200000 >"$T/big"; x=$(printf '%s\n' "$(cat "$T/big")" | awk '{ print; exit }'); echo "probe pipe x=$x"
-echo "== END PROBE =="
-
 # new_home: a fresh scratch HOME with a fake sender that records its argv, one
 # argument per line, and its environment's names and values.
 new_home() {
