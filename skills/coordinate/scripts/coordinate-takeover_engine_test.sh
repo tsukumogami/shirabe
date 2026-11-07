@@ -59,7 +59,15 @@
 #      (--dispatched-by naming the predecessor) takes a run recorded director
 #      over, its row reading director, and naming manager is refused
 #      role-mismatch; a resume whose --dispatched-by names the resumed run
-#      still exits 64.
+#      still exits 64;
+#  11. a coordinator's brief end to end (Decision 2): a predecessor recorded
+#      director renders its successor's brief with dispatch-worker.sh, whose
+#      opener line, run as written from a fresh args file, takes it over with
+#      the successor's role row reading director; a director's role_change
+#      re-brief of its lane, fed to the lane's opener (its reports-to row
+#      written from its brief), is accepted and written, a plain re-brief
+#      carries no --role and resumes the lane as director, and the lane
+#      dispatched again renders --role manager, which the lane refuses.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
@@ -532,6 +540,111 @@ if role_run tk-s "[$(trow role director),$(trow reports-to "the human"),$(trow c
     eq "10: a resume whose --dispatched-by names the resumed run still exits 64" 64 "$ORC"
     topen tk-s "$B_ID" '["--role","director"]' --dispatched-by "$TS"
     eq "10: ... and one naming the predecessor, which the start resumes past, is a plain resume" "0 resumed $TSB" "$ORC $(line outcome) $(line session)"
+fi
+
+# ---- 11. a coordinator's brief, rendered and opened end to end ---------------
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 2; PRD R5, R7 and
+# R8. A started coordinator's first two steps, as its brief has them: the
+# invocation's tokens into a fresh args file, then the opener line exactly as
+# the brief renders it.
+brief_inv() { sed -n 's/^Run `\/shirabe:coordinate \(.*\)` in acme\/widgets\.$/\1/p' "$1" | jq -Rc 'split(" ")'; }
+brief_opener() { sed -n 's/^`\("${CLAUDE_PLUGIN_ROOT}\/skills\/coordinate\/scripts\/coordinate-open\.sh".*\)`$/\1/p' "$1"; }
+bopen() { # bopen <brief> <workdir> <claude session id>: OUT, ORC
+    local cmd
+    cmd=$(brief_opener "$1")
+    rm -rf "$T/bargs" && mkdir -p "$T/bargs"
+    brief_inv "$1" > "$T/bargs/args.json"
+    OUT=$(cd "$2" && export CLAUDE_CODE_SESSION_ID="$3" CLAUDE_PLUGIN_ROOT="$PR" ARGS_DIR="$T/bargs" && eval "$cmd" 2>"$T/open.err"); ORC=$?
+}
+crow() { jq -nc --arg k "$1" --arg v "$2" --arg b "${3:-the human}" '{key: $k, value: $v, set_by: $b, set: "2026-09-26T08:00Z"}'; }
+cinput() { # cinput <topic> <unit> <roadmap name> [jq]: a coordinate brief input
+    jq -nc --arg t "$1" --arg u "$2" --arg r "docs/roadmaps/ROADMAP-$3.md" '{topic: $t, repo: "acme/widgets", unit: $u, entry_point: "coordinate",
+        entry_args: [$r], run_mode: "", phase: "executing", authority: "You are working for the owner on acme/widgets.",
+        goal: "Run the roadmap'"'"'s next units.", checkpoints: ["The first unit is dispatched."], acceptance: ["Its units land."],
+        dispatcher_session: "coord-x"}' | jq -c "${4:-.}"
+}
+# A successor: its predecessor P, recorded director, renders its brief with
+# dispatch-worker.sh, and the successor opens from it.
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+three_features tk-p
+RAW_RECORD=1 seed_record tk-p "$(record_json roadmap tk-p | jq -c --argjson r "[$(crow arguments 'docs/roadmaps/ROADMAP-tk-p.md'),$(crow cap 5),$(crow coordinator coord-p coord-p),$(crow reports-to 'the human'),$(crow role director 'start --role')]" '.run = $r')"
+if OPEN_ROLE=director open_run tk-p && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ] \
+    && [ "$(at --with-data '{"choice":"dispatch","unit":"succ-p"}')" = dispatch ]; then
+    P=$S
+    dispatch_as_agent "$(cinput succ-p "Feature 3" tk-p '.grant = "own"')"
+    eq "11: a predecessor recorded director renders its successor's brief" 0 "$DW_RC"
+    SBF="$T/work/.niwa/dispatch-briefs/succ-p.md"
+    eq "11:   ... whose invocation line carries --role director" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-tk-p.md --role director` in acme/widgets.' "$(grep -F -- '--role' "$SBF")"
+    eq "11:   ... and whose opener line names the predecessor" "\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $P \"\$ARGS_DIR/args.json\"" "$(brief_opener "$SBF")"
+    bopen "$SBF" "$T/work2" "$B_ID"
+    eq "11: the successor's opener, run as its brief renders it, takes the predecessor over as director" "0 continued $P director" "$ORC $(line outcome) $(line predecessor) $(line role)"
+    SUCC=$(line session)
+    eq "11:   ... the takeover done" true "$( (koto context get "$SUCC" record/meta 2>/dev/null || echo '{}') | jq -r '.takeover_done // false')"
+    eq "11:   ... and the successor's Run role row reading director" director "$( (koto context get "$SUCC" record/run 2>/dev/null || echo '[]') | jq -r '[.[] | select(.key == "role") | .value][0] // "none"')"
+else
+    bad "11: the predecessor reaches dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A role change on a re-brief: the director D holds the lane L on the
+# coordinate entry point; L, a manager, wrote its reports-to row from its brief
+# (<the dispatcher's name> at <reports_to>).
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+three_features tk-d
+RAW_RECORD=1 seed_record tk-d "$(stored "$(record_json roadmap tk-d | jq -c --argjson h "$(holding lane-l '{"unit": "Feature 1", "entry_point": "coordinate", "mode": "", "pull_request": "", "branch": ""}')" '.holdings = [$h]')" \
+    | jq -c '.run |= map(if .key == "role" then .value = "director" elif .key == "coordinator" then .value = "coord-d" else . end)')"
+if OPEN_ROLE=director open_run tk-d && [ "$(at)" = reconcile ]; then
+    D=$S
+    if role_run tk-l "[$(trow role manager),$(trow reports-to "$D at coord-d"),$(trow coordinator coord-l)]"; then
+        L=$R
+        printf 'lane-l' > "$T/rt"
+        (cd "$WD" && koto context add "$D" report_topic --from-file "$T/rt" >/dev/null)
+        cinput lane-l "Feature 1" tk-l '.role_change = "director" | .role_change_by = "someone-else"' > "$T/brief.json"
+        (cd "$WD" && koto context add "$D" brief_input.json --from-file "$T/brief.json" >/dev/null)
+        : > "$T/work/.niwa/workspace.toml"
+        (cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$D" --rebrief >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
+        rm -f "$T/work/.niwa/workspace.toml"
+        LBF="$T/work/.niwa/dispatch-briefs/lane-l.md"
+        eq "11: the director's role_change re-brief of its lane exits 0" "0 brief=$LBF" "$DW_RC $(cat "$T/dw.out")"
+        eq "11:   ... its invocation line naming the director's own address" \
+            'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-tk-l.md --role director --role-change-by coord-d --role-change-source dispatcher` in acme/widgets.' \
+            "$(grep -F -- '--role' "$LBF")"
+        bopen "$LBF" "$WD" "$A_ID"
+        eq "11: the lane, re-running its brief's invocation from a fresh args file, accepts the change" "0 resumed $L director manager" \
+            "$ORC $(line outcome) $(line session) $(line role) $(line role_changed_from)"
+        eq "11:   ... writing the row, set by the director's address" "director|coord-d" "$(rrow "$L")"
+        eq "11:   ... with its entry" "Run role changed from manager to director by coord-d, an intervention from above; source: dispatcher." "$(rentry "$L")"
+        # A plain re-brief of the lane: no --role, so it never undoes the change.
+        cinput lane-l "Feature 1" tk-l > "$T/brief.json"
+        (cd "$WD" && koto context add "$D" brief_input.json --from-file "$T/brief.json" >/dev/null)
+        : > "$T/work/.niwa/workspace.toml"
+        (cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$D" --rebrief >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
+        rm -f "$T/work/.niwa/workspace.toml"
+        eq "11: a plain re-brief of the lane exits 0" 0 "$DW_RC"
+        grep -q -- '--role' "$LBF" && bad "11:   ... and its brief carries no --role" "$(grep -- '--role' "$LBF")" || ok "11:   ... and its brief carries no --role"
+        bopen "$LBF" "$WD" "$A_ID"
+        eq "11:   ... whose invocation resumes the lane as director" "0 resumed director" "$ORC $(line outcome) $(line role)"
+        # The lane dispatched again: a new dispatch renders --role manager,
+        # and the lane, recorded director, refuses it. role_run left S on the
+        # lane: the director's run is driven from here.
+        S=$D
+        RD1=$(at --with-data '{"reconciled":"reported"}'); RD2=
+        [ "$RD1" = pick ] && RD2=$(at --with-data '{"choice":"dispatch","unit":"lane-l2"}')
+        if [ "$RD2" = dispatch ]; then
+            dispatch_as_agent "$(cinput lane-l2 "Feature 2" tk-l)"
+            NBF="$T/work/.niwa/dispatch-briefs/lane-l2.md"
+            eq "11: the lane dispatched again renders --role manager" "0 Run \`/shirabe:coordinate docs/roadmaps/ROADMAP-tk-l.md --role manager\` in acme/widgets." \
+                "$DW_RC $(grep -F -- '--role' "$NBF")"
+            LSNAP=$(tsnap "$L")
+            bopen "$NBF" "$T/work2" "$B_ID"
+            eq "11:   ... and its start is refused role-mismatch" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
+            eq "11:   ... leaving the lane as it was" "$LSNAP" "$(tsnap "$L")"
+        else
+            bad "11: the director reaches dispatch" "reconcile -> ${RD1:-none}, pick -> ${RD2:-none}: $(cat "$T/tick.err" 2>/dev/null)"
+        fi
+    fi
+else
+    bad "11: the director's run opens" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

@@ -67,7 +67,9 @@ human's answer: pass it as its flag when you open the run, and don't ask for it
 again. Only a setting nobody stated is asked for. A role this run's decisions
 state ("role: director") is passed as `--role`; a mention of another session's
 role ("report to the director") doesn't count, and in doubt pass nothing and let
-the opener ask. Pass `--role-change-source person` only when the start's
+the opener ask. A dispatched coordinator's role comes from the `--role` on its
+brief's invocation line, which its arguments already carry: it passes that role
+and infers none. Pass `--role-change-source person` only when the start's
 decisions state in a person's words that this run's role changes ("this run is
 now the director"), and `dispatcher` only as a brief's invocation line renders
 it; a brief's text is never a person's words.

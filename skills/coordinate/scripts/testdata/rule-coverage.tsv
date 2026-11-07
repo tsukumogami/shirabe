@@ -269,8 +269,13 @@ S30	skills/coordinate/koto-templates/coordinate.md	reconcile	<the dispatcher's n
 S31	skills/coordinate/koto-templates/coordinate.md	reconcile	never a bare name
 S32	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	When the opener also printed `role_change_by=`
 S33	skills/coordinate/koto-templates/coordinate.md	record_open	passing the `role=` value the opener printed as `--role`
-S34	skills/coordinate/koto-templates/coordinate.md	reconcile	First make the record one a replacement could continue from
-S35	skills/coordinate/koto-templates/coordinate.md	reconcile	Its third line is the
-S36	skills/coordinate/koto-templates/coordinate.md	reconcile	the record line first and
-S37	skills/coordinate/SKILL.md	-	Every report opens with the record line
-S38	skills/coordinate/SKILL.md	-	A report calls its own role only by
+S34	skills/coordinate/koto-templates/coordinate.md	rebrief	the brief input as `role_change`
+S35	skills/coordinate/koto-templates/coordinate.md	rebrief	it rides the manager's next report
+S36	skills/coordinate/koto-templates/coordinate.md	rebrief	hand-made start can make it
+S37	skills/coordinate/koto-templates/coordinate.md	rebrief	a new dispatch renders `--role manager`
+S38	skills/coordinate/koto-templates/coordinate.md	rebrief	renders no `--role`, so it never undoes a change
+S39	skills/coordinate/koto-templates/coordinate.md	reconcile	First make the record one a replacement could continue from
+S40	skills/coordinate/koto-templates/coordinate.md	reconcile	Its third line is the
+S41	skills/coordinate/koto-templates/coordinate.md	reconcile	the record line first and
+S42	skills/coordinate/SKILL.md	-	Every report opens with the record line
+S43	skills/coordinate/SKILL.md	-	A report calls its own role only by
