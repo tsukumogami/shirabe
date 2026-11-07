@@ -218,7 +218,10 @@ jq -nc --arg p "$PR" '[["SCOPE", "roadmap"], ["ROADMAP", "docs/roadmaps/ROADMAP-
     ["ROADMAP_FORM", "feature"], ["PLUGIN_ROOT", $p]]' > "$T/vars.json"
 (cd "$WD" && bash "$PR/scripts/koto-open.sh" "$G" "$TPL" "$T/vars.json") > "$T/open.out" 2> "$T/open.err" \
     || stop "the run opens" "$(cat "$T/open.out" "$T/open.err")"
-RECORD=$(record_json roadmap rulewrite | jq -c --arg v "charter $PA" '.run = [{key: "rules", value: $v, set_by: "the human", set: "2026-10-20T08:00Z"}]')
+# The Run rules row the pinned rows pin carries a workspace- label, so
+# --rules --counts reads it charter and the inferred counts below are the
+# Standing rows' alone.
+RECORD=$(record_json roadmap rulewrite | jq -c --arg v "workspace-charter $PA" '.run = [{key: "rules", value: $v, set_by: "the human", set: "2026-10-20T08:00Z"}]')
 (cd "$WD" && session_seed "$G" "$RECORD" 2026-10-20T08:00:00Z) || stop "the run's record is seeded" ""
 [ "$(at "$G")" = reconcile ] || stop "the run finds its record" "$(cat "$T/tick.err")"
 mode none
@@ -254,7 +257,7 @@ crit "R24. on a record with no standing_used, the write after a rule write takes
 empty_standing
 for f in "inferred|[\"inferred\",\"unconfirmed\",true,{\"row\":\"$G record/standing @\"}]" \
     "inferred brief worker $PB|[\"inferred\",\"unconfirmed\",true,{\"brief\":\"worker\",\"digest\":\"$PB\"}]" \
-    "pinned charter $PA|[\"charter\",\"in-force\",false,{\"pinned\":\"charter\",\"digest\":\"$PA\"}]" \
+    "pinned workspace-charter $PA|[\"charter\",\"in-force\",false,{\"pinned\":\"workspace-charter\",\"digest\":\"$PA\"}]" \
     "$SRC_DOC|[\"charter\",\"in-force\",false,{\"repo\":\"acme/widgets\",\"path\":\"$DOC\",\"commit\":\"$C\"}]"; do
     src=${f%%|*}
     try --standing rule --what "$WHAT" --source "$src"
@@ -450,7 +453,7 @@ crit "R41. a What token whose visibility read fails with HTTP 502 exits 2, not 6
 # standing_fixture <rule rows> <inferred among them> <kinds|event row count>:
 # a Standing value, the rule rows inferred and then pinned, then the event rows.
 standing_fixture() {
-    jq -nc --argjson r "$1" --argjson i "$2" --arg ev "$3" --arg pin "pinned charter $PA" '
+    jq -nc --argjson r "$1" --argjson i "$2" --arg ev "$3" --arg pin "pinned workspace-charter $PA" '
         def row($n; $k): {standing: "s\($n)", kind: $k, on: "", until: "", what: "row \($n)", owner: "", relayed_by: "", set: "2026-10-20T08:00Z"};
         [range($r) | row(. + 1; "rule") + {source: (if . < $i then "inferred" else $pin end)}]
         + (if $ev == "kinds" then
@@ -464,7 +467,7 @@ standing_fixture() {
 CAP60="refused: standing: the record holds 60 inferred rule rows, the most it keeps; confirm or end one first"
 CAP120="refused: standing: the record holds 120 rule rows, the most it keeps; end one first"
 standing_fixture 120 60 kinds
-for c in "inferred|$CAP60" "inferred brief worker $PB|$CAP60" "pinned charter $PA|$CAP120" "$SRC_SKILL|$CAP120" \
+for c in "inferred|$CAP60" "inferred brief worker $PB|$CAP60" "pinned workspace-charter $PA|$CAP120" "$SRC_SKILL|$CAP120" \
     "$SRC_DOC|$CAP120" "decision example 000000000007|$CAP120"; do
     try --standing rule --what "$WHAT" --source "${c%%|*}"
     refused "a ${c%% *} row at both caps" 65 "${c#*|}"
@@ -477,7 +480,7 @@ for s in inferred "inferred brief worker $PB"; do
     try --standing rule --what "$WHAT" --source "$s"
     refused "a ${s%% *} row at 60 inferred of 100" 65 "$CAP60"
 done
-try --standing rule --what "$WHAT" --source "pinned charter $PA"
+try --standing rule --what "$WHAT" --source "pinned workspace-charter $PA"
 written "a pinned row at 60 inferred of 100"
 crit "R15. with 60 inferred among 100 rule rows, an inferred or inferred brief row is refused naming 60, and a pinned row is written"
 standing_fixture 119 59 30

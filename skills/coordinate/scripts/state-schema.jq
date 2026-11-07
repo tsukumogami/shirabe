@@ -578,6 +578,7 @@ def check_state($sec; $rows; $private):
 # prints them.
 # rule_counts: a Standing value's `<class> <count>` lines, one per class in
 # that order, a class no row reads printed with 0.
+# class_counts: the same lines over an array of class names.
 def rule_classes: ["relayed", "owner-said", "dispatcher-said", "inferred", "skill-says", "charter", "unreadable"];
 def rule_class:
   ((.source // "") | split(" ")[0] // "") as $f
@@ -586,9 +587,36 @@ def rule_class:
     elif $f == "skill" then "skill-says"
     elif $f == "doc" or $f == "pinned" then "charter"
     else "unreadable" end;
-def rule_counts:
-  [.[] | rule_class] as $c
+def class_counts:
+  . as $c
   | rule_classes[] | . as $k | "\($k) \([$c[] | select(. == $k)] | length)";
+def rule_counts: [.[] | rule_class] | class_counts;
+# A Run `rules` row, `<label> sha256:<64 hex>`, read as a sourced line at read
+# time (the design's Decision 5): nothing is stored for it, and the schema is
+# unchanged.
+# run_rule_class: its class by its label, skill-says for a `skill-` label,
+# charter for a `workspace-` label, inferred for any other.
+# run_rule_view: the object state-stored-set.sh --rules prints for it: run,
+# kind (skill, workspace or other, as before), label and digest, then class,
+# said (the row's Set) and pointer {label, digest, host}, host the name of the
+# record/host key that holds the file's path, which isn't read. It carries no
+# status, confirm or grant field: the class is for reading only, and
+# rule_grants judges Standing rows alone.
+# record_rule_counts: over a record, the `<class> <count>` lines counting its
+# Standing rows and its Run `rules` rows each in its class.
+def run_rule_class:
+  (.value | split(" ")[0]) as $l
+  | if ($l | startswith("skill-")) then "skill-says"
+    elif ($l | startswith("workspace-")) then "charter"
+    else "inferred" end;
+def run_rule_view:
+  (.value | split(" ")) as $p
+  | {run: "rules",
+     kind: (if ($p[0] | startswith("skill-")) then "skill" elif ($p[0] | startswith("workspace-")) then "workspace" else "other" end),
+     label: $p[0], digest: $p[1], class: run_rule_class, said: .set,
+     pointer: {label: $p[0], digest: $p[1], host: "rules:\($p[0])"}};
+def record_rule_counts:
+  [((.standing // [])[] | rule_class), ((.run // [])[] | select(.key == "rules") | run_rule_class)] | class_counts;
 def rule_status:
   if . == "inferred" then "unconfirmed" elif . == "unreadable" then "unreadable" else "in-force" end;
 # The caps state-stored-set.sh holds a new rule row to, over a Standing value:

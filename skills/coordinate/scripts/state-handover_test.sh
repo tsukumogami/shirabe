@@ -11,7 +11,12 @@
 # refusing a record that holds one worker as both told and pending, or as
 # pending twice, so a reader stops on it (10); the Run `role` row printed as
 # role, manager, director or null, --check listing the gap no-role with its
-# fix when the record holds none and no such gap when it holds either.
+# fix when the record holds none and no such gap when it holds either; a
+# record with no reports-to row listing no-reports-to alone, and the gap
+# reports-to-unsourced: none for a reports-to naming a person, listed for one
+# naming a session with its fix, cleared by a dispatched-by link to that
+# session (not one to another) and by a rule row's What or an event row's
+# Relayed by naming it as a whole word (not a longer name holding it).
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -108,6 +113,35 @@ seed "$(record "[$(row told worker-f2),$(row told worker-f3)]" | jq -c '.run = [
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/gate"
 grep -qF 'no-reports-to: state-stored-set.sh --run reports-to "<name>[ at <address>]" --by <who>' "$T/gate" \
     && ok "the no-reports-to fix names <name>[ at <address>]" || bad "the no-reports-to fix names <name>[ at <address>]" "$(cat "$T/gate")"
+gate; eq "  ... and a record with no reports-to row lists no-reports-to alone" "1 no-reports-to" "$G"
+
+echo "== reports-to-unsourced =="
+# The design's Decision 5: a reports-to row naming a session, `<name> at
+# <address>`, holds the gate unless the run's session holds a dispatched-by
+# link to the address or a Standing row names it; a person's name names no
+# session.
+told_both="[$(row told worker-f2),$(row told worker-f3)]"
+with_rt() { record "$told_both" | jq -c --arg v "$1" '.run |= map(if .key == "reports-to" then .value = $v else . end)'; }
+seed "$(record "$told_both")"
+gate; eq "a reports-to naming a person, the human, lists neither reports-to gap" "0 " "$G"
+seed "$(with_rt "director at coord-lead")"
+gate; eq "a reports-to naming a session with no link and no Standing row lists reports-to-unsourced" "1 reports-to-unsourced" "$G"
+grep -qF 'reports-to-unsourced: state-stored-set.sh --run reports-to "director at coord-lead" --inferred "Report to coord-lead: ' "$T/gate" \
+    && grep -qF 'koto session link <this run> --dispatched-by coord-lead' "$T/gate" \
+    && ok "  ... its fix the --inferred write, or the dispatched-by link" || bad "  ... its fix the --inferred write, or the dispatched-by link" "$(cat "$T/gate")"
+printf '{}' | koto context add "$SR" koto/links/dispatched-by/coord-lead
+gate; eq "  ... a dispatched-by link to the address clears it" "0 " "$G"
+koto context remove "$SR" koto/links/dispatched-by/coord-lead
+printf '{}' | koto context add "$SR" koto/links/dispatched-by/coord-other
+gate; eq "  ... a link to another session doesn't" "1 reports-to-unsourced" "$G"
+koto context remove "$SR" koto/links/dispatched-by/coord-other
+for c in "a rule row's What|{\"standing\":\"s1\",\"kind\":\"rule\",\"on\":\"\",\"until\":\"\",\"what\":\"Report to coord-lead.\",\"owner\":\"\",\"relayed_by\":\"\",\"set\":\"2026-09-26T08:00Z\",\"source\":\"inferred\"}" \
+    "an event row's Relayed by|{\"standing\":\"s1\",\"kind\":\"approval\",\"on\":\"\",\"until\":\"\",\"what\":\"ship the docs first\",\"owner\":\"the human\",\"relayed_by\":\"coord-lead\",\"set\":\"2026-09-26T08:00Z\"}"; do
+    seed "$(with_rt "director at coord-lead" | jq -c --argjson r "${c#*|}" '.standing = [$r]')"
+    gate; eq "  ... $(printf '%s' "${c%%|*}") naming the address clears it" "0 " "$G"
+done
+seed "$(with_rt "director at coord-lead" | jq -c '.standing = [{standing: "s1", kind: "rule", on: "", until: "", what: "Report to coord-leader.", owner: "", relayed_by: "", set: "2026-09-26T08:00Z", source: "inferred"}]')"
+gate; eq "  ... a row naming a longer name holding it doesn't" "1 reports-to-unsourced" "$G"
 
 echo "== the schema =="
 state_json "$(record "[$(row told worker-f2),$(row pending worker-f2)]")" >/dev/null 2>"$T/err"
