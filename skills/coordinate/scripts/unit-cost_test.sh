@@ -767,38 +767,6 @@ eq "  ... the lock is released after them" no "$([ -e "$PL" ] && echo yes || ech
 echo "PROBE (temporary) listing: $(tr '\n' ' ' <"$T/listing") P1=$P1 P2=$P2"
 echo "PROBE cap1.err:"; sed 's/^/  | /' "$T/cap1.err"
 echo "PROBE cap2.err:"; sed 's/^/  | /' "$T/cap2.err"
-if [ "$(uname -s)" = Linux ] || [ -n "${PROBE_FORCE:-}" ]; then
-    echo "== PROBE (temporary): the post lock, repeated =="
-    pmiss=0
-    for pi in $(seq 1 30); do
-        seed; fresh; prs "acme/widgets#21 $MERGE"
-        rm -rf "$T/c" "$T/go" "$T/listing" "$PL"; mkdir -p "$T/c"; cp -R "$A" "$T/c/2026-10-04-feat-x-0a1b2c3d"
-        px=""; [ $((pi % 2)) = 1 ] && px=-x
-        PATH="$T/barrier:$PATH" UNIT_COST_LIST_SECS=40 UNIT_COST_POST_SECS=20 PS4='+${EPOCHREALTIME} $$ ' \
-            bash $px "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/pcap1.err" &
-        Q1=$!
-        PATH="$T/barrier:$PATH" UNIT_COST_LIST_SECS=40 UNIT_COST_POST_SECS=20 PS4='+${EPOCHREALTIME} $$ ' \
-            bash $px "$UC" capture --session "$S" --archive "$T/c/2026-10-04-feat-x-0a1b2c3d" --topic feat-x --prs-file "$T/prs" 2>"$T/pcap2.err" &
-        Q2=$!
-        i=0
-        until [ -s "$T/listing" ] || [ "$i" -ge 600 ]; do sleep 0.1; i=$((i + 1)); done
-        sleep 3
-        pl=$(grep -c . "$T/listing"); pown=$(cat "$PL/owner" 2>&1)
-        touch "$T/go"; wait "$Q1"; wait "$Q2"
-        np=$(grep -c '^api --method POST repos/acme/widgets/issues/21/comments' "$GH_DB.calls")
-        POSTED=$((POSTED + np))
-        echo "PROBE run $pi${px:+ (traced)}: listing=$pl posts=$np P=$Q1,$Q2 owner-at-check=[$pown]"
-        if [ "$pl" != 1 ] || [ "$np" != 1 ]; then
-            pmiss=$((pmiss + 1))
-            for k in 1 2; do
-                echo "PROBE run $pi cap$k said:"; grep -v '^+' "$T/pcap$k.err" | sed 's/^/  | /'
-                echo "PROBE run $pi cap$k lock trace:"
-                grep -E 'post-lock|kill -0|AC_WHY|blank=|own=|sown=|mv -- |side=|ac_lock|ac_removals_dir|ac_dir_private|ls -ld|context list' "$T/pcap$k.err" | head -n 80 | sed 's/^/  | /'
-            done
-        fi
-    done
-    echo "PROBE post lock repeated: $pmiss of 30 missed"
-fi
 # A lock left by a process that is gone is taken over.
 seed; fresh
 mkdir -p "$PL"; printf '%s %s\n' 999999 "$(date +%s)" >"$PL/owner"
