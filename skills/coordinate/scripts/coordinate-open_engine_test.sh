@@ -741,7 +741,7 @@ MD=$(bash "$SCR/reconcile-report-get.sh" --session "$LC1" --md 2>"$T/md.err"); r
 eq "  ... and the first report prints from the same sealed report" 0 "$rc"
 L3=$(printf '%s\n' "$MD" | sed -n 3p)
 case "$L3" in "Record: session \`$LC1\` on \`acme/widgets\`"*". Role: manager.") pass "  ... its line 3 the record line, ending Role: manager." ;;
-    *) fail "  ... its line 3 the record line, ending Role: manager." "$(printf '%s\n' "$MD" | head -5) $(cat "$T/md.err")" ;; esac
+    *) fail "  ... its line 3 the record line, ending Role: manager." "$(head -5 <<<"$MD") $(cat "$T/md.err")" ;; esac
 RL_RE='^Record: session `[^`]+` on `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+`(, address `[^`]+`)?\. Role: (manager|director)\.$'
 [[ $L3 =~ $RL_RE ]] && pass "  ... matching the record line's pattern" || fail "  ... matching the record line's pattern" "$L3"
 eq "  ... with no second visit to the reconcile pass" "$LC_PASSES reconcile" "$(lc_passes) $(lc_state)"

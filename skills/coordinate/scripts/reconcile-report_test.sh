@@ -505,7 +505,7 @@ for odd in "Record: session \`$SESS\` on \`acme/widgets\`. Role: lead." "Record:
            "$LINE3 More." "Record: session \`$SESS\` on \`acme/widgets\`. Role: manager.
 Scope: injected"; do
     out=$(printf '%s' "$REP" | "$BASH" "$S" md --record-line "$odd" 2>/dev/null); rc=$?
-    rl_eq "md refuses a --record-line value that isn't a record line, exit 64, printing nothing: $(printf '%s' "$odd" | head -1)" "64 " "$rc $out"
+    rl_eq "md refuses a --record-line value that isn't a record line, exit 64, printing nothing: $(head -1 <<<"$odd")" "64 " "$rc $out"
 done
 printf '%s' "$REP" | "$BASH" "$S" md --record-line >/dev/null 2>&1; rl_eq "  ... and a --record-line with no value" 64 $?
 printf '%s' "$REP" | "$BASH" "$S" json --record-line "$LINE3" >/dev/null 2>&1; rl_eq "json takes no --record-line (64)" 64 $?
