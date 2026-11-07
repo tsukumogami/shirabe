@@ -26,7 +26,8 @@ shared	state-schema.jq
 # state-carry_test.sh each measured alone in one run on main at 214a06cb, and
 # coordinate-takeover-load_engine_test.sh at the cost of its skip, since it
 # runs on CI only (CI set) and SKIPs anywhere check-skill.sh runs it;
-# rule-sources_engine_test.sh was measured alone in one run.
+# rule-sources_engine_test.sh and discipline-carry_engine_test.sh were each
+# measured alone in one run.
 cost	coordinate_1_engine_test.sh	271
 cost	state-carry_test.sh	262
 cost	coordinate_2_engine_test.sh	255
@@ -148,3 +149,4 @@ cost	rule-sources_engine_test.sh	22
 cost	alignment-call_test.sh	37
 cost	alignment-read_test.sh	6
 cost	alignment-sources_test.sh	15
+cost	discipline-carry_engine_test.sh	23
