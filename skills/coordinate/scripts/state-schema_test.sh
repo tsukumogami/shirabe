@@ -24,7 +24,10 @@
 # every key as it was. For a rule row the writer writes: a cited file's
 # sentence split and the normalized match over testdata/standing-rules/cited.md,
 # the What's two-part repository tokens, a path starting with `-` refused, and
-# the 120-rule and 60-inferred caps.
+# the 120-rule and 60-inferred caps. For the brief intake: brief_candidates on
+# the testdata/brief-golden briefs (7, 11 and 11 sentences, the ones
+# testdata/standing-rules/brief-kept.json lists) and its section rule, and
+# brief_intake_plan's writes, ends, room and untaken.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/state-schema_test.sh
@@ -350,6 +353,45 @@ eq "  ... and at 120 with 60 inferred, an inferred row names the inferred cap fi
     "$(caps '[range(60) | {kind: "rule", source: "inferred"}] + [range(60) | {kind: "rule", source: "'"$PIN"'"}]' inferred | jq -r '.[1]')"
 eq "the event kinds count against neither cap" '[{"rule":0,"inferred":0},null]' \
     "$(caps '[range(200) | {kind: "pause", source: ""}]' inferred)"
+
+echo "== a brief's rule sentences and the intake's plan =="
+# The design's Decision 10: the intake's candidates are the splitter's
+# output less heading lines and less the renderer's six non-rule sections.
+# cands <file>: the brief's candidates, as JSON.
+cands() { jq -R -s -c -L "$HERE" 'include "state-schema"; brief_candidates' "$1"; }
+GOLD="$HERE/testdata/brief-golden"
+eq "brief_candidates keeps 7, 11 and 11 sentences of the golden briefs" "7 11 11" \
+    "$(for f in min leg base; do cands "$GOLD/$f.txt" | jq length; done | tr '\n' ' ' | sed 's/ $//')"
+for f in min leg base; do
+    eq "  ... $f.txt's, in order, the ones testdata/standing-rules/brief-kept.json lists" \
+        "$(jq -c --arg f "$f" '.[$f]' "$SD/brief-kept.json")" "$(cands "$GOLD/$f.txt")"
+done
+eq "  ... min.txt's first and last" "None beyond what the documents you read record.|If a credential is exposed anyway, report it to the coordinator at once without quoting its value." \
+    "$(cands "$GOLD/min.txt" | jq -r '"\(.[0])|\(.[-1])"')"
+eq "  ... none of them a heading" 0 "$(for f in min leg base; do cands "$GOLD/$f.txt"; done | jq -s '[.[][] | select(test("^#"))] | length')"
+eq "  ... and read whole, the splitter gives 62, 65 and 74" "62 65 74" \
+    "$(for f in min leg base; do jq -R -s -L "$HERE" 'include "state-schema"; file_sentences | length' "$GOLD/$f.txt"; done | tr '\n' ' ' | sed 's/ $//')"
+printf '# Brief: x\n\n## Goal\n\nGoal text.\n\n### Inside\n\nStill the goal.\n\n# Top\n\nA top rule.\n\n## Goal of the lane\n\nNot the goal section.\n\n## Out of scope\n\n- Leave the docs.\n- leave the docs\n\n## Keep-alive\n\nPing.\n' > "$T/brief.md"
+eq "a ### heading starts no section, a # heading ends one, a heading is matched whole, and a sentence comes once" \
+    '["A top rule.","Not the goal section.","- Leave the docs."]' "$(cands "$T/brief.md")"
+# plan <rows-json> <label> <digest> <cands-json>: brief_intake_plan's answer.
+plan() { jq -nc -L "$HERE" --argjson r "$1" --arg l "$2" --arg d "$3" --argjson c "$4" 'include "state-schema"; $r | brief_intake_plan($l; $d; $c)'; }
+D1=sha256:$SHA64
+D2=sha256:$(printf '%064d' 2)
+srow() { jq -nc --arg i "$1" --arg k "$2" --arg w "$3" --arg s "$4" '{standing: $i, kind: $k, on: "", until: "", what: $w, owner: "", relayed_by: "", set: "2026-09-26T08:00Z", source: $s}'; }
+ROWS="[$(srow s1 pause "Hold every lane until Friday." ""),$(srow s2 rule "Merge after green checks." "skill a/b x.md $SHA40")]"
+printf '## Decisions already made\n\n- hold every lane until friday\n- MERGE after green  checks.\n- Merge after green builds.\n- Keep it short.\n- Keep it short.\n' > "$T/brief2.md"
+eq "brief_intake_plan writes only unmatched candidates, once each" \
+    '{"ends":[],"writes":["- Merge after green builds.","- Keep it short."],"room":60,"untaken":0}' \
+    "$(plan "$ROWS" w "$D1" "$(cands "$T/brief2.md")")"
+ROWS="[$(srow s1 rule "A." "inferred brief w $D1"),$(srow s2 rule "B." "inferred brief w $D1"),$(srow s3 rule "B." "inferred brief other $D1"),$(srow s4 rule "C." "inferred brief w $D2")]"
+eq "brief_intake_plan ends other digests' rows of the label the candidates don't state" \
+    '{"ends":["s2"],"writes":["D."],"room":57,"untaken":0}' "$(plan "$ROWS" w "$D2" '["a","D."]')"
+ROWS=$(jq -nc --arg p "pinned charter sha256:$SHA64" '[range(115) | {standing: "s\(. + 1)", kind: "rule", what: "row \(.)", source: (if . < 10 then "inferred" else $p end)}]')
+eq "  ... and the room the caps leave: 5 of 7 under the 120-rule cap, 2 untaken" "5 2" \
+    "$(plan "$ROWS" w "$D1" '["a","b","c","d","e","f","g"]' | jq -r '"\(.room) \(.untaken)"')"
+ROWS=$(jq -nc '[range(60) | {standing: "s\(. + 1)", kind: "rule", what: "row \(.)", source: "inferred"}]')
+eq "  ... none at 60 inferred, every write untaken" "0 3" "$(plan "$ROWS" w "$D1" '["a","b","c"]' | jq -r '"\(.room) \(.untaken)"')"
 
 echo "== rule_grants =="
 # under_grant <row-json> <answer-json> [<jq patch over the row's rule_view>]: the

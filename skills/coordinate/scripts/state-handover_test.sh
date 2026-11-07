@@ -16,7 +16,12 @@
 # reports-to-unsourced: none for a reports-to naming a person, listed for one
 # naming a session with its fix, cleared by a dispatched-by link to that
 # session (not one to another) and by a rule row's What or an event row's
-# Relayed by naming it as a whole word (not a longer name holding it).
+# Relayed by naming it as a whole word (not a longer name holding it); and
+# the gap brief-unread <label>: listed, its fix exactly the intake, when
+# record/host names a readable brief no Run briefs row carries the digest of,
+# and for a stale digest; not listed for a matching row, nor when record/host
+# names no brief (the read's fields as before) or a file that can't be read;
+# one gap of two briefs when one is taken; the brief never edited.
 #
 # Usage: bash skills/coordinate/scripts/state-handover_test.sh
 set -uo pipefail
@@ -142,6 +147,42 @@ for c in "a rule row's What|{\"standing\":\"s1\",\"kind\":\"rule\",\"on\":\"\",\
 done
 seed "$(with_rt "director at coord-lead" | jq -c '.standing = [{standing: "s1", kind: "rule", on: "", until: "", what: "Report to coord-leader.", owner: "", relayed_by: "", set: "2026-09-26T08:00Z", source: "inferred"}]')"
 gate; eq "  ... a row naming a longer name holding it doesn't" "1 reports-to-unsourced" "$G"
+
+echo "== brief-unread =="
+# The design's Decision 10: a brief record/host names, whose digest no Run
+# briefs row carries, holds the gate until the intake takes it.
+BRIEF="$T/briefs/worker.md"
+mkdir -p "$T/briefs"
+printf '# Brief: lane\n\n## Decisions already made\n\n- Keep one lane per feature.\n' > "$BRIEF"
+if command -v sha256sum > /dev/null 2>&1; then BD=$(sha256sum < "$BRIEF" | cut -d' ' -f1); else BD=$(shasum -a 256 < "$BRIEF" | cut -d' ' -f1); fi
+# host_names <json>: record/host as the --host writes leave it.
+host_names() { printf '%s' "$1" | koto context add "$SR" record/host; }
+seed "$(record "$told_both")"
+host_names "$(jq -nc --arg p "$BRIEF" '{"briefs:worker": $p}')"
+gate; eq "brief-unread: listed when no briefs row carries the file's digest" "1 brief-unread worker" "$G"
+grep -qxF '  brief-unread worker: state-stored-set.sh --intake worker --by <you>' "$T/gate" \
+    && ok "  ... its fix exactly the intake" || bad "  ... its fix exactly the intake" "$(cat "$T/gate")"
+seed "$(record "[$(row told worker-f2),$(row told worker-f3),$(row briefs "worker sha256:$BD")]")"
+host_names "$(jq -nc --arg p "$BRIEF" '{"briefs:worker": $p}')"
+gate; eq "brief-unread: not listed for a matching row" "0 " "$G"
+seed "$(record "[$(row told worker-f2),$(row told worker-f3),$(row briefs "worker sha256:$(printf '%064d' 0)")]")"
+host_names "$(jq -nc --arg p "$BRIEF" '{"briefs:worker": $p}')"
+gate; eq "brief-unread: listed for a stale digest" "1 brief-unread worker" "$G"
+seed "$(record "$told_both")"
+H=$(bash "$RH" "${RM[@]}" 2>"$T/err")
+gate; eq "brief-unread: not listed when record/host names no brief" "0 " "$G"
+eq "  ... and the read's top-level fields are as before" \
+    "arguments briefs cap coordinator friction gaps holds host reports_to role rules standing told work workers" \
+    "$(printf '%s' "$H" | jq -r 'keys | join(" ")')"
+printf '# Brief: other\n\n## Out of scope\n\n- Leave the docs alone.\n' > "$T/briefs/other.md"
+seed "$(record "[$(row told worker-f2),$(row told worker-f3),$(row briefs "worker sha256:$BD")]")"
+host_names "$(jq -nc --arg p "$BRIEF" --arg o "$T/briefs/other.md" '{"briefs:worker": $p, "briefs:other": $o}')"
+gate; eq "  ... with two briefs named, one taken, the other is listed" "1 brief-unread other" "$G"
+seed "$(record "$told_both")"
+host_names "$(jq -nc --arg p "$T/briefs/missing.md" '{"briefs:gone": $p}')"
+gate; eq "  ... and a brief whose file can't be read raises no gap" "0 " "$G"
+cmp -s <(printf '# Brief: lane\n\n## Decisions already made\n\n- Keep one lane per feature.\n') "$BRIEF" \
+    && ok "  ... no read edited the brief" || bad "  ... no read edited the brief" "$(cat "$BRIEF")"
 
 echo "== the schema =="
 state_json "$(record "[$(row told worker-f2),$(row pending worker-f2)]")" >/dev/null 2>"$T/err"
