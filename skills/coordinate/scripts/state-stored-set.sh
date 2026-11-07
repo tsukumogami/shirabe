@@ -191,10 +191,14 @@
 # the file at C, a path missing there refused; and the What must equal one of
 # the file's sentences under state-schema.jq's norm_match (file_sentences). On
 # a public host each two-part owner/repo token in the What
-# (state-schema.jq's what_repo_tokens), the host excepted, then gets one
-# visibility read: one that isn't public is refused, and so is a 404 under
-# the host's owner, while a 404 under any other owner passes, since it can't
-# tell an absent repository from a hidden one. A private host reads no token.
+# (state-schema.jq's what_repo_tokens), the host and a `skill` or `doc`
+# Source's repository excepted, since the write already holds their answers,
+# then gets one visibility read: one that isn't public is refused, and so is
+# a 404 under the host's owner, while a 404 under any other owner passes,
+# since it can't tell an absent repository from a hidden one. Repositories
+# are compared case-insensitively throughout, as the forge names them, so
+# one repository costs one read however the What spells it. A private host
+# reads no token.
 # A read that fails with anything but a 404, runs past its bound or answers
 # something that can't be parsed exits 2, naming what it couldn't read, and
 # no later read is made. The checks run on the row being written only; a
@@ -746,10 +750,10 @@ rule_not_public() {
 # a pinned Source's Run row; the decision form; then the forge reads, the
 # host's visibility, and for a `skill` or `doc` Source its repository's
 # visibility on a public host, the ancestry and the file, and on a public
-# host the What's two-part tokens. A read that fails exits 2, with no later
-# read.
+# host the What's two-part tokens not already read. A read that fails exits
+# 2, with no later read.
 rule_checks() {
-    local n why form r path c st tok
+    local n why form r= path c st tok
     if ! jq -L "$HERE" 'include "state-schema";
             (state_secs[] | select(.key == "standing")) as $sec
             | (check_state($sec; .standing; []) | empty), (.standing | scan_strings([]) | empty)' \
@@ -803,15 +807,19 @@ rule_checks() {
         jq -e -R -s -L "$HERE" --arg w "$WHAT" 'include "state-schema"; file_holds($w)' "$WD/cited" > /dev/null 2>&1 \
             || refuse "standing.$SID: the What isn't a sentence of $path at $c"
     fi
-    # Each two-part token in the What, on a public host, the host excepted:
-    # one visibility read, a private answer refused, and a 404 refused under
-    # the host's owner and passed under any other, since a 404 can't tell an
-    # absent repository from a hidden one. A private host reads none.
+    # Each two-part token in the What, on a public host, the host and the
+    # Source's repository excepted (their visibility is already read, so the
+    # token shares that answer): one visibility read, a private answer
+    # refused, and a 404 refused under the host's owner and passed under any
+    # other, since a 404 can't tell an absent repository from a hidden one.
+    # what_repo_tokens lists a token once however it's capitalized. A private
+    # host reads none.
     [ "$RULE_HOST_PRIVATE" = false ] || return 0
     jq -rn -L "$HERE" --arg w "$WHAT" 'include "state-schema"; $w | what_repo_tokens[]' > "$WD/tokens" || lib_die2 "jq failed"
     while IFS= read -r tok; do
         [ -n "$tok" ] || continue
         [ "$(rule_lc "$tok")" != "$(rule_lc "$REPO")" ] || continue
+        [ -z "$r" ] || [ "$(rule_lc "$tok")" != "$(rule_lc "$r")" ] || continue
         case ",$(rule_lc "$RULE_NOT_PUBLIC")," in *",$(rule_lc "$tok"),"*) continue ;; esac
         rule_visibility "$tok"
         case "$VIS" in

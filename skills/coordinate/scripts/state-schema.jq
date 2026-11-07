@@ -119,13 +119,14 @@ def text_named_repos:
 # `_`, `.`, `-` or `/`, so a three-part path such as skills/coordinate/SKILL.md
 # isn't one. Trailing `.`s and `.git` are dropped, as clean does, and a token
 # with a `.` or `..` part, which no repository is named, is left out. Each
-# token once, sorted.
+# token once, compared case-insensitively as the forge names repositories,
+# in the spelling it first appears in, sorted.
 def what_repo_tokens:
   def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
   gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
   | [scan("(?<![A-Za-z0-9_./-])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?![A-Za-z0-9_./-]|#[0-9])") | clean
      | select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$") and all(split("/")[]; . != "." and . != ".."))]
-  | unique;
+  | unique_by(ascii_downcase);
 def text_problem($private):
   . as $v
   | ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
@@ -376,39 +377,62 @@ def source_problem:
 def source_repo: (.source // "") | split(" ") | select(.[0] == "skill" or .[0] == "doc") | .[1] // empty;
 # A cited file's candidate sentences, which a `skill` or `doc` row's What must
 # equal one of under norm_match (file_holds), over the file's text. `\r` is
-# dropped and a blank line ends a block. A line standing alone (sentence_alone)
-# is a candidate of its own, unsplit, and a line inside a ``` fence is none. A
-# list marker (`-`, `*`, `+`, `<digits>.` or `<digits>)`, then a space) starts a
-# block, and any other line joins the one above with one space, its own
-# indentation dropped. A block splits after `.`, `!` or `?`, and any closing
-# `)`, `]`, `"`, `'`, `` ` ``, `*` or `_` after it, where whitespace follows
-# (a leading list marker is never split off); markup stays in.
-# sentence_alone: a heading, a table line or a fence line.
-def sentence_fence: startswith("```");
-def sentence_alone: test("^#{1,6}( |$)") or startswith("|") or sentence_fence;
+# dropped and a blank line ends a block. A heading or a table line
+# (sentence_alone) is a candidate of its own, kept whole and never split. A
+# fence line (sentence_fence) opens a fence, and neither it, the line that
+# closes it nor any line between them is a candidate. A list marker (`-`, `*`,
+# `+`, `<digits>.` or `<digits>)`, then a space) starts a block, and any other
+# line joins the one above with one space, its own indentation dropped, so
+# indentation alone never makes a code block. A block splits after `.`, `!`
+# or `?`, and any closing `)`, `]`, `"`, `'`, `` ` ``, `*` or `_` after it,
+# where whitespace follows (a leading list marker is never split off); markup
+# stays in.
+# sentence_alone: a heading (one to six `#`s, then a space or the line's end)
+# or a table line (first non-blank character `|`).
+def sentence_alone: test("^#{1,6}( |$)") or startswith("|");
+# sentence_fence: the fence a line opens, {c, n} (its character and the
+# length of its run), or null. A fence line's first non-blank characters are
+# three or more backticks, with no further backtick on the line, or three or
+# more tildes. Its indentation doesn't matter, since fences inside list items
+# sit indented.
+def sentence_fence:
+  (capture("^(?<f>`{3,})(?<r>.*)$") | select(.r | contains("`") | not) | {c: "`", n: (.f | length)})
+  // (capture("^(?<f>~{3,})") | {c: "~", n: (.f | length)})
+  // null;
+# fence_closes($f): this line closes fence $f: a run of $f's character at
+# least as long as $f's, followed only by whitespace. Anything else, a fence
+# line of the other character among it, stays inside.
+def fence_closes($f):
+  ($f.c * $f.n) as $run
+  | startswith($run) and (ltrimstr($run) | test("^\\" + $f.c + "*\\s*$"));
 def sentence_split:
   capture("^(?<m>(?:[-*+]|[0-9]+[.)]) )?(?<r>.*)$") as $c
   | ($c.r | gsub("(?<e>[.!?][)\\]\"'`*_]*)\\s+"; "\(.e)\n") | split("\n")) as $s
   | [($c.m // "") + $s[0]] + $s[1:];
+# An unclosed fence runs to the file's end.
 def file_sentences:
   def flush: if .cur == null then . else .out += [{block: .cur}] | .cur = null end;
   gsub("\r"; "") | split("\n")
-  | reduce (.[] | sub("^\\s+"; "") | sub("\\s+$"; "")) as $l ({out: [], cur: null, fence: false};
-      if .fence then (if $l | sentence_fence then .fence = false | .out += [{alone: $l}] else . end)
+  | reduce (.[] | sub("^\\s+"; "") | sub("\\s+$"; "")) as $l ({out: [], cur: null, fence: null};
+      if .fence != null then (.fence as $f | if $l | fence_closes($f) then .fence = null else . end)
       elif $l == "" then flush
-      elif ($l | sentence_alone) then flush | .out += [{alone: $l}] | .fence = ($l | sentence_fence)
+      elif ($l | sentence_fence) != null then flush | .fence = ($l | sentence_fence)
+      elif ($l | sentence_alone) then flush | .out += [{alone: $l}]
       elif ($l | test("^(?:[-*+]|[0-9]+[.)]) ")) then flush | .cur = $l
       else .cur = (if .cur == null then $l else .cur + " " + $l end) end)
   | flush
   | [.out[] | if has("alone") then .alone else (.block | sentence_split[]) end | select(. != "")];
 # The one normalized match the writer uses for a cited row's What: both texts
 # lowercased, runs of whitespace collapsed to one space, the ends trimmed, a
-# leading list marker dropped and the trailing punctuation norm_punct names
-# dropped, then compared byte for byte. A paraphrase doesn't match.
-# norm_punct: the trailing punctuation the match drops, a `.`.
-def norm_punct: sub("\\.$"; "");
+# leading list marker dropped, the trailing punctuation norm_punct names
+# dropped and the end trimmed again, in that order, then compared byte for
+# byte. A paraphrase doesn't match.
+# norm_punct: the trailing punctuation the match drops, the longest trailing
+# run of `.`, `!`, `?`, `,`, `;` and `:`, the marks that end or join clauses.
+# Backticks, brackets, parentheses, quotes, `*` and `_` stay significant.
+def norm_punct: sub("[.!?,;:]+$"; "");
 def norm_text: ascii_downcase | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "")
-  | sub("^(?:[-*+]|[0-9]+[.)]) "; "") | norm_punct;
+  | sub("^(?:[-*+]|[0-9]+[.)]) "; "") | norm_punct | sub(" $"; "");
 def norm_match($b): norm_text == ($b | norm_text);
 # file_holds($what): the file's text, over which $what is one of its sentences.
 def file_holds($what): any(file_sentences[]; norm_match($what));
