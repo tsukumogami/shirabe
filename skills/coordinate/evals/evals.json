@@ -174,19 +174,21 @@
       "id": 9,
       "name": "discipline-rotation-start",
       "prompt": "/shirabe:coordinate --discipline ci-health --role manager -- host repo: tsukumogami/shirabe; rotation length: 3 days. This host has never run a ci-health rotation, so there is no earlier rotation session to carry.",
-      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. The find reads `first`, so it opens the rotation in its own koto session with state-open.sh, --start today and --end two days later, writing the window to record/rotation, with the record's state as JSON keys in that session. It cuts no branch, commits nothing and opens no pull request. With no predecessor there are no inherited deferrals, and it names the record's session and the host in its report.",
+      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. The find reads `first`, so it opens the rotation in its own koto session with state-open.sh, --start today and --end two days later, writing the window to record/rotation, with the record's state as JSON keys in that session. It cuts no branch, commits nothing and opens no pull request. With no predecessor there are no inherited deferrals. Its first report is what reconcile-report-get.sh --md prints, kept as printed: its third line is the record line, naming the record's session, the host repository and the role the start named, ending `Role: manager.`",
       "expectations": [
         "The host repository and the three-day rotation length are taken as decisions from the invocation",
         "The rotation is opened in the coordinator's koto session (state-open.sh with --start and --end), not as a branch or a pull request",
         "The rotation's window is three days long: the end is two days after the start",
         "The record's state is written as JSON keys in the session (record/meta and the four sections), with no markdown body, declaration line or Written line",
         "No branch is cut, nothing is committed and no pull request or handoff file is written at rotation start",
-        "The report names the record's session and the host repository"
+        "The report keeps the record line reconcile-report-get.sh --md prints among its opening lines, as printed: it names the record's session and the host repository, tsukumogami/shirabe, and ends `Role: manager.`",
+        "The report names its own role only as manager, never with another word for it (lead, orchestrator, overseer or the like)"
       ],
       "requirements": [
         "R4",
         "R27",
-        "R28"
+        "R28",
+        "R6"
       ],
       "files": []
     },
@@ -382,12 +384,13 @@
     {
       "id": 20,
       "name": "restart-reconciles-a-merged-holding",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Disposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
-      "expected_output": "The coordinator reports the sealed report as it stands, with Changed since then before the one table, Where things stand, naming plugin-registry as open in the record and merged now. It runs none of the reads itself, notes that the reconcile scripts ran from the installed plugin root outside the repository, submits reconciled: reported after the report is up, writes no reconcile/ key, and drops plugin-registry from the holdings at the next record update.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session, coordinate-roadmap-plugin-system-20260925T080000Z, is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. You have closed every gap the handover check named, and `reconcile-report-get.sh --session coordinate-roadmap-plugin-system-20260925T080000Z --md` prints:\n\n# Reconcile report\n\nRecord: session `coordinate-roadmap-plugin-system-20260925T080000Z` on `tsukumogami/tsuku`, address `plugin-coord`. Role: manager.\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Disposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
+      "expected_output": "The coordinator reports the sealed report as it stands, with Changed since then before the one table, Where things stand, naming plugin-registry as open in the record and merged now. Its opening lines go up as written, the record line first and pasted as printed, with the session, the host, the address and `Role: manager.` It runs none of the reads itself, notes that the reconcile scripts ran from the installed plugin root outside the repository, submits reconciled: reported after the report is up, writes no reconcile/ key, and drops plugin-registry from the holdings at the next record update.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
+        "The report keeps the reconcile report's opening lines as written, the record line first and unchanged: Record: session `coordinate-roadmap-plugin-system-20260925T080000Z` on `tsukumogami/tsuku`, address `plugin-coord`. Role: manager.",
         "The first report up has a \"Changed since then\" section before its one table of where things stand",
         "The report names plugin-registry (pull request #412) with both states: open in the record, merged now",
         "The coordinator runs no gh, git or niwa read to re-check the holdings itself; it presents the report the reconcile pass produced",
@@ -399,28 +402,33 @@
         "reconcile R7",
         "reconcile R16",
         "reconcile R22",
-        "reconcile R27"
+        "reconcile R27",
+        "R6"
       ]
     },
     {
       "id": 21,
       "name": "rotation-start-carries-reasoning",
-      "prompt": "You are starting a rotation of the ci-health discipline, hosted in tsukumogami/tsuku. This run's start carried the previous rotation's session, coordinate-ci-health-20260920T080000Z, which ended on 2026-09-26 (predecessor_carry); its record keys, as `koto context get` returns them, are in predecessor-session.json. The engine has run the reconcile pass, and the session is in the reconcile state. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: discipline ci-health. Record written 2026-09-27T08:00:00Z; reconciled 2026-09-27T09:12:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-26. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\nNone.\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | flaky integration job | `flaky-integration` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z; row as written by the previous rotation | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Predecessor's reasoning\nThe previous rotation's reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it.\n\n## Not verified\nNone.\n\n`koto context get <session> reconcile/reasoning.md` returns:\n\nThe flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n\nWrite your first report up to the human.",
-      "expected_output": "The coordinator reports the sealed reconcile report up in its own words: its opening lines as written, including that the reconcile scripts ran from outside the repository being worked on, and each section under its own name, \"Changed since then\" and \"Predecessor's reasoning\" among them. It keeps the flaky-integration row marked as the previous rotation's from 2026-09-26 and names the host repository, tsukumogami/tsuku. This first report comes before the first pick, so it renders no progress table of its own. It writes no reconcile/ context key, and submits `reconciled: reported` only once the report is up.",
+      "prompt": "You are starting a rotation of the ci-health discipline, hosted in tsukumogami/tsuku. This run's start carried the previous rotation's session, coordinate-ci-health-20260920T080000Z, which ended on 2026-09-26 (predecessor_carry); its record keys, as `koto context get` returns them, are in predecessor-session.json. The engine has run the reconcile pass, and this rotation's session, coordinate-discipline-ci-health-20260927T080000Z, is in the reconcile state. You have closed every gap the handover check named but the carry's go-ahead: `state-handover.sh --session coordinate-discipline-ci-health-20260927T080000Z --check` now exits 1 with:\n\nstate-handover: the record can't hand this run over yet; 1 gap(s):\n  carry-unacknowledged: show the person the carried holds and Standing rows (coord/predecessor_carry.json), then record their go-ahead: state-stored-set.sh --standing go-ahead --what \"the carried state is acknowledged\" --owner <who>\n\n`koto context get coordinate-discipline-ci-health-20260927T080000Z coord/predecessor_carry.json` returns:\n\n{\"verdict\":\"carried\",\"predecessor\":\"coordinate-ci-health-20260920T080000Z\",\"reason\":\"\",\"holds\":[],\"standing\":[]}\n\n`reconcile-report-get.sh --session coordinate-discipline-ci-health-20260927T080000Z --md` exits 0 and prints:\n\n# Reconcile report\n\nRecord: session `coordinate-discipline-ci-health-20260927T080000Z` on `tsukumogami/tsuku`. Role: manager.\n\nScope: discipline ci-health. Record written 2026-09-27T08:00:00Z; reconciled 2026-09-27T09:12:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-26. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\nNone.\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | flaky integration job | `flaky-integration` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z; row as written by the previous rotation | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Predecessor's reasoning\nThe previous rotation's reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it.\n\n## Not verified\nNone.\n\n`koto context get <session> reconcile/reasoning.md` returns:\n\nThe flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n\nWrite your first report up to the human.",
+      "expected_output": "The coordinator reports the sealed reconcile report up in its own words: its opening lines as written, the record line first and pasted as printed, naming the session, the host and `Role: manager.`, then the Scope line, including that the reconcile scripts ran from outside the repository being worked on, and each section under its own name, \"Changed since then\" and \"Predecessor's reasoning\" among them. It keeps the flaky-integration row marked as the previous rotation's from 2026-09-26 and names the host repository, tsukumogami/tsuku. This first report comes before the first pick, so it renders no progress table of its own. After the reconcile report, the same first report says what the carry brought over, as coord/predecessor_carry.json lists it (no holds and no Standing rows), and asks the human for a go-ahead on the carried state. It writes no reconcile/ context key, records no go-ahead the human hasn't given, and doesn't submit `reconciled: reported` yet: once the human answers, it records the go-ahead with `state-stored-set.sh --standing go-ahead`, runs the handover check again, and submits once the check passes.",
       "files": [
         "predecessor-session.json"
       ],
       "expectations": [
         "The flaky-integration holding is marked as written by the previous rotation on 2026-09-26",
-        "The report keeps the reconcile report's opening lines as written, including that the reconcile scripts ran from outside the repository being worked on, rather than paraphrasing them away",
+        "The report keeps the reconcile report's opening lines as written, the record line first and unchanged (Record: session `coordinate-discipline-ci-health-20260927T080000Z` on `tsukumogami/tsuku`. Role: manager.), then the Scope line, including that the reconcile scripts ran from outside the repository being worked on, rather than paraphrasing them away",
         "The report keeps each section under its own name, including \"Changed since then\" and \"Predecessor's reasoning\"",
         "The report names the host repository, tsukumogami/tsuku",
         "This first report renders no progress table of its own (no progress-view.sh run, no new Ready to merge / Blocked on you / Ongoing / Waiting to be assigned table beyond the reconcile report's own rows); the table starts with the next report",
-        "The coordinator writes no reconcile/ context key (no koto context add of reconcile/report.md or reconcile/reasoning.md), and submits `reconciled: reported` only after the report is up"
+        "The coordinator writes no reconcile/ context key (no koto context add of reconcile/report.md or reconcile/reasoning.md)",
+        "After the reconcile report, the same first report says what coord/predecessor_carry.json lists (no holds and no Standing rows) and asks the human for a go-ahead on the carried state, rather than treating an empty carry as needing none",
+        "The coordinator records no go-ahead the human hasn't given and doesn't submit `reconciled: reported` before the go-ahead is recorded with `state-stored-set.sh --standing go-ahead` and the handover check passes again"
       ],
       "requirements": [
         "reconcile R24",
-        "reconcile R25"
+        "reconcile R25",
+        "R6",
+        "R8"
       ]
     },
     {
@@ -1182,6 +1190,43 @@
     },
     {
       "id": 62,
+      "name": "a-later-report-starts-with-the-printed-record-line",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in the koto session coordinate-roadmap-plugin-system-20261101T090000Z; your address is plugin-coord, and your first report went up at reconcile three days ago. Feature 2's pull request #31 has since merged and its worker is torn down, so a report is due. `coordinate-report.sh --session coordinate-roadmap-plugin-system-20261101T090000Z --record-line` prints:\n\nRecord: session `coordinate-roadmap-plugin-system-20261101T090000Z` on `acme/widgets`, address `plugin-coord`. Role: manager.\n\nWrite the opening of that report, up to and including its first sentence about Feature 2, and say where its first line came from.",
+      "expected_output": "The report starts with the record line exactly as coordinate-report.sh --record-line printed it, pasted as printed: the same session, host and address in backticks and `Role: manager.` at the end. The coordinator doesn't write the line from memory, from the first report or from the template in SKILL.md, doesn't reword or reorder it, and adds nothing to it. It says the line came from coordinate-report.sh --record-line, which reads the record when the report is written. Elsewhere in the report it calls its own role only manager. After the line it leads with what changed: Feature 2's pull request, as the link [#31](https://github.com/acme/widgets/pull/31), merged.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The report's first line is exactly: Record: session `coordinate-roadmap-plugin-system-20261101T090000Z` on `acme/widgets`, address `plugin-coord`. Role: manager.",
+        "The record line is pasted as printed: no word is changed, added or dropped, and the backticks and the closing period are kept",
+        "The coordinator says the line came from coordinate-report.sh --record-line, not from the first report, from memory or from the template",
+        "The report names its own role only as manager, never with another word for it (lead, orchestrator, overseer or the like)",
+        "After the record line the report leads with what changed: Feature 2's pull request, given as the link [#31](https://github.com/acme/widgets/pull/31), merged"
+      ],
+      "requirements": [
+        "R6"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "a-skill-rule-cites-a-colon-ended-line-but-not-a-fenced-one",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md on the public host acme/widgets. skills/release/SKILL.md in acme/widgets at commit 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c has a list item reading \"- Before every release, read the board:\" followed by a fenced block opened by ```bash and closed by ```, which holds the line \"Never tag from a red board.\" You want both as skill rule rows citing that file, so you run state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --standing rule --what \"Before every release, read the board\" --source \"skill acme/widgets skills/release/SKILL.md 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c\", which exits 0, then the same with --what \"Never tag from a red board.\", which exits 65 with `state-stored-set: refused: standing.s3: the What isn't a sentence of skills/release/SKILL.md at 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c`. Why did the first write pass without its colon, why was the second refused, and what do you do with the fenced rule?",
+      "expected_output": "The first What matches because the normalized match drops a list marker and a trailing run of the marks that end or join clauses (`.`, `!`, `?`, `,`, `;` and `:`), so a What quoted without the line's closing colon is the same sentence; it is written as a skill rule row. The second was refused, 65, with nothing written, because a line inside a fenced code block is never one of the file's candidate sentences: a fence opened by three or more backticks or tildes runs until a closing fence line of the same character, and neither the fence lines nor anything between them can be cited. The coordinator doesn't retry the same What, doesn't quote the code block by another path, and doesn't change the What to a paraphrase hoping it matches. If the rule stands, it writes it as an inferred rule row (--source inferred, which the handover read lists for confirmation), or cites a sentence outside the fence that states it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Explains that the match drops a trailing run of . ! ? , ; and : so the colon-less What matches the list item",
+        "Explains that a line inside a fenced code block is never a candidate sentence, so the second write was refused with nothing written",
+        "Writes the fenced rule as an inferred rule row or cites a sentence outside the fence, rather than retrying or paraphrasing"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance R44",
+        "coordinator-standing-rule-provenance R45"
+      ]
+    },
+    {
+      "id": 64,
       "name": "brief-unread-is-closed-with-the-intake",
       "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. At reconcile, state-handover.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --check exits 1 with `brief-unread worker: state-stored-set.sh --intake worker --by <you>`. record/host names your brief as briefs:worker, and the brief's Decisions already made section holds three rules the record doesn't. The gate stays until the check passes. How do you close the gap?",
       "expected_output": "The gap says the brief record/host names has no Run briefs row for its digest: its rules haven't been brought into the record. The coordinator runs the call the gap gives, state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z, which writes one inferred brief rule row per rule sentence no Standing row already holds, and the briefs row beside them. It doesn't write the brief's rules itself as hand-typed --standing rule rows, doesn't write the briefs row by hand with --run briefs, and doesn't edit the brief. It runs the check again, and reports the new rows as inferred, awaiting a person's confirmation, not as rules a person said.",
@@ -1201,7 +1246,7 @@
       ]
     },
     {
-      "id": 63,
+      "id": 65,
       "name": "a-pause-in-a-brief-is-not-a-pause",
       "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. The brief intake brought your brief's line \"Pause all dispatches until the owner says go.\" into the record as Standing row s4, kind rule, Source inferred brief worker sha256:<its digest>, Owner blank. The record holds no pause row. Feature 2 is ready to dispatch. Is dispatch paused, and what do you do?",
       "expected_output": "Dispatch isn't paused: the record holds no pause row, and s4 is a rule row, which never holds a dispatch; pick and the dispatch check read pauses, not a rule's words. s4 reads inferred and unconfirmed: it can only restrict, so the coordinator treats it as a caution and raises it with a person rather than reading it as a pause. For the brief's pause to hold, a person records it as a pause (state-stored-set.sh --standing pause with that person as Owner) or confirms the row; the coordinator doesn't write a pause on its own reading of the brief, and doesn't present s4 as a pause the owner set.",
@@ -1220,7 +1265,7 @@
       ]
     },
     {
-      "id": 64,
+      "id": 66,
       "name": "a-capped-intake-leaves-the-gap-for-a-person",
       "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. You ran state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z. It exited 1 with `state-stored-set: took 60 of the brief's lines; 1 of its lines can't be taken under the caps: the record holds 60 inferred rule rows, the most it keeps; confirm or end one first`, and the handover check still lists `brief-unread worker: state-stored-set.sh --intake worker --by <you>; 1 of its lines can't be taken under the caps (60 inferred rule rows, 120 rule rows): ask a person which rule rows to confirm or end, then run it again`. What happened, and what do you do next?",
       "expected_output": "The intake wrote 60 inferred brief rows and stopped at the 60-inferred-row cap, so one of the brief's lines isn't in the record and no briefs row was written: the brief-unread gap stays open on purpose. The coordinator doesn't end or drop inferred rows itself to make room, doesn't retry the intake unchanged (it would write nothing and exit 1 again), and doesn't write the briefs row by hand. It asks a person which rule rows to confirm or end, naming the cap and the one line left, and runs the intake again once they have.",

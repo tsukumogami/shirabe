@@ -48,7 +48,11 @@
 # asked the host; a new run prints role= before session=; a resume of a
 # role-less record given --role writes the row (set by `start --role`) before
 # outcome=resumed, and a write that fails prints no outcome= or session=; a
-# role-less carry given --role prints role= and leaves the no-role gap. On a
+# role-less carry given --role prints role= and leaves the no-role gap, its
+# first report (reconcile-report-get.sh --md) printing nothing (exit 4) until
+# the gap's fix writes manager and then its line 3 the record line ending
+# `Role: manager.`, from the same sealed report with no second reconcile pass
+# (Decision 3). On a
 # resume and a carry: the matching role is accepted, both directions of
 # mismatch are refused role-mismatch (whole message) with the record, the
 # run's state and the session list unchanged, and a failed role read is
@@ -716,6 +720,31 @@ eq "  ... leaving the row to the no-role gap" "none" "$(rrow "$LC1")"
 found_run "$LC1"
 grep -q '^  no-role: ' <<<"$(bash "$T/plugin/skills/coordinate/scripts/state-handover.sh" --session "$LC1" --check 2>&1)" \
     && pass "  ... which the handover check lists" || fail "  ... which the handover check lists" "$(bash "$T/plugin/skills/coordinate/scripts/state-handover.sh" --session "$LC1" --check 2>&1)"
+# Its first report (docs/designs/DESIGN-coordinator-named-roles.md, Decision
+# 3): the reconcile directive closes the gaps before it prints, so the first
+# report's record line names the role the no-role fix wrote, read from the
+# record at print time, with no second visit to the pass.
+SCR="$T/plugin/skills/coordinate/scripts"
+lc_state() { koto status "$LC1" 2>/dev/null | jq -r '.current_state // .state // empty'; }
+lc_passes() { jq -s '[.[] | select((.type == "transitioned" or .type == "directed_transition") and .payload.to == "reconcile_pass")] | length' \
+    "$(koto session dir "$LC1")/koto-$LC1.state.jsonl"; }
+i=0
+while [ "$(lc_state)" != reconcile ] && [ $i -lt 10 ]; do koto next "$LC1" --no-cleanup > "$T/tick.out" 2>&1; i=$((i + 1)); done
+eq "the role-less carry reaches its first reconcile" reconcile "$(lc_state)"
+LC_PASSES=$(lc_passes)
+MD=$(bash "$SCR/reconcile-report-get.sh" --session "$LC1" --md 2>"$T/md.err"); rc=$?
+eq "  ... where its first report doesn't print before no-role closes: --md exits 4, printing nothing" "4 " "$rc $MD"
+grep -q 'no-role' "$T/md.err" && pass "  ... its stderr naming the gap" || fail "  ... its stderr naming the gap" "$(cat "$T/md.err")"
+bash "$SCR/state-stored-set.sh" --session "$LC1" --run role manager --by "the human" > /dev/null 2> "$T/w.err"
+eq "the no-role fix writes manager" "manager|the human" "$(rrow "$LC1")"
+MD=$(bash "$SCR/reconcile-report-get.sh" --session "$LC1" --md 2>"$T/md.err"); rc=$?
+eq "  ... and the first report prints from the same sealed report" 0 "$rc"
+L3=$(printf '%s\n' "$MD" | sed -n 3p)
+case "$L3" in "Record: session \`$LC1\` on \`acme/widgets\`"*". Role: manager.") pass "  ... its line 3 the record line, ending Role: manager." ;;
+    *) fail "  ... its line 3 the record line, ending Role: manager." "$(head -5 <<<"$MD") $(cat "$T/md.err")" ;; esac
+RL_RE='^Record: session `[^`]+` on `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+`(, address `[^`]+`)?\. Role: (manager|director)\.$'
+[[ $L3 =~ $RL_RE ]] && pass "  ... matching the record line's pattern" || fail "  ... matching the record line's pattern" "$L3"
+eq "  ... with no second visit to the reconcile pass" "$LC_PASSES reconcile" "$(lc_passes) $(lc_state)"
 
 # An import given --role reads the source's role where it is, before koto
 # imports; on the local backend koto refuses that read.

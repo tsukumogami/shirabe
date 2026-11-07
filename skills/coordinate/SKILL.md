@@ -1055,9 +1055,24 @@ handed-over unit, each escalation, each need `surface_check` accepts, and at
 the end of the scope or rotation. Lead
 with what changed and what you hold. Name what you verified and what you didn't,
 and grade every claim you pass on as measured, verified by reading, or inferred.
-Name the record in every report (its session name and its host repository),
-so whoever starts the next coordinator
-passes it on as a decision. What waits on the human is the table's "Blocked on
+Every report opens with the record line, so whoever starts the next
+coordinator passes the record on as a decision. It names the record's session,
+its host repository, your address when it differs from the session name, and
+your role:
+
+```text
+Record: session `<session>` on `<owner>/<repo>`, address `<address>`. Role: manager.
+Record: session `<session>` on `<owner>/<repo>`. Role: director.
+```
+
+A script prints it; never write it yourself. The first report takes it from
+`scripts/reconcile-report-get.sh --session <session> --md`, whose third line it
+is. Every later one, the closing one too, starts with what
+`scripts/coordinate-report.sh --session <session> --record-line` prints, pasted
+as printed. With no role in the record neither prints a line and both exit 4:
+close the handover gap `no-role` first. A report calls its own role only by
+that word, `manager` or `director`, in the record line and everywhere else in
+it. What waits on the human is the table's "Blocked on
 you" rows, never a free-text section: an escalated decision entry, with its
 recommendation and reason, or a need of one of the fixed kinds. Per holding,
 say what happens next; it is derived at each report and never stored.

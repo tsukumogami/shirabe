@@ -43,6 +43,9 @@
 #   R37-R39, R41. a What's bare repository names: refused when private or a
 #        404 under the host's owner, passed for prose and another owner's
 #        404, one read each, none on a private host, a 502 exiting 2;
+#   R46. a What token naming the Source's repository, in any case, shares
+#        the Source's visibility read, and a token spelled two ways is read
+#        once;
 #   R14-R17. the 120-rule and 60-inferred caps, a pause still written at both,
 #        and no cap on a read or an unrelated write;
 #   R34-R36. a stored row is never checked again: an unrelated write after its
@@ -448,6 +451,23 @@ try --standing rule --what "Ask other/absent first." --source inferred
 no_fail
 refused "a 502 on a token's read" 2 "cannot read other/absent's visibility"
 crit "R41. a What token whose visibility read fails with HTTP 502 exits 2, not 65, writing nothing"
+
+# ---- R46 ------------------------------------------------------------------------
+# The cited skill file also holds two sentences naming repositories, each
+# spelled two ways; the What otherwise cites as R27's write does.
+OWN="Ask acme/gadgets, also written Acme/Gadgets, before a release."
+OTHER="Ask other/absent, also written Other/Absent, before a release."
+db '.files["acme/gadgets"][$c + ":" + $s] += "\n" + $o + "\n\n" + $x + "\n"' --arg c "$C" --arg s "$SKILL" --arg o "$OWN" --arg x "$OTHER"
+empty_standing
+try --standing rule --what "$OWN" --source "$SRC_SKILL"; written "a skill write whose What names acme/gadgets twice"
+need "R46: the write's reads are R27's, with no read of either token" "" "$(diff "$T/log.skill" "$T/calls")"
+empty_standing
+try --standing rule --what "$OTHER" --source "$SRC_SKILL"; written "a skill write whose What names other/absent twice"
+need "R46: the write's reads are R27's and one read of other/absent" \
+    "> api --method GET repos/other/absent --jq .private" \
+    "$(diff "$T/log.skill" "$T/calls" | grep '^[<>]' | tr '\n' '|' | sed 's/|$//')"
+db '.files["acme/gadgets"][$c + ":" + $s] = $t' --arg c "$C" --arg s "$SKILL" --arg t "$CITED"
+crit "R46. a What naming the Source's repository as acme/gadgets and Acme/Gadgets takes the Source's visibility answer and adds no read, and one naming other/absent and Other/Absent adds exactly one repos/other/absent read"
 
 # ---- R14, R15, R16, R17 ---------------------------------------------------------
 # standing_fixture <rule rows> <inferred among them> <kinds|event row count>:

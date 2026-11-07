@@ -3,7 +3,9 @@
 # bounded passes, prints exactly one capturable line, writes only reconcile/
 # context keys, and seals a report only when every re-check is done;
 # reconcile-report-get.sh accepts only the report the seal names, and refuses
-# with 3 one sealed before the run was imported here.
+# with 3 one sealed before the run was imported here; its --md puts the record
+# line coordinate-report.sh --record-line prints (a stand-in here) third, exits
+# 4 printing nothing with no role row, and leaves the sealed report as it was.
 #
 # The scripts run from a copy of the tree. reconcile-read.sh,
 # reconcile-check.sh and the record feature's coord-log.sh are stand-ins
@@ -168,6 +170,16 @@ case "$cmd" in
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
     *) exit 64 ;;
 esac
+STUB
+
+# The record line: prints <case>/record-line, exiting with <case>/record-line.rc
+# (0 when absent); every call logged.
+cat > "$SC/coordinate-report.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "coordinate-report $*" >> "$STUB_DIR/log"
+rc=$(cat "$STUB_DIR/record-line.rc" 2>/dev/null || echo 0)
+[ "$rc" = 0 ] && cat "$STUB_DIR/record-line"
+exit "$rc"
 STUB
 
 # koto: a context store in <case>/ctx; every call logged.
@@ -545,6 +557,38 @@ echo 7 > "$CASE/visit"; rm -f "$CASE/ctx/reconcile%report.json"
 get --check; [ $? = 2 ]; check "an absent report can't be read" $?
 echo "pending:7:1:$(printf x | sha)" > "$CASE/capture"
 get --check; [ $? = 1 ]; check "a pending capture is no report" $?
+
+echo "== the first report's record line (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3) =="
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+new_case record-line
+record "[$(hold with-pr "$PR12")]"
+pass
+RL="Record: session \`$SESSION\` on \`acme/widgets\`, address \`plugin-coord\`. Role: manager."
+printf '%s\n' "$RL" > "$CASE/record-line"
+SEALED_MD=$(ctx reconcile/report.md); SEALED_JSON=$(ctx reconcile/report.json); SEALED_CAP=$(cat "$CASE/capture")
+: > "$CASE/log"
+MD=$(get --md); rc=$?
+eq "--md prints the title, a blank line, the record line as line 3 and a blank line" "0 # Reconcile report||$RL|" \
+    "$rc $(printf '%s\n' "$MD" | sed -n '1,4p' | tr '\n' '|' | sed 's/|$//')"
+case "$(printf '%s\n' "$MD" | sed -n 5p)" in "Scope: roadmap plugin-system."*) ok "  ... and the unchanged Scope line as line 5" ;; *) bad "  ... and the unchanged Scope line as line 5" "$MD" ;; esac
+eq "  ... the rest as the sealed report renders it" "$(printf '%s\n' "$SEALED_MD" | sed '1,2d')" "$(printf '%s\n' "$MD" | sed '1,4d')"
+eq "  ... the record line read through coordinate-report.sh --record-line, once" "coordinate-report --session $SESSION --record-line" "$(grep '^coordinate-report ' "$CASE/log")"
+eq "the sealed report, its rendering and its seal are unchanged" "$SEALED_JSON|$SEALED_MD|$SEALED_CAP" "$(ctx reconcile/report.json)|$(ctx reconcile/report.md)|$(cat "$CASE/capture")"
+: > "$CASE/log"
+get --check; check "--check reads no record line" $?
+get > /dev/null; check "  ... nor does the JSON mode" $?
+grep -q '^coordinate-report ' "$CASE/log" && bad "  ... (no coordinate-report.sh call in either)" "$(cat "$CASE/log")" || ok "  ... (no coordinate-report.sh call in either)"
+echo 4 > "$CASE/record-line.rc"
+MD=$(get --md); rc=$?
+eq "with no role row --md exits 4 and prints nothing" "4 " "$rc $MD"
+get --check; check "  ... while --check still passes: the reconcile gate never reads the role" $?
+echo 65 > "$CASE/record-line.rc"
+MD=$(get --md); rc=$?
+eq "a record line that can't be read: --md exits 2, printing nothing" "2 " "$rc $MD"
+rm -f "$CASE/record-line.rc"
+printf 'Record: session `%s` on `acme/widgets`. Role: lead.\n' "$SESSION" > "$CASE/record-line"
+MD=$(get --md); rc=$?
+eq "a line that isn't a record line is never printed: exit 2, nothing printed" "2 " "$rc $MD"
 echo "== a report sealed before an import =="
 new_case imported
 record "[]"

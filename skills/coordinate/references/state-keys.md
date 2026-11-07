@@ -54,8 +54,8 @@ earlier rotation that fails a rule (`unreadable <session>`, a stop for the
 human). Its window, host and predecessor are its session's `record/rotation`,
 and the reasoning it leaves the next rotation `record/reasoning`.
 
-Report the record's session name up with every report, so a successor is
-handed it as a decision and reads it directly.
+Every report names the record's session name on its record line (SKILL.md,
+"Reporting"), so a successor is handed it as a decision and reads it directly.
 
 ## The Rotation's Window
 

@@ -15,9 +15,35 @@
 #                                            also takes a report document,
 #                                            which is how the pass renders
 #                                            the report it sealed
+#   reconcile-report.sh md --record-line L < report.json
+#                                            the same text with the record
+#                                            line L as its third line, after
+#                                            the title and a blank line, and
+#                                            the Scope line fifth; L must
+#                                            match the record line's pattern
+#                                            below (reconcile-report-get.sh
+#                                            --md passes what
+#                                            coordinate-report.sh
+#                                            --record-line printed)
+#   reconcile-report.sh line < {session, host, address, role}
+#                                            the record line, the one line
+#                                            every report starts with
 #
-# Exit codes: 0 written; 64 usage error; 65 the input is not a facts document
-# (or, for md, not a well-formed report document), or can't be built.
+# The record line. One template, record_line below, with the role always the
+# last word before the closing period:
+#   Record: session `<session>` on `<owner>/<repo>`, address `<address>`. Role: manager.
+#   Record: session `<session>` on `<owner>/<repo>`. Role: director.
+# The address clause appears only when address is a non-empty string that
+# differs from session (the Run `coordinator` row, when the record holds one).
+# role is manager or director and nothing else: there is no form for a missing
+# role. Every line printed matches
+#   ^Record: session `[^`]+` on `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+`(, address `[^`]+`)?\. Role: (manager|director)\.$
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3).
+#
+# Exit codes: 0 written; 64 usage error (and a --record-line value that isn't
+# a record line); 65 the input is not a facts document (or, for md, not a
+# well-formed report document; for line, not a {session, host, address, role}
+# object whose values fit the line), or can't be built.
 #
 # Requires: bash 3.2+, jq.
 #
@@ -164,16 +190,51 @@ set -uo pipefail
 PROG=reconcile-report
 
 usage() {
-    echo "usage: $PROG json|md < facts.json" >&2
+    echo "usage: $PROG json|md [--record-line L]|line < input" >&2
     exit 64
 }
 
-[ $# -eq 1 ] || usage
-case "$1" in json|md) MODE=$1 ;; *) usage ;; esac
+# The record line's pattern, which a --record-line value must match whole.
+RECORD_LINE_RE='^Record: session `[^`]+` on `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+`(, address `[^`]+`)?\. Role: (manager|director)\.$'
+RECORD_LINE=""
+[ $# -ge 1 ] || usage
+MODE=$1; shift
+case "$MODE" in
+    json|line) [ $# -eq 0 ] || usage ;;
+    md)
+        if [ $# -gt 0 ]; then
+            [ $# -eq 2 ] && [ "$1" = --record-line ] || usage
+            RECORD_LINE=$2
+            case "$RECORD_LINE" in *[[:cntrl:]]*) usage ;; esac
+            [[ $RECORD_LINE =~ $RECORD_LINE_RE ]] || usage
+        fi ;;
+    *) usage ;;
+esac
 
 # A builtin read, so the script needs nothing but bash and jq.
 INPUT=""
 IFS= read -r -d '' INPUT || true
+
+# The record line: the template, held once, and the checks its values pass
+# before it is printed. A value with a backtick or a control character, a host
+# that isn't owner/repo, or a role other than manager or director prints
+# nothing and exits 65.
+if [ "$MODE" = line ]; then
+    printf '%s' "$INPUT" | jq -er '
+def record_line:
+  "Record: session `\(.session)` on `\(.host)`"
+  + (if (.address // "") == "" or .address == .session then "" else ", address `\(.address)`" end)
+  + ". Role: \(.role).";
+def plain: type == "string" and length > 0 and (test("[`[:cntrl:]]") | not);
+if type == "object" and (.session | plain)
+   and (.host | type == "string" and test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))
+   and (.address == null or .address == "" or (.address | plain))
+   and (.role == "manager" or .role == "director")
+then record_line else error("not a record line'"'"'s values") end' \
+        || { echo "$PROG: input is not {session, host, address, role} with values a record line can hold" >&2; exit 65; }
+    exit 0
+fi
+
 SCHEMA=$(printf '%s' "$INPUT" | jq -r '.schema? // empty' 2>/dev/null)
 case "$MODE:$SCHEMA" in
     *:coordinate-reconcile-facts/v1) ;;
@@ -479,8 +540,10 @@ if [ "$MODE" = json ]; then
     exit 0
 fi
 
-# The rendering. Section order is fixed; an empty section reads "None.".
-printf '%s' "$REPORT" | jq -r '
+# The rendering. Section order is fixed; an empty section reads "None.". With
+# --record-line the record line is the third line, as given: it is never
+# rewritten, so it reads the same as the line coordinate-report.sh prints.
+printf '%s' "$REPORT" | jq -r --arg rl "$RECORD_LINE" '
 def section($title; $lines): "## " + $title, (if ($lines | length) == 0 then "None." else $lines[] end), "";
 # What the human reads: a worker (session) name is inline code, a pull request
 # or issue reference is a link, and no commit hash appears.
@@ -494,9 +557,10 @@ def code: "`" + . + "`";
     | if $c == null then $u else "[#\($c.n)](\($u))" end;
   def who: if test("^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+$") then refs("pull") else code end;
   def with_topic($t): if $t == null then . else split($t) | join($t | code) end;
-(
 "# Reconcile report",
 "",
+(if $rl == "" then empty else ($rl, "") end),
+((
 (if .header.handoff_date == null then "" else " on \(.header.handoff_date)" end) as $on
 | "Scope: \(.header.scope). Record written \(.header.written // "at a time it does not state"); reconciled \(.header.reconciled_at)."
   + (if .header.source == "handoff" then " Rows as written by the previous rotation\($on)."
@@ -549,6 +613,6 @@ section("Disposed deferrals"; [(.deferrals_disposed // [])[] | "- \(.deferral) (
 section("Not verified"; [.not_verified[] | . as $e
     | "- \(if $e.target != null then "\($e.action) \($e.target | refs(if $e.action == "merge" then "pull" else "issues" end))" else ($e.what | with_topic($e.topic)) end): \($e.reason)"
     + (if ($e.raw // "") != "" then "\n\n  ```\n  \($e.raw)\n  ```" else "" end)])
-) | gsub("(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])"; "<commit>")
+) | gsub("(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])"; "<commit>"))
 '
 

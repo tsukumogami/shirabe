@@ -25,6 +25,8 @@
 # sentence split and the normalized match over testdata/standing-rules/cited.md,
 # the What's two-part repository tokens, a path starting with `-` refused, and
 # the 120-rule and 60-inferred caps.
+# The match drops a trailing run of `.`, `!`, `?`, `,`, `;` and `:` (R44),
+# and the split takes fences, headings and table lines as R45 says.
 # For the brief intake: brief_candidates on
 # the testdata/brief-golden briefs (7, 11 and 11 sentences, the ones
 # testdata/standing-rules/brief-kept.json lists) and its section rule, and
@@ -326,6 +328,26 @@ eq "  ... and a sentence inside a fence never does" false "$(cites "Never merge 
 eq "R5. a What differing in case, a leading -, a trailing . and doubled spaces still matches" true \
     "$(cites "- THE coordinator  reads a CI run's status at most once a minute")"
 eq "  ... a one-word paraphrase doesn't" false "$(cites "The coordinator reads a CI job's status at most once a minute.")"
+# nm <a> <b>: whether norm_match holds between the two texts.
+nm() { jq -nc -L "$HERE" --arg a "$1" --arg b "$2" 'include "state-schema"; $a | norm_match($b)'; }
+for a in 'Wait for CI.' 'wait for ci;' 'wait for ci?!' '- Wait for CI :'; do
+    eq "R44. norm_match drops the trailing run of . ! ? , ; : from [$a]" true "$(nm "$a" 'Wait for CI')"
+done
+for a in 'Wait for CI)' 'Wait for CI"' 'Wait for CI]'; do
+    eq "R44. ... and keeps a closing mark in [$a]" false "$(nm "$a" 'Wait for CI')"
+done
+eq "R44. ... and a What ending in a backtick doesn't match the same text without it" false "$(nm 'Run `git fetch`' 'Run `git fetch')"
+# sents: cited.md's candidate sentences, one per line.
+sents() { jq -R -s -r -L "$HERE" 'include "state-schema"; file_sentences[]' "$SD/cited.md"; }
+for s in 'Never deploy on a Friday.' 'Never skip the board.' 'Still inside the tildes.'; do
+    eq "R45. a line inside a \`\`\`bash or a ~~~~ fence, or after a \`\`\` line inside the ~~~~ one, is no candidate: [$s]" 0 "$(sents | grep -cxF -- "$s")"
+done
+eq "R45. ... and no fence line is one, while a line opening with inline code that quotes a fence is" \
+    '```` ```bash ```` opens a fenced block in Markdown.' "$(sents | grep -E '^(```|~~~)')"
+eq "R45. ... which opens no fence, so the next paragraph is a candidate" true "$(cites "Fences hold code.")"
+eq "R45. a line indented four spaces under a list item joins that item" true "$(cites "Keep the board green on every release day.")"
+eq "R45. a heading holding a sentence end is exactly one candidate" '## Done. Next steps' "$(sents | grep -F 'Next steps')"
+eq "R45. a table row holding sentence ends is exactly one candidate" '| a. b | c. |' "$(sents | grep -F 'a. b')"
 eq "R40. the What's two-part tokens: no link, no #n form, no three-part path" '["acme/secret","and/or"]' \
     "$(jq -nc -L "$HERE" --arg w 'see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4' 'include "state-schema"; $w | what_repo_tokens')"
 eq "R33. a skill Source whose path starts with - is refused by its grammar" true \

@@ -21,15 +21,29 @@
 #   reconcile-report-get.sh --session S --check   exit status only (the reconcile
 #                                                  gate, and the hub's directive)
 #   reconcile-report-get.sh --session S           {report, directed_transitions}
-#   reconcile-report-get.sh --session S --md      the report rendered as text
+#   reconcile-report-get.sh --session S --md      the report rendered as text,
+#                                                  the record line as its third
+#                                                  line
+#
+# --md is what the first report takes. After the seal and import checks it reads
+# the record line live, through `coordinate-report.sh --session S --record-line`,
+# and prints `# Reconcile report`, a blank line, the record line, a blank line
+# and the report's Scope line, then the rest of the report
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3). With no Run
+# `role` row in the record it prints nothing and exits 4, so a first report
+# can't go up without its role; the reconcile directive closes the gap no-role
+# first. The sealed report and its seal hold no record line: --check and the
+# JSON mode never read it.
 #
 # directed_transitions lists every `koto next --to` in the run, as
 # "<seq> <from>-><to>": a directed transition passes any gate, so a reader is
 # told rather than trusting the route.
 #
 # Exit codes: 0 read and checked; 1 refused (no sealed report, a mismatch);
-# 2 the log or a context key can't be read; 3 the report was sealed before the
-# run was imported to this host; 64 usage.
+# 2 the log or a context key can't be read (with --md, the record line too);
+# 3 the report was sealed before the run was imported to this host; 4 (--md)
+# the record holds no Run `role` row (the gap no-role), nothing printed;
+# 64 usage.
 #
 # Requires: bash 3.2+, jq, koto, and a sha256 tool (sha256sum or shasum).
 set -uo pipefail
@@ -93,7 +107,17 @@ fi
 
 case "$MODE" in
     check) exit 0 ;;
-    md) "$BASH" "$HERE/reconcile-report.sh" md < "$T/report.json" || fail 2 "the report could not be rendered" ;;
+    md)
+        # The record line, read live: the role the gap fix wrote after the seal
+        # is the one it names. coordinate-report.sh's stderr says why it
+        # printed none.
+        RL=$("$BASH" "$HERE/coordinate-report.sh" --session "$SESSION" --record-line)
+        case $? in
+            0) ;;
+            4) echo "reconcile-report-get: no record line without the run's role; close the handover gap no-role, then print the report" >&2; exit 4 ;;
+            *) fail 2 "the record line can't be read" ;;
+        esac
+        "$BASH" "$HERE/reconcile-report.sh" md --record-line "$RL" < "$T/report.json" || fail 2 "the report could not be rendered" ;;
     json)
         DIRECTED=$("$BASH" "$RD_COORD_LOG" directed-since --session "$SESSION" --from 0)
         case $? in 0|1) ;; *) fail 2 "the session log can't be read" ;; esac
