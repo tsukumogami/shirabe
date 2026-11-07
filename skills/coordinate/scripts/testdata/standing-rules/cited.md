@@ -9,7 +9,7 @@ A worker's brief names its repository. The coordinator checks it.
   pass on the default branch.
 - Keep one lane per feature.
 
-Run `koto next` before every tick. Then read what it says.
+Run `git fetch` before every tick. Then read what it says.
 
 | Rule | Owner |
 |------|-------|
