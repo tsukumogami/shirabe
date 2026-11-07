@@ -300,10 +300,11 @@ lib_b64d() {
     base64 -d < "$1.flat" > "$2" 2> /dev/null || base64 -D < "$1.flat" > "$2" 2> /dev/null
 }
 
-# lib_file_at <path> <ref> <out>: a file's bytes at a ref, through the contents
-# API. Returns 0 read, 1 absent (404), 2 a read or decode failed.
+# lib_file_at <path> <ref> <out> [<owner/repo>]: a file's bytes at a ref in the
+# repository (the host, $REPO, when not given), through the contents API.
+# Returns 0 read, 1 absent (404), 2 a read or decode failed.
 lib_file_at() {
-    if ! gh api --method GET "repos/$REPO/contents/$1?ref=$2" --jq .content > "$3.b64" 2> "$3.err" < /dev/null; then
+    if ! gh api --method GET "repos/${4:-$REPO}/contents/$1?ref=$2" --jq .content > "$3.b64" 2> "$3.err" < /dev/null; then
         grep -q 'HTTP 404' "$3.err" && return 1
         return 2
     fi
