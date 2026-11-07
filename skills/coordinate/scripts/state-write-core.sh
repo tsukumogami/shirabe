@@ -33,8 +33,8 @@
 # Holds, stored set and Decisions rules, and the home-path and token checks over
 # every string, each refused with the module's `refused: ` message (exit 65).
 # The private-repository check over every string runs again once the named
-# repositories' visibility is read (a Standing row's `skill` or `doc` Source
-# names one too), still before any key is written. No body is rendered and no
+# repositories' visibility is read (with the ones state-stored-set.sh read for
+# a new rule row's Source and What), still before any key is written. No body is rendered and no
 # size limit applies: the state lives in the session's keys.
 #
 # The last step (core_write_session; docs/designs/DESIGN-coordinator-session-record.md,
@@ -111,6 +111,14 @@ CORE_PUSHED_SET=0 CORE_PUSHED_TOPIC= CORE_PUSHED_HEAD=
 # --standing raises it to the id it gives out (CORE_STANDING_USED, a whole
 # number); a seed into a session holding no entry, and a carry, set it.
 CORE_STANDING_USED=
+# What state-stored-set.sh read for a rule row before it calls core_write:
+# the host's visibility (CORE_HOST_PRIVATE, true or false), which core_write
+# then uses rather than reading it again, and, on a public host, the
+# repositories the row names that aren't public (CORE_NOT_PUBLIC, comma
+# separated), which join the list core_write gathers, so the schema refuses
+# the row naming them. Empty, core_write reads the host itself, as it does
+# for every other write.
+CORE_HOST_PRIVATE= CORE_NOT_PUBLIC=
 
 # core_live: the live record, read through the seam, and every check against it:
 # the record this scope's, the compare on the written time, and the section
@@ -732,9 +740,18 @@ core_write() {
     # repositories the state names and reads each one's visibility; the checks
     # below refuse a value naming any on the list (state-schema.jq's names_repo, the one
     # test of whether a cell names a repository, and scan_strings over every string).
+    # A Standing row's Source is checked here only as the stored-set writer
+    # read it for the row it writes (CORE_NOT_PUBLIC): a stored row is never
+    # checked again, so a repository made private later can't make the record
+    # unreadable.
     PRIVATE=
-    HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"
+    if [ -n "$CORE_HOST_PRIVATE" ]; then
+        HOST_PRIVATE=$CORE_HOST_PRIVATE
+    else
+        HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"
+    fi
     if [ "$HOST_PRIVATE" = false ]; then
+        PRIVATE=$CORE_NOT_PUBLIC
         # A cell that holds only a repository (Side effects Target) is read for
         # any owner/repo token. Decisions text is prose, where "and/or" or
         # "CI/CD" is not a repository, so only its unambiguous forms count
@@ -747,8 +764,7 @@ core_write() {
               ((.holds // [])[] | (.on | sub("#.*$"; "")),
                 (.until | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.standing // [])[] | ((.on // "") | select(test("/")) | if startswith("release ") then split(" ")[1] else sub("#.*$"; "") end),
-                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end),
-                source_repo),
+                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.side_effects[] | (.target // "")) | tostring
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")

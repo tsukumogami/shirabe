@@ -21,7 +21,10 @@
 # archived Decisions rows). Through state-write.sh and the core: a next state
 # naming a private repository is refused from its JSON, and a refused schema
 # rule, a stale read and a section owned by another writer flag each leave
-# every key as it was.
+# every key as it was. For a rule row the writer writes: a cited file's
+# sentence split and the normalized match over testdata/standing-rules/cited.md,
+# the What's two-part repository tokens, a path starting with `-` refused, and
+# the 120-rule and 60-inferred caps.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/state-schema_test.sh
@@ -286,6 +289,56 @@ eq "  ... the second row its own entry, not the newest" "{\"entry\":\"$SESS reco
 eq "  ... and a row no entry matches points at itself" "{\"row\":\"$SESS record/standing s2\"}" \
     "$(view "$(jq -c '[.[1]]' "$SD/standing-today.json")" '[]' | cut -d'|' -f8)"
 eq "no rule_view object has an under_session_grant key" false "$(jq -c -L "$HERE" --arg s "$SESS" 'include "state-schema"; [.[] | rule_view($s; [])] | any(has("under_session_grant"))' "$SD/rule-rows.json")"
+
+echo "== a cited row's What: the sentence split and the normalized match =="
+# cites <what>: whether the What is one of testdata/standing-rules/cited.md's
+# sentences under norm_match (file_holds), as the writer checks a skill or doc row.
+cites() { jq -R -s -L "$HERE" --arg w "$1" 'include "state-schema"; file_holds($w)' "$SD/cited.md"; }
+eq "R1. a sentence wrapped over two lines matches" true "$(cites "The coordinator reads a CI run's status at most once a minute.")"
+eq "  ... a What running from a paragraph's last sentence over the blank line into the next doesn't" false \
+    "$(cites "It never polls faster. A worker's brief names its repository.")"
+eq "R2. a list item wrapped onto an indented line matches" true "$(cites "Merge a pull request only after its checks pass on the default branch.")"
+eq "  ... and with a leading - in the What" true "$(cites "- Merge a pull request only after its checks pass on the default branch.")"
+eq "R3. a line's second sentence matches" true "$(cites "The coordinator checks it.")"
+eq "  ... half a sentence doesn't" false "$(cites "A worker's brief names")"
+eq "  ... nor a What running over a sentence break" false "$(cites "its repository. The coordinator checks it.")"
+eq "R4. a sentence holding \`git fetch\` matches with its backticks" true "$(cites 'Run `git fetch` before every tick.')"
+eq "  ... and not without them" false "$(cites 'Run git fetch before every tick.')"
+eq "  ... a heading's text without its #s doesn't" false "$(cites "Coordinator rules")"
+eq "  ... a table cell alone doesn't" false "$(cites "Hold the release")"
+eq "  ... while the whole row with its pipes does" true "$(cites "| Hold the release | the human |")"
+eq "  ... and a sentence inside a fence never does" false "$(cites "Never merge on a red board.")"
+eq "R5. a What differing in case, a leading -, a trailing . and doubled spaces still matches" true \
+    "$(cites "- THE coordinator  reads a CI run's status at most once a minute")"
+eq "  ... a one-word paraphrase doesn't" false "$(cites "The coordinator reads a CI job's status at most once a minute.")"
+eq "R40. the What's two-part tokens: no link, no #n form, no three-part path" '["acme/secret","and/or"]' \
+    "$(jq -nc -L "$HERE" --arg w 'see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4' 'include "state-schema"; $w | what_repo_tokens')"
+eq "R33. a skill Source whose path starts with - is refused by its grammar" true \
+    "$(jq -nc -L "$HERE" --arg s "skill a/b -x/y $SHA40" 'include "state-schema"; ($s | source_problem) != null')"
+eq "  ... while a later segment may start with one" null \
+    "$(jq -nc -L "$HERE" --arg s "skill a/b x/-y $SHA40" 'include "state-schema"; $s | source_problem')"
+
+echo "== the caps a new rule row is held to =="
+# caps <jq building the Standing rows> <source of the new row>: the counts and
+# the cap the new row would break, or null.
+caps() { jq -nc -L "$HERE" --arg s "$2" 'include "state-schema"; ('"$1"') | [rule_cap_counts, rule_cap_problem({kind: "rule", source: $s})]'; }
+PIN="pinned charter sha256:$SHA64"
+eq "every rule row counts, whatever its status, and only those rule_class reads inferred count as inferred" \
+    '[{"rule":4,"inferred":2},null]' \
+    "$(caps '[{kind: "rule", source: "inferred"}, {kind: "rule", source: "inferred brief w sha256:'"$SHA64"'"}, {kind: "rule", source: "skill a/b x.md '"$SHA40"'"},
+        {kind: "rule", source: "decision s 000000000007"}, {kind: "pause", source: ""}, {kind: "go-ahead"}]' inferred)"
+eq "at 60 inferred, an inferred row breaks the inferred cap" \
+    '[{"rule":60,"inferred":60},"the record holds 60 inferred rule rows, the most it keeps; confirm or end one first"]' \
+    "$(caps '[range(60) | {kind: "rule", source: "inferred"}]' inferred)"
+eq "  ... and a pinned row fits" '[{"rule":60,"inferred":60},null]' "$(caps '[range(60) | {kind: "rule", source: "inferred"}]' "$PIN")"
+eq "at 120 rule rows, a pinned row breaks the rule cap" \
+    '[{"rule":120,"inferred":0},"the record holds 120 rule rows, the most it keeps; end one first"]' \
+    "$(caps '[range(120) | {kind: "rule", source: "'"$PIN"'"}]' "$PIN")"
+eq "  ... and at 120 with 60 inferred, an inferred row names the inferred cap first" \
+    "the record holds 60 inferred rule rows, the most it keeps; confirm or end one first" \
+    "$(caps '[range(60) | {kind: "rule", source: "inferred"}] + [range(60) | {kind: "rule", source: "'"$PIN"'"}]' inferred | jq -r '.[1]')"
+eq "the event kinds count against neither cap" '[{"rule":0,"inferred":0},null]' \
+    "$(caps '[range(200) | {kind: "pause", source: ""}]' inferred)"
 
 echo "== rule_grants =="
 # under_grant <row-json> <answer-json> [<jq patch over the row's rule_view>]: the
