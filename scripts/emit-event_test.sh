@@ -361,7 +361,7 @@ for nt in 0 1; do
         echo "skip the timeout(1) path: no timeout on this host"
         continue
     fi
-    label=$([ "$nt" = 1 ] && echo "the helper's own deadline" || echo "timeout(1)")
+    label=$([ "$nt" = 1 ] && echo "the helper's own deadline" || echo "timeout on PATH")
     new_home
     echo slow >"$H/mode"
     start=$(date +%s)
