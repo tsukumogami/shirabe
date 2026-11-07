@@ -190,11 +190,11 @@ The headings are fixed strings:
 
 ### Step 6: --standing rule writes a skill, doc, pinned or inferred rule row and refuses one that cites words its source doesn't hold
 
-shirabe, after the reader release has shipped: the writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind.
+shirabe, after the reader release has shipped: the writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind. The design's Decisions 7, 8 and 9, settled after this step merged, change its trailing-punctuation set, its fence rule and its repository comparison and shared visibility read; that change lands through #1582 with criteria R44 to R46.
 
 ### Step 7: a start whose brief has no briefs row names brief-unread, and the intake brings each brief rule in once as an inferred row
 
-shirabe, after step 6: `record/host` names the brief, the handover read raises `brief-unread <label>`, the intake writes one `inferred brief` rule row per unmatched brief sentence by the normalized match plus the `briefs` row, is idempotent on one digest, brings a pause-shaped line in as a restrict-only `rule` row, ends the earlier digest's inferred rows the new brief no longer states, and leaves the gap open naming the count when a cap would be passed.
+shirabe, after step 6: `record/host` names the brief, the handover read raises `brief-unread <label>`, the intake writes one `inferred brief` rule row per unmatched brief rule sentence by the normalized match plus the `briefs` row, its candidates being the splitter's output less heading lines and less the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting and Keep-alive sections (the design's Decision 10), so the first intake of each `testdata/brief-golden` brief on an empty record stays under the 60-inferred cap, is idempotent on one digest, brings a pause-shaped line in as a restrict-only `rule` row, ends the earlier digest's inferred rows the new brief no longer states, and leaves the gap open naming the count when a cap would be passed.
 
 ### Step 8: state-keys.md and SKILL.md describe rule rows, Source forms, classes and the two read modes
 

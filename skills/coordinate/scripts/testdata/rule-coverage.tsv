@@ -279,36 +279,37 @@ S40	skills/coordinate/koto-templates/coordinate.md	reconcile	Its third line is t
 S41	skills/coordinate/koto-templates/coordinate.md	reconcile	the record line first and
 S42	skills/coordinate/SKILL.md	-	Every report opens with the record line
 S43	skills/coordinate/SKILL.md	-	A report calls its own role only by
-S44	skills/coordinate/SKILL.md	-	A list says what you owe, never what you're allowed to do
-S45	skills/coordinate/SKILL.md	-	Call yourself only by the role your record holds
-S46	skills/coordinate/SKILL.md	-	Report up to your reviewer as Reporting says
-S47	skills/coordinate/SKILL.md	-	Brief a successor with the role your record holds
-S48	skills/coordinate/SKILL.md	-	Run one lane: the roadmap's features
-S49	skills/coordinate/SKILL.md	-	Dispatch and brief the workers your lane's units need
-S50	skills/coordinate/SKILL.md	-	Review your workers' pull requests at your land step
-S51	skills/coordinate/SKILL.md	-	Send every pull request you author
-S52	skills/coordinate/SKILL.md	-	Report your lane's worker pull requests
-S53	skills/coordinate/SKILL.md	-	Dispatch and brief managers, one lane each
-S54	skills/coordinate/SKILL.md	-	Be the reviewer of each manager you dispatched.
-S55	skills/coordinate/SKILL.md	-	send your own reading up
-S56	skills/coordinate/SKILL.md	-	Read for alignment.
-S57	skills/coordinate/SKILL.md	-	the pull requests a manager authors and sends
-S58	skills/coordinate/SKILL.md	-	worker pull requests each manager reports
-S59	skills/coordinate/SKILL.md	-	It isn't a correctness review
-S60	skills/coordinate/SKILL.md	-	name the pull requests and the conflict
-S61	skills/coordinate/SKILL.md	-	to every manager involved and in your next report
-S62	skills/coordinate/SKILL.md	-	Whether your reading holds a land isn't set by your role
-S63	skills/coordinate/SKILL.md	-	the workspace's authority configuration say who merges
-S64	skills/coordinate/SKILL.md	-	which of your lanes advance
-S65	skills/coordinate/SKILL.md	-	Be the owner funnel
-S66	skills/coordinate/SKILL.md	-	Never block on the owner from a turn the owner didn't start
-S67	skills/coordinate/SKILL.md	-	**What you allocate is read, never assumed.**
-S68	skills/coordinate/SKILL.md	-	isn't defined here: escalate it as a decision entry
-S69	skills/coordinate/SKILL.md	-	the alignment reading its Roles list names
-S70	skills/coordinate/SKILL.md	-	which the director confirms happened rather than repeats
-S71	skills/coordinate/koto-templates/coordinate.md	start	read its Roles list for the role your record holds
-S72	skills/coordinate/koto-templates/coordinate.md	start	mean one thing each: coordinator, manager,
-S73	skills/coordinate/references/brief-template.md	-	reads its duties from the skill's Roles list
-S74	skills/coordinate/SKILL.md	-	- **Manager** -- a coordinator that runs one lane
-S75	skills/coordinate/SKILL.md	-	- **Director** -- a coordinator over managers
-S76	skills/coordinate/SKILL.md	-	- **Workspace manager** -- the tool that dispatches
+S44	skills/coordinate/koto-templates/coordinate.md	reconcile	all but `carry-unacknowledged`
+S45	skills/coordinate/SKILL.md	-	A list says what you owe, never what you're allowed to do
+S46	skills/coordinate/SKILL.md	-	Call yourself only by the role your record holds
+S47	skills/coordinate/SKILL.md	-	Report up to your reviewer as Reporting says
+S48	skills/coordinate/SKILL.md	-	Brief a successor with the role your record holds
+S49	skills/coordinate/SKILL.md	-	Run one lane: the roadmap's features
+S50	skills/coordinate/SKILL.md	-	Dispatch and brief the workers your lane's units need
+S51	skills/coordinate/SKILL.md	-	Review your workers' pull requests at your land step
+S52	skills/coordinate/SKILL.md	-	Send every pull request you author
+S53	skills/coordinate/SKILL.md	-	Report your lane's worker pull requests
+S54	skills/coordinate/SKILL.md	-	Dispatch and brief managers, one lane each
+S55	skills/coordinate/SKILL.md	-	Be the reviewer of each manager you dispatched.
+S56	skills/coordinate/SKILL.md	-	send your own reading up
+S57	skills/coordinate/SKILL.md	-	Read for alignment.
+S58	skills/coordinate/SKILL.md	-	the pull requests a manager authors and sends
+S59	skills/coordinate/SKILL.md	-	worker pull requests each manager reports
+S60	skills/coordinate/SKILL.md	-	It isn't a correctness review
+S61	skills/coordinate/SKILL.md	-	name the pull requests and the conflict
+S62	skills/coordinate/SKILL.md	-	to every manager involved and in your next report
+S63	skills/coordinate/SKILL.md	-	Whether your reading holds a land isn't set by your role
+S64	skills/coordinate/SKILL.md	-	the workspace's authority configuration say who merges
+S65	skills/coordinate/SKILL.md	-	which of your lanes advance
+S66	skills/coordinate/SKILL.md	-	Be the owner funnel
+S67	skills/coordinate/SKILL.md	-	Never block on the owner from a turn the owner didn't start
+S68	skills/coordinate/SKILL.md	-	**What you allocate is read, never assumed.**
+S69	skills/coordinate/SKILL.md	-	isn't defined here: escalate it as a decision entry
+S70	skills/coordinate/SKILL.md	-	the alignment reading its Roles list names
+S71	skills/coordinate/SKILL.md	-	which the director confirms happened rather than repeats
+S72	skills/coordinate/koto-templates/coordinate.md	start	read its Roles list for the role your record holds
+S73	skills/coordinate/koto-templates/coordinate.md	start	mean one thing each: coordinator, manager,
+S74	skills/coordinate/references/brief-template.md	-	reads its duties from the skill's Roles list
+S75	skills/coordinate/SKILL.md	-	- **Manager** -- a coordinator that runs one lane
+S76	skills/coordinate/SKILL.md	-	- **Director** -- a coordinator over managers
+S77	skills/coordinate/SKILL.md	-	- **Workspace manager** -- the tool that dispatches

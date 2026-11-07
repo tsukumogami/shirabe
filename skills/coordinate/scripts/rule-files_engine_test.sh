@@ -41,8 +41,9 @@
 #      and record/host byte-identical;
 #   8. --rules prints the Standing objects byte-identical to the same record
 #      with its rules rows taken out, then one object per Run rules row in
-#      record order (kind skill, workspace or other), and --rules --id s1 only
-#      s1's object;
+#      record order (kind skill, workspace or other; class skill-says,
+#      charter or inferred; said the row's Set; pointer its label, digest
+#      and record/host key), and --rules --id s1 only s1's object;
 #   9. with the plugin copy's SKILL.md unreadable the opener prints session=,
 #      exits 0 and then warning=rules-unrecorded, the reason on stderr, and no
 #      skill- row is written; the next start, the file readable again, writes
@@ -283,16 +284,23 @@ need "without rules rows --rules prints only s1's object" "s1" "$(jq -r '.standi
 jq -c 'select(has("run") | not)' "$T/rules.with" > "$T/rules.with.standing"
 cmp -s "$T/rules.none" "$T/rules.with.standing" || needf "the Standing objects differ: [$(cat "$T/rules.none")] vs [$(cat "$T/rules.with.standing")]"
 need "the Standing objects come first" "s1" "$(head -1 "$T/rules.with" | jq -r '.standing // "run"')"
+# Each object also reads as a sourced line: its class by its label, said its
+# row's Set, and a pointer naming its label, digest and record/host key.
+# rule_obj <kind> <class> <label> <digest>
+rule_obj() {
+    jq -nc --arg k "$1" --arg c "$2" --arg l "$3" --arg d "$4" --slurpfile r "$T/run.saved" '{run: "rules", kind: $k, label: $l, digest: $d,
+        class: $c, said: ([$r[0][] | select(.key == "rules" and (.value | split(" ")[0]) == $l) | .set][0]),
+        pointer: {label: $l, digest: $d, host: "rules:\($l)"}}'
+}
 want_files | while read -r l p; do
-    case "$l" in skill-*) k=skill ;; *) k=workspace ;; esac
-    jq -nc --arg k "$k" --arg l "$l" --arg d "sha256:$(sha "$p")" '{run: "rules", kind: $k, label: $l, digest: $d}'
+    case "$l" in skill-*) rule_obj skill skill-says "$l" "sha256:$(sha "$p")" ;; *) rule_obj workspace charter "$l" "sha256:$(sha "$p")" ;; esac
 done > "$T/rules.want"
-jq -nc --arg d "sha256:$DN" '{run: "rules", kind: "other", label: "notes", digest: $d}' >> "$T/rules.want"
-need "then one object per Run rules row in record order, each with its kind" "$(jq -s -S -c . "$T/rules.want")" \
+rule_obj other inferred notes "sha256:$DN" >> "$T/rules.want"
+need "then one object per Run rules row in record order, each with its kind, class, said and pointer" "$(jq -s -S -c . "$T/rules.want")" \
     "$(jq -s -S -c '[.[] | select(has("run"))]' "$T/rules.with")"
 agent "$A" state-stored-set.sh --rules --id s1 > "$T/rules.s1" 2> "$T/rules.err"
 need "--rules --id s1 prints only s1's object" "0 1 s1" "$? $(jq -s length "$T/rules.s1") $(jq -r .standing "$T/rules.s1")"
-crit "8. --rules prints the Standing objects as on the record without rules rows, then one object per Run rules row in record order with its kind; --rules --id s1 prints only s1's"
+crit "8. --rules prints the Standing objects as on the record without rules rows, then one object per Run rules row in record order with its kind, class, said and pointer; --rules --id s1 prints only s1's"
 
 # ---- 7: a takeover --------------------------------------------------------------
 if needs_takeover "7: a takeover writes the successor's own rows"; then

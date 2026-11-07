@@ -2528,9 +2528,11 @@ record line read live as its third line.
 
 First make the record one a replacement could continue from: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-handover.sh" --session {{SESSION_NAME}} --check`
-and close every gap it names with the `state-stored-set.sh` call it gives. Write
-this run's arguments and the cap if the record has neither, and your own address
-(`--run coordinator`) if the record names another coordinator's or none. Fill
+and close every gap it names with the `state-stored-set.sh` call it gives,
+all but `carry-unacknowledged`: a person's go-ahead closes that one, and the
+first report asks for it. Write this run's arguments and the cap if the record
+has neither, and your own address (`--run coordinator`) if the record names
+another coordinator's or none. Fill
 `no-role` with the `role=` value the opener printed or, when it printed none, by
 asking the person once with no recommendation, manager or director; the role
 is never inferred from the scope, the cap, the holdings,
@@ -2548,11 +2550,16 @@ stays here until the check passes.
 
 Then print the report the reconcile pass sealed, checked against its seal, with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
-and report it up; then submit `reconciled: reported`. Its third line is the
+and report it up. Its third line is the
 record line, read from the record as it is now, so it names the role the
 `no-role` fix wrote; with no role row it prints nothing and exits 4, and the
-report waits for that gap. Load `references/loop.md`, "A Full
-Reconcile, in Order", for how to present it.
+report waits for that gap. When the check still lists `carry-unacknowledged`,
+the same report goes on, after the reconcile report, to list the holds and
+Standing rows `coord/predecessor_carry.json` names and ask the person for a
+go-ahead on them. When they answer, record it with the gap's own
+`state-stored-set.sh --standing go-ahead` call and run the check again. Then
+submit `reconciled: reported` once the check passes. Load
+`references/loop.md`, "A Full Reconcile, in Order", for how to present it.
 
 <!-- details -->
 
@@ -2586,7 +2593,9 @@ lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
 address; a holding merged and waiting for its teardown is exempt. It also
 holds while the record names nobody this coordinator
-reports to (`no-reports-to`). After an import it holds
+reports to (`no-reports-to`), and on a carried rotation until the person's
+go-ahead is recorded (`carry-unacknowledged`), so nothing dispatches or merges
+before they answer. After an import it holds
 until each leg has an end (`leg-unclassified <worker>`): a live holding whose
 leg names a request this host's store doesn't hold. The pass gives each such
 leg its end, re-legging a worker whose session came along unbound and moving

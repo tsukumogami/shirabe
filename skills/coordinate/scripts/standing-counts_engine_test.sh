@@ -17,7 +17,8 @@
 #   1. --rules --counts on A prints the seven class lines held below (cmp);
 #   2. on A, I and E each class's count is the number of --rules objects of
 #      that class, all seven lines are printed, and the counts add up to the
-#      Standing row count;
+#      Standing rows plus the Run rules rows (these records hold no Run rules
+#      row, so the Standing row count);
 #   3. --rules --counts --id is a usage error (64, nothing on stdout), and a
 #      logging koto (KOTO_BIN) shows --counts lists no entry and no read on A
 #      runs a `koto decisions` command;
@@ -200,12 +201,15 @@ counts_case() {
     local l=$1 s=$2 n=$3 sum
     agent "$s" state-stored-set.sh --rules > "$T/$l.rules" 2> "$T/$l.rules.err" || needf "$l: --rules fails: $(cat "$T/$l.rules.err")"
     agent "$s" state-stored-set.sh --rules --counts > "$T/$l.counts" 2> "$T/$l.counts.err" || needf "$l: --counts fails: $(cat "$T/$l.counts.err")"
-    need "$l: --rules prints one object per Standing row" "$n" "$(jq -s length "$T/$l.rules" 2>/dev/null)"
+    # These records hold no Run rules row, so --rules prints the Standing
+    # objects alone and the counts' total is the Standing row count.
+    need "$l: --rules prints one object per Standing row, and no Run rules object" "$n 0" \
+        "$(jq -s '"\(length) \([.[] | select(has("run"))] | length)"' -r "$T/$l.rules" 2>/dev/null)"
     want_counts "$T/$l.rules" > "$T/$l.counts.want" 2>/dev/null
     cmp -s "$T/$l.counts.want" "$T/$l.counts" || needf "$l: --counts isn't --rules' classes counted: want [$(tr '\n' '|' < "$T/$l.counts.want")] got [$(tr '\n' '|' < "$T/$l.counts")]"
     need "$l: all seven lines are printed" 7 "$(grep -c '^[a-z-]* [0-9][0-9]*$' "$T/$l.counts")"
     sum=$(awk '{ n += $2 } END { print n + 0 }' "$T/$l.counts")
-    need "$l: the counts add up to the Standing row count" "$n" "$sum"
+    need "$l: the counts add up to the Standing rows plus the Run rules rows" "$n" "$sum"
 }
 
 # ---- the host ---------------------------------------------------------------
@@ -375,7 +379,7 @@ counts_case I "$I" 6
 counts_case E "$E" 0
 need "  ... I's counts read its doc row as charter, its three inferred rows inferred" "relayed 2|inferred 3|charter 1" \
     "$(grep -E '^(relayed|inferred|charter) ' "$T/I.counts" | tr '\n' '|' | sed 's/|$//')"
-crit "2. on A, I and E, each class's count is the --rules objects of that class, all seven lines printed, adding up to the Standing row count"
+crit "2. on A, I and E, each class's count is the --rules objects of that class, all seven lines printed, adding up to the Standing rows plus the Run rules rows (none here)"
 
 # ---- 5 ----------------------------------------------------------------------
 agent "$I" state-handover.sh > "$T/I.handover" 2> "$T/I.handover.err"

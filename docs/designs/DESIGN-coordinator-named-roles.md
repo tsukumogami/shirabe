@@ -20,7 +20,9 @@ decision: |
   role, set once and carried by every existing continuation; a record without
   it is the handover gap no-role. Every report starts with a record line a
   script prints from the live record, ending "Role: manager." or "Role:
-  director.". A coordinator's brief carries the role as --role on its
+  director."; a discipline rotation that carried its predecessor puts that
+  line in a first report that asks for the carry's go-ahead, rather than
+  holding the report until the go-ahead arrives. A coordinator's brief carries the role as --role on its
   invocation line, filled by dispatch-worker.sh from the record for a
   successor and as manager for a lane. SKILL.md gains Manager and Director
   Glossary entries, a Roles section with each role's expectation list (the
@@ -799,7 +801,9 @@ untouched.
 `state-handover.sh --check` names first (the `no-role` fix among them), then
 print with `reconcile-report-get.sh --md` and report that up, then submit
 `reconciled: reported`. A role-less carry's very first report therefore names
-the role written by the gap fix, with no second reconcile visit.
+the role written by the gap fix, with no second reconcile visit. The one gap
+left open for the first report is `carry-unacknowledged`, which only a
+person's answer closes; Decision 6 has the first report ask for it.
 
 **Later reports.** Every later report, the closing one included, starts with
 the line `coordinate-report.sh --session <session> --record-line` prints, pasted
@@ -1115,9 +1119,152 @@ and line drift would make a committed ledger a cost on every later edit.
 contradicts the Glossary's "coordinator means either role" and churns about
 145 sentences and several pinned rule-coverage phrases.
 
+### Decision 6: A carried rotation's first report and its go-ahead
+
+Decision 3 closes every gap `state-handover.sh --check` names before the first
+report goes up, and Issue 3's acceptance criterion says the same: the directive
+closes every gap, then prints with `--md` and reports, then submits. One of
+those gaps works unlike the rest, and neither the PRD nor Decision 3 as first
+written mentions it.
+
+`carry-unacknowledged` is raised only at discipline scope, on a rotation that
+carried its predecessor (`coord/predecessor_carry.json` with the verdict
+`carried`, or a `record/rotation` that names a predecessor). It clears only on
+a Standing `go-ahead` set at or after the start of the run's chain, and not one
+the carry brought over. Its fix, as `state-handover.sh` prints it, is "show the
+person the carried holds and Standing rows (coord/predecessor_carry.json), then
+record their go-ahead". The agent can't close it from the record or from what
+the opener printed: a person has to answer, and what they answer is whether
+what the carry brought over binds this rotation. The `predecessor_carry`
+directive gives the gap's purpose: until a person answers, "nothing dispatches
+or merges first".
+
+Read literally, Decision 3 makes a carried rotation's first report wait for
+that answer. The fix shows the person the carried state before they answer, so
+the first thing the person gets from the new rotation is that showing, with no
+record line. This is the one path where a successor, at discipline scope,
+inherits approvals and holds it didn't make, which is when it most needs to say
+what it is. Holding the report gains nothing for the gap's purpose: a report
+acts on nothing, and the handover gate already keeps the workflow in
+`reconcile`, so nothing dispatches or merges, until the gap closes.
+
+This decision rests on two requirements. No requirement's text changes.
+
+- R6: the run's first report, at reconcile, names the record and the role
+  within its first five lines. Under the held order, the person's first message
+  from a carried rotation names neither.
+- R8: a successor's first report names the role its brief names, and the
+  acceptance criterion that a discipline rotation carrying a predecessor
+  recorded as `manager` reports `manager` in its first report.
+
+It also keeps a stated design constraint: the handover gate holds while
+`--check` lists any gap, as it already does for `carry-unacknowledged` (R3
+names the same hold for the role gap). This decision keeps that gap holding the
+gate and only moves where in `reconcile` the person is asked.
+
+Key assumptions:
+
+- A discipline carry has its role row before `reconcile`: `state-open.sh
+  --carry` copies the Run section, and `--carry --role` adds the row when the
+  copy has none (Decision 1's path table). `--md` therefore prints the record
+  line while `carry-unacknowledged` is still open.
+- The handover gate holds both exits from `reconcile` until `--check` passes,
+  so a submit made before the go-ahead is refused.
+- No state, gate, variable or script changes. The change is directive prose,
+  which doesn't move the template's fingerprint.
+
+#### Chosen: The first report asks for the go-ahead
+
+In `reconcile`, close every gap `--check` names except `carry-unacknowledged`.
+Then print with `reconcile-report-get.sh --md` and report it up. In the same
+report, after the reconcile report, list the holds and Standing rows
+`coord/predecessor_carry.json` names and ask the person for a go-ahead on
+them. When they answer, record it with the gap's own `state-stored-set.sh
+--standing go-ahead` call, run `--check` again, and submit `reconciled:
+reported` once it passes.
+
+What stays as it is:
+
+- The dispatch and merge gate. `state-handover.sh` still lists
+  `carry-unacknowledged` until the go-ahead is recorded, the handover gate on
+  both exits from `reconcile` still refuses to pass while it's listed, and the
+  go-ahead's own test (set after the chain's start, not brought by the carry)
+  is the same. Nothing dispatches or merges before the person answers.
+- Every path other than a carried discipline rotation without its go-ahead
+  keeps Decision 3's order as Issue 3 builds it: every gap closes, then `--md`,
+  then the submit. That covers a roadmap-scope run, a discipline's first
+  rotation, a resume, a takeover, an import, a role-less session carry (which
+  gets its role from the `no-role` fix before its first report, with no second
+  reconcile visit), and a carried rotation whose go-ahead was already set in
+  its chain, as on a crash restart.
+
+What a test can check:
+
+- With an unacknowledged carry: a discipline rotation that carried a
+  predecessor recorded as `manager`, with no go-ahead since its chain started.
+  Once the other gaps are closed, `--check` lists `carry-unacknowledged` and
+  nothing else. `--md` exits 0, and its line 3 ends `Role: manager.`. A
+  `reconciled: reported` submit is refused and the workflow stays in
+  `reconcile`. After the go-ahead row is written, `--check` exits 0 and the
+  submit moves on. A go-ahead the carry brought over doesn't clear the gap.
+- Without one: a discipline rotation whose go-ahead was set after its chain
+  started, and any start that carried nothing, close every gap before `--md`
+  and submit after it, the order Decision 3 states.
+- In the directive text, the gap paragraph names `carry-unacknowledged` as the
+  one gap the first report asks about and comes before the `--md` call. The
+  go-ahead's record and the second `--check` come after the report and before
+  the submit.
+
+#### Alternatives Considered
+
+**Hold the first report behind the go-ahead.** This is Decision 3 read
+literally, and the order Issue 3's pull request first built. Rejected because
+the person is asked to acknowledge the carry before they get the rotation's
+first report, the showing the gap's fix asks for becomes a report with no
+record line (against R6 and R8), and holding adds nothing the gate doesn't
+already hold.
+
+**Report first, then close the gaps.** This is the order before Decision 3.
+Rejected because it reopens the conflict Decision 3 was re-run to settle:
+`--md` exits 4 for a role-less carry until `no-role` closes, so that carry's
+first report would go up without its role.
+
+**A separate carry message with its own record line, ahead of the report.**
+Rejected because it makes two first reports, the person judges the carry
+without the reconcile report, which marks the rows the previous rotation
+wrote, and the record line would need a second print site.
+
+**Ask for the go-ahead in `predecessor_carry`, before the reconcile pass.**
+Rejected because it adds a wait in a state the handover gate doesn't cover,
+which changes the template beyond prose, and the reconcile report the person
+needs isn't sealed yet.
+
+#### What Issue 3's pull request changes
+
+Issue 3's pull request built the held order before this decision. Once it's
+brought up to date with main, it changes:
+
+- the `reconcile` directive in `koto-templates/coordinate.md`: the gap
+  paragraph leaves `carry-unacknowledged` open, and a sentence after the
+  report records the go-ahead and runs `--check` again before the submit;
+- `coordinate-template-structure_engine_test.sh`: its order check gains the
+  exception and the go-ahead's place between the report and the submit;
+- the `rotation-start-carries-reasoning` eval in `evals/evals.json`, whose
+  prompt opens "You have closed every gap the handover check named": it reads
+  every gap but the carry's go-ahead, and the grading expects the first report
+  to ask for it;
+- a rule-coverage row in `scripts/testdata/rule-coverage.tsv` for the exception, with the
+  count in `rule-coverage_test.sh`;
+- an engine test of a discipline carry's first report, with and without an
+  unacknowledged carry, as listed above.
+
+Its scripts, gates, states and compat record are expected to stay unchanged.
+That's inferred from this decision's mechanism and not yet checked against
+that branch.
+
 ## Decision Outcome
 
-The five decisions make one path for the role, from the person or coordinator
+The six decisions make one path for the role, from the person or coordinator
 that names it to every reader that shows it. A start names the role as
 `--role`, either typed by a person (or passed from a role stated in words in
 the decisions) or rendered into the invocation line of the brief that started
@@ -1139,6 +1286,12 @@ re-decided so it's read live at print time, and the reconcile directive closes
 its gaps before the first report goes up. The sweep and the record decision
 described the `reports-to` value with different placeholders; this design uses
 `<name>` throughout.
+
+Closing every gap first leaves one gap that the agent can't close by itself.
+`carry-unacknowledged` waits on a person's go-ahead for what a discipline
+rotation carried over, so Decision 6 has that rotation's first report go up
+with the record line and ask for the go-ahead. The gate holds the submit until
+the answer is recorded.
 
 The role reaches no allowance. It isn't a koto variable, it isn't passed to
 `niwa dispatch`, and a structure test pins that the posture read, the
@@ -1167,7 +1320,7 @@ none is deferred.
 | One stored value, one writer, gap holds the gate (R3) | Decision 1, the Run `role` row and `no-role` |
 | Every continuation keeps it (R4) | Decision 1, the path table |
 | A continuation keeps its role unless an intervention from above changes it, on the record (R5) | Decision 1: the `role_mismatch` and four role-change refusal rows, the `--role-change-by` and `--role-change-source` flags, the set-once writer's `--intervention`, and the brief's `role_change` field |
-| Reports name it on the record line (R6) | Decision 3 |
+| Reports name it on the record line (R6) | Decision 3; Decision 6 for a carried rotation's first report |
 | Coordinator briefs carry it on one rendered line (R7) | Decision 2 |
 | Successor reports its brief's role (R8) | Decisions 2 and 3: the brief's `--role` becomes the record's row, which the record line prints |
 | Old names stop at the first handover (R9) | Decision 1 reads the role only from the flag, the brief's invocation or the record; Decision 4's shared item |
@@ -1209,7 +1362,7 @@ variable is added, so the template stays at compat 2.
 | `scripts/coordinate-report.sh` | `--record-line`; `record=` accepts a session name |
 | `scripts/render-brief.sh`, `scripts/dispatch-common.sh` | the `role` input field, not required on a `coordinate` brief marked `held_rerender`, and the `role_change_by` field; `dc_invocation` appends `--role` when `role` is set and the two change flags after it when `role_change_by` is set; a `held_rerender` coordinate opener line says to write the invocation's tokens into a fresh args file first |
 | `scripts/dispatch-worker.sh` | writes `.role` in `read_inputs`: deleted for workers, the record's row for a successor (refused when missing), `manager` for a lane on a new dispatch, none on `--rebrief` of a held coordinate lane, whose holding-built input jq sets `held_rerender: true` from the row's entry point (`read_inputs` deletes it, and an input's `role_change_by`, from every input); with a `role_change` field on a `--rebrief` of a coordinate holding (refused, exit 1, on a new dispatch, a successor brief, a `--releg` or a worker entry point), `.role` is the new role and the invocation line gains `--role-change-by` (its own Run `coordinator` row) and `--role-change-source dispatcher` |
-| `koto-templates/coordinate.md` | `record_open` directive passes `role=`; `predecessor_carry` directive passes `role=`, `role_change_by=` and `role_change_source=` to `state-open.sh --carry`; `reconcile` directive closes gaps before printing the report; start state names the two roles and the Roles section; swept prose |
+| `koto-templates/coordinate.md` | `record_open` directive passes `role=`; `predecessor_carry` directive passes `role=`, `role_change_by=` and `role_change_source=` to `state-open.sh --carry`; `reconcile` directive closes gaps before printing the report, all but `carry-unacknowledged`, which the report asks for; start state names the two roles and the Roles section; swept prose |
 | `SKILL.md` | flag table, Glossary entries, `## Roles`, the Bounds and Authority allowance paragraph, the own-reading sentence, the record line in Reporting, `reports-to` wording, swept prose |
 | `references/state-keys.md`, `brief-template.md`, `loop.md`, `entry-points.tsv` header | the Run `role` row and its writers; the Goal rule and the `role` field; the record line; where `--role` comes from |
 | Tests | `state-stored-set_test.sh`, `state-schema_test.sh`, `coordinate-open` tests, `render-brief_test.sh`, `dispatch-worker_test.sh`, `coordinate-report_test.sh`, reconcile report tests, the template structure test (writers and non-readers of the row), `testdata/rule-coverage.tsv` rows for the new sentences |
@@ -1265,7 +1418,8 @@ variable is added, so the template stays at compat 2.
    "role: director" in the decisions, which the agent passes as the flag). The
    opener checks the value, finds no candidate run, prints `role=director`,
    and `record_open` seeds the record with the Run `role` row.
-2. `reconcile` closes its handover gaps, then prints the first report with
+2. `reconcile` closes its handover gaps (all but `carry-unacknowledged`, which
+   a carried rotation's first report asks for), then prints the first report with
    `reconcile-report-get.sh --md`; its third line is `` Record: session `…` on
    `owner/repo`. Role: director. ``
 3. The director dispatches a manager for another roadmap. `dispatch-worker.sh`
@@ -1333,7 +1487,8 @@ tests, `SKILL.md`'s flag table and the "stated in words" sentence.
 
 `reconcile-report.sh`'s `record_line` def and `line` mode,
 `reconcile-report-get.sh --md`, `coordinate-report.sh --record-line` and its
-`record=` fix. Reorder the `reconcile` directive (gaps first), point
+`record=` fix. Reorder the `reconcile` directive (gaps first, with
+`carry-unacknowledged` asked for in the first report, per Decision 6), point
 `loop.md` and the `reconcile_pass` prose at the printed report, and document
 the line in `SKILL.md`'s Reporting.
 
