@@ -438,11 +438,10 @@ These words mean one thing each, everywhere in this skill and in the record.
 
 ## Roles
 
-Your record holds your role, `manager` or `director`. Read the list for it and
-the list both roles share.
 A list says what you owe, never what you're allowed to do:
 that comes from Bounds and Authority and the workspace's authority
-configuration, and it's the same for either role.
+configuration, and it's the same for either role. Your record holds your role,
+`manager` or `director`. Read the list for it and the list both roles share.
 
 **Both roles**
 
