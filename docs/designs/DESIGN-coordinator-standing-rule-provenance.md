@@ -822,7 +822,8 @@ trim again. R44 checks it.
 #### Decision 8: What the splitter takes as a fence, a heading and a table line
 
 **Chosen: a fence line is one whose first non-blank characters are three or
-more backticks or three or more tildes; it opens a fence that the next fence
+more backticks or three or more tildes, where a backtick line holds no
+further backtick after that run; it opens a fence that the next fence
 line of the same character, at least as long and followed only by
 whitespace, closes, and an unclosed fence runs to the file's end. Neither
 fence line nor anything between them is a candidate. A heading line (one to
@@ -1560,7 +1561,8 @@ candidate, as Decision 8 sets out: a heading line (first non-blank
 characters one to six `#`s, then a space or the line's end) and a table
 line (first non-blank character `|`) are each one candidate kept whole and
 never split at a sentence end; a fence line (first non-blank characters
-three or more `` ` `` or three or more `~`) opens a fence that the next fence
+three or more `` ` `` or three or more `~`, and on a backtick line no
+further backtick after that run) opens a fence that the next fence
 line of the same character, at least as long and followed only by
 whitespace, closes, an unclosed fence running to the file's end, and
 neither fence line nor any line between them is a candidate. An indented
@@ -1584,7 +1586,7 @@ cited whole. Step 7's intake splits a brief the same way, so
 - R4. A sentence holding `` `koto next` `` matches only with its backticks. A heading's text without its `#`s doesn't, a table cell alone doesn't while the whole row with its pipes does, and a sentence inside a fence never does.
 - R5. A matching What still matches when it differs only in case, a leading `- `, a trailing `.` and doubled spaces. A one-word paraphrase doesn't.
 - R44 (Decision 7). `norm_match` holds for each of `Wait for CI.`, `wait for ci;`, `wait for ci?!` and `- Wait for CI :` against `Wait for CI`, and fails for `Wait for CI)`, `Wait for CI"` and `Wait for CI]`; a What ending in a backtick doesn't match the same text without it.
-- R45 (Decision 8). In `cited.md`, a ```` ```bash ```` fence closed by ```` ``` ```` and a `~~~~` fence closed by `~~~~` yield no candidate from either fence line or the lines between; a ```` ``` ```` line inside the `~~~~` fence doesn't close it; a line indented four spaces under a list item joins that item; a heading `## Done. Next steps` and a table row `| a. b | c. |` are each exactly one candidate.
+- R45 (Decision 8). In `cited.md`, a ```` ```bash ```` fence closed by ```` ``` ```` and a `~~~~` fence closed by `~~~~` yield no candidate from either fence line or the lines between; a ```` ``` ```` line inside the `~~~~` fence doesn't close it; a line that starts with four backticks and holds another backtick later, as a line opening with inline code that quotes a fence does, opens no fence and is a candidate; a line indented four spaces under a list item joins that item; a heading `## Done. Next steps` and a table row `| a. b | c. |` are each exactly one candidate.
 
 2. The default branch on a host that isn't public, within two reads. The
 ancestry read is `gh api --method GET repos/<r>/compare/<commit>...HEAD
