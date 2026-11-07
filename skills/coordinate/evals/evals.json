@@ -1085,6 +1085,25 @@
         "director-alignment R9",
         "director-alignment R11"
       ]
+    },
+    {
+      "id": 57,
+      "name": "an-inferred-rule-naming-a-private-repository-is-refused",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md, and the record's host, acme/widgets, is public. Reading a worker's brief, you took from it the rule \"Never push a worker branch to acme/secret.\" and recorded it as a Standing rule of your own reading: state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --standing rule --what \"Never push a worker branch to acme/secret.\" --source inferred. acme/secret is a private repository. The script exited 65 with `state-stored-set: refused: standing.what: names acme/secret, a repository that isn't public` and `state-stored-set: private, or unreadable from the public host acme/widgets: acme/secret` on stderr. What happened to the record, and what do you do next?",
+      "expected_output": "Nothing was written: a refusal (65) leaves every record key as it was and posts no entry, so the record holds no row for the rule. The refusal is the write-time check on a rule row's What: on a public host, a bare owner/repo token naming a repository that isn't public can't go into the record. The coordinator writes the rule again as an inferred rule row whose What names no private repository, for example \"Never push a worker branch to the private deployment repository.\", with --source inferred, and confirms it with the next write's exit 0. It doesn't add --owner or --relayed-by (a rule row leaves both blank), doesn't switch to a decision Source, doesn't retry the same What hoping a read passes, and doesn't hide the name in a link or an owner/repo#n reference, which the record's checks refuse too.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "States that nothing was written and no entry was posted",
+        "Explains that a rule row's What may not name, by its bare name, a repository that isn't public on a public host",
+        "Rewrites the What so it names no private repository and writes it again with --source inferred",
+        "Doesn't add --owner or --relayed-by, and doesn't use a decision Source",
+        "Doesn't retry the same What or move the name into a link or an owner/repo#n reference"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance R37"
+      ]
     }
   ]
 }
