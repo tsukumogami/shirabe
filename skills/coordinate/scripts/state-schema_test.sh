@@ -332,7 +332,7 @@ done
 for a in 'Wait for CI)' 'Wait for CI"' 'Wait for CI]'; do
     eq "R44. ... and keeps a closing mark in [$a]" false "$(nm "$a" 'Wait for CI')"
 done
-eq "R44. ... and a What ending in a backtick doesn't match the same text without it" false "$(nm 'Run `koto next`' 'Run `koto next')"
+eq "R44. ... and a What ending in a backtick doesn't match the same text without it" false "$(nm 'Run `git fetch`' 'Run `git fetch')"
 # sents: cited.md's candidate sentences, one per line.
 sents() { jq -R -s -r -L "$HERE" 'include "state-schema"; file_sentences[]' "$SD/cited.md"; }
 for s in 'Never deploy on a Friday.' 'Never skip the board.' 'Still inside the tildes.'; do
