@@ -19,7 +19,9 @@
 #      not re-arm its watch;
 #   4. B's first `koto next` exits 0 with no rebind in its log, its first
 #      reconcile reports both holdings with the classification A's gave them,
-#      and taken_legs and leg_children are as A left them;
+#      its third line the record line naming B, its address and the carried
+#      role, the same line coordinate-report.sh --record-line prints, and
+#      taken_legs and leg_children are as A left them;
 #   5. B's record has the coordinator row naming B's session, no told row,
 #      record/meta naming B's Claude session as driver and B's own template
 #      compat and fingerprint in place of the pair A's held, and exactly one
@@ -219,6 +221,13 @@ eq "4: B reaches its first reconcile" reconcile "$ST"
 REPORT=$(cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$B" --md 2>&1)
 grep -q feat-1 <<< "$REPORT" && grep -q feat-2 <<< "$REPORT" && ok "4: B's first reconcile reports both holdings" \
     || bad "4: B's first reconcile reports both holdings" "$REPORT"
+# The record line (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3):
+# the first report's third line, naming B's session, the host, B's address
+# and the role the takeover carried.
+eq "4:   ... its third line the record line, naming B, its address and the carried role" \
+    "Record: session \`$B\` on \`acme/widgets\`, address \`coord-b\`. Role: manager." "$(printf '%s\n' "$REPORT" | sed -n 3p)"
+eq "4:   ... the same line coordinate-report.sh --record-line prints for a later report" \
+    "$(printf '%s\n' "$REPORT" | sed -n 3p)" "$(cd "$WD" && bash "$PS/coordinate-report.sh" --session "$B" --record-line 2>&1)"
 eq "4:   ... with the classification A's reconcile gave them" "${A_CLASS:-A unclassified}" "$(classes "$B" "$WD")"
 eq "4: B took neither of A's legs again: taken_legs as A left it" '["req-a1:work-on"]' "$( (cd "$WD" && koto context get "$B" taken_legs) | jq -c .)"
 eq "4:   ... and leg_children as A left it" '{"req-a1:work-on":"feat-1-session"}' "$( (cd "$WD" && koto context get "$B" leg_children) | jq -c .)"
