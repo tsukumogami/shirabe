@@ -10,8 +10,9 @@
 # `# lost:` line and the `# retired:` lines together name every ID from C1 to
 # C197 exactly once, that the decision flow's rules, D1 onward, the milestone
 # verdict rules, M1 onward, and the store rules, S1 onward, are each named
-# exactly once by a row or a `# retired:` line, and that each of the four
-# reference files is named in at least one state section of coordinate.md.
+# exactly once by a row or a `# retired:` line, that each of the four
+# reference files is named in at least one state section of coordinate.md, and
+# that SKILL.md's Roles lists hold three, five and six items and no allowance.
 #
 # A retired rule is one whose behaviour was removed on purpose (the GitHub
 # coordinator record's, docs/designs/current/DESIGN-coordinator-record-teardown.md):
@@ -40,8 +41,10 @@ MTOTAL=20
 # a role change carried on the rebrief directive (Decision 2, from S34), and
 # the record line every report starts with, the reconcile directive closing
 # the gaps before the first report and SKILL.md's Reporting (Decision 3, from
-# S39): S1..S$STOTAL.
-STOTAL=43
+# S39), and the Glossary's roles, SKILL.md's Roles lists, the allowance
+# paragraph and the own-reading sentence (Decision 4, from S44):
+# S1..S$STOTAL.
+STOTAL=76
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
@@ -155,6 +158,24 @@ for ref in loop.md brief-template.md verification-checklist.md state-keys.md; do
         bad "coordinate.md names references/$ref"
     fi
 done
+
+# SKILL.md's `## Roles` section (docs/designs/DESIGN-coordinator-named-roles.md,
+# Decision 4): the Both roles, Manager and Director lists hold exactly three,
+# five and six `- ` items, so an added item fails as a dropped one does, and no
+# line of the section names an allowance.
+awk '$0 == "## Roles" { on = 1; next } /^## / { on = 0 } on' "$ROOT/skills/coordinate/SKILL.md" > "$T/roles"
+if [ ! -s "$T/roles" ]; then
+    bad "SKILL.md has a ## Roles section"
+else
+    for want in 'Both roles:3' 'Manager:5' 'Director:6'; do
+        list=${want%:*} n=${want##*:}
+        got=$(awk -v h="**$list**" '$0 == h { on = 1; next } /^\*\*/ { on = 0 } on && /^- /' "$T/roles" | wc -l | tr -d ' ')
+        [ "$got" = "$n" ] && ok "Roles: $list lists $n items" || bad "Roles: $list lists $n items" "found $got"
+    done
+    hits=$(grep -inE 'grant|merge authority|may merge|settle' "$T/roles" | tr '\n' ' ')
+    [ -z "$hits" ] && ok "Roles names no grant, merge authority, may merge or settle" \
+        || bad "Roles names no grant, merge authority, may merge or settle" "$hits"
+fi
 
 # Every rule of the prose skill must be carried; a rule on the lost line fails.
 if [ "$LOST" -gt 0 ]; then bad "every rule has a carrier" "no carrier yet: $(tr '\n' ' ' < "$T/lost")"; else ok "every rule has a carrier"; fi
