@@ -27,7 +27,9 @@ move there is to tick again with no evidence.
   and `reconcile/report.md` (and, at discipline scope, `reconcile/reasoning.md`
   with the previous rotation's reasoning, verbatim), seals the report to this
   visit, and the workflow moves to `reconcile`. There, close every gap the
-  handover check names, then print the report with
+  handover check names (all but a carried rotation's `carry-unacknowledged`:
+  the report asks the person for that go-ahead, and the submit waits for it),
+  then print the report with
   `scripts/reconcile-report-get.sh --session <session> --md` and report what
   it prints up, not the stored `reconcile/report.md`: it checks the report
   against its seal and adds the record line, read from the record as it is

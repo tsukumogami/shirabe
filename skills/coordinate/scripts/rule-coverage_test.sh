@@ -40,8 +40,9 @@ MTOTAL=20
 # a role change carried on the rebrief directive (Decision 2, from S34), and
 # the record line every report starts with, the reconcile directive closing
 # the gaps before the first report and SKILL.md's Reporting (Decision 3, from
-# S39): S1..S$STOTAL.
-STOTAL=43
+# S39), and the one gap it leaves for the first report, a carried rotation's
+# go-ahead (Decision 6, S44): S1..S$STOTAL.
+STOTAL=44
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
