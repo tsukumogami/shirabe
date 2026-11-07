@@ -222,7 +222,7 @@ need "  ... the rule row, Source exactly inferred, Owner blank" \
     "$(printf '%s' "$ROW" | jq -cS .)"
 need "  ... one Standing row" 1 "$(ctx "$G" record/standing | jq length)"
 need "  ... two entries" $((N0 + 2)) "$(entry_keys | wc -l | tr -d ' ')"
-E1=$(entry_keys | tail -2 | head -1); E2=$(entry_keys | tail -1)
+KEYS=$(entry_keys); E1=$(sed -n "$((N0 + 1))p" <<<"$KEYS"); E2=$(sed -n "$((N0 + 2))p" <<<"$KEYS")
 need "  ... the run entry first" "run|Run reports-to set to $RT by $G." "$(ctx "$G" "$E1" | jq -r '"\(.kind)|\(.text)"')"
 need "  ... then the rule entry" "rule|$N (rule): $SENT. Source: inferred." "$(ctx "$G" "$E2" | jq -r '"\(.kind)|\(.text)"')"
 crit "1. --run reports-to --inferred writes the Run row and a rule row {standing, kind rule, blank on, until, owner, relayed_by, what, set, source inferred} with one Set, then the run entry and the rule entry"
