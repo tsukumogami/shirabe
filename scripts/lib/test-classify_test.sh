@@ -153,7 +153,24 @@ else
     bad "after a merge of main, test_classify_unit lists only the run's own test edit" \
         "it counts every test the merge brought in as the run's own edit: [$MU]"
 fi
+M_MAIN=$(git rev-parse main)
+eq "test_classify_base after a merge of main: the merge-base with main" "$M_MAIN" "$(test_classify_base "$M_BASE" "$M_HEAD")"
+eq "test_classify_base before any merge: the base itself" "$M_BASE" "$(test_classify_base "$M_BASE" "$(git rev-parse HEAD^1)")"
+# A shared branch's base isn't on main: it stays the base.
+git checkout -q -b shared "$(git rev-parse HEAD^1)"
+printf 's1\n' > tests/shared_test.sh
+git add -A
+git commit -q -m shared-start
+S_BASE=$(git rev-parse HEAD)
+git merge -q --no-edit main
+eq "test_classify_base for a base not on main: the base itself" "$S_BASE" "$(test_classify_base "$S_BASE" "$(git rev-parse HEAD)")"
+# With no default branch to read, the base is kept.
+git update-ref -d refs/remotes/origin/main
+git branch -q -m main trunk
+eq "test_classify_base with no default branch: the base itself" "$M_BASE" "$(test_classify_base "$M_BASE" "$M_HEAD")"
 cd "$R" || exit 1
+# A head on the default branch itself keeps the base: nothing would be left.
+eq "test_classify_base for a head on main: the base itself" "$BASE" "$(test_classify_base "$BASE" "$HEAD_SHA")"
 
 echo
 echo "test-classify: $PASS passed, $FAIL failed"
