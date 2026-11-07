@@ -29,10 +29,10 @@
 # with an outward kind passes --on, which state-entry.sh requires. The Run
 # `role` row is built only by state-stored-set.sh and state-open.sh's seed and
 # --carry --role, a fixture script that builds it failing; its readers are an
-# allow-list (the writers, state-handover.sh, coordinate-open.sh and
-# dispatch-worker.sh's input_role, a fixture adding a read to its
-# resolve_grant or a function that one calls failing, and coordinate-report.sh,
-# the record line's reader) over three read forms
+# allow-list (the writers, state-handover.sh, coordinate-open.sh,
+# coordinate-report.sh, the record line's reader, and dispatch-worker.sh's
+# input_role, a fixture adding a read to its resolve_grant or a function that
+# one calls failing) over three read forms
 # (state-read.sh --run, `role` used as a Run key, a direct record/run read),
 # with the scripts that read the Run section or the record at the branch base
 # listed for a direct record/run read, an entry naming a function for a script
@@ -451,11 +451,11 @@ printf '%s\n' 'rotation_role() {' "    jq '.run = [{key: \"role\", value: \"mana
 
 # The readers. ROLE_ALLOW names who may read the row by any of the three read
 # forms: the writers, state-handover.sh, coordinate-open.sh, which reads the
-# role of the run a start continues, dispatch-worker.sh's input_role alone,
-# which writes a successor brief's role from it (Decision 2), and
-# coordinate-report.sh, whose --record-line prints it on the record line
-# (Decision 3): dispatch-worker.sh's resolve_grant, and every function that
-# one calls, stays role-blind, so a grant never depends on a role. An entry
+# role of the run a start continues, coordinate-report.sh, whose --record-line
+# prints it on the record line (Decision 3), and dispatch-worker.sh's
+# input_role alone, which writes a successor brief's role from it
+# (Decision 2): the script's resolve_grant, and every function that one
+# calls, stays role-blind, so a grant never depends on a role. An entry
 # `<path>:<function>` pins a script with two paths to the function that may
 # read it, so a read in any other function of that script (or outside one)
 # fails, the readers' list below included.
