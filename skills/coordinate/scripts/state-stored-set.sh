@@ -16,6 +16,7 @@
 #   state-stored-set.sh --session S --told WHO --by WHO
 #   state-stored-set.sh --session S --pending WHO --by WHO
 #   state-stored-set.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
+#   state-stored-set.sh --session S --standing rule --what TEXT --source FORM
 #   state-stored-set.sh --session S --end ID --by WHO
 #   state-stored-set.sh --session S --work ITEM --kind holding|local-agent|decision|follow-up --who W --next TEXT
 #   state-stored-set.sh --session S --done ITEM [--kind K]
@@ -122,7 +123,8 @@
 # rotation_end state's gate).
 #
 # --standing records an event only a person owns that still binds the run:
-# KIND is pause, go-ahead, approval, answer or assignment, OWNER is the person who decided
+# KIND is pause, go-ahead, approval, answer or assignment (or rule, below),
+# OWNER is the person who decided
 # it, and --relayed-by names who carried it here (leave it off when the owner
 # told this coordinator directly). When a person says it in a comment on the
 # record, or anywhere else, this is how it reaches the record: the reader
@@ -143,10 +145,46 @@
 #
 # A `rule` row is a rule that binds the coordinator until it is ended: no On,
 # no Until, a blank Owner and Relayed by, and a Source saying where its words
-# come from (state-schema.jq's source_problem lists the five forms; the other
-# kinds may carry one too). Nothing here writes one yet. A rule row holds
-# nothing: pick, the dispatch check, the land check and the merge read pauses,
-# go-aheads and assignments only, whatever a rule's What says.
+# come from (state-schema.jq's source_problem lists the five forms; a stored
+# event row may carry one too). A rule row holds nothing: pick, the dispatch
+# check, the land check and the merge read pauses, go-aheads and assignments
+# only, whatever a rule's What says.
+# --standing rule writes one: its What one line of at most 400 bytes, and its
+# --source in one of four forms, `skill <owner/repo> <path> <commit>` (a line
+# of a skill's text), `doc <owner/repo> <path> <commit>` (a document a public
+# host can name), `pinned <label> sha256:<64 hex>` (a file a Run `rules` or
+# `briefs` row pins with that label and digest) or `inferred [brief <label>
+# sha256:<64 hex>]` (the coordinator's own reading). --source goes only with
+# --standing rule, and a rule takes no --on or --until (64); --owner or
+# --relayed-by on one is refused (65), since its Source says who said it. A
+# `decision <session> <id>` Source is refused (65): that form isn't written
+# before koto's decision commands, so the row is written as inferred. The
+# checks run in this order, each refusal 65 with nothing written: the usage
+# (64); the Source's grammar and the row's columns; the What's 400 bytes; the
+# caps, at most 120 rule rows, of which at most 60 read inferred (the inferred
+# cap tested first for an inferred row; every rule row counts, and the event
+# kinds count against neither, so a pause can always be written); a pinned
+# Source's Run row; the decision form; then the forge reads, through gh, each
+# under FORGE_READ_SECONDS (10). The host's visibility is read once, for every
+# rule row, and the write core uses that answer. For a `skill` or `doc`
+# Source naming repository R at commit C: on a public host, R's visibility
+# (the host's own answer when R is the host), a repository that isn't public
+# or answers 404 refused with the schema's message before any of its text is
+# read; then repos/R/compare/C...HEAD, where identical or ahead means R's
+# default branch holds C, and behind, diverged or a 404 give one refusal, the
+# same for a repository that doesn't exist as for one that can't be read; then
+# the file at C, a path missing there refused; and the What must equal one of
+# the file's sentences under state-schema.jq's norm_match (file_sentences). On
+# a public host each two-part owner/repo token in the What
+# (state-schema.jq's what_repo_tokens), the host excepted, then gets one
+# visibility read: one that isn't public is refused, and so is a 404 under
+# the host's owner, while a 404 under any other owner passes, since it can't
+# tell an absent repository from a hidden one. A private host reads no token.
+# A read that fails with anything but a 404, runs past its bound or answers
+# something that can't be parsed exits 2, naming what it couldn't read, and
+# no later read is made. The checks run on the row being written only; a
+# stored row is never checked again. Its entry, kind rule, reads `s<n> (rule):
+# <What>. Source: <Source>.`
 # --rules prints one JSON object per Standing row, in record order, with its
 # class worked out from its Source (state-schema.jq's rule_view: standing,
 # kind, class, what, owner, said, set, pointer, words, source, status,
@@ -237,8 +275,8 @@
 # work. The section keys are the state; the entry is its account.
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
-# printed; 2 a read failed (the record, or the entries the next Standing id
-# is chosen from); 10 refused: here, no found record or, for a write, a record
+# printed; 2 a read failed (the record, the entries the next Standing id
+# is chosen from, or a rule row's forge read); 10 refused: here, no found record or, for a write, a record
 # that doesn't read back as this scope's, and from the write core, not an open record,
 # provenance or a directed transition; 11 and 12 (the record changed between
 # this script's read and its write) from the write core; 14
@@ -259,6 +297,8 @@ SESSION= SCOPE= NAME= REPO= MODE=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 # --intervention's source, and whether it was given.
 INTERVENTION= HAS_INTERVENTION=0
+# --source's form, and whether it was given.
+SOURCE= HAS_SOURCE=0
 # --rules' --id values, one per line.
 RIDS=
 COUNTS=0
@@ -295,6 +335,7 @@ while [ $# -gt 0 ]; do
         --by) [ $# -ge 2 ] || usage; BY=$2; shift 2 ;;
         --intervention) [ $# -ge 2 ] && [ "$HAS_INTERVENTION" = 0 ] || usage; HAS_INTERVENTION=1; INTERVENTION=$2; shift 2 ;;
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
+        --source) [ $# -ge 2 ] && [ "$HAS_SOURCE" = 0 ] || usage; HAS_SOURCE=1; SOURCE=$2; shift 2 ;;
         --owner) [ $# -ge 2 ] || usage; OWNER=$2; shift 2 ;;
         --relayed-by) [ $# -ge 2 ] || usage; RELAYED=$2; shift 2 ;;
         --on) [ $# -ge 2 ] || usage; ON=$2; shift 2 ;;
@@ -316,7 +357,7 @@ case "$MODE" in
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     told|pending) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
-    standing) [ -n "$WHAT" ] && [ -n "$OWNER" ] && [ -z "$BY$WHO$NEXT" ] || usage ;;
+    standing) [ -n "$WHAT" ] && { [ -n "$OWNER" ] || [ "$KIND" = rule ]; } && [ -z "$BY$WHO$NEXT" ] || usage ;;
     end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     work) [ -n "$KIND" ] && [ -n "$WHO" ] && [ -n "$NEXT" ] && [ -z "$BY$WHAT$OWNER$RELAYED$ON$UNTIL" ] || usage ;;
     done) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$ON$UNTIL" ] || usage ;;
@@ -336,6 +377,15 @@ esac
 if [ "$HAS_INTERVENTION" = 1 ]; then
     { [ "$MODE" = run ] && [ "$KEY" = role ]; } || { echo "$PROG: --intervention goes only with --run role" >&2; exit 64; }
     case "$INTERVENTION" in dispatcher|person) ;; *) echo "$PROG: --intervention takes dispatcher or person" >&2; exit 64 ;; esac
+fi
+# --source goes only with --standing rule, which needs one and takes no --on
+# or --until; an event row's Source is a citation, which isn't written here.
+if [ "$HAS_SOURCE" = 1 ] && { [ "$MODE" != standing ] || [ "$KIND" != rule ]; }; then
+    echo "$PROG: --source goes only with --standing rule" >&2; exit 64
+fi
+if [ "$MODE" = standing ] && [ "$KIND" = rule ]; then
+    [ -n "$SOURCE" ] || { echo "$PROG: a rule takes --source" >&2; exit 64; }
+    [ -z "$ON$UNTIL" ] || { echo "$PROG: only a pause, a go-ahead or an assignment takes --on, and only a pause --until" >&2; exit 64; }
 fi
 # The role and who set it, checked before anything is read: the value one of
 # the two roles, and WHO one line of at most 80 characters.
@@ -618,6 +668,124 @@ else
 fi
 P="$WD/parsed.json"
 refuse() { echo "$PROG: refused: $*" >&2; exit 65; }
+
+# ---- a rule row's checks (--standing rule) ----------------------------------
+# What they read, handed to the write core: the host's visibility
+# (CORE_HOST_PRIVATE), so the core reads it no second time, and on a public
+# host the repositories the row names that aren't public (CORE_NOT_PUBLIC,
+# comma separated), which the schema then refuses with its own message.
+RULE_HOST_PRIVATE= RULE_NOT_PUBLIC=
+# forge_read <out> <api path> [<gh api args>...]: one GET through gh, under
+# FORGE_READ_SECONDS (10). Returns 0 read, 1 a 404, 2 any other failure or
+# the bound passing.
+forge_read() {
+    local out=$1 rc
+    shift
+    dc_with_deadline "${FORGE_READ_SECONDS:-10}" dc_tree gh api --method GET "$@" < /dev/null > "$out" 2> "$out.err"
+    rc=$?
+    [ "$rc" = 0 ] && return 0
+    [ "$rc" != 124 ] && grep -q 'HTTP 404' "$out.err" && return 1
+    return 2
+}
+# rule_visibility <owner/repo>: VIS is true, false or 404 for it; any other
+# failure, or an answer that is neither true nor false, exits 2.
+rule_visibility() {
+    forge_read "$WD/vis" "repos/$1" --jq .private
+    case $? in
+        0) VIS=$(cat "$WD/vis") ;;
+        1) VIS=404; return 0 ;;
+        *) lib_die2 "cannot read $1's visibility" ;;
+    esac
+    case "$VIS" in true|false) ;; *) lib_die2 "cannot read $1's visibility" ;; esac
+}
+rule_lc() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
+# rule_not_public <owner/repo>: put it on the list handed to the core.
+rule_not_public() {
+    case ",$(rule_lc "$RULE_NOT_PUBLIC")," in *",$(rule_lc "$1"),"*) return 0 ;; esac
+    RULE_NOT_PUBLIC="$RULE_NOT_PUBLIC${RULE_NOT_PUBLIC:+,}$1"
+}
+# rule_checks: the new row ($SID, in $WD/next.json, the record read in $P),
+# checked in this order, each refusal 65 and nothing written: the Standing
+# section against the schema with no visibility read (the Source's grammar, a
+# blank Owner and Relayed by, a line break); the What's 400 bytes; the caps;
+# a pinned Source's Run row; the decision form; then the forge reads, the
+# host's visibility, and for a `skill` or `doc` Source its repository's
+# visibility on a public host, the ancestry and the file, and on a public
+# host the What's two-part tokens. A read that fails exits 2, with no later
+# read.
+rule_checks() {
+    local n why form r path c st tok
+    if ! jq -L "$HERE" 'include "state-schema";
+            (state_secs[] | select(.key == "standing")) as $sec
+            | (check_state($sec; .standing; []) | empty), (.standing | scan_strings([]) | empty)' \
+            "$WD/next.json" 2> "$WD/rule.err" < /dev/null; then
+        grep -q 'refused: ' "$WD/rule.err" || lib_die2 "state-schema.jq failed: $(lib_scrub < "$WD/rule.err")"
+        refuse "$(sed -n 's/.*refused: //p' "$WD/rule.err" | head -1 | lib_scrub)"
+    fi
+    n=$(jq -rn --arg w "$WHAT" '$w | utf8bytelength') || lib_die2 "jq failed"
+    [ "$n" -le 400 ] || refuse "standing.$SID: a rule row's What is at most 400 bytes; this one is $n"
+    why=$(jq -r -L "$HERE" --arg s "$SOURCE" 'include "state-schema";
+        (.standing // []) | rule_cap_problem({kind: "rule", source: $s}) // empty' "$P") || lib_die2 "jq failed"
+    [ -z "$why" ] || refuse "standing: $why"
+    read -r -a form <<< "$SOURCE"
+    if [ "${form[0]}" = pinned ]; then
+        jq -e --arg v "${form[1]} ${form[2]}" 'any((.run // [])[]; (.key == "rules" or .key == "briefs") and .value == $v)' "$P" > /dev/null \
+            || refuse "standing.$SID: the Source pins ${form[1]} ${form[2]}, which no Run rules or briefs row holds"
+    fi
+    [ "${form[0]}" != decision ] \
+        || refuse "standing.$SID: the Source's decision form isn't written before koto's decision commands; write the row as inferred"
+
+    # shellcheck source=dispatch-common.sh
+    . "$HERE/dispatch-common.sh" || lib_die2 "cannot load dispatch-common.sh"
+    rule_visibility "$REPO"
+    [ "$VIS" != 404 ] || lib_die2 "cannot read $REPO's visibility"
+    RULE_HOST_PRIVATE=$VIS
+    if [ "${form[0]}" = skill ] || [ "${form[0]}" = doc ]; then
+        r=${form[1]} path=${form[2]} c=${form[3]}
+        # On a public host, a repository that isn't public, or answers 404, is
+        # refused by the core's check before any of its text is read.
+        if [ "$RULE_HOST_PRIVATE" = false ] && [ "$(rule_lc "$r")" != "$(rule_lc "$REPO")" ]; then
+            rule_visibility "$r"
+            if [ "$VIS" != false ]; then rule_not_public "$r"; return 0; fi
+        fi
+        forge_read "$WD/compare" "repos/$r/compare/$c...HEAD" --jq .status
+        case $? in
+            0) st=$(cat "$WD/compare") ;;
+            1) st=notfound ;;
+            *) lib_die2 "cannot read whether $r's default branch holds $c" ;;
+        esac
+        case "$st" in
+            identical|ahead) ;;
+            behind|diverged|notfound) refuse "standing.$SID: the Source names a commit $r's default branch doesn't hold, or a repository that can't be read" ;;
+            *) lib_die2 "cannot read whether $r's default branch holds $c" ;;
+        esac
+        dc_with_deadline "${FORGE_READ_SECONDS:-10}" dc_tree lib_file_at "$path" "$c" "$WD/cited" "$r"
+        case $? in
+            0) ;;
+            1) refuse "standing.$SID: the Source names $path, which $r doesn't hold at $c" ;;
+            *) lib_die2 "cannot read $path at $c in $r" ;;
+        esac
+        jq -e -R -s -L "$HERE" --arg w "$WHAT" 'include "state-schema"; file_holds($w)' "$WD/cited" > /dev/null 2>&1 \
+            || refuse "standing.$SID: the What isn't a sentence of $path at $c"
+    fi
+    # Each two-part token in the What, on a public host, the host excepted:
+    # one visibility read, a private answer refused, and a 404 refused under
+    # the host's owner and passed under any other, since a 404 can't tell an
+    # absent repository from a hidden one. A private host reads none.
+    [ "$RULE_HOST_PRIVATE" = false ] || return 0
+    jq -rn -L "$HERE" --arg w "$WHAT" 'include "state-schema"; $w | what_repo_tokens[]' > "$WD/tokens" || lib_die2 "jq failed"
+    while IFS= read -r tok; do
+        [ -n "$tok" ] || continue
+        [ "$(rule_lc "$tok")" != "$(rule_lc "$REPO")" ] || continue
+        case ",$(rule_lc "$RULE_NOT_PUBLIC")," in *",$(rule_lc "$tok"),"*) continue ;; esac
+        rule_visibility "$tok"
+        case "$VIS" in
+            false) ;;
+            true) rule_not_public "$tok" ;;
+            404) [ "$(rule_lc "${tok%%/*}")" != "$(rule_lc "${REPO%%/*}")" ] || rule_not_public "$tok" ;;
+        esac
+    done < "$WD/tokens"
+}
 # The entry that tells the change: its kind and text.
 EKIND= ETEXT=
 case "$MODE" in
@@ -717,7 +885,7 @@ pending)
     EKIND=pending ETEXT="$WHO can't be told the coordinator's address, $ADDR, yet: it is pending, recorded by $BY."
     ;;
 standing)
-    case "$KIND" in pause|go-ahead|approval|answer|assignment) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval, answer or assignment" >&2; exit 64 ;; esac
+    case "$KIND" in pause|go-ahead|approval|answer|assignment|rule) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval, answer, assignment or rule" >&2; exit 64 ;; esac
     case "$KIND" in
         pause) [ -n "$ON" ] && [ -n "$UNTIL" ] || { echo "$PROG: a pause takes --on and --until" >&2; exit 64; } ;;
         go-ahead) [ -z "$UNTIL" ] || { echo "$PROG: a go-ahead takes no --until; it ends when used" >&2; exit 64; } ;;
@@ -763,10 +931,18 @@ standing)
     fi
     N=${SID#s}; [ "$USED" -ge "$N" ] && SID="s$((USED + 1))"
     STANDING_USED=${SID#s}
-    jq --arg s "$SID" --arg k "$KIND" --arg on "$ON" --arg u "$UNTIL" --arg w "$WHAT" --arg o "$OWNER" --arg r "$RELAYED" --arg t "$NOW" \
-        '.standing = ((.standing // []) + [{standing: $s, kind: $k, on: $on, until: $u, what: $w, owner: $o, relayed_by: $r, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    # A rule row carries its Source; an event row is written as before, with
+    # none.
+    jq --arg s "$SID" --arg k "$KIND" --arg on "$ON" --arg u "$UNTIL" --arg w "$WHAT" --arg o "$OWNER" --arg r "$RELAYED" --arg t "$NOW" --arg src "$SOURCE" \
+        '.standing = ((.standing // []) + [{standing: $s, kind: $k, on: $on, until: $u, what: $w, owner: $o, relayed_by: $r, set: $t}
+            + (if $k == "rule" then {source: $src} else {} end)])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=$KIND
-    ETEXT="$SID ($KIND${ON:+ on $ON}${UNTIL:+, until $UNTIL}): $WHAT. Owner: $OWNER.${RELAYED:+ Relayed by $RELAYED.}"
+    if [ "$KIND" = rule ]; then
+        rule_checks
+        ETEXT="$SID (rule): $WHAT. Source: $SOURCE."
+    else
+        ETEXT="$SID ($KIND${ON:+ on $ON}${UNTIL:+, until $UNTIL}): $WHAT. Owner: $OWNER.${RELAYED:+ Relayed by $RELAYED.}"
+    fi
     ;;
 end)
     ROW=$(jq -c --arg s "$ID" '[(.standing // [])[] | select(.standing == $s)][0] // empty' "$P")
@@ -899,6 +1075,10 @@ lib_write_guard
 . "$HERE/state-write-core.sh"
 STATE_WRITER=1
 CORE_STANDING_USED=${STANDING_USED:-}
+# A rule row's checks read the host's visibility, and the repositories the
+# row names that aren't public; every other write leaves both empty, and the
+# core reads the host itself.
+CORE_HOST_PRIVATE=$RULE_HOST_PRIVATE CORE_NOT_PUBLIC=$RULE_NOT_PUBLIC
 # The rule files' write may come before the run's find (START_WRITER), and
 # writes record/host first, so a write cut short after it leaves a Run row
 # the next start still finds changed, and tells.
