@@ -552,6 +552,17 @@ ropen '["docs/roadmaps/ROADMAP-role-new.md","--role","director"]'
 eq "a new run given --role director opens, printing role=director" "0 director" "$RC $(line role)"
 eq "  ... right before session=" "role=director|session=$(line session)" "$(printf '%s\n' "$OUT" | grep -A1 '^role=' | tr '\n' '|' | sed 's/|$//')"
 
+# The same cap for either role (PRD R14): a run started manager and one
+# started director, each on --cap 3, record the same cap, and their init
+# variables differ only in the roadmap each names.
+ropen '["docs/roadmaps/ROADMAP-role-cap-m.md","--role","manager","--cap","3"]'; CAPM=$(line session)
+eq "a manager start on --cap 3 opens" "0 manager" "$RC $(line role)"
+ropen '["docs/roadmaps/ROADMAP-role-cap-d.md","--role","director","--cap","3"]'; CAPD=$(line session)
+eq "a director start on --cap 3 opens" "0 director" "$RC $(line role)"
+eq "  ... each recording CAP 3" "3 3" "$(var "$CAPM" CAP) $(var "$CAPD" CAP)"
+ivars() { local d; d=$(koto session dir "$1"); jq -cS 'select(.type == "workflow_initialized") | .payload.variables | del(.ROADMAP)' "$d/koto-$1.state.jsonl"; }
+eq "  ... with the same init variables apart from ROADMAP" "$(ivars "$CAPM")" "$(ivars "$CAPD")"
+
 # A role-less record (Role-less continuations, Resume): asked with no --role;
 # given one, the row is written before outcome=resumed, and a write that fails
 # resumes nothing. The change flags on a role-less record change nothing.

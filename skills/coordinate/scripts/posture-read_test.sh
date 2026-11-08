@@ -462,5 +462,36 @@ eq "a deny rule that beats the grant keeps the merge step the workspace's" "deny
     "$(jq -r '.steps.merge | "\(.verdict) \(.source) \(.why)"' "$D")"
 eq "the steps the grant still decides keep source=grant" "grant grant" "$(jq -r '"\(.steps.close.source) \(.steps.release.source)"' "$D")"
 
+echo "== the run's role =="
+# A role never reaches an allowance (PRD R14; the design's Phase 6): the same
+# run, its record holding a role row of manager and then of director, prints
+# the same verdict, sealed and bare, writes the same detail and asks niwa the
+# same question, which niwa answers the same way.
+gate_fixture; answer "$(bound_doc merge-pr,close-issue autonomous)"
+S=coordinate-plugin-system-20260926T081500Z
+log_new "$S" "$(roadmap_vars plugin-system)"
+log_to "$S" start start_posture
+D="$KOTO_STORE/context/$S/coord/posture.json"
+role_read() { # role_read <role>: seed the run's role row, read its posture, keep each answer under $T/role-<role>.*
+    seed_session "$S" "$(record_json roadmap plugin-system | jq -c --arg r "$1" '.run = [{key: "role", value: $r, set_by: "the human", set: "2026-09-26T07:00Z"}]')" \
+        || bad "the record is seeded with role $1"
+    rm -f "$T/niwa.calls" "$D"
+    CLAUDE_CODE_SESSION_ID=$SID PATH="$STUB:$PATH" bash "$PRD" --session "$S" --instance-root "$IN" --workspace-root "$WS" > "$T/role-$1.sealed" 2>"$T/err"
+    CLAUDE_CODE_SESSION_ID=$SID PATH="$STUB:$PATH" bash "$PRD" --session "$S" --instance-root "$IN" --workspace-root "$WS" --no-seal > "$T/role-$1.bare" 2>>"$T/err"
+    cp "$D" "$T/role-$1.detail" 2>/dev/null || : > "$T/role-$1.detail"
+    cp "$T/niwa.calls" "$T/role-$1.calls" 2>/dev/null || : > "$T/role-$1.calls"
+    PATH="$STUB:$PATH" niwa authority check --json --session "$SID" -C "$IN" --point merge-pr --point close-issue --point cut-release > "$T/role-$1.niwa"
+    eq "the record holds role $1" "$1" "$(jq -r '.[] | select(.key == "role") | .value' "$KOTO_STORE/context/$S/record/run")"
+}
+role_read manager
+role_read director
+eq "the manager read prints the bound verdict" "readable merge:permit close:permit teardown:permit release:deny" "$(cat "$T/role-manager.bare")"
+eq "  ... writes the detail and asks niwa once per read" "grant 2" \
+    "$(jq -r .steps.merge.source "$T/role-manager.detail") $(wc -l < "$T/role-manager.calls" | tr -d ' ')"
+for k in sealed bare detail calls niwa; do
+    cmp -s "$T/role-manager.$k" "$T/role-director.$k" && ok "manager and director read byte-identical: $k" \
+        || bad "manager and director read byte-identical: $k" "$(diff "$T/role-manager.$k" "$T/role-director.$k" | head -5)"
+done
+
 tokens_ok posture-read
 done_tests posture-read
