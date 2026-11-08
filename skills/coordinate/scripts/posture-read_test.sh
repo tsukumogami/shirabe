@@ -481,7 +481,7 @@ role_read() { # role_read <role>: seed the run's role row, read its posture, kee
     cp "$D" "$T/role-$1.detail" 2>/dev/null || : > "$T/role-$1.detail"
     cp "$T/niwa.calls" "$T/role-$1.calls" 2>/dev/null || : > "$T/role-$1.calls"
     PATH="$STUB:$PATH" niwa authority check --json --session "$SID" -C "$IN" --point merge-pr --point close-issue --point cut-release > "$T/role-$1.niwa"
-    eq "the record holds role $1" "$1" "$(koto context get "$S" record/run | jq -r '.[] | select(.key == "role") | .value')"
+    eq "the record holds role $1" "$1" "$(jq -r '.[] | select(.key == "role") | .value' "$KOTO_STORE/context/$S/record/run")"
 }
 role_read manager
 role_read director
