@@ -135,6 +135,21 @@ H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "not_verif
 facts "[$H]" | report | jq -e '(.changes | any(.what == "dispatch status") | not) and (.not_verified | any(.what == "stuck: settle" and .reason == "the record refused the write"))' >/dev/null \
   && ok "a failed settle is not verified, and no change" || bad "a failed settle is not verified, and no change" "$(facts "[$H]" | report | jq -c '.not_verified')"
 
+# A pull request link naming a repository other than the holding's repo
+# (shirabe#1581): the report says so, from the record.
+H=$(holding elsewhere "[$(pr OPEN "$VH")]" '{"pull_request": "[#7](https://github.com/acme/gadgets/pull/7)"}')
+out=$(facts "[$H]" | report)
+printf '%s' "$out" | jq -e '.changes | any(.what == "pull request repository" and .recorded == "acme/widgets" and .live == "acme/gadgets" and .grade == "verified by reading")' >/dev/null \
+  && ok "a link naming another repository is a change, verified by reading" || bad "a link naming another repository is a change, verified by reading" "$out"
+r=$(printf '%s' "$out" | "$BASH" "$S" md | sed -n '/^## Changed since then/,/^## /p')
+grep -q '^- `elsewhere`: pull request is in `acme/gadgets`, not the holding'"'"'s repository `acme/widgets`; its pull request, branch, board and files were read there (written '"$W"'; verified by reading)\.$' <<<"$r" \
+  && ok "the rendered report names both repositories" || bad "the rendered report names both repositories" "$r"
+for p in '[#7](https://github.com/acme/widgets/pull/7)' '[#7]' '#7' 'acme/gadgets#7' ''; do
+    H=$(holding plain "[$(pr OPEN "$VH")]" "$(jq -nc --arg p "$p" '{pull_request: $p}')")
+    facts "[$H]" | report | jq -e '.changes | any(.what == "pull request repository") | not' >/dev/null \
+      && ok "a pull request cell [$p] is no repository change" || bad "a pull request cell [$p] is no repository change"
+done
+
 echo "== next lines and waiting =="
 nx() { facts "[$1]" | report | jq -r '.holdings[0].next'; }
 check_next() { local got; got=$(nx "$2"); [ "$got" = "$3" ] && ok "$1" || bad "$1" "want '$3' got '$got'"; }
