@@ -748,7 +748,7 @@ unconfirmed() {
 }
 # wrote_nothing <label>: no context key stored and no verdict sealed.
 wrote_nothing() {
-    [ ! -e "$C3/detail.json" ] && ! printf '%s\n' "$KOUT" | grep -qx 'teardown-\(confirmed\|incomplete\)' \
+    [ ! -e "$C3/detail.json" ] && ! grep -qx 'teardown-\(confirmed\|incomplete\)' <<<"$KOUT" \
         && ok "$1" || bad "$1" "$KOUT $(cat "$C3/detail.json" 2>/dev/null)"
 }
 
