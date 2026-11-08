@@ -384,6 +384,54 @@ set_impl_base s-merge "$BASE"
 run --commits --session s-merge
 expect "--commits --session: a merge commit with git's default subject" 0
 
+# git revert's default subject, Revert "<subject>", passes when <subject> is a
+# Conventional Commits subject. The reverts here are made by git itself, so the
+# fixture carries the subject git writes.
+fixture revert
+commit_file a.txt a -m "feat: add a"
+commit_file probe.txt probe -m "test: temporary probes for the runner image"
+git -C "$REPO" revert --no-edit HEAD >/dev/null 2>&1
+commit_file stress.txt stress -m "test(unit-cost): temporary stress probe for the post lock"
+git -C "$REPO" revert --no-edit HEAD >/dev/null 2>&1
+SUBJECT=$(git -C "$REPO" log -1 --format=%s)
+case "$SUBJECT" in
+    'Revert "test(unit-cost): temporary stress probe for the post lock"')
+        pass "fixture: the revert commit carries git's default subject ($SUBJECT)" ;;
+    *) fail "fixture: the revert commit subject is [$SUBJECT]" ;;
+esac
+run --commits --base-ref origin/main
+expect "--commits: git's default Revert subject around a conventional subject" 0
+
+fixture revert-nonconventional
+commit_file a.txt a -m 'Revert "update stuff"'
+run --commits --base-ref origin/main
+expect "--commits: a Revert subject around a non-conventional subject" 1 "commit/conventional-subject"
+case "$OUT" in
+    *'Revert \"<subject>\"'*) pass "--commits: the finding says the revert form is accepted around a conventional subject" ;;
+    *) fail "--commits: the finding does not mention the revert form: $OUT" ;;
+esac
+
+fixture revert-unclosed
+commit_file a.txt a -m 'Revert "fix: correct a'
+run --commits --base-ref origin/main
+expect "--commits: a Revert subject with no closing quote" 1 "commit/conventional-subject"
+
+fixture revert-and-bare
+commit_file a.txt a -m "fix: correct a"
+git -C "$REPO" revert --no-edit HEAD >/dev/null 2>&1
+commit_file b.txt b -m "added b without a type"
+run --commits --base-ref origin/main
+expect "--commits: a bare non-conventional subject beside a valid revert" 1 "commit/conventional-subject"
+BAD_SHA=$(git -C "$REPO" rev-parse HEAD | cut -c1-12)
+FINDINGS=$(printf '%s\n' "$OUT" | grep -c '^::koto-finding::')
+case "$OUT" in
+    *"$BAD_SHA"*)
+        [ "$FINDINGS" -eq 1 ] \
+            && pass "--commits: only the bare subject is reported, not the revert" \
+            || fail "--commits: want one finding for the bare subject, got $FINDINGS: $OUT" ;;
+    *) fail "--commits: the finding does not name $BAD_SHA: $OUT" ;;
+esac
+
 # --- the refusals ---------------------------------------------------------------
 
 # A clean branch: the refusals hold the gate before any check.

@@ -9,8 +9,10 @@
 #   --commits (--session <s> | --base-ref <ref>)
 #       Every non-merge commit in the range: its subject must match the
 #       Conventional Commits pattern the `commit_convention` gate in work-on.md
-#       has always applied to the tip, and no line of its message may be an
-#       AI-attribution line, by the predicate PB3 applies to a PR body
+#       has always applied to the tip, or be git revert's default subject,
+#       `Revert "<subject>"`, around a subject that does; and no line of its
+#       message may be an AI-attribution line, by the predicate PB3 applies to
+#       a PR body
 #       (`is_attribution_line` in crates/shirabe-validate/src/pr_body.rs): a
 #       `Co-Authored-By:` line naming Claude or Anthropic, or a "Generated with
 #       Claude Code" line. Merge commits are skipped: a branch catches up with
@@ -197,6 +199,23 @@ is_attributed() {
         END { exit hit ? 0 : 1 }'
 }
 
+# is_conventional_subject <subject>: true when the subject matches CONVENTIONAL,
+# or is exactly git revert's default form, Revert "<inner>", with <inner>
+# matching CONVENTIONAL. The wrapper is taken off once, so a revert of a revert
+# still fails.
+is_conventional_subject() {
+    local subject=$1 inner
+    grep -Eq "$CONVENTIONAL" <<<"$subject" && return 0
+    case "$subject" in
+        'Revert "'*'"')
+            inner=${subject#Revert \"}
+            inner=${inner%\"}
+            grep -Eq "$CONVENTIONAL" <<<"$inner"
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 check_commits() {
     require_rules commit/conventional-subject commit/no-ai-trailer
     if [ -n "$SESSION" ]; then
@@ -215,9 +234,9 @@ check_commits() {
         short=$(printf '%s' "$sha" | cut -c1-12)
         subject=$(git log -1 --format=%s "$sha") \
             || undecided "cannot read commit $sha"
-        if ! grep -Eq "$CONVENTIONAL" <<<"$subject"; then
+        if ! is_conventional_subject "$subject"; then
             finding commit/conventional-subject \
-                "commit $short subject \"$subject\" is not a Conventional Commits subject: use <type>[optional scope][!]: <description>, with <type> one of feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert"
+                "commit $short subject \"$subject\" is not a Conventional Commits subject: use <type>[optional scope][!]: <description>, with <type> one of feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert, or git's default Revert \"<subject>\" around such a subject"
         fi
         message=$(git log -1 --format=%B "$sha") \
             || undecided "cannot read commit $sha"
