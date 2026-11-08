@@ -875,6 +875,25 @@ RECORD_WORK=$(fup_rows "/shirabe:scope plugin-api"); export RECORD_WORK RECORD_D
 OUT=$(run 2>"$T/fu.err"); RC=$?
 eq  "follow-up: a failed removal still dispatches" "0 session=$NIWA_NAME" "$RC $OUT"
 has "follow-up: and says how to remove the row" "$(cat "$T/fu.err")" 'remove it with state-stored-set.sh --session coord --done "Feature 2" --kind follow-up'
+# The row removed is the one pick-facts read as the follow_up: an issue unit
+# and its host-qualified row, either way round, and a Feature tag against its
+# Milestone row (tag_key).
+PICK_DISC_FUP='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload","follow_up":{"after":"acme/widgets#40","next":"/shirabe:scope ci-upload"}}]}'
+for pair in "#12|acme/widgets#12" "acme/widgets#12|#12"; do
+    u=${pair%%|*} it=${pair#*|}
+    reset "$(printf '%s' "$INPUT_SCOPE" | jq -c --arg u "$u" '.unit = $u')"
+    printf '%s' "$PICK_DISC_FUP" >"$ST/ctx/coord/pick.json"
+    RECORD_WORK=$(jq -nc --arg i "$it" '[{item: $i, kind: "follow-up", who: "acme/widgets#40", next: "/shirabe:scope ci-upload", wakes: "0", updated: "2026-09-26T07:00Z"}]'); export RECORD_WORK
+    OUT=$(run 2>/dev/null); RC=$?
+    eq  "follow-up: unit $u, row $it, a /shirabe:scope brief is dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
+    has "follow-up: unit $u, row $it, the row is removed" "$(calls)" "state-stored-set --session coord --done $it --kind follow-up"
+done
+FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:scope plugin-api"}'
+reset "$INPUT_SCOPE"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+RECORD_WORK=$(fup_rows "/shirabe:scope plugin-api" | jq -c '.[0].item = "Milestone 2"'); export RECORD_WORK
+run >/dev/null 2>&1
+has "follow-up: unit Feature 2, row Milestone 2, the row is removed" "$(calls)" "state-stored-set --session coord --done Milestone 2 --kind follow-up"
 # Discipline scope: an issue as #n, or as host#n with the host pick recorded.
 PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do

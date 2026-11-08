@@ -1257,14 +1257,27 @@ names_scope() {
 # clear_follow_up <unit cell>: a unit whose landed explore recommended /scope
 # carries a follow-up row naming /scope. A holding's Work row at phase
 # scoping doesn't take that row (state-stored-set.sh), so a /scope dispatch
-# it names removes it here once confirmed; left standing, it would read as
-# the execution follow-up the scope's own merge has to write. As with
+# it names removes it here once confirmed; left standing, the record would
+# still name /scope as the unit's next step after that step was dispatched,
+# until the scope's own merge writes its execution follow-up. As with
 # clear_rework, a failed removal is reported, not fatal.
+#
+# The row is found the way pick-facts.sh found the follow_up the gate let
+# through: by tag_key, or by the pick's host prefixed to either side (an
+# issue unit `#12` and its row `acme/widgets#12`). A narrower match would
+# admit the dispatch and then leave the row standing. tag_key is
+# state-common.sh's JQ_TAG_KEY, restated because sourcing that file here
+# would clash with this script's own KOTO and OVERRIDE.
 clear_follow_up() {
-    local row item
+    local row item host=""
     [ "$ENTRY" = scope ] || return 0
-    row=$(jq -c --arg u "$1" '[(.work // [])[] | select(.kind == "follow-up") | .item as $x
-        | select($x == $u or ($u | startswith($x + ": ")))][0] // empty' "$WORK/state.json") || row=""
+    [ -s "$WORK/pick.json" ] && host=$(jq -r '.host // "" | strings' "$WORK/pick.json" 2>/dev/null)
+    row=$(jq -c --arg u "$1" --arg h "$host" '
+        def tag_key: if type == "string" and test("\\A(Feature|Milestone) [0-9]+\\z") then "ms:" + .[(index(" ") + 1):] else . end;
+        ($u | split(": ")[0]) as $tag
+        | [(.work // [])[] | select(.kind == "follow-up") | .item as $x
+           | select(($x | tag_key) == ($tag | tag_key) or ($h != "" and (($h + $x) == $tag or $x == ($h + $tag))))][0] // empty' \
+        "$WORK/state.json") || row=""
     [ -n "$row" ] || return 0
     names_scope "$(printf '%s' "$row" | jq -r '.next // ""')" || return 0
     item=$(printf '%s' "$row" | jq -r '.item')
@@ -1350,7 +1363,7 @@ if [ "$STATUS" != dispatching ]; then
     AWAITING=$(jq -r '.awaiting // empty' "$WORK/unit-facts.json")
     [ -z "$AWAITING" ] || die 10 "decision $AWAITING parks this unit until it is settled, as pick_facts read it: nothing dispatched; submit dispatched: paused"
     if jq -e '.follow_up != null' "$WORK/unit-facts.json" >/dev/null; then
-        FU_ENTRY=$ENTRY
+        FU_ENTRY=$ENTRY # emptied below for a /scope the row names: no case arm matches ""
         [ "$ENTRY" = scope ] && names_scope "$(jq -r '.follow_up.next // ""' "$WORK/unit-facts.json")" && FU_ENTRY=""
         case "$FU_ENTRY" in
             deliver|scope)
