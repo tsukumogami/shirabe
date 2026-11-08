@@ -105,6 +105,12 @@ eq "telemetry:   ... one notice on stderr" "1 review-round:" "$(wc -l < "$T/err"
 bash "$RR" record --session issue_11 "$T/dup" >/dev/null 2>&1
 eq "telemetry: a malformed round is never sent" "" "$(review_calls issue_11)"
 
+OUT=$(KOTO_FAIL_REVIEW=session_terminal bash "$RR" record --session issue_12 "$T/r1" 2>&1); RC=$?
+eq "telemetry: a finished session koto takes no review event on: exit 0, the line alone" \
+    "0 recorded 3 seats at $H" "$RC $OUT"
+eq "telemetry:   ... the round still stored and no round count" "$(jq -c . "$T/r1") " \
+    "$(cat "$KOTO_STORE/context/issue_12/review_round.json") $(count issue_12)"
+
 echo
 echo "review-round: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
