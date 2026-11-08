@@ -1156,6 +1156,7 @@ REPO=$(jq -r '.repo // "" | strings' "$INPUT")
 confirm() {
     write_row "$(with_status "$ROW" dispatched)"
     clear_rework "$(printf '%s' "$ROW" | jq -r '.unit // ""')"
+    clear_follow_up "$(printf '%s' "$ROW" | jq -r '.unit // ""')"
     retire_stranded
     send_dispatched
     printf 'session=%s\n' "$1"
@@ -1245,6 +1246,48 @@ clear_rework() {
         printf '%s: %s is dispatched, but its rework row stands (%s); remove it with state-stored-set.sh --session %s --done "%s" --kind rework\n' \
             "$PROG" "$TOPIC" "$(head -1 "$WORK/rework.err")" "$SESSION" "$item" >&2
 }
+# names_scope <next>: whether a follow-up row's next step is a /scope
+# invocation, by its leading word (/shirabe:scope or /scope), never a
+# substring anywhere in the text.
+names_scope() {
+    local first
+    read -r first _ <<<"$1"
+    [ "$first" = /shirabe:scope ] || [ "$first" = /scope ]
+}
+# clear_follow_up <unit cell>: a unit whose landed explore recommended /scope
+# carries a follow-up row naming /scope. A holding's Work row at phase
+# scoping doesn't take that row (state-stored-set.sh), so a /scope dispatch
+# it names removes it here once confirmed; left standing, the record would
+# still name /scope as the unit's next step after that step was dispatched,
+# until the scope's own merge writes its execution follow-up. As with
+# clear_rework, a failed removal is reported, not fatal.
+#
+# The row is found the way pick-facts.sh found the follow_up the gate let
+# through: by tag_key, or by the pick's host prefixed to either side (an
+# issue unit `#12` and its row `acme/widgets#12`). A narrower match would
+# admit the dispatch and then leave the row standing. The host is
+# coord/pick.json's, as read for the gate, or read here on a resumed
+# dispatch, which skips the gate. tag_key is state-common.sh's JQ_TAG_KEY,
+# taken in a subshell: sourcing that file here would reset this script's
+# KOTO from KOTO_BIN.
+clear_follow_up() {
+    local row item host pick tag_key
+    [ "$ENTRY" = scope ] || return 0
+    if [ -s "$WORK/pick.json" ]; then pick=$(cat "$WORK/pick.json"); else pick=$(ctx coord/pick.json 2>/dev/null) || pick=""; fi
+    host=$(printf '%s' "$pick" | jq -r '.host // "" | strings') || host=""
+    tag_key=$(PROG=$PROG; . "$HERE/state-common.sh" >/dev/null 2>&1; printf '%s' "$JQ_TAG_KEY")
+    row=$(jq -c --arg u "$1" --arg h "$host" "$tag_key"'
+        ($u | split(": ")[0]) as $tag
+        | [(.work // [])[] | select(.kind == "follow-up") | .item as $x
+           | select(($x | tag_key) == ($tag | tag_key) or ($h != "" and (($h + $x) == $tag or $x == ($h + $tag))))][0] // empty' \
+        "$WORK/state.json") || row=""
+    [ -n "$row" ] || return 0
+    names_scope "$(printf '%s' "$row" | jq -r '.next // ""')" || return 0
+    item=$(printf '%s' "$row" | jq -r '.item')
+    bash "$DC_RECORD_STATE" --session "$SESSION" --done "$item" --kind follow-up >/dev/null 2>"$WORK/follow-up.err" ||
+        printf '%s: %s is dispatched, but its follow-up row stands (%s); remove it with state-stored-set.sh --session %s --done "%s" --kind follow-up\n' \
+            "$PROG" "$TOPIC" "$(head -1 "$WORK/follow-up.err")" "$SESSION" "$item" >&2
+}
 
 # A unit whose earlier worker was stranded (state-holding.sh --strand) goes
 # out again under this new topic. Its brief names the stranded row's branch
@@ -1316,11 +1359,16 @@ if [ "$STATUS" != dispatching ]; then
     jq -e '.verdict_owed == true' "$WORK/unit-facts.json" >/dev/null \
         && die 10 "a verdict is owed on this milestone, as pick_facts read it: nothing dispatched until its verdict's roadmap edit is confirmed; submit dispatched: paused"
     # A unit parked on a decision waits for its answer like a pause; one
-    # whose scoping landed is sent its execution, never scoped again.
+    # whose scoping landed is sent its execution, never scoped again. The
+    # exception is a follow-up row that itself names /scope as the next step
+    # (an explore landed and recommended it): entry scope goes through, and
+    # confirm() removes the row (clear_follow_up). deliver stays refused.
     AWAITING=$(jq -r '.awaiting // empty' "$WORK/unit-facts.json")
     [ -z "$AWAITING" ] || die 10 "decision $AWAITING parks this unit until it is settled, as pick_facts read it: nothing dispatched; submit dispatched: paused"
     if jq -e '.follow_up != null' "$WORK/unit-facts.json" >/dev/null; then
-        case "$ENTRY" in
+        FU_ENTRY=$ENTRY # emptied below for a /scope the row names: no case arm matches ""
+        [ "$ENTRY" = scope ] && names_scope "$(jq -r '.follow_up.next // ""' "$WORK/unit-facts.json")" && FU_ENTRY=""
+        case "$FU_ENTRY" in
             deliver|scope)
                 printf '%s: refused: this unit'\''s scoping landed as %s; brief its execution (%s), not /shirabe:%s\n' "$PROG" \
                     "$(jq -r '.follow_up.after' "$WORK/unit-facts.json")" "$(jq -r '.follow_up.next' "$WORK/unit-facts.json")" "$ENTRY" >&2
