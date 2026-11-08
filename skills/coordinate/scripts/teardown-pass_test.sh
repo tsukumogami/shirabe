@@ -54,6 +54,14 @@
 # and leaves nothing running. A whole pass writes
 # MANIFEST.sha256 with the MANIFEST's digest.
 #
+# And `check`, confirm's reads for one topic's removed verdict: it confirms
+# (exit 0) a removed verdict whose unit both listings no longer show, with a
+# whole archive or with `job -` and none; it doesn't (exit 1, the reason
+# printed) for another topic, a verdict that isn't removed, an instance or a
+# job still listed at the path, the job still listed, a RESULT that isn't
+# done, or a surviving session with no archive; it stores no context key and
+# seals nothing; and it takes no --keyseal and needs a dispatch topic.
+#
 # And build trees in the job's tmp/: a cargo target dir under another name
 # (CACHEDIR.TAG) holding a node_modules, a repo's target/ (.rustc_info.json),
 # a node_modules holding another, a cargo home (.package-cache) and, with
@@ -712,6 +720,82 @@ while :; do
     sleep 0.1
 done
 [ -z "$left" ] && ok "  ... and leaves no read running" || { bad "  ... and leaves no read running" "$left"; for p in $left; do kill "$p" 2>/dev/null; done; }
+
+# ---------------------------------------------------------------------------
+# check (shirabe#1593): confirm's reads for a removed verdict of one topic,
+# answered by the exit code, with nothing stored and nothing sealed, so
+# state-holding.sh --retire can ask it at destroy, before teardown_confirm.
+echo "== check: a removed teardown, read-only =="
+NFILES=3
+# setup_check [job-line]: confirm's archive and listings, under the removed
+# verdict of w5 (its instance `-`, its path /i/w5).
+setup_check() {
+    setup_confirm
+    printf 'topic w5\ninstance - /i/w5\n%s\ntranscript /t/x.jsonl\npr acme/widgets#600 0123456789012345678901234567890123456789\nhandoff https://github.com/acme/widgets/pull/600#issuecomment-1\nremoved yes\nkeyseal %s\n' \
+        "${1:-job 4b3597d2 4b3597d2-6184-4a48}" "$KS" >"$T/cverdict"
+}
+# run_check <args...>: one check; KRC, KOUT (stdout and stderr).
+run_check() {
+    KOUT=$(cd "$T/ws" && PATH="$B3:$PATH" VERDICT_FILE="$T/cverdict" TEARDOWN_ARCHIVE_DIR="$T/carchive" \
+        DC_COORD_LOG="$P3/coord-log.sh" bash "$P3/teardown-pass.sh" check "$@" 2>&1)
+    KRC=$?
+}
+# unconfirmed <label> <reason>: check exits 1 with the reason.
+unconfirmed() {
+    run_check --session s --topic w5
+    [ "$KRC" = 1 ] && ok "$1: not confirmed" || bad "$1: not confirmed" "exit $KRC: $KOUT"
+    case "$KOUT" in *"$2"*) ok "  ... says why" ;; *) bad "  ... says why" "$KOUT" ;; esac
+}
+# wrote_nothing <label>: no context key stored and no verdict sealed.
+wrote_nothing() {
+    [ ! -e "$C3/detail.json" ] && ! printf '%s\n' "$KOUT" | grep -qx 'teardown-\(confirmed\|incomplete\)' \
+        && ok "$1" || bad "$1" "$KOUT $(cat "$C3/detail.json" 2>/dev/null)"
+}
+
+setup_check
+run_check --session s --topic w5
+[ "$KRC" = 0 ] && ok "a removed verdict, the unit gone, the archive whole: confirmed" \
+    || bad "a removed verdict, the unit gone, the archive whole: confirmed" "exit $KRC: $KOUT"
+wrote_nothing "  ... storing nothing and sealing nothing"
+setup_check 'job -'
+rm -rf "$T/carchive"
+run_check --session s --topic w5
+[ "$KRC" = 0 ] && ok "a removed verdict with job -, no archive: confirmed" \
+    || bad "a removed verdict with job -, no archive: confirmed" "exit $KRC: $KOUT"
+wrote_nothing "  ... storing nothing and sealing nothing"
+setup_check
+run_check --session s --topic w6
+[ "$KRC" = 1 ] && ok "another topic's check: not confirmed" || bad "another topic's check: not confirmed" "exit $KRC: $KOUT"
+case "$KOUT" in *"the verdict is for w5, not w6"*) ok "  ... says why" ;; *) bad "  ... says why" "$KOUT" ;; esac
+wrote_nothing "  ... storing nothing and sealing nothing"
+setup_confirm
+unconfirmed "a verdict that isn't removed" "the verdict is not a removed teardown"
+wrote_nothing "  ... storing nothing and sealing nothing"
+setup_check
+echo '[{"name":"tsuku+w5b","path":"/i/w5"}]' >"$C3/niwa.json"
+unconfirmed "niwa lists an instance at the path" "niwa still lists"
+setup_check
+echo '[{"id":"77aa77aa","cwd":"/i/w5"}]' >"$C3/agents.json"
+unconfirmed "claude lists a job at the path" "claude agents lists a job in /i/w5"
+setup_check
+echo '[{"id":"4b3597d2","cwd":"/elsewhere"}]' >"$C3/agents.json"
+unconfirmed "claude still lists the job" "claude agents still lists job 4b3597d2"
+setup_check
+printf 'refused at preserve: x\n' >"$CA/RESULT"
+unconfirmed "a RESULT that isn't done" "RESULT doesn't say done"
+setup_check
+rm -rf "$T/carchive"
+unconfirmed "a surviving session with no archive" "no single archive for w5"
+wrote_nothing "  ... storing nothing and sealing nothing"
+setup_check
+run_check --session s
+eq_ "check without --topic is a usage error" 64 "$KRC"
+run_check --session s --topic w5 --keyseal "$KS"
+eq_ "check with --keyseal is a usage error" 64 "$KRC"
+run_check --session s --topic 'a/b'
+eq_ "check with a topic that isn't a dispatch topic is a usage error" 64 "$KRC"
+(cd "$T/ws" && PATH="$B3:$PATH" VERDICT_FILE="$T/cverdict" bash "$P3/teardown-pass.sh" confirm --session s --topic w5 >/dev/null 2>&1)
+eq_ "confirm with --topic is a usage error" 64 "$?"
 
 # ---------------------------------------------------------------------------
 # Build trees in the job's tmp/ (shirabe#1106): a whole pass with the real
