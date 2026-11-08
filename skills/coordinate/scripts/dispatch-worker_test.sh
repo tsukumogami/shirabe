@@ -835,6 +835,74 @@ done
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .targets = ["acme/widgets"]')"
 printf '%s' "$PICK_ROADMAP" | jq -c "$FUP" >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "follow-up: its execution is dispatched" 0 "$?"
+lacks "follow-up: an execution dispatch removes no follow-up row itself" "$(calls)" "--kind follow-up"
+# A follow-up row that itself names /scope (an explore landed and recommended
+# it): a /shirabe:scope brief is dispatched, by the row's leading word, and the
+# row is removed once the dispatch is confirmed; deliver is still refused.
+fup_rows() { jq -nc --arg n "$1" '[{item: "Feature 2", kind: "follow-up", who: "acme/widgets#40", next: $n, wakes: "0", updated: "2026-09-26T07:00Z"}]'; }
+for nx in "/shirabe:scope plugin-api --intent=continue" "/scope plugin-api"; do
+    FUPS="(.units[] | select(.unit == \"Feature 2\")).follow_up = {after: \"acme/widgets#40\", next: \"$nx\"}"
+    reset "$INPUT_SCOPE"
+    printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+    RECORD_WORK=$(fup_rows "$nx"); export RECORD_WORK
+    OUT=$(run 2>/dev/null); RC=$?
+    eq  "follow-up: next [$nx], a /shirabe:scope brief is dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
+    has "follow-up: next [$nx], the follow-up row is removed" "$(calls)" "state-stored-set --session coord --done Feature 2 --kind follow-up"
+    RM_AT=$(grep -n 'state-stored-set --session coord --done Feature 2 --kind follow-up' "$ST/calls.log" | head -1 | cut -d: -f1)
+    LAST_WRITE=$(grep -n 'record write plugin-api dispatched' "$ST/calls.log" | tail -1 | cut -d: -f1)
+    if [ -n "$RM_AT" ] && [ -n "$LAST_WRITE" ] && [ "$RM_AT" -gt "$LAST_WRITE" ]; then ok "follow-up: next [$nx], removed after the holding reads dispatched"
+    else bad "follow-up: next [$nx], removed after the holding reads dispatched" "$(calls)"; fi
+    reset "$INPUT_DELIVER"
+    printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+    RECORD_WORK=$(fup_rows "$nx"); export RECORD_WORK
+    ERR=$(run 2>&1 >/dev/null); RC=$?
+    eq  "follow-up: next [$nx], a /shirabe:deliver brief is still refused" 1 "$RC"
+    has "follow-up: next [$nx], naming the row's next step" "$ERR" "brief its execution ($nx), not /shirabe:deliver"
+    nothing_written "follow-up /scope, deliver"
+done
+# /scope anywhere but the leading word isn't the row naming it.
+FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:execute docs/plans/PLAN-plugin-api.md, not /shirabe:scope"}'
+reset "$INPUT_SCOPE"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "follow-up: /scope past the leading word, a /shirabe:scope brief is refused" 1 "$RC"
+nothing_written "follow-up /scope past the leading word"
+# A failed removal still dispatches, and says how to remove the row.
+FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:scope plugin-api"}'
+reset "$INPUT_SCOPE"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+RECORD_WORK=$(fup_rows "/shirabe:scope plugin-api"); export RECORD_WORK RECORD_DONE_MODE=fail
+OUT=$(run 2>"$T/fu.err"); RC=$?
+eq  "follow-up: a failed removal still dispatches" "0 session=$NIWA_NAME" "$RC $OUT"
+has "follow-up: and says how to remove the row" "$(cat "$T/fu.err")" 'remove it with state-stored-set.sh --session coord --done "Feature 2" --kind follow-up'
+# The row removed is the one pick-facts read as the follow_up: an issue unit
+# and its host-qualified row, either way round, and a Feature tag against its
+# Milestone row (tag_key).
+PICK_DISC_FUP='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload","follow_up":{"after":"acme/widgets#40","next":"/shirabe:scope ci-upload"}}]}'
+for pair in "#12|acme/widgets#12" "acme/widgets#12|#12"; do
+    u=${pair%%|*} it=${pair#*|}
+    reset "$(printf '%s' "$INPUT_SCOPE" | jq -c --arg u "$u" '.unit = $u')"
+    printf '%s' "$PICK_DISC_FUP" >"$ST/ctx/coord/pick.json"
+    RECORD_WORK=$(jq -nc --arg i "$it" '[{item: $i, kind: "follow-up", who: "acme/widgets#40", next: "/shirabe:scope ci-upload", wakes: "0", updated: "2026-09-26T07:00Z"}]'); export RECORD_WORK
+    OUT=$(run 2>/dev/null); RC=$?
+    eq  "follow-up: unit $u, row $it, a /shirabe:scope brief is dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
+    has "follow-up: unit $u, row $it, the row is removed" "$(calls)" "state-stored-set --session coord --done $it --kind follow-up"
+done
+FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:scope plugin-api"}'
+reset "$INPUT_SCOPE"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+RECORD_WORK=$(fup_rows "/shirabe:scope plugin-api" | jq -c '.[0].item = "Milestone 2"'); export RECORD_WORK
+run >/dev/null 2>&1
+has "follow-up: unit Feature 2, row Milestone 2, the row is removed" "$(calls)" "state-stored-set --session coord --done Milestone 2 --kind follow-up"
+# A resumed dispatch skips the gate and its read of coord/pick.json, so the
+# removal reads the pick's host itself.
+reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.unit = "#12"')"
+printf '%s' "$PICK_DISC_FUP" >"$ST/ctx/coord/pick.json"
+printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue","unit":"#12"}' >"$ST/rows/plugin-api.json"
+RECORD_WORK=$(jq -nc '[{item: "acme/widgets#12", kind: "follow-up", who: "acme/widgets#40", next: "/shirabe:scope ci-upload", wakes: "0", updated: "2026-09-26T07:00Z"}]'); export RECORD_WORK
+run >/dev/null 2>&1
+eq  "follow-up: a resumed /scope dispatch settles its row" dispatched "$(row dispatch_status)"
+has "follow-up: and removes the host-qualified row" "$(calls)" "state-stored-set --session coord --done acme/widgets#12 --kind follow-up"
 # Discipline scope: an issue as #n, or as host#n with the host pick recorded.
 PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do
