@@ -21,6 +21,15 @@ description: >
   partial_tests_failing_retry, creation_failed_retry) to avoid triggering cycle detection.
 initial_state: entry
 
+# The panel seats skills/work-on/scripts/panel-scope.sh names (scrutiny,
+# review, qa and light, and the re-verifier), so the code review rounds
+# skills/coordinate/scripts/review-round.sh records on this session keep them
+# by name; koto records any other seat as other. A seat added to a panel there
+# is added here too.
+review_vocabulary:
+  seats: [completeness, justification, intent, pragmatic, architect, maintainer,
+          tester, reviewer, reverifier]
+
 variables:
   ISSUE_NUMBER:
     description: GitHub issue number for issue-backed workflows

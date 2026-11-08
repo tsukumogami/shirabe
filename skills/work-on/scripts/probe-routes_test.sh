@@ -146,7 +146,7 @@ case "$(extract_state pr_creation | grep -A2 '^      probe_ack:$' | grep 'comman
     *) fail "probe_ack's command does not set SHIRABE_GATE_LOG" ;;
 esac
 FLOOR=$(bash "$REAL_ROOT/scripts/assert-koto-floor.sh" --print-floor 2>/dev/null)
-check "shirabe's koto minimum is 0.31.0, the release with directive_rules and capture_allow_empty" "$FLOOR" 0.31.0
+check "shirabe's koto minimum is 0.33.0, which has directive_rules and capture_allow_empty (koto 0.31.0 and later)" "$FLOOR" 0.33.0
 
 # decider.mode and every existing registry stage, against the base branch when
 # it can be read, and against the modes this change shipped with otherwise.
