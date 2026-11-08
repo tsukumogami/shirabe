@@ -23,7 +23,10 @@
 # had been at the hub, doesn't accept an answer from before this ask.
 # teardown, which writes after its evidence, still compares with the
 # evidence's time. Also: an older
-# Written: time waits even when the rows match; a record that isn't canonical
+# Written: time waits even when the rows match (dispatch, merged, destroy,
+# teardown, roadmap_status and the milestone rows), except for an
+# unconfirmed merge, whose Side effects row confirms in a record written
+# before the capture, or carried into a continued run; a record that isn't canonical
 # is a conflict, and a session whose record is gone a failed read; a directed transition is `directed`; a capture with a
 # broken seal is a conflict; the sealed token and its context detail. The
 # record is the run's session's, its Written: time record/meta's.
@@ -200,6 +203,14 @@ eq "a reserved merge from goal_fit confirms with Phase executing" confirmed "$(c
 GADGETS12='{"repo":"acme/gadgets","branch":"feat/y","pull_request":"[#12](https://github.com/acme/gadgets/pull/12)"}'
 
 echo "== merge_confirm and merged_facts =="
+# confirmed_detail <name>: the run, sealed, confirms; a failure prints the
+# verdict and reason it gave instead.
+confirmed_detail() {
+    local d="$KOTO_STORE/context/$S/coord/record_confirm.json"
+    bash "$C" --session "$S" > /dev/null 2>&1
+    if [ "$(jq -r .verdict "$d" 2>/dev/null)" = confirmed ]; then ok "$1"
+    else bad "$1" "want [confirmed], got $(jq -c '{verdict, reason}' "$d" 2>/dev/null)"; fi
+}
 for src in merge_confirm merged_facts; do
     KEY=MERGE_CONFIRM; [ "$src" = merged_facts ] && KEY=MERGED_FACTS
     session
@@ -210,6 +221,9 @@ for src in merge_confirm merged_facts; do
     # until teardown (the shirabe#490 comment of 2026-09-28).
     body "$(rec | jq -c --argjson h "$(holding alpha '{"pull_request":""}')" '.holdings = [$h]')"
     eq "$src merged: the unit's row kept with its Pull request cell cleared confirms" confirmed "$(confirm)"
+    # Clearing the cell is this run's write, so it keeps the time ordering.
+    body "$(rec | jq -c --argjson h "$(holding alpha '{"pull_request":""}')" '.holdings = [$h]')" "$BEFORE"
+    eq "$src merged: the cleared cell in a record written before the capture waits" waiting "$(confirm)"
     body "$(rec | jq -c --argjson h "$(holding beta '{"pull_request":"[#13](https://github.com/acme/widgets/pull/13)"}')" '.holdings = [$h]')"
     eq "$src merged: the unit's row gone waits, since the row stays until teardown" waiting "$(confirm)"
     body "$(rec | jq -c --argjson h "$(holding alpha '{"pull_request":"[#14](https://github.com/acme/widgets/pull/14)"}')" '.holdings = [$h]')"
@@ -258,6 +272,21 @@ for src in merge_confirm merged_facts; do
     eq "$src unconfirmed: gadgets#12 in Target does not confirm widgets#12" waiting "$(confirm)"
     body "$(rec | jq -c --argjson se "$SE" '.side_effects = $se')"
     eq "$src unconfirmed: without the unit's row the repository can't be told, so it waits" waiting "$(confirm)"
+    # The row states a merge GitHub already made at that head, so a record
+    # written before the capture still records it: a row from earlier in the
+    # run, or one a continued run carried over unchanged (shirabe#1608).
+    for w in "$BEFORE" 2026-09-25T13:06:14Z; do
+        body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" '.side_effects = $se | .holdings = [$a]')" "$w"
+        confirmed_detail "$src unconfirmed: the row in a record written at $w, before the capture, confirms"
+    done
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" --arg o "$SHA_OTHER" '.side_effects = $se | .holdings = [$a] | .side_effects[0].verified_head = $o')" "$BEFORE"
+    eq "$src unconfirmed: an older record with the row at another sha still waits" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson se "$SE" --argjson a "$HA" --argjson g "$(holding gamma "$GADGETS12")" '.side_effects = $se | .holdings = [$g, $a] | .side_effects[0].target = "acme/gadgets#12"')" "$BEFORE"
+    eq "$src unconfirmed: an older record with another repository's row still waits" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson se "$SE" '.side_effects = $se')" "$BEFORE"
+    eq "$src unconfirmed: an older record without the unit's row still waits" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson a "$HA" '.holdings = [$a]')" "$BEFORE"
+    eq "$src unconfirmed: an older record with no Side effects row still waits" waiting "$(confirm)"
 done
 # merged_facts with no verified head in this run seals unconfirmed at the head
 # GitHub merged (shirabe#560): the same token, so the same Side effects row
@@ -358,6 +387,13 @@ eq "destroy handed_over: without the Side effects row it waits" waiting "$(confi
 destroy_run handed_over alpha
 body "$(rec | jq -c '.side_effects = [{"action":"destroy","target":"instance of alpha-2","verified_head":"","attempted":"2026-09-26T09:58Z","how_to_confirm":"gone"}]')"
 eq "destroy handed_over: a row naming alpha-2 does not name alpha" waiting "$(confirm)"
+# Both outcomes are this run's writes, so they keep the time ordering.
+destroy_run destroyed alpha
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')" "$BEFORE"
+eq "destroy destroyed: a record written before the evidence waits" waiting "$(confirm)"
+destroy_run handed_over alpha
+body "$(rec | jq -c --argjson se "$SEH" '.side_effects = $se')" "$BEFORE"
+eq "destroy handed_over: a record written before the evidence waits" waiting "$(confirm)"
 destroy_run destroyed alpha
 printf 'topic beta\ninstance /x\n' > "$KOTO_STORE/context/$S/teardown_verdict"
 body "$(rec)"
