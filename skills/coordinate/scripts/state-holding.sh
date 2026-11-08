@@ -10,7 +10,9 @@
 #   state-holding.sh --session S --topic T --read          print the row
 #   state-holding.sh --session S --list                    print every row
 #   state-holding.sh --session S --topic T --strand        mark it stranded
-#   state-holding.sh --session S --topic T --retire        remove a stranded row
+#   state-holding.sh --session S --topic T --retire        remove a stranded row,
+#                                                           or a merged one torn
+#                                                           down outside the pass
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                             (tests)
 #
@@ -50,10 +52,18 @@
 # new topic, whose brief names this row's branch and last pushed head, and
 # --retire removes the stranded row once the new worker is dispatched. A report
 # that later arrives from the retired topic matches no holding and is refused.
-# --retire refuses (65) a row that isn't stranded.
+#
+# --retire also removes a merged holding (lib_row_merged) whose worker was torn
+# down outside the pass, at destroy, once `teardown-pass.sh check --session S
+# --topic T` confirms the run's removed verdict for T (shirabe#1593): a
+# leg-bound holding can never be stranded, so without it the row would stay.
+# The check is read-only; STATE_HOLDING_TEARDOWN_PASS names a stand-in for it
+# (tests). --retire refuses (65) a row that is neither stranded nor merged, and
+# a merged one the check doesn't confirm, with the check's reason.
 #
 # Exit codes: 0 written (prints the session holding the record) or printed; 1
-# no row for the topic (--read only); 2 a read failed; 10 refused (no found
+# no row for the topic (--read only); 2 a read failed, or --retire's teardown
+# check couldn't run; 10 refused (no found
 # record, the session holds no record of this scope, provenance, or a directed
 # transition); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
@@ -150,7 +160,20 @@ strand|retire)
         jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "stranded" else . end)' \
             "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
     else
-        [ "$ST" = stranded ] || { echo "$PROG: refused: only a stranded holding is retired; $TOPIC is $ST" >&2; exit 65; }
+        if [ "$ST" != stranded ]; then
+            # A merged holding whose worker was torn down outside the pass
+            # goes once teardown-pass.sh check confirms its removed verdict
+            # (shirabe#1593); a live one never does.
+            lib_row_merged "$ROW" \
+                || { echo "$PROG: refused: only a stranded holding, or a merged one whose removed teardown is confirmed, is retired; $TOPIC is $ST" >&2; exit 65; }
+            CHECK_OUT=$(bash "${STATE_HOLDING_TEARDOWN_PASS:-$HERE/teardown-pass.sh}" check \
+                --session "${RS_SESSION:-${SESSION:-}}" --topic "$TOPIC" 2>&1)
+            case $? in
+                0) ;;
+                1) echo "$PROG: refused: $TOPIC's removed teardown is not confirmed: $CHECK_OUT" >&2; exit 65 ;;
+                *) lib_die2 "the teardown check could not run: $(printf '%s\n' "$CHECK_OUT" | tail -1)" ;;
+            esac
+        fi
         jq --arg t "$TOPIC" '.holdings |= map(select(.worker != $t))' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
     fi
     ;;
