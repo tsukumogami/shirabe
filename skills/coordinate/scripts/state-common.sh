@@ -39,6 +39,15 @@ ROADMAP=
 
 lib_die2() { echo "$PROG: $*" >&2; exit 2; }
 
+# lib_sha256 <file>: the file's sha256, 64 hex, as rule-files.sh digests a
+# rule file; prints nothing when the file can't be read.
+lib_sha256() {
+    {
+        if command -v sha256sum > /dev/null 2>&1; then sha256sum < "$1" | cut -d' ' -f1
+        else shasum -a 256 < "$1" | cut -d' ' -f1; fi
+    } 2> /dev/null
+}
+
 # lib_redact: replace anything shaped like a GitHub token (a ghp_, gho_,
 # ghu_, ghs_ or ghr_ prefix, or github_pat_, then six or more token
 # characters) and drop control characters. The one token rule; lib_scrub and
