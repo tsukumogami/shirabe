@@ -43,10 +43,10 @@
 #      a value that starts with `--`, is dropped and the rest are sent. A
 #      scope or kind outside the table sends nothing.
 #
-# Then the sender runs once, under `timeout -s KILL` when `timeout` is on PATH
-# and under this script's own deadline otherwise (a watcher that kills the
-# sender's whole process group), with `env -i` and only the allow-list below,
-# each value one argument, standard input closed, its output and status
+# Then the sender runs once, under this script's own deadline (a watcher that
+# kills the sender's whole process group; timeout(1) is not used, since some
+# builds kill only its direct child), with `env -i` and only the allow-list
+# below, each value one argument, standard input closed, its output and status
 # discarded. It is never retried, nothing is spooled or written, and nothing
 # is left running when this returns. Exit status is always 0.
 #
@@ -270,11 +270,7 @@ ee_run() {
     [ -z "${NIWA_DISPATCH_ID:-}" ] || envs+=("NIWA_DISPATCH_ID=$NIWA_DISPATCH_ID")
     [ -z "${NIWA_WORKSPACE:-}" ] || envs+=("NIWA_WORKSPACE=$NIWA_WORKSPACE")
 
-    if command -v timeout >/dev/null 2>&1; then
-        timeout -s KILL "$EE_BOUND" /usr/bin/env -i "${envs[@]}" "$sink" "$@" </dev/null >/dev/null 2>&1
-    else
-        ee_bounded "$EE_BOUND" /usr/bin/env -i "${envs[@]}" "$sink" "$@" </dev/null >/dev/null 2>&1
-    fi
+    ee_bounded "$EE_BOUND" /usr/bin/env -i "${envs[@]}" "$sink" "$@" </dev/null >/dev/null 2>&1
     return 0
 }
 
