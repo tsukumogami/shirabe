@@ -10,8 +10,10 @@
 # run has dispatched; the write going through state-write.sh into the run's
 # session, with nothing written on GitHub, and its refusals (a directed
 # transition in the run, 10); both scopes; a pushed head kept beside its row;
-# --strand only on a dispatched message-path holding, and --retire only of a
-# stranded one.
+# --strand only on a dispatched message-path holding, and --retire of a
+# stranded one or of a merged one whose removed teardown teardown-pass.sh
+# check confirms, never of a live leg-bound holding or a merged one the check
+# doesn't confirm.
 #
 # Usage: bash skills/coordinate/scripts/state-holding_test.sh
 set -uo pipefail
@@ -141,5 +143,41 @@ eq "  ... stranded, the rest of the row as it was" "stranded message feat/x" "$(
 hw --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire removes a stranded row" 0 $?
 eq "  ... and only it" "beta gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
 hw --strand >/dev/null 2>&1; eq "--strand without --topic is a usage error" 64 $?
+
+echo "== retired after a removed teardown (shirabe#1593) =="
+# A stand-in for teardown-pass.sh: it logs each call and answers its check
+# with the exit code in $T/check.rc (0 confirmed, 1 not), the reason on stderr.
+CHECK="$T/teardown-pass-check.sh"
+cat >"$CHECK" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$CHECK_LOG"
+rc=$(cat "$CHECK_RC")
+[ "$rc" = 0 ] || echo "teardown-pass: teardown-incomplete: niwa still lists the instance" >&2
+exit "$rc"
+EOF
+chmod +x "$CHECK"
+export CHECK_LOG="$T/check.log" CHECK_RC="$T/check.rc"
+hr() { STATE_HOLDING_TEARDOWN_PASS=$CHECK hw "$@"; }
+MERGED='{"return_path": "leg req_9:work-on", "entry_point": "/shirabe:work-on", "verified_head": "3333333333333333333333333333333333333333", "pull_request": ""}'
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" \
+    --argjson b "$(holding beta '{"return_path": "leg req_8:work-on", "entry_point": "/shirabe:work-on"}')" \
+    --argjson c "$(holding gamma "$MERGED")" '.holdings = [$a, $b, $c]')"
+: >"$CHECK_LOG"
+echo 0 >"$CHECK_RC"
+SNAP=$(session_snapshot "$SR")
+hr --topic beta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a live leg-bound holding" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... and asks for no teardown check" "" "$(cat "$CHECK_LOG")"
+echo 1 >"$CHECK_RC"
+hr --topic gamma --retire >/dev/null 2>"$T/err"; eq "--retire refuses a merged leg-bound holding with no confirmed removed teardown" 65 $?
+grep -q 'niwa still lists the instance' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... the check asked of its topic in the run's session" "check --session $SR --topic gamma" "$(head -1 "$CHECK_LOG")"
+echo 0 >"$CHECK_RC"
+hr --topic gamma --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a merged leg-bound holding whose removed teardown is confirmed" \
+    || bad "--retire removes a merged leg-bound holding whose removed teardown is confirmed" "exit $rc: $(cat "$T/err")"
+eq "  ... and only it" "alpha beta" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... the write goes to the session, nothing to GitHub" "" "$(gh_writes)"
 
 done_tests state-holding

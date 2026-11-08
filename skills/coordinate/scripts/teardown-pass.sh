@@ -127,6 +127,15 @@
 #       read has its own deadline inside koto's 30-second action bound: an
 #       archive it can't finish is `teardown-incomplete`, never a state left
 #       timing out.
+#   teardown-pass.sh check --session <s> --topic <topic>
+#       confirm's reads for a removed verdict, asked by state-holding.sh
+#       --retire before it drops a merged holding whose worker was torn down
+#       outside the pass (shirabe#1593). The verdict must say `removed yes`
+#       and name <topic>; then the same listings and archive checks as
+#       confirm. It stores no context key and seals nothing, so it can be
+#       asked at destroy, before teardown_confirm runs. Prints one line,
+#       `teardown-pass: teardown-confirmed: <why>` or `teardown-pass:
+#       teardown-incomplete: <why>`.
 #
 # Output (run): progress lines, then one last line `teardown-pass: done
 # <archive>`, `teardown-pass: refused: <why>` or `teardown-pass: incomplete at
@@ -134,7 +143,8 @@
 #
 # Exit codes (run): 0 done; 1 refused, nothing removed; 2 incomplete, after
 # the destroy began; 64 usage. (confirm): 0 a verdict printed; 2 a read or
-# the seal failed; 64 usage.
+# the seal failed; 64 usage. (check): 0 confirmed; 1 not confirmed; 2 a
+# listing couldn't be read; 64 usage.
 #
 # Environment: NIWA, CLAUDE_CLI, GH and KOTO name the tools (tests);
 # TEARDOWN_CLAUDE_HOME (default $HOME/.claude), TEARDOWN_KOTO_SESSIONS (default
@@ -175,15 +185,21 @@ usage() { sed -n '/^# Usage:/,/^# Output (run)/p' "$0" | sed 's/^# \{0,1\}//' >&
 
 MODE="${1:-}"
 [ $# -gt 0 ] && shift
-SESSION="" WANT_KS=""
+SESSION="" WANT_KS="" WANT_TOPIC=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION="$2"; shift 2 ;;
         --keyseal) [ $# -ge 2 ] || usage; WANT_KS="$2"; shift 2 ;;
+        --topic) [ $# -ge 2 ] || usage; WANT_TOPIC="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
-case "$MODE" in run) [ -n "$WANT_KS" ] || usage ;; confirm) [ -z "$WANT_KS" ] || usage ;; *) usage ;; esac
+case "$MODE" in
+    run) [ -n "$WANT_KS" ] && [ -z "$WANT_TOPIC" ] || usage ;;
+    confirm) [ -z "$WANT_KS" ] && [ -z "$WANT_TOPIC" ] || usage ;;
+    check) [ -z "$WANT_KS" ] && dc_valid_topic "$WANT_TOPIC" || usage ;;
+    *) usage ;;
+esac
 [ -n "$SESSION" ] || usage
 # Everything the pass writes (the archive, its scratch files) is the user's
 # alone: the archive holds whole project directories, tool results included.
@@ -247,9 +263,16 @@ niwa_list() { (cd "$ROOT" && "$NIWA" list --json); }
 agents() { "$CLAUDE_CLI" agents --json --all; }
 
 # ---------------------------------------------------------------------------
-if [ "$MODE" = confirm ]; then
+if [ "$MODE" = confirm ] || [ "$MODE" = check ]; then
+    # verdict <word> <why>: confirm stores the reason and seals the word;
+    # check stores and seals nothing, and answers by its exit code.
     verdict() {
         local word=$1 why=$2
+        if [ "$MODE" = check ]; then
+            say "$word: $why"
+            [ "$word" = teardown-confirmed ] && exit 0
+            exit 1
+        fi
         jq -nc --arg v "$word" --arg w "$why" --arg a "${ARCH:-}" '{verdict: $v, reason: $w, archive: $a}' >"$T/detail.json"
         "$KOTO" context add "$SESSION" coord/teardown_confirm.json --from-file "$T/detail.json" >/dev/null \
             || { say "cannot store the detail"; exit 2; }
@@ -288,6 +311,10 @@ if [ "$MODE" = confirm ]; then
         return 3
     }
     read_verdict || verdict teardown-incomplete "$(cat "$T/why")"
+    if [ "$MODE" = check ]; then
+        [ "$REMOVED" = 1 ] || verdict teardown-incomplete "the verdict is not a removed teardown"
+        [ "$TOPIC" = "$WANT_TOPIC" ] || verdict teardown-incomplete "the verdict is for $TOPIC, not $WANT_TOPIC"
+    fi
     ROOT=$(dc_workspace_root) || verdict teardown-incomplete "no workspace root found"
     NL=$(niwa_list) || { say "niwa list could not be read"; exit 2; }
     printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'type == "array" and (any(.[]; .name == $n or .path == $p) | not)' >/dev/null \
