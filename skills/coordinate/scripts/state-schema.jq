@@ -436,6 +436,26 @@ def norm_text: ascii_downcase | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; ""
 def norm_match($b): norm_text == ($b | norm_text);
 # file_holds($what): the file's text, over which $what is one of its sentences.
 def file_holds($what): any(file_sentences[]; norm_match($what));
+# A brief's rule sentences, which state-stored-set.sh --intake brings in as
+# `inferred brief` rule rows and state-handover.sh's brief-unread gap counts
+# (docs/designs/DESIGN-coordinator-standing-rule-provenance.md, Decision 10).
+# brief_excluded_sections: the renderer's sections that hold no rule.
+# brief_candidates: over a brief's text, file_sentences less every heading
+# line and less every sentence under an excluded section, a section running
+# from a `#` or `##` heading line, matched whole, to the next one (a `###` or
+# deeper heading starts none); each sentence once under norm_text, the first
+# kept, in order.
+def brief_excluded_sections: ["## Goal", "## Checkpoints", "## Read first", "## Acceptance criteria", "## Reporting", "## Keep-alive"];
+def brief_candidates:
+  reduce file_sentences[] as $s ({sec: null, out: []};
+    if ($s | test("^#{1,6}( |$)")) then
+      (if ($s | test("^#{1,2}( |$)")) then .sec = $s else . end)
+    elif (.sec as $c | any(brief_excluded_sections[]; . == $c)) then .
+    else .out += [$s] end)
+  | reduce .out[] as $s ({seen: {}, out: []};
+      ($s | norm_text) as $k
+      | if .seen[$k] then . else .seen[$k] = true | .out += [$s] end)
+  | .out;
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
 def work_kinds: ["holding", "local-agent", "decision", "follow-up", "verdict-owed", "rework"];
@@ -661,6 +681,29 @@ def rule_cap_problem($row):
       "the record holds \(inferred_cap) inferred rule rows, the most it keeps; confirm or end one first"
     elif $n.rule >= rule_cap then "the record holds \(rule_cap) rule rows, the most it keeps; end one first"
     else null end;
+# brief_intake_plan($label; $digest; $cands): over a Standing value, what an
+# intake of the brief <label> at <digest> ("sha256:<64 hex>") whose
+# candidates are $cands does, with no forge read:
+#   ends     the ids of the rows whose Source is `inferred brief <label> <d>`,
+#            <d> another digest, whose What matches no candidate under
+#            norm_match
+#   writes   the candidates no row left once those end holds under norm_match
+#            (any kind, any Source), in order
+#   room     how many rows the caps leave once those end: the inferred cap's
+#            room or the rule cap's, whichever is smaller, never below 0
+#   untaken  how many of the writes the caps leave out
+def brief_intake_plan($label; $digest; $cands):
+  . as $rows
+  | [$rows[] | select(((.source // "") | split(" ")) as $p
+        | ($p | length) == 4 and $p[0] == "inferred" and $p[1] == "brief" and $p[2] == $label and $p[3] != $digest)
+      | select((.what // "") as $w | any($cands[]; norm_match($w)) | not) | .standing] as $ends
+  | [$rows[] | select(.standing as $s | any($ends[]; . == $s) | not)] as $keep
+  | [$keep[] | (.what // "") | norm_text] as $held
+  | [$cands[] | select(norm_text as $k | any($held[]; . == $k) | not)] as $writes
+  | ($keep | rule_cap_counts) as $n
+  | ([inferred_cap - $n.inferred, rule_cap - $n.rule] | min | if . < 0 then 0 else . end) as $room
+  | {ends: $ends, writes: $writes, room: $room,
+     untaken: (($writes | length) - $room | if . < 0 then 0 else . end)};
 
 # rule_view($session; $entries): one Standing row, as state-stored-set.sh
 # --rules prints it, for the record in $session whose entries

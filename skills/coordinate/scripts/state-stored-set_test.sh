@@ -50,6 +50,11 @@
 # write, told by the run entry and then the rule entry, and a bad cap or a
 # What over 400 bytes writing neither. Every record is the session's; nothing
 # is written on GitHub.
+# --intake: without --by, with --what, with --source, with no label or a
+# label `-x`, a usage error (64) that reads and writes nothing; a record/host
+# with no briefs:<label>, or one naming a relative path, refused (65), and a
+# key naming a missing file exiting 2 without naming the path, each writing
+# nothing.
 #
 # Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail
@@ -853,6 +858,26 @@ rule_case "  ... a cap outside 1-99 with --inferred is refused, 65, writing neit
     --run cap 100 --inferred "The cap is worked out from the open lanes." --by x
 rule_case "  ... and so is a What over 400 bytes" 65 "a rule row's What is at most 400 bytes; this one is 401" \
     --run cap 2 --inferred "$(printf '%401s' '' | tr ' ' a)" --by x
+
+echo "== --intake usage and refusals =="
+# The design's Decision 10: the brief intake's usage is checked before
+# anything is read, and a brief record/host doesn't name, or names a file
+# that can't be read, writes nothing.
+seed "$TWO"
+mkdir -p "$T/intake"
+printf '## Decisions already made\n\n- Keep one lane per feature.\n' > "$T/intake/brief.md"
+printf '%s' "$(jq -nc --arg p "$T/intake/brief.md" --arg m "$T/intake/missing.md" '{"briefs:worker": $p, "briefs:gone": $m, "briefs:rel": "intake/brief.md"}')" \
+    | koto context add "$SR" record/host
+usage_case "--intake usage and refusals: without --by, 64, nothing read or written" "Usage" --intake worker
+usage_case "  ... with --what" "Usage" --intake worker --by x --what "Keep one lane per feature."
+usage_case "  ... with --source" "--source goes only with --standing rule" --intake worker --by x --source inferred
+usage_case "  ... with a label -x" "--intake takes a brief's label" --intake -x --by x
+usage_case "  ... and with no label" "Usage" --intake
+rule_case "  ... a record/host with no briefs:<label> is refused, 65" 65 \
+    "refused: record/host names no brief briefs:other; name it with --host briefs:other <absolute path>" --intake other --by x
+rule_case "  ... and so is one naming a relative path" 65 "record/host names no brief briefs:rel" --intake rel --by x
+rule_case "  ... a key naming a missing file exits 2, naming the label alone" 2 "cannot read the brief gone" --intake gone --by x
+grep -qF "$T/intake" "$T/err" && bad "  ... its stderr never names the path" "$(cat "$T/err")" || ok "  ... its stderr never names the path"
 
 echo "== --rule-files: the start's rules rows, and the lists it refuses =="
 DA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
