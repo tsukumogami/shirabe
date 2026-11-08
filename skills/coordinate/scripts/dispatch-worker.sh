@@ -1156,6 +1156,7 @@ REPO=$(jq -r '.repo // "" | strings' "$INPUT")
 confirm() {
     write_row "$(with_status "$ROW" dispatched)"
     clear_rework "$(printf '%s' "$ROW" | jq -r '.unit // ""')"
+    clear_follow_up "$(printf '%s' "$ROW" | jq -r '.unit // ""')"
     retire_stranded
     send_dispatched
     printf 'session=%s\n' "$1"
@@ -1245,6 +1246,32 @@ clear_rework() {
         printf '%s: %s is dispatched, but its rework row stands (%s); remove it with state-stored-set.sh --session %s --done "%s" --kind rework\n' \
             "$PROG" "$TOPIC" "$(head -1 "$WORK/rework.err")" "$SESSION" "$item" >&2
 }
+# names_scope <next>: whether a follow-up row's next step is a /scope
+# invocation, by its leading word (/shirabe:scope or /scope), never a
+# substring anywhere in the text.
+names_scope() {
+    local first
+    read -r first _ <<<"$1"
+    [ "$first" = /shirabe:scope ] || [ "$first" = /scope ]
+}
+# clear_follow_up <unit cell>: a unit whose landed explore recommended /scope
+# carries a follow-up row naming /scope. A holding's Work row at phase
+# scoping doesn't take that row (state-stored-set.sh), so a /scope dispatch
+# it names removes it here once confirmed; left standing, it would read as
+# the execution follow-up the scope's own merge has to write. As with
+# clear_rework, a failed removal is reported, not fatal.
+clear_follow_up() {
+    local row item
+    [ "$ENTRY" = scope ] || return 0
+    row=$(jq -c --arg u "$1" '[(.work // [])[] | select(.kind == "follow-up") | .item as $x
+        | select($x == $u or ($u | startswith($x + ": ")))][0] // empty' "$WORK/state.json") || row=""
+    [ -n "$row" ] || return 0
+    names_scope "$(printf '%s' "$row" | jq -r '.next // ""')" || return 0
+    item=$(printf '%s' "$row" | jq -r '.item')
+    bash "$DC_RECORD_STATE" --session "$SESSION" --done "$item" --kind follow-up >/dev/null 2>"$WORK/follow-up.err" ||
+        printf '%s: %s is dispatched, but its follow-up row stands (%s); remove it with state-stored-set.sh --session %s --done "%s" --kind follow-up\n' \
+            "$PROG" "$TOPIC" "$(head -1 "$WORK/follow-up.err")" "$SESSION" "$item" >&2
+}
 
 # A unit whose earlier worker was stranded (state-holding.sh --strand) goes
 # out again under this new topic. Its brief names the stranded row's branch
@@ -1316,11 +1343,16 @@ if [ "$STATUS" != dispatching ]; then
     jq -e '.verdict_owed == true' "$WORK/unit-facts.json" >/dev/null \
         && die 10 "a verdict is owed on this milestone, as pick_facts read it: nothing dispatched until its verdict's roadmap edit is confirmed; submit dispatched: paused"
     # A unit parked on a decision waits for its answer like a pause; one
-    # whose scoping landed is sent its execution, never scoped again.
+    # whose scoping landed is sent its execution, never scoped again. The
+    # exception is a follow-up row that itself names /scope as the next step
+    # (an explore landed and recommended it): entry scope goes through, and
+    # confirm() removes the row (clear_follow_up). deliver stays refused.
     AWAITING=$(jq -r '.awaiting // empty' "$WORK/unit-facts.json")
     [ -z "$AWAITING" ] || die 10 "decision $AWAITING parks this unit until it is settled, as pick_facts read it: nothing dispatched; submit dispatched: paused"
     if jq -e '.follow_up != null' "$WORK/unit-facts.json" >/dev/null; then
-        case "$ENTRY" in
+        FU_ENTRY=$ENTRY
+        [ "$ENTRY" = scope ] && names_scope "$(jq -r '.follow_up.next // ""' "$WORK/unit-facts.json")" && FU_ENTRY=""
+        case "$FU_ENTRY" in
             deliver|scope)
                 printf '%s: refused: this unit'\''s scoping landed as %s; brief its execution (%s), not /shirabe:%s\n' "$PROG" \
                     "$(jq -r '.follow_up.after' "$WORK/unit-facts.json")" "$(jq -r '.follow_up.next' "$WORK/unit-facts.json")" "$ENTRY" >&2
