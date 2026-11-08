@@ -1274,7 +1274,7 @@ clear_follow_up() {
     local row item host pick tag_key
     [ "$ENTRY" = scope ] || return 0
     if [ -s "$WORK/pick.json" ]; then pick=$(cat "$WORK/pick.json"); else pick=$(ctx coord/pick.json 2>/dev/null) || pick=""; fi
-    host=$(printf '%s' "$pick" | jq -r '.host // "" | strings' 2>/dev/null) || host=""
+    host=$(printf '%s' "$pick" | jq -r '.host // "" | strings') || host=""
     tag_key=$(PROG=$PROG; . "$HERE/state-common.sh" >/dev/null 2>&1; printf '%s' "$JQ_TAG_KEY")
     row=$(jq -c --arg u "$1" --arg h "$host" "$tag_key"'
         ($u | split(": ")[0]) as $tag
