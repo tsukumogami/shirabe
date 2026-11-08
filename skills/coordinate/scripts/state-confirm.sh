@@ -7,15 +7,25 @@
 # expects comes from the session log, never from an argument: the source state
 # is the `from` of the latest entry into `record`, and its last evidence (or,
 # for a check state, its own sealed capture) says what should have changed.
-# Every case also needs the record's written time to be later than a point in
-# the log, so an older state that happens to match doesn't count. For a step
-# whose directive writes the record before the evidence that closes it, the
-# point is when the step became due (step_start, and the case pattern that
-# calls it is the list): the latest entry, before the step's evidence, into
-# `wait` (the hub) or `record_find` (the run's start or a re-read of its
-# record, on the way to posture_ask), whichever is later. For dispatch it is
-# the DISPATCH_CHECK capture; for any other evidence-closed step, the
-# evidence's own time; for a check state, its capture.
+# Every case but one (below) also needs the record's written time to be later
+# than a point in the log, so an older state that happens to match doesn't
+# count. For a step whose directive writes the record before the evidence that
+# closes it, the point is when the step became due (step_start, and the case
+# pattern that calls it is the list): the latest entry, before the step's
+# evidence, into `wait` (the hub) or `record_find` (the run's start or a
+# re-read of its record, on the way to posture_ask), whichever is later. For
+# dispatch it is the DISPATCH_CHECK capture; for any other evidence-closed
+# step, the evidence's own time; for a check state, its capture.
+#
+# One case is exempt: an `unconfirmed` merge (merge_confirm, merged_facts).
+# Its Side effects row names the unit's own repository and pull request and
+# the head GitHub merged, so it records a merge already made, and a row
+# written before the capture, or carried unchanged into a continued run, says
+# what a new one would (shirabe#1608). The content check still applies in
+# full. The exemption is that case's alone: `merged`, dispatch, teardown and
+# destroy check writes this run makes after the step starts, and the
+# roadmap-status and milestone rows name no pull request or head, so an
+# earlier run's row could match them; each keeps the ordering.
 #
 #   dispatch        a Holdings row whose Worker is the evidence's topic, which
 #                   must be the topic dispatch_check sealed (`ok <topic>`);
@@ -49,7 +59,8 @@
 #                   `unconfirmed <pr> <sha>` means a Side effects row whose
 #                   Target names <owner/repo>#<pr> (or its github.com URL),
 #                   the repository being the one the unit's row links, with
-#                   Verified head <sha>
+#                   Verified head <sha>, at any Written: time (the exemption
+#                   above)
 #   teardown        `kept`: only the newer Written: time (`done`, from before
 #                   the dispatch path's destroy, still means no Holdings row)
 #   destroy         (the dispatch path's teardown) `destroyed`: no Holdings row
@@ -335,6 +346,9 @@ merge_confirm|merged_facts)
 esac
 
 OKX=1
+# DURABLE=1: the expectation is a fact about GitHub that no later write
+# changes, so the time ordering doesn't apply (the header lists the case).
+DURABLE=0
 case "$SOURCE" in
 dispatch)
     TOPIC=$(printf '%s' "$EV" | jq -r '.fields.topic // ""')
@@ -532,11 +546,17 @@ merge_confirm|merged_facts)
             | test(\"(^|[^A-Za-z0-9_./-])\" + \$re + \"#\" + \$pr + \"([^0-9]|\$)\"; \"i\")
               or test(\"github\\\\.com/\" + \$re + \"/(pull|issues)/\" + \$pr + \"([^0-9]|\$)\"; \"i\")))" \
             --arg sha "$SHA" --arg pr "$PR" --arg re "$(printf '%s' "$ROW_REPO" | sed 's/\./\\./g')" || OKX=0
+        # The row states that GitHub merged this unit's #$PR at $SHA, a fact
+        # that holds whenever the row was written: no time ordering (see
+        # the header).
+        DURABLE=1
     fi
     ;;
 esac
 
-if [ "$OKX" = 1 ] && later "$WRITTEN" "$EVT"; then
+if [ "$OKX" = 1 ] && [ "$DURABLE" = 1 ]; then
+    VERDICT=confirmed; REASON="$EXPECT, a merge already made, so held whenever written (record written $WRITTEN)"
+elif [ "$OKX" = 1 ] && later "$WRITTEN" "$EVT"; then
     VERDICT=confirmed; REASON="$EXPECT, written $WRITTEN"
 else
     VERDICT=waiting
