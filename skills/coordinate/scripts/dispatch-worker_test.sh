@@ -894,6 +894,15 @@ printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
 RECORD_WORK=$(fup_rows "/shirabe:scope plugin-api" | jq -c '.[0].item = "Milestone 2"'); export RECORD_WORK
 run >/dev/null 2>&1
 has "follow-up: unit Feature 2, row Milestone 2, the row is removed" "$(calls)" "state-stored-set --session coord --done Milestone 2 --kind follow-up"
+# A resumed dispatch skips the gate and its read of coord/pick.json, so the
+# removal reads the pick's host itself.
+reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.unit = "#12"')"
+printf '%s' "$PICK_DISC_FUP" >"$ST/ctx/coord/pick.json"
+printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue","unit":"#12"}' >"$ST/rows/plugin-api.json"
+RECORD_WORK=$(jq -nc '[{item: "acme/widgets#12", kind: "follow-up", who: "acme/widgets#40", next: "/shirabe:scope ci-upload", wakes: "0", updated: "2026-09-26T07:00Z"}]'); export RECORD_WORK
+run >/dev/null 2>&1
+eq  "follow-up: a resumed /scope dispatch settles its row" dispatched "$(row dispatch_status)"
+has "follow-up: and removes the host-qualified row" "$(calls)" "state-stored-set --session coord --done acme/widgets#12 --kind follow-up"
 # Discipline scope: an issue as #n, or as host#n with the host pick recorded.
 PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do

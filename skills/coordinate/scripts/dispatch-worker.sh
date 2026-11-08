@@ -1265,15 +1265,18 @@ names_scope() {
 # The row is found the way pick-facts.sh found the follow_up the gate let
 # through: by tag_key, or by the pick's host prefixed to either side (an
 # issue unit `#12` and its row `acme/widgets#12`). A narrower match would
-# admit the dispatch and then leave the row standing. tag_key is
-# state-common.sh's JQ_TAG_KEY, restated because sourcing that file here
-# would clash with this script's own KOTO and OVERRIDE.
+# admit the dispatch and then leave the row standing. The host is
+# coord/pick.json's, as read for the gate, or read here on a resumed
+# dispatch, which skips the gate. tag_key is state-common.sh's JQ_TAG_KEY,
+# taken in a subshell: sourcing that file here would reset this script's
+# KOTO from KOTO_BIN.
 clear_follow_up() {
-    local row item host=""
+    local row item host pick tag_key
     [ "$ENTRY" = scope ] || return 0
-    [ -s "$WORK/pick.json" ] && host=$(jq -r '.host // "" | strings' "$WORK/pick.json" 2>/dev/null)
-    row=$(jq -c --arg u "$1" --arg h "$host" '
-        def tag_key: if type == "string" and test("\\A(Feature|Milestone) [0-9]+\\z") then "ms:" + .[(index(" ") + 1):] else . end;
+    if [ -s "$WORK/pick.json" ]; then pick=$(cat "$WORK/pick.json"); else pick=$(ctx coord/pick.json 2>/dev/null) || pick=""; fi
+    host=$(printf '%s' "$pick" | jq -r '.host // "" | strings' 2>/dev/null) || host=""
+    tag_key=$(PROG=$PROG; . "$HERE/state-common.sh" >/dev/null 2>&1; printf '%s' "$JQ_TAG_KEY")
+    row=$(jq -c --arg u "$1" --arg h "$host" "$tag_key"'
         ($u | split(": ")[0]) as $tag
         | [(.work // [])[] | select(.kind == "follow-up") | .item as $x
            | select(($x | tag_key) == ($tag | tag_key) or ($h != "" and (($h + $x) == $tag or $x == ($h + $tag))))][0] // empty' \
