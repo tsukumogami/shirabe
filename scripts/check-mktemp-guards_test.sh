@@ -8,8 +8,9 @@
 # errexit), named at the mktemp's line; the shapes that are fine are not (a
 # check with ||, an if condition, errexit, a plain rm of the value alone, a
 # read, another name, a comment, a string); a named file and a directory; a
-# missing path (2). And the hazard itself: `cd ""` succeeds and stays put, so
-# an unchecked empty value turns into the current directory (shirabe#922,
+# missing path (2). And the hazard itself: `cd ""` never leaves the current
+# directory (it succeeds and stays put, or on bash 5.3 and later is refused),
+# so an unchecked empty value turns into the current directory (shirabe#922,
 # #924, #925, #926).
 #
 # Usage: bash scripts/check-mktemp-guards_test.sh
@@ -61,12 +62,22 @@ bash "$CHECK" "$T/none" >/dev/null 2>&1; rc=$?
 [ "$rc" = 2 ] && ok "a missing path: exit 2" || bad "a missing path: exit 2" "rc=$rc"
 
 echo "== the hazard: an empty value is the current directory =="
+# Bash before 5.3 takes `cd ""` as a no-op that succeeds; 5.3 refuses it
+# ("null directory"). Either way an empty value never moves the shell: a
+# script that goes on after the cd works in the caller's directory, and
+# where the cd succeeds, `$(cd "" && pwd)` names it too.
 mkdir -p "$T/here"
 E=""
-got=$(cd "$T/here" && X=$(cd "$E" && pwd -P) && printf '%s' "$X")
 want=$(cd "$T/here" && pwd -P)
-[ "$got" = "$want" ] && ok "cd \"\" succeeds and stays put, so \$(cd \"\" && pwd) is the caller's directory" \
-    || bad "cd \"\" succeeds and stays put" "got '$got', want '$want'"
+got=$(cd "$T/here" && { cd "$E" 2>/dev/null; pwd -P; })
+[ "$got" = "$want" ] && ok "after cd \"\" the next command still runs in the caller's directory" \
+    || bad "after cd \"\" the next command still runs in the caller's directory" "got '$got', want '$want'"
+got=$(cd "$T/here" && { X=$(cd "$E" 2>/dev/null && pwd -P); printf '%s:%s' "$?" "$X"; })
+case "$got" in
+    "0:$want") ok "cd \"\" succeeds and stays put, so \$(cd \"\" && pwd) is the caller's directory" ;;
+    [1-9]*:) ok "cd \"\" is refused, so \$(cd \"\" && pwd) is empty and nothing after the && runs" ;;
+    *) bad "cd \"\" either stays put or is refused" "got '$got', want '0:$want' or a failure with no output" ;;
+esac
 
 echo
 echo "check-mktemp-guards: $PASS passed, $FAIL failed"
