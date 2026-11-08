@@ -80,7 +80,7 @@ jq -c . "$T" | "$KOTO" context add "$SESSION" review_round.json >/dev/null || {
 # kept for the notice rather than discarded, so a refusal says what koto
 # refused.
 telemetry() {
-    local n out
+    local n out code
     n=$("$KOTO" context get "$SESSION" review_round_count 2>&1) || n=0
     [[ $n =~ ^[1-9][0-9]{0,8}$ ]] || n=0
     n=$((n + 1))
@@ -91,9 +91,12 @@ telemetry() {
         # koto records review events only while a run is live, and a round
         # recorded on a finished session (a /work-on child at done, which the
         # template's fix round records on) is refused as session_terminal:
-        # expected, so it gets no notice.
-        [ "$(printf '%s\n' "$out" | jq -Rr 'fromjson? | .error.code? // empty' | head -n 1)" = session_terminal ] && return
-        echo "$PROG: the round is stored, but koto didn't record it as review telemetry: $(printf '%s' "$out" | head -n 1)" >&2
+        # expected, so it gets no notice. Only the first line of each is
+        # read, through a here-string and an expansion rather than a pipe into
+        # head, which would stop reading early under pipefail.
+        code=$(jq -Rr 'fromjson? | .error.code? // empty' <<< "$out")
+        [ "${code%%$'\n'*}" = session_terminal ] && return
+        echo "$PROG: the round is stored, but koto didn't record it as review telemetry: ${out%%$'\n'*}" >&2
         return; }
     printf '%s\n' "$n" | "$KOTO" context add "$SESSION" review_round_count >/dev/null || \
         echo "$PROG: round $n went to koto's review telemetry, but review_round_count couldn't be stored in $SESSION" >&2
