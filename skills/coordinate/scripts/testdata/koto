@@ -35,6 +35,10 @@
 # and `status` of that session as koto's cloud backend refuses a run bound to
 # another directory (session_bound_elsewhere, its JSON on stdout, exit 2), and
 # KOTO_READ_FAIL=<session> fails them with another error (exit 1).
+# Also served: `review record S code-round --round N --head H --file F`, which
+# keeps the seats file as $KOTO_STORE/review/S/round-N.json and prints koto's
+# result line; KOTO_FAIL_REVIEW set refuses it as koto does (its JSON on
+# stdout, exit 1), and nothing is kept.
 set -uo pipefail
 [ -n "${KOTO_STORE:-}" ] || { echo "koto stub: KOTO_STORE is not set" >&2; exit 9; }
 printf '%s\n' "$*" >> "$KOTO_STORE/calls"
@@ -142,6 +146,20 @@ case "${1:-} ${2:-}" in
     "template compile")
         [ -z "${KOTO_COMPILE_FAIL:-}" ] || { echo "koto stub: compile failed" >&2; exit 1; }
         printf '%s\n' "$KOTO_STORE/cache/${KOTO_COMPILED_HASH:-0000}.json"
+        ;;
+    "review record")
+        [ -z "${KOTO_FAIL_REVIEW:-}" ] || { jq -nc '{command: "review record", error: "refused"}'; exit 1; }
+        [ "${4:-}" = code-round ] || { echo "koto stub: unexpected: $*" >&2; exit 9; }
+        s=${3:-none} r= f=
+        shift 4
+        while [ $# -gt 0 ]; do
+            case "$1" in --round) r=${2:-} ;; --file) f=${2:-} ;; esac
+            shift
+            [ $# -gt 0 ] && shift
+        done
+        mkdir -p "$KOTO_STORE/review/$s"
+        cp "$f" "$KOTO_STORE/review/$s/round-$r.json" || exit 1
+        jq -nc --argjson c "$(jq length "$f")" '{count: $c, event: "code-round", status: "recorded"}'
         ;;
     *) echo "koto stub: unexpected: $*" >&2; exit 9 ;;
 esac
