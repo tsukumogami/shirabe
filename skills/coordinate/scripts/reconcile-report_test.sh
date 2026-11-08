@@ -142,7 +142,7 @@ out=$(facts "[$H]" | report)
 printf '%s' "$out" | jq -e '.changes | any(.what == "pull request repository" and .recorded == "acme/widgets" and .live == "acme/gadgets" and .grade == "verified by reading")' >/dev/null \
   && ok "a link naming another repository is a change, verified by reading" || bad "a link naming another repository is a change, verified by reading" "$out"
 r=$(printf '%s' "$out" | "$BASH" "$S" md | sed -n '/^## Changed since then/,/^## /p')
-grep -q '^- `elsewhere`: pull request is in `acme/gadgets`, not the holding'"'"'s repository `acme/widgets`; its pull request, branch, board and files were read there (written '"$W"'; verified by reading)\.$' <<<"$r" \
+grep -q '^- `elsewhere`: pull request is in `acme/gadgets`, not the holding'"'"'s repository `acme/widgets`; it was read there (written '"$W"'; verified by reading)\.$' <<<"$r" \
   && ok "the rendered report names both repositories" || bad "the rendered report names both repositories" "$r"
 for p in '[#7](https://github.com/acme/widgets/pull/7)' '[#7]' '#7' 'acme/gadgets#7' ''; do
     H=$(holding plain "[$(pr OPEN "$VH")]" "$(jq -nc --arg p "$p" '{pull_request: $p}')")
