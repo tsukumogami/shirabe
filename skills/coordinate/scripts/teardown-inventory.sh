@@ -374,6 +374,11 @@ check_repo() {
         *) why=$(tail -n 1 "$WORK/ls.err" | tr -d '\r' | cut -c1-200)
            note 2 "error $rel: origin's refs could not be read: ${why:-the read failed with no message}"; return ;;
     esac
+    # Here-strings, not `printf '%s\n' "$live" | awk`: both programs exit at
+    # their first match, and a pipe's writer can then hit a closed pipe. Where
+    # SIGPIPE is ignored (the ubuntu-26.04 hosted runner), that prints
+    # `printf: write error: Broken pipe`, depending on timing. A here-string
+    # has no writer process.
     default=$(awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }' <<<"$live")
     dsha=$(awk -v r="refs/heads/$default" 'length($1) == 40 && $2 == r { print $1; exit }' <<<"$live")
     [ -n "$default" ] && [ -n "$dsha" ] || { note 2 "error $rel: no default branch on origin"; return; }
