@@ -70,7 +70,9 @@ cleanup() { pkill -f 'sleep 47' 2>/dev/null; rm -rf "$T"; }
 ktg_on_exit cleanup
 
 # Tools for the cases: jq and the helpers' needs, plus a koto stub. A run with
-# NOTIMEOUT=1 gets a PATH without `timeout`, so the helper's own deadline runs.
+# NOTIMEOUT=1 gets a PATH without `timeout`. The helper never uses timeout(1):
+# its own deadline runs either way, and the deadline cases check that a
+# `timeout` on PATH changes nothing.
 BIN="$T/bin"
 mkdir -p "$BIN"
 for tool in jq sleep cat printf env kill pgrep timeout; do
@@ -346,7 +348,7 @@ echo "== the deadline =="
 EE_BOUND=$SHIPPED_BOUND
 for nt in 0 1; do
     if [ "$nt" = 0 ] && [ ! -e "$BIN/timeout" ]; then
-        echo "skip the timeout(1) path: no timeout on this host"
+        echo "skip the timeout-on-PATH check: no timeout on this host"
         continue
     fi
     label=$([ "$nt" = 1 ] && echo "the helper's own deadline" || echo "timeout on PATH")

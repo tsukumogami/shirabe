@@ -269,20 +269,30 @@ plan() {
         | def okf($id): (($f[$id].status // "") == "ok");
           def prnum: [(. // "") | capture("^\\[#(?<n>[0-9]+)\\]") | .n][0];
           def target: [(. // "") | capture("^(?:(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#(?<n>[0-9]+)$")][0];
-          def holding_repo($n): [$rec.holdings[].row | select((.pull_request | prnum) == $n) | .repo][0];
+          # A link names the repository its pull request is in; the reads of
+          # the pull request, its board, branch and files go there, and to
+          # the repo of the holding only when the link names none (shirabe#1581).
+          def prrepo: [(. // "") | capture("^\\[#[0-9]+\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[0-9]+\\)$") | .r][0];
+          def pr_repo: (.pull_request | prrepo) // .repo;
+          # The repository of a target that names none: the one repository
+          # whose pull request #n a holding links; on a collision, the
+          # repository of the scope when it is one of them, else none.
+          def holding_repo($n): [$rec.holdings[].row | select((.pull_request | prnum) == $n) | pr_repo] | unique
+            | if length == 1 then .[0] elif index($rec.scope.repo) != null then $rec.scope.repo else null end;
+          def holds_pr($repo; $n): any($rec.holdings[].row; (.pull_request | prnum) == $n and pr_repo == $repo);
         [ ($rec.holdings | to_entries[] | .key as $i | .value.row as $h | "h\($i)" as $p
-            | ($h.pull_request | prnum) as $n
+            | ($h.pull_request | prnum) as $n | ($h | pr_repo) as $pr_repo
             | (if $n != null then
-                 {id: "\($p).pr", sub: "pr", args: ["--repo", $h.repo, "--number", $n], natural: 8},
+                 {id: "\($p).pr", sub: "pr", args: ["--repo", $pr_repo, "--number", $n], natural: 8},
                  (if ($h.verified_head // "") != "" and okf("\($p).pr") then
-                    {id: "\($p).board.v", sub: "board", args: ["--repo", $h.repo, "--sha", $h.verified_head, "--base", ($f["\($p).pr"].base // "")], natural: 26}
+                    {id: "\($p).board.v", sub: "board", args: ["--repo", $pr_repo, "--sha", $h.verified_head, "--base", ($f["\($p).pr"].base // "")], natural: 26}
                   else empty end),
                  (if okf("\($p).pr") and $f["\($p).pr"].state == "OPEN" and ($f["\($p).pr"].head // "") != ""
                      and $f["\($p).pr"].head != ($h.verified_head // "") then
-                    {id: "\($p).board.l", sub: "board", args: ["--repo", $h.repo, "--sha", $f["\($p).pr"].head, "--base", ($f["\($p).pr"].base // "")], natural: 26}
+                    {id: "\($p).board.l", sub: "board", args: ["--repo", $pr_repo, "--sha", $f["\($p).pr"].head, "--base", ($f["\($p).pr"].base // "")], natural: 26}
                   else empty end),
-                 (if ($h.branch // "") != "" then {id: "\($p).branch", sub: "branch", args: ["--repo", $h.repo, "--branch", $h.branch], natural: 8} else empty end),
-                 (if (($h.phase // "") == "scoping-ahead" or ($h.phase // "") == "scoping") then {id: "\($p).files", sub: "files", args: ["--repo", $h.repo, "--number", $n], natural: 8} else empty end)
+                 (if ($h.branch // "") != "" then {id: "\($p).branch", sub: "branch", args: ["--repo", $pr_repo, "--branch", $h.branch], natural: 8} else empty end),
+                 (if (($h.phase // "") == "scoping-ahead" or ($h.phase // "") == "scoping") then {id: "\($p).files", sub: "files", args: ["--repo", $pr_repo, "--number", $n], natural: 8} else empty end)
                else
                  (if ($h.branch // "") != "" then {id: "\($p).appeared", sub: "appeared", args: ["--repo", $h.repo, "--branch", $h.branch], natural: 8} else empty end),
                  (if ($h.worker // "") != "" then
@@ -316,7 +326,7 @@ plan() {
             | (if $t == null then empty
                else ($t.r // holding_repo($t.n) // $rec.scope.repo) as $repo
                | if $a == "merge" then {id: $p, sub: "merge", args: ["--repo", $repo, "--number", $t.n, "--verified-head", ($s.verified_head // "")], natural: 20}
-                 elif $a == "close" then {id: $p, sub: "close", args: ["--repo", $repo, "--kind", (if holding_repo($t.n) != null then "pr" else "issue" end), "--number", $t.n], natural: 8}
+                 elif $a == "close" then {id: $p, sub: "close", args: ["--repo", $repo, "--kind", (if holds_pr($repo; $t.n) then "pr" else "issue" end), "--number", $t.n], natural: 8}
                  else empty end
                end),
               (if $a == "teardown" then

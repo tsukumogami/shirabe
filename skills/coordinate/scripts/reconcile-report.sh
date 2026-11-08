@@ -363,7 +363,13 @@ def next_of: next_code_of | next_text;
 
 def changes_of($written):
   topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st | fact("legs") as $lg
+  | ((.row.pull_request // "") | [capture("^\\[#[0-9]+\\]\\(https://github\\.com/(?<r>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[0-9]+\\)$") | .r][0]) as $link_repo
   | [
+      # A link naming a repository other than the row repo: the pass read the
+      # pull request there, and the report says the two disagree (shirabe#1581).
+      (if $link_repo != null and ((.row.repo // "") | ascii_downcase) != ($link_repo | ascii_downcase) then
+        {topic: $t, what: "pull request repository", recorded: (.row.repo // ""), live: $link_repo, written: $written, grade: "verified by reading"}
+       else empty end),
       (if ok($st) and ($st.settled == true or $st.now == "dispatched") then
         {topic: $t, what: "dispatch status", recorded: "dispatching", live: "dispatched", written: $written, grade: "measured"}
        else empty end),
@@ -583,6 +589,7 @@ section("Changed since then"; [.changes[] | "- \(.topic | code): "
        elif .what == "leg relegged" then "re-legged: its session came here with the import, so the record now says \(.live | code) in place of \(.recorded | code)"
        elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; re-brief the worker (dispatch-worker.sh --rebrief) so its brief gives this coordinator'"'"'s address and names this run as the dispatcher it records"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
+       elif .what == "pull request repository" then "pull request is in \(.live | code), not the holding'"'"'s repository \(.recorded | code); it was read there"
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)
     + " (written \(.written); \(.grade))."]),
