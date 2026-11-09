@@ -15,7 +15,8 @@
 # tools: the shirabe stub rejects any file holding STUB-REJECT and logs its
 # arguments, the koto stub fails to compile any template holding STUB-BAD. A
 # recording claude stub sits on PATH too, and every case asserts it was never
-# called: the gate must not start a model session. Needs bash, git and python3.
+# called: the gate must not start a model session. Needs bash, git and python3,
+# and, for the real-tree copy's hand-off case, koto with --koto-leg.
 #
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
@@ -1257,6 +1258,77 @@ for c in \
         fail "real tree: $skill's check: exit $RC, got [$got], want [$want]"
     fi
 done
+
+# -- A real-tree copy with execute.md's `merged` outcome renamed -------------------
+# The rename the step names: on a copy of the real tree that is its own
+# repository, the outcome word on the edges into execute.md's `merged` state
+# becomes `landed`, and the copy's own check-skill.sh, for execute and for
+# deliver, fails deliver's case 34 with `landed` in the reason. The unchanged
+# copy passes first, so the failure is the rename's. Nothing heavy runs: the
+# two skills' suites and every route suite check-handoff.sh would run are
+# stand-ins that pass (check-handoff_test.sh's stub_suite), SHIRABE_BIN is the
+# stub so the copy builds no shirabe, and the cases run as the check runs
+# them. They need the real koto (with --koto-leg) under the guard's scratch
+# HOME, so koto here is the one on PATH, not the stub. The full run, with every
+# /execute suite, stays the manual step in the plan's Check.
+MERGED_CASE="script case: deliver 34 handoff-execute-contract"
+# reason_of <failure>: the indented lines under `FAIL: <failure>` in $OUT.
+reason_of() {
+    awk -v f="FAIL: $1" '$0 == f { r = 1; next } r && /^    / { print; next } { r = 0 }' <<EOF
+$OUT
+EOF
+}
+# run_copy <skill>: the copy's own check-skill.sh on <skill>.
+run_copy() {
+    OUT=$(cd "$WORK" && PATH="$NOKOTO:$PATH" SHIRABE_BIN="$STUBS/shirabe" \
+        "$BASH_BIN" "$COPY/scripts/check-skill.sh" "$1" 2>&1)
+    RC=$?
+}
+COPY="$WORK/real-copy"
+EXEC_TPL="skills/execute/koto-templates/execute.md"
+if ! PATH="$NOKOTO:$PATH" command -v koto >/dev/null; then
+    fail "real-tree copy: merged renamed to landed: no koto on PATH, which case 34 needs"
+elif ! { mkdir -p "$COPY" \
+    && (cd "$REPO_ROOT" && git ls-files -co --exclude-standard -z | tar -cf - --null -T -) \
+        | tar -xf - -C "$COPY"; }; then
+    fail "real-tree copy: merged renamed to landed: could not copy the tree"
+else
+    for s in $(awk -F '\t' '$0 !~ /^#/ && NF == 3 { print $3 }' "$COPY/scripts/check-handoff.routes.tsv") \
+        "$COPY"/skills/execute/scripts/*_test.sh "$COPY"/skills/deliver/scripts/*_test.sh; do
+        case "$s" in /*) ;; *) s="$COPY/$s" ;; esac
+        printf '%s\n' '#!/usr/bin/env bash' "echo 'ok   stand-in suite'" \
+            "echo 'Results: 1 passed, 0 failed'" > "$s"
+    done
+    (cd "$COPY" && git init -q && git add -A)
+    : > "$SHIRABE_LOG"
+    : > "$CLAUDE_LOG"
+    run_copy execute
+    if [ "$RC" = 0 ] && out_has "ok: script cases (3 of 3 passed)" && ! out_has "FAIL: $MERGED_CASE"; then
+        pass "real-tree copy, unchanged: execute's check passes deliver 34 among its 3 script cases"
+    else
+        fail "real-tree copy, unchanged: execute's check: exit $RC"
+        printf '%s\n' "$OUT" | sed 's/^/    /'
+    fi
+    sed 's/^\(          \)outcome: merged$/\1outcome: landed/' "$COPY/$EXEC_TPL" > "$COPY/$EXEC_TPL.new" \
+        && mv "$COPY/$EXEC_TPL.new" "$COPY/$EXEC_TPL" && (cd "$COPY" && git add -A)
+    if [ "$(grep -c '^          outcome: landed$' "$COPY/$EXEC_TPL")" = 1 ] \
+        && ! grep -q '^ *outcome: merged$' "$COPY/$EXEC_TPL"; then
+        for skill in execute deliver; do
+            run_copy "$skill"
+            reason=$(reason_of "$MERGED_CASE")
+            case "$reason" in *landed*) named=1 ;; *) named=0 ;; esac
+            if [ "$RC" = 1 ] && closing_has "$MERGED_CASE" && [ "$named" = 1 ] && claude_untouched; then
+                pass "real-tree copy: merged renamed to landed fails deliver 34 for $skill's script-case check"
+            else
+                fail "real-tree copy: merged renamed to landed: $skill's check: exit $RC, reason [$reason]"
+                printf '%s\n' "$OUT" | sed 's/^/    /'
+            fi
+        done
+    else
+        fail "real-tree copy: the rename didn't change exactly the one edge into merged"
+    fi
+fi
+rm -rf "$COPY"
 
 echo ""
 echo "check-skill_test: $PASS_COUNT passed, $FAIL_COUNT failed"

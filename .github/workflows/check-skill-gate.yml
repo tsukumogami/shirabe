@@ -75,6 +75,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The real-tree copy's hand-off case runs deliver's case 34, which needs
+      # koto with --koto-leg; the suite fails rather than skips without it.
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto
+        env:
+          TSUKU_TELEMETRY: "0"
+          # tsuku install calls the GitHub API; the token keeps shared runners
+          # from hitting the unauthenticated rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tsuku install -y
+
+      - name: Assert koto meets the floor
+        run: |
+          command -v koto
+          scripts/assert-koto-floor.sh
+
       - name: Run the suite (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/check-skill_test.sh
