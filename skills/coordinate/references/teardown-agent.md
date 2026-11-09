@@ -53,6 +53,13 @@ nothing, and its last line still starts `teardown-pass: done`. A removed pass
 changes nothing about what you may run; it only means the script has less to
 do.
 
+A removed verdict may say `handoff none`: the worker was gone before it
+wrote a handoff comment, and the seal checked that it is over. The script
+then has no comment to check. Before it says done, it appends one entry to
+the record saying the teardown closed without a handoff comment and why, and
+it refuses if that entry can't be written. Report its last line as for any
+pass.
+
 ## What you never do
 
 - Run anything else that removes, stops or changes something: no `niwa

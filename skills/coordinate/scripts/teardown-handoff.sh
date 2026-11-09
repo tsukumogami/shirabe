@@ -24,7 +24,8 @@
 #                                  from the holding's branch, with its merge
 #                                  commit; one line per pull request
 #   handoff <url>                  the comment link submitted with `teardown:
-#                                  stopped` at the latest visit to teardown,
+#                                  stopped` (or `removed`; see Removed mode)
+#                                  at the latest visit to teardown,
 #                                  read back from GitHub: a comment on one of
 #                                  those pull requests or on the holding's
 #                                  issue, with a body
@@ -56,7 +57,22 @@
 #                                  latest; the job id is its first eight hex
 #                                  digits. `job -` when there is none
 #   transcript <path>              that transcript, when there is one
-#   pr, handoff                    as for a stopped unit
+#   pr                             as for a stopped unit
+#   handoff <url>|none             as for a stopped unit, or `none` when the
+#                                  evidence carried no link: the worker is
+#                                  gone and never wrote a handoff comment
+#                                  (shirabe#1529). none needs one more
+#                                  proof, that the worker is over: Claude
+#                                  Code lists no job for the transcript's
+#                                  session id, that session's job state
+#                                  file, if any, reads finished, and every
+#                                  koto session whose header names the
+#                                  instance path is cancelled or has had no
+#                                  event for 10 minutes. A live worker
+#                                  refuses; a session log that can't be read
+#                                  or holds no event time stops the seal
+#                                  (exit 2). The pass then records an entry
+#                                  in place of the link
 #   dispatch -                     niwa's row is gone with the instance
 #   inventory <sealed:...>
 #
@@ -314,6 +330,9 @@ removed_mode() {
     # The instance's path. koto's session headers first: a worker's sessions
     # record the directory they ran in.
     : >"$T/cands"
+    # `<candidate>\t<session file>` for each header that named one, so the
+    # worker's own sessions can be judged when no handoff link was submitted.
+    : >"$T/cand-files"
     # Only a session file holding `+<slug>-` can record a path candidate()
     # accepts, so one grep picks the files whose header is worth opening; a
     # koto home with a thousand sessions would otherwise cost a head and a jq
@@ -335,7 +354,9 @@ removed_mode() {
         # A header that isn't JSON names no candidate; jq's complaint about it
         # is kept in the run's scratch directory, not shown.
         ed=$(head -n 1 "$f" | jq -r '.execution_dir // "" | strings' 2>>"$T/jq.err") || continue
-        candidate "$ed" >>"$T/cands"
+        c=$(candidate "$ed") || continue
+        printf '%s\n' "$c" >>"$T/cands"
+        printf '%s\t%s\n' "$c" "$f" >>"$T/cand-files"
     done <"$T/headers"
     sort -u "$T/cands" >"$T/cands.u"
     # Else the transcripts' cwd values, in the project directories named for
@@ -395,6 +416,39 @@ removed_mode() {
     fi
     # niwa's row, and its dispatch id, went with the instance.
     DISPATCH=-
+}
+
+# no_handoff_checks: a removed unit submitted with no handoff link, because
+# its worker is gone and never wrote one (shirabe#1529). The instance, the
+# job by cwd and the merged pull request are checked before this; it adds
+# that the worker itself is over: Claude Code lists no job for the worker's
+# session id, that session's job, when its state file is still there, reads
+# finished as dc_job_finished reads it, and no koto session that ran in the
+# instance has an event in the last 10 minutes (a cancelled one is over). A
+# live answer refuses; a session log that can't be read, or that has no time
+# to judge by, stops the seal (exit 2), never ready.
+no_handoff_checks() {
+    local now job why c f name last at
+    now=${DC_NOW:-$(date +%s)}
+    if [ -n "${SID:-}" ]; then
+        printf '%s' "$AG" | jq -e --arg s "$SID" 'any(.[]; .sessionId == $s) | not' >/dev/null \
+            || refuse "the worker's session $SID is still live: Claude Code lists job $(printf '%s' "$AG" | jq -r --arg s "$SID" '[.[] | select(.sessionId == $s) | .id] | join(", ")') for it"
+        if job=$(dc_claude_job "$CLAUDE_HOME" "$SID"); then
+            why=$(dc_job_finished "$CLAUDE_HOME" "$job" '{}') || refuse "the worker's session $SID is still live: $why"
+        fi
+    fi
+    while IFS=$'\t' read -r c f; do
+        [ "$c" = "$IPATH" ] || continue
+        name=$(basename "$(dirname "$f")")
+        jq -e 'select(.type == "workflow_cancelled")' "$f" >/dev/null 2>>"$T/jq.err" && continue
+        last=$(jq -r 'select(.type != "session_imported") | .timestamp // empty | strings' "$f" 2>>"$T/jq.err") \
+            || die2 "the worker's koto session $name can't be read"
+        last=$(printf '%s\n' "$last" | grep . | tail -n 1)
+        [ -n "$last" ] || die2 "the worker's koto session $name has no timed event to judge it by"
+        at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' 2>>"$T/jq.err") \
+            || die2 "the worker's koto session $name has a last event time [$last] that can't be read"
+        [ $((now - $at)) -gt 600 ] || refuse "the worker's koto session $name is still live: its last event is $((now - $at))s old"
+    done <"$T/cand-files"
 }
 
 # The topic and the sealed inventory.
@@ -468,6 +522,18 @@ esac
 
 # The handoff: the link submitted at the latest visit to teardown.
 URL=$(printf '%s' "$EV" | jq -r '.fields.handoff // ""')
+# A unit removed outside the pass may come with no link: its worker is gone
+# and can't write one. The verdict says `handoff none`, once the worker's
+# own sessions are shown to be over; the pass then records an entry in place
+# of the link. A stopped unit with no link is still refused below, and a
+# link that is there is checked in full, never read as none.
+if [ -z "$URL" ] && [ "$REMOVED" = 1 ]; then
+    no_handoff_checks
+    line "handoff none"
+    line "dispatch $DISPATCH"
+    line "inventory $INV_TOKEN"
+    emit ready
+fi
 [ -n "$URL" ] || refuse "teardown: $EVWORD carried no handoff link"
 RE_URL='^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(pull|issues)/([1-9][0-9]*)#issuecomment-([1-9][0-9]*)$'
 [[ $URL =~ $RE_URL ]] || refuse "the handoff link is not a GitHub comment link"
