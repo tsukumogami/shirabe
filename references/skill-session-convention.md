@@ -215,6 +215,16 @@ nothing and exits 0; two matches print nothing, name both sessions on stderr,
 and exit 3, so a forged or stale key in the other parent stops the child
 rather than choosing for it.
 
+A parent that koto reports as having no copy on this host and none under
+this directory's prefix reads as absent, even when koto can't list the other
+directories' prefixes to say whether one holds it. The parent that dispatched
+this child ran `dispatch write` from this checkout just before, which leaves
+its copy here, so a session with no copy here isn't that parent. Any other
+answer koto gives that is neither a state nor not found stops the read with
+exit 4, and stderr names the parent and carries koto's reason. That includes
+koto not telling whether this directory's own prefix holds the parent, where
+a parent could exist and can't be read.
+
 A child records what it matched as its first act:
 `skill-session.sh adopt <child> <topic>` writes `chain/parent`, the matched
 parent's session name, into the child's own session, or removes a
