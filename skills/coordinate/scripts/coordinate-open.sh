@@ -95,8 +95,9 @@
 #                            the race, or its rival's takeover is under way),
 #                            or this session has no Claude session id and the
 #                            run is one a takeover has touched
-#   predecessor-unstoppable  the fence couldn't be taken (fence_unavailable),
-#                            or the run moved state twice before it
+#   predecessor-unstoppable  the fence couldn't be taken (koto's
+#                            fence_unavailable, with its message), or the
+#                            run moved state twice before it
 #   template-incompatible    the run's compat number isn't the shipped one, or
 #                            its state isn't in the shipped template; names
 #                            both compat numbers and compiled hashes
@@ -106,6 +107,12 @@
 #                            on koto 0.28.0 through 0.31.0, so on it a
 #                            takeover ends at the fence (koto 0.32.0 and
 #                            later fence there too)
+# A koto init that fails once the fence names this session's successor (its
+# create, its carry, or a bucket read on a re-run, whatever code koto gives) is
+# no refusal, since the predecessor is fenced and drives no more: the start
+# stops with `failed=takeover_unfinished`, exit 1, koto's exit, code and
+# message in its message, and the same opener run again from this session
+# finishes the takeover once what koto names is fixed.
 # A read the takeover needs that fails (the run's driver or coordinator row,
 # or the predecessor's state, variables or log) stops the start instead:
 # `failed=takeover_read`, exit 1, koto's own reason in the message and nothing
@@ -657,6 +664,28 @@ compat_meta() {
 refuse_takeover() { # refuse_takeover <reason> <why>: nothing was written
     printf 'outcome=refused\nreason=%s\n' "$1"; echo "coordinate-open: $2" >&2; exit 2
 }
+# takeover_unfinished <pred> <succ> <exit> <code> <why>: koto's init of this
+# session's successor failed after the fence named it. The predecessor is
+# fenced, so it drives no more, and this is no refusal: the start stops, exit
+# 1, with koto's exit, code and words, and the same opener run again from this
+# session finishes the takeover once what koto names is fixed.
+takeover_unfinished() {
+    echo "failed=takeover_unfinished"
+    echo "coordinate-open: $1 is fenced by $2, this session's takeover, but koto couldn't finish $2 (exit $3${4:+, $4}): ${5:-koto gave no reason}; $1 drives no more. Fix what koto names and run the same opener again from this session to finish the takeover; carrying a large record can take many minutes, and the re-run starts the carry again" >&2
+    exit 1
+}
+# fenced_for <pred> <succ> <given>: whether <pred>'s fence names <succ> under
+# this Claude session. A <given> successor is one takeover_check already knew
+# by the fence; otherwise the fence is read now. That read is soft: a log that
+# can't be read counts as no fence here, so koto's own failure is still what
+# the start reports.
+fenced_for() {
+    local f
+    [ -z "$3" ] || return 0
+    [ -n "$CALLER" ] || return 1
+    f=$(bash "$HERE/coord-log.sh" fence --session "$1" < /dev/null 2> /dev/null) || return 1
+    jq -e --arg s "$2" --arg c "$CALLER" '.by == $s and .claude_session == $c' <<< "$f" > /dev/null 2>&1
+}
 # fence_of <run>: set FENCE to the run's fence (coord-log.sh fence), "" when
 # it has none, and FENCE_BY and FENCE_ACTOR to its successor and the Claude
 # session that fenced it. A log that can't be read stops the opener.
@@ -915,15 +944,25 @@ takeover() {
         # koto's init refusals are flat ({"error": "<text>", "code": ...});
         # .error is read for a code only when it is an object.
         code=$(printf '%s' "$out" | jq -r '(.error | objects | .code) // .code // empty' 2> /dev/null)
+        why=$(jq -r '.error | if type == "object" then .message // empty else . // empty end' <<< "$out" 2> /dev/null)
+        # koto's words, or, when it printed no JSON refusal, what it did print.
+        [ -n "$why" ] || why=$(printf '%s\n' "$out" | cat - "$T_ERR" 2> /dev/null | tr -s '\t\n' '  ')
+        why=${why:0:400}
+        # Exit 2 is a refusal that wrote nothing. Any other failure, once the
+        # fence names this session's successor, came after the fence (the
+        # create, the carry, a bucket read on a re-run): the takeover is
+        # unfinished, never refused, whatever code koto gave.
+        if [ $rc -ne 2 ] && fenced_for "$pred" "$succ" "$given"; then
+            takeover_unfinished "$pred" "$succ" "$rc" "$code" "$why"
+        fi
         case "$rc:$code" in
             2:stale_state) [ $tries -eq 0 ] || refuse_takeover predecessor-unstoppable "$pred kept moving between its state read and the fence; nothing was written"
                            tries=1 ;;
-            3:*) refuse_takeover predecessor-unstoppable "$pred's log lock couldn't be taken (fence_unavailable); nothing was written and $pred still drives" ;;
+            3:fence_unavailable) refuse_takeover predecessor-unstoppable "$pred couldn't be fenced (fence_unavailable): $why; nothing was written and $pred still drives" ;;
             *) if printf '%s' "$out" | jq -e '.superseded_by // empty' > /dev/null 2>&1; then
                    refuse_takeover taken-over "$pred was already taken over by $(printf '%s' "$out" | jq -r '.superseded_by'); nothing was written"
                fi
-               why=$(jq -r '.error | if type == "object" then .message // empty else . // empty end' <<< "$out" 2> /dev/null)
-               refuse_takeover "${code:-koto-refused}" "koto refused the takeover of $pred (exit $rc): ${why:0:400}" ;;
+               refuse_takeover "${code:-koto-refused}" "koto refused the takeover of $pred (exit $rc): $why" ;;
         esac
     done
     # koto knows a re-run by the successor's name alone, so a rival named in

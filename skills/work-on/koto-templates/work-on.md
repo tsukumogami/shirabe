@@ -1814,7 +1814,13 @@ states:
     #   4  a command needs a person, timed out, grew past max_procs, could
     #      not start, or the tree was dirty       done_blocked
     #   75 no result yet                          waits
-    #   2  the result could not be read           holds
+    #   2  the result could not be read, or the supervisor stopped before
+    #      every command ran                      holds
+    # A stopped supervisor (a memory guard or a person killed it) is a hold,
+    # not exit 4: its result says nothing about the change, and routing it
+    # would end the run at a failure terminal inside the tick that read it,
+    # before anyone could decide. The launcher keeps that result on disk, so
+    # a held tick doesn't start a new suite; moving it aside does.
     # Each violation exit prints `::koto-finding::` lines whose rule_id is a
     # verification/ rule from references/rule-registry.json, so the event log names the cause.
     #
@@ -3767,7 +3773,13 @@ on the result and koto routes on it, with no evidence from you:
   to tick again (`poll.retry_after_secs`). Tick again with
   `koto next {{SESSION_NAME}} --no-cleanup`, submitting nothing; the wait lasts up to
   two hours.
-- **exit 2**: the result could not be read. The state holds.
+- **exit 2**: the result could not be read, or the supervisor stopped before every
+  command ran (a memory guard or a person killed it, or it could not run). The state
+  holds, and nothing is recorded. A stopped supervisor is not a failure of the change,
+  so don't read it as one: the message on stderr names the result file. To run the
+  suite again, move that file aside and tick; the launcher starts a fresh run. To
+  stop instead, submit `verification_status: blocked` with the reason in `detail`.
+  Ticking again without moving it holds again and starts nothing.
 - **exit -1**: koto killed the check at its own per-run timeout or could not start
   it. The state holds; tick again, and submit `verification_status: blocked` if it
   keeps happening.

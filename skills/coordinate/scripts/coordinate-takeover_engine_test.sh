@@ -68,6 +68,16 @@
 #      written from its brief), is accepted and written, a plain re-brief
 #      carries no --role and resumes the lane as director, and the lane
 #      dispatched again renders --role manager, which the lane refuses.
+#  12. koto's exit 3 on the fence, read by its code: with a stand-in koto
+#      whose init --supersede refuses fence_unavailable before any fence, the
+#      start prints outcome=refused reason=predecessor-unstoppable with koto's
+#      message, opening and writing nothing; with one that fences and then
+#      fails the carry (persistence_error, exit 3), it prints
+#      failed=takeover_unfinished, exit 1, with koto's message, the fence's
+#      successor and no word of the old run still driving; the same start run
+#      again from the fencing session, its koto init failing again after the
+#      fence, does the same; and run again with the real koto, it prints
+#      outcome=continued naming the fenced successor, with one takeover entry.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
@@ -645,6 +655,88 @@ if OPEN_ROLE=director open_run tk-d && [ "$(at)" = reconcile ]; then
     fi
 else
     bad "11: the director's run opens" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 12. koto's exit 3 on the fence, read by its code ---------------------------
+# A stand-in in front of the real koto answers koto init --supersede as
+# US_INIT says: lock refuses fence_unavailable without calling koto, as a log
+# lock held past koto's wait does; after runs the real init with one of the
+# run's carried keys (US_UNREADABLE) unreadable, so koto fences and creates
+# and its own carry fails before it writes a key or its completion marker,
+# and then reports the carry failed, persistence_error, exit 3; rerun refuses
+# fence_unavailable without calling koto, as a bucket read failing on a
+# re-run does. The successor holds no record, so a start finds the fenced run
+# the newest holder and runs koto init again under the fence's name.
+mkdir -p "$T/ushim"
+cat > "$T/ushim/koto" <<'EOF'
+#!/bin/sh
+if [ "$1" = init ]; then
+    case " $* " in *" --supersede "*)
+        case "${US_INIT:-}" in
+            lock)
+                printf '{"code":"fence_unavailable","command":"init","error":"--supersede: a stand-in lock wait ran out; nothing was written"}\n'
+                exit 3 ;;
+            after)
+                chmod u-r "$US_UNREADABLE"
+                "$US_REAL" "$@" > "$US_T/us-real.out" 2>&1
+                chmod u+r "$US_UNREADABLE"
+                printf '{"code":"persistence_error","command":"init","error":"--supersede: the run is fenced and %s exists, but the carry failed: a stand-in carry failure. Run the same command again to finish it"}\n' "$2"
+                exit 3 ;;
+            rerun)
+                : > "$US_T/us-rerun-seen"
+                printf '{"code":"fence_unavailable","command":"init","error":"--supersede: a stand-in bucket read failure on a re-run"}\n'
+                exit 3 ;;
+        esac ;;
+    esac
+fi
+exec "$US_REAL" "$@"
+EOF
+chmod +x "$T/ushim/koto"
+export US_REAL=$REAL_KOTO US_T=$T
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+if to_reconciled unfinished "$(two_holdings unfinished)"; then
+    U=$S
+    ULOG="$(koto session dir "$U")/koto-$U.state.jsonl"
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    # Before any fence: the lock, nothing written.
+    BEFORE_S=$(sessions); BEFORE_L=$(wc -l < "$ULOG")
+    US_INIT=lock PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    eq "12 lock: koto's fence_unavailable before any fence refuses predecessor-unstoppable" "2 refused predecessor-unstoppable" "$ORC $(line outcome) $(line reason)"
+    grep -qF 'a stand-in lock wait ran out' "$T/open.err" && ok "12 lock:   ... with koto's message" || bad "12 lock:   ... with koto's message" "$(cat "$T/open.err")"
+    eq "12 lock:   ... opening no run" "$BEFORE_S" "$(sessions)"
+    eq "12 lock:   ... and writing nothing to the run" "$BEFORE_L" "$(wc -l < "$ULOG")"
+    # The fence lands and the carry fails: unfinished, not refused.
+    US_INIT=after US_UNREADABLE="$(koto session dir "$U")/ctx/record/meta" PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    eq "12 carry: a failed carry after the fence is failed=takeover_unfinished, exit 1" "1 takeover_unfinished" "$ORC $(line failed)"
+    eq "12 carry:   ... no outcome=, reason= or session=" "" "$(line outcome)$(line reason)$(line session)"
+    UF=$(cd "$T/work2" && bash "$PS/coord-log.sh" fence --session "$U" 2>/dev/null)
+    SUCC=$(jq -r '.by // ""' <<< "${UF:-null}")
+    eq "12 carry:   ... the run is fenced by this session" "$B_ID" "$(jq -r '.claude_session // ""' <<< "${UF:-null}")"
+    if [ -n "$SUCC" ] && grep -qF 'a stand-in carry failure' "$T/open.err" && grep -qF "$U is fenced by $SUCC" "$T/open.err" \
+        && grep -qF 'exit 3, persistence_error' "$T/open.err" && ! grep -qE 'still drives|log lock|nothing was written' "$T/open.err"; then
+        ok "12 carry:   ... the message carries koto's exit, code and words and names the fence's successor, and not the old run driving"
+    else
+        bad "12 carry:   ... the message carries koto's exit, code and words and names the fence's successor, and not the old run driving" "fence ${UF:-none}: $(cat "$T/open.err")"
+    fi
+    # The same start again from the fencing session, its koto init failing
+    # again after the fence: unfinished again, with the re-run's own reason.
+    rm -f "$T/us-rerun-seen"
+    US_INIT=rerun PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    eq "12 rerun: the re-run runs koto init again under the fence's name" yes "$([ -e "$T/us-rerun-seen" ] && echo yes || echo no)"
+    eq "12 rerun:   ... and a failure there is failed=takeover_unfinished, exit 1" "1 takeover_unfinished" "$ORC $(line failed)"
+    if grep -qF 'a stand-in bucket read failure on a re-run' "$T/open.err" && grep -qF "$U is fenced by $SUCC" "$T/open.err" \
+        && ! grep -qE 'still drives|log lock|nothing was written' "$T/open.err"; then
+        ok "12 rerun:   ... the message carries koto's words, not a log lock"
+    else
+        bad "12 rerun:   ... the message carries koto's words, not a log lock" "$(cat "$T/open.err")"
+    fi
+    # The same start with the real koto finishes the takeover.
+    opener unfinished "$T/work2"
+    eq "12: the same start with the real koto finishes the takeover" "0 continued $U $SUCC" "$ORC $(line outcome) $(line predecessor) $(line session)"
+    eq "12:   ... with one takeover entry" 1 "$( (cd "$T/work2" && bash "$PS/state-entry.sh" --session "$SUCC" --list 2>/dev/null) | jq '[.[] | select(.kind == "takeover")] | length')"
+else
+    bad "12: the fifth run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

@@ -867,6 +867,22 @@
         "Agent records the passing review round at the fix head in the child's session with review-round.sh record",
         "Agent says a fourth round is refused (cap) and goes to a person, and that a new round waits for the open one to finish"
       ]
+    },
+    {
+      "id": 61,
+      "name": "verification-stopped-supervisor-holds",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #540, a local-verification run on a memory-bound host. The run ticked into verification and the tick waited on the suite. Four minutes in, the host's memory guard killed the verification supervisor. The tick returned with the verification_verdict gate at exit 2, and stderr says the run for this head stopped before every command ran, with no commands finished, and names the result file. Hosted CI at the same head is green. What does the agent do next?",
+      "expected_output": "The agent reads the hold as a stopped run, not a failed verification: the supervisor was killed, so the result says nothing about the change, and the gate held with the run still in verification rather than routing to implementation or done_blocked. Nothing was recorded as verification_results.json. It doesn't treat the green hosted CI as a local pass and doesn't record any evidence that claims verification passed. It reports the hold and its cause, and takes one of the two ways on the message names: when the suite may run again (memory is back, or whoever holds the host's test slot says go), it moves the named result file aside and ticks, which makes the launcher start a fresh run; otherwise it submits verification_status: blocked with the reason in detail, which ends the run at done_blocked. It knows that ticking again without moving the file holds again and starts no suite.",
+      "files": [],
+      "expectations": [
+        "Agent says the run is held in verification and the stopped supervisor is not a failed verification of the change",
+        "Agent does NOT treat hosted CI's green as a local verification pass, and does not submit evidence claiming one",
+        "Agent names the way to rerun: move the named result file aside, then tick so the launcher starts a fresh run",
+        "Agent names the way to stop: submit verification_status: blocked with the reason in detail",
+        "Agent says a tick without moving the result holds again and starts no new suite"
+      ]
     }
   ]
 }
