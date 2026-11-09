@@ -159,23 +159,36 @@ case "${NIWA_LOOKUP_SECONDS:-}" in
 esac
 
 DOC=$(mktemp "${TMPDIR:-/tmp}/release-grant.XXXXXX" 2>/dev/null) || person lookup-failed
+pid=""
+watcher=""
 trap 'rm -f "$DOC"' EXIT
-trap 'rm -f "$DOC"; person lookup-failed' HUP INT TERM
+# A signal mid-lookup takes both groups down too: niwa no longer shares the
+# caller's group, so a Ctrl-C or hangup would not reach it otherwise. stderr
+# goes first, so bash's notices about the jobs it kills aren't printed.
+trap 'exec 2>/dev/null
+rm -f "$DOC"
+[ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null
+[ -z "$watcher" ] || kill -KILL -- "-$watcher" 2>/dev/null
+person lookup-failed' HUP INT TERM
 
 # Job control puts niwa and the watcher each in a process group of its own.
-# At the bound the watcher kills niwa's group; when niwa returns first, the
-# watcher's group (it and its sleep) is killed instead.
+# At the bound the watcher kills niwa's group, or niwa alone if that group
+# kill fails; when niwa returns first, the watcher's group (it and its sleep)
+# is killed instead. Each id is cleared once its job is reaped, so the trap
+# never signals an id the system may have handed out again.
 set -- authority check --json --session "$CLAUDE_CODE_SESSION_ID" -C "$ROOT" --point cut-release
 set -m
 "$NIWA" "$@" </dev/null >"$DOC" 2>/dev/null &
 pid=$!
-(exec </dev/null >/dev/null 2>&1; sleep "$SECS"; kill -KILL -- "-$pid") &
+(exec </dev/null >/dev/null 2>&1; sleep "$SECS"; kill -KILL -- "-$pid" || kill -KILL "$pid") &
 watcher=$!
 set +m
 wait "$pid" 2>/dev/null
 rc=$?
+pid=""
 kill -KILL -- "-$watcher" 2>/dev/null
 wait "$watcher" 2>/dev/null
+watcher=""
 [ "$rc" -eq 0 ] || person lookup-failed
 
 command -v jq >/dev/null 2>&1 || person unreadable-answer
