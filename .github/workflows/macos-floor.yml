@@ -182,6 +182,24 @@ jobs:
         if: matrix.suite == 'preflight'
         run: scripts/assert-koto-floor.sh
 
+      # check-skill's real-tree copy runs deliver's case 34, which needs koto.
+      - name: Install tsuku (check-skill)
+        if: matrix.suite == 'check-skill'
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto (check-skill)
+        if: matrix.suite == 'check-skill'
+        env:
+          TSUKU_TELEMETRY: "0"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tsuku install -y
+
+      - name: Assert koto meets the floor (check-skill)
+        if: matrix.suite == 'check-skill'
+        run: |
+          command -v koto
+          scripts/assert-koto-floor.sh
+
       - name: Run the suite on the bash 3.2 floor (macOS, system bash)
         env:
           SUITE: ${{ matrix.suite }}
