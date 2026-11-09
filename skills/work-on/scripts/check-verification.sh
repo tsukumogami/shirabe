@@ -24,11 +24,20 @@
 #       a command timed out, or the run        verification/timed-out
 #       passed its total budget
 #       a command grew past max_procs          verification/runaway
-#       a command could not start, or the      verification/not-started
-#       supervisor stopped before it finished
+#       a command could not start              verification/not-started
 #       tracked files were dirty               verification/dirty-tree
-#   2   the result could not be read, or recorded in koto context; the gate
-#       holds. No finding; the reason goes to stderr.
+#   2   the result could not be read, or recorded in koto context, or the
+#       supervisor stopped before every command ran; the gate holds. No
+#       finding; the reason goes to stderr.
+#
+# A supervisor that stopped early (a memory guard or a person killed it, or it
+# could not run at all) writes a `supervisor-error` result. That result says
+# nothing about the change, so it is not a verdict: reading it as a failure
+# would end the run at a failure terminal over a killed process, with no moment
+# to decide otherwise. The gate holds on it instead, records nothing, and says
+# how to go on: move the result aside and tick to run the suite again, or
+# submit `verification_status: blocked` to stop. The launcher keeps the result
+# on disk until then, so a held tick never starts a new suite by itself.
 #
 # Exit 4 outranks exit 1: when one result holds a failed command and one that
 # timed out, the run stops for a person rather than going back to
@@ -114,6 +123,14 @@ jq -e --arg schema "$RESULT_SCHEMA" '.schema == $schema and (.commands | type) =
 [ "$(jq -r .head "$RESULT")" = "$HEAD_SHA" ] || undecided "the result $RESULT is for another head"
 [ "$(jq -r .merge_base "$RESULT")" = "$MB" ] || exit 75
 
+# A stopped supervisor is no verdict (see the header): hold, record nothing.
+if [ "$(jq -r .status "$RESULT")" = supervisor-error ]; then
+    undecided "the verification run for $HEAD_SHA stopped before every command ran" \
+        "($(jq -r '.commands | length' "$RESULT") finished), so there is no verdict to route on." \
+        "The result is $RESULT. To run the suite again, move that file aside and tick;" \
+        "to stop the run, submit verification_status: blocked with the reason in detail."
+fi
+
 JQ_ERR=$(mktemp "${TMPDIR:-/tmp}/check-verification.XXXXXX") || undecided "could not create a temporary file"
 trap 'rm -f "$JQ_ERR"' EXIT
 
@@ -135,7 +152,6 @@ LINES=$(jq -r '
     elif .status == "bad-map" then "3\tbad-map\tthe verification map does not parse: \(.detail)"
     elif .status == "attended" then "4\tneeds-person\t\(.detail)"
     elif .status == "dirty-tree" then "4\tdirty-tree\t\(.detail)"
-    elif .status == "supervisor-error" then "4\tnot-started\t\(.detail)"
     else "2\t\t" + "unknown result status \(.status)" end
 ' "$RESULT" 2>"$JQ_ERR") || undecided "could not read the result $RESULT: $(tail -n 3 "$JQ_ERR")"
 
