@@ -284,6 +284,30 @@ proposed to koto (Consequences).
   re-entry rules (reconcile re-checks before acting) still apply. Otherwise: open a
   new run as today, copy every `record/` and `legs/` key into it in one
   `GENERAL_WRITER`-style carry through the core, and cancel a live predecessor.
+  Two keys are exceptions to every key copied. A carry's fresh `record/meta`
+  isn't the source's: the core writes it last, at the source's written time,
+  with the new run's own template compat and no driver, whatever the reason
+  for the carry. And when the carrying Claude session's name reads (its job
+  state file) and the source's Run `coordinator` row names anyone else, the
+  copied `record/run` holds the row a `--run coordinator` write makes in
+  place of the source's: `{key: coordinator, value: <carrier>, set_by:
+  <carrier>, set: <the carry's time>}`, with the source's `told` and
+  `pending` rows dropped, since nobody has been told the carrier's address.
+  That holds for the opener's carry and for a discipline rotation's
+  `state-open.sh --carry`. Right after the copy the carry posts that write's
+  run entry, `The coordinator's address is now <carrier>, set by <carrier>.
+  Nobody has been told it yet.`; a post that fails is warned about and the
+  carry stands. The row lands with the copy so that no write after it is
+  refused by the writers' driver check
+  (`docs/designs/DESIGN-coordinator-standing-rule-provenance.md`, "The driver
+  check"), which refuses a write to a run with no driver whose coordinator
+  row names another session. A takeover copies `record/` and `legs/` whole through
+  koto's fence, then the opener writes keys of its own after the copy, each
+  once, so a re-run finishes what is missing: `record/meta`'s driver (this
+  Claude session) and takeover fields with the new run's template compat,
+  the coordinator row naming this session (which clears the told set), the
+  role row, an import's `record/host`, one takeover entry, and
+  `takeover_done` last.
   `--import <session> --from <workspace-path> [--trust-template]` compiles the
   shipped template, refuses first with `session-live` when the scope has a live
   session here and with `session-name` when the name isn't this scope's
