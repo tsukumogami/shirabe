@@ -660,12 +660,13 @@ fi
 # ---- 12. koto's exit 3 on the fence, read by its code ---------------------------
 # A stand-in in front of the real koto answers koto init --supersede as
 # US_INIT says: lock refuses fence_unavailable without calling koto, as a log
-# lock held past koto's wait does; after runs the real init (the fence, the
-# create, the carry) and then reports the carry failed, persistence_error,
-# exit 3; rerun refuses fence_unavailable without calling koto, as a bucket
-# read failing on a re-run does. With US_NOMARK set it answers no to the
-# carry's completion marker, so a start finds the carry unfinished and runs
-# koto init again under the fence's name.
+# lock held past koto's wait does; after runs the real init with one of the
+# run's carried keys (US_UNREADABLE) unreadable, so koto fences and creates
+# and its own carry fails before it writes a key or its completion marker,
+# and then reports the carry failed, persistence_error, exit 3; rerun refuses
+# fence_unavailable without calling koto, as a bucket read failing on a
+# re-run does. The successor holds no record, so a start finds the fenced run
+# the newest holder and runs koto init again under the fence's name.
 mkdir -p "$T/ushim"
 cat > "$T/ushim/koto" <<'EOF'
 #!/bin/sh
@@ -676,7 +677,9 @@ if [ "$1" = init ]; then
                 printf '{"code":"fence_unavailable","command":"init","error":"--supersede: a stand-in lock wait ran out; nothing was written"}\n'
                 exit 3 ;;
             after)
+                chmod u-r "$US_UNREADABLE"
                 "$US_REAL" "$@" > "$US_T/us-real.out" 2>&1
+                chmod u+r "$US_UNREADABLE"
                 printf '{"code":"persistence_error","command":"init","error":"--supersede: the run is fenced and %s exists, but the carry failed: a stand-in carry failure. Run the same command again to finish it"}\n' "$2"
                 exit 3 ;;
             rerun)
@@ -686,7 +689,6 @@ if [ "$1" = init ]; then
         esac ;;
     esac
 fi
-if [ -n "${US_NOMARK:-}" ] && [ "$1 $2 $4" = "context exists koto/superseded-carry-complete" ]; then exit 1; fi
 exec "$US_REAL" "$@"
 EOF
 chmod +x "$T/ushim/koto"
@@ -705,7 +707,7 @@ if to_reconciled unfinished "$(two_holdings unfinished)"; then
     eq "12 lock:   ... opening no run" "$BEFORE_S" "$(sessions)"
     eq "12 lock:   ... and writing nothing to the run" "$BEFORE_L" "$(wc -l < "$ULOG")"
     # The fence lands and the carry fails: unfinished, not refused.
-    US_INIT=after PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    US_INIT=after US_UNREADABLE="$(koto session dir "$U")/ctx/record/meta" PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
     eq "12 carry: a failed carry after the fence is failed=takeover_unfinished, exit 1" "1 takeover_unfinished" "$ORC $(line failed)"
     eq "12 carry:   ... no outcome=, reason= or session=" "" "$(line outcome)$(line reason)$(line session)"
     UF=$(cd "$T/work2" && bash "$PS/coord-log.sh" fence --session "$U" 2>/dev/null)
@@ -720,7 +722,7 @@ if to_reconciled unfinished "$(two_holdings unfinished)"; then
     # The same start again from the fencing session, its koto init failing
     # again after the fence: unfinished again, with the re-run's own reason.
     rm -f "$T/us-rerun-seen"
-    US_INIT=rerun US_NOMARK=1 PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    US_INIT=rerun PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
     eq "12 rerun: the re-run runs koto init again under the fence's name" yes "$([ -e "$T/us-rerun-seen" ] && echo yes || echo no)"
     eq "12 rerun:   ... and a failure there is failed=takeover_unfinished, exit 1" "1 takeover_unfinished" "$ORC $(line failed)"
     if grep -qF 'a stand-in bucket read failure on a re-run' "$T/open.err" && grep -qF "$U is fenced by $SUCC" "$T/open.err" \
