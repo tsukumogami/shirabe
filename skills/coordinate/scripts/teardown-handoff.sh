@@ -440,14 +440,14 @@ no_handoff_checks() {
     while IFS=$'\t' read -r c f; do
         [ "$c" = "$IPATH" ] || continue
         name=$(basename "$(dirname "$f")")
-        jq -e 'select(.type == "workflow_cancelled")' "$f" >/dev/null 2>&1 && continue
+        jq -e 'select(.type == "workflow_cancelled")' "$f" >/dev/null 2>>"$T/jq.err" && continue
         last=$(jq -r 'select(.type != "session_imported") | .timestamp // empty | strings' "$f" 2>>"$T/jq.err") \
             || die2 "the worker's koto session $name can't be read"
         last=$(printf '%s\n' "$last" | grep . | tail -n 1)
         [ -n "$last" ] || die2 "the worker's koto session $name has no timed event to judge it by"
-        at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' 2>/dev/null) \
+        at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' 2>>"$T/jq.err") \
             || die2 "the worker's koto session $name has a last event time [$last] that can't be read"
-        [ $((now - at)) -gt 600 ] || refuse "the worker's koto session $name is still live: its last event is $((now - at))s old"
+        [ $((now - $at)) -gt 600 ] || refuse "the worker's koto session $name is still live: its last event is $((now - $at))s old"
     done <"$T/cand-files"
 }
 
