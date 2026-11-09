@@ -302,7 +302,17 @@ work.
    carries it, except after `session-source`: a run whose find didn't record
    the session as its store is no resume candidate, so a plain start opens a
    new run as it would with no session here and cancels the imported one.
-   `record/host` takes the source workspace, session and template hash.
+   `record/host` takes the source workspace, session and template hash, on
+   the run the import leaves driving: the new run after a takeover, the copy
+   on an older koto. The copy keeps the plugin root its source ran from, so
+   nothing is written to a copy that is taken over.
+
+   An import that stops after koto has imported the copy, before the run is
+   taken over or resumed, prints `failed=<kind>`, `imported=<name>`,
+   `outcome=incomplete` and `reason=<kind>`, with the refused step's own
+   reason on stderr. Run the same import again from the same session to
+   finish it: koto's import of a copy already complete here writes nothing,
+   and the opener goes on from the step that stopped.
 
    On koto 0.32.0 and later the import is a takeover of the copy. The copy is
    the predecessor, and the opener continues it in a new run opened from this
