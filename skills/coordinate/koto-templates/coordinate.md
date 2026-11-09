@@ -1863,7 +1863,7 @@ states:
         description: stopped after the worker's session was stopped by its id; removed when its instance and job are already gone, torn down outside the teardown pass; kept when the worker stays.
       handoff:
         type: string
-        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped or removed without one.
+        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one. A removed may leave it out when the worker is gone and never wrote one; teardown_handoff then checks that the worker is over and the pass records an entry in place of the link.
     transitions:
       - target: teardown_inventory
         when:
@@ -3981,7 +3981,12 @@ far as the posture allows; where the posture reserves it, hand it to the human.
 Submit `removed` only for a unit torn down outside the teardown pass: niwa
 lists no instance for its topic and Claude Code lists no job in it, because
 someone already removed them. Ask for the handoff comment first all the same;
-the removed pass checks it as it would for a stopped worker. The inventory
+the removed pass checks it as it would for a stopped worker. When the worker
+is already gone and its pull request holds no handoff comment, nobody can
+write one now: submit `removed` with no `handoff`. The seal then also checks
+that the worker is over (no Claude Code job for its session, no koto session
+of it active in the last 10 minutes), and the pass records an entry in place
+of the link. The inventory
 then finds no instance, and the removed pass archives what survives (the
 worker's last transcript and its koto sessions), records the unit's cost
 entry when a session survives, and removes nothing. Never submit `removed` to skip
@@ -4036,6 +4041,13 @@ survived. A listing that can't be read seals nothing; tick again. A
 `removed` whose instance the inventory found is refused: the unit wasn't
 removed.
 
+A `removed` submitted with no `handoff` link (the worker is gone and never
+wrote one) is sealed with `handoff none` once the worker is shown to be over:
+Claude Code lists no job for its session, that session's job reads finished,
+and every koto session that ran in the instance is cancelled or has had no
+event for 10 minutes. A live worker refuses; a session log that can't be read
+seals nothing; tick again. A `stopped` with no link is still refused.
+
 ## promote
 
 Move everything the inventory listed as unique into an issue comment or a
@@ -4048,7 +4060,10 @@ Hand the teardown to your teardown agent. Read the verdict with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-handoff.sh" read
 --session "{{SESSION_NAME}}"` and send its whole output, the `keyseal` line
 included, to the agent as one pass. When the agent reports `done`, remove the
-worker's holding from the record, then submit `destroyed: destroyed`. Submit
+worker's holding from the record, then submit `destroyed: destroyed`. For a
+verdict that says `removed yes`, remove it with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-holding.sh" --session
+"{{SESSION_NAME}}" --topic <topic> --retire`. Submit
 `refused` when the reader or the pass refused (nothing was removed),
 `incomplete` when the pass stopped after its destroy began, and `handed_over`
 when the posture reserves the teardown for a person.
@@ -4073,8 +4088,12 @@ outside the pass. The agent runs the same command; the pass checks the pull
 requests, the handoff and that niwa and Claude Code list nothing for the
 unit, archives the surviving transcript and koto sessions, records the cost
 entry, and runs no `niwa destroy` and no `claude rm`. With `job -` there is
-nothing to archive and its last line still says done. Either way, on `done`
-remove the holding row and submit `destroyed`, as for any pass.
+nothing to archive and its last line still says done. A verdict that says
+`handoff none` has no comment to check; the pass appends a record entry in
+its place before it says done, and refuses if it can't. Either way, on
+`done` remove the holding row with `state-holding.sh --retire` (it confirms
+the removed verdict through `teardown-pass.sh check` first) and submit
+`destroyed`.
 
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or

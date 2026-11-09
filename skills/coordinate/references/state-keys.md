@@ -131,7 +131,10 @@ its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs). A `dispatch-failed` row, a launch that never
+dispatch-worker.sh runs). A merged row whose worker was torn down outside
+the pass also goes with `--retire`, at destroy, once the removed pass is
+done, including one closed with no handoff comment, where the pass's entry
+stands in for the link. A `dispatch-failed` row, a launch that never
 started, goes through `--retire` too once no worker exists for its topic
 (niwa lists no session and no unfinished Claude job carries it); its removal
 is told as an `entry` entry.
