@@ -104,6 +104,7 @@ case "$STUB_MODE" in
     exit-1) doc "$held" session off; exit 1 ;;
     no-check) [ "${2:-}" = check ] && { echo "unknown command \"check\" for \"niwa authority\"" >&2; exit 2; }; doc "$held" session off ;;
     sleep) sleep 30; doc "$held" session off ;;
+    spawn) sleep 30 & printf '%s\n' "$!" >"$STUB_LOG.child"; sleep 30; doc "$held" session off ;;
     *) echo "stub: unknown STUB_MODE $STUB_MODE" >&2; exit 3 ;;
 esac
 STUB
@@ -221,6 +222,44 @@ if [ -n "$HOST_TIMEOUT" ]; then
     expect "sleeping 30 seconds, no timeout on PATH" "go=person reason=lookup-failed"
     if [ "$ELAPSED" -le 4 ]; then pass "sleeping, no timeout: returned in ${ELAPSED}s"; else fail "sleeping, no timeout: took ${ELAPSED}s"; fi
 fi
+
+# A niwa that starts a child and hangs: the bound has to take the child too,
+# not only niwa. The stub writes the child's pid next to its log. The child is
+# reaped shortly after the kill, so its pid is given a second to go away; a
+# child still there is killed here so the suite leaves nothing behind.
+child_gone() { # child_gone <label>
+    local pid n=0
+    pid=$(cat "$STUB_LOG.child" 2>/dev/null) || pid=""
+    case "$pid" in
+        "" | *[!0-9]*) fail "$1: the stub recorded no child pid"; return ;;
+    esac
+    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 10 ]; do
+        sleep 0.1 2>/dev/null || sleep 1
+        n=$((n + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        fail "$1: niwa's child ($pid) outlives the bound"
+        kill -KILL "$pid" 2>/dev/null
+    else
+        pass "$1: niwa's child is gone after the bound"
+    fi
+}
+
+for leg in with without; do
+    if [ "$leg" = with ]; then
+        [ -n "$HOST_TIMEOUT" ] || { echo "skip the spawning stub with timeout on PATH: no timeout on this host"; continue; }
+        label="a niwa that starts a child and hangs, timeout on PATH"
+        rm -f "$STUB_LOG.child"
+        grant "$REPO" "$WITH" spawn
+    else
+        label="a niwa that starts a child and hangs, no timeout on PATH"
+        rm -f "$STUB_LOG.child"
+        grant "$REPO" "$T/notimeout" spawn "$SID" "$T/stubbin/niwa"
+    fi
+    expect "$label" "go=person reason=lookup-failed"
+    if [ "$ELAPSED" -le 4 ]; then pass "$label: returned in ${ELAPSED}s"; else fail "$label: took ${ELAPSED}s"; fi
+    child_gone "$label"
+done
 
 echo "--- no lookup made ---"
 grant "$REPO" "$T/tools" holder
