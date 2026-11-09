@@ -300,6 +300,12 @@ body "$(rec | jq -c --argjson se "$SE" --argjson a "$(holding alpha)" '.side_eff
 eq "merged_facts unconfirmed at a head this run never verified: the Side effects row at that head confirms" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson se "$SE" --argjson a "$(holding alpha)" --arg h "$SHA_HEAD" '.side_effects = $se | .holdings = [$a] | .side_effects[0].verified_head = $h')"
 eq "merged_facts unconfirmed at a head this run never verified: a row at the record's head waits" waiting "$(confirm)"
+# A continued run's merged event for a pull request its predecessor verified
+# and merged (shirabe#1640): this run holds no verify capture, and the record
+# carried at the takeover, written before the event, already holds the Side
+# effects row at the head GitHub merged. It confirms with no new write.
+body "$(rec | jq -c --argjson se "$SE" --argjson a "$(holding alpha)" '.side_effects = $se | .holdings = [$a]')" 2026-09-25T13:06:14Z
+confirmed_detail "merged_facts unconfirmed at a head this run never verified: the carried row in a record written before the event confirms"
 
 echo "== a merge made while a hold stood =="
 # hold <name> <until> [lifted]: a hold on acme/widgets#12.
