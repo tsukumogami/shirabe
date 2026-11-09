@@ -42,14 +42,17 @@
 #       -C <instance root> --point cut-release
 #
 # with stdin closed and its output in a mktemp file removed on every exit,
-# under `timeout -s KILL` or, where timeout isn't installed (macOS), a
-# background job and a KILL watcher. The bound is 3 seconds, or
-# NIWA_LOOKUP_SECONDS when that is 1 or 2, as the workspace gate reads it.
-# KILL is what bounds it: a niwa that traps TERM can't hold the caller.
+# under this script's own bound on every host: niwa runs as a job in a
+# process group of its own, and a watcher in another sends KILL to that whole
+# group at the bound, so anything niwa started goes with it. timeout(1) is
+# not used, since some builds send KILL only to their direct child. The bound
+# is 3 seconds, or NIWA_LOOKUP_SECONDS when that is 1 or 2, as the workspace
+# gate reads it. KILL is what bounds it: a niwa that traps TERM can't hold the
+# caller.
 #
 # Nothing under the repository's working tree is ever run: a committed
-# settings file can point PATH or NIWA_BIN there, and a planted jq or timeout
-# could forge the answer as surely as a planted niwa. So the working tree is
+# settings file can point PATH or NIWA_BIN there, and a planted jq could
+# forge the answer as surely as a planted niwa. So the working tree is
 # found without running anything (the nearest directory at or above the
 # current one holding a .git entry), PATH is rebuilt without its relative
 # entries and without any directory inside the tree before any command runs,
@@ -156,22 +159,36 @@ case "${NIWA_LOOKUP_SECONDS:-}" in
 esac
 
 DOC=$(mktemp "${TMPDIR:-/tmp}/release-grant.XXXXXX" 2>/dev/null) || person lookup-failed
+pid=""
+watcher=""
 trap 'rm -f "$DOC"' EXIT
-trap 'rm -f "$DOC"; person lookup-failed' HUP INT TERM
+# A signal mid-lookup takes both groups down too: niwa no longer shares the
+# caller's group, so a Ctrl-C or hangup would not reach it otherwise. stderr
+# goes first, so bash's notices about the jobs it kills aren't printed.
+trap 'exec 2>/dev/null
+rm -f "$DOC"
+[ -z "$pid" ] || kill -KILL -- "-$pid" 2>/dev/null
+[ -z "$watcher" ] || kill -KILL -- "-$watcher" 2>/dev/null
+person lookup-failed' HUP INT TERM
 
+# Job control puts niwa and the watcher each in a process group of its own.
+# At the bound the watcher kills niwa's group, or niwa alone if that group
+# kill fails; when niwa returns first, the watcher's group (it and its sleep)
+# is killed instead. Each id is cleared once its job is reaped, so the trap
+# never signals an id the system may have handed out again.
 set -- authority check --json --session "$CLAUDE_CODE_SESSION_ID" -C "$ROOT" --point cut-release
-if command -v timeout >/dev/null 2>&1; then
-    timeout -s KILL "$SECS" "$NIWA" "$@" </dev/null >"$DOC" 2>/dev/null
-    rc=$?
-else
-    "$NIWA" "$@" </dev/null >"$DOC" 2>/dev/null &
-    pid=$!
-    (sleep "$SECS"; kill -KILL "$pid") </dev/null >/dev/null 2>&1 &
-    watcher=$!
-    wait "$pid" 2>/dev/null
-    rc=$?
-    kill "$watcher" 2>/dev/null
-fi
+set -m
+"$NIWA" "$@" </dev/null >"$DOC" 2>/dev/null &
+pid=$!
+(exec </dev/null >/dev/null 2>&1; sleep "$SECS"; kill -KILL -- "-$pid" || kill -KILL "$pid") &
+watcher=$!
+set +m
+wait "$pid" 2>/dev/null
+rc=$?
+pid=""
+kill -KILL -- "-$watcher" 2>/dev/null
+wait "$watcher" 2>/dev/null
+watcher=""
 [ "$rc" -eq 0 ] || person lookup-failed
 
 command -v jq >/dev/null 2>&1 || person unreadable-answer
