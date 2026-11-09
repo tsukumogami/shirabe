@@ -715,6 +715,10 @@ states never ask you to do these steps by hand.
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
   removes the holding row last, and `teardown_confirm` checks the result.
+  A unit torn down outside the pass is submitted as `removed`; when its
+  worker is gone and never wrote a handoff comment, it goes with no link,
+  the seal checks that the worker is over, the pass records an entry in
+  place of the link, and the row goes with `state-holding.sh --retire`.
   Before the destroy the pass writes the unit's `cost` entry into the record,
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a

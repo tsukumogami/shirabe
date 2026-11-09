@@ -131,7 +131,10 @@ its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs).
+dispatch-worker.sh runs). A merged row whose worker was torn down outside
+the pass also goes with `--retire`, at destroy, once the removed pass is
+done, including one closed with no handoff comment, where the pass's entry
+stands in for the link.
 
 A deferral is disposed of when its `disposition` reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the
