@@ -17,13 +17,17 @@
 # fixture scripts under scripts/cases/ its cases name, so nothing is written
 # into this checkout.
 #
-# Three groups:
+# Four groups:
 #   classifier cases run scripts/lib/classify-eval-session.py against the
 #   fixture transcripts directly;
 #   runner cases run scripts/run-evals.sh end to end: the fixture skill in the
 #   copy, and /deliver's hand-off case on this tree and on a mutated copy
 #   (those need koto, which check-handoff.sh compiles the templates with);
-#   selection cases run --list-changed against a throwaway repository.
+#   selection cases run --list-changed against a throwaway repository;
+#   dispatch cases check .github/workflows/run-evals.yml as text and run its
+#   `Run evals` block under /bin/bash: on the fixture copy, on each input it
+#   must refuse, and on this tree for /deliver (koto again), along with the
+#   runner's argument lists under /bin/bash.
 
 set -uo pipefail
 . "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
@@ -697,6 +701,243 @@ if record_empty; then
   pass "selection: no run started claude"
 else
   fail "selection started claude: $(cat "$RECORD")"
+fi
+
+# -- the run-evals.yml dispatch ---------------------------------------------
+
+# A manual dispatch of .github/workflows/run-evals.yml must reach the same
+# refusal the harness gives every graded case: no claude, no secret, the skill
+# input passed through the environment and held to a skill name.
+WF="$REPO_ROOT/.github/workflows/run-evals.yml"
+CHECK_WF="$REPO_ROOT/.github/workflows/check-run-evals.yml"
+
+indent_awk='function indent(s) { match(s, /^ */); return RLENGTH }'
+
+# step_block <workflow> <step name>: the step's `run: |` body, dedented.
+step_block() {
+  awk -v step="$2" "$indent_awk"'
+    !instep && $0 ~ ("^ *- name: " step "$") { instep = 1; stepind = indent($0); next }
+    instep && !inrun {
+      if ($0 ~ /^ *- / && indent($0) <= stepind) exit
+      if ($0 ~ /^ *run: \|$/) { inrun = 1; runind = indent($0) }
+      next
+    }
+    inrun {
+      if ($0 ~ /^ *$/) { print ""; next }
+      if (indent($0) <= runind) exit
+      if (!bodyind) bodyind = indent($0)
+      print substr($0, bodyind + 1)
+    }
+  ' "$1"
+}
+
+# step_head <workflow> <step name>: the step's lines before its run: key.
+step_head() {
+  awk -v step="$2" "$indent_awk"'
+    !instep && $0 ~ ("^ *- name: " step "$") { instep = 1; stepind = indent($0); next }
+    instep {
+      if ($0 ~ /^ *run:/ || ($0 ~ /^ *- / && indent($0) <= stepind)) exit
+      print
+    }
+  ' "$1"
+}
+
+# run_bodies <workflow>: every run: value, inline or block.
+run_bodies() {
+  awk "$indent_awk"'
+    inrun {
+      if ($0 ~ /^ *$/) next
+      if (indent($0) > runind) { print; next }
+      inrun = 0
+    }
+    /^ *(- )?run:/ {
+      rest = $0
+      sub(/^ *(- )?run:[ ]*/, "", rest)
+      if (rest ~ /^[|>]/) { inrun = 1; runind = indent($0) } else print rest
+    }
+  ' "$1"
+}
+
+if grep -qx 'on:' "$WF" && grep -qx '  workflow_dispatch:' "$WF" \
+  && grep -qx '      skill:' "$WF" && grep -qx '      ref:' "$WF"; then
+  pass "dispatch workflow: declares workflow_dispatch with the skill and ref inputs"
+else
+  fail "dispatch workflow: workflow_dispatch with skill and ref not found in $WF"
+fi
+
+forbidden=$(grep -v '^[[:space:]]*#' "$WF" | grep -E 'secrets\.|ANTHROPIC_|claude-code|skill-creator|plugin|jq')
+if [ -z "$forbidden" ]; then
+  pass "dispatch workflow: no line outside a comment names a secret, ANTHROPIC_, claude-code, skill-creator, plugin or jq"
+else
+  fail "dispatch workflow: forbidden text outside comments: $forbidden"
+fi
+
+input_lines=$(grep -c 'github.event.inputs.skill' "$WF")
+input_line=$(grep 'github.event.inputs.skill' "$WF" | sed 's/^ *//')
+# The step's head, with each line's leading spaces removed: its env: key, then
+# the SKILL line under it.
+head_env=$(step_head "$WF" "Run evals" | sed 's/^ *//' | grep -A1 -x 'env:' | tr '\n' '|')
+if [ "$input_lines" = 1 ] && [ "$input_line" = 'SKILL: ${{ github.event.inputs.skill }}' ] \
+  && [ "$head_env" = 'env:|SKILL: ${{ github.event.inputs.skill }}|' ]; then
+  pass "dispatch workflow: the skill input appears once, as SKILL in the Run evals step's env:"
+else
+  fail "dispatch workflow: skill input lines [$input_lines] [$input_line] env [$head_env]"
+fi
+
+bodies=$(run_bodies "$WF")
+if [ -n "$bodies" ] && ! grep -qF '${{' <<<"$bodies"; then
+  pass "dispatch workflow: no run: block contains \${{"
+else
+  fail "dispatch workflow: a run: block expands a template: $bodies"
+fi
+
+pin=$(grep -o 'tsukumogami/tsuku/.github/actions/setup-tsuku@[0-9a-f]*' "$CHECK_WF" | head -1)
+line_of() { # line_of <fixed text> -- its line in WF, when it appears exactly once
+  local n
+  n=$(grep -cF -- "$1" "$WF")
+  [ "$n" = 1 ] && grep -nF -- "$1" "$WF" | cut -d: -f1
+}
+pin_at=$(line_of "uses: $pin")
+install_at=$(line_of "run: tsuku install -y")
+floor_at=$(line_of "bash scripts/assert-koto-floor.sh")
+evals_at=$(line_of "- name: Run evals")
+if [ -n "$pin" ] && [ -n "$pin_at" ] && [ -n "$install_at" ] && [ -n "$floor_at" ] && [ -n "$evals_at" ] \
+  && [ "$pin_at" -lt "$install_at" ] && [ "$install_at" -lt "$floor_at" ] && [ "$floor_at" -lt "$evals_at" ]; then
+  pass "dispatch workflow: setup-tsuku pinned as check-run-evals.yml pins it, tsuku install -y and the floor check run before Run evals"
+else
+  fail "dispatch workflow: install order pin=[$pin] at [$pin_at] install [$install_at] floor [$floor_at] evals [$evals_at]"
+fi
+
+BLOCK="$T/dispatch-block.sh"
+step_block "$WF" "Run evals" > "$BLOCK"
+
+# run_block <dir> <SKILL value>: the Run evals block under /bin/bash from
+# <dir>, with the failing stub first on PATH and every billing variable set.
+run_block() {
+  local dir="$1" skill="$2"
+  RC=0
+  OUT=$(cd "$dir" && env ANTHROPIC_API_KEY=sk-test ANTHROPIC_AUTH_TOKEN=tok-test \
+    ANTHROPIC_BASE_URL=https://example.invalid CLAUDE_CODE_USE_BEDROCK=1 CLAUDE_CODE_USE_VERTEX=1 \
+    STUB_CLAUDE_RECORD="$RECORD" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" SKILL="$skill" \
+    /bin/bash "$BLOCK" 2>&1) || RC=$?
+}
+# run_direct <runner args...>: the fixture tree's runner, called as the block
+# calls it, from the same directory with the same environment.
+run_direct() {
+  RC=0
+  OUT=$(cd "$TREE" && env ANTHROPIC_API_KEY=sk-test ANTHROPIC_AUTH_TOKEN=tok-test \
+    ANTHROPIC_BASE_URL=https://example.invalid CLAUDE_CODE_USE_BEDROCK=1 CLAUDE_CODE_USE_VERTEX=1 \
+    STUB_CLAUDE_RECORD="$RECORD" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
+    scripts/run-evals.sh "$@" 2>&1) || RC=$?
+}
+
+if [ -s "$BLOCK" ] && grep -q 'scripts/run-evals.sh' "$BLOCK"; then
+  run_block "$TREE" fx
+  BLOCK_OUT="$OUT" BLOCK_RC="$RC"
+  run_direct fx
+  if [ "$BLOCK_RC" -eq 1 ] && [ "$RC" -eq 1 ] && [ "$BLOCK_OUT" = "$OUT" ] \
+    && has "REFUSED 3 graded-case: graded cases don't run" \
+    && has "REFUSED 4 no-grader-case: graded cases don't run" \
+    && has "REFUSED 5 unknown-grader-case: graded cases don't run" \
+    && has "script cases: 2 of 14 passed" && record_empty; then
+    pass "dispatch: SKILL=fx prints what run-evals.sh fx prints, graded cases refused, 2 of 14 passed, exit 1"
+  else
+    fail "dispatch SKILL=fx (block rc=$BLOCK_RC, direct rc=$RC): block [$BLOCK_OUT] direct [$OUT]"
+  fi
+
+  run_block "$TREE" ""
+  BLOCK_OUT="$OUT" BLOCK_RC="$RC"
+  run_direct --all
+  if [ "$BLOCK_RC" -eq 1 ] && [ "$RC" -eq 1 ] && [ "$BLOCK_OUT" = "$OUT" ] \
+    && has "== fx" && has "== two" && has "script cases: 3 of 16 passed" && record_empty; then
+    pass "dispatch: an empty SKILL prints what run-evals.sh --all prints, 3 of 16 passed, exit 1"
+  else
+    fail "dispatch SKILL empty (block rc=$BLOCK_RC, direct rc=$RC): block [$BLOCK_OUT] direct [$OUT]"
+  fi
+
+  for value in '--withhold=x' '--prep-only' '--validate' '--all' 'fx;touch pwned' '../fx' 'Fx'; do
+    run_block "$TREE" "$value"
+    want="Error: the skill input must be empty or a skill name matching [a-z0-9][a-z0-9-]*, got '$value'"
+    if [ "$RC" -eq 1 ] && [ "$OUT" = "$want" ] && ! has "script cases:" && ! has "ablation" \
+      && [ ! -e "$TREE/pwned" ] && [ ! -e "$T/pwned" ] && record_empty; then
+      pass "dispatch: SKILL='$value' is refused before the harness starts, exit 1"
+    else
+      fail "dispatch SKILL='$value' (rc=$RC): $OUT"
+    fi
+  done
+else
+  fail "dispatch: no Run evals block calling scripts/run-evals.sh was read out of $WF"
+fi
+
+if ! command -v koto >/dev/null; then
+  fail "koto is not on PATH: the dispatch block's /deliver run on this tree was not checked"
+else
+  run_block "$REPO_ROOT" deliver
+  refused_all=yes
+  i=1
+  while [ "$i" -le 33 ]; do
+    case "$OUT" in *"REFUSED $i "*": graded cases don't run"*) ;; *) refused_all="no ($i)" ;; esac
+    i=$((i + 1))
+  done
+  if [ "$RC" -eq 0 ] && has "PASS 34 handoff-execute-contract" && has "PASS 35 handoff-scope-contract" \
+    && has "script cases: 2 of 2 passed" && [ "$refused_all" = yes ] && record_empty; then
+    pass "dispatch: SKILL=deliver on this tree passes cases 34 and 35, refuses 1 to 33, 2 of 2 passed, exit 0"
+  else
+    fail "dispatch SKILL=deliver (rc=$RC, refused all: $refused_all): $OUT"
+  fi
+fi
+
+# The runner's argument lists under /bin/bash, with EVAL_MODEL=opus and every
+# billing variable set: none of them starts claude.
+run_tree_sh() {
+  RC=0
+  OUT=$(cd "$T" && env ANTHROPIC_API_KEY=sk-test ANTHROPIC_AUTH_TOKEN=tok-test \
+    ANTHROPIC_BASE_URL=https://example.invalid CLAUDE_CODE_USE_BEDROCK=1 CLAUDE_CODE_USE_VERTEX=1 \
+    EVAL_MODEL=opus STUB_CLAUDE_RECORD="$RECORD" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
+    /bin/bash "$TREE/scripts/run-evals.sh" "$@" 2>&1) || RC=$?
+}
+run_tree_sh --all --runs 3 --release-subset --no-baseline
+if [ "$RC" -eq 1 ] && has "script cases: 3 of 16 passed"; then
+  pass "arguments: --all --runs 3 --release-subset --no-baseline runs the script cases, 3 of 16, exit 1"
+else
+  fail "arguments --all --runs 3 (rc=$RC): $OUT"
+fi
+run_tree_sh --scenario pass-case fx
+if [ "$RC" -eq 0 ] && has "script cases: 1 of 1 passed"; then
+  pass "arguments: --scenario pass-case fx, 1 of 1, exit 0"
+else
+  fail "arguments --scenario (rc=$RC): $OUT"
+fi
+run_tree_sh --prep-only fx
+if [ "$RC" -eq 3 ] && has "Error: --prep-only prepares a model-graded run, and graded cases don't run;"; then
+  pass "arguments: --prep-only fx is refused, exit 3"
+else
+  fail "arguments --prep-only (rc=$RC): $OUT"
+fi
+run_tree_sh --list
+list_rc=$RC
+run_tree_sh --list-changed
+if [ "$list_rc" -eq 0 ] && [ "$RC" -eq 0 ]; then
+  pass "arguments: --list and --list-changed exit 0"
+else
+  fail "arguments --list (rc=$list_rc), --list-changed (rc=$RC): $OUT"
+fi
+run_tree_sh --validate fx
+if [ "$RC" -eq 2 ] && has "Error: no iterations found in"; then
+  pass "arguments: --validate fx finds no iterations, exit 2"
+else
+  fail "arguments --validate (rc=$RC): $OUT"
+fi
+run_tree_sh --help
+if [ "$RC" -eq 1 ]; then
+  pass "arguments: --help exits 1"
+else
+  fail "arguments --help (rc=$RC): $OUT"
+fi
+if record_empty; then
+  pass "dispatch and arguments: no run started claude"
+else
+  fail "dispatch or arguments started claude: $(cat "$RECORD")"
 fi
 
 rm -rf "$TREE"

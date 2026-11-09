@@ -1,29 +1,33 @@
 # Manual-only: this workflow runs when someone dispatches it, never on a
-# schedule. The model-graded eval signal moved to the release check (see the
-# evals-at-release design and .claude/shirabe-extensions/release.md); this
-# workflow stays so whoever fixes shirabe#612 can dispatch a run and show
-# scenarios being graded.
+# schedule or a push.
 #
-# A run needs three things:
-# - The isolated-checkout fix tracked in shirabe#612. Until it lands, the
-#   harness cannot grade scenarios here: scripts/run-evals.sh fails to set
-#   up its isolated checkout on a branch, and a run on main grades nothing.
-# - The ANTHROPIC_API_KEY repository secret, which the claude CLI steps read.
-# - The skill-creator plugin, which the job installs from the official
-#   plugin marketplace before running scripts/run-evals.sh.
+# scripts/run-evals.sh runs a skill's script-graded cases only and lists every
+# graded case as refused (Decision 1 of
+# docs/designs/DESIGN-skill-regression-detection.md). So a dispatch needs no
+# model, no API key and no repository secret: the job installs koto, which the
+# hand-off cases compile templates with, checks it against the floor, and runs
+# the harness. The koto install passes github.token to tsuku only so that its
+# GitHub API calls aren't rate limited.
+#
+# The skill input reaches the shell through the environment, never through
+# template expansion inside a run block, and the step refuses any value that
+# isn't empty or a skill name before the harness starts.
 name: Run skill evals
 
 on:
   workflow_dispatch:
     inputs:
       skill:
-        description: 'Skill name to eval (leave empty for all)'
+        description: 'Skill name to run the script cases of (leave empty for all)'
         required: false
         default: ''
       ref:
-        description: 'Branch or ref to run evals on'
+        description: 'Branch or ref to run on'
         required: false
         default: 'main'
+
+permissions:
+  contents: read
 
 jobs:
   run-evals:
@@ -33,32 +37,38 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: '20'
+          python-version: '3.x'
 
-      - name: Install claude CLI
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
-      - name: Add official plugin marketplace
+      - name: Install koto
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: claude plugin marketplace add anthropics/claude-plugins-official
+          TSUKU_TELEMETRY: "0"
+          # tsuku install calls the GitHub API; the token keeps shared runners
+          # from hitting the unauthenticated rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tsuku install -y
 
-      - name: Install skill-creator plugin
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: claude plugin install skill-creator --scope user
-
-      - name: Install jq
-        run: sudo apt-get install -y jq
+      - name: Assert koto meets the floor
+        run: |
+          command -v koto
+          bash scripts/assert-koto-floor.sh
 
       - name: Run evals
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SKILL: ${{ github.event.inputs.skill }}
         run: |
-          if [ -n "${{ github.event.inputs.skill }}" ]; then
-            scripts/run-evals.sh "${{ github.event.inputs.skill }}"
+          if [ -n "$SKILL" ]; then
+            case "$SKILL" in
+              [!abcdefghijklmnopqrstuvwxyz0123456789]* | *[!abcdefghijklmnopqrstuvwxyz0123456789-]*)
+                printf '%s\n' "Error: the skill input must be empty or a skill name matching [a-z0-9][a-z0-9-]*, got '$SKILL'" >&2
+                exit 1
+                ;;
+            esac
+            scripts/run-evals.sh "$SKILL"
           else
             scripts/run-evals.sh --all
           fi
