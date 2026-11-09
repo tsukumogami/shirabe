@@ -113,6 +113,17 @@
 #       rm`. With `job -` no session survived: nothing is archived or
 #       posted, the retired event is sent without a request, and the last
 #       line still says done.
+#
+#       A removed verdict may say `handoff none` (shirabe#1529): the worker
+#       was gone before it wrote a handoff comment, and the seal checked
+#       that it is over. Only a removed verdict may say so; a stopped one
+#       refuses. Step 2 then has no comment to re-read, and before the pass
+#       says done, with or without an archive, it appends one `entry` to the
+#       record through state-entry.sh saying the teardown closed without a
+#       handoff comment and why (the instance by its directory name, the
+#       worker's session or that none survived, each pull request by number
+#       and merge commit). An entry that isn't written refuses, so RESULT
+#       never says done without it. The README's Handoff line says none.
 #   teardown-pass.sh confirm --session <s>
 #       The teardown_confirm state's default action: reads the verdict the
 #       same way, both listings, and the archive (RESULT says done, the
@@ -244,6 +255,12 @@ read_verdict() {
         [ "$INAME" = - ] || { echo "a removed verdict names an instance [$INAME]; it must be -" >"$T/why"; return 1; }
         grep -qx 'job -' <<<"$v" && { NOJOB=1 JOB="" SID=""; }
     fi
+    # `handoff none` (shirabe#1529): the worker was gone before it could
+    # write a handoff comment, which only a unit removed outside the pass can
+    # say.
+    if [ "$HANDOFF" = none ] && [ "$REMOVED" = 0 ]; then
+        echo "a verdict without a handoff link is not a removed teardown" >"$T/why"; return 1
+    fi
     # The fields the commands are built from are checked here, whatever the
     # verdict says: an empty or odd name never reaches niwa or claude.
     dc_valid_topic "$TOPIC" || { echo "the verdict's topic is not a dispatch topic" >"$T/why"; return 1; }
@@ -373,12 +390,16 @@ while read -r ref sha; do
 done <<EOF
 $PRS
 EOF
-cid=${HANDOFF##*#issuecomment-}
-hrepo=${HANDOFF#https://github.com/}; hrepo=$(printf '%s' "$hrepo" | cut -d/ -f1-2)
-grep -Eq '^[1-9][0-9]*$' <<<"$cid" || refused "the handoff link is not a comment link"
-out=$(dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$hrepo/issues/comments/$cid" 2>"$T/gh.err") \
-    || refused "the handoff comment could not be read: $(tail -1 "$T/gh.err")"
-printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null || refused "the handoff comment is gone or empty"
+# A removed verdict with `handoff none` has no comment to re-read; the entry
+# appended before the pass says done stands in for it.
+if [ "$HANDOFF" != none ]; then
+    cid=${HANDOFF##*#issuecomment-}
+    hrepo=${HANDOFF#https://github.com/}; hrepo=$(printf '%s' "$hrepo" | cut -d/ -f1-2)
+    grep -Eq '^[1-9][0-9]*$' <<<"$cid" || refused "the handoff link is not a comment link"
+    out=$(dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$hrepo/issues/comments/$cid" 2>"$T/gh.err") \
+        || refused "the handoff comment could not be read: $(tail -1 "$T/gh.err")"
+    printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null || refused "the handoff comment is gone or empty"
+fi
 if [ "$REMOVED" = 1 ]; then
     # Removed mode: the unit is already gone. Check that it is (neither
     # listing names it; a listing that can't be read refuses), then preserve
@@ -436,11 +457,31 @@ send_retired() {
     bash "$EMIT" event --scope unit-cost --kind retired --koto-dir "$ROOT" ${f[@]+"${f[@]}"} </dev/null >/dev/null 2>&1 || :
 }
 
+# no_handoff_entry: for a `handoff none` verdict, the record entry that
+# stands in for the handoff link (shirabe#1529), written before the pass
+# says done. It names the instance by its directory name and each pull
+# request by number and merge commit, so the record's own scan finds no home
+# path or repository name in it to refuse. An entry that isn't written
+# refuses: the pass never says done without it.
+no_handoff_entry() {
+    local prs who
+    [ "$HANDOFF" = none ] || return 0
+    STEP=entry
+    prs=$(printf '%s\n' "$PRS" | awk 'NF == 2 { n = $1; sub(/.*#/, "", n); printf "%s#%s at %s", (c++ ? ", " : ""), n, $2 }')
+    if [ -n "$SID" ]; then who="the worker's session $SID is not live"; else who="no session of the worker survived"; fi
+    printf 'Teardown of %s closed without a handoff comment: the unit was removed outside the pass, niwa lists no instance %s, Claude Code lists no job there, %s, and its pull request merged (%s). No handoff comment exists on the pull request, so this entry stands in for the link.\n' \
+        "$TOPIC" "$(basename "$IPATH")" "$who" "$prs" >"$T/entry"
+    bash "$HERE/state-entry.sh" --session "$SESSION" --kind entry --text-file "$T/entry" </dev/null >"$T/entry.out" 2>"$T/entry.err" \
+        || refused "the entry standing in for the handoff link could not be written: $(tail -1 "$T/entry.err")"
+    say "recorded the entry standing in for the handoff link"
+}
+
 STEP=preserve
 # A unit removed outside the pass with no surviving session has nothing to
 # archive and no entry to post: its cost can't be read from anything. The
 # pass still retires it.
 if [ "$NOJOB" = 1 ]; then
+    no_handoff_entry
     send_retired
     say "done: the unit was removed outside the pass and no session of it survives; nothing archived"
     exit 0
@@ -576,7 +617,11 @@ ac_manifest "$ARCH" "$T" || refused "$AC_WHY"
         printf -- '- Claude Code job: %s, session %s\n' "$JOB" "$SID"
     fi
     printf '%s\n' "$PRS" | sed 's/^/- Merged pull request: /'
-    printf -- '- Handoff: %s\n\n' "$HANDOFF"
+    if [ "$HANDOFF" = none ]; then
+        printf -- '- Handoff: none (removed outside the pass with no handoff comment; see the record entry)\n\n'
+    else
+        printf -- '- Handoff: %s\n\n' "$HANDOFF"
+    fi
 } >"$T/readme.head"
 ac_readme "$ARCH" "$T" "$T/readme.head" "$T/trees.skipped"
 
@@ -598,6 +643,7 @@ dc_with_deadline "$CAPTURE_SECS" bash "$HERE/unit-cost.sh" capture --session "$S
 # Removed mode ends here: the instance and the job are already gone, so the
 # pass never reaches the destroy or the removal below.
 if [ "$REMOVED" = 1 ]; then
+    no_handoff_entry
     STEP=confirm
     printf 'done %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ARCH/RESULT"
     say "done $ARCH"
