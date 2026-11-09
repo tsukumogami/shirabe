@@ -180,4 +180,83 @@ hr --topic gamma --retire >/dev/null 2>"$T/err"; rc=$?
 eq "  ... and only it" "alpha beta" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
 eq "  ... the write goes to the session, nothing to GitHub" "" "$(gh_writes)"
 
+echo "== a dispatch-failed holding retired (shirabe#1612) =="
+# A failed launch's row goes through --retire only when no worker exists for
+# its topic: niwa lists no session for it, and no unfinished Claude job carries
+# its session name. Either one found refuses it, and a listing that can't be
+# read writes nothing. The runs start in a stand-in workspace root, with
+# stand-ins for niwa's listing and the Claude job directory.
+WS="$T/ws"
+mkdir -p "$WS/.niwa" "$T/claude/jobs"
+: >"$WS/.niwa/workspace.toml"
+NIWA_OUT="$T/niwa-list.json" NIWA_FAIL="$T/niwa-fail"
+cat >"$T/niwa-stand-in.sh" <<'EOF'
+#!/usr/bin/env bash
+[ -e "$NIWA_FAIL" ] && { echo "niwa: cannot read the instances" >&2; exit 1; }
+cat "$NIWA_OUT"
+EOF
+chmod +x "$T/niwa-stand-in.sh"
+hf() { (cd "$WS" && export NIWA="$T/niwa-stand-in.sh" NIWA_OUT NIWA_FAIL DC_CLAUDE_HOME="$T/claude" && hw "$@"); }
+job() { mkdir -p "$T/claude/jobs/$1" && jq -nc --arg n "$2" --arg s "$3" '{name: $n, state: $s}' >"$T/claude/jobs/$1/state.json"; }
+rawjob() { mkdir -p "$T/claude/jobs/$1" && printf '%s' "$2" >"$T/claude/jobs/$1/state.json"; }
+nojob() { rm -rf "$T/claude/jobs/$1"; }
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" --argjson d "$(holding delta '{"dispatch_status": "dispatch-failed"}')" \
+    --argjson g "$(holding gamma '{"dispatch_status": "stranded"}')" '.holdings = [$a, $d, $g]')"
+echo '[{"name": "tsuku+delta", "session_name": "delta-0123abcd", "path": "/ws/tsuku+delta"}]' >"$NIWA_OUT"
+SNAP=$(session_snapshot "$SR")
+hf --topic delta --strand >/dev/null 2>"$T/err"; eq "--strand still refuses a dispatch-failed holding" 65 $?
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while niwa lists its session" 65 $?
+grep -q "niwa lists delta's session delta-0123abcd" "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+: >"$NIWA_FAIL"
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire of a dispatch-failed holding exits 2 when niwa's listing can't be read" 2 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+rm -f "$NIWA_FAIL"
+echo '[{"name": "tsuku+deltav2", "session_name": "deltav2-0123abcd", "path": "/ws/tsuku+deltav2"}]' >"$NIWA_OUT"
+job 0a1b2c3d delta-89abcdef working
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while an unfinished job carries its session" 65 $?
+grep -q 'Claude job 0a1b2c3d carries delta' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+job 0a1b2c3d delta-89abcdef done
+job 4e5f6a7b deltav2-0123abcd working
+hf --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a dispatch-failed holding once no worker exists for it (a finished job, another topic's session)" \
+    || bad "--retire removes a dispatch-failed holding once no worker exists for it (a finished job, another topic's session)" "exit $rc: $(cat "$T/err")"
+eq "  ... and only it" "alpha gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and leaves an entry naming the topic" \
+    "entry|Holding delta (unit $(holding delta | jq -r .unit)) retired: its dispatch failed, and no niwa session or unfinished Claude job exists for it." \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+hw --topic gamma --retire >/dev/null 2>"$T/err"; eq "--retire of a stranded holding still writes no entry" 0 $?
+koto context get "$SR" record/entries/000002 >/dev/null 2>&1; eq "  ... (no second entry)" 1 $?
+
+echo "== a dispatch-failed holding's job check fails closed (shirabe#1612) =="
+# Only done, stopped and failed count as finished, and a job state file whose
+# name can't be read could be the topic's worker, so each one refuses.
+seed "$(record_json roadmap plugin-system | jq -c --argjson d "$(holding delta '{"dispatch_status": "dispatch-failed"}')" '.holdings = [$d]')"
+SNAP=$(session_snapshot "$SR")
+job 0a1b2c3d delta-89abcdef idle
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while a job carrying its session is idle" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+job 0a1b2c3d delta-89abcdef done
+rawjob 5c6d7e8f 'not json'
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while a job's state file isn't JSON" 65 $?
+grep -q 'Claude job 5c6d7e8f has no readable name' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+rawjob 5c6d7e8f '{"state": "working"}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while a job's state file has no name" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+nojob 5c6d7e8f
+
+echo "== a dispatch-failed holding retired through the session (shirabe#1612) =="
+# Its own roadmap, so no other live run of the same record is in the way.
+SF=coordinate-roadmap-retire-path-20260927T070000Z
+seed_session "$SF" "$(record_json roadmap retire-path | jq -c --argjson d "$(holding delta '{"dispatch_status": "dispatch-failed"}')" '.holdings = [$d]')"
+found_session "$SF" "$(roadmap_vars retire-path)"
+(cd "$WS" && export NIWA="$T/niwa-stand-in.sh" NIWA_OUT NIWA_FAIL DC_CLAUDE_HOME="$T/claude" && bash "$H" --session "$SF" --topic delta --retire) >/dev/null 2>"$T/err"
+eq "--retire through --session removes a dispatch-failed holding with no worker" 0 $?
+eq "  ... and the row is gone" "" "$(session_state "$SF" | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and the session holds the entry" \
+    "entry|Holding delta (unit $(holding delta | jq -r .unit)) retired: its dispatch failed, and no niwa session or unfinished Claude job exists for it." \
+    "$(koto context get "$SF" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+
 done_tests state-holding
