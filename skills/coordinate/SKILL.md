@@ -259,6 +259,11 @@ work.
      through 0.31.0, so there a takeover ends at the fence. koto 0.32.0 and
      later fence a run on the cloud backend too.
 
+   `failed=takeover_unfinished` (exit 1) is no refusal: the old run is fenced
+   by this session's new run, but koto's init failed after the fence (a carry
+   that failed, say), and the message carries koto's exit, code and reason.
+   Fix what it names and run the same opener again from this session.
+
    **The run's role.** Every start that knows the role prints `role=<role>`,
    manager or director; keep it, since `record_open`, `predecessor_carry` and the
    reconcile's `no-role` gap read it from there. The opener reads the role of
