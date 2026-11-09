@@ -10,7 +10,8 @@
 # fence lines are dropped and their contents kept. Markdown goes:
 # heading markers, blockquote markers, list markers, task boxes, table rules
 # (a row's cells are joined with ", "), images (their alt text stays), bold,
-# italic, code ticks and HTML comments; a link becomes `text (url)`. Runs of
+# italic, code ticks and HTML comments; a link becomes `text (url)`. Text
+# inside a code span keeps every `_` and `*`: only its ticks go. Runs of
 # blank lines collapse to one.
 #
 # Prints the message on stdout: the title, a blank line, then Part 1 as plain
@@ -56,8 +57,10 @@ PART1=$(jq -Rsr '
     else . end
   | gsub("!\\[(?<a>[^\\]]*)\\]\\([^)]*\\)"; "\(.a)")
   | gsub("\\[(?<t>[^\\]]+)\\]\\((?<u>[^)]+)\\)"; "\(.t) (\(.u))")
+  | gsub("(?<!`)(?<t>`+)(?!`)(?<c>.+?)(?<!`)\\k<t>(?!`)"; .c | gsub("_"; "") | gsub("\\*"; ""))
   | gsub("(?<m>\\*\\*|__)(?<x>.+?)\\k<m>"; "\(.x)")
   | gsub("(?<![\\w*])\\*(?!\\s)(?<x>.+?)(?<!\\s)\\*(?![\\w*])"; "\(.x)")
+  | gsub(""; "_") | gsub(""; "*")
   | gsub("`"; "")
   | gsub("<!--.*?-->"; "")
   | sub("[ \t]+$"; "")' "$SRC") || { echo "squash-message: the body couldn't be parsed" >&2; exit 2; }
