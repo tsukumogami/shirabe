@@ -315,7 +315,10 @@ lifecycle_findings_summary() {
 #         Returns 0 if the expected failure was observed; returns 1 (signal:
 #         skip cascade entirely) when the validator reports a clean pass —
 #         the chain is already at its terminal and the cascade would be a
-#         no-op.
+#         no-op. The exception is a clean pass on an Active multi-pr PLAN
+#         whose linked issues are all confirmed closed: that pass is the
+#         multi-pr in-flight posture, not the terminal, so it returns 0
+#         (multi_pr_cascade_owed decides, and fails closed).
 #
 #   post: expects exit code 0 (cascade has finalized the chain). Returns 0
 #         on the expected clean pass; returns 1 when the chain did not reach
@@ -414,6 +417,10 @@ lifecycle_probe() {
 
     if [[ "$mode" == "pre" ]]; then
         if [[ "$exit_code" -eq 0 ]]; then
+            if multi_pr_cascade_owed "$seed"; then
+                log_info "Pre-cascade probe: clean pass on an Active multi-pr PLAN whose issues are all closed; the cascade is owed"
+                return 0
+            fi
             log_info "Pre-cascade probe: chain already at ready-posture passing state — cascade is a no-op"
             return 1
         fi
@@ -544,6 +551,75 @@ roadmap_schema_of() {
             gsub(/^["\x27]|["\x27]$/, "", s)
         }
     ' "$1"
+}
+
+# plan_frontmatter_field <file> <key>: print the frontmatter's `<key>:` value,
+# or nothing when the file has no frontmatter, the frontmatter never closes, or
+# it has no such key. Same reading rules as roadmap_schema_of: CR and quote
+# stripping, and the value is printed only once the closing `---` is seen.
+# multi_pr_cascade_owed is the only caller.
+plan_frontmatter_field() {
+    awk -v key="$2" '
+        { sub(/\r$/, "") }
+        NR == 1 { if ($0 != "---") exit; fm = 1; next }
+        fm && $0 == "---" { if (found) print v; exit }
+        fm && !found && index($0, key ":") == 1 {
+            v = substr($0, length(key) + 2)
+            sub(/^[ \t]+/, "", v)
+            sub(/[ \t]+$/, "", v)
+            gsub(/^["\x27]|["\x27]$/, "", v)
+            found = 1
+        }
+    ' "$1"
+}
+
+# multi_pr_cascade_owed <plan>: return 0 when a clean pre-probe still owes the
+# cascade, 1 otherwise.
+#
+# The validator judges an issue-carrying multi-pr PLAN at `Active` at the
+# multi-pr in-flight posture, where PLAN `Active`, DESIGN `Planned` and BRIEF
+# `Accepted` all pass. So the pre-probe reads clean both while the PLAN's work
+# is in flight and once its last issue has merged, and only the second case
+# owes the cascade. The validator can't tell them apart: it reads files, and
+# whether an issue is closed is GitHub's state. This reads it.
+#
+# It fails closed, because a wrong 0 deletes a PLAN whose work is still in
+# flight. It returns 1 unless the PLAN is a multi-pr plan at `Active` with at
+# least one row in its `## Implementation Issues` table, every such row's issue
+# cell links the GitHub issue its `#N` names, and check_issue_closed confirms
+# every one of those issues closed. An open issue, a failed gh read, an
+# unparseable URL and a row without a matching link all return 1. An
+# outline-shaped multi-pr PLAN has no issue rows and returns 1, which keeps
+# today's skip for it; a single-pr PLAN never gets past the first check.
+multi_pr_cascade_owed() {
+    local plan="$1"
+    [[ "$(plan_frontmatter_field "$plan" execution_mode)" == "multi-pr" ]] || return 1
+    [[ "$(plan_frontmatter_field "$plan" status)" == "Active" ]] || return 1
+    local cells
+    cells=$(awk '
+        { sub(/\r$/, "") }
+        /^## / { in_table = ($0 == "## Implementation Issues"); next }
+        in_table && /^\|[ \t]*(~~)?\[#[0-9]+:/ {
+            n = split($0, cell, "|")
+            if (n >= 2) print cell[2]
+        }
+    ' "$plan")
+    [[ -n "$cells" ]] || return 1
+    local cell number url
+    while IFS= read -r cell; do
+        [[ -z "$cell" ]] && continue
+        number=$(sed -nE 's/^[[:space:]]*(~~)?\[#([0-9]+):.*/\2/p' <<< "$cell")
+        url=$(grep -oE 'https://github\.com/[^/]+/[^/]+/issues/[0-9]+' <<< "$cell" | head -1) || url=""
+        if [[ -z "$number" || -z "$url" || "${url##*/}" != "$number" ]]; then
+            log_info "Pre-cascade probe: issue row without a GitHub issue link for its number; not finalizing: $cell"
+            return 1
+        fi
+        if ! check_issue_closed "$url"; then
+            log_info "Pre-cascade probe: $url is not confirmed closed; the PLAN's work is still in flight"
+            return 1
+        fi
+    done <<< "$cells"
+    return 0
 }
 
 # ── Handler: handle_roadmap ───────────────────────────────────────────────────
@@ -951,6 +1027,12 @@ fi
 # must fire. A clean pass at this point means the chain is already at its
 # ready-posture terminal — the cascade is a no-op and the script exits 0
 # with cascade_status: skipped, no transitions performed.
+#
+# One clean pass still owes the cascade: an issue-carrying multi-pr PLAN at
+# `Active` passes at the multi-pr in-flight posture whether or not its work is
+# done. When every issue the PLAN's table links is confirmed closed,
+# lifecycle_probe lets the cascade run (see multi_pr_cascade_owed); any doubt
+# keeps the skip.
 #
 # The post-cascade verification re-runs the same probe after the commit;
 # the pre/post pair pins the cascade's behavior end to end without the
