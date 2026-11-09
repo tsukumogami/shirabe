@@ -3676,6 +3676,414 @@ scenario_plan_v2_outline_step_stops() {
     cd "$SCRIPT_DIR"
 }
 
+# ══════════════════════════════════════════════════════════════════════════════
+# A clean pre-probe on an issue-carrying multi-pr PLAN (#1664)
+#
+# The chain-targeted check judges an issue-carrying multi-pr PLAN at Active at
+# the multi-pr in-flight posture, where the PLAN at Active, a DESIGN at Planned
+# and a BRIEF at Accepted all pass. So the probe reads clean both while the
+# PLAN's issues are open and once every one of them has closed. Only the second
+# owes the cascade, and only GitHub can tell them apart.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Write a plan/v1 PLAN at Active that carries an Implementation Issues table.
+# split_rationale is there because the ready-mode check fires L09 on a multi-pr
+# PLAN without one; with it, the issue's chain reads clean.
+# Usage: write_issue_plan <path> <upstream> <execution_mode> <issue-rows>
+# where <issue-rows> is the table body: link rows and summary rows.
+write_issue_plan() {
+    local path="$1"
+    local upstream="$2"
+    local mode="$3"
+    local rows="$4"
+    mkdir -p "$(dirname "$path")"
+    cat > "$path" <<EOF
+---
+schema: plan/v1
+status: Active
+execution_mode: $mode
+tracking_level: issues
+split_rationale: Incremental Value. Each issue is useful on its own.
+upstream: $upstream
+milestone: "Test"
+issue_count: 2
+---
+
+# PLAN: Cascade Test
+
+## Status
+
+Active
+
+## Scope Summary
+
+Two issues.
+
+## Decomposition Strategy
+
+Horizontal.
+
+## Implementation Issues
+
+| Issue | Dependencies | Complexity |
+|-------|--------------|------------|
+$rows
+
+## Dependency Graph
+
+\`\`\`mermaid
+graph TD
+    I11["#11: first piece"]
+    I12["#12: second piece"]
+    I11 --> I12
+    class I11,I12 done
+    classDef done fill:#c8e6c9
+\`\`\`
+
+**Legend**: done = merged.
+
+## Implementation Sequence
+
+#11, then #12.
+EOF
+}
+
+# The issue rows the multi-pr scenarios share: both struck through, each linked
+# to its GitHub issue.
+MULTI_PR_ROWS='| ~~[#11: first piece](https://github.com/test-owner/test-repo/issues/11)~~ | None | simple |
+| _The first piece._ | | |
+| ~~[#12: second piece](https://github.com/test-owner/test-repo/issues/12)~~ | [#11](https://github.com/test-owner/test-repo/issues/11) | simple |
+| _The second piece._ | | |'
+
+# Write the chain the issue reports: PLAN (multi-pr, Active, issue rows) ->
+# DESIGN (Planned) -> BRIEF (Accepted).
+# Usage: write_multi_pr_chain <repo> <issue-rows>
+write_multi_pr_chain() {
+    local repo="$1"
+    local rows="$2"
+    write_brief "$repo/docs/briefs/BRIEF-cascade-multi.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-multi.md" \
+        "docs/briefs/BRIEF-cascade-multi.md"
+    write_issue_plan "$repo/docs/plans/PLAN-cascade-multi.md" \
+        "docs/designs/DESIGN-cascade-multi.md" "multi-pr" "$rows"
+}
+
+# A gh stub whose `issue view` fails, as a read does when GitHub can't be
+# reached. Every other subcommand is a no-op returning 0, like setup_gh_stub's.
+setup_gh_failing_stub() {
+    local repo_dir="$1"
+    local stub_dir="$repo_dir/.gh-failing-stub"
+    mkdir -p "$stub_dir"
+    cat > "$stub_dir/gh" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "issue" ]] && [[ "${2:-}" == "view" ]]; then
+    echo "error connecting to api.github.com" >&2
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "$stub_dir/gh"
+    GH_STUB_DIR="$stub_dir"
+}
+
+# Assert a run left the chain alone: skipped at the pre-probe, nothing past it,
+# the PLAN still on disk, docs/ untouched and HEAD where it was. Only docs/ is
+# checked for changes: the stubs live in the repository and the gh stub
+# rewrites its states file as it answers.
+# Usage: assert_multi_pr_skipped <scenario> <json> <repo> <head-before>
+assert_multi_pr_skipped() {
+    local scenario="$1"
+    local output="$2"
+    local repo="$3"
+    local head_before="$4"
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "skipped"' \
+        "cascade_status is skipped" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe" and .status == "skipped")] | length == 1' \
+        "lifecycle_pre_probe skipped" || ok=false
+    assert_json "$scenario" "$output" '[.steps[] | select(.action != "lifecycle_pre_probe")] | length == 0' \
+        "nothing past the pre-probe ran" || ok=false
+    assert_shell "$scenario" "$([[ -f "$repo/docs/plans/PLAN-cascade-multi.md" ]] && echo true)" \
+        "the PLAN is still on disk" || ok=false
+    assert_shell "$scenario" "$([[ -z "$(git -C "$repo" status --porcelain -- docs)" ]] && echo true)" \
+        "docs/ is untouched" "$(git -C "$repo" status --porcelain -- docs)" || ok=false
+    assert_shell "$scenario" "$([[ "$(git -C "$repo" rev-parse HEAD)" == "$head_before" ]] && echo true)" \
+        "no commit was made" || ok=false
+
+    [[ "$ok" == "true" ]]
+}
+
+# ── #1664: every issue closed, the cascade is owed ───────────────────────────
+# The issue's own chain, through the real validator: the pre-probe reads clean,
+# every issue in the PLAN is closed, so the cascade applies what
+# `finalize-chain --dry-run` lists (delete the PLAN, DESIGN to Current, BRIEF to
+# Done), commits, pushes and reports completed.
+scenario_multi_pr_all_closed_cascades() {
+    local scenario="#1664: a multi-pr PLAN whose issues are all closed cascades"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_gh_stub "$repo"
+    printf 'CLOSED\nCLOSED\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    write_multi_pr_chain "$repo" "$MULTI_PR_ROWS"
+    commit_and_push_all
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-multi.md" --push)
+
+    local ok=true
+
+    if ! assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed"; then
+        ok=false
+        echo "    cascade output: $(jq -c . <<< "$output" 2>/dev/null || echo "$output")"
+    fi
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe" and .status == "ok")] | length == 1' \
+        "lifecycle_pre_probe ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "delete_plan ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 1' \
+        "transition_design ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_brief" and .status == "ok")] | length == 1' \
+        "transition_brief ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push" and .status == "ok")] | length == 1' \
+        "push ok" || ok=false
+
+    assert_shell "$scenario" \
+        "$([[ -z "$(git -C "$repo" ls-tree HEAD docs/plans/PLAN-cascade-multi.md)" ]] && echo true)" \
+        "the PLAN is gone at HEAD" || ok=false
+    assert_shell "$scenario" \
+        "$(grep -q '^status: Current' "$repo/docs/designs/current/DESIGN-cascade-multi.md" 2>/dev/null && echo true)" \
+        "the DESIGN is Current under docs/designs/current/" || ok=false
+    assert_shell "$scenario" \
+        "$(grep -q '^status: Done' "$repo/docs/briefs/BRIEF-cascade-multi.md" && echo true)" \
+        "the BRIEF is Done" || ok=false
+    assert_shell "$scenario" \
+        "$([[ "$(git -C "$repo" rev-parse HEAD)" == "$(git -C "$repo" rev-parse '@{u}')" ]] && echo true)" \
+        "the finalization commit is pushed" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── #1664: an issue still open keeps the skip ─────────────────────────────────
+# The same chain while the work is in flight: one issue is still open, so a
+# clean pre-probe means what it always meant, and nothing is finalized early.
+scenario_multi_pr_open_issue_skips() {
+    local scenario="#1664: a multi-pr PLAN with an open issue is not finalized"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_gh_stub "$repo"
+    printf 'CLOSED\nOPEN\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    write_multi_pr_chain "$repo" "$MULTI_PR_ROWS"
+    commit_and_push_all
+    local head_before
+    head_before=$(git -C "$repo" rev-parse HEAD)
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-multi.md" --push)
+
+    assert_multi_pr_skipped "$scenario" "$output" "$repo" "$head_before" \
+        && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── #1664: a read that fails keeps the skip ───────────────────────────────────
+# GitHub can't be read: the issues' state is unknown, which must never read as
+# closed.
+scenario_multi_pr_unreadable_skips() {
+    local scenario="#1664: a multi-pr PLAN whose issues can't be read is not finalized"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_gh_failing_stub "$repo"
+
+    write_multi_pr_chain "$repo" "$MULTI_PR_ROWS"
+    commit_and_push_all
+    local head_before
+    head_before=$(git -C "$repo" rev-parse HEAD)
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-multi.md" --push)
+
+    assert_multi_pr_skipped "$scenario" "$output" "$repo" "$head_before" \
+        && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── #1664: a row without a GitHub issue link keeps the skip ───────────────────
+# The first row links an in-page anchor rather than its issue, so there is no
+# issue to ask about. That row can't be confirmed closed, and gh is never asked.
+scenario_multi_pr_unlinked_row_skips() {
+    local scenario="#1664: a multi-pr PLAN with a row not linked to its issue is not finalized"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_gh_stub "$repo"
+    printf 'CLOSED\nCLOSED\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    local rows='| ~~[#11: first piece](#issue-11-first-piece)~~ | None | simple |
+| _The first piece._ | | |
+| ~~[#12: second piece](https://github.com/test-owner/test-repo/issues/12)~~ | None | simple |
+| _The second piece._ | | |'
+    write_multi_pr_chain "$repo" "$rows"
+    commit_and_push_all
+    local head_before
+    head_before=$(git -C "$repo" rev-parse HEAD)
+
+    local output
+    output=$(run_cascade "docs/plans/PLAN-cascade-multi.md" --push)
+
+    local ok=true
+    assert_multi_pr_skipped "$scenario" "$output" "$repo" "$head_before" || ok=false
+    assert_shell "$scenario" "$([[ "$(wc -l < "$GH_STUB_DIR/issue-states.txt" | tr -d ' ')" == "2" ]] && echo true)" \
+        "gh was not asked about any issue" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── #1664: a single-pr PLAN keeps today's skip on a clean probe ───────────────
+# The probe is pinned clean so the scenario reaches the new decision. A single-pr
+# PLAN is not the shape the clean probe misreads, so even with issue rows whose
+# issues read closed, the run skips and gh is never asked.
+scenario_single_pr_clean_probe_skips() {
+    local scenario="#1664: a single-pr PLAN with closed issue rows still skips on a clean probe"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+    setup_gh_stub "$repo"
+    printf 'CLOSED\nCLOSED\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    write_brief "$repo/docs/briefs/BRIEF-cascade-multi.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-multi.md" \
+        "docs/briefs/BRIEF-cascade-multi.md"
+    write_issue_plan "$repo/docs/plans/PLAN-cascade-multi.md" \
+        "docs/designs/DESIGN-cascade-multi.md" "single-pr" "$MULTI_PR_ROWS"
+    commit_and_push_all
+    local head_before
+    head_before=$(git -C "$repo" rev-parse HEAD)
+
+    echo "0" > "$(dirname "$SHIRABE_STUB")/validate-exits.txt"
+
+    local output
+    export CASCADE_SHIRABE_BIN_OVERRIDE="$SHIRABE_STUB"
+    output=$(run_cascade "docs/plans/PLAN-cascade-multi.md" --push)
+    unset CASCADE_SHIRABE_BIN_OVERRIDE
+
+    local ok=true
+    assert_multi_pr_skipped "$scenario" "$output" "$repo" "$head_before" || ok=false
+    assert_shell "$scenario" "$([[ "$(wc -l < "$GH_STUB_DIR/issue-states.txt" | tr -d ' ')" == "2" ]] && echo true)" \
+        "gh was not asked about any issue" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── #1664: an outline-shaped multi-pr PLAN keeps today's skip on a clean probe ─
+# An outline-shaped multi-pr PLAN has no issue rows to ask about. The
+# chain-targeted check already gives it the single-pr shape, so its probe fails
+# on its own; pinned clean, the run still skips.
+scenario_multi_pr_outline_clean_probe_skips() {
+    local scenario="#1664: an outline-shaped multi-pr PLAN still skips on a clean probe"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+    setup_shirabe_stub "$repo"
+    setup_gh_stub "$repo"
+    printf 'CLOSED\nCLOSED\n' > "$GH_STUB_DIR/issue-states.txt"
+
+    write_brief "$repo/docs/briefs/BRIEF-cascade-multi.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-multi.md" \
+        "docs/briefs/BRIEF-cascade-multi.md"
+    mkdir -p "$repo/docs/plans"
+    cat > "$repo/docs/plans/PLAN-cascade-multi.md" <<'EOF'
+---
+schema: plan/v1
+status: Active
+execution_mode: multi-pr
+tracking_level: none
+split_rationale: Incremental Value. Each outline is useful on its own.
+upstream: docs/designs/DESIGN-cascade-multi.md
+---
+
+# PLAN: Cascade Test
+
+## Status
+
+Active
+
+## Issue Outlines
+
+### Issue 1: first piece
+
+**Goal**: the first piece.
+
+### Issue 2: second piece
+
+**Goal**: the second piece.
+EOF
+    commit_and_push_all
+    local head_before
+    head_before=$(git -C "$repo" rev-parse HEAD)
+
+    echo "0" > "$(dirname "$SHIRABE_STUB")/validate-exits.txt"
+
+    local output
+    export CASCADE_SHIRABE_BIN_OVERRIDE="$SHIRABE_STUB"
+    output=$(run_cascade "docs/plans/PLAN-cascade-multi.md" --push)
+    unset CASCADE_SHIRABE_BIN_OVERRIDE
+
+    local ok=true
+    assert_multi_pr_skipped "$scenario" "$output" "$repo" "$head_before" || ok=false
+    assert_shell "$scenario" "$([[ "$(wc -l < "$GH_STUB_DIR/issue-states.txt" | tr -d ' ')" == "2" ]] && echo true)" \
+        "gh was not asked about any issue" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -3826,6 +4234,24 @@ scenario_session_records_cascade_result
 cd "$ORIG_DIR"
 
 scenario_plan_v2_outline_step_stops
+cd "$ORIG_DIR"
+
+scenario_multi_pr_all_closed_cascades
+cd "$ORIG_DIR"
+
+scenario_multi_pr_open_issue_skips
+cd "$ORIG_DIR"
+
+scenario_multi_pr_unreadable_skips
+cd "$ORIG_DIR"
+
+scenario_multi_pr_unlinked_row_skips
+cd "$ORIG_DIR"
+
+scenario_single_pr_clean_probe_skips
+cd "$ORIG_DIR"
+
+scenario_multi_pr_outline_clean_probe_skips
 cd "$ORIG_DIR"
 
 echo ""
