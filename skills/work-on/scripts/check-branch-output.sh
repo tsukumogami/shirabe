@@ -9,8 +9,10 @@
 #   --commits (--session <s> | --base-ref <ref>)
 #       Every non-merge commit in the range: its subject must match the
 #       Conventional Commits pattern the `commit_convention` gate in work-on.md
-#       has always applied to the tip, or be git revert's default subject,
-#       `Revert "<subject>"`, around a subject that does; and no line of its
+#       has always applied to the tip, or be one of the subjects git revert
+#       writes around a subject that does: `Revert "<subject>"` for a revert,
+#       and for a revert of that revert `Reapply "<subject>"` (git 2.43 and
+#       later) or `Revert "Revert "<subject>""` (older git); and no line of its
 #       message may be an AI-attribution line, by the predicate PB3 applies to
 #       a PR body
 #       (`is_attribution_line` in crates/shirabe-validate/src/pr_body.rs): a
@@ -200,20 +202,33 @@ is_attributed() {
 }
 
 # is_conventional_subject <subject>: true when the subject matches CONVENTIONAL,
-# or is exactly git revert's default form, Revert "<inner>", with <inner>
-# matching CONVENTIONAL. The wrapper is taken off once, so a revert of a revert
-# still fails.
+# or is exactly one of the subjects git revert writes, with <inner> matching
+# CONVENTIONAL:
+#   Revert "<inner>"            a revert
+#   Reapply "<inner>"           a revert of a revert, git 2.43 and later
+#   Revert "Revert "<inner>""   a revert of a revert, older git
+# One wrapper comes off and nothing more, so a deeper nesting, such as
+# Revert "Reapply "<inner>"" or three Reverts, still fails: its <inner> is
+# itself a wrapper, not a Conventional Commits subject.
 is_conventional_subject() {
     local subject=$1 inner
     grep -Eq "$CONVENTIONAL" <<<"$subject" && return 0
     case "$subject" in
+        'Revert "Revert "'*'""')
+            inner=${subject#Revert \"Revert \"}
+            inner=${inner%\"\"}
+            ;;
         'Revert "'*'"')
             inner=${subject#Revert \"}
             inner=${inner%\"}
-            grep -Eq "$CONVENTIONAL" <<<"$inner"
+            ;;
+        'Reapply "'*'"')
+            inner=${subject#Reapply \"}
+            inner=${inner%\"}
             ;;
         *) return 1 ;;
     esac
+    grep -Eq "$CONVENTIONAL" <<<"$inner"
 }
 
 check_commits() {
@@ -236,7 +251,7 @@ check_commits() {
             || undecided "cannot read commit $sha"
         if ! is_conventional_subject "$subject"; then
             finding commit/conventional-subject \
-                "commit $short subject \"$subject\" is not a Conventional Commits subject: use <type>[optional scope][!]: <description>, with <type> one of feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert, or git's default Revert \"<subject>\" around such a subject"
+                "commit $short subject \"$subject\" is not a Conventional Commits subject: use <type>[optional scope][!]: <description>, with <type> one of feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert, or a subject git revert writes around such a subject: Revert \"<subject>\", Reapply \"<subject>\" (git 2.43 and later) or Revert \"Revert \"<subject>\"\" (older git)"
         fi
         message=$(git log -1 --format=%B "$sha") \
             || undecided "cannot read commit $sha"
