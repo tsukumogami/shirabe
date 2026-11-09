@@ -143,7 +143,14 @@
 #               suppress_status_aware_prompt=true|false
 #               rationale=fresh-chain|revise
 #             No match: no output, exit 0. Two matches: no output, exit 3,
-#             both session names on stderr.
+#             both session names on stderr. A parent koto reports as having
+#             no copy on this host and none under this directory's prefix is
+#             absent, even when koto can't list the other directories'
+#             prefixes: the parent that dispatched this child ran `dispatch
+#             write` from this checkout. Any other answer koto gives that is
+#             neither a state nor not found, among them koto not telling
+#             whether this directory's prefix holds the parent, exits 4 with
+#             the parent's name and koto's reason on stderr.
 #
 #   dispatch clear   removes chain/dispatch from <parent>-<topic>; idempotent.
 #             Prints cleared=<parent>-<topic> (or cleared=absent when there is
@@ -157,7 +164,8 @@
 #             match, after chain/parent is written, it runs the link step with
 #             the parent's session as the dispatcher (a failure prints its
 #             warning= line after adopted=); no match and two matches link
-#             nothing.
+#             nothing. It reads the parents as `dispatch read` does, and exits
+#             4 where that read does.
 #
 #   close-children   for each child in <parent>'s fixed list, re-reads
 #             <child>-<topic> immediately before acting: it is closed with <v>
@@ -500,11 +508,16 @@ check_area() {
 # "removed": true, the final state and the result. An older koto answers "not
 # found". Either way the session is gone: no keys to read or remove, nothing to
 # tick or close.
-SSTATE=""
+#
+# On return 4, SERR holds koto's reason: the error text of its answer, or the
+# exit code when the answer carries none. SRC and SOUT keep koto's exit code and
+# stdout for a caller that reads more of the answer (parent_state).
+SSTATE=""; SERR=""; SRC=0; SOUT=""
 session_state() {
     local out rc=0 term
-    SSTATE=""
+    SSTATE=""; SERR=""
     out=$("$KOTO" status "$1" 2>/dev/null) || rc=$?
+    SRC="$rc"; SOUT="$out"
     if [ "$rc" -eq 0 ]; then
         term=$(printf '%s' "$out" | jq -r 'if type != "object" then "" elif .removed == true then "removed" elif has("is_terminal") then (.is_terminal | tostring) else "" end' 2>/dev/null) || term=""
         case "$term" in
@@ -512,11 +525,42 @@ session_state() {
             true) SSTATE=finished; return 0 ;;
             false) SSTATE=live; return 0 ;;
         esac
+        SERR=$(koto_reason "$out" "$rc")
         return 4
     fi
     if [ "$rc" -eq 2 ]; then
         case "$out" in
             *"not found"*) SSTATE=absent; return 0 ;;
+        esac
+    fi
+    SERR=$(koto_reason "$out" "$rc")
+    return 4
+}
+
+# koto_reason <stdout> <rc> -- print the error text of koto's answer: the last
+# stdout line that is a JSON object with a string `error` (or an `error.message`),
+# else "koto status exited <rc> without an error".
+koto_reason() {
+    local r
+    r=$(printf '%s\n' "$1" | jq -R -r 'fromjson? | select(type == "object") | .error | if type == "string" then . elif type == "object" then (.message // empty | tostring) else empty end' 2>/dev/null | tail -n 1) || r=""
+    [ -n "$r" ] || r="koto status exited $2 without an error"
+    printf '%s' "$r"
+}
+
+# parent_state <session> -- session_state for a parent dispatch_match checks,
+# which also reads as absent a session koto reports as having no copy on this
+# host and none under this directory's prefix, whether or not another
+# directory's prefix holds it or could be listed (tsukumogami/shirabe#1637). A
+# parent dispatches its child by running `dispatch write` from this checkout,
+# which leaves its copy here, so a session with no copy here is not this child's
+# parent. Any other answer session_state can't place still returns 4, among
+# them koto not telling whether this directory's prefix holds the session.
+PARENT_NO_COPY_HERE="has no copy on this host and the bucket holds none under this directory's prefix"
+parent_state() {
+    session_state "$1" && return 0
+    if [ "$SRC" -eq 2 ]; then
+        case "$SOUT" in
+            *"$PARENT_NO_COPY_HERE"*) SSTATE=absent; SERR=""; return 0 ;;
         esac
     fi
     return 4
@@ -863,23 +907,24 @@ EOF
 
 # dispatch_match <child> <topic> -- check both parents. Sets M_COUNT, M_PARENT
 # (the first match), M_OTHER (the second), and the D_* fields of the first
-# match. Returns 4 when a parent's state or keys cannot be read.
-M_COUNT=0; M_PARENT=""; M_OTHER=""
+# match. Returns 4 when a parent's state or keys cannot be read, with M_ERR
+# naming the parent and why.
+M_COUNT=0; M_PARENT=""; M_OTHER=""; M_ERR=""
 F_SUPPRESS=""; F_RATIONALE=""
 dispatch_match() {
     local child="$1" topic="$2" p s rc have_branch=1
-    M_COUNT=0; M_PARENT=""; M_OTHER=""; F_SUPPRESS=""; F_RATIONALE=""
+    M_COUNT=0; M_PARENT=""; M_OTHER=""; M_ERR=""; F_SUPPRESS=""; F_RATIONALE=""
     current_branch || have_branch=0
     for p in $PARENTS; do
         s="$p-$topic"
-        session_state "$s" || return 4
+        parent_state "$s" || { M_ERR="$s: $SERR"; return 4; }
         [ "$SSTATE" = "live" ] || continue
         [ "$have_branch" -eq 1 ] || continue
         rc=0; kget "$s" session/branch || rc=$?
-        case "$rc" in 0) ;; 1) continue ;; *) return 4 ;; esac
+        case "$rc" in 0) ;; 1) continue ;; *) M_ERR="$s: koto could not read session/branch"; return 4 ;; esac
         [ "$KVAL" = "$BRANCH" ] || continue
         rc=0; kget "$s" chain/dispatch || rc=$?
-        case "$rc" in 0) ;; 1) continue ;; *) return 4 ;; esac
+        case "$rc" in 0) ;; 1) continue ;; *) M_ERR="$s: koto could not read chain/dispatch"; return 4 ;; esac
         parse_dispatch "$KVAL" || continue
         [ "$D_CHILD" = "$child" ] || continue
         M_COUNT=$((M_COUNT + 1))
@@ -899,7 +944,7 @@ cmd_dispatch_read() {
     check_skill "$child"
     check_topic "$topic"
     need_tools
-    dispatch_match "$child" "$topic" || { say "cannot read the parent sessions for $topic"; exit 4; }
+    dispatch_match "$child" "$topic" || { say "cannot read the parent sessions for $topic: $M_ERR"; exit 4; }
     case "$M_COUNT" in
         0) exit 0 ;;
         1)
@@ -958,7 +1003,7 @@ cmd_adopt() {
         say "$s is $SSTATE; open it with \`skill-session.sh open $child $topic\` first"
         exit 2
     fi
-    dispatch_match "$child" "$topic" || { say "cannot read the parent sessions for $topic"; exit 4; }
+    dispatch_match "$child" "$topic" || { say "cannot read the parent sessions for $topic: $M_ERR"; exit 4; }
     case "$M_COUNT" in
         0)
             kremove "$s" chain/parent || { printf 'failed=koto_error\n'; say "could not remove chain/parent from $s"; exit 1; }
