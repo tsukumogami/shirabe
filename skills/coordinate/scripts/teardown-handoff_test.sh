@@ -232,6 +232,81 @@ fixture
 jq -c '. + [.[0] | .id = "9c9c9c9c" | .sessionId = "9c9c9c9c-0000-4000-8000-00000000"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
 refused "two jobs in the instance" "$JOB, 9c9c9c9c"
 
+# --- a pull request in another repository (shirabe#1581) ---------------------------------------
+#
+# The holding's repo is acme/widgets and its pull_request link names
+# acme/gadgets, where the pull request merged. This gh answers by repository,
+# as GitHub would: merged-<owner>_<repo>.json for a pull request list, none
+# where there is no such file, and each read is logged to $ST/reads.
+BIN2="$T/bin-by-repo"
+mkdir -p "$BIN2"
+cat >"$BIN2/gh" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1 $2" = "pr list" ]; then
+    repo="" prev=""
+    for a in "$@"; do [ "$prev" = --repo ] && repo=$a; prev=$a; done
+    printf 'pr list %s\n' "$repo" >>"$ST/reads"
+    f="$ST/merged-$(printf '%s' "$repo" | tr / _).json"
+    if [ -f "$f" ]; then cat "$f"; else echo '[]'; fi
+    exit 0
+fi
+case "$1 ${2-}" in
+    "api repos/"*/issues/comments/*)
+        printf '%s\n' "$2" >>"$ST/reads"
+        f="$ST/comment-${2##*/}.json"
+        [ -f "$f" ] && { cat "$f"; exit 0; }
+        echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+esac
+printf 'gh %s\n' "$*" >>"$ST/calls"; exit 64
+EOF
+chmod +x "$BIN2/gh"
+GURL="https://github.com/acme/gadgets/pull/600#issuecomment-1003"
+# xfixture <pull_request cell>: fixture, with the row's link, the pull
+# request merged in acme/gadgets only, and a handoff on it there.
+xfixture() {
+    fixture
+    jq -c --arg p "$1" '. + {pull_request: $p}' "$ST/row.json" >"$ST/r.tmp" && mv "$ST/r.tmp" "$ST/row.json"
+    mv "$ST/merged.json" "$ST/merged-acme_gadgets.json"
+    printf '{"teardown":"stopped","handoff":"%s"}' "$GURL" >"$ST/teardown-ev"
+    printf '{"issue_url":"https://api.github.com/repos/acme/gadgets/issues/600","body":"what only the worker knew"}\n' >"$ST/comment-1003.json"
+    printf '{"issue_url":"https://api.github.com/repos/acme/widgets/issues/591","body":"on the unit'"'"'s issue"}\n' >"$ST/comment-1004.json"
+    : >"$ST/reads"
+}
+GLINK='[#600](https://github.com/acme/gadgets/pull/600)'
+export GH="$BIN2/gh"
+
+xfixture "$GLINK"
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "elsewhere: a pull request merged in the repository the link names is ready" ;; *) bad "elsewhere: a pull request merged in the repository the link names is ready" "$OUT $(cat "$T/seal.err") $(verdict)" ;; esac
+has "elsewhere: the verdict names the pull request in that repository" "$(verdict)" "pr acme/gadgets#600 $MERGE"
+has "elsewhere: and the handoff on it" "$(verdict)" "handoff $GURL"
+eq  "elsewhere: the merged pull requests and the comment are read there" "pr list acme/gadgets|repos/acme/gadgets/issues/comments/1003" "$(tr '\n' '|' <"$ST/reads" | sed 's/|$//')"
+
+xfixture "$GLINK"
+printf '{"teardown":"stopped","handoff":"https://github.com/acme/widgets/issues/591#issuecomment-1004"}' >"$ST/teardown-ev"
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "elsewhere: a handoff on the unit's issue in the holding's repo is ready" ;; *) bad "elsewhere: a handoff on the unit's issue in the holding's repo is ready" "$OUT $(cat "$T/seal.err") $(verdict)" ;; esac
+eq  "elsewhere: that comment is read in the holding's repo" "pr list acme/gadgets|repos/acme/widgets/issues/comments/1004" "$(tr '\n' '|' <"$ST/reads" | sed 's/|$//')"
+
+xfixture "$GLINK"
+printf '{"teardown":"stopped","handoff":"https://github.com/acme/widgets/pull/600#issuecomment-1001"}' >"$ST/teardown-ev"
+refused "elsewhere: a handoff on #600 in the holding's repo, where it is not the unit's" "the handoff comment is on #600, which is neither a merged pull request of the unit nor its issue"
+
+xfixture "$GLINK"
+printf '{"teardown":"stopped","handoff":"https://github.com/acme/tools/pull/600#issuecomment-1003"}' >"$ST/teardown-ev"
+refused "elsewhere: a handoff in a third repository" "the handoff comment is in acme/tools, not the holding's acme/widgets or its pull request's acme/gadgets"
+
+# A link that names no repository is looked up in the holding's repo.
+xfixture '[#600]'
+refused "a link naming no repository, the pull request merged elsewhere" "no pull request from feat/w5 in acme/widgets is merged"
+xfixture '[#600]'
+mv "$ST/merged-acme_gadgets.json" "$ST/merged-acme_widgets.json"
+printf '{"teardown":"stopped","handoff":"%s"}' "$URL" >"$ST/teardown-ev"
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "a link naming no repository, merged in the holding's repo, is ready" ;; *) bad "a link naming no repository, merged in the holding's repo, is ready" "$OUT $(cat "$T/seal.err") $(verdict)" ;; esac
+has "  ... and names the pull request there" "$(verdict)" "pr acme/widgets#600 $MERGE"
+export GH="$BIN/gh"
+
 # --- the job line: finished by its state file and its pid (shirabe#1182) -----------------------
 #
 # The listing's state is activity, not lifecycle: Claude Code 2.1.309 lists

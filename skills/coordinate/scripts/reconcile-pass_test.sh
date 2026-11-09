@@ -3,7 +3,9 @@
 # bounded passes, prints exactly one capturable line, writes only reconcile/
 # context keys, and seals a report only when every re-check is done;
 # reconcile-report-get.sh accepts only the report the seal names, and refuses
-# with 3 one sealed before the run was imported here.
+# with 3 one sealed before the run was imported here; its --md puts the record
+# line coordinate-report.sh --record-line prints (a stand-in here) third, exits
+# 4 printing nothing with no role row, and leaves the sealed report as it was.
 #
 # The scripts run from a copy of the tree. reconcile-read.sh,
 # reconcile-check.sh and the record feature's coord-log.sh are stand-ins
@@ -168,6 +170,16 @@ case "$cmd" in
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
     *) exit 64 ;;
 esac
+STUB
+
+# The record line: prints <case>/record-line, exiting with <case>/record-line.rc
+# (0 when absent); every call logged.
+cat > "$SC/coordinate-report.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "coordinate-report $*" >> "$STUB_DIR/log"
+rc=$(cat "$STUB_DIR/record-line.rc" 2>/dev/null || echo 0)
+[ "$rc" = 0 ] && cat "$STUB_DIR/record-line"
+exit "$rc"
 STUB
 
 # koto: a context store in <case>/ctx; every call logged.
@@ -425,6 +437,56 @@ grep -q 'the record refused the write' <<<"$nv"; check "a refused settle is list
 chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
 grep -q 'settled' <<<"$chg" && bad "and not reported as changed" || ok "and not reported as changed"
 
+echo "== a pull request in another repository (shirabe#1581) =="
+# The holding's repo is acme/widgets; its link names acme/gadgets. The
+# stand-in answers by the repository a read is sent to, as GitHub would: in
+# acme/widgets there is no pull request #7 and no branch feat/elsewhere.
+# seal_visit: passes 31 seconds apart until the visit is sealed.
+seal_visit() { local i; for i in 1 2 3 4; do pass; case "$LINE" in "reconciled "*) return 0 ;; esac; tick 31; done; return 1; }
+PR7G='[#7](https://github.com/acme/gadgets/pull/7)'
+PR7W='[#7](https://github.com/acme/widgets/pull/7)'
+SE7='[{"action":"merge","target":"#7","verified_head":"'$SHA1'","attempted":"2026-09-26T11:00Z","how_to_confirm":"compare"},{"action":"close","target":"#7","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"read"}]'
+wrong_repo() {  # the answers GitHub gives in acme/widgets
+    echo '{"kind":"pr","status":"not_verified","reason":"read failed (exit 1): GraphQL: Could not resolve to a PullRequest with the number of 7","read_at":"t"}' > "$CASE/check.pr.acme_widgets.1"
+    echo '{"kind":"branch","status":"ok","state":"gone","read_at":"t"}' > "$CASE/check.branch.acme_widgets.1"
+}
+new_case other-repo
+record "[$(hold elsewhere "$PR7G" '{"phase": "scoping"}')]" "$SE7"
+wrong_repo
+seal_visit; check "a holding linking another repository's pull request is reconciled" $? "$LINE $(cat "$CASE/stderr")"
+for want in "pr --repo acme/gadgets --number 7 " "branch --repo acme/gadgets --branch feat/elsewhere " \
+            "files --repo acme/gadgets --number 7 " "board --repo acme/gadgets --sha $SHA1 " \
+            "merge --repo acme/gadgets --number 7 " "close --repo acme/gadgets --kind pr --number 7 "; do
+    grep -q " $want" "$CASE/checks"; check "  ... ${want%% *} is read in the repository the link names" $? "$(cat "$CASE/checks")"
+done
+grep -q -- '--repo acme/widgets' "$CASE/checks" && bad "  ... and nothing is read in the holding's repo" "$(cat "$CASE/checks")" || ok "  ... and nothing is read in the holding's repo"
+chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
+grep -q 'now branch gone' <<<"$chg" && bad "  ... the live branch is not reported gone" "$chg" || ok "  ... the live branch is not reported gone"
+grep -q '`elsewhere`: pull request is in `acme/gadgets`, not the holding'"'"'s repository `acme/widgets`' <<<"$chg"
+check "  ... the report says the link and the holding's repo disagree" $? "$(ctx reconcile/report.md)"
+ctx reconcile/report.json | jq -e '.holdings[0].state == "open" and (.not_verified | length) == 0' >/dev/null
+check "  ... the pull request reads open, and nothing is left not verified" $? "$(ctx reconcile/report.json | jq -c '{h: .holdings[0].state, nv: .not_verified}')"
+
+# A link that names no repository is read in the holding's repo, as before,
+# and so is one that names the holding's own repository; neither is a change.
+new_case no-link-repo
+record "[$(hold bare '[#12]'),$(hold same "$PR12")]"
+seal_visit; check "links naming no repository, or the holding's own, are reconciled" $? "$LINE $(cat "$CASE/stderr")"
+[ "$(grep -c ' pr --repo acme/widgets --number 12 ' "$CASE/checks")" = 2 ] && [ "$(grep -c ' branch --repo acme/widgets ' "$CASE/checks")" = 2 ]
+check "  ... both are read in the holding's repo" $? "$(cat "$CASE/checks")"
+ctx reconcile/report.json | jq -e '.changes | any(.what == "pull request repository") | not' >/dev/null
+check "  ... and neither is reported as a disagreement" $? "$(ctx reconcile/report.json | jq -c .changes)"
+
+# Two holdings carry pull request #7, one in acme/gadgets and one in the
+# scope's own acme/widgets: a target #7 that names no repository is the
+# scope's, whichever row comes first; one naming acme/gadgets is that one.
+new_case colliding-numbers
+record "[$(hold first "$PR7G" '{"repo": "acme/gadgets"}'),$(hold second "$PR7W")]" \
+    '[{"action":"merge","target":"#7","verified_head":"'$SHA1'","attempted":"2026-09-26T11:00Z","how_to_confirm":"compare"},{"action":"close","target":"acme/gadgets#7","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"read"}]'
+seal_visit; check "two holdings with the same pull request number are reconciled" $? "$LINE $(cat "$CASE/stderr")"
+grep -q ' merge --repo acme/widgets --number 7 ' "$CASE/checks"; check "  ... a bare #7 target is read in the scope's repository" $? "$(cat "$CASE/checks")"
+grep -q ' close --repo acme/gadgets --kind pr --number 7 ' "$CASE/checks"; check "  ... and acme/gadgets#7 as that repository's pull request" $? "$(cat "$CASE/checks")"
+
 echo "== the work file =="
 new_case edited
 record "[$(hold with-pr "$PR12")]" '[{"action":"teardown","target":"x","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"l"}]'
@@ -545,6 +607,38 @@ echo 7 > "$CASE/visit"; rm -f "$CASE/ctx/reconcile%report.json"
 get --check; [ $? = 2 ]; check "an absent report can't be read" $?
 echo "pending:7:1:$(printf x | sha)" > "$CASE/capture"
 get --check; [ $? = 1 ]; check "a pending capture is no report" $?
+
+echo "== the first report's record line (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3) =="
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+new_case record-line
+record "[$(hold with-pr "$PR12")]"
+pass
+RL="Record: session \`$SESSION\` on \`acme/widgets\`, address \`plugin-coord\`. Role: manager."
+printf '%s\n' "$RL" > "$CASE/record-line"
+SEALED_MD=$(ctx reconcile/report.md); SEALED_JSON=$(ctx reconcile/report.json); SEALED_CAP=$(cat "$CASE/capture")
+: > "$CASE/log"
+MD=$(get --md); rc=$?
+eq "--md prints the title, a blank line, the record line as line 3 and a blank line" "0 # Reconcile report||$RL|" \
+    "$rc $(printf '%s\n' "$MD" | sed -n '1,4p' | tr '\n' '|' | sed 's/|$//')"
+case "$(printf '%s\n' "$MD" | sed -n 5p)" in "Scope: roadmap plugin-system."*) ok "  ... and the unchanged Scope line as line 5" ;; *) bad "  ... and the unchanged Scope line as line 5" "$MD" ;; esac
+eq "  ... the rest as the sealed report renders it" "$(printf '%s\n' "$SEALED_MD" | sed '1,2d')" "$(printf '%s\n' "$MD" | sed '1,4d')"
+eq "  ... the record line read through coordinate-report.sh --record-line, once" "coordinate-report --session $SESSION --record-line" "$(grep '^coordinate-report ' "$CASE/log")"
+eq "the sealed report, its rendering and its seal are unchanged" "$SEALED_JSON|$SEALED_MD|$SEALED_CAP" "$(ctx reconcile/report.json)|$(ctx reconcile/report.md)|$(cat "$CASE/capture")"
+: > "$CASE/log"
+get --check; check "--check reads no record line" $?
+get > /dev/null; check "  ... nor does the JSON mode" $?
+grep -q '^coordinate-report ' "$CASE/log" && bad "  ... (no coordinate-report.sh call in either)" "$(cat "$CASE/log")" || ok "  ... (no coordinate-report.sh call in either)"
+echo 4 > "$CASE/record-line.rc"
+MD=$(get --md); rc=$?
+eq "with no role row --md exits 4 and prints nothing" "4 " "$rc $MD"
+get --check; check "  ... while --check still passes: the reconcile gate never reads the role" $?
+echo 65 > "$CASE/record-line.rc"
+MD=$(get --md); rc=$?
+eq "a record line that can't be read: --md exits 2, printing nothing" "2 " "$rc $MD"
+rm -f "$CASE/record-line.rc"
+printf 'Record: session `%s` on `acme/widgets`. Role: lead.\n' "$SESSION" > "$CASE/record-line"
+MD=$(get --md); rc=$?
+eq "a line that isn't a record line is never printed: exit 2, nothing printed" "2 " "$rc $MD"
 echo "== a report sealed before an import =="
 new_case imported
 record "[]"

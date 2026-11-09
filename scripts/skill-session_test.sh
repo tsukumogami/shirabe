@@ -872,6 +872,142 @@ assert_eq "status of a kept terminal session still prints finished" "finished" "
 run_status_stub status brief-unremoved
 assert_eq "status of a terminal session with removed: false prints finished" "finished" "$STDOUT"
 
+# --- a parent koto can't place, against a stand-in koto ------------------------------
+#
+# Under koto's cloud backend, `koto status` of a session with no copy on this
+# host can answer, exit 2, without "not found" (tsukumogami/shirabe#1637):
+#
+#   own-unreadable    it can't tell whether this directory's prefix holds it;
+#   elsewhere         this directory's prefix holds none and another one does
+#                     (session_unlocated, reason no_local_copy);
+#   others-unlisted   this directory's prefix holds none and the other
+#                     prefixes couldn't be listed.
+#
+# A parent in the last two states has no copy here, so it isn't the parent that
+# ran `dispatch write` from this checkout: `adopt` and `dispatch read` count it
+# as no match. The first still stops them, with koto's reason on stderr, and so
+# does a session_unlocated answer for a session that has a copy here. The
+# stand-in answers `koto status <name>` from one file per name in
+# $PARENT_ANSWERS (first line the exit code, the rest stdout), a name with no
+# file as not found, and `koto context remove` with success. The texts are the
+# ones koto 0.35.0 prints.
+PARENT_STUB_DIR="$T/parentbin"
+mkdir -p "$PARENT_STUB_DIR"
+PARENT_ANSWERS="$T/parent-answers"
+cat >"$PARENT_STUB_DIR/koto" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"$STUB_LOG"
+case "${1:-}" in
+    version) printf 'koto 0.16.0 (stub)\n'; exit 0 ;;
+    status)
+        f="$PARENT_ANSWERS/${2:-}"
+        if [ -f "$f" ]; then
+            rc=$(sed -n 1p "$f")
+            sed -n '2,$p' "$f"
+            exit "$rc"
+        fi
+        printf '{"command":"status","error":"workflow '"'"'%s'"'"' not found"}\n' "${2:-}"
+        exit 2 ;;
+    context)
+        case "${2:-}" in
+            remove) exit 0 ;;
+        esac ;;
+esac
+printf '{"error":"stub"}\n'
+exit 1
+STUB
+chmod +x "$PARENT_STUB_DIR/koto"
+export PARENT_ANSWERS
+
+# parent_answer <name> <kind> -- script the stand-in's answer for one name.
+parent_answer() {
+    local msg
+    mkdir -p "$PARENT_ANSWERS"
+    case "$2" in
+        live)
+            printf '0\n{"name":"%s","current_state":"open","is_terminal":false}\n' "$1" >"$PARENT_ANSWERS/$1" ;;
+        others-unlisted)
+            msg="session '$1' has no copy on this host and the bucket holds none under this directory's prefix ws-a, and koto can't tell whether another directory's prefix holds it: listing ws-b/$1/ failed: attohttpc: Io Error: Operation timed out (os error 60); nothing was read, so run the command again once the bucket answers"
+            printf '2\n{"command":"status","error":"%s"}\n' "$msg" >"$PARENT_ANSWERS/$1" ;;
+        elsewhere)
+            msg="session_unlocated: session '$1' has no copy on this host and the bucket holds none under this directory's prefix ws-a, so nothing was read; run the command from the directory the session was started in"
+            printf '2\n{"code":"session_unlocated","command":"status","error":"%s","locations":["ws-a"],"reason":"no_local_copy","session":"%s"}\n' "$msg" "$1" >"$PARENT_ANSWERS/$1" ;;
+        own-unreadable)
+            msg="session '$1' has no copy on this host, and koto can't tell whether the bucket holds it under this directory's prefix ws-a: listing ws-a/$1/ failed: HTTP 503; nothing was read, so run the command again once the bucket answers"
+            printf '2\n{"command":"status","error":"%s"}\n' "$msg" >"$PARENT_ANSWERS/$1" ;;
+        copy-mismatch)
+            msg="session_unlocated: session '$1' records its copy under prefix ws-a, but the bucket holds no copy of it there, so nothing was read or written"
+            printf '2\n{"code":"session_unlocated","command":"status","error":"%s","locations":["ws-a"],"reason":"recorded_copy_mismatch","session":"%s"}\n' "$msg" "$1" >"$PARENT_ANSWERS/$1" ;;
+    esac
+}
+run_parent_stub() {
+    rm -f "$STUB_LOG"
+    RC=0
+    (cd "$REPO" && KOTO_BIN="$PARENT_STUB_DIR/koto" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" "$@") \
+        >"$T/stdout" 2>"$T/stderr" || RC=$?
+    STDOUT=$(cat "$T/stdout")
+    STDERR=$(cat "$T/stderr")
+}
+# parent_writes -- the stand-in's calls that write a key, one per line.
+parent_writes() { [ -f "$STUB_LOG" ] && grep -E '^context (add|remove) ' "$STUB_LOG"; return 0; }
+
+# No parent: both lookups answer that the parent has no copy here.
+for case in "pa1|others-unlisted|others-unlisted" "pa2|elsewhere|elsewhere" "pa3|others-unlisted|absent"; do
+    topic="${case%%|*}"
+    rest="${case#*|}"
+    scope_kind="${rest%%|*}"
+    charter_kind="${rest#*|}"
+    rm -rf "$PARENT_ANSWERS"
+    parent_answer "design-$topic" live
+    parent_answer "scope-$topic" "$scope_kind"
+    [ "$charter_kind" = "absent" ] || parent_answer "charter-$topic" "$charter_kind"
+    label="scope $scope_kind, charter $charter_kind"
+
+    run_parent_stub adopt design "$topic"
+    assert_eq "adopt with $label: exit 0" "0" "$RC"
+    assert_eq "adopt with $label prints adopted=none" "adopted=none" "$STDOUT"
+    assert_eq "adopt with $label removes only the child's chain/parent" \
+        "context remove design-$topic chain/parent" "$(parent_writes)"
+
+    run_parent_stub dispatch read design "$topic"
+    assert_eq "dispatch read with $label: exit 0" "0" "$RC"
+    assert_eq "dispatch read with $label prints nothing" "" "$STDOUT"
+done
+
+# A parent that could be under this directory's prefix, or that has a copy here
+# koto can't place, still stops adopt and dispatch read, and says why.
+for case in "pb1|own-unreadable|can't tell whether the bucket holds it under this directory's prefix" \
+    "pb2|copy-mismatch|records its copy under prefix ws-a, but the bucket holds no copy of it there"; do
+    topic="${case%%|*}"
+    rest="${case#*|}"
+    kind="${rest%%|*}"
+    reason="${rest#*|}"
+    rm -rf "$PARENT_ANSWERS"
+    parent_answer "design-$topic" live
+    parent_answer "scope-$topic" "$kind"
+
+    run_parent_stub adopt design "$topic"
+    assert_eq "adopt with a scope parent answering $kind: exit 4" "4" "$RC"
+    assert_eq "adopt with a scope parent answering $kind prints nothing" "" "$STDOUT"
+    assert_eq "adopt with a scope parent answering $kind writes nothing" "" "$(parent_writes)"
+    assert_contains "adopt with a scope parent answering $kind says it can't read the parents" \
+        "cannot read the parent sessions for $topic" "$STDERR"
+    assert_contains "adopt with a scope parent answering $kind names the parent" "scope-$topic" "$STDERR"
+    assert_contains "adopt with a scope parent answering $kind carries koto's reason" "$reason" "$STDERR"
+
+    run_parent_stub dispatch read design "$topic"
+    assert_eq "dispatch read with a scope parent answering $kind: exit 4" "4" "$RC"
+    assert_contains "dispatch read with a scope parent answering $kind carries koto's reason" "$reason" "$STDERR"
+done
+
+# Only the parent lookup reads those answers as no match: `status` of the same
+# session still can't tell its state.
+rm -rf "$PARENT_ANSWERS"
+parent_answer scope-pc1 others-unlisted
+run_parent_stub status scope-pc1
+assert_eq "status of a session koto can't place still exits 4" "4" "$RC"
+assert_eq "status of a session koto can't place prints nothing" "" "$STDOUT"
+
 # --- engine-backed -------------------------------------------------------------------
 
 if [ -z "$REAL_KOTO" ]; then

@@ -27,6 +27,17 @@
 #      discipline, host, a predecessor another rotation names, two at one
 #      stamp): each find reads `unreadable <session>`, the run stops at
 #      record_conflict, and nothing is carried;
+#   8. the run's role on a carried rotation
+#      (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1): the
+#      opener reads the ended rotation's role, prints role= for the carry,
+#      refuses both directions of mismatch and a failed read with nothing
+#      opened, refuses a dispatcher change naming a session the record doesn't
+#      report to, the ended rotation itself or its predecessor, and on an
+#      accepted dispatcher or person change prints role_changed_from=,
+#      role_change_by= and role_change_source=, which predecessor_carry passes
+#      to state-open.sh --carry, the new rotation's row then holding the new
+#      role with its set_by and entry; a role-less ended rotation is asked
+#      before the carry and, given --role, the carry adds the row;
 #   and across the whole suite no gh pr create, pr ready, contents write, ref
 #   write or deletion, and no git push.
 #
@@ -81,13 +92,17 @@ at() { tick "$@" | jq -r '.state // empty'; }
 agent() { local s=$1; shift; (cd "$WD" && bash "$PS/$s" --session "$S" "$@"); } # a script as the agent runs it
 key() { (cd "$WD" && koto context get "$1" "$2" 2>/dev/null); }
 token() { (cd "$WD" && bash "$PS/coord-log.sh" capture --session "$S" --name RECORD_FIND 2>/dev/null) | sed 's/ sealed:.*//'; }
-# open_run <discipline>: the opener's output in OPEN_OUT, its session in S.
+# open_run <discipline> [args json]: the opener's output in OPEN_OUT, its
+# exit in OPEN_RC, its session in S; the args after the host are --role
+# manager unless given.
 open_run() {
-    printf '["--discipline", "%s", "--host", "acme/widgets"]' "$1" > "$T/args.json"
-    OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+    jq -nc --arg d "$1" --argjson a "${2:-[\"--role\",\"manager\"]}" '["--discipline", $d, "--host", "acme/widgets"] + $a' > "$T/args.json"
+    OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); OPEN_RC=$?
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
 }
+# oline <name>: a result line of the last open.
+oline() { printf '%s\n' "$OPEN_OUT" | sed -n "s/^$1=//p"; }
 # rotation_end_date <session> <date>: the rotation's window ends on <date>, as
 # the agent writes it.
 rotation_end_date() {
@@ -95,15 +110,23 @@ rotation_end_date() {
     (cd "$WD" && bash "$PS/state-stored-set.sh" --session "$1" --rotation "$T/rot.json") > /dev/null 2> "$T/w.err"
 }
 # to_reconcile: from a fresh run, through the find (and the open or the carry it
-# names) to reconcile; prints the states it passed, space-separated.
+# names) to reconcile; prints the states it passed, space-separated. The open
+# and the carry pass the role the opener printed (role=), and the carry the
+# change it printed (role_change_by=, role_change_source=), as their
+# directives say.
 to_reconcile() {
-    local st path
+    local st path role by src
+    role=$(oline role) by=$(oline role_change_by) src=$(oline role_change_source)
     st=$(at); path=$st
     if [ "$st" = record_open ]; then
-        agent state-open.sh --start "$TODAY" --end "$(day 6)" > "$T/open.out" 2> "$T/w.err" || { echo "$path open-failed"; return; }
+        agent state-open.sh --role "$role" --start "$TODAY" --end "$(day 6)" > "$T/open.out" 2> "$T/w.err" || { echo "$path open-failed"; return; }
         st=$(at --with-data '{"opened":"opened"}'); path="$path $st"
     elif [ "$st" = predecessor_carry ]; then
-        agent state-open.sh --carry > "$T/carry.out" 2> "$T/w.err" || { echo "$path carry-failed"; return; }
+        if [ -n "$by" ]; then
+            agent state-open.sh --carry --role "$role" --role-change-by "$by" --role-change-source "$src" > "$T/carry.out" 2> "$T/w.err" || { echo "$path carry-failed"; return; }
+        else
+            agent state-open.sh --carry --role "$role" > "$T/carry.out" 2> "$T/w.err" || { echo "$path carry-failed"; return; }
+        fi
         st=$(at --with-data '{"carry":"carried"}'); path="$path $st"
     fi
     echo "$path"
@@ -126,7 +149,7 @@ eq "  ... the rotation's window is in the session, with no predecessor" "$TODAY 
 
 echo "== 2. a restart inside the open rotation =="
 open_run ops
-eq "a live run on the shipped template is resumed" "outcome=resumed resumed=1 session=$S1" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "a live run on the shipped template is resumed" "outcome=resumed resumed=1 session=$S1 role=manager" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
 # A second live run of the discipline, holding no record: the rotation's run is
 # no longer the scope's only live run, so it can't be resumed.
 EXTRA=coordinate-discipline-ops-$(date -u -d '+1 minute' +%Y%m%dT%H%M%SZ 2>/dev/null || date -u -v+1M +%Y%m%dT%H%M%SZ)
@@ -147,7 +170,7 @@ eq "  ... with no second rotation" found "$(token)"
 echo "== 3. a start on the end date =="
 rotation_end_date "$S2" "$TODAY"; eq "the window now ends today" 0 $?
 open_run ops
-eq "a start on the end date is a restart" "outcome=resumed resumed=1 session=$S2" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "a start on the end date is a restart" "outcome=resumed resumed=1 session=$S2 role=manager" "$(printf '%s' "$OPEN_OUT" | tr '\n' ' ' | sed 's/ $//')"
 
 echo "== 4. a start on the day after the end date =="
 rotation_end_date "$S2" "$YESTERDAY"; eq "the window ended yesterday" 0 $?
@@ -230,6 +253,105 @@ stops "a predecessor another rotation already names" named coordinate-discipline
 craft twin coordinate-discipline-twin-20261001T100000Z "$(vars_of twin)"
 craft twin coordinate-discipline-twin-20261001T100000Zb "$(vars_of twin)"
 stops "two earlier rotations at one stamp" twin coordinate-discipline-twin-20261001T100000Z
+
+echo "== 8. the role on a carried rotation =="
+# The ended rotation is the candidate the opener reads the role of; the new
+# run's find carries it, and predecessor_carry writes what the opener printed.
+# A shim in front of the real koto fails every read of one run's record/run
+# (RR_RUN).
+REAL_KOTO=$(command -v koto)
+cat > "$T/rrshim" <<EOF
+#!/bin/sh
+if [ -n "\$RR_RUN" ] && [ "\$3" = "\$RR_RUN" ]; then
+    case "\$1 \$2 \$*" in "context list "*record/run*|"context get "*record/run*) echo "koto: the read of record/run failed" >&2; exit 1 ;; esac
+fi
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/rrshim"
+sessions() { (cd "$WD" && koto session list 2>/dev/null) | jq -r '.[].id' | sort | tr '\n' ' '; }
+# dsnap <run>: its record keys and values, its log's length and the session list.
+dsnap() {
+    local k
+    { for k in $( (cd "$WD" && koto context list "$1" --prefix record/) | jq -r '.[]'); do printf '%s %s\n' "$k" "$(key "$1" "$k" | jq -cS .)"; done
+      wc -l < "$( (cd "$WD" && koto session dir "$1"))/koto-$1.state.jsonl" | tr -d ' '; sessions; } | $SHA256
+}
+drow() { key "$1" record/run | jq -r '[.[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+dentry() { (cd "$WD" && bash "$PS/state-entry.sh" --session "$1" --list 2>/dev/null) | jq -r '[.[] | select(.text | startswith("Run role"))] | last | .text // empty'; }
+rmsg() { grep '^coordinate-open: ' "$T/open.err" | tail -1; }
+RADDR=coordinate-roadmap-ops-director-20260926T080000Z
+RRT="Ops lead at $RADDR"
+DISC=rot
+open_run rot || bad "8: the first rotation opens" "$(cat "$T/open.err")"
+R1=$S
+eq "8: the first rotation opens as a manager" "record_open reconcile manager|start --role" "$(to_reconcile) $(drow "$R1")"
+agent state-stored-set.sh --run reports-to "$RRT" --by "the human" > /dev/null 2> "$T/w.err"
+eq "8:   ... reporting to an address" 0 $?
+rotation_end_date "$R1" "$YESTERDAY"
+R1SNAP=$(dsnap "$R1")
+open_run rot '["--role","director"]'
+eq "8: a start naming director after a rotation recorded manager ended is refused role-mismatch" "2 refused role-mismatch" "$OPEN_RC $(oline outcome) $(oline reason)"
+eq "8:   ... the whole message" "coordinate-open: $R1 is recorded as manager; this start names director. A continuation keeps its role unless an intervention from above changes it; nothing was written and $R1 goes on as it was. Start again naming manager, or no role, or start director as a new lineage." "$(rmsg)"
+eq "8:   ... nothing opened, nothing written" "$R1SNAP" "$(dsnap "$R1")"
+RR_RUN=$R1 KOTO_BIN="$T/rrshim" open_run rot
+eq "8: a start whose read of the ended rotation's role fails is failed=role_read, exit 1" "1 role_read" "$OPEN_RC $(oline failed)"
+eq "8:   ... nothing opened, nothing written" "$R1SNAP" "$(dsnap "$R1")"
+for who in lane-other "$R1"; do
+    open_run rot "[\"--role\",\"director\",\"--role-change-by\",\"$who\",\"--role-change-source\",\"dispatcher\"]"
+    eq "8: a dispatcher change naming $who is refused" "2 role-change-refused" "$OPEN_RC $(oline reason)"
+    case "$(rmsg)" in "coordinate-open: $R1 reports to $RRT"*"This start names director; nothing was written and $R1 goes on as manager.") ok "8:   ... naming the reports-to row and both roles" ;;
+        *) bad "8:   ... naming the reports-to row and both roles" "$(rmsg)" ;; esac
+done
+eq "8:   ... nothing opened, nothing written" "$R1SNAP" "$(dsnap "$R1")"
+T0=$(date -u +%Y-%m-%dT%H:%MZ)
+open_run rot "[\"--role\",\"director\",\"--role-change-by\",\"$RADDR\",\"--role-change-source\",\"dispatcher\"]"
+R2=$S
+eq "8: an accepted dispatcher change opens the next rotation, printing the change for the carry" \
+    "0 director manager $RADDR dispatcher" "$OPEN_RC $(oline role) $(oline role_changed_from) $(oline role_change_by) $(oline role_change_source)"
+eq "8:   ... predecessor_carry writes it" "predecessor_carry reconcile" "$(to_reconcile)"
+T1=$(date -u +%Y-%m-%dT%H:%MZ)
+eq "8:   ... the new rotation's row the new role, set by the address" "director|$RADDR" "$(drow "$R2")"
+DSET=$(key "$R2" record/run | jq -r '.[] | select(.key == "role") | .set')
+[[ ! $DSET < $T0 ]] && [[ ! $DSET > $T1 ]] && ok "8:   ... at the write's time" || bad "8:   ... at the write's time" "$T0 <= $DSET <= $T1"
+eq "8:   ... with its entry" "Run role changed from manager to director by $RADDR, an intervention from above; source: dispatcher." "$(dentry "$R2")"
+eq "8:   ... the ended rotation still holding manager" "manager|start --role" "$(drow "$R1")"
+# R2 ends: R1 is its predecessor, named in its rotation.
+rotation_end_date "$R2" "$YESTERDAY"
+R2SNAP=$(dsnap "$R2")
+open_run rot "[\"--role\",\"manager\",\"--role-change-by\",\"$R1\",\"--role-change-source\",\"dispatcher\"]"
+eq "8: a dispatcher change naming the ended rotation's predecessor is refused" "2 role-change-refused" "$OPEN_RC $(oline reason)"
+case "$(rmsg)" in "coordinate-open: $R2 reports to $RRT, and $R1 is $R2 itself or the run it continues"*) ok "8:   ... as role_change_self, naming the row" ;; *) bad "8:   ... as role_change_self, naming the row" "$(rmsg)" ;; esac
+open_run rot
+eq "8: a start naming manager after a rotation recorded director ended is refused role-mismatch" "2 refused role-mismatch" "$OPEN_RC $(oline outcome) $(oline reason)"
+eq "8:   ... nothing opened, nothing written" "$R2SNAP" "$(dsnap "$R2")"
+open_run rot '["--role","manager","--role-change-by","the human","--role-change-source","person"]'
+R3=$S
+eq "8: an accepted person change opens the next rotation" "0 manager director the human person" \
+    "$OPEN_RC $(oline role) $(oline role_changed_from) $(oline role_change_by) $(oline role_change_source)"
+eq "8:   ... predecessor_carry writes it" "predecessor_carry reconcile manager|the human" "$(to_reconcile) $(drow "$R3")"
+eq "8:   ... with its entry" "Run role changed from director to manager by the human, an intervention from above; source: person." "$(dentry "$R3")"
+rotation_end_date "$R3" "$YESTERDAY"
+open_run rot
+R4=$S
+eq "8: a start naming the recorded role (manager) opens the next rotation" "0 manager " "$OPEN_RC $(oline role) $(oline role_changed_from)"
+eq "8:   ... the carry keeping the row" "predecessor_carry reconcile manager|the human" "$(to_reconcile) $(drow "$R4")"
+# A role-less ended rotation (a lineage from before the row): asked before the
+# carry, and given --role the carry adds the row.
+DISC=rotless
+open_run rotless || bad "8: a role-less lineage's first rotation opens" "$(cat "$T/open.err")"
+L1=$S
+to_reconcile > /dev/null
+key "$L1" record/run | jq -c '[.[] | select(.key != "role")]' > "$T/run.json"
+(cd "$WD" && koto context add "$L1" record/run --from-file "$T/run.json")
+eq "8: its record holds no role row" none "$(drow "$L1")"
+rotation_end_date "$L1" "$YESTERDAY"
+L1SNAP=$(dsnap "$L1")
+open_run rotless '[]'
+eq "8: a start with no --role after a role-less rotation ended is asked, exit 10" "10 ask=role" "$OPEN_RC $OPEN_OUT"
+eq "8:   ... before the carry: nothing opened, nothing written" "$L1SNAP" "$(dsnap "$L1")"
+open_run rotless '["--role","director"]'
+L2=$S
+eq "8: given --role director it opens the next rotation, printing role=director" "0 director" "$OPEN_RC $(oline role)"
+eq "8:   ... the carry adding the row, set by the start's --role" "predecessor_carry reconcile director|start --role" "$(to_reconcile) $(drow "$L2")"
 
 echo "== no GitHub write and no push, the whole suite =="
 grep -Eq '^(pr create|pr ready|api --method (POST|DELETE|PUT|PATCH))' "$GH_DB.calls" \

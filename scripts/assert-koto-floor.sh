@@ -52,6 +52,10 @@
 # an empty capture under `capture_allow_empty`: /work-on's probe states use
 # both (docs/guides/probe.md), and a template that has them doesn't compile on
 # an older koto.
+# 0.33.0 is the release that ships `koto review record <session> code-round`,
+# which writes a pull request review panel to the run journal as a code review
+# round and one verdict per seat, apart from the document review kinds:
+# skills/coordinate/scripts/review-round.sh sends every round it records there.
 # Raise it in the pull request that adopts a feature from a
 # newer koto: change FLOOR, run scripts/koto-minimum-consistency_test.sh, and
 # update each restatement it names, adding to this paragraph what the new
@@ -90,7 +94,7 @@ if [ "${1-}" = "--print-floor" ]; then
     unset KOTO_FLOOR
 fi
 
-FLOOR="${KOTO_FLOOR:-0.31.0}"
+FLOOR="${KOTO_FLOOR:-0.33.0}"
 KOTO="${KOTO_BIN:-koto}"
 
 # semver_ge A B -- exit 0 when MAJOR.MINOR.PATCH A >= B, compared numerically

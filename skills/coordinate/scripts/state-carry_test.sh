@@ -17,6 +17,17 @@
 # --help probe. A write that fails part way, an add or the flush, exits 11
 # and leaves the new run with no record/meta.
 #
+# The Run `role` row on a carry (docs/designs/DESIGN-coordinator-named-roles.md,
+# Decision 1; PRD R5): right after core_carry lands a run's record in a new
+# run, before that run's find, state-stored-set.sh --run role --intervention
+# writes the change there (its row, set_by, set and entry) while a plain --run
+# role is refused for want of a found record. state-open.sh --carry --role adds
+# the row to a role-less copy, set by `start --role`, and leaves a copy
+# holding a role as it is; with --role-change-by and --role-change-source it
+# replaces a carried role through the intervention write. A carry run again
+# after it landed settles the role first: a change its first run didn't write
+# is written then, and a role-less landed copy given --role gets the row.
+#
 # Usage: bash skills/coordinate/scripts/state-carry_test.sh
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
@@ -233,5 +244,124 @@ grep -q "failed closing its write window: .*flush of session $DST failed: the bu
 eq "  ... writing no record/meta after it" 0 "$(grep -c "context add $DST record/meta " "$KOTO_STORE/wcalls")"
 eq "  ... so the new run holds no record and the next start carries again" 1 \
     "$([ ! -e "$KOTO_STORE/context/$DST/record/meta" ] && echo 1)"
+
+echo "== a role change written before the find, right after a carry lands =="
+# The opener's carry: core_carry copies the record into a new run whose find
+# hasn't run, and the change goes in through the before-find path.
+RSRC=coordinate-roadmap-lanes-20260926T070000Z
+RDST=coordinate-roadmap-lanes-20260926T080000Z
+db_init
+rm -rf "$KOTO_STORE/context/$RSRC" "$KOTO_STORE/context/$RDST"
+seed_session "$RSRC" "$(record_json roadmap lanes | jq -c '.run = [{key: "role", value: "director", set_by: "the human", set: "2026-09-26T07:00Z"},
+    {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T07:00Z"}]')"
+log_new "$RDST" "$(roadmap_vars lanes)"
+( PROG=carry SCOPE=roadmap NAME=lanes
+  . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; . "$HERE/state-write-core.sh"; RS_RETRY_PAUSE=0
+  core_carry "$RSRC" "$RDST" ) > /dev/null 2>"$T/err"
+eq "the carry lands in the new run" 0 $?
+bash "$HERE/coord-log.sh" run-facts --session "$RDST" > /dev/null 2>&1
+eq "  ... whose find hasn't run: no found record" 1 $?
+rrole() { koto context get "$RDST" record/run | jq -r '[.[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+RSNAP=$(session_snapshot "$RDST")
+bash "$HERE/state-stored-set.sh" --session "$RDST" --run role manager --by lane-lead >/dev/null 2>"$T/err"
+eq "a plain --run role there is refused: it keeps the found-record rule (10)" 10 $?
+eq "  ... writing nothing" "$RSNAP" "$(session_snapshot "$RDST")"
+BEFORE=$(date -u +%Y-%m-%dT%H:%MZ)
+bash "$HERE/state-stored-set.sh" --session "$RDST" --run role manager --by lane-lead --intervention dispatcher >/dev/null 2>"$T/err"
+eq "--run role --intervention writes there before the find" "0 manager|lane-lead" "$? $(rrole)"
+AFTER=$(date -u +%Y-%m-%dT%H:%MZ)
+RSET=$(koto context get "$RDST" record/run | jq -r '.[] | select(.key == "role") | .set')
+[[ ! $RSET < $BEFORE ]] && [[ ! $RSET > $AFTER ]] && ok "  ... its Set the write's time" || bad "  ... its Set the write's time" "$BEFORE <= $RSET <= $AFTER"
+eq "  ... the other Run rows as the carry brought them" "reports-to:the human" \
+    "$(koto context get "$RDST" record/run | jq -r '[.[] | select(.key != "role") | "\(.key):\(.value)"] | join(" ")')"
+eq "  ... and its entry names the old role, the new one and the source" \
+    "run|Run role changed from director to manager by lane-lead, an intervention from above; source: dispatcher." \
+    "$(RS_SESSION=$RDST bash "$HERE/state-entry.sh" --scope roadmap --name lanes --repo "$REPO" --list | jq -r '.[-1] | "\(.kind)|\(.text)"')"
+eq "  ... the source run left as it was" "director" "$(koto context get "$RSRC" record/run | jq -r '.[] | select(.key == "role") | .value')"
+
+echo "== state-open.sh --carry --role =="
+# A discipline rotation that carries its predecessor: P, an ended rotation
+# holding the given Run rows, and S, the next rotation, its find sealed
+# `predecessor P`. Each case is its own discipline, so S is its scope's one
+# live run.
+TODAY=$(date -u +%Y-%m-%d)
+dsealed() {
+    log_to "$1" start_posture record_find 2026-09-26T08:01:00.000Z
+    log_capture "$1" RECORD_FIND "$(bash "$HERE/coord-log.sh" seal --session "$1" --state record_find --token "$2")" 2026-09-26T08:01:00.000Z
+}
+# pred_rotation <discipline> <run-rows-json>: P for <discipline>, ended, its
+# record holding <run-rows-json> as its Run section ([] for none). Sets P and S.
+pred_rotation() {
+    P=coordinate-discipline-$1-20261001T100000Z S=coordinate-discipline-$1-20261008T100000Z
+    log_new "$P" "$(discipline_vars "$1")"; dsealed "$P" found
+    record_json discipline "$1" | jq -c --argjson r "$2" '. + {written: "2026-10-01T10:00:00Z"} | if $r == [] then . else .run = $r end' > "$T/pred.json"
+    session_keys "$P" "$T/pred.json"
+    jq -nc '{start: "2026-10-01", end: "2026-10-07", host_repo: "acme/widgets", predecessor: null}' | koto context add "$P" record/rotation
+    touch "$KOTO_STORE/sessions/$P/.terminal"
+    log_new "$S" "$(discipline_vars "$1")"; dsealed "$S" "predecessor $P"
+}
+srole() { koto context get "$S" record/run | jq -r '[.[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+sentries() { bash "$HERE/state-entry.sh" --session "$S" --list; }
+MGR='[{"key": "role", "value": "manager", "set_by": "the human", "set": "2026-10-01T10:00Z"}]'
+db_init
+
+pred_rotation roleless '[]'
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role director 2>"$T/err"); rc=$?
+eq "--carry --role director on a role-less copy carries" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep '^carried=')"
+eq "  ... adding the row, set by the start's --role" "director|start --role" "$(srole)"
+eq "  ... in the seed: no role entry" 0 "$(sentries | jq '[.[] | select(.text | startswith("Run role"))] | length')"
+
+pred_rotation keeps "$MGR"
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role director 2>"$T/err"); rc=$?
+eq "--carry --role director on a copy holding manager carries" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep '^carried=')"
+eq "  ... and the copy keeps manager" "manager|the human" "$(srole)"
+SNAP=$(session_snapshot "$S")
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role director 2>"$T/err"); rc=$?
+eq "  ... run again it reads as carried, changing no key" "0 carried=$P $SNAP" "$rc $(printf '%s\n' "$OUT" | grep '^carried=') $(session_snapshot "$S")"
+
+pred_rotation change "$MGR"
+BEFORE=$(date -u +%Y-%m-%dT%H:%MZ)
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role director --role-change-by "the human" --role-change-source person 2>"$T/err"); rc=$?
+AFTER=$(date -u +%Y-%m-%dT%H:%MZ)
+eq "--carry --role director with the change flags on a copy holding manager carries" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep '^carried=')"
+eq "  ... replacing the row, set by who intervened" "director|the human" "$(srole)"
+CSET=$(koto context get "$S" record/run | jq -r '.[] | select(.key == "role") | .set')
+[[ ! $CSET < $BEFORE ]] && [[ ! $CSET > $AFTER ]] && ok "  ... at the write's time" || bad "  ... at the write's time" "$BEFORE <= $CSET <= $AFTER"
+eq "  ... with the intervention write's entry" \
+    "Run role changed from manager to director by the human, an intervention from above; source: person." \
+    "$(sentries | jq -r '[.[] | select(.text | startswith("Run role"))] | last | .text')"
+eq "  ... and the predecessor still holding manager" manager "$(koto context get "$P" record/run | jq -r '.[0].value')"
+
+pred_rotation oneflag "$MGR"
+bash "$HERE/state-open.sh" --session "$S" --carry --role director --role-change-by "the human" >/dev/null 2>"$T/err"
+eq "--carry with --role-change-by alone is a usage error" 64 $?
+bash "$HERE/state-open.sh" --session "$S" --carry --role director --role-change-source person >/dev/null 2>"$T/err"
+eq "  ... and with --role-change-source alone" 64 $?
+eq "  ... neither carrying anything" none "$(session_snapshot "$S")"
+
+# A carry that landed without the change, then run again with it (a run cut
+# short before the change was written): the re-run writes the change before it
+# reads as carried.
+pred_rotation landed "$MGR"
+bash "$HERE/state-open.sh" --session "$S" --carry --role manager >/dev/null 2>"$T/err"
+eq "a carry lands holding manager" "0 manager|the human" "$? $(srole)"
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role director --role-change-by lane-lead --role-change-source dispatcher 2>"$T/err"); rc=$?
+eq "  ... run again with the change flags it reads as carried" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep '^carried=')"
+eq "  ... having written the change" "director|lane-lead" "$(srole)"
+eq "  ... through the intervention write" \
+    "Run role changed from manager to director by lane-lead, an intervention from above; source: dispatcher." \
+    "$(sentries | jq -r '[.[] | select(.text | startswith("Run role"))] | last | .text')"
+N=$(sentries | jq length); SNAP=$(session_snapshot "$S")
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role director --role-change-by lane-lead --role-change-source dispatcher 2>"$T/err"); rc=$?
+eq "  ... and a third run writes nothing more" "0 carried=$P $SNAP $N" \
+    "$rc $(printf '%s\n' "$OUT" | grep '^carried=') $(session_snapshot "$S") $(sentries | jq length)"
+
+pred_rotation lateroll '[]'
+bash "$HERE/state-open.sh" --session "$S" --carry >/dev/null 2>"$T/err"
+eq "a role-less carry lands with no --role and no row" "0 none" "$? $(srole)"
+OUT=$(bash "$HERE/state-open.sh" --session "$S" --carry --role manager 2>"$T/err"); rc=$?
+eq "  ... run again with --role it reads as carried" "0 carried=$P" "$rc $(printf '%s\n' "$OUT" | grep '^carried=')"
+eq "  ... having written the row, set by the start's --role" "manager|start --role" "$(srole)"
+grep -Eq '^(pr create|pr ready|api --method (POST|DELETE|PUT))' "$GH_DB.calls" && bad "no role write reached GitHub" "$(cat "$GH_DB.calls")" || ok "no role write reached GitHub"
 
 done_tests state-carry_test

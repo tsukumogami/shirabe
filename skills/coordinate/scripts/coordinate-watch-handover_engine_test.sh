@@ -46,8 +46,8 @@ mkdir -p "$T/work2/.niwa" "$T/work2/.claude"
 (cd "$T/work2" && git init -q && git remote add origin https://github.com/acme/widgets.git)
 cp "$T/work/.niwa/instance.json" "$T/work2/.niwa/"; cp "$T/work/.claude/settings.json" "$T/work2/.claude/"
 
-opener() { # opener <name> <workdir>: coordinate-open.sh as the agent runs it; OUT its stdout, ORC its exit
-    printf '["docs/roadmaps/ROADMAP-%s.md"]' "$1" > "$T/args.json"
+opener() { # opener <name> <workdir>: coordinate-open.sh as the agent runs it, as a manager; OUT its stdout, ORC its exit
+    printf '["docs/roadmaps/ROADMAP-%s.md","--role","manager"]' "$1" > "$T/args.json"
     OUT=$(cd "$2" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
 }
 line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }

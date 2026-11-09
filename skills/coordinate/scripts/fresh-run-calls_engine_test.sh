@@ -133,7 +133,7 @@ open_run ship || { bad "1: the run opens" "$(cat "$T/open.err")"; done_tests fre
 ok "1: the run opens"
 eq "1: with no record anywhere it stops at record_open" record_open "$(at)"
 eq "1: the start made one open-issue listing, the importer's lookup" 1 "$(listings)"
-write_as_agent state-open.sh
+write_as_agent state-open.sh --role manager
 eq "1: state-open.sh (agent-run) opens the record in the session" 0 $?
 eq "1: the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
 write_as_agent state-stored-set.sh --run arguments "docs/roadmaps/ROADMAP-ship.md" --by "the human" \

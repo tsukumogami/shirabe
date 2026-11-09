@@ -19,7 +19,9 @@
 #      not re-arm its watch;
 #   4. B's first `koto next` exits 0 with no rebind in its log, its first
 #      reconcile reports both holdings with the classification A's gave them,
-#      and taken_legs and leg_children are as A left them;
+#      its third line the record line naming B, its address and the carried
+#      role, the same line coordinate-report.sh --record-line prints, and
+#      taken_legs and leg_children are as A left them;
 #   5. B's record has the coordinator row naming B's session, no told row,
 #      record/meta naming B's Claude session as driver and B's own template
 #      compat and fingerprint in place of the pair A's held, and exactly one
@@ -42,7 +44,40 @@
 #      failed=takeover_read, exits 1 naming the run and the schema's
 #      standing.kind reason, opens no session and adds nothing to the run's
 #      log, so koto next on it still exits 0 and state-stored-set.sh --list
-#      on it still exits 65.
+#      on it still exits 65;
+#  10. the run's role (docs/designs/DESIGN-coordinator-named-roles.md,
+#      Decision 1): a takeover naming the other role is refused role-mismatch
+#      in both directions, and a failed role read is failed=role_read, each
+#      leaving the record, the run's state and the session list as they were;
+#      a dispatcher change naming a session the record doesn't report to, the
+#      run's own session or its predecessor, and a person change naming the
+#      caller's own address, are refused with messages naming the reports-to
+#      row; an accepted dispatcher change and person change are written by
+#      finish_takeover beside the coordinator row, with set_by, set and the
+#      entry; a role-less run is asked before takeover_check and, given
+#      --role, gets its row from finish_takeover; a successor's brief
+#      (--dispatched-by naming the predecessor) takes a run recorded director
+#      over, its row reading director, and naming manager is refused
+#      role-mismatch; a resume whose --dispatched-by names the resumed run
+#      still exits 64;
+#  11. a coordinator's brief end to end (Decision 2): a predecessor recorded
+#      director renders its successor's brief with dispatch-worker.sh, whose
+#      opener line, run as written from a fresh args file, takes it over with
+#      the successor's role row reading director; a director's role_change
+#      re-brief of its lane, fed to the lane's opener (its reports-to row
+#      written from its brief), is accepted and written, a plain re-brief
+#      carries no --role and resumes the lane as director, and the lane
+#      dispatched again renders --role manager, which the lane refuses.
+#  12. koto's exit 3 on the fence, read by its code: with a stand-in koto
+#      whose init --supersede refuses fence_unavailable before any fence, the
+#      start prints outcome=refused reason=predecessor-unstoppable with koto's
+#      message, opening and writing nothing; with one that fences and then
+#      fails the carry (persistence_error, exit 3), it prints
+#      failed=takeover_unfinished, exit 1, with koto's message, the fence's
+#      successor and no word of the old run still driving; the same start run
+#      again from the fencing session, its koto init failing again after the
+#      fence, does the same; and run again with the real koto, it prints
+#      outcome=continued naming the fenced successor, with one takeover entry.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
@@ -71,8 +106,8 @@ mkdir -p "$T/work2/.niwa" "$T/work2/.claude"
 (cd "$T/work2" && git init -q && git remote add origin https://github.com/acme/widgets.git)
 cp "$T/work/.niwa/instance.json" "$T/work2/.niwa/"; cp "$T/work/.claude/settings.json" "$T/work2/.claude/"
 
-opener() { # opener <name> <workdir>: coordinate-open.sh as the agent runs it; OUT its stdout, ORC its exit
-    printf '["docs/roadmaps/ROADMAP-%s.md"]' "$1" > "$T/args.json"
+opener() { # opener <name> <workdir>: coordinate-open.sh as the agent runs it, as a manager (the role every run here records); OUT its stdout, ORC its exit
+    printf '["docs/roadmaps/ROADMAP-%s.md","--role","manager"]' "$1" > "$T/args.json"
     OUT=$(cd "$2" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
 }
 line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
@@ -155,6 +190,7 @@ eq "1: predecessor= names A" "$A" "$(line predecessor)"
 B=$(line session)
 case "$B" in coordinate-roadmap-takeover-2*Z) [ "$B" != "$A" ] && ok "1: session= names a new run" || bad "1: session= names a new run" "$B" ;; *) bad "1: session= names a new run" "$OUT $(cat "$T/open.err")" ;; esac
 eq "1: A's last event is seconds old and no job for A is seen: predecessor_stopped=yes" yes "$(line predecessor_stopped)"
+eq "1: the role A records, named by the start, is printed" manager "$(line role)"
 
 # ---- 2. nothing cancelled, the relation, the carried keys -------------------------
 ALOG="$(koto session dir "$A")/koto-$A.state.jsonl"
@@ -195,6 +231,13 @@ eq "4: B reaches its first reconcile" reconcile "$ST"
 REPORT=$(cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$B" --md 2>&1)
 grep -q feat-1 <<< "$REPORT" && grep -q feat-2 <<< "$REPORT" && ok "4: B's first reconcile reports both holdings" \
     || bad "4: B's first reconcile reports both holdings" "$REPORT"
+# The record line (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3):
+# the first report's third line, naming B's session, the host, B's address
+# and the role the takeover carried.
+eq "4:   ... its third line the record line, naming B, its address and the carried role" \
+    "Record: session \`$B\` on \`acme/widgets\`, address \`coord-b\`. Role: manager." "$(printf '%s\n' "$REPORT" | sed -n 3p)"
+eq "4:   ... the same line coordinate-report.sh --record-line prints for a later report" \
+    "$(printf '%s\n' "$REPORT" | sed -n 3p)" "$(cd "$WD" && bash "$PS/coordinate-report.sh" --session "$B" --record-line 2>&1)"
 eq "4:   ... with the classification A's reconcile gave them" "${A_CLASS:-A unclassified}" "$(classes "$B" "$WD")"
 eq "4: B took neither of A's legs again: taken_legs as A left it" '["req-a1:work-on"]' "$( (cd "$WD" && koto context get "$B" taken_legs) | jq -c .)"
 eq "4:   ... and leg_children as A left it" '{"req-a1:work-on":"feat-1-session"}' "$( (cd "$WD" && koto context get "$B" leg_children) | jq -c .)"
@@ -278,9 +321,10 @@ fi
 # A stand-in in front of the real koto refuses reads of one run, RS_RUN, as
 # koto refuses a run it can't locate (session_unlocated), from the read RS_ARM
 # names on: meta every read from its record/meta's (the driver), row every
-# read from its record/run's (the coordinator row), status its koto status
-# once record/run has been read (the takeover's state read; the resume
-# candidate's own status read comes before it). With RS_FENCE set it refuses
+# read from its second record/run get on (the coordinator row; the first is
+# the opener's role read), status its koto status once record/run has been
+# read (the takeover's state read; the resume candidate's own status read
+# comes before it). With RS_FENCE set it refuses
 # the fence, koto init --supersede, as koto's cloud backend does: a flat
 # cloud_unsupported body, exit 2. Each start runs from B's session and
 # directory against a run A drives.
@@ -295,7 +339,10 @@ if [ -n "\${RS_FENCE:-}" ] && [ "\$1" = init ]; then
     esac
 fi
 if [ "\$1 \$2 \$3" = "context get \$RS_RUN" ]; then
-    case "\$RS_ARM:\$4" in meta:record/meta|row:record/run|status:record/run) : > "$T/rs-armed" ;; esac
+    case "\$RS_ARM:\$4" in
+        meta:record/meta|status:record/run) : > "$T/rs-armed" ;;
+        row:record/run) if [ -e "$T/rs-row-seen" ]; then : > "$T/rs-armed"; else : > "$T/rs-row-seen"; fi ;;
+    esac
 fi
 if [ -e "$T/rs-armed" ]; then
     v=
@@ -319,7 +366,7 @@ if to_reconciled unread "$(two_holdings unread)"; then
     export CLAUDE_CODE_SESSION_ID=$B_ID
     for arm in meta row status; do
         BEFORE_S=$(sessions); BEFORE_L=$(wc -l < "$A3LOG")
-        rm -f "$T/rs-armed"
+        rm -f "$T/rs-armed" "$T/rs-row-seen"
         RS_RUN=$A3 RS_ARM=$arm PATH="$T/rshim:$PATH" opener unread "$T/work2"
         eq "8 $arm: a refused read stops the start: failed=takeover_read, exit 1" "1 takeover_read" "$ORC $(line failed)"
         eq "8 $arm:   ... neither resumed nor taken over: no outcome=, no session=" "" "$(line outcome)$(line session)"
@@ -381,6 +428,315 @@ if to_reconciled newer "$(two_holdings newer)"; then
     eq "9: state-stored-set.sh --list on A still exits 65, so the record wasn't rewritten" "65 " "$rc $LIST_OUT"
 else
     bad "9: the fourth run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 10. the run's role on a takeover -------------------------------------------
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1; PRD R5. Each run
+# here is opened by A's Claude session as a manager, its record seeded with the
+# Run rows given (coordinator coord-test, so another session's run), and its
+# find's store recorded, so B's start takes it over. A shim in front of the
+# real koto fails every read of one run's record/run (RR_RUN).
+cat > "$T/rrshim" <<EOF
+#!/bin/sh
+if [ -n "\$RR_RUN" ] && [ "\$3" = "\$RR_RUN" ]; then
+    case "\$1 \$2 \$*" in "context list "*record/run*|"context get "*record/run*) echo "koto: the read of record/run failed" >&2; exit 1 ;; esac
+fi
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/rrshim"
+C_ID=$(printf '%s-0000-4000-8000-%012d' cccccccc 3)
+mkdir -p "$DC_CLAUDE_HOME/jobs/job-c"
+jq -n --arg s "$C_ID" '{sessionId: $s, name: "coord-c", state: "working"}' > "$DC_CLAUDE_HOME/jobs/job-c/state.json"
+WD=$T/work
+rrow() { koto context get "$1" record/run | jq -r '[.[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+rentry() { (cd "$WD" && bash "$PS/state-entry.sh" --session "$1" --list 2>/dev/null) | jq -r '[.[] | select(.text | startswith("Run role"))] | last | .text // empty'; }
+trow() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "the human", set: "2026-09-26T08:00Z"}'; }
+# role_run <scope> <run-rows-json>: the run, ticked once so its find seals
+# the record found; sets R.
+role_run() {
+    export CLAUDE_CODE_SESSION_ID=$A_ID
+    seed_roadmap "$1"
+    RAW_RECORD=1 seed_record "$1" "$(record_json roadmap "$1" | jq -c --argjson r "$2" '.run = $r')"
+    open_run "$1" || { bad "10: $1's run opens" "$(cat "$T/open.err")"; return 1; }
+    at > /dev/null
+    (cd "$WD" && bash "$PS/coord-log.sh" run-facts --session "$S") > /dev/null 2>&1 \
+        || { bad "10: $1's find seals its record found" "$(cat "$T/tick.err")"; return 1; }
+    R=$S
+}
+# topen <scope> <session id> <args-after-the-roadmap json> [opener flags]: the
+# opener from work2 as that Claude session; OUT, ORC.
+topen() {
+    jq -nc --arg r "docs/roadmaps/ROADMAP-$1.md" --argjson a "$3" '[$r] + $a' > "$T/args.json"
+    local id=$2; shift 3
+    OUT=$(cd "$T/work2" && CLAUDE_CODE_SESSION_ID=$id bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$@" "$T/args.json" 2>"$T/open.err"); ORC=$?
+}
+tmsg() { grep '^coordinate-open: ' "$T/open.err" | tail -1; }
+# tsnap <run>: its record keys and values, its log's length, and the session list.
+tsnap() {
+    local k
+    { for k in $(koto context list "$1" --prefix record/ | jq -r '.[]'); do printf '%s %s\n' "$k" "$(koto context get "$1" "$k" | jq -cS .)"; done
+      wc -l < "$(koto session dir "$1")/koto-$1.state.jsonl" | tr -d ' '; sessions; } | $SHA256
+}
+ADDR=coordinate-roadmap-director-plan-20260926T080000Z
+RT="Lane lead at $ADDR"
+if role_run tk-m "[$(trow role manager),$(trow reports-to "$RT"),$(trow coordinator coord-test)]"; then
+    TM=$R; TMSNAP=$(tsnap "$TM")
+    topen tk-m "$B_ID" '["--role","director"]'
+    eq "10: a takeover naming director for a run recorded manager is refused role-mismatch, exit 2" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
+    eq "10:   ... the whole message" "coordinate-open: $TM is recorded as manager; this start names director. A continuation keeps its role unless an intervention from above changes it; nothing was written and $TM goes on as it was. Start again naming manager, or no role, or start director as a new lineage." "$(tmsg)"
+    eq "10:   ... the record, the run's state and the session list as they were" "$TMSNAP" "$(tsnap "$TM")"
+    RR_RUN=$TM KOTO_BIN="$T/rrshim" topen tk-m "$B_ID" '["--role","manager"]'
+    eq "10: a takeover whose role read fails is failed=role_read, exit 1" "1 role_read" "$ORC $(line failed)"
+    eq "10:   ... nothing written" "$TMSNAP" "$(tsnap "$TM")"
+    topen tk-m "$B_ID" '["--role","director","--role-change-by","lane-other","--role-change-source","dispatcher"]'
+    eq "10: a dispatcher change naming a session the record doesn't report to is refused" "2 role-change-refused" "$ORC $(line reason)"
+    eq "10:   ... naming the reports-to row" "coordinate-open: $TM reports to $RT; a role change from a dispatcher has to name the address in that row, and lane-other isn't it. This start names director; nothing was written and $TM goes on as manager." "$(tmsg)"
+    topen tk-m "$B_ID" "[\"--role\",\"director\",\"--role-change-by\",\"$TM\",\"--role-change-source\",\"dispatcher\"]"
+    eq "10: a dispatcher change naming the run's own session is refused" "2 role-change-refused" "$ORC $(line reason)"
+    eq "10:   ... as role_change_self, naming the row" "coordinate-open: $TM reports to $RT, and $TM is $TM itself or the run it continues: a run can't change its own role. This start names director; nothing was written and $TM goes on as manager." "$(tmsg)"
+    topen tk-m "$B_ID" '["--role","director","--role-change-by","coord-b","--role-change-source","person"]'
+    eq "10: a person change naming the caller's own address (the takeover's new coordinator) is refused" "2 role-change-refused" "$ORC $(line reason)"
+    case "$(tmsg)" in "coordinate-open: $TM reports to $RT, and coord-b is $TM itself"*) ok "10:   ... as role_change_self" ;; *) bad "10:   ... as role_change_self" "$(tmsg)" ;; esac
+    eq "10:   ... and every refusal left the record, the run's state and the session list as they were" "$TMSNAP" "$(tsnap "$TM")"
+    T0=$(date -u +%Y-%m-%dT%H:%MZ)
+    topen tk-m "$B_ID" "[\"--role\",\"director\",\"--role-change-by\",\"$ADDR\",\"--role-change-source\",\"dispatcher\"]"
+    T1=$(date -u +%Y-%m-%dT%H:%MZ)
+    TMB=$(line session)
+    eq "10: an accepted dispatcher change takes the run over" "0 continued director manager" "$ORC $(line outcome) $(line role) $(line role_changed_from)"
+    eq "10:   ... finish_takeover writing the row beside the coordinator row" "director|$ADDR coord-b" \
+        "$(rrow "$TMB") $(koto context get "$TMB" record/run | jq -r '.[] | select(.key == "coordinator") | .value')"
+    SETT=$(koto context get "$TMB" record/run | jq -r '.[] | select(.key == "role") | .set')
+    [[ ! $SETT < $T0 ]] && [[ ! $SETT > $T1 ]] && ok "10:   ... at the write's time" || bad "10:   ... at the write's time" "$T0 <= $SETT <= $T1"
+    eq "10:   ... its entry naming the old role, the new one and the source" "Run role changed from manager to director by $ADDR, an intervention from above; source: dispatcher." "$(rentry "$TMB")"
+    eq "10:   ... the predecessor left holding manager" "manager|the human" "$(rrow "$TM")"
+    # TMB, which continues TM, taken over again by C: TM is its predecessor.
+    TMBSNAP=$(tsnap "$TMB")
+    topen tk-m "$C_ID" "[\"--role\",\"manager\",\"--role-change-by\",\"$TM\",\"--role-change-source\",\"dispatcher\"]"
+    eq "10: a dispatcher change naming the run's predecessor is refused" "2 role-change-refused" "$ORC $(line reason)"
+    case "$(tmsg)" in "coordinate-open: $TMB reports to $RT, and $TM is $TMB itself or the run it continues"*) ok "10:   ... as role_change_self, naming the row" ;; *) bad "10:   ... as role_change_self, naming the row" "$(tmsg)" ;; esac
+    topen tk-m "$C_ID" '["--role","manager"]'
+    eq "10: a takeover naming manager for a run recorded director is refused role-mismatch" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
+    eq "10:   ... the record as it was" "$TMBSNAP" "$(tsnap "$TMB")"
+    topen tk-m "$C_ID" '["--role","manager","--role-change-by","the human","--role-change-source","person"]'
+    TMC=$(line session)
+    eq "10: an accepted person change takes it over" "0 continued manager director" "$ORC $(line outcome) $(line role) $(line role_changed_from)"
+    eq "10:   ... the row set by the person named" "manager|the human" "$(rrow "$TMC")"
+    eq "10:   ... with its entry" "Run role changed from director to manager by the human, an intervention from above; source: person." "$(rentry "$TMC")"
+fi
+# A role-less run (Role-less continuations, Takeover): asked before
+# takeover_check, and given --role the row is written by finish_takeover.
+if role_run tk-n "[$(trow reports-to "the human"),$(trow coordinator coord-test)]"; then
+    TN=$R; TNSNAP=$(tsnap "$TN")
+    topen tk-n "$B_ID" '[]'
+    eq "10: a takeover of a role-less run with no --role is asked, exit 10" "10 ask=role" "$ORC $OUT"
+    eq "10:   ... before takeover_check: the record, the run's state and the session list as they were" "$TNSNAP" "$(tsnap "$TN")"
+    topen tk-n "$B_ID" '["--role","director"]'
+    eq "10: given --role director it takes the run over" "0 continued director" "$ORC $(line outcome) $(line role)"
+    eq "10:   ... finish_takeover writing the row, set by the start's --role" "director|start --role" "$(rrow "$(line session)")"
+fi
+# A successor's brief: its opener line passes --dispatched-by naming the
+# predecessor, the run the start takes over.
+if role_run tk-s "[$(trow role director),$(trow reports-to "the human"),$(trow coordinator coord-test)]"; then
+    TS=$R; TSSNAP=$(tsnap "$TS")
+    topen tk-s "$B_ID" '["--role","manager"]' --dispatched-by "$TS"
+    eq "10: a successor's brief naming manager for a predecessor recorded director is refused role-mismatch" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
+    eq "10:   ... the record as it was" "$TSSNAP" "$(tsnap "$TS")"
+    topen tk-s "$B_ID" '["--role","director"]' --dispatched-by "$TS"
+    TSB=$(line session)
+    eq "10: a successor's brief (--dispatched-by naming the predecessor) takes it over" "0 continued $TS director" "$ORC $(line outcome) $(line predecessor) $(line role)"
+    eq "10:   ... the successor's Run role row reading director" director "$(koto context get "$TSB" record/run | jq -r '.[] | select(.key == "role") | .value')"
+    eq "10:   ... and its dispatched-by link naming the predecessor" "koto/links/dispatched-by/$TS" "$(koto context list "$TSB" --prefix koto/links/dispatched-by/ | jq -r '.[]')"
+    topen tk-s "$B_ID" '["--role","director"]' --dispatched-by "$TSB"
+    eq "10: a resume whose --dispatched-by names the resumed run still exits 64" 64 "$ORC"
+    topen tk-s "$B_ID" '["--role","director"]' --dispatched-by "$TS"
+    eq "10: ... and one naming the predecessor, which the start resumes past, is a plain resume" "0 resumed $TSB" "$ORC $(line outcome) $(line session)"
+fi
+
+# ---- 11. a coordinator's brief, rendered and opened end to end ---------------
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 2; PRD R5, R7 and
+# R8. A started coordinator's first two steps, as its brief has them: the
+# invocation's tokens into a fresh args file, then the opener line exactly as
+# the brief renders it.
+brief_inv() { sed -n 's/^Run `\/shirabe:coordinate \(.*\)` in acme\/widgets\.$/\1/p' "$1" | jq -Rc 'split(" ")'; }
+brief_opener() { sed -n 's/^`\("${CLAUDE_PLUGIN_ROOT}\/skills\/coordinate\/scripts\/coordinate-open\.sh".*\)`$/\1/p' "$1"; }
+bopen() { # bopen <brief> <workdir> <claude session id>: OUT, ORC
+    local cmd
+    cmd=$(brief_opener "$1")
+    rm -rf "$T/bargs" && mkdir -p "$T/bargs"
+    brief_inv "$1" > "$T/bargs/args.json"
+    OUT=$(cd "$2" && export CLAUDE_CODE_SESSION_ID="$3" CLAUDE_PLUGIN_ROOT="$PR" ARGS_DIR="$T/bargs" && eval "$cmd" 2>"$T/open.err"); ORC=$?
+}
+crow() { jq -nc --arg k "$1" --arg v "$2" --arg b "${3:-the human}" '{key: $k, value: $v, set_by: $b, set: "2026-09-26T08:00Z"}'; }
+cinput() { # cinput <topic> <unit> <roadmap name> [jq]: a coordinate brief input
+    jq -nc --arg t "$1" --arg u "$2" --arg r "docs/roadmaps/ROADMAP-$3.md" '{topic: $t, repo: "acme/widgets", unit: $u, entry_point: "coordinate",
+        entry_args: [$r], run_mode: "", phase: "executing", authority: "You are working for the owner on acme/widgets.",
+        goal: "Run the roadmap'"'"'s next units.", checkpoints: ["The first unit is dispatched."], acceptance: ["Its units land."],
+        dispatcher_session: "coord-x"}' | jq -c "${4:-.}"
+}
+# A successor: its predecessor P, recorded director, renders its brief with
+# dispatch-worker.sh, and the successor opens from it.
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+three_features tk-p
+RAW_RECORD=1 seed_record tk-p "$(record_json roadmap tk-p | jq -c --argjson r "[$(crow arguments 'docs/roadmaps/ROADMAP-tk-p.md'),$(crow cap 5),$(crow coordinator coord-p coord-p),$(crow reports-to 'the human'),$(crow role director 'start --role')]" '.run = $r')"
+if OPEN_ROLE=director open_run tk-p && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ] \
+    && [ "$(at --with-data '{"choice":"dispatch","unit":"succ-p"}')" = dispatch ]; then
+    P=$S
+    dispatch_as_agent "$(cinput succ-p "Feature 3" tk-p '.grant = "own"')"
+    eq "11: a predecessor recorded director renders its successor's brief" 0 "$DW_RC"
+    SBF="$T/work/.niwa/dispatch-briefs/succ-p.md"
+    eq "11:   ... whose invocation line carries --role director" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-tk-p.md --role director` in acme/widgets.' "$(grep -F -- '--role' "$SBF")"
+    eq "11:   ... and whose opener line names the predecessor" "\"\${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"\${CLAUDE_PLUGIN_ROOT}\" --dispatched-by $P \"\$ARGS_DIR/args.json\"" "$(brief_opener "$SBF")"
+    bopen "$SBF" "$T/work2" "$B_ID"
+    eq "11: the successor's opener, run as its brief renders it, takes the predecessor over as director" "0 continued $P director" "$ORC $(line outcome) $(line predecessor) $(line role)"
+    SUCC=$(line session)
+    eq "11:   ... the takeover done" true "$( (koto context get "$SUCC" record/meta 2>/dev/null || echo '{}') | jq -r '.takeover_done // false')"
+    eq "11:   ... and the successor's Run role row reading director" director "$( (koto context get "$SUCC" record/run 2>/dev/null || echo '[]') | jq -r '[.[] | select(.key == "role") | .value][0] // "none"')"
+else
+    bad "11: the predecessor reaches dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A role change on a re-brief: the director D holds the lane L on the
+# coordinate entry point; L, a manager, wrote its reports-to row from its brief
+# (<the dispatcher's name> at <reports_to>).
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+three_features tk-d
+RAW_RECORD=1 seed_record tk-d "$(stored "$(record_json roadmap tk-d | jq -c --argjson h "$(holding lane-l '{"unit": "Feature 1", "entry_point": "coordinate", "mode": "", "pull_request": "", "branch": ""}')" '.holdings = [$h]')" \
+    | jq -c '.run |= map(if .key == "role" then .value = "director" elif .key == "coordinator" then .value = "coord-d" else . end)')"
+if OPEN_ROLE=director open_run tk-d && [ "$(at)" = reconcile ]; then
+    D=$S
+    if role_run tk-l "[$(trow role manager),$(trow reports-to "$D at coord-d"),$(trow coordinator coord-l)]"; then
+        L=$R
+        printf 'lane-l' > "$T/rt"
+        (cd "$WD" && koto context add "$D" report_topic --from-file "$T/rt" >/dev/null)
+        cinput lane-l "Feature 1" tk-l '.role_change = "director" | .role_change_by = "someone-else"' > "$T/brief.json"
+        (cd "$WD" && koto context add "$D" brief_input.json --from-file "$T/brief.json" >/dev/null)
+        : > "$T/work/.niwa/workspace.toml"
+        (cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$D" --rebrief >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
+        rm -f "$T/work/.niwa/workspace.toml"
+        LBF="$T/work/.niwa/dispatch-briefs/lane-l.md"
+        eq "11: the director's role_change re-brief of its lane exits 0" "0 brief=$LBF" "$DW_RC $(cat "$T/dw.out")"
+        eq "11:   ... its invocation line naming the director's own address" \
+            'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-tk-l.md --role director --role-change-by coord-d --role-change-source dispatcher` in acme/widgets.' \
+            "$(grep -F -- '--role' "$LBF")"
+        bopen "$LBF" "$WD" "$A_ID"
+        eq "11: the lane, re-running its brief's invocation from a fresh args file, accepts the change" "0 resumed $L director manager" \
+            "$ORC $(line outcome) $(line session) $(line role) $(line role_changed_from)"
+        eq "11:   ... writing the row, set by the director's address" "director|coord-d" "$(rrow "$L")"
+        eq "11:   ... with its entry" "Run role changed from manager to director by coord-d, an intervention from above; source: dispatcher." "$(rentry "$L")"
+        # A plain re-brief of the lane: no --role, so it never undoes the change.
+        cinput lane-l "Feature 1" tk-l > "$T/brief.json"
+        (cd "$WD" && koto context add "$D" brief_input.json --from-file "$T/brief.json" >/dev/null)
+        : > "$T/work/.niwa/workspace.toml"
+        (cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$D" --rebrief >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
+        rm -f "$T/work/.niwa/workspace.toml"
+        eq "11: a plain re-brief of the lane exits 0" 0 "$DW_RC"
+        grep -q -- '--role' "$LBF" && bad "11:   ... and its brief carries no --role" "$(grep -- '--role' "$LBF")" || ok "11:   ... and its brief carries no --role"
+        bopen "$LBF" "$WD" "$A_ID"
+        eq "11:   ... whose invocation resumes the lane as director" "0 resumed director" "$ORC $(line outcome) $(line role)"
+        # The lane dispatched again: a new dispatch renders --role manager,
+        # and the lane, recorded director, refuses it. role_run left S on the
+        # lane: the director's run is driven from here.
+        S=$D
+        RD1=$(at --with-data '{"reconciled":"reported"}'); RD2=
+        [ "$RD1" = pick ] && RD2=$(at --with-data '{"choice":"dispatch","unit":"lane-l2"}')
+        if [ "$RD2" = dispatch ]; then
+            dispatch_as_agent "$(cinput lane-l2 "Feature 2" tk-l)"
+            NBF="$T/work/.niwa/dispatch-briefs/lane-l2.md"
+            eq "11: the lane dispatched again renders --role manager" "0 Run \`/shirabe:coordinate docs/roadmaps/ROADMAP-tk-l.md --role manager\` in acme/widgets." \
+                "$DW_RC $(grep -F -- '--role' "$NBF")"
+            LSNAP=$(tsnap "$L")
+            bopen "$NBF" "$T/work2" "$B_ID"
+            eq "11:   ... and its start is refused role-mismatch" "2 refused role-mismatch" "$ORC $(line outcome) $(line reason)"
+            eq "11:   ... leaving the lane as it was" "$LSNAP" "$(tsnap "$L")"
+        else
+            bad "11: the director reaches dispatch" "reconcile -> ${RD1:-none}, pick -> ${RD2:-none}: $(cat "$T/tick.err" 2>/dev/null)"
+        fi
+    fi
+else
+    bad "11: the director's run opens" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 12. koto's exit 3 on the fence, read by its code ---------------------------
+# A stand-in in front of the real koto answers koto init --supersede as
+# US_INIT says: lock refuses fence_unavailable without calling koto, as a log
+# lock held past koto's wait does; after runs the real init with one of the
+# run's carried keys (US_UNREADABLE) unreadable, so koto fences and creates
+# and its own carry fails before it writes a key or its completion marker,
+# and then reports the carry failed, persistence_error, exit 3; rerun refuses
+# fence_unavailable without calling koto, as a bucket read failing on a
+# re-run does. The successor holds no record, so a start finds the fenced run
+# the newest holder and runs koto init again under the fence's name.
+mkdir -p "$T/ushim"
+cat > "$T/ushim/koto" <<'EOF'
+#!/bin/sh
+if [ "$1" = init ]; then
+    case " $* " in *" --supersede "*)
+        case "${US_INIT:-}" in
+            lock)
+                printf '{"code":"fence_unavailable","command":"init","error":"--supersede: a stand-in lock wait ran out; nothing was written"}\n'
+                exit 3 ;;
+            after)
+                chmod u-r "$US_UNREADABLE"
+                "$US_REAL" "$@" > "$US_T/us-real.out" 2>&1
+                chmod u+r "$US_UNREADABLE"
+                printf '{"code":"persistence_error","command":"init","error":"--supersede: the run is fenced and %s exists, but the carry failed: a stand-in carry failure. Run the same command again to finish it"}\n' "$2"
+                exit 3 ;;
+            rerun)
+                : > "$US_T/us-rerun-seen"
+                printf '{"code":"fence_unavailable","command":"init","error":"--supersede: a stand-in bucket read failure on a re-run"}\n'
+                exit 3 ;;
+        esac ;;
+    esac
+fi
+exec "$US_REAL" "$@"
+EOF
+chmod +x "$T/ushim/koto"
+export US_REAL=$REAL_KOTO US_T=$T
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+if to_reconciled unfinished "$(two_holdings unfinished)"; then
+    U=$S
+    ULOG="$(koto session dir "$U")/koto-$U.state.jsonl"
+    export CLAUDE_CODE_SESSION_ID=$B_ID
+    # Before any fence: the lock, nothing written.
+    BEFORE_S=$(sessions); BEFORE_L=$(wc -l < "$ULOG")
+    US_INIT=lock PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    eq "12 lock: koto's fence_unavailable before any fence refuses predecessor-unstoppable" "2 refused predecessor-unstoppable" "$ORC $(line outcome) $(line reason)"
+    grep -qF 'a stand-in lock wait ran out' "$T/open.err" && ok "12 lock:   ... with koto's message" || bad "12 lock:   ... with koto's message" "$(cat "$T/open.err")"
+    eq "12 lock:   ... opening no run" "$BEFORE_S" "$(sessions)"
+    eq "12 lock:   ... and writing nothing to the run" "$BEFORE_L" "$(wc -l < "$ULOG")"
+    # The fence lands and the carry fails: unfinished, not refused.
+    US_INIT=after US_UNREADABLE="$(koto session dir "$U")/ctx/record/meta" PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    eq "12 carry: a failed carry after the fence is failed=takeover_unfinished, exit 1" "1 takeover_unfinished" "$ORC $(line failed)"
+    eq "12 carry:   ... no outcome=, reason= or session=" "" "$(line outcome)$(line reason)$(line session)"
+    UF=$(cd "$T/work2" && bash "$PS/coord-log.sh" fence --session "$U" 2>/dev/null)
+    SUCC=$(jq -r '.by // ""' <<< "${UF:-null}")
+    eq "12 carry:   ... the run is fenced by this session" "$B_ID" "$(jq -r '.claude_session // ""' <<< "${UF:-null}")"
+    if [ -n "$SUCC" ] && grep -qF 'a stand-in carry failure' "$T/open.err" && grep -qF "$U is fenced by $SUCC" "$T/open.err" \
+        && grep -qF 'exit 3, persistence_error' "$T/open.err" && ! grep -qE 'still drives|log lock|nothing was written' "$T/open.err"; then
+        ok "12 carry:   ... the message carries koto's exit, code and words and names the fence's successor, and not the old run driving"
+    else
+        bad "12 carry:   ... the message carries koto's exit, code and words and names the fence's successor, and not the old run driving" "fence ${UF:-none}: $(cat "$T/open.err")"
+    fi
+    # The same start again from the fencing session, its koto init failing
+    # again after the fence: unfinished again, with the re-run's own reason.
+    rm -f "$T/us-rerun-seen"
+    US_INIT=rerun PATH="$T/ushim:$PATH" opener unfinished "$T/work2"
+    eq "12 rerun: the re-run runs koto init again under the fence's name" yes "$([ -e "$T/us-rerun-seen" ] && echo yes || echo no)"
+    eq "12 rerun:   ... and a failure there is failed=takeover_unfinished, exit 1" "1 takeover_unfinished" "$ORC $(line failed)"
+    if grep -qF 'a stand-in bucket read failure on a re-run' "$T/open.err" && grep -qF "$U is fenced by $SUCC" "$T/open.err" \
+        && ! grep -qE 'still drives|log lock|nothing was written' "$T/open.err"; then
+        ok "12 rerun:   ... the message carries koto's words, not a log lock"
+    else
+        bad "12 rerun:   ... the message carries koto's words, not a log lock" "$(cat "$T/open.err")"
+    fi
+    # The same start with the real koto finishes the takeover.
+    opener unfinished "$T/work2"
+    eq "12: the same start with the real koto finishes the takeover" "0 continued $U $SUCC" "$ORC $(line outcome) $(line predecessor) $(line session)"
+    eq "12:   ... with one takeover entry" 1 "$( (cd "$T/work2" && bash "$PS/state-entry.sh" --session "$SUCC" --list 2>/dev/null) | jq '[.[] | select(.kind == "takeover")] | length')"
+else
+    bad "12: the fifth run opens and reconciles" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 echo; echo "coordinate-takeover engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

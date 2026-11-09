@@ -31,6 +31,32 @@
 # record/side-effects holds the roadmap edit row naming that pull request and
 # `(entry N)`.
 #
+# An `alignment` entry (a director's call on a lane pull request,
+# docs/designs/DESIGN-director-alignment-review.md, Decision 2) stays in the
+# session but names its pull request with --on, the one kind that stays in
+# the session and takes --on: its first line must name the --on pull
+# request, on_admitted runs, the host-visibility scan below runs as for any
+# entry kept in the session, and it is never posted, whatever the
+# repository's opt-in. `--on none` and no --on are refused for it (exit 65).
+# Its text is these seven lines in this order, at most 16 KiB, checked by
+# alignment_check before anything is written:
+#
+#   Alignment: <owner/repo#n> at <40-hex head> -- <fits|fits with follow-ups|diverges>
+#   Read: <full|one-line>
+#   Sources: <none | <source>; <source>; ...>
+#   Reason: <one line>
+#   Evidence: <none | <n> <met|not met>; ...>
+#   Follow-ups: <none | new: <title>; ...>
+#   Action: <merge|recommend|hold|none>
+#
+# A source is `roadmap <path> at <40-hex> <unit> clause <n>`, `strategy
+# <path> at <40-hex> <section heading>`, `standing s<n>`, `decision <n>` or
+# `lane <holding> <owner/repo#n | path>`. `fits with follow-ups` needs a
+# follow-up and no other call may carry one; `diverges` needs a source and
+# Action `hold`, and only `diverges` takes Action `hold`; `Read: one-line`
+# goes only with `fits`. Every other kind that stays in the session is a usage
+# error with --on (exit 64).
+#
 # An item gets a comment only when its repository, public or private, opts
 # in with `## PR Workflow Content: include` in the CLAUDE.md on its default
 # branch (read through scripts/pr-workflow-content.sh). Otherwise an append keeps the
@@ -79,7 +105,8 @@
 #
 # K is entry (the default), or one of the kinds the record's other writers
 # append for what they change (the design's Decisions 3 and 4): run, told, pending,
-# pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
+# pause, go-ahead, approval, answer, assignment, rule (a Standing rule row,
+# state-stored-set.sh --standing rule), end, work, roadmap-status,
 # hold (a hold added or lifted, state-hold.sh), moved (found in a record an
 # earlier release moved onto its session; only the legacy importer still posts
 # one, on the GitHub record it imports), takeover (a session that took the
@@ -91,7 +118,8 @@
 # milestone, milestone.sh check-failure), decisions (settled Decisions rows a
 # GitHub record archived, which the legacy importer brings with the record and
 # state-decision.sh reads back to restore one; no script archives now),
-# and cost, the teardown pass's unit-cost summary (unit-cost.sh). The text may not be empty, may hold no control character
+# cost, the teardown pass's unit-cost summary (unit-cost.sh), and alignment, a
+# director's call (alignment-call.sh; above). The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
 # (exit 65). On a public host an entry kept in the session may not name a
 # private or unreadable repository (as owner/repo#n or a github.com link), a
@@ -152,7 +180,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-ENTRY_KINDS=" entry run told pending pause go-ahead approval answer assignment end work roadmap-status hold moved takeover cost milestone-verdict milestone-failure goal-fit decisions "
+ENTRY_KINDS=" entry run told pending pause go-ahead approval answer assignment rule end work roadmap-status hold moved takeover cost milestone-verdict milestone-failure goal-fit decisions alignment "
 # The kinds a reader outside the coordinator reads from GitHub.
 OUTWARD_KINDS=" cost milestone-verdict goal-fit milestone-failure "
 case "$MODE" in
@@ -173,11 +201,15 @@ if [ -n "$ON" ]; then
         [[ $ON =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$ ]] || { echo "$PROG: --on is owner/repo#n or none" >&2; exit 64; }
         ON_REPO=${ON%#*} ON_NUM=${ON##*#}
     fi
-    [ "$MODE" = repost ] || case "$OUTWARD_KINDS" in *" $KIND "*) ;; *) echo "$PROG: --on is for an outward kind:$OUTWARD_KINDS" >&2; exit 64 ;; esac
+    # An alignment entry stays in the session yet names its pull request: the
+    # one kind besides the outward ones that takes --on.
+    [ "$MODE" = repost ] || case "$OUTWARD_KINDS alignment " in *" $KIND "*) ;; *) echo "$PROG: --on is for an outward kind:$OUTWARD_KINDS, or alignment" >&2; exit 64 ;; esac
 fi
 # The largest entry, in bytes, so a posted comment stays under GitHub's
 # 65,536-byte limit.
 ENTRY_BUDGET=60000
+# The largest alignment entry's text, in bytes.
+ALIGNMENT_BUDGET=16384
 
 . "$HERE/state-common.sh"
 if [ "$BEFORE_FIND" = 1 ]; then
@@ -211,6 +243,7 @@ if [ -z "$ON" ] && [ "$MODE" != list ]; then
     case "$OUTWARD_KINDS" in
         *" $KIND "*) echo "$PROG: refused: a $KIND entry is posted on the item it concerns: --on owner/repo#n, or --on none" >&2; exit 65 ;;
     esac
+    [ "$KIND" != alignment ] || { echo "$PROG: refused: an alignment entry names the pull request it calls: --on owner/repo#n" >&2; exit 65; }
 fi
 
 # gh_entries <marked-jsonl>: the entries the item's marked comments carry, in
@@ -274,6 +307,86 @@ goal_fit_check() {
     named=$(goal_fit_names "$1")
     [ -n "$named" ] || { echo "$PROG: refused: the goal-fit entry names no pull request (its first line is \`Goal fit: <owner/repo#n> -- <tag>\`)" >&2; exit 65; }
     [ "$(lc "$named")" = "$(lc "$ON")" ] || { echo "$PROG: refused: the goal-fit entry names $named, not $ON" >&2; exit 65; }
+}
+# al_refuse <why>: an alignment entry refused, nothing written.
+al_refuse() { echo "$PROG: refused: the alignment entry $1" >&2; exit 65; }
+# al_items <list>: a line's list, one item per line, split on `; `.
+al_items() {
+    local rest=$1
+    while :; do
+        case "$rest" in
+            *"; "*) printf '%s\n' "${rest%%; *}"; rest=${rest#*; } ;;
+            *) printf '%s\n' "$rest"; return 0 ;;
+        esac
+    done
+}
+# alignment_check <text-file>: refuses (65) an alignment entry that isn't the
+# seven lines in their order (the header has the grammar), whose first line
+# names a pull request other than --on, whose head isn't 40 hex, whose values
+# fall outside each line's set, or whose call, Read, Sources, Follow-ups and
+# Action break the rules between them. Each line is split once on `: ` and a
+# list on `; `, as a reader splits it.
+alignment_check() {
+    local f=$1 n i want line head call rd sources follow action item
+    local labels="Alignment Read Sources Reason Evidence Follow-ups Action"
+    local re_first='^Alignment: ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*) at ([^ ]+) -- (.*)$'
+    local re_sha='^[0-9a-f]{40}$'
+    local re_roadmap='^roadmap [^ ]+ at [0-9a-f]{40} .+ clause [1-9][0-9]*$'
+    local re_strategy='^strategy [^ ]+ at [0-9a-f]{40} .+$'
+    local re_standing='^standing s[1-9][0-9]*$' re_decision='^decision [1-9][0-9]*$'
+    local re_lane='^lane [A-Za-z0-9][A-Za-z0-9._-]* [^ ]+$'
+    local re_evidence='^[1-9][0-9]* (met|not met)$' re_follow='^new: .*[^ ]'
+    [ "$(wc -c < "$f" | tr -d ' ')" -le "$ALIGNMENT_BUDGET" ] || al_refuse "is over $ALIGNMENT_BUDGET bytes"
+    n=$(awk 'END { print NR }' "$f")
+    [ "$n" -eq 7 ] || al_refuse "has $n lines, not the seven: $labels"
+    i=0
+    for want in $labels; do
+        i=$((i + 1))
+        line=$(sed -n "${i}p" "$f")
+        case "$line" in "$want: "*[![:space:]]*) ;; *) al_refuse "line $i isn't \`$want: <value>\` (the lines are $labels, in that order)" ;; esac
+    done
+    line=$(sed -n 1p "$f")
+    [[ $line =~ $re_first ]] || al_refuse "first line isn't \`Alignment: <owner/repo#n> at <head> -- <call>\`"
+    [ "$(lc "${BASH_REMATCH[1]}")" = "$(lc "$ON")" ] || al_refuse "names ${BASH_REMATCH[1]}, not $ON"
+    head=${BASH_REMATCH[2]} call=${BASH_REMATCH[3]}
+    [[ $head =~ $re_sha ]] || al_refuse "head $head isn't 40 lower-case hex"
+    case "$call" in fits|"fits with follow-ups"|diverges) ;; *) al_refuse "call is [$call], not fits, fits with follow-ups or diverges" ;; esac
+    rd=$(sed -n 2p "$f"); rd=${rd#Read: }
+    case "$rd" in full|one-line) ;; *) al_refuse "Read is [$rd], not full or one-line" ;; esac
+    sources=$(sed -n 3p "$f"); sources=${sources#Sources: }
+    if [ "$sources" != none ]; then
+        while IFS= read -r item; do
+            [[ $item =~ $re_roadmap ]] || [[ $item =~ $re_strategy ]] || [[ $item =~ $re_standing ]] \
+                || [[ $item =~ $re_decision ]] || [[ $item =~ $re_lane ]] \
+                || al_refuse "source [$item] is none of roadmap, strategy, standing, decision or lane"
+        done < <(al_items "$sources")
+    fi
+    line=$(sed -n 5p "$f"); line=${line#Evidence: }
+    if [ "$line" != none ]; then
+        while IFS= read -r item; do
+            [[ $item =~ $re_evidence ]] || al_refuse "Evidence item [$item] isn't \`<n> met\` or \`<n> not met\`"
+        done < <(al_items "$line")
+    fi
+    follow=$(sed -n 6p "$f"); follow=${follow#Follow-ups: }
+    if [ "$follow" != none ]; then
+        while IFS= read -r item; do
+            [[ $item =~ $re_follow ]] || al_refuse "follow-up [$item] isn't \`new: <title>\`"
+        done < <(al_items "$follow")
+    fi
+    action=$(sed -n 7p "$f"); action=${action#Action: }
+    case "$action" in merge|recommend|hold|none) ;; *) al_refuse "Action is [$action], not merge, recommend, hold or none" ;; esac
+    if [ "$call" = "fits with follow-ups" ]; then
+        [ "$follow" != none ] || al_refuse "calls fits with follow-ups with Follow-ups none"
+    else
+        [ "$follow" = none ] || al_refuse "calls $call with a follow-up; only fits with follow-ups carries one"
+    fi
+    if [ "$call" = diverges ]; then
+        [ "$sources" != none ] || al_refuse "calls diverges with Sources none; a divergence names what it diverges from"
+        [ "$action" = hold ] || al_refuse "calls diverges with Action $action, not hold"
+    else
+        [ "$action" != hold ] || al_refuse "takes Action hold on a $call call; only diverges holds"
+    fi
+    [ "$rd" != one-line ] || [ "$call" = fits ] || al_refuse "reads one-line on a $call call; a one-line read goes only with fits"
 }
 # dest_withheld: writes why an entry stays off the --on item to
 # $WD/withheld, and returns 0, when the item's repository, public or private,
@@ -470,9 +583,10 @@ fi
 # fields.
 # An entry bound for an item (--on) is scanned against the item's visibility
 # when it is posted, below, instead.
+# An alignment entry stays in the session, so it is scanned here, --on or not.
 PRIVATE=
 HOST_PRIVATE=
-[ -n "$ON" ] || { HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"; }
+[ -n "$ON" ] && [ "$KIND" != alignment ] || { HOST_PRIVATE=$(gh api --method GET "repos/$REPO" --jq .private 2> /dev/null < /dev/null) || lib_die2 "cannot read $REPO's visibility"; }
 if [ "$HOST_PRIVATE" = false ]; then
     printf '%s' "$TEXT" | jq -R -s -r -L "$HERE" 'include "state-schema"; text_named_repos | .[]' > "$WD/named" || lib_die2 "jq failed"
     while IFS= read -r r; do
@@ -502,11 +616,13 @@ fi
 # Which item an entry may go on, checked before anything is written.
 if [ "$ON" = none ]; then
     [ "$KIND" != goal-fit ] || { echo "$PROG: refused: a goal-fit entry goes on the pull request it names: --on owner/repo#n" >&2; exit 65; }
+    [ "$KIND" != alignment ] || { echo "$PROG: refused: an alignment entry names the pull request it calls: --on owner/repo#n, never none" >&2; exit 65; }
 elif [ -n "$ON" ]; then
     case "$KIND" in
         milestone-verdict|milestone-failure)
             echo "$PROG: refused: a $KIND entry is written with --on none and posted on its roadmap pull request by roadmap-status.sh (--verdict or --reopen with --entry), not by hand" >&2; exit 65 ;;
         goal-fit) goal_fit_check "$WD/text.clean" ;;
+        alignment) alignment_check "$WD/text.clean" ;;
     esac
     on_admitted
 fi
@@ -539,7 +655,8 @@ for try in 1 2 3 4; do
     break
 done
 [ -n "$WRITTEN" ] || { echo "$PROG: refused: entry-exists: record/entries/$N and the numbers before it were taken; list the entries and try again" >&2; exit 65; }
-if [ -z "$ON" ] || [ "$ON" = none ]; then
+# An alignment entry names its pull request but is never posted.
+if [ -z "$ON" ] || [ "$ON" = none ] || [ "$KIND" = alignment ]; then
     printf 'record/entries/%s\n' "$WRITTEN"
     exit 0
 fi

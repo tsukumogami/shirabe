@@ -83,15 +83,61 @@ the installed niwa takes those flags, and replaces it with what the launch
 asked for, so the brief's Goal carries one `Named authority:` line that names
 exactly those authorities, or says the worker holds none (always so with a
 niwa that takes no `--grant`). When the worker holds an authority, the line
-then tells it three things: report its finished work to you for review before
-it merges anything; merge only after your own message clears that pull
-request at a head it names, pinned to that head; and never merge a pull
-request that changes a roadmap under `docs/roadmaps/`, whatever its grant,
-handing it back when unsure. Either way the line ends by telling the worker
+then tells it two things: report its finished work to you for review before
+it merges anything, and merge only after your own message clears that pull
+request at a head it names, pinned to that head. It bans nothing the grant
+allows: whether a merge is allowed is the grant's to say, not the brief's.
+Either way the line ends by telling the worker
 that a merge, close or release its grant doesn't cover goes back to you in a
 report. The
 grant is never wider than your own: niwa refuses one that is, and the
 refusal is reported, never retried wider.
+
+`role` is the role of a coordinator the brief starts (entry point
+`coordinate`), `manager` or `director`. It is written by
+`dispatch-worker.sh`, never by hand, and is absent from every worker brief:
+the script overwrites whatever the input gave, so leave it out. A successor's
+brief, whose positional names your own run's roadmap, gets the role your
+record's Run `role` row holds (with no row the dispatch is refused, naming
+the command that sets it); a lane's brief gets `manager`, on every new
+dispatch. The brief carries it as `--role <role>` on the Goal's invocation
+line,
+`` Run `/shirabe:coordinate <roadmap-path> --role <role>` in <owner/repo>. ``,
+and the dispatch prompt carries the same invocation, so a dispatched
+coordinator's role comes from the `--role` on its brief's invocation line:
+it passes that role at its start and infers none. `held_rerender` and
+`role_change_by` are the script's too, and an input's are dropped.
+
+`role_change` is the one role field you give, and only in the input of a
+`dispatch-worker.sh --rebrief` of a manager you dispatched, whose report you
+are handling: the new role, `manager` or `director`. The re-rendered
+invocation line then reads `--role <new> --role-change-by <your address>
+--role-change-source dispatcher`, the address being your record's Run
+`coordinator` row (the brief's `reports_to`), never a name from the input,
+and the manager's opener accepts the change as an intervention from above
+(PRD R5). Only `--rebrief` carries it: a new dispatch, a successor's brief,
+`--releg` and a worker's holding refuse it (exit 1, nothing written), and an
+address longer than the opener's 80 characters is refused when the brief
+renders. A plain `--rebrief` of a held lane renders no `--role` at all,
+because it isn't a new dispatch: the lane continues the role its record
+holds, so a re-brief never undoes a change. Its opener line tells the lane
+to write the invocation's tokens into a fresh `$ARGS_DIR/args.json` first,
+since the opener removes that file once read. Stopping a lane and
+dispatching a new one can't change its role either: the new dispatch renders
+`--role manager`, and on a lane recorded `director` its opener refuses that
+start (`role-mismatch`).
+
+The Goal of a coordinator's brief names the concrete scope and work (which
+roadmap or lanes, which units, which decisions) and makes no general
+statement of what a role owes. It names no role for the coordinator it
+starts, except that a manager's brief may name the director it reports to as
+its reviewer, and a director's brief the managers it dispatched or reviews.
+The role travels only as `--role` on the invocation line, and the started
+coordinator reads its duties from the skill's Roles list for that role. A
+coordinate brief says "commit" where a worker brief says "head" (the grant
+and review round lines), and tells the started coordinator to fill its
+`no-reports-to` gap with `<the dispatcher's name> at <reports_to>`, never a
+bare name.
 
 `launch` is how niwa starts the worker, and changes nothing in the brief.
 Give it one or more of `model`, `permission_mode` and

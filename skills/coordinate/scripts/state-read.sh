@@ -86,6 +86,9 @@
 #   state-read.sh --session S --facts <topic>
 #   state-read.sh --session S --host
 #   state-read.sh --session S --meta
+#   state-read.sh --session S --run
+#   state-read.sh --run --workspace W --session S
+#   state-read.sh --predecessors [--workspace W] --session S
 #   state-read.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
 #   state-read.sh --scope roadmap|discipline --name N --repo O/R --facts <topic>|--record
@@ -98,12 +101,41 @@
 # the row: `standing.s3: ...`); --host prints record/host, the object
 # rs_host reads; --meta prints record/meta as it stands, pending or not, or
 # {} when the session holds none (coordinate-open.sh reads a run's driver
-# and takeover fields there).
+# and takeover fields there). --run prints record/run, the Run section's rows
+# as one JSON array, or [] when the record holds no Run section; it needs no
+# found record, so it reads a run whose find hasn't sealed one (a candidate
+# before its start, a carry before its find). It is the one read of the Run
+# `role` row (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1). A
+# read that fails, or a key that isn't an array, exits 2 with nothing on
+# stdout, never as an empty section, so a failed read can't pass for a run
+# with no role.
+#
+# --run --workspace W reads the same key of a session in another workspace's
+# part of koto's cloud bucket, where it is (`koto --workspace W context list`
+# and `context get`), writing nothing: an import's source before `koto
+# session import` (coordinate-open.sh). Presence comes from the listing, since
+# `context get` exits the same for a missing key and an unreadable bucket.
+#
+# --predecessors prints the runs S continues, one name a line, nothing for
+# none: koto's continues relation (the names under S's koto/links/continues/
+# keys: a takeover, an import's copy), a discipline rotation's predecessor
+# (record/rotation's `predecessor`), and a run a carry linked S to (a
+# koto/links/dispatched-by/ key naming a run of S's own scope,
+# coordinate-<slug>-<stamp>, which a carry writes; a dispatcher is another
+# scope's run). It is the one reader that names a run's predecessors, here or,
+# with --workspace W, where the source is.
+#
+# With --workspace, a read koto refuses (workspace_needs_cloud on the local
+# backend, workspace_not_found, session_not_found, invalid_workspace, or any
+# other code koto gives) exits 3, printing `refused=<code>` on stdout and
+# koto's message on stderr; any other failed read exits 2. Neither is ever
+# printed as role-less or as no predecessor.
 #
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
-# failed; 4 the session holds no record/meta; 12 the session record was still
-# being written; 64 usage; 65 (--record) the record is another scope's or
-# breaks a rule of state-schema.jq.
+# failed; 3 (--workspace) koto refused the read; 4 the session holds no
+# record/meta; 12 the session record was still being written; 64 usage; 65
+# (--record) the record is another scope's or breaks a rule of
+# state-schema.jq.
 #
 # Requires: bash 3.2+, jq, koto, and state-common.sh, state-schema.jq,
 # coord-log.sh and pause-read.sh beside this file.
@@ -712,7 +744,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -uo pipefail
     PROG=state-read
     HERE=$(cd "$(dirname "$0")" && pwd)
-    SESSION= SCOPE= NAME= REPO= ACTION= TOPIC= HASH= TODAY=
+    SESSION= SCOPE= NAME= REPO= ACTION= TOPIC= HASH= TODAY= WORKSPACE=
     rs_usage() { sed -n '/^# Usage (as a script):/,/^# Exit codes/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -722,6 +754,9 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --repo) [ $# -ge 2 ] || rs_usage; REPO=$2; shift 2 ;;
             --host) ACTION=host; shift ;;
             --meta) ACTION=meta; shift ;;
+            --run) ACTION=run; shift ;;
+            --predecessors) ACTION=predecessors; shift ;;
+            --workspace) [ $# -ge 2 ] && [ -z "$WORKSPACE" ] && [ -n "$2" ] || rs_usage; WORKSPACE=$2; shift 2 ;;
             --candidate) ACTION=candidate; shift ;;
             --hash) [ $# -ge 2 ] || rs_usage; HASH=$2; shift 2 ;;
             --today) [ $# -ge 2 ] || rs_usage; TODAY=$2; shift 2 ;;
@@ -740,17 +775,89 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             [ -z "$TODAY" ] || lib_valid_date "$TODAY" || rs_usage
             rs_resume_candidate "$SCOPE" "$NAME" "$HASH" "$TODAY"; exit $? ;;
     esac
+    # The reads that name the session alone, here or (--workspace) where it
+    # is in another workspace's part of the bucket: they read no log of it,
+    # so they need none on this host.
+    [ -z "$WORKSPACE" ] || [ "$ACTION" = run ] || [ "$ACTION" = predecessors ] || rs_usage
+    if [ -n "$WORKSPACE" ] || [ "$ACTION" = predecessors ]; then
+        [ -n "$SESSION" ] && [ -z "$SCOPE$NAME$REPO" ] || rs_usage
+        [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "$PROG: --session is not a koto session name" >&2; exit 64; }
+        RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || { echo "$PROG: cannot make a temporary directory" >&2; exit 2; }
+        trap 'rm -rf "$RS_T"' EXIT
+        SR_KOTO=${KOTO:-${KOTO_BIN:-koto}}
+        # sr_call <out> <koto args...>: koto, with --workspace when given,
+        # stdout into <out>; a failure leaves koto's code and message (on
+        # stdout, where koto puts a refusal) in SR_CODE and SR_MSG.
+        sr_call() {
+            local out=$1; shift
+            SR_CODE= SR_MSG=
+            if [ -n "$WORKSPACE" ]; then set -- --workspace "$WORKSPACE" "$@"; fi
+            "$SR_KOTO" "$@" < /dev/null > "$out" 2> "$out.err" && return 0
+            SR_CODE=$(jq -r '(.error | objects | .code) // .code // empty' "$out" 2> /dev/null)
+            SR_MSG=$(jq -r '(.error | if type == "object" then .message else . end) // empty' "$out" 2> /dev/null)
+            [ -n "$SR_MSG" ] || SR_MSG=$(lib_scrub < "$out.err" | head -3)
+            return 1
+        }
+        # sr_fail <what>: a refusal koto made with --workspace exits 3, any
+        # other failure 2.
+        sr_fail() {
+            local why
+            why=$(lib_scrub <<< "$SR_MSG"); why=${why:0:400}
+            if [ -n "$WORKSPACE" ] && [[ $SR_CODE =~ ^[a-z_]+$ ]]; then
+                echo "refused=$SR_CODE"
+                echo "$PROG: koto refused $1 in $WORKSPACE ($SR_CODE): $why" >&2
+                exit 3
+            fi
+            echo "$PROG: $1 failed${SR_CODE:+ ($SR_CODE)}: $why" >&2
+            exit 2
+        }
+        # sr_has <keys-file> <key>: the listing names <key>.
+        sr_has() { jq -e --arg k "$2" 'type == "array" and index($k) != null' "$1" > /dev/null 2>&1; }
+        sr_list() { # sr_list <out> <prefix>: a listing that is an array, or sr_fail
+            sr_call "$1" context list "$SESSION" --prefix "$2" || sr_fail "the listing of $SESSION's $2"
+            jq -e 'type == "array"' "$1" > /dev/null 2>&1 || { SR_CODE= SR_MSG="not a key list"; sr_fail "the listing of $SESSION's $2"; }
+        }
+        case "$ACTION" in
+            run)
+                sr_list "$RS_T/keys" record/run
+                if sr_has "$RS_T/keys" record/run; then
+                    sr_call "$RS_T/run" context get "$SESSION" record/run || sr_fail "the read of $SESSION's record/run"
+                    jq -e 'type == "array"' "$RS_T/run" > /dev/null 2>&1 || { echo "$PROG: record/run isn't a JSON array" >&2; exit 2; }
+                    jq -c . "$RS_T/run" || exit 2
+                else
+                    echo '[]'
+                fi
+                exit 0 ;;
+            predecessors)
+                sr_list "$RS_T/cont" koto/links/continues/
+                jq -r '.[] | ltrimstr("koto/links/continues/") | select(. != "")' "$RS_T/cont" > "$RS_T/names" || exit 2
+                sr_list "$RS_T/rkeys" record/rotation
+                if sr_has "$RS_T/rkeys" record/rotation; then
+                    sr_call "$RS_T/rot" context get "$SESSION" record/rotation || sr_fail "the read of $SESSION's record/rotation"
+                    jq -r 'if type == "object" then (.predecessor // empty | strings) else error("not an object") end' "$RS_T/rot" >> "$RS_T/names" 2> /dev/null \
+                        || { echo "$PROG: $SESSION's record/rotation isn't an object" >&2; exit 2; }
+                fi
+                # A carry's link names a run of this run's own scope:
+                # coordinate-<slug>-<stamp>, the slug read off the name.
+                SR_SLUG=${SESSION#coordinate-}; SR_SLUG=${SR_SLUG%-*}
+                sr_list "$RS_T/disp" koto/links/dispatched-by/
+                jq -r --arg re "^coordinate-${SR_SLUG}-[0-9]{8}T[0-9]{6}Z$" \
+                    '.[] | ltrimstr("koto/links/dispatched-by/") | select(test($re))' "$RS_T/disp" >> "$RS_T/names" || exit 2
+                awk 'NF && !seen[$0]++' "$RS_T/names"
+                exit 0 ;;
+        esac
+    fi
     lib_facts
     case "$ACTION" in
         host)
-            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX")
+            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || { echo "$PROG: cannot make a temporary directory" >&2; exit 2; }
             trap 'rm -rf "$RS_T"' EXIT
             rs_host "${RS_SESSION:-$SESSION}" "$RS_T/host" \
                 || { echo "$PROG: record/host couldn't be read: $(lib_scrub < "$RS_T/host.err" | head -3)" >&2; exit 2; }
             jq -c . "$RS_T/host"
             exit 0 ;;
         meta)
-            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX")
+            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || { echo "$PROG: cannot make a temporary directory" >&2; exit 2; }
             trap 'rm -rf "$RS_T"' EXIT
             rs_key "${RS_SESSION:-$SESSION}" record/meta "$RS_T/meta"
             case $? in
@@ -759,10 +866,21 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                 *) echo "$PROG: record/meta couldn't be read: $(lib_scrub < "$RS_T/meta.err" | head -3)" >&2; exit 2 ;;
             esac
             exit 0 ;;
+        run)
+            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || { echo "$PROG: cannot make a temporary directory" >&2; exit 2; }
+            trap 'rm -rf "$RS_T"' EXIT
+            rs_key "${RS_SESSION:-$SESSION}" record/run "$RS_T/run"
+            case $? in
+                0) jq -e 'type == "array"' "$RS_T/run" > /dev/null 2>&1 || { echo "$PROG: record/run isn't a JSON array" >&2; exit 2; }
+                   jq -c . "$RS_T/run" || exit 2 ;;
+                1) echo '[]' ;;
+                *) echo "$PROG: record/run couldn't be read: $(lib_scrub < "$RS_T/run.err" | head -3)" >&2; exit 2 ;;
+            esac
+            exit 0 ;;
     esac
     [ "$ACTION" != facts ] || [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the topic is not a dispatch topic" >&2; exit 64; }
     lib_run_found || { echo "$PROG: the run has no record yet" >&2; exit 2; }
-    RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX")
+    RS_T=$(mktemp -d "${TMPDIR:-/tmp}/state-read.XXXXXX") || { echo "$PROG: cannot make a temporary directory" >&2; exit 2; }
     trap 'rm -rf "$RS_T"' EXIT
     rs_record "$RS_T/rec"
     case $? in

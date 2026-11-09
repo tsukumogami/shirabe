@@ -417,7 +417,7 @@ drop_lock() {
 
 # ----------------------------------------------------------------- ledger ----
 
-H_AUTHOR="" H_BASE="" H_WORKTREE="" H_REPO="" H_PERSON=false H_PERSON_SRC=""
+H_AUTHOR="" H_BASE="" H_UNIT_BASE="" H_WORKTREE="" H_REPO="" H_PERSON=false H_PERSON_SRC=""
 
 # load_ledger <session>: the ledger into $TMP/ledger.
 load_ledger() {
@@ -550,6 +550,10 @@ compute_items() {
     fi
     ( cd "$H_WORKTREE" && test_classify_unit "$H_BASE" "$head" "$TMP/rules" "$TMP/record" ) > "$TMP/classified" 2>"$TMP/classify.err" \
         || undecided "could not classify the unit's test files: $(head -c 300 "$TMP/classify.err")"
+    # Where the unit's own changes start: impl_base, or the merge-base with the
+    # default branch once the branch has merged it (test_classify_base), so the
+    # edited hunks a brief shows are the unit's and not main's.
+    H_UNIT_BASE=$(cd "$H_WORKTREE" && test_classify_base "$H_BASE" "$head")
 
     : > "$TMP/items"
     while IFS="$tab" read -r label path digest; do
@@ -645,8 +649,8 @@ confirm_at_terminal() {
         if [ -s "$paths" ]; then
             local -a pa=()
             while IFS= read -r item; do pa[${#pa[@]}]="$item"; done < "$paths"
-            echo "The edited hunks (impl_base $H_BASE to HEAD):"
-            G diff -M "$H_BASE" HEAD -- "${pa[@]}" > "$TMP/hunks.tty" 2>>"$ERRLOG"
+            echo "The edited hunks (${H_UNIT_BASE:-$H_BASE} to HEAD):"
+            G diff -M "${H_UNIT_BASE:-$H_BASE}" HEAD -- "${pa[@]}" > "$TMP/hunks.tty" 2>>"$ERRLOG"
             head -c "$BRIEF_HUNKS_MAX" "$TMP/hunks.tty"
             echo
         fi
@@ -928,12 +932,12 @@ $item" ;; esac
         echo "(none: nothing in the diff needs an acceptance now)"
     fi
     echo
-    echo "## Edited hunks (impl_base $H_BASE to HEAD)"
+    echo "## Edited hunks (${H_UNIT_BASE:-$H_BASE} to HEAD)"
     if [ -n "$paths" ]; then
         printf '%s\n' "$paths" | sed '/^$/d' > "$TMP/paths"
         local -a pa=()
         while IFS= read -r item; do pa[${#pa[@]}]="$item"; done < "$TMP/paths"
-        G diff -M "$H_BASE" HEAD -- "${pa[@]}" > "$TMP/hunks" 2>>"$ERRLOG"
+        G diff -M "${H_UNIT_BASE:-$H_BASE}" HEAD -- "${pa[@]}" > "$TMP/hunks" 2>>"$ERRLOG"
         capped "$TMP/hunks" "$BRIEF_HUNKS_MAX"
         echo
     else

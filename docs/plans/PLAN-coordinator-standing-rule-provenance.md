@@ -6,14 +6,14 @@ split_mode_source: default
 split_rationale: |
   Hard Constraint. The design ships readers before writers: the reader
   release (steps 1 to 5) must be out at least one plugin release before
-  anything writes a `rule` row (steps 6 to 8), and the citation steps (9 to
-  17) can only be built on a koto release carrying the decision record and
+  anything writes a `rule` row (steps 6 to 8, 18 and 19), and the citation steps (9 to
+  17, and 20) can only be built on a koto release carrying the decision record and
   the supersede hop. Each step lands as its own pull request so those
   release gates can sit between them.
 tracking_level: none
 upstream: docs/designs/DESIGN-coordinator-standing-rule-provenance.md
 milestone: "Standing rules that carry their provenance"
-step_count: 17
+step_count: 20
 ---
 
 # PLAN: Standing rules that carry their provenance
@@ -190,11 +190,11 @@ The headings are fixed strings:
 
 ### Step 6: --standing rule writes a skill, doc, pinned or inferred rule row and refuses one that cites words its source doesn't hold
 
-shirabe, after the reader release has shipped: the writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind.
+shirabe, after the reader release has shipped: the writer takes `rule` and `--source` in the four uncited forms with the grammar, the private-repository checks on Source and What, the default-branch and quoted-sentence checks (three forge reads on a public host, two elsewhere, any failure refusing the row), one refusal for a missing and an unreadable repository, and the 120-rule and 60-inferred caps that leave room for every event kind. The design's Decisions 7, 8 and 9, settled after this step merged, change its trailing-punctuation set, its fence rule and its repository comparison and shared visibility read; that change lands through #1582 with criteria R44 to R46.
 
 ### Step 7: a start whose brief has no briefs row names brief-unread, and the intake brings each brief rule in once as an inferred row
 
-shirabe, after step 6: `record/host` names the brief, the handover read raises `brief-unread <label>`, the intake writes one `inferred brief` rule row per unmatched brief sentence by the normalized match plus the `briefs` row, is idempotent on one digest, brings a pause-shaped line in as a restrict-only `rule` row, ends the earlier digest's inferred rows the new brief no longer states, and leaves the gap open naming the count when a cap would be passed.
+shirabe, after step 6: `record/host` names the brief, the handover read raises `brief-unread <label>`, the intake writes one `inferred brief` rule row per unmatched brief rule sentence by the normalized match plus the `briefs` row, its candidates being the splitter's output less heading lines and less the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting and Keep-alive sections (the design's Decision 10), so the first intake of each `testdata/brief-golden` brief on an empty record stays under the 60-inferred cap, is idempotent on one digest, brings a pause-shaped line in as a restrict-only `rule` row, ends the earlier digest's inferred rows the new brief no longer states, and leaves the gap open naming the count when a cap would be passed.
 
 ### Step 8: state-keys.md and SKILL.md describe rule rows, Source forms, classes and the two read modes
 
@@ -224,9 +224,9 @@ shirabe, gated as step 10: `--confirm` keeps id, kind, On, Until, What and Set a
 
 shirabe, gated on the supersede hop: a director's taken-over successor cites a person decision it records and reads owner-said; a carried run cites one in its own session, reads inferred with `confirm` true, satisfies the gate and nothing else, and is listed for its next fenced member; a manager's successor, never a root and never entering a person decision, cites a session decision its director records acknowledging the carry, which reads dispatcher-said through a leg, and otherwise, including while koto's cross-session decision read is missing, writes today's uncited event row naming the director's session as Owner, which reads relayed.
 
-### Step 15: every tick's gate output lists the rule ids in force, and after a reversal no tick lists the reversed rule as in force
+### Step 15: every tick's gate output lists the rule ids in force, after a reversal no tick lists the reversed rule as in force, and the gate refuses a tick from a session that isn't the record's driver
 
-shirabe, gated as step 12: the coordinate template's tick runs `--rules --in-force` as a gate whose output koto records in the session log, so the reversal check reads ticks from koto's log rather than from entries naming a Standing id; the template's compat number moves with it.
+shirabe, gated as step 12: the coordinate template's tick runs `--rules --in-force` as a gate whose output koto records in the session log, so the reversal check reads ticks from koto's log rather than from entries naming a Standing id; the template's compat number moves with it. The same gate carries the gate half of the design's driver check, which step 19 leaves out: it refuses a tick whose driving Claude session isn't the record's driver, judging a run with no driver as step 19's writer does. That half depends on koto setting the tick's driver id on every gate, which it doesn't today (tsukumogami/koto#600).
 
 ### Step 16: SKILL.md tells a root to record the owner's word before writing the row and a manager to cite its director's
 
@@ -235,6 +235,18 @@ shirabe, after steps 5, 8, 11 and 14: the owner-said procedure, the manager rule
 ### Step 17: on a fixture lineage, the five outcome checks each hold, and the unsourced count rises within its threshold
 
 shirabe, after steps 3, 4, 11, 13, 14 and 15: an end-to-end walkthrough a reviewer can rerun, over a fixture lineage of at least six successions whose every handover writes its carry acknowledgement in one of step 14's forms, that runs the design's five checks with the observations described below for the old lineage, the reversed rule and the accretion threshold.
+
+### Step 18: a reading the coordinator acts on is written with an inferred rule row, the reports-to-unsourced gap catches one that isn't, and skill lines read with a date and a pointer
+
+shirabe, after step 6, needing nothing from koto (the design's Decision 5): `--run reports-to` and `--run cap` take `--inferred "<sentence>"` and write the Run row and a `rule` row with Source exactly `inferred` in one write; the handover read names `reports-to-unsourced` when the Run `reports-to` names a session that is neither the koto dispatched-by link nor held by a Standing row; each `--rules` object for a Run `rules` row gains `class`, `said` and `pointer` and `--rules --counts` counts them; and `SKILL.md` says a source question is answered from `--rules`, writing any unlisted behaviour as an `inferred` row first.
+
+### Step 19: a write from a session that isn't the record's driver is refused, so a stray copy can't write a reversal or anything else into its successor's record
+
+shirabe, with step 6, needing nothing from koto (the design's Decision 6, part 2): the writer check only. Every caller of `lib_write_guard` (`state-stored-set.sh`, `state-write.sh`, `state-decision.sh`, `state-hold.sh`, `roadmap-status.sh` and `state-open.sh`, and the scripts that write through them) and `state-entry.sh`'s post refuse with a message naming both sessions when the writing session isn't `record/meta.driver`, writing no key and appending no entry, whatever the writer's local koto store says about the fence. The tick gate's half of the check is step 15's; until it lands, a write that bypasses the writer scripts goes unrefused. A predecessor writing its own superseded run from a store that lacks koto's fence isn't refused either, which is koto's gap (tsukumogami/koto#601). Its precondition is that a carry puts the carrier's own Run coordinator row into the state it copies, dropping the `told` and `pending` rows as a `--run coordinator` write does and posting that write's address entry right after the copy, so the row lands with the copy before any guarded write runs, since otherwise every guarded write after the copy, a rotation carry's window among them, is refused; that changes the every-key-copied carry contract in the session-record design's Decision 6 (`docs/designs/current/DESIGN-coordinator-session-record.md:272-286`). Step 19's first deliverable amends that design, landing before any carry code changes: the amendment names the in-copy row as an exception to every key copied, beside the template-change carry's fresh `record/meta`, and covers the takeover's existing post-copy writes (tsukumogami/shirabe#1555) as well. Two writes go through on any record whose driver, if it has one, reads as an id, as the design's acceptance terms for the driver check set out: one to a record with no `record/meta` yet (a fresh seed), and one from a writer with no Claude session id, even on a driven record, which leaves a process outside any Claude session able to write a driven run's record, bounded only by the existing write guard ahead of the check. A record with no driver (a run nobody has taken over) is judged by the test `coordinate-open.sh` already uses for such a run: the write goes through when the run's coordinator row is empty, names the writing session, or the writing session's name can't be read.
+
+### Step 20: the skill's reversal step refuses a reversal without a reason, and --rules prints the reason of the winning reversal
+
+shirabe, after step 13 and gated as step 10 (the design's Decision 6, part 1): the reversal step refuses an empty reason and runs no `koto decisions reverse`; `--rules` prints `status` `superseded` and `reversal` `{reason, decider, at}` as `koto decisions show` reports them, and the next successor's handover read lists the rule under superseded; a row ended with `--end` never reads superseded; and koto's block on the session holding a reversed ruling leads to a takeover by the run's next member, never `koto rewind`.
 
 ## Implementation Sequence
 
@@ -259,9 +271,21 @@ start now that the design is accepted.
 | 12 | citations | 9 | as step 10 |
 | 13 | citations | 7, 10 | as step 10 |
 | 14 | citations | 10 | as step 10; its dispatcher-said criterion also waits on the cross-session decision read |
-| 15 | citations | 12 | as step 10 |
+| 15 | citations | 12 | as step 10, plus koto passing the tick's driver id to gates (tsukumogami/koto#600) |
 | 16 | citations | 5, 8, 11, 14 | as step 11 |
-| 17 | citations | 3, 4, 11, 13, 14, 15 | as step 11 |
+| 17 | citations | 3, 4, 11, 13, 14, 15, 18, 20 | as step 11 |
+| 18 | writer release | 6 | as step 6 |
+| 19 | writer release | none | as step 6 |
+| 20 | citations | 13 | as step 10 |
+
+Steps 18 and 19 came from a check of the reader release against a real
+lineage. Step 18 is the sourcing half of that check and needs nothing from
+koto. Step 19 keeps a stray copy of an earlier member from writing into its
+successor's record.
+Step 20 is the reversal half, and like every citation step it waits on
+koto's decision record releasing recording, reversal and the supersede hop,
+and on koto's answer on successor standing. Step 17's walkthrough runs
+after step 20 as well.
 
 Steps 1 to 5 need no koto change and can be built first. Step 5 reads
 only `niwa authority check`, which niwa already ships, and nothing in
@@ -288,6 +312,7 @@ what it needs.
 | The supersede hop with Decision 4's six conditions: a fenced predecessor records no decision, a write-once supersede marker readable at listing cost, the chain walk following the marker with id checks, refusal on a hop it can't confirm, the hop recorded in the reversal's standing path, and person-reverses-person unchanged | steps 10 to 17 |
 | The reads koto's decision design doesn't name yet: a decision's status, the entering session of a person decision, the frozen chain with each link's kind, the winning reversal's standing path, the supersede marker, and ideally one read of the chain walk so shirabe keeps none of its own | steps 9 to 17 |
 | A cross-session decision read: `koto decisions show` on a decision held in another session on the same host, which the design states as an assumption with a fallback | step 11, the dispatcher-said half of step 10, and the manager successor's dispatcher-said citation in step 14 |
+| The tick's driver id on every gate: a name koto sets beside `KOTO_TICK_SESSION` holding the Claude session driving the tick (tsukumogami/koto#600) | the driver half of step 15 |
 
 The cross-session read is the one the design assumes rather than requires.
 Without it a manager's citation of its director's decision reads unreadable,
@@ -436,6 +461,27 @@ entry-naming check stays as a second signal.
   row against the 120-rule cap and not the 60-inferred cap, and the start
   report names each superseded row `--end` would now accept, so the cap
   can't fill with rows nobody can see are ready to go.
+- **A full inferred cap at a reading's write.** Step 18's `--inferred`
+  write refuses the Run value and its row together when the 60-inferred
+  cap is full, naming the cap, and its test covers that case: neither the
+  value nor the row lands.
+- **The driver check races a takeover.** Step 19 reads the driver and then
+  writes; it isn't a compare-and-set. A write that passed the check just
+  before a takeover can still land, and the successor's start reads the
+  record after its fence. Step 19's tests cover a driver that can't be
+  read (refused) and a run with no driver (judged by its coordinator row).
+- **Older plugins don't check the driver.** A copy running a plugin from
+  before step 19 doesn't refuse its own writes, so step 19 protects only
+  copies on its release or later, which the writer-release ordering
+  already assumes.
+- **Proposed follow-ups, outside this plan.** Three things the review
+  raised don't block an acceptance criterion: moving the per-script
+  grammar, limits and done criteria in the design's Solution Architecture
+  and Implementation Approach into this plan or the scripts' reference
+  text; a start-report list of uncited event rows that grant, with their
+  age, so the owner can re-confirm them while no reversal exists for them;
+  and saying in the skill's reference text how the writer finds the
+  installed plugin's source repository for a `skill` row's anchor.
 
 ### What each outcome rests on
 

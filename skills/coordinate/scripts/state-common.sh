@@ -39,6 +39,15 @@ ROADMAP=
 
 lib_die2() { echo "$PROG: $*" >&2; exit 2; }
 
+# lib_sha256 <file>: the file's sha256, 64 hex, as rule-files.sh digests a
+# rule file; prints nothing when the file can't be read.
+lib_sha256() {
+    {
+        if command -v sha256sum > /dev/null 2>&1; then sha256sum < "$1" | cut -d' ' -f1
+        else shasum -a 256 < "$1" | cut -d' ' -f1; fi
+    } 2> /dev/null
+}
+
 # lib_redact: replace anything shaped like a GitHub token (a ghp_, gho_,
 # ghu_, ghs_ or ghr_ prefix, or github_pat_, then six or more token
 # characters) and drop control characters. The one token rule; lib_scrub and
@@ -300,10 +309,11 @@ lib_b64d() {
     base64 -d < "$1.flat" > "$2" 2> /dev/null || base64 -D < "$1.flat" > "$2" 2> /dev/null
 }
 
-# lib_file_at <path> <ref> <out>: a file's bytes at a ref, through the contents
-# API. Returns 0 read, 1 absent (404), 2 a read or decode failed.
+# lib_file_at <path> <ref> <out> [<owner/repo>]: a file's bytes at a ref in the
+# repository (the host, $REPO, when not given), through the contents API.
+# Returns 0 read, 1 absent (404), 2 a read or decode failed.
 lib_file_at() {
-    if ! gh api --method GET "repos/$REPO/contents/$1?ref=$2" --jq .content > "$3.b64" 2> "$3.err" < /dev/null; then
+    if ! gh api --method GET "repos/${4:-$REPO}/contents/$1?ref=$2" --jq .content > "$3.b64" 2> "$3.err" < /dev/null; then
         grep -q 'HTTP 404' "$3.err" && return 1
         return 2
     fi

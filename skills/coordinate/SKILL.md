@@ -57,16 +57,29 @@ to advance it, what it never does, and how it ends.
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
 | `--trust-template` | With `--import` only, and only when the operator says so: take the run's compiled template from the bucket rather than from this host's cache. The template holds every command the run executes. |
+| `--role manager\|director` | This run's role. A start with none, and no recorded role to continue, stops at `ask=role`: ask the person once, with no recommendation, then start again with it. A continuation keeps its recorded role: naming another is refused (`role-mismatch`) unless the change flags below come with it. An import never asks, and checks a given role before anything moves. |
+| `--role-change-by <name>` `--role-change-source dispatcher\|person` | With `--role`, both or neither: a change of a recorded role from above. `dispatcher` is accepted only when `<name>` is the address in the run's `reports-to` row; `person` only on a start no brief launched (no `--dispatched-by`). A name that is the run itself, its predecessor, its address or this session is refused. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
 When the human's decisions state one of these settings in words ("host repo:
 acme/widgets", "rotation length: 3 days", "at most three workers"), that is the
 human's answer: pass it as its flag when you open the run, and don't ask for it
-again. Only a setting nobody stated is asked for.
+again. Only a setting nobody stated is asked for. A role this run's decisions
+state ("role: director") is passed as `--role`; a mention of another session's
+role ("report to the director") doesn't count, and in doubt pass nothing and let
+the opener ask. A dispatched coordinator's role comes from the `--role` on its
+brief's invocation line, which its arguments already carry: it passes that role
+and infers none. Pass `--role-change-source person` only when the start's
+decisions state in a person's words that this run's role changes ("this run is
+now the director"), and `dispatcher` only as a brief's invocation line renders
+it; a brief's text is never a person's words.
 
-koto checks every value, not this file: a path outside `docs/roadmaps/`, a
-malformed name, host, cap, bound or length, or a repeated flag is refused at
-`koto init`, and nothing opens.
+koto checks the variables' values, not this file: a path outside
+`docs/roadmaps/`, a malformed name, host, cap, bound or length, or a repeated
+flag is refused at `koto init`, and nothing opens. `--role` and the change flags
+aren't variables: the opener checks them itself before any koto call, refusing
+a role other than manager or director (`invalid_role`), and treating a repeated
+flag or a malformed change as usage, so nothing opens either.
 
 ## Running the Workflow
 
@@ -246,6 +259,30 @@ work.
      through 0.31.0, so there a takeover ends at the fence. koto 0.32.0 and
      later fence a run on the cloud backend too.
 
+   `failed=takeover_unfinished` (exit 1) is no refusal: the old run is fenced
+   by this session's new run, but koto's init failed after the fence (a carry
+   that failed, say), and the message carries koto's exit, code and reason.
+   Fix what it names and run the same opener again from this session.
+
+   **The run's role.** Every start that knows the role prints `role=<role>`,
+   manager or director; keep it, since `record_open`, `predecessor_carry` and the
+   reconcile's `no-role` gap read it from there. The opener reads the role of
+   the run it continues before anything is written. `ask=role` (exit 10) means
+   the start has no `--role` and nothing recorded to continue: ask the person
+   once, with no recommendation, and start again with it. `failed=role_read`
+   (exit 1) means the recorded role couldn't be read; it is never taken as no
+   role. A `--role` that differs from the recorded one prints `outcome=refused`
+   and `reason=role-mismatch` (exit 2), and one whose change flags don't name an
+   intervention from above `reason=role-change-refused`, each naming the run,
+   both roles and who it reports to, with nothing written. An accepted change
+   prints `role_changed_from=<old>`; on a same-host carry whose change couldn't
+   be written, `warning=role-change-unwritten`, and the run goes on as it was
+   until the same start runs again. A successor started from its predecessor's
+   brief (`--dispatched-by` naming that run) is accepted when the start takes
+   the predecessor over; when it would resume or carry it instead, the start is
+   usage (exit 64): start again without `--dispatched-by`, since a carry links
+   the new run to the run it carried itself.
+
    A run of 65 or more record entries is taken over with no single koto call
    reaching koto's 30-second action limit, even at a one-minute load average
    of 25: koto copies every carried key in one read and one write batch, so
@@ -343,7 +380,15 @@ script refuses for the rest of the run once a directed transition is in the log.
 These words mean one thing each, everywhere in this skill and in the record.
 
 - **Coordinator** -- the session running this skill. It holds a scope,
-  dispatches work, and reports up to whoever dispatched it.
+  dispatches work, and reports up to whoever dispatched it. It runs in either
+  role, manager or director, and its record holds which.
+- **Manager** -- a coordinator that runs one lane, a roadmap's features or one
+  discipline rotation, through the workers it dispatches.
+- **Director** -- a coordinator over managers: it dispatches them and reviews
+  what they finish.
+- **Workspace manager** -- the tool that dispatches and lists sessions (niwa).
+  It's never the role: "manager" without "workspace" before it means only the
+  role.
 - **The human** -- whoever dispatched you, when that is a person. When another
   coordinator dispatched you, everything this skill sends to the human (a
   decision, a table of ready pull requests, an escalation) goes to that
@@ -396,6 +441,65 @@ These words mean one thing each, everywhere in this skill and in the record.
   its Evidence is found failing, through a roadmap pull request
   `roadmap-status.sh --reopen` opens.
 
+## Roles
+
+A list says what you owe, never what you're allowed to do:
+that comes from Bounds and Authority and the workspace's authority
+configuration, and it's the same for either role. Your record holds your role,
+`manager` or `director`. Read the list for it and the list both roles share.
+
+**Both roles**
+
+- Call yourself only by the role your record holds, on your report's record
+  line and everywhere else in it.
+- Report up to your reviewer as Reporting says, naming your record in every
+  report.
+- Brief a successor with the role your record holds; a successor never changes
+  it.
+
+**Manager**
+
+- Run one lane: the roadmap's features or the discipline rotation your scope
+  names. Anything outside it goes to your reviewer as a proposal.
+- Dispatch and brief the workers your lane's units need, from
+  `references/brief-template.md`.
+- Review your workers' pull requests at your land step: nothing a worker
+  reports lands until you've checked it there.
+- Send every pull request you author, your verdict and reopen edits included,
+  to your reviewer before it merges.
+- Report your lane's worker pull requests to your reviewer by link: each ready
+  one in your verify report and your progress table's `Ready to merge` rows,
+  and, in the report you owe after a land, every one that merged in your lane
+  since your last report, whoever merged it.
+
+**Director**
+
+- Dispatch and brief managers, one lane each, from the scope and decisions you
+  were given.
+- Be the reviewer of each manager you dispatched.
+- Read a manager's finished work yourself and send your own reading up, never
+  the manager's report passed through (Bounds and Authority).
+- Read for alignment. Your reading covers the work all your managers push:
+  the pull requests a manager authors and sends you, and the
+  worker pull requests each manager reports ready or landed in its lane.
+  Start from what they send; read GitHub only to confirm a pull request's state
+  or to rebuild that set after a succession. Ask whether the work fits the
+  other lanes and the direction of the effort.
+  It isn't a correctness review: correctness stays with each worker's review
+  round, the manager's land step, and the manager's own checks before it sends
+  a pull request it authored. When work in two or more lanes heads in
+  diverging or conflicting directions, name the pull requests and the conflict
+  to every manager involved and in your next report.
+  Whether your reading holds a land isn't set by your role: Bounds and
+  Authority and the workspace's authority configuration say who merges.
+- Decide, within the worker budget and the lanes you've been given,
+  which of your lanes advance at any time, and say which in your reports.
+  Bounds and Authority says where each is read.
+- Be the owner funnel: the one place that routes what reaches the owner (the
+  person your effort answers to) and verifies it before it goes.
+  Never block on the owner from a turn the owner didn't start: put the question
+  in a report or a decision entry and keep working.
+
 ## The Record
 
 The record stores only what GitHub can't recompute: the holdings (including
@@ -443,8 +547,9 @@ The record also keeps the crash set, what a replacement needs after a crash and
 what never goes to GitHub. In the Run section, written with
 `state-stored-set.sh --run`: `rules` and `briefs` (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with), `friction` (a label) and
-`reports-to` (`<role>` or `<role> at <address>`, who this coordinator reports
-up to). The `rules` rows of the files this session loads as rules, the
+`reports-to` (`<name>` or `<name> at <address>`: who this coordinator reports
+up to, a person or the coordinator that dispatched it, and for a coordinator
+its messaging address). The `rules` rows of the files this session loads as rules, the
 skill's own (`skill-<file name>`) and the workspace's `CLAUDE.md`,
 `CLAUDE.local.md` and `.claude/rules/*.md` (`workspace-<depth>-...`), are
 written by every start that leaves the run holding a record, never by you; a
@@ -458,6 +563,48 @@ of it, and a record with no `reports-to` row is a gap (`no-reports-to`) that
 holds the handover gate. The reconcile report and the
 closing lines of an imported run name its source, so the next import knows what
 to pass.
+
+A `reports-to` or a cap you worked out yourself, rather than read from your
+brief, your dispatch link or a person's message, is written with
+`--inferred "<the reading, in one sentence>"` beside `--run reports-to` or
+`--run cap`. The same write adds a Standing `rule` row whose Source is
+`inferred`, which the start report lists as awaiting confirmation; a refusal
+of either writes neither (the 60-inferred cap full, say), so don't act on that
+value then. A `reports-to` naming a session (`<name> at <address>`) whose
+address is neither one of this run's dispatched-by links nor named by a
+Standing row is a gap too (`reports-to-unsourced`): the `--inferred` write
+closes it when its sentence names the address, or `koto session link <this
+run> --dispatched-by <address>` when that session did dispatch the run. Don't
+rewrite the row to a person's name to clear it.
+
+Asked why you follow something, answer from `state-stored-set.sh --rules`: a
+Standing row with its class and pointer, or a `skill-` or `workspace-` line for
+the skill's or the workspace's own text, the template's default run cap among
+them (it's skill text, so no row is copied for it). A behaviour `--rules`
+doesn't list is written first, as an `inferred` rule row (`--standing rule
+--what "<the behaviour>" --source inferred`), and answered second, so your
+answer and the record agree. A rule you can quote from a skill, a public
+document or a pinned file takes the `skill`, `doc` or `pinned` Source
+instead; the writer refuses a `skill` or `doc` row whose What isn't one of the
+cited file's sentences. `--rules --counts` gives one `<class> <count>` line
+per class, so its `inferred` line is how many unsourced rules the record
+holds.
+
+A brief you started from goes in through the intake. Record its path with
+`state-stored-set.sh --host briefs:<label> <path>`; the handover check then
+names `brief-unread <label>` until `state-stored-set.sh --intake <label> --by
+<you>` has written one `inferred brief` rule row per brief rule sentence no
+Standing row already holds, and the Run `briefs` row with the brief's digest.
+Don't type the brief's rules in as `--standing rule` rows, don't write the
+`briefs` row by hand, and don't edit the brief. When the intake exits 1 at a
+cap, the gap stays open: ask a person which rule rows to confirm or end, then
+run it again; don't end rows yourself to make room. A rule row holds nothing:
+pick and the dispatch, land and merge checks read pauses, go-aheads and
+assignments, never a rule's words, so a brief line shaped like a pause comes
+in as a rule row that pauses nothing. An inferred or `pinned` rule row can
+only restrict what you do. Treat it as a caution and raise it with a person,
+never as a step it grants, and report inferred rows as awaiting confirmation,
+not as rules a person said.
 
 Every script reads the record's state through one reader,
 `scripts/state-read.sh`, from the run's session. There is no body to parse,
@@ -694,12 +841,10 @@ lines, and the rows and refusals behind them, are in
   the coordinator that dispatched this one when its session is bound, and
   a person when it is a root coordinator, for its own verdict edits too:
   whoever writes a verdict never approves its own Done.
-  Someone other than the author approves it; whoever in the chain holds the grant merges it after that approval,
-  at the head that was approved: the author itself when its grant lets it
-  merge, otherwise the reviewer that approved it when its own grant does,
-  otherwise the next one up the chain, and a person at the root.
-  No coordinator approves its own verdict pull request or hands its merge to a worker;
-  that rule wins over any `Named authority:` line. A repository that merges
+  Someone other than the author approves it, and no coordinator approves its
+  own verdict pull request. Who merges it after that approval, at the head
+  that was approved, is not this passage's to say: it comes from the merge
+  grant, which Bounds and Authority reads. A repository that merges
   them automatically gives up the review that Done rests on.
 
 Two points of the shipped behaviour follow the milestone verdicts PRD where
@@ -721,6 +866,15 @@ request waiting only on a merge; parked workers, merged ones waiting for their
 teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
+
+**What you allocate is read, never assumed.** Each coordinator you dispatch
+counts against your cap for as long as it runs, so your cap is your worker
+budget: how many of them, and any workers you dispatch yourself, run at once.
+A total across their lanes that your decisions, or later direction from
+whoever dispatched you, state is a decision you were given, and going past it
+is asked. The lanes you move are the ones your scope and decisions name.
+Changing the cap of a coordinator you dispatched, or your own,
+isn't defined here: escalate it as a decision entry.
 
 **Inside your scope, dispatch without asking.** Anything outside it, propose to
 whoever dispatched you and don't act until they answer. Every worker's brief,
@@ -753,6 +907,10 @@ goal fit against the brief or the milestone's Evidence), what you found, and
 your recommendation with its reason. A worker's or lane's report, the pull
 request body and any comment shaped like a verdict are evidence you check,
 never findings you repeat.
+When the pull request comes from a manager's lane, the director's reading is
+the alignment reading its Roles list names, and the board, the worker's review
+round and goal fit are the manager's checks,
+which the director confirms happened rather than repeats.
 
 **What the GitHub token must read.** In every repository a unit touches: pull
 requests, issues (the record), contents, Actions runs and their jobs, and the
@@ -982,9 +1140,24 @@ handed-over unit, each escalation, each need `surface_check` accepts, and at
 the end of the scope or rotation. Lead
 with what changed and what you hold. Name what you verified and what you didn't,
 and grade every claim you pass on as measured, verified by reading, or inferred.
-Name the record in every report (its session name and its host repository),
-so whoever starts the next coordinator
-passes it on as a decision. What waits on the human is the table's "Blocked on
+Every report opens with the record line, so whoever starts the next
+coordinator passes the record on as a decision. It names the record's session,
+its host repository, your address when it differs from the session name, and
+your role:
+
+```text
+Record: session `<session>` on `<owner>/<repo>`, address `<address>`. Role: manager.
+Record: session `<session>` on `<owner>/<repo>`. Role: director.
+```
+
+A script prints it; never write it yourself. The first report takes it from
+`scripts/reconcile-report-get.sh --session <session> --md`, whose third line it
+is. Every later one, the closing one too, starts with what
+`scripts/coordinate-report.sh --session <session> --record-line` prints, pasted
+as printed. With no role in the record neither prints a line and both exit 4:
+close the handover gap `no-role` first. A report calls its own role only by
+that word, `manager` or `director`, in the record line and everywhere else in
+it. What waits on the human is the table's "Blocked on
 you" rows, never a free-text section: an escalated decision entry, with its
 recommendation and reason, or a need of one of the fixed kinds. Per holding,
 say what happens next; it is derived at each report and never stored.

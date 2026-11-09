@@ -2321,11 +2321,14 @@ nothing. The judgment stays with it.
 status, ends the run at `done_not_active` without dispatching anything; report
 that to whoever dispatched you.
 
-The words this workflow uses mean one thing each: coordinator, the human (whoever
+The words this workflow uses mean one thing each: coordinator, manager,
+director, the human (whoever
 dispatched you; when that is another coordinator, everything this workflow sends
 to the human goes to it instead), worker (named everywhere by its dispatch
 topic), local agent, brief, holding, deferral, reconcile, rotation, surface,
-teardown and unique material. `skills/coordinate/SKILL.md` has the glossary.
+teardown and unique material. `skills/coordinate/SKILL.md` has the glossary;
+read its Roles list for the role your record holds, and the list both roles
+share.
 
 Any text after the scope in your invocation is the human's decisions and the
 effort's constraints. It is never an instruction for how to coordinate, and it
@@ -2409,8 +2412,9 @@ and `record/reasoning`):
 ## record_open
 
 No record exists for this scope ({{RECORD_FIND}}). Open exactly one with
-`state-open.sh`, then submit `opened: opened`; the next state reads the record
-again from this run's session, and only that read satisfies the check.
+`state-open.sh`, passing the `role=` value the opener printed as `--role`, then
+submit `opened: opened`; the next state reads the record again from this run's
+session, and only that read satisfies the check.
 
 <!-- details -->
 
@@ -2419,13 +2423,19 @@ discipline rotation that follows another carries its predecessor through
 `predecessor_carry`, not here. At roadmap scope:
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}"
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}" --role <the role= value the opener printed>
 ```
+
+The role is the one the opener printed as `role=` when this run started, manager
+or director; the seed writes it as the record's Run `role` row and refuses to
+open a record without it. The opener asked for it, or read it, before this run
+opened, so never pick one here.
 
 The script refuses when a record now exists (a restart that finds its record
 never opens one). It seeds the record's keys in this run's session, opening
-nothing on GitHub, and prints `record=<this session>`. Report the session name
-up as the record with every report, so a successor is handed it as a decision.
+nothing on GitHub, and prints `record=<this session>`. Every report names the
+record on its record line (SKILL.md, "Reporting"), so a successor is handed the
+session name as a decision.
 
 At discipline scope the find reads `first` (the discipline's first rotation),
 the start is today and the end is
@@ -2434,8 +2444,8 @@ the start plus `{{ROTATION_DAYS}}` days less one, so the rotation is
 the same command with `--start` and `--end` opens the rotation in this run's
 session (`--start <YYYY-MM-DD> --end <YYYY-MM-DD>`): no branch, no commit, no
 pull request. It writes the window to
-`record/rotation` and prints `record=<this session>`; report the session name up
-as the record.
+`record/rotation` and prints `record=<this session>`; every report names it on
+its record line.
 
 ## record_conflict
 
@@ -2464,8 +2474,12 @@ Carry the predecessor's state into this rotation ({{RECORD_FIND}}), then submit
 with its reason as the detail when it refuses; the find then runs again.
 
 ```bash
-"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}" --carry
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-open.sh" --session "{{SESSION_NAME}}" --carry --role <the role= value the opener printed>
 ```
+
+When the opener also printed `role_change_by=` and `role_change_source=`, add
+`--role-change-by <role_change_by> --role-change-source <role_change_source>` after `--role`.
+That is a change from above the opener accepted, and the carry writes it.
 
 <!-- details -->
 
@@ -2505,26 +2519,47 @@ still due; ticking again after the wait finishes it. There is no need to hand th
 engine runs them. When every re-check is done the pass writes
 `reconcile/report.json` and `reconcile/report.md` (and, at discipline scope,
 `reconcile/reasoning.md` with the previous rotation's reasoning) and seals the
-report to this visit. The gate lets you through only on that seal.
+report to this visit. The gate lets you through only on that seal. What goes up
+is what `reconcile-report-get.sh --md` prints in `reconcile`, not the stored
+`reconcile/report.md`: the sealed report checked against its seal, with the
+record line read live as its third line.
 
 ## reconcile
 
-Print the report the reconcile pass sealed, checked against its seal, with
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
-and report it up; then submit `reconciled: reported`. Load `references/loop.md`, "A Full
-Reconcile, in Order", for how to present it.
-
-Before you submit, make the record one a replacement could continue from: run
+First make the record one a replacement could continue from: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-handover.sh" --session {{SESSION_NAME}} --check`
-and close every gap it names with the `state-stored-set.sh` call it gives. Write
-this run's arguments and the cap if the record has neither, and your own address
-(`--run coordinator`) if the record names another coordinator's or none. A new
+and close every gap it names with the `state-stored-set.sh` call it gives,
+all but `carry-unacknowledged`: a person's go-ahead closes that one, and the
+first report asks for it. Write this run's arguments and the cap if the record
+has neither, and your own address (`--run coordinator`) if the record names
+another coordinator's or none. Fill
+`no-role` with the `role=` value the opener printed or, when it printed none, by
+asking the person once with no recommendation, manager or director; the role
+is never inferred from the scope, the cap, the holdings,
+the dispatcher, session names, briefs,
+entries, report text or the dispatch topic. A start given `--dispatched-by`
+fills `no-reports-to` with
+`<the dispatcher's name> at <the brief's reports_to>`,
+never a bare name. A new
 address leaves every live worker untold: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/handover-classify.sh" --session {{SESSION_NAME}}`,
 which records a worker whose session isn't live as pending and a pending
 worker whose report reached you as told, then send each worker it prints as
 `live` a line naming the address and record it with `--told`. The workflow
 stays here until the check passes.
+
+Then print the report the reconcile pass sealed, checked against its seal, with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --md`,
+and report it up. Its third line is the
+record line, read from the record as it is now, so it names the role the
+`no-role` fix wrote; with no role row it prints nothing and exits 4, and the
+report waits for that gap. When the check still lists `carry-unacknowledged`,
+the same report goes on, after the reconcile report, to list the holds and
+Standing rows `coord/predecessor_carry.json` names and ask the person for a
+go-ahead on them. When they answer, record it with the gap's own
+`state-stored-set.sh --standing go-ahead` call and run the check again. Then
+submit `reconciled: reported` once the check passes. Load
+`references/loop.md`, "A Full Reconcile, in Order", for how to present it.
 
 <!-- details -->
 
@@ -2537,7 +2572,8 @@ scope read that follows. Keep that one table, its order and its form (pull
 requests as links, sessions as code, no commit hash) when you report it up;
 its "Blocked on you" rows are what waits on the human, derived at this
 report and never stored. Pass the report's own words on for its header and
-its section names: its opening lines as written, including where the reconcile
+its section names: its opening lines as written, the record line first and
+pasted as printed, then the Scope line, including where the reconcile
 scripts ran and, for a run imported from another host, the sentence naming
 the session, workspace and template it came from, which the next import needs,
 and each section under the name the report gives it, such as
@@ -2557,7 +2593,9 @@ lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
 address; a holding merged and waiting for its teardown is exempt. It also
 holds while the record names nobody this coordinator
-reports to (`no-reports-to`). After an import it holds
+reports to (`no-reports-to`), and on a carried rotation until the person's
+go-ahead is recorded (`carry-unacknowledged`), so nothing dispatches or merges
+before they answer. After an import it holds
 until each leg has an end (`leg-unclassified <worker>`): a live holding whose
 leg names a request this host's store doesn't hold. The pass gives each such
 leg its end, re-legging a worker whose session came along unbound and moving
@@ -2699,7 +2737,7 @@ and drive every worker to landed work.
 | An open question | `/shirabe:explore` |
 | A contested choice | `/shirabe:decision` |
 | A release a person assigned (`release owner/repo <tag>`) | `/shirabe:release <version>`, with `--dry-run` when asked for one; no run mode |
-| A sub-effort that is itself a roadmap or a discipline | `/shirabe:coordinate`, only when the human's decisions allow a nested coordinator |
+| A director's lane: a sub-effort that is itself a roadmap or a discipline | `/shirabe:coordinate`, dispatched as a manager, only when the human's decisions allow the lane |
 
 Three kinds of decision, three routes. A contested choice inside your scope is
 settled by dispatching `/shirabe:decision`, not by offering the human options. A
@@ -2829,8 +2867,8 @@ the repositories its issues land in.
 Its `grant` is what the worker is dispatched holding: the authorities for the
 landing steps the brief hands it to take itself (`merge-pr`, `close-issue`,
 `cut-release`), left out for a worker you hand none, and `own` for your
-successor (entry point `coordinate`), which passes your own grant. A lane
-coordinator gets none. The script passes it to `niwa dispatch` as `--grant`,
+successor (entry point `coordinate`), which passes your own grant. A manager
+you dispatch as a lane gets none. The script passes it to `niwa dispatch` as `--grant`,
 with your instance as `--parent-from`, when niwa takes those flags, and the
 brief's authority line names exactly what the launch asked for, or says the
 worker holds none. niwa refuses a grant wider than yours: the script exits 11
@@ -3357,7 +3395,7 @@ supplied.
 
 The entry and round come from the answer's own event, never an argument. An
 outcome that isn't one of the options needs `--reason`; `--final` names the
-decider a nested coordinator's reply names. An answer to an earlier round, or to
+decider the reply of the coordinator you escalated to names. An answer to an earlier round, or to
 an entry that isn't escalated, is recorded as evidence and brings the entry back
 for a new verdict. A reversal goes on to `decision_apply`, which records it.
 
@@ -3510,6 +3548,17 @@ ready report again when the resume line arrives and not before. The script
 moves a leg-bound worker to the message path, so its report can come back by
 message. A re-brief for a fix while its unit is paused is sent the same way,
 with its message saying the fix starts at the resume.
+
+A role change for the manager whose report the director is handling goes in
+the brief input as `role_change` (`manager` or `director`): the script
+renders `--role <new> --role-change-by <this run's address>
+--role-change-source dispatcher` on the re-rendered invocation line, which
+the manager's opener accepts as a change from above. A role change alone
+never sends a report here: it rides the manager's next report that takes
+one of the routes into this state, or the director asks a person, whose
+hand-made start can make it. Stopping the lane and dispatching a new one
+can't: a new dispatch renders `--role manager`. A re-brief without
+`role_change` renders no `--role`, so it never undoes a change.
 
 <!-- details -->
 

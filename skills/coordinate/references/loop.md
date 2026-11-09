@@ -26,9 +26,16 @@ move there is to tick again with no evidence.
 - **Sealed.** When every read is done, the pass writes `reconcile/report.json`
   and `reconcile/report.md` (and, at discipline scope, `reconcile/reasoning.md`
   with the previous rotation's reasoning, verbatim), seals the report to this
-  visit, and the workflow moves to `reconcile`. Read `reconcile/report.md`
-  there and report it up. The state's gate accepts only the report the pass
-  sealed in this visit.
+  visit, and the workflow moves to `reconcile`. There, close every gap the
+  handover check names (all but a carried rotation's `carry-unacknowledged`:
+  the report asks the person for that go-ahead, and the submit waits for it),
+  then print the report with
+  `scripts/reconcile-report-get.sh --session <session> --md` and report what
+  it prints up, not the stored `reconcile/report.md`: it checks the report
+  against its seal and adds the record line, read from the record as it is
+  then, as the third line. With no role row in the record it prints nothing
+  and exits 4; the `no-role` fix comes first. The state's gate accepts only
+  the report the pass sealed in this visit.
 
 Never write a `reconcile/` context key. A report written or changed by anyone
 but the pass holds the workflow in `reconcile`.
@@ -155,7 +162,8 @@ feature's status on the roadmap rather than setting it yourself.
 ## The Reconcile Report
 
 The pass builds the report (`scripts/reconcile-report.sh`) and seals it; you
-report it, you don't write it. `reconcile/report.md` opens with the scope,
+report it, you don't write it. What `reconcile-report-get.sh --md` prints opens
+with the title, then the record line (SKILL.md, "Reporting"), then the scope,
 when the record was written and when it was reconciled, then has these
 sections, in this order, each line carrying its grade:
 
@@ -205,10 +213,12 @@ issue is a clickable link, never a bare number, a worker's name is inline
 code, and no commit hash appears. Heads stay in the record's rows and in
 `reconcile/report.json`, where the checks read them. Keep the same form when
 you report it up, and keep the report's own words for its header and section
-names: its opening lines as written (they say when the record was written,
-when it was reconciled, and whether the reconcile scripts ran from inside or
-outside the repository being worked on), and each section under its own name,
-such as "Changed since then".
+names: its opening lines as written, the record line first, pasted as printed
+(it names the record's session, its host repository and this run's role), then
+the Scope line (it says when the record was written, when it was reconciled,
+and whether the reconcile scripts ran from inside or outside the repository
+being worked on), and each section under its own name, such as "Changed since
+then".
 
 Every later report ends with the progress table `scripts/progress-view.sh`
 prints (SKILL.md, "Reporting").

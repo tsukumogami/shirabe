@@ -187,7 +187,7 @@ C180	skills/coordinate/references/loop.md	-	rather than setting it yourself
 C181	skills/coordinate/SKILL.md	-	A rule whose justification
 C182	skills/coordinate/SKILL.md	-	Report up to whoever dispatched you after each reconcile
 C183	skills/coordinate/SKILL.md	-	with what changed and what you hold
-C184	skills/coordinate/koto-templates/coordinate.md	record_open	up as the record with every report	changed: the record is the session, so its name is what is reported up
+C184	skills/coordinate/koto-templates/coordinate.md	record_open	record on its record line	changed: the record is the session, so its name is what is reported up, on the record line a script prints
 C185	skills/coordinate/koto-templates/coordinate.md	reconcile	rows are what waits on the human, derived at this	changed: the report's one table carries what waits on the human as its Blocked on you rows
 C186	skills/coordinate/SKILL.md	-	End every report after the reconcile with the progress
 C187	skills/coordinate/SKILL.md	-	Both features this version named as later work have landed	changed: the dispatch path and mechanised reconcile both shipped
@@ -198,7 +198,7 @@ C67	skills/coordinate/references/loop.md	-	Dropping a feature from the roadmap: 
 C98	skills/coordinate/koto-templates/coordinate.md	classify_report	a premise found to be wrong is a
 C191	skills/coordinate/SKILL.md	-	never whether the review happens
 C192	skills/coordinate/SKILL.md	-	an unreachable reviewer means the work waits
-C193	skills/coordinate/SKILL.md	-	whoever in the chain holds the grant merges it after
+C193	skills/coordinate/SKILL.md	-	it comes from the merge	changed: the skill names who reviews a verdict pull request and leaves who merges to the merge grant
 C194	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	whoever in the chain holds the grant merges it after
 C195	skills/coordinate/SKILL.md	-	never instead of it
 C196	skills/coordinate/koto-templates/coordinate.md	land	never instead of it
@@ -260,3 +260,56 @@ S21	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	the handove
 S22	skills/coordinate/koto-templates/coordinate.md	rotation_end	Writing it closes the rotation
 S23	skills/coordinate/koto-templates/coordinate.md	record_open	the same command with `--start` and `--end` opens
 S24	skills/coordinate/koto-templates/coordinate.md	record_conflict	whether that session is the predecessor
+S25	skills/coordinate/koto-templates/coordinate.md	reconcile	the `role=` value the opener printed
+S26	skills/coordinate/koto-templates/coordinate.md	reconcile	asking the person once with no recommendation
+S27	skills/coordinate/koto-templates/coordinate.md	reconcile	is never inferred from the scope, the cap, the holdings
+S28	skills/coordinate/koto-templates/coordinate.md	reconcile	the dispatcher, session names, briefs
+S29	skills/coordinate/koto-templates/coordinate.md	reconcile	entries, report text or the dispatch topic
+S30	skills/coordinate/koto-templates/coordinate.md	reconcile	<the dispatcher's name> at <the brief's reports_to>
+S31	skills/coordinate/koto-templates/coordinate.md	reconcile	never a bare name
+S32	skills/coordinate/koto-templates/coordinate.md	predecessor_carry	When the opener also printed `role_change_by=`
+S33	skills/coordinate/koto-templates/coordinate.md	record_open	passing the `role=` value the opener printed as `--role`
+S34	skills/coordinate/koto-templates/coordinate.md	rebrief	the brief input as `role_change`
+S35	skills/coordinate/koto-templates/coordinate.md	rebrief	it rides the manager's next report
+S36	skills/coordinate/koto-templates/coordinate.md	rebrief	hand-made start can make it
+S37	skills/coordinate/koto-templates/coordinate.md	rebrief	a new dispatch renders `--role manager`
+S38	skills/coordinate/koto-templates/coordinate.md	rebrief	renders no `--role`, so it never undoes a change
+S39	skills/coordinate/koto-templates/coordinate.md	reconcile	First make the record one a replacement could continue from
+S40	skills/coordinate/koto-templates/coordinate.md	reconcile	Its third line is the
+S41	skills/coordinate/koto-templates/coordinate.md	reconcile	the record line first and
+S42	skills/coordinate/SKILL.md	-	Every report opens with the record line
+S43	skills/coordinate/SKILL.md	-	A report calls its own role only by
+S44	skills/coordinate/koto-templates/coordinate.md	reconcile	all but `carry-unacknowledged`
+S45	skills/coordinate/SKILL.md	-	A list says what you owe, never what you're allowed to do
+S46	skills/coordinate/SKILL.md	-	Call yourself only by the role your record holds
+S47	skills/coordinate/SKILL.md	-	Report up to your reviewer as Reporting says
+S48	skills/coordinate/SKILL.md	-	Brief a successor with the role your record holds
+S49	skills/coordinate/SKILL.md	-	Run one lane: the roadmap's features
+S50	skills/coordinate/SKILL.md	-	Dispatch and brief the workers your lane's units need
+S51	skills/coordinate/SKILL.md	-	Review your workers' pull requests at your land step
+S52	skills/coordinate/SKILL.md	-	Send every pull request you author
+S53	skills/coordinate/SKILL.md	-	Report your lane's worker pull requests
+S54	skills/coordinate/SKILL.md	-	Dispatch and brief managers, one lane each
+S55	skills/coordinate/SKILL.md	-	Be the reviewer of each manager you dispatched.
+S56	skills/coordinate/SKILL.md	-	send your own reading up
+S57	skills/coordinate/SKILL.md	-	Read for alignment.
+S58	skills/coordinate/SKILL.md	-	the pull requests a manager authors and sends
+S59	skills/coordinate/SKILL.md	-	worker pull requests each manager reports
+S60	skills/coordinate/SKILL.md	-	It isn't a correctness review
+S61	skills/coordinate/SKILL.md	-	name the pull requests and the conflict
+S62	skills/coordinate/SKILL.md	-	to every manager involved and in your next report
+S63	skills/coordinate/SKILL.md	-	Whether your reading holds a land isn't set by your role
+S64	skills/coordinate/SKILL.md	-	the workspace's authority configuration say who merges
+S65	skills/coordinate/SKILL.md	-	which of your lanes advance
+S66	skills/coordinate/SKILL.md	-	Be the owner funnel
+S67	skills/coordinate/SKILL.md	-	Never block on the owner from a turn the owner didn't start
+S68	skills/coordinate/SKILL.md	-	**What you allocate is read, never assumed.**
+S69	skills/coordinate/SKILL.md	-	isn't defined here: escalate it as a decision entry
+S70	skills/coordinate/SKILL.md	-	the alignment reading its Roles list names
+S71	skills/coordinate/SKILL.md	-	which the director confirms happened rather than repeats
+S72	skills/coordinate/koto-templates/coordinate.md	start	read its Roles list for the role your record holds
+S73	skills/coordinate/koto-templates/coordinate.md	start	mean one thing each: coordinator, manager,
+S74	skills/coordinate/references/brief-template.md	-	reads its duties from the skill's Roles list
+S75	skills/coordinate/SKILL.md	-	- **Manager** -- a coordinator that runs one lane
+S76	skills/coordinate/SKILL.md	-	- **Director** -- a coordinator over managers
+S77	skills/coordinate/SKILL.md	-	- **Workspace manager** -- the tool that dispatches

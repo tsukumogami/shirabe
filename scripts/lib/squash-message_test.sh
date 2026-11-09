@@ -31,6 +31,10 @@ eq "a heading marker and an HTML comment go" "Root cause found." "$(msg t "$(pri
 eq "blank runs collapse and the ends are trimmed" "$(printf 'one\n\ntwo')" "$(msg t "$(printf '\n\none\n\n\n\ntwo\n\n---\n')" | tail -n +3)"
 eq "a --- inside a fence doesn't end Part 1" "$(printf -- '---\ninside\nafter')" "$(msg t "$(printf '```\n---\ninside\n```\nafter\n---\nnot this\n')" | tail -n +3)"
 eq "a body with no separator is all Part 1" "whole body" "$(msg t "whole body" | tail -1)"
+eq "double underscores inside code spans stay" "matcher ^mcp__. The leading ^ covers every mcp__<server>__<tool>." \
+    "$(msg t "$(printf 'matcher `^mcp__`. The leading `^` covers every `mcp__<server>__<tool>`.\n\n---\n\nx\n')" | tail -1)"
+eq "code spans keep _ and *, emphasis around them goes" "Note: a__b and *x* stay, y goes, so does bold c" \
+    "$(msg t "$(printf '**Note:** `a__b` and `*x*` stay, __y__ goes, *so* does **bold `c`**\n---\n')" | tail -1)"
 
 printf '\n\n---\nonly part two\n' | bash "$SM" --title t - >/dev/null 2>&1; eq "an empty Part 1 is refused (exit 1)" 1 $?
 printf 'Fix.\nCo-Authored-By: someone\n---\n' | bash "$SM" --title t - >/dev/null 2>&1; eq "a co-author trailer is refused" 1 $?

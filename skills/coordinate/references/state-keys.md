@@ -54,8 +54,8 @@ earlier rotation that fails a rule (`unreadable <session>`, a stop for the
 human). Its window, host and predecessor are its session's `record/rotation`,
 and the reasoning it leaves the next rotation `record/reasoning`.
 
-Report the record's session name up with every report, so a successor is
-handed it as a decision and reads it directly.
+Every report names the record's session name on its record line (SKILL.md,
+"Reporting"), so a successor is handed it as a decision and reads it directly.
 
 ## The Rotation's Window
 
@@ -81,7 +81,7 @@ yourself with `koto context get <session> <key>`; never write one by hand.
 | `record/side-effects` | an array of Side effects rows | `state-write.sh` through `state-holding.sh`; `roadmap-status.sh` adds the roadmap edits' rows |
 | `record/reversals` | an array of Reversals rows | `state-write.sh` through `state-holding.sh` |
 | `record/holds` | an array of Holds rows, a key only once it has one | `state-hold.sh` (`HOLDS_WRITER`) |
-| `record/run`, `record/standing`, `record/work` | the stored set's rows, each a key only once it has one | `state-stored-set.sh` (`STATE_WRITER`); `roadmap-status.sh` (`VERDICT_WRITER`) writes the `verdict-owed` and `rework` Work rows |
+| `record/run`, `record/standing`, `record/work` | the stored set's rows, each a key only once it has one | `state-stored-set.sh` (`STATE_WRITER`); `roadmap-status.sh` (`VERDICT_WRITER`) writes the `verdict-owed` and `rework` Work rows; `state-open.sh`'s seed writes the Run `role` row too |
 | `record/decisions` | `{next, entries}` (with `archived` and `kept` on a record moved from GitHub), a key from the first decision on | `state-decision.sh` (`DECISIONS_WRITER`) |
 | `record/rotation`, `record/reasoning` | a discipline rotation's window, host and predecessor, and the reasoning it leaves the next rotation | `state-stored-set.sh` (`STATE_WRITER`) |
 | `record/host` | the host facts (see Where State Lives), never sent to GitHub | `state-stored-set.sh --host` |
@@ -178,6 +178,113 @@ while held` and who merged it, as GitHub names them; the record step waits for
 it. The section's grammars are `scripts/state-schema.jq`'s, and the write
 core refuses any other writer's change to it.
 
+A director's `diverges` call places an `align-` hold (The alignment entry,
+under Entries), a row of the same grammar, in the director's record and,
+copied, in the manager's:
+
+```json
+{"hold": "align-<repo name>-<n>-<40-hex placed-on head>[-<k>]",
+ "on": "<owner/repo#n>", "until": "lifted",
+ "set_by": "director at <address>, receiver manager at <address>",
+ "set": "<YYYY-MM-DDTHH:MMZ>", "lifted": ""}
+```
+
+The placed-on head is the call's, and `-<k>` (from 2) is added only when the
+same head is held again after a lift. The name is also how the `diverges`
+call it was placed on is found: the reason lives in that call. Its release is
+the same for every `align-` hold: a new head that the director re-reads and
+calls `fits` or `fits with follow-ups`. `scripts/alignment-call.sh` places it
+through `state-hold.sh --add` when no unlifted `align-` hold on the pull
+request stands and the pull request hasn't merged, and prints the message the
+director sends the manager:
+
+```
+Alignment hold: <owner/repo#n> at <40-hex placed-on head>
+Row: <the hold row, one line of JSON>
+Sources: <the call's Sources>
+Reason: <the call's Reason>
+Receiver: manager at <address>
+Release: a new head that the director re-reads and calls fits or fits with follow-ups
+```
+
+The director's address is its Run `coordinator` row; the receiver is the
+Worker of the Holdings row that links the pull request, or the call's
+`--receiver`. The manager copies the hold from that message, as it arrived:
+
+```
+alignment-call.sh --session S --copy --add --message-file <the message> --event <n> --from <sender>
+```
+
+`--from` must be the address in the manager's Run `reports-to` row
+(`director at <address>`), and the message must be those six lines, its head
+40 hex, its row a hold row with `until` lifted and Lifted empty, named
+`align-<repo name>-<n>-<that head>[-<k>]` for the pull request it names, and
+set by `director at <sender>`; anything else is refused (65) with nothing
+changed. It adds the identical row through `state-hold.sh` and writes a `hold`
+entry naming event `<n>`, the sender, the reason and the release; the same
+message again changes nothing. The manager's land check then reads the hold
+from its own record and reports the pull request `held`. A successor
+director's first message to a lane names the row's current address and its
+own, in one line, `Director address: <current address> is now <new address>`;
+`--copy --reports-to`, with the same three options and `--from` the new
+address, rewrites the row through `state-stored-set.sh --run reports-to`,
+`--by` the sender, and writes a `hold` entry naming the event and both
+addresses. A message naming any other current address, and one sent to a row
+holding no address, change nothing (65).
+
+The hold lifts only on its release. A `fits` or `fits with follow-ups` call
+written with `alignment-call.sh` runs the guarded lift in the same run, after
+the call: for each unlifted `align-` hold on the pull request it reads the
+live head from GitHub, and lifts the hold only when the live head isn't the
+placed-on head in its name, the latest call for the live head is `fits` or
+`fits with follow-ups` and is the call just written or a later one, and that
+call's entry number is above the hold's `diverges` call (the latest
+`diverges` entry at the placed-on head). It lifts through `state-hold.sh
+--lift`, the Lifted cell reading
+
+```
+<YYYY-MM-DDTHH:MMZ> by director at <address>, <fits|fits with follow-ups> at <40-hex head>
+```
+
+writes a `hold` entry naming the hold, that head and the call's entry number,
+and prints the lift message the director sends the manager:
+
+```
+Alignment lift: <owner/repo#n> at <40-hex head it was released on>
+Hold: <the hold's name>
+Call: <fits|fits with follow-ups>, entry <n>
+```
+
+A fits call at the placed-on head, or at a head that isn't the live head,
+lifts nothing. When the live head can't be read, the call is still written,
+the hold stands, and the script exits 13 naming it. A hold that became
+releasable without a lift (that read failed, or the call came before the
+push) is lifted by `alignment-call.sh --session S --lift-releasable --on
+<owner/repo#n>`, which runs the same guard with no call, writes no
+`alignment` entry and prints one lift message per hold it lifts; on a hold
+that isn't releasable it lifts and prints nothing.
+
+The manager lifts its copy from that message, as it arrived:
+
+```
+alignment-call.sh --session S --copy --lift --message-file <the message> --event <n> --from <sender>
+```
+
+The sender must be the `reports-to` address, as for `--copy --add`. The lift
+is refused (65, nothing changed) when its head is the placed-on head, and
+unless its head is the `verified_head` of the Holdings row that links the
+pull request, so a replayed lift naming an older head is refused too. A pull
+request no holding links, one the manager wrote, is checked against its live
+head from GitHub instead: another head is refused (65), and a head that can't
+be read leaves the hold standing (2). An accepted lift stamps the copy's
+Lifted cell with the director's text and writes a `hold` entry naming the
+hold, the head, the call's entry number and event `<n>`, so a lift with no
+matching call shows in the manager's own record; a hold already lifted
+changes nothing. A person's lift on an unchanged head doesn't come this way:
+the director records it with `state-hold.sh --lift --by <person>`, and the
+manager records the relayed word on its copy the same way, as `surface` says
+for a person's word. Either lift ends the hold for the land check.
+
 ### The stored set: Run, Standing and Work
 
 What a replacement coordinator needs to continue from the record alone, and
@@ -185,13 +292,15 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction or reports-to>",
+{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction, reports-to or role>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
- "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer or assignment>",
+ "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer, assignment or rule>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
                "until": "<a pause's resume condition, or empty>", "what": "<what it says>",
-               "owner": "<the person who decided it>", "relayed_by": "<who carried it here, or empty>",
-               "set": "<YYYY-MM-DDTHH:MMZ>"}],
+               "owner": "<the person who decided it; empty on a rule row>",
+               "relayed_by": "<who carried it here, or empty; empty on a rule row>",
+               "set": "<YYYY-MM-DDTHH:MMZ>",
+               "source": "<where its words come from; a rule row's always, left out when blank>"}],
  "work": [{"item": "<a holding's unit, a parked or follow-up unit, a milestone's tag, or what the work is>",
            "kind": "<holding, local-agent, decision, follow-up, verdict-owed or rework>",
            "who": "<its worker, who does it, decision <n>, owner/repo#n, none, verdict <id> or failure <id>>",
@@ -210,8 +319,9 @@ started again. A worker is never both told and pending (the record is refused
 if it is). A new address clears the `told` and `pending` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
-replacing the first), a `friction` label, and `reports-to` (`<role>` or `<role>
-at <address>`, who this coordinator reports up to). The start writes the
+replacing the first), a `friction` label, and `reports-to` (`<name>` or `<name>
+at <address>`: who this coordinator reports up to, a person or the coordinator
+that dispatched it, and for a coordinator its messaging address). The start writes the
 `rules` rows of the files the session loads as rules, never you: `skill-<file
 name>` for the skill's `SKILL.md`, template and references at the plugin root,
 and `workspace-<depth>-<file name>` or `workspace-<depth>-rules-<file name>`
@@ -222,10 +332,31 @@ them on a resume, a carry, a takeover and an import, and `state-open.sh` after
 each seed; a row whose digest didn't change is kept as written, and one `run`
 entry names each label added, changed or removed. A failed write prints
 `warning=rules-unrecorded` and the next start writes them. Any other `rules`
-label is yours, through `--run rules`. A session opened before the
+label is yours, through `--run rules`. A `briefs` row is the brief intake's:
+you record the brief's path with `--host briefs:<label> <path>`, and
+`--intake <label>` writes the row once it has taken the brief's lines (Rule
+rows, below). A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
-refused, exit 65: `store` is no Run key it writes). Every
+refused, exit 65: `store` is no Run key it writes). Run also holds the run's
+`role` row, one at most, reading `manager` or `director`. It has two writers:
+`state-open.sh`, in the seed it makes when given `--role` and on `--carry
+--role`, which adds the row only when the carried copy has none; and
+`state-stored-set.sh --run role <manager|director> --by <who>`, which sets it
+once. With no row that writes one, the same value again changes nothing (exit
+0, the record byte for byte as it was), and a different value is refused (exit
+65), naming both. Only `--intervention dispatcher|person` replaces a different
+value: a change from above, the dispatching session or a person. The row then
+reads the new value, its Set by and Set say who and when, and the entry names
+the old role, the new one and the source. `--intervention` with any other
+source, or on any other key, is a usage error (exit 64). With it the write may
+come before the run's find, as the rules rows' does; without it `--run role`
+needs a found record, as every other Run key does. `--by` there is one line of
+at most 80 characters. `state-open.sh --carry --role <new> --role-change-by
+<who> --role-change-source <source>` replaces a carried row through that same
+write. Its reader is `state-read.sh --session S --run`, which prints
+`record/run` with no found record needed and exits 2, never an empty section,
+when the read fails. The handover read prints it as `role`, or null. Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
 **Standing** holds the events only a person owns while they still bind: a
@@ -245,7 +376,9 @@ unit through any pause until it is used and ended. A resume, a used
 go-ahead or approval, or a withdrawn answer ends the row. An assignment is work a
 person assigned outside the scope, named in On as an issue (`#12`,
 `owner/repo#12`) or `release owner/repo <tag>`: pick lists it as a unit from
-then on, at roadmap scope too, and its row ends once the work is done. **Work** has a next
+then on, at roadmap scope too, and its row ends once the work is done. A
+rule binds the coordinator until it is ended, and its row is described under
+Rule rows below. **Work** has a next
 step for every holding and a row for any work no holding covers, a local
 agent's above all: without its row a successor can't see it. Two kinds keep a
 unit's later work, Item the unit as pick lists it: `decision`, a unit pick
@@ -262,15 +395,20 @@ written to the state and then told as an entry:
 ```
 state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <who>
 state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
+state-stored-set.sh --session S --run role manager|director --by <who> [--intervention dispatcher|person]
 state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>
 state-stored-set.sh --session S --pending <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
+state-stored-set.sh --session S --standing rule --what <text> --source <form>
 state-stored-set.sh --session S --end <s<n>> --by <who>
+state-stored-set.sh --session S --intake <label> --by <who>
 state-stored-set.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
 state-stored-set.sh --session S --done <item> [--kind <kind>]
 state-stored-set.sh --session S --list
+state-stored-set.sh --session S --rules [--id <s<n>>]...
+state-stored-set.sh --session S --rules --counts
 ```
 
 `--list` prints the three sections as JSON. On a session with no record it
@@ -301,10 +439,100 @@ message was refused or no instance is left. `--told` for a pending worker
 turns its `pending` row into a `told` one; `--pending` refuses a worker already
 told or already pending.
 
+**Rule rows.** A Standing row of kind `rule` is a rule that binds the
+coordinator until `--end` ends it. It has no On and no Until, a blank Owner
+and Relayed by, and a Source saying where its words come from, and it holds
+nothing: pick, the dispatch check, the land check and the merge read pauses,
+go-aheads and assignments only, whatever a rule's What says. `--standing rule
+--what <text> --source <form>` writes one, its What one line of at most 400
+bytes and its Source in one of four forms:
+
+```
+skill <owner/repo> <path> <commit>         a line of a skill's text
+doc <owner/repo> <path> <commit>           a document a public host can name
+pinned <label> sha256:<64 hex>             a file a Run rules or briefs row pins with that label and digest
+inferred [brief <label> sha256:<64 hex>]   your own reading, with the brief you read it from
+```
+
+A path is relative, with no `.` or `..` segment and no leading `-`; a commit
+is 40 hex. A rule takes no `--on` or `--until` (64), and `--owner` or
+`--relayed-by` on one is refused (65), since its Source says who said it. The
+checks run in this order, each refusal 65 with nothing written: the Source's
+grammar and the row's columns; the What's 400 bytes; the caps, at most 120
+rule rows, of which at most 60 read inferred (the event kinds count against
+neither, so a pause can always be written); a `pinned` Source's Run row; then
+the forge reads. For a `skill` or `doc` Source naming repository R at commit
+C, on a public host R must be public; R's default branch must hold C (a
+repository that doesn't exist and one that can't be read get the same
+refusal); the file must exist at C; and the What must equal one of its
+sentences under the normalized match. On a public host each `owner/repo` in
+the What, the host excepted, must be public too: a 404 under the host's owner
+is refused, one under another owner passes. A read that fails, runs past 10
+seconds or can't be parsed exits 2. The entry reads `s<n> (rule): <What>.
+Source: <Source>.`, and a stored row is never checked again. `--run
+reports-to` or `--run cap` with `--inferred "<sentence>"` writes its value and
+a bare `inferred` row quoting the sentence in one write, under the same
+checks.
+
+A row's class is worked out from its Source when it's read; no column stores
+it. A row with no Source, an event row, reads `relayed`; `inferred` reads
+`inferred`, with status `unconfirmed` and `confirm` true, since it waits for a
+person; `skill` reads `skill-says`; `doc` and `pinned` read `charter`. The
+Run `rules` rows read beside them: a `skill-` label `skill-says`, a
+`workspace-` label `charter`, any other label `inferred`. `owner-said`,
+`dispatcher-said` and `unreadable` belong to cited decisions, which
+`--standing rule` doesn't write.
+
+`state-stored-set.sh` reads rules two ways. `--rules` prints one JSON object
+per Standing row in record order (`standing`, `kind`, `class`, `what`,
+`owner` for a relayed row, `said`, `set`, `pointer`, `words`, `source`, `status`,
+`reversal`, `confirm`), then, without `--id`, one per Run `rules` row
+(`{run: "rules", kind, label, digest, class, said, pointer}`, the pointer
+naming the `rules:<label>` host key, which isn't read). A pointer is where
+the words are: a relayed row's entry (the row itself when no entry matches),
+a `skill` or `doc` row's `{repo, path, commit}`, a `pinned` row's `{pinned,
+digest}`, an inferred brief row's `{brief, digest}`, a bare inferred row's own
+row. Each Standing object also carries `under_session_grant` and
+`session_allows`: a row grants nothing itself, and these say whether it
+stands under the session's niwa grant and what that grant allows. A pause, an
+inferred or `pinned` row, a `skill` row citing a repository other than the
+installed plugin's, and a `doc` row citing one other than the record's host
+never do, and print `false` and `[]`; when any row may, `--rules` reads the
+grant once with `niwa authority check`. No gate reads either field. `--id`
+prints only those rows (one the record lacks is refused, 65). `--rules
+--counts` prints seven `<class> <count>` lines instead, in the order
+`relayed`, `owner-said`, `dispatcher-said`, `inferred`, `skill-says`,
+`charter`, `unreadable`, counting every Standing row whatever its status and
+each Run `rules` row, so `grep '^inferred '` gives the unsourced rules the
+record holds. Neither mode writes.
+
+The brief intake brings a brief's rules in once. You record the brief's path
+with `--host briefs:<label> <path>`; `--intake <label> --by <who>` reads that
+file once, never edits it and never prints its path. When a Run `briefs` row
+already reads `<label> sha256:<its digest>` it writes nothing and exits 0.
+Otherwise its candidates are the brief's sentences, less heading lines and
+the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting
+and Keep-alive sections. Each row whose Source is `inferred brief <label>`
+with another digest, and whose What no candidate states, ends; each candidate
+no remaining row (of any kind or Source) holds under the normalized match is
+written as a rule row, Source `inferred brief <label> sha256:<digest>`. A line
+that fails a What check (over 400 bytes, a home-directory path, a
+token-shaped string, or on a public host a repository that isn't public) is
+left out and named on stderr. When every line is taken it also writes the
+`briefs` row, Set by `<who>`; when a cap stops it, it writes the rows up to
+the cap and no `briefs` row, and exits 1 naming how many lines it couldn't
+take, so a person says which rows to confirm or end. A read that fails exits
+2 with nothing written. The rows, the ended rows and the `briefs` row go in
+one write, then their entries: one rule entry per row, one end entry per
+ended row, and `Run briefs <label> sha256:<digest> set by <who>.`
+
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
-has been neither told the current address nor recorded pending. The reconcile
+has been neither told the current address nor recorded pending; a brief
+`record/host` names as `briefs:<label>` whose digest no Run `briefs` row
+carries (`brief-unread <label>`, its fix the intake, naming how many lines
+the caps would leave out; a key whose file can't be read raises none). The
 step's gate runs it at every start, so a replacement that writes its own
 address can't go on until each live worker is told or pending. A pending
 worker doesn't hold the gate; it is told when it can be. A record with no
@@ -443,6 +671,110 @@ its account, never its only copy. GitHub limits how fast comments are
 created; at most one post per outward entry stays far inside it, and a refused post
 (exit 14, the entry written but not posted) is finished once, later, with
 `state-entry.sh --repost <n> --on <item>`, never in a loop.
+
+### The alignment entry
+
+A director's call on a lane pull request is an `alignment` entry. It stays in
+the session, yet it names its pull request with `--on`, the one kind kept in
+the session that takes it (any other exits 64 on `--on`):
+
+```
+state-entry.sh --session <session> --kind alignment --on <owner/repo#n> --text-file <file>
+```
+
+Its first line must name the `--on` pull request; the pull request must be in
+the host or a holding's repository; on a public host its text is scanned as
+any entry kept in the session is; and it is never posted, whatever the
+repository's opt-in. `--on none` and no `--on` are refused (65). The text is
+at most 16 KiB, these seven lines in this order with no blank line:
+
+```
+Alignment: <owner/repo#n> at <40-hex head> -- <fits|fits with follow-ups|diverges>
+Read: <full|one-line>
+Sources: <none | <source>; <source>; ...>
+Reason: <one line>
+Evidence: <none | <n> <met|not met>; ...>
+Follow-ups: <none | new: <title>; ...>
+Action: <merge|recommend|hold|none>
+```
+
+A source is one of `roadmap <path> at <40-hex> <unit> clause <n>`, `strategy
+<path> at <40-hex> <section heading>`, `standing s<n>`, `decision <n>` or
+`lane <holding> <owner/repo#n | path>` (another lane's open pull request, or
+the document or path its rows name). A reader splits each line once on `: `
+and a list on `; `. `state-entry.sh` refuses (65, nothing written) a missing,
+extra or reordered line; a first line whose pull request isn't `--on`; a head
+that isn't 40 hex; a value outside each line's set; `fits with follow-ups`
+with Follow-ups `none`, or another call with a follow-up; `diverges` with
+Sources `none`; `Read: one-line` with a call other than `fits`; `Action:
+hold` with a call other than `diverges`, or `diverges` with another Action.
+
+Write a call with `scripts/alignment-call.sh --session S --on <owner/repo#n>
+--text-file <file> [--receiver <address>]`, which writes the entry through
+`state-entry.sh` and, for `diverges`, places the `align-` hold and prints its
+message (The Holds section). A second `diverges` call while a director's hold
+on the pull request stands, and one on a merged pull request, write the entry
+and place no hold. The pull request's state, the director's address and the
+receiver are read before anything is written, so a call that can't place its
+hold writes nothing. A `fits` or `fits with follow-ups` call then runs the
+guarded lift on the pull request's `align-` holds and prints a lift message
+for each it lifts (The Holds section).
+
+### The refusal entry
+
+When a director's land check stops a head that has no alignment call, the
+director records it in one entry of the plain `entry` kind, whose first line
+is:
+
+```
+Refused: no-alignment-call <owner/repo#n> at <40-hex head>
+```
+
+It is written once per pull request and head: when the record already holds
+that line for the head, a later refusal of the same head writes nothing, so
+the count is of heads stopped, not of visits. It adds no entry kind and no
+grammar to `state-entry.sh`.
+
+### Reading the calls back
+
+`scripts/alignment-read.sh --session S [--since <YYYY-MM-DDTHH:MM:SSZ>]` is
+the one read of a director's calls, and it writes nothing. It prints one JSON
+object with seven keys:
+
+- `calls`: every `alignment` entry, oldest first, with its entry number, its
+  stamp, the first line's pull request, head and call, and the other lines,
+  Sources, Evidence and Follow-ups as lists split on `; ` (`none` is an empty
+  list). `standing` is true only for the latest call on its pull request and
+  head, so a call on an older head never stands for a newer one.
+- `merges`: each merged lane pull request owed a call (one the manager wrote,
+  or one that finishes a unit: a `unit=` line names it, it is a milestone
+  verdict pull request, or it changes a roadmap or strategy document), with
+  its merged head, merge time, the latest call's value for that head and its
+  review: `reviewed` (a call for the merged head stamped at or before the
+  merge), `after merge` or `unreviewed`. A pull request a `worker=` line
+  names that finishes no unit is `manager-reviewed` instead.
+- `recommendations`: each call whose Action is `recommend`.
+- `holds`: each `align-` hold, with the latest `diverges` call at the head its
+  name carries and that call's reason, and a state: `lifted`, `merged while
+  held`, `closed while held`, `releasable` (the guarded lift's three
+  conditions hold) or `standing`, flagged `needs_re_read` when the live head
+  has no call. A standing or releasable hold carries the latest report that
+  names it, or `unconfirmed`.
+- `open`: each open lane pull request at its live head, with the standing
+  call's value for that head or `none`.
+- `refusals`: how many refusal entries the record holds.
+- `gaps`: each earlier session of the run's lineage whose log couldn't be
+  read.
+
+The lane pull requests are those the calls name, the Holdings rows link and
+the `align-` holds are on, and those the director's `report` and `progress`
+events name, in their `pull_request`, as links in their message, or in the
+`unit=`, `open=` and `worker=` lines of the result block, from every session
+of the lineage. Whether a unit finished, and whether a worker wrote a pull
+request, is read from those lines alone. With `--since`, `calls`, `merges`,
+`recommendations` and `refusals` keep to what is stamped or merged after the
+stamp, while each judgment is still made against every call; `holds` and
+`open` stay whole. The script's header has the full rules and exit codes.
 
 ## Where State Lives
 

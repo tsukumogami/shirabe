@@ -28,7 +28,16 @@
 #   6. the session read: the same state from rs_record and rs_record_api,
 #      pending (record-changed), absent (session-absent) and another scope's
 #      record, record/host kept out of the state, --host, and --show an unknown
-#      option (64); a read of some sections handing back only those, never
+#      option (64); --run printing record/run on a run with no sealed find, []
+#      for a record with no Run section, and a failed or malformed read exiting
+#      2 with nothing on stdout; its --workspace form (an import's source, read
+#      where it is through koto's --workspace, behind a stand-in) printing a
+#      present key, [] for an absent one, `refused=<code>` and exit 3 for a
+#      koto refusal and exit 2 for a failed read, writing nothing; and
+#      --predecessors, here and with --workspace, naming koto's continues
+#      relation, a rotation's predecessor and a carry's link (not a dispatcher
+#      of another scope), nothing for a run with none, and a refusal (3) and a
+#      failed read (2) never printed as no predecessor; a read of some sections handing back only those, never
 #      listing record/, refusing a field with no section and reading again when
 #      a listed section's get failed while record/meta moved;
 #   7. one read per step (rs_once_begin): reads under one shared read take one
@@ -391,6 +400,95 @@ grep -q 'host-only-marker' "$T/w" "$T/w.state" && bad "  ... and holds nothing f
 bash "$RS" --session "$SW" --show >/dev/null 2>"$T/err"; eq "--show is an unknown option" 64 $?
 eq "--host prints record/host" "/srv/ws/host-only-marker" "$(bash "$RS" --session "$SW" --host 2>"$T/err" | jq -r .source_workspace)"
 
+# --run: record/run with no sealed find, the read of the Run `role` row
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1).
+SU=coordinate-roadmap-plugin-system-20260926T110700Z
+log_new "$SU" "$(roadmap_vars plugin-system)"
+seed_session "$SU" "$(printf '%s' "$REC" | jq -c '.run += [{key: "role", value: "director", set_by: "the human", set: "2026-09-28T11:28Z"}]')"
+bash "$RS" --session "$SU" --record >/dev/null 2>"$T/err"
+eq "a run whose find sealed nothing has no record for --record" 2 $?
+OUT=$(bash "$RS" --session "$SU" --run 2>"$T/err"); rc=$?
+eq "--run prints its Run section all the same" "0 arguments:the human role:director" \
+    "$rc $(printf '%s' "$OUT" | jq -r '[.[] | "\(.key):\(if .key == "role" then .value else .set_by end)"] | join(" ")')"
+eq "  ... as the record/run key holds it" "$(koto context get "$SU" record/run | jq -c .)" "$OUT"
+eq "  ... and the override flags read the same" "$OUT" \
+    "$(RS_SESSION=$SU bash "$RS" --scope roadmap --name plugin-system --repo "$REPO" --run 2>"$T/err")"
+SV=coordinate-roadmap-plugin-system-20260926T110800Z
+log_new "$SV" "$(roadmap_vars plugin-system)"
+seed_session "$SV" "$(record_json roadmap plugin-system)"
+OUT=$(bash "$RS" --session "$SV" --run 2>"$T/err"); rc=$?
+eq "a record with no Run section prints [], exit 0" "0 []" "$rc $OUT"
+OUT=$(RS_SESSION=$SU KOTO_READ_FAIL=$SU bash "$RS" --scope roadmap --name plugin-system --repo "$REPO" --run 2>"$T/err"); rc=$?
+eq "a read that fails exits 2 with nothing on stdout, never an empty section" "2 " "$rc $OUT"
+grep -q "record/run couldn't be read" "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+printf '%s' '{"key": "role"}' | koto context add "$SV" record/run
+OUT=$(bash "$RS" --session "$SV" --run 2>"$T/err"); rc=$?
+eq "a record/run that isn't an array exits 2 with nothing on stdout" "2 " "$rc $OUT"
+
+# --run --workspace and --predecessors: an import's source read where it is
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1). The stand-in
+# answers `koto --workspace <W> ...` from this store, refuses it as koto does
+# on the local backend with WS_MODE=refuse, and fails it with WS_MODE=fail.
+mkdir -p "$T/ws"
+cat > "$T/ws/koto" <<STUB
+#!/usr/bin/env bash
+if [ "\${1:-}" = --workspace ]; then
+    printf '%s\n' "\$*" >> "\$KOTO_STORE/ws-calls"
+    case "\${WS_MODE:-}" in
+        refuse) printf '%s\n' '{"code":"workspace_needs_cloud","command":"context list","error":"--workspace reads the cloud bucket, and the session backend here is local"}'; exit 2 ;;
+        fail) echo "koto stub: the bucket read failed" >&2; exit 1 ;;
+    esac
+    shift 2
+fi
+exec "$HERE/testdata/koto" "\$@"
+STUB
+chmod +x "$T/ws/koto"
+: > "$KOTO_STORE/ws-calls"
+WSNAP=$(session_snapshot "$SU")
+OUT=$(KOTO_BIN="$T/ws/koto" bash "$RS" --run --workspace /srv/source-ws --session "$SU" 2>"$T/err"); rc=$?
+eq "--run --workspace prints a present key as koto holds it" "0 $(koto context get "$SU" record/run | jq -c .)" "$rc $OUT"
+eq "  ... every koto call it made naming the workspace" "" "$(grep -v '^--workspace /srv/source-ws context ' "$KOTO_STORE/ws-calls")"
+eq "  ... and writing nothing" "$WSNAP" "$(session_snapshot "$SU")"
+SW0=coordinate-roadmap-plugin-system-20260926T110900Z
+OUT=$(KOTO_BIN="$T/ws/koto" bash "$RS" --run --workspace /srv/source-ws --session "$SW0" 2>"$T/err"); rc=$?
+eq "  ... [] for a source with no record/run key, exit 0" "0 []" "$rc $OUT"
+OUT=$(WS_MODE=refuse KOTO_BIN="$T/ws/koto" bash "$RS" --run --workspace /srv/source-ws --session "$SU" 2>"$T/err"); rc=$?
+eq "  ... a koto refusal exits 3, printing refused=<code>" "3 refused=workspace_needs_cloud" "$rc $OUT"
+grep -q 'session backend here is local' "$T/err" && ok "  ... and koto's message" || bad "  ... and koto's message" "$(cat "$T/err")"
+OUT=$(WS_MODE=fail KOTO_BIN="$T/ws/koto" bash "$RS" --run --workspace /srv/source-ws --session "$SU" 2>"$T/err"); rc=$?
+eq "  ... a failed read exits 2 with nothing on stdout, never []" "2 " "$rc $OUT"
+bash "$RS" --workspace /srv/source-ws --session "$SU" --record >/dev/null 2>&1
+eq "  ... and --workspace goes only with --run or --predecessors" 64 $?
+# --predecessors: PR1 continues PR0 (koto's relation), is linked by a carry to
+# PR2 (a run of its own scope) and by a dispatcher to another scope's run; a
+# rotation names its predecessor in record/rotation.
+PR0=coordinate-roadmap-plugin-system-20260926T120000Z
+PR1=coordinate-roadmap-plugin-system-20260926T121000Z
+PR2=coordinate-roadmap-plugin-system-20260926T115000Z
+printf '{}' | koto context add "$PR1" "koto/links/continues/$PR0"
+printf '{}' | koto context add "$PR1" "koto/links/dispatched-by/$PR2"
+printf '{}' | koto context add "$PR1" koto/links/dispatched-by/coordinate-roadmap-director-20260926T060000Z
+OUT=$(bash "$RS" --predecessors --session "$PR1" 2>"$T/err"); rc=$?
+eq "--predecessors names the run continued and the run a carry linked, not another scope's dispatcher" \
+    "0 $PR0 $PR2" "$rc $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+: > "$KOTO_STORE/ws-calls"
+OUT=$(KOTO_BIN="$T/ws/koto" bash "$RS" --predecessors --workspace /srv/source-ws --session "$PR1" 2>"$T/err"); rc=$?
+eq "  ... and the same where the source is (--workspace)" "0 $PR0 $PR2" "$rc $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... every koto call naming the workspace" "" "$(grep -v '^--workspace /srv/source-ws context ' "$KOTO_STORE/ws-calls")"
+RP=coordinate-discipline-ci-health-20261008T100000Z
+jq -nc '{start: "2026-10-08", end: "2026-10-14", host_repo: "acme/widgets", predecessor: "coordinate-discipline-ci-health-20261001T100000Z"}' \
+    | koto context add "$RP" record/rotation
+OUT=$(bash "$RS" --predecessors --session "$RP" 2>"$T/err"); rc=$?
+eq "  ... a rotation's predecessor" "0 coordinate-discipline-ci-health-20261001T100000Z" "$rc $OUT"
+OUT=$(bash "$RS" --predecessors --session "$PR0" 2>"$T/err"); rc=$?
+eq "  ... nothing for a run that continues none, exit 0" "0 " "$rc $OUT"
+OUT=$(WS_MODE=refuse KOTO_BIN="$T/ws/koto" bash "$RS" --predecessors --workspace /srv/source-ws --session "$PR1" 2>"$T/err"); rc=$?
+eq "  ... a koto refusal exits 3, never as no predecessor" "3 refused=workspace_needs_cloud" "$rc $OUT"
+OUT=$(WS_MODE=fail KOTO_BIN="$T/ws/koto" bash "$RS" --predecessors --workspace /srv/source-ws --session "$PR1" 2>"$T/err"); rc=$?
+eq "  ... a failed listing exits 2 with nothing on stdout" "2 " "$rc $OUT"
+OUT=$(KOTO_READ_FAIL=$PR1 bash "$RS" --predecessors --session "$PR1" 2>"$T/err"); rc=$?
+eq "  ... and so does one here" "2 " "$rc $OUT"
+
 echo "== 7. one read per step (rs_once_begin) =="
 # once_reads <dir>: reads of session $SW's record under one shared read kept in
 # <dir>, in a subshell: the state, the state again, then a write's drop and the
@@ -504,8 +602,8 @@ STUB
 chmod +x "$T/opener/koto"
 FX_IMP="$HERE/../legacy-import/testdata"
 HSHIP=$(printf '%064d' 0 | tr 0 a)
-fresh_open() { # fresh_open: a discipline start of ci-health through the opener; OUT and RC
-    printf '%s' '["--discipline", "ci-health", "--host", "acme/widgets"]' > "$T/args.json"
+fresh_open() { # fresh_open: a discipline start of ci-health through the opener, as a manager; OUT and RC
+    printf '%s' '["--discipline", "ci-health", "--host", "acme/widgets", "--role", "manager"]' > "$T/args.json"
     OUT=$(cd "$T" && KOTO_BIN="$T/opener/koto" KOTO_COMPILED_HASH=$HSHIP bash "$HERE/coordinate-open.sh" --plugin-root "$PLUGIN_ROOT_REAL" "$T/args.json" 2>"$T/err")
     RC=$?
     NEW=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
@@ -534,11 +632,15 @@ eq "  ... which holds its record and its window" "false|$TODAY" \
     "$(koto context get "$NEW" record/meta | jq -r .pending)|$(koto context get "$NEW" record/rotation | jq -r .start)"
 eq "  ... after one lookup" 1 "$(importer_calls)"
 eq "  ... and the new run isn't cancelled" "" "$CANCELLED"
-# The next start: a resume, which calls nothing on GitHub.
+# The next start: a resume, which calls nothing on GitHub. The run's role,
+# once the reconcile's no-role gap has filled it, is the one the start names.
 printf '{"source":"session","reason":"found"}' | koto context add "$NEW" coord/source.json
+koto context get "$NEW" record/run 2>/dev/null | jq -c '(. // []) + [{key: "role", value: "manager", set_by: "the human", set: "2026-10-23T10:00Z"}]' > "$T/run.json" \
+    || echo '[{"key":"role","value":"manager","set_by":"the human","set":"2026-10-23T10:00Z"}]' > "$T/run.json"
+koto context add "$NEW" record/run --from-file "$T/run.json"
 reset_calls; : > "$KOTO_STORE/calls"
 fresh_open
-eq "the next start resumes the run" "0 outcome=resumed resumed=1 session=$NEW" "$RC $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "the next start resumes the run" "0 outcome=resumed resumed=1 session=$NEW role=manager" "$RC $(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
 eq "  ... with no importer lookup and no GitHub call" "" "$(calls)"
 # The next rotation, once that one has ended: not a fresh start, since the
 # ended rotation's session is here, so the importer isn't asked, though the

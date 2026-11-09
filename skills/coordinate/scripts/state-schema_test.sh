@@ -11,6 +11,8 @@
 # private repository name, a home-directory path and a token-shaped string);
 # the legacy `store session` Run row accepted, a `store github` row and any
 # other value refused, and the crash-set rows allowed with no store row; the
+# Run `role` row, manager or director, passing alone and beside the other rows,
+# and `Director`, `lead`, an empty value and two role rows refused; the
 # scan over every string in the state (scan_strings): each string path of a
 # full state found, a field added at any depth found, a string no column check
 # reads refused through check_record, a rotation's reasoning scanned; a valid
@@ -19,7 +21,16 @@
 # archived Decisions rows). Through state-write.sh and the core: a next state
 # naming a private repository is refused from its JSON, and a refused schema
 # rule, a stale read and a section owned by another writer flag each leave
-# every key as it was.
+# every key as it was. For a rule row the writer writes: a cited file's
+# sentence split and the normalized match over testdata/standing-rules/cited.md,
+# the What's two-part repository tokens, a path starting with `-` refused, and
+# the 120-rule and 60-inferred caps.
+# The match drops a trailing run of `.`, `!`, `?`, `,`, `;` and `:` (R44),
+# and the split takes fences, headings and table lines as R45 says.
+# For the brief intake: brief_candidates on
+# the testdata/brief-golden briefs (7, 11 and 11 sentences, the ones
+# testdata/standing-rules/brief-kept.json lists) and its section rule, and
+# brief_intake_plan's writes, ends, room and untaken.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/state-schema_test.sh
@@ -192,7 +203,18 @@ same "a reports-to address shaped like a path" "$(RUNS "$STORE, $(RR reports-to 
 same "a rules digest that isn't sha256 hex" "$(RUNS "$STORE, $(RR rules "a sha256:abc")")" "<label> sha256:<64 hex>"
 same "a rules label used twice" "$(RUNS "$STORE, $(RR rules "a sha256:$SHA64"), $(RR rules "a sha256:$SHA64")")" "label is used twice"
 same "a friction row that isn't a label" "$(RUNS "$STORE, $(RR friction "a b")")" "a friction row is a label"
-same "a reports-to address that is two words" "$(RUNS "$STORE, $(RR reports-to "the lead at ws lead")")" "is \`<role>\` or \`<role> at <address>\`"
+same "a reports-to address that is two words" "$(RUNS "$STORE, $(RR reports-to "the lead at ws lead")")" "is \`<name>\` or \`<name> at <address>\`"
+passes "a reports-to row naming a person, the human, passes" "$(RUNS "$(RR reports-to "the human")")"
+# The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1):
+# one row, manager or director.
+passes "a role row reading manager passes" "$(RUNS "$(RR role manager)")"
+passes "  ... and one reading director, beside the other Run rows" \
+    "$(RUNS "$STORE, $(RR cap 2), $(RR reports-to "the human"), $(RR role director)")"
+same "a role row reading Director is refused" "$(RUNS "$(RR role Director)")" "a role row is manager or director"
+same "  ... and one reading lead" "$(RUNS "$(RR role lead)")" "a role row is manager or director"
+same "  ... and an empty one" "$(RUNS "$(RR role "")")" "run.value: empty"
+same "  ... and two role rows" "$(RUNS "$(RR role manager), $(RR role director)")" "the role row is used twice"
+same "  ... even two of the same role" "$(RUNS "$(RR role director), $(RR role director)")" "the role row is used twice"
 ST() { jq -nc --arg k "$1" --arg on "$2" --arg u "$3" '{standing: "s1", kind: $k, on: $on, until: $u, what: "hold the merges", owner: "the human", relayed_by: "", set: "2026-10-13T10:00Z"}'; }
 STS() { full_record | jq -c --argjson s "[$1]" '.standing = $s'; }
 passes "a pause until a time passes" "$(STS "$(ST pause all "time 2026-10-14T00:00Z")")"
@@ -262,6 +284,17 @@ eq "the class order --rules --counts prints" "relayed owner-said dispatcher-said
 eq "rule_counts counts each row by its class, a class no row reads with 0" \
     "relayed 1|owner-said 0|dispatcher-said 0|inferred 1|skill-says 1|charter 2|unreadable 1" \
     "$(jq -r -L "$HERE" --arg d "doc acme/widgets docs/x.md $SHA40" 'include "state-schema"; . + [{source: $d}, {source: ""}] | rule_counts' "$SD/rule-rows.json" | tr '\n' '|' | sed 's/|$//')"
+RUNR=$(jq -nc --arg d "sha256:$(printf '%064d' 0)" '[{key: "rules", value: "skill-SKILL.md \($d)", set_by: "s", set: "2026-10-20T08:00Z"},
+    {key: "rules", value: "workspace-0-CLAUDE.md \($d)", set_by: "s", set: "2026-10-20T08:01Z"},
+    {key: "rules", value: "notes \($d)", set_by: "s", set: "2026-10-20T08:02Z"}, {key: "cap", value: "2", set_by: "s", set: "2026-10-20T08:00Z"}]')
+eq "run_rule_view reads a Run rules row's class by its label, said its Set, pointer its label, digest and host key" \
+    "skill|skill-says|2026-10-20T08:00Z|rules:skill-SKILL.md workspace|charter|2026-10-20T08:01Z|rules:workspace-0-CLAUDE.md other|inferred|2026-10-20T08:02Z|rules:notes" \
+    "$(printf '%s' "$RUNR" | jq -r -L "$HERE" 'include "state-schema"; .[] | select(.key == "rules") | run_rule_view | "\(.kind)|\(.class)|\(.said)|\(.pointer.host)"' | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... with exactly run, kind, label, digest, class, said and pointer" "run kind label digest class said pointer|label digest host" \
+    "$(printf '%s' "$RUNR" | jq -r -L "$HERE" 'include "state-schema"; .[0] | run_rule_view | "\(keys_unsorted | join(" "))|\(.pointer | keys_unsorted | join(" "))"')"
+eq "record_rule_counts counts the Standing rows and the Run rules rows each in its class" \
+    "relayed 0|owner-said 0|dispatcher-said 0|inferred 2|skill-says 2|charter 2|unreadable 1" \
+    "$(jq -r -L "$HERE" --argjson r "$RUNR" 'include "state-schema"; {standing: ., run: $r} | record_rule_counts' "$SD/rule-rows.json" | tr '\n' '|' | sed 's/|$//')"
 eq "a bare inferred rule points at its own row" "inferred|{\"row\":\"$SESS record/standing s4\"}" \
     "$(view '[{"standing":"s4","kind":"rule","what":"x","set":"2026-10-20T09:00Z","source":"inferred"}]' | cut -d'|' -f1,8)"
 ENT='[{"id":1,"kind":"pause","text":"s1 (pause on Feature 1, until lifted): hold. Owner: the human."},{"id":2,"kind":"answer","text":"s2 (answer): panels. Owner: the human."},{"id":3,"kind":"end","text":"s1 (pause: hold) ended by the human."}]'
@@ -273,6 +306,115 @@ eq "  ... the second row its own entry, not the newest" "{\"entry\":\"$SESS reco
 eq "  ... and a row no entry matches points at itself" "{\"row\":\"$SESS record/standing s2\"}" \
     "$(view "$(jq -c '[.[1]]' "$SD/standing-today.json")" '[]' | cut -d'|' -f8)"
 eq "no rule_view object has an under_session_grant key" false "$(jq -c -L "$HERE" --arg s "$SESS" 'include "state-schema"; [.[] | rule_view($s; [])] | any(has("under_session_grant"))' "$SD/rule-rows.json")"
+
+echo "== a cited row's What: the sentence split and the normalized match =="
+# cites <what>: whether the What is one of testdata/standing-rules/cited.md's
+# sentences under norm_match (file_holds), as the writer checks a skill or doc row.
+cites() { jq -R -s -L "$HERE" --arg w "$1" 'include "state-schema"; file_holds($w)' "$SD/cited.md"; }
+eq "R1. a sentence wrapped over two lines matches" true "$(cites "The coordinator reads a CI run's status at most once a minute.")"
+eq "  ... a What running from a paragraph's last sentence over the blank line into the next doesn't" false \
+    "$(cites "It never polls faster. A worker's brief names its repository.")"
+eq "R2. a list item wrapped onto an indented line matches" true "$(cites "Merge a pull request only after its checks pass on the default branch.")"
+eq "  ... and with a leading - in the What" true "$(cites "- Merge a pull request only after its checks pass on the default branch.")"
+eq "R3. a line's second sentence matches" true "$(cites "The coordinator checks it.")"
+eq "  ... half a sentence doesn't" false "$(cites "A worker's brief names")"
+eq "  ... nor a What running over a sentence break" false "$(cites "its repository. The coordinator checks it.")"
+eq "R4. a sentence holding \`git fetch\` matches with its backticks" true "$(cites 'Run `git fetch` before every tick.')"
+eq "  ... and not without them" false "$(cites 'Run git fetch before every tick.')"
+eq "  ... a heading's text without its #s doesn't" false "$(cites "Coordinator rules")"
+eq "  ... a table cell alone doesn't" false "$(cites "Hold the release")"
+eq "  ... while the whole row with its pipes does" true "$(cites "| Hold the release | the human |")"
+eq "  ... and a sentence inside a fence never does" false "$(cites "Never merge on a red board.")"
+eq "R5. a What differing in case, a leading -, a trailing . and doubled spaces still matches" true \
+    "$(cites "- THE coordinator  reads a CI run's status at most once a minute")"
+eq "  ... a one-word paraphrase doesn't" false "$(cites "The coordinator reads a CI job's status at most once a minute.")"
+# nm <a> <b>: whether norm_match holds between the two texts.
+nm() { jq -nc -L "$HERE" --arg a "$1" --arg b "$2" 'include "state-schema"; $a | norm_match($b)'; }
+for a in 'Wait for CI.' 'wait for ci;' 'wait for ci?!' '- Wait for CI :'; do
+    eq "R44. norm_match drops the trailing run of . ! ? , ; : from [$a]" true "$(nm "$a" 'Wait for CI')"
+done
+for a in 'Wait for CI)' 'Wait for CI"' 'Wait for CI]'; do
+    eq "R44. ... and keeps a closing mark in [$a]" false "$(nm "$a" 'Wait for CI')"
+done
+eq "R44. ... and a What ending in a backtick doesn't match the same text without it" false "$(nm 'Run `git fetch`' 'Run `git fetch')"
+# sents: cited.md's candidate sentences, one per line.
+sents() { jq -R -s -r -L "$HERE" 'include "state-schema"; file_sentences[]' "$SD/cited.md"; }
+for s in 'Never deploy on a Friday.' 'Never skip the board.' 'Still inside the tildes.'; do
+    eq "R45. a line inside a \`\`\`bash or a ~~~~ fence, or after a \`\`\` line inside the ~~~~ one, is no candidate: [$s]" 0 "$(sents | grep -cxF -- "$s")"
+done
+eq "R45. ... and no fence line is one, while a line opening with inline code that quotes a fence is" \
+    '```` ```bash ```` opens a fenced block in Markdown.' "$(sents | grep -E '^(```|~~~)')"
+eq "R45. ... which opens no fence, so the next paragraph is a candidate" true "$(cites "Fences hold code.")"
+eq "R45. a line indented four spaces under a list item joins that item" true "$(cites "Keep the board green on every release day.")"
+eq "R45. a heading holding a sentence end is exactly one candidate" '## Done. Next steps' "$(sents | grep -F 'Next steps')"
+eq "R45. a table row holding sentence ends is exactly one candidate" '| a. b | c. |' "$(sents | grep -F 'a. b')"
+eq "R40. the What's two-part tokens: no link, no #n form, no three-part path" '["acme/secret","and/or"]' \
+    "$(jq -nc -L "$HERE" --arg w 'see acme/secret. and/or skills/coordinate/SKILL.md, https://github.com/acme/linked and acme/ref#4' 'include "state-schema"; $w | what_repo_tokens')"
+eq "R33. a skill Source whose path starts with - is refused by its grammar" true \
+    "$(jq -nc -L "$HERE" --arg s "skill a/b -x/y $SHA40" 'include "state-schema"; ($s | source_problem) != null')"
+eq "  ... while a later segment may start with one" null \
+    "$(jq -nc -L "$HERE" --arg s "skill a/b x/-y $SHA40" 'include "state-schema"; $s | source_problem')"
+
+echo "== the caps a new rule row is held to =="
+# caps <jq building the Standing rows> <source of the new row>: the counts and
+# the cap the new row would break, or null.
+caps() { jq -nc -L "$HERE" --arg s "$2" 'include "state-schema"; ('"$1"') | [rule_cap_counts, rule_cap_problem({kind: "rule", source: $s})]'; }
+PIN="pinned charter sha256:$SHA64"
+eq "every rule row counts, whatever its status, and only those rule_class reads inferred count as inferred" \
+    '[{"rule":4,"inferred":2},null]' \
+    "$(caps '[{kind: "rule", source: "inferred"}, {kind: "rule", source: "inferred brief w sha256:'"$SHA64"'"}, {kind: "rule", source: "skill a/b x.md '"$SHA40"'"},
+        {kind: "rule", source: "decision s 000000000007"}, {kind: "pause", source: ""}, {kind: "go-ahead"}]' inferred)"
+eq "at 60 inferred, an inferred row breaks the inferred cap" \
+    '[{"rule":60,"inferred":60},"the record holds 60 inferred rule rows, the most it keeps; confirm or end one first"]' \
+    "$(caps '[range(60) | {kind: "rule", source: "inferred"}]' inferred)"
+eq "  ... and a pinned row fits" '[{"rule":60,"inferred":60},null]' "$(caps '[range(60) | {kind: "rule", source: "inferred"}]' "$PIN")"
+eq "at 120 rule rows, a pinned row breaks the rule cap" \
+    '[{"rule":120,"inferred":0},"the record holds 120 rule rows, the most it keeps; end one first"]' \
+    "$(caps '[range(120) | {kind: "rule", source: "'"$PIN"'"}]' "$PIN")"
+eq "  ... and at 120 with 60 inferred, an inferred row names the inferred cap first" \
+    "the record holds 60 inferred rule rows, the most it keeps; confirm or end one first" \
+    "$(caps '[range(60) | {kind: "rule", source: "inferred"}] + [range(60) | {kind: "rule", source: "'"$PIN"'"}]' inferred | jq -r '.[1]')"
+eq "the event kinds count against neither cap" '[{"rule":0,"inferred":0},null]' \
+    "$(caps '[range(200) | {kind: "pause", source: ""}]' inferred)"
+
+echo "== a brief's rule sentences and the intake's plan =="
+# The design's Decision 10: the intake's candidates are the splitter's
+# output less heading lines and less the renderer's six non-rule sections.
+# cands <file>: the brief's candidates, as JSON.
+cands() { jq -R -s -c -L "$HERE" 'include "state-schema"; brief_candidates' "$1"; }
+GOLD="$HERE/testdata/brief-golden"
+eq "brief_candidates keeps 7, 11 and 11 sentences of the golden briefs" "7 11 11" \
+    "$(for f in min leg base; do cands "$GOLD/$f.txt" | jq length; done | tr '\n' ' ' | sed 's/ $//')"
+for f in min leg base; do
+    eq "  ... $f.txt's, in order, the ones testdata/standing-rules/brief-kept.json lists" \
+        "$(jq -c --arg f "$f" '.[$f]' "$SD/brief-kept.json")" "$(cands "$GOLD/$f.txt")"
+done
+eq "  ... min.txt's first and last" "None beyond what the documents you read record.|If a credential is exposed anyway, report it to the coordinator at once without quoting its value." \
+    "$(cands "$GOLD/min.txt" | jq -r '"\(.[0])|\(.[-1])"')"
+eq "  ... none of them a heading" 0 "$(for f in min leg base; do cands "$GOLD/$f.txt"; done | jq -s '[.[][] | select(test("^#"))] | length')"
+eq "  ... and read whole, the splitter gives 62, 65 and 74" "62 65 74" \
+    "$(for f in min leg base; do jq -R -s -L "$HERE" 'include "state-schema"; file_sentences | length' "$GOLD/$f.txt"; done | tr '\n' ' ' | sed 's/ $//')"
+printf '# Brief: x\n\n## Goal\n\nGoal text.\n\n### Inside\n\nStill the goal.\n\n# Top\n\nA top rule.\n\n## Goal of the lane\n\nNot the goal section.\n\n## Out of scope\n\n- Leave the docs.\n- leave the docs\n\n## Keep-alive\n\nPing.\n' > "$T/brief.md"
+eq "a ### heading starts no section, a # heading ends one, a heading is matched whole, and a sentence comes once" \
+    '["A top rule.","Not the goal section.","- Leave the docs."]' "$(cands "$T/brief.md")"
+# plan <rows-json> <label> <digest> <cands-json>: brief_intake_plan's answer.
+plan() { jq -nc -L "$HERE" --argjson r "$1" --arg l "$2" --arg d "$3" --argjson c "$4" 'include "state-schema"; $r | brief_intake_plan($l; $d; $c)'; }
+D1=sha256:$SHA64
+D2=sha256:$(printf '%064d' 2)
+srow() { jq -nc --arg i "$1" --arg k "$2" --arg w "$3" --arg s "$4" '{standing: $i, kind: $k, on: "", until: "", what: $w, owner: "", relayed_by: "", set: "2026-09-26T08:00Z", source: $s}'; }
+ROWS="[$(srow s1 pause "Hold every lane until Friday." ""),$(srow s2 rule "Merge after green checks." "skill a/b x.md $SHA40")]"
+printf '## Decisions already made\n\n- hold every lane until friday\n- MERGE after green  checks.\n- Merge after green builds.\n- Keep it short.\n- Keep it short.\n' > "$T/brief2.md"
+eq "brief_intake_plan writes only unmatched candidates, once each" \
+    '{"ends":[],"writes":["- Merge after green builds.","- Keep it short."],"room":60,"untaken":0}' \
+    "$(plan "$ROWS" w "$D1" "$(cands "$T/brief2.md")")"
+ROWS="[$(srow s1 rule "A." "inferred brief w $D1"),$(srow s2 rule "B." "inferred brief w $D1"),$(srow s3 rule "B." "inferred brief other $D1"),$(srow s4 rule "C." "inferred brief w $D2")]"
+eq "brief_intake_plan ends other digests' rows of the label the candidates don't state" \
+    '{"ends":["s2"],"writes":["D."],"room":57,"untaken":0}' "$(plan "$ROWS" w "$D2" '["a","D."]')"
+ROWS=$(jq -nc --arg p "pinned charter sha256:$SHA64" '[range(115) | {standing: "s\(. + 1)", kind: "rule", what: "row \(.)", source: (if . < 10 then "inferred" else $p end)}]')
+eq "  ... and the room the caps leave: 5 of 7 under the 120-rule cap, 2 untaken" "5 2" \
+    "$(plan "$ROWS" w "$D1" '["a","b","c","d","e","f","g"]' | jq -r '"\(.room) \(.untaken)"')"
+ROWS=$(jq -nc '[range(60) | {standing: "s\(. + 1)", kind: "rule", what: "row \(.)", source: "inferred"}]')
+eq "  ... none at 60 inferred, every write untaken" "0 3" "$(plan "$ROWS" w "$D1" '["a","b","c"]' | jq -r '"\(.room) \(.untaken)"')"
 
 echo "== rule_grants =="
 # under_grant <row-json> <answer-json> [<jq patch over the row's rule_view>]: the

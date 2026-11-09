@@ -23,6 +23,12 @@
 # (the Holds section as it stands) and gaps. It also prints the crash set (PRD
 # R17): each worker's pushed_head when kept, reports_to (the row, or null),
 # rules and briefs (their rows' values), friction, and host (record/host).
+# It prints role, the Run `role` row's value (manager or director), or null
+# when the record holds none
+# (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1). With no row it
+# lists the gap `no-role`, fix `state-stored-set.sh --run role
+# <manager|director> --by <who named it>`: the reconcile directive fills it
+# from the role= the opener printed or, with none, by asking the person once.
 #
 # A record holding a `rule` row also prints rule_lists: four report lists, in
 # this order, each {list, heading, rows}, the heading naming the list and
@@ -43,6 +49,36 @@
 # A gap is {gap, fix}:
 #   no-arguments | no-cap | no-coordinator   a Run row is missing
 #   no-reports-to                            the reports-to row is missing
+#   reports-to-unsourced                     the reports-to row names a
+#                                            session, `<name> at <address>`,
+#                                            whose address is neither a
+#                                            koto/links/dispatched-by/
+#                                            <address> key in the run's own
+#                                            session nor held by a Standing
+#                                            row (a rule row of any Source,
+#                                            or an event row) whose What,
+#                                            Owner or Relayed by names it as
+#                                            a whole word; a bare `<name>`
+#                                            names no session and never
+#                                            holds it (the design's
+#                                            Decision 5). Its fix is the
+#                                            --inferred write, or a koto
+#                                            dispatched-by link for a
+#                                            superior that dispatched the run
+#   no-role                                  the role row is missing
+#   brief-unread <label>                     record/host's briefs:<label>
+#                                            names a readable file and no
+#                                            Run `briefs` row is `<label>
+#                                            sha256:<its digest>`; its fix
+#                                            is the brief intake,
+#                                            state-stored-set.sh --intake
+#                                            <label>, and when the caps (60
+#                                            inferred rule rows, 120 rule
+#                                            rows) would leave any of the
+#                                            brief's lines out, it names how
+#                                            many (the design's Decision
+#                                            10). A key whose file can't be
+#                                            read raises no gap
 #   no-next-step <unit>                      a live holding has no Work row
 #   leg-unclassified <worker>                a live holding's leg names a
 #                                            request this host's store
@@ -76,8 +112,12 @@
 # 2 a read failed; 10 the run has no found record, or the target isn't a
 # canonical record of this scope; 64 usage.
 #
-# koto reads: the record through state-read.sh, and koto request get
-# <request> for each live holding on a leg. It reads nothing on GitHub.
+# koto reads: the record through state-read.sh, koto request get <request>
+# for each live holding on a leg, and, when the reports-to row names a
+# session, koto context list <session> --prefix koto/links/dispatched-by/ on
+# the run's own session (RS_SESSION under the test flags). Off koto, it reads
+# each brief file record/host names (briefs:<label>) for its digest and its
+# text, and never edits one. It reads nothing on GitHub.
 set -uo pipefail
 
 PROG=state-handover
@@ -114,6 +154,31 @@ esac
 # (PRD R17).
 rs_host "${RS_SESSION:-$SESSION}" "$WD/host.json" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.json.err")"
 [ -s "$WD/parsed.json.pushed" ] || echo '{}' > "$WD/parsed.json.pushed"
+# Each brief record/host names (briefs:<label>, an absolute path), with its
+# digest and its text, in the keys' order; a key whose file can't be read as
+# a regular file is left out, so it raises no gap.
+: > "$WD/briefs.lines"
+while IFS="$(printf '\t')" read -r BL BP; do
+    [ -n "$BL" ] || continue
+    case "$BP" in /*) ;; *) continue ;; esac
+    [ -f "$BP" ] && [ -r "$BP" ] || continue
+    BD=$(lib_sha256 "$BP")
+    [[ $BD =~ ^[0-9a-f]{64}$ ]] || continue
+    jq -R -s -c --arg l "$BL" --arg d "$BD" '{label: $l, digest: $d, text: .}' "$BP" >> "$WD/briefs.lines" 2> /dev/null || continue
+done <<EOF
+$(jq -r 'keys[] as $k | select($k | test("^briefs:[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")) | select(.[$k] | type == "string")
+    | [($k | ltrimstr("briefs:")), .[$k]] | @tsv' "$WD/host.json")
+EOF
+jq -s -c . "$WD/briefs.lines" > "$WD/briefs.json" || lib_die2 "jq failed"
+# The run's dispatched-by links, read only when the reports-to row names a
+# session (`<name> at <address>`): one naming that address sources the row.
+echo '[]' > "$WD/dispatched-by.json"
+RT_ADDR=$(jq -r '[(.run // [])[] | select(.key == "reports-to") | .value][0] // ""
+    | if test(" at ") then sub("^.* at "; "") else "" end' "$WD/parsed.json") || lib_die2 "jq failed"
+if [ -n "$RT_ADDR" ]; then
+    rs_list "${RS_SESSION:-$SESSION}" koto/links/dispatched-by/ "$WD/dispatched-by.json" \
+        || lib_die2 "cannot list the run's dispatched-by links: $(lib_scrub < "$WD/dispatched-by.json.err")"
+fi
 
 # A live holding on a leg whose request this host's store doesn't hold (the run
 # was imported here) has no end yet: the gap holds until reconcile-legs.sh
@@ -168,9 +233,26 @@ if [ -n "$SESSION" ] && [ "$SCOPE" = discipline ]; then
 fi
 
 jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" \
-    --slurpfile carry "$WD/carry.json" '
+    --slurpfile carry "$WD/carry.json" --slurpfile dby "$WD/dispatched-by.json" --slurpfile briefs "$WD/briefs.json" '
     include "state-schema";
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
+    # names_word($w): does this cell name $w (case-insensitive) as a whole
+    # word, as names_repo matches a repository: no letter, digit, `_`, `.` or
+    # `-` beside it, trailing full stops allowed.
+    def names_word($w):
+      ascii_downcase as $v | ($w | ascii_downcase | gsub("\\."; "\\.")) as $l
+      | $v | test("(^|[^A-Za-z0-9_.-])" + $l + "\\.*($|[^A-Za-z0-9_.-])");
+    # The reports-to row names a session in its `<name> at <address>` form,
+    # the address; it is sourced by a dispatched-by link to that address or
+    # by any Standing row naming it.
+    def unsourced_superior($rows; $links):
+      (.reports_to // "") as $rt
+      | if ($rt | test(" at ")) then
+          ($rt | sub("^.* at "; "")) as $addr
+          | if ($links | index($addr)) != null then null
+            elif any($rows[]; [.what, .owner, .relayed_by] | any(.[]; (. // "") | names_word($addr))) then null
+            else $addr end
+        else null end;
     # The report lists over the rule rows, each under a heading that says its
     # rows are quoted data; only an inferred row fills one yet.
     def rule_lists($rows):
@@ -202,7 +284,7 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
        work: (.work // []), standing: [(.standing // [])[] | select(.kind != "rule")], holds: (.holds // [])}
     | if ($pending | length) > 0 then .pending = $pending else . end
     | .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
-    | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
+    | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), role: ([$run[] | select(.key == "role") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
          briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
          host: $host[0]}
     | (if $carry[0].carried then
@@ -218,7 +300,19 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
         (if .arguments == null then {gap: "no-arguments", fix: "state-stored-set.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
         (if .cap == null then {gap: "no-cap", fix: "state-stored-set.sh --run cap <n> --by <who set it>"} else empty end),
         (if .coordinator == null then {gap: "no-coordinator", fix: "state-stored-set.sh --run coordinator <your address> --by <you>"} else empty end),
-        (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
+        (if .reports_to == null then {gap: "no-reports-to", fix: "state-stored-set.sh --run reports-to \"<name>[ at <address>]\" --by <who>"} else empty end),
+        (unsourced_superior($rows; [$dby[0][] | ltrimstr("koto/links/dispatched-by/")]) as $a
+         | if $a == null then empty
+           else {gap: "reports-to-unsourced", fix: "state-stored-set.sh --run reports-to \"\(.reports_to)\" --inferred \"Report to \($a): worked out from <where>, not given in the brief\" --by <you>; or, when \($a) dispatched this run, koto session link <this run> --dispatched-by \($a)"} end),
+        (if .role == null then {gap: "no-role", fix: "state-stored-set.sh --run role <manager|director> --by <who named it>"} else empty end),
+        # A brief record/host names whose digest no Run briefs row carries;
+        # the fix names how many of its lines the caps would leave out.
+        ($briefs[0][] | "sha256:\(.digest)" as $d | . as $b
+         | select(any($run[]; .key == "briefs" and .value == "\($b.label) \($d)") | not)
+         | ($rows | brief_intake_plan($b.label; $d; $b.text | brief_candidates)) as $plan
+         | {gap: "brief-unread \($b.label)",
+            fix: ("state-stored-set.sh --intake \($b.label) --by <you>"
+                  + (if $plan.untaken > 0 then "; \($plan.untaken) of its lines can'"'"'t be taken under the caps (\(inferred_cap) inferred rule rows, \(rule_cap) rule rows): ask a person which rule rows to confirm or end, then run it again" else "" end))}),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select((.told or .pending) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"}) else empty end)

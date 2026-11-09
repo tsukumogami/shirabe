@@ -438,24 +438,33 @@ BRANCH=$(printf '%s' "$ROW" | jq -r '.branch // ""')
 UNIT=$(printf '%s' "$ROW" | jq -r '.unit // ""')
 grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$REPO" || refuse "the holding names no repository"
 [ -n "$BRANCH" ] || refuse "the holding names no branch"
-dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$REPO" --head "$BRANCH" --state merged --limit 100 \
+# The pull request is in the repository its link names, which can differ from
+# the holding's repo (shirabe#1581); a link that names none means the repo.
+PR_REPO=$REPO
+RE_LINK='^\[#[0-9]+\]\(https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/[0-9]+\)$'
+PR_CELL=$(printf '%s' "$ROW" | jq -r '.pull_request // ""')
+[[ $PR_CELL =~ $RE_LINK ]] && PR_REPO=${BASH_REMATCH[1]}
+dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$PR_REPO" --head "$BRANCH" --state merged --limit 100 \
     --json number,mergeCommit,headRepositoryOwner >"$T/prs" 2>"$T/gh.err" || die2 "the merged pull requests could not be read: $(tail -1 "$T/gh.err")"
-# --head matches a branch name in any fork; only the holding's own
-# repository's branch is the unit's.
-jq -r --arg o "${REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "" | ascii_downcase) == ($o | ascii_downcase))
+# --head matches a branch name in any fork; only the branch in the pull
+# request's own repository is the unit's.
+jq -r --arg o "${PR_REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "" | ascii_downcase) == ($o | ascii_downcase))
     | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" \
     || die2 "the merged pull requests are not readable JSON"
-[ -s "$T/merged" ] || refuse "no pull request from $BRANCH in $REPO is merged"
-NUMS=""
+[ -s "$T/merged" ] || refuse "no pull request from $BRANCH in $PR_REPO is merged"
+# A handoff comment may be on one of NUMS in PR_REPO, or on one of INUMS in
+# REPO; with one repository, NUMS holds both.
+NUMS="" INUMS=""
 while read -r n sha; do
-    line "pr $REPO#$n $sha"
+    line "pr $PR_REPO#$n $sha"
     NUMS="$NUMS $n"
 done <"$T/merged"
-# The holding's issue, when its unit names one in the same repository.
+# The holding's issue, when its unit names one in the holding's repository.
 case "$UNIT" in
-    \#[0-9]*) NUMS="$NUMS ${UNIT#\#}" ;;
-    "$REPO#"[0-9]*) NUMS="$NUMS ${UNIT#"$REPO#"}" ;;
+    \#[0-9]*) INUMS="$INUMS ${UNIT#\#}" ;;
+    "$REPO#"[0-9]*) INUMS="$INUMS ${UNIT#"$REPO#"}" ;;
 esac
+[ "$PR_REPO" = "$REPO" ] && { NUMS="$NUMS$INUMS"; INUMS=""; }
 
 # The handoff: the link submitted at the latest visit to teardown.
 URL=$(printf '%s' "$EV" | jq -r '.fields.handoff // ""')
@@ -463,9 +472,15 @@ URL=$(printf '%s' "$EV" | jq -r '.fields.handoff // ""')
 RE_URL='^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(pull|issues)/([1-9][0-9]*)#issuecomment-([1-9][0-9]*)$'
 [[ $URL =~ $RE_URL ]] || refuse "the handoff link is not a GitHub comment link"
 U_REPO=${BASH_REMATCH[1]} U_NUM=${BASH_REMATCH[3]} U_ID=${BASH_REMATCH[4]}
-[ "$U_REPO" = "$REPO" ] || refuse "the handoff comment is in $U_REPO, not the holding's $REPO"
+if [ "$PR_REPO" = "$REPO" ]; then
+    [ "$U_REPO" = "$REPO" ] || refuse "the handoff comment is in $U_REPO, not the holding's $REPO"
+elif [ "$U_REPO" = "$REPO" ]; then
+    NUMS=$INUMS
+else
+    [ "$U_REPO" = "$PR_REPO" ] || refuse "the handoff comment is in $U_REPO, not the holding's $REPO or its pull request's $PR_REPO"
+fi
 case " $NUMS " in *" $U_NUM "*) ;; *) refuse "the handoff comment is on #$U_NUM, which is neither a merged pull request of the unit nor its issue" ;; esac
-dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$REPO/issues/comments/$U_ID" >"$T/comment" 2>"$T/gh.err"
+dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$U_REPO/issues/comments/$U_ID" >"$T/comment" 2>"$T/gh.err"
 case $? in
     0) ;;
     *) grep -q 'HTTP 404' "$T/gh.err" && refuse "the handoff comment doesn't exist"

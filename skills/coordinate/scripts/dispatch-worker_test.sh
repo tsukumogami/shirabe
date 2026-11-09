@@ -42,6 +42,16 @@
 # help lists each (a stderr line names each one dropped), with the launch
 # unchanged when it's absent, and a value outside its fixed set refused before
 # anything is written or launched.
+# The role on a coordinator's brief: a successor, its positional this run's
+# own roadmap, gets the record's role row (director, or manager whatever its
+# Goal and input say; none exits 1 naming the command that sets it); a lane
+# gets manager whatever the run records; a worker gets none; the grant and
+# niwa's own arguments are the same whatever the role, with no --role among
+# them; a role_change --rebrief of a held lane renders --role <new> and the
+# change flags naming this run's address, and a plain one renders no --role;
+# role_change is refused on a new dispatch, a successor, --releg, a worker
+# holding and a bad value, and an address over 80 characters at render; and
+# /deliver and /work-on re-briefs render as before.
 #
 # Usage: bash skills/coordinate/scripts/dispatch-worker_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
@@ -248,7 +258,8 @@ chmod +x "$BIN/koto" "$BIN/niwa" "$T/state-holding.sh"
 export PATH="$BIN:$PATH"
 export DC_RECORD_HOLDING="$T/state-holding.sh"
 # state-stored-set.sh: the Run section names the coordinator's address,
-# lane-coord, unless RECORD_ADDRESS sets another or is empty; the Work rows
+# lane-coord, unless RECORD_ADDRESS sets another or is empty, and its `role`
+# row is RECORD_ROLE's, none when it is unset or empty; the Work rows
 # are RECORD_WORK's (a JSON array), none by default. Every call but --list is
 # logged as `state-stored-set <args>`; RECORD_DONE_MODE=fail fails a --done.
 cat >"$T/state-stored-set.sh" <<'EOF'
@@ -259,7 +270,8 @@ if [ "${1-}" != --list ]; then
     [ "${RECORD_DONE_MODE:-}" = fail ] && { echo "state-stored-set: the record changed" >&2; exit 12; }
     exit 0
 fi
-jq -nc --arg a "${RECORD_ADDRESS-lane-coord}" --argjson w "${RECORD_WORK:-[]}" '{run: (if $a == "" then [] else [{key: "coordinator", value: $a, set_by: "lane-coord", set: "2026-09-26T08:00Z"}] end), standing: [], work: $w}'
+jq -nc --arg a "${RECORD_ADDRESS-lane-coord}" --arg r "${RECORD_ROLE:-}" --argjson w "${RECORD_WORK:-[]}" '{run: ((if $a == "" then [] else [{key: "coordinator", value: $a, set_by: "lane-coord", set: "2026-09-26T08:00Z"}] end)
+    + (if $r == "" then [] else [{key: "role", value: $r, set_by: "the human", set: "2026-09-26T08:00Z"}] end)), standing: [], work: $w}'
 EOF
 chmod +x "$T/state-stored-set.sh"
 export DC_RECORD_STATE="$T/state-stored-set.sh"
@@ -306,7 +318,7 @@ reset() {
     printf '%s' "$PICK_ROADMAP" >"$ST/ctx/coord/pick.json"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
-    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE KOTO_LEG_PUT_FAIL KOTO_ATTACH_FAIL
+    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_ROLE RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE KOTO_LEG_PUT_FAIL KOTO_ATTACH_FAIL
 }
 run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
@@ -444,7 +456,7 @@ LAUNCHED=$(grep '^niwa dispatch' "$ST/calls.log")
 has "grant: --grant merge-pr" "$LAUNCHED" "[--grant] [merge-pr]"
 eq  "grant: one --grant" 1 "$(grep -o '\[--grant\]' <<<"$LAUNCHED" | wc -l | tr -d ' ')"
 has "grant: --parent-from names the coordinator's own instance" "$LAUNCHED" "[--parent-from] [$W/inst]"
-eq  "grant: the brief names merge-pr and nothing else" "Named authority: you hold merge-pr and nothing else. Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator's own message clears that pull request at a head it names, and merge it pinned to that head. Never merge a pull request that changes a roadmap under docs/roadmaps/, whatever your grant; when unsure, hand it back. A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way." "$(named)"
+eq  "grant: the brief names merge-pr and nothing else" "Named authority: you hold merge-pr and nothing else. Report your finished work to the coordinator for review before you merge anything, and merge only after the coordinator's own message clears that pull request at a head it names, and merge it pinned to that head. A merge, close or release that needs an authority you don't hold isn't yours to take: hand it back to the coordinator in a report, and don't reach the same result another way." "$(named)"
 lacks "grant: the brief names no other authority" "$(cat "$BRIEF_FILE")" "close-issue"
 
 # A worker the brief hands no landing step: no --grant at all, and a brief that
@@ -823,6 +835,74 @@ done
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .targets = ["acme/widgets"]')"
 printf '%s' "$PICK_ROADMAP" | jq -c "$FUP" >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "follow-up: its execution is dispatched" 0 "$?"
+lacks "follow-up: an execution dispatch removes no follow-up row itself" "$(calls)" "--kind follow-up"
+# A follow-up row that itself names /scope (an explore landed and recommended
+# it): a /shirabe:scope brief is dispatched, by the row's leading word, and the
+# row is removed once the dispatch is confirmed; deliver is still refused.
+fup_rows() { jq -nc --arg n "$1" '[{item: "Feature 2", kind: "follow-up", who: "acme/widgets#40", next: $n, wakes: "0", updated: "2026-09-26T07:00Z"}]'; }
+for nx in "/shirabe:scope plugin-api --intent=continue" "/scope plugin-api"; do
+    FUPS="(.units[] | select(.unit == \"Feature 2\")).follow_up = {after: \"acme/widgets#40\", next: \"$nx\"}"
+    reset "$INPUT_SCOPE"
+    printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+    RECORD_WORK=$(fup_rows "$nx"); export RECORD_WORK
+    OUT=$(run 2>/dev/null); RC=$?
+    eq  "follow-up: next [$nx], a /shirabe:scope brief is dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
+    has "follow-up: next [$nx], the follow-up row is removed" "$(calls)" "state-stored-set --session coord --done Feature 2 --kind follow-up"
+    RM_AT=$(grep -n 'state-stored-set --session coord --done Feature 2 --kind follow-up' "$ST/calls.log" | head -1 | cut -d: -f1)
+    LAST_WRITE=$(grep -n 'record write plugin-api dispatched' "$ST/calls.log" | tail -1 | cut -d: -f1)
+    if [ -n "$RM_AT" ] && [ -n "$LAST_WRITE" ] && [ "$RM_AT" -gt "$LAST_WRITE" ]; then ok "follow-up: next [$nx], removed after the holding reads dispatched"
+    else bad "follow-up: next [$nx], removed after the holding reads dispatched" "$(calls)"; fi
+    reset "$INPUT_DELIVER"
+    printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+    RECORD_WORK=$(fup_rows "$nx"); export RECORD_WORK
+    ERR=$(run 2>&1 >/dev/null); RC=$?
+    eq  "follow-up: next [$nx], a /shirabe:deliver brief is still refused" 1 "$RC"
+    has "follow-up: next [$nx], naming the row's next step" "$ERR" "brief its execution ($nx), not /shirabe:deliver"
+    nothing_written "follow-up /scope, deliver"
+done
+# /scope anywhere but the leading word isn't the row naming it.
+FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:execute docs/plans/PLAN-plugin-api.md, not /shirabe:scope"}'
+reset "$INPUT_SCOPE"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "follow-up: /scope past the leading word, a /shirabe:scope brief is refused" 1 "$RC"
+nothing_written "follow-up /scope past the leading word"
+# A failed removal still dispatches, and says how to remove the row.
+FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:scope plugin-api"}'
+reset "$INPUT_SCOPE"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+RECORD_WORK=$(fup_rows "/shirabe:scope plugin-api"); export RECORD_WORK RECORD_DONE_MODE=fail
+OUT=$(run 2>"$T/fu.err"); RC=$?
+eq  "follow-up: a failed removal still dispatches" "0 session=$NIWA_NAME" "$RC $OUT"
+has "follow-up: and says how to remove the row" "$(cat "$T/fu.err")" 'remove it with state-stored-set.sh --session coord --done "Feature 2" --kind follow-up'
+# The row removed is the one pick-facts read as the follow_up: an issue unit
+# and its host-qualified row, either way round, and a Feature tag against its
+# Milestone row (tag_key).
+PICK_DISC_FUP='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload","follow_up":{"after":"acme/widgets#40","next":"/shirabe:scope ci-upload"}}]}'
+for pair in "#12|acme/widgets#12" "acme/widgets#12|#12"; do
+    u=${pair%%|*} it=${pair#*|}
+    reset "$(printf '%s' "$INPUT_SCOPE" | jq -c --arg u "$u" '.unit = $u')"
+    printf '%s' "$PICK_DISC_FUP" >"$ST/ctx/coord/pick.json"
+    RECORD_WORK=$(jq -nc --arg i "$it" '[{item: $i, kind: "follow-up", who: "acme/widgets#40", next: "/shirabe:scope ci-upload", wakes: "0", updated: "2026-09-26T07:00Z"}]'); export RECORD_WORK
+    OUT=$(run 2>/dev/null); RC=$?
+    eq  "follow-up: unit $u, row $it, a /shirabe:scope brief is dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
+    has "follow-up: unit $u, row $it, the row is removed" "$(calls)" "state-stored-set --session coord --done $it --kind follow-up"
+done
+FUPS='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#40", next: "/shirabe:scope plugin-api"}'
+reset "$INPUT_SCOPE"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUPS" >"$ST/ctx/coord/pick.json"
+RECORD_WORK=$(fup_rows "/shirabe:scope plugin-api" | jq -c '.[0].item = "Milestone 2"'); export RECORD_WORK
+run >/dev/null 2>&1
+has "follow-up: unit Feature 2, row Milestone 2, the row is removed" "$(calls)" "state-stored-set --session coord --done Milestone 2 --kind follow-up"
+# A resumed dispatch skips the gate and its read of coord/pick.json, so the
+# removal reads the pick's host itself.
+reset "$(printf '%s' "$INPUT_SCOPE" | jq -c '.unit = "#12"')"
+printf '%s' "$PICK_DISC_FUP" >"$ST/ctx/coord/pick.json"
+printf '%s' '{"dispatch_status":"dispatching","return_path":"leg req_9:scope","worker":"plugin-api","repo":"acme/widgets","mode":"--auto --intent=continue","unit":"#12"}' >"$ST/rows/plugin-api.json"
+RECORD_WORK=$(jq -nc '[{item: "acme/widgets#12", kind: "follow-up", who: "acme/widgets#40", next: "/shirabe:scope ci-upload", wakes: "0", updated: "2026-09-26T07:00Z"}]'); export RECORD_WORK
+run >/dev/null 2>&1
+eq  "follow-up: a resumed /scope dispatch settles its row" dispatched "$(row dispatch_status)"
+has "follow-up: and removes the host-qualified row" "$(calls)" "state-stored-set --session coord --done acme/widgets#12 --kind follow-up"
 # Discipline scope: an issue as #n, or as host#n with the host pick recorded.
 PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do
@@ -1436,6 +1516,159 @@ OUT=$(crun 2>"$T/emit-missing.err"); RC=$?
 mv "$T/emit-event.aside" "$DW/scripts/emit-event.sh"
 eq  "a missing helper: the same exit, output and stderr" "$WANT" "$RC|$OUT|$(cat "$T/emit-missing.err")"
 eq  "  ... the row still dispatched" dispatched "$(row dispatch_status)"
+
+# --- the role on a coordinator's brief ---------------------------------------------------------------------
+#
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 2; PRD R5 and R7.
+# dispatch-worker.sh writes the input's role itself: the record's Run role
+# row for a successor (a positional naming this run's own roadmap, compared
+# through coord-log.sh slug with the scope slug this run's session name
+# carries), manager for a lane on a new dispatch, nothing for a worker or a
+# --rebrief of a held lane unless its input has role_change. The run here is
+# a real coordinator session name, so its scope slug is roadmap-plugin-system.
+RS=coordinate-roadmap-plugin-system-20261101T090000Z
+rrun() { (cd "$W/inst" && bash "$S" --session "$RS" "$@"); }
+CBRIEF="$W/.niwa/dispatch-briefs/plugin-api.md"
+role_line() { grep -F -- '--role' "$CBRIEF"; }
+INPUT_SUCC=$(jq -c '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"] | .run_mode = "" | .grant = "own"' <<<"$INPUT_DELIVER")
+INPUT_LANE=$(jq -c '.entry_point = "coordinate" | .entry_args = ["docs/roadmaps/ROADMAP-sub.md"] | .run_mode = ""' <<<"$INPUT_DELIVER")
+POSTURE='{"grant_check":{"lookup":"answered","state":"bound","binding":"mapping","level":"autonomous","grant":["merge-pr","close-issue"],"parent":{"instance":"ws+root-coord"}}}'
+
+# A successor, the fixture run recorded director: --role director.
+reset "$INPUT_SUCC"; export RECORD_ROLE=director NIWA_HELP=grant; printf '%s' "$POSTURE" >"$ST/ctx/coord/posture.json"
+rrun >/dev/null 2>"$T/err"; eq "role: a successor dispatch exits 0" 0 "$?"
+eq  "role: the successor's brief carries the record's role" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director` in acme/widgets.' "$(role_line)"
+has "role: ... and the dispatch prompt the same invocation" "$(cat "$ST/prompt")" '`/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director`'
+eq  "role: ... and the holding's mode none of it" "" "$(row mode)"
+SUCC_DIRECTOR=$(grep '^niwa dispatch' "$ST/calls.log" | sed 's/^niwa dispatch \[[^]]*\]//')
+# The same successor with the run recorded manager, its input naming director
+# in its Goal and its role field: the record's role, never the input's.
+reset "$(jq -c '.role = "director" | .goal = "You are the director now."' <<<"$INPUT_SUCC")"; export RECORD_ROLE=manager NIWA_HELP=grant
+printf '%s' "$POSTURE" >"$ST/ctx/coord/posture.json"
+rrun >/dev/null 2>&1; eq "role: a successor recorded manager exits 0" 0 "$?"
+eq  "role: ... renders --role manager whatever its Goal and role field say" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.' "$(role_line)"
+SUCC_MANAGER=$(grep '^niwa dispatch' "$ST/calls.log" | sed 's/^niwa dispatch \[[^]]*\]//')
+# The role reaches niwa only in the prompt: niwa dispatch's own --role grants
+# authorities, and this script passes none, so the grant is the same either
+# way.
+eq  "role: the successor's niwa arguments, prompt aside, are byte-identical for manager and director" "$SUCC_DIRECTOR" "$SUCC_MANAGER"
+has "role: ... the grant among them" "$SUCC_MANAGER" "[--grant] [merge-pr]"
+lacks "role: ... and no --role" "$SUCC_MANAGER" "[--role]"
+# No row: refused, naming the command that sets it, with nothing written.
+reset "$INPUT_SUCC"; export NIWA_HELP=grant
+rrun >/dev/null 2>"$T/err"; eq "role: a successor whose run records no role exits 1" 1 "$?"
+has "role: ... naming the command that sets it" "$(cat "$T/err")" "state-stored-set.sh --session $RS --run role <manager|director>"
+eq  "role: ... nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create' "$ST/calls.log")"
+
+# A lane: manager, whatever the run records and whatever the input says.
+for rec in manager director; do
+    reset "$(jq -c '.role = "director" | .held_rerender = true | .role_change_by = "lane-coord" | .goal = "You are the director of the sub roadmap."' <<<"$INPUT_LANE")"
+    export RECORD_ROLE=$rec NIWA_HELP=grant
+    rrun >/dev/null 2>"$T/err"; eq "role: a lane dispatched by a run recorded $rec exits 0" 0 "$?"
+    eq  "role: ... renders --role manager alone" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-sub.md --role manager` in acme/widgets.' "$(role_line)"
+    lacks "role: ... with no fresh-args clause (held_rerender is never the input's)" "$(cat "$CBRIEF")" 'into a fresh `$ARGS_DIR/args.json` first'
+    eval "LANE_$rec=\$(grep '^niwa dispatch' \"\$ST/calls.log\")"
+done
+eq  "role: a lane's whole niwa dispatch, prompt and grant, is byte-identical for a run recorded manager or director" "$LANE_manager" "$LANE_director"
+# A worker: no role line, whatever the input gave.
+reset "$INPUT_DELIVER"; run >/dev/null 2>&1; cp "$CBRIEF" "$T/plain.md"; cp "$ST/prompt" "$T/plain.prompt"
+reset "$(jq -c '.role = "manager" | .held_rerender = true | .role_change_by = "lane-coord"' <<<"$INPUT_DELIVER")"; export RECORD_ROLE=director
+run >/dev/null 2>&1; eq "role: a worker dispatch with role fields in its input exits 0" 0 "$?"
+cmp -s "$CBRIEF" "$T/plain.md" && ok "role: ... its brief is byte-identical to one without them" || bad "role: ... its brief is byte-identical to one without them" "$(diff "$T/plain.md" "$CBRIEF")"
+cmp -s "$ST/prompt" "$T/plain.prompt" && ok "role: ... and so is its prompt" || bad "role: ... and so is its prompt"
+
+# role_change on a --rebrief of a held coordinate lane: --role <new> with this
+# run's own address (its Run coordinator row, the brief's reports_to) as
+# --role-change-by, whatever the input names.
+reset "$INPUT_LANE"; export RECORD_ROLE=director
+rrun >/dev/null 2>&1; eq "role: the lane is dispatched" 0 "$?"
+printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -c '.role_change = "director" | .role_change_by = "someone-else" | .role = "manager"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+: >"$ST/calls.log"
+OUT=$(rrun --rebrief 2>"$T/err"); RC=$?
+eq  "role_change: a --rebrief of a held lane exits 0" 0 "$RC"
+has "role_change: ... and writes the brief" "$OUT" "brief=$CBRIEF"
+eq  "role_change: ... its invocation carries --role director and the change flags naming this run's address" \
+    'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-sub.md --role director --role-change-by lane-coord --role-change-source dispatcher` in acme/widgets.' "$(role_line)"
+has "role_change: ... the address the brief reports to" "$(cat "$CBRIEF")" 'addressed to `lane-coord`'
+has "role_change: ... and the fresh-args clause" "$(cat "$CBRIEF")" 'into a fresh `$ARGS_DIR/args.json` first'
+eq  "role_change: ... launching nothing" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+# A plain --rebrief of the same lane: no --role at all, so it never undoes the
+# change; it isn't a new dispatch.
+jq -c 'del(.role_change, .role_change_by)' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+OUT=$(rrun --rebrief 2>"$T/err"); RC=$?
+eq  "role: a plain --rebrief of the held lane exits 0" 0 "$RC"
+has "role: ... and writes a brief" "$OUT" "brief=$CBRIEF"
+lacks "role: ... with no --role at all" "$(cat "$CBRIEF")" "--role"
+has "role: ... its invocation the positional alone" "$(cat "$CBRIEF")" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-sub.md` in acme/widgets.'
+has "role: ... and the fresh-args clause" "$(cat "$CBRIEF")" 'into a fresh `$ARGS_DIR/args.json` first'
+# The lane, changed to director, dispatched again under a new topic: a new
+# dispatch renders --role manager, which the opener refuses role-mismatch
+# against the lane's director row (coordinate-takeover_engine_test.sh, case
+# 11), so stopping a lane and dispatching it again can't carry a change.
+printf 'sub-again' >"$ST/ctx/dispatch_topic"
+jq -c '.topic = "sub-again" | .role_change = null | del(.role_change)' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+# The fake niwa's session name follows the topic; it's assembled from parts so
+# the fixture doesn't read as a real instance name to the public-content scan.
+SUFFIX=1a2b3c4d
+NIWA_NAME="sub_again-$SUFFIX" rrun >/dev/null 2>"$T/err"; eq "role: the lane dispatched again under a new topic exits 0" 0 "$?"
+eq  "role: ... and renders --role manager, never the changed role" 'Run `/shirabe:coordinate docs/roadmaps/ROADMAP-sub.md --role manager` in acme/widgets.' \
+    "$(grep -F -- '--role' "$W/.niwa/dispatch-briefs/sub-again.md")"
+# An address over the opener's 80-character --role-change-by limit: the
+# re-brief is refused at render, exit 1, the holding and brief as they were.
+LONGA=$(printf '%081d' 0 | tr 0 a)
+reset "$INPUT_LANE"; export RECORD_ADDRESS=$LONGA
+rrun >/dev/null 2>&1; eq "role_change: a lane reporting to an 81-character address is dispatched" 0 "$?"
+printf 'plugin-api' >"$ST/ctx/report_topic"; cp "$CBRIEF" "$T/before.md"; cp "$ST/rows/plugin-api.json" "$T/before-row.json"
+jq -c '.role_change = "director"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+: >"$ST/calls.log"
+rrun --rebrief >/dev/null 2>"$T/err"; eq "role_change: ... its role_change re-brief is refused, exit 1" 1 "$?"
+has "role_change: ... naming the limit" "$(cat "$T/err")" "role_change_by: one address of 1 to 80 characters"
+cmp -s "$CBRIEF" "$T/before.md" && cmp -s "$ST/rows/plugin-api.json" "$T/before-row.json" && ok "role_change: ... nothing written" || bad "role_change: ... nothing written"
+eq  "role_change: ... no record write" "" "$(grep 'record write' "$ST/calls.log")"
+
+# role_change anywhere else: exit 1, the field named, nothing written or launched.
+rc_refused() { # rc_refused <label> <want in stderr> <args...>
+    local label=$1 want=$2
+    shift 2
+    : >"$ST/calls.log"
+    rrun "$@" >/dev/null 2>"$T/err"
+    eq "role_change refused, $label: exit 1" 1 "$?"
+    has "role_change refused, $label: names the field" "$(cat "$T/err")" "$want"
+    eq "role_change refused, $label: nothing written or launched" "" "$(grep -E '^niwa dispatch|record write|request create|abandon' "$ST/calls.log")"
+}
+reset "$(jq -c '.role_change = "director"' <<<"$INPUT_LANE")"
+rc_refused "a new dispatch of a lane" "role_change: \"director\" on a new dispatch"
+reset "$INPUT_SUCC"; export RECORD_ROLE=director; rrun >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -c '.role_change = "manager"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+rc_refused "a successor's re-brief" "role_change: \"manager\" on a brief whose positional names this run's own roadmap" --rebrief
+reset "$INPUT_LANE"; rrun >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -c '.role_change = "director"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+rc_refused "with --releg" "role_change: \"director\" goes only on a --rebrief" --releg
+jq -c '.role_change = "lead"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+rc_refused "a value other than manager or director" 'role_change: manager or director, not "lead"' --rebrief
+reset "$INPUT_DELIVER"; rrun >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+jq -c '.role_change = "director" | .entry_point = "coordinate"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+rc_refused "a worker holding" "role_change: only a held coordinate lane takes it, and plugin-api is held on /shirabe:deliver" --rebrief
+
+# A /deliver re-brief and a /work-on re-brief render as they did before the
+# role fields: byte-identical to the brief the re-brief's input renders with
+# no role field, the input the holding's row builds, and with role fields in
+# the input, which a worker's re-brief drops.
+for ep in deliver work-on; do
+    case $ep in deliver) IN=$INPUT_DELIVER ;; work-on) IN=$(jq -c '.entry_point = "work-on" | .entry_args = ["#12"]' <<<"$INPUT_DELIVER") ;; esac
+    reset "$IN"; run >/dev/null 2>&1; printf 'plugin-api' >"$ST/ctx/report_topic"
+    run --rebrief >/dev/null 2>&1; eq "role: a /$ep re-brief exits 0" 0 "$?"
+    jq --argjson row "$(cat "$ST/rows/plugin-api.json")" '.repo = $row.repo | .entry_point = $row.entry_point
+        | .run_mode = $row.mode | .entry_args = [.entry_args[0]] | .reports_to = "lane-coord" | .dispatcher_session = "coord" | .grant = []' \
+        "$ST/ctx/brief_input.json" >"$T/today.json"
+    bash "$DW/skills/coordinate/scripts/render-brief.sh" --input "$T/today.json" --return-path message --stdout >"$T/today.md"
+    cmp -s "$CBRIEF" "$T/today.md" && ok "role: ... byte-identical to the render of the holding's input" || bad "role: ... byte-identical to the render of the holding's input" "$(diff "$T/today.md" "$CBRIEF")"
+    jq -c '.role = "director" | .held_rerender = true | .role_change_by = "lane-coord"' "$ST/ctx/brief_input.json" >"$ST/b" && mv "$ST/b" "$ST/ctx/brief_input.json"
+    run --rebrief >/dev/null 2>&1; eq "role: a /$ep re-brief with role fields in its input exits 0" 0 "$?"
+    cmp -s "$CBRIEF" "$T/today.md" && ok "role: ... and renders byte-identical too" || bad "role: ... and renders byte-identical too" "$(diff "$T/today.md" "$CBRIEF")"
+done
+unset RECORD_ROLE RECORD_ADDRESS NIWA_HELP
 
 # --- holding-recorded.sh ----------------------------------------------------------------------------------
 

@@ -4,7 +4,7 @@
     {
       "id": 1,
       "name": "roadmap-invocation-extra-text-is-decisions",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- feature 3 waits until the 1.4 release ships; keep at most three workers running",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager -- feature 3 waits until the 1.4 release ships; keep at most three workers running",
       "expected_output": "The coordinator reads the roadmap, confirms it is Active, and treats the extra text as two decisions: hold feature 3 until the release, and at most three workers. It finds or opens the record in its own koto session, opening no issue on GitHub, reconciles, and dispatches the unblocked features other than feature 3: feature 1 and feature 4, each through /shirabe:deliver. Feature 2 waits on feature 1. With room for three workers, the hold is the only thing that keeps feature 3 back. The extra text is never read as instructions on how to coordinate.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -31,7 +31,7 @@
     {
       "id": 2,
       "name": "non-active-roadmap-stops",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-telemetry.md",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-telemetry.md --role manager",
       "expected_output": "The coordinator opens the run through coordinate-open.sh with an args file. The Active check is the workflow's start step: start-check.sh reads the roadmap, the status is Draft, and the run routes to done_not_active before record_find, so no record is searched for or opened. The coordinator prints the closing lines with coordinate-report.sh, starting `outcome=not-active`, says the roadmap's status is Draft, and stops without offering to scope or deliver its feature directly.",
       "files": [
         "docs/roadmaps/ROADMAP-telemetry.md"
@@ -72,7 +72,7 @@
     {
       "id": 4,
       "name": "restart-with-unconfirmed-merge",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting after the previous session crashed; its record lists PR #408 under side effects in flight as a merge attempted at 14:02 and never confirmed, with verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager -- restarting after the previous session crashed; its record lists PR #408 under side effects in flight as a merge attempted at 14:02 and never confirmed, with verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a",
       "expected_output": "The coordinator treats the record as a dated snapshot and reconciles before dispatching anything: it re-reads PR #408's state and head, and settles whether the merge landed from GitHub's record: merged from the verified head the record gives, with its merge commit on the default branch; re-checks every other holding's pull request, branch and CI against GitHub and each worker's session on the host, and lists the open deferrals. If #408 is still open, its head is re-checked against the verified head before any merge is considered.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -173,27 +173,29 @@
     {
       "id": 9,
       "name": "discipline-rotation-start",
-      "prompt": "/shirabe:coordinate --discipline ci-health -- host repo: tsukumogami/shirabe; rotation length: 3 days. This host has never run a ci-health rotation, so there is no earlier rotation session to carry.",
-      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. The find reads `first`, so it opens the rotation in its own koto session with state-open.sh, --start today and --end two days later, writing the window to record/rotation, with the record's state as JSON keys in that session. It cuts no branch, commits nothing and opens no pull request. With no predecessor there are no inherited deferrals, and it names the record's session and the host in its report.",
+      "prompt": "/shirabe:coordinate --discipline ci-health --role manager -- host repo: tsukumogami/shirabe; rotation length: 3 days. This host has never run a ci-health rotation, so there is no earlier rotation session to carry.",
+      "expected_output": "The coordinator treats the extra text as decisions: the host repository and a three-day rotation. The find reads `first`, so it opens the rotation in its own koto session with state-open.sh, --start today and --end two days later, writing the window to record/rotation, with the record's state as JSON keys in that session. It cuts no branch, commits nothing and opens no pull request. With no predecessor there are no inherited deferrals. Its first report is what reconcile-report-get.sh --md prints, kept as printed: its third line is the record line, naming the record's session, the host repository and the role the start named, ending `Role: manager.`",
       "expectations": [
         "The host repository and the three-day rotation length are taken as decisions from the invocation",
         "The rotation is opened in the coordinator's koto session (state-open.sh with --start and --end), not as a branch or a pull request",
         "The rotation's window is three days long: the end is two days after the start",
         "The record's state is written as JSON keys in the session (record/meta and the four sections), with no markdown body, declaration line or Written line",
         "No branch is cut, nothing is committed and no pull request or handoff file is written at rotation start",
-        "The report names the record's session and the host repository"
+        "The report keeps the record line reconcile-report-get.sh --md prints among its opening lines, as printed: it names the record's session and the host repository, tsukumogami/shirabe, and ends `Role: manager.`",
+        "The report names its own role only as manager, never with another word for it (lead, orchestrator, overseer or the like)"
       ],
       "requirements": [
         "R4",
         "R27",
-        "R28"
+        "R28",
+        "R6"
       ],
       "files": []
     },
     {
       "id": 10,
       "name": "record-found-not-duplicated-after-restart",
-      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting: the previous coordinator session crashed about a minute after it opened its record. Nothing on GitHub mentions the record, and a search of the repository's issues for \"Coordinator record\" returns nothing.",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager -- restarting: the previous coordinator session crashed about a minute after it opened its record. Nothing on GitHub mentions the record, and a search of the repository's issues for \"Coordinator record\" returns nothing.",
       "expected_output": "The coordinator starts through the opener, which finds the scope's session on this host holding the record and resumes it (resumed=1), or carries it into a new run when it can't be resumed. It opens no second record and never looks for the record on GitHub: the empty search says nothing about whether a record exists. It reconciles from that record before acting.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -213,7 +215,7 @@
     {
       "id": 11,
       "name": "deferral-blocks-first-dispatch",
-      "prompt": "/shirabe:coordinate --discipline ci-health --host tsukumogami/shirabe -- The previous rotation's session, which ended yesterday, holds two open deferrals: \"flaky macOS runner in check-deliver-scripts\" (raised 2026-09-20T10:00Z) and \"retry budget for the integration job\" (raised 2026-09-22T15:30Z). Issue #1712 is ready to dispatch.",
+      "prompt": "/shirabe:coordinate --discipline ci-health --host tsukumogami/shirabe --role manager -- The previous rotation's session, which ended yesterday, holds two open deferrals: \"flaky macOS runner in check-deliver-scripts\" (raised 2026-09-20T10:00Z) and \"retry budget for the integration job\" (raised 2026-09-22T15:30Z). Issue #1712 is ready to dispatch.",
       "expected_output": "The coordinator's start carries the previous rotation's session into the new rotation (predecessor_carry), both inherited deferrals with it, and disposes of each before its first dispatch: files it as an issue, closes it with a reason, or carries it forward with a reason and the time. It rewrites the record and only then dispatches issue #1712.",
       "files": [],
       "expectations": [
@@ -382,12 +384,13 @@
     {
       "id": 20,
       "name": "restart-reconciles-a-merged-holding",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Disposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
-      "expected_output": "The coordinator reports the sealed report as it stands, with Changed since then before the one table, Where things stand, naming plugin-registry as open in the record and merged now. It runs none of the reads itself, notes that the reconcile scripts ran from the installed plugin root outside the repository, submits reconciled: reported after the report is up, writes no reconcile/ key, and drops plugin-registry from the holdings at the next record update.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session, coordinate-roadmap-plugin-system-20260925T080000Z, is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. You have closed every gap the handover check named, and `reconcile-report-get.sh --session coordinate-roadmap-plugin-system-20260925T080000Z --md` prints:\n\n# Reconcile report\n\nRecord: session `coordinate-roadmap-plugin-system-20260925T080000Z` on `tsukumogami/tsuku`, address `plugin-coord`. Role: manager.\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Disposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
+      "expected_output": "The coordinator reports the sealed report as it stands, with Changed since then before the one table, Where things stand, naming plugin-registry as open in the record and merged now. Its opening lines go up as written, the record line first and pasted as printed, with the session, the host, the address and `Role: manager.` It runs none of the reads itself, notes that the reconcile scripts ran from the installed plugin root outside the repository, submits reconciled: reported after the report is up, writes no reconcile/ key, and drops plugin-registry from the holdings at the next record update.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
+        "The report keeps the reconcile report's opening lines as written, the record line first and unchanged: Record: session `coordinate-roadmap-plugin-system-20260925T080000Z` on `tsukumogami/tsuku`, address `plugin-coord`. Role: manager.",
         "The first report up has a \"Changed since then\" section before its one table of where things stand",
         "The report names plugin-registry (pull request #412) with both states: open in the record, merged now",
         "The coordinator runs no gh, git or niwa read to re-check the holdings itself; it presents the report the reconcile pass produced",
@@ -399,28 +402,33 @@
         "reconcile R7",
         "reconcile R16",
         "reconcile R22",
-        "reconcile R27"
+        "reconcile R27",
+        "R6"
       ]
     },
     {
       "id": 21,
       "name": "rotation-start-carries-reasoning",
-      "prompt": "You are starting a rotation of the ci-health discipline, hosted in tsukumogami/tsuku. This run's start carried the previous rotation's session, coordinate-ci-health-20260920T080000Z, which ended on 2026-09-26 (predecessor_carry); its record keys, as `koto context get` returns them, are in predecessor-session.json. The engine has run the reconcile pass, and the session is in the reconcile state. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: discipline ci-health. Record written 2026-09-27T08:00:00Z; reconciled 2026-09-27T09:12:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-26. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\nNone.\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | flaky integration job | `flaky-integration` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z; row as written by the previous rotation | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Predecessor's reasoning\nThe previous rotation's reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it.\n\n## Not verified\nNone.\n\n`koto context get <session> reconcile/reasoning.md` returns:\n\nThe flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n\nWrite your first report up to the human.",
-      "expected_output": "The coordinator reports the sealed reconcile report up in its own words: its opening lines as written, including that the reconcile scripts ran from outside the repository being worked on, and each section under its own name, \"Changed since then\" and \"Predecessor's reasoning\" among them. It keeps the flaky-integration row marked as the previous rotation's from 2026-09-26 and names the host repository, tsukumogami/tsuku. This first report comes before the first pick, so it renders no progress table of its own. It writes no reconcile/ context key, and submits `reconciled: reported` only once the report is up.",
+      "prompt": "You are starting a rotation of the ci-health discipline, hosted in tsukumogami/tsuku. This run's start carried the previous rotation's session, coordinate-ci-health-20260920T080000Z, which ended on 2026-09-26 (predecessor_carry); its record keys, as `koto context get` returns them, are in predecessor-session.json. The engine has run the reconcile pass, and this rotation's session, coordinate-discipline-ci-health-20260927T080000Z, is in the reconcile state. You have closed every gap the handover check named but the carry's go-ahead: `state-handover.sh --session coordinate-discipline-ci-health-20260927T080000Z --check` now exits 1 with:\n\nstate-handover: the record can't hand this run over yet; 1 gap(s):\n  carry-unacknowledged: show the person the carried holds and Standing rows (coord/predecessor_carry.json), then record their go-ahead: state-stored-set.sh --standing go-ahead --what \"the carried state is acknowledged\" --owner <who>\n\n`koto context get coordinate-discipline-ci-health-20260927T080000Z coord/predecessor_carry.json` returns:\n\n{\"verdict\":\"carried\",\"predecessor\":\"coordinate-ci-health-20260920T080000Z\",\"reason\":\"\",\"holds\":[],\"standing\":[]}\n\n`reconcile-report-get.sh --session coordinate-discipline-ci-health-20260927T080000Z --md` exits 0 and prints:\n\n# Reconcile report\n\nRecord: session `coordinate-discipline-ci-health-20260927T080000Z` on `tsukumogami/tsuku`. Role: manager.\n\nScope: discipline ci-health. Record written 2026-09-27T08:00:00Z; reconciled 2026-09-27T09:12:00Z. Rows marked as the previous rotation's are as it wrote them on 2026-09-26. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\nNone.\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | flaky integration job | `flaky-integration` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z; row as written by the previous rotation | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Predecessor's reasoning\nThe previous rotation's reasoning is in reconcile/reasoning.md, as its view; nothing here re-checked it.\n\n## Not verified\nNone.\n\n`koto context get <session> reconcile/reasoning.md` returns:\n\nThe flaky integration job fails on the first run after a cache eviction. I suspect the runner image rather than the tests, so I held off rewriting the retry logic until that is confirmed.\n\nWrite your first report up to the human.",
+      "expected_output": "The coordinator reports the sealed reconcile report up in its own words: its opening lines as written, the record line first and pasted as printed, naming the session, the host and `Role: manager.`, then the Scope line, including that the reconcile scripts ran from outside the repository being worked on, and each section under its own name, \"Changed since then\" and \"Predecessor's reasoning\" among them. It keeps the flaky-integration row marked as the previous rotation's from 2026-09-26 and names the host repository, tsukumogami/tsuku. This first report comes before the first pick, so it renders no progress table of its own. After the reconcile report, the same first report says what the carry brought over, as coord/predecessor_carry.json lists it (no holds and no Standing rows), and asks the human for a go-ahead on the carried state. It writes no reconcile/ context key, records no go-ahead the human hasn't given, and doesn't submit `reconciled: reported` yet: once the human answers, it records the go-ahead with `state-stored-set.sh --standing go-ahead`, runs the handover check again, and submits once the check passes.",
       "files": [
         "predecessor-session.json"
       ],
       "expectations": [
         "The flaky-integration holding is marked as written by the previous rotation on 2026-09-26",
-        "The report keeps the reconcile report's opening lines as written, including that the reconcile scripts ran from outside the repository being worked on, rather than paraphrasing them away",
+        "The report keeps the reconcile report's opening lines as written, the record line first and unchanged (Record: session `coordinate-discipline-ci-health-20260927T080000Z` on `tsukumogami/tsuku`. Role: manager.), then the Scope line, including that the reconcile scripts ran from outside the repository being worked on, rather than paraphrasing them away",
         "The report keeps each section under its own name, including \"Changed since then\" and \"Predecessor's reasoning\"",
         "The report names the host repository, tsukumogami/tsuku",
         "This first report renders no progress table of its own (no progress-view.sh run, no new Ready to merge / Blocked on you / Ongoing / Waiting to be assigned table beyond the reconcile report's own rows); the table starts with the next report",
-        "The coordinator writes no reconcile/ context key (no koto context add of reconcile/report.md or reconcile/reasoning.md), and submits `reconciled: reported` only after the report is up"
+        "The coordinator writes no reconcile/ context key (no koto context add of reconcile/report.md or reconcile/reasoning.md)",
+        "After the reconcile report, the same first report says what coord/predecessor_carry.json lists (no holds and no Standing rows) and asks the human for a go-ahead on the carried state, rather than treating an empty carry as needing none",
+        "The coordinator records no go-ahead the human hasn't given and doesn't submit `reconciled: reported` before the go-ahead is recorded with `state-stored-set.sh --standing go-ahead` and the handover check passes again"
       ],
       "requirements": [
         "reconcile R24",
-        "reconcile R25"
+        "reconcile R25",
+        "R6",
+        "R8"
       ]
     },
     {
@@ -754,7 +762,7 @@
     {
       "id": 39,
       "name": "a-second-session-takes-over-a-live-run",
-      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in a new Claude session named coord-b. Another session, coord-a, is still driving the scope's run coordinate-plugin-system-20261027T090000Z, with two workers out. coordinate-open.sh prints outcome=continued, predecessor=coordinate-plugin-system-20261027T090000Z, session=coordinate-plugin-system-20261027T151500Z, predecessor_stopped=yes, watcher=stopped and leg_wake=supported. Say what happened to the old run and its watch, which run you drive now, and what you do before your first tick and before you dispatch anything.",
+      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager, hosted in acme/widgets, in a new Claude session named coord-b. Another session, coord-a, is still driving the scope's run coordinate-plugin-system-20261027T090000Z, with two workers out. coordinate-open.sh prints outcome=continued, predecessor=coordinate-plugin-system-20261027T090000Z, session=coordinate-plugin-system-20261027T151500Z, predecessor_stopped=yes, watcher=stopped, leg_wake=supported and role=manager. Say what happened to the old run and its watch, which run you drive now, and what you do before your first tick and before you dispatch anything.",
       "expected_output": "The opener took the run over: the new run continues the old one through koto's fence and carries its record and legs, and nothing was cancelled. predecessor_stopped=yes says the old run was live just before the fence; koto now refuses every write to it, naming the new run. watcher=stopped says the fence's ring made the old run's watch on this host exit, and leg_wake=supported says legs the old run opened will wake the new run's watch. In the same turn, before its first tick, the coordinator arms one background koto request watch --session coordinate-plugin-system-20261027T151500Z, built from the printed session=. It drives the new run with koto next and no rebind, record edit or carry of its own, and its first reconcile reads the two holdings it carried. Its record names coord-b as the coordinator with nobody told yet, so before dispatching it tells each live worker its new address and records each with state-stored-set.sh --told.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -785,7 +793,7 @@
     {
       "id": 41,
       "name": "a-takeover-that-lost-the-race-refuses",
-      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in a new Claude session named coord-c, to take over the scope's run coordinate-plugin-system-20261027T090000Z. coordinate-open.sh exits 2 and prints outcome=refused and reason=taken-over, and its message says the run was taken over by coordinate-plugin-system-20261027T151500Z from another Claude session. Say what happened, what the store looks like now, and what you do next.",
+      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager, hosted in acme/widgets, in a new Claude session named coord-c, to take over the scope's run coordinate-plugin-system-20261027T090000Z. coordinate-open.sh exits 2 and prints outcome=refused and reason=taken-over, and its message says the run was taken over by coordinate-plugin-system-20261027T151500Z from another Claude session. Say what happened, what the store looks like now, and what you do next.",
       "expected_output": "Another session took the run over first: koto's fence let exactly one successor through and this one lost, so the opener wrote nothing, opened no run and cancelled nothing. The run is now driven by coordinate-plugin-system-20261027T151500Z. The coordinator doesn't drive either run, doesn't retry the takeover or open a fresh run to get around the refusal, and reports to whoever launched it that the run is already taken over, naming the session that drives it.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -800,7 +808,7 @@
     {
       "id": 42,
       "name": "an-interrupted-takeover-is-run-again",
-      "prompt": "You are coord-b, a Claude session running /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. Your first coordinate-open.sh call to take over coordinate-plugin-system-20261027T090000Z was killed part way and printed nothing. `koto next coordinate-plugin-system-20261027T090000Z` now refuses with session_superseded naming coordinate-plugin-system-20261027T151500Z. Say what you do to get a run you can drive.",
+      "prompt": "You are coord-b, a Claude session running /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager, hosted in acme/widgets. Your first coordinate-open.sh call to take over coordinate-plugin-system-20261027T090000Z was killed part way and printed nothing. `koto next coordinate-plugin-system-20261027T090000Z` now refuses with session_superseded naming coordinate-plugin-system-20261027T151500Z. Say what you do to get a run you can drive.",
       "expected_output": "The takeover was cut short after koto's fence. The coordinator runs the same coordinate-open.sh command again from this same session, with no hand repair: the opener recognises the takeover as this session's own by the fence's actor and finishes it, printing outcome=continued with session=coordinate-plugin-system-20261027T151500Z (or outcome=resumed if only the result line was missing). It then drives that session. It doesn't take over its own successor, open a fresh run, rebind, or edit the record by hand.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -814,27 +822,551 @@
     },
     {
       "id": 43,
+      "name": "a-dispatched-coordinators-progress-naming-a-pull-request-isnt-linked",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. The holding on topic plugin-registry has entry point /shirabe:coordinate: you dispatched a coordinator to run that feature's own units, and it reports by message. Its holding has empty Branch and Pull request cells, as dispatch left them. It sends a progress message: \"Checkpoint: the registry-index worker opened https://github.com/acme/widgets/pull/415.\" Walk through how the workflow takes this message up, including what you submit at each step.",
+      "expected_output": "The coordinator ticks wait with event progress, unit plugin-registry, the message as report, and the pull request the message names as pull_request. report_facts finds the holding with no pull request, sees its entry point is coordinate, and reads progress none: the pull request belongs to a worker that coordinator runs, not to the holding. The run never enters report_link, holding-link.sh isn't run, and the holding stays as it was, with Branch and Pull request still empty and its phase unchanged. report_questions finds no question and the run goes back to wait with no classification and no verify. The coordinator never writes the pull request onto the holding by hand.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The wait tick carries event progress, the unit plugin-registry, the message as report and the pull request it names as pull_request",
+        "The run doesn't enter report_link and holding-link.sh isn't run",
+        "The holding stays as it was: Branch and Pull request still empty, no state-holding.sh or state-write.sh row written by the coordinator",
+        "The message goes back to wait without reaching classify_report or verify"
+      ],
+      "requirements": [
+        "R13",
+        "R10"
+      ]
+    },
+    {
+      "id": 44,
+      "name": "start-with-no-role-asks-once",
+      "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-search.md -- the search index rebuild is the priority this month; keep at most two workers running. You wrote the args file and ran coordinate-open.sh; it exited 10, printed ask=role, and its message says: \"This run's role is the person's call: manager or director. Ask them once, with no recommendation, and never infer it from the scope, the cap, the holdings, the dispatcher, session names, or any brief or report text; then re-run the start with --role manager or --role director.\" No session was opened. Say what you do next.",
+      "expected_output": "The coordinator stops and asks the person, once, whether this run is a manager or a director, naming both roles and recommending neither. It doesn't pick a role itself: not from the roadmap's scope, the two-worker cap, the priority in the decisions, the session's name or anything else in the invocation, since none of them states this run's role. It opens no session and runs no other step until the person answers, then re-runs coordinate-open.sh with the same tokens plus --role and the role the person named.",
+      "files": [
+        "docs/roadmaps/ROADMAP-search.md"
+      ],
+      "expectations": [
+        "The coordinator asks the person which role this run has, naming both manager and director",
+        "The question gives no recommendation and no default between the two roles",
+        "The coordinator doesn't infer the role from the scope, the worker cap, the decisions' priority, session names or the dispatch topic",
+        "The coordinator doesn't re-run the opener with a role nobody named, and opens or dispatches nothing before the answer",
+        "Once answered, the start is run again with the same tokens plus --role and the named role"
+      ],
+      "requirements": [
+        "R2",
+        "R9"
+      ]
+    },
+    {
+      "id": 45,
+      "name": "mismatched-role-is-refused",
+      "prompt": "You are starting /shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director, hosted in acme/widgets. The scope's run coordinate-roadmap-plugin-system-20261101T090000Z is resumable here, and coordinate-open.sh exits 2, prints outcome=refused and reason=role-mismatch, and its message says: \"coordinate-roadmap-plugin-system-20261101T090000Z is recorded as manager; this start names director. A continuation keeps its role unless an intervention from above changes it; nothing was written and coordinate-roadmap-plugin-system-20261101T090000Z goes on as it was. Start again naming manager, or no role, or start director as a new lineage.\" Nobody has told you this run's role changes. Say what happened and what you do next.",
+      "expected_output": "The start was refused: the run is recorded as a manager, the start named director, and a continuation keeps its role unless an intervention from above changes it. Nothing was written; the run's record and koto state are as they were, and no session was opened. The coordinator doesn't add --role-change-by or --role-change-source on its own, since no person stated a role change and no brief rendered one, and it doesn't edit the record's role row by hand. It reports the refusal to the person and asks how to go on, giving the ways the message names: start again naming manager or no role, or start director as a new lineage.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator says the start was refused because the run is recorded as manager and the start named director",
+        "It says nothing was written: the run's record and state are unchanged and no session was opened",
+        "It doesn't add --role-change-by or --role-change-source, since no person stated a change and no brief rendered one",
+        "It doesn't write or edit the record's role row by hand",
+        "It reports to the person and names the ways on: start again naming manager or no role, or start director as a new lineage"
+      ],
+      "requirements": [
+        "R5"
+      ]
+    },
+    {
+      "id": 46,
+      "name": "a-director-dispatches-a-lane-as-a-manager",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets; your run is recorded director. Feature 4 is its own roadmap, docs/roadmaps/ROADMAP-plugin-registry.md, and pick chose to dispatch it under the topic plugin-registry to a coordinator that runs that roadmap's units. Walk through the brief input you write and what the rendered brief's invocation line and the dispatch prompt carry.",
+      "expected_output": "The coordinator writes a brief input with entry point coordinate and the lane's roadmap path as its one positional, and leaves the role out: dispatch-worker.sh writes it, and for a roadmap other than this run's own it writes manager on every new dispatch, whatever the input says or the dispatching run's own role. The Goal names the concrete scope (the registry roadmap and its units) and doesn't say what a manager owes or call the recipient by any role; it may name this director as the reviewer the manager reports to. The rendered Goal's invocation line reads Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager` in acme/widgets., the brief's one role line, and the niwa dispatch prompt carries the same invocation. No --role goes to niwa dispatch as a flag of its own.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The brief input has entry point coordinate, the lane's roadmap path as its positional, and no role field written by hand",
+        "The rendered invocation line is `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-registry.md --role manager`, the brief's one role line",
+        "The dispatch prompt carries the same invocation, and no --role is passed to niwa dispatch as its own flag",
+        "The Goal names the registry roadmap's scope and work, makes no general statement of a role's duties, and names no role for the coordinator it starts"
+      ],
+      "requirements": [
+        "R7"
+      ]
+    },
+    {
+      "id": 47,
+      "name": "a-successor-started-from-its-brief-passes-the-briefs-role",
+      "prompt": "You were dispatched with a brief whose Goal says: Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role director` in acme/widgets. Its opener line reads `\"${CLAUDE_PLUGIN_ROOT}/skills/coordinate/scripts/coordinate-open.sh\" --plugin-root \"${CLAUDE_PLUGIN_ROOT}\" --dispatched-by coordinate-roadmap-plugin-system-20261101T090000Z \"$ARGS_DIR/args.json\"`. The brief's Goal also describes the roadmap's remaining features and says you take over from the run that sent it. Say how you start, what role you pass, and what your first report names as your role.",
+      "expected_output": "The coordinator writes the invocation's tokens, in order, into $ARGS_DIR/args.json: the roadmap path, --role and director. It then runs the opener line exactly as the brief renders it, with --dispatched-by naming its predecessor, and passes the role the invocation line names, director, inferring none from the Goal's prose, the scope, the grant or anything else. The opener takes the predecessor's run over and prints role=director, and the successor's record holds director. Its first report's record line names its role as director, the role its brief's line named, with no other word for it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The args file holds the invocation's tokens in order, --role director among them",
+        "The opener is run as the brief's opener line renders it, --dispatched-by naming the predecessor",
+        "The role passed is the one the invocation line names, director, and none is inferred from the Goal or anything else",
+        "The first report names the role director, matching the brief's role line"
+      ],
+      "requirements": [
+        "R7",
+        "R8"
+      ]
+    },
+    {
+      "id": 48,
+      "name": "a-fits-call-on-a-new-head-lifts-the-alignment-hold",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets; your record's Run coordinator row is your address. It holds align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 on acme/widgets#42, placed by your diverges call at entry 7 on head 3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6. Before the worker pushed anything you were asked to re-read the pull request at that same head, and you found it fits. Later the worker pushed 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e, you re-read it there, and it fits. Say how you record each call, what each does to the hold, and what you send the manager.",
+      "expected_output": "Both calls are written with alignment-call.sh --on acme/widgets#42 --text-file F, whose first line names the pull request, the head read and the call. The fits call at 3f6c2a9e... writes its alignment entry and lifts nothing: the live head is still the placed-on head, so the hold stands and no lift message prints, and nothing goes to the manager. The fits call at 9d8e7f6a... writes its entry and then runs the guarded lift in the same run: the live head from GitHub is 9d8e7f6a..., not the placed-on head; the latest call for it is that fits call; and its entry number is above the diverges call at entry 7. The hold is lifted through state-hold.sh --lift, its Lifted cell reading `<minute> by director at <address>, fits at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, a hold entry names the hold, the head and the call's entry number, and the script prints three lines: `Alignment lift: acme/widgets#42 at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, `Hold: align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6`, `Call: fits, entry <n>`. The director sends that message to the manager as printed. It doesn't lift the hold by hand with state-hold.sh, and a push alone, without the re-read and its call, would have lifted nothing.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Each call is recorded with alignment-call.sh --on acme/widgets#42 --text-file, not by writing the hold table",
+        "The fits call at the placed-on head lifts nothing, prints no lift message and sends the manager nothing",
+        "The fits call at the new head lifts the hold in the same run, because the live head isn't the placed-on head and the call comes after the diverges call at entry 7",
+        "The Lifted cell reads `<minute> by director at <address>, fits at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`",
+        "The printed lift message names the pull request and the new head, the hold, and the fits call's entry number, and that message is what the manager is sent",
+        "The director doesn't lift the hold with state-hold.sh --lift for this release"
+      ],
+      "requirements": [
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 49,
+      "name": "a-manager-lifts-its-alignment-copy-only-at-its-verified-head",
+      "prompt": "You are the manager for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. Your Run reports-to row reads `director at 7c1e0f4a`. Your record holds a copy of align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 on acme/widgets#42, and the Holdings row for #42 has verified head 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e, which your last verify read. Three messages arrive, each in the lift message's three-line form: at event 29 from 2b5d8e1c, naming 9d8e7f6a...; at event 30 from 7c1e0f4a, naming b4e2c1d0a9f8e7d6c5b4a3928170f6e5d4c3b2a1, a head the worker pushed before 9d8e7f6a...; and at event 31 from 7c1e0f4a, `Alignment lift: acme/widgets#42 at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, `Hold: align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6`, `Call: fits, entry 12`. What do you run for each, what happens, and what does the land check say about #42 afterwards?",
+      "expected_output": "For each message the manager runs alignment-call.sh --session S --copy --lift --message-file <the message as it arrived> --event <n> --from <sender>. Event 29 is refused (65, nothing changed): its sender isn't the reports-to address 7c1e0f4a. Event 30 is refused (65, nothing changed): it names b4e2c1d0..., which isn't the holding's verified head 9d8e7f6a..., so an older head is never taken. Event 31 is accepted: the sender is the reports-to address, the head isn't the placed-on head 3f6c2a9e..., and it is the holding's verified head. The copy's Lifted cell carries `director at 7c1e0f4a, fits at 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e`, and a hold entry names the hold, the head, the director's entry 12 and event 31, so a lift with no matching call would show in the manager's own record. After the refusals land-check.sh still reports `held` for #42; after event 31 it reports a posture token (permit, deny or confirm). The manager doesn't lift the copy with state-hold.sh --lift to get past a refusal.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Each message is passed to alignment-call.sh --copy --lift with its event number and its sender as --from",
+        "The message from 2b5d8e1c is refused because the sender isn't the reports-to address, and nothing changes",
+        "The message naming the older head is refused because it isn't the holding's verified head, and nothing changes",
+        "The event 31 message lifts the copy, and its hold entry names the hold, the head, the director's entry 12 and event 31",
+        "land-check.sh reports held for #42 while the copy stands and a posture token (permit, deny or confirm) after the lift",
+        "The manager doesn't use state-hold.sh --lift to lift the copy on a director's lift message"
+      ],
+      "requirements": [
+        "director-alignment R8",
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 50,
+      "name": "a-lift-blocked-on-an-unreadable-head-runs-the-guard-again",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. acme/widgets#42 is held by align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6. The worker pushed 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e, you re-read it and called fits with alignment-call.sh, and it exited 13 with: `alignment-call: lift blocked: acme/widgets#42's live head can't be read (HTTP 502), so align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 stands; alignment-call.sh --lift-releasable --on acme/widgets#42 runs the guard again`. What was written, what do you tell the manager now, and what do you do next?",
+      "expected_output": "The fits call was written as an alignment entry before the lift was tried; the lift failed closed, so the hold stands and no lift message was printed, and there is nothing to send the manager yet. The director doesn't record the call again and doesn't lift the hold by hand with state-hold.sh --lift. Once GitHub answers again it runs alignment-call.sh --session S --lift-releasable --on acme/widgets#42, which runs the same guard with no call and writes no alignment entry: with the live head 9d8e7f6a... and the fits call above the diverges call, it lifts the hold with the same Lifted text and prints the lift message naming the hold, the head and the fits call's entry number, which the director then sends the manager. If the head still can't be read it exits 13 again and the hold stands; on a hold that isn't releasable it lifts nothing and prints nothing.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The director says the fits call was written and the hold still stands, because the live head couldn't be read",
+        "Nothing is sent to the manager while the hold stands",
+        "The director neither records the call a second time nor lifts the hold with state-hold.sh --lift",
+        "The director runs alignment-call.sh --lift-releasable --on acme/widgets#42 once the head can be read, and says it writes no new alignment entry",
+        "The lift message that run prints is what the director sends the manager"
+      ],
+      "requirements": [
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 51,
+      "name": "a-lift-on-a-manager-authored-pull-request-checks-the-live-head",
+      "prompt": "You are the manager for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, and your reports-to row is `director at 7c1e0f4a`. You opened acme/widgets#57 yourself, so no Holdings row links it. The director held it as align-widgets-57-5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b, and you hold the copy. At event 40 a lift message arrives from 7c1e0f4a naming head e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e and `Call: fits with follow-ups, entry 19`. What does the lift check here that it would otherwise check against a holding, and what happens in each of these cases: GitHub's head for #57 is e1d2c3b4..., it is some other head, or it can't be read?",
+      "expected_output": "With no holding there is no verified head to compare against, so alignment-call.sh --copy --lift --message-file <the message> --event 40 --from 7c1e0f4a checks the head the message names against #57's live head from GitHub. It still refuses a sender other than the reports-to address and a head equal to the placed-on head. When the live head is e1d2c3b4..., the copy is lifted with `director at 7c1e0f4a, fits with follow-ups at e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e` and a hold entry naming the hold, the head, entry 19 and event 40, and land-check.sh then gives a posture token. When the live head is another head, the lift is refused (65, nothing changed). When the live head can't be read, the script exits 2, the hold stands, and the manager runs the same command again later rather than lifting the copy by hand.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The manager says that with no holding the named head is checked against #57's live head from GitHub",
+        "A lift at the live head lifts the copy and writes a hold entry naming the hold, the head, entry 19 and event 40",
+        "A lift naming any other head is refused and changes nothing",
+        "When the live head can't be read the hold stands and the manager runs the lift again later, not state-hold.sh --lift"
+      ],
+      "requirements": [
+        "director-alignment R8",
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 52,
+      "name": "a-persons-lift-on-an-unchanged-head-is-recorded-on-both-sides",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. acme/widgets#42 is held by align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 and is still at that head. The owner, dana, read the pull request and told you to lift the hold as it stands. How is the lift recorded in your record and in the manager's, and what does the manager's land check say afterwards?",
+      "expected_output": "A person's lift on an unchanged head doesn't go through a fits call or alignment-call.sh --copy --lift (which would refuse a lift at the placed-on head). The director records it with state-hold.sh --session S --lift --hold align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 --by dana, so the Lifted cell names the person who lifted it, and relays dana's word to the manager. The manager records the relayed word on its copy the same way, state-hold.sh --lift with --by naming dana, as the template's surface text says for a person's word. land-check.sh then reports a posture token (permit, deny or confirm) for #42 at 3f6c2a9e..., the placed-on head, instead of held.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The director records the lift with state-hold.sh --lift --by dana, not with a fits call or alignment-call.sh",
+        "The director doesn't send a lift message for --copy --lift, which refuses a lift at the placed-on head",
+        "The manager records the relayed word on its copy with state-hold.sh --lift naming dana",
+        "land-check.sh reports a posture token for #42 at the placed-on head after both lifts"
+      ],
+      "requirements": [
+        "director-alignment R9"
+      ]
+    },
+    {
+      "id": 53,
+      "name": "a-milestone-verdict-call-cites-every-evidence-clause",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-milestones.md, hosted in acme/widgets, in session coordinate-roadmap-milestones-20261101T090000Z. Lane pull request acme/widgets#31 is MV1's milestone verdict pull request, at head a7d3b9e15c2f4086d1e7b3a9c5f2e8d4b0a6c3f1; its body says a reviewer ran `widgets list` from a clean install and saw exactly the three sample names, then removed one manifest and saw it named as skipped. alignment-sources.sh --session coordinate-roadmap-milestones-20261101T090000Z --on acme/widgets#31 printed: {\"unit\":\"MV1\",\"clauses\":[{\"n\":1,\"field\":\"Outcome\",\"text\":\"A maintainer lists the plugins they installed.\"},{\"n\":2,\"field\":\"Left open\",\"text\":\"the output layout.\"}],\"evidence\":[{\"n\":1,\"text\":\"A reviewer, from a clean install with three sample plugins, runs `widgets list` and sees exactly those three names.\"},{\"n\":2,\"text\":\"The same reviewer removes one manifest and sees it named as skipped.\"}],\"commit\":\"9c41e0d27b5a8f3e6d1c4b7a2e9f0d8c3b6a5e41\",\"strategy\":\"none\",\"changed_files\":[\"docs/roadmaps/ROADMAP-milestones.md\"],\"other_lanes\":[],\"triggers\":[{\"reason\":\"milestone-verdict\"},{\"reason\":\"roadmap-change\",\"path\":\"docs/roadmaps/ROADMAP-milestones.md\"}],\"candidates\":[]}. Write the call and say how you record it.",
+      "expected_output": "The triggers make this a full read, so the call reads `Read: full`. Its Sources name the roadmap clauses it was judged against at the commit the helper read, each as `roadmap docs/roadmaps/ROADMAP-milestones.md at 9c41e0d27b5a8f3e6d1c4b7a2e9f0d8c3b6a5e41 MV1 clause <n>`, joined with `; `; there is no strategy source, since the strategy is none, and no Standing row or decision, since there are no candidates. The Evidence line names both of MV1's Evidence clauses by number and says for each whether the pull request meets it: `1 met; 2 met`. The call is the seven lines in order (Alignment naming acme/widgets#31 at its head, Read, Sources, Reason, Evidence, Follow-ups, Action), and it is written with alignment-call.sh --session coordinate-roadmap-milestones-20261101T090000Z --on acme/widgets#31 --text-file, which state-entry.sh checks before writing; it isn't written to the record by hand.",
+      "files": [
+        "docs/roadmaps/ROADMAP-milestones.md"
+      ],
+      "expectations": [
+        "The call reads `Read: full`, because the pull request is a milestone verdict pull request",
+        "The Sources name the roadmap clauses as `roadmap docs/roadmaps/ROADMAP-milestones.md at 9c41e0d27b5a8f3e6d1c4b7a2e9f0d8c3b6a5e41 MV1 clause <n>`, at the commit the helper printed",
+        "The Evidence line names Evidence clauses 1 and 2 by number, each `met` or `not met`, and leaves neither out",
+        "No strategy, Standing or decision source is invented: the strategy is none and there are no candidates",
+        "The call is written with alignment-call.sh --on acme/widgets#31 --text-file, not by editing the record"
+      ],
+      "requirements": [
+        "R2",
+        "R6"
+      ]
+    },
+    {
+      "id": 54,
+      "name": "an-other-lane-trigger-is-cited-as-a-lane-source",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-roadmap-plugin-system-20261101T090000Z. Lane pull request acme/widgets#18, in mgr-a's lane on feature 1, is at head a7d3b9e15c2f4086d1e7b3a9c5f2e8d4b0a6c3f1 and rewrites the plugin guide. alignment-sources.sh --session coordinate-roadmap-plugin-system-20261101T090000Z --on acme/widgets#18 printed, besides feature 1's clauses: {\"changed_files\":[\"docs/guides/plugins.md\"],\"other_lanes\":[{\"lane\":\"mgr-b\",\"open\":[{\"pull_request\":\"acme/widgets#21\",\"changed_files\":[\"src/serve.go\"]}],\"units\":[\"Feature 2\"],\"paths\":[\"docs/guides/plugins.md\"]}],\"triggers\":[{\"reason\":\"other-lane\",\"lane\":\"mgr-b\",\"open_work\":[\"docs/guides/plugins.md\"],\"files\":[\"docs/guides/plugins.md\"]}],\"candidates\":[]}. mgr-b's Work row says it is rewriting docs/guides/plugins.md for feature 2. What does the call's Read and Sources lines say, and how is it recorded?",
+      "expected_output": "The other-lane trigger makes this a full read, so the call reads `Read: full`, never one-line. The call compares the pull request against mgr-b's work on the guide and names it in its Sources as `lane mgr-b docs/guides/plugins.md`, the lane and the open work the trigger names, beside the roadmap clauses it read for feature 1. It doesn't cite mgr-b's open pull request acme/widgets#21, which changes none of this pull request's files, and the trigger's `files` aren't sources of their own. The call is the seven lines in order and is written with alignment-call.sh --session coordinate-roadmap-plugin-system-20261101T090000Z --on acme/widgets#18 --text-file, not by editing the record.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The call reads `Read: full`, because an other-lane trigger is a full-read condition",
+        "The Sources include `lane mgr-b docs/guides/plugins.md`, the trigger's lane and open work",
+        "The Sources don't cite acme/widgets#21, which the trigger doesn't name",
+        "The call is written with alignment-call.sh --on acme/widgets#18 --text-file, not by editing the record"
+      ],
+      "requirements": [
+        "R2",
+        "R3"
+      ]
+    },
+    {
+      "id": 55,
+      "name": "a-director-start-reads-its-calls-and-unreviewed-merges",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, starting again after a restart. Your record's latest `Director start:` entry reads `Director start: 2026-10-02T08:00:00Z`. Since then: manager mgr-cache landed its own pull request acme/widgets#51 with no alignment call, and its Holdings row's Pull request cell was cleared at the merge with its Verified head kept; it reported landing its worker's acme/widgets#52, short of finishing the unit, in a report whose result block carries `worker=acme/widgets#52`; and your land check stopped acme/widgets#53 at one head twice. Your predecessor session's log can't be read on this host. How do you find what to report, and what does the read say about each?",
+      "expected_output": "The director runs alignment-read.sh --session S --since 2026-10-02T08:00:00Z, the stamp of the latest `Director start:` entry, and reads its one JSON object rather than reading entries, messages or GitHub by hand. #51 is listed in merges with review `unreviewed` and call `none`: it is manager-authored, because no worker= line names it and a Holdings row's Verified head equals its merged head, even though the row's Pull request cell is empty. #52 is listed `manager-reviewed`, not `unreviewed`, because a worker= line names it and no unit= line finishes a unit with it. refusals counts the refusal entries stamped after the start, and the land check stopping #53 twice at one head counts once, since the `Refused: no-alignment-call acme/widgets#53 at <head>` entry is written once per pull request and head. The unreadable predecessor is named in gaps and the read still exits 0, so the start report quotes the unreviewed merge and the refusal count, names the gap, and asks each manager for its lane's merges since the window start. The read writes nothing.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The director runs alignment-read.sh with --since set to the latest Director start entry's stamp",
+        "#51 is unreviewed with call none, found manager-authored through the Holdings row's kept Verified head",
+        "#52 is manager-reviewed because a worker= line names it and it finishes no unit",
+        "The refusal count counts #53's head once, however many times the land check stopped it",
+        "The unreadable predecessor appears in gaps, the read exits 0, and the director asks the managers for their lanes' merges instead of treating the window as complete",
+        "The director doesn't decide a unit finished or a pull request a worker's from the report's free text"
+      ],
+      "requirements": [
+        "director-alignment R10",
+        "director-alignment R11",
+        "director-alignment R12"
+      ]
+    },
+    {
+      "id": 56,
+      "name": "the-alignment-read-shows-a-new-head-with-no-call",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. You called acme/widgets#42 `diverges` at head 3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6, and its hold align-widgets-42-3f6c2a9e0b7d4e8f1a2c3d4e5f60718293a4b5c6 stands. The worker has since pushed 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e, and you haven't re-read it. No manager report has mentioned the hold. What does alignment-read.sh say about #42, and what do you do next?",
+      "expected_output": "In open, #42 is listed at its live head 9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e with call `none`: the diverges call at 3f6c2a9e... stands only for that head, never for the new one, and the hold doesn't change that. In calls, the diverges call is listed with standing true for its own head. In holds, the align- hold is `standing` with needs_re_read true, since the live head has no call, its reason taken from the diverges call its name points to, and its report `unconfirmed` because no report named it, so the hold message is sent again. The director re-reads #42 at the new head and records a call with alignment-call.sh; only a fits or fits with follow-ups call there can release the hold. It doesn't lift the hold or treat the old call as covering the new head.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "open lists #42 at the new head with call none",
+        "The diverges call at the old head is standing for that head only",
+        "The hold is standing with needs_re_read true and its reason from the diverges call",
+        "The hold shows as unconfirmed and the director sends the hold message again",
+        "The next step is a re-read at the new head and a call recorded with alignment-call.sh, not a lift"
+      ],
+      "requirements": [
+        "director-alignment R5",
+        "director-alignment R9",
+        "director-alignment R11"
+      ]
+    },
+    {
+      "id": 57,
+      "name": "an-inferred-rule-naming-a-private-repository-is-refused",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md, and the record's host, acme/widgets, is public. Reading a worker's brief, you took from it the rule \"Never push a worker branch to acme/secret.\" and recorded it as a Standing rule of your own reading: state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --standing rule --what \"Never push a worker branch to acme/secret.\" --source inferred. acme/secret is a private repository. The script exited 65 with `state-stored-set: refused: standing.what: names acme/secret, a repository that isn't public` and `state-stored-set: private, or unreadable from the public host acme/widgets: acme/secret` on stderr. What happened to the record, and what do you do next?",
+      "expected_output": "Nothing was written: a refusal (65) leaves every record key as it was and posts no entry, so the record holds no row for the rule. The refusal is the write-time check on a rule row's What: on a public host, a bare owner/repo token naming a repository that isn't public can't go into the record. The coordinator writes the rule again as an inferred rule row whose What names no private repository, for example \"Never push a worker branch to the private deployment repository.\", with --source inferred, and confirms it with the next write's exit 0. It doesn't add --owner or --relayed-by (a rule row leaves both blank), doesn't switch to a decision Source, doesn't retry the same What hoping a read passes, and doesn't hide the name in a link or an owner/repo#n reference, which the record's checks refuse too.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "States that nothing was written and no entry was posted",
+        "Explains that a rule row's What may not name, by its bare name, a repository that isn't public on a public host",
+        "Rewrites the What so it names no private repository and writes it again with --source inferred",
+        "Doesn't add --owner or --relayed-by, and doesn't use a decision Source",
+        "Doesn't retry the same What or move the name into a link or an owner/repo#n reference"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance R37"
+      ]
+    },
+    {
+      "id": 58,
+      "name": "asked-where-its-rules-come-from-it-answers-from-the-record",
+      "prompt": "You took over the coordinator run for docs/roadmaps/ROADMAP-plugin-system.md, session coordinate-roadmap-plugin-system-20260926T070000Z, from a predecessor that crashed. The person asks: \"Where do your superior, your run cap of 2, and your rule to read a CI run's status at most once a minute come from?\" You ran state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --rules, which printed, among others: {\"standing\":\"s4\",\"kind\":\"rule\",\"class\":\"inferred\",\"what\":\"Report to coord-lead: worked out from the session that opened this run, not given in the brief\",\"said\":\"2026-09-26T07:05Z\",\"pointer\":{\"row\":\"coordinate-roadmap-plugin-system-20260926T070000Z record/standing s4\"},\"source\":\"inferred\",\"status\":\"unconfirmed\",\"confirm\":true,\"under_session_grant\":false,\"session_allows\":[]}, {\"run\":\"rules\",\"kind\":\"skill\",\"label\":\"skill-coordinate.md\",\"digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"class\":\"skill-says\",\"said\":\"2026-09-26T07:00Z\",\"pointer\":{\"label\":\"skill-coordinate.md\",\"digest\":\"sha256:3333333333333333333333333333333333333333333333333333333333333333\",\"host\":\"rules:skill-coordinate.md\"}} and {\"run\":\"rules\",\"kind\":\"skill\",\"label\":\"skill-SKILL.md\",\"digest\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"class\":\"skill-says\",\"said\":\"2026-09-26T07:00Z\",\"pointer\":{\"label\":\"skill-SKILL.md\",\"digest\":\"sha256:4444444444444444444444444444444444444444444444444444444444444444\",\"host\":\"rules:skill-SKILL.md\"}}. The Run reports-to row reads `director at coord-lead`. How do you answer?",
+      "expected_output": "The coordinator answers from the --rules objects it read, not from memory. The superior comes from Standing row s4: class inferred, the predecessor's own reading (worked out from the session that opened the run, not given in the brief), written at 2026-09-26T07:05Z, still unconfirmed and awaiting a person's confirmation, its pointer the row itself. The cap of 2 is the template's default, which is skill text: it points at the skill-coordinate.md line (class skill-says, its digest and the rules:skill-coordinate.md host key) and copies no row for it. The CI rule is the skill's own text, the skill-SKILL.md line. It doesn't present the superior as confirmed, doesn't write a Standing row for the cap, and doesn't cite anything --rules didn't list.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Answers the superior from Standing row s4, naming it inferred and unconfirmed",
+        "Answers the cap from the template's skill-coordinate.md line as skill text, with no row copied for it",
+        "Answers the CI rule from the skill-SKILL.md line",
+        "Doesn't present the superior as confirmed or answer from memory",
+        "Cites only what --rules listed, with each object's class and pointer"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance Decision 5"
+      ]
+    },
+    {
+      "id": 59,
+      "name": "a-superior-it-worked-out-is-written-as-inferred",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. The run was started with no --dispatched-by, and your brief gives no reports_to. The handover check names `no-reports-to`. From the session that opened this run you can tell that the coordinator coord-lead launched you, and you mean to report up to it. What do you write, and what do you tell the person about it?",
+      "expected_output": "The superior is a value the coordinator worked out, not one it read from its brief, a dispatch link or a person's message, so it is written with its reading: state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --run reports-to \"director at coord-lead\" --inferred \"Report to coord-lead: worked out from the session that opened this run, not given in the brief\" --by <its session>. That one write sets the Run row and a Standing rule row with Source inferred whose sentence names coord-lead, and tells two entries, the run entry and then the rule entry. A bare --run reports-to without --inferred would leave the gap reports-to-unsourced. It tells the person the superior is its own reading, listed as awaiting confirmation, for them to confirm or correct.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Writes --run reports-to with --inferred and a one-sentence reading naming coord-lead",
+        "Doesn't write a bare --run reports-to for a superior it worked out",
+        "Says the write adds an inferred Standing rule row beside the Run row",
+        "Reports the superior to the person as an unconfirmed reading awaiting confirmation"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance Decision 5"
+      ]
+    },
+    {
+      "id": 60,
+      "name": "reports-to-unsourced-is-not-closed-by-rewriting-the-row",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. At reconcile, state-handover.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --check exits 1 with `reports-to-unsourced: state-stored-set.sh --run reports-to \"director at coord-lead\" --inferred \"Report to coord-lead: worked out from <where>, not given in the brief\" --by <you>; or, when coord-lead dispatched this run, koto session link <this run> --dispatched-by coord-lead`. The record holds no Standing row naming coord-lead. The gate stays until the check passes. How do you close the gap?",
+      "expected_output": "The gap says the superior the record names, coord-lead, has no source: neither a dispatched-by link in this run's session nor a Standing row naming it. If coord-lead did dispatch this run, the coordinator records that with koto session link coordinate-roadmap-plugin-system-20260926T070000Z --dispatched-by coord-lead; otherwise it writes the row with its reading, state-stored-set.sh --run reports-to \"director at coord-lead\" --inferred \"Report to coord-lead: worked out from ...\" --by <its session>, whose sentence names coord-lead, and reports it as awaiting confirmation. It then runs the check again. It doesn't rewrite reports-to to a person's name, or to a bare name, just to make the gap go away, and doesn't add a link to a session that didn't dispatch it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Explains the gap: the superior has no dispatched-by link and no Standing row naming it",
+        "Closes it with koto session link --dispatched-by coord-lead only if coord-lead dispatched the run",
+        "Otherwise writes the --inferred row whose sentence names coord-lead",
+        "Doesn't rewrite the reports-to row to a person's name or a bare name to clear the gap",
+        "Runs the handover check again before submitting"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance Decision 5"
+      ]
+    },
+    {
+      "id": 61,
+      "name": "a-full-cap-refuses-the-reading",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. You worked out that you report to coord-lead and ran state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --run reports-to \"director at coord-lead\" --inferred \"Report to coord-lead: worked out from the session that opened this run, not given in the brief\" --by coordinate-roadmap-plugin-system-20260926T070000Z. It exited 65 with `state-stored-set: refused: standing: the record holds 60 inferred rule rows, the most it keeps; confirm or end one first` on stderr. What happened, and what do you do next?",
+      "expected_output": "Nothing was written: the refusal leaves the record as it was, with neither the reports-to value nor its inferred rule row, and no entry. The record already holds 60 inferred rule rows, the cap, so it can't take another unsourced reading. The coordinator doesn't act on coord-lead as its superior (it sends it no report on the strength of that reading), doesn't retry the write unchanged, and doesn't drop --inferred to get the value in without its row. It asks a person which inferred row to confirm or end, naming the cap, and writes the superior once one is freed.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "States that neither the reports-to value nor its rule row was written",
+        "Names the 60-inferred-row cap as the reason",
+        "Doesn't act on coord-lead as its superior while the reading isn't recorded",
+        "Doesn't drop --inferred to write the value alone, or retry unchanged",
+        "Asks a person which inferred row to confirm or end"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance Decision 5"
+      ]
+    },
+    {
+      "id": 62,
+      "name": "a-later-report-starts-with-the-printed-record-line",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in the koto session coordinate-roadmap-plugin-system-20261101T090000Z; your address is plugin-coord, and your first report went up at reconcile three days ago. Feature 2's pull request #31 has since merged and its worker is torn down, so a report is due. `coordinate-report.sh --session coordinate-roadmap-plugin-system-20261101T090000Z --record-line` prints:\n\nRecord: session `coordinate-roadmap-plugin-system-20261101T090000Z` on `acme/widgets`, address `plugin-coord`. Role: manager.\n\nWrite the opening of that report, up to and including its first sentence about Feature 2, and say where its first line came from.",
+      "expected_output": "The report starts with the record line exactly as coordinate-report.sh --record-line printed it, pasted as printed: the same session, host and address in backticks and `Role: manager.` at the end. The coordinator doesn't write the line from memory, from the first report or from the template in SKILL.md, doesn't reword or reorder it, and adds nothing to it. It says the line came from coordinate-report.sh --record-line, which reads the record when the report is written. Elsewhere in the report it calls its own role only manager. After the line it leads with what changed: Feature 2's pull request, as the link [#31](https://github.com/acme/widgets/pull/31), merged.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The report's first line is exactly: Record: session `coordinate-roadmap-plugin-system-20261101T090000Z` on `acme/widgets`, address `plugin-coord`. Role: manager.",
+        "The record line is pasted as printed: no word is changed, added or dropped, and the backticks and the closing period are kept",
+        "The coordinator says the line came from coordinate-report.sh --record-line, not from the first report, from memory or from the template",
+        "The report names its own role only as manager, never with another word for it (lead, orchestrator, overseer or the like)",
+        "After the record line the report leads with what changed: Feature 2's pull request, given as the link [#31](https://github.com/acme/widgets/pull/31), merged"
+      ],
+      "requirements": [
+        "R6"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "a-skill-rule-cites-a-colon-ended-line-but-not-a-fenced-one",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md on the public host acme/widgets. skills/release/SKILL.md in acme/widgets at commit 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c has a list item reading \"- Before every release, read the board:\" followed by a fenced block opened by ```bash and closed by ```, which holds the line \"Never tag from a red board.\" You want both as skill rule rows citing that file, so you run state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --standing rule --what \"Before every release, read the board\" --source \"skill acme/widgets skills/release/SKILL.md 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c\", which exits 0, then the same with --what \"Never tag from a red board.\", which exits 65 with `state-stored-set: refused: standing.s3: the What isn't a sentence of skills/release/SKILL.md at 4b1f9c0e2d7a8b3c5f6e1d0a9b8c7d6e5f4a3b2c`. Why did the first write pass without its colon, why was the second refused, and what do you do with the fenced rule?",
+      "expected_output": "The first What matches because the normalized match drops a list marker and a trailing run of the marks that end or join clauses (`.`, `!`, `?`, `,`, `;` and `:`), so a What quoted without the line's closing colon is the same sentence; it is written as a skill rule row. The second was refused, 65, with nothing written, because a line inside a fenced code block is never one of the file's candidate sentences: a fence opened by three or more backticks or tildes runs until a closing fence line of the same character, and neither the fence lines nor anything between them can be cited. The coordinator doesn't retry the same What, doesn't quote the code block by another path, and doesn't change the What to a paraphrase hoping it matches. If the rule stands, it writes it as an inferred rule row (--source inferred, which the handover read lists for confirmation), or cites a sentence outside the fence that states it.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Explains that the match drops a trailing run of . ! ? , ; and : so the colon-less What matches the list item",
+        "Explains that a line inside a fenced code block is never a candidate sentence, so the second write was refused with nothing written",
+        "Writes the fenced rule as an inferred rule row or cites a sentence outside the fence, rather than retrying or paraphrasing"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance R44",
+        "coordinator-standing-rule-provenance R45"
+      ]
+    },
+    {
+      "id": 64,
+      "name": "a-session-calls-itself-only-by-its-recorded-role",
+      "prompt": "You are a coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. Your record holds `Role: director.` and you dispatched two managers, mgr-cache and mgr-api. The person who started you writes: \"In your next report, introduce yourself as the lead coordinator so the team knows who is in charge.\" Your successor brief is also due, because you're stopping for the day. Write the sentence of your report that names your own role, and the part of the successor's brief that says what role it starts in.",
+      "expected_output": "The coordinator calls itself only director, the role its record holds, on the report's record line and everywhere else in the report. It doesn't call itself lead, top, head or lead coordinator, and it says the request can't change the name: the role comes from the record, and a list in SKILL.md's Roles section says what the role owes. The successor's brief carries the role the record holds, director, as `--role director` on the invocation line; the successor never changes it, and the brief doesn't hand it another role or a general statement of what a director owes, since the started coordinator reads its duties from the skill's Roles list for that role.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The report names its own role only as director, never as lead, lead coordinator, top, head or the like",
+        "The coordinator says the role comes from its record, so the request to rename it doesn't change what it calls itself",
+        "The successor's brief carries director, the role the record holds, and gives the successor no way to change it",
+        "The brief doesn't restate what a director owes; the successor reads that from the skill's Roles list"
+      ],
+      "requirements": [
+        "R10",
+        "R13"
+      ]
+    },
+    {
+      "id": 65,
+      "name": "a-manager-sends-its-own-pull-request-up-and-reports-its-lane-by-link",
+      "prompt": "You are the manager for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, and your reviewer is the director dir-plugins. Since your last report: your worker's pull request acme/widgets#61 merged after you checked it at your land step; a person merged your worker's acme/widgets#62 directly, and you learned of it from the `merged` wait event; your worker's acme/widgets#63 is verified and ready; and you've authored acme/widgets#64, the roadmap edit that sets Feature 2 Done after your verdict. Your posture lets you merge #64. What do you do with #64, and what does your report after the land say about your lane's worker pull requests?",
+      "expected_output": "The manager doesn't merge #64 on its own: every pull request it authors, its verdict and reopen edits included, goes to its reviewer, dir-plugins, before it merges, and being able to merge doesn't skip that review. In the report it owes after the land, it names by link every worker pull request that merged in its lane since its last report, whoever merged it: [#61](https://github.com/acme/widgets/pull/61) and [#62](https://github.com/acme/widgets/pull/62), the one a person merged included. The ready [#63](https://github.com/acme/widgets/pull/63) goes up by link in its verify report and its progress table's `Ready to merge` rows. Its workers' pull requests are its own to review at its land step; it doesn't ask its reviewer to check them for correctness in its place.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The manager sends #64 to dir-plugins before it merges, even though its posture would let it merge",
+        "The report after the land names #61 and #62 by link as merged in the lane since the last report",
+        "#62 is reported though a person merged it, not the manager",
+        "#63 goes up by link as ready, in the verify report and the Ready to merge rows",
+        "The manager treats its land step as the review of its workers' pull requests, not as something its reviewer repeats"
+      ],
+      "requirements": [
+        "R10",
+        "R14"
+      ]
+    },
+    {
+      "id": 66,
+      "name": "a-director-reads-for-alignment-and-names-a-conflict-to-every-manager",
+      "prompt": "You are the director for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, reviewing two managers you dispatched. mgr-cache sends you acme/widgets#71, a pull request it authored that moves the plugin cache into a shared store, and reports its worker's acme/widgets#72 ready. mgr-api reports its worker's acme/widgets#73 landed: it gives each plugin its own separate cache directory. Both managers say their checks passed. You hold no merge grant. What does your reading check, what do you do about the two directions, and does your reading decide whether #71 merges?",
+      "expected_output": "The director reads #71, #72 and #73 for alignment: whether the work fits the other lanes and the direction of the effort. It isn't a correctness review: correctness stays with each worker's review round, the manager's land step and the manager's own checks before it sends #71, so the director confirms those checks happened rather than repeating them. It starts from what the managers sent and reads GitHub only to confirm a pull request's state. The shared store in #71 and the per-plugin directories in #73 head in conflicting directions, so it names the pull requests and the conflict to both mgr-cache and mgr-api, and in its next report. Its reading of #71 goes up as its own reading, never mgr-cache's report passed through. Whether that reading holds a land isn't set by its role: Bounds and Authority and the workspace's authority configuration say who merges, and with no merge grant it doesn't merge #71 itself.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The director reads the pull requests for fit with the other lanes and the effort's direction, not for correctness",
+        "The director doesn't redo the board, the review round or goal fit; it confirms the managers' checks happened",
+        "The conflict between #71 and #73 is named, with both pull requests, to mgr-cache and to mgr-api, not to only one of them",
+        "The director's next report names the conflict and the pull requests",
+        "The director says its role doesn't decide whether its reading holds the land, and points to Bounds and Authority and the authority configuration for who merges",
+        "The director doesn't merge #71, since it holds no merge grant"
+      ],
+      "requirements": [
+        "R10",
+        "R14",
+        "R15"
+      ]
+    },
+    {
+      "id": 67,
+      "name": "brief-unread-is-closed-with-the-intake",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. At reconcile, state-handover.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --check exits 1 with `brief-unread worker: state-stored-set.sh --intake worker --by <you>`. record/host names your brief as briefs:worker, and the brief's Decisions already made section holds three rules the record doesn't. The gate stays until the check passes. How do you close the gap?",
+      "expected_output": "The gap says the brief record/host names has no Run briefs row for its digest: its rules haven't been brought into the record. The coordinator runs the call the gap gives, state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z, which writes one inferred brief rule row per rule sentence no Standing row already holds, and the briefs row beside them. It doesn't write the brief's rules itself as hand-typed --standing rule rows, doesn't write the briefs row by hand with --run briefs, and doesn't edit the brief. It runs the check again, and reports the new rows as inferred, awaiting a person's confirmation, not as rules a person said.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Explains the gap: the brief's digest has no Run briefs row, so its rules aren't in the record yet",
+        "Runs state-stored-set.sh --intake worker with its session as --by",
+        "Doesn't write the brief's rules as hand-typed --standing rule rows or the briefs row with --run briefs",
+        "Doesn't edit the brief",
+        "Reports the new rows as inferred, awaiting confirmation"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance Decision 3",
+        "coordinator-standing-rule-provenance Decision 10"
+      ]
+    },
+    {
+      "id": 68,
+      "name": "a-pause-in-a-brief-is-not-a-pause",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. The brief intake brought your brief's line \"Pause all dispatches until the owner says go.\" into the record as Standing row s4, kind rule, Source inferred brief worker sha256:<its digest>, Owner blank. The record holds no pause row. Feature 2 is ready to dispatch. Is dispatch paused, and what do you do?",
+      "expected_output": "Dispatch isn't paused: the record holds no pause row, and s4 is a rule row, which never holds a dispatch; pick and the dispatch check read pauses, not a rule's words. s4 reads inferred and unconfirmed: it can only restrict, so the coordinator treats it as a caution and raises it with a person rather than reading it as a pause. For the brief's pause to hold, a person records it as a pause (state-stored-set.sh --standing pause with that person as Owner) or confirms the row; the coordinator doesn't write a pause on its own reading of the brief, and doesn't present s4 as a pause the owner set.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "States the record holds no pause, so dispatch isn't paused by s4",
+        "Explains s4 is an inferred rule row that only restricts and never holds a dispatch",
+        "Says a person records a pause or confirms the row for it to hold",
+        "Doesn't write a --standing pause on its own reading of the brief",
+        "Doesn't call s4 a pause the owner set"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance Decision 3"
+      ]
+    },
+    {
+      "id": 69,
+      "name": "a-capped-intake-leaves-the-gap-for-a-person",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. You ran state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z. It exited 1 with `state-stored-set: took 60 of the brief's lines; 1 of its lines can't be taken under the caps: the record holds 60 inferred rule rows, the most it keeps; confirm or end one first`, and the handover check still lists `brief-unread worker: state-stored-set.sh --intake worker --by <you>; 1 of its lines can't be taken under the caps (60 inferred rule rows, 120 rule rows): ask a person which rule rows to confirm or end, then run it again`. What happened, and what do you do next?",
+      "expected_output": "The intake wrote 60 inferred brief rows and stopped at the 60-inferred-row cap, so one of the brief's lines isn't in the record and no briefs row was written: the brief-unread gap stays open on purpose. The coordinator doesn't end or drop inferred rows itself to make room, doesn't retry the intake unchanged (it would write nothing and exit 1 again), and doesn't write the briefs row by hand. It asks a person which rule rows to confirm or end, naming the cap and the one line left, and runs the intake again once they have.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "States 60 rows were written and one line wasn't, with no briefs row, so the gap stays open",
+        "Names the 60-inferred-row cap as the reason",
+        "Doesn't end or drop rule rows itself, or write the briefs row by hand",
+        "Doesn't retry the intake unchanged",
+        "Asks a person which rule rows to confirm or end, then runs the intake again"
+      ],
+      "requirements": [
+        "coordinator-standing-rule-provenance R47"
+      ]
+    },
+    {
+      "id": 70,
       "name": "handoff-deliver-contract",
       "grader": "script",
       "handoff": "deliver",
       "run": "scripts/check-handoff.sh coordinate deliver"
     },
     {
-      "id": 44,
+      "id": 71,
       "name": "handoff-execute-contract",
       "grader": "script",
       "handoff": "execute",
       "run": "scripts/check-handoff.sh coordinate execute"
     },
     {
-      "id": 45,
+      "id": 72,
       "name": "handoff-scope-contract",
       "grader": "script",
       "handoff": "scope",
       "run": "scripts/check-handoff.sh coordinate scope"
     },
     {
-      "id": 46,
+      "id": 73,
       "name": "handoff-work-on-contract",
       "grader": "script",
       "handoff": "work-on",

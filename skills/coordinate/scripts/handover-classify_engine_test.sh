@@ -99,7 +99,8 @@ REC=$(record_json roadmap hc | jq -c \
     .holdings = [$a, $b, $c]
     | .run = [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-hc.md", set_by: "the human", set: "2026-09-26T08:00Z"},
               {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
-              {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T08:00Z"}]
+              {key: "reports-to", value: "the human", set_by: "the human", set: "2026-09-26T08:00Z"},
+              {key: "role", value: "manager", set_by: "start --role", set: "2026-09-26T08:00Z"}]
     | .work = [.holdings[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-09-26T08:00Z"}]')
 RAW_RECORD=1 seed_record hc "$REC"
 if open_run hc && [ "$(at)" = reconcile ]; then

@@ -15,7 +15,16 @@
 # other form, pr-held when another row links it, and by the scope, fork and
 # Branch rules; `unknown` for a topic with no row and `unknown -` for evidence naming
 # no dispatch topic; a failed read (2); the sealed token; every token in
-# koto's capture alphabet. The record is the run's session's.
+# koto's capture alphabet; a holding's moved pull request head kept after the
+# verdict is sealed, an unchanged one written never, and a slow write stopped
+# at the deadline or a failing one naming the head on stderr with the verdict,
+# coord/report.json and the exit code unchanged and the head kept on a later
+# visit (shirabe#1123), and a write with a second or less left skipped and
+# named the same way; a slow record read, holdings list, pull request read or
+# coord/report.json add stopped at the deadline, the action returning within
+# it plus a small margin with exit 2, no verdict and the call named on stderr,
+# and no time left failing the first read the same way (shirabe#1531). The
+# record is the run's session's.
 #
 # Usage: bash skills/coordinate/scripts/report-facts_test.sh
 set -uo pipefail
@@ -46,6 +55,8 @@ HOLDINGS=$(jq -nc \
     --argjson k "$(h kappa acme/widgets '' '' | jq -c '.return_path = "leg req-2:deliver"')" \
     --argjson l "$(h lambda acme/widgets feat/lambda '')" \
     '[$a, $b, $c, $d, $e, $f, $g, $i, $j, $k, $l]')
+# mu: a dispatched coordinator's holding, its Pull request cell empty.
+HOLDINGS=$(printf '%s' "$HOLDINGS" | jq -c --argjson m "$(h mu acme/widgets '' '' | jq -c '.entry_point = "/shirabe:coordinate"')" '. + [$m]')
 pr() { # pr <repo> <n> <headRefName> [cross]
     db '.prs += [{repo: $r, number: $n, title: "w", body: "", state: "OPEN", isDraft: false, isCrossRepository: ($x == "true"),
         baseRefName: "main", headRefName: $b, headRefOid: $h, author: "alice", editor: null, mergeStateStatus: "CLEAN"}]' \
@@ -59,6 +70,7 @@ seed() { # the pull requests, and the record in the run's session
     pr acme/widgets 15 feat/other; pr acme/widgets 16 anything; pr acme/widgets 17 feat/iota; pr acme/widgets 18 feat/theta
     db '.repos["acme/other"] = {private: false, default_branch: "main"}'; pr acme/other 3 feat/gamma
     pr acme/widgets 20 feat/zeta; pr acme/widgets 21 feat/kappa; pr acme/widgets 22 feat/forked true
+    pr acme/widgets 23 feat/mu
 }
 seed
 found_session "$S" "$(roadmap_vars plugin-system)"
@@ -198,6 +210,21 @@ eq "progress naming a pull request out of scope is refused as a report is" "refu
 report '{"event":"report","unit":"alpha"}'
 eq "a report after progress is classified as before" "holding 12 alpha" "${OUT% sealed:*}"
 
+echo "== progress on a coordinate holding =="
+# A dispatched coordinator's progress event names a pull request of a worker
+# it runs; its holding is not linked to it. Its report still links.
+MU_BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
+: > "$KOTO_STORE/calls"
+report '{"event":"progress","unit":"mu","report":"a worker opened a PR","pull_request":"acme/widgets#23"}'
+eq "progress on a coordinate holding naming a pull request gives no link" "progress none mu" "${OUT% sealed:*}"
+eq "  ... and the holding's record is byte-identical" "$MU_BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
+eq "  ... with no record/holdings write" 0 "$(grep -c "^context add $S record/holdings" "$KOTO_STORE/calls")"
+eq "  ... and no pull request in its facts" null "$(facts | jq -c '.pull_request')"
+report '{"event":"report","unit":"mu","pull_request":"acme/widgets#23"}'
+eq "a coordinate holding's report naming a pull request still links it" "link 23 mu" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/widgets#20"}'
+eq "a worker holding's progress naming a pull request still links it" "link 20 zeta" "${OUT% sealed:*}"
+
 echo "== failures =="
 db '.fail = [{match: "pr view 12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 report '{"event":"report","unit":"alpha"}'
@@ -250,5 +277,188 @@ eq "the same token and koto calls with 3 entries and with 300 (${FEW##* } calls)
 eq "  ... the holding found" "holding 12 alpha" "${MANY% *}"
 eq "  ... reading no entry and never listing record/" "0 0" \
     "$(grep -c '^context get [^ ]* record/entries/' "$T/kc.calls") $(grep -c '^context list [^ ]* --prefix record/$' "$T/kc.calls")"
+
+echo "== the pushed head: kept after the verdict, the write bounded (shirabe#1123) =="
+# kept <topic>: the pushed head the record keeps for that holding.
+kept() { jq -r --arg t "$1" '.[] | select(.worker == $t) | .pushed_head // "none"' "$KOTO_STORE/context/$S/record/holdings"; }
+holdings_adds() { grep -c "^context add $S record/holdings" "$KOTO_STORE/calls"; }
+# slow_running: the delayed add's sleep, whose pid the stand-in records, is
+# still running. ps rather than kill -0, which also finds a reaped-late zombie.
+slow_running() {
+    local pid
+    pid=$(cat "$KOTO_STORE/add-delay.pid" 2> /dev/null) && [ -n "$pid" ] || return 1
+    case "$(ps -o stat= -p "$pid" 2> /dev/null | tr -d ' ')" in "" | Z*) return 1 ;; esac
+}
+seed
+eq "a holding starts with no pushed head" none "$(kept alpha)"
+: > "$KOTO_STORE/calls"
+report '{"event":"report","unit":"alpha"}'
+eq "a moved head: the verdict is unchanged" "holding 12 alpha" "${OUT% sealed:*}"
+eq "  ... and the new head is kept" "$SHA_HEAD" "$(kept alpha)"
+eq "  ... in one record/holdings write" 1 "$(holdings_adds)"
+eq "  ... coord/report.json written before it" "context add $S coord/report.json" \
+    "$(grep -E "^context add $S (coord/report.json|record/holdings)" "$KOTO_STORE/calls" | head -1 | cut -d' ' -f1-4)"
+: > "$KOTO_STORE/calls"
+report '{"event":"report","unit":"alpha"}'
+eq "an unchanged head: the same verdict" "holding 12 alpha" "${OUT% sealed:*}"
+eq "  ... and no record/holdings write" 0 "$(holdings_adds)"
+report '{"event":"progress","unit":"alpha","report":"checkpoint"}'
+eq "  ... progress the same" "progress 12 alpha 0" "${OUT% sealed:*} $(holdings_adds)"
+
+seed
+BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
+rm -f "$KOTO_STORE/context/$S/coord/report.json"
+SLOW=20
+rm -f "$KOTO_STORE/add-delay.pid"
+START=$SECONDS
+KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+TOOK=$((SECONDS - START))
+eq "a slow write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
+[ "$TOOK" -le 5 ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
+    || bad "  ... the action returns within the deadline and a small margin" "${TOOK} s"
+log_to "$S" wait report_facts
+bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit && ok "  ... the token is sealed" || bad "  ... the token is sealed"
+log_to "$S" report_facts wait
+[ -s "$KOTO_STORE/context/$S/coord/report.json" ] && ok "  ... coord/report.json is written" || bad "  ... coord/report.json is written"
+eq "  ... record/holdings is unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
+grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the 3 s the action allows; it's tried again on the holding's next visit" "$T/err" \
+    && ok "  ... and stderr names the head the stopped write didn't keep" \
+    || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
+eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
+[ -s "$KOTO_STORE/add-delay.pid" ] && ok "  ... the slow write started" || bad "  ... the slow write started" "no pid recorded"
+slow_running && bad "  ... no write is left running" "pid $(cat "$KOTO_STORE/add-delay.pid")" || ok "  ... no write is left running"
+report '{"event":"report","unit":"alpha"}'
+eq "the next visit with a fast write: the same verdict" "holding 12 alpha" "${OUT% sealed:*}"
+eq "  ... and the head is kept" "$SHA_HEAD" "$(kept alpha)"
+
+# koto kills a timed-out action's own process group, which the write is not
+# in: the write's watcher stops it once the script is gone.
+seed
+BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
+log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
+log_to "$S" wait report_facts
+rm -f "$KOTO_STORE/add-delay.pid"
+KOTO_ADD_DELAY="record/holdings:$SLOW" bash "$RF" --session "$S" > /dev/null 2>&1 &
+RFPID=$!
+# The stand-in records the delay's pid as the add starts; a loaded host can
+# take a while to reach it.
+i=0
+while [ "$i" -lt 600 ] && ! [ -s "$KOTO_STORE/add-delay.pid" ]; do sleep 0.1; i=$((i + 1)); done
+slow_running && ok "a write killed with its script: the write was running" || bad "a write killed with its script: the write was running"
+kill -KILL "$RFPID"; wait "$RFPID" 2> /dev/null
+i=0
+while [ "$i" -lt 20 ] && slow_running; do sleep 0.1; i=$((i + 1)); done
+slow_running && bad "  ... and is stopped within 2 s of it" "pid $(cat "$KOTO_STORE/add-delay.pid")" || ok "  ... and is stopped within 2 s of it"
+eq "  ... record/holdings unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
+log_to "$S" report_facts wait
+
+seed
+KOTO_FAIL_ADD=record/holdings report '{"event":"report","unit":"alpha"}'
+eq "a failing write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
+eq "  ... no head kept" none "$(kept alpha)"
+grep -q "alpha's pushed head $SHA_HEAD wasn't kept: .*record/holdings write failed" "$T/err" && ok "  ... and stderr names it" \
+    || bad "  ... and stderr names it" "$(cat "$T/err")"
+REPORT_FACTS_DEADLINE=0 report '{"event":"report","unit":"alpha"}'
+eq "no time left: a failed read, no verdict and no write tried" "2 [] none" "$RC [$OUT] $(kept alpha)"
+grep -qF "the holding's read (state-holding.sh --read) didn't finish within the action's 0 s deadline" "$T/err" \
+    && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
+# A second or less left once the verdict is sealed: the write is skipped.
+# With a 1 s deadline the reads, the add and the seal have to finish before
+# the script's whole-second clock first ticks, so each try starts just after
+# a wall-clock second begins; a try a loaded host slows past that tick fails
+# its first late call, and is tried again.
+skipped_write() {
+    local s
+    log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
+    log_to "$S" wait report_facts
+    : > "$KOTO_STORE/calls"
+    s=$(date +%s)
+    while [ "$(date +%s)" = "$s" ]; do sleep 0.01; done
+    OUT=$(REPORT_FACTS_DEADLINE=1 bash "$RF" --session "$S" 2> "$T/err")
+    RC=$?
+    log_to "$S" report_facts wait
+}
+seed
+for try in 1 2 3; do
+    skipped_write
+    [ "$RC" = 2 ] && grep -q "within the action's 1 s deadline" "$T/err" || break
+done
+eq "no time left for the write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
+eq "  ... no write tried and no head kept" "0 none" "$(holdings_adds) $(kept alpha)"
+eq "  ... and stderr names the head" "report-facts: alpha's pushed head $SHA_HEAD wasn't kept: no time was left for the write" "$(cat "$T/err")"
+REPORT_FACTS_DEADLINE=soon report '{"event":"report","unit":"alpha"}'
+eq "a deadline that isn't whole seconds is a usage error" 64 "$RC"
+
+echo "== the reads and the coord/report.json add bounded by the deadline (shirabe#1531) =="
+# Every backend call before the verdict is stopped at the deadline, so the
+# action exits 2 (a failed read, never a verdict) before koto's kill.
+seed
+rm -f "$KOTO_STORE/context/$S/coord/report.json"
+START=$SECONDS
+KOTO_CALL_DELAY=$SLOW REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+TOOK=$((SECONDS - START))
+eq "a slow record read: a failed read with no verdict" "2 []" "$RC [$OUT]"
+[ "$TOOK" -le 5 ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+    || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
+grep -qF "report-facts: the holding's read (state-holding.sh --read) didn't finish within the action's 3 s deadline" "$T/err" \
+    && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
+[ -e "$KOTO_STORE/context/$S/coord/report.json" ] && bad "  ... and coord/report.json is not written" \
+    || ok "  ... and coord/report.json is not written"
+
+seed
+rm -f "$KOTO_STORE/context/$S/coord/report.json" "$KOTO_STORE/add-delay.pid"
+START=$SECONDS
+KOTO_ADD_DELAY="coord/report.json:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+TOOK=$((SECONDS - START))
+eq "a slow coord/report.json add: a failed read with no verdict" "2 []" "$RC [$OUT]"
+[ "$TOOK" -le 5 ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+    || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
+grep -qF "report-facts: the coord/report.json add didn't finish within the action's 3 s deadline" "$T/err" \
+    && ok "  ... and stderr names the add" || bad "  ... and stderr names the add" "$(cat "$T/err")"
+[ -s "$KOTO_STORE/add-delay.pid" ] && ok "  ... the slow add started" || bad "  ... the slow add started" "no pid recorded"
+slow_running && bad "  ... no add is left running" "pid $(cat "$KOTO_STORE/add-delay.pid")" || ok "  ... no add is left running"
+eq "  ... and no head kept" none "$(kept alpha)"
+report '{"event":"report","unit":"alpha"}'
+eq "the next visit with fast calls: the same verdict" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
+
+# A slow GitHub: gh pr view, through a stand-in that sleeps first.
+seed
+rm -f "$KOTO_STORE/context/$S/coord/report.json"
+mkdir -p "$T/gslow"
+cat > "$T/gslow/gh" <<EOF
+#!/usr/bin/env bash
+[ "\${1:-} \${2:-}" = "pr view" ] && sleep $SLOW
+exec "$HERE/testdata/gh" "\$@"
+EOF
+chmod +x "$T/gslow/gh"
+START=$SECONDS
+PATH="$T/gslow:$PATH" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+TOOK=$((SECONDS - START))
+eq "a slow pull request read: a failed read with no verdict" "2 []" "$RC [$OUT]"
+[ "$TOOK" -le 5 ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+    || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
+grep -qF "report-facts: the pull request read (gh pr view 12 --repo acme/widgets) didn't finish within the action's 3 s deadline" "$T/err" \
+    && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
+[ -e "$KOTO_STORE/context/$S/coord/report.json" ] && bad "  ... and coord/report.json is not written" \
+    || ok "  ... and coord/report.json is not written"
+
+seed
+log_evidence "$S" wait '{"event":"leg"}'
+log_to "$S" wait leg_pick
+log_capture "$S" WAIT_REQ req-1
+log_to "$S" leg_pick wait_leg
+log_capture "$S" WAIT_LEG execute
+log_to "$S" wait_leg take_report
+log_to "$S" take_report report_facts
+START=$SECONDS
+OUT=$(KOTO_CALL_DELAY=$SLOW REPORT_FACTS_DEADLINE=3 bash "$RF" --session "$S" 2> "$T/err")
+RC=$?
+TOOK=$((SECONDS - START))
+log_to "$S" report_facts wait
+eq "a slow holdings list on the leg path: a failed read with no verdict" "2 []" "$RC [$OUT]"
+[ "$TOOK" -le 5 ] && ok "  ... within its deadline plus a small margin (${TOOK} s)" \
+    || bad "  ... within its deadline plus a small margin" "${TOOK} s"
+grep -qF "report-facts: the holdings read (state-holding.sh --list) didn't finish within the action's 3 s deadline" "$T/err" \
+    && ok "  ... and stderr names the read" || bad "  ... and stderr names the read" "$(cat "$T/err")"
 
 done_tests report-facts

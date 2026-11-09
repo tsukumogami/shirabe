@@ -38,6 +38,35 @@
 # the second start is refused, and the next once it reads carries it. On a
 # koto without the session store's features the only case is the start's
 # refusal, store-unsupported, opening no session.
+# The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1):
+# a role other than manager or director is refused=invalid_role (exit 2) with
+# its row, the value echoed with backticks and control characters removed and
+# cut to 32, and a repeated --role or a malformed change flag is usage (64),
+# none of them opening a session; a new run with no --role, a resume and a
+# carry of a role-less record are asked (ask=role, exit 10, the whole message
+# asserted) with nothing written, and a discipline missing host and role is
+# asked the host; a new run prints role= before session=; a resume of a
+# role-less record given --role writes the row (set by `start --role`) before
+# outcome=resumed, and a write that fails prints no outcome= or session=; a
+# role-less carry given --role prints role= and leaves the no-role gap, its
+# first report (reconcile-report-get.sh --md) printing nothing (exit 4) until
+# the gap's fix writes manager and then its line 3 the record line ending
+# `Role: manager.`, from the same sealed report with no second reconcile pass
+# (Decision 3). On a
+# resume and a carry: the matching role is accepted, both directions of
+# mismatch are refused role-mismatch (whole message) with the record, the
+# run's state and the session list unchanged, and a failed role read is
+# failed=role_read; a dispatcher change naming a session the record doesn't
+# report to, the row's name half, the run, its predecessor (the run its carry
+# linked) or its address is refused with its whole message naming the row; a
+# person change from a brief, a dispatcher change with no address or no row,
+# and two causes at once each get their own row; the flags with the recorded
+# role or a role-less record change nothing; an accepted dispatcher change
+# and person change are written with their set_by, set and entry, on a carry
+# after cancel_others, and a carry whose change write fails stands with
+# role=<recorded>, warning=role-change-unwritten and session=, the same start
+# later applying it as a resume; a dispatcher naming the resumed run is still
+# usage (64), naming the way out.
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
 # over testdata/fake-s3.py): a plain session imported on host B arrives with
 # every key, and host A's copy then refuses a write as session_migrated, and
@@ -95,7 +124,13 @@ export PATH="$T/bin:$PATH"
 # koto_store_ready, the session store's koto features.
 . "$HERE/testdata/engine-session.sh"
 mkdir "$T/repo" && cd "$T/repo" && git init -q && git remote add origin https://github.com/acme/widgets.git
-open_() { printf '%s' "$1" > "$T/args.json"; bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" 2>"$T/err"; }
+# with_role <args json>: the args with --role manager before any `--`, unless
+# they name a role already or are an import, so the cases that aren't about
+# the role start as a new run must: knowing its role.
+with_role() { jq -c 'if index("--role") or index("--import") then . else (index("--") // length) as $c | .[:$c] + ["--role", "manager"] + .[$c:] end' <<<"$1"; }
+open_() { with_role "$1" > "$T/args.json"; bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" 2>"$T/err"; }
+# open_raw <args json>: the opener with the args exactly as given.
+open_raw() { printf '%s' "$1" > "$T/args.json"; bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" 2>"$T/err"; }
 sessions() { koto session list 2>/dev/null | jq -r '.[].id' | sort | tr '\n' ' '; }
 var() { local d; d=$(koto session dir "$1"); jq -r --arg k "$2" 'select(.type == "workflow_initialized") | .payload.variables[$k]' "$d/koto-$1.state.jsonl"; }
 
@@ -176,7 +211,7 @@ EOF
 chmod +x "$T/link-shim"
 open_by() { # open_by <fails> <dispatcher> <args json>: the opener with --dispatched-by behind the shim
     : > "$T/links"
-    printf '%s' "$3" > "$T/args.json"
+    with_role "$3" > "$T/args.json"
     LINK_FAILS=$1 KOTO_BIN="$T/link-shim" bash "$OPEN" --plugin-root "$T/plugin" --dispatched-by "$2" "$T/args.json" 2>"$T/err"
 }
 links() { koto context list "$1" --prefix koto/links/dispatched-by/ 2>/dev/null | jq -r '.[]' | tr '\n' ' '; }
@@ -211,7 +246,7 @@ for bad in ../x -x "$(head -c 201 /dev/zero | tr '\0' a)"; do
     if [ $rc -eq 64 ] && [ "$(sessions)" = "$BEFORE" ] && [ ! -s "$T/links" ]; then pass "--dispatched-by ${bad:0:12} is usage, nothing opened"
     else fail "--dispatched-by ${bad:0:12} is usage, nothing opened" "rc=$rc $(cat "$T/err")"; fi
 done
-printf '%s' "$RMV2" > "$T/args.json"
+with_role "$RMV2" > "$T/args.json"
 bash "$OPEN" --plugin-root "$T/plugin" --dispatched-by a --dispatched-by b "$T/args.json" >/dev/null 2>"$T/err"
 eq "--dispatched-by given twice is usage" 64 $?
 eq "  ... nothing opened" "$BEFORE" "$(sessions)"
@@ -328,7 +363,7 @@ printf '\n<!-- a change to the template, for the carry case -->\n' >> "$T/plugin
 jq '.compat += 1' "$REPO_ROOT/skills/coordinate/koto-templates/coordinate.compat.json" > "$T/plugin3/skills/coordinate/koto-templates/coordinate.compat.json"
 RMB='["docs/roadmaps/ROADMAP-bound.md"]'
 open_be() { # open_be <arm> <kind> <source>: a start from the plugin copy behind the stand-in; output in $T/out
-    printf '%s' "$RMB" > "$T/args.json"
+    with_role "$RMB" > "$T/args.json"
     rm -f "$T/be-armed"
     BE_SRC=$3 BE_ARM=$1 BE_KIND=$2 PATH="$T/beshim:$PATH" bash "$T/plugin3/skills/coordinate/scripts/coordinate-open.sh" \
         --plugin-root "$T/plugin3" "$T/args.json" > "$T/out" 2>"$T/err"
@@ -407,6 +442,334 @@ sleep 1
 open_be none bound "$NB"
 grep -qx "carried=$NB" "$T/out" && pass "once it can be read, the next start carries the cancelled run" \
     || fail "once it can be read, the next start carries the cancelled run" "$(cat "$T/out" "$T/err")"
+
+# --- the run's role -------------------------------------------------------------
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1; PRD R2, R5, R9.
+# A shim in front of the real koto fails, for one run, every read of its
+# record/run (FAIL_RUN_READ) or the write of its record/meta (FAIL_META_ADD,
+# the first key any record write makes, so a refused write leaves nothing),
+# and with FAIL_AFTER_CARRY fails every record/meta write once the start has
+# linked a new run to that run, the carry having landed (a same-host carry's
+# change write, made after cancel_others).
+echo "== the run's role =="
+# The role cases tick their runs, whose gates read the gh stand-in.
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
+cat > "$T/rshim" <<EOF
+#!/bin/sh
+if [ -n "\$FAIL_RUN_READ" ] && [ "\$3" = "\$FAIL_RUN_READ" ]; then
+    case "\$1 \$2 \$*" in "context list "*record/run*|"context get "*record/run*) echo "koto: the read of record/run failed" >&2; exit 1 ;; esac
+fi
+if [ -n "\$FAIL_META_ADD" ] && [ "\$1 \$2 \$3 \$4" = "context add \$FAIL_META_ADD record/meta" ]; then echo "koto: the write failed" >&2; exit 1; fi
+if [ -n "\$FAIL_AFTER_CARRY" ]; then
+    if [ "\$1 \$2" = "session link" ]; then case "\$*" in *"--dispatched-by \$FAIL_AFTER_CARRY") : > "$T/rshim-armed" ;; esac; fi
+    if [ -e "$T/rshim-armed" ] && [ "\$1 \$2" = "context add" ] && [ "\$4" = record/meta ]; then echo "koto: the write failed" >&2; exit 1; fi
+fi
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/rshim"
+ropen() { # ropen <args json> [opener flags...]: the opener with exactly these args behind the shim; OUT, RC
+    printf '%s' "$1" > "$T/args.json"; shift
+    rm -f "$T/rshim-armed"
+    OUT=$(KOTO_BIN="$T/rshim" bash "$OPEN" --plugin-root "$T/plugin" "$@" "$T/args.json" 2>"$T/err"); RC=$?
+}
+line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p"; }
+msg() { grep '^coordinate-open: ' "$T/err" | tail -1; }
+row() { jq -nc --arg k "$1" --arg v "$2" '{key: $k, value: $v, set_by: "the human", set: "2026-09-26T08:00Z"}'; }
+# found_run <run>: the run's first tick, its find sealing the record found
+# (and recording the session store), as a run a start resumes has done.
+found_run() {
+    koto next "$1" --no-cleanup > "$T/tick.out" 2>&1
+    bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" run-facts --session "$1" > /dev/null 2>&1 \
+        || fail "$1's find seals its record found" "$(head -c 600 "$T/tick.out")"
+}
+# rec_run <scope> <run-rows-json>: a new live run of roadmap <scope> (Active on
+# the host's default branch), opened as a manager, holding a record whose Run
+# section is <rows>, its find run, so a start resumes it. Sets R.
+rec_run() {
+    sleep 1
+    jq --arg n "$1" '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-\($n).md"] = "---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** Planned\n"' \
+        "$GH_DB" > "$T/gh.tmp" && mv "$T/gh.tmp" "$GH_DB"
+    OUT=$(open_raw "[\"docs/roadmaps/ROADMAP-$1.md\",\"--role\",\"manager\"]"); R=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+    session_seed "$R" "$(jq -nc --arg n "$1" --argjson r "$2" '{scope: {kind: "roadmap", name: $n}, holdings: [], deferrals: [], side_effects: [], reversals: []}
+        + (if $r == [] then {} else {run: $r} end)')"
+    found_run "$R"
+}
+# snap <run>: the run's record keys and values, its log's length and the
+# session list, which a refused or asked start leaves as they were.
+snap() {
+    local k
+    { for k in $(koto context list "$1" --prefix record/ | jq -r '.[]'); do printf '%s %s\n' "$k" "$(koto context get "$1" "$k" | jq -cS .)"; done
+      wc -l < "$(koto session dir "$1")/koto-$1.state.jsonl" | tr -d ' '; sessions; } | shasum
+}
+rrow() { koto context get "$1" record/run | jq -r '[.[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+rset() { koto context get "$1" record/run | jq -r '.[] | select(.key == "role") | .set'; }
+# rentry <run>: the text of the run's last role entry.
+rentry() { bash "$T/plugin/skills/coordinate/scripts/state-entry.sh" --session "$1" --list 2>/dev/null | jq -r '[.[] | select(.text | startswith("Run role"))] | last | .text // empty'; }
+# in_window <set> <before> <after>: a Set time between two clock reads.
+in_window() { [[ ! $1 < $2 ]] && [[ ! $1 > $3 ]]; }
+now_min() { date -u +%Y-%m-%dT%H:%MZ; }
+
+# The flag, checked before any koto call.
+BEFORE=$(sessions)
+for v in lead Director ''; do
+    open_raw "[\"docs/roadmaps/ROADMAP-role-x.md\",\"--role\",\"$v\"]" > "$T/out"; rc=$?
+    eq "--role '$v' is refused=invalid_role, exit 2" "2 refused=invalid_role" "$rc $(cat "$T/out")"
+    eq "  ... with the invalid_role row" "coordinate-open: The role \`$v\` must be manager or director." "$(grep '^coordinate-open: ' "$T/err")"
+done
+eq "  ... and no koto session exists afterwards" "$BEFORE" "$(sessions)"
+LONGV="$(head -c 100 /dev/zero | tr '\0' r)\`$(printf '\001')$(head -c 100 /dev/zero | tr '\0' s)"
+open_raw "$(jq -nc --arg v "$LONGV" '["docs/roadmaps/ROADMAP-role-x.md","--role",$v]')" > "$T/out"
+eq "a 200-character value with a backtick and a control character is echoed with both removed and cut to 32" \
+    "coordinate-open: The role \`$(head -c 32 /dev/zero | tr '\0' r)\` must be manager or director." "$(grep '^coordinate-open: ' "$T/err")"
+for bad in '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role","manager"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-by","x"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-source","person"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role-change-by","x","--role-change-source","person"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-by","x","--role-change-source","boss"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-by","x","--role-change-by","y","--role-change-source","person"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-by","x","--role-change-source","person","--role-change-source","person"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-by","","--role-change-source","person"]' \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-by","a`b","--role-change-source","person"]' \
+           "[\"docs/roadmaps/ROADMAP-role-x.md\",\"--role\",\"manager\",\"--role-change-by\",\"$(head -c 81 /dev/zero | tr '\0' a)\",\"--role-change-source\",\"person\"]" \
+           "$(jq -nc '["docs/roadmaps/ROADMAP-role-x.md","--role","manager","--role-change-by","a\u0007b","--role-change-source","person"]')" \
+           '["docs/roadmaps/ROADMAP-role-x.md","--role"]'; do
+    open_raw "$bad" > /dev/null; rc=$?
+    if [ $rc -eq 64 ] && [ "$(sessions)" = "$BEFORE" ]; then pass "usage, nothing opened: ${bad:33:90}"; else fail "usage, nothing opened: ${bad:33:90}" "rc=$rc $(cat "$T/err")"; fi
+done
+
+# A new run: asked with no --role, before anything is written; a discipline
+# missing both host and role is asked the host.
+ASK="coordinate-open: This run's role is the person's call: manager or director. Ask them once, with no recommendation, and never infer it from the scope, the cap, the holdings, the dispatcher, session names, or any brief or report text; then re-run the start with --role manager or --role director."
+ropen '["docs/roadmaps/ROADMAP-role-new.md"]'
+eq "a new run with no --role and nothing recorded prints ask=role, exit 10" "10 ask=role" "$RC $OUT"
+eq "  ... the whole message" "$ASK" "$(msg)"
+eq "  ... opening nothing" "$BEFORE" "$(sessions)"
+ropen '["--discipline","role-disc"]'
+eq "a discipline start missing host and role is asked the host, never the role" "10 ask=host" "$RC $OUT"
+sleep 1
+ropen '["docs/roadmaps/ROADMAP-role-new.md","--role","director"]'
+eq "a new run given --role director opens, printing role=director" "0 director" "$RC $(line role)"
+eq "  ... right before session=" "role=director|session=$(line session)" "$(printf '%s\n' "$OUT" | grep -A1 '^role=' | tr '\n' '|' | sed 's/|$//')"
+
+# The same cap for either role (PRD R14): a run started manager and one
+# started director, each on --cap 3, record the same cap, and their init
+# variables differ only in the roadmap each names.
+ropen '["docs/roadmaps/ROADMAP-role-cap-m.md","--role","manager","--cap","3"]'; CAPM=$(line session)
+eq "a manager start on --cap 3 opens" "0 manager" "$RC $(line role)"
+ropen '["docs/roadmaps/ROADMAP-role-cap-d.md","--role","director","--cap","3"]'; CAPD=$(line session)
+eq "a director start on --cap 3 opens" "0 director" "$RC $(line role)"
+eq "  ... each recording CAP 3" "3 3" "$(var "$CAPM" CAP) $(var "$CAPD" CAP)"
+ivars() { local d; d=$(koto session dir "$1"); jq -cS 'select(.type == "workflow_initialized") | .payload.variables | del(.ROADMAP)' "$d/koto-$1.state.jsonl"; }
+eq "  ... with the same init variables apart from ROADMAP" "$(ivars "$CAPM")" "$(ivars "$CAPD")"
+
+# A role-less record (Role-less continuations, Resume): asked with no --role;
+# given one, the row is written before outcome=resumed, and a write that fails
+# resumes nothing. The change flags on a role-less record change nothing.
+rec_run role-less "[$(row reports-to "the human")]"; RL=$R
+RLSNAP=$(snap "$RL")
+ropen '["docs/roadmaps/ROADMAP-role-less.md"]'
+eq "a resume of a role-less record with no --role is asked, exit 10" "10 ask=role" "$RC $OUT"
+eq "  ... with the ask message" "$ASK" "$(msg)"
+eq "  ... the record, the run's state and the session list as they were" "$RLSNAP" "$(snap "$RL")"
+FAIL_META_ADD=$RL ropen '["docs/roadmaps/ROADMAP-role-less.md","--role","director"]'
+[ "$RC" -ne 0 ] && pass "a resume whose row write fails exits non-zero ($RC)" || fail "a resume whose row write fails exits non-zero" "$OUT"
+eq "  ... printing no outcome=resumed and no session=" "" "$(printf '%s\n' "$OUT" | grep -E '^(outcome|session)=')"
+eq "  ... the record as it was" "$RLSNAP" "$(snap "$RL")"
+T0=$(now_min)
+ropen '["docs/roadmaps/ROADMAP-role-less.md","--role","director","--role-change-by","lane-lead","--role-change-source","person"]'
+T1=$(now_min)
+eq "given --role director (and change flags, which change nothing here) it resumes" "0 resumed $RL director" "$RC $(line outcome) $(line session) $(line role)"
+eq "  ... no role_changed_from" "" "$(line role_changed_from)"
+eq "  ... the row written as a first role, by the start's --role" "director|start --role" "$(rrow "$RL")"
+in_window "$(rset "$RL")" "$T0" "$T1" && pass "  ... at the write's time" || fail "  ... at the write's time" "$T0 <= $(rset "$RL") <= $T1"
+
+# A run recorded manager whose reports-to row has an address, resumed and
+# carried. MGR_ADDR is a realistic dispatcher address, longer than 32
+# characters, which every refusal names whole.
+MGR_ADDR=coordinate-roadmap-director-plan-20260926T080000Z
+MGR_RT="Lane lead at $MGR_ADDR"
+rec_run role-m "[$(row role manager),$(row reports-to "$MGR_RT"),$(row coordinator coord-m)]"; M0=$R
+M0SNAP=$(snap "$M0")
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","director"]'
+eq "a resume naming director for a run recorded manager is refused role-mismatch, exit 2" "2 refused role-mismatch" "$RC $(line outcome) $(line reason)"
+eq "  ... the whole role_mismatch message" "coordinate-open: $M0 is recorded as manager; this start names director. A continuation keeps its role unless an intervention from above changes it; nothing was written and $M0 goes on as it was. Start again naming manager, or no role, or start director as a new lineage." "$(msg)"
+eq "  ... the record, the run's state and the session list as they were" "$M0SNAP" "$(snap "$M0")"
+FAIL_RUN_READ=$M0 ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","manager"]'
+eq "a resume whose role read fails is failed=role_read, exit 1" "1 failed=role_read" "$RC $OUT"
+eq "  ... never asked or accepted, nothing written" "$M0SNAP" "$(snap "$M0")"
+# The carry: the run ended, so a start carries it.
+koto cancel "$M0" > /dev/null 2>&1
+M0SNAP=$(snap "$M0")
+sleep 1
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","director"]'
+eq "a carry naming director for a run recorded manager is refused role-mismatch" "2 refused role-mismatch" "$RC $(line outcome) $(line reason)"
+eq "  ... nothing opened, nothing written" "$M0SNAP" "$(snap "$M0")"
+FAIL_RUN_READ=$M0 ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","manager"]'
+eq "a carry whose role read fails is failed=role_read, exit 1" "1 failed=role_read" "$RC $OUT"
+eq "  ... nothing opened, nothing written" "$M0SNAP" "$(snap "$M0")"
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","manager"]'
+M1=$(line session)
+eq "a carry naming the recorded role carries it" "0 $M0 manager" "$RC $(line carried) $(line role)"
+eq "  ... the new run holding the row as it was" "manager|the human" "$(rrow "$M1")"
+found_run "$M1"
+
+# M1 resumed: M0 is its predecessor (the run its carry linked it to).
+ropen '["docs/roadmaps/ROADMAP-role-m.md"]'
+eq "a resume with no --role continues the recorded role" "0 resumed manager" "$RC $(line outcome) $(line role)"
+M1SNAP=$(snap "$M1")
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","director","--role-change-by","lane-other","--role-change-source","dispatcher"]'
+eq "a dispatcher change naming a session the record doesn't report to is refused role-change-refused" "2 refused role-change-refused" "$RC $(line outcome) $(line reason)"
+eq "  ... the whole role_change_not_reports_to message, the row named whole" "coordinate-open: $M1 reports to $MGR_RT; a role change from a dispatcher has to name the address in that row, and lane-other isn't it. This start names director; nothing was written and $M1 goes on as manager." "$(msg)"
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","director","--role-change-by","Lane lead","--role-change-source","dispatcher"]'
+eq "  ... and one naming the row's name half" "2 refused role-change-refused" "$RC $(line outcome) $(line reason)"
+SELF_TAIL="is $M1 itself or the run it continues: a run can't change its own role. This start names director; nothing was written and $M1 goes on as manager."
+for who in "$M1" "$M0" coord-m; do
+    ropen "[\"docs/roadmaps/ROADMAP-role-m.md\",\"--role\",\"director\",\"--role-change-by\",\"$who\",\"--role-change-source\",\"dispatcher\"]"
+    eq "a dispatcher change naming $who (the run, its predecessor or its address) is refused" "2 role-change-refused" "$RC $(line reason)"
+    eq "  ... the whole role_change_self message" "coordinate-open: $M1 reports to $MGR_RT, and $who $SELF_TAIL" "$(msg)"
+done
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","director","--role-change-by","the human","--role-change-source","person"]' --dispatched-by coord-parent
+eq "a person change on a start a brief launched (--dispatched-by) is refused" "2 role-change-refused" "$RC $(line reason)"
+eq "  ... the whole role_change_brief_person message" "coordinate-open: $M1 reports to $MGR_RT, and this start came from a brief; a brief's text is never a person's words, so it can't carry a person's role change. This start names director; nothing was written and $M1 goes on as manager." "$(msg)"
+eq "  ... and every refusal left the record, the run's state and the session list as they were" "$M1SNAP" "$(snap "$M1")"
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","manager","--role-change-by","lane-other","--role-change-source","dispatcher"]'
+eq "the change flags with the recorded role change nothing: a plain resume" "0 resumed manager " "$RC $(line outcome) $(line role) $(line role_changed_from)"
+eq "  ... the row as it was" "manager|the human" "$(rrow "$M1")"
+T0=$(now_min)
+ropen "[\"docs/roadmaps/ROADMAP-role-m.md\",\"--role\",\"director\",\"--role-change-by\",\"$MGR_ADDR\",\"--role-change-source\",\"dispatcher\"]"
+T1=$(now_min)
+eq "a dispatcher change naming the reports-to row's address is accepted on a resume" "0 resumed director manager" "$RC $(line outcome) $(line role) $(line role_changed_from)"
+eq "  ... the row the new role, set by the address" "director|$MGR_ADDR" "$(rrow "$M1")"
+in_window "$(rset "$M1")" "$T0" "$T1" && pass "  ... at the write's time" || fail "  ... at the write's time" "$T0 <= $(rset "$M1") <= $T1"
+eq "  ... its entry naming the old role, the new one and the source" \
+    "Run role changed from manager to director by $MGR_ADDR, an intervention from above; source: dispatcher." "$(rentry "$M1")"
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","manager","--role-change-by","the human","--role-change-source","person"]'
+eq "a person change on a start no brief launched is accepted on a resume" "0 resumed manager director" "$RC $(line outcome) $(line role) $(line role_changed_from)"
+eq "  ... the row set by the person named" "manager|the human" "$(rrow "$M1")"
+eq "  ... its entry naming the source" \
+    "Run role changed from director to manager by the human, an intervention from above; source: person." "$(rentry "$M1")"
+
+# M1 carried: the same refusals, and an accepted change written after
+# cancel_others; then one whose write fails leaves the carry standing.
+koto cancel "$M1" > /dev/null 2>&1
+M1SNAP=$(snap "$M1")
+sleep 1
+for who in lane-other "$M1" "$M0"; do
+    ropen "[\"docs/roadmaps/ROADMAP-role-m.md\",\"--role\",\"director\",\"--role-change-by\",\"$who\",\"--role-change-source\",\"dispatcher\"]"
+    eq "a carry's dispatcher change naming $who is refused" "2 role-change-refused" "$RC $(line reason)"
+    case "$(msg)" in "coordinate-open: $M1 reports to $MGR_RT"*"This start names director; nothing was written and $M1 goes on as manager.") pass "  ... naming the reports-to row and both roles" ;;
+        *) fail "  ... naming the reports-to row and both roles" "$(msg)" ;; esac
+done
+eq "  ... nothing opened, nothing written" "$M1SNAP" "$(snap "$M1")"
+T0=$(now_min)
+ropen "[\"docs/roadmaps/ROADMAP-role-m.md\",\"--role\",\"director\",\"--role-change-by\",\"$MGR_ADDR\",\"--role-change-source\",\"dispatcher\"]"
+T1=$(now_min)
+M2=$(line session)
+eq "an accepted dispatcher change on a carry carries" "0 $M1 director manager" "$RC $(line carried) $(line role) $(line role_changed_from)"
+eq "  ... the row the new role, set by the address" "director|$MGR_ADDR" "$(rrow "$M2")"
+in_window "$(rset "$M2")" "$T0" "$T1" && pass "  ... at the write's time" || fail "  ... at the write's time" "$T0 <= $(rset "$M2") <= $T1"
+eq "  ... and the source run left holding manager" "manager|the human" "$(rrow "$M1")"
+found_run "$M2"
+eq "  ... with its entry, read once the run's find has run" "Run role changed from manager to director by $MGR_ADDR, an intervention from above; source: dispatcher." "$(rentry "$M2")"
+koto cancel "$M2" > /dev/null 2>&1
+sleep 1
+FAIL_AFTER_CARRY=$M2 ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","manager","--role-change-by","the human","--role-change-source","person"]'
+M3=$(line session)
+eq "a carry whose change write fails still stands, exit 0" "0 $M2" "$RC $(line carried)"
+eq "  ... printing the recorded role and warning=role-change-unwritten, then session=" "role=director|warning=role-change-unwritten|session=$M3" \
+    "$(printf '%s\n' "$OUT" | grep -E '^(role=|warning=role-change|session=)' | tr '\n' '|' | sed 's/|$//')"
+eq "  ... the new run holding the recorded role" "director|$MGR_ADDR" "$(rrow "$M3")"
+found_run "$M3"
+ropen '["docs/roadmaps/ROADMAP-role-m.md","--role","manager","--role-change-by","the human","--role-change-source","person"]'
+eq "  ... and the same start, once the run's find has recorded its store, applies it as a resume" "0 resumed manager director" \
+    "$RC $(line outcome) $(line role) $(line role_changed_from)"
+eq "  ... writing the row" "manager|the human" "$(rrow "$M3")"
+
+# The other direction (recorded director, asked manager), on a record whose
+# reports-to row names no address, then none at all.
+rec_run role-d "[$(row role director),$(row reports-to "the human")]"; D0=$R
+D0SNAP=$(snap "$D0")
+ropen '["docs/roadmaps/ROADMAP-role-d.md","--role","manager"]'
+eq "a resume naming manager for a run recorded director is refused role-mismatch" "2 refused role-mismatch" "$RC $(line outcome) $(line reason)"
+eq "  ... the whole message, ending 'or start manager as a new lineage.'" "coordinate-open: $D0 is recorded as director; this start names manager. A continuation keeps its role unless an intervention from above changes it; nothing was written and $D0 goes on as it was. Start again naming director, or no role, or start manager as a new lineage." "$(msg)"
+ropen '["docs/roadmaps/ROADMAP-role-d.md","--role","manager","--role-change-by","lane-lead","--role-change-source","dispatcher"]'
+eq "a dispatcher change on a record whose reports-to row has no address is refused" "2 role-change-refused" "$RC $(line reason)"
+eq "  ... the whole role_change_no_address message, naming the row" "coordinate-open: $D0 reports to the human, which names no address, so no dispatcher change can be checked. This start names manager; nothing was written and $D0 goes on as director." "$(msg)"
+eq "  ... the record as it was" "$D0SNAP" "$(snap "$D0")"
+koto cancel "$D0" > /dev/null 2>&1
+D0SNAP=$(snap "$D0")
+sleep 1
+ropen '["docs/roadmaps/ROADMAP-role-d.md","--role","manager"]'
+eq "a carry naming manager for a run recorded director is refused role-mismatch" "2 refused role-mismatch" "$RC $(line outcome) $(line reason)"
+eq "  ... nothing opened, nothing written" "$D0SNAP" "$(snap "$D0")"
+ropen '["docs/roadmaps/ROADMAP-role-d.md","--role","manager","--role-change-by","the human","--role-change-source","person"]'
+D1=$(line session)
+eq "a person change on a carry is accepted" "0 $D0 manager director" "$RC $(line carried) $(line role) $(line role_changed_from)"
+eq "  ... the new run's row" "manager|the human" "$(rrow "$D1")"
+rec_run role-n "[$(row role director)]"; N0=$R
+ropen '["docs/roadmaps/ROADMAP-role-n.md","--role","manager","--role-change-by","lane-lead","--role-change-source","dispatcher"]'
+eq "  ... and on a record with no reports-to row, naming no session on its record" \
+    "coordinate-open: $N0 reports to no session on its record, which names no address, so no dispatcher change can be checked. This start names manager; nothing was written and $N0 goes on as director." "$(msg)"
+ropen "[\"docs/roadmaps/ROADMAP-role-n.md\",\"--role\",\"manager\",\"--role-change-by\",\"$N0\",\"--role-change-source\",\"dispatcher\"]"
+eq "two causes (the run's own name, no reports-to row): role_change_self, the design's order" \
+    "coordinate-open: $N0 reports to no session on its record, and $N0 is $N0 itself or the run it continues: a run can't change its own role. This start names manager; nothing was written and $N0 goes on as director." "$(msg)"
+
+# A role-less carry: asked with no --role; given one it prints role= and
+# leaves the row to the no-role gap.
+rec_run role-lc "[$(row reports-to "the human")]"; LC0=$R
+koto cancel "$LC0" > /dev/null 2>&1
+LCSNAP=$(snap "$LC0")
+sleep 1
+ropen '["docs/roadmaps/ROADMAP-role-lc.md"]'
+eq "a carry of a role-less record with no --role is asked" "10 ask=role" "$RC $OUT"
+eq "  ... before the carry: nothing opened, nothing written" "$LCSNAP" "$(snap "$LC0")"
+ropen '["docs/roadmaps/ROADMAP-role-lc.md","--role","manager"]'
+LC1=$(line session)
+eq "given --role it carries, printing role=manager" "0 $LC0 manager" "$RC $(line carried) $(line role)"
+eq "  ... leaving the row to the no-role gap" "none" "$(rrow "$LC1")"
+found_run "$LC1"
+grep -q '^  no-role: ' <<<"$(bash "$T/plugin/skills/coordinate/scripts/state-handover.sh" --session "$LC1" --check 2>&1)" \
+    && pass "  ... which the handover check lists" || fail "  ... which the handover check lists" "$(bash "$T/plugin/skills/coordinate/scripts/state-handover.sh" --session "$LC1" --check 2>&1)"
+# Its first report (docs/designs/DESIGN-coordinator-named-roles.md, Decision
+# 3): the reconcile directive closes the gaps before it prints, so the first
+# report's record line names the role the no-role fix wrote, read from the
+# record at print time, with no second visit to the pass.
+SCR="$T/plugin/skills/coordinate/scripts"
+lc_state() { koto status "$LC1" 2>/dev/null | jq -r '.current_state // .state // empty'; }
+lc_passes() { jq -s '[.[] | select((.type == "transitioned" or .type == "directed_transition") and .payload.to == "reconcile_pass")] | length' \
+    "$(koto session dir "$LC1")/koto-$LC1.state.jsonl"; }
+i=0
+while [ "$(lc_state)" != reconcile ] && [ $i -lt 10 ]; do koto next "$LC1" --no-cleanup > "$T/tick.out" 2>&1; i=$((i + 1)); done
+eq "the role-less carry reaches its first reconcile" reconcile "$(lc_state)"
+LC_PASSES=$(lc_passes)
+MD=$(bash "$SCR/reconcile-report-get.sh" --session "$LC1" --md 2>"$T/md.err"); rc=$?
+eq "  ... where its first report doesn't print before no-role closes: --md exits 4, printing nothing" "4 " "$rc $MD"
+grep -q 'no-role' "$T/md.err" && pass "  ... its stderr naming the gap" || fail "  ... its stderr naming the gap" "$(cat "$T/md.err")"
+bash "$SCR/state-stored-set.sh" --session "$LC1" --run role manager --by "the human" > /dev/null 2> "$T/w.err"
+eq "the no-role fix writes manager" "manager|the human" "$(rrow "$LC1")"
+MD=$(bash "$SCR/reconcile-report-get.sh" --session "$LC1" --md 2>"$T/md.err"); rc=$?
+eq "  ... and the first report prints from the same sealed report" 0 "$rc"
+L3=$(printf '%s\n' "$MD" | sed -n 3p)
+case "$L3" in "Record: session \`$LC1\` on \`acme/widgets\`"*". Role: manager.") pass "  ... its line 3 the record line, ending Role: manager." ;;
+    *) fail "  ... its line 3 the record line, ending Role: manager." "$(head -5 <<<"$MD") $(cat "$T/md.err")" ;; esac
+RL_RE='^Record: session `[^`]+` on `[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+`(, address `[^`]+`)?\. Role: (manager|director)\.$'
+[[ $L3 =~ $RL_RE ]] && pass "  ... matching the record line's pattern" || fail "  ... matching the record line's pattern" "$L3"
+eq "  ... with no second visit to the reconcile pass" "$LC_PASSES reconcile" "$(lc_passes) $(lc_state)"
+
+# An import given --role reads the source's role where it is, before koto
+# imports; on the local backend koto refuses that read.
+BEFORE=$(sessions)
+CLAUDE_CODE_SESSION_ID=$(printf '%s-0000-4000-8000-%012d' dddddddd 4) \
+    ropen '["docs/roadmaps/ROADMAP-role-imp.md","--import","coordinate-roadmap-role-imp-20260101T000000Z","--from","/srv/source-ws","--role","manager"]'
+eq "an import given --role on the local backend is refused=workspace_needs_cloud, exit 2" "2 refused=workspace_needs_cloud" "$RC $OUT"
+eq "  ... landing nothing" "$BEFORE" "$(sessions)"
+
+# A dispatcher naming the run a start resumes is still refused (64).
+found_run "$D1"
+ropen "[\"docs/roadmaps/ROADMAP-role-d.md\",\"--role\",\"manager\"]" --dispatched-by "$D1"
+eq "a resume whose --dispatched-by names the resumed run is usage, exit 64" 64 "$RC"
+grep -q 'start again without --dispatched-by' "$T/err" && pass "  ... saying to start again without --dispatched-by" || fail "  ... saying to start again without --dispatched-by" "$(cat "$T/err")"
 
 # --- two hosts on koto's cloud backend -----------------------------------------
 # Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own
@@ -494,7 +857,7 @@ fi
 # the run live on B (the source is marked migrated), so it is cancelled there
 # before the next case, which needs no live run of the scope on B.
 open_a() { # open_a <plugin root>: the opener on host A with the roadmap alone; the run in $OPENED
-    printf '["%s"]' "$RM" > "$T/args-a.json"
+    printf '["%s","--role","manager"]' "$RM" > "$T/args-a.json"
     OPENED=$(host_on a bash "$1/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$1" "$T/args-a.json" 2>"$T/open-a.err" | sed -n 's/^session=//p')
 }
 # A run whose find never ran, so it never recorded the session store
@@ -516,7 +879,7 @@ fi
 eq "  ... which koto says migrated" "$SRC" "$(host_on a koto dashboard "$SRC" --detail 2>/dev/null | jq -r '.migrated.target // empty')"
 eq "  ... and isn't a live run of the scope on A" "" \
     "$(host_on a bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-plugin-system --all 2>/dev/null)"
-printf '["%s"]' "$RM" > "$T/args-a.json"
+printf '["%s","--role","manager"]' "$RM" > "$T/args-a.json"
 host_on a bash "$OPEN" --plugin-root "$T/plugin" "$T/args-a.json" > "$T/out" 2>"$T/open-a.err"; rc=$?
 NEW=$(sed -n 's/^session=//p' "$T/out")
 if [ $rc -eq 0 ] && [ -n "$NEW" ] && [ "$NEW" != "$SRC" ]; then
@@ -535,7 +898,7 @@ sleep 1
 # cancels the live run it should.
 printf '#!/bin/sh\n[ "$1" = dashboard ] && exit 2\nexec "%s" "$@"\n' "$REAL_KOTO" > "$T/koto-nodash"
 chmod +x "$T/koto-nodash"
-printf '["%s"]' "$RM" > "$T/args-a.json"
+printf '["%s","--role","manager"]' "$RM" > "$T/args-a.json"
 host_on a env KOTO_BIN="$T/koto-nodash" bash "$OPEN" --plugin-root "$T/plugin" "$T/args-a.json" > "$T/out" 2>"$T/open-a.err"; rc=$?
 NEW2=$(sed -n 's/^session=//p' "$T/out")
 if [ $rc -eq 0 ] && [ -n "$NEW2" ] && [ "$NEW2" != "$NEW" ]; then

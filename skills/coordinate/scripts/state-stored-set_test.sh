@@ -30,8 +30,31 @@
 # --host; --pending (its refusals, its row and entry, the gate passing a pending
 # worker while holding on an untold one, --told turning it told, a new address
 # clearing told and pending, a holding's first Work row never leaving both),
-# with each gate result printed. Every record is the session's; nothing is
-# written on GitHub.
+# with each gate result printed; the Run `role` row (--run role): written once,
+# the same value again exiting 0 with the record byte-identical, a different
+# value refused (65) naming both and the row unchanged, a --by over 80
+# characters or holding a line break refused, --intervention dispatcher and
+# person replacing it (the row's set_by and set, and the entry naming the old
+# role, the new one and the source), --intervention with another source or on
+# another key a usage error (64) writing nothing, --intervention on no row or
+# the same value writing as without it, and a record of about 60,000 bytes
+# taking the row. --standing rule: --source with any other kind, a rule with
+# no --source or with an --on or --until (64); --owner or --relayed-by on a
+# rule, each Source grammar refusal, a What over 400 bytes and a pinned Source
+# no Run row holds (65), each writing nothing; a 400-byte What, a pinned
+# Source a Run rules row holds and an inferred brief row with no briefs row
+# written, with the rule entry. --inferred: with any Run key but reports-to
+# and cap, with another mode, twice, empty or with no sentence, a usage error
+# (64) that reads and writes nothing; --run reports-to and --run cap without
+# it writing as before; with it, the Run row and an inferred rule row in one
+# write, told by the run entry and then the rule entry, and a bad cap or a
+# What over 400 bytes writing neither. Every record is the session's; nothing
+# is written on GitHub.
+# --intake: without --by, with --what, with --source, with no label or a
+# label `-x`, a usage error (64) that reads and writes nothing; a record/host
+# with no briefs:<label>, or one naming a relative path, refused (65), and a
+# key naming a missing file exiting 2 without naming the path, each writing
+# nothing.
 #
 # Usage: bash skills/coordinate/scripts/state-stored-set_test.sh
 set -uo pipefail
@@ -335,7 +358,7 @@ bash "$RS" "${W[@]}" --standing assignment --on "acme/secret#4" --what x --owner
 echo "== the handover read =="
 seed "$TWO"
 H=$(bash "$RH" "${RM[@]}" 2>"$T/err"); eq "the read prints" 0 $?
-eq "an old record has every gap" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
+eq "an old record has every gap" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2 no-next-step Feature 3" \
     "$(printf '%s' "$H" | jq -r '[.gaps[].gap] | join(" ")')"
 eq "  ... a holding with no next step named with its fix" 'state-stored-set.sh --work "Feature 2" --kind holding --who worker-f2 --next "<what happens next>"' \
     "$(printf '%s' "$H" | jq -r '.gaps[] | select(.gap == "no-next-step Feature 2") | .fix')"
@@ -344,6 +367,7 @@ grep -q 'state-stored-set.sh --run cap' "$T/err" && ok "  ... naming the fix" ||
 bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run reports-to "the human" --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run role manager --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
 eq "a new address leaves every live worker untold" "no-next-step Feature 3 not-told worker-f2 not-told worker-f3" \
@@ -358,7 +382,7 @@ bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
 # A merged holding (a Verified head, its Pull request cleared) is exempt.
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
-eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2" \
+eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 # PRD R15: a live holding whose leg names a request this host's store doesn't
 # hold (the run was imported here) holds the gate until its leg has an end.
@@ -381,16 +405,21 @@ SD=coordinate-roadmap-plugin-system-20260926T170000Z
 SEN=(env RS_SESSION="$SD")
 db_init; seed_session "$SD" "$TWO"
 eq "the session holds no store row" "" "$(koto context get "$SD" record/run 2>/dev/null)"
-eq "the handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
+eq "the handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-reports-to no-role no-next-step Feature 2 no-next-step Feature 3" \
     "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 "${SEN[@]}" bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run reports-to "the lane's dispatcher at ws-lead" --by "the human" >/dev/null 2>"$T/err"
 eq "a reports-to row is written with no store row" 0 $?
+"${SEN[@]}" bash "$RS" "${W[@]}" --run role manager --by "the human" >/dev/null 2>"$T/err"
+eq "  ... and a role row" 0 $?
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
+# The reports-to row names ws-lead, the session that dispatched the lane, so
+# the run's session holds its dispatched-by link (else reports-to-unsourced).
+printf '{}' | koto context add "$SD" koto/links/dispatched-by/ws-lead
 "${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err" && ok "  ... and the gaps close as state-stored-set.sh writes the keys" \
     || bad "  ... and the gaps close as state-stored-set.sh writes the keys" "$(cat "$T/err")"
 "${SEN[@]}" bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human" --relayed-by lane-v2 >/dev/null 2>"$T/err"
@@ -451,6 +480,7 @@ bash "$RS" "${W[@]}" --pending worker-f2 >/dev/null 2>"$T/err"; eq "--pending wi
 bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run reports-to "the human" --by "the human" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run role manager --by "the human" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 bash "$RS" "${W[@]}" --run coordinator lane-v3 --by lane-v3 >/dev/null 2>&1
@@ -582,7 +612,7 @@ eq "  ... the next --standing reads none" "0 s9" \
 
 # A seed into a session with no entry starts it from the seeded rows.
 SO=coordinate-roadmap-plugin-system-20260926T180000Z
-RS_SESSION=$SO bash "$HERE/state-open.sh" "${RM[@]}" --skip-session-checks >/dev/null 2>"$T/err"
+RS_SESSION=$SO bash "$HERE/state-open.sh" "${RM[@]}" --skip-session-checks --role manager >/dev/null 2>"$T/err"
 eq "a record the opener seeds starts standing_used at 0" 0 "$(meta_used "$SO")"
 
 # A carry sets it from the source's entries and rows, as it copies them.
@@ -705,6 +735,150 @@ bash "$RS" "${W[@]}" --run friction friction-last --by "the human" >/dev/null 2>
 eq "an unrelated write over a row stored with an empty Source exits 0" 0 $?
 cmp -s "$SD/standing-today.json" "$SK" && ok "  ... and writes it back with the key left out" || bad "  ... and writes it back with the key left out" "$(cat "$SK")"
 
+echo "== --standing rule: the usage, the Source's grammar, the What's 400 bytes and the Run check =="
+# rule_case <label> <exit> <stderr text> <args...>: the write exits so, its
+# stderr holding the text, and no key changes.
+rule_case() {
+    local label=$1 want=$2 msg=$3 snap rc
+    shift 3
+    snap=$(session_snapshot "$SR")
+    bash "$RS" "${W[@]}" "$@" >/dev/null 2>"$T/err"; rc=$?
+    if [ "$rc" = "$want" ] && grep -qF -- "$msg" "$T/err" && [ "$snap" = "$(session_snapshot "$SR")" ]; then ok "$label"
+    else bad "$label" "exit $rc: $(cat "$T/err")"; fi
+}
+DA64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+DB64=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+DC64=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+C40=0123456789abcdef0123456789abcdef01234567
+seed "$(printf '%s' "$TWO" | jq -c --arg v "charter sha256:$DA64" '.run = [{key: "rules", value: $v, set_by: "the human", set: "2026-10-20T08:00Z"}]')"
+# R21, R22: --source goes with --standing rule alone.
+rule_case "R21. a pause with --source is usage, 64" 64 "--source goes only with --standing rule" \
+    --standing pause --on all --until lifted --what x --owner y --source inferred
+rule_case "R22. so is a go-ahead with --source" 64 "--source goes only with --standing rule" \
+    --standing go-ahead --on "Feature 2" --what x --owner y --source inferred
+rule_case "  ... an approval" 64 "--source goes only with --standing rule" --standing approval --what x --owner y --source inferred
+rule_case "  ... an answer" 64 "--source goes only with --standing rule" --standing answer --what x --owner y --source inferred
+rule_case "  ... and an assignment" 64 "--source goes only with --standing rule" --standing assignment --on "#7" --what x --owner y --source inferred
+rule_case "  ... and so is --source on another mode" 64 "--source goes only with --standing rule" --run cap 2 --by x --source inferred
+# R29: a rule's own usage.
+rule_case "R29. a rule with no --source is usage, 64" 64 "a rule takes --source" --standing rule --what x
+rule_case "  ... and one with an empty --source" 64 "a rule takes --source" --standing rule --what x --source ""
+rule_case "  ... a rule with an --on" 64 "only a pause, a go-ahead or an assignment takes --on, and only a pause --until" \
+    --standing rule --on all --what x --source inferred
+rule_case "  ... and one with an --until" 64 "only a pause, a go-ahead or an assignment takes --on, and only a pause --until" \
+    --standing rule --until lifted --what x --source inferred
+# R30: Owner and Relayed by stay blank on a rule row.
+rule_case "R30. a rule with --owner is refused, 65" 65 "a rule row's Owner is blank; its Source says who said it" \
+    --standing rule --what x --owner alice --source inferred
+rule_case "  ... and one with --relayed-by" 65 "a rule row's Relayed by is blank; its Source says where it came from" \
+    --standing rule --what x --relayed-by bob --source inferred
+# R32: the Source's grammar, each refusal naming the row.
+for c in "a 39-hex commit|skill acme/widgets docs/x.md ${C40%?}" "a .. segment|doc acme/widgets docs/../x.md $C40" \
+    "a path starting with -|skill acme/widgets -x/y.md $C40" "a repository that isn't owner/repo|doc acme docs/x.md $C40" \
+    "a bad label|pinned a/b sha256:$DA64" "a digest that isn't sha256|pinned charter md5:$DA64" \
+    "inferred brief with no digest|inferred brief x" "an unknown first word|memo from the lead"; do
+    rule_case "R32. a Source with ${c%%|*} is refused, 65, naming the row" 65 "refused: standing.s1: the Source " \
+        --standing rule --what "Keep one lane per feature." --source "${c#*|}"
+done
+# R18: the What is measured in bytes.
+A400=$(printf '%400s' '' | tr ' ' a)
+rule_case "R18. a 401-byte What is refused, 65" 65 "refused: standing.s1: a rule row's What is at most 400 bytes; this one is 401" \
+    --standing rule --what "${A400}a" --source inferred
+rule_case "  ... and a 400-character one whose last character takes two bytes" 65 \
+    "refused: standing.s1: a rule row's What is at most 400 bytes; this one is 401" --standing rule --what "${A400%a}é" --source inferred
+bash "$RS" "${W[@]}" --standing rule --what "$A400" --source inferred >/dev/null 2>"$T/err"
+eq "  ... while a 400-byte one is written" "0 s1 rule 400" "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.kind) \(.what | utf8bytelength)"')"
+# R19, R20: a pinned Source names a Run rules or briefs row; an inferred brief doesn't.
+rule_case "R19. a pinned Source no Run row holds is refused, 65" 65 \
+    "refused: standing.s2: the Source pins charter sha256:$DB64, which no Run rules or briefs row holds" \
+    --standing rule --what "Keep one lane per feature." --source "pinned charter sha256:$DB64"
+rule_case "  ... and one naming another label" 65 \
+    "refused: standing.s2: the Source pins other sha256:$DA64, which no Run rules or briefs row holds" \
+    --standing rule --what "Keep one lane per feature." --source "pinned other sha256:$DA64"
+bash "$RS" "${W[@]}" --standing rule --what "Keep one lane per feature." --source "pinned charter sha256:$DA64" >/dev/null 2>"$T/err"
+eq "  ... while the Run row's label and digest are written" "0 s2 pinned charter sha256:$DA64" "$? $(live | jq -r '.standing[-1] | "\(.standing) \(.source)"')"
+bash "$RS" "${W[@]}" --standing rule --what "Read the brief first." --source "inferred brief worker sha256:$DC64" >/dev/null 2>"$T/err"
+eq "R20. an inferred brief row is written on a record with no briefs row" "0 s3 inferred brief worker sha256:$DC64 0" \
+    "$? $(live | jq -r '"\(.standing[-1] | "\(.standing) \(.source)") \([.run[] | select(.key == "briefs")] | length)"')"
+eq "  ... its row blank in On, Until, Owner and Relayed by, and its entry kind rule" \
+    "|||rule s3 (rule): Read the brief first.. Source: inferred brief worker sha256:$DC64." \
+    "$(live | jq -r '.standing[-1] | "\(.on)|\(.until)|\(.owner)|\(.relayed_by)"')$(entries | jq -r '.[-1] | "\(.kind) \(.text)"')"
+# R25: the event rows' usage is as before.
+rule_case "R25. an unknown kind is still usage, 64" 64 "--standing takes pause, go-ahead, approval, answer, assignment or rule" --standing rumour --what x --owner y
+rule_case "  ... and an event row with no --owner" 64 "Usage" --standing approval --what x
+
+echo "== --inferred: a worked-out reports-to or cap and its rule row =="
+# The design's Decision 5: --inferred goes only with --run reports-to and
+# --run cap, once and not empty, a usage error (64) made before anything is
+# read (no koto call, no forge read) or written.
+seed "$TWO"
+# usage_case <label> <stderr text> <args...>: 64, the text on stderr, no koto
+# or gh call, and no key changed.
+usage_case() {
+    local label=$1 msg=$2 snap rc
+    shift 2
+    snap=$(session_snapshot "$SR")
+    : > "$KOTO_STORE/calls"; reset_calls
+    bash "$RS" "${W[@]}" "$@" >/dev/null 2>"$T/err"; rc=$?
+    if [ "$rc" = 64 ] && grep -qF -- "$msg" "$T/err" && [ ! -s "$KOTO_STORE/calls" ] && [ ! -s "$GH_DB.calls" ] \
+        && [ "$snap" = "$(session_snapshot "$SR")" ]; then ok "$label"
+    else bad "$label" "exit $rc: $(cat "$T/err") koto: $(cat "$KOTO_STORE/calls") gh: $(calls)"; fi
+}
+ONLY="--inferred goes only with --run reports-to or --run cap"
+for k in "arguments|--roadmap x" "coordinator|lane-v1" "rules|notes sha256:$DA64" "briefs|worker sha256:$DA64" "friction|rules-friction" "role|manager"; do
+    usage_case "--inferred with --run ${k%%|*} is usage, 64, nothing read or written" "$ONLY" --run "${k%%|*}" "${k#*|}" --by x --inferred "Worked out."
+done
+usage_case "  ... with --standing rule" "$ONLY" --standing rule --what "Keep one lane per feature." --source inferred --inferred "Worked out."
+usage_case "  ... with --told" "$ONLY" --told worker-f2 --by x --inferred "Worked out."
+usage_case "  ... with --rules" "$ONLY" --rules --inferred "Worked out."
+usage_case "  ... given twice" "Usage" --run cap 2 --by x --inferred "Worked out." --inferred "Worked out again."
+usage_case "  ... empty" "--inferred takes the reading's sentence" --run reports-to "director at coord-lead" --by x --inferred ""
+usage_case "  ... or with no sentence" "Usage" --run cap 2 --by x --inferred
+# Without --inferred a Run write is as it was: one row, one run entry, no
+# Standing row.
+seed "$TWO"
+N_BEFORE=$(entries | jq length)
+bash "$RS" "${W[@]}" --run reports-to "director at coord-lead" --by x >/dev/null 2>"$T/err"
+eq "--run reports-to without --inferred writes the Run row alone, told in one run entry" \
+    "0 director at coord-lead|0|1|run Run reports-to set to director at coord-lead by x." \
+    "$? $(live | jq -r '"\([.run[] | select(.key == "reports-to") | .value][0])|\((.standing // []) | length)"')|$(entries | jq -r --argjson n "$N_BEFORE" '"\(length - $n)|\(.[-1].kind) \(.[-1].text)"')"
+bash "$RS" "${W[@]}" --run cap 3 --by x >/dev/null 2>"$T/err"
+eq "  ... and so does --run cap" "0 3|0" "$? $(live | jq -r '"\([.run[] | select(.key == "cap") | .value][0])|\((.standing // []) | length)"')"
+# With it, one write holds both rows, and two entries tell them.
+seed "$TWO"
+N_BEFORE=$(entries | jq length)
+bash "$RS" "${W[@]}" --run reports-to "director at coord-lead" --inferred "Report to coord-lead: worked out from the session that opened this run." --by x >/dev/null 2>"$T/err"
+eq "--run reports-to --inferred writes the Run row and an inferred rule row" \
+    '0 director at coord-lead|[{"standing":"s1","kind":"rule","on":"","until":"","what":"Report to coord-lead: worked out from the session that opened this run.","owner":"","relayed_by":"","source":"inferred"}]' \
+    "$? $(live | jq -c -r '"\([.run[] | select(.key == "reports-to") | .value][0])|\(.standing | map(del(.set)))"')"
+eq "  ... and tells the run entry, then the rule entry" \
+    "2|run Run reports-to set to director at coord-lead by x.|rule s1 (rule): Report to coord-lead: worked out from the session that opened this run.. Source: inferred." \
+    "$(entries | jq -r --argjson n "$N_BEFORE" '"\(length - $n)|\(.[-2].kind) \(.[-2].text)|\(.[-1].kind) \(.[-1].text)"')"
+rule_case "  ... a cap outside 1-99 with --inferred is refused, 65, writing neither" 65 "a cap is a number from 1 to 99" \
+    --run cap 100 --inferred "The cap is worked out from the open lanes." --by x
+rule_case "  ... and so is a What over 400 bytes" 65 "a rule row's What is at most 400 bytes; this one is 401" \
+    --run cap 2 --inferred "$(printf '%401s' '' | tr ' ' a)" --by x
+
+echo "== --intake usage and refusals =="
+# The design's Decision 10: the brief intake's usage is checked before
+# anything is read, and a brief record/host doesn't name, or names a file
+# that can't be read, writes nothing.
+seed "$TWO"
+mkdir -p "$T/intake"
+printf '## Decisions already made\n\n- Keep one lane per feature.\n' > "$T/intake/brief.md"
+printf '%s' "$(jq -nc --arg p "$T/intake/brief.md" --arg m "$T/intake/missing.md" '{"briefs:worker": $p, "briefs:gone": $m, "briefs:rel": "intake/brief.md"}')" \
+    | koto context add "$SR" record/host
+usage_case "--intake usage and refusals: without --by, 64, nothing read or written" "Usage" --intake worker
+usage_case "  ... with --what" "Usage" --intake worker --by x --what "Keep one lane per feature."
+usage_case "  ... with --source" "--source goes only with --standing rule" --intake worker --by x --source inferred
+usage_case "  ... with a label -x" "--intake takes a brief's label" --intake -x --by x
+usage_case "  ... and with no label" "Usage" --intake
+rule_case "  ... a record/host with no briefs:<label> is refused, 65" 65 \
+    "refused: record/host names no brief briefs:other; name it with --host briefs:other <absolute path>" --intake other --by x
+rule_case "  ... and so is one naming a relative path" 65 "record/host names no brief briefs:rel" --intake rel --by x
+rule_case "  ... a key naming a missing file exits 2, naming the label alone" 2 "cannot read the brief gone" --intake gone --by x
+grep -qF "$T/intake" "$T/err" && bad "  ... its stderr never names the path" "$(cat "$T/err")" || ok "  ... its stderr never names the path"
+
 echo "== --rule-files: the start's rules rows, and the lists it refuses =="
 DA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 DB=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
@@ -768,5 +942,88 @@ rf skill-SKILL.md "/p/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa.md" "$DA" > "$T/bad"; rf_re
 printf 'not json\n' > "$T/bad"; rf_refused "a list that isn't rule-files.sh's" "$T/bad"
 bash "$RS" "${W[@]}" --rule-files "$T/rf1" >/dev/null 2>&1; eq "--rule-files without --by is a usage error" 64 $?
 eq "no write in this section reached GitHub" "" "$(gh_writes)"
+
+echo "== --run role: set once, replaced only from above =="
+# docs/designs/DESIGN-coordinator-named-roles.md, Decision 1; PRD R5.
+role_of() { live | jq -r '[(.run // [])[] | select(.key == "role")] | if length == 0 then "none" else (.[0] | "\(.value)|\(.set_by)") end'; }
+role_set() { live | jq -r '[(.run // [])[] | select(.key == "role") | .set][0] // ""'; }
+seed "$TWO"
+N0=$(entries | jq length)
+BEFORE=$(date -u +%Y-%m-%dT%H:%MZ)
+bash "$RS" "${W[@]}" --run role director --by "the human" >/dev/null 2>"$T/err"
+eq "--run role director with no row writes one" "0 director|the human" "$? $(role_of)"
+AFTER=$(date -u +%Y-%m-%dT%H:%MZ)
+S1=$(role_set)
+[[ ! $S1 < $BEFORE ]] && [[ ! $S1 > $AFTER ]] && ok "  ... its Set the write's time" || bad "  ... its Set the write's time" "$BEFORE <= $S1 <= $AFTER"
+eq "  ... and one run entry naming it" "1 run|Run role set to director by the human." \
+    "$(entries | jq -r --argjson n "$N0" '.[$n:] | "\(length) \(.[0].kind)|\(.[0].text)"')"
+SNAP=$(session_snapshot "$SR"); N1=$(entries | jq length)
+bash "$RS" "${W[@]}" --run role director --by "someone else" > "$T/out" 2>"$T/err"
+eq "the same value again exits 0 and prints nothing" "0 0" "$? $(wc -c < "$T/out" | tr -d ' ')"
+eq "  ... the record byte-identical" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... and no entry posted" "$N1" "$(entries | jq length)"
+bash "$RS" "${W[@]}" --run role manager --by "someone else" > "$T/out" 2>"$T/err"
+eq "a different value is refused (65)" 65 $?
+grep -q 'role is director' "$T/err" && grep -q 'names manager' "$T/err" \
+    && ok "  ... stderr naming the recorded role and the one asked for" || bad "  ... stderr naming the recorded role and the one asked for" "$(cat "$T/err")"
+eq "  ... the row still reading director" "director|the human" "$(role_of)"
+eq "  ... and nothing written" "$SNAP $N1" "$(session_snapshot "$SR") $(entries | jq length)"
+LONG=$(head -c 81 /dev/zero | tr '\0' 'a')
+bash "$RS" "${W[@]}" --run role director --by "$LONG" >/dev/null 2>"$T/err"
+eq "a --by over 80 characters is refused" 65 $?
+grep -q 'at most 80 characters' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --run role director --by "${LONG%a}" >/dev/null 2>"$T/err"
+eq "  ... and one of exactly 80 is taken (the same value: nothing to write)" 0 $?
+bash "$RS" "${W[@]}" --run role director --by "$(printf 'the\nhuman')" >/dev/null 2>"$T/err"
+eq "a --by holding a line break is refused" 65 $?
+grep -q 'no line break' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+eq "  ... and neither wrote anything" "$SNAP $N1" "$(session_snapshot "$SR") $(entries | jq length)"
+bash "$RS" "${W[@]}" --run role lead --by "the human" >/dev/null 2>"$T/err"
+eq "a role that isn't manager or director is refused" 65 $?
+
+echo "== --run role --intervention: a change from above =="
+BEFORE=$(date -u +%Y-%m-%dT%H:%MZ)
+bash "$RS" "${W[@]}" --run role manager --by lane-lead --intervention dispatcher >/dev/null 2>"$T/err"
+eq "--intervention dispatcher replaces director" "0 manager|lane-lead" "$? $(role_of)"
+AFTER=$(date -u +%Y-%m-%dT%H:%MZ)
+S2=$(role_set)
+[[ ! $S2 < $BEFORE ]] && [[ ! $S2 > $AFTER ]] && ok "  ... its Set the write's time" || bad "  ... its Set the write's time" "$BEFORE <= $S2 <= $AFTER"
+eq "  ... one role row" 1 "$(live | jq '[.run[] | select(.key == "role")] | length')"
+eq "  ... and an entry naming the old role, the new one and the source" \
+    "run|Run role changed from director to manager by lane-lead, an intervention from above; source: dispatcher." \
+    "$(entries | jq -r '.[-1] | "\(.kind)|\(.text)"')"
+bash "$RS" "${W[@]}" --run role director --by "the human" --intervention person >/dev/null 2>"$T/err"
+eq "--intervention person replaces it back" "0 director|the human" "$? $(role_of)"
+eq "  ... its entry naming person" "Run role changed from manager to director by the human, an intervention from above; source: person." \
+    "$(entries | jq -r '.[-1].text')"
+SNAP=$(session_snapshot "$SR"); N1=$(entries | jq length)
+bash "$RS" "${W[@]}" --run role manager --by x --intervention boss >/dev/null 2>"$T/err"
+eq "--intervention with another source is a usage error" 64 $?
+bash "$RS" "${W[@]}" --run cap 3 --by x --intervention person >/dev/null 2>"$T/err"
+eq "--intervention on another Run key is a usage error" 64 $?
+bash "$RS" "${W[@]}" --run role manager --by x --intervention >/dev/null 2>"$T/err"
+eq "--intervention with no source is a usage error" 64 $?
+bash "$RS" "${W[@]}" --run role manager --by x --intervention person --intervention dispatcher >/dev/null 2>"$T/err"
+eq "  ... and so is --intervention given twice" 64 $?
+bash "$RS" "${W[@]}" --told worker-f2 --by x --intervention person >/dev/null 2>"$T/err"
+eq "  ... and --intervention on another mode" 64 $?
+eq "  ... none of them writing anything" "$SNAP $N1" "$(session_snapshot "$SR") $(entries | jq length)"
+bash "$RS" "${W[@]}" --run role director --by "the human" --intervention dispatcher > "$T/out" 2>"$T/err"
+eq "--intervention naming the recorded role writes as without it: nothing" "0 0 $SNAP" "$? $(wc -c < "$T/out" | tr -d ' ') $(session_snapshot "$SR")"
+seed "$TWO"
+bash "$RS" "${W[@]}" --run role manager --by lane-lead --intervention person >/dev/null 2>"$T/err"
+eq "--intervention on a record with no row writes the row as without it" "0 manager|lane-lead" "$? $(role_of)"
+eq "  ... and its entry is a plain set" "Run role set to manager by lane-lead." "$(entries | jq -r '.[-1].text')"
+
+echo "== --run role on a record of about 60,000 bytes =="
+BIG=$(head -c 61000 /dev/zero | tr '\0' 'x')
+seed "$(printf '%s' "$TWO" | jq -c --arg r "$BIG" '.deferrals = [{deferral: "the long one", reason: $r, raised: "2026-09-26T09:00Z", disposition: ""}]')"
+[ "$(live | wc -c | tr -d ' ')" -gt 60000 ] && ok "the record is over 60,000 bytes" || bad "the record is over 60,000 bytes" "$(live | wc -c)"
+bash "$RS" "${W[@]}" --run role director --by "the human" >/dev/null 2>"$T/err"
+eq "  ... and takes the role row" "0 director|the human" "$? $(role_of)"
+eq "  ... keeping the long deferral whole" 61000 "$(live | jq -r '.deferrals[0].reason | length')"
+bash "$RS" "${RM[@]}" --list > "$T/list" 2>"$T/err"
+eq "  ... and --list reads it back" "0 director" "$? $(jq -r '.run[] | select(.key == "role") | .value' "$T/list")"
+eq "no role write reached GitHub" "" "$(gh_writes)"
 
 done_tests state-stored-set_test
