@@ -467,6 +467,54 @@ else
     fail "the held command never started (pid [$HELD], supervisor [$SUP])"
 fi
 
+echo "--- a stopped supervisor's result holds the gate"
+# The TERM above is what a memory guard does to a suite mid-run. Its result
+# says nothing about the change, so the verdict holds (2) instead of routing it
+# as a failure (4) that would end the run: no finding, nothing recorded in koto
+# context, and a message naming the result and how to go on. A second --start
+# keeps the result and starts nothing, so a held tick never launches a suite on
+# its own; moving the result aside is what starts a fresh run.
+if jq -e '.status == "supervisor-error"' "$SRES" >/dev/null 2>&1; then
+    verdict s-stopped
+    expect_rc "a guard abort's stopped-supervisor result" 2
+    expect_no_finding "a guard abort's stopped-supervisor result"
+    [ ! -e "$KOTO_STUB_STORE/s-stopped/verification_results.json" ] \
+        && pass "a stopped supervisor's result is not recorded in koto context" \
+        || fail "a stopped supervisor's result was recorded in koto context as a verdict"
+    if grep -q -F -- "$SRES" "$WORKDIR/verdict.err" && grep -q 'verification_status: blocked' "$WORKDIR/verdict.err"; then
+        pass "the hold names the stopped result and how to stop the run"
+    else
+        fail "the hold's message: $(cat "$WORKDIR/verdict.err")"
+    fi
+
+    rm -f "$WORKDIR/held.pid"
+    start s-stopped
+    sleep 1
+    if [ ! -s "$WORKDIR/held.pid" ] && [ ! -e "$(dirname "$SRES")/lock" ] \
+        && jq -e '.status == "supervisor-error"' "$SRES" >/dev/null 2>&1; then
+        pass "a second --start keeps the stopped result and starts no supervisor"
+    else
+        fail "a second --start replaced the stopped result or started a run (pid [$(cat "$WORKDIR/held.pid" 2>/dev/null)])"
+    fi
+    verdict s-stopped
+    expect_rc "a guard abort's stopped-supervisor result, after a second --start" 2
+
+    mv "$SRES" "$SRES.aside"
+    start s-stopped
+    n=0
+    while [ ! -s "$WORKDIR/held.pid" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    HELD=$(cat "$WORKDIR/held.pid" 2>/dev/null)
+    SUP=$(readlink "$(dirname "$SRES")/lock" 2>/dev/null)
+    [ -n "$HELD" ] && pass "moving the stopped result aside lets --start begin a fresh run" \
+        || fail "--start began no run after the stopped result was moved aside"
+    [ -n "$SUP" ] && kill -TERM "$SUP" 2>/dev/null
+    n=0
+    while [ -n "$SUP" ] && kill -0 "$SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    [ -n "$HELD" ] && kill -KILL -- "-$HELD" 2>/dev/null
+else
+    fail "no supervisor-error result to hold on: $(head -c 300 "$SRES" 2>&1)"
+fi
+
 echo "--- a command that cannot start"
 mkrepo nostart "$(map '{"gone": {"run": ["bin/missing.sh"]}}' '[]' '["gone"]')"
 change top.txt

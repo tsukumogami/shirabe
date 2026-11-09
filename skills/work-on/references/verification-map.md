@@ -134,14 +134,24 @@ for the current head. A settled result is also recorded in koto context as
 | 4 | a selected command is `unattended: false`; nothing was started | `verification/needs-person` |
 | 4 | a command ran past its `timeout_secs` and was killed | `verification/timed-out` |
 | 4 | a command's process group grew past `max_procs` and was killed | `verification/runaway` |
-| 4 | a command's `run[0]` is not an executable program, or the supervisor stopped before every command ran | `verification/not-started` |
+| 4 | a command's `run[0]` is not an executable program | `verification/not-started` |
 | 4 | tracked files had uncommitted changes | `verification/dirty-tree` |
 | 2 | the result could not be read | none; the gate holds |
+| 2 | the supervisor stopped before every command ran | none; the gate holds |
 
 A timeout, a runaway kill, a command that could not start and a command that needs a person
 exit 4, never 1: none of them says the change is wrong, so none sends the run back to
 implementation; they stop the run for a person. When one result holds both a failed command
 and a command that exits 4, the verdict is 4.
+
+A supervisor that stopped before every command ran is not a verdict at all. A memory guard
+or a person may have killed it, or it could not run, and either way the result says nothing
+about the change, so the gate neither sends the run back to implementation nor ends it. It
+holds with the run still in verification, records nothing in context, and says on stderr how
+to go on: move the result aside and tick to run the suite again, or submit
+`verification_status: blocked` to stop the run. The launcher reuses a result already on disk
+for the same head and merge-base, so a held tick never starts a new suite on its own; only
+moving the stopped result aside does.
 
 The whole run has a budget too: two hours, the length of the gate's wait. A command still
 running when the budget runs out is killed and reported as `verification/timed-out`, and the
