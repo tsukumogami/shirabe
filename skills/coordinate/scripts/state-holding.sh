@@ -70,10 +70,13 @@
 # for its topic: niwa lists no session for it (dc_find_session, the test
 # dispatch-worker.sh made before it wrote the row dispatch-failed), and no
 # Claude job under DC_CLAUDE_HOME (default $HOME/.claude) whose name is the
-# topic's session name is unfinished (dc_job_finished; a state file that can't
-# be read counts as unfinished). Either one found refuses the retire (65) with
-# what was found; a listing that can't be read, or no workspace root to read it
-# from, exits 2 with nothing written. NIWA names a stand-in for niwa (tests).
+# topic's session name is unfinished (dc_job_finished). A job state file whose
+# name can't be read refuses too, since it can't be ruled out. Either one found
+# refuses the retire (65) with what was found; a listing that can't be read, or
+# no workspace root to read it from, exits 2 with nothing written. Both checks
+# see only this host: the niwa listing of the workspace the current directory
+# is in, and the jobs under DC_CLAUDE_HOME. NIWA names a stand-in for niwa
+# (tests).
 # Its removal is also told as an `entry` entry naming the topic; when the row
 # was removed but the entry wasn't written, it exits 14 with the entry's text.
 #
@@ -184,17 +187,25 @@ strand|retire)
             WS_ROOT=$(dc_workspace_root) || lib_die2 "no workspace root to look for $TOPIC's instance from"
             FOUND=$(dc_find_session "$WS_ROOT" "$TOPIC")
             case $? in
-                0) echo "$PROG: refused: niwa lists $TOPIC's session ${FOUND%%	*} at ${FOUND#*	}; a dispatch-failed holding is retired only when no worker exists for it" >&2; exit 65 ;;
+                0)
+                    echo "$PROG: refused: niwa lists $TOPIC's session $(printf '%s' "${FOUND%%	*}" | lib_scrub) at $(printf '%s' "${FOUND#*	}" | lib_scrub); a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    exit 65 ;;
                 1) ;;
                 *) lib_die2 "niwa's listing can't be read, so $TOPIC's worker can't be ruled out" ;;
             esac
             JOBS_HOME=${DC_CLAUDE_HOME:-$HOME/.claude}
             for JF in "$JOBS_HOME"/jobs/*/state.json; do
                 [ -f "$JF" ] || continue
-                dc_session_matches "$TOPIC" "$(jq -r '.name // "" | strings' "$JF" 2>/dev/null)" || continue
                 JOB=${JF%/state.json} JOB=${JOB##*/}
+                # Fail closed: a state file that isn't JSON, or has no string
+                # name, could be this topic's worker, so it refuses the retire.
+                if ! JNAME=$(jq -er '.name | strings' "$JF" 2>/dev/null); then
+                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) has no readable name in its state file, so it can't be ruled out as $TOPIC's worker; a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    exit 65
+                fi
+                dc_session_matches "$TOPIC" "$JNAME" || continue
                 if ! WHY=$(dc_job_finished "$JOBS_HOME" "$JOB" '{}'); then
-                    echo "$PROG: refused: Claude job $JOB carries $TOPIC's session and isn't finished ($WHY); a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) carries $TOPIC's session and isn't finished ($(printf '%s' "$WHY" | lib_scrub)); a dispatch-failed holding is retired only when no worker exists for it" >&2
                     exit 65
                 fi
             done
