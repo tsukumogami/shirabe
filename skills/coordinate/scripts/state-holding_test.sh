@@ -198,9 +198,11 @@ EOF
 chmod +x "$T/niwa-stand-in.sh"
 hf() { (cd "$WS" && export NIWA="$T/niwa-stand-in.sh" NIWA_OUT NIWA_FAIL DC_CLAUDE_HOME="$T/claude" && hw "$@"); }
 job() { mkdir -p "$T/claude/jobs/$1" && jq -nc --arg n "$2" --arg s "$3" '{name: $n, state: $s}' >"$T/claude/jobs/$1/state.json"; }
+rawjob() { mkdir -p "$T/claude/jobs/$1" && printf '%s' "$2" >"$T/claude/jobs/$1/state.json"; }
+nojob() { rm -rf "$T/claude/jobs/$1"; }
 seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" --argjson d "$(holding delta '{"dispatch_status": "dispatch-failed"}')" \
     --argjson g "$(holding gamma '{"dispatch_status": "stranded"}')" '.holdings = [$a, $d, $g]')"
-echo '[{"name": "tsuku+delta-0123abcd", "session_name": "delta-0123abcd", "path": "/ws/tsuku+delta-0123abcd"}]' >"$NIWA_OUT"
+echo '[{"name": "tsuku+delta", "session_name": "delta-0123abcd", "path": "/ws/tsuku+delta"}]' >"$NIWA_OUT"
 SNAP=$(session_snapshot "$SR")
 hf --topic delta --strand >/dev/null 2>"$T/err"; eq "--strand still refuses a dispatch-failed holding" 65 $?
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while niwa lists its session" 65 $?
@@ -210,13 +212,13 @@ eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire of a dispatch-failed holding exits 2 when niwa's listing can't be read" 2 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 rm -f "$NIWA_FAIL"
-echo '[{"name": "tsuku+delta_v2-0123abcd", "session_name": "delta_v2-0123abcd", "path": "/ws/tsuku+delta_v2-0123abcd"}]' >"$NIWA_OUT"
+echo '[{"name": "tsuku+deltav2", "session_name": "deltav2-0123abcd", "path": "/ws/tsuku+deltav2"}]' >"$NIWA_OUT"
 job 0a1b2c3d delta-89abcdef working
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while an unfinished job carries its session" 65 $?
 grep -q 'Claude job 0a1b2c3d carries delta' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 job 0a1b2c3d delta-89abcdef done
-job 4e5f6a7b delta_v2-0123abcd working
+job 4e5f6a7b deltav2-0123abcd working
 hf --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
 [ "$rc" = 0 ] && ok "--retire removes a dispatch-failed holding once no worker exists for it (a finished job, another topic's session)" \
     || bad "--retire removes a dispatch-failed holding once no worker exists for it (a finished job, another topic's session)" "exit $rc: $(cat "$T/err")"
@@ -236,15 +238,14 @@ job 0a1b2c3d delta-89abcdef idle
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while a job carrying its session is idle" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 job 0a1b2c3d delta-89abcdef done
-mkdir -p "$T/claude/jobs/5c6d7e8f"
-printf 'not json' >"$T/claude/jobs/5c6d7e8f/state.json"
+rawjob 5c6d7e8f 'not json'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while a job's state file isn't JSON" 65 $?
 grep -q 'Claude job 5c6d7e8f has no readable name' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
-printf '{"state": "working"}' >"$T/claude/jobs/5c6d7e8f/state.json"
+rawjob 5c6d7e8f '{"state": "working"}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch-failed holding while a job's state file has no name" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
-rm -rf "$T/claude/jobs/5c6d7e8f"
+nojob 5c6d7e8f
 
 echo "== a dispatch-failed holding retired through the session (shirabe#1612) =="
 # Its own roadmap, so no other live run of the same record is in the way.
