@@ -530,6 +530,22 @@ cseal
 case "$OUT" in "handoff-refused sealed:"*) ok "removed, two candidates: prints handoff-refused" ;; *) bad "removed, two candidates: prints handoff-refused" "$OUT $(cat "$T/seal.err")" ;; esac
 has "removed, two candidates: the verdict names both" "$(verdict | sed -n 2p)" "2 instance paths for w5 were recovered"
 
+# A merged holding whose worker was torn down outside the pass, with no
+# handoff comment (shirabe#1529): niwa lists no instance, Claude Code lists no
+# job, the pull request merged, and the gone worker never wrote a comment, so
+# the evidence says removed with no handoff. The seal is ready, and the
+# verdict says `handoff none` where a link would be.
+rfixture
+header wk-rm "$RINST/public/repo"
+printf '{"teardown":"removed"}' >"$ST/teardown-ev"
+cseal
+eq  "removed, no handoff comment: exit 0" 0 "$RC"
+case "$OUT" in "handoff-ready keyseal:7:"*) ok "removed, no handoff comment: prints handoff-ready" ;; *) bad "removed, no handoff comment: prints handoff-ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "removed, no handoff comment: the verdict says handoff none" \
+    "ready|topic w5|removed yes|instance - $RINST|job -|pr acme/widgets#600 $MERGE|handoff none|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "removed, no handoff comment: nothing else ran" "" "$(cat "$ST/calls")"
+
 # --- ready: the holding read doesn't grow with the entries (shirabe#1315) ---------------------
 #
 # The holding comes from the real state-holding.sh, reading the record the
