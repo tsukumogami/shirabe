@@ -156,7 +156,16 @@
 # it, except after session-source: a run whose find never ran is no resume
 # candidate, so the start opens a new run as with no session here and cancels
 # the imported one. record/host takes the source's workspace, session and
-# template hash.
+# template hash: on the run the import leaves driving, the copy on an older
+# koto and the new run after a takeover (below).
+#
+# An import that stops after koto imported the copy, before the run is taken
+# over or resumed (a log that couldn't be read, a record/host write or a
+# takeover write refused), prints `failed=<kind>`, `imported=<session>`,
+# `outcome=incomplete` and `reason=<kind>`, with the step's own refusal on
+# stderr, and exits 1. The same import run again from this session finishes
+# it: koto's import of a copy already complete here writes nothing, and the
+# opener goes on from the step that stopped.
 #
 # On koto 0.32.0 and later, which keep an import's source as a read-only
 # predecessor of the copy (koto#540) and fence a run on the cloud backend
@@ -164,7 +173,9 @@
 # run over (above): the copy is the predecessor, fenced, and a new run opened
 # from this plugin's root and template carries its record/, legs/, taken_legs
 # and leg_children, so neither the plugin-root rebind nor provenance is asked.
-# The takeover records this Claude session as the new run's driver, so a
+# Nothing is written to the copy: its plugin root is the source host's, so the
+# record writers refuse it, and record/host is written on the new run, before
+# its takeover is marked done. The takeover records this Claude session as the new run's driver, so a
 # session with no CLAUDE_CODE_SESSION_ID is refused before koto runs
 # (`refused=session-id`). The output is `imported=<session>`, then the
 # takeover's lines: `outcome=continued`, `predecessor=<the copy>`,
@@ -294,8 +305,10 @@
 # imported; 2 refused, by this script or by koto; 1 koto couldn't read or push
 # the run or mark its source (koto's own exit 1), the shipped template didn't
 # compile (`failed=template_compile`), this host's runs couldn't be listed
-# (`failed=live_sessions`), the imported run's log couldn't be read
-# (`failed=directed_read`), or record/host wasn't written (`failed=host_facts`).
+# (`failed=live_sessions`), or the import stopped after koto imported the copy
+# (`outcome=incomplete`: the imported run's log couldn't be read,
+# `failed=directed_read`; record/host wasn't written, `failed=host_facts`; or
+# a takeover write failed, `failed=takeover_record`).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -794,11 +807,41 @@ $v
 EOF
     if [ -n "$ma" ] && [ -n "$mi" ] && { [ "$ma" -gt 0 ] || [ "$mi" -ge 31 ]; }; then echo supported; else echo unsupported; fi
 }
+# import_unfinished <kind> <why>: an import that stopped after koto imported
+# the copy, before the run was taken over or resumed. koto's import of a copy
+# already complete here writes nothing, so the same import run again from
+# this session goes on from the step that stopped. Exit 1.
+import_unfinished() {
+    echo "failed=$1"
+    [ -n "$IMPORTED_SAID" ] || printf 'imported=%s\n' "$IMPORT"
+    printf 'outcome=incomplete\nreason=%s\n' "$1"
+    echo "coordinate-open: $2; $IMPORT is imported here, and the same import run again from this session finishes it" >&2
+    exit 1
+}
+# host_facts <run> <copy>: record/host on <run> takes the import's source
+# facts: the source workspace, the copy's name and the copy's template hash.
+# The writer writes nothing when they are there already, so a re-run writes
+# them once. A refusal stops the import with the writer's own reason.
+host_facts() {
+    local hash
+    hash=$(bash "$HERE/coord-log.sh" template-hash --session "$2" 2> /dev/null)
+    bash "$HERE/state-stored-set.sh" --session "$1" --host source_workspace "$FROM" --host source_session "$2" \
+        --host template_hash "$hash" < /dev/null > /dev/null 2> "$T_ERR" \
+        || import_unfinished host_facts "record/host wasn't written on $1: $(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400)"
+}
+# takeover_failed <what>: a write of finish_takeover failed after the fence;
+# the opener run again from this session finishes it. On an import that is
+# the import's own stop (import_unfinished).
+takeover_failed() {
+    [ -z "$IMPORT" ] || import_unfinished takeover_record "$1"
+    echo "failed=takeover_record"; echo "coordinate-open: $1; run the opener again from this session to finish" >&2; exit 1
+}
 # finish_takeover <successor> <predecessor> <yes|no>: the successor's own
 # record changes after the fence, each written once, so a re-run after a crash
 # finishes what is missing: the driver (first, so a re-run knows the run is
 # its own), the coordinator row naming the caller, which clears the told set,
-# one takeover entry, and record/meta's takeover_done last. Then the result.
+# an import's record/host, one takeover entry, and record/meta's takeover_done
+# last. Then the result.
 finish_takeover() {
     local succ=$1 pred=$2 stopped=$3 d
     if [ "$(meta_field "$succ" driver)" != "$CALLER" ] || [ "$(meta_field "$succ" takeover_done)" = true ]; then
@@ -808,12 +851,12 @@ finish_takeover() {
         meta_set "$succ" '.driver = $c | .takeover_done = false | .takeover = {predecessor: $p, predecessor_stopped: $st}
                 | del(.template_compat, .template_fingerprint) + $tc' \
             --arg c "$CALLER" --arg p "$pred" --arg st "$stopped" --argjson tc "$(compat_meta "$succ")" \
-            || { echo "failed=takeover_record"; echo "coordinate-open: $pred is fenced and $succ holds its record, but $succ's record/meta wasn't written; run the opener again from this session to finish" >&2; exit 1; }
+            || takeover_failed "$pred is fenced and $succ holds its record, but $succ's record/meta wasn't written"
     fi
     if [ -n "$CALLER_NAME" ]; then
         if [ "$(run_address "$succ")" != "$CALLER_NAME" ]; then
             bash "$HERE/state-stored-set.sh" --session "$succ" --run coordinator "$CALLER_NAME" --by "$CALLER_NAME" > /dev/null 2> "$T_ERR" \
-                || { echo "failed=takeover_record"; echo "coordinate-open: $succ's coordinator row wasn't written: $(head -c 400 "$T_ERR"); run the opener again from this session to finish" >&2; exit 1; }
+                || takeover_failed "$succ's coordinator row wasn't written: $(head -c 400 "$T_ERR")"
         fi
     else
         echo "coordinate-open: this session's name couldn't be read, so $succ's coordinator row still names the predecessor's; write yours with state-stored-set.sh --run coordinator" >&2
@@ -822,18 +865,22 @@ finish_takeover() {
     # or an accepted change from above. The writer is set-once, so a re-run
     # after a crash writes nothing it already wrote.
     role_write "$succ" \
-        || { echo "failed=takeover_record"; echo "coordinate-open: $succ's role row ($ROLE_OUT) wasn't written: $(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400); run the opener again from this session to finish" >&2; exit 1; }
+        || takeover_failed "$succ's role row ($ROLE_OUT) wasn't written: $(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400)"
+    # An import's source facts go on the run that now holds the record, since
+    # the copy, opened from the source host's plugin root, refuses every
+    # record write.
+    [ -z "$IMPORT" ] || host_facts "$succ" "$pred"
     if ! bash "$HERE/state-entry.sh" --session "$succ" --list 2> "$T_ERR" \
             | jq -e --arg p "takeover $succ:" 'any(.[]; .kind == "takeover" and (.text | startswith($p)))' > /dev/null; then
-        d=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-entry.XXXXXX") || { echo "failed=takeover_record"; exit 1; }
+        d=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-entry.XXXXXX") || takeover_failed "a scratch file for $succ's takeover entry couldn't be made"
         printf 'takeover %s: %s continues %s, which it fenced; %s was %s when it was taken over.\n' \
             "$succ" "$succ" "$pred" "$pred" "$([ "$stopped" = yes ] && echo live || echo "not live")" > "$d"
         bash "$HERE/state-entry.sh" --session "$succ" --kind takeover --text-file "$d" > /dev/null 2> "$T_ERR" \
-            || { rm -f "$d"; echo "failed=takeover_record"; echo "coordinate-open: $succ's takeover entry wasn't written: $(head -c 400 "$T_ERR"); run the opener again from this session to finish" >&2; exit 1; }
+            || { rm -f "$d"; takeover_failed "$succ's takeover entry wasn't written: $(head -c 400 "$T_ERR")"; }
         rm -f "$d"
     fi
     meta_set "$succ" '.takeover_done = true' \
-        || { echo "failed=takeover_record"; echo "coordinate-open: $succ's takeover wasn't marked done; run the opener again from this session to finish" >&2; exit 1; }
+        || takeover_failed "$succ's takeover wasn't marked done"
     [ -n "${WATCH_READ:-}" ] || read_watch "$pred"
     printf 'outcome=continued\npredecessor=%s\nsession=%s\npredecessor_stopped=%s\nwatcher=%s\nleg_wake=%s\n' \
         "$pred" "$succ" "$stopped" "$(watcher_result "$pred")" "$(leg_wake)"
@@ -1234,7 +1281,7 @@ if [ -n "$IMPORT" ]; then
     [[ $IMPORT =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
         || refuse_import session-name "$IMPORT is not a run of $SLUG (coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>)"
     not_self "$IMPORT"
-    TAKES_OVER=
+    TAKES_OVER= IMPORTED_SAID=
     import_takes_over && TAKES_OVER=1
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)
@@ -1280,6 +1327,7 @@ if [ -n "$IMPORT" ]; then
                     exit 0
                 fi
                 printf 'imported=%s\n' "$IMPORT"
+                IMPORTED_SAID=1
                 takeover "$IMPORT" "$IMPORT_SUCC"
             fi
         fi
@@ -1373,14 +1421,18 @@ EOF
     case $? in
         0) ;;
         1) refuse_import session-directed "$IMPORT has a directed transition in its log; it stays on this host, and a plain start carries its record into a new run" ;;
-        *) echo "failed=directed_read"; echo "coordinate-open: $IMPORT's log couldn't be read for directed transitions" >&2; exit 1 ;;
+        *) import_unfinished directed_read "$IMPORT's log couldn't be read for directed transitions" ;;
     esac
-    bash "$HERE/state-stored-set.sh" --session "$IMPORT" --host source_workspace "$FROM" --host source_session "$IMPORT" \
-        --host template_hash "$HASH" > /dev/null 2>&1 \
-        || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run state-stored-set.sh --host for it" >&2; exit 1; }
+    # record/host, on the copy an older koto resumes, which passed provenance
+    # above. A copy taken over is never written: its plugin root is the
+    # source host's, so the record writers refuse it, and finish_takeover
+    # writes record/host on the new run instead.
+    [ -n "$TAKES_OVER" ] || host_facts "$IMPORT" "$IMPORT"
     printf 'imported=%s\n' "$IMPORT"
+    IMPORTED_SAID=1
     # The copy is the predecessor: the takeover fences it, carries its record
-    # and legs into a new run and prints the takeover's result
+    # and legs into a new run, writes the import's record/host there and
+    # prints the takeover's result
     # (finish_takeover). The new run opens at the template's first state, so
     # it reconciles here from its first tick and needs no `moved` tick. The
     # source refuses every write already, and koto follows its migration to

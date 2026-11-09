@@ -24,11 +24,13 @@
 #      imported= and takes the copy over (outcome=continued, predecessor= the
 #      copy, session= a new run, no resumed=, state= or tick=), its stderr
 #      only the note that the coordinator row keeps A's address. Either way
-#      the imported copy keeps A's stamp; every record/ and legs/ key on B is
-#      the same as on A, record/host keeps A's host facts and adds the source
-#      workspace, session and template hash; from 0.32.0 the new run holds
-#      the copy's keys but record/meta, one takeover entry more, the same
-#      record/host and B's session as driver. A's copy then refuses a write as
+#      the imported copy keeps A's stamp and every record/ and legs/ key on B
+#      is the same as on A. Before 0.32.0 the copy's record/host keeps A's
+#      host facts and adds the source workspace, session and template hash;
+#      from 0.32.0 the taken-over copy's record/host is A's own, unchanged,
+#      and the new run holds the copy's keys but record/meta, one takeover
+#      entry more, a record/host with A's facts and the source added, and B's
+#      session as driver. A's copy then refuses a write as
 #      session_migrated (and, before koto 0.32.0, a read too; from 0.32.0 a
 #      read answers with A's last pushed copy), and on A it is neither a live
 #      run of the scope nor a session holding the scope's record. B's next
@@ -256,7 +258,13 @@ eq "the run keeps A's stamp" "$S" "$(host_on b koto session list | jq -r --arg s
 eq "every record/ and legs/ key is the same on B" "$SNAP" "$(keys b)"
 HASH=$(host_on b bash "$PS/coord-log.sh" template-hash --session "$S")
 HOST_WANT=$(printf '%s' "$HOST_A" | jq -cS --arg w "$WS_A" --arg s "$S" --arg h "$HASH" '. + {source_workspace: $w, source_session: $s, template_hash: $h}')
-eq "record/host keeps A's facts and adds the source" "$HOST_WANT" "$(host_on b koto context get "$S" record/host | jq -cS .)"
+if [ -n "$TAKEOVER" ]; then
+    # A taken-over copy is left as it was: its record/host stays A's own, and
+    # the new run below is the one that adds the source.
+    eq "the copy's record/host is A's own, unchanged" "$(printf '%s' "$HOST_A" | jq -cS .)" "$(host_on b koto context get "$S" record/host | jq -cS .)"
+else
+    eq "record/host keeps A's facts and adds the source" "$HOST_WANT" "$(host_on b koto context get "$S" record/host | jq -cS .)"
+fi
 if [ -n "$TAKEOVER" ]; then
     # The new run carries the copy's record and legs: every key but
     # record/meta, which the takeover rewrites, is the same, one entry more is

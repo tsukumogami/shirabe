@@ -65,6 +65,12 @@
 #      import marks the source and a write there is refused; and an import
 #      killed before or after the fence refuses a mismatched role against the
 #      copy's row and finishes on a matching one.
+#  10. a run opened in `work` from a copy of the plugin at another root, the
+#      same template, is imported and taken over, nothing written to the copy
+#      and record/host on the new run; a record/host write refused there
+#      prints the writer's reason and outcome=incomplete, and the same import
+#      again finishes it; one cut short before the fence finishes on a re-run
+#      that leaves the copy's log one session_imported event.
 # On a koto older than 0.32.0, whose cloud backend can't fence, the import
 # resumes the copy as before (imported=, resumed=1, no outcome=), and only
 # that is checked.
@@ -498,5 +504,64 @@ grep -q "compiled from coordinate.md at compat [^ ]* (template [0-9a-f]\{64\}); 
 eq "7:   ... and no run takes it over" "" "$(line outcome)$(line session)"
 eq "7:   ... the copy the only run of its scope in second" "$OTHER" \
     "$(cd "$W2" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
+
+# ---- 10. an import of a run opened from another plugin root -------------------------
+# The copy keeps the plugin root its source ran from, which the record writers
+# refuse, so the opener writes nothing to it and record/host lands on the new
+# run. A record/host write refused there stops the import with the writer's
+# own reason and outcome=incomplete, and the same import again finishes it. An
+# import cut short before the fence finishes on a re-run whose koto import
+# adds nothing to the copy: its log keeps one session_imported event.
+mkdir -p "$T/plugin3"
+cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin3/"
+cat > "$T/hostfail" <<EOF
+#!/bin/sh
+case "\$1 \$2 \${4:-}" in "context add record/host") echo "koto: the test stand-in refuses this record/host write" >&2; exit 1 ;; esac
+exec "$REAL_KOTO" "\$@"
+EOF
+chmod +x "$T/hostfail"
+imported_events() { jq -s '[.[] | select(.type == "session_imported")] | length' "$(cd "$W2" && koto session dir "$1")/koto-$1.state.jsonl"; }
+host_names() { # host_names <run> <copy>: 0 when <run>'s record/host names work and <copy> as the source
+    local h
+    h=$(cd "$W2" && koto context get "$1" record/host 2>/dev/null)
+    grep -qF "$W1" <<< "$h" && grep -qF "$2" <<< "$h"
+}
+other_root_src() { PS=$T/plugin3/skills/coordinate/scripts PR=$T/plugin3 role_src "$1" "[$(row role manager),$(row reports-to "the human"),$(row coordinator coord-a)]"; }
+if other_root_src imp-x1; then
+    X1=$R
+    rimport imp-x1 "$X1" '[]'
+    eq "10: a run opened from another plugin root is imported and taken over" "0 $X1 continued $X1" \
+        "$ORC $(line imported) $(line outcome) $(line predecessor)"
+    X1B=$(line session)
+    host_names "$X1B" "$X1" && ok "10:   ... record/host on the new run names work and the copy" \
+        || bad "10:   ... record/host on the new run names work and the copy" "$(cd "$W2" && koto context get "$X1B" record/host 2>&1)"
+fi
+if other_root_src imp-x2; then
+    X2=$R
+    rimport imp-x2 "$X2" '[]' "$T/hostfail"
+    eq "10: a record/host write refused on the new run stops the import" "1 host_facts $X2 incomplete host_facts" \
+        "$ORC $(line failed) $(line imported) $(line outcome) $(line reason)"
+    eq "10:   ... imported= once and no session= line" "1|" "$(printf '%s\n' "$OUT" | grep -c '^imported=')|$(line session)"
+    grep -qF "the test stand-in refuses this record/host write" "$T/open.err" \
+        && ok "10:   ... the writer's own reason on stderr" || bad "10:   ... the writer's own reason on stderr" "$(cat "$T/open.err")"
+    grep -qF "$X2 is imported here, and the same import run again from this session finishes it" "$T/open.err" \
+        && ok "10:   ... naming the way to finish it" || bad "10:   ... naming the way to finish it" "$(cat "$T/open.err")"
+    rimport imp-x2 "$X2" '[]'
+    eq "10: the same import again finishes it" "0 continued $X2" "$ORC $(line outcome) $(line predecessor)"
+    X2B=$(line session)
+    host_names "$X2B" "$X2" && ok "10:   ... record/host on the new run names work and the copy" \
+        || bad "10:   ... record/host on the new run names work and the copy" "$(cd "$W2" && koto context get "$X2B" record/host 2>&1)"
+    eq "10:   ... the copy's log holds one session_imported event" 1 "$(imported_events "$X2")"
+fi
+if other_root_src imp-x3; then
+    X3=$R
+    KILL_WHEN=before rimport imp-x3 "$X3" '[]' "$T/killkoto"
+    eq "10 cut before the fence: the opener is killed there, the copy here" "137 1" "$ORC $(imported_events "$X3")"
+    rimport imp-x3 "$X3" '[]'
+    eq "10 cut before the fence: the same import again finishes it" "0 continued $X3" "$ORC $(line outcome) $(line predecessor)"
+    eq "10 cut before the fence:   ... its koto import adding no second session_imported event" 1 "$(imported_events "$X3")"
+    host_names "$(line session)" "$X3" && ok "10 cut before the fence:   ... record/host on the new run" \
+        || bad "10 cut before the fence:   ... record/host on the new run" "$(cat "$T/open.err")"
+fi
 
 done_tests coordinate-import-takeover-engine
