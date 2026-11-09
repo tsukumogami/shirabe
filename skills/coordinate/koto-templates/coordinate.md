@@ -2912,7 +2912,11 @@ dispatch-failed (submit `failed`; the unit is dispatched again under a new
 topic, but after the script's exit 11 never with a wider grant), 2 the record
 couldn't be read. The script's own exit codes are in its
 header; 5 means a live session already uses the topic, 8 the record refused the
-write.
+write. A dispatch-failed row this state no longer acts on, such as one a
+takeover carried into this run, counts against the cap until it goes: retire
+it with `state-holding.sh --topic <topic> --retire`, which removes it only
+when niwa lists no session and no unfinished Claude job exists for its topic,
+and leaves an entry saying so.
 
 For `send_execution`, put the execution's brief input in context (entry point
 `/shirabe:execute` with the PLAN, phase `executing`) and run the same script:

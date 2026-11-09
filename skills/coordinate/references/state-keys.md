@@ -131,7 +131,10 @@ its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs).
+dispatch-worker.sh runs). A `dispatch-failed` row, a launch that never
+started, goes through `--retire` too once no worker exists for its topic
+(niwa lists no session and no unfinished Claude job carries it); its removal
+is told as an `entry` entry.
 
 A deferral is disposed of when its `disposition` reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the
