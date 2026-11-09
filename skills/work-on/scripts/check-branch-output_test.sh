@@ -432,6 +432,56 @@ case "$OUT" in
     *) fail "--commits: the finding does not name $BAD_SHA: $OUT" ;;
 esac
 
+# A revert of a revert: git 2.43 and later write Reapply "<subject>", older git
+# Revert "Revert "<subject>"". Which one `git revert` produces depends on the
+# git running the suite, so these subjects are written literally.
+fixture reapply
+commit_file a.txt a -m "feat: add a"
+commit_file probe.txt probe -m "test: temporary probes for the runner image"
+commit_file probe.txt gone -m 'Revert "test: temporary probes for the runner image"'
+commit_file probe.txt back -m 'Reapply "test: temporary probes for the runner image"'
+run --commits --base-ref origin/main
+expect "--commits: git's Reapply subject around a conventional subject" 0
+
+fixture reapply-nonconventional
+commit_file a.txt a -m 'Reapply "update stuff"'
+run --commits --base-ref origin/main
+expect "--commits: a Reapply subject around a non-conventional subject" 1 "commit/conventional-subject"
+case "$OUT" in
+    *'Reapply \"<subject>\"'*'Revert \"Revert \"<subject>\"\"'*)
+        pass "--commits: the finding names the Reapply and nested Revert forms" ;;
+    *) fail "--commits: the finding does not name the Reapply and nested Revert forms: $OUT" ;;
+esac
+
+fixture reapply-unclosed
+commit_file a.txt a -m 'Reapply "fix: correct a'
+run --commits --base-ref origin/main
+expect "--commits: a Reapply subject with no closing quote" 1 "commit/conventional-subject"
+
+fixture revert-revert
+commit_file probe.txt probe -m "test: temporary probes for the runner image"
+commit_file probe.txt gone -m 'Revert "test: temporary probes for the runner image"'
+commit_file probe.txt back -m 'Revert "Revert "test: temporary probes for the runner image""'
+run --commits --base-ref origin/main
+expect "--commits: older git's Revert \"Revert\" subject around a conventional subject" 0
+
+fixture revert-revert-nonconventional
+commit_file a.txt a -m 'Revert "Revert "update stuff""'
+run --commits --base-ref origin/main
+expect "--commits: a Revert \"Revert\" subject around a non-conventional subject" 1 "commit/conventional-subject"
+
+# Only one wrapper comes off: what git writes for a third revert, in either
+# git, still fails.
+for deeper in \
+    'Revert "Reapply "test: temporary probes for the runner image""' \
+    'Reapply "Reapply "test: temporary probes for the runner image""' \
+    'Revert "Revert "Revert "test: temporary probes for the runner image"""'; do
+    fixture revert-deeper
+    commit_file a.txt a -m "$deeper"
+    run --commits --base-ref origin/main
+    expect "--commits: a deeper nesting, $deeper" 1 "commit/conventional-subject"
+done
+
 # --- the refusals ---------------------------------------------------------------
 
 # A clean branch: the refusals hold the gate before any check.
