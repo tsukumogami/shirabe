@@ -14,9 +14,12 @@
 # Prints, as one JSON object: arguments and cap (Run's rows, or null),
 # coordinator (the current address, or null), told (who has been told it),
 # workers (one per live holding: unit, worker, phase, told, next, and
-# `pending: true` for a worker recorded pending), pending (the workers that
-# can't be told it yet, only when there is one, so a record with no pending
-# row reads as it did before the row existed), work (every
+# `pending: true` for a worker recorded pending for the current address, or
+# `carried: true` for one whose pending row an earlier address left, before
+# the coordinator row), pending (the workers that can't be told it yet, only
+# when there is one, so a record with no pending row reads as it did before
+# the row existed), carried (the carried ones, likewise only when there is
+# one), work (every
 # Work row, local agents included), standing (every Standing row but a `rule`
 # row, so a record holding rules hands over the same events it did before it
 # held any; the rules are read through state-stored-set.sh --rules), holds
@@ -90,7 +93,9 @@
 #                                            row for the current address (a
 #                                            pending worker, whose session is
 #                                            gone while its instance still
-#                                            exists, doesn't hold the gate)
+#                                            exists, doesn't hold the gate; a
+#                                            carried one does, until
+#                                            handover-classify.sh confirms it)
 #   carry-unacknowledged                     a discipline rotation carried
 #                                            its predecessor's state, and no
 #                                            Standing go-ahead set since this
@@ -271,7 +276,14 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
     (.standing // []) as $rows
     | (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
-    | ([$run[] | select(.key == "pending") | .value]) as $pending
+    # A pending row after the coordinator row was written for the current
+    # address; one before it was carried from an earlier one (LIB_COORD_ROW_JQ
+    # appends the new coordinator row after the rows it keeps), and holds the
+    # gate until state-stored-set.sh --pending-confirm makes it current. With no
+    # coordinator row every pending row reads as current.
+    | ([$run | to_entries[] | select(.value.key == "coordinator") | .key][0] // -1) as $ci
+    | ([$run | to_entries[] | select(.value.key == "pending" and .key > $ci) | .value.value]) as $pending
+    | ([$run | to_entries[] | select(.value.key == "pending" and .key < $ci) | .value.value]) as $carried
     | ((.work // []) | map(select(.kind == "holding") | {(.item): .}) | add // {}) as $work
     | [.holdings[] | select(.dispatch_status == "dispatched")
         | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)] as $live
@@ -280,9 +292,11 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
                             next: ($work[.unit].next // null)}
                          # Only a record holding a pending row says so: one
                          # written before pending rows existed reads as it did.
-                         | .worker as $w | if ($pending | index($w)) != null then .pending = true else . end],
+                         | .worker as $w | if ($pending | index($w)) != null then .pending = true
+                                           elif ($carried | index($w)) != null then .carried = true else . end],
        work: (.work // []), standing: [(.standing // [])[] | select(.kind != "rule")], holds: (.holds // [])}
     | if ($pending | length) > 0 then .pending = $pending else . end
+    | if ($carried | length) > 0 then .carried = $carried else . end
     | .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
     | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), role: ([$run[] | select(.key == "role") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
          briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
@@ -315,7 +329,9 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
                   + (if $plan.untaken > 0 then "; \($plan.untaken) of its lines can'"'"'t be taken under the caps (\(inferred_cap) inferred rule rows, \(rule_cap) rule rows): ask a person which rule rows to confirm or end, then run it again" else "" end))}),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
-        (if .coordinator != null then (.workers[] | select((.told or .pending) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"}) else empty end)
+        (if .coordinator != null then (.workers[] | select((.told or .pending) | not)
+            | if .carried then {gap: "not-told \(.worker)", fix: "pending for an earlier address: run handover-classify.sh --session <this run>, which confirms it still pending when its session is stopped or its instance is missing, or prints it live to be told"}
+              else {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"} end) else empty end)
       ])
     | if any($rows[]; .kind == "rule") then .rule_lists = rule_lists($rows) else . end' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 

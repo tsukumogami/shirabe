@@ -97,6 +97,11 @@ env -u CLAUDE_CODE_SESSION_ID bash "$RS" "${W[@]}" --run coordinator lane-v2 --b
 eq "a new address is set over a told and a pending row" 0 $?
 eq "  ... the told row is gone and the pending one is carried" '[]|["worker-f3"]' \
     "$(bash "$RH" "${RM[@]}" | jq -r '"\(.told | tojson)|\(.carried // [] | tojson)"')"
+eq "  ... the worker read carried, not pending" "worker-f2:false:false worker-f3:false:true" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '[.workers[] | "\(.worker):\(.pending // false):\(.carried // false)"] | join(" ")')"
+gate; eq "  ... a carried row alone still holds the gate" "1 not-told worker-f2,not-told worker-f3" "$G"
+grep -qF 'not-told worker-f3: pending for an earlier address: run handover-classify.sh' "$T/gate" \
+    && ok "  ... its fix naming handover-classify.sh" || bad "  ... its fix naming handover-classify.sh" "$(cat "$T/gate")"
 env -u CLAUDE_CODE_SESSION_ID bash "$RS" "${W[@]}" --pending-confirm worker-f3=stopped --by lane-v2 >/dev/null 2>"$T/err"
 eq "  ... and the handover confirms it, still stopped" 0 $?
 env -u CLAUDE_CODE_SESSION_ID bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>"$T/err"
