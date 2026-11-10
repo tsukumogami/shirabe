@@ -86,6 +86,22 @@ gate; eq "a new address with no told or pending row holds on every live worker" 
 seed "$(record '[]' | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s | .holdings[1].pull_request = ""')"
 gate; eq "a merged holding needs neither told nor pending" "1 not-told worker-f2" "$G"
 
+echo "== a carried pending row =="
+# A new coordinator address resets the told rows and carries the pending ones:
+# a worker that was pending for the old address is still pending once the
+# handover confirms it is still stopped, in one write for every such worker.
+RS="$HERE/state-stored-set.sh"
+W=("${RM[@]}" --skip-session-checks)
+seed "$(record "[$(row told worker-f2),$(row pending worker-f3)]")"
+env -u CLAUDE_CODE_SESSION_ID bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>"$T/err"
+eq "a new address is set over a told and a pending row" 0 $?
+eq "  ... the told row is gone and the pending one is carried" '[]|["worker-f3"]' \
+    "$(bash "$RH" "${RM[@]}" | jq -r '"\(.told | tojson)|\(.carried // [] | tojson)"')"
+env -u CLAUDE_CODE_SESSION_ID bash "$RS" "${W[@]}" --pending-confirm worker-f3=stopped --by lane-v2 >/dev/null 2>"$T/err"
+eq "  ... and the handover confirms it, still stopped" 0 $?
+env -u CLAUDE_CODE_SESSION_ID bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>"$T/err"
+gate; eq "  ... so once the live worker is told, the gate passes" "0 " "$G"
+
 echo "== rule rows =="
 EVENTS='[{"standing":"s1","kind":"pause","on":"Feature 3","until":"lifted","what":"hold the third lane","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"},
  {"standing":"s2","kind":"approval","on":"","until":"","what":"ship the docs first","owner":"the human","relayed_by":"","set":"2026-09-26T08:01Z"}]'
