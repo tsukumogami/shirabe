@@ -254,7 +254,7 @@ lib_default_branch || src_fail "$HOST" "$ROADMAP" repository
 SHA=$(gh api --method GET "repos/$HOST/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha 2> /dev/null < /dev/null) \
     || src_fail "$HOST" "$ROADMAP" repository
 [[ $SHA =~ $RE_SHA ]] || src_fail "$HOST" "$ROADMAP" repository
-lib_file_at "$ROADMAP" "$SHA" "$T/roadmap.md"
+lib_roadmap_at "$SHA" "$T/roadmap.md"
 case $? in 0) ;; 1) src_fail "$HOST" "$ROADMAP" file ;; *) src_fail "$HOST" "$ROADMAP" repository ;; esac
 lib_roadmap_features "$T/roadmap.md" > "$T/features.json" 2> /dev/null || src_fail "$HOST" "$ROADMAP" file
 jq -e 'type == "array"' "$T/features.json" > /dev/null 2>&1 || src_fail "$HOST" "$ROADMAP" file

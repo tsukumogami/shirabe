@@ -473,9 +473,16 @@ core_write_rotation() {
     rm -rf "$d"
 }
 
-# core_carry <from> <to>: copy a record, its state and its account, from run
-# <from> into the new run <to> on this host: every record/ and
-# legs/ key (PRD R12; Decision 6). The source is read through the seam, so it
+# core_carry <from> <to> [<carrier>]: copy a record, its state and its
+# account, from run <from> into the new run <to> on this host: every record/
+# and legs/ key (PRD R12; Decision 6), but two. record/meta is written fresh
+# (below). And given <carrier>, the name of the Claude session carrying it,
+# record/run is copied with the carrier's own coordinator row when the
+# source's names anyone else (lib_carrier_row: the row a `--run coordinator`
+# write makes, `told` and `pending` rows dropped), so the row lands with the
+# copy and the writers' driver check passes the carrier's writes after it;
+# then it prints `carrier_row=<carrier>` once the carry has landed, for the
+# opener to post that write's entry. The source is read through the seam, so it
 # passes every check a read makes: it assembles and reads back as this scope's
 # record (SCOPE, NAME) under state-schema.jq's rules, and holds only
 # well-formed pushed heads. The target must hold no record. Every key is read
@@ -502,7 +509,7 @@ core_write_rotation() {
 # source holds no record; 12 it was being written; 65 refused (the reason on
 # stderr); 11 a write failed; 2 a read failed.
 core_carry() {
-    local from=$1 to=$2 d k n rc secs help win=
+    local from=$1 to=$2 carrier=${3:-} d k n rc secs help win= crow=
     d=$(mktemp -d "${TMPDIR:-/tmp}/state-carry.XXXXXX") || lib_die2 "mktemp failed"
     rs_session_read "$d/rec" "$from" "$SCOPE" "$NAME"; rc=$?
     case $rc in
@@ -544,6 +551,14 @@ core_carry() {
             *) jq -e . "$d/v.$n" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
         esac
         case "$k" in
+            record/run)
+                lib_carrier_row "$d/v.$n" "$d/v.$n.carrier" "$carrier" "$(date -u +%Y-%m-%dT%H:%MZ)"
+                case $? in
+                    0) mv "$d/v.$n.carrier" "$d/v.$n" || { rm -rf "$d"; lib_die2 "cannot keep the carrier's row"; }
+                       crow=$carrier ;;
+                    1) ;;
+                    *) rm -rf "$d"; echo "$PROG: refused: $k isn't a JSON array" >&2; exit 65 ;;
+                esac ;;
             record/entries/*) jq -r '.text? // empty | strings | scan("^(s[1-9][0-9]*)") | .[0][1:]' "$d/v.$n" >> "$d/used" \
                 || { rm -rf "$d"; lib_die2 "jq failed"; } ;;
         esac
@@ -583,6 +598,7 @@ core_carry() {
     "$KOTO" context add "$to" record/meta --from-file "$d/meta" < /dev/null > /dev/null 2> "$d/k.err" \
         || { echo "$PROG: the carry into $to failed at record/meta: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     rm -rf "$d"
+    [ -z "$crow" ] || printf 'carrier_row=%s\n' "$crow"
 }
 
 # core_validate <state-file> [<out>]: the state's JSON checked by

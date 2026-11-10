@@ -6,7 +6,8 @@
 # rotation_end). Roadmap: a verdict-owed Work row (before a milestone not
 # Done, and with every milestone Done; its reason naming the milestone, its row
 # the detail's blocker), one feature not Done, Shipped or Dropped, a missing
-# roadmap, no features, holdings, side effects (a pending reopen named first),
+# roadmap (its reason naming the done/ path too), a roadmap moved to
+# docs/roadmaps/done/ read there, no features, holdings, side effects (a pending reopen named first),
 # one undisposed deferral (carried or empty), an unsettled decision, and ready
 # with every feature Done, Shipped or Dropped (an annotated `Done -- shipped in
 # #12` and `Shipped (#34)` included) and a clear record; each token a bare
@@ -70,6 +71,17 @@ file_at main "$RP" "$(roadmap Done done Done)"
 eq "the status is case-sensitive" features-open "$(rm_read)"
 db '.files["acme/widgets"] |= del(.["main:" + $p])' --arg p "$RP"
 eq "a missing roadmap is features-open" features-open "$(rm_read)"
+grep -q "docs/roadmaps/done/ROADMAP-plugin-system.md) is not on main" "$T/err" \
+    && ok "  ... its reason naming the done/ path too" || bad "  ... its reason naming the done/ path too" "$(cat "$T/err")"
+# The pull request that sets the roadmap Done may move it to docs/roadmaps/done/
+# (shirabe#1512): the close reads it there.
+RPD=docs/roadmaps/done/ROADMAP-plugin-system.md
+file_at main "$RPD" "$(roadmap Done Dropped Done)"
+eq "a roadmap moved to docs/roadmaps/done/ is read there and is ready" ready "$(rm_read)"
+grep -q "contents/$RPD?ref=main" "$GH_DB.calls" && ok "  ... read at its done/ path" || bad "  ... read at its done/ path" "$(calls)"
+file_at main "$RPD" "$(roadmap Done 'In progress' Done)"
+eq "  ... and a feature still open there is features-open" features-open "$(rm_read)"
+db '.files["acme/widgets"] |= del(.["main:" + $p])' --arg p "$RPD"
 file_at main "$RP" "$(printf -- '# ROADMAP\n\n## Features\n\nNone yet.\n')"
 eq "a roadmap with no features is features-open" features-open "$(rm_read)"
 rm_seed "$(printf '%s' "$CLEAR" | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"; file_at main "$RP" "$(roadmap Done Done Dropped)"

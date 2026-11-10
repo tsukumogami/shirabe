@@ -121,7 +121,7 @@
 # Exit codes: 0 printed, or written (prints the session holding the record);
 # 1 no entry N (--read only); 2 a read failed; 10 refused (no found record, a
 # record that doesn't read back as this scope's, provenance, a directed
-# transition); 11 the write failed; 12 the record changed since it was read
+# transition, a writing session that isn't the record's driver); 11 the write failed; 12 the record changed since it was read
 # (run it again); 64 usage; 65 refused: a transition the table doesn't list, a
 # missing verdict part, a mode run outside its state, a stamp already written,
 # or the state refused.
