@@ -22,6 +22,7 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 GATE="$HERE/skill-gate.sh"
@@ -36,7 +37,7 @@ command -v python3 >/dev/null 2>&1 || { echo "skill-gate_test: python3 is requir
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/skill-gate-test.XXXXXX") || exit 1
-trap 'rm -rf "$T"' EXIT
+ktg_on_exit 'rm -rf "$T"'
 REPO="$T/repo"
 RECORD="$T/record"
 
