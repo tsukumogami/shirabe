@@ -86,10 +86,11 @@ change (see below).
 
 Some skills also read a fixed format inside their extension file or a file
 next to it. `/release` reads the `## Release checks`, `## Release assets` and
-`## After release` sections of `release.md`, and `/work-on` reads
-`verification-map.json` and `hosted-ci.json` from the same directory. Those
-formats belong to the skill that reads them (`skills/release/SKILL.md`,
-`skills/work-on/references/verification-map.md`) and sit outside this
+`## After release` sections of `release.md` and `release.local.md`, and
+`/work-on` reads `verification-map.json` and `hosted-ci.json` from the same
+directory. Those formats belong to the skill that reads them
+(`skills/release/SKILL.md`, `skills/work-on/references/verification-map.md`,
+`skills/work-on/references/phases/phase-6-pr.md`) and sit outside this
 contract and get none of the breaking-change treatment described below; read
 the skill's own documentation when you upgrade.
 
