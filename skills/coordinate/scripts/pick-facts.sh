@@ -197,11 +197,11 @@ VERDICT=pick
 if [ "$SCOPE" = roadmap ]; then
     lib_roadmap_path
     lib_default_branch || lib_die2 "cannot read $REPO's default branch"
-    lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$T/roadmap.md"
+    lib_roadmap_at "$DEFAULT_BRANCH" "$T/roadmap.md"
     case $? in
         0) ;;
-        1) lib_die2 "$ROADMAP is not on $DEFAULT_BRANCH" ;;
-        *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
+        1) lib_die2 "$(lib_roadmap_where) is not on $DEFAULT_BRANCH" ;;
+        *) lib_die2 "cannot read $ROADMAP_READ: $(lib_scrub < "$T/roadmap.md.err")" ;;
     esac
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
     # The roadmap pull requests the record holds as pending (landed.json, as
