@@ -1213,6 +1213,57 @@ touch -t 200001010000 "$W/.niwa/dispatch-briefs/.plugin-api.lock"
 run >/dev/null 2>&1; RC=$?
 eq  "pid-less lock, over a minute old: taken over" 0 "$RC"
 
+# --- the lock file ------------------------------------------------------------------------------
+
+reset "$INPUT_DELIVER"
+mkdir -p "$W/.niwa/dispatch-briefs"
+sleep 30 &
+HOLDER=$!
+printf '%s\n' "$HOLDER" >"$W/.niwa/dispatch-briefs/.plugin-api.lock"
+run >/dev/null 2>&1; RC=$?
+eq  "lock file held by a live run: exit 7" 7 "$RC"
+kill "$HOLDER" >/dev/null 2>&1
+wait "$HOLDER" >/dev/null 2>&1
+run >/dev/null 2>&1; RC=$?
+eq  "lock file, its owner gone: taken over" 0 "$RC"
+[ -e "$W/.niwa/dispatch-briefs/.plugin-api.lock" ] && bad "lock file: released after the run" "" || ok "lock file: released after the run"
+
+# --- racing takers ------------------------------------------------------------------------------
+#
+# Five runs take one topic's lock at once, under a mkdir that reports success
+# for a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The run that gets the lock is held at
+# its first record read, so the others all try while it is inside.
+
+reset "$INPUT_DELIVER"
+RACE="$T/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" >"$RACE/bin/mkdir"
+cat >"$RACE/holding.sh" <<EOF
+#!/usr/bin/env bash
+if [ "\${1-}" = --read ]; then
+    : >"$RACE/in.\$\$"
+    n=0
+    until [ -e "$RACE/release" ] || [ "\$n" -ge 150 ]; do sleep 0.1; n=\$((n + 1)); done
+fi
+exec "$T/state-holding.sh" "\$@"
+EOF
+chmod +x "$RACE/bin/mkdir" "$RACE/holding.sh"
+PIDS=""
+for i in 1 2 3 4 5; do
+    (cd "$W/inst" && PATH="$RACE/bin:$PATH" DC_RECORD_HOLDING="$RACE/holding.sh" bash "$S" --session coord >/dev/null 2>&1
+     echo "$?" >"$RACE/rc.$i") &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^rc\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+eq  "five runs racing for one topic's lock: exactly one wins" 1 "$(ls "$RACE" | grep -c '^in\.')"
+: >"$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+eq  "  ... and the other four exit 7" 4 "$(cat "$RACE"/rc.* | grep -c '^7$')"
+
 # --- the record's script missing -------------------------------------------------------------------------
 
 reset "$INPUT_DELIVER"
