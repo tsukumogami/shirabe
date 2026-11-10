@@ -223,9 +223,9 @@ def check_holds($h; $private):
 # state-stored-set.sh changes them.
 #
 # Run, one row per key from a closed set; `told` and `pending` repeat, and
-# `rules` and `briefs` once per label:
+# `rules`, `briefs` and `briefs-read` once per label:
 #   Key      arguments | cap | coordinator | told | pending | store | rules |
-#            briefs | friction | reports-to | role
+#            briefs | briefs-read | friction | reports-to | role
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address; pending: a worker
@@ -235,8 +235,9 @@ def check_holds($h; $private):
 #            name, which may hold `_`, never an id or a path.
 #            store: session only, the legacy row (see run_keys below).
 #            rules, briefs, friction and reports-to are the crash set (see
-#            run_keys below). role: manager or director, at most one row
-#            (see run_keys below).
+#            run_keys below). briefs-read: how far a capped intake of a
+#            brief got (see run_keys below). role: manager or director, at
+#            most one row (see run_keys below).
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run, and the
@@ -326,7 +327,13 @@ def state_secs: [
 # (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1). Its writers are
 # state-open.sh's seed (and its --carry --role) and state-stored-set.sh --run
 # role, which sets it once; only --intervention replaces a different value.
-def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "store", "rules", "briefs", "friction", "reports-to", "role"];
+# briefs-read: `<label> sha256:<64 hex> <c>/<n>`, one row per label, how far a
+# capped intake of that brief got (docs/designs/DESIGN-coordinator-brief-intake-cap.md,
+# Decision 2): n is how many candidates brief_candidates gave for the digest,
+# and c, with 0 < c < n, the index of the first one the intake couldn't take.
+# Only state-stored-set.sh --intake writes or removes it; the carries copy it
+# with the rest of the Run section, and briefs_read_start reads it.
+def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "store", "rules", "briefs", "briefs-read", "friction", "reports-to", "role"];
 def run_roles: ["manager", "director"];
 def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment", "rule"];
@@ -550,6 +557,10 @@ def check_srow($sec; $private):
        elif .key == "rules" or .key == "briefs" then
          (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64}$")) then .
           else refuse("run.value: a \(.key) row is `<label> sha256:<64 hex>`, the label letters, digits, `.`, `_` and `-`") end)
+       elif .key == "briefs-read" then
+         (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64} (0|[1-9][0-9]{0,8})/(0|[1-9][0-9]{0,8})$"))
+             and (.value | split(" ")[2] | split("/") | map(tonumber) | .[0] > 0 and .[0] < .[1]) then .
+          else refuse("run.value: a briefs-read row is `<label> sha256:<64 hex> <c>/<n>`, with 0 < c < n") end)
        elif .key == "friction" then
          (if (.value | test(re_label)) then . else refuse("run.value: a friction row is a label: letters, digits, `.`, `_` and `-`") end)
        elif .key == "reports-to" then
@@ -611,10 +622,11 @@ def check_state($sec; $rows; $private):
   elif ($rows | type) != "array" then refuse("\($sec.key): not a list")
   else ($rows | map(check_srow($sec; $private))) as $r
     | if $sec.key == "run" then
-        ($r | map(select(.key != "told" and .key != "pending" and .key != "rules" and .key != "briefs") | .key)) as $once
+        ($r | map(select(.key != "told" and .key != "pending" and .key != "rules" and .key != "briefs" and .key != "briefs-read") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
         | ($r | map(select(.key == "pending") | .value)) as $pending
         | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
+        | ($r | map(select(.key == "briefs-read") | .value | split(" ")[0])) as $read
         | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: the store row is used twice")
           elif ($once | map(select(. == "role")) | length) > 1 then refuse("run: the role row is used twice; a run has one role")
           elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, pending, rules and briefs is used twice")
@@ -622,6 +634,7 @@ def check_state($sec; $rows; $private):
           elif ($pending | unique | length) != ($pending | length) then refuse("run: a worker is pending twice")
           elif any($pending[]; . as $p | $told | index($p) != null) then refuse("run: a worker is both told and pending")
           elif ($labels | unique | length) != ($labels | length) then refuse("run: a rules or briefs label is used twice")
+          elif ($read | unique | length) != ($read | length) then refuse("run: a briefs-read label is used twice")
           else $r end
       elif $sec.key == "standing" then
         (if ($r | map(.standing) | unique | length) != ($r | length) then refuse("standing: an id is used twice") else $r end)
@@ -706,29 +719,46 @@ def rule_cap_problem($row):
       "the record holds \(inferred_cap) inferred rule rows, the most it keeps; confirm or end one first"
     elif $n.rule >= rule_cap then "the record holds \(rule_cap) rule rows, the most it keeps; end one first"
     else null end;
-# brief_intake_plan($label; $digest; $cands): over a Standing value, what an
-# intake of the brief <label> at <digest> ("sha256:<64 hex>") whose
-# candidates are $cands does, with no forge read:
+# brief_intake_plan($label; $digest; $cands; $start): over a Standing value,
+# what an intake of the brief <label> at <digest> ("sha256:<64 hex>") whose
+# candidates are $cands does from candidate $start on (0, or what
+# briefs_read_start reads from a capped intake's marker), with no forge read:
 #   ends     the ids of the rows whose Source is `inferred brief <label> <d>`,
 #            <d> another digest, whose What matches no candidate under
-#            norm_match
-#   writes   the candidates no row left once those end holds under norm_match
-#            (any kind, any Source), in order
+#            norm_match; every candidate counts, those before $start too
+#   writes   the candidates from $start on that no row left once those end
+#            holds under norm_match (any kind, any Source), in order, each
+#            {index: <its index in $cands>, text: <the candidate>}
 #   room     how many rows the caps leave once those end: the inferred cap's
 #            room or the rule cap's, whichever is smaller, never below 0
 #   untaken  how many of the writes the caps leave out
-def brief_intake_plan($label; $digest; $cands):
+# The start is a parameter rather than a second function
+# (docs/designs/DESIGN-coordinator-brief-intake-cap.md, Decision 4), so no
+# caller can count from 0 by using the form that ignores the marker.
+def brief_intake_plan($label; $digest; $cands; $start):
   . as $rows
   | [$rows[] | select(((.source // "") | split(" ")) as $p
         | ($p | length) == 4 and $p[0] == "inferred" and $p[1] == "brief" and $p[2] == $label and $p[3] != $digest)
       | select((.what // "") as $w | any($cands[]; norm_match($w)) | not) | .standing] as $ends
   | [$rows[] | select(.standing as $s | any($ends[]; . == $s) | not)] as $keep
   | [$keep[] | (.what // "") | norm_text] as $held
-  | [$cands[] | select(norm_text as $k | any($held[]; . == $k) | not)] as $writes
+  | [$cands | to_entries[] | select(.key >= $start) | {index: .key, text: .value}
+      | select(.text | norm_text as $k | any($held[]; . == $k) | not)] as $writes
   | ($keep | rule_cap_counts) as $n
   | ([inferred_cap - $n.inferred, rule_cap - $n.rule] | min | if . < 0 then 0 else . end) as $room
   | {ends: $ends, writes: $writes, room: $room,
      untaken: (($writes | length) - $room | if . < 0 then 0 else . end)};
+# briefs_read_start($label; $digest; $n): over a Run value, where an intake of
+# the brief <label> at <digest> with $n candidates starts: c from the label's
+# `briefs-read` row `<label> <digest> <c>/<n>` when it names that digest and
+# that n, else 0. The intake and the brief-unread gap both read it, so the
+# count the gap names starts where the intake will.
+def briefs_read_start($label; $digest; $n):
+  [.[] | select(.key == "briefs-read") | .value | split(" ")
+   | select(length == 3 and .[0] == $label and .[1] == $digest)
+   | .[2] | split("/") | select(length == 2 and (.[1] | tonumber? // -1) == $n) | (.[0] | tonumber? // 0)]
+  | first // 0
+  | if . > 0 and . < $n then . else 0 end;
 
 # rule_view($session; $entries): one Standing row, as state-stored-set.sh
 # --rules prints it, for the record in $session whose entries

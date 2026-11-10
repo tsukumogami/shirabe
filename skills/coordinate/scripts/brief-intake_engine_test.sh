@@ -36,6 +36,17 @@
 #        heading write 60 and exit 1; an empty `## Standing rules` writes no
 #        rule row and the briefs row, counting every sentence outside; the
 #        brief's path in no output, row or entry, in either mode;
+#   the design's Decision 2, the Run briefs-read row: a capped intake writes
+#        `<label> D c/n` with its run entry, and the next intake of D starts
+#        at c (the 61-sentence brief after one end, a headingless brief of
+#        130 lines over several rounds, the gap's count equal to the
+#        intake's); a row for another digest or another n is ignored; a new
+#        digest reads whole and keeps the earlier rows it states before c; a
+#        capped run that only ends writes no row; a row breaking its grammar
+#        refuses every write, and --run briefs-read exits 64; the rewrite
+#        under `## Standing rules` clears a capped record; the restart carry
+#        (core_carry) and the rotation carry (state-open.sh --carry) keep the
+#        row and the rows it went past;
 #   the brief file is unchanged by every intake.
 #
 # niwa is never the real one: a fake in the scratch directory, first on PATH,
@@ -176,16 +187,23 @@ brief_put() {
     mv "$T/briefs.sums.next" "$T/briefs.sums"
     DIG="sha256:$(sha "$p")"
 }
-# fresh: the run's Standing empty and no Run briefs row, so a case starts alike.
+# fresh: the run's Standing empty and no Run briefs or briefs-read row, so a
+# case starts alike.
 fresh() {
     printf '[]' > "$T/empty.json"; put "$G" record/standing "$T/empty.json"
-    if ctx "$G" record/run | jq -e 'type == "array" and any(.[]; .key == "briefs")' > /dev/null 2>&1; then
-        ctx "$G" record/run | jq -c '[.[] | select(.key != "briefs")]' > "$T/run.json"
+    if ctx "$G" record/run | jq -e 'type == "array" and any(.[]; .key == "briefs" or .key == "briefs-read")' > /dev/null 2>&1; then
+        ctx "$G" record/run | jq -c '[.[] | select(.key != "briefs" and .key != "briefs-read")]' > "$T/run.json"
         put "$G" record/run "$T/run.json"
     fi
 }
 standing() { ctx "$G" record/standing; }
 briefs_rows() { ctx "$G" record/run | jq -s -c '[(.[0] // [])[] | select(.key == "briefs") | .value]'; }
+# read_rows: the Run briefs-read rows' values.
+read_rows() { ctx "$G" record/run | jq -s -c '[(.[0] // [])[] | select(.key == "briefs-read") | .value]'; }
+# capfix <label> <n>: the brief-unread gap's capped fix text.
+capfix() {
+    printf 'state-stored-set.sh --intake %s --by <you>; %s of its lines can'"'"'t be taken under the caps (60 inferred rule rows, 120 rule rows): when they aren'"'"'t standing rules, have the brief rewritten with its rules under ## Standing rules and record it under the same label (state-stored-set.sh --host briefs:%s <absolute path>); otherwise ask a person which rule rows to confirm or end; then run it again, and it goes on after the lines it already took' "$1" "$2" "$1"
+}
 # gaps: the handover gate's brief-unread lines, `<gap>: <fix>`.
 gaps() { (cd "$WD" && bash "$PS/state-handover.sh" --session "$G" --check) 2>&1 >/dev/null | sed -n 's/^  \(brief-unread [^:]*: .*\)$/\1/p'; }
 entry_tail() {
@@ -230,6 +248,10 @@ for f in min leg base; do
         "$(standing | jq --arg s "inferred brief lane $DIG" '[.[] | select((keys_unsorted == ["standing","kind","on","until","what","owner","relayed_by","set","source"])
             and .kind == "rule" and .on == "" and .until == "" and .owner == "" and .relayed_by == "" and .source == $s)] | length')"
     need "$f: the Run briefs row" "[\"lane $DIG\"]" "$(briefs_rows)"
+    need "$f: no briefs-read row" "[]" "$(read_rows)"
+    entry_tail "$(( $(standing | jq length) + 1 ))" > "$T/entries.txt"
+    need "$f: the last entry is the briefs row's" "run|Run briefs lane $DIG set by coord." "$(tail -1 "$T/entries.txt")"
+    grep -qF "briefs-read" "$T/entries.txt" && needf "$f: a briefs-read entry: $(grep -F briefs-read "$T/entries.txt")"
     excluded_text "$GOLD/$f.txt" > "$T/excluded.txt"
     while IFS= read -r what; do
         case "$what" in "#"*) needf "$f: a heading came in: $what" ;; esac
@@ -237,7 +259,7 @@ for f in min leg base; do
     done < <(standing | jq -r '.[].what')
     need "$f: brief-unread is cleared" "" "$(gaps)"
 done
-crit "R47. the first intake of each golden brief writes 7, 11 and 11 inferred brief rows and clears brief-unread"
+crit "R47. the first intake of each golden brief writes 7, 11 and 11 inferred brief rows and clears brief-unread, with no briefs-read row or entry"
 
 # ---- idempotent on one digest -----------------------------------------------
 fresh
@@ -264,8 +286,9 @@ grep -qF "state-stored-set: took 60 of the brief's lines; 1 of its lines can't b
     || needf "stderr doesn't name 1 line: $(cat "$T/err")"
 (cd "$WD" && bash "$PS/state-handover.sh" --session "$G" --check) > /dev/null 2> "$T/gate"
 need "  ... the gate exits 1" 1 "$?"
-grep -qF "  brief-unread lane: state-stored-set.sh --intake lane --by <you>; 1 of its lines can't be taken under the caps (60 inferred rule rows, 120 rule rows)" "$T/gate" \
-    || needf "the gap's fix doesn't name 1 line: $(cat "$T/gate")"
+grep -qxF "  brief-unread lane: $(capfix lane 1)" "$T/gate" \
+    || needf "the gap's fix isn't the capped text naming 1 line: $(cat "$T/gate")"
+case "$(cat "$T/err")" in *"confirm or end one first") ;; *) needf "stderr doesn't end confirm or end one first: $(cat "$T/err")" ;; esac
 try --intake lane --by coord
 need "the intake again: exit" 1 "$RC"
 need "  ... writes nothing" yes "$NOTHING"
@@ -285,7 +308,9 @@ need "the intake at 115 rule rows: exit" 1 "$RC"
 need "  ... 5 rows written" 5 "$(standing | jq '[.[] | select(.source | startswith("inferred brief"))] | length')"
 grep -qF "took 5 of the brief's lines; 2 of its lines can't be taken under the caps: the record holds 120 rule rows" "$T/err" \
     || needf "stderr: $(cat "$T/err")"
-need "  ... and the gap's fix names 2" "brief-unread lane: state-stored-set.sh --intake lane --by <you>; 2 of its lines can't be taken under the caps (60 inferred rule rows, 120 rule rows): ask a person which rule rows to confirm or end, then run it again" "$(gaps)"
+case "$(cat "$T/err")" in *"; end one first") ;; *) needf "stderr doesn't end end one first: $(cat "$T/err")" ;; esac
+need "  ... and the gap's fix names 2, counted from its briefs-read row" "brief-unread lane: $(capfix lane 2)" "$(gaps)"
+need "  ... which is lane at the 6th line" "[\"lane $DIG 5/7\"]" "$(read_rows)"
 crit "a brief at the 120-rule cap stops at it and names the rest"
 
 # ---- the match is against every row ------------------------------------------
@@ -504,6 +529,262 @@ need "  ... brief-unread is cleared" "" "$(gaps)"
 gate_all
 no_path "the empty-section intake" "$T/out" "$T/err" "$T/gate.all"
 crit "an empty ## Standing rules section writes no rule row, the briefs row, and counts every sentence outside"
+
+# ---- a capped intake goes on from its briefs-read row ------------------------------
+# The brief-intake-cap design's Decision 2: a capped intake records how far it
+# got in a Run briefs-read row, and the next intake of the same digest starts
+# there.
+# std_whats <source>: the Whats of the rows with that Source, in order.
+std_whats() { standing | jq -c --arg s "$1" '[.[] | select(.source == $s) | .what]'; }
+# gap_n: the count of untaken lines brief-unread lane names, or none.
+gap_n() { gaps | sed -n 's/^brief-unread lane: .*; \([0-9]*\) of its lines can.t be taken.*/\1/p'; }
+# err_n: the count of untaken lines the last intake's stderr names, or none.
+err_n() { sed -n 's/^state-stored-set: took [0-9]* of the brief.s lines; \([0-9]*\) of its lines can.t be taken.*/\1/p' "$T/err"; }
+# run_put <jq>: record/run rewritten by the filter.
+run_put() { ctx "$G" record/run | jq -s -c "(.[0] // []) | $1" > "$T/run.json" && put "$G" record/run "$T/run.json"; }
+
+fresh
+brief_put lane "$SD/brief-61.md"
+try --intake lane --by coord
+need "the 61-sentence intake: exit" 1 "$RC"
+need "  ... 60 rows" 60 "$(standing | jq length)"
+need "  ... the briefs-read row lane D 60/61" "[\"lane $DIG 60/61\"]" "$(read_rows)"
+need "  ... no briefs row" "[]" "$(briefs_rows)"
+entry_tail 61 > "$T/entries.txt"
+need "  ... 60 rule entries, then the briefs-read run entry" "60|run|Run briefs-read lane $DIG 60/61 set by coord." \
+    "$(head -60 "$T/entries.txt" | grep -c '^rule|')|$(tail -1 "$T/entries.txt")"
+gate_all
+no_path "the capped intake" "$T/err" "$T/gate.all" "$T/entries.txt"
+try --intake lane --by coord
+need "the intake again, nothing to take or end: exit" 1 "$RC"
+need "  ... the record unchanged, briefs-read row included" yes "$NOTHING"
+need "  ... the row still lane D 60/61" "[\"lane $DIG 60/61\"]" "$(read_rows)"
+ENDED=$(standing | jq -r '.[] | select(.what == "- Decision 7 holds for every lane.") | .standing')
+w --end "$ENDED" --by coord > /dev/null 2> "$T/end.err" || needf "--end $ENDED failed: $(cat "$T/end.err")"
+need "  ... the gap, counted from the row, is uncapped after the end" "brief-unread lane: state-stored-set.sh --intake lane --by <you>" "$(gaps)"
+standing | jq -c '[.[].standing]' > "$T/ids.json"
+try --intake lane --by coord
+need "the intake after one end: exit" 0 "$RC$(cat "$T/err")"
+need "  ... writes only the 61st sentence, not the ended one" '["- Decision 61 holds for every lane."]' \
+    "$(standing | jq -c --slurpfile b "$T/ids.json" '[.[] | select(.standing as $s | $b[0] | index($s) | not) | .what]')"
+need "  ... the ended sentence is not back" 0 "$(standing | jq '[.[] | select(.what == "- Decision 7 holds for every lane.")] | length')"
+need "  ... the briefs row" "[\"lane $DIG\"]" "$(briefs_rows)"
+need "  ... no briefs-read row" "[]" "$(read_rows)"
+entry_tail 2 > "$T/entries.txt"
+need "  ... a rule entry, then only the briefs run entry" "rule|run|Run briefs lane $DIG set by coord." \
+    "$(head -1 "$T/entries.txt" | cut -d'|' -f1)|$(tail -1 "$T/entries.txt")"
+need "  ... and brief-unread is cleared" "" "$(gaps)"
+no_path "the completing intake" "$T/err" "$T/entries.txt"
+crit "a capped 61-sentence brief leaves briefs-read lane D 60/61 and, after one end, writes only the 61st sentence and the briefs row"
+
+# A headingless brief well over 60 lines, most rows removed between rounds
+# (record/standing rewritten without them, a stand-in for a person's ends).
+fresh
+{ printf '# Brief: long\n\n'; for i in $(seq 1 130); do printf -- '- Long rule %s holds for the lane.\n' "$i"; done; } > "$T/long.md"
+brief_put lane "$T/long.md"
+LONG_D=$DIG
+try --intake lane --by coord
+need "the 130-line headingless brief: exit" 1 "$RC"
+need "  ... briefs-read lane D 60/130" "[\"lane $DIG 60/130\"]" "$(read_rows)"
+REMOVED=
+ROUND=1
+while [ "$RC" = 1 ] && [ "$ROUND" -le 4 ]; do
+    standing | jq -c '[.[] | select(.what | test("^- Long rule [0-9]+ ")) ] | .[5:] | map(.what)' > "$T/removed.json"
+    REMOVED="$REMOVED $(jq -r '.[] | capture("rule (?<n>[0-9]+) ").n' "$T/removed.json" | tr '\n' ' ')"
+    standing | jq -c '[.[] | select((.what | test("^- Long rule [0-9]+ ")) | not)] + ([.[] | select(.what | test("^- Long rule [0-9]+ "))] | .[0:5])' > "$T/seed.json"
+    put "$G" record/standing "$T/seed.json"
+    GAPN=$(gap_n)
+    C=$(read_rows | jq -r '.[0] | split(" ")[2] | split("/")[0]')
+    try --intake lane --by coord
+    if [ "$RC" = 1 ]; then
+        need "  ... round $ROUND: the gap's count is the intake's" "$GAPN" "$(err_n)"
+    fi
+    FIRST=$(standing | jq -r '[.[] | select(.what | test("^- Long rule [0-9]+ "))] | .[5].what')
+    need "  ... round $ROUND writes from candidate $C on" "- Long rule $((C + 1)) holds for the lane." "$FIRST"
+    ROUND=$((ROUND + 1))
+done
+need "  ... the rounds end with exit 0" 0 "$RC$(cat "$T/err")"
+need "  ... the briefs row" "[\"lane $LONG_D\"]" "$(briefs_rows)"
+need "  ... no briefs-read row" "[]" "$(read_rows)"
+BACK=$(for n in $REMOVED; do standing | jq -r --arg w "- Long rule $n holds for the lane." '.[] | select(.what == $w) | .what'; done)
+need "  ... no removed sentence back in Standing" "" "$BACK"
+crit "a headingless brief well over 60 lines converges: each re-run writes from its briefs-read row and none of the removed rows comes back"
+
+# A seeded briefs-read row naming another digest, or another n, is ignored.
+for seeded in "lane sha256:$(printf '%064d' 9) 30/61" "lane @D 30/99"; do
+    fresh
+    brief_put lane "$SD/brief-61.md"
+    run_put ". + [{key: \"briefs-read\", value: \"${seeded/@D/$DIG}\", set_by: \"coord\", set: \"2026-11-01T08:00Z\"}]"
+    try --intake lane --by coord
+    need "seeded ${seeded/@D/D}: exit" 1 "$RC"
+    need "  ... the first 60 rows, from candidate 0" "60|- Decision 1 holds for every lane.|- Decision 60 holds for every lane." \
+        "$(standing | jq -r '"\(length)|\(.[0].what)|\(.[-1].what)"')"
+    need "  ... its own row in place of the seeded one" "[\"lane $DIG 60/61\"]" "$(read_rows)"
+done
+crit "a briefs-read row for another digest or another n is ignored, the intake reading from candidate 0"
+
+# A new digest under the same label after a capped one.
+fresh
+brief_put lane "$SD/brief-61.md"
+V1=$DIG
+try --intake lane --by coord
+{ printf '# Brief: v2\n\n## Decisions already made\n\n'
+  for i in $(seq 1 10); do printf -- '- Decision %s holds for every lane.\n' "$i"; done
+  for i in $(seq 1 60); do printf -- '- New rule %s holds for every lane.\n' "$i"; done; } > "$T/v2-70.md"
+brief_put lane "$T/v2-70.md"
+V2=$DIG
+standing | jq -c '.[0:10]' > "$T/kept10.json"
+try --intake lane --by coord
+need "the new digest after V1's 60/61: exit" 1 "$RC"
+need "  ... V1's rows for Decision 1-10 kept as they were" "$(jq -c . "$T/kept10.json")" "$(standing | jq -c '.[0:10]')"
+need "  ... V1's other 50 rows ended" 0 "$(standing | jq --arg s "inferred brief lane $V1" '[.[] | select(.source == $s and (.what | test("Decision ([1-9]|10) ") | not))] | length')"
+need "  ... 50 new rows, New rule 1 to 50" "50|- New rule 1 holds for every lane.|- New rule 50 holds for every lane." \
+    "$(std_whats "inferred brief lane $V2" | jq -r '"\(length)|\(.[0])|\(.[-1])"')"
+need "  ... one briefs-read row, V2 60/70" "[\"lane $V2 60/70\"]" "$(read_rows)"
+ENDED=$(standing | jq -r '.[] | select(.what == "- New rule 3 holds for every lane.") | .standing')
+w --end "$ENDED" --by coord > /dev/null 2> "$T/end.err" || needf "--end $ENDED failed: $(cat "$T/end.err")"
+try --intake lane --by coord
+need "  ... its re-run from 60: exit" 1 "$RC"
+need "  ... writes New rule 51 only" "- New rule 51 holds for every lane." "$(std_whats "inferred brief lane $V2" | jq -r '.[-1]')"
+need "  ... V1's rows for Decision 1-10 still in Standing" "$(jq -c . "$T/kept10.json")" "$(standing | jq -c '.[0:10]')"
+need "  ... briefs-read V2 61/70" "[\"lane $V2 61/70\"]" "$(read_rows)"
+crit "a new digest reads whole, ends only the earlier rows it states nowhere, and its re-run from c keeps the rows it states before c"
+
+# A capped run whose ends leave no room: it ends, takes none, writes no row.
+fresh
+brief_put lane "$GOLD/min.txt"
+jq -nc --arg o "inferred brief lane sha256:$(printf '%064d' 8)" '[range(60) | {standing: "s\(. + 1)", kind: "rule", on: "", until: "",
+    what: "Bare row \(. + 1).", owner: "", relayed_by: "", set: "2026-11-01T08:00Z", source: "inferred"}]
+    + [{standing: "s61", kind: "rule", on: "", until: "", what: "Old line one.", owner: "", relayed_by: "", set: "2026-11-01T08:00Z", source: $o},
+       {standing: "s62", kind: "rule", on: "", until: "", what: "Old line two.", owner: "", relayed_by: "", set: "2026-11-01T08:00Z", source: $o}]' > "$T/seed.json"
+put "$G" record/standing "$T/seed.json"
+try --intake lane --by coord
+need "60 bare inferred rows and two earlier-digest rows: exit" 1 "$RC"
+need "  ... the two ended, no row taken" "60|0" \
+    "$(standing | jq -r '"\(length)|\([.[] | select(.what | startswith("Old line"))] | length)"')"
+need "  ... no briefs-read row" "[]" "$(read_rows)"
+entry_tail 2 > "$T/entries.txt"
+need "  ... its entries the two ends" "end|end" "$(cut -d'|' -f1 "$T/entries.txt" | tr '\n' '|' | sed 's/|$//')"
+need "  ... the gap counts from candidate 0" 7 "$(gap_n)"
+w --end s1 --by coord > /dev/null 2> "$T/end.err" || needf "--end s1 failed: $(cat "$T/end.err")"
+try --intake lane --by coord
+need "  ... the next run takes candidate 0" "$(jq -c '.min[0]' "$SD/brief-kept.json")" "$(standing | jq -c '.[-1].what')"
+crit "a capped run whose ends leave no room ends them, writes no briefs-read row, and the next run starts at candidate 0"
+
+# A briefs-read row that breaks its grammar: every write is refused.
+fresh
+SEEDR=$(ctx "$G" record/run | jq -s -c ".[0] // []")
+BAD_D=sha256:$(printf '%064d' 4)
+for bad in "lane $BAD_D 0/61" "lane $BAD_D 61/61" "lane $BAD_D 62/61" "lane sha256:abc 30/61" "two"; do
+    if [ "$bad" = two ]; then
+        jq -c --arg d "$BAD_D" '. + [{key: "briefs-read", value: "lane \($d) 30/61", set_by: "coord", set: "2026-11-01T08:00Z"},
+            {key: "briefs-read", value: "lane \($d) 31/61", set_by: "coord", set: "2026-11-01T08:00Z"}]' <<< "$SEEDR" > "$T/run.json"
+    else
+        jq -c --arg v "$bad" '. + [{key: "briefs-read", value: $v, set_by: "coord", set: "2026-11-01T08:00Z"}]' <<< "$SEEDR" > "$T/run.json"
+    fi
+    put "$G" record/run "$T/run.json"
+    try --standing pause --on all --until lifted --what x --owner y
+    [ "$RC" != 0 ] || needf "a write over [$bad] exited 0"
+    need "  ... [$bad]: nothing written" yes "$NOTHING"
+done
+printf '%s' "$SEEDR" > "$T/run.json"; put "$G" record/run "$T/run.json"
+try --run briefs-read "lane $BAD_D 30/61" --by coord
+need "--run briefs-read: exit" 64 "$RC"
+need "  ... nothing written" yes "$NOTHING"
+crit "a briefs-read row with c = 0, c = n, c > n, a bad digest or two for one label refuses the write, and --run briefs-read exits 64"
+
+# The rewrite route: the headingless lines cap with a marker, then the
+# version with its rules under ## Standing rules clears the gap.
+fresh
+seed_carried
+grep -vx '## Standing rules' "$SD/successor-90.md" > "$T/plain.md"
+brief_put lane "$T/plain.md"
+PLAIN_D=$DIG
+try --intake lane --by coord
+need "the headingless successor lines: exit" 1 "$RC"
+case "$(read_rows)" in "[\"lane $PLAIN_D "*) ;; *) needf "no briefs-read row for the headingless digest: $(read_rows)" ;; esac
+need "  ... the gap's fix names the rewrite" "brief-unread lane: $(capfix lane 9)" "$(gaps)"
+brief_put lane "$SD/successor-90.md"
+try --intake lane --by coord
+need "  ... the rewrite recorded under the same label and taken: exit" 0 "$RC$(cat "$T/err" | grep -v 'sit outside')"
+jq -R -s -c -L "$PS" 'include "state-schema"; brief_candidates' "$SD/successor-90.md" > "$T/optin.json"
+need "  ... the headingless rows it doesn't state ended" 0 \
+    "$(standing | jq --arg s "inferred brief lane $PLAIN_D" --slurpfile c "$T/optin.json" '[.[] | select(.source == $s) | .what as $w | select([$c[0][] | . == $w] | any | not)] | length')"
+need "  ... the briefs row, the new digest" "[\"lane $DIG\"]" "$(briefs_rows)"
+need "  ... no briefs-read row" "[]" "$(read_rows)"
+need "  ... brief-unread is cleared" "" "$(gaps)"
+crit "a headingless brief's capped record clears once its rewrite under ## Standing rules is recorded and taken"
+
+# koto-open.sh takes its vars file away, so each open writes one.
+dvars() { jq -nc --arg p "$PR" '[["SCOPE", "discipline"], ["DISCIPLINE", "brk"], ["HOST_REPO", "acme/widgets"], ["PLUGIN_ROOT", $p]]' > "$T/dvars.json"; }
+vars_roadmap() { jq -nc --arg p "$PR" '[["SCOPE", "roadmap"], ["ROADMAP", "docs/roadmaps/ROADMAP-intake.md"], ["HOST_REPO", "acme/widgets"], ["ROADMAP_FORM", "feature"], ["PLUGIN_ROOT", $p]]' > "$T/vars.json"; }
+# The carries copy the Run section whole: a successor of a record capped at
+# lane D 60/61 holds that row and the 60 rows it went past, and goes on.
+fresh
+brief_put lane "$SD/brief-61.md"
+C61_D=$DIG
+try --intake lane --by coord
+need "the record to carry: exit" 1 "$RC"
+need "  ... capped at lane D 60/61" "[\"lane $C61_D 60/61\"]" "$(read_rows)"
+# The restart carry: core_carry, sourced as state-stored-set_test.sh does,
+# into a second run of the roadmap, written to by session as the tests do.
+G2=coordinate-roadmap-intake-20261101T100000Z
+vars_roadmap; (cd "$WD" && bash "$PR/scripts/koto-open.sh" "$G2" "$TPL" "$T/vars.json") > "$T/open2.out" 2> "$T/open2.err" \
+    || needf "the restart's run opens: $(cat "$T/open2.out" "$T/open2.err")"
+(cd "$WD" && PROG=carry SCOPE=roadmap NAME=intake REPO=acme/widgets HERE="$PS"
+    . "$PS/state-common.sh"; . "$PS/state-read.sh"; . "$PS/state-write-core.sh"; RS_RETRY_PAUSE=0
+    core_carry "$G" "$G2") > /dev/null 2> "$T/carry.err" || needf "core_carry failed: $(cat "$T/carry.err")"
+w2() { (cd "$WD" && RS_SESSION=$G2 bash "$PS/state-stored-set.sh" --scope roadmap --name intake --repo acme/widgets --skip-session-checks "$@"); }
+need "the restart carry: its briefs-read row" "[\"lane $C61_D 60/61\"]" "$(ctx "$G2" record/run | jq -c '[.[] | select(.key == "briefs-read") | .value]')"
+need "  ... and the 60 rows it went past" "$(standing | jq -c .)" "$(ctx "$G2" record/standing | jq -c .)"
+w2 --end "$(ctx "$G2" record/standing | jq -r ".[0].standing")" --by coord > /dev/null 2> "$T/end.err" || needf "--end after the restart carry failed: $(cat "$T/end.err")"
+w2 --intake lane --by coord > /dev/null 2> "$T/err"
+need "  ... one end and a re-run: exit" 0 "$?$(cat "$T/err")"
+need "  ... writes the 61st sentence" "- Decision 61 holds for every lane." "$(ctx "$G2" record/standing | jq -r '.[-1].what')"
+need "  ... the briefs row and no briefs-read row" "[\"lane $C61_D\"]|[]" \
+    "$(ctx "$G2" record/run | jq -c '[.[] | select(.key == "briefs") | .value]')|$(ctx "$G2" record/run | jq -c '[.[] | select(.key == "briefs-read") | .value]')"
+crit "after a restart carry, the successor holds the briefs-read row and the 60 rows, and one end and a re-run finish the brief"
+
+# The rotation carry: state-open.sh --carry, from one rotation of a
+# discipline to the next.
+DSLUG=coordinate-discipline-brk
+dat() { (cd "$WD" && koto next "$1" "${@:2}" --no-cleanup 2>"$T/tick.err") | jq -r '.state // empty'; }
+dw() { local s=$1; shift; (cd "$WD" && bash "$PS/state-stored-set.sh" --session "$s" "$@"); }
+dday() { jq -rn --argjson n "$1" 'now + ($n * 86400) | strftime("%Y-%m-%d")'; }
+R1=$DSLUG-20261101T090000Z
+R2=$DSLUG-20261101T100000Z
+dvars; (cd "$WD" && bash "$PR/scripts/koto-open.sh" "$R1" "$TPL" "$T/dvars.json") > /dev/null 2> "$T/dopen.err" || needf "the first rotation opens: $(cat "$T/dopen.err")"
+ST=$(dat "$R1")
+[ "$ST" = record_open ] || needf "the first rotation's find: [$ST] $(cat "$T/tick.err")"
+(cd "$WD" && bash "$PS/state-open.sh" --session "$R1" --role manager --start "$(dday 0)" --end "$(dday 6)") > /dev/null 2> "$T/dopen.err" \
+    || needf "the first rotation's record opens: $(cat "$T/dopen.err")"
+ST=$(dat "$R1" --with-data '{"opened":"opened"}')
+[ "$ST" = reconcile ] || needf "the first rotation reaches reconcile: [$ST] $(cat "$T/tick.err")"
+dw "$R1" --host briefs:lane "$HOME/briefs/lane.md" > /dev/null 2> "$T/w.err" || needf "--host on the first rotation: $(cat "$T/w.err")"
+dw "$R1" --intake lane --by coord > /dev/null 2> "$T/err"
+need "the first rotation's intake: exit" 1 "$?"
+need "  ... capped at lane D 60/61" "[\"lane $C61_D 60/61\"]" "$(ctx "$R1" record/run | jq -c '[.[] | select(.key == "briefs-read") | .value]')"
+ctx "$R1" record/rotation | jq -c --arg e "$(dday -1)" '.end = $e | if .start > $e then .start = $e else . end' > "$T/rot.json"
+dw "$R1" --rotation "$T/rot.json" > /dev/null 2> "$T/w.err" || needf "the first rotation's window ends: $(cat "$T/w.err")"
+dvars; (cd "$WD" && bash "$PR/scripts/koto-open.sh" "$R2" "$TPL" "$T/dvars.json") > /dev/null 2> "$T/dopen.err" || needf "the next rotation opens: $(cat "$T/dopen.err")"
+# The opener cancels every other live run of the scope as it opens the next one.
+(cd "$WD" && koto cancel "$R1") > /dev/null 2> "$T/cancel.err" || needf "the first rotation is cancelled: $(cat "$T/cancel.err")"
+ST=$(dat "$R2")
+[ "$ST" = predecessor_carry ] || needf "the next rotation's find: [$ST] $(cat "$T/tick.err")"
+(cd "$WD" && bash "$PS/state-open.sh" --session "$R2" --carry --role manager) > /dev/null 2> "$T/dopen.err" \
+    || needf "state-open.sh --carry: $(cat "$T/dopen.err")"
+ST=$(dat "$R2" --with-data '{"carry":"carried"}')
+[ "$ST" = reconcile ] || needf "the next rotation reaches reconcile: [$ST] $(cat "$T/tick.err")"
+need "the rotation carry: its briefs-read row" "[\"lane $C61_D 60/61\"]" "$(ctx "$R2" record/run | jq -c '[.[] | select(.key == "briefs-read") | .value]')"
+need "  ... and the 60 rows it went past" "$(ctx "$R1" record/standing | jq -c .)" "$(ctx "$R2" record/standing | jq -c .)"
+dw "$R2" --host briefs:lane "$HOME/briefs/lane.md" > /dev/null 2> "$T/w.err" || needf "--host on the next rotation: $(cat "$T/w.err")"
+dw "$R2" --end "$(ctx "$R2" record/standing | jq -r ".[0].standing")" --by coord > /dev/null 2> "$T/end.err" || needf "--end after the rotation carry failed: $(cat "$T/end.err")"
+dw "$R2" --intake lane --by coord > /dev/null 2> "$T/err"
+need "  ... one end and a re-run: exit" 0 "$?$(cat "$T/err")"
+need "  ... writes the 61st sentence" "- Decision 61 holds for every lane." "$(ctx "$R2" record/standing | jq -r '.[-1].what')"
+need "  ... the briefs row and no briefs-read row" "[\"lane $C61_D\"]|[]" \
+    "$(ctx "$R2" record/run | jq -c '[.[] | select(.key == "briefs") | .value]')|$(ctx "$R2" record/run | jq -c '[.[] | select(.key == "briefs-read") | .value]')"
+crit "after a rotation carry, the next rotation holds the briefs-read row and the 60 rows, and one end and a re-run finish the brief"
 
 # ---- the brief is never edited ---------------------------------------------------
 while read -r p s; do
