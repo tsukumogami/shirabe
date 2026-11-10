@@ -55,6 +55,8 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/default-merge.sh'
+      - 'scripts/lib/default-merge_test.sh'
       # test-change.sh sources the interim acceptance rule.
       - 'scripts/lib/acceptance-rule.sh'
       - 'scripts/lib/acceptance-rule_test.sh'
@@ -99,6 +101,8 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/default-merge.sh'
+      - 'scripts/lib/default-merge_test.sh'
       - 'scripts/lib/acceptance-rule.sh'
       - 'scripts/lib/acceptance-rule_test.sh'
       - 'scripts/lib/gh-issue-testlib.sh'
@@ -507,6 +511,10 @@ jobs:
       - name: Run test classifier tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/lib/test-classify_test.sh
+
+      - name: Run default-branch fold tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/default-merge_test.sh
 
       # fix-kind.sh (a fix from a label, a Fixes line or a declaration, never
       # withdrawn) and red-first.sh (the red on the base, observations, the

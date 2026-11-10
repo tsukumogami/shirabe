@@ -53,7 +53,10 @@
 #       wrote it on entry to `analysis`), else the merge-base with origin's
 #       default branch, else with local main -- the order
 #       record-changed-paths.sh --write uses, so the packet and
-#       changed_paths.txt describe the same range.
+#       changed_paths.txt describe the same range. A merge of the default
+#       branch made after that base is folded into it
+#       (lib/default-merge.sh), and the base line says so, so the diff is
+#       the branch's own change rather than what the merge brought in.
 #
 #   recheck --session <koto-session> --panel <panel> --seat <seat>
 #       For the run panel-scope.sh --plan marked `recheck`: the panel's
@@ -83,7 +86,8 @@
 #       not a commit, or not an ancestor of HEAD can't bound the fix, so it
 #       falls back to the code packet's base (below) and the packet's header
 #       says so: wider than a re-verification needs, never narrower than the
-#       fix.
+#       fix. A bound that does resolve has any later merge of the default
+#       branch folded into it the same way, and its header line says so.
 #
 #   doc --doc <path> --format <reference> [--extra <path>]...
 #       For the jury seats. The document under review, its format reference,
@@ -152,6 +156,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 # shellcheck source=lib/test-classify.sh
 . "$SCRIPT_DIR/lib/test-classify.sh" || { echo "review-packet: cannot load lib/test-classify.sh" >&2; exit 66; }
+# shellcheck source=lib/default-merge.sh
+. "$SCRIPT_DIR/lib/default-merge.sh" || { echo "review-packet: cannot load lib/default-merge.sh" >&2; exit 66; }
 
 PACKET=""
 WORK=""
@@ -401,6 +407,7 @@ HEAD_SHA=$(git rev-parse --verify -q "HEAD^{commit}") || die 64 "HEAD does not n
 # fix_diff_from can't bound the fix.
 BASE=""
 BASE_SOURCE=""
+UNFOLDED_BASE=""
 resolve_base() {
     local stored default_ref
     if koto context exists "$SESSION" impl_base >/dev/null 2>&1; then
@@ -425,7 +432,16 @@ resolve_base() {
             BASE_SOURCE="merge-base with main"
         fi
     fi
-    [ -n "$BASE" ]
+    [ -n "$BASE" ] || return 1
+    # A merge of the default branch made after the base is folded into it, so
+    # the diff is the branch's own change; the test rows keep the unfolded
+    # base, as panel-scope.sh's do.
+    UNFOLDED_BASE="$BASE"
+    fold_default_merge "$BASE"
+    if [ -n "$FOLDED_DEFAULT" ]; then
+        BASE="$FOLDED_BASE"
+        BASE_SOURCE="$BASE_SOURCE, with the default branch at $(printf '%.12s' "$FOLDED_DEFAULT") merged in"
+    fi
 }
 
 # test_changes: the code packet's `## Test changes` body on stdout, empty when
@@ -446,7 +462,7 @@ test_changes() {
     if koto context exists "$SESSION" red_first.json >/dev/null 2>&1; then
         koto context get "$SESSION" red_first.json > "$record" 2>/dev/null || : > "$record"
     fi
-    test_classify_unit "$BASE" "$HEAD_SHA" "$rules" "$record" > "$WORK/testrows" 2>"$WORK/classify.err" || return 1
+    test_classify_unit "${UNFOLDED_BASE:-$BASE}" "$HEAD_SHA" "$rules" "$record" > "$WORK/testrows" 2>"$WORK/classify.err" || return 1
     [ -s "$WORK/testrows" ] || return 0
     awk -F '\t' '$1 == "added" { print $2 }' "$WORK/testrows" > "$WORK/added"
     awk -F '\t' '$1 == "edited" { print $2 }' "$WORK/testrows" > "$WORK/edited"
@@ -524,6 +540,11 @@ bound() {
     esac
     if [ -n "$BOUND" ]; then
         BOUND_SOURCE="$field"
+        fold_default_merge "$BOUND"
+        if [ -n "$FOLDED_DEFAULT" ]; then
+            BOUND="$FOLDED_BASE"
+            BOUND_SOURCE="$field, with the default branch at $(printf '%.12s' "$FOLDED_DEFAULT") merged in"
+        fi
         return 0
     fi
     echo "review-packet: seat [$SEAT] in $SCOPE_KEY $why; the diff falls back to the code packet's base" >&2
