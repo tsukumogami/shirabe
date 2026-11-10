@@ -9,7 +9,9 @@
 # roadmap read from the host's default branch; `scope-complete` when every
 # feature is done (a Status opening Done or Dropped, a note after it
 # allowed), and not for `Doneness` or a roadmap with no features; a
-# missing roadmap (2); discipline units from the host's open issues with the
+# missing roadmap (2, naming its done/ path too); a roadmap moved to
+# docs/roadmaps/done/ read there, the opening path winning while it is there;
+# discipline units from the host's open issues with the
 # discipline's label in issue-number order (never a search); `rotation-over`
 # only after record/rotation's end date, or once the rotation's reasoning is
 # written, a session with no record/rotation refused (2), and no carry owed
@@ -386,7 +388,18 @@ eq "a roadmap with no features is not complete" pick "$(RS_SESSION="$S" bash "$P
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(printf '## Features\n\n### ED1: Loader\n**Status:** Done\n\n### ED2: Registry\n**Dependencies:** F1\n**Status:** Dropped\n')"
 eq "the prefix heading form reads the same" scope-complete "$(RS_SESSION="$S" bash "$PF" "${RM[@]}" 2>/dev/null)"
 db '.files["acme/widgets"] |= del(.["main:" + $p])' --arg p "$RP"
-RS_SESSION="$S" bash "$PF" "${RM[@]}" >/dev/null 2>&1; eq "a roadmap missing from the default branch exits 2" 2 $?
+RS_SESSION="$S" bash "$PF" "${RM[@]}" 2>"$T/err" >/dev/null; eq "a roadmap missing from the default branch exits 2" 2 $?
+grep -q "docs/roadmaps/done/ROADMAP-plugin-system.md" "$T/err" \
+    && ok "the missing roadmap's diagnostic names its done/ path too" || bad "the missing roadmap's diagnostic names its done/ path too" "$(cat "$T/err")"
+# The pull request that sets the roadmap Done may move it to docs/roadmaps/done/
+# (shirabe#1512): the run still reads it there, and the scope completes.
+RPD=docs/roadmaps/done/ROADMAP-plugin-system.md
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RPD" --arg t "$(roadmap Done Done Dropped Done Done)"
+OUT=$(RS_SESSION="$S" bash "$PF" "${RM[@]}" 2>"$T/err"); eq "a roadmap moved to docs/roadmaps/done/ is read there and completes" scope-complete "$OUT"
+grep -q "contents/$RPD?ref=main" "$GH_DB.calls" && ok "the moved roadmap is read at its done/ path" || bad "the moved roadmap is read at its done/ path" "$(calls)"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' Dropped Done Done)"
+eq "the opening path, while it is there, wins over the done/ path" pick "$(RS_SESSION="$S" bash "$PF" "${RM[@]}" 2>/dev/null)"
+db '.files["acme/widgets"] |= del(.["main:" + $p])' --arg p "$RPD"
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Done)"
 db '.fail = [{match: "pr view 23", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 RS_SESSION="$S" bash "$PF" "${RM[@]}" >/dev/null 2>&1; eq "a failed holding read exits 2" 2 $?
