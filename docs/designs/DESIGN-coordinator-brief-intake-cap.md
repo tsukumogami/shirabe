@@ -28,6 +28,7 @@ rationale: |
   marker fixes the loop where it lives, a capped digest re-read from its
   first line, without reading the record's entries, overriding a rewritten
   brief, or adding tombstones every Standing reader would have to skip.
+upstream: docs/briefs/BRIEF-coordinator-standing-rule-provenance.md
 ---
 
 # DESIGN: Coordinator brief intake under the inferred-row cap
