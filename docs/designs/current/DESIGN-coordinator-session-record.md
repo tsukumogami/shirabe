@@ -307,7 +307,13 @@ proposed to koto (Consequences).
   Claude session) and takeover fields with the new run's template compat,
   the coordinator row naming this session (which clears the told set), the
   role row, an import's `record/host`, one takeover entry, and
-  `takeover_done` last.
+  `takeover_done` last. An older koto resumes an imported copy rather than
+  taking it over, and that copy keeps the source's `record/meta`, whose
+  driver, or with none its coordinator row, names the source's session. So
+  before `record/host` the opener records the importing Claude session as the
+  copy's driver, as a takeover records the new run's; without it the driver
+  check would refuse `record/host` and every later write from the session
+  that's actually driving the copy.
   `--import <session> --from <workspace-path> [--trust-template]` compiles the
   shipped template, refuses first with `session-live` when the scope has a live
   session here and with `session-name` when the name isn't this scope's
