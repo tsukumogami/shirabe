@@ -193,7 +193,10 @@
 # On an older koto the copy is resumed. It must also pass provenance
 # (`refused=session-provenance`; a run from another plugin root whose template
 # lets koto rebind it is re-attached with this root first, and refused only
-# when that attach is). The output is `imported=<session>`, `resumed=1`,
+# when that attach is). Before record/host, a caller with a Claude session id
+# is recorded as the copy's driver, so the writers' driver check passes its
+# writes to a record whose driver or coordinator row names the source's
+# session. The output is `imported=<session>`, `resumed=1`,
 # `session=<it>`, then `state=<the run's state>` and, when the run waits at
 # the hub, `tick=moved`: the first tick, which sends it through a full
 # reconcile on this host. A run at reconcile reconciles again by itself; one
@@ -1426,7 +1429,17 @@ EOF
     # record/host, on the copy an older koto resumes, which passed provenance
     # above. A copy taken over is never written: its plugin root is the
     # source host's, so the record writers refuse it, and finish_takeover
-    # writes record/host on the new run instead.
+    # writes record/host on the new run instead. The copy an older koto resumes
+    # keeps the source's record/meta, whose driver, or with none its
+    # coordinator row, names the source's session, so the writers' driver
+    # check would refuse record/host and every write after it from here. This
+    # session is recorded as the copy's driver first, as a takeover records
+    # the new run's; with no caller id nothing is recorded, and the check
+    # passes such a caller anyway.
+    if [ -z "$TAKES_OVER" ] && [ -n "$CALLER" ] && [ "$(meta_field "$IMPORT" driver)" != "$CALLER" ]; then
+        meta_set "$IMPORT" '.driver = $c' --arg c "$CALLER" \
+            || import_unfinished host_facts "record/host wasn't written on $IMPORT: its record/meta, naming this session as its driver, wasn't written"
+    fi
     [ -n "$TAKES_OVER" ] || host_facts "$IMPORT" "$IMPORT"
     printf 'imported=%s\n' "$IMPORT"
     IMPORTED_SAID=1
