@@ -107,11 +107,11 @@ last.
 - [ ] A record capped by a headingless brief under `lane`, marker present, clears when a rewrite with its rules under `## Standing rules` is recorded with `--host briefs:lane <absolute path>` and taken: exit 0, the earlier digest's rows it doesn't state ended, `briefs` `lane <new digest>` written, no `briefs-read` row, and `brief-unread lane` no longer listed.
 - [ ] An intake of each golden brief on an empty record still writes its 7, 11 or 11 rows, exits 0, and leaves no `briefs-read` row and no `Run briefs-read` entry.
 
-**Check**: run `bash skills/coordinate/scripts/brief-intake_engine_test.sh` and `bash skills/coordinate/scripts/state-schema_test.sh` and see every case above pass, in particular the case `a capped 61-sentence brief converges`: the brief caps at 60 with `briefs-read` `lane <D> 60/61`, one row is ended, and the re-run writes the 61st sentence, lands the `briefs` row and leaves no `briefs-read` row, exit 0.
+**Check**: run `bash skills/coordinate/scripts/brief-intake_engine_test.sh` and `bash skills/coordinate/scripts/state-schema_test.sh` and see every case above pass, in particular the case `a capped 61-sentence brief converges`: the brief caps at 60 with `briefs-read` `lane <D> 60/61`, one row is ended, and the re-run writes the 61st sentence, lands the `briefs` row and leaves no `briefs-read` row, exit 0. Then see `skills/coordinate/koto-templates/coordinate.compat.json` record the `gate_scripts` digest that `scripts/check-template-compat.sh --template skills/coordinate/koto-templates/coordinate.md --print` computes for the changed scripts, at the same compat number, in its own commit.
 
 **Dependencies**: Step 1
 
-**Files**: `skills/coordinate/scripts/state-schema.jq`, `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/scripts/state-schema_test.sh`, `skills/coordinate/scripts/brief-intake_engine_test.sh`
+**Files**: `skills/coordinate/scripts/state-schema.jq`, `skills/coordinate/scripts/state-stored-set.sh`, `skills/coordinate/scripts/state-handover.sh`, `skills/coordinate/scripts/state-schema_test.sh`, `skills/coordinate/scripts/brief-intake_engine_test.sh`, `skills/coordinate/koto-templates/coordinate.compat.json`
 
 ### Step 3: a coordinator writing a successor brief by hand files its rules under `## Standing rules`
 
