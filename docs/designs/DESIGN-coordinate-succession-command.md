@@ -35,6 +35,7 @@ rationale: |
   writing anything the command can't attribute to this session would act on
   another party's refusal or record a delivery it never made, and a separate
   compare would repeat reads the opener already does before the fence.
+upstream: docs/prds/PRD-coordinate-successor-continues.md
 ---
 
 # DESIGN: One command runs a coordinator succession
