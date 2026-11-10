@@ -49,7 +49,8 @@
 # flags stand in for it in tests, with RS_SESSION naming the session.
 #
 # Exit codes: 0 written (prints the session holding the record); 10 not a
-# record of this scope, no found record, provenance, or a directed transition;
+# record of this scope, no found record, provenance, a directed transition, or
+# a writing session that isn't the record's driver;
 # 12 the record changed since the state was read; 11 a write failed; 2 a read
 # failed; 64 usage; 65 the state was refused.
 #
