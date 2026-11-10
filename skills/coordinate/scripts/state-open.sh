@@ -32,7 +32,14 @@
 # coord/predecessor_carry.json and stdout, then `carried=<predecessor>` (exit
 # 0), or `refused` with the reason on stderr and in the report (exit 65). A
 # carry run again after it landed reads as carried; one cut short is seeded
-# again.
+# again. When the carrying Claude session's name reads (its job state file)
+# and the predecessor's Run coordinator row names anyone else, the seeded state
+# holds this session's own coordinator row instead, as a `--run coordinator`
+# write leaves it (its `told` and `pending` rows gone), and that write's entry
+# is posted right after the seed, before the window: the writers' driver check
+# refuses a write to a run with no driver whose row names another session, so
+# the row lands with the copy. A post that fails is warned about on stderr and
+# the carry goes on.
 #
 # The run's role (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1;
 # PRD R5) is a Run row, `role`, manager or director. A fresh seed takes
@@ -279,6 +286,15 @@ if [ "$CARRY" = 1 ]; then
            else {decisions: {next: .decisions.next, entries: [(.decisions.entries // [])[] | select(.state != "settled")]}} end)
         | .holdings |= map(del(.pushed_head))' "$T/pred" > "$T/next.json" || lib_die2 "jq failed"
     carry_role "$T/next.json"
+    # This session's own coordinator row, in the state the carry seeds.
+    lib_caller
+    CARRIER=
+    jq -c '.run // []' "$T/next.json" > "$T/run.json" || lib_die2 "jq failed"
+    if lib_carrier_row "$T/run.json" "$T/run.carrier" "$LIB_CALLER_NAME" "$NOW"; then
+        jq -c --slurpfile r "$T/run.carrier" '.run = $r[0]' "$T/next.json" > "$T/next.carrier" \
+            && mv "$T/next.carrier" "$T/next.json" || lib_die2 "jq failed"
+        CARRIER=$LIB_CALLER_NAME
+    fi
     chmod 600 "$T/next.json" || lib_die2 "cannot make the state file private"
     lib_write_guard
     # The core takes over T and its EXIT trap, so it runs in a subshell: its
@@ -289,6 +305,11 @@ if [ "$CARRY" = 1 ]; then
            SESSION_SEED=1
            core_write > /dev/null ) 2> "$T/seed.err"; then
         carry_report refused "the carry's write was refused: $(lib_scrub < "$T/seed.err" | head -2 | tr '\n' ' ')" "$T/next.json"
+    fi
+    if [ -n "$CARRIER" ]; then
+        printf "The coordinator's address is now %s, set by %s. Nobody has been told it yet.\n" "$CARRIER" "$CARRIER" > "$T/address.txt"
+        bash "$HERE/state-entry.sh" --session "$SESSION" --kind run --text-file "$T/address.txt" < /dev/null > /dev/null 2> "$T/address.err" \
+            || echo "$PROG: the carry holds this session's coordinator row, but its entry wasn't posted ($(tr -s '\t\n' '  ' < "$T/address.err" | head -c 400)); post it with state-entry.sh --kind run: $(cat "$T/address.txt")" >&2
     fi
     TODAY=$(date -u +%Y-%m-%d)
     DAYS=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.ROTATION_DAYS // "7"')

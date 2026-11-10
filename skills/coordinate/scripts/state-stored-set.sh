@@ -1022,7 +1022,7 @@ run)
         jq --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" \
             '.run = ([(.run // [])[] | select(.key != "role")] + [{key: "role", value: $v, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     elif [ "$KEY" = coordinator ]; then
-        PROG_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+        PROG_JQ=$LIB_COORD_ROW_JQ
         ETEXT="The coordinator's address is now $VALUE, set by $BY. Nobody has been told it yet."
     elif [ "$KEY" = rules ] || [ "$KEY" = briefs ]; then
         # One row per label: a new digest for a label replaces its row.

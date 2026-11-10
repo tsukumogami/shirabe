@@ -1593,7 +1593,13 @@ cancel_others() {
 # them, cancelled. The write guard isn't run for it: the source is still live,
 # so the new run isn't yet the scope's one live run. While both are live every
 # write script's guard refuses a write to either (several live sessions), which
-# keeps the source still; carry_verify checks that it was.
+# keeps the source still; carry_verify checks that it was. When this session's
+# name reads and the source's coordinator row names anyone else, the copy
+# carries this session's own coordinator row instead (core_carry's carrier),
+# and the address entry a `--run coordinator` write posts is posted right after
+# the copy is checked: the writers' driver check refuses a write to a run with
+# no driver whose row names another session, so the row has to land with the
+# copy. A post that fails is warned about and the carry stands.
 if [ -n "$CARRY_FROM" ]; then
     PROG=coordinate-open SKIP_CHECKS=0 REPO=$HOST
     . "$HERE/state-common.sh"
@@ -1643,9 +1649,15 @@ if [ -n "$CARRY_FROM" ]; then
         jq -e --slurpfile s "$T/src-meta" '.pending == false and $s[0].pending != true and .written == $s[0].written' "$T/new-meta" > /dev/null \
             || { WHY="$CARRY_FROM's record was written during the carry"; return 1; }
     }
-    ( core_carry "$CARRY_FROM" "$SESSION" ) 2> "$T/carry.err" || carry_stop "the carry stopped with exit $?"
+    ( core_carry "$CARRY_FROM" "$SESSION" "$CALLER_NAME" ) > "$T/carry.out" 2> "$T/carry.err" || carry_stop "the carry stopped with exit $?"
     WHY=
     carry_verify || carry_stop "$WHY"
+    CARRIER=$(sed -n 's/^carrier_row=//p' "$T/carry.out")
+    if [ -n "$CARRIER" ]; then
+        printf "The coordinator's address is now %s, set by %s. Nobody has been told it yet.\n" "$CARRIER" "$CARRIER" > "$T/address.txt"
+        bash "$HERE/state-entry.sh" --session "$SESSION" --before-find --kind run --text-file "$T/address.txt" < /dev/null > /dev/null 2> "$T/address.err" \
+            || echo "coordinate-open: $SESSION carries $CARRY_FROM with this session's coordinator row, but its entry wasn't posted ($(tr -s '\t\n' '  ' < "$T/address.err" | head -c 400)); post it with state-entry.sh --kind run: $(cat "$T/address.txt")" >&2
+    fi
     echo "carried=$CARRY_FROM"
     # The recycled coordinator: the new run is joined to the run it carried,
     # a dispatched-by link in the new run's own session, so the earlier run

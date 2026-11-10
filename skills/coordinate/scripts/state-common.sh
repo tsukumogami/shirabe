@@ -167,6 +167,50 @@ lib_write_guard() {
     esac
 }
 
+# RE_CLAUDE_ID: a Claude Code session id, the shape coordinate-open.sh holds
+# CLAUDE_CODE_SESSION_ID to before it records one as a run's driver.
+RE_CLAUDE_ID='^[0-9a-f][0-9a-f-]{7,63}$'
+
+# LIB_COORD_ROW_JQ: the Run section with its coordinator row set to $v, set
+# by $b at $t, and every `told` and `pending` row gone, since nobody has been
+# told the new address. The one filter a `--run coordinator` write
+# (state-stored-set.sh) and a carry's in-copy row (core_carry, state-open.sh
+# --carry) apply.
+LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+
+# lib_caller: the Claude session running this script. LIB_CALLER_ID is
+# CLAUDE_CODE_SESSION_ID when it has a session id's shape, else empty;
+# LIB_CALLER_NAME is the name its job state file gives it under
+# DC_CLAUDE_HOME (default ~/.claude), its messaging address, read through
+# dispatch-common.sh's dc_claude_name in a subshell, empty when it can't be
+# read. coordinate-open.sh reads its caller the same way.
+lib_caller() {
+    LIB_CALLER_ID=${CLAUDE_CODE_SESSION_ID:-}
+    [[ $LIB_CALLER_ID =~ $RE_CLAUDE_ID ]] || LIB_CALLER_ID=
+    LIB_CALLER_NAME=
+    [ -n "$LIB_CALLER_ID" ] || return 0
+    # shellcheck source=dispatch-common.sh
+    LIB_CALLER_NAME=$( . "$HERE/dispatch-common.sh" > /dev/null 2>&1 \
+        && dc_claude_name "${DC_CLAUDE_HOME:-$HOME/.claude}" "$LIB_CALLER_ID" 2> /dev/null ) || LIB_CALLER_NAME=
+}
+
+# lib_carrier_row <run-json-in> <run-json-out> <carrier-name> <time>: a
+# carry's Run section with the carrier's own coordinator row, as a `--run
+# coordinator` write would leave it (LIB_COORD_ROW_JQ), so the row lands with
+# the copy and the driver check passes every write after it. Done only when
+# the name is set, is a worker the schema accepts as a coordinator row's
+# value (check_worker), and the section holds a coordinator row naming anyone
+# else. Returns 0 when <out> holds the changed section, 1 when nothing
+# changes (<out> not written), 2 when <in> isn't a JSON array.
+lib_carrier_row() {
+    [ -n "$3" ] || return 1
+    jq -e 'type == "array"' "$1" > /dev/null 2>&1 || return 2
+    jq -n -L "$HERE" --arg w "$3" 'include "state-schema"; $w | check_worker' > /dev/null 2>&1 || return 1
+    jq -e --arg w "$3" '([.[] | select(.key == "coordinator") | .value][0] // "") as $a | $a != "" and $a != $w' "$1" > /dev/null 2>&1 \
+        || return 1
+    jq -c --arg v "$3" --arg b "$3" --arg t "$4" "{run: .} | $LIB_COORD_ROW_JQ | .run" "$1" > "$2" 2> /dev/null || return 2
+}
+
 # lib_dispatched: has this run entered `dispatch`? Without a session (a test
 # with overrides only) the answer is no.
 lib_dispatched() {
