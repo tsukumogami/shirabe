@@ -89,11 +89,11 @@ case $RS_RC in
     *) lib_die2 "cannot read the record: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
 esac
 lib_default_branch || lib_die2 "cannot read $REPO's default branch"
-lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$T/roadmap.md"
+lib_roadmap_at "$DEFAULT_BRANCH" "$T/roadmap.md"
 case $? in
     0) ;;
-    1) REASON="$ROADMAP is not on $DEFAULT_BRANCH"; finish features-open ;;
-    *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
+    1) REASON="$(lib_roadmap_where) is not on $DEFAULT_BRANCH"; finish features-open ;;
+    *) lib_die2 "cannot read $ROADMAP_READ: $(lib_scrub < "$T/roadmap.md.err")" ;;
 esac
 # A milestone whose verdict is owed blocks first, naming the milestone: it may
 # already read Done on the default branch (its verdict's edit merged, not yet
