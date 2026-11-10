@@ -638,6 +638,18 @@ live-session)
     # A run's name is coordinate-<slug>-<UTC stamp>; matching the stamp keeps a
     # longer slug (a -v2 roadmap) from reading as this scope's run.
     for id in $("$KOTO" session list | jq -r --arg p "coordinate-$SLUG-" '.[] | select(.parent_workflow == null) | .id | select(startswith($p) and (.[($p | length):] | test("^[0-9]{8}T[0-9]{6}Z$")))'); do
+        # A run whose own log already records its cancel or its takeover isn't
+        # live, and both events are only ever appended, so it needs no koto
+        # status: that call is the slow one, and a scope gains a superseded run
+        # with every takeover, so asking each one would make this scan, and
+        # every write guard that runs it, grow with each takeover. A log that
+        # can't be read here, or that holds neither event, goes on to koto
+        # status as before, since koto may be what brings a run's copy to this
+        # host. The read's own refusal is silenced: the one below prints it.
+        if PRE=$(session_log "$id" 2>/dev/null) \
+            && jq -e 'select(.type == "workflow_cancelled" or .type == "session_superseded")' "$PRE" >/dev/null; then
+            continue
+        fi
         st=$("$KOTO" status "$id") || continue
         [ "$(printf '%s' "$st" | jq -r '.is_terminal')" = false ] || continue
         LOG=$(session_log "$id") || continue
