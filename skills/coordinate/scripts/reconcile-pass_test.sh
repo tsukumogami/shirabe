@@ -69,8 +69,12 @@ cat > "$SC/reconcile-check.sh" <<'STUB'
 sub=$1; shift
 ident=$(printf '%s' "${2-}" | tr -c 'A-Za-z0-9._-' '_')
 # One marker file per running stand-in: the count of markers is how many run
-# at once. A stand-in the pass stops takes its marker with it.
-mark="$STUB_DIR/running.$$"; : > "$mark"; trap 'rm -f "$mark"' EXIT TERM
+# at once. A stand-in the pass stops takes its marker with it: the trap is set
+# before the marker exists, and the short sleeps below run in the background
+# under `wait`, which a trapped TERM interrupts. A foreground sleep would hold
+# the trap, and the marker, until it ended, so the stopped stand-in and the one
+# the pass starts in its place would both be counted.
+mark="$STUB_DIR/running.$$"; trap 'rm -f "$mark"' EXIT TERM; : > "$mark"
 c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
@@ -86,7 +90,7 @@ m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" >
 w=0
 until ( set -C; : > "$CLOCK.lock" ) 2>/dev/null; do
     w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
-    sleep 0.05
+    sleep 0.05 & wait $!
 done
 now=$(cat "$CLOCK")
 # Written whole: a temp file of this writer's own, renamed into place. The pass
@@ -107,7 +111,7 @@ if [ -f "$STUB_DIR/inject.$sub" ] && [ -f "$WORKFILE" ]; then
 fi
 [ -f "$STUB_DIR/reenter.$sub" ] && echo 99 > "$STUB_DIR/visit"
 [ -f "$STUB_DIR/plant-on.$sub" ] && sh "$STUB_DIR/plant"
-sleep 0.2
+sleep 0.2 & wait $!
 # A clock jq can't take, left just before this re-check ends: the pass's next
 # fold of this fact then has a time it can't write.
 # `0x10` is a number to bash's arithmetic (16) and not to jq, so the pass
