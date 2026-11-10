@@ -424,6 +424,28 @@ RS_SESSION=$SP bash "$WR" "${RM[@]}" --pushed-head nobody "$HEAD1" >/dev/null 2>
 eq "  ... and a topic no holding has" 65 $?
 RS_SESSION=$SP bash "$WR" "${RM[@]}" --pushed-head feature-2 "$HEAD1" --close >/dev/null 2>"$T/err"
 eq "  ... --close is usage" 64 $?
+
+echo "== a run another session took over =="
+# A takeover leaves the old run provenanced and holding the same record, with
+# session_superseded in its log; its successor is the scope's live run. The
+# guard refuses the old run's write and names the successor, however the scan
+# that finds the live run learns the old run isn't live.
+TOJ=$(record_json roadmap takeover-guard)
+state_json "$(printf '%s' "$TOJ" | jq -c --argjson h "$(holding feature-2)" '.holdings = [$h]')" > "$T/tonew.json"
+TOLD=coordinate-roadmap-takeover-guard-20260928T080000Z
+found_session "$TOLD" "$(roadmap_vars takeover-guard)"
+seed_session "$TOLD" "$TOJ"
+log_ev "$TOLD" session_superseded '{}'
+TNEW=coordinate-roadmap-takeover-guard-20260928T090000Z
+found_session "$TNEW" "$(roadmap_vars takeover-guard)"
+seed_session "$TNEW" "$TOJ"
+SNAP=$(session_snapshot "$TOLD")
+reset_calls
+env -u RS_SESSION bash "$WR" --session "$TOLD" --state-file "$T/tonew.json" >/dev/null 2>"$T/err"; eq "a run another session took over is refused" 10 $?
+grep -q "$TNEW is" "$T/err" && ok "the refusal names its successor as the live run" || bad "the refusal names its successor as the live run" "$(cat "$T/err")"
+eq "and nothing is read or written" "" "$(calls)"
+eq "the old run's record is untouched" "$SNAP" "$(session_snapshot "$TOLD")"
+env -u RS_SESSION bash "$WR" --session "$TNEW" --state-file "$T/tonew.json" >/dev/null 2>"$T/err"; eq "its successor writes" 0 $?
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
 done_tests state-write
