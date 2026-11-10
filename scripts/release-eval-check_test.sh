@@ -35,6 +35,7 @@
 # with /bin/bash on macOS checks the check on bash 3.2.
 
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 unset RELEASE_VERSION RELEASE_LAST_TAG RELEASE_CONFIRMED_DROPS
 
@@ -51,7 +52,7 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 T=$(mktemp -d "${TMPDIR:-/tmp}/release-eval-check-test.XXXXXX") || exit 1
 T=$(cd "$T" && pwd -P) || exit 1
 cleanup() { case "${T:-}" in */release-eval-check-test.*) rm -rf "$T" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 BIN="$T/bin"
 NOKOTO="$T/nokoto"
