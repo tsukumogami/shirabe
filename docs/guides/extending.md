@@ -66,21 +66,30 @@ of version control (a `*.local.md` line in `.gitignore` does it); the committed
 
 ## The CLAUDE.md headers
 
-These are the headers the extension contract covers. Each is a level-2 heading
-in your CLAUDE.md, and each is optional.
+The extensibility design names three headers as part of the contract. Each is
+a level-2 heading in your CLAUDE.md, and each is optional.
 
 | Header | Values | Read by | When absent |
 |--------|--------|---------|-------------|
-| `## Repo Visibility:` | `Public` or `Private` | Every skill that writes content, to choose its content-governance rules | Inferred from the repository path (`public/` or `private/`), otherwise `Private` |
-| `## Default Scope:` | `Strategic` or `Tactical` | `/explore`, `/plan`, `/design` (`/design` also accepts `## Planning Context:`) | `Tactical` |
+| `## Repo Visibility:` | `Public` or `Private` | The skills that write documents, issues or pull requests, to choose their content-governance rules | Inferred from the repository path (`public/` or `private/`), otherwise `Private`; `/charter` goes straight to `Private` |
+| `## Default Scope:` | `Strategic` or `Tactical` | `/explore`, `/plan`, `/design` (`/design` also accepts `## Planning Context:`) | `Tactical` for `/explore` and `/plan` |
 | `## Label Vocabulary` | Free-form prose or a list of your issue labels | `/design`, `/explore`, `/plan`, `/prd`, `/work-on` | The skills run without project-specific labels |
 
-A command-line flag (`--strategic`, `--tactical`) overrides `## Default Scope:`
-for one run.
+`/explore` and `/plan` also take `--strategic` or `--tactical`, which overrides
+`## Default Scope:` for one run. `/work-on` reads label names and routing
+messages from its extension file as well as from `## Label Vocabulary`.
 
 Skills read other CLAUDE.md headers too, such as `## Execution Mode:` and
-`## Release Notes Convention:`. Those are documented, with their formats, in
-[`references/fixes/claude-md-conventions.md`](../../references/fixes/claude-md-conventions.md).
+`## Delivery Preference:`. Their formats are listed in
+[`references/fixes/claude-md-conventions.md`](../../references/fixes/claude-md-conventions.md),
+and renaming any of them counts as a breaking change below.
+
+Some skills also read a fixed format inside their extension file or a file
+next to it: `/release` runs the commands listed under `## Release checks` in
+`release.md`, and `/work-on` reads `verification-map.json` and `hosted-ci.json`
+from the same directory. Those formats are defined by the skill that reads
+them (`skills/release/SKILL.md`, `skills/work-on/references/verification-map.md`),
+not by this page.
 
 ## What counts as a breaking change
 
@@ -89,7 +98,7 @@ A shirabe change breaks extension authors when it does any of these:
 1. Removes an `@` slot line from a skill's SKILL.md.
 2. Renames a phase in a skill's workflow overview, so an extension file that
    names the phase no longer matches it.
-3. Renames a CLAUDE.md header in the table above.
+3. Renames a CLAUDE.md header that a skill reads.
 
 Everything else is compatible: rewording a skill's instructions, refactoring its
 phase files, adding phases, changing support files, and adding a slot to a skill
@@ -97,18 +106,24 @@ that didn't have one.
 
 ## How a breaking change is announced
 
-shirabe publishes its changes as notes on each
-[GitHub release](https://github.com/tsukumogami/shirabe/releases). A change in
-one of the three categories above is committed with the conventional-commit
-breaking marker (`feat!:`, `fix!:` or a `BREAKING CHANGE` footer), and the
-release that ships it lists it under a `## Breaking` heading at the top of its
-notes, before the features and fixes. When adopters have to edit their
-extension files or headers, the notes say what to change, and a longer
-migration note goes under [`docs/guides/`](./) next to this one.
+shirabe has no separate changelog. Its changes are announced in the notes on
+each [GitHub release](https://github.com/tsukumogami/shirabe/releases), which
+are drafted from the commits in that release and call out breaking changes
+prominently. A change in one of the three categories above is announced
+there as a breaking change, the way the v0.16.0 notes carry a `## Breaking`
+section. When adopters have to change their own files, a migration note that
+says what to do also goes under [`docs/guides/`](./), next to this page;
+[`RELEASE-NOTES-populate-issueless-default.md`](RELEASE-NOTES-populate-issueless-default.md)
+is an example.
 
-To hear about it, watch the repository for releases (Watch, then Custom, then
-Releases on GitHub) and read the `## Breaking` section before you upgrade. If
-you pin shirabe to a version, check it when you move the pin.
+This is a review convention, not something a tool enforces: nothing in CI
+detects a renamed slot or header. Version numbers won't tell you either.
+shirabe is still at 0.x, and a breaking change doesn't always move the major
+version.
+
+To hear about a breaking change, watch the repository for releases (on GitHub,
+Watch, then Custom, then Releases). Read the notes for every version between
+yours and the one you're moving to before you upgrade or move a pin.
 
 ## Writing an extension file
 
