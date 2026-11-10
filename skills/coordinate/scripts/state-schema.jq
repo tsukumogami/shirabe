@@ -438,24 +438,49 @@ def norm_match($b): norm_text == ($b | norm_text);
 def file_holds($what): any(file_sentences[]; norm_match($what));
 # A brief's rule sentences, which state-stored-set.sh --intake brings in as
 # `inferred brief` rule rows and state-handover.sh's brief-unread gap counts
-# (docs/designs/DESIGN-coordinator-standing-rule-provenance.md, Decision 10).
-# brief_excluded_sections: the renderer's sections that hold no rule.
-# brief_candidates: over a brief's text, file_sentences less every heading
-# line and less every sentence under an excluded section, a section running
-# from a `#` or `##` heading line, matched whole, to the next one (a `###` or
-# deeper heading starts none); each sentence once under norm_text, the first
+# (docs/designs/DESIGN-coordinator-standing-rule-provenance.md, Decision 10,
+# and docs/designs/DESIGN-coordinator-brief-intake-cap.md, Decision 1).
+# A section runs from a `#` or `##` heading line, matched whole, to the next
+# one (a `###` or deeper heading starts none); text above the first such
+# heading is in no section. A brief is read in one of two modes:
+#   opt-in   any heading line is exactly `## Standing rules` (file_sentences
+#            trims each line, so a CRLF ending still matches; a fenced line
+#            never reaches the walk, so a fenced heading switches nothing).
+#            Only sentences under one of brief_rule_sections are rules: the
+#            preamble, a `#` section and every other `##` section are not.
+#            A successor brief written by hand marks its rules this way, so
+#            its holdings and takeover steps never become rule rows.
+#   today's  no such line: every sentence is a rule but those under one of
+#            brief_excluded_sections, the renderer's sections that hold no
+#            rule. Every brief written before the heading existed reads so.
+# brief_read: {opt_in, lines}, each non-heading sentence of the brief as
+# {sec, text, rule}, its section heading (null above the first), and whether
+# the brief's mode reads it as a rule.
+# brief_candidates: the rule sentences, each once under norm_text, the first
 # kept, in order.
+# brief_outside_rules: in opt-in mode, how many non-heading sentences sit
+# outside the rule sections (no de-duplication), which the intake prints so
+# an empty heading or a misfiled rule shows as a count; null in today's mode.
 def brief_excluded_sections: ["## Goal", "## Checkpoints", "## Read first", "## Acceptance criteria", "## Reporting", "## Keep-alive"];
-def brief_candidates:
-  reduce file_sentences[] as $s ({sec: null, out: []};
+def brief_rule_sections: ["## Standing rules", "## Decisions already made", "## Out of scope", "## Workspace rules"];
+def brief_read:
+  reduce file_sentences[] as $s ({opt_in: false, sec: null, lines: []};
     if ($s | test("^#{1,6}( |$)")) then
-      (if ($s | test("^#{1,2}( |$)")) then .sec = $s else . end)
-    elif (.sec as $c | any(brief_excluded_sections[]; . == $c)) then .
-    else .out += [$s] end)
-  | reduce .out[] as $s ({seen: {}, out: []};
+      .opt_in = (.opt_in or $s == "## Standing rules")
+      | (if ($s | test("^#{1,2}( |$)")) then .sec = $s else . end)
+    else .lines += [{sec: .sec, text: $s}] end)
+  | .opt_in as $o
+  | {opt_in: $o,
+     lines: [.lines[] | . + {rule: (.sec as $c
+               | if $o then any(brief_rule_sections[]; . == $c)
+                 else any(brief_excluded_sections[]; . == $c) | not end)}]};
+def brief_candidates:
+  reduce (brief_read.lines[] | select(.rule) | .text) as $s ({seen: {}, out: []};
       ($s | norm_text) as $k
       | if .seen[$k] then . else .seen[$k] = true | .out += [$s] end)
   | .out;
+def brief_outside_rules:
+  brief_read | if .opt_in then [.lines[] | select(.rule | not)] | length else null end;
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
 def work_kinds: ["holding", "local-agent", "decision", "follow-up", "verdict-owed", "rework"];

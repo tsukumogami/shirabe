@@ -29,8 +29,11 @@
 # and the split takes fences, headings and table lines as R45 says.
 # For the brief intake: brief_candidates on
 # the testdata/brief-golden briefs (7, 11 and 11 sentences, the ones
-# testdata/standing-rules/brief-kept.json lists) and its section rule, and
-# brief_intake_plan's writes, ends, room and untaken.
+# testdata/standing-rules/brief-kept.json lists) and its section rule; the
+# opt-in `## Standing rules` mode (near-miss headings and a fenced one fall
+# back, a CRLF one switches, only the four rule sections count, an empty one
+# gives none) and brief_outside_rules' count; and brief_intake_plan's writes,
+# ends, room and untaken.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/state-schema_test.sh
@@ -397,6 +400,42 @@ eq "  ... and read whole, the splitter gives 62, 65 and 74" "62 65 74" \
 printf '# Brief: x\n\n## Goal\n\nGoal text.\n\n### Inside\n\nStill the goal.\n\n# Top\n\nA top rule.\n\n## Goal of the lane\n\nNot the goal section.\n\n## Out of scope\n\n- Leave the docs.\n- leave the docs\n\n## Keep-alive\n\nPing.\n' > "$T/brief.md"
 eq "a ### heading starts no section, a # heading ends one, a heading is matched whole, and a sentence comes once" \
     '["A top rule.","Not the goal section.","- Leave the docs."]' "$(cands "$T/brief.md")"
+# The brief-intake-cap design's Decision 1: a line exactly `## Standing rules`
+# switches the brief to opt-in mode, where only the four rule sections count.
+# outside <file>: brief_outside_rules, the opt-in count (null in today's mode).
+outside() { jq -R -s -c -L "$HERE" 'include "state-schema"; brief_outside_rules' "$1"; }
+eq "the golden briefs are read in today's mode" "null null null" \
+    "$(for f in min leg base; do outside "$GOLD/$f.txt"; done | tr '\n' ' ' | sed 's/ $//')"
+NBSP=$(printf '\302\240')
+for h in "## Standing Rules" "## Standing rules (kept)" "### Standing rules" "## Standing${NBSP}rules"; do
+    printf '# Brief: near\n\nPre one.\n\n## Goal\n\nGoal line.\n\n## Holdings\n\n- Held line.\n\n%s\n\n- Rule line.\n' "$h" > "$T/near.md"
+    eq "a near-miss heading [$h] reads as today: preamble, the sentences under it and every non-excluded section" \
+        '["Pre one.","- Held line.","- Rule line."]|null' "$(cands "$T/near.md")|$(outside "$T/near.md")"
+done
+printf 'Pre one.\n\n```text\n## Standing rules\n```\n\n## Holdings\n\n- Held line.\n\n## Out of scope\n\n- Out line.\n' > "$T/fenced.md"
+eq "a heading only inside a fenced block switches nothing, and the fenced line is no candidate" \
+    '["Pre one.","- Held line.","- Out line."]|null' "$(cands "$T/fenced.md")|$(outside "$T/fenced.md")"
+printf 'Pre one.\r\n\r\n```text\r\nFenced line.\r\n```\r\n\r\n## Standing rules\r\n\r\n- Rule line.\r\n\r\n## Holdings\r\n\r\n- Held line.\r\n\r\n## Out of scope\r\n\r\n- Out line.\r\n' > "$T/crlf.md"
+eq "  ... the heading outside the fence, every line ending in CRLF, switches it" \
+    '["- Rule line.","- Out line."]|2' "$(cands "$T/crlf.md")|$(outside "$T/crlf.md")"
+{
+    printf 'Pre one.\n\n# Top\n\nTop line.\n\n## Holdings\n\n- Held line.\n\n'
+    for s in Goal Checkpoints "Read first" "Acceptance criteria" Reporting Keep-alive; do printf '## %s\n\n%s line.\n\n' "$s" "$s"; done
+    printf '## Decisions already made\n\n- Decision C.\n\n## Standing rules\n\n- Rule A.\n\n### Sub\n\n- Rule B.\n- decision c\n\n'
+    printf '## Out of scope\n\n- Out D.\n\n## Workspace rules\n\n- Workspace E.\n'
+} > "$T/optin.md"
+eq "in opt-in mode only the four rule sections count, a ### inside one included, in brief order, each once" \
+    '["- Decision C.","- Rule A.","- Rule B.","- Out D.","- Workspace E."]' "$(cands "$T/optin.md")"
+eq "  ... the preamble, a # section, another ## section and the six excluded ones counted outside" 9 "$(outside "$T/optin.md")"
+eq "  ... and no heading is a candidate" 0 "$(cands "$T/optin.md" | jq '[.[] | select(test("^#"))] | length')"
+printf 'Pre one.\n\n## Holdings\n\n- Held line.\n\n## Out of scope\n\n- Out line.\n' > "$T/oos.md"
+eq "a hand-written brief with ## Out of scope and no opt-in heading reads as today" \
+    '["Pre one.","- Held line.","- Out line."]|null' "$(cands "$T/oos.md")|$(outside "$T/oos.md")"
+printf '# Brief: empty\n\nPre one.\n\n## Holdings\n\n- Held line.\n\n## Standing rules\n\n## Goal\n\nGoal line.\n' > "$T/empty.md"
+eq "an empty ## Standing rules section gives no candidate, every sentence counted outside" \
+    '[]|3' "$(cands "$T/empty.md")|$(outside "$T/empty.md")"
+eq "the 90-line successor brief: its rules, 59 sentences outside" "90 11 59" \
+    "$(wc -l < "$SD/successor-90.md" | tr -d ' ') $(cands "$SD/successor-90.md" | jq length) $(outside "$SD/successor-90.md")"
 # plan <rows-json> <label> <digest> <cands-json>: brief_intake_plan's answer.
 plan() { jq -nc -L "$HERE" --argjson r "$1" --arg l "$2" --arg d "$3" --argjson c "$4" 'include "state-schema"; $r | brief_intake_plan($l; $d; $c)'; }
 D1=sha256:$SHA64

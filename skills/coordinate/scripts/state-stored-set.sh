@@ -215,9 +215,16 @@
 # regular file exits 2, naming the label. Its digest is the sha256 of its
 # bytes, D below. A Run `briefs` row `LABEL D` means the brief was taken: it
 # prints nothing, writes nothing and exits 0. Otherwise its lines are
-# state-schema.jq's brief_candidates (file_sentences less the heading lines
+# state-schema.jq's brief_candidates, each once, read in one of two modes
+# (docs/designs/DESIGN-coordinator-brief-intake-cap.md, Decision 1). A brief
+# with a line exactly `## Standing rules` opts in: only the sentences under
+# that heading and under Decisions already made, Out of scope and Workspace
+# rules are its lines, and stderr says how many of its sentences sit outside
+# those sections (`<n> of the brief's sentences sit outside its rule
+# sections ...`, no path), so an empty heading or a misfiled rule shows as a
+# count. Any other brief's lines are file_sentences less the heading lines
 # and the renderer's Goal, Checkpoints, Read first, Acceptance criteria,
-# Reporting and Keep-alive sections, each once), and brief_intake_plan says
+# Reporting and Keep-alive sections, as before. brief_intake_plan says
 # what it does with them: each Standing row whose Source is `inferred brief
 # LABEL <another digest>` and whose What matches none of the lines under
 # norm_match ends, and each line no row left (of any kind or Source) holds
@@ -1137,7 +1144,12 @@ intake)
     if jq -e --arg v "$ILABEL $IDIG" 'any((.run // [])[]; .key == "briefs" and .value == $v)' "$P" > /dev/null; then
         exit 0
     fi
-    jq -R -s -c -L "$HERE" 'include "state-schema"; brief_candidates' "$WD/brief" > "$WD/cands.json" || lib_die2 "cannot read the brief $ILABEL"
+    jq -R -s -c -L "$HERE" 'include "state-schema"; {cands: brief_candidates, outside: brief_outside_rules}' "$WD/brief" > "$WD/read.json" \
+        || lib_die2 "cannot read the brief $ILABEL"
+    jq -c .cands "$WD/read.json" > "$WD/cands.json" || lib_die2 "jq failed"
+    # An opt-in brief: how many of its sentences weren't read as rules.
+    IOUT=$(jq -r '.outside // empty' "$WD/read.json") || lib_die2 "jq failed"
+    [ -z "$IOUT" ] || echo "$PROG: $IOUT of the brief's sentences sit outside its rule sections (## Standing rules, ## Decisions already made, ## Out of scope, ## Workspace rules) and weren't read as rules" >&2
     jq -c -L "$HERE" --arg l "$ILABEL" --arg d "$IDIG" --slurpfile c "$WD/cands.json" 'include "state-schema";
         (.standing // []) | brief_intake_plan($l; $d; $c[0])' "$P" > "$WD/plan.json" || lib_die2 "jq failed"
     # The host's visibility, read once and handed to the write core; a

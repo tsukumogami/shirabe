@@ -27,6 +27,15 @@
 #   a line that fails the text check or the 400 bytes is reported and left
 #        out;
 #   a failed visibility read exits 2 writing nothing;
+#   the brief-intake-cap design's opt-in heading: the 90-line successor
+#        brief testdata/standing-rules/successor-90.md, its rules under
+#        `## Standing rules`, on a record holding three of them, writes only
+#        the rest and the briefs row, counts the 59 sentences outside on
+#        stderr and clears brief-unread; the same lines without the heading
+#        cap as today and the gap names the same count; 61 rules under the
+#        heading write 60 and exit 1; an empty `## Standing rules` writes no
+#        rule row and the briefs row, counting every sentence outside; the
+#        brief's path in no output, row or entry, in either mode;
 #   the brief file is unchanged by every intake.
 #
 # niwa is never the real one: a fake in the scratch directory, first on PATH,
@@ -391,6 +400,110 @@ need "the intake with the host's read failing: exit" 2 "$RC"
 need "  ... nothing written" yes "$NOTHING"
 grep -qF "cannot read acme/widgets's visibility" "$T/err" || needf "stderr: $(cat "$T/err")"
 crit "a failed visibility read exits 2 writing nothing"
+
+# ---- the opt-in heading: a successor brief ---------------------------------------
+# The brief-intake-cap design's Decision 1. The record already holds three of
+# the successor brief's rules word for word, under other Sources.
+# seed_carried: those three rows, as a successor's record holds them.
+seed_carried() {
+    jq -nc --arg p "inferred brief predecessor sha256:$(printf '%064d' 5)" --arg c "skill acme/widgets docs/rules.md $(printf '%040d' 3)" '[
+        {standing: "s1", kind: "rule", on: "", until: "", what: "Keep one worker per feature.", owner: "", relayed_by: "", set: "2026-11-01T08:00Z", source: $p},
+        {standing: "s2", kind: "rule", on: "", until: "", what: "Never merge a pull request whose checks are not green.", owner: "", relayed_by: "", set: "2026-11-01T08:00Z", source: $c},
+        {standing: "s3", kind: "rule", on: "", until: "", what: "Ask the owner before cutting a release.", owner: "", relayed_by: "", set: "2026-11-01T08:00Z", source: $p}]' > "$T/seed.json"
+    put "$G" record/standing "$T/seed.json"
+}
+# no_path <case> <file>...: the brief's path is in none of the files.
+no_path() {
+    local f
+    for f in "${@:2}"; do grep -qF -- "briefs/lane.md" "$f" && needf "$1: the brief's path is in $(basename "$f"): $(cat "$f")"; done
+    return 0
+}
+# gate_all: the handover check's whole output, both streams, in $T/gate.all.
+gate_all() { (cd "$WD" && bash "$PS/state-handover.sh" --session "$G" --check) > "$T/gate.all" 2>&1; }
+OUTSIDE_LINE="sentences sit outside its rule sections (## Standing rules, ## Decisions already made, ## Out of scope, ## Workspace rules) and weren't read as rules"
+fresh
+seed_carried
+brief_put lane "$SD/successor-90.md"
+need "the 90-line successor fixture is 90 lines" 90 "$(wc -l < "$SD/successor-90.md" | tr -d ' ')"
+need "  ... brief-unread is listed before, uncapped" "brief-unread lane: state-stored-set.sh --intake lane --by <you>" "$(gaps)"
+try --intake lane --by coord
+need "the successor intake: exit" 0 "$RC"
+need "  ... written" no "$NOTHING"
+need "  ... only the rules no row holds, in order, Source inferred brief lane" \
+    "$(jq -nc --arg s "inferred brief lane $DIG" '["- Hold every dispatch while a release is being tagged.",
+        "- Read a failing check'"'"'s log before asking for a retry.", "- Report progress every two hours while workers are active.",
+        "- Never reassign a held feature without telling its worker first.",
+        "- Treat a reviewer'"'"'s changes-requested as blocking until it is resolved.", "- The plugin lane ships features in roadmap order.",
+        "- Feature 27 waits for the release after next.", "- The website redesign belongs to another lane."] | map({what: ., source: $s})')" \
+    "$(standing | jq -c '[.[3:][] | {what, source}]')"
+need "  ... the carried rows untouched" "$(jq -c . "$T/seed.json")" "$(standing | jq -c '.[0:3]')"
+need "  ... no holdings or takeover-step sentence came in" 0 \
+    "$(standing | jq '[.[].what | select(test("^- Worker |^[0-9]+\\. |^- Features [0-9]|^- The (review|release|flaky|pull|last|rotation)"))] | length')"
+grep -qF "state-stored-set: 59 of the brief's $OUTSIDE_LINE" "$T/err" || needf "stderr doesn't count the 59 sentences outside: $(cat "$T/err")"
+need "  ... the Run briefs row" "[\"lane $DIG\"]" "$(briefs_rows)"
+need "  ... brief-unread is cleared" "" "$(gaps)"
+need "  ... the brief's digest is unchanged" "$DIG" "sha256:$(sha "$HOME/briefs/lane.md")"
+standing > "$T/rows.json"
+entry_tail 9 > "$T/entries.txt"
+need "  ... its last entry is the briefs row's" "run|Run briefs lane $DIG set by coord." "$(tail -1 "$T/entries.txt")"
+gate_all
+no_path "the opt-in intake" "$T/out" "$T/err" "$T/gate.all" "$T/rows.json" "$T/entries.txt"
+crit "a 90-line successor brief with its rules under ## Standing rules clears brief-unread in one intake"
+
+fresh
+seed_carried
+grep -vx '## Standing rules' "$SD/successor-90.md" > "$T/plain.md"
+brief_put lane "$T/plain.md"
+try --intake lane --by coord
+need "the same lines without the heading: exit" 1 "$RC"
+need "  ... 58 rows written, to the inferred cap" 58 "$(standing | jq '[.[] | select(.source | startswith("inferred brief lane"))] | length')"
+need "  ... a holdings sentence among them" 1 "$(standing | jq '[.[] | select(.what == "- Worker alder holds Feature 3 on branch impl-feature-3.")] | length')"
+grep -qF "state-stored-set: took 58 of the brief's lines; 9 of its lines can't be taken under the caps: the record holds 60 inferred rule rows" "$T/err" \
+    || needf "stderr doesn't name 9 lines: $(cat "$T/err")"
+grep -qF "$OUTSIDE_LINE" "$T/err" && needf "a brief without the heading printed the outside count: $(cat "$T/err")"
+need "  ... no briefs row" "[]" "$(briefs_rows)"
+case "$(gaps)" in
+    "brief-unread lane: state-stored-set.sh --intake lane --by <you>; 9 of its lines can't be taken under the caps"*) ;;
+    *) needf "the gap doesn't name the same 9 lines: $(gaps)" ;;
+esac
+standing > "$T/rows.json"
+entry_tail 58 > "$T/entries.txt"
+gate_all
+no_path "the headingless intake" "$T/out" "$T/err" "$T/gate.all" "$T/rows.json" "$T/entries.txt"
+crit "the same lines without the heading cap as today, and the gap names the same count"
+
+fresh
+{
+    printf '# Brief: many rules\n\nThe preamble is no rule.\n\n## Holdings\n\n- One holding.\n\n## Standing rules\n\n'
+    for i in $(seq 1 61); do printf -- '- Standing rule %s holds for every lane.\n' "$i"; done
+} > "$T/rules61.md"
+brief_put lane "$T/rules61.md"
+try --intake lane --by coord
+need "61 rules under the heading on an empty record: exit" 1 "$RC"
+need "  ... 60 rows, the first 60 in order" "60|- Standing rule 1 holds for every lane.|- Standing rule 60 holds for every lane." \
+    "$(standing | jq -r '"\(length)|\(.[0].what)|\(.[-1].what)"')"
+grep -qF "state-stored-set: took 60 of the brief's lines; 1 of its lines can't be taken under the caps" "$T/err" || needf "stderr doesn't name 1 line: $(cat "$T/err")"
+grep -qF "state-stored-set: 2 of the brief's $OUTSIDE_LINE" "$T/err" || needf "stderr doesn't count 2 outside: $(cat "$T/err")"
+need "  ... no briefs row" "[]" "$(briefs_rows)"
+case "$(gaps)" in
+    "brief-unread lane: state-stored-set.sh --intake lane --by <you>; 1 of its lines can't be taken under the caps"*) ;;
+    *) needf "the gap doesn't name 1 line: $(gaps)" ;;
+esac
+crit "61 rules under ## Standing rules write 60 and exit 1, the gap naming 1 line"
+
+fresh
+printf '# Brief: empty rules\n\nThe preamble is no rule. Nor is this.\n\n## Holdings\n\n- One holding.\n\n## Standing rules\n\n## Goal\n\nShip the lane.\n' > "$T/emptyrules.md"
+brief_put lane "$T/emptyrules.md"
+try --intake lane --by coord
+need "an empty ## Standing rules section: exit" 0 "$RC"
+need "  ... written" no "$NOTHING"
+need "  ... no rule row" "[]" "$(standing | jq -c .)"
+need "  ... the briefs row" "[\"lane $DIG\"]" "$(briefs_rows)"
+grep -qF "state-stored-set: 4 of the brief's $OUTSIDE_LINE" "$T/err" || needf "stderr doesn't count all 4 sentences: $(cat "$T/err")"
+need "  ... brief-unread is cleared" "" "$(gaps)"
+gate_all
+no_path "the empty-section intake" "$T/out" "$T/err" "$T/gate.all"
+crit "an empty ## Standing rules section writes no rule row, the briefs row, and counts every sentence outside"
 
 # ---- the brief is never edited ---------------------------------------------------
 while read -r p s; do
