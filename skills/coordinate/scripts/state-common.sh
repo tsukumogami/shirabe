@@ -175,11 +175,16 @@ lib_write_guard() {
 RE_CLAUDE_ID='^[0-9a-f][0-9a-f-]{7,63}$'
 
 # LIB_COORD_ROW_JQ: the Run section with its coordinator row set to $v, set
-# by $b at $t, and every `told` and `pending` row gone, since nobody has been
-# told the new address. The one filter a `--run coordinator` write
-# (state-stored-set.sh) and a carry's in-copy row (core_carry, state-open.sh
-# --carry) apply.
-LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+# by $b at $t, and every `told` row gone, since nobody has been told the new
+# address. `pending` rows stay where they are: the new coordinator row is
+# appended after them, so each one now comes before it and reads as carried
+# (state-handover.sh), a worker that was pending for an earlier address and
+# has nobody to tell until the handover confirms it is still stopped or
+# missing (state-stored-set.sh --pending-confirm). A second address in the same
+# run carries every pending row again. The one filter a `--run coordinator`
+# write (state-stored-set.sh) and a carry's in-copy row (core_carry,
+# state-open.sh --carry) apply.
+LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
 
 # lib_caller: the Claude session running this script. LIB_CALLER_ID is
 # CLAUDE_CODE_SESSION_ID when it has a session id's shape, else empty;

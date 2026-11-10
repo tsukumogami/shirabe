@@ -504,12 +504,14 @@ gate; eq "  ... and the gate still passes" "0 " "$G"
 bash "$RS" "${W[@]}" --pending worker-f4 --by lane-v3 >/dev/null 2>&1
 eq "clear: before it, a told and a pending row stand" "worker-f3 worker-f2|worker-f4" "$(run_rows told)|$(run_rows pending)"
 bash "$RS" "${W[@]}" --run coordinator lane-v4 --by lane-v4 >/dev/null 2>"$T/err"; eq "  ... a new address is set over them" 0 $?
-eq "  ... clearing every told and pending row" "|" "$(run_rows told)|$(run_rows pending)"
+eq "  ... clearing every told row and carrying the pending one" "|worker-f4" "$(run_rows told)|$(run_rows pending)"
+eq "  ... which now comes before the new coordinator row" "pending coordinator" \
+    "$(live | jq -r '[.run[] | select(.key == "pending" or .key == "coordinator") | .key] | join(" ")')"
 gate; eq "  ... so the gate holds on both again" "1 not-told worker-f2,not-told worker-f3" "$G"
 bash "$RS" "${W[@]}" --pending worker-f3 --by lane-v4 >/dev/null 2>&1
 bash "$RS" "${W[@]}" --done "Feature 3" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next "dispatched again" >/dev/null 2>"$T/err"
-eq "a holding's first Work row for a pending worker records it told, not both" "worker-f3|" "$(run_rows told)|$(run_rows pending)"
+eq "a holding's first Work row for a pending worker records it told, not both" "worker-f3|worker-f4" "$(run_rows told)|$(run_rows pending)"
 gate; eq "  ... and the gate holds only on the untold one" "1 not-told worker-f2" "$G"
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
