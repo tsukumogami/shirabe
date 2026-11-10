@@ -223,8 +223,9 @@ its own.
 
 Three other Run rows it writes the same way, from a value it was handed and
 only when the row differs: `cap` from `--cap`, `role` from the `role=` line
-the opener printed in this invocation, and an `--intake <label>` for each
-`brief-unread` gap the handover check names. Each goes through
+the opener printed on its stdout in this invocation, and an intake for each
+label the agent passes in its own `--intake <label>` flag that the handover
+check also names as a `brief-unread` gap. Each goes through
 `state-stored-set.sh`, the record's only writer for those rows.
 
 It never writes `told`. `told` records a delivery, and the command delivers
@@ -243,15 +244,19 @@ Each gap the handover check or the run can raise has one owner:
 | `no-cap` | the command, or the agent | from `--cap` when passed; otherwise from the brief, or `--inferred` |
 | `no-role` | the command, or a person | from the opener's `role=` line; with none, `ask=role` |
 | `no-reports-to`, `reports-to-unsourced` | the agent, through flags | the command writes what the agent passes; with nothing known, a person says who the run reports to |
-| `brief-unread <label>` | the command, or a person | `state-stored-set.sh --intake <label>`; a cap refusal goes to a person |
+| `brief-unread <label>` | the agent, through `--intake`, or a person | the command runs `state-stored-set.sh --intake <label>` for a label the agent passed; a cap refusal goes to a person |
 | `no-next-step <unit>` | the agent | a judgement about the holding, from the reconcile report |
-| `leg-unclassified <worker>` | the reconcile pass, or the agent | `reconcile-legs.sh` closes it; when the pass can't verify it, the agent runs the gap's fix |
+| `leg-unclassified <worker>` | the reconcile pass, or the agent | `reconcile-legs.sh` closes it; when the pass can't verify it, the agent closes it with the command SKILL.md gives for the gap code |
 | `not-told <worker>`, classifier `live` | the agent | message the worker, then `--told` |
 | classifier `told`, `pending` | `handover-classify.sh` | its own writes |
 | classifier `missing`, `unknown` | the agent | as today, through teardown or pick; `unknown` gets one more classifier run first |
 | dispatcher `told` | the agent | message the dispatcher, then `--told` |
-| `carry-unacknowledged` | a person | only a recorded go-ahead closes it |
+| `carry-unacknowledged` | a person | only a recorded go-ahead closes it: once the person gives it, the agent records it with `state-stored-set.sh --standing go-ahead --what "the carried state is acknowledged" --owner <who>` |
 | `ask=role`, `ask=host`, `posture_ask` | a person | an answer, then the command runs again |
+
+SKILL.md carries this table with the command that closes each gap code, for
+the agent to fill with checked names. The `fix=` line the digest copies from
+the handover check is a reading aid only; the agent never runs it.
 
 #### Alternatives Considered
 
@@ -401,13 +406,14 @@ moves into a shared library without changing what the opener prints.
 ```
 agent
   coordinate-succeed.sh <opener args> [--reports-to V --reports-to-source S]
-                        [--cap N] [--watch-armed]
+                        [--cap N] [--intake L ...] [--watch-armed]
     open      coordinate-open.sh ...           (every run; one attributed retry)
     re-point  state-stored-set.sh --run reports-to|cap|role  (handed values; when they differ)
     watch     watch probe on the new run       (stop: next=arm_watch)
     tick      koto next <new run> --no-cleanup (bounded at reconcile_pass)
     report    reconcile-report-get.sh          (--md and JSON into scratch)
-    handover  handover-classify.sh, state-handover.sh --check
+    handover  handover-classify.sh, state-handover.sh --check,
+              state-stored-set.sh --intake     (labels the agent passed)
   -> digest on stdout, full outputs in $TMPDIR/coordinate-succession.XXXXXX
   -> exit 0 | 10 (a person) | 11 (the agent) | 1 | 2 | 64
 agent acts on next=, runs it again
@@ -427,8 +433,8 @@ agent acts on next=, runs it again
   `reconcile-report-get.sh`, `coord-log.sh fence`** (unchanged). The writers
   and readers the driver calls.
 - **`skills/coordinate/SKILL.md`**. The takeover section points a successor
-  at the command and its `next=` table, and keeps the watch rule as prose,
-  since the watch is the agent's.
+  at the command, its `next=` table and its gap-code table, and keeps the
+  watch rule as prose, since the watch is the agent's.
 
 The steps, each skipped when its read says it's done:
 
@@ -443,8 +449,10 @@ The steps, each skipped when its read says it's done:
    opener's lines.
 2. **Re-point.** Once the takeover has landed, write each Run row the
    command was handed when it differs: `reports-to` from `--reports-to` and
-   its source, `cap` from `--cap`, and `role` from this invocation's `role=`
-   line.
+   its source, `cap` from `--cap`, and `role` from a `role=` line on the
+   opener's stdout in this invocation whose value is exactly `manager` or
+   `director`. Any other role value writes nothing, and the role gap falls
+   through to `ask=role`.
 3. **Watch.** While `koto status` shows the new run at `start`, require the
    watch as Decision 4 describes.
 4. **Tick.** `koto next <new run> --no-cleanup`, never `--to`, reading where
@@ -460,14 +468,24 @@ The steps, each skipped when its read says it's done:
    scratch; the record line and the counts go to the digest. Exit 4 (no role
    row) falls through to the role gap.
 6. **Handover.** `handover-classify.sh`, then `state-handover.sh --check`.
-   For each `brief-unread <label>` gap it runs `state-stored-set.sh --intake
-   <label>`; a refusal at the rule caps stops for a person, who confirms or
-   ends rule rows (`next=answer intake <label>`, the refusal in `detail=`).
+   Each label the agent passed in `--intake` is first checked against the
+   shape the writer accepts for a label: one token of letters, digits, `.`,
+   `_` and `-`, starting with a letter or a digit. For each label that
+   passes and that the check also lists as a `brief-unread <label>` gap, it
+   runs `state-stored-set.sh --intake <label>`, the label passed as one
+   quoted argument. A label that fails the shape check, or that the check
+   doesn't list, writes nothing and stops with `next=answer intake` and no
+   argument; the label stays in scratch. The writer's cap refusal is its
+   exit 1 with the `can't be taken under the caps` line on stderr: that stops
+   for a person, who confirms or ends rule rows (`next=answer intake
+   <label>`, the refusal in `detail=`). Any other nonzero result from the
+   writer exits 1 with `next=fix handover`. The loop stops at the first
+   refusal, and the next run retries every label still open.
    The remaining gaps become one stop, checked in this order: `no-role`
    (`next=answer role`), an unsourced or missing `reports-to` with no flags
    passed (`next=reports_to`), owed parties (`next=tell`),
    `carry-unacknowledged` (`next=go_ahead carry`), anything else
-   (`next=fix handover`). With none left, `next=report_up` and
+   (`next=close_gaps`). With none left, `next=report_up` and
    `evidence=reconciled: reported`: the agent sends the report up and submits
    that evidence itself.
 
@@ -475,7 +493,8 @@ The steps, each skipped when its read says it's done:
 
 **Flags of its own.** `--reports-to <value>` with `--reports-to-source
 brief|dispatch|person` or `--reports-to-inferred "<sentence>"`; `--cap <n>`;
-`--watch-armed`; everything else goes to the opener as given. The
+`--intake <label>`, once per brief the agent has read, shape-checked in the
+handover step; `--watch-armed`; everything else goes to the opener as given. The
 `--reports-to` value must have the record's shape, `<name>` or `<name> at
 <address>`, and `--cap` must be a number; anything else is a usage error
 (exit 64) before any step runs.
@@ -496,6 +515,7 @@ leg_wake=<supported|unsupported>
 role=<manager|director>
 opened=<1|2>                             (opener runs this invocation)
 reports_to=<written|unchanged|owed>
+rows=reports-to:<w|u> cap:<w|u> role:<w|u> intake:<label>:<w|u>   (w written, u unchanged)
 state=<where koto stopped>
 record=<the report's record line>
 report=ready:<n> blocked:<n> ongoing:<n> changes:<n> not_verified:<n>
@@ -504,7 +524,7 @@ gap=<gap>: <fix>                         (at most 8, then gaps_more=<n>)
 owed=<party> <address>                   (before next=tell; owed_more=<n> past the budget)
 told_cmd=state-stored-set.sh --session <new run> --told <party> --by <you>
 watch=koto request watch --session <new run> --timeout-secs 7200
-directive=<path>   report_md=<path>   fix=<the gap's fix line>
+directive=<path>   report_md=<path>   fix=<the gap's fix line, a reading aid>
 outputs=<dir|removed>
 next=<token> [<argument>]
 ```
@@ -513,7 +533,9 @@ The opener's lines and the handover check's `gap=` and `fix=` lines are
 copied as printed, after the cleaning Security Considerations describes.
 They're data for the agent to read: the only lines meant to be run as
 written are `watch=` and `told_cmd=`, which the driver builds itself from
-checked names. The report counts come from the JSON mode, so
+checked names. A gap closes through the command SKILL.md's gap-code table
+gives for its code, never through the `fix=` text. The report counts come
+from the JSON mode, so
 `reconcile-report-get.sh` doesn't change.
 
 **`next=` tokens and exit codes.**
@@ -521,9 +543,9 @@ checked names. The report counts come from the JSON mode, so
 | Exit | Who acts | `next=` |
 |---|---|---|
 | 0 | the agent, and the succession is over | `report_up` (send the report, submit `reconciled: reported`), `dispatch` (already past reconcile) |
-| 10 | a person answers, then the agent runs it again | `resolve_conflict <run>`, `answer role\|host\|posture`, `answer intake <label>`, `go_ahead carry` |
-| 11 | the agent acts, then runs it again | `arm_watch`, `reports_to`, `tell`, `directive`, `rerun` |
-| 1 | the agent fixes what `failed=` names | `fix <step>` |
+| 10 | a person answers, then the agent runs it again | `resolve_conflict <run>`, `answer role\|host\|posture`, `answer intake [<label>]`, `go_ahead carry` |
+| 11 | the agent acts, then runs it again | `arm_watch`, `reports_to`, `tell`, `close_gaps` (the remaining gaps, each closed with the command SKILL.md gives for its code), `directive`, `rerun` |
+| 1 | the agent fixes what `failed=` names; a step failed | `fix <step>` |
 | 2 | the opener or koto refused; `reason=` says why | `fix open` |
 | 64 | usage | none |
 
@@ -563,15 +585,20 @@ Deliverables:
 
 ### Phase 2: The driver through the takeover and the watch
 
-`coordinate-succeed.sh` with the scratch directory, the digest, the exit
-codes, the open step and its one attributed retry, the re-point and the watch
-stop. Offline tests with stub `koto` and `gh` cover each refusal passing
-through, the retry on `takeover_unfinished`, the retry on an attributed
-`predecessor-unstoppable` and its refusal when the fence names another actor
-or can't be read, and `next=arm_watch`.
+`coordinate-succeed.sh` with the scratch directory and its cleanup, the
+digest, the exit codes, the open step and its one attributed retry, the
+re-point and the watch stop. Offline tests with stub `koto` and `gh` cover
+each refusal passing through, the retry on `takeover_unfinished`, the retry
+on an attributed `predecessor-unstoppable` and its refusal when the fence
+names another actor or can't be read, and `next=arm_watch`. The cleanup's
+offline tests cover a directory whose recorded pid is live (kept), one whose
+pid is dead (removed), one with a malformed or missing `owner` (kept), a
+symlink (kept), and a second invocation of the same session running while
+the first is still live.
 
 Deliverables:
-- `skills/coordinate/scripts/coordinate-succeed.sh` (open, re-point, watch)
+- `skills/coordinate/scripts/coordinate-succeed.sh` (scratch and cleanup,
+  open, re-point, watch)
 - `skills/coordinate/scripts/coordinate-succeed_test.sh`
 
 ### Phase 3: Ticks, the report and the handover
@@ -589,7 +616,8 @@ Deliverables:
 
 ### Phase 4: SKILL.md and evals
 
-Point the takeover section at the command, its flags and its `next=` table;
+Point the takeover section at the command, its flags, its `next=` table and
+its gap-code table;
 keep the watch rule as prose. Add or update the skill's eval scenarios for a
 successor driving a takeover through the command.
 
@@ -625,14 +653,17 @@ agent runs.
   line of at most 200 characters.
 - A copied value is never printed at the start of a line under a key the
   driver reserves; `next=` is built only by the driver from its fixed token
-  set and is always the last line, so no copied text can stand in for it.
+  set and is always the last line, and its one argument is either a checked
+  name or an intake label that passed the writer's label shape, so no copied
+  text can stand in for it.
 - Party and run names placed in `watch=` and `told_cmd=` are checked against
   the name pattern koto accepts and quoted. A name that fails the check is
   never printed inside a command line.
 - `watch=` and `told_cmd=` are the only lines meant to be run as written,
   and the driver builds both from checked parts. `gap=`, `fix=`, `detail=`,
   `record=` and `owed=` carry copied text; SKILL.md names them as data the
-  agent reads, never as commands it runs verbatim. Stripping newlines stops a
+  agent reads, never as commands it runs verbatim, and gives the command for
+  each gap code in its own table. Stripping newlines stops a
   forged line, not instructions written in plain words, so the agent weighs
   those fields as text from the record and from other processes.
 - The directive goes to scratch and the digest carries only its path. It's
@@ -666,12 +697,20 @@ these hold:
 - it's owned by the current user;
 - its name matches `coordinate-succession.*`;
 - its `owner` file holds exactly this session's id;
-- the process id recorded in `owner` isn't running, so a concurrent
-  invocation's directory is left alone.
+- the process recorded in `owner` can be shown to be gone, so a concurrent
+  invocation's directory is left alone. The process recorded is the
+  driver's own top-level shell (`$$`), which lives for the whole invocation.
+  It's tested with `ps -p <pid>`, which sees every user's processes; only a
+  test that runs and finds no such process counts as gone. A missing, empty,
+  partial or non-numeric pid, or a test that fails or can't answer, counts
+  as running.
 
-The checks are made on the directory itself just before removal, and the
+The driver writes `owner` whole, under a temporary name in the directory
+that it then renames, before it uses the directory for anything else. The
+checks are made on the directory itself just before removal, and the
 removal doesn't follow symlinks inside it, so a link swapped in can't point
-the delete elsewhere. The `owner` file decides cleanup and nothing else. No
+the delete elsewhere. A directory that vanishes during cleanup, because
+another invocation removed it first, counts as removed. The `owner` file decides cleanup and nothing else. No
 takeover or retry decision reads it.
 
 ### Process-table probe
@@ -719,11 +758,15 @@ The command acts only on a takeover it can prove is this session's own.
   `--reports-to-source person` is the agent's statement that a person gave
   the answer, which the command can't check; the record keeps the source so
   a reviewer can see where the value came from.
-- **The other Run rows.** `cap` comes from `--cap`, `role` from the opener's
-  own `role=` line in the same invocation, and each intake from a
-  `brief-unread` gap the handover check printed. All three go through
-  `state-stored-set.sh` and only when the row differs, so none adds a value
-  the command made up.
+- **The other Run rows.** Each value is attributed to whoever supplied it.
+  `cap` is the agent's: a number it passed in `--cap`. `role` is the
+  opener's: it's taken only from a `role=` line on the opener's own stdout
+  in the same invocation, and only when the value is exactly `manager` or
+  `director`; anything else writes nothing and the run asks `ask=role`. An
+  intake is the agent's statement that it read the brief: it's written only
+  for a label the agent passed in `--intake`, that passed the label shape
+  check and that the current handover check lists as `brief-unread`. All
+  three go through `state-stored-set.sh` and only when the row differs.
 - **`told`.** The command never writes it, because it records a delivery
   the command can't make. It prints the command for the agent to run after
   the message lands; the handover gate and the person reading the record
@@ -747,8 +790,12 @@ The command acts only on a takeover it can prove is this session's own.
   keeps the source, and the probe backs the watch where it can run.
 - **Copied text in the agent's context.** The cleaning stops forged lines;
   it can't stop a sentence in a gap or an error message from reading like an
-  instruction. Those fields are named as data, and the person gates hold
-  whatever the agent makes of them.
+  instruction. The likeliest one to be run is `fix=`: command-shaped text
+  from the record that the agent decides whether to run. Those fields are
+  named as data, and SKILL.md's gap-code table, not `fix=`, gives the
+  command that closes a gap. The person gates hold whatever the agent makes
+  of the text, but they don't bound `fix=`: a fix that writes a row, tells a
+  worker or removes something isn't a person gate.
 
 ## Consequences
 
