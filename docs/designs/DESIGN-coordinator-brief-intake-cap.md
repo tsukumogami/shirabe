@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   `state-stored-set.sh --intake` writes every sentence of a hand-written
   successor brief outside the renderer's six excluded sections as an
@@ -35,7 +35,7 @@ upstream: docs/briefs/BRIEF-coordinator-standing-rule-provenance.md
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
