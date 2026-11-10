@@ -34,6 +34,7 @@ rationale: |
   costliest channel and leaves an absent status as the in-progress signal.
   The session-key guard covers the one case status alone can't, a run that
   wrote Proposed early on this host.
+upstream: docs/briefs/BRIEF-skeleton-commit.md
 ---
 
 # DESIGN: Skeleton commit under a validating pre-commit hook
