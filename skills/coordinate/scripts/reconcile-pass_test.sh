@@ -69,27 +69,36 @@ cat > "$SC/reconcile-check.sh" <<'STUB'
 sub=$1; shift
 ident=$(printf '%s' "${2-}" | tr -c 'A-Za-z0-9._-' '_')
 # One marker file per running stand-in: the count of markers is how many run
-# at once. A stand-in the pass stops takes its marker with it.
-mark="$STUB_DIR/running.$$"; : > "$mark"; trap 'rm -f "$mark"' EXIT TERM
+# at once. A stand-in the pass stops takes its marker with it: the trap is set
+# before the marker exists, and the short sleeps below run in the background
+# under `wait`, which a trapped TERM interrupts. A foreground sleep would hold
+# the trap, and the marker, until it ended, so the stopped stand-in and the one
+# the pass starts in its place would both be counted.
+mark="$STUB_DIR/running.$$"; trap 'rm -f "$mark"' EXIT TERM; : > "$mark"
 c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
-# The lock and the clock write use only tools run-tests.sh's restricted PATH
-# carries (mkdir, rm, sleep, mktemp, mv), and the wait is bounded: a lock left
-# behind fails the case rather than hanging the job.
+# The lock is a file bash itself creates under noclobber (`set -C`), which
+# opens it with O_EXCL, not a `mkdir`: the uutils mkdir that Ubuntu 26.04
+# ships as /usr/bin/mkdir can exit 0 when it loses a race to create the same
+# directory, so two stand-ins both took the lock and an advance was lost
+# (#1611; uutils/coreutils#13970).
+# The lock and the clock write use only bash and tools run-tests.sh's
+# restricted PATH carries (rm, sleep, cat, mktemp, mv), and the wait is
+# bounded: a lock left behind fails the case rather than hanging the job.
 w=0
-until mkdir "$CLOCK.lock" 2>/dev/null; do
+until ( set -C; : > "$CLOCK.lock" ) 2>/dev/null; do
     w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
-    sleep 0.05
+    sleep 0.05 & wait $!
 done
 now=$(cat "$CLOCK")
 # Written whole: a temp file of this writer's own, renamed into place. The pass
 # reads the clock without the lock, and a truncate-then-write would let it read
 # an empty file (#481).
-tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -rf "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
+tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -f "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
 echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$tmp" && mv "$tmp" "$CLOCK"
-rm -rf "$CLOCK.lock"
+rm -f "$CLOCK.lock"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
 [ -f "$STUB_DIR/hang.$sub" ] && sleep 60
@@ -102,7 +111,7 @@ if [ -f "$STUB_DIR/inject.$sub" ] && [ -f "$WORKFILE" ]; then
 fi
 [ -f "$STUB_DIR/reenter.$sub" ] && echo 99 > "$STUB_DIR/visit"
 [ -f "$STUB_DIR/plant-on.$sub" ] && sh "$STUB_DIR/plant"
-sleep 0.2
+sleep 0.2 & wait $!
 # A clock jq can't take, left just before this re-check ends: the pass's next
 # fold of this fact then has a time it can't write.
 # `0x10` is a number to bash's arithmetic (16) and not to jq, so the pass
