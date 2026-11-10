@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   /design commits its document at every stage, but before step 6.5 the
   document has no frontmatter status and only three of its nine required
@@ -41,7 +41,7 @@ upstream: docs/briefs/BRIEF-skeleton-commit.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
