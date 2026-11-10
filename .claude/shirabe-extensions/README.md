@@ -48,11 +48,12 @@ and **fails closed** (never reads as "verified").
   1800: when `--changed` falls back to every suite, `/coordinate`'s script and engine suites
   run back to back in one invocation and take longer than 1800 seconds.
 
-  It does not run the evals. A pull request that changes a skill writes or updates the
-  scenarios in `evals/evals.json`; the scenarios run at release, through the eval check
-  declared in [`release.md`](release.md), which compares each changed skill's pass rate with
-  the previous release's. `scripts/run-evals.sh <skill>` is still there for an author who
-  wants a local run.
+  No model-graded scenario runs, here or anywhere else. A pull request that changes a skill
+  writes or updates the scenarios in `evals/evals.json`; the model-graded ones describe the
+  skill and don't run. At release, the eval check declared in [`release.md`](release.md)
+  runs every skill's script cases and stops the release on any failing case until the
+  maintainer confirms it. `scripts/run-evals.sh <skill>` runs a skill's script cases on an
+  author's host.
 
 - **Default** (no entry matches) — every one of `cargo test --workspace` (with a 1200-second
   deadline), `skills/plan/scripts/plan-to-tasks_test.sh`, and
@@ -145,6 +146,6 @@ has the rest; the takeover, outcome, takeover-load, chain and newest-member suit
 
 `release.md` lists the commands `/shirabe:release` runs before it tags (`## Release checks`)
 and after the draft release exists (`## Release assets`). shirabe's check is
-`scripts/release-eval-check.sh`, which runs the evals of every skill changed since the last
-tag and stops the release on a pass-rate drop until the maintainer confirms it. The file
-itself says what the check needs on the release host.
+`scripts/release-eval-check.sh`, which runs every skill's script cases and stops the release
+on any failing case until the maintainer confirms it. No model-graded scenario runs. The
+file itself says what the check needs on the release host.

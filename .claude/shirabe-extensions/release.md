@@ -1,11 +1,11 @@
 # release extension: shirabe
 
 shirabe's declarations for `/shirabe:release`, imported by
-`skills/release/SKILL.md`. Design: `docs/designs/current/DESIGN-evals-at-release.md`.
+`skills/release/SKILL.md`. Designs: `docs/designs/DESIGN-skill-regression-detection.md` for the eval check, and `docs/designs/current/DESIGN-evals-at-release.md` for the release-checks hook.
 
 ## Release checks
 
-- `scripts/release-eval-check.sh --critical work-on,scope,execute --critical-runs 1 --model sonnet --tolerance 0.05`
+- `scripts/release-eval-check.sh`
 
 ## Release assets
 
@@ -62,45 +62,33 @@ state on main is unknown. A release run on a commit doesn't close it.
 
 ## About the eval check
 
-The check runs the evals of every skill changed since the last release tag,
-once each, with `EVAL_MODEL=sonnet`: the nested session that grades, and every
-scenario that names no model of its own, run on Sonnet. Of a skill's
-scenarios it runs the release subset: every tier-1 scenario and, of the
-tier-2 ones, the one per behaviour that `evals.json` marks `"release": true`.
-It runs the with-skill agent only, with no no-skill baseline: the release
-decision reads with-skill rates, and the baseline, which measures what the
-skill adds, stays with the scheduled runs. It compares each
-skill's pass rate with the newest earlier release whose `eval-pass-rates.json`
-asset measured that skill the same way: the same scenarios, on the same
-scenario models and session model, over the same number of runs. A scenario
-added to the release subset, or one that leaves it, starts a new reference
-rather than reading as a drop. Measurements recorded before shirabe#879 carry
-no scenario set, so the first release after it starts a new reference for
-every skill it runs. It
-reads the asset from the last tag and up to nine releases before it, so a
-release that measured only some skills still leaves a baseline for the rest. A
-skill that hasn't changed since the last tag doesn't run, the critical ones
-(work-on, scope, execute) included.
+The check runs every skill's `grader: script` cases once, through
+`scripts/lib/script-cases.py --all`. Every skill that keeps an
+`evals/evals.json` runs, not only the skills changed since the last release
+tag: the cases cost seconds, and a change to a shared file or to a hand-off target can break
+a skill whose own files didn't change. No model-graded case runs. Those
+scenarios stay in each skill's `evals.json`, where they describe its
+behaviour, and nothing runs them. The runner's output passes through, and the
+check then prints the two lines the release notes carry, along with the names
+of any skills a person confirmed:
 
-A skill with no earlier measurement taken the same way (every skill, the first
-time the check runs on Sonnet) gets a new reference: its rate is recorded and
-printed as one, never compared with a rate measured on other models. From then
-on a drop is a rate more than five points (0.05) below that reference, the
-noise a single run showed on an unchanged skill. A drop exits 5 and asks for
-confirmation; a harness or setup failure exits 1 and stops the release.
+```text
+script cases: <P> of <N> passed
+model-graded cases: not run
+```
 
-A single run is one sample. The repeat runs that measure how much a skill's
-rate moves between runs are made off the release path, by
-`scripts/scheduled-evals.py` on a schedule, within a weekly budget ($50 by
-default). It repeats the release subset of each skill changed since its last
-scheduled run, and rotates through the tier-2 scenarios outside the subset, up
-to `--rotation-size` (3 by default) per skill per run, never-run first, then
-the longest since run. Repeats and rotations share one queue, longest-waiting
-first. A scenario is due again once the skill's tree changes, so on a skill
-that changes faster than a pass the rotation lags the tree; the order keeps
-any scenario from being skipped for good. Each run's cost goes in a ledger
-the next run reads. Measurements and the
-cost figures behind this check: `docs/spikes/SPIKE-release-eval-cost.md`.
+Each failing case is labelled against the skill's newest script-measured
+record, read from the `eval-pass-rates.json` asset of the last tag's release
+and up to nine releases before it. It's `regressed` when the case passed there
+or the skill's pass rate fell below that record's, `still failing` when the
+case failed there too, and `failing, no baseline` when the case is new or no
+earlier release measured the skill this way. The baseline picks the label and
+never the exit. Any failing case exits 5, whatever its label, with the output
+ending in a `confirm: RELEASE_CONFIRMED_DROPS=<a,b>` line that names every
+skill with one, and the check keeps exiting 5 until `RELEASE_CONFIRMED_DROPS`
+names them all. The re-run after a person confirms compares the saved results
+again and runs no case. When koto is missing, the runner can't run or a
+download fails, the check exits 1 with a message ending `run the check again`.
 
 The `--finalize` item stamps the record with the confirmed version and names
 it for upload as the release asset `eval-pass-rates.json`. If that command or
@@ -108,8 +96,6 @@ its upload fails, the next release falls back to older records, and the skills
 this release measured have no baseline newer than those: retry the upload
 before the release is published.
 
-The release host needs `claude` with the skill-creator plugin, `python3`,
-`git`, `gh`, and bash 4 or later, since the eval harness doesn't run on
-macOS's bash 3.2. The nested eval sessions can reach that host's stored
-credentials; the check prints the host it runs on and says so before any eval
-runs.
+The release host needs `koto`, which the hand-off cases attach sessions with,
+`python3`, `git` and `gh`. The check runs under macOS's `/bin/bash` 3.2 and
+calls no model. It prints the host it runs on before any case runs.

@@ -44,6 +44,12 @@ decision_provenance: inline-resolved
 
 Current
 
+Partly replaced. `docs/designs/DESIGN-skill-regression-detection.md` replaces
+Decision 3 (the eval check) and Decision 4 (the harness options that check
+called): the release now runs every skill's script cases and no graded eval.
+Decisions 1 and 2 still stand: the `check-skill.sh` gate, and the
+`## Release checks` hook with its exit-5 confirmation.
+
 ## Context and Problem Statement
 
 The PRD asks for three changes in where shirabe's skill evals run, and each
