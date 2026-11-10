@@ -473,8 +473,12 @@ The steps, each skipped when its read says it's done:
    `_` and `-`, starting with a letter or a digit. For each label that
    passes and that the check also lists as a `brief-unread <label>` gap, it
    runs `state-stored-set.sh --intake <label>`, the label passed as one
-   quoted argument. A label that fails the shape check, or that the check
-   doesn't list, writes nothing and stops with `next=answer intake` and no
+   quoted argument. A label that passes the shape check but that the check
+   no longer lists, because the record already holds it as an intake, is a
+   row already written: it writes nothing, shows as `intake:<label>:u` and
+   doesn't stop, so a re-run that keeps its `--intake` flags goes on. A
+   label that fails the shape check, or that is neither listed nor already
+   recorded, writes nothing and stops with `next=answer intake` and no
    argument; the label stays in scratch. The writer's cap refusal is its
    exit 1 with the `can't be taken under the caps` line on stderr: that stops
    for a person, who confirms or ends rule rows (`next=answer intake
