@@ -56,6 +56,42 @@ merge
   outranks a drop); 5 a drop not listed in --confirmed, the output ending with
   "confirm: RELEASE_CONFIRMED_DROPS=<every dropped skill>"; 2 usage.
 
+merge, script run
+  A run whose --summary files are script-cases-summary/v1, written by
+  scripts/lib/script-cases.py, is a script run (Decision 3 of
+  docs/designs/DESIGN-skill-regression-detection.md). Every summary is then
+  held to that schema, and the rules above give way to these:
+  - The record holds the --selected skills and nothing else: no baseline
+    entry is carried forward, since the release runs every skill. Each entry
+    is runs 1, runs_passed 1 when every case passed and 0 otherwise,
+    assertions_passed and assertions_graded the cases passed and run,
+    pass_rate their rate rounded to four places when at least one case ran,
+    models ["script"], the summary's scenario_set, cases [{name, verdict}] in
+    the summary's order and measured_at --version. A skill that ran no case
+    gets the entry with zero counts, cases [] and no pass_rate; it is not a
+    failure. The runner's id, reason, refused and unrounded pass_rate are
+    left out.
+  - A summary entry is held to case names matching [A-Za-z0-9._-]+, verdicts
+    pass or fail, cases_passed at most cases_run, as many cases as cases_run
+    and as many passing ones as cases_passed. A file that breaks it is
+    ignored, so its skills read as having no summary.
+  - Each failing case prints "case <skill>/<case>: <label>", labelled against
+    the skill's baseline: the newest entry among the composed records whose
+    models is exactly ["script"] and that has a pass_rate, whatever its
+    scenario set. "regressed" when the case passed there or the skill's rate
+    is below that entry's; otherwise "still failing" when the case failed
+    there; otherwise "failing, no baseline".
+  - The exit never reads the baseline, and --tolerance changes nothing. Any
+    failing case exits 5, the output ending with
+    "confirm: RELEASE_CONFIRMED_DROPS=<every skill with a failing case>",
+    unless --confirmed names every one of those skills, when it prints
+    "confirmed: <skill>" for each and exits 0. A selected skill with no
+    readable summary entry is an infrastructure failure, recorded as
+    exit_code 2, and exit 1 outranks exit 5.
+  A record entry's cases, from either kind of run, must be a list of
+  {name, verdict} objects under the same name and verdict rule, or the
+  record is unusable.
+
 stamp
   Sets the record's version, and measured_at of each --measured skill present
   in it, to --version, leaving every other skill untouched.
@@ -72,6 +108,7 @@ import tempfile
 
 SCHEMA = "eval-pass-rates/v1"
 SUMMARY_SCHEMA = "run-evals-summary/v1"
+SCRIPT_SUMMARY_SCHEMA = "script-cases-summary/v1"
 SIZE_CAP = 1024 * 1024
 
 SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -79,6 +116,10 @@ TAG_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 SCENARIO_SET_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# Matched with fullmatch: a "$" anchor would let a trailing newline through.
+CASE_NAME_RE = re.compile(r"[A-Za-z0-9._-]+")
+VERDICTS = ("pass", "fail")
+SCRIPT_MODELS = ("script",)
 
 COUNT_FIELDS = ("runs", "runs_passed", "assertions_passed", "assertions_graded")
 # The session model of an entry measured without an explicit EVAL_MODEL: the
@@ -148,6 +189,24 @@ def measured_the_same_way(a, b):
             and a["runs"] == b["runs"])
 
 
+def clean_cases(cases, where):
+    """Validate a cases list; return it rebuilt as [{name, verdict}]."""
+    if not isinstance(cases, list):
+        raise Invalid("%s.cases is not a list" % where)
+    out = []
+    for item in cases:
+        if not isinstance(item, dict):
+            raise Invalid("%s.cases has an item that is not an object" % where)
+        name = item.get("name")
+        if not isinstance(name, str) or not CASE_NAME_RE.fullmatch(name):
+            raise Invalid("%s.cases has an invalid case name" % where)
+        verdict = item.get("verdict")
+        if not isinstance(verdict, str) or verdict not in VERDICTS:
+            raise Invalid("%s.cases has a verdict that is not pass or fail" % where)
+        out.append({"name": name, "verdict": verdict})
+    return out
+
+
 def clean_record_entry(entry, where):
     """Validate one skill entry of a record; return it rebuilt from the field list."""
     if not isinstance(entry, dict):
@@ -166,6 +225,8 @@ def clean_record_entry(entry, where):
     scenario_set = scenario_set_of(entry, where)
     if scenario_set is not None:
         out["scenario_set"] = scenario_set
+    if "cases" in entry:
+        out["cases"] = clean_cases(entry["cases"], where)
     has_rate = "pass_rate" in entry
     has_exit = "exit_code" in entry
     if has_rate and has_exit:
@@ -278,16 +339,69 @@ def compose_baseline(paths, reason):
     return skills, history, warnings
 
 
+def check_graded_summary_entry(entry, where):
+    """Validate one skill entry of a run-evals-summary/v1 file; return it as is."""
+    if not isinstance(entry, dict):
+        raise Invalid("%s is not an object" % where)
+    check_counts(entry, where)
+    check_models(entry.get("models"), where)
+    session_model_of(entry, where)
+    scenario_set_of(entry, where)
+    code = entry.get("exit_code")
+    if isinstance(code, bool) or code not in (0, 1) + INFRA_EXITS:
+        raise Invalid("%s.exit_code is not 0 to 4" % where)
+    return entry
+
+
+def clean_script_summary_entry(entry, where):
+    """Validate one skill entry of a script-cases-summary/v1 file; return the
+    fields the record uses, rebuilt."""
+    if not isinstance(entry, dict):
+        raise Invalid("%s is not an object" % where)
+    for field in ("cases_run", "cases_passed"):
+        if not is_count(entry.get(field)):
+            raise Invalid("%s.%s is not a non-negative integer" % (where, field))
+    run, passed = entry["cases_run"], entry["cases_passed"]
+    if passed > run:
+        raise Invalid("%s.cases_passed exceeds %s.cases_run" % (where, where))
+    cases = clean_cases(entry.get("cases"), where)
+    if len(cases) != run:
+        raise Invalid("%s.cases does not hold %s.cases_run cases" % (where, where))
+    if sum(1 for case in cases if case["verdict"] == "pass") != passed:
+        raise Invalid("%s.cases does not hold %s.cases_passed passing cases" % (where, where))
+    out = {"cases_run": run, "cases_passed": passed, "cases": cases}
+    scenario_set = scenario_set_of(entry, where)
+    if scenario_set is not None:
+        out["scenario_set"] = scenario_set
+    return out
+
+
 def load_summaries(paths):
-    """Collect this run's summary entries by skill. Returns (entries, warnings)."""
+    """Collect this run's summary entries by skill.
+
+    Returns (entries, warnings, script). The run is a script run when any file
+    declares SCRIPT_SUMMARY_SCHEMA; every file is then held to that schema,
+    and to SUMMARY_SCHEMA otherwise.
+    """
+    loaded = []
+    for path in paths:
+        try:
+            loaded.append((read_json_capped(path), None))
+        except Invalid as exc:
+            loaded.append((None, exc))
+    script = any(isinstance(data, dict) and data.get("schema") == SCRIPT_SUMMARY_SCHEMA
+                 for data, _ in loaded)
+    schema = SCRIPT_SUMMARY_SCHEMA if script else SUMMARY_SCHEMA
+    check = clean_script_summary_entry if script else check_graded_summary_entry
     entries = {}
     warnings = []
-    for index, path in enumerate(paths):
+    for index, (data, error) in enumerate(loaded):
         where = "summary %d" % (index + 1)
         try:
-            data = read_json_capped(path)
-            if not isinstance(data, dict) or data.get("schema") != SUMMARY_SCHEMA:
-                raise Invalid("schema is not %s" % SUMMARY_SCHEMA)
+            if error is not None:
+                raise error
+            if not isinstance(data, dict) or data.get("schema") != schema:
+                raise Invalid("schema is not %s" % schema)
             skills = data.get("skills")
             if not isinstance(skills, dict):
                 raise Invalid("skills is not an object")
@@ -295,20 +409,11 @@ def load_summaries(paths):
             for name, entry in skills.items():
                 if not isinstance(name, str) or not SKILL_RE.match(name):
                     raise Invalid("skills has an invalid skill name")
-                if not isinstance(entry, dict):
-                    raise Invalid("skills.%s is not an object" % name)
-                check_counts(entry, "skills.%s" % name)
-                check_models(entry.get("models"), "skills.%s" % name)
-                session_model_of(entry, "skills.%s" % name)
-                scenario_set_of(entry, "skills.%s" % name)
-                code = entry.get("exit_code")
-                if isinstance(code, bool) or code not in (0, 1) + INFRA_EXITS:
-                    raise Invalid("skills.%s.exit_code is not 0 to 4" % name)
-                found[name] = entry
+                found[name] = check(entry, "skills.%s" % name)
             entries.update(found)
         except Invalid as exc:
             warnings.append("%s ignored: %s" % (where, exc))
-    return entries, warnings
+    return entries, warnings, script
 
 
 def measured_entry(summary, version):
@@ -332,6 +437,44 @@ def measured_entry(summary, version):
     else:
         entry["exit_code"] = code
     return entry
+
+
+def script_entry(summary, version):
+    """The record entry for a skill a script run measured, or one that failed."""
+    if summary is None:
+        return measured_entry(None, version)
+    run, passed = summary["cases_run"], summary["cases_passed"]
+    entry = {"runs": 1, "runs_passed": 1 if passed == run else 0,
+             "assertions_passed": passed, "assertions_graded": run,
+             "models": list(SCRIPT_MODELS)}
+    if "scenario_set" in summary:
+        entry["scenario_set"] = summary["scenario_set"]
+    entry["cases"] = list(summary["cases"])
+    entry["measured_at"] = version
+    if run:
+        entry["pass_rate"] = rate_of(passed, run)
+    return entry
+
+
+def script_baseline(history, name):
+    """The skill's newest script measurement with a pass_rate, whatever its
+    scenario set, or None."""
+    for earlier in history.get(name, []):
+        if earlier["models"] == list(SCRIPT_MODELS):
+            return earlier
+    return None
+
+
+def case_label(entry, case, base):
+    """How a failing case of this run reads against the skill's baseline."""
+    if base is None:
+        return "failing, no baseline"
+    verdicts = {c["name"]: c["verdict"] for c in base.get("cases", [])}
+    if verdicts.get(case) == "pass" or entry["pass_rate"] < base["pass_rate"]:
+        return "regressed"
+    if verdicts.get(case) == "fail":
+        return "still failing"
+    return "failing, no baseline"
 
 
 def write_atomic(path, data):
@@ -391,9 +534,11 @@ def cmd_merge(args):
     baseline, history, baseline_warnings = compose_baseline(args.previous, args.no_baseline_reason)
     for message in baseline_warnings:
         print("warning: %s" % message)
-    summaries, summary_warnings = load_summaries(args.summary)
+    summaries, summary_warnings, script = load_summaries(args.summary)
     for message in summary_warnings:
         print("warning: %s" % message)
+    if script:
+        return merge_script(args, history, summaries, confirmed)
 
     skills = {}
     if baseline is not None:
@@ -458,6 +603,58 @@ def cmd_merge(args):
         return 5
     for name in drops:
         print("drop confirmed: %s" % name)
+    return 0
+
+
+def merge_script(args, history, summaries, confirmed):
+    """merge for a script run: the record from this run alone, a label for
+    each failing case, and an exit that never reads the baseline."""
+    selected = sorted(set(args.selected))
+    skills = {}
+    for name in selected:
+        if name not in summaries:
+            print("warning: no summary for %s" % name)
+        skills[name] = script_entry(summaries.get(name), args.version)
+
+    record = {"schema": SCHEMA, "version": args.version, "last_tag": args.last_tag,
+              "skills": skills}
+    write_atomic(args.out, record)
+
+    print("")
+    print("%-24s %-10s %-10s %s" % ("skill", "current", "previous", "measured at"))
+    infra = []
+    failing = []
+    labels = []
+    for name in selected:
+        entry = skills[name]
+        base = script_baseline(history, name)
+        print("%-24s %-10s %-10s %s" % (name, fmt_rate(entry), fmt_rate(base),
+                                        base["measured_at"] if base else "-"))
+        if name not in summaries:
+            infra.append(name)
+            continue
+        failed = [case["name"] for case in entry["cases"] if case["verdict"] == "fail"]
+        if failed:
+            failing.append(name)
+        for case in failed:
+            labels.append("case %s/%s: %s" % (name, case, case_label(entry, case, base)))
+    print("record: %s" % args.out)
+    if labels:
+        print("")
+        for line in labels:
+            print(line)
+
+    if infra:
+        print("")
+        for name in infra:
+            print("infrastructure failure: %s (no summary, recorded as exit 2)" % name)
+        return 1
+    if any(name not in confirmed for name in failing):
+        print("")
+        print("confirm: RELEASE_CONFIRMED_DROPS=%s" % ",".join(failing))
+        return 5
+    for name in failing:
+        print("confirmed: %s" % name)
     return 0
 
 
