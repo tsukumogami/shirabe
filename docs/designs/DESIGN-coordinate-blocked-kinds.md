@@ -226,10 +226,15 @@ root byte-for-byte promise. The authority design reshapes the stored need
 anyway. Its direction, a stored need per holding that `kinds.jq` reads, is the
 end state for that design to build.
 
-**Render-time flags only, with the dispatcher on the flag.** Rejected in favor
-of deriving the dispatcher case: a fact exists for it, and a typed dispatcher
-target would be the coordinator's word where the record already knows the
-answer.
+**Render-time flags only, with the dispatcher on the flag.** Every chain
+target, the dispatcher included, comes from `--chain`, and nothing is derived.
+Rejected: it makes every target a typed claim, even the one a fact already
+decides. The position fact names a bound run's dispatcher, so under this shape
+the reported bug, a dispatcher-owed step listed as the person's, would rest on
+the coordinator's word: a coordinator that leaves the flag off, or names the
+wrong dispatcher, lists the step under `Blocked on you` exactly as it does
+today. Deriving the dispatcher case fixes the bug from the record and keeps
+the flag for the waits no fact records.
 
 ### Decision 2: Ordering against the authority design, and the cost to runs in flight
 
