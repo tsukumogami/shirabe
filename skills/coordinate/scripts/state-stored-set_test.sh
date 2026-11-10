@@ -29,7 +29,10 @@
 # them); the crash set's rows written in a fresh session with no store row, and
 # --host; --pending (its refusals, its row and entry, the gate passing a pending
 # worker while holding on an untold one, --told turning it told, a new address
-# clearing told and pending, a holding's first Work row never leaving both),
+# clearing told and carrying pending, a holding's first Work row never leaving
+# both); --pending-confirm (its usage and refusals writing nothing, two carried
+# workers confirmed in one write and one entry, with as many store calls as one,
+# and a second address carrying the confirmed rows again),
 # with each gate result printed; the Run `role` row (--run role): written once,
 # the same value again exiting 0 with the record byte-identical, a different
 # value refused (65) naming both and the row unchanged, a --by over 80
@@ -513,6 +516,52 @@ bash "$RS" "${W[@]}" --done "Feature 3" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next "dispatched again" >/dev/null 2>"$T/err"
 eq "a holding's first Work row for a pending worker records it told, not both" "worker-f3|worker-f4" "$(run_rows told)|$(run_rows pending)"
 gate; eq "  ... and the gate holds only on the untold one" "1 not-told worker-f2" "$G"
+
+echo "== --pending-confirm: carried pending rows confirmed in one write =="
+# pend_order: the pending workers and the coordinator row (`|`), in Run order;
+# a worker before the bar is carried, one after it current.
+pend_order() { live | jq -r '[.run[] | select(.key == "pending" or .key == "coordinator") | if .key == "coordinator" then "|" else .value end] | join(" ")'; }
+seed "$TWO"
+bash "$RS" "${W[@]}" --pending-confirm worker-f2=stopped --by lane-v1 >/dev/null 2>"$T/err"; eq "--pending-confirm with no coordinator address is refused" 65 $?
+bash "$RS" "${W[@]}" --pending-confirm worker-f2=stopped >/dev/null 2>"$T/err"; eq "--pending-confirm without --by is usage" 64 $?
+bash "$RS" "${W[@]}" --pending-confirm worker-f2 --by lane-v1 >/dev/null 2>"$T/err"; eq "--pending-confirm with no observation is usage" 64 $?
+bash "$RS" "${W[@]}" --run coordinator lane-v1 --by lane-v1 >/dev/null 2>&1
+for w in worker-f2 worker-f3 worker-f4; do bash "$RS" "${W[@]}" --pending "$w" --by lane-v1 >/dev/null 2>&1; done
+bash "$RS" "${W[@]}" --told worker-f5 --by lane-v1 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
+eq "a new address carries three pending rows and drops the told one" "worker-f2 worker-f3 worker-f4 ||" "$(pend_order)|$(run_rows told)"
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v2 >/dev/null 2>"$T/err"; eq "--pending still refuses a carried worker" 65 $?
+grep -q 'already pending' "$T/err" && ok "  ... saying it is already pending" || bad "  ... saying it is already pending" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --told worker-f6 --by lane-v2 >/dev/null 2>&1
+SNAP=$(session_snapshot "$SR")
+NENT=$(entries | jq length)
+bash "$RS" "${W[@]}" --pending-confirm worker-f2=live --by lane-v2 >/dev/null 2>"$T/err"; eq "refused: a value that isn't stopped or missing" 65 $?
+bash "$RS" "${W[@]}" --pending-confirm worker-f2=stopped --pending-confirm worker-f2=missing --by lane-v2 >/dev/null 2>"$T/err"; eq "refused: a worker named twice" 65 $?
+grep -q 'names worker-f2 twice' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --pending-confirm worker-f9=missing --by lane-v2 >/dev/null 2>"$T/err"; eq "refused: a worker with no pending row" 65 $?
+grep -q 'with --pending' "$T/err" && ok "  ... pointing at --pending" || bad "  ... pointing at --pending" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --pending-confirm worker-f6=stopped --by lane-v2 >/dev/null 2>"$T/err"; eq "refused: a worker already told" 65 $?
+bash "$RS" "${W[@]}" --pending-confirm worker-f2=stopped --pending-confirm worker-f9=missing --by lane-v2 >/dev/null 2>"$T/err"; eq "refused: one good worker beside one with no row" 65 $?
+eq "  ... and no refusal wrote anything" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... or told an entry" "$NENT" "$(entries | jq length)"
+: > "$KOTO_STORE/calls"
+bash "$RS" "${W[@]}" --pending-confirm worker-f2=stopped --pending-confirm worker-f3=missing --by lane-v2 >/dev/null 2>"$T/err"
+eq "two carried workers are confirmed" 0 $?
+TWO_CALLS=$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')
+eq "  ... each moved after the coordinator row, the other still carried" "worker-f4 | worker-f2 worker-f3" "$(pend_order)"
+eq "  ... Set by the confirming coordinator" "worker-f2 lane-v2,worker-f3 lane-v2" \
+    "$(live | jq -r '[.run[] | select(.key == "pending" and .value != "worker-f4") | "\(.value) \(.set_by)"] | join(",")')"
+eq "  ... told as one entry naming both readings" "$((NENT + 1))|pending|Pending rows carried from an earlier address, confirmed for the coordinator's address, lane-v2, by lane-v2: worker-f2 stopped, worker-f3 missing." \
+    "$(entries | jq -r '"\(length)|" + (last | "\(.kind)|\(.text)")')"
+bash "$RS" "${W[@]}" --pending-confirm worker-f2=stopped --by lane-v2 >/dev/null 2>"$T/err"; eq "refused: a worker already pending on the current address" 65 $?
+grep -q 'already pending on the current address' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+: > "$KOTO_STORE/calls"
+bash "$RS" "${W[@]}" --pending-confirm worker-f4=stopped --by lane-v2 >/dev/null 2>&1
+eq "one worker's confirm makes as many store calls as two workers' ($TWO_CALLS)" "$TWO_CALLS" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')"
+bash "$RS" "${W[@]}" --run coordinator lane-v3 --by lane-v3 >/dev/null 2>&1
+eq "a second new address carries every confirmed row again" "worker-f2 worker-f3 worker-f4 |" "$(pend_order)"
+bash "$RS" "${W[@]}" --told worker-f3 --by lane-v3 >/dev/null 2>&1
+eq "--told turns a carried row into a told one" "worker-f2 worker-f4 ||worker-f3" "$(pend_order)|$(run_rows told)"
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
 echo "== a write's koto calls don't grow with the entries (shirabe#1283) =="

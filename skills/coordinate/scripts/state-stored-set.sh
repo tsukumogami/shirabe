@@ -16,6 +16,7 @@
 #   state-stored-set.sh --session S --reasoning-check
 #   state-stored-set.sh --session S --told WHO --by WHO
 #   state-stored-set.sh --session S --pending WHO --by WHO
+#   state-stored-set.sh --session S --pending-confirm W=stopped|missing [--pending-confirm W=...]... --by WHO
 #   state-stored-set.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
 #   state-stored-set.sh --session S --standing rule --what TEXT --source FORM
 #   state-stored-set.sh --session S --end ID --by WHO
@@ -38,16 +39,31 @@
 # an id or a path). `store` is no Run key here (65): the record's store is
 # always the coordinator's session, and the legacy `store session` row a session
 # opened before that holds is kept as written. A new
-# coordinator clears every `told` and `pending` row, since nobody has been
-# told the new address yet. --told records that WHO (a worker's dispatch
+# coordinator clears every `told` row, since nobody has been told the new
+# address yet, and keeps every `pending` row where it is, before the new
+# coordinator row, where it reads as carried from an earlier address
+# (state-common.sh's LIB_COORD_ROW_JQ). --told records that WHO (a worker's dispatch
 # topic, or another party's session name) was sent the current address; it
-# needs a coordinator row, and turns a `pending` row for WHO into the `told`
-# one. --pending records that WHO, a worker, can't be sent the current address
+# needs a coordinator row, and turns a `pending` row for WHO, carried or not,
+# into the `told` one. --pending records that WHO, a worker, can't be sent the current address
 # yet (its session is gone while its instance still exists), so the handover
 # gate (state-handover.sh --check) doesn't hold on it; it needs a coordinator
-# row and refuses a worker already told or already pending. The template's
+# row and refuses a worker already told or already pending, a carried row
+# included. The template's
 # rebrief_record step writes both from a re-brief's evidence
 # (rebrief-record.sh).
+# --pending-confirm W=OBS confirms a carried `pending` row for the current
+# address: OBS is what handover-classify.sh read for W, `stopped` (its
+# session is gone, its instance kept) or `missing` (its instance is gone too).
+# It repeats, one worker each, and every worker named is confirmed in one
+# state write: its carried row is moved after the coordinator row, Set by WHO
+# and Set the write's time, so it reads as pending for the current address and
+# the gate no longer holds on it. One `pending` entry names each worker and
+# what was read for it. It refuses (65), with nothing written, a value that
+# isn't `stopped` or `missing`, a worker named twice, a record with no
+# coordinator row, and a worker with no carried row: one with no pending row
+# (record it with --pending), one already pending on the current address, or
+# one already told it.
 #
 # The record also keeps the crash set
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 9; PRD R17),
@@ -377,6 +393,8 @@ COUNTS=0
 SKIP_CHECKS=0
 # --host pairs, one `key<TAB>value` line each.
 HOSTKV=
+# --pending-confirm pairs, one `worker<TAB>observed` line each, in the order given.
+PCONF=
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 setmode() { [ -z "$MODE" ] || usage; MODE=$1; }
@@ -396,6 +414,10 @@ while [ $# -gt 0 ]; do
         --reasoning-check) setmode reasoning-check; shift ;;
         --told) [ $# -ge 2 ] || usage; setmode told; WHO=$2; shift 2 ;;
         --pending) [ $# -ge 2 ] || usage; setmode pending; WHO=$2; shift 2 ;;
+        --pending-confirm) [ $# -ge 2 ] || usage; [ "$MODE" = pending-confirm ] || setmode pending-confirm
+                case "$2" in *$'\t'*|*$'\n'*) echo "$PROG: refused: a --pending-confirm worker or value holds a tab or a newline" >&2; exit 65 ;; esac
+                case "$2" in ?*=*) ;; *) echo "$PROG: --pending-confirm takes <worker>=stopped or <worker>=missing" >&2; exit 64 ;; esac
+                PCONF="$PCONF${2%%=*}"$'\t'"${2#*=}"$'\n'; shift 2 ;;
         --standing) [ $# -ge 2 ] || usage; setmode standing; KIND=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; setmode end; ID=$2; shift 2 ;;
         --intake) [ $# -ge 2 ] || usage; setmode intake; ILABEL=$2; shift 2 ;;
@@ -431,6 +453,19 @@ case "$MODE" in
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     told|pending) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    pending-confirm) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
+        # Each value one of the two readings, and each worker named once,
+        # checked before anything is read.
+        PC_SEEN=$'\n'
+        while IFS=$'\t' read -r PCW PCV; do
+            [ -n "$PCW" ] || continue
+            case "$PCV" in stopped|missing) ;; *) echo "$PROG: refused: --pending-confirm $PCW: the value is stopped or missing" >&2; exit 65 ;; esac
+            case "$PC_SEEN" in *$'\n'"$PCW"$'\n'*) echo "$PROG: refused: --pending-confirm names $PCW twice" >&2; exit 65 ;; esac
+            PC_SEEN="$PC_SEEN$PCW"$'\n'
+        done <<EOF
+$PCONF
+EOF
+        ;;
     standing) [ -n "$WHAT" ] && { [ -n "$OWNER" ] || [ "$KIND" = rule ]; } && [ -z "$BY$WHO$NEXT" ] || usage ;;
     end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     intake) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
@@ -1075,6 +1110,36 @@ pending)
     ADDR=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0]' "$P")
     jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" '.run = ((.run // []) + [{key: "pending", value: $w, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=pending ETEXT="$WHO can't be told the coordinator's address, $ADDR, yet: it is pending, recorded by $BY."
+    ;;
+pending-confirm)
+    jq -e 'any((.run // [])[]; .key == "coordinator")' "$P" > /dev/null || refuse "the record names no coordinator address to confirm a carried pending row for; set it with --run coordinator first"
+    ADDR=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0]' "$P")
+    # Every worker is checked before the one write. A pending row before the
+    # coordinator row is carried (state-handover.sh reads it the same way);
+    # one after it is already current.
+    PC_SAID=
+    while IFS="$TAB" read -r PCW PCV; do
+        [ -n "$PCW" ] || continue
+        jq -e --arg w "$PCW" 'any((.run // [])[]; .key == "told" and .value == $w)' "$P" > /dev/null \
+            && refuse "$PCW has already been told the current address"
+        PCS=$(jq -r --arg w "$PCW" '(.run // []) as $r
+            | ([$r | to_entries[] | select(.value.key == "coordinator") | .key][0]) as $ci
+            | [$r | to_entries[] | select(.value.key == "pending" and .value.value == $w) | .key] as $p
+            | if ($p | length) == 0 then "none" elif any($p[]; . > $ci) then "current" else "carried" end' "$P") || lib_die2 "jq failed"
+        case "$PCS" in
+            none) refuse "$PCW has no pending row carried from an earlier address; record a worker with no row with --pending" ;;
+            current) refuse "$PCW is already pending on the current address" ;;
+        esac
+        PC_SAID="$PC_SAID${PC_SAID:+, }$PCW $PCV"
+    done <<EOF
+$PCONF
+EOF
+    # The named workers' carried rows go, and one row each is appended after
+    # the coordinator row, in the order named.
+    jq --arg l "$PCONF" --arg b "$BY" --arg t "$NOW" '($l | split("\n") | map(select(. != "") | split("\t")[0])) as $ws
+        | .run = ([(.run // [])[] | select((.key == "pending" and (.value | IN($ws[]))) | not)]
+                  + [$ws[] | {key: "pending", value: ., set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    EKIND=pending ETEXT="Pending rows carried from an earlier address, confirmed for the coordinator's address, $ADDR, by $BY: $PC_SAID."
     ;;
 standing)
     case "$KIND" in pause|go-ahead|approval|answer|assignment|rule) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval, answer, assignment or rule" >&2; exit 64 ;; esac
