@@ -149,7 +149,8 @@
 # a retained session.
 #
 # Environment:
-#   SHIRABE_STATE_DIR      where the locks directory and the tag key live;
+#   SHIRABE_STATE_DIR      where `locks/` (the directory the lock files go in)
+#                          and the tag key live;
 #                          default ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe
 #   TEST_CHANGE_LOCK_WAIT  seconds a writer waits for the lock (tests)
 #

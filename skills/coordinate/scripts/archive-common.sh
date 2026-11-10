@@ -59,11 +59,12 @@
 #       instance_path is the given path; the latest removed_at when several
 #       are. 1 when R or such a record is missing.
 #   ac_lock <lock file> <max age secs> <wait secs>, ac_unlock <lock file>
-#       A lock that is a directory made with mkdir and holding `owner`
-#       (`<pid> <epoch secs>`): waited for while a live holder younger than
-#       <max age> keeps it, taken over from a holder that is gone or older;
-#       released only by the process that holds it. The capture's list and
-#       post run under R/.post-lock.
+#       A lock that is a file holding its owner (`<pid> <epoch secs>`),
+#       created with bash's noclobber rather than mkdir (a lock directory an
+#       earlier version left is read too): waited for while a live holder
+#       younger than <max age> keeps it, taken over from a holder that is gone
+#       or older; released only by the process that holds it. The capture's
+#       list and post run under R/.post-lock.
 #
 # The dispatch request:
 #   ac_dispatch_request <session dir>...
@@ -342,7 +343,11 @@ ac_lock() {
                 sown=$(ac_lock_owner "$side") || sown=""
                 if [ "$sown" != "$own" ]; then
                     # Put it back with a noclobber write, which fails rather
-                    # than overwrite a lock taken again since.
+                    # than overwrite a lock taken again since. A lock
+                    # directory an earlier version left can't be written that
+                    # way: it is moved back only when nothing is at the path,
+                    # a check then a move, so a taker landing between the two
+                    # can still lose it.
                     if [ -d "$side" ]; then
                         [ -e "$d" ] || mv -- "$side" "$d" 2>/dev/null
                     else

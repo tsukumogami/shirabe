@@ -114,8 +114,9 @@
 #
 # A coordinated PLAN, before `koto init`:
 #
-#   the lock      `<carry root>/<session>.lock`, a directory holding the
-#                 holder's pid, taken with mkdir (retried every 0.2 s, 25
+#   the lock      `<carry root>/<session>.lock`, a file holding the
+#                 holder's pid, created with bash's noclobber rather than
+#                 mkdir (retried every 0.2 s, 25
 #                 times; a lock whose pid is gone is removed), released on
 #                 exit. Still held: `error=session-busy`, exit 64. The carry
 #                 root is $SHIRABE_STATE_DIR/execute-carry, else
