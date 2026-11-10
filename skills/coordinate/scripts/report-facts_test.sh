@@ -309,19 +309,26 @@ seed
 BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
 SLOW=20
+# The deadline counts from the script's start, so the reads before the write
+# spend it too, and keep_head skips the write once a second or less is left.
+# A loaded host can take two seconds over those reads, which leaves a 3 s
+# deadline no time to start the write (shirabe#1705). This case gives them
+# 10 s, so the write starts whatever the load, and the 20 s delay still runs
+# it past the deadline.
+WRITE_DEADLINE=10
 rm -f "$KOTO_STORE/add-delay.pid"
 START=$SECONDS
-KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=$WRITE_DEADLINE report '{"event":"report","unit":"alpha"}'
 TOOK=$((SECONDS - START))
 eq "a slow write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
-[ "$TOOK" -le 5 ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
+[ "$TOOK" -le $((WRITE_DEADLINE + 2)) ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
     || bad "  ... the action returns within the deadline and a small margin" "${TOOK} s"
 log_to "$S" wait report_facts
 bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit && ok "  ... the token is sealed" || bad "  ... the token is sealed"
 log_to "$S" report_facts wait
 [ -s "$KOTO_STORE/context/$S/coord/report.json" ] && ok "  ... coord/report.json is written" || bad "  ... coord/report.json is written"
 eq "  ... record/holdings is unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
-grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the 3 s the action allows; it's tried again on the holding's next visit" "$T/err" \
+grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the $WRITE_DEADLINE s the action allows; it's tried again on the holding's next visit" "$T/err" \
     && ok "  ... and stderr names the head the stopped write didn't keep" \
     || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
 eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
