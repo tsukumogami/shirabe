@@ -119,8 +119,8 @@ python3 "$REPO_ROOT/scripts/lib/check-handoff.py" "$FROM" "$TO" "$WORK" || rc=1
 
 # The caller's suites that walk its hand-off to <to>, from
 # scripts/check-handoff.routes.tsv (from, to, suite; the suite relative to
-# the repository). The engine and structure suites that take HANDOFF_ROUTE
-# run only that route's sections under it; the others run whole.
+# the repository). The suites that take HANDOFF_ROUTE run only that route's
+# sections under it; the others run whole.
 ROUTES="$REPO_ROOT/scripts/check-handoff.routes.tsv"
 ESC=$(printf '\033')
 TAB=$(printf '\t')

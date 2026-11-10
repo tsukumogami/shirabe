@@ -32,10 +32,39 @@
 # for is sealed absent and comes back to teardown with its topic kept, and a
 # listed instance with no directory is an error that goes to surface.
 #
+# Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
+# `work-on`. A refused or opened dispatch walks the entry point its brief
+# names. The wait, wait_leg, take_report and leg_spent states read a leg as
+# the templated {{WAIT_LEG}}, the same states for every leg-bound worker's
+# result, so the sections that drive a leg back through them walk all four on
+# purpose, whichever entry point their stand-in worker is; the --releg
+# replacement runs dispatch-worker.sh on a /scope holding and walks scope.
+# The dispatch gate, a message-path worker's report and teardown walk no
+# hand-off and run only with HANDOFF_ROUTE unset. HANDOFF_ROUTE=<route> runs
+# only the sections on the hand-off to that entry point; with it unset every
+# section runs. scripts/check-handoff.sh sets it for its routes check.
+#
 # Needs koto, git and jq; SKIPs (exit 0) without koto.
-# Usage: bash skills/coordinate/scripts/dispatch-path_engine_test.sh
+# Usage: [HANDOFF_ROUTE=deliver|execute|scope|work-on] bash skills/coordinate/scripts/dispatch-path_engine_test.sh
+# Exit codes: 0 all pass (SKIP when a tool is absent); 1 a failure, or a
+# HANDOFF_ROUTE this suite has no sections for.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+
+ROUTE=${HANDOFF_ROUTE:-}
+case "$ROUTE" in
+    ''|deliver|execute|scope|work-on) ;;
+    *) echo "FAIL HANDOFF_ROUTE=$ROUTE: this suite's routes are deliver, execute, scope and work-on"; exit 1 ;;
+esac
+# section <routes> <title>: print the section's header and succeed when it
+# runs under HANDOFF_ROUTE, or fail so the caller skips it. An empty <routes>
+# runs only with HANDOFF_ROUTE unset.
+section() {
+    if [ -n "$ROUTE" ]; then
+        case " $1 " in *" $ROUTE "*) ;; *) return 1 ;; esac
+    fi
+    echo "== $2 =="
+}
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do
@@ -222,27 +251,29 @@ requests() { (cd "$W" && koto request list --coordinator-of-record "coordinate-$
 
 # --- dispatch ------------------------------------------------------------------------------------
 
-start
-put dispatch_topic w1
-rows '[]'
-tick --with-data '{"go":"dispatch"}'
-tick --with-data '{"dispatched":"sent","topic":"w1"}'
-eq  "dispatch: sent with no holding on the record holds" dispatch "$(at)"
-(cd "$W" && koto overrides record "$SESS" --gate holding_recorded --rationale "claim" >/dev/null 2>&1)
-tick --with-data '{"dispatched":"sent","topic":"w1"}'
-eq  "dispatch: an override record can't stand in for the holding" dispatch "$(at)"
-rows '[{"worker":"w1","dispatch_status":"dispatching","return_path":"message"}]'
-tick --with-data '{"dispatched":"sent","topic":"w1"}'
-eq  "dispatch: a holding still dispatching holds" dispatch "$(at)"
-rows '[{"worker":"w1","dispatch_status":"dispatched","return_path":"message"}]'
-tick --with-data '{"dispatched":"sent","topic":"w1"}'
-eq  "dispatch: the holding dispatched lets sent leave" record "$(at)"
+if section "" "dispatch"; then
+    start
+    put dispatch_topic w1
+    rows '[]'
+    tick --with-data '{"go":"dispatch"}'
+    tick --with-data '{"dispatched":"sent","topic":"w1"}'
+    eq  "dispatch: sent with no holding on the record holds" dispatch "$(at)"
+    (cd "$W" && koto overrides record "$SESS" --gate holding_recorded --rationale "claim" >/dev/null 2>&1)
+    tick --with-data '{"dispatched":"sent","topic":"w1"}'
+    eq  "dispatch: an override record can't stand in for the holding" dispatch "$(at)"
+    rows '[{"worker":"w1","dispatch_status":"dispatching","return_path":"message"}]'
+    tick --with-data '{"dispatched":"sent","topic":"w1"}'
+    eq  "dispatch: a holding still dispatching holds" dispatch "$(at)"
+    rows '[{"worker":"w1","dispatch_status":"dispatched","return_path":"message"}]'
+    tick --with-data '{"dispatched":"sent","topic":"w1"}'
+    eq  "dispatch: the holding dispatched lets sent leave" record "$(at)"
 
-start
-put dispatch_topic w1
-tick --with-data '{"go":"dispatch"}'
-tick --with-data '{"dispatched":"failed","topic":"w1"}'
-eq  "dispatch: failed goes to failure" failure "$(at)"
+    start
+    put dispatch_topic w1
+    tick --with-data '{"go":"dispatch"}'
+    tick --with-data '{"dispatched":"failed","topic":"w1"}'
+    eq  "dispatch: failed goes to failure" failure "$(at)"
+fi
 
 # --- a unit whose target an entry point can't take ------------------------------------------------
 #
@@ -262,64 +293,69 @@ cat >"$T/brief-private.json" <<'EOF'
  "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
  "dispatcher_session": "coord-dp", "reports_to": "coord-engine"}
 EOF
-start
-put dispatch_topic w9
-koto context add "$SESS" brief_input.json --from-file "$T/brief-private.json" >/dev/null
-# What pick_facts listed: the brief's unit is a form pick reads.
-put coord/pick.json '{"scope":"roadmap","name":"vault","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
-rows '[]'
-: >"$ST/niwa.log"
-printf '[]\n' >"$ST/sessions.json"
-tick --with-data '{"go":"dispatch"}'
-DW_ERR=$( (cd "$W" && DC_ENTRY_POINTS="$RT" bash "$S/dispatch-worker.sh" --session "$SESS") 2>&1 >/dev/null)
-DW_RC=$?
-eq  "private target: dispatch-worker.sh refuses the brief (exit 1)" 1 "$DW_RC"
-case "$DW_ERR" in
-    *"/shirabe:deliver takes only public repositories, and repo is private; dispatch it to /shirabe:work-on instead"*)
-        pass "private target: the refusal names the requirement and the alternative" ;;
-    *) fail "private target: the refusal names the requirement and the alternative" "$DW_ERR" ;;
-esac
-case "$DW_ERR" in *acme/vault*) fail "private target: the refusal names the private repository" "$DW_ERR" ;;
-    *) pass "private target: the refusal never names the private repository" ;; esac
-eq  "private target: no holding was written" '[]' "$(cat "$ST/rows.json")"
-eq  "private target: no request (and so no leg) was opened" 0 "$(requests w9)"
-eq  "private target: no worker was launched" "" "$(cat "$ST/niwa.log")"
-tick --with-data '{"dispatched":"sent","topic":"w9"}'
-eq  "private target: sent can't leave dispatch without the holding" dispatch "$(at)"
-# The shipped table: the same unit passes the check.
-(cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null)
-eq  "private target: the shipped table's /deliver takes it" 0 "$?"
-
-# --- the request query's control ------------------------------------------------------------------
-#
-# A unit no form of which pick listed, or a dispatch with no coord/pick.json,
-# is refused before any leg, holding or launch: dispatch-worker_test.sh's
-# "unit:" cases.
-sed -e 's/"w9"/"w11"/g' -e 's/"Feature 9: the vault export"/"Feature 9 of ROADMAP-vault"/' -e 's|"acme/vault"|"acme/widgets"|' \
-    "$T/brief-private.json" >"$T/brief-unit.json"
-unit_dispatch() { # unit_dispatch <topic> <brief>: a fresh session at dispatch, then dispatch-worker.sh
+if section "deliver" "a unit whose target an entry point can't take"; then
     start
-    put dispatch_topic "$1"
-    koto context add "$SESS" brief_input.json --from-file "$2" >/dev/null
+    put dispatch_topic w9
+    koto context add "$SESS" brief_input.json --from-file "$T/brief-private.json" >/dev/null
+    # What pick_facts listed: the brief's unit is a form pick reads.
+    put coord/pick.json '{"scope":"roadmap","name":"vault","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
     rows '[]'
     : >"$ST/niwa.log"
     printf '[]\n' >"$ST/sessions.json"
     tick --with-data '{"go":"dispatch"}'
-}
-# The control: the same query sees the request a dispatch past the check
-# opens (the stand-in launch then fails), so the private target's zero above
-# can fail.
-sed -e 's/"w11"/"w13"/g' -e 's/"Feature 9 of ROADMAP-vault"/"Feature 9"/' "$T/brief-unit.json" >"$T/brief-unit3.json"
-unit_dispatch w13 "$T/brief-unit3.json"
-put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
-(cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
-[ "$(requests w13)" -ge 1 ] && pass "control: a unit pick reads gets past the check and its request is seen" \
-    || fail "control: a unit pick reads gets past the check and its request is seen" "$(requests w13)"
-# The leg the dispatch opened is a key of the coordinator's own session (PRD
-# R13), written through real koto; the stand-in launch failed, so it reads spent.
-W13REQ=$( (cd "$W" && koto request list --coordinator-of-record coordinate-w13) | jq -r '.requests[0].request_id')
-eq  "control: the dispatch wrote the leg's key, with its worker, marked spent by the failed launch" "w13 spent deliver.md" \
-    "$(ctx "legs/$W13REQ/deliver" | jq -r '"\(.topic) \(.state) \(.templates | join(","))"')"
+    DW_ERR=$( (cd "$W" && DC_ENTRY_POINTS="$RT" bash "$S/dispatch-worker.sh" --session "$SESS") 2>&1 >/dev/null)
+    DW_RC=$?
+    eq  "private target: dispatch-worker.sh refuses the brief (exit 1)" 1 "$DW_RC"
+    case "$DW_ERR" in
+        *"/shirabe:deliver takes only public repositories, and repo is private; dispatch it to /shirabe:work-on instead"*)
+            pass "private target: the refusal names the requirement and the alternative" ;;
+        *) fail "private target: the refusal names the requirement and the alternative" "$DW_ERR" ;;
+    esac
+    case "$DW_ERR" in *acme/vault*) fail "private target: the refusal names the private repository" "$DW_ERR" ;;
+        *) pass "private target: the refusal never names the private repository" ;; esac
+    eq  "private target: no holding was written" '[]' "$(cat "$ST/rows.json")"
+    eq  "private target: no request (and so no leg) was opened" 0 "$(requests w9)"
+    eq  "private target: no worker was launched" "" "$(cat "$ST/niwa.log")"
+    tick --with-data '{"dispatched":"sent","topic":"w9"}'
+    eq  "private target: sent can't leave dispatch without the holding" dispatch "$(at)"
+    # The shipped table: the same unit passes the check.
+    (cd "$W" && bash "$S/render-brief.sh" --input "$T/brief-private.json" --stdout >/dev/null)
+    eq  "private target: the shipped table's /deliver takes it" 0 "$?"
+fi
+
+# --- the request query's control ------------------------------------------------------------------
+
+if section "deliver" "the request query's control"; then
+    #
+    # A unit no form of which pick listed, or a dispatch with no coord/pick.json,
+    # is refused before any leg, holding or launch: dispatch-worker_test.sh's
+    # "unit:" cases.
+    sed -e 's/"w9"/"w11"/g' -e 's/"Feature 9: the vault export"/"Feature 9 of ROADMAP-vault"/' -e 's|"acme/vault"|"acme/widgets"|' \
+        "$T/brief-private.json" >"$T/brief-unit.json"
+    unit_dispatch() { # unit_dispatch <topic> <brief>: a fresh session at dispatch, then dispatch-worker.sh
+        start
+        put dispatch_topic "$1"
+        koto context add "$SESS" brief_input.json --from-file "$2" >/dev/null
+        rows '[]'
+        : >"$ST/niwa.log"
+        printf '[]\n' >"$ST/sessions.json"
+        tick --with-data '{"go":"dispatch"}'
+    }
+    # The control: the same query sees the request a dispatch past the check
+    # opens (the stand-in launch then fails), so the private target's zero above
+    # can fail.
+    sed -e 's/"w11"/"w13"/g' -e 's/"Feature 9 of ROADMAP-vault"/"Feature 9"/' "$T/brief-unit.json" >"$T/brief-unit3.json"
+    unit_dispatch w13 "$T/brief-unit3.json"
+    put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","units":[{"unit":"Feature 9","number":9,"title":"the vault export"}]}'
+    (cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
+    [ "$(requests w13)" -ge 1 ] && pass "control: a unit pick reads gets past the check and its request is seen" \
+        || fail "control: a unit pick reads gets past the check and its request is seen" "$(requests w13)"
+    # The leg the dispatch opened is a key of the coordinator's own session (PRD
+    # R13), written through real koto; the stand-in launch failed, so it reads spent.
+    W13REQ=$( (cd "$W" && koto request list --coordinator-of-record coordinate-w13) | jq -r '.requests[0].request_id')
+    eq  "control: the dispatch wrote the leg's key, with its worker, marked spent by the failed launch" "w13 spent deliver.md" \
+        "$(ctx "legs/$W13REQ/deliver" | jq -r '"\(.topic) \(.state) \(.templates | join(","))"')"
+fi
 
 # --- the leg path ----------------------------------------------------------------------------------
 
@@ -356,137 +392,139 @@ Stand-in.
 ## done
 Done.
 EOF
-REQ=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w1"}' \
-    --requested-by coord --coordinator-of-record coordinate-w1 | jq -r .request_id)
-REQ2=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w2"}' \
-    --requested-by coord --coordinator-of-record coordinate-w2 | jq -r .request_id)
-rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:scope\"},
-       {\"worker\":\"w3\",\"dispatch_status\":\"dispatched\",\"return_path\":\"message\"}]"
+if section "deliver execute scope work-on" "the leg path"; then
+    REQ=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w1"}' \
+        --requested-by coord --coordinator-of-record coordinate-w1 | jq -r .request_id)
+    REQ2=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w2"}' \
+        --requested-by coord --coordinator-of-record coordinate-w2 | jq -r .request_id)
+    rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:scope\"},
+           {\"worker\":\"w3\",\"dispatch_status\":\"dispatched\",\"return_path\":\"message\"}]"
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "leg: an open leg holds at wait_leg" wait_leg "$(at)"
-eq  "leg: the picked request is the worker's" "$REQ" "$(ctx wait_target | jq -r .request)"
-tick --with-data '{"watch":"back"}'
-eq  "leg: back returns to the hub while the leg is open" wait "$(at)"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: an open leg holds at wait_leg" wait_leg "$(at)"
+    eq  "leg: the picked request is the worker's" "$REQ" "$(ctx wait_target | jq -r .request)"
+    tick --with-data '{"watch":"back"}'
+    eq  "leg: back returns to the hub while the leg is open" wait "$(at)"
 
-(cd "$T" && koto init scope-w1 --template "$T/tpl/scope.md" --var TOPIC=w1 --koto-leg "$REQ:scope" >/dev/null 2>"$T/child.err") ||
-    fail "the stand-in worker attaches to its leg" "$(cat "$T/child.err")"
-(cd "$T" && koto next scope-w1 --with-data '{"finish":"go"}' >/dev/null 2>&1)
-tick --with-data '{"event":"leg"}'
-eq  "leg: a promoted result goes through take_report to report_facts" report_facts "$(at)"
-case "$(ctx worker_report)" in
-    *"outcome scoped"*"pull request https://github.com/acme/widgets/pull/7"*) pass "leg: the leg's outcome and pull request are the report" ;;
-    *) fail "leg: the leg's outcome and pull request are the report" "$(ctx worker_report)" ;;
-esac
-eq  "leg: report_source is leg" leg "$(ctx report_source)"
-eq  "leg: report_topic is the worker" w1 "$(ctx report_topic)"
+    (cd "$T" && koto init scope-w1 --template "$T/tpl/scope.md" --var TOPIC=w1 --koto-leg "$REQ:scope" >/dev/null 2>"$T/child.err") ||
+        fail "the stand-in worker attaches to its leg" "$(cat "$T/child.err")"
+    (cd "$T" && koto next scope-w1 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: a promoted result goes through take_report to report_facts" report_facts "$(at)"
+    case "$(ctx worker_report)" in
+        *"outcome scoped"*"pull request https://github.com/acme/widgets/pull/7"*) pass "leg: the leg's outcome and pull request are the report" ;;
+        *) fail "leg: the leg's outcome and pull request are the report" "$(ctx worker_report)" ;;
+    esac
+    eq  "leg: report_source is leg" leg "$(ctx report_source)"
+    eq  "leg: report_topic is the worker" w1 "$(ctx report_topic)"
 
-# The leg's key (PRD R13): the bound child recorded when the leg is picked,
-# and the result with state taken written by wait_leg's own action, so a run
-# stopped at take_report (here by a record that can't be read) already finds
-# it there.
-REQ5=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w5"}' \
-    --requested-by coord --coordinator-of-record coordinate-w5 | jq -r .request_id)
-SAVED_ROWS=$(cat "$ST/rows.json")
-rows "[{\"worker\":\"w5\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ5:scope\"}]"
-start
-put "legs/$REQ5/scope" "{\"request\":\"$REQ5\",\"leg\":\"scope\",\"topic\":\"w5\",\"state\":\"open\",\"templates\":[\"scope.md\"],\"inputs\":{\"TOPIC\":\"w5\"}}"
-(cd "$T" && koto init scope-w5 --template "$T/tpl/scope.md" --var TOPIC=w5 --koto-leg "$REQ5:scope" >/dev/null 2>"$T/child.err") ||
-    fail "the second stand-in worker attaches to its leg" "$(cat "$T/child.err")"
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "legkey: an open leg holds at wait_leg" wait_leg "$(at)"
-eq  "legkey: the pick recorded the bound child in the key, still open" "scope-w5 open" "$(ctx "legs/$REQ5/scope" | jq -r '"\(.child) \(.state)"')"
-tick --with-data '{"watch":"back"}'
-(cd "$T" && koto next scope-w5 --with-data '{"finish":"go"}' >/dev/null 2>&1)
-: >"$ST/read.fail"
-tick --with-data '{"event":"leg"}'
-eq  "legkey: the run stops at take_report" take_report "$(at)"
-eq  "legkey: the key already reads taken, with the result the worker promoted" "taken promoted scoped https://github.com/acme/widgets/pull/7" \
-    "$(ctx "legs/$REQ5/scope" | jq -r '"\(.state) \(.result.source) \(.result.payload.outcome) \(.result.payload.pr)"')"
-rm -f "$ST/read.fail"
-rows "$SAVED_ROWS"
+    # The leg's key (PRD R13): the bound child recorded when the leg is picked,
+    # and the result with state taken written by wait_leg's own action, so a run
+    # stopped at take_report (here by a record that can't be read) already finds
+    # it there.
+    REQ5=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w5"}' \
+        --requested-by coord --coordinator-of-record coordinate-w5 | jq -r .request_id)
+    SAVED_ROWS=$(cat "$ST/rows.json")
+    rows "[{\"worker\":\"w5\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ5:scope\"}]"
+    start
+    put "legs/$REQ5/scope" "{\"request\":\"$REQ5\",\"leg\":\"scope\",\"topic\":\"w5\",\"state\":\"open\",\"templates\":[\"scope.md\"],\"inputs\":{\"TOPIC\":\"w5\"}}"
+    (cd "$T" && koto init scope-w5 --template "$T/tpl/scope.md" --var TOPIC=w5 --koto-leg "$REQ5:scope" >/dev/null 2>"$T/child.err") ||
+        fail "the second stand-in worker attaches to its leg" "$(cat "$T/child.err")"
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "legkey: an open leg holds at wait_leg" wait_leg "$(at)"
+    eq  "legkey: the pick recorded the bound child in the key, still open" "scope-w5 open" "$(ctx "legs/$REQ5/scope" | jq -r '"\(.child) \(.state)"')"
+    tick --with-data '{"watch":"back"}'
+    (cd "$T" && koto next scope-w5 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+    : >"$ST/read.fail"
+    tick --with-data '{"event":"leg"}'
+    eq  "legkey: the run stops at take_report" take_report "$(at)"
+    eq  "legkey: the key already reads taken, with the result the worker promoted" "taken promoted scoped https://github.com/acme/widgets/pull/7" \
+        "$(ctx "legs/$REQ5/scope" | jq -r '"\(.state) \(.result.source) \(.result.payload.outcome) \(.result.payload.pr)"')"
+    rm -f "$ST/read.fail"
+    rows "$SAVED_ROWS"
 
-start
-tick --with-data '{"go":"wait"}'
-put taken_legs "$REQ:scope"
-tick --with-data '{"event":"leg"}'
-eq  "leg: a leg taken once isn't read again" wait "$(at)"
+    start
+    tick --with-data '{"go":"wait"}'
+    put taken_legs "$REQ:scope"
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: a leg taken once isn't read again" wait "$(at)"
 
-koto request resolve "$REQ2" scope --with-data '{"status":"success","summary":"hand-made","payload":{"outcome":"scoped"}}' >/dev/null 2>&1
-rows "[{\"worker\":\"w2\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ2:scope\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "leg: an explicit result goes to leg_spent, never to take_report" leg_spent "$(at)"
-eq  "leg: a consumed leg is marked for the next pick" yes "$(ctx leg_consumed)"
+    koto request resolve "$REQ2" scope --with-data '{"status":"success","summary":"hand-made","payload":{"outcome":"scoped"}}' >/dev/null 2>&1
+    rows "[{\"worker\":\"w2\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ2:scope\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: an explicit result goes to leg_spent, never to take_report" leg_spent "$(at)"
+    eq  "leg: a consumed leg is marked for the next pick" yes "$(ctx leg_consumed)"
 
-REQ4=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w7"}' \
-    --requested-by coord --coordinator-of-record coordinate-w7 | jq -r .request_id)
-koto request abandon-request "$REQ4" --rationale "the worker is gone" >/dev/null 2>&1
-rows "[{\"worker\":\"w7\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ4:scope\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "leg: an abandoned leg goes to leg_spent" leg_spent "$(at)"
+    REQ4=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w7"}' \
+        --requested-by coord --coordinator-of-record coordinate-w7 | jq -r .request_id)
+    koto request abandon-request "$REQ4" --rationale "the worker is gone" >/dev/null 2>&1
+    rows "[{\"worker\":\"w7\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ4:scope\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: an abandoned leg goes to leg_spent" leg_spent "$(at)"
 
-# A leg still open on a closed request can't resolve: it goes to surface once,
-# and the next pick doesn't offer it again.
-REQ6=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w10"}' \
-    --requested-by coord --coordinator-of-record coordinate-w10 | jq -r .request_id)
-koto request close "$REQ6" >/dev/null 2>&1
-rows "[{\"worker\":\"w10\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ6:scope\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "leg: an open leg on a closed request goes to leg_spent" leg_spent "$(at)"
-TARGET10=$(ctx wait_target)
-start
-tick --with-data '{"go":"wait"}'
-put wait_target "$TARGET10"
-put leg_consumed yes
-tick --with-data '{"event":"leg"}'
-eq  "leg: that leg isn't offered again" wait "$(at)"
+    # A leg still open on a closed request can't resolve: it goes to surface once,
+    # and the next pick doesn't offer it again.
+    REQ6=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w10"}' \
+        --requested-by coord --coordinator-of-record coordinate-w10 | jq -r .request_id)
+    koto request close "$REQ6" >/dev/null 2>&1
+    rows "[{\"worker\":\"w10\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ6:scope\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: an open leg on a closed request goes to leg_spent" leg_spent "$(at)"
+    TARGET10=$(ctx wait_target)
+    start
+    tick --with-data '{"go":"wait"}'
+    put wait_target "$TARGET10"
+    put leg_consumed yes
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: that leg isn't offered again" wait "$(at)"
 
-# A leg the request doesn't have (the holding names the wrong leg) is missing.
-rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:execute\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "leg: a missing leg goes to leg_spent" leg_spent "$(at)"
+    # A leg the request doesn't have (the holding names the wrong leg) is missing.
+    rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:execute\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: a missing leg goes to leg_spent" leg_spent "$(at)"
 
-# While a leg is open, an override record can't stand in for its result.
-REQ5=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w8"}' \
-    --requested-by coord --coordinator-of-record coordinate-w8 | jq -r .request_id)
-rows "[{\"worker\":\"w8\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ5:scope\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-(cd "$W" && koto overrides record "$SESS" --gate leg_result --rationale "claim" >/dev/null 2>&1)
-tick
-eq  "leg: an override record can't stand in for an open leg's result" wait_leg "$(at)"
+    # While a leg is open, an override record can't stand in for its result.
+    REQ5=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w8"}' \
+        --requested-by coord --coordinator-of-record coordinate-w8 | jq -r .request_id)
+    rows "[{\"worker\":\"w8\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ5:scope\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    (cd "$W" && koto overrides record "$SESS" --gate leg_result --rationale "claim" >/dev/null 2>&1)
+    tick
+    eq  "leg: an override record can't stand in for an open leg's result" wait_leg "$(at)"
 
-# The leg resolves between two ticks and the coordinator submits rescan: the
-# gate takes the result on that evidence tick, where wait_leg's action doesn't
-# run, so the mark has to come from the consuming edge.
-(cd "$T" && koto init scope-w8 --template "$T/tpl/scope.md" --var TOPIC=w8 --koto-leg "$REQ5:scope" >/dev/null 2>&1)
-(cd "$T" && koto next scope-w8 --with-data '{"finish":"go"}' >/dev/null 2>&1)
-tick --with-data '{"watch":"rescan"}'
-eq  "leg: a result taken on a rescan tick reaches report_facts" report_facts "$(at)"
-eq  "leg: that edge marks the leg consumed" yes "$(ctx leg_consumed)"
-TARGET8=$(ctx wait_target)
-start
-tick --with-data '{"go":"wait"}'
-put wait_target "$TARGET8"
-put leg_consumed yes
-tick --with-data '{"event":"leg"}'
-eq  "leg: a leg consumed on a rescan tick isn't read again" wait "$(at)"
-case "$(ctx taken_legs)" in
-    *"$REQ5:scope"*) pass "leg: the next pick marks it taken" ;;
-    *) fail "leg: the next pick marks it taken" "$(ctx taken_legs)" ;;
-esac
+    # The leg resolves between two ticks and the coordinator submits rescan: the
+    # gate takes the result on that evidence tick, where wait_leg's action doesn't
+    # run, so the mark has to come from the consuming edge.
+    (cd "$T" && koto init scope-w8 --template "$T/tpl/scope.md" --var TOPIC=w8 --koto-leg "$REQ5:scope" >/dev/null 2>&1)
+    (cd "$T" && koto next scope-w8 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+    tick --with-data '{"watch":"rescan"}'
+    eq  "leg: a result taken on a rescan tick reaches report_facts" report_facts "$(at)"
+    eq  "leg: that edge marks the leg consumed" yes "$(ctx leg_consumed)"
+    TARGET8=$(ctx wait_target)
+    start
+    tick --with-data '{"go":"wait"}'
+    put wait_target "$TARGET8"
+    put leg_consumed yes
+    tick --with-data '{"event":"leg"}'
+    eq  "leg: a leg consumed on a rescan tick isn't read again" wait "$(at)"
+    case "$(ctx taken_legs)" in
+        *"$REQ5:scope"*) pass "leg: the next pick marks it taken" ;;
+        *) fail "leg: the next pick marks it taken" "$(ctx taken_legs)" ;;
+    esac
+fi
 
 # --- a leg spent before the worker reported, replaced -----------------------------------------------
 #
@@ -496,16 +534,6 @@ esac
 # submits replaced, which goes to record. The holding is on a new leg; the
 # next wait picks it, and the worker's later result on it reaches
 # report_facts.
-REQ20=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w20"}' \
-    --requested-by coord --coordinator-of-record coordinate-w20 | jq -r .request_id)
-# Cancelled by hand: an explicit result, which no session of the worker's
-# promoted.
-koto request resolve "$REQ20" scope --with-data '{"status":"failure","summary":"cancelled: the target moved","payload":{"outcome":"cancelled"}}' >/dev/null 2>&1
-rows "[{\"worker\":\"w20\",\"unit\":\"Feature 9\",\"entry_point\":\"scope\",\"mode\":\"--auto --intent=continue\",\"phase\":\"scoping-ahead\",
-       \"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ20:scope\",\"repo\":\"acme/widgets\",\"branch\":\"\",
-       \"verified_head\":\"\",\"dispatched\":\"2026-09-26\",\"pull_request\":\"\"}]"
-printf '[{"name":"x","path":"/p","session_name":"w20-0123abcd"}]\n' >"$ST/sessions.json"
-: >"$ST/niwa.log"
 cat >"$T/brief-w20.json" <<'EOF'
 {"topic": "w20", "repo": "acme/widgets", "unit": "Feature 9",
  "entry_point": "scope", "entry_args": ["w20"], "run_mode": "--auto --intent=continue", "phase": "scoping-ahead",
@@ -513,231 +541,262 @@ cat >"$T/brief-w20.json" <<'EOF'
  "checkpoints": ["The scoping PR is open."], "acceptance": ["A PLAN exists."],
  "dispatcher_session": "coord-dp"}
 EOF
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "releg: a cancelled leg goes to leg_spent" leg_spent "$(at)"
-eq  "releg: report_topic names the worker" w20 "$(ctx report_topic)"
-koto context add "$SESS" brief_input.json --from-file "$T/brief-w20.json" >/dev/null
-( cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" --releg >"$T/releg.out" 2>"$T/releg.err" )
-eq  "releg: dispatch-worker.sh --releg replaces the leg (exit 0)" 0 "$?"
-NEWRP=$(jq -r '.[] | select(.worker == "w20") | .return_path' "$ST/rows.json")
-NEWREQ=${NEWRP#leg }; NEWREQ=${NEWREQ%%:*}
-case "$NEWRP" in
-    "leg $REQ20:scope") fail "releg: the holding is on a new leg" "$NEWRP" ;;
-    "leg "*":scope") pass "releg: the holding is on a new leg" ;;
-    *) fail "releg: the holding is on a new leg" "$NEWRP $(cat "$T/releg.err")" ;;
-esac
-grep -q "^leg=$NEWREQ:scope$" "$T/releg.out" && pass "releg: the new leg is printed for the brief" || fail "releg: the new leg is printed" "$(cat "$T/releg.out")"
-eq  "releg: the worker is not launched again" "" "$(grep dispatch "$ST/niwa.log" 2>/dev/null)"
-eq  "releg: the holding is the same, still dispatched" dispatched "$(jq -r '.[] | select(.worker == "w20") | .dispatch_status' "$ST/rows.json")"
-tick --with-data '{"move":"replaced","topic":"w20"}'
-eq  "releg: replaced goes to record" record "$(at)"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "releg: the next wait reads the new leg" "$NEWREQ" "$(ctx wait_target | jq -r .request)"
-(cd "$T" && koto init scope-w20 --template "$T/tpl/scope.md" --var TOPIC=w20 --koto-leg "$NEWREQ:scope" >/dev/null 2>"$T/child.err") ||
-    fail "releg: the worker attaches to the new leg" "$(cat "$T/child.err")"
-(cd "$T" && koto next scope-w20 --with-data '{"finish":"go"}' >/dev/null 2>&1)
-tick --with-data '{"watch":"rescan"}'
-eq  "releg: the worker's later result arrives on the new leg" report_facts "$(at)"
-eq  "releg: the report is w20's" w20 "$(ctx report_topic)"
-REQ21=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w21"}' \
-    --requested-by coord --coordinator-of-record coordinate-w21 | jq -r .request_id)
-koto request abandon-request "$REQ21" --rationale "the worker is gone" >/dev/null 2>&1
-rows "[{\"worker\":\"w21\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ21:scope\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-tick --with-data '{"move":"surface"}'
-eq  "leg_spent: surface goes to the human" surface "$(at)"
+if section "scope" "a leg spent before the worker reported, replaced"; then
+    REQ20=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w20"}' \
+        --requested-by coord --coordinator-of-record coordinate-w20 | jq -r .request_id)
+    # Cancelled by hand: an explicit result, which no session of the worker's
+    # promoted.
+    koto request resolve "$REQ20" scope --with-data '{"status":"failure","summary":"cancelled: the target moved","payload":{"outcome":"cancelled"}}' >/dev/null 2>&1
+    rows "[{\"worker\":\"w20\",\"unit\":\"Feature 9\",\"entry_point\":\"scope\",\"mode\":\"--auto --intent=continue\",\"phase\":\"scoping-ahead\",
+           \"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ20:scope\",\"repo\":\"acme/widgets\",\"branch\":\"\",
+           \"verified_head\":\"\",\"dispatched\":\"2026-09-26\",\"pull_request\":\"\"}]"
+    printf '[{"name":"x","path":"/p","session_name":"w20-0123abcd"}]\n' >"$ST/sessions.json"
+    : >"$ST/niwa.log"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "releg: a cancelled leg goes to leg_spent" leg_spent "$(at)"
+    eq  "releg: report_topic names the worker" w20 "$(ctx report_topic)"
+    koto context add "$SESS" brief_input.json --from-file "$T/brief-w20.json" >/dev/null
+    ( cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" --releg >"$T/releg.out" 2>"$T/releg.err" )
+    eq  "releg: dispatch-worker.sh --releg replaces the leg (exit 0)" 0 "$?"
+    NEWRP=$(jq -r '.[] | select(.worker == "w20") | .return_path' "$ST/rows.json")
+    NEWREQ=${NEWRP#leg }; NEWREQ=${NEWREQ%%:*}
+    case "$NEWRP" in
+        "leg $REQ20:scope") fail "releg: the holding is on a new leg" "$NEWRP" ;;
+        "leg "*":scope") pass "releg: the holding is on a new leg" ;;
+        *) fail "releg: the holding is on a new leg" "$NEWRP $(cat "$T/releg.err")" ;;
+    esac
+    grep -q "^leg=$NEWREQ:scope$" "$T/releg.out" && pass "releg: the new leg is printed for the brief" || fail "releg: the new leg is printed" "$(cat "$T/releg.out")"
+    eq  "releg: the worker is not launched again" "" "$(grep dispatch "$ST/niwa.log" 2>/dev/null)"
+    eq  "releg: the holding is the same, still dispatched" dispatched "$(jq -r '.[] | select(.worker == "w20") | .dispatch_status' "$ST/rows.json")"
+    tick --with-data '{"move":"replaced","topic":"w20"}'
+    eq  "releg: replaced goes to record" record "$(at)"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "releg: the next wait reads the new leg" "$NEWREQ" "$(ctx wait_target | jq -r .request)"
+    (cd "$T" && koto init scope-w20 --template "$T/tpl/scope.md" --var TOPIC=w20 --koto-leg "$NEWREQ:scope" >/dev/null 2>"$T/child.err") ||
+        fail "releg: the worker attaches to the new leg" "$(cat "$T/child.err")"
+    (cd "$T" && koto next scope-w20 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+    tick --with-data '{"watch":"rescan"}'
+    eq  "releg: the worker's later result arrives on the new leg" report_facts "$(at)"
+    eq  "releg: the report is w20's" w20 "$(ctx report_topic)"
+fi
+
+if section "deliver execute scope work-on" "leg_spent: surface"; then
+    REQ21=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w21"}' \
+        --requested-by coord --coordinator-of-record coordinate-w21 | jq -r .request_id)
+    koto request abandon-request "$REQ21" --rationale "the worker is gone" >/dev/null 2>&1
+    rows "[{\"worker\":\"w21\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ21:scope\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    tick --with-data '{"move":"surface"}'
+    eq  "leg_spent: surface goes to the human" surface "$(at)"
+fi
 
 # --- progress from a leg-bound worker ----------------------------------------------------------------
-REQ30=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w30"}' \
-    --requested-by coord --coordinator-of-record coordinate-w30 | jq -r .request_id)
-rows "[{\"worker\":\"w30\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ30:scope\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"progress","unit":"w30","report":"Checkpoint 1 reached."}'
-eq  "progress, leg: a leg-bound worker's progress passes take_report" report_facts "$(at)"
-eq  "progress, leg: as progress, not as its result" progress "$(ctx report_source)"
-eq  "progress, leg: its leg is still open" open "$(koto request get "$REQ30" | jq -r '(.request // .) | .legs.scope.disposition')"
-(cd "$T" && koto init scope-w30 --template "$T/tpl/scope.md" --var TOPIC=w30 --koto-leg "$REQ30:scope" >/dev/null 2>&1)
-(cd "$T" && koto next scope-w30 --with-data '{"finish":"go"}' >/dev/null 2>&1)
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"leg"}'
-eq  "progress, leg: the leg's later result arrives through wait_leg" report_facts "$(at)"
-eq  "progress, leg: as the leg's result" leg "$(ctx report_source)"
-start
-rows '[]'
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"progress","unit":"nobody","report":"Checkpoint 1 reached."}'
-eq  "progress: from a topic with no holding goes back to wait" wait "$(at)"
+
+if section "deliver execute scope work-on" "progress from a leg-bound worker"; then
+    REQ30=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w30"}' \
+        --requested-by coord --coordinator-of-record coordinate-w30 | jq -r .request_id)
+    rows "[{\"worker\":\"w30\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ30:scope\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"progress","unit":"w30","report":"Checkpoint 1 reached."}'
+    eq  "progress, leg: a leg-bound worker's progress passes take_report" report_facts "$(at)"
+    eq  "progress, leg: as progress, not as its result" progress "$(ctx report_source)"
+    eq  "progress, leg: its leg is still open" open "$(koto request get "$REQ30" | jq -r '(.request // .) | .legs.scope.disposition')"
+    (cd "$T" && koto init scope-w30 --template "$T/tpl/scope.md" --var TOPIC=w30 --koto-leg "$REQ30:scope" >/dev/null 2>&1)
+    (cd "$T" && koto next scope-w30 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"leg"}'
+    eq  "progress, leg: the leg's later result arrives through wait_leg" report_facts "$(at)"
+    eq  "progress, leg: as the leg's result" leg "$(ctx report_source)"
+    start
+    rows '[]'
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"progress","unit":"nobody","report":"Checkpoint 1 reached."}'
+    eq  "progress: from a topic with no holding goes back to wait" wait "$(at)"
+fi
 
 # --- the message path ---------------------------------------------------------------------------------
 
+# w1 is the leg path's worker, whose leg holds the result it promoted
+# there; the leg path runs under every route, so REQ is set here.
+
 rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:scope\"},
        {\"worker\":\"w3\",\"dispatch_status\":\"dispatched\",\"return_path\":\"message\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w3","report":"PR #9 is ready; CI is green."}'
-eq  "message: a message-path worker's report reaches report_facts" report_facts "$(at)"
-eq  "message: its text is the report" "PR #9 is ready; CI is green." "$(ctx worker_report)"
+if section "" "the message path: a message-path worker's report"; then
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","unit":"w3","report":"PR #9 is ready; CI is green."}'
+    eq  "message: a message-path worker's report reaches report_facts" report_facts "$(at)"
+    eq  "message: its text is the report" "PR #9 is ready; CI is green." "$(ctx worker_report)"
+fi
 
-# A leg-bound worker whose leg is still open here reports through it, so its
-# message goes back to the hub; one whose leg already holds its promoted
-# result (w1's, read above) can only report by message now, and it stands
-# (PRD R16).
-REQ6=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w6"}' \
-    --requested-by coord --coordinator-of-record coordinate-w6 | jq -r .request_id)
-SAVED_ROWS=$(cat "$ST/rows.json")
-rows "$(jq -c --arg r "leg $REQ6:scope" '. + [{worker: "w6", dispatch_status: "dispatched", return_path: $r}]' <<<"$SAVED_ROWS")"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w6","report":"done, trust me"}'
-eq  "message: a message for a leg-bound worker whose leg is open goes back to wait" wait "$(at)"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w1","report":"one more thing.\n\nQuestions:\n1. Should the loader pin v2?"}'
-eq  "message: a message for a worker whose leg holds its result reaches report_facts" report_facts "$(at)"
-eq  "  ... as a message report" message "$(ctx report_source)"
-rows "$SAVED_ROWS"
+if section "deliver execute scope work-on" "the message path: a message from a leg-bound worker"; then
+    # A leg-bound worker whose leg is still open here reports through it, so its
+    # message goes back to the hub; one whose leg already holds its promoted
+    # result (w1's, read above) can only report by message now, and it stands
+    # (PRD R16).
+    REQ6=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w6"}' \
+        --requested-by coord --coordinator-of-record coordinate-w6 | jq -r .request_id)
+    SAVED_ROWS=$(cat "$ST/rows.json")
+    rows "$(jq -c --arg r "leg $REQ6:scope" '. + [{worker: "w6", dispatch_status: "dispatched", return_path: $r}]' <<<"$SAVED_ROWS")"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","unit":"w6","report":"done, trust me"}'
+    eq  "message: a message for a leg-bound worker whose leg is open goes back to wait" wait "$(at)"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","unit":"w1","report":"one more thing.\n\nQuestions:\n1. Should the loader pin v2?"}'
+    eq  "message: a message for a worker whose leg holds its result reaches report_facts" report_facts "$(at)"
+    eq  "  ... as a message report" message "$(ctx report_source)"
+    rows "$SAVED_ROWS"
+fi
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w3"}'
-eq  "message: a report with no text holds" take_report "$(at)"
-(cd "$W" && koto overrides record "$SESS" --gate report_present --rationale "claim" >/dev/null 2>&1)
-tick
-eq  "message: an override record can't stand in for the text" take_report "$(at)"
-tick --with-data '{"withdrawn":"withdrawn"}'
-eq  "message: withdrawn returns to the hub" wait "$(at)"
-eq  "message: the hub clears the report's topic" "" "$(ctx report_topic)"
+if section "" "the message path: a report with no text or no topic"; then
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","unit":"w3"}'
+    eq  "message: a report with no text holds" take_report "$(at)"
+    (cd "$W" && koto overrides record "$SESS" --gate report_present --rationale "claim" >/dev/null 2>&1)
+    tick
+    eq  "message: an override record can't stand in for the text" take_report "$(at)"
+    tick --with-data '{"withdrawn":"withdrawn"}'
+    eq  "message: withdrawn returns to the hub" wait "$(at)"
+    eq  "message: the hub clears the report's topic" "" "$(ctx report_topic)"
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w3","report":"   "}'
-eq  "message: a report of only whitespace holds" take_report "$(at)"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","unit":"w3","report":"   "}'
+    eq  "message: a report of only whitespace holds" take_report "$(at)"
 
-# A report with no topic can't be checked against the record: it holds, no
-# override record moves it, and withdrawn is its way back.
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","report":"done"}'
-eq  "message: a report naming no worker holds" take_report "$(at)"
-(cd "$W" && koto overrides record "$SESS" --gate report_source_ok --rationale "claim" >/dev/null 2>&1)
-tick
-eq  "message: an override record can't stand in for the source check" take_report "$(at)"
-tick --with-data '{"withdrawn":"withdrawn"}'
-eq  "message: withdrawn returns to the hub when the record can't be read for it" wait "$(at)"
+    # A report with no topic can't be checked against the record: it holds, no
+    # override record moves it, and withdrawn is its way back.
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","report":"done"}'
+    eq  "message: a report naming no worker holds" take_report "$(at)"
+    (cd "$W" && koto overrides record "$SESS" --gate report_source_ok --rationale "claim" >/dev/null 2>&1)
+    tick
+    eq  "message: an override record can't stand in for the source check" take_report "$(at)"
+    tick --with-data '{"withdrawn":"withdrawn"}'
+    eq  "message: withdrawn returns to the hub when the record can't be read for it" wait "$(at)"
 
-# A report that can never be checked goes to the human rather than back.
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","report":"done"}'
-tick --with-data '{"withdrawn":"unreadable"}'
-eq  "message: a report that can never be checked goes to the human" surface "$(at)"
+    # A report that can never be checked goes to the human rather than back.
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","report":"done"}'
+    tick --with-data '{"withdrawn":"unreadable"}'
+    eq  "message: a report that can never be checked goes to the human" surface "$(at)"
+fi
 
-# The context keys a leg report rests on can be rewritten in the session; a
-# report rewritten that way is refused because it isn't what koto holds for
-# the leg.
-rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:scope\"},
-       {\"worker\":\"w3\",\"dispatch_status\":\"dispatched\",\"return_path\":\"message\"}]"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w3"}'
-put report_topic w1
-put report_source leg
-put wait_target "{\"path\":\"leg\",\"topic\":\"w1\",\"request\":\"$REQ\",\"leg\":\"scope\",\"disposition\":\"resolved\"}"
-put worker_report "leg result: status success; final state done; outcome scoped; step ; reason ; pull request https://github.com/acme/widgets/pull/666"
-tick
-eq  "message: a leg report rewritten in context is refused, and goes to the human" surface "$(at)"
-eq  "message: that surface step still names the worker" w1 "$(ctx report_topic)"
-eq  "message: and the rewritten report is cleared" "" "$(ctx worker_report)"
+if section "deliver execute scope work-on" "the message path: a leg report rewritten in context"; then
+    # The context keys a leg report rests on can be rewritten in the session; a
+    # report rewritten that way is refused because it isn't what koto holds for
+    # the leg.
+    rows "[{\"worker\":\"w1\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ:scope\"},
+           {\"worker\":\"w3\",\"dispatch_status\":\"dispatched\",\"return_path\":\"message\"}]"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"report","unit":"w3"}'
+    put report_topic w1
+    put report_source leg
+    put wait_target "{\"path\":\"leg\",\"topic\":\"w1\",\"request\":\"$REQ\",\"leg\":\"scope\",\"disposition\":\"resolved\"}"
+    put worker_report "leg result: status success; final state done; outcome scoped; step ; reason ; pull request https://github.com/acme/widgets/pull/666"
+    tick
+    eq  "message: a leg report rewritten in context is refused, and goes to the human" surface "$(at)"
+    eq  "message: that surface step still names the worker" w1 "$(ctx report_topic)"
+    eq  "message: and the rewritten report is cleared" "" "$(ctx worker_report)"
+fi
 
 # --- teardown ------------------------------------------------------------------------------------------
 
-export O="$T/origin.git"
-git init -q --bare "$O"
-# Clones name a github.com origin, as a worker's do; git rewrites it to the
-# local bare repository.
-GHURL=https://github.com/acme/widgets
-git config --file "$HOME/.gitconfig" "url.$O.insteadOf" "$GHURL"
-git config --file "$HOME/.gitconfig" --add "url.$O.insteadOf" "$GHURL.git"
-git config --file "$HOME/.gitconfig" protocol.file.allow always
-git clone -q "$O" "$T/seed" 2>/dev/null
-printf 'a\n' >"$T/seed/a.txt"
-git -C "$T/seed" add a.txt && git -C "$T/seed" commit -q -m init && git -C "$T/seed" branch -M main && git -C "$T/seed" push -q origin main
-git --git-dir="$O" symbolic-ref HEAD refs/heads/main
-mkdir -p "$T/inst-clean" "$T/inst-dirty"
-git clone -q "$GHURL" "$T/inst-clean/repo"
-git clone -q "$GHURL" "$T/inst-dirty/repo"
-printf 'x\n' >>"$T/inst-dirty/repo/a.txt"
-printf '[{"name":"a","path":"%s","session_name":"w5-1a2b3c4d"},{"name":"b","path":"%s","session_name":"w6-1a2b3c4d"}]\n' \
-    "$T/inst-clean" "$T/inst-dirty" >"$ST/sessions.json"
+if section "" "teardown"; then
+    export O="$T/origin.git"
+    git init -q --bare "$O"
+    # Clones name a github.com origin, as a worker's do; git rewrites it to the
+    # local bare repository.
+    GHURL=https://github.com/acme/widgets
+    git config --file "$HOME/.gitconfig" "url.$O.insteadOf" "$GHURL"
+    git config --file "$HOME/.gitconfig" --add "url.$O.insteadOf" "$GHURL.git"
+    git config --file "$HOME/.gitconfig" protocol.file.allow always
+    git clone -q "$O" "$T/seed" 2>/dev/null
+    printf 'a\n' >"$T/seed/a.txt"
+    git -C "$T/seed" add a.txt && git -C "$T/seed" commit -q -m init && git -C "$T/seed" branch -M main && git -C "$T/seed" push -q origin main
+    git --git-dir="$O" symbolic-ref HEAD refs/heads/main
+    mkdir -p "$T/inst-clean" "$T/inst-dirty"
+    git clone -q "$GHURL" "$T/inst-clean/repo"
+    git clone -q "$GHURL" "$T/inst-dirty/repo"
+    printf 'x\n' >>"$T/inst-dirty/repo/a.txt"
+    printf '[{"name":"a","path":"%s","session_name":"w5-1a2b3c4d"},{"name":"b","path":"%s","session_name":"w6-1a2b3c4d"}]\n' \
+        "$T/inst-clean" "$T/inst-dirty" >"$ST/sessions.json"
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"retire","unit":"w5"}'
-eq  "teardown: retire arrives at teardown, before any inventory" teardown "$(at)"
-eq  "teardown: teardown_topic is the worker" w5 "$(ctx teardown_topic)"
-tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: a durable instance goes on to teardown_handoff" teardown_handoff "$(at)"
-case "$(ctx teardown_verdict)" in
-    *"instance $T/inst-clean"*) pass "teardown: the sealed verdict names the inventoried instance" ;;
-    *) fail "teardown: the sealed verdict names the inventoried instance" "$(ctx teardown_verdict)" ;;
-esac
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"retire","unit":"w5"}'
+    eq  "teardown: retire arrives at teardown, before any inventory" teardown "$(at)"
+    eq  "teardown: teardown_topic is the worker" w5 "$(ctx teardown_topic)"
+    tick --with-data '{"teardown":"stopped"}'
+    eq  "teardown: a durable instance goes on to teardown_handoff" teardown_handoff "$(at)"
+    case "$(ctx teardown_verdict)" in
+        *"instance $T/inst-clean"*) pass "teardown: the sealed verdict names the inventoried instance" ;;
+        *) fail "teardown: the sealed verdict names the inventoried instance" "$(ctx teardown_verdict)" ;;
+    esac
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"retire","unit":"w6"}'
-tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: an instance with unique material goes to promote" promote "$(at)"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"retire","unit":"w6"}'
+    tick --with-data '{"teardown":"stopped"}'
+    eq  "teardown: an instance with unique material goes to promote" promote "$(at)"
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"retire","unit":"w6"}'
-(cd "$W" && koto overrides record "$SESS" --gate inventory_durable --rationale "claim" >/dev/null 2>&1)
-tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: an override record can't stand in for the inventory" promote "$(at)"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"retire","unit":"w6"}'
+    (cd "$W" && koto overrides record "$SESS" --gate inventory_durable --rationale "claim" >/dev/null 2>&1)
+    tick --with-data '{"teardown":"stopped"}'
+    eq  "teardown: an override record can't stand in for the inventory" promote "$(at)"
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"retire","unit":"w5"}'
-tick --with-data '{"teardown":"kept"}'
-eq  "teardown: kept goes to record with no inventory" record "$(at)"
-eq  "teardown: leaving teardown clears teardown_topic" "" "$(ctx teardown_topic)"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"retire","unit":"w5"}'
+    tick --with-data '{"teardown":"kept"}'
+    eq  "teardown: kept goes to record with no inventory" record "$(at)"
+    eq  "teardown: leaving teardown clears teardown_topic" "" "$(ctx teardown_topic)"
 
 
-# A worker niwa lists no instance for is sealed absent, not as an error: a
-# stop that found nothing to stop goes back to teardown with the topic kept
-# (the coordinator then says whether it was removed), rather than holding the
-# run at the inventory or sending it to the human.
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"retire","unit":"w9"}'
-tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: no instance for a stopped worker goes back to teardown" teardown "$(at)"
-eq  "teardown: with teardown_topic kept" w9 "$(ctx teardown_topic)"
-case "$(ctx teardown_verdict)" in
-    absent*) pass "teardown: that verdict is sealed as absent" ;;
-    *) fail "teardown: that verdict is sealed as absent" "$(ctx teardown_verdict)" ;;
-esac
+    # A worker niwa lists no instance for is sealed absent, not as an error: a
+    # stop that found nothing to stop goes back to teardown with the topic kept
+    # (the coordinator then says whether it was removed), rather than holding the
+    # run at the inventory or sending it to the human.
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"retire","unit":"w9"}'
+    tick --with-data '{"teardown":"stopped"}'
+    eq  "teardown: no instance for a stopped worker goes back to teardown" teardown "$(at)"
+    eq  "teardown: with teardown_topic kept" w9 "$(ctx teardown_topic)"
+    case "$(ctx teardown_verdict)" in
+        absent*) pass "teardown: that verdict is sealed as absent" ;;
+        *) fail "teardown: that verdict is sealed as absent" "$(ctx teardown_verdict)" ;;
+    esac
 
-# An instance niwa lists whose directory is gone can't be inventoried: the
-# verdict is sealed as an error and goes to the human.
-jq -c --arg p "$T/inst-gone" '. + [{name: "c", path: $p, session_name: "w8-1a2b3c4d"}]' "$ST/sessions.json" >"$ST/s.tmp" && mv "$ST/s.tmp" "$ST/sessions.json"
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"retire","unit":"w8"}'
-tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: a listed instance with no directory goes to surface" surface "$(at)"
-case "$(ctx teardown_verdict)" in
-    error*) pass "teardown: that verdict is sealed as an error" ;;
-    *) fail "teardown: that verdict is sealed as an error" "$(ctx teardown_verdict)" ;;
-esac
+    # An instance niwa lists whose directory is gone can't be inventoried: the
+    # verdict is sealed as an error and goes to the human.
+    jq -c --arg p "$T/inst-gone" '. + [{name: "c", path: $p, session_name: "w8-1a2b3c4d"}]' "$ST/sessions.json" >"$ST/s.tmp" && mv "$ST/s.tmp" "$ST/sessions.json"
+    start
+    tick --with-data '{"go":"wait"}'
+    tick --with-data '{"event":"retire","unit":"w8"}'
+    tick --with-data '{"teardown":"stopped"}'
+    eq  "teardown: a listed instance with no directory goes to surface" surface "$(at)"
+    case "$(ctx teardown_verdict)" in
+        error*) pass "teardown: that verdict is sealed as an error" ;;
+        *) fail "teardown: that verdict is sealed as an error" "$(ctx teardown_verdict)" ;;
+    esac
+fi
 
 echo
 echo "dispatch-path engine: $PASS passed, $FAIL failed"

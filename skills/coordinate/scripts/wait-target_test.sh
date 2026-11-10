@@ -17,10 +17,37 @@
 # and refused for a leg-bound one watched here or an unknown topic, and
 # malformed inputs.
 #
-# Usage: bash skills/coordinate/scripts/wait-target_test.sh
-# Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
+# Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
+# `work-on`. wait-target.sh and report-source.sh never read an entry point: a
+# leg is a request and a leg name read off the holding, and every leg-bound
+# worker's result comes back through the same select, leg and source check
+# (coordinate.md's wait_leg reads the templated {{WAIT_LEG}}). So the sections
+# on that return path walk all four on purpose, whichever leg names their
+# fixtures use. The usage refusals and the koto-call count, which walk no
+# hand-off, run only with HANDOFF_ROUTE unset. HANDOFF_ROUTE=<route> runs only
+# the sections on the hand-off to that entry point; with it unset every
+# section runs. scripts/check-handoff.sh sets it for its routes check.
+#
+# Usage: [HANDOFF_ROUTE=deliver|execute|scope|work-on] bash skills/coordinate/scripts/wait-target_test.sh
+# Exit codes: 0 all pass; 1 a failure, or a HANDOFF_ROUTE this suite has no
+# sections for. Needs jq. bash 3.2.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+
+ROUTE=${HANDOFF_ROUTE:-}
+case "$ROUTE" in
+    ''|deliver|execute|scope|work-on) ;;
+    *) echo "FAIL HANDOFF_ROUTE=$ROUTE: this suite's routes are deliver, execute, scope and work-on"; exit 1 ;;
+esac
+# section <routes> <title>: print the section's header and succeed when it
+# runs under HANDOFF_ROUTE, or fail so the caller skips it. An empty <routes>
+# runs only with HANDOFF_ROUTE unset.
+section() {
+    if [ -n "$ROUTE" ]; then
+        case " $1 " in *" $ROUTE "*) ;; *) return 1 ;; esac
+    fi
+    echo "== $2 =="
+}
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 S="$HERE/wait-target.sh"
@@ -111,267 +138,277 @@ ROWS='[
 
 # --- select --------------------------------------------------------------------------------
 
-reset "$ROWS"
-req req_a scope open; req req_g execute resolved; req req_d scope resolved
-eq  "select: a resolved leg over an older open one" req_g "$(sel)"
-eq  "select: wait_target path" leg "$(target .path)"
-eq  "select: wait_target topic" gamma "$(target .topic)"
-eq  "select: wait_target leg" execute "$(target .leg)"
-# Both captures (WAIT_REQ from select, WAIT_LEG from leg) must be characters
-# koto admits in a capture.
-safe() { if grep -Eq '^[A-Za-z0-9 :/_.@-]+$' <<<"$2"; then ok "$1"; else bad "$1" "$2"; fi; }
-safe "capture: select's request id is capture-safe" "$(sel)"
-safe "capture: leg's leg name is capture-safe" "$(bash "$S" leg --session coord)"
-reset '[]'
-safe "capture: none is capture-safe" "$(sel)"
-reset "$ROWS"
-req req_a scope open; req req_g execute resolved; req req_d scope resolved
+if section "deliver execute scope work-on" "select"; then
+    reset "$ROWS"
+    req req_a scope open; req req_g execute resolved; req req_d scope resolved
+    eq  "select: a resolved leg over an older open one" req_g "$(sel)"
+    eq  "select: wait_target path" leg "$(target .path)"
+    eq  "select: wait_target topic" gamma "$(target .topic)"
+    eq  "select: wait_target leg" execute "$(target .leg)"
+    # Both captures (WAIT_REQ from select, WAIT_LEG from leg) must be characters
+    # koto admits in a capture.
+    safe() { if grep -Eq '^[A-Za-z0-9 :/_.@-]+$' <<<"$2"; then ok "$1"; else bad "$1" "$2"; fi; }
+    safe "capture: select's request id is capture-safe" "$(sel)"
+    safe "capture: leg's leg name is capture-safe" "$(bash "$S" leg --session coord)"
+    reset '[]'
+    safe "capture: none is capture-safe" "$(sel)"
+    reset "$ROWS"
+    req req_a scope open; req req_g execute resolved; req req_d scope resolved
 
-reset "$ROWS"
-req req_a scope open; req req_g execute abandoned
-eq  "select: an abandoned leg counts as waiting" req_g "$(sel)"
+    reset "$ROWS"
+    req req_a scope open; req req_g execute abandoned
+    eq  "select: an abandoned leg counts as waiting" req_g "$(sel)"
 
-reset "$ROWS"
-req req_a scope open; req req_g execute missing-ignored
-printf '{"request_id":"req_g","legs":{}}\n' >"$ST/req/req_g.json"
-eq  "select: a leg missing from its request counts as waiting" req_g "$(sel)"
+    reset "$ROWS"
+    req req_a scope open; req req_g execute missing-ignored
+    printf '{"request_id":"req_g","legs":{}}\n' >"$ST/req/req_g.json"
+    eq  "select: a leg missing from its request counts as waiting" req_g "$(sel)"
 
-reset "$ROWS"
-req req_a scope open; req req_g execute open
-eq  "select: the oldest open leg when none resolved" req_a "$(sel)"
+    reset "$ROWS"
+    req req_a scope open; req req_g execute open
+    eq  "select: the oldest open leg when none resolved" req_a "$(sel)"
 
-# delta is still dispatching; its leg has resolved, and it comes first. It
-# must not be picked: only a dispatched worker is watched.
-reset '[
- {"worker":"delta","dispatch_status":"dispatching","return_path":"leg req_d:scope"},
- {"worker":"alpha","dispatch_status":"dispatched","return_path":"leg req_a:scope"}
-]'
-req req_d scope resolved; req req_a scope open
-eq  "select: skips a holding that isn't dispatched yet" req_a "$(sel)"
+    # delta is still dispatching; its leg has resolved, and it comes first. It
+    # must not be picked: only a dispatched worker is watched.
+    reset '[
+     {"worker":"delta","dispatch_status":"dispatching","return_path":"leg req_d:scope"},
+     {"worker":"alpha","dispatch_status":"dispatched","return_path":"leg req_a:scope"}
+    ]'
+    req req_d scope resolved; req req_a scope open
+    eq  "select: skips a holding that isn't dispatched yet" req_a "$(sel)"
 
-# A leg read once isn't read again.
-reset "$ROWS"
-req req_a scope open; req req_g execute resolved
-eq  "taken: the resolved leg first" req_g "$(sel)"
-eq  "taken: its disposition recorded" resolved "$(target .disposition)"
-bash "$S" leg --session coord >/dev/null
-eq  "taken: reading a resolved leg marks it taken" "req_g:execute" "$(cat "$ST/ctx/taken_legs")"
-eq  "taken: the next pick skips it" req_a "$(sel)"
-bash "$S" leg --session coord >/dev/null
-eq  "taken: reading an open leg doesn't mark it" "req_g:execute" "$(cat "$ST/ctx/taken_legs")"
-# The leg resolves after select picked it open: the next tick's leg run sees
-# it resolved and marks it, so it's never read twice.
-req req_a scope resolved
-bash "$S" leg --session coord >/dev/null
-eq  "taken: a leg that resolved after select is marked on the tick that takes it" "req_a:scope
-req_g:execute" "$(cat "$ST/ctx/taken_legs")"
-eq  "taken: and isn't picked again" none "$(sel)"
+    # A leg read once isn't read again.
+    reset "$ROWS"
+    req req_a scope open; req req_g execute resolved
+    eq  "taken: the resolved leg first" req_g "$(sel)"
+    eq  "taken: its disposition recorded" resolved "$(target .disposition)"
+    bash "$S" leg --session coord >/dev/null
+    eq  "taken: reading a resolved leg marks it taken" "req_g:execute" "$(cat "$ST/ctx/taken_legs")"
+    eq  "taken: the next pick skips it" req_a "$(sel)"
+    bash "$S" leg --session coord >/dev/null
+    eq  "taken: reading an open leg doesn't mark it" "req_g:execute" "$(cat "$ST/ctx/taken_legs")"
+    # The leg resolves after select picked it open: the next tick's leg run sees
+    # it resolved and marks it, so it's never read twice.
+    req req_a scope resolved
+    bash "$S" leg --session coord >/dev/null
+    eq  "taken: a leg that resolved after select is marked on the tick that takes it" "$(printf 'req_a:scope\nreq_g:execute')" "$(cat "$ST/ctx/taken_legs")"
+    eq  "taken: and isn't picked again" none "$(sel)"
 
-reset "$ROWS"
-req req_g execute open
-eq  "select: a request koto can't read is skipped, not routed" req_g "$(sel 2>/dev/null)"
+    reset "$ROWS"
+    req req_g execute open
+    eq  "select: a request koto can't read is skipped, not routed" req_g "$(sel 2>/dev/null)"
 
-reset '[{"worker":"beta","dispatch_status":"dispatched","return_path":"message"}]'
-eq  "select: nothing to watch prints none" none "$(sel)"
-eq  "select: nothing to watch writes path none" none "$(target .path)"
+    reset '[{"worker":"beta","dispatch_status":"dispatched","return_path":"message"}]'
+    eq  "select: nothing to watch prints none" none "$(sel)"
+    eq  "select: nothing to watch writes path none" none "$(target .path)"
 
-reset '[]'
-eq  "select: an empty record prints none" none "$(sel)"
+    reset '[]'
+    eq  "select: an empty record prints none" none "$(sel)"
 
-reset "$ROWS"
-export RECORD_MODE=refuse
-sel >/dev/null 2>&1; eq "select: a refused record read is exit 10" 10 "$?"
+    reset "$ROWS"
+    export RECORD_MODE=refuse
+    sel >/dev/null 2>&1; eq "select: a refused record read is exit 10" 10 "$?"
 
-# A paused holding's leg is passed over and left untaken.
-PROWS='[
- {"worker":"alpha","unit":"Feature 2","dispatch_status":"dispatched","return_path":"leg req_a:scope"},
- {"worker":"gamma","unit":"Feature 3","dispatch_status":"dispatched","return_path":"leg req_g:execute"}
-]'
-pause_state() { # pause_state <on>: one lifted pause on <on>
-    jq -nc --arg o "$1" '{run: [], work: [], standing: [{standing: "s1", kind: "pause", on: $o, until: "lifted", what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}]}' >"$ST/state.json"
-}
-reset "$PROWS"
-req req_a scope open; req req_g execute resolved
-pause_state "Feature 3"
-eq  "select: a paused holding's resolved leg is passed over for an unpaused open one" req_a "$(sel)"
-eq  "select: wait_target names the topic passed over" '["gamma"]' "$(target '.passed_over | tojson')"
-eq  "select: the passed-over leg isn't taken" "" "$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
-pause_state all
-eq  "select: under a pause on all no leg is picked" none "$(sel)"
-eq  "select: and both topics are named passed over" '["alpha","gamma"]' "$(target '.passed_over | tojson')"
-rm -f "$ST/state.json"
-eq  "select: after the resume the resolved leg is offered first" req_g "$(sel)"
+    # A paused holding's leg is passed over and left untaken.
+    PROWS='[
+     {"worker":"alpha","unit":"Feature 2","dispatch_status":"dispatched","return_path":"leg req_a:scope"},
+     {"worker":"gamma","unit":"Feature 3","dispatch_status":"dispatched","return_path":"leg req_g:execute"}
+    ]'
+    pause_state() { # pause_state <on>: one lifted pause on <on>
+        jq -nc --arg o "$1" '{run: [], work: [], standing: [{standing: "s1", kind: "pause", on: $o, until: "lifted", what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}]}' >"$ST/state.json"
+    }
+    reset "$PROWS"
+    req req_a scope open; req req_g execute resolved
+    pause_state "Feature 3"
+    eq  "select: a paused holding's resolved leg is passed over for an unpaused open one" req_a "$(sel)"
+    eq  "select: wait_target names the topic passed over" '["gamma"]' "$(target '.passed_over | tojson')"
+    eq  "select: the passed-over leg isn't taken" "" "$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
+    pause_state all
+    eq  "select: under a pause on all no leg is picked" none "$(sel)"
+    eq  "select: and both topics are named passed over" '["alpha","gamma"]' "$(target '.passed_over | tojson')"
+    rm -f "$ST/state.json"
+    eq  "select: after the resume the resolved leg is offered first" req_g "$(sel)"
+fi
 
-bash "$S" select --session coord --watch-secs 5 >/dev/null 2>&1; eq "usage: an unknown flag is 64" 64 "$?"
-bash "$S" nope --session coord >/dev/null 2>&1; eq "usage: an unknown mode is 64" 64 "$?"
+if section "" "usage"; then
+    bash "$S" select --session coord --watch-secs 5 >/dev/null 2>&1; eq "usage: an unknown flag is 64" 64 "$?"
+    bash "$S" nope --session coord >/dev/null 2>&1; eq "usage: an unknown mode is 64" 64 "$?"
+fi
 
 # --- leg ---------------------------------------------------------------------------------------------
 
-reset "$ROWS"
-req req_g execute resolved
-sel >/dev/null
-eq  "leg: prints the leg" execute "$(bash "$S" leg --session coord)"
-eq  "leg: writes report_topic" gamma "$(cat "$ST/ctx/report_topic")"
-printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
-bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: no leg is exit 1" 1 "$?"
-printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"bad leg"}\n' >"$ST/ctx/wait_target"
-bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: a malformed leg is exit 2" 2 "$?"
+if section "deliver execute scope work-on" "leg"; then
+    reset "$ROWS"
+    req req_g execute resolved
+    sel >/dev/null
+    eq  "leg: prints the leg" execute "$(bash "$S" leg --session coord)"
+    eq  "leg: writes report_topic" gamma "$(cat "$ST/ctx/report_topic")"
+    printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
+    bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: no leg is exit 1" 1 "$?"
+    printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"bad leg"}\n' >"$ST/ctx/wait_target"
+    bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: a malformed leg is exit 2" 2 "$?"
+fi
 
 # --- the leg keys (PRD R13) ------------------------------------------------------------------------------
 
-key() { cat "$ST/ctx/legs/$1/$2" 2>/dev/null; }
-mkkey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg t "$3" '{request: $r, leg: $l, topic: $t, state: "open", templates: ["scope.md"], inputs: {TOPIC: "x"}}' >"$ST/ctx/legs/$1/$2"; }
-reset "$ROWS"
-printf '{"request_id":"req_a","legs":{"scope":{"name":"scope","disposition":"open","bound_child":"scope-x"}}}\n' >"$ST/req/req_a.json"
-req req_g execute open
-mkkey req_a scope alpha; mkkey req_g execute gamma
-sel >/dev/null
-eq  "child: select records the bound child's name in the leg's key" scope-x "$(key req_a scope | jq -r .child)"
-eq  "  ... and changes nothing else in it" open "$(key req_a scope | jq -r .state)"
-eq  "  ... and a leg nobody attached to gets no child" null "$(key req_g execute | jq -r .child)"
-eq  "  ... and leg_children lists the recorded leg" req_a:scope "$(cat "$ST/ctx/leg_children")"
-: >"$ST/calls.log"
-sel >/dev/null
-eq  "child: the next select writes no key again" "" "$(grep 'add legs/' "$ST/calls.log")"
-rm -rf "$ST/ctx/legs" "$ST/ctx/leg_children"
-sel >/dev/null; eq "child: a leg with no key (opened before keys) is passed over without a failure" 0 "$?"
-eq  "  ... and no key is made for it" "" "$(ls "$ST/ctx/legs" 2>/dev/null)"
+if section "deliver execute scope work-on" "the leg keys"; then
+    key() { cat "$ST/ctx/legs/$1/$2" 2>/dev/null; }
+    mkkey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg t "$3" '{request: $r, leg: $l, topic: $t, state: "open", templates: ["scope.md"], inputs: {TOPIC: "x"}}' >"$ST/ctx/legs/$1/$2"; }
+    reset "$ROWS"
+    printf '{"request_id":"req_a","legs":{"scope":{"name":"scope","disposition":"open","bound_child":"scope-x"}}}\n' >"$ST/req/req_a.json"
+    req req_g execute open
+    mkkey req_a scope alpha; mkkey req_g execute gamma
+    sel >/dev/null
+    eq  "child: select records the bound child's name in the leg's key" scope-x "$(key req_a scope | jq -r .child)"
+    eq  "  ... and changes nothing else in it" open "$(key req_a scope | jq -r .state)"
+    eq  "  ... and a leg nobody attached to gets no child" null "$(key req_g execute | jq -r .child)"
+    eq  "  ... and leg_children lists the recorded leg" req_a:scope "$(cat "$ST/ctx/leg_children")"
+    : >"$ST/calls.log"
+    sel >/dev/null
+    eq  "child: the next select writes no key again" "" "$(grep 'add legs/' "$ST/calls.log")"
+    rm -rf "$ST/ctx/legs" "$ST/ctx/leg_children"
+    sel >/dev/null; eq "child: a leg with no key (opened before keys) is passed over without a failure" 0 "$?"
+    eq  "  ... and no key is made for it" "" "$(ls "$ST/ctx/legs" 2>/dev/null)"
 
-reset "$ROWS"
-printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","bound_child":"execute-p","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
-mkkey req_g execute gamma
-sel >/dev/null
-bash "$S" leg --session coord >/dev/null
-eq  "taken: the leg mode marks a promoted result's key taken" taken "$(key req_g execute | jq -r .state)"
-eq  "  ... with the result beside it, before take_report reads anything" \
-    '{"status":"success","final_state":"done","source":"promoted","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}' \
-    "$(key req_g execute | jq -c .result)"
-eq  "  ... and keeps the declaration" '{"TOPIC":"x"}' "$(key req_g execute | jq -c .inputs)"
-reset "$ROWS"
-req req_g execute abandoned
-mkkey req_g execute gamma
-sel >/dev/null; bash "$S" leg --session coord >/dev/null
-eq  "spent: an abandoned leg's key reads spent" spent "$(key req_g execute | jq -r .state)"
-reset "$ROWS"
-req req_g execute abandoned
-sel >/dev/null; bash "$S" leg --session coord >/dev/null
-eq  "spent: a leg with no key gets one naming its worker" "gamma spent" "$(key req_g execute | jq -r '"\(.topic) \(.state)"')"
-mkdir -p "$ST/ctx/legs/req_g"; jq -c '.state = "taken"' "$ST/ctx/legs/req_g/execute" >"$ST/x" && mv "$ST/x" "$ST/ctx/legs/req_g/execute"
-bash "$S" leg --session coord >/dev/null
-eq  "  ... and a key already marked keeps its state" taken "$(key req_g execute | jq -r .state)"
+    reset "$ROWS"
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","bound_child":"execute-p","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
+    mkkey req_g execute gamma
+    sel >/dev/null
+    bash "$S" leg --session coord >/dev/null
+    eq  "taken: the leg mode marks a promoted result's key taken" taken "$(key req_g execute | jq -r .state)"
+    eq  "  ... with the result beside it, before take_report reads anything" \
+        '{"status":"success","final_state":"done","source":"promoted","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}' \
+        "$(key req_g execute | jq -c .result)"
+    eq  "  ... and keeps the declaration" '{"TOPIC":"x"}' "$(key req_g execute | jq -c .inputs)"
+    reset "$ROWS"
+    req req_g execute abandoned
+    mkkey req_g execute gamma
+    sel >/dev/null; bash "$S" leg --session coord >/dev/null
+    eq  "spent: an abandoned leg's key reads spent" spent "$(key req_g execute | jq -r .state)"
+    reset "$ROWS"
+    req req_g execute abandoned
+    sel >/dev/null; bash "$S" leg --session coord >/dev/null
+    eq  "spent: a leg with no key gets one naming its worker" "gamma spent" "$(key req_g execute | jq -r '"\(.topic) \(.state)"')"
+    mkdir -p "$ST/ctx/legs/req_g"; jq -c '.state = "taken"' "$ST/ctx/legs/req_g/execute" >"$ST/x" && mv "$ST/x" "$ST/ctx/legs/req_g/execute"
+    bash "$S" leg --session coord >/dev/null
+    eq  "  ... and a key already marked keeps its state" taken "$(key req_g execute | jq -r .state)"
+fi
 
 # --- report-source.sh ----------------------------------------------------------------------------------
 
-src() { printf '%s' "$1" >"$ST/ctx/report_topic"; printf '%s' "$2" >"$ST/ctx/report_source"; bash "$R" --session coord >/dev/null 2>&1; echo $?; }
-reset "$ROWS"
-# req_g's execute leg, resolved with a result gamma's own session promoted, and
-# the report wait_leg's edge builds from it.
-printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
-LEGREPORT='leg result: status success; final state done; outcome ready; step ; reason ; pull request https://github.com/acme/widgets/pull/9'
-printf '%s' "$LEGREPORT" >"$ST/ctx/worker_report"
-printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"
-eq  "source: a leg report from the recorded leg the wait read is admitted" 0 "$(src gamma leg)"
-# Values rendered as koto renders them into the edge: false as `false`, and a
-# payload that isn't an object as empty fields.
-printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":{"outcome":false,"step":3}}}}}\n' >"$ST/req/req_g.json"
-printf '%s' 'leg result: status success; final state done; outcome false; step 3; reason ; pull request ' >"$ST/ctx/worker_report"
-eq  "source: false and a number render as koto renders them" 0 "$(src gamma leg)"
-printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":"a string"}}}}\n' >"$ST/req/req_g.json"
-printf '%s' 'leg result: status success; final state done; outcome ; step ; reason ; pull request ' >"$ST/ctx/worker_report"
-eq  "source: a payload that isn't an object renders as empty fields" 0 "$(src gamma leg)"
-printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
-printf '%s' "${LEGREPORT%/9}/66" >"$ST/ctx/worker_report"
-eq  "source: a leg report that isn't the leg's promoted result is refused as a spent leg" 3 "$(src gamma leg)"
-printf '%s' "$LEGREPORT" >"$ST/ctx/worker_report"
-jq -c '.legs.execute.result_source = "explicit"' "$ST/req/req_g.json" >"$ST/req/x" && mv "$ST/req/x" "$ST/req/req_g.json"
-eq  "source: a leg whose result its session didn't promote is refused as a spent leg" 3 "$(src gamma leg)"
-rm -f "$ST/req/req_g.json"
-eq  "source: a request koto can't read is 2" 2 "$(src gamma leg)"
-printf '{"path":"leg","topic":"beta","request":"req_b","leg":"scope"}\n' >"$ST/ctx/wait_target"
-eq  "source: a leg report for a message-path worker goes to the human, even when the wait names it" 3 "$(src beta leg)"
-printf '{"path":"leg","topic":"gamma","request":"req_other","leg":"execute"}\n' >"$ST/ctx/wait_target"
-eq  "source: a leg report whose read leg isn't the recorded one goes to the human" 3 "$(src gamma leg)"
-printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
-eq  "source: a leg report with no leg read goes to the human" 3 "$(src gamma leg)"
-eq  "source: a leg report for a topic with no holding goes to the human" 3 "$(src nobody leg)"
-eq  "source: a message for a message-path worker is admitted" 0 "$(src beta message)"
-jq -c 'map(if .worker == "beta" then .dispatch_status = "stranded" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
-eq  "source: a message for a stranded worker is refused" 1 "$(src beta message)"
-eq  "source: so is its progress" 1 "$(src beta progress)"
-jq -c 'map(if .worker == "beta" then .dispatch_status = "dispatched" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
-req req_g execute open
-eq  "source: a message for a leg-bound worker is refused" 1 "$(src gamma message)"
-# PRD R16: once the leg is read or can't be watched from here, a message is
-# the worker's only way to report, and it stands.
-legkey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg s "$3" '{request: $r, leg: $l, topic: "gamma", state: $s}' >"$ST/ctx/legs/$1/$2"; }
-legkey req_g execute taken
-eq  "source: a message for a worker whose leg was taken is admitted" 0 "$(src gamma message)"
-legkey req_g execute unwatchable
-eq  "source: a message for a worker whose leg is unwatchable is admitted" 0 "$(src gamma message)"
-legkey req_g execute open
-eq  "source: a message for a worker whose leg is open here is refused" 1 "$(src gamma message)"
-printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result":{"status":"success"}}}}\n' >"$ST/req/req_g.json"
-eq  "source: a message for a worker whose leg holds its promoted result, the key not yet marked, is admitted" 0 "$(src gamma message)"
-printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"explicit","result":{"status":"failure"}}}}\n' >"$ST/req/req_g.json"
-eq  "source: one whose leg was spent without its result is refused" 1 "$(src gamma message)"
-req req_g execute open
-: >"$ST/req/req_g.gone"
-eq  "source: a message for a worker whose request this host doesn't hold is admitted" 0 "$(src gamma message)"
-rm -f "$ST/req/req_g.gone" "$ST/req/req_g.json"
-eq  "source: a message for a leg-bound worker whose request can't be read is 2" 2 "$(src gamma message)"
-rm -rf "$ST/ctx/legs"
-eq  "source: a message for an unknown topic is refused" 1 "$(src nobody message)"
-eq  "source: an unknown source is 2" 2 "$(src beta email)"
-eq  "source: a malformed topic is 2" 2 "$(src ../x message)"
-export RECORD_MODE=refuse
-eq  "source: a refused record read is 2" 2 "$(src beta message)"
-unset RECORD_MODE
-rm -f "$ST/ctx/report_source"
-bash "$R" --session coord >/dev/null 2>&1; eq "source: no report_source is 2" 2 "$?"
+if section "deliver execute scope work-on" "report-source.sh"; then
+    src() { printf '%s' "$1" >"$ST/ctx/report_topic"; printf '%s' "$2" >"$ST/ctx/report_source"; bash "$R" --session coord >/dev/null 2>&1; echo $?; }
+    reset "$ROWS"
+    # req_g's execute leg, resolved with a result gamma's own session promoted, and
+    # the report wait_leg's edge builds from it.
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
+    LEGREPORT='leg result: status success; final state done; outcome ready; step ; reason ; pull request https://github.com/acme/widgets/pull/9'
+    printf '%s' "$LEGREPORT" >"$ST/ctx/worker_report"
+    printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"execute"}\n' >"$ST/ctx/wait_target"
+    eq  "source: a leg report from the recorded leg the wait read is admitted" 0 "$(src gamma leg)"
+    # Values rendered as koto renders them into the edge: false as `false`, and a
+    # payload that isn't an object as empty fields.
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":{"outcome":false,"step":3}}}}}\n' >"$ST/req/req_g.json"
+    printf '%s' 'leg result: status success; final state done; outcome false; step 3; reason ; pull request ' >"$ST/ctx/worker_report"
+    eq  "source: false and a number render as koto renders them" 0 "$(src gamma leg)"
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":"a string"}}}}\n' >"$ST/req/req_g.json"
+    printf '%s' 'leg result: status success; final state done; outcome ; step ; reason ; pull request ' >"$ST/ctx/worker_report"
+    eq  "source: a payload that isn't an object renders as empty fields" 0 "$(src gamma leg)"
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result_final_state":"done","result":{"status":"success","payload":{"outcome":"ready","pr":"https://github.com/acme/widgets/pull/9"}}}}}\n' >"$ST/req/req_g.json"
+    printf '%s' "${LEGREPORT%/9}/66" >"$ST/ctx/worker_report"
+    eq  "source: a leg report that isn't the leg's promoted result is refused as a spent leg" 3 "$(src gamma leg)"
+    printf '%s' "$LEGREPORT" >"$ST/ctx/worker_report"
+    jq -c '.legs.execute.result_source = "explicit"' "$ST/req/req_g.json" >"$ST/req/x" && mv "$ST/req/x" "$ST/req/req_g.json"
+    eq  "source: a leg whose result its session didn't promote is refused as a spent leg" 3 "$(src gamma leg)"
+    rm -f "$ST/req/req_g.json"
+    eq  "source: a request koto can't read is 2" 2 "$(src gamma leg)"
+    printf '{"path":"leg","topic":"beta","request":"req_b","leg":"scope"}\n' >"$ST/ctx/wait_target"
+    eq  "source: a leg report for a message-path worker goes to the human, even when the wait names it" 3 "$(src beta leg)"
+    printf '{"path":"leg","topic":"gamma","request":"req_other","leg":"execute"}\n' >"$ST/ctx/wait_target"
+    eq  "source: a leg report whose read leg isn't the recorded one goes to the human" 3 "$(src gamma leg)"
+    printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
+    eq  "source: a leg report with no leg read goes to the human" 3 "$(src gamma leg)"
+    eq  "source: a leg report for a topic with no holding goes to the human" 3 "$(src nobody leg)"
+    eq  "source: a message for a message-path worker is admitted" 0 "$(src beta message)"
+    jq -c 'map(if .worker == "beta" then .dispatch_status = "stranded" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
+    eq  "source: a message for a stranded worker is refused" 1 "$(src beta message)"
+    eq  "source: so is its progress" 1 "$(src beta progress)"
+    jq -c 'map(if .worker == "beta" then .dispatch_status = "dispatched" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
+    req req_g execute open
+    eq  "source: a message for a leg-bound worker is refused" 1 "$(src gamma message)"
+    # PRD R16: once the leg is read or can't be watched from here, a message is
+    # the worker's only way to report, and it stands.
+    legkey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg s "$3" '{request: $r, leg: $l, topic: "gamma", state: $s}' >"$ST/ctx/legs/$1/$2"; }
+    legkey req_g execute taken
+    eq  "source: a message for a worker whose leg was taken is admitted" 0 "$(src gamma message)"
+    legkey req_g execute unwatchable
+    eq  "source: a message for a worker whose leg is unwatchable is admitted" 0 "$(src gamma message)"
+    legkey req_g execute open
+    eq  "source: a message for a worker whose leg is open here is refused" 1 "$(src gamma message)"
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result":{"status":"success"}}}}\n' >"$ST/req/req_g.json"
+    eq  "source: a message for a worker whose leg holds its promoted result, the key not yet marked, is admitted" 0 "$(src gamma message)"
+    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"explicit","result":{"status":"failure"}}}}\n' >"$ST/req/req_g.json"
+    eq  "source: one whose leg was spent without its result is refused" 1 "$(src gamma message)"
+    req req_g execute open
+    : >"$ST/req/req_g.gone"
+    eq  "source: a message for a worker whose request this host doesn't hold is admitted" 0 "$(src gamma message)"
+    rm -f "$ST/req/req_g.gone" "$ST/req/req_g.json"
+    eq  "source: a message for a leg-bound worker whose request can't be read is 2" 2 "$(src gamma message)"
+    rm -rf "$ST/ctx/legs"
+    eq  "source: a message for an unknown topic is refused" 1 "$(src nobody message)"
+    eq  "source: an unknown source is 2" 2 "$(src beta email)"
+    eq  "source: a malformed topic is 2" 2 "$(src ../x message)"
+    export RECORD_MODE=refuse
+    eq  "source: a refused record read is 2" 2 "$(src beta message)"
+    unset RECORD_MODE
+    rm -f "$ST/ctx/report_source"
+    bash "$R" --session coord >/dev/null 2>&1; eq "source: no report_source is 2" 2 "$?"
+fi
 
 # --- select: the koto calls don't grow with the entries (shirabe#1315) ---------------------------------
 
-echo "== select: the koto calls don't grow with the entries (shirabe#1315) =="
-# select's holdings and Standing pauses come from one read of their sections,
-# each got directly, and never from a listing of record/, which names every
-# entry: the same select on a record with 3 entries and with 300 makes the
-# same koto calls, and reads no entry. The stand-ins above replace the record
-# readers, so this runs the real state-holding.sh and state-stored-set.sh
-# against a session record in the shared koto stand-in (testdata/test-lib.sh),
-# each count in a subshell of its own.
-# koto_calls <entries>: select's request id, its koto calls, and how many of
-# them get an entry or list record/, on a record holding alpha's open leg and
-# gamma's resolved one under a pause on Feature 3, with <entries> entries.
-koto_calls() (
-    . "$HERE/testdata/test-lib.sh"
-    export DC_RECORD_HOLDING="$HERE/state-holding.sh" DC_RECORD_STATE="$HERE/state-stored-set.sh"
-    C=coordinate-roadmap-plugin-system-20260926T080000Z
-    found_session "$C" "$(roadmap_vars plugin-system)"
-    seed_session "$C" "$(record_json roadmap plugin-system | jq -c \
-        --argjson a "$(holding alpha '{"return_path": "leg req_a:scope"}')" \
-        --argjson g "$(holding gamma '{"unit": "Feature 3", "return_path": "leg req_g:execute"}')" \
-        '.holdings = [$a, $g] | .standing = [{standing: "s1", kind: "pause", on: "Feature 3", until: "lifted", what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}]')"
-    mkdir -p "$KOTO_STORE/requests"
-    printf '{"request_id":"req_a","legs":{"scope":{"name":"scope","disposition":"open"}}}\n' > "$KOTO_STORE/requests/req_a.json"
-    printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved"}}}\n' > "$KOTO_STORE/requests/req_g.json"
-    d="$KOTO_STORE/context/$C/record/entries"
-    mkdir -p "$d"
-    for ((i = 1; i <= $1; i++)); do
-        printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
-    done
-    : > "$KOTO_STORE/calls"
-    out=$(bash "$S" select --session "$C" 2>&1)
-    printf '%s %s %s %s %s' "$out" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')" \
-        "$(grep -c '^context get [^ ]* record/entries/' "$KOTO_STORE/calls")" "$(grep -c '^context list [^ ]* --prefix record/$' "$KOTO_STORE/calls")" \
-        "$(sed -n "s|^context get $C record/\([a-z-]*\)\$|\1|p" "$KOTO_STORE/calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ',' | sed 's/,$//')"
-)
-FEW=$(koto_calls 3)
-MANY=$(koto_calls 300)
-set -- $FEW
-eq  "select: the same request and koto calls with 3 entries and with 300 (${2:-?} calls)" "$FEW" "$MANY"
-eq  "  ... the paused holding's resolved leg passed over for alpha's open one" req_a "${1:-}"
-eq  "  ... reading no entry and never listing record/" "0 0" "${3:-} ${4:-}"
-eq  "  ... one read of the sections the two listers print, each got once" holdings,run,standing,work "${5:-}"
+if section "" "select: the koto calls don't grow with the entries (shirabe#1315)"; then
+    # select's holdings and Standing pauses come from one read of their sections,
+    # each got directly, and never from a listing of record/, which names every
+    # entry: the same select on a record with 3 entries and with 300 makes the
+    # same koto calls, and reads no entry. The stand-ins above replace the record
+    # readers, so this runs the real state-holding.sh and state-stored-set.sh
+    # against a session record in the shared koto stand-in (testdata/test-lib.sh),
+    # each count in a subshell of its own.
+    # koto_calls <entries>: select's request id, its koto calls, and how many of
+    # them get an entry or list record/, on a record holding alpha's open leg and
+    # gamma's resolved one under a pause on Feature 3, with <entries> entries.
+    koto_calls() (
+        . "$HERE/testdata/test-lib.sh"
+        export DC_RECORD_HOLDING="$HERE/state-holding.sh" DC_RECORD_STATE="$HERE/state-stored-set.sh"
+        C=coordinate-roadmap-plugin-system-20260926T080000Z
+        found_session "$C" "$(roadmap_vars plugin-system)"
+        seed_session "$C" "$(record_json roadmap plugin-system | jq -c \
+            --argjson a "$(holding alpha '{"return_path": "leg req_a:scope"}')" \
+            --argjson g "$(holding gamma '{"unit": "Feature 3", "return_path": "leg req_g:execute"}')" \
+            '.holdings = [$a, $g] | .standing = [{standing: "s1", kind: "pause", on: "Feature 3", until: "lifted", what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}]')"
+        mkdir -p "$KOTO_STORE/requests"
+        printf '{"request_id":"req_a","legs":{"scope":{"name":"scope","disposition":"open"}}}\n' > "$KOTO_STORE/requests/req_a.json"
+        printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved"}}}\n' > "$KOTO_STORE/requests/req_g.json"
+        d="$KOTO_STORE/context/$C/record/entries"
+        mkdir -p "$d"
+        for ((i = 1; i <= $1; i++)); do
+            printf '{"n":%d,"stamp":"2026-09-26T08:00:00Z","kind":"entry","text":"note %d"}' "$i" "$i" > "$d/$(printf '%06d' "$i")"
+        done
+        : > "$KOTO_STORE/calls"
+        out=$(bash "$S" select --session "$C" 2>&1)
+        printf '%s %s %s %s %s' "$out" "$(wc -l < "$KOTO_STORE/calls" | tr -d ' ')" \
+            "$(grep -c '^context get [^ ]* record/entries/' "$KOTO_STORE/calls")" "$(grep -c '^context list [^ ]* --prefix record/$' "$KOTO_STORE/calls")" \
+            "$(sed -n "s|^context get $C record/\([a-z-]*\)\$|\1|p" "$KOTO_STORE/calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ',' | sed 's/,$//')"
+    )
+    FEW=$(koto_calls 3)
+    MANY=$(koto_calls 300)
+    set -- $FEW
+    eq  "select: the same request and koto calls with 3 entries and with 300 (${2:-?} calls)" "$FEW" "$MANY"
+    eq  "  ... the paused holding's resolved leg passed over for alpha's open one" req_a "${1:-}"
+    eq  "  ... reading no entry and never listing record/" "0 0" "${3:-} ${4:-}"
+    eq  "  ... one read of the sections the two listers print, each got once" holdings,run,standing,work "${5:-}"
+fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
