@@ -18,6 +18,11 @@
 #   3. the live worker told its address (the agent's --told), the gate's gap
 #      is feat-3's alone; a second classification prints `missing feat-3`
 #      only, and feat-2 stays pending while it hasn't reported;
+#   3b. a new address carries the pending rows: with all three carried, the
+#      gate holds on each; the classification prints `live feat-1 <address>`,
+#      then `pending feat-2` and `pending feat-3`, confirming the stopped and
+#      the missing worker in one write told by one entry, and leaves feat-1
+#      carried and the gate's one gap; once feat-1 is told the gate has none;
 #   4. with feat-3 recorded told by the fixture, the gate passes with feat-2
 #      pending: the run reaches pick, and wait after a hold. feat-2's first
 #      report at wait turns it told on the next classification, which prints
@@ -141,6 +146,37 @@ classify
 printf '%s\n' "$HC_OUT"
 eq "3: a second classification prints only feat-3 missing" "missing feat-3" "$HC_OUT"
 eq "3: feat-2 stays pending without a report" "pending:feat-2 told:feat-1" "$(run_rows)"
+
+echo "== 3b. a new address carries the pending rows; the handover confirms them in one write =="
+# Fixture: a second address, then feat-1 and feat-3 recorded pending for it
+# beside feat-2's carried row, and a third address that carries all three:
+# feat-1's session live, feat-2's done with its instance kept, feat-3 with no
+# instance.
+write_as_agent state-stored-set.sh --run coordinator coord-test-2 --by coord-test-2
+write_as_agent state-stored-set.sh --pending feat-1 --by coord-test-2
+write_as_agent state-stored-set.sh --pending feat-3 --by coord-test-2
+write_as_agent state-stored-set.sh --run coordinator coord-test-3 --by coord-test-3
+eq "3b: a third address carries all three pending rows and keeps no told row" \
+    "pending:feat-1 pending:feat-2 pending:feat-3|feat-1 feat-2 feat-3" \
+    "$(run_rows)|$( (cd "$WD" && bash "$PS/state-handover.sh" --session "$S") | jq -r '.carried // [] | sort | join(" ")')"
+eq "3b: the gate holds on every carried worker" "not-told feat-1|not-told feat-2|not-told feat-3" "$(gaps)"
+NENT=$( (cd "$WD" && bash "$PS/state-entry.sh" --session "$S" --list) | jq length)
+classify
+printf '%s\n' "$HC_OUT"
+eq "3b: handover-classify.sh exits 0" 0 "$HC_RC"
+eq "3b: feat-1 live (address coord-test-3), feat-2 and feat-3 still pending" \
+    "live feat-1 coord-test-3|pending feat-2|pending feat-3|" "$(printf '%s\n' "$HC_OUT" | tr '\n' '|')"
+eq "3b: feat-2 and feat-3 now pending for the current address, feat-1 still carried" \
+    'feat-2 feat-3|feat-1' \
+    "$( (cd "$WD" && bash "$PS/state-handover.sh" --session "$S") | jq -r '"\(.pending // [] | join(" "))|\(.carried // [] | join(" "))"')"
+eq "3b: one entry tells both confirmations" \
+    "$((NENT + 1))|Pending rows carried from an earlier address, confirmed for the coordinator's address, coord-test-3, by the handover: feat-2 stopped, feat-3 missing." \
+    "$( (cd "$WD" && bash "$PS/state-entry.sh" --session "$S" --list) | jq -r '"\(length)|" + (last | .text)')"
+eq "3b: the gate's one gap is the live carried worker's" "not-told feat-1" "$(gaps)"
+classify
+eq "3b: a second classification prints only the live worker" "live feat-1 coord-test-3" "$HC_OUT"
+write_as_agent state-stored-set.sh --told feat-1 --by coord-test-3
+eq "3b: once the live worker is told, the gate has no gap" "" "$(gaps)"
 
 echo "== 4. the pending worker's first report turns it told =="
 # A fixture shortcut, not how a missing worker is resolved: feat-3 is recorded
