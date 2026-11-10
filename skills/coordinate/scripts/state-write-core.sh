@@ -479,7 +479,7 @@ core_write_rotation() {
 # (below). And given <carrier>, the name of the Claude session carrying it,
 # record/run is copied with the carrier's own coordinator row when the
 # source's names anyone else (lib_carrier_row: the row a `--run coordinator`
-# write makes, `told` and `pending` rows dropped), so the row lands with the
+# write makes, `told` rows dropped and `pending` rows carried before it), so the row lands with the
 # copy and the writers' driver check passes the carrier's writes after it;
 # then it prints `carrier_row=<carrier>` once the carry has landed, for the
 # opener to post that write's entry. The source is read through the seam, so it

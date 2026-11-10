@@ -230,7 +230,12 @@ def check_holds($h; $private):
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address; pending: a worker
 #            that can't be sent it yet (its session is gone while its instance
-#            still exists), never one that is also told. The last three are
+#            still exists), never one that is also told. A pending row after
+#            the coordinator row was written for the current address; one
+#            before it was carried from an earlier address, and stays carried
+#            until state-stored-set.sh --pending-confirm moves it after the
+#            coordinator row, for a worker whose instance may by then be gone
+#            too (state-handover.sh reads the order). The last three are
 #            messaging addresses (check_worker): a dispatch topic or a session
 #            name, which may hold `_`, never an id or a path.
 #            store: session only, the legacy row (see run_keys below).

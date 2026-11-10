@@ -35,7 +35,7 @@
 # again. When the carrying Claude session's name reads (its job state file)
 # and the predecessor's Run coordinator row names anyone else, the seeded state
 # holds this session's own coordinator row instead, as a `--run coordinator`
-# write leaves it (its `told` and `pending` rows gone), and that write's entry
+# write leaves it (its `told` rows gone and its `pending` rows carried), and that write's entry
 # is posted right after the seed, before the window: the writers' driver check
 # refuses a write to a run with no driver whose row names another session, so
 # the row lands with the copy. A post that fails is warned about on stderr and

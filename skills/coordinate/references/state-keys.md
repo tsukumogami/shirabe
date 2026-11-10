@@ -322,7 +322,9 @@ name), one `told` row per party
 that has been sent that address, and one `pending` row per worker that can't
 be sent it yet: its session is gone, but its instance is still there to be
 started again. A worker is never both told and pending (the record is refused
-if it is). A new address clears the `told` and `pending` rows. It also
+if it is). A new address clears the `told` rows and carries the `pending`
+ones: each stays before the new coordinator row, where it reads as carried
+and holds the handover gate until `handover-classify.sh` confirms it. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<name>` or `<name>
@@ -406,6 +408,7 @@ state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>
 state-stored-set.sh --session S --pending <topic> --by <who>
+state-stored-set.sh --session S --pending-confirm <topic>=stopped|missing [--pending-confirm <topic>=...]... --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 state-stored-set.sh --session S --standing rule --what <text> --source <form>
 state-stored-set.sh --session S --end <s<n>> --by <who>
@@ -443,7 +446,15 @@ messaged its new brief (which names your address), `--pending` when its
 session is gone while niwa still lists its instance, and nothing when the
 message was refused or no instance is left. `--told` for a pending worker
 turns its `pending` row into a `told` one; `--pending` refuses a worker already
-told or already pending.
+told or already pending, a carried row included.
+
+A carried `pending` row is confirmed for the current address by
+`handover-classify.sh` at reconcile, not by you: it reads each carried worker
+and writes one `--pending-confirm` for every one it reads as stopped (its
+session gone, its instance kept) or missing (its instance gone too), which
+moves each row after the coordinator row and tells one entry naming them all.
+`--pending-confirm` refuses, writing nothing, a worker with no carried row, one
+already told, one named twice and a value other than `stopped` or `missing`.
 
 **Rule rows.** A Standing row of kind `rule` is a rule that binds the
 coordinator until `--end` ends it. It has no On and no Until, a blank Owner

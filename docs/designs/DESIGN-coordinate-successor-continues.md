@@ -245,7 +245,7 @@ predecessor's current state, and then runs `koto init <SUCC> --continues
 the preflight once and retries; a second `stale_state` refuses
 `predecessor-unstoppable`. After the fence it writes the successor's own
 record changes: `record/meta.driver` (the successor's Claude session id), the
-coordinator row, the told reset, pending rows, and one takeover entry whose id
+coordinator row, the told reset, the pending rows carried, and one takeover entry whose id
 is the successor's session name, written only if no entry with that id exists.
 `record/meta.takeover_done` is written last. The carried set is the closed
 list R7 asks the design to publish:
@@ -483,6 +483,20 @@ submits `sent: delivered|refused|worker_gone`, and `delivered` now runs
 records it by hand; `refused` records nothing; `worker_gone` records pending
 when the instance still exists.
 
+A new coordinator address clears the `told` rows but keeps the `pending` ones
+(tsukumogami/shirabe#1696). A worker with no live session has nobody to tell,
+and nothing about it changes at a takeover, so re-recording each one costs a
+successor a write per holding before its gate clears. The new coordinator row
+is appended after the rows it keeps, so a `pending` row before it was carried
+from an earlier address and one after it was written for the current one; no
+field is added. A carried row still holds the gate (`not-told`, its fix naming
+`handover-classify.sh`). The classification reads each carried worker with the
+same probe, and every one it reads as stopped or missing is confirmed in one
+`state-stored-set.sh --pending-confirm` write, which moves those rows after
+the coordinator row and tells one entry. A carried worker that is live prints
+`live` and has to be told. A worker with no row is classified as before, and a
+missing one still records nothing.
+
 #### Alternatives Considered
 
 **Rewrite pending workers' brief files at takeover.** Rejected: nothing shows a
@@ -514,7 +528,7 @@ state. Then it runs `koto init <SUCC> --continues <PRED> --supersede`, which
 fences the predecessor before anything else is written, creates the
 successor with its relation, copies the run's carried key families from the
 fenced state, and rings the predecessor's wake file. The successor writes its
-own driver id, coordinator row, told reset, pending rows and one takeover
+own driver id, coordinator row, told reset, carried pending rows and one takeover
 entry, marks the takeover done, and the opener prints its `key=value` result,
 including `session=`, from which the skill builds and arms the successor's
 watch before the first tick. A rival that loses the fence, or a fence that
@@ -573,7 +587,7 @@ successor agent
           3 create  S with header and continues relation
           4 carry   S ctx <= P ctx[carried prefixes]; koto/superseded-carry-complete
           5 ring    wakes/P once (P's watch exits)
-    (c) S record: meta.driver, coordinator row, told reset, pending rows,
+    (c) S record: meta.driver, coordinator row, told reset, pending rows carried,
         takeover entry (id = S, written once), meta.takeover_done
     (d) print outcome=continued predecessor= session=S predecessor_stopped=
         watcher= leg_wake= template_drift=

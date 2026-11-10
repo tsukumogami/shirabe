@@ -2543,8 +2543,10 @@ fills `no-reports-to` with
 never a bare name. A new
 address leaves every live worker untold: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/handover-classify.sh" --session {{SESSION_NAME}}`,
-which records a worker whose session isn't live as pending and a pending
-worker whose report reached you as told, then send each worker it prints as
+which records a worker whose session isn't live as pending, confirms in one
+write each worker an earlier address left pending that it still reads stopped
+or missing, and records a pending worker whose report reached you as told,
+then send each worker it prints as
 `live` a line naming the address and record it with `--told`. The workflow
 stays here until the check passes.
 
@@ -3593,7 +3595,10 @@ A pending worker is one that can't be told the address yet: its session is
 gone, but its instance is still there to be started again. The handover gate
 (`state-handover.sh --check`) doesn't hold on a pending worker, as it does on a
 live one that is neither told nor pending, and a later `--told` for it turns
-the pending row into a told one. A new coordinator address clears both.
+the pending row into a told one. A new coordinator address clears every told
+row and carries the pending ones: a carried row holds the gate until
+`handover-classify.sh` reads its worker as stopped or missing and confirms it
+for the new address.
 
 ## verify
 
