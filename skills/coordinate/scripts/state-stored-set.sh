@@ -345,7 +345,8 @@
 # row); 2 a read failed (the record, the entries the next Standing id
 # is chosen from, or a rule row's forge read); 10 refused: here, no found record or, for a write, a record
 # that doesn't read back as this scope's, and from the write core, not an open record,
-# provenance or a directed transition; 11 and 12 (the record changed between
+# provenance, a directed transition or a writing session that isn't the
+# record's driver; 11 and 12 (the record changed between
 # this script's read and its write) from the write core; 14
 # the state was written but the entry wasn't posted (post it with
 # state-entry.sh; the change it names is on stderr); 64 usage; 65 refused
@@ -1022,7 +1023,7 @@ run)
         jq --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" \
             '.run = ([(.run // [])[] | select(.key != "role")] + [{key: "role", value: $v, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     elif [ "$KEY" = coordinator ]; then
-        PROG_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+        PROG_JQ=$LIB_COORD_ROW_JQ
         ETEXT="The coordinator's address is now $VALUE, set by $BY. Nobody has been told it yet."
     elif [ "$KEY" = rules ] || [ "$KEY" = briefs ]; then
         # One row per label: a new digest for a label replaces its row.

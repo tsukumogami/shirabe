@@ -136,7 +136,9 @@ lib_slug() {
 # one live session for its scope (coord-log.sh live-session; so a --session
 # naming an older run of the same scope, still provenanced and pointing at
 # the same record, is refused), or when the run has any directed transition
-# (`koto next --to` skipped gates before koto 0.14.0, koto#251; kept as defence in depth).
+# (`koto next --to` skipped gates before koto 0.14.0, koto#251; kept as defence in depth),
+# or, last, when the writing Claude session isn't the record's driver
+# (lib_driver_check).
 # --skip-session-checks bypasses it, only with the test override flags.
 lib_write_guard() {
     if [ "$SKIP_CHECKS" = 1 ]; then
@@ -165,6 +167,112 @@ lib_write_guard() {
         1) echo "$PROG: refused: the run has a directed transition ($(head -1 <<<"$out")); restart the run" >&2; exit 10 ;;
         *) lib_die2 "cannot read the session log" ;;
     esac
+    lib_driver_check
+}
+
+# RE_CLAUDE_ID: a Claude Code session id, the shape coordinate-open.sh holds
+# CLAUDE_CODE_SESSION_ID to before it records one as a run's driver.
+RE_CLAUDE_ID='^[0-9a-f][0-9a-f-]{7,63}$'
+
+# LIB_COORD_ROW_JQ: the Run section with its coordinator row set to $v, set
+# by $b at $t, and every `told` and `pending` row gone, since nobody has been
+# told the new address. The one filter a `--run coordinator` write
+# (state-stored-set.sh) and a carry's in-copy row (core_carry, state-open.sh
+# --carry) apply.
+LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+
+# lib_caller: the Claude session running this script. LIB_CALLER_ID is
+# CLAUDE_CODE_SESSION_ID when it has a session id's shape, else empty;
+# LIB_CALLER_NAME is the name its job state file gives it under
+# DC_CLAUDE_HOME (default $HOME/.claude), its messaging address, read through
+# dispatch-common.sh's dc_claude_name in a subshell, empty when it can't be
+# read. coordinate-open.sh reads its caller the same way.
+lib_caller() {
+    LIB_CALLER_ID=${CLAUDE_CODE_SESSION_ID:-}
+    [[ $LIB_CALLER_ID =~ $RE_CLAUDE_ID ]] || LIB_CALLER_ID=
+    LIB_CALLER_NAME=
+    [ -n "$LIB_CALLER_ID" ] || return 0
+    # shellcheck source=dispatch-common.sh
+    LIB_CALLER_NAME=$( . "$HERE/dispatch-common.sh" > /dev/null 2>&1 \
+        && dc_claude_name "${DC_CLAUDE_HOME:-$HOME/.claude}" "$LIB_CALLER_ID" 2> /dev/null ) || LIB_CALLER_NAME=
+}
+
+# lib_carrier_row <run-json-in> <run-json-out> <carrier-name> <time>: a
+# carry's Run section with the carrier's own coordinator row, as a `--run
+# coordinator` write would leave it (LIB_COORD_ROW_JQ), so the row lands with
+# the copy and the driver check passes every write after it. Done only when
+# the name is set, is a worker the schema accepts as a coordinator row's
+# value (check_worker), and the section holds a coordinator row naming anyone
+# else. Returns 0 when <out> holds the changed section, 1 when nothing
+# changes (<out> not written), 2 when <in> isn't a JSON array.
+lib_carrier_row() {
+    [ -n "$3" ] || return 1
+    jq -e 'type == "array"' "$1" > /dev/null 2>&1 || return 2
+    jq -n -L "$HERE" --arg w "$3" 'include "state-schema"; $w | check_worker' > /dev/null 2>&1 || return 1
+    jq -e --arg w "$3" '([.[] | select(.key == "coordinator") | .value][0] // "") as $a | $a != "" and $a != $w' "$1" > /dev/null 2>&1 \
+        || return 1
+    jq -c --arg v "$3" --arg b "$3" --arg t "$4" "{run: .} | $LIB_COORD_ROW_JQ | .run" "$1" > "$2" 2> /dev/null || return 2
+}
+
+# lib_driver_check: refuse (exit 10, one stderr line, nothing on stdout) a
+# write from a Claude session that isn't the record's driver
+# (docs/designs/DESIGN-coordinator-standing-rule-provenance.md, the driver
+# check). It reads record/meta and the Run coordinator row of the session
+# --session names, from this koto store, and decides in this order:
+#   (a) no record/meta at all passes: a fresh seed;
+#   (b) a record/meta that can't be read, or a `driver` key holding anything
+#       but a Claude session id, refuses;
+#   (c) no caller id (CLAUDE_CODE_SESSION_ID unset or not of an id's shape)
+#       passes;
+#   (d) a recorded driver must be the caller, or the write is refused;
+#   (e) with no driver, the coordinator row is read (a row that can't be read
+#       refuses as (b)), and the write is refused only when the row names
+#       someone and the caller's name reads and differs from it, the opener's
+#       own test of whose run it is.
+# lib_write_guard runs it last; state-entry.sh runs it before it posts.
+lib_driver_check() {
+    local s=${SESSION:-} d drv row
+    [ -n "$s" ] || { echo "$PROG: --session is required" >&2; exit 64; }
+    d=$(mktemp -d "${TMPDIR:-/tmp}/state-driver.XXXXXX") || _lib_driver_unread "$s" "no scratch directory"
+    rs_key "$s" record/meta "$d/meta"
+    case $? in
+        0) ;;
+        1) rm -rf "$d"; return 0 ;;
+        *) _lib_driver_unread "$s" "its record/meta couldn't be read: $(lib_scrub < "$d/meta.err" | tr -s '\n\t' '  ')" "$d" ;;
+    esac
+    drv=$(jq -r --arg re "$RE_CLAUDE_ID" 'if type != "object" then error("not an object")
+        elif has("driver") | not then ""
+        elif (.driver | type) == "string" and (.driver | test($re)) then .driver
+        else error("not an id") end' "$d/meta" 2> /dev/null) \
+        || _lib_driver_unread "$s" "its record/meta driver isn't a Claude session id" "$d"
+    lib_caller
+    if [ -z "$LIB_CALLER_ID" ]; then rm -rf "$d"; return 0; fi
+    if [ -n "$drv" ]; then
+        rm -rf "$d"
+        [ "$drv" = "$LIB_CALLER_ID" ] && return 0
+        echo "$PROG: refused: driver: $s is driven by Claude session $drv, not this one ($LIB_CALLER_ID); nothing was written" >&2
+        exit 10
+    fi
+    rs_key "$s" record/run "$d/run"
+    case $? in
+        0) row=$(jq -r 'if type != "array" then error("not an array")
+                else ([.[] | select(.key == "coordinator") | .value][0] // "")
+                    | if type == "string" then . else error("not a string") end end' "$d/run" 2> /dev/null) \
+               || _lib_driver_unread "$s" "its coordinator row isn't readable" "$d" ;;
+        1) row= ;;
+        *) _lib_driver_unread "$s" "its coordinator row couldn't be read: $(lib_scrub < "$d/run.err" | tr -s '\n\t' '  ')" "$d" ;;
+    esac
+    rm -rf "$d"
+    [ -n "$row" ] && [ -n "$LIB_CALLER_NAME" ] && [ "$row" != "$LIB_CALLER_NAME" ] || return 0
+    echo "$PROG: refused: driver: $s has no driver and its coordinator row names $row, not this Claude session ($LIB_CALLER_NAME, $LIB_CALLER_ID); nothing was written" >&2
+    exit 10
+}
+# _lib_driver_unread <session> <reason> [<scratch dir>]: the driver check's
+# refusal of a driver it couldn't read.
+_lib_driver_unread() {
+    [ -z "${3:-}" ] || rm -rf "$3"
+    echo "$PROG: refused: driver: $1's driver couldn't be read (${2%% }); nothing was written" >&2
+    exit 10
 }
 
 # lib_dispatched: has this run entered `dispatch`? Without a session (a test
