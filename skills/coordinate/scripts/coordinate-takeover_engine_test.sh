@@ -23,6 +23,7 @@
 #      role, the same line coordinate-report.sh --record-line prints, and
 #      taken_legs and leg_children are as A left them;
 #   5. B's record has the coordinator row naming B's session, no told row,
+#      the pending row A recorded carried before B's coordinator row,
 #      record/meta naming B's Claude session as driver and B's own template
 #      compat and fingerprint in place of the pair A's held, and exactly one
 #      takeover entry naming A and B;
@@ -149,6 +150,11 @@ if open_run takeover && [ "$(at)" = reconcile ] && A_CLASS=$(classes "$S" "$WD")
     printf 'a first account line\n' > "$T/e1"; printf 'a second account line\n' > "$T/e2"
     write_as_agent state-entry.sh --text-file "$T/e1" && write_as_agent state-entry.sh --text-file "$T/e2"
     eq "A: two record entries are written" 0 $?
+    # A worker A recorded pending, which the takeover carries (case 5).
+    write_as_agent state-stored-set.sh --pending feat-9 --by "the handover"
+    A_RUN=$(cd "$WD" && koto context get "$A" record/run)
+    eq "A: holds told rows and a pending row for its address" "yes feat-9" \
+        "$(printf '%s' "$A_RUN" | jq -r '"\(if any(.[]; .key == "told") then "yes" else "no" end) \([.[] | select(.key == "pending") | .value] | join(" "))"')"
     put "$A" legs/req-a1/work-on '{"worker":"feat-1","request":"req-a1"}'
     put "$A" legs/req-a2/work-on '{"worker":"feat-2","request":"req-a2"}'
     put "$A" taken_legs '["req-a1:work-on"]'
@@ -247,6 +253,8 @@ eq "4: with nobody told B's address, the handover gate holds B at reconcile" rec
 RUN=$(cd "$WD" && koto context get "$B" record/run)
 eq "5: B's coordinator row names B's session" coord-b "$(printf '%s' "$RUN" | jq -r '[.[] | select(.key == "coordinator") | .value][0]')"
 eq "5: B's told set is empty" 0 "$(printf '%s' "$RUN" | jq '[.[] | select(.key == "told")] | length')"
+eq "5: B carries A's pending row, before its own coordinator row" "pending:feat-9 coordinator:coord-b" \
+    "$(printf '%s' "$RUN" | jq -r '[.[] | select(.key == "pending" or .key == "coordinator") | "\(.key):\(.value)"] | join(" ")')"
 eq "5: B's record/meta names B's Claude session as driver" "$B_ID true" "$( (cd "$WD" && koto context get "$B" record/meta) | jq -r '"\(.driver) \(.takeover_done)"')"
 SHIP_COMPAT=$(jq -r .compat "$PR/skills/coordinate/koto-templates/coordinate.compat.json")
 SHIP_FP=$(bash "$PS/template-fingerprint.sh" "$(koto template compile "$TPL" 2>/dev/null)")
