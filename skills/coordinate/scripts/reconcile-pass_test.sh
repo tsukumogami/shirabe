@@ -75,11 +75,16 @@ c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
-# The lock and the clock write use only tools run-tests.sh's restricted PATH
-# carries (mkdir, rm, sleep, mktemp, mv), and the wait is bounded: a lock left
-# behind fails the case rather than hanging the job.
+# The lock is a file bash itself creates under noclobber (`set -C`), which
+# opens it with O_EXCL, not a `mkdir`: the uutils mkdir that Ubuntu 26.04
+# ships as /usr/bin/mkdir can exit 0 when it loses a race to create the same
+# directory, so two stand-ins both took the lock and an advance was lost
+# (#1611; uutils/coreutils#13970).
+# The lock and the clock write use only bash and tools run-tests.sh's
+# restricted PATH carries (rm, sleep, cat, mktemp, mv), and the wait is
+# bounded: a lock left behind fails the case rather than hanging the job.
 w=0
-until mkdir "$CLOCK.lock" 2>/dev/null; do
+until ( set -C; : > "$CLOCK.lock" ) 2>/dev/null; do
     w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
     sleep 0.05
 done
@@ -87,9 +92,9 @@ now=$(cat "$CLOCK")
 # Written whole: a temp file of this writer's own, renamed into place. The pass
 # reads the clock without the lock, and a truncate-then-write would let it read
 # an empty file (#481).
-tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -rf "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
+tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -f "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
 echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$tmp" && mv "$tmp" "$CLOCK"
-rm -rf "$CLOCK.lock"
+rm -f "$CLOCK.lock"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
 [ -f "$STUB_DIR/hang.$sub" ] && sleep 60
