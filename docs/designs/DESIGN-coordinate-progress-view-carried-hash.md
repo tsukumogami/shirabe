@@ -222,7 +222,9 @@ parts:
   dispatcher name and each part is handled on its own, so the name's hex-looking
   suffix is never flagged or masked. `masked` joins the parts back with the name,
   so the name prints unchanged. The split matches the name only as a whole word
-  (not followed by a letter or digit): today's plain `split` lets
+  (not followed by a letter or digit), with the name regex-escaped before it
+  goes into jq's regex `split`, since session names may hold `.`: today's plain
+  `split` lets
   `lead-1a2bc3d4e5` through unflagged under `--dispatcher lead-1a2b`, and the
   build closes that gap.
 - `hashy`: some `hashre` token in some part is `flagged`. Same result as today.
@@ -235,7 +237,9 @@ parts:
   `$blocked` whose value is `hashy`, raise
   `<key>: the text given for this render holds a commit hash`. The existing error
   path prints it as `progress-view: refused: ...` and exits 65. The message keeps
-  the phrase "a commit hash" that the current tests look for.
+  the phrase "a commit hash" that the `--next` refusal test looks for; the tests
+  that look for the old `a cell holds a commit hash` all feed carried text and
+  become masked cases (see the test cases below).
 - **`row()`.** Its four plain cells go through `cell` and then `masked`. The
   `hashy` refusal inside `row()` goes away, since nothing can reach it any more.
   Session and PR cells keep their own checks and aren't masked.
@@ -281,8 +285,14 @@ onward.
    case stays: exit 65, empty stdout, stderr names a commit hash. A new case
    passes the same `--next` for a unit that also carries a hashed follow-up, to
    show the typed check wins rather than the flag text being masked.
-6. **A blocked need.** A `--blocked` need whose text holds a hash is refused the
-   same way.
+6. **A blocked need.** A `--blocked` need whose text holds a hash, such as
+   `credential 0123abcd`, is refused the same way.
+6a. **The dispatcher bounds.** The two existing cases at lines 119 and 121
+   ("only the dispatcher's name is left out of the hash scan" and "the
+   dispatcher's suffix alone is still a hash elsewhere") feed the hash through
+   carried text and expect the old `a cell holds a commit hash` refusal. They
+   become masked cases: exit 0, the dispatcher name printed unchanged, and the
+   hash outside it printed as `(commit)`.
 7. **Nothing else is masked.** A carried cell holding an all-digit run
    (`20261110`), an all-letter hex word (`deadbeef`) and the `--dispatcher` name
    prints unchanged.
