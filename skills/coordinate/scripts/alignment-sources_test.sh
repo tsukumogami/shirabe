@@ -20,7 +20,8 @@
 # roadmap another lane has a unit on) and none for a pull request with none of
 # them; the candidate owner decisions; each repository source unreadable, by
 # an unreadable repository and by a missing file, naming it with `repository`
-# or `file` and printing nothing; an unreadable record, exit 2 naming the
+# or `file` and printing nothing; a roadmap moved to docs/roadmaps/done/ read
+# there; an unreadable record, exit 2 naming the
 # record; refusals; the record's keys and log byte-identical around every
 # run, with no GitHub write; and, last since they write entries, calls built
 # from the output with alignment-call.sh and accepted by state-entry.sh's
@@ -309,6 +310,12 @@ db '.fail = []'
 db 'del(.files["acme/widgets"]["main:" + $p])' --arg p "$RM"
 run --on acme/widgets#12
 unreadable "the roadmap file missing" "acme/widgets $RM file"
+# A roadmap moved to docs/roadmaps/done/ (shirabe#1512) is read there.
+RMD=docs/roadmaps/done/ROADMAP-direction.md
+db '.files["acme/widgets"]["main:" + $p] = $t' --arg p "$RMD" --arg t "$(roadmap "upstream: $ST")"
+run --on acme/widgets#12
+eq "a roadmap moved to docs/roadmaps/done/ is read there" "0 \"MV1\"" "$RC $(out .unit)"
+db 'del(.files["acme/widgets"]["main:" + $p])' --arg p "$RMD"
 set_roadmap "upstream: $ST"
 run --on acme/widgets#12 --unit MV4
 unreadable "a unit the roadmap lacks" "acme/widgets $RM file"

@@ -436,6 +436,33 @@ lib_roadmap_path() {
     case "$ROADMAP" in *..*) echo "$PROG: the roadmap path holds .." >&2; exit 64 ;; esac
 }
 
+# lib_roadmap_at <ref> <out>: the roadmap's bytes at a ref of the host. A
+# roadmap set Done can move to a done/ directory beside the one the run opened
+# it in (docs/roadmaps/ROADMAP-x.md to docs/roadmaps/done/ROADMAP-x.md), as a
+# host's lifecycle check may ask, and the pull request that finishes the
+# roadmap is the one that moves it. So the opening path, $ROADMAP, is read
+# first, and ROADMAP_DONE, its done/ path, only when the opening path is
+# absent; a roadmap opened under done/ has no second path. ROADMAP_READ names
+# the path read last, the one a failed read's diagnostic names. Returns as
+# lib_file_at does: 0 read, 1 absent at every path, 2 a read or decode failed.
+lib_roadmap_at() {
+    local rc
+    ROADMAP_READ=$ROADMAP
+    ROADMAP_DONE="${ROADMAP%/*}/done/${ROADMAP##*/}"
+    case "${ROADMAP%/*}" in */done) ROADMAP_DONE= ;; esac
+    lib_file_at "$ROADMAP" "$1" "$2"
+    rc=$?
+    [ "$rc" = 1 ] && [ -n "$ROADMAP_DONE" ] || return "$rc"
+    ROADMAP_READ=$ROADMAP_DONE
+    lib_file_at "$ROADMAP_DONE" "$1" "$2"
+}
+
+# lib_roadmap_where: how a diagnostic names where lib_roadmap_at looked for
+# the roadmap: the opening path, and its done/ path when it has one.
+lib_roadmap_where() {
+    if [ -n "${ROADMAP_DONE:-}" ]; then printf '%s (or %s)' "$ROADMAP" "$ROADMAP_DONE"; else printf '%s' "$ROADMAP"; fi
+}
+
 # lib_roadmap_words <roadmap.md>: RM_SECTION and RM_WORD, the roadmap's items
 # section and the word of its classic headings, chosen by its `schema:` as
 # milestone.sh schema reads it: `Milestones` and `Milestone` on roadmap/v3,

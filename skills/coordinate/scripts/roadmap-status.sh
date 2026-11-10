@@ -985,8 +985,8 @@ confirm|drop)
     # The roadmap pull request's number, where an --entry edit posted its entry.
     ROW_PR=$(printf '%s' "$PRL" | sed -n 's/^\[#\([1-9][0-9]*\)\](.*$/\1/p')
     if [ "$MODE" = confirm ]; then
-        lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$WD/roadmap.md"
-        case $? in 0) ;; 1) lib_die2 "$ROADMAP is not on $DEFAULT_BRANCH" ;; *) lib_die2 "cannot read $ROADMAP" ;; esac
+        lib_roadmap_at "$DEFAULT_BRANCH" "$WD/roadmap.md"
+        case $? in 0) ;; 1) lib_die2 "$(lib_roadmap_where) is not on $DEFAULT_BRANCH" ;; *) lib_die2 "cannot read $ROADMAP_READ" ;; esac
         if [ "$ACTION" = milestone-verdict ]; then
             URL=$(printf '%s' "$ROW" | jq -r '.how_to_confirm | capture(" carries (?<u>[^ ]+) in Progress$").u // empty')
             # An --entry edit's row names its entry, whose comment URL the
