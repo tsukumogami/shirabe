@@ -60,10 +60,10 @@ goes there instead. The table never learned that. Three paths put a row under
   `Blocked on you`.
 - **A decision entry escalated to `a person`** (the second `Blocked on you`
   row). `state-decision.sh` already targets `coordinator <reports_to>` when the
-  run reports to a coordinator, and those entries render under `Ongoing` as
-  "with `<coordinator>` for a decision", so this path is already right. It's
-  the case the issue keeps: an entry that has to reach a person stays
-  person-blocked.
+  run reports to a coordinator, so the target is already right. Those entries
+  render under `Ongoing` as "with `<coordinator>` for a decision", and their
+  kind is what this design changes. An entry that has to reach a person stays
+  person-blocked, which is the case the issue keeps.
 - **The reconcile report's table** (`reconcile-report.sh`), which builds the same
   four kinds from the reconcile facts and puts CI that never started and an
   unconfirmed merge under `Blocked on you` for every coordinator.
@@ -80,22 +80,8 @@ them can say "waits on another lane's fix" or "waits on a release in flight",
 so a coordinator whose holding waits on the chain either forces the wait into
 `reserved-step` or has no way to show it as blocked at all.
 
-The issue asks for:
-
-- a row blocked on the person reading the table, and only those, under a kind
-  that says so;
-- a row blocked on the chain above the coordinator under a separate kind that
-  names who it waits on: the dispatching coordinator, another lane, a release,
-  a fix in flight;
-- a root coordinator unchanged for what its human dispatcher owes, and a bound
-  coordinator putting what its dispatcher owes under the chain kind, except an
-  escalated decision entry that has to reach a person;
-- a row's kind decided by who it waits on, not by who the report is addressed
-  to, so one table reads correctly for a person and for the dispatching
-  coordinator;
-- `progress-view.sh` refusing a table that puts the same row under both kinds,
-  and the skill's Reporting section describing both kinds and when each
-  applies.
+The acceptance criteria this design has to meet are the ones
+tsukumogami/shirabe#1670 lists.
 
 A Planned design, `docs/designs/DESIGN-coordinator-authority-settled-steps.md`,
 changes the same code. It removes `--dispatcher` and `need-check.sh`'s
@@ -195,8 +181,9 @@ lane's fix and a release tag are checked for shape only, and a reader should
 take them as the coordinator's statement. A worker named in both `--blocked`
 and `--chain` is refused, which gives the "same row under both kinds"
 criterion a refusal a test can reach. Nothing reads the network to render.
-`--dispatcher` stays accepted, and is refused only when it disagrees with the
-position fact, until the authority design removes it (Decision 2).
+`--dispatcher` stays accepted, and is refused only when a bound position fact
+names a different dispatcher, until the authority design removes it
+(Decision 2).
 `coord/need.json` keeps its shape.
 
 This is the only shape that meets every one of the issue's criteria in one
@@ -394,7 +381,9 @@ a next cell.
 
 The status cell is what a reader scans down. The next cell keeps the need's
 wording where it is today, so a reserved step reads the same apart from its
-kind and status.
+kind and status. On a bound reserved step both cells then name the
+dispatcher; that repetition is accepted so the next cell keeps
+`need-check.sh`'s wording unchanged.
 
 #### Alternatives Considered
 
@@ -507,8 +496,10 @@ cell until the authority design removes it.
   `report at its next checkpoint`.
 - Refuses a worker named in both `--blocked` and `--chain`, a `--chain` key
   with no holding or on a ready holding, and a target `chain_target` refuses.
-- `--dispatcher NAME` stays accepted. It is refused when the position fact is
-  root, or names a different dispatcher. Otherwise it changes nothing.
+- `--dispatcher NAME` stays accepted. It is refused only when the position
+  fact is bound and names a different dispatcher. On a root or missing fact
+  it's accepted and changes nothing, so an old-template run whose pick facts
+  predate the field keeps its table (Decision 8).
 
 **`skills/coordinate/scripts/reconcile-report.sh`.**
 - Includes `kinds`.
@@ -549,7 +540,8 @@ progress-view.sh [--merge-order ...] [--blocked T=NEED]... [--chain T=TARGET]...
   TARGET := lane <topic> | fix merged <owner/repo#n> | release tag <owner/repo> <tag>
 ```
 
-Exit 64 on a refused flag, with the reason on stderr, as today.
+Exit 65 on a refused flag, with the reason on stderr, as today; 64 stays
+usage.
 
 Table kinds, in order: `Ready to merge`, `Blocked on you`,
 `Blocked up the chain`, `Ongoing`, `Waiting to be assigned`. A row appears
@@ -574,52 +566,42 @@ under exactly one kind.
 
 ## Implementation Approach
 
+Every phase that edits a script the compat table's `gate_scripts` digest
+covers re-records the digest before it ends, so each phase can land on its
+own with the compat check green.
+
 ### Phase 1: The rule and the position fact
 
-`kinds.jq` and its tests, `lib_position`, and `position` in the pick facts.
+The `kinds.jq` module with its tests, `lib_position` with its tests
+(including the dispatcher-name refusals), and `position` in the pick facts.
 `progress-view.sh` renders `--blocked` rows and decision rows through the
-module, and checks `--dispatcher` against the fact. This fixes the reported
-case, a bound run's reserved step, without any new flag.
+module and checks `--dispatcher` against the fact; its bound and coordinator
+decision cases move to the new kind, and its root cases stay as they are.
+The `$HERE/kinds.jq` reference in `reconcile-report.sh` and the compat-check
+case that fails when a `kinds.jq` change doesn't move the digest land here
+too, so the module is covered from the change that creates it.
 
-Deliverables:
-- `skills/coordinate/scripts/kinds.jq`
-- `lib_position` in `state-common.sh`; `pick-facts.sh`
-- `progress-view.sh`, and `progress-view_test.sh`: the bound cases at
-  :112-118 and the coordinator decision row at :153 move to the new kind, and
-  the root assertions stay as they are.
+This phase comes first because it fixes the reported case, a bound run's
+reserved step, without any new flag, and every later phase builds on the
+module.
 
 ### Phase 2: The reconcile table
 
-`reconcile-pass.sh` carries `position`. `reconcile-report.sh` uses the module
-for its unconfirmed-merge and decision rows and references `kinds.jq` for the
-digest. The compat table's `gate_scripts` digest is re-recorded. Depends on
-Phase 1's module.
-
-Deliverables:
-- `reconcile-pass.sh`, `reconcile-report.sh`, `reconcile-report_test.sh`
-  (bound fixtures added beside the existing root ones)
-- `skills/coordinate/koto-templates/coordinate.compat.json`
+`reconcile-pass.sh` carries `position`, and `reconcile-report.sh` uses the
+module for its unconfirmed-merge and decision rows, with bound cases beside
+the existing root ones. Depends on Phase 1's module and position fact.
 
 ### Phase 3: The chain flag
 
-`--chain` with its grammar, the own-holding fix check and the refusals.
-Depends on Phase 1.
-
-Deliverables:
-- `progress-view.sh`, `kinds.jq`, `progress-view_test.sh` (each target form,
-  each refusal, a worker under both flags)
+`--chain` with its grammar, the own-holding fix check and the refusals, with
+`chain_target` refusal tests for each target form. Depends on Phase 1 only.
 
 ### Phase 4: The text
 
-SKILL.md, `references/loop.md`, the template's `surface` and `wait` prose,
-the evals that name `Blocked on you`, and the authority design's two
-amendments. Depends on Phases 1 to 3, so the prose describes what ships.
-
-Deliverables:
-- `skills/coordinate/SKILL.md`, `skills/coordinate/references/loop.md`
-- `skills/coordinate/koto-templates/coordinate.md`, and its compat entry
-- `skills/coordinate/evals/evals.json`, `testdata/rule-coverage.tsv`
-- `docs/designs/DESIGN-coordinator-authority-settled-steps.md`
+SKILL.md, `references/loop.md`, the template's `surface` and `wait` prose
+with its compat entry, the evals that name `Blocked on you`, and the
+authority design's two amendments. Depends on Phases 1 to 3, so the prose
+describes what ships.
 
 ## Security Considerations
 
@@ -648,19 +630,47 @@ each target form and for the dispatcher name. Fixing the shared regexes
 themselves is left to tsukumogami/shirabe#1703, because other state checks
 use them.
 
+`re_topic` and `re_tag` admit only letters, digits, `.`, `_` and `-`, and a
+tag also `+`, so no backtick, bracket or parenthesis reaches a cell through a
+target. Neither bounds a value's length, and this design adds no bound.
+
+The new rows also carry text that reaches the table on existing paths, and
+they reuse those paths' checks. `progress-view.sh` escapes a `|` and turns a
+newline into a space in every cell it prints, so `--next`'s text in a chain
+row is covered. A reserved step's link is checked against its link pattern
+before it's worded. A decision's stored target is checked by
+`state-schema.jq` as `a person` or `coordinator <topic>`, with the same jq `$`
+caveat. `reconcile-report.sh` escapes a `|` in its cells; it prints no
+`--next` or `--chain` text, and its new chain rows carry only the dispatcher
+name and a decision's checked target.
+
 **Display, not authority.** `kinds.jq` decides how a row reads. It routes
 nothing and settles no step. On a bound run, credential, access and teardown
 needs, CI that never started, and decisions that have to reach a person stay
 `Blocked on you`, decided by the need kind rather than by any flag. A worker
-can't be named in both `--blocked` and `--chain`, so `--chain` can't relabel
-a need the coordinator lists for the person. It can only move a wait that
-would otherwise show as Ongoing. A missing, null or unreadable position fact
-reads as root, so a bound run whose lookup failed shows what its dispatcher
-owes under `Blocked on you`: the error leans toward the reader seeing too
-much, never toward hiding a row from them. The residual risk is the one named
-under Consequences: lane, release and outside-fix targets are the
-coordinator's statement, checked for shape only, and the row's wording marks
-them as such.
+can't be named in both `--blocked` and `--chain`. A coordinator could still
+leave a worker out of `--blocked` and name it in `--chain`, which is no worse
+than leaving the worker out of `--blocked` today, where its wait shows as
+Ongoing. A missing, null or unreadable position fact reads as root, so a
+bound run whose lookup failed shows what its dispatcher owes under
+`Blocked on you`: a failed lookup leans toward the reader seeing too much.
+
+The position fact comes from `coord/posture.json`, which only
+`posture-read.sh` writes, at the run's `start_posture` step, from the run's
+own authority lookup. It's the same answer `need-check.sh` already words a
+bound run's reserved steps from. If that lookup answers bound for a run a
+person dispatched, the run's reserved merge, close and release steps show
+under `Blocked up the chain`, naming a dispatcher, instead of under
+`Blocked on you`. The row stays in the table with its step and link, so
+nothing is hidden, but the person may read it as handled. This design adds no
+cross-check: it takes the lookup as `need-check.sh` takes it today.
+
+Two residual risks follow. Lane, release and outside-fix targets are the
+coordinator's statement, checked for shape only (Consequences). And the
+position fact can be wrong in the bound direction, as above. The
+skipped-lookup disagreement under Consequences, a decision under the chain
+kind while a reserved step stays under `Blocked on you`, comes from the same
+split between fact sources.
 
 **Module loading and integrity.** `progress-view.sh` already runs jq with
 `-L "$HERE"` and includes `state-schema` from the script's own directory.
@@ -712,16 +722,16 @@ grammar, so no credential name or free text can appear in one, and the
 
 ### Mitigations
 
-- The chain row's wording marks a claimed target as the coordinator's. A
-  worker can't be under both `--blocked` and `--chain`, so a claim can't
-  relabel a need the coordinator lists for the person; it can only move a wait
-  the coordinator would otherwise show as Ongoing. A fix target that is one of
-  the run's own holdings is checked against the pick facts.
+- A worker can't be under both `--blocked` and `--chain`, so a claimed target
+  is no worse than leaving the worker out of `--blocked`: it can only move a
+  wait the coordinator would otherwise show as Ongoing. A fix target that is
+  one of the run's own holdings is checked against the pick facts.
 - The design names the skipped-lookup disagreement. The authority design
   replaces both readings with the settle outcome, which ends it.
 - Old templates still get the fact-decided move, which is the case the issue
   reports. Only the optional flag waits for a restart.
-- `--dispatcher` is refused when it disagrees with the fact, so a stale flag
-  can't misplace a row while it lingers.
+- `--dispatcher` is refused when a bound fact names a different dispatcher,
+  and on a root fact the kind comes from the fact rather than the flag, so a
+  stale flag can't misplace a row while it lingers.
 - The duplicated grammar is unchanged by this design and stays a known gap,
   not a new one.
