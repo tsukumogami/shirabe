@@ -141,7 +141,8 @@
 # otherwise).
 #
 # Exit codes: 0 posted (prints the comment's URL), written or listed; 2 a read
-# failed; 10 refused (no found record, or no session); 11 a write failed (the
+# failed; 10 refused (no found record, no session, or a post from a Claude
+# session that isn't the record's driver); 11 a write failed (the
 # entry's key, or record/posted/<n> after its comment was posted); 14 the
 # session entry was written but its post failed (`--repost <n> --on` finishes
 # it); 64 usage; 65 the entry was refused (the reason on stderr).
@@ -229,6 +230,13 @@ if ! lib_run_found; then
         1) echo "$PROG: refused: session $SESSION holds no record" >&2; exit 10 ;;
         *) lib_die2 "cannot read session $SESSION's record/meta: $(lib_scrub < "$WD/meta.json.err")" ;;
     esac
+fi
+# A post writes, so it runs the writers' driver check (state-common.sh's
+# lib_driver_check, the last step of their write guard): a Claude session
+# that isn't the record's driver posts nothing (exit 10). The test form
+# (--scope --name --repo) skips it, as --skip-session-checks skips the guard.
+if [ "$MODE" != list ] && [ "$OVERRIDE" = 0 ]; then
+    lib_driver_check
 fi
 
 # The session that holds the entries.

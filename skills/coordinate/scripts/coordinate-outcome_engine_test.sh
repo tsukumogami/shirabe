@@ -269,7 +269,12 @@ chmod +x "$T/kw/koto" "$T/ko/koto" "$T/kb/koto"
 
 # ---- A: a run driven by one Claude session --------------------------------------
 export CLAUDE_CODE_SESSION_ID=$A_ID
-three_features outcome; seed_record outcome
+# The record's coordinator row is A's own (coord-a), as a run A opened holds:
+# the writers' driver check refuses a write to a run with no driver whose row
+# names another session, and the fixture's row names coord-test.
+three_features outcome
+RAW_RECORD=1 seed_record outcome "$(stored "$(record_json roadmap outcome)" \
+    | jq -c '(.run[] | select(.key == "coordinator")) |= (.value = "coord-a" | .set_by = "coord-a")')"
 if open_run outcome && [ "$(at)" = reconcile ]; then
     A=$S
     ok "A: the run opens and reaches reconcile"

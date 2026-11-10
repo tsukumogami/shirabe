@@ -232,7 +232,7 @@
 # session holding the record) or printed; 1 --confirm: the roadmap doesn't show it yet; 2 a
 # read failed; 10 refused about the record (no found record, one that doesn't
 # read back as this roadmap's, or from the write core: not open, provenance, a
-# directed transition); 11 a write failed; 12 the record changed between this
+# directed transition, a writing session that isn't the record's driver); 11 a write failed; 12 the record changed between this
 # script's read and its write; 14 the record was written but its entry
 # wasn't posted; 64 usage (and any scope but a roadmap); 65 refused about the
 # request: the tag, the feature's state, the entry, a pending pull request
