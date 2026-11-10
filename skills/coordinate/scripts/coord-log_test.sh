@@ -359,4 +359,45 @@ eq "an indented block in a fence is read, its lines trimmed" 'issue_8 {"a":7}' "
 rl --unit alpha --line Review-Round > /dev/null 2>&1; eq "a key outside [a-z][a-z0-9_]*: usage" 64 $?
 rl --unit alpha > /dev/null 2>&1; eq "no --line: usage" 64 $?
 
+echo "== live-session =="
+# A scope that has been taken over many times holds one superseded run per
+# takeover. Finding its live run must not ask koto for each superseded run's
+# status: koto status is the slow call, so the scan, and every record write
+# whose guard runs it, would grow with each takeover. The stand-in logs every
+# call it serves, so the count of status calls is what these cases read.
+LSN=takeovers
+LS=coordinate-$LSN-20260927T090000Z
+for m in 01 02 03 04 05; do
+    s=coordinate-$LSN-20260927T08${m}00Z
+    rm -rf "$KOTO_STORE/sessions/$s"; log_new "$s" "$(roadmap_vars "$LSN")"
+    log_ev "$s" session_superseded '{}'
+done
+rm -rf "$KOTO_STORE/sessions/$LS"; log_new "$LS" "$(roadmap_vars "$LSN")"
+status_calls() { grep -c '^status ' "$KOTO_STORE/calls"; }
+: > "$KOTO_STORE/calls"
+eq "live-session finds the live run past five superseded ones" "$LS" "$(bash "$CL" live-session --scope-slug "$LSN" 2>/dev/null)"
+eq "live-session makes one koto status call however many runs were superseded" 1 "$(status_calls)"
+: > "$KOTO_STORE/calls"
+eq "live-session --all lists only the live run" "$LS" "$(bash "$CL" live-session --scope-slug "$LSN" --all 2>/dev/null)"
+eq "live-session --all makes one koto status call however many runs were superseded" 1 "$(status_calls)"
+# A cancelled run is known not to be live from its log too.
+s=coordinate-$LSN-20260927T080600Z
+rm -rf "$KOTO_STORE/sessions/$s"; log_new "$s" "$(roadmap_vars "$LSN")"; log_end "$s"
+: > "$KOTO_STORE/calls"
+eq "live-session still finds the live run past a cancelled one" "$LS" "$(bash "$CL" live-session --scope-slug "$LSN" 2>/dev/null)"
+eq "a cancelled run costs no koto status call of its own" 1 "$(status_calls)"
+# A run whose log records neither event is still asked: koto's status is what
+# says it has ended.
+s=coordinate-$LSN-20260927T080700Z
+rm -rf "$KOTO_STORE/sessions/$s"; log_new "$s" "$(roadmap_vars "$LSN")"; : > "$KOTO_STORE/sessions/$s/.terminal"
+: > "$KOTO_STORE/calls"
+eq "live-session skips a run koto reports terminal" "$LS" "$(bash "$CL" live-session --scope-slug "$LSN" 2>/dev/null)"
+eq "a run with neither event in its log is asked for its koto status" 2 "$(status_calls)"
+# Once the live run is taken over too, none is live, and no run was asked.
+rm -f "$KOTO_STORE/sessions/$s/.terminal"; log_end "$s"
+log_ev "$LS" session_superseded '{}'
+: > "$KOTO_STORE/calls"
+bash "$CL" live-session --scope-slug "$LSN" > /dev/null 2>&1; eq "live-session finds none once every run was superseded or cancelled" 1 $?
+eq "a scope of superseded and cancelled runs costs no koto status call" 0 "$(status_calls)"
+
 done_tests coord-log
