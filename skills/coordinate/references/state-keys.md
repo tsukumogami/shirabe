@@ -134,7 +134,10 @@ goes once the unit's new worker is dispatched (`--retire`, which
 dispatch-worker.sh runs). A merged row whose worker was torn down outside
 the pass also goes with `--retire`, at destroy, once the removed pass is
 done, including one closed with no handoff comment, where the pass's entry
-stands in for the link.
+stands in for the link. A `dispatch-failed` row, a launch that never
+started, goes through `--retire` too once no worker exists for its topic
+(niwa lists no session and no unfinished Claude job carries it); its removal
+is told as an `entry` entry.
 
 A deferral is disposed of when its `disposition` reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the

@@ -11,8 +11,10 @@
 #   state-holding.sh --session S --list                    print every row
 #   state-holding.sh --session S --topic T --strand        mark it stranded
 #   state-holding.sh --session S --topic T --retire        remove a stranded row,
-#                                                           or a merged one torn
-#                                                           down outside the pass
+#                                                           a merged one torn
+#                                                           down outside the pass,
+#                                                           or a dispatch-failed
+#                                                           one with no worker
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                             (tests)
 #
@@ -61,13 +63,31 @@
 # (tests). --retire refuses (65) a row that is neither stranded nor merged, and
 # a merged one the check doesn't confirm, with the check's reason.
 #
+# --retire also removes a `dispatch-failed` holding (shirabe#1612): a launch
+# that failed leaves its row, and once the run has moved past the dispatch state
+# for that topic (a run continued by a takeover, say) nothing else removes it,
+# while pick still counts it against the cap. It goes only when no worker exists
+# for its topic: niwa lists no session for it (dc_find_session, the test
+# dispatch-worker.sh made before it wrote the row dispatch-failed), and no
+# Claude job under DC_CLAUDE_HOME (default $HOME/.claude) whose name is the
+# topic's session name is unfinished (dc_job_finished). A job state file whose
+# name can't be read refuses too, since it can't be ruled out. Either one found
+# refuses the retire (65) with what was found; a listing that can't be read, or
+# no workspace root to read it from, exits 2 with nothing written. Both checks
+# see only this host: the niwa listing of the workspace the current directory
+# is in, and the jobs under DC_CLAUDE_HOME. NIWA names a stand-in for niwa
+# (tests).
+# Its removal is also told as an `entry` entry naming the topic; when the row
+# was removed but the entry wasn't written, it exits 14 with the entry's text.
+#
 # Exit codes: 0 written (prints the session holding the record) or printed; 1
-# no row for the topic (--read only); 2 a read failed, or --retire's teardown
-# check couldn't run; 10 refused (no found
+# no row for the topic (--read only); 2 a read failed, --retire's teardown
+# check couldn't run, or its worker listing couldn't be read; 10 refused (no found
 # record, the session holds no record of this scope, provenance, a directed
 # transition, or a writing session that isn't the record's driver); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
-# the write failed; 64 usage; 65 the row was refused (the reason on stderr).
+# the write failed; 14 a dispatch-failed row was removed but its entry wasn't
+# written; 64 usage; 65 the row was refused (the reason on stderr).
 #
 # The record is read through state-read.sh; writes happen only in
 # state-write.sh.
@@ -160,12 +180,43 @@ strand|retire)
         jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "stranded" else . end)' \
             "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
     else
-        if [ "$ST" != stranded ]; then
+        if [ "$ST" = dispatch-failed ]; then
+            # A failed launch's row goes only once no worker exists for its
+            # topic (shirabe#1612): no niwa session, then no unfinished job.
+            . "$HERE/dispatch-common.sh" || lib_die2 "cannot source dispatch-common.sh"
+            WS_ROOT=$(dc_workspace_root) || lib_die2 "no workspace root to look for $TOPIC's instance from"
+            FOUND=$(dc_find_session "$WS_ROOT" "$TOPIC")
+            case $? in
+                0)
+                    echo "$PROG: refused: niwa lists $TOPIC's session $(printf '%s' "${FOUND%%	*}" | lib_scrub) at $(printf '%s' "${FOUND#*	}" | lib_scrub); a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    exit 65 ;;
+                1) ;;
+                *) lib_die2 "niwa's listing can't be read, so $TOPIC's worker can't be ruled out" ;;
+            esac
+            JOBS_HOME=${DC_CLAUDE_HOME:-$HOME/.claude}
+            for JF in "$JOBS_HOME"/jobs/*/state.json; do
+                [ -f "$JF" ] || continue
+                JOB=${JF%/state.json} JOB=${JOB##*/}
+                # Fail closed: a state file that isn't JSON, or has no string
+                # name, could be this topic's worker, so it refuses the retire.
+                if ! JNAME=$(jq -er '.name | strings' "$JF" 2>/dev/null); then
+                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) has no readable name in its state file, so it can't be ruled out as $TOPIC's worker; a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    exit 65
+                fi
+                dc_session_matches "$TOPIC" "$JNAME" || continue
+                if ! WHY=$(dc_job_finished "$JOBS_HOME" "$JOB" '{}'); then
+                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) carries $TOPIC's session and isn't finished ($(printf '%s' "$WHY" | lib_scrub)); a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    exit 65
+                fi
+            done
+            jq -r '"Holding \(.worker) (unit \(.unit)) retired: its dispatch failed, and no niwa session or unfinished Claude job exists for it."' \
+                <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
+        elif [ "$ST" != stranded ]; then
             # A merged holding whose worker was torn down outside the pass
             # goes once teardown-pass.sh check confirms its removed verdict
             # (shirabe#1593); a live one never does.
             lib_row_merged "$ROW" \
-                || { echo "$PROG: refused: only a stranded holding, or a merged one whose removed teardown is confirmed, is retired; $TOPIC is $ST" >&2; exit 65; }
+                || { echo "$PROG: refused: only a stranded holding, a merged one whose removed teardown is confirmed, or a dispatch-failed one with no worker, is retired; $TOPIC is $ST" >&2; exit 65; }
             CHECK_OUT=$(bash "${STATE_HOLDING_TEARDOWN_PASS:-$HERE/teardown-pass.sh}" check \
                 --session "${RS_SESSION:-${SESSION:-}}" --topic "$TOPIC" 2>&1)
             case $? in
@@ -210,3 +261,16 @@ if [ "$OVERRIDE" = 1 ]; then
     [ "$SKIP_CHECKS" = 1 ] && set -- "$@" --skip-session-checks
 fi
 bash "$HERE/state-write.sh" "$@"
+RC=$?
+# The record keeps no history of a removed row, so a dispatch-failed holding's
+# retirement is also told as an entry in the account (shirabe#1612).
+[ "$RC" = 0 ] && [ -s "$T/retire-entry" ] || exit "$RC"
+if [ "$OVERRIDE" = 1 ]; then
+    ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
+else
+    ADDR_ARGS=(--session "$SESSION")
+fi
+if ! bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --kind entry --text-file "$T/retire-entry" > /dev/null; then
+    echo "$PROG: the holding was retired, but its entry wasn't written; post it with state-entry.sh --kind entry: $(cat "$T/retire-entry")" >&2
+    exit 14
+fi
