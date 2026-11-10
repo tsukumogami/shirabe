@@ -363,8 +363,9 @@ POSTED=$((POSTED + 1))
 eq "  ... the milestone not recoverable, no source" "not recoverable|no source" \
     "$(jq -r '"\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"' "$A/unit-cost.json")"
 seed; fresh
-# Holdings is got directly (shirabe#1315), so its failure is that get's; the
-# post fails on the entries' listing, as before.
+# Holdings is got directly (shirabe#1315), so its failure is that get's. The
+# post fails at the writers' driver check, whose read of record/meta lists the
+# session's keys first: a driver that can't be read refuses the post, exit 10.
 mkdir -p "$T/kfail"
 cat > "$T/kfail/koto" <<EOF
 #!/usr/bin/env bash
@@ -380,7 +381,7 @@ PATH="$T/kfail:$PATH" capture; eq "a failed Holdings read (and so a failed post)
 unset KOTO_NO_LIST_PREFIX
 eq "  ... the archive copy says read failed" "not recoverable|read failed" \
     "$(jq -r '"\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"' "$A/unit-cost.json")"
-eq "  ... and the last stderr line is a fixed string" "unit-cost: the post failed (state-entry exit 2)" "$(tail -n 1 "$T/cap.err")"
+eq "  ... and the last stderr line is a fixed string" "unit-cost: the post failed (state-entry exit 10)" "$(tail -n 1 "$T/cap.err")"
 seed; fresh
 NOREC=coordinate-roadmap-x-20261001T090000Z
 log_new "$NOREC" "$(roadmap_vars x)"
