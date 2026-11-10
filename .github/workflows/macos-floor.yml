@@ -201,13 +201,26 @@ jobs:
           command -v koto
           scripts/assert-koto-floor.sh
 
-      # SKILL_GATE_BASE is the expression the skill-gate suite's own floor step
-      # sets. A scheduled or dispatched run has no pull request or push, so it
-      # comes out empty and the gate runs every skill's script cases.
+      # The same step check-skill-gate.yml's skill-gate job runs before its
+      # floor call. A scheduled or dispatched run has no pull request or push,
+      # so it writes an empty SKILL_GATE_BASE and scripts/skill-gate.sh runs
+      # every skill's script cases.
+      - name: Pick the base commit (skill-gate)
+        if: matrix.suite == 'skill-gate'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base=$(git rev-parse HEAD^1)
+          else
+            base=$BEFORE
+          fi
+          echo "SKILL_GATE_BASE=$base" >> "$GITHUB_ENV"
+
       - name: Run the suite on the bash 3.2 floor (macOS, system bash)
         env:
           SUITE: ${{ matrix.suite }}
-          SKILL_GATE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: scripts/check-bash-floor.sh --backend system "$SUITE"
 
   # A red run files an issue under TRACKING_TITLE, or comments on the open one,

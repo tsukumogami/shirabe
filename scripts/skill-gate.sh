@@ -32,8 +32,10 @@
 #            (`check-skill <skill>` or `script-cases --all`), and run nothing
 #
 # Environment:
-#   SKILL_GATE_BASE   the commit to compare HEAD against (a pull request's
-#                     base, or the commit before a push)
+#   SKILL_GATE_BASE   the commit to compare HEAD against: on a pull request,
+#                     the first parent of the merge commit the checkout is
+#                     (the base-branch commit it merges into); on a push to
+#                     main, the commit before the push
 #
 # Exit codes:
 #   0 - every selected check passed, or nothing was selected

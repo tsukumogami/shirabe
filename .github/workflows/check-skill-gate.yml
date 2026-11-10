@@ -167,18 +167,33 @@ jobs:
           command -v koto
           scripts/assert-koto-floor.sh
 
-      # The base is the pull request's base commit, or on a push to main the
-      # commit before it.
+      # The gate diffs HEAD against SKILL_GATE_BASE, which this step writes to
+      # the job's environment. On a pull request the checkout is the merge
+      # commit of the pull request into the base branch's current tip, so the
+      # base is that commit's first parent and the diff is the pull request's
+      # own change set. The base commit the event records can be older than
+      # that tip, and a diff against it would also pick up skills that changed
+      # on main since. On a push to main the base is the commit before the
+      # push. Neither run step sets SKILL_GATE_BASE, since a step's own env
+      # would override this one.
+      - name: Pick the base commit
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base=$(git rev-parse HEAD^1)
+          else
+            base=$BEFORE
+          fi
+          echo "SKILL_GATE_BASE=$base" >> "$GITHUB_ENV"
+
       - name: Run the gate (Linux)
         if: runner.os == 'Linux'
-        env:
-          SKILL_GATE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: bash scripts/skill-gate.sh
 
       - name: Run the gate on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
-        env:
-          SKILL_GATE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: scripts/check-bash-floor.sh --backend system skill-gate
 
   # The shape checker's own suite: the tier-2 release-subset rule (every

@@ -14,7 +14,11 @@
 #     macos-latest or `${{ matrix.os }}`, and every label in a matrix.os is
 #     ubuntu-latest or macos-latest.
 # check-evals.yml must still run scripts/check-evals-exist.sh on pull_request
-# paths skills/**. run-evals.yml must trigger on workflow_dispatch and nothing
+# paths skills/**. check-skill-gate.yml's skill-gate job must take its base
+# from a step before both run steps that writes SKILL_GATE_BASE to
+# $GITHUB_ENV, from `git rev-parse HEAD^1` on pull_request; neither run step
+# may set SKILL_GATE_BASE, and no step may read pull_request.base.sha.
+# run-evals.yml must trigger on workflow_dispatch and nothing
 # else. check-run-evals.yml must run this test after installing the yq that
 # check-macos-floor-legs.yml pins, and start on a change to any of the files
 # it reads.
@@ -252,18 +256,82 @@ prop_runs_this_test() {
     return "$bad"
 }
 
+# The skill-gate job's base: a step before both run steps writes
+# SKILL_GATE_BASE to $GITHUB_ENV, from `git rev-parse HEAD^1` (the merge
+# commit's first parent) on pull_request; neither run step sets its own
+# SKILL_GATE_BASE, which would override it; and no step reads
+# pull_request.base.sha, which can be older than the commit the pull request
+# merges into.
+GATE_LINUX_RUN='bash scripts/skill-gate.sh'
+GATE_MACOS_RUN='scripts/check-bash-floor.sh --backend system skill-gate'
+
+prop_gate_base() {
+    local f=$1 name n i run first="" base_at="" bad=0
+    name=$(basename "$f")
+    if [ "$(yq -r '.jobs | has("skill-gate")' "$f")" != true ]; then
+        echo "$name: has no skill-gate job"
+        return 1
+    fi
+    n=$(yq -r '.jobs."skill-gate".steps | length' "$f")
+    i=0
+    while [ "$i" -lt "$n" ]; do
+        run=$(I=$i yq -r '.jobs."skill-gate".steps[env(I)].run // ""' "$f")
+        case "$run" in
+            "$GATE_LINUX_RUN"|"$GATE_MACOS_RUN")
+                [ -n "$first" ] || first=$i
+                if [ "$(I=$i yq -r '.jobs."skill-gate".steps[env(I)].env // {} | has("SKILL_GATE_BASE")' "$f")" = true ]; then
+                    echo "$name: job skill-gate run step '$run' sets SKILL_GATE_BASE in its env, overriding the base step"
+                    bad=1
+                fi
+                ;;
+            *)
+                if [ -z "$first" ] && [ -z "$base_at" ]; then
+                    case "$run" in
+                        *'git rev-parse HEAD^1'*)
+                            case "$run" in
+                                *pull_request*SKILL_GATE_BASE=*GITHUB_ENV*) base_at=$i ;;
+                            esac
+                            ;;
+                    esac
+                fi
+                ;;
+        esac
+        case "$(I=$i yq -o=json -I=0 '.jobs."skill-gate".steps[env(I)]' "$f")" in
+            *pull_request.base.sha*)
+                echo "$name: job skill-gate step $i reads pull_request.base.sha"
+                bad=1
+                ;;
+        esac
+        i=$((i + 1))
+    done
+    if [ -z "$first" ]; then
+        echo "$name: job skill-gate has no step running '$GATE_LINUX_RUN' or '$GATE_MACOS_RUN'"
+        return 1
+    fi
+    if [ -z "$base_at" ]; then
+        echo "$name: job skill-gate has no step before the run steps that writes SKILL_GATE_BASE to \$GITHUB_ENV from git rev-parse HEAD^1 on pull_request"
+        bad=1
+    elif [ "$(I=$base_at yq -r '.jobs."skill-gate".steps[env(I)] | has("if")' "$f")" = true ]; then
+        echo "$name: job skill-gate's base step runs only under an if, not on both legs"
+        bad=1
+    fi
+    return "$bad"
+}
+
 GATE_PROPS="prop_pull_request prop_permissions prop_job_permissions prop_no_secrets prop_hosted_runners"
 
 # check_gate <file>: every gate property, plus the check-evals-exist one for
-# check-evals.yml; prints each problem and returns 1 when there is any.
+# check-evals.yml and the base selection for check-skill-gate.yml; prints each
+# problem and returns 1 when there is any.
 check_gate() {
     local f=$1 p bad=0
     for p in $GATE_PROPS; do
         "$p" "$f" || bad=1
     done
-    if [ "$(basename "$f")" = check-evals.yml ]; then
-        prop_evals_exist "$f" || bad=1
-    fi
+    case "$(basename "$f")" in
+        check-evals.yml) prop_evals_exist "$f" || bad=1 ;;
+        check-skill-gate.yml) prop_gate_base "$f" || bad=1 ;;
+    esac
     return "$bad"
 }
 
@@ -291,6 +359,8 @@ for wf in check-evals.yml check-skill-gate.yml; do
     real "every job runs on a GitHub-hosted runner" prop_hosted_runners "$wf"
 done
 real "runs scripts/check-evals-exist.sh on pull_request paths skills/**" prop_evals_exist check-evals.yml
+real "skill-gate's base is the merge commit's first parent, set before the run steps" \
+    prop_gate_base check-skill-gate.yml
 real "triggers on workflow_dispatch only" prop_dispatch_only run-evals.yml
 real "runs this test after the pinned yq install, on changes to the files it reads" \
     prop_runs_this_test check-run-evals.yml
@@ -375,6 +445,12 @@ for wf in check-evals.yml check-skill-gate.yml; do
 done
 mutate "a self-hosted label in the matrix.os expression" check-skill-gate.yml check_gate \
     "matrix.os label self-hosted" sed 's/"macos-latest"\]/"macos-latest", "self-hosted"]/'
+mutate "the event's base.sha back as the Linux run step's SKILL_GATE_BASE" check-skill-gate.yml check_gate \
+    "sets SKILL_GATE_BASE in its env" \
+    yq "(.jobs.\"skill-gate\".steps[] | select(.run == \"$GATE_LINUX_RUN\")).env.SKILL_GATE_BASE = \"\${{ github.event.pull_request.base.sha || github.event.before }}\""
+mutate "the base step dropped" check-skill-gate.yml check_gate \
+    "no step before the run steps that writes SKILL_GATE_BASE" \
+    yq 'del(.jobs."skill-gate".steps[] | select(.run // "" | test("SKILL_GATE_BASE=.*GITHUB_ENV")))'
 
 for t in schedule push pull_request pull_request_target workflow_run workflow_call repository_dispatch; do
     case "$t" in
