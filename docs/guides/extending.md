@@ -66,8 +66,8 @@ of version control (a `*.local.md` line in `.gitignore` does it); the committed
 
 ## The CLAUDE.md headers
 
-The extensibility design names three headers as part of the contract. Each is
-a level-2 heading in your CLAUDE.md, and each is optional.
+These are the headers you're most likely to set. Each is a level-2 heading in
+your CLAUDE.md, and each is optional.
 
 | Header | Values | Read by | When absent |
 |--------|--------|---------|-------------|
@@ -80,16 +80,18 @@ a level-2 heading in your CLAUDE.md, and each is optional.
 messages from its extension file as well as from `## Label Vocabulary`.
 
 Skills read other CLAUDE.md headers too, such as `## Execution Mode:` and
-`## Delivery Preference:`. Their formats are listed in
-[`references/fixes/claude-md-conventions.md`](../../references/fixes/claude-md-conventions.md),
-and renaming any of them counts as a breaking change below.
+`## Delivery Preference:`, each described in the skill that reads it. The
+contract covers those as well: renaming any header a skill reads is a breaking
+change (see below).
 
 Some skills also read a fixed format inside their extension file or a file
-next to it: `/release` runs the commands listed under `## Release checks` in
-`release.md`, and `/work-on` reads `verification-map.json` and `hosted-ci.json`
-from the same directory. Those formats are defined by the skill that reads
-them (`skills/release/SKILL.md`, `skills/work-on/references/verification-map.md`),
-not by this page.
+next to it. `/release` reads the `## Release checks`, `## Release assets` and
+`## After release` sections of `release.md`, and `/work-on` reads
+`verification-map.json` and `hosted-ci.json` from the same directory. Those
+formats belong to the skill that reads them (`skills/release/SKILL.md`,
+`skills/work-on/references/verification-map.md`) and sit outside this
+contract and get none of the breaking-change treatment described below; read
+the skill's own documentation when you upgrade.
 
 ## What counts as a breaking change
 
@@ -109,10 +111,11 @@ that didn't have one.
 shirabe has no separate changelog. Its changes are announced in the notes on
 each [GitHub release](https://github.com/tsukumogami/shirabe/releases), which
 are drafted from the commits in that release and call out breaking changes
-prominently. A change in one of the three categories above is announced
-there as a breaking change, the way the v0.16.0 notes carry a `## Breaking`
-section. When adopters have to change their own files, a migration note that
-says what to do also goes under [`docs/guides/`](./), next to this page;
+prominently. shirabe's practice is to announce a change in one of the three
+categories above there as a breaking change, the way the v0.16.0 notes carry a
+`## Breaking` section. When a change needs more than a line of notes, a
+migration guide that says what to do goes under [`docs/guides/`](./), the
+repository's release-notes directory;
 [`RELEASE-NOTES-populate-issueless-default.md`](RELEASE-NOTES-populate-issueless-default.md)
 is an example.
 
