@@ -84,7 +84,8 @@
 # show no directed transition in the run.
 #
 # Exit codes: 0 opened (prints record=<session>); 10 refused (the session holds
-# a record already, provenance, or a directed transition); 2 a read failed; 64
+# a record already, provenance, a directed transition, or a writing session
+# that isn't the record's driver); 2 a read failed; 64
 # usage; 65 refused (an end before the start); a failed seed exits with the
 # write core's code (10, 11, 12 or 65), and a failed window write with
 # state-stored-set.sh's. --carry exits 0 carried, 65 refused, 2 a read failed,

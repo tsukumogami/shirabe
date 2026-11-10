@@ -36,7 +36,8 @@
 #
 # Exit codes: 0 written (prints the session holding the record) or printed; 2
 # a read failed; 10 refused (no found record, the session holds no record of
-# this scope, provenance, or a directed transition); 11 the write failed; 12
+# this scope, provenance, a directed transition, or a writing session that
+# isn't the record's driver); 11 the write failed; 12
 # the record changed between
 # this script's read and its write; 14 the hold was
 # written but its session entry wasn't (the entry to post on stderr); 64 usage;

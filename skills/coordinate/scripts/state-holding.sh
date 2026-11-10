@@ -64,8 +64,8 @@
 # Exit codes: 0 written (prints the session holding the record) or printed; 1
 # no row for the topic (--read only); 2 a read failed, or --retire's teardown
 # check couldn't run; 10 refused (no found
-# record, the session holds no record of this scope, provenance, or a directed
-# transition); 12 the record changed
+# record, the session holds no record of this scope, provenance, a directed
+# transition, or a writing session that isn't the record's driver); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
 # the write failed; 64 usage; 65 the row was refused (the reason on stderr).
 #

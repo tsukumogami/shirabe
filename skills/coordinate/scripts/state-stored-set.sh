@@ -345,7 +345,8 @@
 # row); 2 a read failed (the record, the entries the next Standing id
 # is chosen from, or a rule row's forge read); 10 refused: here, no found record or, for a write, a record
 # that doesn't read back as this scope's, and from the write core, not an open record,
-# provenance or a directed transition; 11 and 12 (the record changed between
+# provenance, a directed transition or a writing session that isn't the
+# record's driver; 11 and 12 (the record changed between
 # this script's read and its write) from the write core; 14
 # the state was written but the entry wasn't posted (post it with
 # state-entry.sh; the change it names is on stderr); 64 usage; 65 refused
