@@ -291,8 +291,11 @@ proposed to koto (Consequences).
   state file) and the source's Run `coordinator` row names anyone else, the
   copied `record/run` holds the row a `--run coordinator` write makes in
   place of the source's: `{key: coordinator, value: <carrier>, set_by:
-  <carrier>, set: <the carry's time>}`, with the source's `told` and
-  `pending` rows dropped, since nobody has been told the carrier's address.
+  <carrier>, set: <the carry's time>}`, with the source's `told` rows
+  dropped, since nobody has been told the carrier's address, and its
+  `pending` rows carried before the new row, where they hold the handover
+  gate until `handover-classify.sh` confirms each worker still stopped or
+  missing (tsukumogami/shirabe#1696).
   That holds for the opener's carry and for a discipline rotation's
   `state-open.sh --carry`. Right after the copy the carry posts that write's
   run entry, `The coordinator's address is now <carrier>, set by <carrier>.
