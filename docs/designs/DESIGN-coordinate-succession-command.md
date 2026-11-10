@@ -17,11 +17,12 @@ decision: |
   report, handover), skips each one whose existing read says it's done, and
   stops with one `next=` action: exit 10 when a person must answer, exit 11
   when the agent acts and runs it again. It retries the opener once, only on
-  a takeover the fence proves is this session's; it writes `reports-to` only
-  from flags with an explicit source, never writes `told`, and hands the
+  a takeover the fence proves is this session's; it writes `reports-to`
+  only from flags with an explicit source, and `cap`, `role` and intakes
+  only from values it was handed; it never writes `told`, and hands the
   watch, messages, judgements and person gates back. Full outputs go to a
   private `mktemp -d` scratch directory and stdout carries a digest of at
-  most about 25 `key=value` lines. The opener's preflight serves as the
+  most 25 `key=value` lines. The opener's preflight serves as the
   compare, and `watch_pids` moves into a shared probe library.
 rationale: |
   Keeping no progress file means the command converges on koto's state and
@@ -99,8 +100,9 @@ question) or a message sent to a live worker before `told` can be written.
   writes, on top of the opener's existing fence-actor convergence.
 - **Don't change the takeover.** The opener's outcome contract, its refusals
   and the koto fence stay as they are; this command reads their results.
-- **No persistent copy of koto-managed content.** Full outputs live in an
-  auto-wiped scratch directory, never in the work tree.
+- **No persistent copy of koto-managed content.** Full outputs live in a
+  private scratch directory under `$TMPDIR`, removed on success and left to
+  the OS's `$TMPDIR` clearing otherwise, never in the work tree.
 - **Follow the scripts' existing conventions.** `key=value` result lines,
   documented exit codes, `--check`-style reads, and offline tests with stub
   `gh` and `koto` plus engine tests against a real koto.
@@ -219,6 +221,12 @@ confirmation). It writes only after the takeover has landed and only when the
 row differs. It never derives the value from `--dispatched-by` or a brief on
 its own.
 
+Three other Run rows it writes the same way, from a value it was handed and
+only when the row differs: `cap` from `--cap`, `role` from the `role=` line
+the opener printed in this invocation, and an `--intake <label>` for each
+`brief-unread` gap the handover check names. Each goes through
+`state-stored-set.sh`, the record's only writer for those rows.
+
 It never writes `told`. `told` records a delivery, and the command delivers
 nothing. For each party owed the address (each worker the classifier prints
 as `live`, and the dispatcher) it prints the party, the address and the
@@ -298,16 +306,19 @@ never runs `koto session resolve` itself.
 
 Each run makes one directory with
 `mktemp -d "${TMPDIR:-/tmp}/coordinate-succession.XXXXXX"`, writes an `owner`
-file holding the Claude session id, and sends every step's stdout and stderr
-to numbered files in it. On exit 0 it removes the directory and prints
-`outputs=removed`; on any other exit it keeps it and prints `outputs=<dir>`,
-so a failed step's full output is one read away. At start it removes older
-`coordinate-succession.*` directories this session owns, under the checks
-Security Considerations lists. Nothing re-reads
-them, so the directory is never a copy of koto's state that something trusts.
+file holding the Claude session id and the invocation's process id, and sends
+every step's stdout and stderr to numbered files in it. On exit 0 it removes
+the directory and prints `outputs=removed`; on any other exit it keeps it and
+prints `outputs=<dir>`, so a failed step's full output is one read away. At
+start it removes older `coordinate-succession.*` directories this session
+owns, skipping any whose recorded process is still running, under the checks
+Security Considerations lists. An invocation reads back only the files it
+wrote itself (the report's JSON for the counts) and, at cleanup, other
+directories' `owner` files; nothing carries over from one invocation to the
+next, so the directory is never a copy of koto's state that something trusts.
 
-Stdout carries only the digest: fixed `key=value` lines, at most about 25,
-with `next=` last.
+Stdout carries only the digest: fixed `key=value` lines, at most 25, with
+`next=` last.
 
 #### Alternatives Considered
 
@@ -353,15 +364,15 @@ got `--watch-armed` and the probe can't run on this host.
 The four choices fit together as one loop the agent runs: call
 `coordinate-succeed.sh`, act on its single `next=` line, call it again. The
 command owns everything it can attribute to this session and do without
-judgement: the opener and its one retry, the `reports-to` write from values
-the agent passed, the ticks through the reconcile, the report read and the
+judgement: the opener and its one retry, the `reports-to`, `cap`, `role` and
+intake writes from values it was handed, the ticks through the reconcile, the report read and the
 gap classification. It hands back the four things it can't own: the watch,
 a message to a party, a judgement about a holding, and a person's answer.
 
 Because the command keeps no progress of its own, any interruption is
 recovered the same way the opener already recovers a takeover: run it again.
 Because its output is a digest with the full text in scratch, a successful
-succession costs the agent about 25 lines per stop rather than the step
+succession costs the agent at most 25 lines per stop rather than the step
 outputs. The opener's contract, the template and koto don't change.
 
 ### Relation to the successor-continues design
@@ -390,9 +401,9 @@ moves into a shared library without changing what the opener prints.
 ```
 agent
   coordinate-succeed.sh <opener args> [--reports-to V --reports-to-source S]
-                        [--watch-armed]
+                        [--cap N] [--watch-armed]
     open      coordinate-open.sh ...           (every run; one attributed retry)
-    re-point  state-stored-set.sh --run reports-to   (flags only; when it differs)
+    re-point  state-stored-set.sh --run reports-to|cap|role  (handed values; when they differ)
     watch     watch probe on the new run       (stop: next=arm_watch)
     tick      koto next <new run> --no-cleanup (bounded at reconcile_pass)
     report    reconcile-report-get.sh          (--md and JSON into scratch)
@@ -426,11 +437,14 @@ The steps, each skipped when its read says it's done:
    `coord-log.sh fence --session <predecessor>` shows this session as the
    fence's actor on this successor (both `.by` and `.claude_session` match),
    call it once more. A koto version conflict named in the
-   failure stops with `next=resolve_conflict <run>`; `ask=role` and
-   `ask=host` stop with `next=answer role|host`. Any other refusal or failure
-   exits 2 or 1 with the opener's lines.
-2. **Re-point.** With `--reports-to` and its source passed, and the takeover
-   landed, write the row when it differs.
+   failure stops with `next=resolve_conflict <run>`; `ask=role`, `ask=host`
+   and the opener's posture question stop with `next=answer
+   role|host|posture`. Any other refusal or failure exits 2 or 1 with the
+   opener's lines.
+2. **Re-point.** Once the takeover has landed, write each Run row the
+   command was handed when it differs: `reports-to` from `--reports-to` and
+   its source, `cap` from `--cap`, and `role` from this invocation's `role=`
+   line.
 3. **Watch.** While `koto status` shows the new run at `start`, require the
    watch as Decision 4 describes.
 4. **Tick.** `koto next <new run> --no-cleanup`, never `--to`, reading where
@@ -446,6 +460,9 @@ The steps, each skipped when its read says it's done:
    scratch; the record line and the counts go to the digest. Exit 4 (no role
    row) falls through to the role gap.
 6. **Handover.** `handover-classify.sh`, then `state-handover.sh --check`.
+   For each `brief-unread <label>` gap it runs `state-stored-set.sh --intake
+   <label>`; a refusal at the rule caps stops for a person, who confirms or
+   ends rule rows (`next=answer intake <label>`, the refusal in `detail=`).
    The remaining gaps become one stop, checked in this order: `no-role`
    (`next=answer role`), an unsourced or missing `reports-to` with no flags
    passed (`next=reports_to`), owed parties (`next=tell`),
@@ -457,10 +474,15 @@ The steps, each skipped when its read says it's done:
 ### Key Interfaces
 
 **Flags of its own.** `--reports-to <value>` with `--reports-to-source
-brief|dispatch|person` or `--reports-to-inferred "<sentence>"`;
-`--watch-armed`; everything else goes to the opener as given.
+brief|dispatch|person` or `--reports-to-inferred "<sentence>"`; `--cap <n>`;
+`--watch-armed`; everything else goes to the opener as given. The
+`--reports-to` value must have the record's shape, `<name>` or `<name> at
+<address>`, and `--cap` must be a number; anything else is a usage error
+(exit 64) before any step runs.
 
-**Digest.** In this order, each line only when it applies:
+**Digest.** In this order, each line only when it applies, at most 25 lines
+in all. The fixed lines come first; `gap=` and `owed=` lines fill what's left,
+and any that don't fit are counted in `gaps_more=` and `owed_more=`:
 
 ```
 outcome=<continued|resumed|refused>      or failed=<kind>   (the opener's)
@@ -482,13 +504,16 @@ gap=<gap>: <fix>                         (at most 8, then gaps_more=<n>)
 owed=<party> <address>                   (before next=tell; owed_more=<n> past the budget)
 told_cmd=state-stored-set.sh --session <new run> --told <party> --by <you>
 watch=koto request watch --session <new run> --timeout-secs 7200
-directive=<path>   report=<path>   fix=<the gap's fix line>
+directive=<path>   report_md=<path>   fix=<the gap's fix line>
 outputs=<dir|removed>
 next=<token> [<argument>]
 ```
 
-The opener's lines and the handover check's `gap=` lines are copied as
-printed, after the cleaning Security Considerations describes. The report counts come from the JSON mode, so
+The opener's lines and the handover check's `gap=` and `fix=` lines are
+copied as printed, after the cleaning Security Considerations describes.
+They're data for the agent to read: the only lines meant to be run as
+written are `watch=` and `told_cmd=`, which the driver builds itself from
+checked names. The report counts come from the JSON mode, so
 `reconcile-report-get.sh` doesn't change.
 
 **`next=` tokens and exit codes.**
@@ -496,7 +521,7 @@ printed, after the cleaning Security Considerations describes. The report counts
 | Exit | Who acts | `next=` |
 |---|---|---|
 | 0 | the agent, and the succession is over | `report_up` (send the report, submit `reconciled: reported`), `dispatch` (already past reconcile) |
-| 10 | a person answers, then the agent runs it again | `resolve_conflict <run>`, `answer role\|host\|posture`, `go_ahead carry` |
+| 10 | a person answers, then the agent runs it again | `resolve_conflict <run>`, `answer role\|host\|posture`, `answer intake <label>`, `go_ahead carry` |
 | 11 | the agent acts, then runs it again | `arm_watch`, `reports_to`, `tell`, `directive`, `rerun` |
 | 1 | the agent fixes what `failed=` names | `fix <step>` |
 | 2 | the opener or koto refused; `reason=` says why | `fix open` |
@@ -508,22 +533,33 @@ Nothing flows between invocations except through koto and the record. Each
 run reads the opener's result lines afresh (so `session=` is never stored),
 reads `koto status` for the new run's state, reads the record through the
 existing scripts, and writes only through the existing writers: the opener,
-`state-stored-set.sh --run reports-to`, `koto next`, and
-`handover-classify.sh`'s own rows. The scratch directory is write-only for
-the command; only a person or the agent reads it, when a step fails.
+`state-stored-set.sh --run reports-to|cap|role` and `--intake`, `koto next`,
+and `handover-classify.sh`'s own rows. Within one invocation the command
+reads back only what it wrote to scratch itself (the report's JSON for the
+counts), plus other directories' `owner` files at cleanup; a person or the
+agent reads the rest when a step fails.
 
 ## Implementation Approach
 
-### Phase 1: The watch probe as a library
+### Phase 1: The watch probe as a library, and the conflict check
 
 Move `watch_pids` out of `coordinate-open.sh` into `watch-probe.sh`, sourced
 by the opener. Its tests show the opener's output unchanged. This comes
 first because the driver needs the probe.
 
+In the same phase, an engine test runs the opener against a predecessor whose
+bucket copy has diverged from the local one, and checks that the takeover
+stops before the fence with a `detail=` naming the version conflict. Decision
+3 drops the separate compare on that assumption, so the test is a gate:
+Phase 2 starts only once it passes, and if it fails the compare comes back as
+Decision 3's composed read inside the command.
+
 Deliverables:
 - `skills/coordinate/scripts/watch-probe.sh`
 - `coordinate-open.sh` sourcing it; the existing opener tests passing as they
   are
+- `skills/coordinate/scripts/coordinate-succeed_engine_test.sh`, starting with
+  the diverged bucket copy
 
 ### Phase 2: The driver through the takeover and the watch
 
@@ -548,8 +584,8 @@ duplicated record row and the same digest.
 
 Deliverables:
 - the remaining steps in `coordinate-succeed.sh`
-- `skills/coordinate/scripts/coordinate-succeed_engine_test.sh`, including a
-  diverged bucket copy for the version conflict assumption
+- the cut-short takeover cases in
+  `skills/coordinate/scripts/coordinate-succeed_engine_test.sh`
 
 ### Phase 4: SKILL.md and evals
 
@@ -564,7 +600,8 @@ Deliverables:
 ## Security Considerations
 
 The command downloads nothing, adds no dependency and opens no network
-connection. It's a shell driver that calls scripts the skill already ships,
+connection of its own; koto and gh keep the network use they already have,
+including koto's reads and writes to its cloud bucket. It's a shell driver that calls scripts the skill already ships,
 runs as the user with no added privilege, and writes only through the
 existing writers. It depends on the tools the opener already needs (bash, jq,
 awk, ps, koto and gh), and its two new files ship through the plugin's normal
@@ -592,9 +629,17 @@ agent runs.
 - Party and run names placed in `watch=` and `told_cmd=` are checked against
   the name pattern koto accepts and quoted. A name that fails the check is
   never printed inside a command line.
-- Directive text and reports go to scratch, and the digest carries only
-  their paths. The agent treats those files as data from koto's template and
-  the record, not as instructions to the command.
+- `watch=` and `told_cmd=` are the only lines meant to be run as written,
+  and the driver builds both from checked parts. `gap=`, `fix=`, `detail=`,
+  `record=` and `owed=` carry copied text; SKILL.md names them as data the
+  agent reads, never as commands it runs verbatim. Stripping newlines stops a
+  forged line, not instructions written in plain words, so the agent weighs
+  those fields as text from the record and from other processes.
+- The directive goes to scratch and the digest carries only its path. It's
+  the text of a state in koto's own template, the same text `koto next`
+  would print, so `next=directive` asks the agent to follow it as it would
+  any directive. Reports and step outputs in scratch are data from the record
+  and from the scripts.
 
 ### Scratch directories
 
@@ -602,23 +647,32 @@ Each run makes its directory with `mktemp -d`, which gives an unpredictable
 name and mode 0700, and the driver sets `umask 077` for the files it writes
 inside. The directory holds koto content and the Claude session id, so only
 the user can read it, and it stays out of the work tree and out of git. It's
-kept after any failed run until the same session's next start, and it can be
-picked up by backups that include `$TMPDIR` until then. That's the user's own
-run data; this repository is public, so tests and fixtures use synthetic data
-only.
+kept after any failed run until the same session's next start; a directory
+from a session that never runs the command again stays until the OS clears
+`$TMPDIR`, which on some hosts is only at reboot, and backups that include
+`$TMPDIR` can pick it up meanwhile. That's the user's own run data, the same
+koto content the user's session can already read. The driver captures only
+what each step prints, never runs with shell tracing and never writes its
+environment to scratch. This repository is public, so tests and fixtures use
+synthetic data only.
 
 Cleanup at start is the one destructive filesystem step. When `$TMPDIR` is
 unset the temp root is a shared `/tmp`, where another user could plant a
-directory with a forged `owner` file. The driver removes a directory only
-when all of these hold:
+directory with a forged `owner` file, and the same session can have two
+invocations running at once. The driver removes a directory only when all of
+these hold:
 
 - it's a real directory, not a symlink, directly under the temp root;
 - it's owned by the current user;
 - its name matches `coordinate-succession.*`;
-- its `owner` file holds exactly this session's id.
+- its `owner` file holds exactly this session's id;
+- the process id recorded in `owner` isn't running, so a concurrent
+  invocation's directory is left alone.
 
-The `owner` file decides cleanup and nothing else. No takeover or retry
-decision reads it.
+The checks are made on the directory itself just before removal, and the
+removal doesn't follow symlinks inside it, so a link swapped in can't point
+the delete elsewhere. The `owner` file decides cleanup and nothing else. No
+takeover or retry decision reads it.
 
 ### Process-table probe
 
@@ -660,10 +714,16 @@ The command acts only on a takeover it can prove is this session's own.
   record, and they're bounded at 12 per invocation.
 - **`reports-to`.** It's written only from flags the agent passes with an
   explicit source; an inferred value lands awaiting confirmation, and a value
-  with no source is a usage error (exit 64). The command never defaults the
-  source. `--reports-to-source person` is the agent's statement that a person
-  gave the answer, which the command can't check; the record keeps the source
-  so a reviewer can see where the value came from.
+  with no source, or one that isn't `<name>` or `<name> at <address>`, is a
+  usage error (exit 64). The command never defaults the source.
+  `--reports-to-source person` is the agent's statement that a person gave
+  the answer, which the command can't check; the record keeps the source so
+  a reviewer can see where the value came from.
+- **The other Run rows.** `cap` comes from `--cap`, `role` from the opener's
+  own `role=` line in the same invocation, and each intake from a
+  `brief-unread` gap the handover check printed. All three go through
+  `state-stored-set.sh` and only when the row differs, so none adds a value
+  the command made up.
 - **`told`.** The command never writes it, because it records a delivery
   the command can't make. It prints the command for the agent to run after
   the message lands; the handover gate and the person reading the record
@@ -674,12 +734,28 @@ The command acts only on a takeover it can prove is this session's own.
   that bypasses one of these (a `--yes` or `--acknowledge-carry`) would change
   this design's trust model and needs its own review.
 
+### Residual risks
+
+- **A stale predecessor copy.** Dropping the separate compare rests on koto
+  refusing, under the cloud backend, to read a predecessor whose local copy
+  conflicts with the bucket. If it read the local copy silently, a takeover
+  could go ahead on stale state and two coordinators could act on one run.
+  Phase 1's engine test gates the driver on this; if it fails, the compare
+  comes back inside the command before anything ships.
+- **The agent's word on a source.** `--reports-to-source person` and
+  `--watch-armed` are the agent's statements, accepted as given. The record
+  keeps the source, and the probe backs the watch where it can run.
+- **Copied text in the agent's context.** The cleaning stops forged lines;
+  it can't stop a sentence in a gap or an error message from reading like an
+  instruction. Those fields are named as data, and the person gates hold
+  whatever the agent makes of them.
+
 ## Consequences
 
 ### Positive
 
 - A succession becomes one command run again after each stop. A clean run
-  costs the agent a digest of about 25 lines per stop instead of every
+  costs the agent a digest of at most 25 lines per stop instead of every
   step's full output, which is where the issue's 70K tokens went.
 - A takeover cut short after this session's fence finishes inside the
   command in the common case, so the agent doesn't read and re-run the opener
@@ -713,8 +789,8 @@ The command acts only on a takeover it can prove is this session's own.
   here too.
 - The one retry is bounded per invocation and attributed by the fence's
   actor, so it never multiplies carries or acts on another session's fence.
-- Phase 3's engine test runs a takeover against a diverged bucket copy before
-  the command ships. If koto reads the conflicted copy without complaint, the
+- Phase 1's engine test runs a takeover against a diverged bucket copy before
+  any driver code is written. If koto reads the conflicted copy without complaint, the
   fallback is Decision 3's composed read inside the command, not a new
   script.
 - Why the opener's carry took about 32 minutes in the issue's succession is
