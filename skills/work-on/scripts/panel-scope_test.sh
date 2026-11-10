@@ -758,6 +758,53 @@ record scrutiny "$ALL_PASS"
 run --plan review "$SESSION"
 expect_full "the same fix at the next panel, after the first recorded it in full" review "changes 250 lines"
 
+# A merge of the default branch after the panel's last reviewed head (#1701).
+# merge_main <lines> <path>: main commits <lines> lines to <path>, and the
+# branch merges main.
+merge_main() {
+    (cd "$FX/repo" && git checkout -q main && mkdir -p "$(dirname "$2")" && seq 1 "$1" > "$2" \
+        && git add -A && git commit -q -m main-moves && git checkout -q "impl/$SESSION" \
+        && git merge -q --no-ff --no-edit main) >/dev/null 2>&1
+}
+
+# main adds 300 lines of docs and the branch merges it: the branch's own diff
+# since the panel's head is unchanged, so no full round on that account.
+fixture tr-merged
+plan_record scrutiny "$ALL_PASS"
+merge_main 300 docs/merged.md
+run --plan scrutiny "$SESSION"
+expect_not_full "a branch that merges main without changing its own files" scrutiny
+
+# The same merge followed by the branch's own 201-line fix: full, and the
+# reason counts the branch's lines only.
+fixture tr-merged-own
+plan_record scrutiny "$ALL_PASS"
+merge_main 300 docs/merged.md
+(cd "$FX/repo" && seq 1 201 > docs/own.txt && git add docs/own.txt && git commit -q -m own) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a 201-line fix after a merge of main" scrutiny "changes 201 lines"
+
+# main's merge is already behind the panel's head: measured from that head as
+# before, and a 50-line fix stays under the threshold.
+fixture tr-merged-before
+merge_main 300 docs/merged.md
+plan_record scrutiny "$ALL_PASS"
+(cd "$FX/repo" && seq 1 50 > docs/own.txt && git add docs/own.txt && git commit -q -m own) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_not_full "a merge of main before the panel's head" scrutiny
+
+# A merge that can't be built cleanly keeps the panel's head as the base, so
+# what the merge brought in still counts: never less than the branch's own
+# change. main appends 300 lines to the file the branch extended.
+fixture tr-merged-conflict
+plan_record scrutiny "$ALL_PASS"
+(cd "$FX/repo" && git checkout -q main && seq 1001 1300 >> src/a.sh && git add -A \
+    && git commit -q -m main-moves && git checkout -q "impl/$SESSION" \
+    && { git merge -q --no-edit main || true; } && git checkout -q --theirs src/a.sh \
+    && git add src/a.sh && git commit -q --no-edit) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a conflicting merge of main" scrutiny "over the 200-line threshold"
+
 # A full round hands each seat its own unclosed findings, and the findings no
 # seat raised to a re-verifier.
 fixture tr-handoff
