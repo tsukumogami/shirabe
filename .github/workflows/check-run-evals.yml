@@ -13,8 +13,17 @@ name: Check run-evals
 # record script (scripts/lib/eval-pass-rates.py) run their suites here too:
 # the record script's unittest suite, and the check's suite against a stub gh
 # and a stub run-evals.sh, so neither needs a model, the network or a token.
-# So does the scheduled eval runner (scripts/scheduled-evals.py), against a
-# stub harness in a throwaway repository.
+# The retired scheduled runner (scripts/scheduled-evals.py) keeps its suite,
+# which checks that it refuses every argument list and starts nothing.
+#
+# test-eval-workflows runs scripts/eval-workflows_test.sh, which reads the
+# workflows that could run eval cases with yq: run-evals.yml must stay
+# dispatch-only, and check-evals.yml and check-skill-gate.yml must trigger on
+# pull_request and never pull_request_target, declare
+# `permissions: contents: read`, read no repository secret and run on
+# GitHub-hosted runners. It installs the yq check-macos-floor-legs.yml pins,
+# so the runner image moving to another yq can't change what the test reads,
+# and it starts when any of those workflows changes.
 
 on:
   pull_request:
@@ -42,6 +51,11 @@ on:
       - 'scripts/scheduled-evals.py'
       - 'scripts/scheduled-evals_test.py'
       - '.github/workflows/check-run-evals.yml'
+      # The workflows eval-workflows_test.sh reads, and the test.
+      - '.github/workflows/run-evals.yml'
+      - '.github/workflows/check-evals.yml'
+      - '.github/workflows/check-skill-gate.yml'
+      - 'scripts/eval-workflows_test.sh'
 
 jobs:
   test-run-evals:
@@ -110,3 +124,29 @@ jobs:
 
       - name: Run scheduled-evals tests
         run: python3 scripts/scheduled-evals_test.py
+
+  test-eval-workflows:
+    runs-on: ubuntu-latest
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Run eval-workflows tests
+        run: bash scripts/eval-workflows_test.sh

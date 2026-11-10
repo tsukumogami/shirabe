@@ -182,27 +182,32 @@ jobs:
         if: matrix.suite == 'preflight'
         run: scripts/assert-koto-floor.sh
 
-      # check-skill's real-tree copy runs deliver's case 34, which needs koto.
-      - name: Install tsuku (check-skill)
-        if: matrix.suite == 'check-skill'
+      # check-skill's real-tree copy runs deliver's case 34, which needs koto,
+      # and skill-gate's script cases attach templates with it.
+      - name: Install tsuku (check-skill, skill-gate)
+        if: matrix.suite == 'check-skill' || matrix.suite == 'skill-gate'
         uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
 
-      - name: Install koto (check-skill)
-        if: matrix.suite == 'check-skill'
+      - name: Install koto (check-skill, skill-gate)
+        if: matrix.suite == 'check-skill' || matrix.suite == 'skill-gate'
         env:
           TSUKU_TELEMETRY: "0"
           GITHUB_TOKEN: ${{ github.token }}
         run: tsuku install -y
 
-      - name: Assert koto meets the floor (check-skill)
-        if: matrix.suite == 'check-skill'
+      - name: Assert koto meets the floor (check-skill, skill-gate)
+        if: matrix.suite == 'check-skill' || matrix.suite == 'skill-gate'
         run: |
           command -v koto
           scripts/assert-koto-floor.sh
 
+      # SKILL_GATE_BASE is the expression the skill-gate suite's own floor step
+      # sets. A scheduled or dispatched run has no pull request or push, so it
+      # comes out empty and the gate runs every skill's script cases.
       - name: Run the suite on the bash 3.2 floor (macOS, system bash)
         env:
           SUITE: ${{ matrix.suite }}
+          SKILL_GATE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: scripts/check-bash-floor.sh --backend system "$SUITE"
 
   # A red run files an issue under TRACKING_TITLE, or comments on the open one,
