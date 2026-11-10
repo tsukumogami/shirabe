@@ -458,7 +458,7 @@ take_over() {
     jq -nc --arg n "$1" '["docs/roadmaps/ROADMAP-" + $n + ".md", "--role", "manager"]' > "$T/args.json"
     OUT=$(as "$B_ID" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/take.err")
     B=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
-    printf '%s\n' "$OUT" | grep -qx 'outcome=continued' && [ "$(at "$B")" = reconcile ]
+    grep -qx 'outcome=continued' <<< "$OUT" && [ "$(at "$B")" = reconcile ]
 }
 job "$A_ID" coord-a; job "$B_ID" coord-b
 A=coordinate-roadmap-take-20261020T090000Z
@@ -500,7 +500,7 @@ carry_start() {
     jq -nc --arg n "$1" '["docs/roadmaps/ROADMAP-" + $n + ".md", "--role", "manager"]' > "$T/args.json"
     OUT=$(as "$2" bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/carry.err")
     N=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
-    printf '%s\n' "$OUT" | grep -qx "carried=$P" && [ "$(at "$N")" = reconcile ]
+    grep -qx "carried=$P" <<< "$OUT" && [ "$(at "$N")" = reconcile ]
 }
 ADDR_X="The coordinator's address is now coord-x, set by coord-x. Nobody has been told it yet."
 job "$X_ID" coord-x

@@ -184,7 +184,7 @@ LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .ke
 # lib_caller: the Claude session running this script. LIB_CALLER_ID is
 # CLAUDE_CODE_SESSION_ID when it has a session id's shape, else empty;
 # LIB_CALLER_NAME is the name its job state file gives it under
-# DC_CLAUDE_HOME (default ~/.claude), its messaging address, read through
+# DC_CLAUDE_HOME (default $HOME/.claude), its messaging address, read through
 # dispatch-common.sh's dc_claude_name in a subshell, empty when it can't be
 # read. coordinate-open.sh reads its caller the same way.
 lib_caller() {
