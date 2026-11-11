@@ -46,7 +46,12 @@ jobs:
   entry-floor:
     runs-on: ubuntu-latest
     steps:
+      # Full history: coordinate's directive-ceiling_engine_test.sh reads the
+      # hub's ceiling at the merge base with the base branch, and fails a pull
+      # request run that can't.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Read the floor
         run: |
