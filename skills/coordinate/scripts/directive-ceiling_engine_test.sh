@@ -234,7 +234,7 @@ d=$((with - without)); [ "$d" -lt 0 ] && d=$((0 - d))
 F=$T/grow; fixture "$F" "$BASE_TEXT"
 write_tpl "$F" "$BASE_TEXT Also check one more thing."; commit "$F"
 OUT=$(judged "$F"); st=$?
-if [ $st -eq 1 ] && printf '%s' "$OUT" | grep -q 'over its ceiling of [0-9]* at the merge base'; then
+if [ $st -eq 1 ] && grep -q 'over its ceiling of [0-9]* at the merge base' <<<"$OUT"; then
     pass "a grown directive fails"
 else
     fail "a grown directive fails" "exit $st: $OUT"
@@ -243,7 +243,7 @@ for line in 'A script or a gate, if one can enforce the rule' \
              'The state the triggering event routes to' \
              'A reference file, with a one-line cue' \
              'The hub, only by replacing or tightening text already there'; do
-    printf '%s' "$OUT" | grep -qF "$line" || { fail "the failure names where text goes, in order" "missing: $line"; break; }
+    grep -qF "$line" <<<"$OUT" || { fail "the failure names where text goes, in order" "missing: $line"; break; }
 done
 [ "$(printf '%s\n' "$OUT" | grep -nE '^ +[1-4]\. ' | cut -d: -f2 | sed 's/^ *//' | cut -c1 | tr -d '\n')" = 1234 ] \
     && pass "the failure names where text goes, in order" \
@@ -253,7 +253,7 @@ F=$T/raise; fixture "$F" "$BASE_TEXT"
 write_tpl "$F" "$BASE_TEXT Also check one more thing."
 printf '# fixture\nwait\t%s\n' "$(render_size "$F/t.md" wait)" > "$F/ceil.tsv"; commit "$F"
 OUT=$(judged "$F"); st=$?
-[ $st -eq 1 ] && printf '%s' "$OUT" | grep -q 'at the merge base' \
+[ $st -eq 1 ] && grep -q 'at the merge base' <<<"$OUT" \
     && pass "a change that raises its own ceiling still fails" \
     || fail "a change that raises its own ceiling still fails" "exit $st: $OUT"
 
@@ -272,32 +272,32 @@ OUT=$(judged "$F"); st=$?
 F=$T/lower-below; fixture "$F" "$BASE_TEXT"
 printf '# fixture\nwait\t10\n' > "$F/ceil.tsv"; commit "$F"
 OUT=$(judged "$F"); st=$?
-[ $st -eq 1 ] && printf '%s' "$OUT" | grep -q 'over its ceiling of 10 in ceil.tsv' \
+[ $st -eq 1 ] && grep -q 'over its ceiling of 10 in ceil.tsv' <<<"$OUT" \
     && pass "a lowered ceiling binds in the change that lowers it" \
     || fail "a lowered ceiling binds in the change that lowers it" "exit $st: $OUT"
 
 F=$T/drop; fixture "$F" "$BASE_TEXT"
 printf '# fixture\npick\t100000\n' > "$F/ceil.tsv"; commit "$F"
 OUT=$(judged "$F"); st=$?
-[ $st -eq 1 ] && printf '%s' "$OUT" | grep -q 'wait has a ceiling at the merge base' \
+[ $st -eq 1 ] && grep -q 'wait has a ceiling at the merge base' <<<"$OUT" \
     && pass "a change that removes a state's row fails" \
     || fail "a change that removes a state's row fails" "exit $st: $OUT"
 
 F=$T/new; fixture "$F" "$BASE_TEXT" none
 printf '# fixture\nwait\t%s\n' "$(render_size "$F/t.md" wait)" > "$F/ceil.tsv"; commit "$F"
 OUT=$(judged "$F"); st=$?
-[ $st -eq 0 ] && printf '%s' "$OUT" | grep -q 'merge base has no ceil.tsv' \
+[ $st -eq 0 ] && grep -q 'merge base has no ceil.tsv' <<<"$OUT" \
     && pass "a base with no ceiling file falls back to the tree's, and says so" \
     || fail "a base with no ceiling file falls back to the tree's, and says so" "exit $st: $OUT"
 
 F=$T/no-base; fixture "$F" "$BASE_TEXT"
 git -C "$F" update-ref -d refs/remotes/origin/main
 OUT=$(judged "$F"); st=$?
-[ $st -eq 0 ] && printf '%s' "$OUT" | grep -q 'no merge base to read' \
+[ $st -eq 0 ] && grep -q 'no merge base to read' <<<"$OUT" \
     && pass "with no merge base the tree's ceilings judge, and the suite says so" \
     || fail "with no merge base the tree's ceilings judge, and the suite says so" "exit $st: $OUT"
 OUT=$( (GITHUB_BASE_REF=main; cd "$F" && judge "$F" t.md ceil.tsv) ); st=$?
-[ $st -eq 1 ] && printf '%s' "$OUT" | grep -q 'no merge base with origin/main' \
+[ $st -eq 1 ] && grep -q 'no merge base with origin/main' <<<"$OUT" \
     && pass "a pull request's CI run with no merge base fails" \
     || fail "a pull request's CI run with no merge base fails" "exit $st: $OUT"
 
