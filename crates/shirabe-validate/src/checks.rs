@@ -17,8 +17,8 @@ use regex::Regex;
 use crate::doc::{Config, Doc, FieldEntries, ValidationError};
 use crate::features::{non_milestone_headings, parse_features, RoadmapVersion};
 use crate::formats::{
-    detect_format, plan_v2_required_fields, plan_v2_required_sections, FormatId, FormatSpec,
-    Lifetime, PLAN_V2_SCHEMA,
+    design_draft_required_fields, detect_format, plan_v2_required_fields,
+    plan_v2_required_sections, FormatId, FormatSpec, Lifetime, PLAN_V2_SCHEMA,
 };
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
@@ -110,11 +110,18 @@ pub fn check_schema(doc: &Doc, spec: &FormatSpec) -> Option<ValidationError> {
 /// `doc.fields`. Line is 1 (the field is absent, no specific line).
 ///
 /// A `plan/v2` document is checked against the step plan's field list
-/// (`step_count` in place of `issue_count`).
+/// (`step_count` in place of `issue_count`). A design at status `Draft` is
+/// checked against the draft field list (`status` and `problem` only), since
+/// its decision and rationale are not written yet.
 pub fn check_fc01(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     let mut errs = Vec::new();
     let required = if spec.id == FormatId::Plan && is_plan_v2(doc) {
         plan_v2_required_fields()
+    } else if spec.id == FormatId::Design && doc.status == "Draft" {
+        // Only the canonical spelling selects the Draft rules. A status such
+        // as `draft` is outside the design enum (FC02) and keeps the full
+        // field list, so a misspelled status never relaxes FC01.
+        design_draft_required_fields()
     } else {
         spec.required_fields.clone()
     };
@@ -5300,6 +5307,66 @@ mod tests {
         let doc = make_doc("design/v1", "", HashMap::new(), vec![], vec![]);
         let errs = check_fc01(&doc, &design_spec());
         assert_eq!(errs.len(), design_spec().required_fields.len());
+    }
+
+    #[test]
+    fn check_fc01_draft_design_needs_only_status_and_problem() {
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), fv("Draft", 2));
+        fields.insert("problem".to_string(), fv("something", 3));
+        let doc = make_doc("design/v1", "Draft", fields, vec![], vec![]);
+        assert_eq!(check_fc01(&doc, &design_spec()).len(), 0);
+    }
+
+    #[test]
+    fn check_fc01_draft_design_without_problem_names_only_problem() {
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), fv("Draft", 2));
+        let doc = make_doc("design/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_fc01(&doc, &design_spec());
+        assert_eq!(errs.len(), 1, "got: {:?}", errs);
+        assert_eq!(errs[0].code, "FC01");
+        assert!(errs[0].message.contains("\"problem\""));
+        assert!(!errs[0].message.contains("decision"));
+        assert!(!errs[0].message.contains("rationale"));
+    }
+
+    #[test]
+    fn check_fc01_later_design_statuses_need_decision_and_rationale() {
+        for status in ["Proposed", "Accepted", "Planned", "Current", "Superseded"] {
+            let mut fields = HashMap::new();
+            fields.insert("status".to_string(), fv(status, 2));
+            fields.insert("problem".to_string(), fv("something", 3));
+            let doc = make_doc("design/v1", status, fields, vec![], vec![]);
+            let errs = check_fc01(&doc, &design_spec());
+            assert_eq!(errs.len(), 2, "status {}: got {:?}", status, errs);
+            assert!(errs.iter().any(|e| e.message.contains("\"decision\"")));
+            assert!(errs.iter().any(|e| e.message.contains("\"rationale\"")));
+        }
+    }
+
+    #[test]
+    fn check_fc01_lowercase_draft_keeps_full_design_list() {
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), fv("draft", 2));
+        fields.insert("problem".to_string(), fv("something", 3));
+        let doc = make_doc("design/v1", "draft", fields, vec![], vec![]);
+        let errs = check_fc01(&doc, &design_spec());
+        assert_eq!(errs.len(), 2, "got: {:?}", errs);
+        assert!(errs.iter().any(|e| e.message.contains("\"decision\"")));
+        assert!(errs.iter().any(|e| e.message.contains("\"rationale\"")));
+    }
+
+    #[test]
+    fn check_fc01_non_design_at_draft_keeps_its_own_list() {
+        let prd = spec_for("prd/v1");
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), fv("Draft", 2));
+        fields.insert("problem".to_string(), fv("something", 3));
+        let doc = make_doc("prd/v1", "Draft", fields, vec![], vec![]);
+        let errs = check_fc01(&doc, &prd);
+        assert_eq!(errs.len(), 1, "got: {:?}", errs);
+        assert!(errs[0].message.contains("\"goals\""));
     }
 
     // --- check_fc02 ---

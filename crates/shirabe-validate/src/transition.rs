@@ -37,9 +37,12 @@ use crate::frontmatter::{self, ParseError};
 
 /// The transition rule for a type.
 ///
-/// `MembershipOnly` types (prd, design) accept any valid status as a target
-/// with no ordering constraint. `Graph` types (vision, strategy, roadmap,
-/// brief) restrict transitions to an explicit edge list.
+/// `MembershipOnly` types (prd) accept any valid status as a target with no
+/// ordering constraint. `Graph` types (vision, strategy, roadmap, brief)
+/// restrict transitions to an explicit edge list. `EntryGuard` types (design)
+/// accept any valid status as a target except one guarded status, which may
+/// only be entered from a named set of current statuses; every move out of the
+/// guarded status stays open.
 ///
 /// The `Graph` variant also carries the script-faithful rejection surface so
 /// the engine reproduces each script's `validate_transition` byte-for-byte: a
@@ -54,6 +57,41 @@ pub enum Rule {
     MembershipOnly,
     /// An ordered transition graph with the scripts' rejection messages.
     Graph(Graph),
+    /// Any valid status is a legal target, except that one status may only be
+    /// entered from the statuses the guard names.
+    EntryGuard(EntryGuard),
+}
+
+/// The entry-guard rule's data: the guarded status, the current statuses it
+/// may be entered from, and the explanation appended to the rejection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryGuard {
+    /// The guarded target status.
+    pub status: String,
+    /// The current statuses from which a move into `status` is legal.
+    pub only_from: Vec<String>,
+    /// The explanation appended to the `Invalid transition` message when a
+    /// move into `status` is refused.
+    pub message: String,
+}
+
+impl EntryGuard {
+    /// Evaluate `current -> target` against the guard. A move whose target is
+    /// not the guarded status is always `Ok(())`, so moves out of the guarded
+    /// status are never restricted. A move into the guarded status from a
+    /// status outside `only_from` is an exit-2 [`TransitionError`].
+    fn evaluate(&self, current: &str, target: &str) -> Result<(), TransitionError> {
+        if target != self.status || self.only_from.iter().any(|from| from == current) {
+            return Ok(());
+        }
+        Err(TransitionError::new(
+            2,
+            format!(
+                "Invalid transition: {} -> {}. {}",
+                current, target, self.message
+            ),
+        ))
+    }
 }
 
 /// The graph rule's data: legal edges plus the script-faithful rejection
@@ -221,7 +259,8 @@ pub struct TransitionSpec {
     pub format_name: String,
     /// The valid status set for the type, in canonical order.
     pub statuses: Vec<String>,
-    /// The transition rule (membership-only or an ordered graph).
+    /// The transition rule (membership-only, an ordered graph, or an entry
+    /// guard).
     pub rule: Rule,
     /// Deterministic, document-local precondition gate. Stub for Issue 2.
     pub precondition: Precondition,
@@ -445,8 +484,23 @@ pub fn transition_table() -> Vec<TransitionSpec> {
         },
         TransitionSpec {
             format_name: "Design".to_string(),
-            statuses: s(&["Proposed", "Accepted", "Planned", "Current", "Superseded"]),
-            rule: Rule::MembershipOnly,
+            statuses: s(&[
+                "Draft",
+                "Proposed",
+                "Accepted",
+                "Planned",
+                "Current",
+                "Superseded",
+            ]),
+            // A design is drafted at Draft and proposed from there. Once it
+            // moves past Proposed it can't go back to Draft; every move out of
+            // Draft stays open, since finalize-chain sends Draft designs
+            // straight to Current.
+            rule: Rule::EntryGuard(EntryGuard {
+                status: "Draft".to_string(),
+                only_from: s(&["Proposed"]),
+                message: "A design moves into Draft only from Proposed.".to_string(),
+            }),
             precondition: Precondition::None,
             moves: Moves {
                 entries: vec![
@@ -646,19 +700,28 @@ pub struct Flags {
 
 /// Run a transition on `file` to the canonical status `target_status`.
 ///
-/// The step order matches the scripts so parity holds. Issue 1 implements the
-/// membership-only / no-move / no-precondition path; graph evaluation,
-/// preconditions, moves, and the extra-input gate land in later issues.
+/// The step order matches the scripts so parity holds.
 ///
 /// 1. `detect_format(basename)` -> type, or exit 1 ("cannot determine artifact
-///    type").
+///    type"). A missing file is exit 1, and a file outside the repo work tree
+///    is refused.
 /// 2. Parse the current status from frontmatter (preferred) or the body
 ///    `## Status` line; an unparseable status is exit 1.
 /// 3. The target must be a known status for the type, else exit 2.
-/// 4. Idempotent short-circuit: target == current -> success no-op.
-/// 5. Apply edits: targeted `status:` frontmatter line replacement and the
-///    body `## Status` rewrite per the type's template.
-/// 6. Return the [`Outcome`] for JSON rendering.
+/// 4. Extra-input gate: the per-`(type, target)` input (`--superseded-by`,
+///    `--reason`) is validated, even when the move turns out to be a no-op.
+/// 5. Idempotent short-circuit: target == current -> success no-op, before
+///    the transition rule runs.
+/// 6. Transition rule: a `Graph` type's edge must be legal, and an
+///    `EntryGuard` type may enter its guarded status only from the statuses
+///    the guard names; a refused move is exit 2 and leaves the file unchanged.
+/// 7. Precondition: a failed document-local gate is exit 2.
+/// 8. Apply edits: targeted `status:` frontmatter line replacement, the body
+///    `## Status` rewrite per the type's template, and the extra frontmatter
+///    field when supplied.
+/// 9. Move the file when the target status has a directory, then repoint the
+///    documents that named its old path.
+/// 10. Return the [`Outcome`] for JSON rendering.
 pub fn run_transition(
     file: &str,
     target_status: &str,
@@ -730,10 +793,15 @@ pub fn run_transition(
 
     // Step 6: transition rule. `Graph` types check the edge is legal (reusing
     // the scripts' terminal guard + per-edge rejection messages); illegal
-    // edges are exit 2. `MembershipOnly` types are already covered by the
-    // step-3 membership check above.
-    if let Rule::Graph(graph) = &spec.rule {
-        graph.evaluate(&current_status, target_status)?;
+    // edges are exit 2. `EntryGuard` types refuse a move into the guarded
+    // status from any status the guard doesn't name (exit 2); it runs after
+    // the no-op short-circuit, so staying at the guarded status succeeds.
+    // `MembershipOnly` types are already covered by the step-3 membership
+    // check above.
+    match &spec.rule {
+        Rule::Graph(graph) => graph.evaluate(&current_status, target_status)?,
+        Rule::EntryGuard(guard) => guard.evaluate(&current_status, target_status)?,
+        Rule::MembershipOnly => {}
     }
 
     // Step 7: precondition. A failed deterministic, document-local gate is
@@ -2336,6 +2404,125 @@ mod tests {
         assert!(updated.contains("status: Current"));
         assert!(!updated.contains("superseded_by:"));
         assert!(updated.contains("## Status\n\nCurrent\n"));
+    }
+
+    // ---- design Draft: status list and entry guard ----
+
+    fn design_entry_guard() -> EntryGuard {
+        match transition_spec("Design").expect("design spec").rule {
+            Rule::EntryGuard(guard) => guard,
+            other => panic!("design rule is not an entry guard: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn design_transition_statuses_match_validate_statuses() {
+        let validate_statuses = crate::formats::formats()
+            .into_iter()
+            .find(|f| f.name == "Design")
+            .expect("design format")
+            .valid_statuses;
+        let transition_statuses = transition_spec("Design").expect("design spec").statuses;
+        assert_eq!(transition_statuses, validate_statuses);
+        assert_eq!(transition_statuses[0], "Draft");
+    }
+
+    #[test]
+    fn entry_guard_allows_draft_from_proposed() {
+        assert_eq!(design_entry_guard().evaluate("Proposed", "Draft"), Ok(()));
+    }
+
+    #[test]
+    fn entry_guard_refuses_draft_from_later_statuses() {
+        let guard = design_entry_guard();
+        for current in ["Accepted", "Planned", "Current", "Superseded"] {
+            let err = guard.evaluate(current, "Draft").expect_err("refused");
+            assert_eq!(err.code, 2, "from {}", current);
+            assert_eq!(
+                err.message,
+                format!(
+                    "Invalid transition: {} -> Draft. A design moves into Draft only from Proposed.",
+                    current
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn entry_guard_allows_every_target_other_than_draft() {
+        let guard = design_entry_guard();
+        let statuses = transition_spec("Design").expect("design spec").statuses;
+        for current in &statuses {
+            for target in statuses.iter().filter(|t| t.as_str() != "Draft") {
+                assert_eq!(
+                    guard.evaluate(current, target),
+                    Ok(()),
+                    "{} -> {}",
+                    current,
+                    target
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn design_refused_move_into_draft_leaves_file_unchanged() {
+        for current in ["Accepted", "Planned", "Current", "Superseded"] {
+            let doc = format!(
+                "---\nschema: design/v1\nstatus: {}\n---\n\n# Title\n\n## Status\n\n{}\n",
+                current, current
+            );
+            let path = write_doc(&format!("DESIGN-refuse-{}.md", current), &doc);
+            let err = run_transition(&path, "Draft", &Flags::default()).expect_err("refused");
+            assert_eq!(err.code, 2, "from {}", current);
+            assert!(err
+                .message
+                .contains("A design moves into Draft only from Proposed."));
+            assert_eq!(fs::read_to_string(&path).unwrap(), doc);
+        }
+    }
+
+    #[test]
+    fn design_proposed_to_draft_rewrites_both_lines() {
+        let doc =
+            "---\nschema: design/v1\nstatus: Proposed\n---\n\n# Title\n\n## Status\n\nProposed\n";
+        let path = write_doc("DESIGN-back-to-draft.md", doc);
+        let outcome = run_transition(&path, "Draft", &Flags::default()).expect("ok");
+        assert_eq!(outcome.old_status, "Proposed");
+        assert_eq!(outcome.new_status, "Draft");
+        assert!(!outcome.moved);
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("status: Draft\n"));
+        assert!(updated.contains("## Status\n\nDraft\n"));
+    }
+
+    #[test]
+    fn design_draft_to_draft_is_a_noop() {
+        let doc = "---\nschema: design/v1\nstatus: Draft\n---\n\n# Title\n\n## Status\n\nDraft\n";
+        let path = write_doc("DESIGN-draft-noop.md", doc);
+        let outcome = run_transition(&path, "Draft", &Flags::default()).expect("ok");
+        assert_eq!(outcome.old_status, "Draft");
+        assert_eq!(outcome.new_status, "Draft");
+        assert!(!outcome.moved);
+        assert_eq!(fs::read_to_string(&path).unwrap(), doc);
+    }
+
+    #[test]
+    fn design_draft_to_current_moves_to_current_dir() {
+        // Moves out of Draft stay open: finalize-chain sends a Draft design
+        // straight to Current.
+        let doc = "---\nschema: design/v1\nstatus: Draft\n---\n\n# Title\n\n## Status\n\nDraft\n";
+        let (root, path) = write_doc_in_git_repo("docs/designs/DESIGN-draft-c.md", doc);
+        let outcome = run_transition(&path, "Current", &Flags::default()).expect("ok");
+        assert_eq!(outcome.old_status, "Draft");
+        assert_eq!(outcome.new_status, "Current");
+        assert!(outcome.moved);
+        assert_eq!(outcome.new_path, "docs/designs/current/DESIGN-draft-c.md");
+        let moved = root.join("docs/designs/current/DESIGN-draft-c.md");
+        let updated = fs::read_to_string(&moved).unwrap();
+        assert!(updated.contains("status: Current\n"));
+        assert!(updated.contains("## Status\n\nCurrent\n"));
+        assert!(!std::path::Path::new(&path).exists());
     }
 
     // ---- Issue 3: strategy sunset (reason + sanitization + move) ----

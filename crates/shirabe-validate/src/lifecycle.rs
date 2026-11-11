@@ -49,6 +49,11 @@
 //!   outline step, naming it. Draft-tolerable: a notice while the plan is
 //!   authored and reviewed, an error at the ready posture the completion
 //!   cascade runs before deleting the plan.
+//! - **L11**: a DESIGN is still at status `Draft`. Emitted in both modes,
+//!   whether or not a chain reaches the design. Draft-tolerable: a design is
+//!   drafted at `Draft` on purpose, so it is a notice while the PR is a
+//!   draft and an error at the ready posture, where it must have moved to
+//!   `Proposed`.
 //!
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
@@ -1228,7 +1233,9 @@ fn conflict_finding(
 /// whether a chain reaches it: a `Current` DESIGN is terminal and
 /// orphan, and its directory must still agree with its status. Running
 /// it here rather than in one mode's entry point is what makes the two
-/// modes state the same thing about a misplaced document.
+/// modes state the same thing about a misplaced document. The draft-design
+/// rule (L11) sits beside it for the same reason: a `Draft` DESIGN that no
+/// chain names is still a draft.
 ///
 /// `scope` is what the mode controls, and the only thing it controls.
 fn emit_document_findings(
@@ -1244,6 +1251,9 @@ fn emit_document_findings(
             None => continue,
         };
         if let Some(err) = check_location(doc) {
+            errors.push(err);
+        }
+        if let Some(err) = check_draft_design(doc) {
             errors.push(err);
         }
         let required = match obligations.get(path) {
@@ -1465,7 +1475,7 @@ fn check_orphan(doc: &IndexedDoc, idx: &DocIndex, inv: &InverseGraph) -> Option<
 //
 // L07: a DESIGN's on-disk directory must agree with its status. The DESIGN
 // is the one artifact type whose lifecycle moves it between directories:
-// `Proposed`/`Accepted`/`Planned` live in `docs/designs/`, and `Current`
+// `Draft`/`Proposed`/`Accepted`/`Planned` live in `docs/designs/`, and `Current`
 // (the terminal post-promotion state) lives in `docs/designs/current/`. A
 // `Current` DESIGN still sitting in `docs/designs/` -- or a non-`Current`
 // DESIGN already in `docs/designs/current/` -- is drift the chain check does
@@ -1481,6 +1491,12 @@ fn check_orphan(doc: &IndexedDoc, idx: &DocIndex, inv: &InverseGraph) -> Option<
 // thing about a misplaced document they both report on. Chain membership is
 // irrelevant to the rule itself -- a `Current` design is terminal and orphan,
 // and its directory must still agree with its status.
+//
+// L11 (`check_draft_design`, below) is emitted from the same place for the
+// same reason: a DESIGN at status `Draft` is still a draft whether or not a
+// chain reaches it, so both modes report it, including for a design no plan
+// or roadmap names. It is draft-tolerable, so the posture decides whether it
+// is a notice or an error.
 
 fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
     if doc.format != "Design" {
@@ -1506,6 +1522,19 @@ fn check_location(doc: &IndexedDoc) -> Option<ValidationError> {
         ));
     }
     None
+}
+
+/// L11: a DESIGN at status `Draft` (exact spelling) is still a draft and must
+/// move to `Proposed` before the PR is ready.
+fn check_draft_design(doc: &IndexedDoc) -> Option<ValidationError> {
+    if doc.format != "Design" || doc.status != "Draft" {
+        return None;
+    }
+    Some(error(
+        rel_path_lossy(&doc.path),
+        "L11",
+        "DESIGN at status 'Draft': design is still a draft; move it to Proposed before the PR is ready",
+    ))
 }
 
 // ---------- public entry point ----------
@@ -2781,6 +2810,119 @@ mod tests {
             "expected L07 on an Accepted design inside current/, got {:?}",
             errors
         );
+    }
+
+    // ---- L11: a design still at Draft ----
+
+    fn l11_findings(errors: &[ValidationError]) -> Vec<&ValidationError> {
+        errors.iter().filter(|e| e.code == "L11").collect()
+    }
+
+    #[test]
+    fn l11_draft_design_whole_tree_mode() {
+        let root = build_tree(&[(
+            "docs/designs/DESIGN-draft.md",
+            &make_design("Draft", ""),
+            &design_body("Draft"),
+        )]);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        let l11 = l11_findings(&errors);
+        assert_eq!(l11.len(), 1, "expected one L11, got {:?}", errors);
+        assert_eq!(l11[0].file, "docs/designs/DESIGN-draft.md");
+        assert_eq!(
+            l11[0].message,
+            "[L11] DESIGN at status 'Draft': design is still a draft; move it to Proposed before the PR is ready"
+        );
+    }
+
+    #[test]
+    fn l11_draft_design_chain_mode_with_no_chain() {
+        // No plan or roadmap names the design, so the chain-targeted scope
+        // falls back to the design alone; L11 is still reported.
+        let root = build_tree(&[(
+            "docs/designs/DESIGN-draft.md",
+            &make_design("Draft", ""),
+            &design_body("Draft"),
+        )]);
+        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            let errors = run_lifecycle_chain_check(
+                &root.join("docs/designs/DESIGN-draft.md"),
+                &Config::default(),
+                posture,
+            );
+            let l11 = l11_findings(&errors);
+            assert_eq!(l11.len(), 1, "expected one L11, got {:?}", errors);
+            assert_eq!(l11[0].file, "docs/designs/DESIGN-draft.md");
+            assert!(l11[0].message.contains("design is still a draft"));
+        }
+    }
+
+    #[test]
+    fn l11_absent_for_proposed_and_later_designs() {
+        for (rel, status) in [
+            ("docs/designs/DESIGN-p.md", "Proposed"),
+            ("docs/designs/DESIGN-a.md", "Accepted"),
+            ("docs/designs/DESIGN-pl.md", "Planned"),
+            ("docs/designs/current/DESIGN-c.md", "Current"),
+        ] {
+            let root = build_tree(&[(rel, &make_design(status, ""), &design_body(status))]);
+            let whole = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
+            assert!(
+                l11_findings(&whole).is_empty(),
+                "expected no L11 for a {} design, got {:?}",
+                status,
+                whole
+            );
+            let chain = run_lifecycle_chain_check(
+                &root.join(rel),
+                &Config::default(),
+                ReviewPosture::Ready,
+            );
+            assert!(
+                l11_findings(&chain).is_empty(),
+                "expected no L11 for a {} design in chain mode, got {:?}",
+                status,
+                chain
+            );
+        }
+    }
+
+    #[test]
+    fn l11_absent_for_other_formats_at_draft() {
+        let brief = make_brief("Draft", "");
+        let brief_body = body_for("BRIEF", "Draft");
+        let prd = make_prd("Draft", "");
+        let prd_b = prd_body("Draft");
+        let plan = make_plan("Draft", "single-pr", "");
+        let plan_b = plan_body("Draft");
+        let roadmap = make_roadmap("Draft");
+        let roadmap_b = roadmap_body("Draft");
+        let docs: [(&str, &str, &str); 4] = [
+            ("docs/briefs/BRIEF-x.md", &brief, &brief_body),
+            ("docs/prds/PRD-x.md", &prd, &prd_b),
+            ("docs/plans/PLAN-x.md", &plan, &plan_b),
+            ("docs/roadmaps/ROADMAP-x.md", &roadmap, &roadmap_b),
+        ];
+        let root = build_tree(&docs);
+        let whole = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Ready);
+        assert!(
+            l11_findings(&whole).is_empty(),
+            "expected no L11 for non-design docs at Draft, got {:?}",
+            whole
+        );
+        for (rel, _, _) in docs {
+            let chain = run_lifecycle_chain_check(
+                &root.join(rel),
+                &Config::default(),
+                ReviewPosture::Ready,
+            );
+            assert!(
+                l11_findings(&chain).is_empty(),
+                "expected no L11 for {} in chain mode, got {:?}",
+                rel,
+                chain
+            );
+        }
     }
 
     #[test]
