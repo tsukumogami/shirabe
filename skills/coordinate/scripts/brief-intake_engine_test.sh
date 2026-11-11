@@ -500,7 +500,7 @@ crit "the same lines without the heading cap as today, and the gap names the sam
 fresh
 {
     printf '# Brief: many rules\n\nThe preamble is no rule.\n\n## Holdings\n\n- One holding.\n\n## Standing rules\n\n'
-    for i in $(seq 1 61); do printf -- '- Standing rule %s holds for every lane.\n' "$i"; done
+    for i in {1..61}; do printf -- '- Standing rule %s holds for every lane.\n' "$i"; done
 } > "$T/rules61.md"
 brief_put lane "$T/rules61.md"
 try --intake lane --by coord
@@ -580,7 +580,7 @@ crit "a capped 61-sentence brief leaves briefs-read lane D 60/61 and, after one 
 # A headingless brief well over 60 lines, most rows removed between rounds
 # (record/standing rewritten without them, a stand-in for a person's ends).
 fresh
-{ printf '# Brief: long\n\n'; for i in $(seq 1 130); do printf -- '- Long rule %s holds for the lane.\n' "$i"; done; } > "$T/long.md"
+{ printf '# Brief: long\n\n'; for i in {1..130}; do printf -- '- Long rule %s holds for the lane.\n' "$i"; done; } > "$T/long.md"
 brief_put lane "$T/long.md"
 LONG_D=$DIG
 try --intake lane --by coord
@@ -629,8 +629,8 @@ brief_put lane "$SD/brief-61.md"
 V1=$DIG
 try --intake lane --by coord
 { printf '# Brief: v2\n\n## Decisions already made\n\n'
-  for i in $(seq 1 10); do printf -- '- Decision %s holds for every lane.\n' "$i"; done
-  for i in $(seq 1 60); do printf -- '- New rule %s holds for every lane.\n' "$i"; done; } > "$T/v2-70.md"
+  for i in {1..10}; do printf -- '- Decision %s holds for every lane.\n' "$i"; done
+  for i in {1..60}; do printf -- '- New rule %s holds for every lane.\n' "$i"; done; } > "$T/v2-70.md"
 brief_put lane "$T/v2-70.md"
 V2=$DIG
 standing | jq -c '.[0:10]' > "$T/kept10.json"
