@@ -120,7 +120,7 @@ Key assumptions:
 #### Chosen: Mask carried text, refuse typed text
 
 Before any row is built, the jq program checks every `--next` value and every
-worded `--blocked` need with `hashy`. A match is refused as today: exit 65,
+`--blocked` need as given with `hashy`. A match is refused as today: exit 65,
 nothing on stdout, and a stderr line naming the key and saying the text holds a
 commit hash. The coordinator wrote that text for this report and can reword it.
 
@@ -227,19 +227,24 @@ parts:
   `split` lets
   `lead-1a2bc3d4e5` through unflagged under `--dispatcher lead-1a2b`, and the
   build closes that gap.
-- `hashy`: some `hashre` token in some part is `flagged`. Same result as today.
+- `hashy`: some `hashre` token in some part is `flagged`. Same result as today,
+  except that the whole-word cut now flags hex that runs on from the dispatcher
+  name, which the plain split let through.
 - `masked`: in each part, replace every `hashre` token that is `flagged` with
   `(commit)` (a `gsub` with a named capture), then join the parts.
 
 ### Key Interfaces
 
-- **Typed-text check.** At the top of the program, for each entry of `$next` and
-  `$blocked` whose value is `hashy`, raise
+- **Typed-text check.** At the top of the program, for each entry of `$next`, and
+  each `$blocked` need as given (its raw NEED text, before the wording adds a
+  dispatcher name), whose value is `hashy`, raise
   `<key>: the text given for this render holds a commit hash`. The existing error
-  path prints it as `progress-view: refused: ...` and exits 65. The message keeps
-  the phrase "a commit hash" that the `--next` refusal test looks for; the tests
-  that look for the old `a cell holds a commit hash` all feed carried text and
-  become masked cases (see the test cases below).
+  path prints it as `progress-view: refused: ...` and exits 65. Every entry is
+  checked, including one whose key names no row. The message keeps the phrase
+  "a commit hash" that the `--next` refusal test looks for. The two
+  dispatcher-bound tests that look for the old `a cell holds a commit hash` pass
+  their hash through `--next`, so they stay refusals and only their expected
+  phrase changes (see the test cases below).
 - **`row()`.** Its four plain cells go through `cell` and then `masked`. The
   `hashy` refusal inside `row()` goes away, since nothing can reach it any more.
   Session and PR cells keep their own checks and aren't masked.
@@ -287,12 +292,19 @@ onward.
    show the typed check wins rather than the flag text being masked.
 6. **A blocked need.** A `--blocked` need whose text holds a hash, such as
    `credential 0123abcd`, is refused the same way.
-6a. **The dispatcher bounds.** The two existing cases at lines 119 and 121
-   ("only the dispatcher's name is left out of the hash scan" and "the
-   dispatcher's suffix alone is still a hash elsewhere") feed the hash through
-   carried text and expect the old `a cell holds a commit hash` refusal. They
-   become masked cases: exit 0, the dispatcher name printed unchanged, and the
-   hash outside it printed as `(commit)`.
+6a. **The dispatcher bounds, typed.** The two existing cases at lines 119 and
+   121 ("only the dispatcher's name is left out of the hash scan" and "the
+   dispatcher's suffix alone is still a hash elsewhere") pass the hash through
+   `--next`, which is typed text. They stay refusals (exit 65, empty stdout);
+   only their expected stderr phrase changes from `a cell holds a commit hash`
+   to `a commit hash`.
+6b. **The dispatcher bounds, carried.** New cases feed the same shapes through a
+   carried follow-up under `--dispatcher lead-1a2b3c4d`: a cell holding the name
+   prints it unchanged, and a cell holding `rebase onto 1a2b3c4d` (the suffix
+   alone) prints `rebase onto (commit)`. A third case covers the whole-word cut:
+   under `--dispatcher lead-1a2b`, a carried `lead-1a2bc3d4e5` prints as
+   `lead-(commit)`, where today's plain split leaves the six-character remainder
+   unflagged and prints the ten-character hex.
 7. **Nothing else is masked.** A carried cell holding an all-digit run
    (`20261110`), an all-letter hex word (`deadbeef`) and the `--dispatcher` name
    prints unchanged.
@@ -319,8 +331,9 @@ The change reads only the pick facts and the flags the script already reads,
 writes only stdout and stderr, and adds no dependency, file or network access.
 The new `gsub` uses the existing bounded hash pattern, which can't match empty
 text and runs on short cells. A commit hash isn't a secret: the rule is about
-display, the record keeps every hash, and the table shows less than it does
-today.
+display, and the record keeps every hash. The table now prints carried text it
+used to refuse, with each hash in it replaced, so a run that was blocked gets
+its table.
 
 Carried text, some of it from workers' entries, prints as before except that
 hash-shaped tokens become `(commit)`. Before, such a cell blocked the table, and
@@ -352,6 +365,12 @@ line stays unscanned, as it is today.
   rendered before renders worse.
 - The `Paused:` line above the table isn't scanned or masked today, and this
   design doesn't change that.
+- The whole-word dispatcher cut changes `hashy` for one shape: hex that runs on
+  from the dispatcher name, such as `lead-1a2bc3d4e5` under `--dispatcher
+  lead-1a2b`, is now flagged (masked in carried text, refused in typed text)
+  where today it prints.
+- A `--next` entry whose key names no row is now checked too, so a hash in it is
+  refused where before it was silently unused.
 
 ### Mitigations
 
