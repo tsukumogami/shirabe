@@ -29,6 +29,7 @@ rationale: |
   keep heads out of the record that the coordinate guidance puts there and leaves
   existing records broken; dropping the text or the row loses information the
   reader needs.
+upstream: docs/prds/PRD-coordinate-record.md
 ---
 
 # DESIGN: Progress table rendering when record-carried text holds a commit hash
