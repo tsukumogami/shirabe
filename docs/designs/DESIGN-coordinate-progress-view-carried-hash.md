@@ -120,7 +120,7 @@ Key assumptions:
 #### Chosen: Mask carried text, refuse typed text
 
 Before any row is built, the jq program checks every `--next` value and every
-`--blocked` need as given with `hashy`. A match is refused as today: exit 65,
+worded `--blocked` need with `hashy`. A match is refused as today: exit 65,
 nothing on stdout, and a stderr line naming the key and saying the text holds a
 commit hash. The coordinator wrote that text for this report and can reword it.
 
@@ -132,7 +132,8 @@ Next cell as `its execution: squash (commit) at head (commit)`.
 
 `masked` is built from the same three pieces as `hashy`: the token pattern, the
 test that a token holds both a digit and a letter, and the cut that leaves the
-`--dispatcher` name alone. A cell after `masked` can't contain a token `hashy`
+`--dispatcher` name alone (tightened for both to a whole-word match, as
+Components describes). A cell after `masked` can't contain a token `hashy`
 flags, so the display rule holds by construction rather than by a second check
 that could drift from the first.
 
@@ -223,7 +224,8 @@ parts:
   suffix is never flagged or masked. `masked` joins the parts back with the name,
   so the name prints unchanged. The split matches the name only as a whole word
   (not followed by a letter or digit), with the name regex-escaped before it
-  goes into jq's regex `split`, since session names may hold `.`: today's plain
+  goes into jq's regex `split` (every regex metacharacter escaped, not only the
+  `.` a session name may hold): today's plain
   `split` lets
   `lead-1a2bc3d4e5` through unflagged under `--dispatcher lead-1a2b`, and the
   build closes that gap.
@@ -236,8 +238,9 @@ parts:
 ### Key Interfaces
 
 - **Typed-text check.** At the top of the program, for each entry of `$next`, and
-  each `$blocked` need as given (its raw NEED text, before the wording adds a
-  dispatcher name), whose value is `hashy`, raise
+  each `$blocked` need as jq receives it (already worded by the bash loop; a
+  dispatcher name the wording adds is skipped by the dispatcher cut), whose
+  value is `hashy`, raise
   `<key>: the text given for this render holds a commit hash`. The existing error
   path prints it as `progress-view: refused: ...` and exits 65. Every entry is
   checked, including one whose key names no row. The message keeps the phrase
