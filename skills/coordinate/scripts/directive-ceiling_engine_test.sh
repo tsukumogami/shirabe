@@ -49,7 +49,7 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 
-STANDINS='{"PLUGIN_ROOT":"/opt/plugins/shirabe/0.0.0","SESSION_NAME":"coordinate-example","SESSION_DIR":"/home/user/.koto/sessions/coordinate-example"}'
+STANDINS='{"PLUGIN_ROOT":"/opt/plugins/shirabe/0.0.0","SESSION_NAME":"coordinate-example","SESSION_DIR":"/data/user/.koto/sessions/coordinate-example"}'
 
 # render_size <template> <state>: the bytes an arrival at <state> delivers.
 render_size() {
