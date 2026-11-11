@@ -115,7 +115,26 @@ last.
 
 ### Step 3: a coordinator writing a successor brief by hand files its rules under `## Standing rules`
 
-A coordinator handing a run over writes the successor brief with its rules under `## Standing rules`, and follows the new fix text when an intake caps.
+**Goal**: The coordinate skill tells a coordinator handing a run over to write the successor brief with a `## Standing rules` heading and every rule it must keep under it, and tells it what to do when an intake caps, in the words of the fix text `state-handover.sh` now prints. The reference docs describe the `briefs-read` Run row, and the capped-intake eval expects the new remedy.
+
+**Acceptance Criteria**:
+
+- [ ] `skills/coordinate/SKILL.md`'s brief-intake paragraph says that a successor brief written by hand carries a `## Standing rules` heading, spelled exactly so, even when nothing new goes under it. It says every rule the successor must keep goes under it, one to a sentence or bullet, and that decisions, out-of-scope lines and workspace rules may instead sit under the renderer's own headings, which count too. It says a warning that holds for the rest of the run is a rule and a warning about how things stand now isn't, and that a rule the record already holds is restated in its exact words and costs no room. Holdings, takeover steps, positions and history go anywhere else.
+- [ ] The paragraph's capped-intake sentence no longer reads only "ask a person which rule rows to confirm or end, then run it again". It names the two routes in the fix text's order: have the brief rewritten with its rules under `## Standing rules` and record it under the same label with `state-stored-set.sh --host briefs:<label> <absolute path>`, or, when the left-out lines are rules, ask a person which rule rows to confirm or end. Then the intake is run again, and it goes on after the lines it already took. The sentence still says not to end rows yourself to make room.
+- [ ] The Roles bullet on briefing a successor points to the brief-intake paragraph for the `## Standing rules` heading.
+- [ ] `skills/coordinate/references/state-keys.md` documents the Run `briefs-read` row: `<label> sha256:<64 hex> <c>/<n>`, one per label, written and removed only by `--intake`, refused by `--run briefs-read` with exit 64, with 0 < c < n. It says the next intake of the same digest and candidate count starts at c, so a row a person ended there doesn't come back, and that the completing intake drops the row in the same write that writes `briefs`. Its `brief-unread` gap text says the fix names the rewrite first and counts from the same start.
+- [ ] `skills/coordinate/references/brief-template.md` carries a successor-brief note: a brief written by hand uses the `## Standing rules` heading as above; a brief rendered through the renderer files holdings and where the work stands in `goal`, under `###` subsections with no `#` or `##` line, the takeover steps in `checkpoints`, and rules in `decisions` or `standing_rules`.
+- [ ] In `skills/coordinate/evals/evals.json`, the capped-intake scenario (`evals.json` around line 1331) quotes the current capped fix text exactly as `state-handover.sh` prints it, and its expected output has the coordinator take the rewrite route when the left-out lines aren't rules and ask a person otherwise, then re-run the intake, knowing it goes on after the lines already taken. It still has the coordinator end no row itself, not retry unchanged, and not write the `briefs` row by hand.
+- [ ] A new eval scenario has a coordinator writing a successor brief by hand for a run with standing rules, holdings and takeover steps; its expected output puts the rules under `## Standing rules`, restates carried rules in their exact words, and leaves holdings and takeover steps outside it. The new scenario follows the file's tier and behaviour rules, so `scripts/check-skill.sh --changed coordinate` accepts its shape.
+- [ ] `docs/designs/DESIGN-coordinator-standing-rule-provenance.md`: Decision 10's reading of hand-written briefs says it applies to a brief with no `## Standing rules` heading, and its `--end` paragraph notes that a capped digest's re-run goes on after the lines it already took. Both point to `docs/designs/DESIGN-coordinator-brief-intake-cap.md`.
+- [ ] Every quotation of the capped fix text or the intake's capped stderr in these files matches what `state-handover.sh` and `state-stored-set.sh --intake` print, word for word.
+- [ ] No script, test or template changes in this step.
+
+**Check**: run `scripts/check-skill.sh --changed coordinate` and see it pass. Then compare each quoted fix text and stderr line in SKILL.md, state-keys.md and evals.json against `skills/coordinate/scripts/state-handover.sh` and `skills/coordinate/scripts/state-stored-set.sh`, and see them match.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/coordinate/SKILL.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/references/brief-template.md`, `skills/coordinate/evals/evals.json`, `docs/designs/DESIGN-coordinator-standing-rule-provenance.md`
 
 ## Implementation Sequence
 
