@@ -341,7 +341,11 @@ entry names each label added, changed or removed. A failed write prints
 label is yours, through `--run rules`. A `briefs` row is the brief intake's:
 you record the brief's path with `--host briefs:<label> <path>`, and
 `--intake <label>` writes the row once it has taken the brief's lines (Rule
-rows, below). A session opened before the
+rows, below). Beside it, a `briefs-read` row (`<label> sha256:<64 hex>
+<c>/<n>`, one per label, with 0 < c < n) says how far a capped intake of that
+digest got: n is the brief's candidate count and c the first candidate it
+couldn't take. Only `--intake` writes and removes it; `--run briefs-read` is
+refused, exit 64. A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
 refused, exit 65: `store` is no Run key it writes). Run also holds the run's
@@ -518,8 +522,12 @@ file once, never edits it and never prints its path. When a Run `briefs` row
 already reads `<label> sha256:<its digest>` it writes nothing and exits 0.
 Otherwise its candidates are the brief's sentences, less heading lines and
 the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting
-and Keep-alive sections. Each row whose Source is `inferred brief <label>`
-with another digest, and whose What no candidate states, ends; each candidate
+and Keep-alive sections, unless a line of the brief is exactly
+`## Standing rules`: that brief is read in the opt-in mode, where only the
+sentences under it, `## Decisions already made`, `## Out of scope` and
+`## Workspace rules` are candidates. Each row whose Source is `inferred
+brief <label>` with another digest, and whose What no candidate states,
+ends; each candidate
 no remaining row (of any kind or Source) holds under the normalized match is
 written as a rule row, Source `inferred brief <label> sha256:<digest>`. A line
 that fails a What check (over 400 bytes, a home-directory path, a
@@ -527,18 +535,26 @@ token-shaped string, or on a public host a repository that isn't public) is
 left out and named on stderr. When every line is taken it also writes the
 `briefs` row, Set by `<who>`; when a cap stops it, it writes the rows up to
 the cap and no `briefs` row, and exits 1 naming how many lines it couldn't
-take, so a person says which rows to confirm or end. A read that fails exits
-2 with nothing written. The rows, the ended rows and the `briefs` row go in
-one write, then their entries: one rule entry per row, one end entry per
-ended row, and `Run briefs <label> sha256:<digest> set by <who>.`
+take, so the brief can be rewritten or a person can say which rows to confirm
+or end. A capped write also leaves the label's `briefs-read` row at the first
+line it couldn't take, c (none when that is the brief's first line). The
+next intake of the same digest and the same candidate count starts at c, so
+a row a person ended doesn't come back; the intake that completes drops the
+`briefs-read` row in the same write that writes `briefs`. A read that fails
+exits 2 with nothing written. The rows, the ended rows and the `briefs` or
+`briefs-read` row go in one write, then their entries: one rule entry per
+row, one end entry per ended row, and `Run briefs <label> sha256:<digest> set
+by <who>.` or `Run briefs-read <label> sha256:<digest> c/n set by <who>.`
 
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
 has been neither told the current address nor recorded pending; a brief
 `record/host` names as `briefs:<label>` whose digest no Run `briefs` row
-carries (`brief-unread <label>`, its fix the intake, naming how many lines
-the caps would leave out; a key whose file can't be read raises none). The
+carries (`brief-unread <label>`, its fix the intake; when the caps would
+leave lines out, the fix counts them from the same start the intake uses,
+names the `## Standing rules` rewrite first and asking a person which rows to
+confirm or end second; a key whose file can't be read raises none). The
 step's gate runs it at every start, so a replacement that writes its own
 address can't go on until each live worker is told or pending. A pending
 worker doesn't hold the gate; it is told when it can be. A record with no

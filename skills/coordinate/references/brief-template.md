@@ -108,6 +108,16 @@ coordinator's role comes from the `--role` on its brief's invocation line:
 it passes that role at its start and infers none. `held_rerender` and
 `role_change_by` are the script's too, and an input's are dropped.
 
+A successor's brief is also the one its intake reads rules from. Written by
+hand, it carries a `## Standing rules` heading and files its rules as
+SKILL.md's brief-intake paragraph says. Rendered through `render-brief.sh`, it
+never gets that heading, so its fields decide what the intake takes: put the
+holdings and
+where the work stands in `goal`, under `###` subsections and with no `#` or
+`##` line of its own, the takeover steps in `checkpoints`, and the rules in
+`decisions` or `standing_rules`. A `##` line inside a free-text field starts
+a section of its own, and the sentences after it are read as rules.
+
 `role_change` is the one role field you give, and only in the input of a
 `dispatch-worker.sh --rebrief` of a manager you dispatched, whose report you
 are handling: the new role, `manager` or `director`. The re-rendered
