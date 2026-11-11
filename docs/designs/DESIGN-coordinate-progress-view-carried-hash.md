@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Proposed
 problem: |
   `skills/coordinate/scripts/progress-view.sh` refuses the whole progress table
   (exit 65, nothing on stdout) when any plain cell holds text that looks like a
@@ -35,7 +35,7 @@ rationale: |
 
 ## Status
 
-Accepted
+Proposed
 
 ## Context and Problem Statement
 
