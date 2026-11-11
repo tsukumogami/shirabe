@@ -885,9 +885,13 @@ bytes, so the first intake of any of them on an empty record
 stays well under 60. "The brief no longer states" a row's words, both where
 a new digest ends an earlier digest's rows and in `--end`, is tested against
 the same filtered set, so a sentence the intake can't take can't hold a row
-in place. A hand-written brief with none of those headings is taken whole
-less its headings, and an intake that would pass the cap there stops at it
-as designed, leaving the gap open for a person to decide.
+in place. A hand-written brief with none of those headings, and no
+`## Standing rules` heading, is taken whole less its headings, and an intake
+that would pass the cap there stops at it as designed, leaving the gap open
+for a person to decide. A re-run of that capped digest goes on after the
+lines it already took, so a row ended in between doesn't come back. Both the
+`## Standing rules` reading and the re-run are set in
+`docs/designs/DESIGN-coordinator-brief-intake-cap.md`.
 
 - R47 (step 7's intake suite). The first intake of `min.txt`, `leg.txt`
   and `base.txt`, each on an empty record, writes exactly 7, 11 and 11
