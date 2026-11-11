@@ -1373,6 +1373,9 @@ would disappear once a filed defect is fixed does not: state the invariant the
 defect breaks, and keep the defect filed. Check each new rule against that test
 before adding it.
 
+`scripts/directive-ceiling_engine_test.sh` fails a change that grows the `wait` directive past its ceiling at the merge base (`scripts/directive-ceiling.tsv`).
+New text goes in a script or gate first, then the state its event routes to, then a reference file with a one-line cue, and into `wait` only by replacing or tightening text already there.
+
 ## Reference Files
 
 | File | Load it at |
