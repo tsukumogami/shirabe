@@ -36,8 +36,8 @@
 #       and the coordinator at each wake.
 #   unit-removed.sh sweep
 #       With no record in R it does nothing at all. Otherwise every record,
-#       one at a time, under its own lock, R/.<dispatch id>.lock (a directory
-#       holding `<pid> <epoch secs>`, archive-common.sh ac_lock): a record
+#       one at a time, under its own lock, R/.<dispatch id>.lock (a symbolic
+#       link whose target is `<pid> <epoch secs>`, archive-common.sh ac_lock): a record
 #       whose lock a live sweep holds is passed over (`<dispatch id>: held by
 #       another sweep`, nothing logged), and a lock whose holder is gone, or
 #       older than three minutes (the capture's 120-second bound and a minute

@@ -764,7 +764,7 @@ eq "  ... released, they leave one entry" 1 "$(cost_bodies | jq length)"
 eq "  ... one posts, and the other, listing after it, says the record already holds the entry" \
     "unit-cost: posted the cost entry on acme/widgets#21|unit-cost: the record already holds this unit's cost entry" \
     "$({ tail -n 1 "$T/cap1.err"; tail -n 1 "$T/cap2.err"; } | LC_ALL=C sort | tr '\n' '|' | sed 's/|$//')"
-eq "  ... the lock is released after them" no "$([ -e "$PL" ] && echo yes || echo no)"
+eq "  ... the lock is released after them" no "$({ [ -e "$PL" ] || [ -L "$PL" ]; } && echo yes || echo no)"
 # A lock left by a process that is gone is taken over.
 seed; fresh
 mkdir -p "$PL"; printf '%s %s\n' 999999 "$(date +%s)" >"$PL/owner"

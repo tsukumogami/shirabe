@@ -304,45 +304,86 @@ ac_removal_for_path() {
     [ -n "$AC_REMOVAL_ID" ] || { AC_WHY="no removal record names the instance path"; return 1; }
 }
 
-# ac_lock <lock dir> <max age secs> <wait secs>: take a lock that is a
-# directory holding `owner` (`<pid> <epoch secs>`), made with mkdir, which is
-# atomic. One held by a live process younger than <max age> is waited for, one
-# second at a time, for at most <wait> seconds. One whose holder is gone, or
-# that is older, is taken over: renamed aside, its owner read again from the
-# renamed copy, and removed only when that is still the owner judged stale (a
-# copy that changed, because another process took the lock meanwhile, is moved
-# back). A lock with no owner yet may be one its holder has just made and not
-# yet written, so it is judged stale only once it has stayed ownerless for two
-# seconds. Returns 0 holding the lock, 1 when it is still held at
-# the end of the wait (AC_WHY says so).
+# ac_lock <lock> <max age secs> <wait secs>: take a lock that is a symbolic
+# link whose target is its owner, `<pid> <epoch secs>`. `ln -s` makes the link
+# and its owner in one step and fails when the path exists, so no process ever
+# sees a lock without an owner, however long its holder stalls. One held by a
+# live process younger than <max age> is waited for, one second at a time, for
+# at most <wait> seconds. One whose holder is gone, or that is older, is taken
+# over: renamed aside, its owner read again from the renamed copy, and removed
+# only when that is still the owner judged stale. A copy that changed, because
+# another process took the lock meanwhile, is put back only where the path is
+# still free, never moved onto a lock that exists.
+#
+# Before this shape the lock was a directory holding `owner`, made with mkdir
+# and written after. A lock in that shape, left by an older version, is
+# recognised and aged out the same way; one with no owner is judged stale once
+# the same directory has stayed ownerless across three reads, a second apart.
+# A process only ever removes a lock it judged stale or one it holds. Returns
+# 0 holding the lock, 1 when it is still held at the end of the wait (AC_WHY
+# says so).
 ac_lock() {
-    local d=$1 max=$2 wait=$3 own sown pid at now waited=0 side blank=0
+    local d=$1 max=$2 wait=$3 me own sown pid at now waited=0 side id blank=0 blank_id=""
     while :; do
-        if mkdir -- "$d" 2>/dev/null; then
-            printf '%s %s\n' "$$" "$(date +%s)" >"$d/owner" || { rm -rf -- "$d"; AC_WHY="cannot write $d/owner"; return 1; }
-            return 0
+        me="$$ $(date +%s)"
+        if [ ! -d "$d" ] && ln -s -- "$me" "$d" 2>/dev/null; then
+            [ "$(readlink -- "$d" 2>/dev/null)" = "$me" ] && return 0
+            # A directory made at the path between the test and the link
+            # took the link inside it: take that back and treat the
+            # directory as the lock it is.
+            rm -f -- "$d/$me"
         fi
-        own=$(cat -- "$d/owner" 2>&1) || own=""
+        id=""
+        if [ -L "$d" ]; then
+            own=$(readlink -- "$d" 2>/dev/null) || own=""
+        elif [ -e "$d" ]; then
+            # An old-shape directory, or anything else at the path, which
+            # has no owner and is aged out like an ownerless directory.
+            own=$(cat -- "$d/owner" 2>/dev/null) || own=""
+            id=$(ls -di -- "$d" 2>/dev/null) || id=""
+            id=${id%% *}
+        else
+            continue
+        fi
         pid=${own%% *} at=${own##* }
         now=$(date +%s)
         case "$pid$at" in '' | *[!0-9]*) pid="" at=0 ;; esac
-        if [ -z "$pid" ] && [ "$blank" -lt 2 ]; then
-            blank=$((blank + 1))
-            sleep 1
-            continue
+        if [ -z "$pid" ]; then
+            # Only an old-shape lock can be ownerless: a link always has
+            # its target. Count reads of the same one only, by inode.
+            if [ "$id" != "$blank_id" ]; then
+                blank_id=$id blank=0
+            fi
+            if [ "$blank" -lt 2 ]; then
+                blank=$((blank + 1))
+                sleep 1
+                continue
+            fi
         fi
         if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null || [ $((now - at)) -gt "$max" ]; then
             side="$d.stale.$$"
+            rm -rf -- "$side"
             if mv -- "$d" "$side" 2>/dev/null; then
-                # Read the way $own was, so an owner file that is missing
-                # both times compares equal and the lock is taken over.
-                sown=$(cat -- "$side/owner" 2>&1) || sown=""
-                if [ "$sown" = "$own" ]; then
-                    rm -rf -- "$side"
+                if [ -L "$side" ]; then
+                    sown=$(readlink -- "$side" 2>/dev/null) || sown=""
+                    if [ "$sown" != "$own" ]; then
+                        ln -s -- "$sown" "$d" 2>/dev/null
+                    fi
+                    rm -f -- "$side"
                 else
-                    mv -- "$side" "$d" 2>/dev/null || rm -rf -- "$side"
+                    sown=$(cat -- "$side/owner" 2>/dev/null) || sown=""
+                    id=$(ls -di -- "$side" 2>/dev/null) || id=""
+                    id=${id%% *}
+                    if [ "$sown" = "$own" ] && { [ -n "$own" ] || [ "$id" = "$blank_id" ]; }; then
+                        rm -rf -- "$side"
+                    elif [ ! -e "$d" ] && [ ! -L "$d" ]; then
+                        mv -- "$side" "$d" 2>/dev/null || rm -rf -- "$side"
+                    else
+                        rm -rf -- "$side"
+                    fi
                 fi
             fi
+            blank=0 blank_id=""
             continue
         fi
         [ "$waited" -lt "$wait" ] || { AC_WHY="$d is held by process $pid"; return 1; }
@@ -351,10 +392,16 @@ ac_lock() {
     done
 }
 
-# ac_unlock <lock dir>: release a lock this process holds; one another process
-# holds is left alone.
+# ac_unlock <lock>: release a lock this process holds; one another process
+# holds is left alone. Reads either shape.
 ac_unlock() {
-    case "$(cat -- "$1/owner" 2>&1)" in "$$ "*) rm -rf -- "$1" ;; esac
+    local own
+    if [ -L "$1" ]; then
+        own=$(readlink -- "$1" 2>/dev/null) || own=""
+    else
+        own=$(cat -- "$1/owner" 2>/dev/null) || own=""
+    fi
+    case "$own" in "$$ "*) rm -rf -- "$1" ;; esac
     return 0
 }
 

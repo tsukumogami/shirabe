@@ -106,7 +106,8 @@ rec() {
 # count <path>...: how many of the paths exist (an unmatched glob stays a pattern).
 count() {
     local n=0 p
-    for p in "$@"; do [ -e "$p" ] && n=$((n + 1)); done
+    # A lock is a symbolic link to its owner, which -e alone doesn't see.
+    for p in "$@"; do { [ -e "$p" ] || [ -L "$p" ]; } && n=$((n + 1)); done
     echo "$n"
 }
 nrecords() { count "$R"/*.json; }
@@ -174,7 +175,7 @@ mkfifo "$T/hold.gh"
 (export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
 SW0=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -L "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
 # Read from the store directly, not through the capture's own list: the
 # capture is held at its first GitHub read, before it lists or posts anything.
 eq "a sweep run by hand holds the record's lock, nothing posted yet" "1|0" \
@@ -332,7 +333,7 @@ mkfifo "$T/hold.gh"
 bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
 SW1=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -L "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
 # Written while the first sweep runs, at a path no koto session ran in.
 newrec dsp-late.1 0c0c0c0c-2222 "$WS/inst-late"
 eq "a second sweep passes over the record the first holds, and handles the one written since" \
