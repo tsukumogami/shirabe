@@ -714,17 +714,26 @@ Deliverables:
 - `scripts/handover.sh` with `write` and `open`, including the crashed-worker
   form, and the work-on, execute and scope openers calling `open`.
 - Worker guidance: push, hand over at a cheap boundary, never rebind.
+- Field validation on both sides of `handover.sh` (see Security
+  Considerations), a probe that refuses when koto's contract items are
+  missing, a maximum generation count, and a fence-time re-read of the
+  pushed head that refuses on drift.
 - Acceptance: a person-started session at `pr_creation` hands over; the
   successor reuses the suite result and opens no second PR, and the
-  predecessor's instance can be reaped.
+  predecessor's instance can be reaped. A note with a malformed branch, head
+  or name is refused before anything is written or launched.
 
 ### Phase 5: Coordinate's handover route
 
 Needs Phase 4 and koto items 1 to 3. Deliverables: the `handover` event and
 its admission, `dispatch-worker.sh --continue` with the pending check, the
 `continues` block, the side map and leg states, and a coordinate template
-COMPAT bump. Acceptance: a leg-bound worker hands over with a leg open at
-every step, the lane count unchanged, and the successor's report accepted.
+COMPAT bump. The `handover` admission checks the sender against the holding
+row, the note's branch against the row, and the note's head against the
+remote. Acceptance: a leg-bound worker hands over with a leg open at every
+step, the lane count unchanged, and the successor's report accepted; a
+`handover` message from any other sender, or naming a head the remote
+doesn't have, is refused.
 
 ### Phase 6: Teardown of superseded generations
 
@@ -743,7 +752,34 @@ the run reaches the outcome it would have reached without the handover.
 
 ## Security Considerations
 
-Pending: written once the remaining decisions are settled.
+A handover moves state between sessions that may run on different hosts.
+So the note, the gate snapshot, the `handover` message and the brief's
+`continues` block are all treated as untrusted input. `handover.sh`
+validates every field on both sides: the branch against ref-name rules,
+`pushed_head` as 40 hex characters, session, unit and topic names against
+their grammars, and `reason` capped in length. It passes values as quoted
+arguments, and it gives `reason` and any carried task text to the successor
+as data, never as instructions. Coordinate admits a `handover` event only
+from the identity recorded on the holding row. It requires the note's branch
+to match the row, and the note's head to exist on the remote and descend
+from the row's last head. It refuses when the predecessor's session can't be
+read from its host.
+
+Carried state is trusted only after a check against the successor's
+checkout. A verification result is reused only when the verification script
+wrote it inside the chain, and CI stays the gate for the pull request either
+way. The successor holds no more grants than its predecessor, and a maximum
+generation count plus a progress check bound the chain, so a unit can't hand
+over forever. `open` re-reads the pushed head at fence time and refuses on
+drift. Teardown of a superseded instance compares that instance's tree and
+commits with the remote itself, not with the note, and keeps the instance on
+any difference. `handover.sh` probes for koto's contract items and refuses
+when they're missing, rather than running a handover that half works.
+
+Three risks are accepted. A crashed worker's unpushed work is lost. Task
+text and recorded decisions reach the cloud session store and live as long
+as the session does. And a continuation started by hand, outside the route,
+is unrecorded and unfenced until its own init runs.
 
 ## Consequences
 
