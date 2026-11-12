@@ -571,9 +571,10 @@ move, and koto takes a small contract. Everything else is reused.
   successor with `niwa dispatch`.
 - **`scripts/handover.sh open`** runs in the successor, called by the
   work-on, execute and scope openers when the brief has a `continues` block.
-  It checks out the branch, confirms HEAD, checks COMPAT, runs the supersede
-  init with start-at-state and the carry list, attaches the brief's leg if
-  there is one, and checks the note against the brief before the first tick.
+  Before the fence it checks out the branch, confirms HEAD, checks COMPAT,
+  and reads the note from the predecessor's session and checks it against
+  the brief. Only then does it run the supersede init with start-at-state
+  and the carry list, and attach the brief's leg if there is one.
 - **Newest-member lookup**, lifted from `dc_newest_member` into a shared
   library, used by the scope, execute, execute-coordinated and deliver
   templates and by readers that find a unit's session by name.
@@ -666,7 +667,8 @@ A coordinated handover runs in this order:
    the row's worker, `pushed_head` and return path, and launches. The
    handover reads `pending`, with a fresh dispatch's quiet allowance.
 4. The successor's opener runs `handover.sh open`: checkout, HEAD and COMPAT
-   checks, the supersede init at the predecessor's state, then
+   checks and the note-against-brief check, all before the fence, then the
+   supersede init at the predecessor's state, then
    `koto request attach`. A refused attach stops it before its first tick, so
    it can't reach a terminal state unattached.
 5. When the successor is the chain's newest member with the new leg bound,
@@ -718,7 +720,9 @@ coordinate's so the script is proven on the simplest case first.
 ### Phase 1: Resume state keyed to commits
 
 shirabe only, with no koto dependency. Closes #1540, the same-host case
-included.
+included. The commit-keyed cache and the bound-directory check help at once.
+The carried result and the chain author do nothing until Phase 4 creates
+successors, and are tested there.
 
 Deliverables:
 - `run-verification.sh` and `check-verification.sh`: the carried result, its
@@ -781,7 +785,9 @@ gate-figure readers adding `handover/gate-figures.json` to their own log;
 `check-closing-keyword.sh --approved-pass` following the start event across
 the chain; and work-on's opener refusing a `--delivery` or `--delivery-reason`
 that differs from the seeded value. The chain read needs koto items 4 and 5.
-Acceptance: after an approved deferral, a successor started at
+`handover.sh` arrives only in Phase 4, so this phase's acceptance runs on a
+successor opened by hand with `koto init --continues --supersede
+--expect-state`. Acceptance: after an approved deferral, a successor started at
 `pr_creation` opens its pull request with `Part of #N` and goes on to CI
 monitoring; one whose chain shows a later return to `finalization` gets
 closing mode; and one whose predecessor's log can't be read holds at exit 2.
@@ -794,10 +800,13 @@ opener, which fences a parent whose batch children may still be running.
 Deliverables:
 - `scripts/handover.sh` with `write` and `open`, including the crashed-worker
   form, and the work-on, execute and scope openers calling `open`. `write`
-  refuses a leg-bound unit until Phase 5 lands, so a leg can't be stranded by
-  the uncoordinated launch. It also refuses a run whose chain shows an
+  refuses a leg-bound unit until the phase that teaches its requester to
+  replace the leg lands (Phase 5 for coordinate, Phase 7 for deliver), so a
+  leg can't be stranded by the uncoordinated launch. It also refuses a run whose chain shows an
   approved pass while koto item 5 is missing, so an approved deferral is
   never handed to a successor that can't read it.
+- The brief's `continues` block and its validation in `render-brief.sh`:
+  the uncoordinated launch writes it and `open` reads it.
 - Worker guidance: push, hand over at a cheap boundary, never rebind.
 - Field validation on both sides of `handover.sh` (see Security
   Considerations), a probe that refuses when koto's contract items are
@@ -815,8 +824,9 @@ Deliverables:
 ### Phase 5: Coordinate's handover route
 
 Needs Phase 4 and koto items 1 to 3. Deliverables: the `handover` event and
-its admission, `dispatch-worker.sh --continue` with the pending check, the
-`continues` block, the side map and leg states, and a coordinate template
+its admission, `dispatch-worker.sh --continue` with the pending check,
+rendering Phase 4's `continues` block from the holding row, the side map and
+leg states, and a coordinate template
 COMPAT bump. The `handover` admission takes the message only from the worker
 recorded on the holding row, coordinate itself, or a person acting for a
 crashed worker through the crashed-worker form. It checks the note's branch
@@ -837,8 +847,11 @@ kept.
 ### Phase 7: deliver's re-leg
 
 Needs Phase 4 and koto items 1 and 3, and can run alongside Phases 5 and 6.
-Deliverables: deliver's successor start at `open_request` and the
-continuation mode of `deliver-open-request.sh`. Acceptance: deliver hands
+It doesn't need Phase 5: deliver replaces its own legs, so this phase lifts
+Phase 4's leg-bound refusal for units whose requester is deliver, while units
+bound to coordinate's legs still wait for Phase 5. Deliverables: deliver's
+successor start at `open_request`, the continuation mode of
+`deliver-open-request.sh`, and that narrowed refusal. Acceptance: deliver hands
 over during a scope leg, the leg's successor attaches to the new request, and
 the run reaches the outcome it would have reached without the handover.
 
@@ -852,7 +865,10 @@ validates every field on both sides: the branch against ref-name rules,
 their grammars, and `reason` capped in length. It passes values as quoted
 arguments. Carried text (`reason`, task text and recorded decisions) goes
 into the successor's prompt inside fixed delimiters and cut to a length cap,
-so it reads as quoted data, never as instructions. `open` gives seeded
+so it reads as quoted data, never as instructions. Any occurrence of the
+closing delimiter inside carried text is escaped before it's placed, and
+carried text never changes a grant: the successor's grants come from its
+dispatch, not from anything the chain carries. `open` gives seeded
 captures (`BRANCH`, `PR_BODY_RULES`, the probe rules) the same validation
 before the first tick renders them.
 
@@ -905,24 +921,37 @@ over forever. The progress check refuses a handover when the chain's
 previous handover recorded the same pushed head and state, so a generation
 that moved the unit nowhere can't pass it on again. `open` re-reads the
 pushed head at fence time and refuses on drift. Teardown validates a
-side-map entry's `instance` against its grammar before it reaps, checks that
-the resolved path lies under the niwa instances root, compares
-that instance's tree and commits with the remote itself, not with the note,
-and keeps the instance on any difference. `handover.sh` probes for koto's
+side-map entry's `instance` against its grammar before it reaps, resolves its
+path with symlinks followed and checks that the result lies under the niwa
+instances root, compares that instance's tree and commits with the remote
+itself, not with the note, and keeps the instance on any difference. It
+repeats the path and comparison checks immediately before the reap, so a
+change between check and delete keeps the instance. A forged handover can use
+up the generation cap and lock a unit out. The side map records every
+generation's topic, session and head, so such a chain can be audited, and
+the cap is lifted only by a person starting a new unit, not by any handover
+step. `handover.sh` probes for koto's
 contract items and refuses when they're missing, rather than running a
 handover that half works.
 
 These risks are accepted. A crashed worker's unpushed work is lost. Anyone
 who can write the session store can forge carried keys, acceptances
-included, since nothing binds a key to the script that wrote it. Task text
-and recorded decisions reach the cloud session store and live as long as the
+included, since nothing binds a key to the script that wrote it. The design
+assumes the session store is single-tenant: only the workspace's own sessions
+can write it. Task text, recorded decisions, the gate snapshot and carried
+verification output reach the cloud session store and live as long as the
 session does; that store's access control is their only guard, and a secret
-pasted into task text is carried and stored with it. The same holds for the
-note's `reason` and a carried `DELIVERY_REASON`, which can also reach a public
-pull request body, so neither may hold private context or secrets. The gate snapshot grows
+pasted into any of them is carried and stored with it. The gate snapshot grows
 with each hop, bounded by the generation cap. And a continuation started by
 hand, outside the route, is unrecorded and unfenced until its own init runs,
 so it can push to the branch while the predecessor is still running.
+
+One residual is open, not accepted. The note's `reason` and a carried
+`DELIVERY_REASON` can reach a public pull request body, and today only the
+author keeps private context and secrets out of them. Two answers are on the
+table: scan both fields for secret patterns and private-repository references
+before a pull request is written, or accept the exposure explicitly. This
+design doesn't choose between them.
 
 ## Consequences
 
@@ -932,7 +961,10 @@ so it can push to the branch while the predecessor is still running.
   one, and takeover and continuation share one verb.
 - A stopped predecessor holds nothing, so its instance can be retired before
   the unit merges.
-- Any non-terminal state is a valid handover point.
+- Any non-terminal state is a valid handover point once the route is
+  complete. Until then, `write` refuses leg-bound units before their
+  requester's phase lands, and an approved deferral before koto item 5.
+  execute's batch children stay in place until koto#676.
 - A successor on any host resumes with the suite result, test-change history,
   review rounds and gate figures, and reruns only what its checkout
   invalidates. A declared partial delivery and an approved deferral both
@@ -972,7 +1004,7 @@ so it can push to the branch while the predecessor is still running.
   `handed-over`, so no reader mistakes a handover for a lost worker.
 - Off-host under the local backend, the existing stranded-holding route is the
   fallback. The leg moves through the requester, not the carry, so koto#560
-  can't strand a leg, and the opener catches a missing note before ticking.
+  can't strand a leg, and the opener catches a missing note before the fence.
 - Host-local acceptances fail closed until someone accepts again; per-host
   signing gets its own decision.
 - Worker guidance to push and hand over at a cheap boundary keeps prose retry
