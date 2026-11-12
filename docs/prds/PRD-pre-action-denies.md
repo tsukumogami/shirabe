@@ -192,9 +192,9 @@ These terms mean the same thing everywhere below.
   superset of guarded: everything guarded is named in the text, and
   some unguarded commands are too (`echo "git push"`). The same test,
   applied to one segment's text, decides a wrapped guarded command,
-  with the one `env` exception below.
-- **Wrapped guarded command** (for an `env` head, read with the `env`
-  exception below): a segment whose head is `env`, `command`,
+  with the `env` and script exceptions below.
+- **Wrapped guarded command** (for an `env` head or a script, read with
+  the exceptions below): a segment whose head is `env`, `command`,
   `builtin`, `exec`, `eval`, `bash`, `sh`, `zsh`, `dash`, `xargs`,
   `sudo`, `time`, `nohup`, `timeout`, `nice`, `ssh`, `docker`,
   `podman`, `mise`, `nix`, `python`, `python3`, `perl`, `ruby` or
@@ -208,24 +208,47 @@ These terms mean the same thing everywhere below.
   "$(cat <<'EOF' ... git push ... EOF)"` holds none; with an unquoted
   delimiter the shell still runs a `$(...)` or backquotes in them, and
   those count as command substitutions.
-- **The `env` exception**: when an `env` segment runs `gh`, the text
-  test over the whole segment doesn't decide it. Past env's own options
-  (the classifier's `env_command` lists the ones it reads) and every
+- **The `env` exception**: the text test over the whole `env` segment
+  doesn't decide it. Past env's own options (the classifier's
+  `env_command` lists the ones it reads, `-C DIR` among them) and every
   operand holding a `=`, which env takes as an assignment whether or not
-  it is a shell name, the `gh` command is classified as a segment of its
-  own, and the text test runs over env's own option and assignment words,
-  since gh can run what an assignment carries (`GH_BROWSER=...`,
-  `GH_EDITOR=...`). The `env` segment is a wrapped guarded command when
-  either finds a guarded action. So `env -u GH_TOKEN gh pr merge --body
-  "..."` is a merge whatever its body says, and `env -u GH_TOKEN gh pr
-  create ...` is still a wrapped guarded command. Any other command
-  leaves the segment to the text test: an unlisted launcher, `git`
-  (whose aliases can hide a push from the subcommand reading), and any
-  listed wrapper, a nested `env` included, since a wrapper can join
-  env's words with its own (`env
-  'BASH_FUNC_f%%=() { gh "$@"; }' bash -c 'f pr create'`). So do an
-  option the hook doesn't read and a word the shell expands before the
-  command.
+  it is a shell name, a `gh` command is classified as a segment of its
+  own, and any other program gets the program-words test below. The
+  text test also runs over env's own option and assignment words, since
+  the program can run what an assignment carries (`GH_BROWSER=...`,
+  `GH_EDITOR=...`, `BASH_FUNC_...`). The `env` segment is a wrapped
+  guarded command when either finds a guarded action. So `env -u
+  GH_TOKEN gh pr merge --body "..."` is a merge whatever its body says,
+  `env -u GH_TOKEN gh pr create ...` is still a wrapped guarded command,
+  and `env -C dir ./tool.sh --reason "... gh pr create ..."` is neither.
+  An option the hook doesn't read, and a word the shell expands before
+  the command, leave the segment to the text test.
+- **The script exception**: a `bash`, `sh`, `zsh`, `dash`, `python`,
+  `python3`, `perl`, `ruby` or `node` head whose first argument is a
+  word the shell doesn't expand and that doesn't start with `-` or `+`
+  runs that script file, and the words after it are its arguments. The
+  script and its arguments get the program-words test below. With an
+  option first (`bash -c '...'`, `python3 -c`, `node -e`) the code may
+  be inline, and the text test over the whole segment decides.
+- **The program-words test**: over a program's words (a script and its
+  arguments, or the command an `env` runs and its arguments), drop every
+  word that holds whitespace, since the program gets it as one argument
+  and no command word holds one, and apply the text test to the rest. So
+  `bash run.sh "text mentioning gh pr edit"` names nothing and `bash
+  run.sh gh pr create` still names a create. The text test over the
+  whole segment decides instead when the segment has a redirection that
+  feeds input (`<`, `<<<`, `3<`, a here-document), since the script can
+  be that input (`bash /dev/stdin <<< '...'`), and when any of those
+  words is one the shell expands (an unquoted `{` included: `bash
+  {-c,"gh pr create"}` is `bash -c 'gh pr create'`), holds a glob
+  character and no whitespace, or holds a piece
+  (split at `/`, `{`, `}`, `,` and `=`) that is `git` or a listed
+  wrapper: a wrapper there can join the words or run a string of its own
+  (`env stdbuf sh -c '...'`, `env 'BASH_FUNC_f%%=() { gh "$@"; }' bash
+  -c 'f pr create'`), and git's aliases can hide a push from the
+  subcommand reading (`env git -c 'alias.p=!git push' p`). A program the
+  hook doesn't list as a wrapper is read as it would be bare: `env ksh
+  -c '...'` gets no decision, as `ksh -c '...'` does.
 
 ### Functional
 

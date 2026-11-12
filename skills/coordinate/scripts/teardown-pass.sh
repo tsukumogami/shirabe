@@ -139,11 +139,11 @@
 #       archive it can't finish is `teardown-incomplete`, never a state left
 #       timing out.
 #   teardown-pass.sh check --session <s> --topic <topic>
-#       confirm's reads for a removed verdict, asked by state-holding.sh
-#       --retire before it drops a merged holding whose worker was torn down
-#       outside the pass (shirabe#1593). The verdict must say `removed yes`
-#       and name <topic>; then the same listings and archive checks as
-#       confirm. It stores no context key and seals nothing, so it can be
+#       confirm's reads for one topic's verdict, asked by state-holding.sh
+#       --retire before it drops a merged holding once its teardown pass is
+#       done: one the pass tore down itself (shirabe#1148) or one torn down
+#       outside it, `removed yes` (shirabe#1593). The verdict must name
+#       <topic>; then the same listings and archive checks as confirm. It stores no context key and seals nothing, so it can be
 #       asked at destroy, before teardown_confirm runs. Prints one line,
 #       `teardown-pass: teardown-confirmed: <why>` or `teardown-pass:
 #       teardown-incomplete: <why>`.
@@ -329,7 +329,6 @@ if [ "$MODE" = confirm ] || [ "$MODE" = check ]; then
     }
     read_verdict || verdict teardown-incomplete "$(cat "$T/why")"
     if [ "$MODE" = check ]; then
-        [ "$REMOVED" = 1 ] || verdict teardown-incomplete "the verdict is not a removed teardown"
         [ "$TOPIC" = "$WANT_TOPIC" ] || verdict teardown-incomplete "the verdict is for $TOPIC, not $WANT_TOPIC"
     fi
     ROOT=$(dc_workspace_root) || verdict teardown-incomplete "no workspace root found"
