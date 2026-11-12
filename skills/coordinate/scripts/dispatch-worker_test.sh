@@ -19,7 +19,10 @@
 # scoping-ahead holding with a new leg and the execution's entry point,
 # mode and phase; no session id, instance path or job id in the holding; the
 # leg key written open at dispatch (and a dispatch stopped when it can't be),
-# spent on a failed launch, replaced by --releg; a stranded unit dispatched
+# spent on a failed launch, replaced by --releg; a leg no holding names
+# released when its run stops before the row is written (a failed or refused
+# write, a key that can't be written, a --releg whose write fails), with the
+# exit code kept and stderr saying what was left; a stranded unit dispatched
 # under a new topic whose brief names the old branch and pushed head, the
 # stranded row retired after, and the stranded topic itself refused;
 # --releg-imported re-attaching an imported worker, finishing after a crash at
@@ -145,6 +148,7 @@ case "$1 $2" in
         ;;
     "request abandon-request")
         echo "koto request abandon-request $3" >>"$ST/calls.log"
+        if [ "${KOTO_ABANDON_FAIL:-}" = 1 ]; then exit 1; fi
         ;;
     "request list")
         if [ -f "$ST/open_requests.json" ]; then cat "$ST/open_requests.json"; else printf '{"requests":[]}\n'; fi
@@ -318,7 +322,7 @@ reset() {
     printf '%s' "$PICK_ROADMAP" >"$ST/ctx/coord/pick.json"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
-    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_ROLE RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE KOTO_LEG_PUT_FAIL KOTO_ATTACH_FAIL
+    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_ROLE RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE KOTO_LEG_PUT_FAIL KOTO_ATTACH_FAIL KOTO_ABANDON_FAIL
 }
 run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
@@ -1254,6 +1258,87 @@ printf '{"requests":[{"request_id":"req_1","coordinator_of_record":"coordinate-p
 run --releg >/dev/null 2>&1
 eq  "legkey: --releg marks the spent leg's key replaced" replaced "$(lkey req_1 scope | jq -r .state)"
 eq  "  ... and writes the new leg's key open" "open plugin-api" "$(lkey req_2 scope | jq -r '"\(.state) \(.topic)"')"
+
+# --- a leg no holding names (shirabe#1756) ------------------------------------------------------------------
+#
+# A run that stops after opening its leg and before writing the row that
+# names it releases the leg: the request is abandoned, the key marked spent,
+# and stderr says what was left. The exit code is the one the stop had.
+
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=full
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+ERR=$(cat "$T/unclaimed.err")
+eq  "unclaimed: a failed holding write still exits 2" 2 "$RC"
+has "  ... the request it opened is abandoned" "$(calls)" "koto request abandon-request req_1"
+eq  "  ... and no longer leaves that leg open: its key reads spent" spent "$(lkey req_1 deliver | jq -r .state)"
+eq  "  ... no holding is written" "" "$(ls "$ST/rows")"
+eq  "  ... no worker is launched" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+has "  ... stderr names the released leg" "$ERR" "released the leg req_1:deliver, which no holding names: its request req_1 is abandoned"
+has "  ... and the key it marked" "$ERR" "the leg key for req_1:deliver is marked spent"
+# A re-run starts clean: a new request with its key open, the old key spent.
+unset RECORD_WRITE_MODE
+: >"$ST/calls.log"
+run >/dev/null 2>&1; RC=$?
+eq  "unclaimed: a re-run dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+eq  "  ... on a new leg" "leg req_2:deliver" "$(row return_path)"
+eq  "  ... whose key is open" open "$(lkey req_2 deliver | jq -r .state)"
+eq  "  ... and the released key stays spent" spent "$(lkey req_1 deliver | jq -r .state)"
+
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=refuse
+run >/dev/null 2>&1; RC=$?
+eq  "unclaimed: a refused holding write still exits 8" 8 "$RC"
+has "  ... and releases the leg" "$(calls)" "koto request abandon-request req_1"
+eq  "  ... its key spent" spent "$(lkey req_1 deliver | jq -r .state)"
+
+reset "$INPUT_DELIVER"
+export RECORD_WRITE_MODE=full KOTO_ABANDON_FAIL=1
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+eq  "unclaimed: an abandon that fails leaves the exit as it was" 2 "$RC"
+has "  ... and says the request stays open" "$(cat "$T/unclaimed.err")" \
+    "could not abandon request req_1, which no holding names: it stays open until the next dispatch of plugin-api abandons it"
+eq  "  ... the key is marked spent all the same" spent "$(lkey req_1 deliver | jq -r .state)"
+
+reset "$INPUT_DELIVER"
+export KOTO_LEG_PUT_FAIL=1
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+eq  "unclaimed: a leg key that can't be written: exit 2" 2 "$RC"
+has "  ... the request just created is abandoned" "$(calls)" "koto request abandon-request req_1"
+has "  ... and stderr says no key was written" "$(cat "$T/unclaimed.err")" "req_1:deliver has no leg key: none was written"
+
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
+export RECORD_WRITE_MODE=full
+run >/dev/null 2>"$T/unclaimed.err"; RC=$?
+eq  "unclaimed: a message-path dispatch whose write fails: exit 2" 2 "$RC"
+lacks "  ... opens and abandons no request" "$(calls)" "koto request"
+lacks "  ... and releases nothing" "$(cat "$T/unclaimed.err")" "released"
+
+reset "$INPUT_DELIVER"
+run >/dev/null 2>&1
+lacks "unclaimed: a dispatch whose row is written releases nothing" "$(calls)" "abandon-request"
+eq  "  ... its key stays open" open "$(lkey req_1 deliver | jq -r .state)"
+reset "$INPUT_DELIVER"
+export NIWA_MODE=fail
+run >/dev/null 2>&1
+eq  "unclaimed: a failed launch abandons its request once" 1 "$(grep -c 'abandon-request req_1' "$ST/calls.log")"
+
+# A --releg whose row write fails: the new request is released, and the
+# holding and the old key stay as they were.
+reset "$INPUT_SCOPE"
+run >/dev/null 2>&1
+printf 'plugin-api' >"$ST/ctx/report_topic"
+rm -f "$ST/ctx/coord/pick.json"
+spent resolved explicit
+printf '{"requests":[{"request_id":"req_1","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+: >"$ST/calls.log"
+export RECORD_WRITE_MODE=full
+run --releg >/dev/null 2>&1; RC=$?
+eq  "unclaimed: a --releg whose row write fails: exit 2" 2 "$RC"
+has "  ... abandons the new request" "$(calls)" "koto request abandon-request req_2"
+eq  "  ... marks its key spent" spent "$(lkey req_2 scope | jq -r .state)"
+eq  "  ... leaves the old key unreplaced" open "$(lkey req_1 scope | jq -r .state)"
+eq  "  ... and the holding on the old leg" "leg req_1:scope" "$(row return_path)"
 
 # --- a stranded holding (PRD R15; shirabe#732) ---------------------------------------------------------------
 
