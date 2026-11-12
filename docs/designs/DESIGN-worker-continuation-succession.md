@@ -139,7 +139,7 @@ Key assumptions:
 - A leg-bound continuation runs on the host that holds the request. Decision 4
   makes that hold for coordinated units, since coordinate launches on its own
   host.
-- Reaping a niwa instance leaves koto's session store (`~/.koto/sessions`)
+- Reaping a niwa instance leaves koto's local session store
   alone, so a reaped predecessor stays readable as chain history.
 - koto fixes the cloud-backend carry failure tracked in koto#560. The leg's
   state moves through the requester, not the carry, so the leg doesn't depend
