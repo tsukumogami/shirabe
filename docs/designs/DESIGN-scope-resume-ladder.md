@@ -15,11 +15,11 @@ decision: |
   long or refused, naming the next step. Both resume gates state timeout: 30
   as a backstop with a timed_out arm to done_error. Replies are read by exit
   code and code first; only the exact not-found reply is absent, and no exit 3
-  is ever absent. An operator's per-invocation --local-topic lets the probe
-  settle never-opened names from the host's list and one read of this
-  directory's prefix; declaring the bucket's name index clears the stop for
-  every topic. parent_state reads a no-host-copy refusal as "not a parent
-  here", never as absent.
+  is ever absent. An operator's per-invocation --local-topic, refused under
+  --auto and in dispatched runs, lets the probe settle never-opened names
+  from the host's list and one read of this directory's prefix; declaring the
+  bucket's name index clears the stop for every topic. parent_state reads a
+  no-host-copy refusal as "not a parent here", never as absent.
 rationale: |
   Only a bound shirabe enforces holds on v0.37.0, where a lookup has no worst
   case, and a hold is the one channel that carries the probe's text to the
@@ -29,6 +29,7 @@ rationale: |
   through has to come from the operator or the bucket's owner. Everything
   ships in shirabe against released koto, and the koto asks only shorten a
   visit that is already bounded and explained.
+user_visible_surface: true
 ---
 
 # DESIGN: Scope resume ladder time bound
@@ -54,7 +55,7 @@ How that lookup ends depends on the koto release:
 - At koto v0.37.0 each listing ask is bounded at 10 s and tried three times, but nothing bounds the lookup as a whole. The issue reports one such miss, run by hand on koto 0.37.0, that took 88 s and exited 2, and a later fresh session whose child lookups each took about 86 s, so the gate timed out twice.
 - koto v0.37.1 (koto#670) bounds a missing name's lookup at 6 s end to end. A lookup that can't finish in time refuses with exit 3 and `code: "session_lookup_failed"`, and never answers not-found. On a large undeclared bucket a never-opened name now gets that refusal quickly, whether or not the bucket is healthy.
 
-When the 30 s gate fires, koto kills the probe's process group and records `exit_code: -1` with `failure_kind: timed_out`. `resume_route` has no arm for -1, so the run holds. The state's directive says to tick again, which runs the same lookups again. The issue saw this on all seven of one session's visits.
+When the 30 s gate fires, koto kills the probe's process group and records `exit_code: -1` with `error: timed_out`, the field a transition can route on (`failure_kind: timed_out` sits beside it). `resume_route` has no arm for -1 or for that error, so the run holds. The state's directive says to tick again, which runs the same lookups again. The issue saw this on all seven of one session's visits.
 
 An answer that arrives in time doesn't resume either. At v0.37.0 koto exits 2 both for "not found" and for "couldn't settle", and only the stdout text tells them apart; at v0.37.1 "couldn't settle" exits 3. `has-work` counts any exit 2 without "not found", and any other exit, as an error, so the probe answers cannot-tell and the run stops at `done_error` with step `scope:resume-probe`. On koto v0.37.1 that's the usual outcome on an undeclared bucket: the session stops at the probe instead of timing out, and it still can't get past `resume_route`.
 
@@ -78,11 +79,7 @@ The problem splits into three questions: where the time bound is enforced, how t
 
 Cross-checking the three answers found one conflict. The second decision's first answer required `parent_state`, the lookup a child's `adopt` makes for its parent sessions, to read koto v0.37.1's exit 3 as absent when its text says "the bucket holds none under this directory's prefix". That's the reading tsukumogami/shirabe#1764 asks for. koto's lookup doesn't support it. koto lists this directory's own prefix as a request of its own (`src/session/cloud.rs:966`). Only when that comes back empty does it list the bucket's workspace prefixes and sweep them (`:1049-1129`), and any failure in that second step exits 3 with exactly that text (`:927-933`). A listing of the prefixes that gets no answer within the deadline produces it: "... holds none under this directory's prefix ..., and koto can't tell whether another directory's prefix holds it: listing the bucket's workspace prefixes failed: io: no answer within ...". So the phrase means this directory's prefix was empty and the rest of the bucket went unchecked. A session under another prefix, including one an older koto wrote, would be settled as absent on a flaky network.
 
-All three decisions were amended here, and none was re-run through `/decision`:
-
-- **Decision 2** replaces that reading with "not a parent here", keyed on the host holding no copy.
-- **Decision 3** keeps "a refusal is never absent" with no exception, and takes the reply shapes and parent reading that Decision 2 adds.
-- **Decision 1** changed because of Decision 2's outcome. Its unsettled hold now says when another tick won't help, and the probe takes the operator's local-topic argument. The design skill's restart path removes a decision's report before it re-runs the decider. It has no route when the record is kept append-only (tsukumogami/shirabe#1766), so the decisions were amended in place. The amendments are written into the decisions below. The second decision's amended form, "not a parent here" keyed on the host holding no copy, is what the reviews of this design should judge.
+So the three decisions were amended in place rather than re-run, since the design skill's restart path has no route when the decision record is kept append-only (tsukumogami/shirabe#1766). Decision 2 replaces that reading with "not a parent here", keyed on the host holding no copy. Decision 3 keeps "a refusal is never absent" with no exception and takes Decision 2's reply shapes. Decision 1's unsettled hold now says when another tick won't help, and the probe takes the operator's local-topic argument. The amended text is what appears below.
 
 ### Decision 1: Where the resume ladder's time bound is enforced
 
@@ -120,7 +117,7 @@ Key assumptions:
 
 - koto v0.37.0 ships `koto --workspace <path> status|context exists` with v0.37.1's codes: `session_not_found` and `workspace_not_found` exit 2, `workspace_unreadable` exit 3.
 - `koto session list` lists this host's store plus this directory's prefix. Its bucket half can fail with only a warning, and the probe draws no conclusion from what it doesn't show.
-- An operator usually knows whether a topic was worked on another host or checkout, and agents follow the directive never to add the statement themselves.
+- An operator usually knows whether a topic was worked on another host or checkout. In an interactive session agents follow the directive never to add the statement themselves; under `--auto` and in a dispatched run, `scope-open.sh` refuses it outright.
 - Declaring the bucket's name index behaves as koto's cloud-sync guide says, including its trade-off. On a declared bucket a session only older koto releases touched has no index entry; the audit writes entries for every session present, and the 7-day probation catches an older koto still writing. The design names the declaration with its probation and never suggests skipping it.
 
 #### Chosen: Strict by default, with an operator-stated local scope read by code
@@ -130,7 +127,7 @@ By default a never-opened name's refusal is unsettled, never absent. A fresh top
 - **Re-run with `--local-topic`.** The operator runs `/scope <topic> --local-topic` when they know the topic has no session elsewhere. Anything held elsewhere is given up: a second session of the same name opens here, and a handoff held elsewhere isn't read.
 - **Declare the bucket's name index.** This clears the stop for every topic.
 
-The flag sets a rebind template variable that both resume gates pass to the probe, so it covers only the invocation that typed it and koto's events record it. The agent never adds it.
+The flag sets a rebind template variable that both resume gates pass to the probe, so it covers only the invocation that typed it and koto's events record it. The agent never adds it, and `scope-open.sh` refuses it under `--auto` and in a run another session dispatched, so the statement can only come from an operator at an interactive session.
 
 Under the statement, and only for the five never-opened names, the probe reads by code:
 
@@ -155,6 +152,7 @@ Key assumptions:
 - koto's changelog statement describes v0.37.0: before koto#670, a bucket that couldn't be reached at all made a name read as absent.
 - The resumed session's copy on this host stays current within a tick, so own-session `context exists` never takes the remote-manifest fallback, where a failed fetch reads as absent. This is the same premise as Decision 1's first assumption.
 - koto keeps building `session_lookup_failed` only for a name with no host copy. `parent_state` relies on this, and its tests pin the reply shape.
+- At v0.37.0 a lookup that couldn't settle never carries the no-copy text `parent_state` matches. The contract test checks this against real v0.37.0.
 
 #### Chosen: Both releases side by side, read in-band, depend only on shipped behaviour
 
@@ -214,11 +212,13 @@ Everything else gets `next=tick-again`. The text never decides a row, and a rewo
 
 ### Decision 5: The finding line's format
 
-**Context.** The lines reach the agent on the gate's blocking condition, and the tests read them too.
+**Context.** The lines reach the agent on the gate's blocking condition, and the tests read them too. That condition is part of the session's event log, so the text also syncs to the bucket and can be copied by an agent into a report.
 
-**Chosen: one `::koto-finding::` line of key=value fields, ending with koto's own stdout line.**
+**Chosen: one `::koto-finding::` line of key=value fields built by the probe, ending with a reduced form of koto's reply.** The fixed fields say which lookup, what happened and what to do next. The last field, `koto=`, carries koto's `code` and its message reduced to an allowlist of characters and capped in length (Security Considerations has the rules). This serves the driver that a stop names the lookups with koto's text and says what to do next, while keeping what reaches the log and the agent to the part of the reply that helps someone act.
 
-**Rejected: a JSON object per line.** It's easier to parse, but noisier for the agent that has to read it. The tests only need the fixed keys.
+**Rejected: a JSON object per line.** It's easier to parse, but the driver this line serves is an agent reading a stop and acting on it, and key=value fields with koto's text last read directly. The table-tested driver doesn't favour JSON either: the tests read only the fixed keys, which key=value pins as well.
+
+**Rejected: koto's stdout line kept whole.** It gives the reader everything koto said, but credentials or endpoints in an io error would sit in a log that syncs to the bucket.
 
 ### Decision 6: Build order
 
@@ -243,7 +243,7 @@ koto's replies are read by exit code and `code` first, and absence is only ever 
 
 Either way the stop has the same shape.
 
-The operator's `--local-topic` statement, for one invocation, lets the probe settle the five never-opened names. The probe does this from the host's own list and one read of this directory's prefix each. Declaring the bucket's name index clears the stop for every topic.
+The operator's `--local-topic` statement, for one invocation, lets the probe settle the five never-opened names. The probe does this from the host's own list and one read of this directory's prefix each. `scope-open.sh` refuses the statement under `--auto` and in a dispatched run. Declaring the bucket's name index clears the stop for every topic.
 
 The parent lookup in `adopt` stops blocking the first hop the same way, without reading absence: a parent with no copy on this host is "not a parent here", the narrower fact the dispatch match needs. This closes #1764.
 
@@ -259,7 +259,7 @@ The resume ladder stays one read-only probe behind one gate per resume state. Wh
 
 - `skills/scope/scripts/resume-probe.sh`: the ladder.
   - Gains a deadline (20 s, overridable only in tests), a poll loop over its seven jobs, marker files, a descendant kill, kept koto text, and the new exit 3 (unsettled) with its finding lines.
-  - Gains a `--local-topic <stated|unstated>` argument, required once like `--intent`.
+  - Gains a `--local-topic <stated|unstated>` argument, accepted once. A missing argument means `unstated`, so the probe built in Phase 2 runs before the gate passes it in Phase 3.
   - Under `stated`, it adds one `koto session list` and the per-name `koto --workspace` reads.
 - `scripts/skill-session.sh`:
   - `session_state` and the probe's `key_exists` move to the shape table.
@@ -270,20 +270,33 @@ The resume ladder stays one read-only probe behind one gate per resume state. Wh
   - Exit 3 stays unrouted, so it holds.
   - A new `LOCAL_TOPIC` variable is declared with `rebind: true` and default `unstated`.
   - The directive for both states explains the hold: read the finding lines; when a line says another tick won't help, tick at most once more, then stop and report the two remedies. The agent never adds `--local-topic` itself.
-- `skills/scope/scripts/scope-open.sh` gains `--local-topic` and writes the rebind variable for this invocation only. The scope skill's usage text names the flag and says when an operator uses it.
+- `skills/scope/scripts/scope-open.sh` gains `--local-topic`. It accepts only `stated` or `unstated` before it writes the rebind variable, for this invocation only, and refuses the flag under `--auto` and in a dispatched run. The scope skill's usage text names the flag and says when an operator uses it.
 - Tests:
   - `resume-probe_test.sh` gains a per-session delay and koto's real refusal texts in its `KOTO_BIN` stub, plus a test-only deadline override.
   - `skill-session_test.sh` gains the shape-table and `parent_state` cases.
   - `scope-template_test.sh` pins exit 3 as unrouted, the `timed_out` arms, and the gate argument.
-  - `scope-open_test.sh` pins the flag.
+  - `scope-open_test.sh` pins the flag, its value check, and its refusal under `--auto` and in a dispatched run.
+  - A contract test runs `skill-session.sh`'s reply table and `parent_state` against real koto at v0.37.0 and v0.37.1, not only against the stub.
 
 ### Key Interfaces
 
-**Probe exit codes.** The existing rows keep their codes. Row 2 keeps its meaning (bad input, unreadable artifact, failed git read) and its route to `done_error`. The new code is 3, unsettled: no route, so the run holds. Its stdout carries one line per outstanding or refused lookup:
+**Probe exit codes.** The probe exits with its ladder row's number, and the existing rows keep their numbers. Exit 2, the probe's cannot-tell answer (bad input, unreadable artifact, failed git read), keeps its meaning and its route to `done_error`. The new code is 3, unsettled: no route, so the run holds. Its stdout carries one line per outstanding or refused lookup:
 
 ```
-::koto-finding:: lookup=<session>[ <key>] outcome=<deadline|refused> next=<tick-again|stop-and-act> koto=<koto's stdout line, or "none before the deadline">
+::koto-finding:: lookup=<session>[ <key>] outcome=<deadline|refused> next=<tick-again|stop-and-act> koto=<koto's code and reduced message, or "none before the deadline">
 ```
+
+**Which lookups decide which rows.** The ladder reads its inputs in a fixed order, so a row is settled once every input before it is:
+
+| Rows | Lookups the row needs |
+|---|---|
+| 20-29 (the scope session's own state) | the two `scope-<topic>` keys, `work/state.md` and `work/prior-run.md` |
+| 40-50 (an artifact on disk) | both scope keys answered, with no row from them, then the local artifact tree |
+| 60-63 (a child's partial run) | the above, then `has-work` for plan, design, prd and brief in that order, each up to the first that has work |
+| 12 (an explore handoff) | the above with all four children answered, then `handoff/scope.md` on `explore-<topic>` |
+| 11 and 10 (topic branch, fresh start) | all seven lookups, then the git branch |
+
+A present `work/state.md` always settles a row in 20-29, and a present `work/prior-run.md` settles one when it holds a failed publish step; either way every row from 40 on is ruled out and the probe stops waiting on the five never-opened names. A prior run with no such step falls through to the artifact tree. A refusal or a deadline on a lookup a row needs is the unsettled case; one on a lookup no remaining row needs is ignored.
 
 `next=stop-and-act` is set for an exit-3 refusal whose text says this directory's prefix answered empty and other prefixes went unchecked, and for a v0.37.0 lookup killed at the deadline. The line then also names `--local-topic` and the index declaration. Every other refusal gets `next=tick-again`. Matching the text here only picks the advice; it never decides a row.
 
@@ -295,7 +308,9 @@ The resume ladder stays one read-only probe behind one gate per resume state. Wh
 | `koto context exists` | exit 1 | exit 0 | exit 2; exit 3 `session_lookup_failed` | anything else |
 | `koto --workspace <dir> status`, `context exists` (only under `--local-topic`) | exit 2 `session_not_found` or `workspace_not_found`: absent from this prefix | exit 0 | exit 3 `workspace_unreadable` | anything else |
 
-**`has-work` exits.** 0 means has work and 1 means none, as today. A new exit means refused and carries koto's line on stdout; 4 stays the error exit.
+**`has-work` exits.** 0 means has work and 1 means none, as today. The new exit 7 means refused and carries koto's line on stdout; 4 stays the cannot-tell exit, and 64 and 127 keep their meanings. 7 is unused anywhere in `skill-session.sh` today. The probe's `child_partial` gains a case for 7 as unsettled; without it, 7 would fall into its cannot-tell branch.
+
+**The `--workspace` reads under the statement.** For a child name, the probe's own `--workspace` read stands in for `has-work` only when it answers absent from this prefix, which counts as `has-work`'s 1 (no work). A present reply sends the name to the ordinary `has-work`, inside the same deadline. A refusal or an unknown reply is unsettled, like `has-work`'s refusal exit. For `explore-<topic>`, absent from this prefix answers the handoff key as absent.
 
 **`parent_state` answers.** live, finished and absent come from the reply table. "Not a parent here" comes from exit 3 with `session_lookup_failed`, or from v0.37.0's exit-2 reply carrying the no-copy text #1637 already matches. 4 means cannot tell, from anything else, including exit 3 with another code.
 
@@ -315,7 +330,7 @@ Under `stated`, a never-opened name the session list doesn't show gets its `--wo
 
 koto routes rows as today. Exit 3 matches no arm and holds, with the findings on the blocking condition. A gate killed at 30 s matches the `timed_out` arm and ends at `done_error`.
 
-The probe writes nothing to koto. A killed `status` or `context exists` lookup arms no exit flush, so killing one leaves the bucket untouched.
+The probe writes nothing to koto. A killed `status` or `context exists` lookup arms no exit flush, so killing one leaves the bucket untouched. The same holds for the two reads the statement adds: `koto session list` sets no exit flush and opens no write window, and a `--workspace` read runs on a read-only backend that refuses any bucket write, which koto's cloud-sync guide states as a contract. A `--workspace` read killed mid-run can leave its own temporary directory behind, and nothing else.
 
 On the child's first hop, `adopt` runs `dispatch_match`. For a never-opened `charter-<topic>` or `scope-<topic>`, the reply is exit 3 `session_lookup_failed` on v0.37.1, or v0.37.0's exit-2 no-copy reply. `parent_state` answers "not a parent here", and `dispatch_match` moves on. Any other unreadable reply still returns 4 and stops `adopt` as today.
 
@@ -323,15 +338,16 @@ On the child's first hop, `adopt` runs `dispatch_match`. For a never-opened `cha
 
 ### Phase 1: The reply table
 
-Build `session_state`'s exact not-found match, `has-work`'s refusal exit and kept text, and `parent_state`'s "not a parent here" answer, with their tests on both releases' replies. This comes first because the probe's classification and the finding text both depend on it. It also closes #1764 on its own.
+Build `session_state`'s exact not-found match, `has-work`'s refusal exit 7 and kept text, and `parent_state`'s "not a parent here" answer, with their tests on both releases' replies and the contract test against real koto. Until Phase 2 the probe reads exit 7 as cannot-tell, as it reads 4 today. This comes first because the probe's classification and the finding text both depend on it. It also closes #1764 on its own.
 
 Deliverables:
 - `scripts/skill-session.sh`
 - `scripts/skill-session_test.sh`
+- the contract test
 
 ### Phase 2: The probe's clock and the gate bound
 
-On the probe: the deadline, the early answer, the descendant kill, and exit 3 with finding lines. On the template: the backstop, which is `timeout: 30` and the `timed_out` arms on both gates, plus the directive text. This depends on Phase 1's refusal exit.
+On the probe: the deadline, the early answer, the descendant kill, exit 3 with finding lines, `child_partial`'s case for `has-work`'s exit 7, and argument parsing that reads a missing `--local-topic` as `unstated`. On the template: the backstop, which is `timeout: 30` and the `timed_out` arms on both gates, plus the directive text. In this phase the directive and the finding lines name only another tick and the index declaration; the `--local-topic` remedy arrives with the flag in Phase 3. This depends on Phase 1's refusal exit.
 
 Deliverables:
 - `skills/scope/scripts/resume-probe.sh`
@@ -341,7 +357,7 @@ Deliverables:
 
 ### Phase 3: The operator's statement
 
-Build `--local-topic` in `scope-open.sh`, the `LOCAL_TOPIC` rebind variable and gate argument, and the probe's `session list` plus `--workspace` path. It also adds the remedy text in the finding lines and the scope skill's usage text. This depends on Phase 2's finding lines and argument parsing.
+Build `--local-topic` in `scope-open.sh`, with its value check and its refusal under `--auto` and in a dispatched run, the `LOCAL_TOPIC` rebind variable and gate argument, and the probe's `session list` plus `--workspace` path. It also adds the `--local-topic` remedy to the finding lines and the directive, and the scope skill's usage text. This depends on Phase 2's finding lines and argument parsing.
 
 Deliverables:
 - `scope-open.sh`, `scope-open_test.sh`
@@ -355,23 +371,31 @@ File the koto asks listed in Decision 3 as koto issues. Separately, consider pre
 
 ## Security Considerations
 
-The probe only reads. It writes nothing to koto or the bucket, and a killed `status` or `context exists` lookup arms no exit flush. The design adds no package, download or binary. What it changes is how text and processes are handled around those reads, plus one operator statement that trades integrity for progress.
+The probe only reads. It writes nothing to koto or the bucket, and none of its lookups, `status`, `context exists`, `session list` or a `--workspace` read, arms an exit flush or opens a write window. The design adds no package, download or binary. What it changes is how text and processes are handled around those reads, plus one operator statement that trades integrity for progress.
 
-**Finding lines carry bucket-derived text.** Each `::koto-finding::` line ends with koto's own reply, which can include workspace prefixes, endpoints and io errors, and an agent reads these lines. The probe treats that text as data:
-- It keeps only the first line and strips control characters.
-- It caps the length.
-- It drops URL query strings and userinfo.
+**Finding lines carry bucket-derived text.** Each `::koto-finding::` line ends with a reduced form of koto's reply. A reply can include workspace prefixes, endpoints and io errors, and the line sits on the blocking condition in koto's event log, which syncs to the bucket. An agent reads it too. The probe treats that text as data and reduces it by allowlist, not blocklist:
+- It keeps koto's `code` when there is one.
+- From the message, it keeps only the first line, cuts any URL to its scheme, host and path, and drops every character outside letters, digits, space and `._:/'()-`.
+- It caps the result at 300 characters.
 - It neutralizes any `::koto-finding::` inside it.
 
-`koto=` is always the last field, behind fields the probe builds itself, so a reply can't forge or reorder them. Matching the text only moves a line between `tick-again` and `stop-and-act`; absence is never decided by text. The resume directive says `koto=` is quoted data. It also says the only actions a finding names are the two remedies the probe prints. The backstop's `failure_reason` is fixed text, so no bucket text reaches `done_error`.
+A credential shape the allowlist still passes, such as a long token made of letters and digits in a path, is the residual. The directive tells the agent never to paste `koto=` text into a pull request, issue or commit, and to describe the stop in its own words instead.
 
-**The operator statement.** `--local-topic` reaches the gate as a template variable. The probe accepts only `stated` or `unstated` and rejects anything else with a usage error before it reads anything, so a hostile value never reaches a shell. A template test pins that.
+`koto=` is always the last field, behind fields the probe builds itself, so a reply can't forge or reorder them. Matching the text only moves a line between `tick-again` and `stop-and-act`; absence is never decided by text. The resume directive says `koto=` is quoted data, and that the only actions a finding names are the remedies the probe prints. A reply that imitates one of those remedies can at most suggest `--local-topic`, which `scope-open.sh` refuses unless an operator types it at an interactive session. The backstop's `failure_reason` is fixed text, so no bucket text reaches `done_error`.
 
-The statement gives up integrity, not secrecy. A same-named session or handoff held under another directory or on another host is missed, which can produce a duplicate session or a conflicting PR. Only the directive and koto's recorded variable events keep an agent from adding the flag. Under `--auto` and in a dispatched worker, the agent reports the stop instead. The risk is accepted because the flag covers one invocation and is on the record.
+**The operator statement.** `--local-topic` reaches the gate as a template variable, and koto substitutes that variable into the gate's command string before the probe runs. So the value is checked before substitution: `scope-open.sh` accepts only `stated` or `unstated` and refuses anything else before it writes the variable, and the variable's default is `unstated`. The probe's own check, which rejects any other value with a usage error before it reads anything, is a second line. `scope-open_test.sh` and a template test pin both.
+
+The statement gives up integrity, not secrecy. A same-named session or handoff held under another directory or on another host is missed, which can produce a duplicate session or a conflicting PR. `scope-open.sh` refuses the flag under `--auto` and in a dispatched run, so an unattended agent can't state it and reports the stop instead. In an interactive session, the directive and koto's recorded variable events are what keep an agent from adding it; an operator is there to see it. The risk is accepted because the flag covers one invocation and is on the record.
 
 **Process handling.** The descendant kill signals only process ids taken from a snapshot of the probe's own jobs and their children, and only for jobs that are still live and have written no marker. It never matches by name, so a reused id can't redirect it. The gate's process-group kill at 30 s covers any straggler. A SIGKILL skips the probe's exit trap and can leave its private (0700) temp directory, which holds reply text, under `TMPDIR`. The deadline override is honored only in tests and is clamped below the gate's bound.
 
-**The parent lookup.** "Not a parent here" covers exactly two replies: exit 3 with `session_lookup_failed`, and v0.37.0's exit-2 no-copy reply. It rests on koto building that refusal only for a name with no copy on this host, and the `parent_state` tests pin the shape. A parent that ran on another host and left no copy here isn't seen by `adopt`. That matches what `adopt` could already see, since a parent dispatches from its own checkout.
+**The parent lookup.** "Not a parent here" covers exactly two replies: exit 3 with `session_lookup_failed`, and v0.37.0's exit-2 no-copy reply. It changes `adopt` from failing closed to failing open on those two replies: where an unreadable parent lookup used to stop `adopt`, a parent with no copy on this host is now skipped. It rests on two things koto's docs describe but don't promise as a contract. koto builds that refusal only for a name with no copy on this host. And at v0.37.0, a lookup that couldn't settle never carries the no-copy text. The stubbed `parent_state` tests pin the reply shapes shirabe reads, but they can't notice koto changing what it sends. That is the contract test's job: it runs `parent_state` against real koto at v0.37.0 and v0.37.1.
+
+The contract test's evidence includes a session written by a koto release from before the bucket's name index, held two ways. Held on this host, the lookup answers from the host's copy, and `parent_state` answers live or finished. Held only under another directory's prefix, with no copy here, it answers live when the sweep finds the session and "not a parent here" when the sweep can't finish. In neither case does it answer absent. On a bucket whose name index is declared, a lookup answers from the index, which the declaration's audit fills for every session present. A session missing from an unaudited index is the declaration's own trade-off, named in Decision 2. It doesn't come from this path. "Not a parent here" is never absent: only the dispatch match reads it, as a parent on another branch, and nothing records it.
+
+A parent that ran on another host and left no copy here isn't seen by `adopt`. That matches what `adopt` could already see, since a parent dispatches from its own checkout.
+
+**Out of scope: what a resumed session holds.** The probe reads whether keys and sessions exist and their state, never a key's contents. What the resumed run later reads from its own session is the scope skill's trust boundary today, and this design doesn't change it.
 
 **Trust in koto's replies.** The design relies on koto's exit codes, its `code` field and the exact not-found string. That's why every other reply shape counts as a refusal, never as absent.
 
@@ -388,17 +412,20 @@ The statement gives up integrity, not secrecy. A same-named session or handoff h
 ### Negative
 
 - A fresh topic on a large undeclared bucket stops once on every first visit until the operator re-runs with `--local-topic` or the bucket's index is declared.
-- `--local-topic` gives up any same-named session or handoff held under another directory or on another host. Only directives and the recorded variable keep an agent from adding it.
+- `--local-topic` gives up any same-named session or handoff held under another directory or on another host. In an interactive session only the directive and the recorded variable keep an agent from adding it.
 - The probe's concurrency logic is more involved, must stay on bash 3.2, and its tests involve timing.
 - The template states the gate's bound, not the tick's. The default action's eight `koto context` calls and koto's exit flush sit outside it.
 - On v0.37.0, `adopt`'s lookup of a never-opened parent still runs an unbounded sweep, and a bucket that can't be reached at all can still read a never-opened name as not found.
 - "Not a parent here" rests on koto building `session_lookup_failed` only for a name with no host copy, which koto's docs state but don't promise as a contract.
+- `adopt`'s parent lookup now fails open on those two replies where it used to fail closed. This is an accepted residual risk: a koto change that sent the no-copy refusal for a parent that does have a copy here would let `adopt` skip that parent. It would still never be read as absent.
+- `koto=` text that passes the allowlist can still carry a credential-shaped token into the event log.
 - The finding's advice picks `next=stop-and-act` by matching koto's text. A reworded refusal falls back to `tick-again`, which is safe but less helpful.
 
 ### Mitigations
 
 - The finding line names both remedies plainly. The index declaration's audit and probation clear the stop for every topic without weakening the absent rule.
-- The flag covers one invocation and is recorded in koto's variable events. Under `--auto` or in a dispatched worker the agent reports the stop instead of adding it.
+- The flag covers one invocation and is recorded in koto's variable events. `scope-open.sh` refuses it under `--auto` and in a dispatched run, so an unattended agent reports the stop instead.
 - The deadline override and short stub delays keep the timing tests fast and deterministic. The descendant kill keeps every process in the gate's group, so koto's backstop still covers them.
 - The koto asks in Decision 3 would bound the flush and the lookup from koto's side. v0.37.1 already bounds the parent lookup and closes the unreachable-bucket hole.
-- The `parent_state` tests pin the exit-3 shape, and the asks include a structured field for "no copy on this host", so a koto change would surface in tests before it reaches a run.
+- The stubbed `parent_state` tests pin the reply shapes shirabe reads; they catch a change on shirabe's side, not koto's. The contract test runs against real koto at v0.37.0 and v0.37.1, including a session written by a release from before the name index, so a koto change to the replies surfaces when that test runs against the new release. The asks include a structured field for "no copy on this host", which would replace the reply shape the design relies on.
+- The directive tells the agent never to paste `koto=` text into a pull request, issue or commit.
