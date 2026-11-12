@@ -1,19 +1,48 @@
 ---
 schema: design/v1
-status: Draft
+status: Proposed
 problem: |
   work-on's closing_keyword gate at pr_creation accepts only a pull request
   body that closes its issue. A pull request that delivers one planned step
   of its issue, or follows an approved deferral, references the issue
   without closing it, so the gate exits 1 and the run ends at done_blocked
   instead of going on to CI monitoring.
+decision: |
+  A run holds a non-closing delivery in one of two ways, and neither comes
+  from anything it submits to koto. The invocation declares a planned split
+  with `--delivery=partial` and a mandatory `--delivery-reason=<why>`, which
+  `work-on-open.sh` maps to `DELIVERY` and `DELIVERY_REASON` variables fixed
+  at init, or the run reaches `pre_pr_evidence` through the engine's approved
+  transition out of `deferral_approval`, with no later return to
+  `finalization` or `deferral_approval` in its state log. Either one switches
+  the `closing_keyword` gate to a non-closing mode of
+  `check-closing-keyword.sh`, which refuses every form that closes the issue
+  in the pull request's body, title or commits and requires the body to carry
+  `Ref`, `Refs` or `Part of` with the issue. A declared split doesn't loosen
+  `finalization`, the directives prescribe `Part of #N`, and a run with
+  neither source keeps today's gate, with its exit codes and routes unchanged.
+rationale: |
+  The planned split and the approved deferral fail at the same gate on the
+  same kind of body, so a mechanism keyed only on the deferral record would
+  miss the split. Each source stays with the authority that already owns its
+  case: the split is fixed by the invocation before any work, beside
+  `VERIFICATION`, and the deferral is read from the engine's transition, a
+  record the run can't produce through koto, so neither gives the run a new
+  way to set a criterion aside. Routing the split through `deferral_approval` as well was
+  rejected because a background run can't wait for a person there, and an
+  engine-written context key because the run can overwrite context keys.
+  Keeping `Fixes #N` for a deferral, or letting the approver choose the
+  closing form, was rejected because closing an issue with a deferred
+  criterion reports it done, which the work-on PRD forbids. Misusing either
+  source leaves an issue open, which a person sees and closes in one step,
+  rather than closing one with work missing.
 ---
 
 # DESIGN: work-on partial delivery
 
 ## Status
 
-Draft
+Proposed
 
 ## Context and Problem Statement
 
