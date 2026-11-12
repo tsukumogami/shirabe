@@ -88,6 +88,14 @@
 #              the directory it runs in, and once the move is recorded it
 #              shows the relocation and reads the relocated tree from
 #              anywhere
+#   a rebound session
+#              the session listed in another checkout of the same work while
+#              the header's work tree still exists: status from it appends
+#              one relocate line carrying its HEAD, classify holds its digest,
+#              seat and accept record it, status counts from an unrelated
+#              directory, and record prints the relocate head; a bound
+#              checkout of another repository, or a failed listing, exits 2
+#              and writes nothing
 #
 # Usage: bash skills/work-on/scripts/test-change_test.sh
 set -uo pipefail
@@ -135,6 +143,22 @@ case "$1" in
     version) echo "koto $SHIM_FLOOR (shim)"; exit 0 ;;
     status) [ -d "$SHIM_STORE/$2" ] || { echo "workflow not found" >&2; exit 2; }; echo '{}'; exit 0 ;;
     context) ;;
+    session)
+        # `session list`: one {id, execution_dir} per session under
+        # $SHIM_STORE, the directory read from its execution_dir file and left
+        # out when there is none. SHIM_LIST_FAIL makes the listing fail.
+        [ "$2" = list ] || { echo "shim: unsupported $*" >&2; exit 2; }
+        [ -z "${SHIM_LIST_FAIL:-}" ] || { echo "shim: session list failed" >&2; exit 1; }
+        for d in "$SHIM_STORE"/*/; do
+            [ -d "$d" ] || continue
+            id=$(basename "$d")
+            if [ -f "$d/execution_dir" ]; then
+                jq -nc --arg id "$id" --arg dir "$(cat "$d/execution_dir")" '{id: $id, execution_dir: $dir}'
+            else
+                jq -nc --arg id "$id" '{id: $id}'
+            fi
+        done | jq -s .
+        exit 0 ;;
     *) echo "shim: unsupported $*" >&2; exit 2 ;;
 esac
 if [ "${SHIM_REFUSE:-}" = "$3" ] || { [ "$2" = exists ] && [ "${SHIM_REFUSE_KEY:-}" = "$4" ]; }; then
@@ -832,6 +856,86 @@ exit_is "moved: record from anywhere exits 0" 0
 has "moved: record shows the relocation" "relocate: the work tree [$MA_TOP] moved to [$MB_TOP]" "$OUT"
 has "moved: record reads the relocated tree" "state: counted" "$OUT"
 eq "moved: record wrote nothing" "$LINES_NOW" "$(ledger "$S" | wc -l | tr -d ' ')"
+
+# --- a rebound session ---------------------------------------------------------------------
+# The run's session is rebound to a new checkout while the old one stays on
+# disk. Checkout A holds an edited test and is where init ran; checkout B is a
+# clone of it, a commit further on the same test, and is the directory koto
+# lists for the session. Every call that reads the work tree follows B.
+echo "--- a rebound session"
+RA="$W/rebound-a"
+git clone -q "$ORIGIN" "$RA"
+git -C "$RA" checkout -q -b b-rb
+# rebound_session <session>: impl_base and the rules copy, then init in A.
+rebound_session() {
+    rm -rf "${STORE:?}/$1"
+    mkdir -p "$STORE/$1"
+    git -C "$RA" rev-parse HEAD > "$STORE/$1/impl_base"
+    cp "$RULES" "$STORE/$1/review_level_rules.tsv"
+    cp "$STORE/acc/context.md" "$STORE/$1/context.md"
+    run_in "$RA" init "$1"
+    exit_is "rebound: init $1 in the first work tree" 0
+}
+rebound_session rb
+rebound_session rbx
+rebound_session rbf
+sed -i.bak 's/Hello, World!/Hello, World/' "$RA/tests/greet_test.sh"
+rm -f "$RA/tests/greet_test.sh.bak"
+git -C "$RA" commit -q -am "test: drop the exclamation mark"
+RA_TOP=$(git -C "$RA" rev-parse --show-toplevel)
+RB="$W/rebound-b"
+git clone -q "$RA" "$RB"
+git -C "$RB" remote set-url origin "$ORIGIN"
+sed -i.bak 's/Hello, World/Hello there, World/' "$RB/tests/greet_test.sh"
+rm -f "$RB/tests/greet_test.sh.bak"
+git -C "$RB" commit -q -am "test: greet by a longer phrase"
+RB_TOP=$(git -C "$RB" rev-parse --show-toplevel)
+RB_HEAD=$(git -C "$RB" rev-parse HEAD)
+RB_DIGEST=$(git -C "$RB" rev-parse HEAD:tests/greet_test.sh)
+RX="$W/rebound-x"
+git clone -q "$RA" "$RX"
+git -C "$RX" remote set-url origin "$W/remote/acme/other.git"
+RX_TOP=$(git -C "$RX" rev-parse --show-toplevel)
+S=rb
+printf '%s\n' "$RB_TOP" > "$STORE/$S/execution_dir"
+[ -d "$RA_TOP" ] || bad "rebound: the old work tree is still on disk" "[$RA_TOP] is gone"
+
+run_in "$RB" status "$S"
+exit_is "rebound: status from the bound tree holds the edit" 1
+eq "rebound: status follows the bound tree with one relocate line from the old tree, whether or not the old tree still exists" \
+    "relocate|$RA_TOP|$RB_TOP|$RB_HEAD" \
+    "$(ledger "$S" | jq -r 'select(.event == "relocate") | "\(.event)|\(.from)|\(.to)|\(.head)"')"
+run_in "$RB" classify "$S"
+has "rebound: the held digest is the bound tree's" "edited	tests/greet_test.sh	$RB_DIGEST" "$OUT"
+run_in "$RB" seat "$S"
+exit_is "rebound: seat in the bound tree" 0
+has "rebound: the seat's brief carries the bound tree's hunk" '+[ "$out" = "Hello there, World" ]' "$OUT"
+run_in "$RB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
+exit_is "rebound: the seat's accept" 0
+eq "rebound: the accept records the bound tree's digest" "tests/greet_test.sh|$RB_DIGEST" \
+    "$(ledger "$S" | jq -r 'select(.event == "accept") | "\(.files[0].path)|\(.files[0].digest)"')"
+run_in "$RB" status "$S"
+exit_is "rebound: after the accept status counts" 0
+run_in "$R" status "$S"
+exit_is "rebound: from an unrelated directory status reads the bound tree and counts" 0
+eq "rebound: still one relocate line" 1 "$(ledger "$S" | jq -r 'select(.event == "relocate") | .to' | wc -l | tr -d ' ')"
+run_in "$R" record "$S"
+exit_is "rebound: record exits 0" 0
+has "rebound: record prints the relocate head" "moved to [$RB_TOP] at $RB_HEAD" "$OUT"
+
+S=rbx
+printf '%s\n' "$RX_TOP" > "$STORE/$S/execution_dir"
+run_in "$RX" status "$S"
+exit_is "rebound: a bound tree of another repository, the old tree present: status exits 2" 2
+has "rebound: another repository names the old tree" "$RA_TOP" "$(cat "$W/err")"
+has "rebound: another repository names the bound tree" "$RX_TOP" "$(cat "$W/err")"
+eq "rebound: another repository writes no line" 1 "$(ledger "$S" | wc -l | tr -d ' ')"
+
+S=rbf
+printf '%s\n' "$RB_TOP" > "$STORE/$S/execution_dir"
+SHIM_LIST_FAIL=1 run_in "$RB" status "$S"
+exit_is "rebound: a failed session listing: status exits 2" 2
+eq "rebound: a failed session listing writes no line" 1 "$(ledger "$S" | wc -l | tr -d ' ')"
 
 # --- nothing reaches a pull request --------------------------------------------------------
 echo "--- nothing reaches a pull request"

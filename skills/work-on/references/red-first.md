@@ -131,16 +131,26 @@ against it; a ledger with no header holds the unit, and `init` refuses to run
 twice.
 
 The header's work tree can move: a run handed over to a new checkout is
-rebound there, and the old directory is gone. When the recorded work tree is
-gone and the one the gate runs in is the same work (its origin names the
+rebound there (`koto session rebind`), and the old directory may or may not
+still exist. Every call that reads the work tree to decide (`classify`,
+`seat`, `accept`, `decline`, `status` and `covered`) asks `koto session list`
+where the run's session is bound. When that directory is in another work tree
+than the recorded one, the run is classified against it, whether or not the
+old tree still exists, provided it is the same work: its origin names the
 header's repository when the header records one, and its HEAD has `impl_base`
-in its history), `status`,
-`seat`, `accept` and `decline` use it and append one `relocate` line naming
-both paths, which every later call reads in place of the header's. `covered`
-uses it without writing anything, and `record` reads only the relocate lines,
-never the directory it's run from. Any other case still stops the gate on the
-gone work tree. The acceptance rule doesn't fold relocate lines, so a move
-changes no verdict.
+in its history. A bound tree that isn't the same work stops the call (exit 2)
+naming both trees, and so does a listing that fails or doesn't parse; nothing
+falls back to the recorded tree then. When the listing gives the session no
+directory, or its directory is gone, the older rule holds: a gone recorded
+work tree is followed to the one the gate runs in when that is the same work,
+and any other case stops the gate on the gone work tree.
+
+A followed tree is used by `status`, `seat`, `accept` and `decline`, which
+append one `relocate` line naming both paths and the HEAD moved to; every
+later call reads it in place of the header's. `classify` and `covered` use it
+without writing anything, and `record` reads only the relocate lines, each
+with its HEAD, never the directory it's run from. The acceptance rule doesn't
+fold relocate lines, so a move changes no verdict.
 
 The same gate runs three times: at `pass_counting`, again at `pr_precheck`
 (`tests_still_counted`, so a commit made after counting is held again before
