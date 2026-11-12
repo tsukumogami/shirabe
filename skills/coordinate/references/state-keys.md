@@ -825,7 +825,9 @@ Each worker leg is a key of the coordinator's session,
 `legs/<request>/<leg>`: the worker's topic, the leg's templates and pinned
 inputs, the bound session's name once one attaches, and its result once read.
 `dispatch-worker.sh` writes it at dispatch (`open`) and when a new leg
-replaces it (`replaced`) or a launch fails (`spent`); `wait-target.sh` adds
+replaces it (`replaced`) or a launch fails (`spent`), and marks it `spent`
+when the run stops before the holding naming it is written, abandoning its
+request; `wait-target.sh` adds
 the child and the end (`taken` with the result, or `spent`). After an import,
 a leg whose request this host's store doesn't hold gets its end from
 `reconcile-legs.sh`: re-legged by `dispatch-worker.sh --releg-imported`, which
