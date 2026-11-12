@@ -140,7 +140,7 @@ This one cites it and changes nothing in it.
 
 ## Considered Options
 
-The brief's three parts map onto three decisions. Decision 2 answers both
+The question's three parts map onto three decisions. Decision 2 answers both
 where the role lives and how the record's role and the seat's role relate,
 because the answer to one fixes the other; it weighs options for each part
 separately.
@@ -204,13 +204,20 @@ forward walk, with today's scope check serving as the seat's fence.
 
 The coordinator seat's name is the stable address. `coordinate-<SLUG>`
 resolves to the newest holder's Run `coordinator` row, which is what
-`resolve-coordinator.sh` already computes from any member. No holder takes an
-alias at takeover.
+`resolve-coordinator.sh` already computes from any member of a takeover
+chain. That walk follows only `session_superseded` events, and a carry writes
+none, so across a carry it stops at the pre-carry run until shirabe#1740
+links the two. No holder takes an alias at takeover. A seat name is not a
+session name, so reaching a member from the name alone is a lookup the
+stable-address work adds (Follow-on work).
 
 This works because the name already exists for every kind of seat, so
-nothing is written and the resolver needs no rework. A carried run keeps its
-SLUG and its `record/meta`, so it stays in its seat even across the carry gap;
-only the order of holders on that path waits on shirabe#1740. Discipline
+nothing is written and the resolver needs no rework for a takeover chain. A
+carried run keeps its SLUG and its `record/meta`, so it stays in its seat
+even across the carry gap: the seat's name and identity hold. What waits on
+shirabe#1740 is everything read from the newest holder when the walk starts
+before a carry: the current holder, the holder order, and the role, if a
+change from above was accepted on that carry. Discipline
 rotations come out as successive holders of one seat with no extra rule. The
 cost is that a worker seat's name sits on the parent's side, so a reader
 starting from a worker session takes one extra read.
@@ -334,7 +341,8 @@ researcher, for every session shirabe opens. Nothing separates research from
 build work mechanically: `/comp` and `/design` open pull requests, and
 `/explore` or `/decision` may commit a report. "Researcher" is also already
 shirabe's word for a local subagent, such as `/design`'s security researcher,
-which the coordinate Glossary says is not a worker.
+the same kind of in-session subagent the coordinate Glossary's Local agent
+entry says is not a worker.
 
 Key assumptions:
 
@@ -408,8 +416,8 @@ its own. The stable address and the seat are one idea: the coordinator seat's
 name is the address, and its current holder's Run `coordinator` row is where
 a message goes.
 
-Cross-validation found three places where the decisions' first drafts
-differed, all resolved toward the reading that writes nothing: a session
+Three points where the decisions meet are settled toward the reading that
+writes nothing: a session
 nobody dispatched is still a worker (the `dispatched-by` link decides only
 its parent); a nested child is recognized by its `chain/parent` key; and the
 reader keeps a rule (coordinate run or not), not a per-skill role table.
@@ -510,7 +518,9 @@ seat_kind=<entry-point skill>
 or, for a session that holds no seat, the single line `seat_name=none` and
 nothing else. Every field carries the `seat_` prefix so that no reader or
 record confuses it with a review panel's `seat` field. Exit 0 when printed;
-1 when a session, log or key it needs can't be read; 64 for usage.
+1 when a session, log or key it needs can't be read, a value fails its
+check, or a walk meets a cycle; 3 when a walk passes the hop cap; 64 for
+usage.
 
 The definitions above are the citable contract; the script's field names are
 the contract a fleet reader builds against.
@@ -525,7 +535,9 @@ back instead: from the session it was given, it follows each `dispatched-by`
 or `continues` link that names a run with the same SLUG (a predecessor, by
 takeover or by carry) until it reaches a holder whose `dispatched-by` link
 names a session with another SLUG, or none. That session's seat is the
-parent; a holder with no such link makes the seat a root. Both walks reuse
+parent; a holder with no such link leaves the coordinator seat parentless
+(`seat_parent=none`), still named `coordinate-<SLUG>` and still taking its
+role from the Run row. Both walks reuse
 the resolver's hop cap and cycle check (`DC_HOP_CAP`, exit 3 past it, exit 1
 on a cycle), so no chain of sessions can hang the reader.
 
@@ -539,7 +551,8 @@ Holdings row that matches) the session holds a root seat named after itself,
 with `seat_parent=none`: the safe default when the parent can't be confirmed.
 
 Direct reports need no scan of the store: a coordinator seat's children are
-its Holdings rows. A holder history is the walk from any member.
+its Holdings rows. A holder history is the walk from any member, complete
+across takeovers and, once shirabe#1740 lands, across carries.
 
 ## Implementation Approach
 
@@ -581,8 +594,13 @@ design files none.
   and entry point from what koto already holds; joins the role reader
   allow-list; no grant path calls it.
 - **shirabe: a carry writes a `continues` link** -- already filed as
-  tsukumogami/shirabe#1740. Seat identity holds without it; an ordered holder
-  history on the carry path needs it.
+  tsukumogami/shirabe#1740. Seat names and identity hold without it; the
+  current holder, the holder order and a role changed on a carry, read from
+  a member before the carry, need it.
+- **shirabe (with the stable-address work): find a seat's member from its
+  name.** `coordinate-<SLUG>` is not a session name, and both the resolver
+  and the reader start from one, so the address needs a lookup from the seat
+  name to a member before the walk can run.
 - **koto (only if matching a worker to its holding proves unreliable): let
   `koto session link --dispatched-by` record a label beside the link**, so a
   worker's dispatch topic is readable from its own session in the same call
@@ -683,7 +701,8 @@ use synthetic names.
   reader script or re-implements its rules.
 - Naming a worker seat from the worker's own session takes a read of the
   parent's Holdings and a branch match.
-- An ordered holder history across a carry depends on shirabe#1740.
+- Read from a member before a carry, the current holder, the holder order
+  and a role changed on that carry are wrong until shirabe#1740 lands.
 - A fleet view that wants research counted separately must decide which entry
   points it calls research.
 - The fleet-status plan's proposed four roles and per-session seat record
@@ -695,6 +714,9 @@ use synthetic names.
   has one contract to follow rather than the rules themselves.
 - If the branch match proves unreliable, the koto follow-on lets the existing
   link call carry the topic without adding a call.
-- shirabe#1740 is filed; seat identity and role don't wait on it.
+- shirabe#1740 is filed, and seat names and identity don't wait on it. Until
+  it lands, a reader that starts from the newest member it knows (a
+  report's own record, or the brief's dispatcher once re-resolved) gets the
+  right holder and role.
 - The entry point is printed as its own field, so research can be grouped
   without a role for it.
