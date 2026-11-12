@@ -58,8 +58,8 @@
 #       schema unit-removal/1, the id in the reap-key shape) whose
 #       instance_path is the given path; the latest removed_at when several
 #       are. 1 when R or such a record is missing.
-#   ac_lock <lock dir> <max age secs> <wait secs>, ac_unlock <lock dir>
-#       A lock that is a directory made with mkdir and holding `owner`
+#   ac_lock <lock> <max age secs> <wait secs>, ac_unlock <lock>
+#       A lock that is a symbolic link whose target is its owner
 #       (`<pid> <epoch secs>`): waited for while a live holder younger than
 #       <max age> keeps it, taken over from a holder that is gone or older;
 #       released only by the process that holds it. The capture's list and
