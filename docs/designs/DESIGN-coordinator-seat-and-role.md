@@ -22,7 +22,8 @@ decision: |
   row itself, read through one new reader script; research is a kind of
   unit, read from the entry-point skill, not a role. The coordinator seat's
   name is the stable address, resolved to the newest holder by the walk
-  resolve-coordinator.sh already does.
+  resolve-coordinator.sh already does across takeovers, and across a carry
+  once shirabe#1740 lands.
 rationale: |
   Every fact the definition needs is already written once: the role in the
   Run row, the scope in record/meta, the lineage in supersede events, the
@@ -191,7 +192,8 @@ creator already gave the position, read from where koto holds it:
 - **Worker seat:** `<parent seat>/<dispatch topic>`, where the dispatch topic
   is the Worker value in the parent's Holdings row. A worker usually has one
   holder; a re-dispatch of the same holding is a new holder of the same seat.
-- **Root seat:** a shirabe session nobody dispatched holds a seat named by its
+- **Root seat:** a shirabe session other than a coordinate run that nobody
+  dispatched holds a seat named by its
   own `<skill>-<topic>` session name, which is already stable because
   reopening the same topic attaches to or replaces the same session. A root
   seat has no parent.
@@ -200,7 +202,8 @@ The parent seat is the seat of the session the first holder's
 `dispatched-by` link names, unless that link names a predecessor (a run
 sharing the SLUG, or one its `continues` link names), which makes it a
 continuation. The current holder is the newest member, found by today's
-forward walk, with today's scope check serving as the seat's fence.
+forward walk, with today's scope check serving as the seat's fence (across
+a carry, once shirabe#1740 lands).
 
 The coordinator seat's name is the stable address. `coordinate-<SLUG>`
 resolves to the newest holder's Run `coordinator` row, which is what
@@ -265,7 +268,8 @@ Key assumptions:
   becomes necessary and the call count has to give.
 - A top session a person runs without any shirabe skill isn't a
   shirabe-opened session and holds no seat. (A shirabe skill a person starts
-  directly does hold one, a root seat.)
+  directly does hold one: a root seat, or a coordinator seat if it is
+  `/coordinate`.)
 
 #### Chosen: The Run row stays the one store, every other role is derived, and one reader reads both
 
@@ -404,7 +408,7 @@ written:
 
 | Seat | Name | Role | Parent | Current holder | Unit |
 |------|------|------|--------|----------------|------|
-| Coordinator | `coordinate-<SLUG>` | Run `role` row (`manager`, `director`, or `no-role` in the handover gap) | seat of the first dispatcher with another SLUG, walking back past predecessors | newest member, by the supersede walk and scope fence | the scope in `record/meta` |
+| Coordinator | `coordinate-<SLUG>` | Run `role` row (`manager`, `director`, or `no-role` in the handover gap) | seat of the first dispatcher with another SLUG, walking back past predecessors | newest member, by the supersede walk and scope fence (across a carry, once shirabe#1740 lands) | the scope in `record/meta` |
 | Worker | `<parent seat>/<dispatch topic>` | `worker` | the seat whose Holdings row names it | the newest session matched to that row | the Holdings row: topic, repository, branch, pull request |
 | Root | `<skill>-<topic>` | `worker` | none | the session itself | its topic |
 
@@ -428,8 +432,9 @@ The named-roles plan, whose role milestone shipped, cites this design's
 **Role** definition: the role it shipped is the coordinator seat's role,
 stored only in the Run row, with the values `manager` and `director`
 unchanged. Its planned stable address cites **Seat names**: the address is
-`coordinate-<SLUG>`, resolved to the newest holder by the existing walk,
-with no alias, and an authority binding, if one is needed, stays on the
+`coordinate-<SLUG>`, resolved, through the name-to-member lookup the
+stable-address work adds, to the newest holder by the existing walk (across
+a carry only once shirabe#1740 lands), with no alias, and an authority binding, if one is needed, stays on the
 holder's dispatch id.
 
 The fleet-status plan, whose seat milestone is held on this definition,
@@ -690,8 +695,10 @@ use synthetic names.
 - What shipped keeps working unchanged. The named-roles flag, row, carry,
   brief line, refusal and change-from-above path need no edit.
 - The agent pays nothing: no new key, no new koto call, no new text.
-- The stable address gets its name and its resolver from work that already
-  exists, and doesn't have to choose between the newest member and an alias.
+- The stable address gets its name, and its resolver across takeovers, from
+  work that already exists, and doesn't have to choose between the newest
+  member and an alias. It still needs the name-to-member lookup and, across
+  a carry, shirabe#1740.
 - The fleet view can tell a continuation from a child, a nested child from a
   worker, and a seat from a review panel's seat, by facts koto holds.
 
