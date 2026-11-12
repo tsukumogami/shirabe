@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   When a worker hands its unit to a continuation, nothing records the
   succession, so the continuation rebinds the predecessor's koto session or
@@ -26,7 +26,7 @@ rationale: |
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
