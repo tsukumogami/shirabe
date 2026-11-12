@@ -131,10 +131,10 @@ its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs). A merged row whose worker was torn down outside
-the pass also goes with `--retire`, at destroy, once the removed pass is
-done, including one closed with no handoff comment, where the pass's entry
-stands in for the link. A `dispatch-failed` row, a launch that never
+dispatch-worker.sh runs). A merged row also goes with `--retire`, at
+destroy, once its teardown pass is done: one the pass tore down itself, or
+one torn down outside the pass (a removed pass), including one closed with no
+handoff comment, where the pass's entry stands in for the link. A `dispatch-failed` row, a launch that never
 started, goes through `--retire` too once no worker exists for its topic
 (niwa lists no session and no unfinished Claude job carries it); its removal
 is told as an `entry` entry.
@@ -825,7 +825,9 @@ Each worker leg is a key of the coordinator's session,
 `legs/<request>/<leg>`: the worker's topic, the leg's templates and pinned
 inputs, the bound session's name once one attaches, and its result once read.
 `dispatch-worker.sh` writes it at dispatch (`open`) and when a new leg
-replaces it (`replaced`) or a launch fails (`spent`); `wait-target.sh` adds
+replaces it (`replaced`) or a launch fails (`spent`), and marks it `spent`
+when the run stops before the holding naming it is written, abandoning its
+request; `wait-target.sh` adds
 the child and the end (`taken` with the result, or `spent`). After an import,
 a leg whose request this host's store doesn't hold gets its end from
 `reconcile-legs.sh`: re-legged by `dispatch-worker.sh --releg-imported`, which

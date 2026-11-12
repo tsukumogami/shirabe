@@ -733,6 +733,10 @@ if ! command -v koto >/dev/null 2>&1; then
 fi
 
 k() { (cd "$FIXREPO" && koto "$@"); }
+# k_agent: k as the agent, under a stand-in session id. From koto 0.37.0 a
+# `koto next --to` past an unmet gate needs a decider, and the guard clears the
+# caller's id (shirabe#1733).
+k_agent() { (cd "$FIXREPO" && env CLAUDE_CODE_SESSION_ID=execute-test-agent koto "$@"); }
 
 # record_write_set <session> — write the `repos` record write_set_record's
 # script would have made, so repos_recorded is satisfied by its real input. The
@@ -962,7 +966,7 @@ fi
 record_write_set execute-paused
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
-    k next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+    k_agent next execute-paused --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
 done
 if [ "$(k status execute-paused | jq -r .current_state)" = paused_for_review ]; then
     k context add execute-paused review_round.json < "$WORK/round.json" >/dev/null 2>&1
@@ -1029,7 +1033,7 @@ PEER
         record_write_set "execute-$1"
         for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
                  spawn_and_await pr_finalization paused_for_review; do
-            k next "execute-$1" --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+            k_agent next "execute-$1" --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
         done
         [ "$(k status "execute-$1" | jq -r .current_state)" = paused_for_review ]
     }
@@ -1197,7 +1201,7 @@ run_open '["docs/plans/PLAN-swap.md"]' CLAUDE_PLUGIN_ROOT="$WALK_ROOT"
 record_write_set execute-swap
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
-    k next execute-swap --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
+    k_agent next execute-swap --to "$t" --rationale probe --no-cleanup >/dev/null 2>&1
 done
 coord_plan swap
 if [ "$(k status execute-swap | jq -r .current_state)" = paused_for_review ]; then

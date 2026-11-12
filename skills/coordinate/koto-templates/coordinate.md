@@ -4060,10 +4060,10 @@ Hand the teardown to your teardown agent. Read the verdict with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-handoff.sh" read
 --session "{{SESSION_NAME}}"` and send its whole output, the `keyseal` line
 included, to the agent as one pass. When the agent reports `done`, remove the
-worker's holding from the record, then submit `destroyed: destroyed`. For a
-verdict that says `removed yes`, remove it with
+worker's holding from the record with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-holding.sh" --session
-"{{SESSION_NAME}}" --topic <topic> --retire`. Submit
+"{{SESSION_NAME}}" --topic <topic> --retire`, whether or not the verdict says
+`removed yes`, then submit `destroyed: destroyed`. Submit
 `refused` when the reader or the pass refused (nothing was removed),
 `incomplete` when the pass stopped after its destroy began, and `handed_over`
 when the posture reserves the teardown for a person.
@@ -4090,10 +4090,10 @@ unit, archives the surviving transcript and koto sessions, records the cost
 entry, and runs no `niwa destroy` and no `claude rm`. With `job -` there is
 nothing to archive and its last line still says done. A verdict that says
 `handoff none` has no comment to check; the pass appends a record entry in
-its place before it says done, and refuses if it can't. Either way, on
-`done` remove the holding row with `state-holding.sh --retire` (it confirms
-the removed verdict through `teardown-pass.sh check` first) and submit
-`destroyed`.
+its place before it says done, and refuses if it can't. For any pass, removed
+or not, on `done` remove the holding row with `state-holding.sh --retire` (it
+confirms the done pass for the topic through `teardown-pass.sh check` first)
+and submit `destroyed`.
 
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or

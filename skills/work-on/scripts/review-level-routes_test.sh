@@ -463,8 +463,11 @@ fits() {
     printf '%s' "$NEXT_RESPONSE" | jq -r --arg f "$1" \
         '[.blocking_conditions[]? | select(.name == "level_fits_facts")][0] // {} | getpath($f | split(".")) // "" | tostring'
 }
+# The agent answers under a stand-in session id: from koto 0.37.0 a pass needs
+# a decider, and the guard clears the caller's id (shirabe#1733).
 answer() {
-    koto decider answer "$1" --gate level_fits_facts --criterion level_fits_facts --answer "$2" \
+    env CLAUDE_CODE_SESSION_ID=routes-test-agent \
+        koto decider answer "$1" --gate level_fits_facts --criterion level_fits_facts --answer "$2" \
         >/dev/null 2>"$WORKDIR/answer.err" \
         || fail "$1: koto decider answer $2 failed: $(cat "$WORKDIR/answer.err")"
 }
