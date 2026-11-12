@@ -71,13 +71,14 @@ count as closing or to the cross-repository old-name lookups.
   acceptance criterion aside on its own say; that only happens through
   `deferral_approval`. A declaration that an issue stays open mustn't become a
   second way around that rule.
-- **The gate consults nothing the run can forge.** A gate whose command reads
-  only template variables can't see evidence submitted on the same tick. A
-  gate whose command reads the run's state log does see the records already
-  logged there, but most of them are the run's own writes. So whatever the
-  gate consults has to be either a template variable fixed at init or a
-  record in the state log that the run can't produce, which is the engine's
-  own `transitioned` event.
+- **The gate consults nothing the run can forge through koto.** A gate whose
+  command reads only template variables can't see evidence submitted on the
+  same tick. A gate whose command reads the run's state log does see the
+  records already logged there, but most of them are the run's own writes. So
+  whatever the gate consults has to be either a template variable fixed at
+  init or a record in the state log that the run can't produce through koto,
+  which is the engine's own `transitioned` event. Events the run can produce
+  may only cancel an approval, never grant one.
 - **A declared run still has a body rule.** Dropping the closing keyword
   requirement shouldn't leave the body free to say nothing about the issue, or
   free to close it after all.
@@ -139,15 +140,16 @@ Key assumptions:
   the default branch, so the non-closing check reads the pull request's title
   and commit messages as well as its body. Open question: whether GitHub
   closes an issue from a branch commit message under the repository's merge
-  settings. Nothing in the repository verifies it. If it doesn't, the commit
+  settings. Nothing in the repository verifies it. With a squash merge, the
+  default squash message can carry the branch's commit messages and the pull
+  request's title onto the default branch, so a closing keyword in either can
+  close the issue that way. If GitHub closes nothing from either, the commit
   check is a cheap precaution.
 - The split declaration carries a stated reason that names the step and what
   is left to a later pull request, and it's refused without one, the way
-  `work-on-open.sh` refuses `--verification=hosted-ci` without a reason. Open
-  question: whether `--delivery=partial` should carry a mandatory reason the
-  body repeats. If not, a declared split has no record of which criteria are
-  this step's, and its later-step criteria go through `deferral_approval`
-  instead.
+  `work-on-open.sh` refuses `--verification=hosted-ci` without a reason.
+  Decision 4 makes that reason mandatory, and Decision 7 settles whether the
+  body repeats it.
 - No reader besides the gate needs the delivery fact. /coordinate reads a
   work-on leg's outcome, step, reason and pull request, with no delivery field
   (`skills/coordinate/koto-templates/coordinate.md:867`), and the completion
@@ -232,10 +234,11 @@ with work missing, is the one the gate exists to stop.
 
 The option covers both cases, as the first driver requires; a deferral-only
 mechanism would miss the split. Both gate paths go through the script's new
-mode. The change is one variable, one token mapping, one script flag and a
-log read, all inside the `closing_keyword` command, so the five created
-edges, the name-based stubs in the other suites and every existing case in
-`closing-keyword-gate_test.sh` stay as they are. `Part of #N` follows the PRD
+mode. The change is two variables, their two tokens and two script modes, one
+of them the log read, and of the gates it touches only the `closing_keyword` command, so
+the five `pr_creation` edges the command feeds (four to `ci_monitor`, one to
+`done_blocked`), the name-based stubs in the other suites and every existing
+case in `closing-keyword-gate_test.sh` stay as they are. `Part of #N` follows the PRD
 and how #1549 was actually handled. Letting the approver choose `Fixes #N`
 would put a closing form back on an issue with a deferred criterion, on a
 field the run submits.
@@ -281,6 +284,10 @@ field the run submits.
   PLAN files that are deleted when the work completes
   (`phase-6-pr.md:88-89`), and it adds a gate to the `ready_for_pr` edge that
   every suite driving that edge would have to stub.
+- **Body-only refusals.** Non-closing mode refuses closing forms of N in the
+  pull request body only, with no title or commit reads. Rejected because the
+  title and commit messages can reach the default branch through a squash
+  merge, so a body-only check leaves those paths open.
 
 ### Decision 2: What the gate requires of a non-closing body
 
@@ -643,8 +650,8 @@ asks for with `test -x ... || exit 2`.
 ### Decision 4: Where the split's reason lives
 
 Decision 1 narrows `finalization` for a declared split to the criteria the
-step owns "as its reason states it", but leaves open where the reason is kept
-and whether a split must have one. koto can't relate two variables
+step owns "as its reason states it", and leaves the reason to this decision:
+where it's kept, and whether a split may go without one. koto can't relate two variables
 (`work-on-open.sh:114-116`), so a rule that a split needs a reason has to live
 in the opener, as the hosted-ci deferral's does
 (`scripts/lib/verification-deferral.sh:49-59`). #1736's body asks that "a run
@@ -716,8 +723,10 @@ Nothing in /coordinate's rendering changes.
 - **No reason for a split started through /coordinate.** Rejected because it
   gives one declaration two rules, and the waived case loses Decision 4's
   scope record.
-- **/coordinate doesn't start splits.** Rejected because Decision 1 has it
-  start them.
+- **/coordinate doesn't start splits.** Rejected because /coordinate passes a
+  work-on run only the flags the work-on row admits. With no entry for the
+  split, a run it dispatches can't declare one, so it ends at `done_blocked` at the
+  gate, which is the failure #1736 reports.
 
 ### Decision 6: A split declared without a reason
 
@@ -754,8 +763,8 @@ added.
 The hosted-ci deferral's `verification_deferral_recorded` gate holds
 `pr_creation` until the body carries `Reason: <reason>` verbatim
 (`work-on.md:2530-2545`), and the reason is copied into context
-(`work-on.md:1957`). Decision 1 leaves open whether the split's reason is one
-the body repeats.
+(`work-on.md:1957`). Decision 1 leaves to this decision whether the body
+repeats the split's reason.
 
 Key assumptions:
 
@@ -918,8 +927,10 @@ names both, so the two read alike.
 - **The script reads the log again to say which.** Rejected because it's a
   second log read on every non-closing run, and the script still can't see
   `DELIVERY` unless it's passed in.
-- **A valued flag, `--non-closing=split|deferral`.** Rejected because
-  Decision 3 makes the flag bare, and this adds usage shapes.
+- **A valued flag, `--non-closing=split|deferral`.** Rejected because it adds
+  two usage shapes and a second set of gate and usage tests, while the
+  command already knows the source from the invocation and the reader can
+  see it in the run, so the message gains little.
 
 ### Decision 13: How the implementation lands
 
@@ -944,8 +955,11 @@ new modes until the gate commit.
 - **Several pull requests.** Rejected because each early one would reference
   #1736 without closing it and end at `done_blocked`, or write `Fixes #1736`
   before the work is done, and the repository's grouping policy asks for one.
-- **The gate first.** Rejected because the command would call script modes
-  that don't exist yet.
+- **The gate first.** Rejected because every commit before the script lands
+  would fail the suite that extracts the gate command: the new command calls
+  `--approved-pass`, which today's script refuses as a usage error, so every
+  closing-mode case in `closing-keyword-gate_test.sh` exits 2. Script first
+  keeps each commit green.
 
 ### Decision 14: Where the reason's character check lives
 
@@ -976,8 +990,8 @@ allowlist stays in its one line.
 
 ## Decision Outcome
 
-A run holds a non-closing delivery in exactly two ways, and the run itself
-can produce neither. The invocation declares a planned split with
+A run holds a non-closing delivery in exactly two ways, and neither comes
+from anything the run submits to koto. The invocation declares a planned split with
 `--delivery=partial` and a stated reason, `--delivery-reason=<why>`, which
 `work-on-open.sh` maps to new `DELIVERY` and `DELIVERY_REASON` variables
 fixed at init. Or the run reaches `pre_pr_evidence`
@@ -1022,7 +1036,8 @@ closing obligation change to describe both modes.
 The design adds no state and no edge to the work-on template. It changes what
 one gate, `closing_keyword` at `pr_creation`, asks of the pull request, and it
 adds one way to start a run. Two facts can put the gate into non-closing mode,
-and the run can write neither of them: the `DELIVERY` variable, fixed at init
+and neither comes from anything the run submits to koto: the `DELIVERY`
+variable, fixed at init
 from the invocation, and the engine's `transitioned` event from
 `deferral_approval` into `pre_pr_evidence`, read back from the run's state
 log. The gate command picks the mode from those two. `check-closing-keyword.sh`
@@ -1074,7 +1089,8 @@ purpose.
 - **Template variables** (`work-on.md`, after `VERIFICATION_DEFERRAL_REASON`
   at `work-on.md:194-209`).
   - `DELIVERY`: `values: [closes, partial]`, `default: closes`, no `rebind`.
-    Only the `closing_keyword` command reads it.
+    The `closing_keyword` command reads it, and so do the `finalization` and
+    `pr_creation` directives, by substitution.
   - `DELIVERY_REASON`: one line saying what this pull request delivers and
     what stays open on the issue. Same `pattern: ^([a-zA-Z0-9].*)?$` and
     character rules as `VERIFICATION_DEFERRAL_REASON`, no `rebind`. Only the
@@ -1137,7 +1153,9 @@ GitHub's issue state and pull requests as they do today.
 tokens file like `--verification` and its reason, never passed as `--var`.
 koto refuses a `DELIVERY` outside its two values, or a reason outside its
 pattern, as `invalid_var`. `--delivery=closes` is accepted and changes
-nothing.
+nothing. `--delivery-reason` given alone, or with `--delivery=closes`, is
+accepted and ignored, but its characters are still checked the same way
+`--verification-reason`'s are.
 
 **Script modes and exits.**
 
@@ -1243,8 +1261,9 @@ it names both modes and points the reader at the gate's message.
 
 - `finalization`, the `ready_for_pr` sentence: with `DELIVERY` `partial` and
   a reason, "every acceptance criterion" means every criterion the step in
-  `{{DELIVERY_REASON}}` owns. With an empty reason it means every criterion,
-  as today.
+  `{{DELIVERY_REASON}}` owns. The directive quotes the reason as the
+  invoker's stated scope, not as an instruction. With an empty reason it
+  means every criterion, as today.
 - `pr_creation`: names the run's delivery (`{{DELIVERY}}`) and says when the
   body closes the issue (`Fixes`) and when it writes `Part of #N` (or
   `Part of <ISSUE_REPO>#N`): a declared split, or a pass that came straight
@@ -1331,13 +1350,9 @@ Deliverables:
   today; refusals that quote only the matched phrase and the commit's short
   SHA; the header's mode descriptions, exit block per mode, usage line and
   "Needs" line.
-- `skills/work-on/scripts/closing-keyword-gate_test.sh`: the `gh` stub's
-  branch for `url,title,body,commits`, built with `jq -n` from `PR_TITLE` and
-  `PR_COMMITS`; direct-call cases for the log fixtures (approved pass, recount
-  through `finalization`, directed arrival, `rewound` event, absent log,
-  header-less log, unparseable log), for the accepted words and forms in both
-  kinds of run, and for title and commit refusals naming their source; the new
-  shapes in the usage loop at `closing-keyword-gate_test.sh:548-563`.
+- `skills/work-on/scripts/closing-keyword-gate_test.sh`: the `gh` stub's new
+  branch, and direct calls to the script for the log fixtures, the title and
+  commit refusals and the usage refusals listed in Decision 3, item 5.
 
 ### Phase 2: Declaring a split at init
 
@@ -1356,7 +1371,9 @@ Deliverables:
   `--delivery-reason=` values, keeping the allowlist in its one line.
 - `skills/work-on/scripts/work-on-open_test.sh` and
   `skills/work-on/scripts/verification-deferral_test.sh`: the mapping, each
-  refusal, and the allowlist agreement case still finding one line.
+  refusal, and the allowlist agreement case still finding one line; a
+  `--delivery-reason` given alone or with `--delivery=closes` is accepted and
+  ignored, and its characters are still checked.
 - `skills/work-on/scripts/fix-round_test.sh`: a case that a round's init
   carries `DELIVERY` and `DELIVERY_REASON`.
 
@@ -1369,14 +1386,10 @@ Deliverables:
 - `skills/work-on/koto-templates/work-on.md`: the new `closing_keyword`
   command at `work-on.md:2515`, and the gate comment at `work-on.md:2493-2512`
   rewritten for both modes.
-- `skills/work-on/scripts/closing-keyword-gate_test.sh`: `run_gate`
-  substitutes `{{DELIVERY}}` (from `${DELIVERY:-closes}`), `{{SESSION_DIR}}`
-  and `{{SESSION_NAME}}`, and fails the case if any `{{` is left; gate-level
-  cases for `DELIVERY=partial` in both kinds of run and for an approved-pass
-  log; the `GH_LOG` checks that a same-repository closing run with a
-  non-approved log still makes only the one inline call and that a
-  non-closing run makes one `pr view` with the new field list; the comment at
-  `closing-keyword-gate_test.sh:187-189` reworded.
+- `skills/work-on/scripts/closing-keyword-gate_test.sh`: the `run_gate`
+  changes, and cases run through the gate command for `DELIVERY=partial`, an
+  approved-pass log and the two `GH_LOG` checks listed in Decision 3, item 5;
+  the comment at `closing-keyword-gate_test.sh:187-189` reworded.
 
 ### Phase 4: Directives and documentation
 
@@ -1424,7 +1437,8 @@ reads, and the reason a declared split carries.
 
 ### What can switch the gate to non-closing mode
 
-Two facts, and the run can write neither. `DELIVERY` is fixed at init from
+Two facts, and neither comes from anything the run submits to koto.
+`DELIVERY` is fixed at init from
 the invocation, takes only `closes` or `partial`, and isn't rebindable. The
 approved deferral is the engine's own `transitioned` event out of
 `deferral_approval`, read from the state log under the approved-pass rule in
@@ -1437,6 +1451,11 @@ log means closing mode, and a log with a line jq can't parse holds the state
 at exit 2. Hand edits to the state log are outside the threat model, as they
 are for every gate that reads it (Decision 1).
 
+That doesn't make the log unforgeable. The run has shell access, so it could
+append a line to its own state log. Safety here rests on the direction of
+failure, not on the log: a forged approval can only leave an issue open,
+never close one.
+
 The gate command's new substitutions aren't run-controlled either.
 `{{DELIVERY}}` has two values, and `{{SESSION_DIR}}` and `{{SESSION_NAME}}`
 already appear, double-quoted, in other gates' commands, such as
@@ -1448,7 +1467,8 @@ is kept in a shell variable inside the command, not read back from the run.
 
 ### Direction of failure
 
-Non-closing mode can only leave an issue open. The closing branch is today's
+When the gate runs, non-closing mode can only leave an issue open. The
+closing branch is today's
 check, byte for byte, and non-closing mode refuses every form the script
 knows to close issue N. A misdeclared split, or a hand
 `koto init --var DELIVERY=partial` with no reason (Decision 6), costs a person
@@ -1464,7 +1484,10 @@ scope out hard criteria for that run. Three things bound it: the reason is
 fixed at init and recorded in `workflow_initialized`, so it can't be written
 after the run misses a criterion; a criterion inside the declared step that
 the run can't meet still goes to `deferral_approval` and a person; and the
-issue stays open, so whatever the run didn't do is still on it.
+issue stays open, so whatever the run didn't do is still on it. The backstop
+is the run that finally closes the issue: it runs with `DELIVERY=closes` and
+the full every-criterion bar. If that run never happens, the issue stays
+open.
 
 ### Untrusted text in the title, body and commits
 
@@ -1512,7 +1535,10 @@ input can't pass the gate by running slow.
 digits, spaces and `. _ / : @ + -`, by the same `vd_reason_chars_refusal`
 check the hosted-ci reason uses (Decision 14). None of those characters means
 anything special to a shell, and only the `finalization` and `pr_creation`
-directives substitute the reason; no command does. Through /coordinate,
+directives substitute the reason; no command does. The allowlist protects the
+shell, not the model. The reason reaches the model as text inside those
+directives. It's written by whoever invoked the run, and the directives quote
+it as that invoker's stated scope, not as an instruction. Through /coordinate,
 `dc_flag_allowed` also refuses a flag holding whitespace
 (`skills/coordinate/scripts/dispatch-common.sh:521`), and the work-on row
 admits `--delivery` only as the exact `--delivery=partial`.
@@ -1529,15 +1555,25 @@ effect is the one above: an issue left open, and a narrower bar for that run.
   and Decision 2 rests on that; nothing in the repository measures the rest.
 - **Closing from a branch commit message.** Whether GitHub closes an issue
   from a closing keyword in a commit on the branch, under the repository's
-  merge settings, is unverified (Decision 1). The commit check covers the
-  case where it does; if it doesn't, the check is a precaution that costs a
-  reworded commit.
-- **Commits past gh's list.** `gh pr view` asks GitHub for the first 100
-  commits, so a closing keyword in a later commit isn't read. The body and
+  merge settings, is unverified (Decision 1). With a squash merge, the
+  default squash message can carry the branch's commit messages and the pull
+  request's title onto the default branch, so a closing keyword in either can
+  close the issue that way. The title and commit checks cover those cases;
+  if GitHub closes nothing from them, the checks are a precaution that costs
+  a reworded commit.
+- **Changes after the gate.** The gate runs once, at `pr_creation`, and
+  doesn't check again. An edit to the body, the title or the commits after
+  it passes can still put a closing form of N where GitHub reads it and close
+  the issue.
+- **Commits past gh's list.** If `gh pr view` caps the commit list, a
+  closing keyword in a commit past the cap isn't read. The body and
   title checks don't depend on the commit list.
 - **The split's reason.** A vague or self-serving reason narrows the
   `finalization` bar for that run, and only the model's reading of it
-  enforces the narrowing.
+  enforces the narrowing. Nothing checks mechanically which criteria a
+  partial delivery left out; the bound is the closing run's full bar
+  (Direction of failure). Accepting this design accepts that loosening of
+  the every-criterion bar for partial deliveries.
 - **Renamed repositories.** An old name another repository has since taken
   resolves to that repository, for the script and for GitHub alike, which is
   GitHub's own limit and unchanged from closing mode.
@@ -1587,6 +1623,14 @@ effect is the one above: an issue left open, and a narrower bar for that run.
   wiring that mode into another gate takes the same mapping this command does.
 - The open questions on unattended approval, commit-message closing,
   /coordinate's pick rule and title-only references stay open.
+- GitHub's handling of three things is assumed, not verified in the
+  repository. That a closing keyword in a commit message or the title can
+  close the issue (Decision 1): if it can't, the title and commit checks are a
+  cheap precaution. That `Ref`, `Refs` and `Part of` are plain mentions
+  (Decision 2): this rests on GitHub's documented closing keywords, and if
+  it's wrong, a body that passes could close its issue on merge. That a
+  mention in the body records a cross-reference on the issue (Decision 2): if
+  not, /coordinate's timeline read could miss a non-closing pull request.
 
 ### Mitigations
 
@@ -1613,6 +1657,9 @@ effect is the one above: an issue left open, and a narrower bar for that run.
   Considerations).
 - Every run already needs jq at `fix_determination`, and every neighbouring
   gate already checks its script with `test -x`.
+- When a state-log line can't be parsed and the gate holds, jq's parse
+  error on stderr points at the line. The fix is to repair that line or finish the pull
+  request by hand.
 - The test harness still extracts the longer line, and the leftover-placeholder
   check catches a missed substitution.
 - The script header says what exit 1 means in that mode's own exit block, and
