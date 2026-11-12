@@ -36,6 +36,7 @@ rationale: |
   criterion reports it done, which the work-on PRD forbids. Misusing either
   source leaves an issue open, which a person sees and closes in one step,
   rather than closing one with work missing.
+upstream: docs/prds/PRD-work-on-definition-of-done.md
 ---
 
 # DESIGN: work-on partial delivery
