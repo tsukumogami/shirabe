@@ -1,18 +1,32 @@
 ---
 schema: design/v1
-status: Draft
+status: Proposed
 problem: |
   When a worker hands its unit to a continuation, nothing records the
   succession, so the continuation rebinds the predecessor's koto session or
   works in the predecessor's checkout, and the predecessor's instance can't be
   torn down until the unit lands.
+decision: |
+  A worker that runs out of room runs one handover script and stops. Its
+  continuation works in a fresh checkout of the pushed branch, in its own
+  instance, and opens a koto session that supersedes the predecessor,
+  carries resume state keyed to commits and, for work-on, execute and
+  scope, starts at the predecessor's state. For a coordinated unit,
+  coordinate launches the continuation and replaces the request leg.
+rationale: |
+  Only a successor session gives each assistant session its own history and
+  a followable chain, keeps rebind a repair verb, and shares coordinator
+  takeover's model. Replacing the leg from the requester needs no new koto
+  transfer, a start at the predecessor's state covers every stopping point
+  with one rule, and coordinate launches because only its driver session may
+  write the record and a successor's fence doesn't wake it.
 ---
 
 # DESIGN: Worker continuation succession
 
 ## Status
 
-Draft
+Proposed
 
 ## Context and Problem Statement
 
@@ -195,7 +209,9 @@ one request, a handover never reads as an abandonment, and no requester
 learns replacement. It was rejected for now because shirabe gets the move with
 existing verbs, while the transfer is new koto behaviour across two
 separately locked stores, with no cross-host gain while the request store is
-host-local. It comes back if requester-side replacement proves too costly;
+host-local. The abandonment it avoids is answered inside shirabe: the
+rationale names the successor and the old leg key reads `handed-over`. It
+comes back if requester-side replacement proves too costly;
 deliver's re-leg is the first test.
 
 **Keep working in the predecessor's checkout.** No move and no code, and
@@ -284,8 +300,9 @@ as "implementation complete", so its log would record another session's work
 as its own. A replay also re-runs every action and check, and at
 `spawn_and_await` materializes a second batch.
 
-**Handovers only at handover-safe states.** A handful of testable positions
-instead of every state. It was rejected as a rule because a stopped worker
+**Handovers only at handover-safe states.** The successor would only ever
+have to handle a handful of positions, each of which can be tested, instead
+of every state. It was rejected as a rule because a stopped worker
 can't drive on to a safe state, and the unsafe ones (implementation,
 mid-review) are where workers most often run out. It stays as guidance: push
 and hand over at the next boundary when that's cheap.
