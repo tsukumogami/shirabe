@@ -1326,7 +1326,10 @@ Deliverables:
   read; the `--non-closing` read of `url,title,body,commits`, its refusal
   side over the body, the title and each commit, the reference requirement
   in the body, the collected findings and the old-name lookups over every
-  source; the header's mode descriptions, exit block per mode, usage line and
+  source, with names from the title and commits cut out by `NAME_RE`, `.` and
+  `..` dropped and each name matched as a fixed string, as the body's are
+  today; refusals that quote only the matched phrase and the commit's short
+  SHA; the header's mode descriptions, exit block per mode, usage line and
   "Needs" line.
 - `skills/work-on/scripts/closing-keyword-gate_test.sh`: the `gh` stub's
   branch for `url,title,body,commits`, built with `jq -n` from `PR_TITLE` and
@@ -1410,7 +1413,134 @@ Deliverables:
 
 ## Security Considerations
 
-Not written yet.
+The change lets a run open a pull request that references its issue without
+closing it. It downloads and runs nothing new, adds no dependency, and asks
+for nothing a run doesn't already have: `gh` with the token that reads the
+pull request, `jq`, which every run already needs at `fix_determination`,
+and a read of the run's own state log, as `probe.sh`, `fix-kind.sh` and
+`decision-reasons.sh` already do. Its exposure is in three places: what can
+switch the gate to non-closing mode, the pull request text that mode now
+reads, and the reason a declared split carries.
+
+### What can switch the gate to non-closing mode
+
+Two facts, and the run can write neither. `DELIVERY` is fixed at init from
+the invocation, takes only `closes` or `partial`, and isn't rebindable. The
+approved deferral is the engine's own `transitioned` event out of
+`deferral_approval`, read from the state log under the approved-pass rule in
+Key Interfaces. Evidence, context writes and recorded decisions can't produce
+that event. A directed arrival never counts, a later arrival into
+`finalization` or `deferral_approval` cancels an earlier approval, and a
+`rewound` event into `pr_creation` doesn't change the mode, so a recount or a
+`koto rewind` from `done_blocked` can't keep a stale approval alive. A missing
+log means closing mode, and a log with a line jq can't parse holds the state
+at exit 2. Hand edits to the state log are outside the threat model, as they
+are for every gate that reads it (Decision 1).
+
+The gate command's new substitutions aren't run-controlled either.
+`{{DELIVERY}}` has two values, and `{{SESSION_DIR}}` and `{{SESSION_NAME}}`
+already appear, double-quoted, in other gates' commands, such as
+`red_recorded`'s. `{{ISSUE_NUMBER}}` and `{{ISSUE_REPO}}` are substituted as
+they are today. The template holds `ISSUE_REPO` to an `owner/repo` pattern,
+and the script checks the issue number and the repository again before
+either reaches an expression (`check-closing-keyword.sh:157-164`). The mode
+is kept in a shell variable inside the command, not read back from the run.
+
+### Direction of failure
+
+Non-closing mode can only leave an issue open. The closing branch is today's
+check, byte for byte, and non-closing mode refuses every form the script
+knows to close issue N. A misdeclared split, or a hand
+`koto init --var DELIVERY=partial` with no reason (Decision 6), costs a person
+one manual close. It doesn't make the failure the gate exists to stop, an
+issue closed with work missing, any easier.
+
+What a declared split does loosen is `finalization`'s bar. With a reason,
+"every acceptance criterion" means every criterion the step in
+`DELIVERY_REASON` owns. That reason is free text the invoker writes, and the
+model applies it when it reads the directive. No gate checks that the
+criteria set aside belong to a later step. A careless or dishonest reason can
+scope out hard criteria for that run. Three things bound it: the reason is
+fixed at init and recorded in `workflow_initialized`, so it can't be written
+after the run misses a criterion; a criterion inside the declared step that
+the run can't meet still goes to `deferral_approval` and a person; and the
+issue stays open, so whatever the run didn't do is still on it.
+
+### Untrusted text in the title, body and commits
+
+Non-closing mode reads the pull request's title, body and every commit
+message. Any contributor to the branch writes commit messages, not only the
+run. The script reads all of it with one `gh pr view` and parses the output
+with jq. No part of it reaches `eval`, an unquoted expansion, or a command
+line other than as a quoted argument.
+
+Repository names taken from that text feed the old-name lookups (Decision
+11), and the title and commits are new sources for them. The implementation
+holds them to what the body's names get today, and Phase 1's deliverables
+include it:
+
+- Names are cut out with the script's `NAME_RE`, an owner of letters, digits,
+  `-` and `_` that starts with a letter or digit, then a repository of
+  letters, digits, `_`, `.` and `-` (`check-closing-keyword.sh:223`). A
+  repository part that is `.` or `..` is dropped before any lookup
+  (`check-closing-keyword.sh:277`), so no name can turn `repos/<name>` into
+  another API path.
+- A name is matched as a fixed string. It's compared, lower-cased, with
+  `ISSUE_REPO`, the pull request's repository and the lookup's answer
+  (`check-closing-keyword.sh:317`, `check-closing-keyword.sh:345`), and it
+  reaches `gh api` as the one quoted argument `repos/<name>`
+  (`check-closing-keyword.sh:291`). It's never built into an expression.
+  `ISSUE_REPO` and the pull request's repository go into expressions only
+  after `literal()` escapes their `.` (`check-closing-keyword.sh:192`).
+- The pooled names stay under the one `MAX_LOOKUPS` cap (5) and the one
+  `LOOKUP_SECS` deadline (20 seconds). Over the cap, the script refuses
+  before making any call, and a failed or late lookup exits 3 and holds.
+- A refusal quotes only the closing phrase the pattern matched and its
+  source: `body`, `title`, or `commit` with the first seven characters of
+  its `oid`. It never echoes a whole commit message, so text in a commit,
+  a pasted secret included, isn't copied into the run's output beyond the
+  matched phrase.
+
+The match patterns are fixed in the script, and the pull request text is only
+ever the input they run over. A check that runs past koto's 30-second gate
+timeout is killed, and a killed command doesn't exit 0, so long or crafted
+input can't pass the gate by running slow.
+
+### The new flags
+
+`--delivery-reason` is limited to koto's character allowlist, letters,
+digits, spaces and `. _ / : @ + -`, by the same `vd_reason_chars_refusal`
+check the hosted-ci reason uses (Decision 14). None of those characters means
+anything special to a shell, and only the `finalization` and `pr_creation`
+directives substitute the reason; no command does. Through /coordinate,
+`dc_flag_allowed` also refuses a flag holding whitespace
+(`skills/coordinate/scripts/dispatch-common.sh:521`), and the work-on row
+admits `--delivery` only as the exact `--delivery=partial`.
+Anyone who can dispatch through /coordinate can now declare a split, and the
+effect is the one above: an issue left open, and a narrower bar for that run.
+
+### Residual risk
+
+- **Closing forms the script doesn't know.** The refusal side refuses only
+  forms measured to close (`check-closing-keyword.sh:39-40`). If GitHub
+  closes an issue on a keyword or a reference spelling outside that set, a
+  non-closing pull request could close its issue with a criterion still
+  open. GitHub's documentation lists close, fix and resolve and their forms,
+  and Decision 2 rests on that; nothing in the repository measures the rest.
+- **Closing from a branch commit message.** Whether GitHub closes an issue
+  from a closing keyword in a commit on the branch, under the repository's
+  merge settings, is unverified (Decision 1). The commit check covers the
+  case where it does; if it doesn't, the check is a precaution that costs a
+  reworded commit.
+- **Commits past gh's list.** `gh pr view` asks GitHub for the first 100
+  commits, so a closing keyword in a later commit isn't read. The body and
+  title checks don't depend on the commit list.
+- **The split's reason.** A vague or self-serving reason narrows the
+  `finalization` bar for that run, and only the model's reading of it
+  enforces the narrowing.
+- **Renamed repositories.** An old name another repository has since taken
+  resolves to that repository, for the script and for GitHub alike, which is
+  GitHub's own limit and unchanged from closing mode.
 
 ## Consequences
 
@@ -1477,7 +1607,10 @@ Not written yet.
   is set aside, and the misuse can only leave an issue open.
 - The `pr_creation` directive names the three words and prescribes
   `Part of #N` (Decision 8), and the refusal message gives the exact line to
-  add and lists every finding at once (Decision 10).
+  add and lists every finding at once (Decision 10). It quotes only the
+  matched phrase and a commit's short SHA, and a name looked up from the
+  title or a commit passes the same checks as one from the body (Security
+  Considerations).
 - Every run already needs jq at `fix_determination`, and every neighbouring
   gate already checks its script with `test -x`.
 - The test harness still extracts the longer line, and the leftover-placeholder
