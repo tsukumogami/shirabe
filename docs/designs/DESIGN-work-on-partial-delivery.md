@@ -640,12 +640,347 @@ asks for with `test -x ... || exit 2`.
   header to keep in step with the template comment, all for a read only this
   gate uses.
 
+### Decision 4: Where the split's reason lives
+
+Decision 1 narrows `finalization` for a declared split to the criteria the
+step owns "as its reason states it", but leaves open where the reason is kept
+and whether a split must have one. koto can't relate two variables
+(`work-on-open.sh:114-116`), so a rule that a split needs a reason has to live
+in the opener, as the hosted-ci deferral's does
+(`scripts/lib/verification-deferral.sh:49-59`). #1736's body asks that "a run
+can declare that its pull request delivers part of its issue", and a later
+comment there adds a pull request with no second step planned, one that "adds
+diagnostics for an intermittent test failure, so the next failure shows which
+branch fired, while the root cause stays open on its issue".
+
+Key assumptions:
+
+- One line is enough for a run to tell which criteria are this pull
+  request's. If it isn't, the criteria it can't place still go through
+  `deferral_approval`.
+
+#### Chosen: A mandatory `DELIVERY_REASON`, set by `--delivery-reason=<why>`
+
+A non-rebindable `DELIVERY_REASON`, with `VERIFICATION_DEFERRAL_REASON`'s
+pattern and character rules, says what this pull request delivers and what
+stays open on the issue. `work-on-open.sh` maps `--delivery-reason=<why>` to
+it and refuses `--delivery=partial` without a non-empty one (`error=usage`,
+exit 64). Saying what stays open, rather than naming a later step, covers the
+diagnostics case too. Finalization's narrowed bar gets a written scope, fixed
+before any work.
+
+#### Alternatives Considered
+
+- **No reason.** Rejected because Decision 1's narrowed bar then has nothing
+  to point at. Either every later-step criterion goes through
+  `deferral_approval`, the cost Decision 1 rejected the run-time gate for, or
+  the run reads its own scope from the issue.
+- **An optional reason.** Rejected because it makes two kinds of split with
+  different finalization bars.
+- **The reason in `DELIVERY`'s value** (`partial:<text>`). Rejected because
+  Decision 1 fixes the values to `closes` and `partial`, and the gate's test
+  would become a pattern match.
+- **The reason in a context key at init.** Rejected because the run can
+  overwrite context keys, the argument Decision 1 makes against a `delivery`
+  key, and the variable is already recorded at init.
+
+### Decision 5: How a reason passes through /coordinate
+
+Decision 1 has /coordinate start a split through the work-on row of
+`skills/coordinate/references/entry-points.tsv:67`, and Decision 4 makes the
+reason mandatory, so the row needs `--delivery-reason=*` as well.
+`dc_flag_allowed` refuses any flag holding whitespace
+(`skills/coordinate/scripts/dispatch-common.sh:521`), and /coordinate stores
+a run's flags joined with spaces and splits them back on spaces
+(`dispatch-common.sh:386-391`). A reason written as a sentence can't pass.
+
+Key assumptions:
+
+- A one-token reason in koto's allowlist, such as
+  `step-1-of-2:validator-side`, says enough for finalization. If it doesn't,
+  the criteria it can't place go through `deferral_approval`.
+
+#### Chosen: The row admits `--delivery-reason=*`, and a reason sent that way is one token
+
+The work-on row gains `--delivery-reason=*` next to `--delivery=partial`. A
+reason sent through /coordinate holds no whitespace and uses koto's
+`. _ / : @ + -` to join its words. A typed invocation keeps a full sentence.
+Nothing in /coordinate's rendering changes.
+
+#### Alternatives Considered
+
+- **Quote whitespace in flag values**, as `dc_invocation` already quotes the
+  positional (`dispatch-common.sh:396`). Rejected because it changes the
+  rendering and the stored flag list for every skill's entry point, for one
+  flag.
+- **No reason for a split started through /coordinate.** Rejected because it
+  gives one declaration two rules, and the waived case loses Decision 4's
+  scope record.
+- **/coordinate doesn't start splits.** Rejected because Decision 1 has it
+  start them.
+
+### Decision 6: A split declared without a reason
+
+A hand `koto init --var` is a documented way to set a variable
+(`work-on.md:186-188`), and it bypasses the opener's refusal. The hosted-ci
+deferral has a template backstop for its missing reason, an edge to
+`done_blocked` (`work-on.md:1954-1963`), because there a missing reason means
+verification is skipped with nothing said.
+
+Key assumptions:
+
+- Few runs are opened by hand with `DELIVERY=partial` and no reason. If many
+  are, a template backstop can be added without touching the gate.
+
+#### Chosen: The finalization directive falls back to every criterion
+
+With `DELIVERY=partial` and an empty `DELIVERY_REASON`, the `finalization`
+directive's "every acceptance criterion" means every criterion, as today.
+The gate still runs non-closing mode, per Decision 3, so the only effect left
+is the body rule, and misusing it leaves an issue open. No template edge is
+added.
+
+#### Alternatives Considered
+
+- **A `done_blocked` backstop like `verification_deferred`'s.** Rejected
+  because nothing is skipped under the fallback, and a new edge changes the
+  routing suites for a path only a hand init reaches.
+- **The gate counts `partial` only with a reason.** Rejected because it
+  rewrites Decision 3's mode test, and an honest `Part of #N` body would then
+  end at `done_blocked` under a message that doesn't name the cause.
+
+### Decision 7: Whether the body repeats the reason
+
+The hosted-ci deferral's `verification_deferral_recorded` gate holds
+`pr_creation` until the body carries `Reason: <reason>` verbatim
+(`work-on.md:2530-2545`), and the reason is copied into context
+(`work-on.md:1957`). Decision 1 leaves open whether the split's reason is one
+the body repeats.
+
+Key assumptions:
+
+- A run writes the Part 2 prose the `pr_creation` directive asks for. If it
+  doesn't, the body still says the issue stays open, since Decision 2
+  requires the reference.
+
+#### Chosen: No gate and no context copy; Part 2 states the split in plain words
+
+Only the `finalization` and `pr_creation` directives read
+`{{DELIVERY_REASON}}`. The `pr_creation` directive asks Part 2 to say what
+the pull request delivers and what stays open on the issue. That's the same
+kind of directive-only ask `phase-6-pr.md:109-111` makes for a deferral.
+
+#### Alternatives Considered
+
+- **A verbatim gate like `verification_deferral_recorded`.** Rejected because
+  it adds a gate condition to all four `ci_monitor` edges
+  (`work-on.md:2601-2640`) and a script mode. The reason is also limited to
+  koto's allowlist, with no commas or apostrophes and sometimes one token
+  (Decision 5), which reads badly as required body text.
+- **A context copy of the reason.** Rejected because no reader needs it, and
+  the variable is already in `workflow_initialized`.
+
+### Decision 8: Which word the directives prescribe
+
+Decision 2 accepts `Ref`, `Refs` and `Part of`. Decision 1 fixes `Part of #N`
+for an approved deferral, and Decision 2's refusal message gives `Part of #N`
+as the line to add in either mode. Nothing fixes what the `pr_creation`
+directive and `phase-6-pr.md` tell a declared split to write. #1735 wrote
+`Refs #1646`, #1736's body asks the gate to accept "`Refs #N` or
+`Part of #N`", and the design skill prescribes `Ref #<N>`
+(`skills/design/references/phases/phase-6-final-review.md:296`).
+
+Key assumptions:
+
+- A run writes what its directive prescribes. If it writes `Refs` anyway, the
+  gate passes it.
+
+#### Chosen: `Part of #N` in both modes
+
+The `pr_creation` directive and `phase-6-pr.md` prescribe `Part of #N`, or
+`Part of <ISSUE_REPO>#N`, for both a split and a deferral, and name `Ref` and
+`Refs` as also accepted. The directive, the docs and the refusal message give
+the same line.
+
+#### Alternatives Considered
+
+- **`Refs #N` for a split, `Part of #N` for a deferral.** Rejected because two
+  prescriptions have to be kept in step, and the refusal message, which can't
+  tell the modes apart (Decision 12), would suggest a different line from the
+  directive.
+- **`Ref #N`, as the design skill writes.** Rejected because that use is a
+  design pull request pointing at its source issue, not a step of an
+  implementation, and the repository's history uses `Ref` least of the three.
+
+### Decision 9: Which runs may declare a split
+
+Free-form runs and `multi-pr` plans are out of scope. A free-form run passes
+the gate on its empty `ISSUE_NUMBER`, but the `finalization` directive's
+narrowing would still apply to it. A `multi-pr` PLAN run opens each issue's
+run through `work-on-open.sh` with the PLAN path among its tokens
+(`work-on-open.sh:48-50`), so one flag would cover every issue. The opener
+already tells both apart: the entry mode from the `ISSUE_NUMBER` var
+(`work-on-open.sh:362-365`) and the PLAN-path check it runs for `--koto-leg`
+(`work-on-open.sh:288-314`).
+
+Key assumptions:
+
+- No free-form or PLAN run needs a split. If one does, the refusal is one
+  check to remove.
+
+#### Chosen: The opener refuses `--delivery=partial` on both
+
+`work-on-open.sh` refuses `--delivery=partial` on a free-form run and with a
+PLAN path among the tokens (`error=usage`, exit 64), reusing the detection it
+already has.
+
+#### Alternatives Considered
+
+- **Accept and ignore.** Rejected because the gate ignores it but the
+  `finalization` directive doesn't, so a free-form run could narrow its bar for
+  nothing, and a PLAN run would declare every issue partial.
+- **Refuse free-form runs only.** Rejected because a `multi-pr` PLAN run would
+  still take a flag that applies to each of its issues.
+
+### Decision 10: How a non-closing refusal reports
+
+Today's script stops at its first refusal
+(`check-closing-keyword.sh:244-250`). Decision 2 names each location holding a
+closing form, but doesn't say whether a missing reference is reported beside
+them. A refusal is terminal, and the person who finishes the run reads the
+script's stderr once.
+
+Key assumptions:
+
+- Collecting every finding costs nothing that matters: the pull request read
+  is one call, and the local checks are greps over it.
+
+#### Chosen: Every local finding at once, before any lookup
+
+The script collects every closing form with its source, and a missing
+reference, reports them all, and exits 1 without looking anything up. The
+lookups run only when the local checks found nothing, as today's script gives
+its answer before any lookup when the reference is missing
+(`check-closing-keyword.sh:247-250`).
+
+#### Alternatives Considered
+
+- **Stop at the first finding.** Rejected because a pull request with
+  `Fixes #N` in a commit and no reference in the body would take two failed
+  runs, or two passes by hand, to show both problems.
+
+### Decision 11: Old-name lookups across the body, title and commits
+
+Decision 1 refuses old-name forms and reads the title and commit messages, so
+names found there are looked up too, and the lookups now also run on a
+same-repository run. The script looks up at most `MAX_LOOKUPS` (5)
+repositories, within `LOOKUP_SECS` (20) of its start, inside koto's 30-second
+gate default (`check-closing-keyword.sh:71-76`).
+
+Key assumptions:
+
+- A pull request work-on opens rarely names more than five other repositories
+  across its body, title and commits. One that does is refused, as a body over
+  the cap is today.
+
+#### Chosen: One pool of names, one cap, one deadline
+
+The names from every source are pooled and deduplicated, and the one
+`MAX_LOOKUPS` cap and the one `LOOKUP_SECS` deadline cover them all.
+
+#### Alternatives Considered
+
+- **A cap per source.** Rejected because the calls grow with the commit count
+  and can't fit in 20 seconds.
+- **Lookups for the body only.** Rejected because an old-name closer in a
+  commit message, which Decision 1 reads, would pass.
+
+### Decision 12: What the refusal message says about why
+
+Decision 2 has the message say that the run doesn't close its issue and why.
+Decision 3 makes `--non-closing` a bare flag, called the same way for both
+sources, so the script isn't told which one applies.
+
+Key assumptions:
+
+- A reader can tell which source applied from the run: a split shows
+  `--delivery=partial` in its invocation, and a deferral its recorded
+  approval.
+
+#### Chosen: One sentence naming both causes
+
+The message says the run declared a partial delivery or came from an approved
+deferral. The `done_blocked` failure reason, fixed template text, already
+names both, so the two read alike.
+
+#### Alternatives Considered
+
+- **The script reads the log again to say which.** Rejected because it's a
+  second log read on every non-closing run, and the script still can't see
+  `DELIVERY` unless it's passed in.
+- **A valued flag, `--non-closing=split|deferral`.** Rejected because
+  Decision 3 makes the flag bare, and this adds usage shapes.
+
+### Decision 13: How the implementation lands
+
+Each phase of the Implementation Approach is one commit, but nothing yet says
+how many pull requests carry them. shirabe's CLAUDE.md declares
+`## PR Grouping Policy: coarsest-legal`, one pull request per repository by
+default. An implementation pull request that delivers only part of #1736
+would reference it without closing it, which the gate as it stands refuses.
+
+Key assumptions:
+
+- The five commits are small enough to review as one pull request.
+
+#### Chosen: One pull request, five commits, script first
+
+The commits land in the Implementation Approach's order: script modes, the
+init declaration, the gate, the text, the /coordinate row. Nothing calls the
+new modes until the gate commit.
+
+#### Alternatives Considered
+
+- **Several pull requests.** Rejected because each early one would reference
+  #1736 without closing it and end at `done_blocked`, or write `Fixes #1736`
+  before the work is done, and the repository's grouping policy asks for one.
+- **The gate first.** Rejected because the command would call script modes
+  that don't exist yet.
+
+### Decision 14: Where the reason's character check lives
+
+The hosted-ci reason's allowlist check is `vd_reason_chars_refusal`
+(`scripts/lib/verification-deferral.sh:33-47`). The lib's own comment
+(`verification-deferral.sh:35-40`) says the allowlist agreement case in
+`work-on-open_test.sh` reads the class from that file's one such line, and
+that a second such line breaks the case. `execute-open.sh` sources the same
+lib.
+
+Key assumptions:
+
+- `execute-open.sh` refusing a malformed `--delivery-reason` is harmless,
+  since /execute never maps the flag.
+
+#### Chosen: Extend `vd_reason_chars_refusal`
+
+The existing function also reads `--delivery-reason=` values, and the
+allowlist stays in its one line.
+
+#### Alternatives Considered
+
+- **A copy of the check in `work-on-open.sh`.** Rejected because the
+  agreement case doesn't read a second class line, so it can drift from
+  koto's allowlist unnoticed.
+- **A new lib for the delivery flags.** Rejected for the same drift, and a
+  third sourced file for a two-flag mapping.
+
 ## Decision Outcome
 
 A run holds a non-closing delivery in exactly two ways, and the run itself
 can produce neither. The invocation declares a planned split with
-`--delivery=partial` and a stated reason, which `work-on-open.sh` maps to a
-new `DELIVERY` variable fixed at init. Or the run reaches `pre_pr_evidence`
+`--delivery=partial` and a stated reason, `--delivery-reason=<why>`, which
+`work-on-open.sh` maps to new `DELIVERY` and `DELIVERY_REASON` variables
+fixed at init. Or the run reaches `pre_pr_evidence`
 through the engine's approved transition out of `deferral_approval`, with no
 later return to `finalization` or `deferral_approval` in its state log.
 Declaring a split doesn't loosen `finalization`: `ready_for_pr` still means
@@ -682,11 +1017,396 @@ closing obligation change to describe both modes.
 
 ## Solution Architecture
 
-Not written yet.
+### Overview
+
+The design adds no state and no edge to the work-on template. It changes what
+one gate, `closing_keyword` at `pr_creation`, asks of the pull request, and it
+adds one way to start a run. Two facts can put the gate into non-closing mode,
+and the run can write neither of them: the `DELIVERY` variable, fixed at init
+from the invocation, and the engine's `transitioned` event from
+`deferral_approval` into `pre_pr_evidence`, read back from the run's state
+log. The gate command picks the mode from those two. `check-closing-keyword.sh`
+does the log read and judges the non-closing body. A run with neither fact
+runs today's checks, unchanged.
+
+In non-closing mode the script reads the pull request once. It refuses any
+form it knows to close the issue, in the body, the title or a commit message,
+and it requires the body to carry `Ref`, `Refs` or `Part of` followed by the
+issue in the run's form. A planned split is declared as
+`--delivery=partial --delivery-reason=<why>`, where the reason says what this
+pull request delivers and what stays open on the issue. `work-on-open.sh` maps
+the two tokens to `DELIVERY` and `DELIVERY_REASON`. An approved deferral needs
+no declaration, since the run's state log already holds the transition.
+
+The template, `skills/work-on/koto-templates/work-on.md`, declares `DELIVERY`
+and `DELIVERY_REASON` next to `VERIFICATION` and
+`VERIFICATION_DEFERRAL_REASON`. Its `closing_keyword` command gains the
+`DELIVERY` test, the log probe and the non-closing branch, and the comment above
+it stops claiming that a same-repository run never starts the script. The
+failure reason on the gate's exit-1 edge to `done_blocked`, the
+`finalization`, `deferral_approval` and `pr_creation` directives, and the
+`deferral_detail` description are reworded to cover both modes.
+
+`check-closing-keyword.sh` gains two modes. `--non-closing` brings a list of
+reference words and the three pass shapes built on it, and it's the one case
+where `--repo` may be left off. `--approved-pass <log>` answers whether this
+pass came out of an approved deferral. The script's header, usage line and
+"Needs" line (`check-closing-keyword.sh:116`, which gains jq) are rewritten.
+`work-on-open.sh` maps `--delivery` and `--delivery-reason` and refuses a
+declared split that has no reason. The work-on row of
+`skills/coordinate/references/entry-points.tsv` admits both flags, so
+/coordinate can start a split run.
+
+The text that describes the gate moves with it: `phase-6-pr.md:48-52` and
+`phase-6-pr.md:109-111`, `skills/work-on/references/finishing-obligations.md:18`,
+and the SKILL.md passages on the argument hint, initialization, the closing
+obligation, no silent deferral and the script list. They name the three
+words, the forms each kind of run accepts, and that the reference goes in
+Part 2. `closing-keyword-gate_test.sh` keeps every existing case and gains the
+new ones. Among them, `GH-N` and the issue URL are refused in a
+same-repository non-closing body. Closing mode doesn't accept either as
+closing the issue there, and non-closing mode refuses both as closing it,
+since GitHub closed the issue on each (#1044). That reversal is pinned on
+purpose.
+
+### Components
+
+- **Template variables** (`work-on.md`, after `VERIFICATION_DEFERRAL_REASON`
+  at `work-on.md:194-209`).
+  - `DELIVERY`: `values: [closes, partial]`, `default: closes`, no `rebind`.
+    Only the `closing_keyword` command reads it.
+  - `DELIVERY_REASON`: one line saying what this pull request delivers and
+    what stays open on the issue. Same `pattern: ^([a-zA-Z0-9].*)?$` and
+    character rules as `VERIFICATION_DEFERRAL_REASON`, no `rebind`. Only the
+    `finalization` and `pr_creation` directives read it, by substitution, and
+    it's ignored when `DELIVERY` is `closes`. No gate reads it, and no context
+    key copies it.
+- **The `closing_keyword` gate** (`work-on.md:2513-2515`). Still one
+  single-quoted line holding only double quotes. It picks the mode and runs
+  either today's check or the script's non-closing mode. Its exits keep their
+  routes: 0 to `ci_monitor` (with the other four gates), 1 to `done_blocked`,
+  2 and 3 hold (`work-on.md:2600-2649`).
+- **`skills/work-on/scripts/check-closing-keyword.sh`**, in three modes:
+  - closing, `--issue N --repo R`: unchanged;
+  - non-closing, `--issue N --non-closing [--repo R]`: the refusal side and
+    the reference requirement, over one `gh pr view` read;
+  - log probe, `--approved-pass <log>`: reads the state log and makes no `gh`
+    call.
+- **`skills/work-on/scripts/work-on-open.sh`**. A `bound()` line for each new
+  flag next to the `--verification` pair (`work-on-open.sh:355-356`), and three
+  refusals of its own, each `error=usage`, exit 64, before any koto call:
+  `--delivery=partial` with no non-empty `--delivery-reason`; a reason with a
+  character outside koto's allowlist; and `--delivery=partial` on a run that
+  isn't a single issue-backed run (no `ISSUE_NUMBER` var, or a PLAN path among the
+  tokens). The character check is the one in
+  `scripts/lib/verification-deferral.sh:33-47`, extended to read
+  `--delivery-reason=` values too, because the allowlist agreement case in
+  `work-on-open_test.sh` reads the class from that file's one
+  `select(test(...))` line, and a second copy would break it.
+- **`skills/work-on/scripts/fix-round.sh`**: no change. It copies every init
+  variable except `REVIEW_LEVEL`, `UNIT_KIND` and `PLUGIN_ROOT` into the round
+  (`fix-round.sh:136-143`), so a round keeps `DELIVERY` and `DELIVERY_REASON`.
+- **`skills/coordinate/references/entry-points.tsv:67`**. The work-on row's
+  flag list gains the exact `--delivery=partial` and `--delivery-reason=*`.
+  `dc_flag_allowed` refuses any flag holding whitespace
+  (`skills/coordinate/scripts/dispatch-common.sh:521`), so a reason sent
+  through /coordinate is written as one token, for example
+  `--delivery-reason=step-1-of-2:validator-side`.
+- **Text**: the `finalization`, `deferral_approval` and `pr_creation`
+  directives (`work-on.md:3901`, `work-on.md:3990`, `work-on.md:4090`), the
+  `deferral_detail` description (`work-on.md:2204-2209`), the failure reason
+  at `work-on.md:2649`, `phase-6-pr.md`, `finishing-obligations.md:18`, and
+  `skills/work-on/SKILL.md` (the argument hint at `SKILL.md:15`, the
+  initialization passage, the closing obligation, **Finalization and No Silent
+  Deferral**, and the script list entry for `check-closing-keyword.sh`).
+- **Tests**: `closing-keyword-gate_test.sh` for the gate and all three script
+  modes; `work-on-open_test.sh` and `verification-deferral_test.sh` for the
+  tokens and refusals; `dispatch-common_test.sh` for the entry-point row;
+  `fix-round_test.sh` for the carried variables; and work-on's eval scenarios
+  in `skills/work-on/evals/evals.json`.
+
+Nothing else changes. `execute-open.sh` doesn't map `--delivery`, since
+`/execute`'s runs are out of scope. The routing suites replace the gate
+command with fixed exits (`output-gates-routing_test.sh:300-313`), so they
+don't see it. The completion cascade and /coordinate's pick rule read
+GitHub's issue state and pull requests as they do today.
+
+### Key Interfaces
+
+**Invocation.** `--delivery=partial --delivery-reason=<why>`, kept in the
+tokens file like `--verification` and its reason, never passed as `--var`.
+koto refuses a `DELIVERY` outside its two values, or a reason outside its
+pattern, as `invalid_var`. `--delivery=closes` is accepted and changes
+nothing.
+
+**Script modes and exits.**
+
+| Call | 0 | 1 | 2 | 3 |
+|------|---|---|---|---|
+| `--issue N --repo R` | closes R#N | doesn't close it, closes the wrong issue, or can't read the pull request | usage | a lookup failed or ran out of time |
+| `--issue N --non-closing [--repo R]` | refers to N without closing it | closes N somewhere, has no reference in the body, or can't read the pull request | usage | a lookup failed or ran out of time |
+| `--approved-pass <log>` | this pass came out of an approved deferral | it didn't, or there's no log | unreadable log, a line that isn't JSON, no jq, usage | not used |
+
+Exit 1 from `--approved-pass` isn't a refusal. The command maps it, and it
+never reaches the gate's routes. The usage refusals are those of Decision 3,
+item 4.
+
+**Gate command**, laid out for reading. In the template it's one line, and
+`<script>` stands for
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh"`, spelled
+out at each call:
+
+```sh
+test -z "{{ISSUE_NUMBER}}" || {
+  test -x <script> || exit 2
+  if test "{{DELIVERY}}" = partial; then m=open
+  else
+    <script> --approved-pass "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"
+    case $? in 0) m=open ;; 1) m=close ;; *) exit 2 ;; esac
+  fi
+  if test "$m" = open; then
+    if test -z "{{ISSUE_REPO}}"; then <script> --issue "{{ISSUE_NUMBER}}" --non-closing
+    else <script> --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}" --non-closing; fi
+  elif test -z "{{ISSUE_REPO}}"; then
+    gh pr view --json body --jq .body | grep -qiE "<today's expression>"
+  else
+    <script> --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}"
+  fi
+}
+```
+
+The last branch and the inline grep are byte-for-byte today's.
+
+**Approved-pass rule.** The script parses every line of the log with one
+`jq -n` over `inputs`, so a single bad line exits 2. Lines with no `type`,
+the header among them, are skipped. Then:
+
+1. Take the last event of type `transitioned` or `directed_transition` whose
+   `payload.to` is `pre_pr_evidence`. None means exit 1.
+2. It has to be a `transitioned` event with `payload.from` equal to
+   `deferral_approval`. Otherwise exit 1.
+3. No later event of type `transitioned`, `directed_transition` or `rewound`
+   may have `payload.to` equal to `finalization` or `deferral_approval`.
+   Otherwise exit 1.
+4. Exit 0.
+
+A missing file at the path exits 1. "Later" means later in the file.
+
+**Non-closing read.** One `gh pr view --json url,title,body,commits`, with no
+`--jq`, parsed with jq. Each commit's text is its `messageHeadline` and
+`messageBody`, and the refusal message names it by the first seven characters
+of its `oid`. A failed read, or output jq can't parse, exits 1.
+
+**Non-closing refusals.** Every source (the body, the title, each commit's
+message) is read with its lines joined, like today's refusal side
+(`check-closing-keyword.sh:225-234`), with the wider separator and no
+word-start anchor:
+
+- same-repository run (`ISSUE_REPO` empty, or naming the pull request's own
+  repository in any case): every form `OWN` and `OWN_LINK` match today
+  (`check-closing-keyword.sh:216-220`): a bare `#N`, `GH-N`, `<PR repo>#N`,
+  the issue URL, and the markdown link to it;
+- cross-repository run: those same forms, which close this repository's
+  issue N as they do in closing mode, plus `<ISSUE_REPO>#N` and the link
+  closing mode accepts for it;
+- both: a closing reference under another `owner/name` that resolves to the
+  issue's repository. The names come from every source together, each
+  spelling once, under the one `MAX_LOOKUPS` cap and the one
+  `LOOKUP_SECS` deadline. A failed lookup exits 3 and holds, as today.
+
+The local checks run first. The script collects every finding (each closing
+form with its source, and a missing reference) and reports them all before
+it exits 1, without any lookup. Lookups run only when the local checks
+found nothing.
+
+**Non-closing reference.** In the body only, a line at a time,
+case-insensitive. `REF` is `(ref|refs|part[[:space:]]+of)`, anchored at a
+word start, and the separator is closing mode's `:?[[:space:]]+`:
+
+| Run | Accepted |
+|-----|----------|
+| same repository | `<REF> #N`, `<REF> <PR repo>#N` |
+| another repository | `<REF> <ISSUE_REPO>#N`, `<REF> [<ISSUE_REPO>#N](https://<host>/<ISSUE_REPO>/issues/N)` |
+
+`#N` must not run into more digits. Anything may follow on the line.
+
+**Refusal message.** For each closing form: the matched text, its source
+(`body`, `title` or `commit <short SHA>`), and the line to write instead.
+Then one sentence saying the run doesn't close its issue because it declared
+a partial delivery or came from an approved deferral. `--non-closing` is a
+bare flag, so the script isn't told which, and the sentence names both. For
+a missing reference: the exact line to add, `Part of #N` or
+`Part of <ISSUE_REPO>#N`. The `done_blocked` failure reason is fixed text, so
+it names both modes and points the reader at the gate's message.
+
+**Directives.**
+
+- `finalization`, the `ready_for_pr` sentence: with `DELIVERY` `partial` and
+  a reason, "every acceptance criterion" means every criterion the step in
+  `{{DELIVERY_REASON}}` owns. With an empty reason it means every criterion,
+  as today.
+- `pr_creation`: names the run's delivery (`{{DELIVERY}}`) and says when the
+  body closes the issue (`Fixes`) and when it writes `Part of #N` (or
+  `Part of <ISSUE_REPO>#N`): a declared split, or a pass that came straight
+  from an approved deferral. It names `Ref` and `Refs` as the other accepted
+  words, and says Part 2 states what the pull request delivers and what stays
+  open, from `{{DELIVERY_REASON}}` for a split or the deferred criterion for
+  a deferral.
+- `deferral_approval`: on approval, the pull request references the issue
+  with `Part of #N` and leaves it open with the criterion on it.
+
+### Data Flow
+
+```
+invocation: /work-on #N --delivery=partial --delivery-reason=<why>
+      |
+      v
+work-on-open.sh -- refuses: no reason, bad characters, not one issue-backed run
+      |
+      v
+koto init: workflow_initialized { DELIVERY, DELIVERY_REASON, ... }
+      |
+      v
+... -> finalization --ready_for_pr--------> pre_pr_evidence -> pr_precheck -> ... -> pr_creation
+           |                          ^
+           +--deferral_requested--> deferral_approval
+                                      | approved (engine `transitioned`)
+
+pr_creation, closing_keyword:
+  ISSUE_NUMBER empty ............................ pass (0)
+  DELIVERY=partial .............................. non-closing
+  else --approved-pass <log>:  0 non-closing | 1 closing | other: exit 2 (hold)
+  closing ....................................... today's check
+  non-closing ................................... --issue N --non-closing [--repo R]
+  gate exit: 0 -> ci_monitor | 1 -> done_blocked | 2, 3 -> hold
+```
+
+A declared split carries `DELIVERY` and `DELIVERY_REASON` in its
+`workflow_initialized` event from the first tick. `finalization` holds it to
+the criteria its reason names. Any of those it can't meet still goes to
+`deferral_requested` and a person. At `pr_creation` the gate sees
+`DELIVERY=partial` and goes straight to non-closing mode without reading the
+log.
+
+An approved deferral leaves the records it leaves today: the decision from
+`koto decisions record`, and the engine's `transitioned` event from
+`deferral_approval` to `pre_pr_evidence`. At `pr_creation` the gate probes the
+log, finds that event as the latest arrival into `pre_pr_evidence` with no
+return to `finalization` or `deferral_approval` after it, and runs
+non-closing mode. If `pr_precheck`'s recount sends the run back to
+`finalization` and it then submits `ready_for_pr`, the latest arrival comes
+from `finalization`, and the next `pr_creation` is in closing mode. A
+`koto rewind` from `done_blocked` back to `pr_creation` writes a `rewound`
+event into `pr_creation`, which neither counts as an arrival nor as a return,
+so the mode doesn't change. A fix round has its own log with no approval in
+it. It keeps the split's variables through `fix-round.sh`, but a deferral
+has to be approved again in the round.
+
+The design writes no new context key and no new state. The only workflow
+state it adds is the two variables in `workflow_initialized`.
 
 ## Implementation Approach
 
-Not written yet.
+The five phases are one commit each, in one pull request. The first two add
+code that nothing calls yet, so every run behaves as it does today until
+Phase 3 switches the gate. Phase 4 has to land with Phase 3, since the
+directives and docs describe what the gate asks for. Splitting the phases
+across pull requests would make each early one a partial delivery of #1736,
+which the gate it's changing still refuses.
+
+### Phase 1: The script's two new modes
+
+`--approved-pass` and `--non-closing` go into `check-closing-keyword.sh`
+first. The template doesn't call either yet, so nothing a run does changes,
+and the modes can be tested by calling the script directly.
+
+Deliverables:
+- `skills/work-on/scripts/check-closing-keyword.sh`: argument parsing for the
+  four valid shapes and the new usage refusals; the `--approved-pass` log
+  read; the `--non-closing` read of `url,title,body,commits`, its refusal
+  side over the body, the title and each commit, the reference requirement
+  in the body, the collected findings and the old-name lookups over every
+  source; the header's mode descriptions, exit block per mode, usage line and
+  "Needs" line.
+- `skills/work-on/scripts/closing-keyword-gate_test.sh`: the `gh` stub's
+  branch for `url,title,body,commits`, built with `jq -n` from `PR_TITLE` and
+  `PR_COMMITS`; direct-call cases for the log fixtures (approved pass, recount
+  through `finalization`, directed arrival, `rewound` event, absent log,
+  header-less log, unparseable log), for the accepted words and forms in both
+  kinds of run, and for title and commit refusals naming their source; the new
+  shapes in the usage loop at `closing-keyword-gate_test.sh:548-563`.
+
+### Phase 2: Declaring a split at init
+
+The two variables and the tokens that set them. No gate reads `DELIVERY`
+yet, so a run started with `--delivery=partial` behaves as any other until
+Phase 3.
+
+Deliverables:
+- `skills/work-on/koto-templates/work-on.md`: `DELIVERY` and
+  `DELIVERY_REASON` in the `variables` block, with descriptions in the style of
+  `VERIFICATION` and its reason.
+- `skills/work-on/scripts/work-on-open.sh`: the two `bound()` lines, the
+  missing-reason refusal, the refusal of `--delivery=partial` on a free-form
+  run or with a PLAN path, and the header's mapping section.
+- `scripts/lib/verification-deferral.sh`: the character check also reads
+  `--delivery-reason=` values, keeping the allowlist in its one line.
+- `skills/work-on/scripts/work-on-open_test.sh` and
+  `skills/work-on/scripts/verification-deferral_test.sh`: the mapping, each
+  refusal, and the allowlist agreement case still finding one line.
+- `skills/work-on/scripts/fix-round_test.sh`: a case that a round's init
+  carries `DELIVERY` and `DELIVERY_REASON`.
+
+### Phase 3: The gate switches modes
+
+The `closing_keyword` command becomes the mode-picking line. This needs the
+script modes from Phase 1 and the variable from Phase 2.
+
+Deliverables:
+- `skills/work-on/koto-templates/work-on.md`: the new `closing_keyword`
+  command at `work-on.md:2515`, and the gate comment at `work-on.md:2493-2512`
+  rewritten for both modes.
+- `skills/work-on/scripts/closing-keyword-gate_test.sh`: `run_gate`
+  substitutes `{{DELIVERY}}` (from `${DELIVERY:-closes}`), `{{SESSION_DIR}}`
+  and `{{SESSION_NAME}}`, and fails the case if any `{{` is left; gate-level
+  cases for `DELIVERY=partial` in both kinds of run and for an approved-pass
+  log; the `GH_LOG` checks that a same-repository closing run with a
+  non-approved log still makes only the one inline call and that a
+  non-closing run makes one `pr view` with the new field list; the comment at
+  `closing-keyword-gate_test.sh:187-189` reworded.
+
+### Phase 4: Directives and documentation
+
+Every passage that tells a run what the gate wants, rewritten for both modes.
+
+Deliverables:
+- `skills/work-on/koto-templates/work-on.md`: the `finalization`,
+  `deferral_approval` and `pr_creation` directives, the `deferral_detail`
+  description and the failure reason at `work-on.md:2649`.
+- `skills/work-on/references/phases/phase-6-pr.md`: lines 48-52 as the
+  closing case plus the non-closing case, and lines 109-111 saying the
+  undone criterion stays open on the issue and the body writes `Part of #N`.
+- `skills/work-on/references/finishing-obligations.md`: the `closing_keyword`
+  row at line 18.
+- `skills/work-on/SKILL.md`: the argument hint, the initialization passage on
+  the new tokens, the closing obligation, **Finalization and No Silent
+  Deferral**, and the script list entry.
+- `skills/work-on/evals/evals.json`: a scenario for a declared split and one
+  for an approved deferral, each ending with a `Part of #N` body and the run
+  at `ci_monitor`.
+
+### Phase 5: The /coordinate entry point
+
+The work-on row admits the new flags, so /coordinate can start a split run.
+It depends only on Phase 2, but it ships in the same pull request, so a
+`--delivery=partial` sent through /coordinate never reaches a work-on that
+doesn't know it.
+
+Deliverables:
+- `skills/coordinate/references/entry-points.tsv`: `--delivery=partial` and
+  `--delivery-reason=*` on the work-on row at line 67.
+- `skills/coordinate/scripts/dispatch-common_test.sh`: the two flags are
+  allowed on work-on, and a reason holding whitespace is refused.
 
 ## Security Considerations
 
@@ -694,71 +1414,75 @@ Not written yet.
 
 ## Consequences
 
-### What changes
+### Positive
 
-- `skills/work-on/koto-templates/work-on.md` declares `DELIVERY`. The
-  `closing_keyword` command gains the `DELIVERY` test, the log probe and the
-  non-closing branch, and its comment drops the claim that a same-repository
-  run never starts the script. The `done_blocked` failure reason, the
-  `pr_creation`, `finalization` and `deferral_approval` directives and the
-  `deferral_detail` description are reworded.
-- `check-closing-keyword.sh` gains `--non-closing`, with a reference word list
-  and the three pass shapes built on it, and `--approved-pass`. `--repo`
-  becomes optional only with `--non-closing`. Its header, usage line and
-  "Needs" line (`check-closing-keyword.sh:116`, which adds jq) are rewritten.
-- `work-on-open.sh` maps `--delivery`, and
-  `skills/coordinate/references/entry-points.tsv` admits it on the work-on
-  row.
-- `phase-6-pr.md:48-52` and `phase-6-pr.md:109-111`,
-  `skills/work-on/references/finishing-obligations.md:18` and the SKILL.md
-  passages on the closing obligation, initialization and silent deferral
-  change with the behavior, naming the three words, the forms for each kind
-  of run, and that the reference goes in Part 2.
-- `closing-keyword-gate_test.sh` keeps every existing case. `run_gate` gains
-  three substitutions and a leftover-placeholder check, and the `gh` stub
-  gains one JSON branch with `PR_TITLE` and `PR_COMMITS`. New cases cover the
-  accepted words and their edges, both run forms, title and commit refusals,
-  the approved-pass log fixtures, the `gh` call counts and the new usage
-  refusals. Among them, `GH-N` and the issue link are refused in a
-  same-repository non-closing body, the reverse of today's closing-mode
-  reading, pinned on purpose.
+- Both honest bodies, #1735's `Refs #1646` and #1549's `Part of #1548`,
+  reach `ci_monitor` as written, with no override and no closing keyword
+  written only to satisfy the gate.
+- An approved deferral leaves its issue open with the deferred criterion on
+  it, as the work-on PRD asks.
+- A declared split carries a written scope from init, so finalization's
+  narrowed bar rests on something fixed before any work rather than on the
+  run's own reading of the issue.
+- The gate reads the same in both modes with one word changed, and a pull
+  request that also closes an unrelated issue isn't stopped.
+- Each mode's logic sits in one place: the template picks the mode and the
+  script decides the body. Every existing test case stays as it is, and a run
+  with neither source sees today's gate.
 
-### What becomes easier
+### Negative
 
-Both honest bodies, #1735's `Refs #1646` and #1549's `Part of #1548`, reach
-`ci_monitor` as written, with no override and no closing keyword written only
-to satisfy the gate. An approved deferral leaves its issue open, as the
-work-on PRD asks. The gate reads the same in both modes with one word changed,
-and a pull request that also closes an unrelated issue isn't stopped. Each
-mode's logic sits in one place: the template picks the mode, the script
-decides the body, and every existing test case stays as it is.
-
-### What becomes harder
-
-- An invoker has to declare a split before the run starts. A split declared
-  late, or with no recorded scope, goes through `deferral_approval` instead,
-  which still reaches a non-closing body.
+- An invoker has to declare a split before the run starts.
 - A declared run that turns out to finish its issue can't close it, so a
-  person closes it by hand. That's the cheap failure: an open issue is
-  visible and closes in one step.
+  person closes it by hand.
 - A fix round on a deferred pull request asks for approval again, since its
-  own log holds none. The person sees the same criterion and answers the same
-  way.
-- A split dispatched through /coordinate needs the new `entry-points.tsv`
-  value, added in the same change.
+  own log holds none.
+- A split started through /coordinate needs the new `entry-points.tsv`
+  values. Without them, /coordinate refuses the flags.
+- The reason pulls two ways. Decision 4 wants it to say what the pull request
+  delivers and what stays open on the issue, which reads best as a sentence.
+  Decision 5 makes a reason sent through /coordinate's work-on row one token
+  with no whitespace, because `dc_flag_allowed` refuses a flag holding
+  whitespace and /coordinate stores a run's flags joined with spaces and
+  splits them back on spaces. Those runs get a shorter, harder-to-read reason,
+  such as `step-1-of-2:validator-side`.
+- A run opened by hand with `DELIVERY=partial` and no reason still gets
+  non-closing mode at the gate.
 - A body that names the issue only with another word, only by URL, or only in
-  its title ends the run at `done_blocked`. The `pr_creation` directive names
-  the three words, and the refusal message gives the exact line to add.
+  its title ends the run at `done_blocked`.
 - Every issue-backed run now needs the script and jq present before the gate
   can pass, and a state log that exists but can't be parsed holds the run.
-  Every run already needs jq at `fix_determination`, and every neighbouring
+- The gate line grows to about twice its length.
+- `--approved-pass`'s exit 1 means "no approved pass", not "refused", so
+  wiring that mode into another gate takes the same mapping this command does.
+- The open questions on unattended approval, commit-message closing,
+  /coordinate's pick rule and title-only references stay open.
+
+### Mitigations
+
+- A split declared late, or with no recorded scope, goes through
+  `deferral_approval` instead, which still reaches a non-closing body.
+- An issue left open by mistake is the cheap failure: it's visible and closes
+  in one step.
+- The person asked again in a fix round sees the same criterion and answers
+  the same way.
+- The `entry-points.tsv` values land in the same pull request as the rest
+  (Decision 13), so /coordinate never sends a flag work-on doesn't know.
+- Only runs started through /coordinate's work-on row get the one-token
+  reason. Typed invocations keep full sentences. koto's allowlist still admits
+  `: / - _ .`, enough for `step-1-of-2:validator-side/step-2-after-release`.
+  And the reason isn't what a reviewer reads: Part 2 of the body states the
+  split in plain words (Decision 7).
+- A run with no reason keeps finalization's full bar (Decision 6), so nothing
+  is set aside, and the misuse can only leave an issue open.
+- The `pr_creation` directive names the three words and prescribes
+  `Part of #N` (Decision 8), and the refusal message gives the exact line to
+  add and lists every finding at once (Decision 10).
+- Every run already needs jq at `fix_determination`, and every neighbouring
   gate already checks its script with `test -x`.
-- The gate line grows to about twice its length. The test harness still
-  extracts it, and the leftover-placeholder check catches a missed
-  substitution.
-- `--approved-pass`'s exit 1 means "no approved pass", not "refused". Anyone
-  wiring that mode into another gate has to map it the way this command does,
-  and the script header says so in that mode's exit block.
-- The open questions on unattended approval, commit-message closing, a
-  mandatory split reason, /coordinate's pick rule and title-only references
-  stay open for review, as listed in each decision's key assumptions.
+- The test harness still extracts the longer line, and the leftover-placeholder
+  check catches a missed substitution.
+- The script header says what exit 1 means in that mode's own exit block, and
+  only this command calls the mode.
+- Each open question is listed in its decision's key assumptions, with what
+  changes if the assumption turns out wrong.
