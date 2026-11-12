@@ -133,7 +133,8 @@ names a chain's newest member. Two more facts shape every option: the request
 store is host-local and the cloud backend doesn't replicate it, and several
 work-on gates read the session's own log, which carry never copies. The
 rule-findings ladder counts gate failures from it, the scrutiny gate slices
-recorded decisions out of it, and `fix-kind.sh` reads task text from it.
+recorded decisions out of it, `fix-kind.sh` reads task text from it, and the
+`closing_keyword` gate reads an approved deferral from it.
 
 Key assumptions:
 - A leg-bound continuation runs on the host that holds the request. Decision 4
@@ -175,7 +176,8 @@ pushed head and the session chain (Decision 3). That includes the log-derived
 gate figures: ladder counts, recorded decisions and task text are snapshotted
 into carried keys at handover, so the successor's gates continue from the
 chain's figures instead of silently resetting. Reading the log across the
-chain stays deferred. The templates that rebuild their own session name
+chain stays deferred, except for the approved-deferral read, which Decision 3
+explains. The templates that rebuild their own session name
 (scope, execute, execute-coordinated, deliver) and the readers that find a
 unit's session by name resolve the newest chain member instead.
 
@@ -220,8 +222,10 @@ don't change. It was rejected because the predecessor's instance then holds
 live work until the unit lands (#1748), a unit with no leg can't move hosts,
 and nothing fences a predecessor that hasn't fully stopped. It stays as a
 guarded stopgap for execute's stopped batch children until koto can supersede
-a `--parent` child: the predecessor's job is finished, its session has had no
-event for 600 seconds, and HEAD equals the pushed head on a clean tree.
+a `--parent` child (koto#676): the predecessor's job is finished, its session
+has had no event for 600 seconds, and HEAD equals the pushed head on a clean
+tree. The stopgap is removed when koto#676 lands, and those children then take
+the successor route like any other unit.
 
 **Compact in place.** The worker compacts its context and keeps going: no
 handover, no predecessor, no koto cost. It was rejected as the route because
@@ -269,7 +273,17 @@ execute successor at `spawn_and_await` doesn't materialize a second one. The
 start position doesn't bring the gate figures: where this decision's analysis
 said the escalation ladder and the decision grading "restart", it describes
 the start position alone. The figures themselves arrive through the snapshot
-Decision 3 carries.
+Decision 3 carries. The successor's log opens with koto's own start event,
+which names the predecessor session and the predecessor's last sequence
+number. It's the one link between the two logs, and only the approved-deferral
+read in Decision 3 follows it.
+
+Seeded variables carry a declared partial delivery. work-on's `DELIVERY` and
+`DELIVERY_REASON` are fixed at init from the invocation and can't be rebound
+(`DESIGN-work-on-partial-delivery.md`), so a successor gets the predecessor's
+values. The opener refuses a `--delivery` or `--delivery-reason` that differs
+from the seeded value, so a handover can't switch a run between closing and
+non-closing delivery.
 
 work-on, execute and scope each declare a COMPAT number, held honest by
 `check-template-compat.sh` in CI. The handover refuses `template-incompatible`
@@ -360,10 +374,33 @@ when HEAD has moved. `session/branch` is re-derived from the checkout and
 compared with the note's branch; a mismatch at the same HEAD names a rename,
 not a cleanup.
 
-One rule covers everything: each piece of state is a carried key that names
-its commits, trusted only after a check against the successor's checkout. The
-carry happens once, at the fence, and afterwards every gate reads only its
-own session.
+One rule covers everything a key can hold: each piece of state is a carried
+key that names its commits, trusted only after a check against the successor's
+checkout. The carry happens once, at the fence, and afterwards every gate reads
+only its own session, with the one exception below.
+
+An approved deferral isn't a key, and it isn't carried. Under the
+partial-delivery design, a run whose approved transition out of
+`deferral_approval` led it into `pre_pr_evidence` opens its pull request in
+non-closing mode. `check-closing-keyword.sh --approved-pass <state log>` reads
+that from the engine's own `transitioned` events, and on purpose from nothing
+the run can submit through koto. A successor started at or after
+`pre_pr_evidence` has no such event in its own log, so with its own log alone
+the gate would fall to closing mode and the run would end at `done_blocked`. A
+snapshot key can't stand in for the event, because `koto context add` would
+then be the way to set a criterion aside, which that design rules out. So
+`--approved-pass` reads the chain instead. When the log opens with a
+succession start event, the script reads the predecessor's log up to the
+sequence number the event names, does the same for that log's own start event,
+and applies the approved-pass rule unchanged to the joined events, oldest
+member first. "Later" then spans the chain, so a return to `finalization` or
+`deferral_approval` in any later member still cancels the approval. If the
+start event names a predecessor whose log can't be read, the script exits 2
+and the state holds, rather than treating the gap as "no approval". The read
+goes through koto's read-only chain surface (koto item 5), from the bucket
+under the cloud backend, and is capped by the generation count. This is the
+only gate that reads across the chain. The general chain-scoped read stays
+rejected, because no other gate needs a fact the run mustn't be able to write.
 
 #### Alternatives Considered
 
@@ -665,6 +702,12 @@ Other cases:
   move refuses before launch.
 - **execute's batch children** stay in place under Decision 1's guard: a
   supersede successor is a root, so its `is_root` gate would misroute it.
+  The guard is removed once koto can supersede a `--parent` child (koto#676).
+- **A run after an approved deferral.** A successor started at or after
+  `pre_pr_evidence` opens its pull request in non-closing mode, because the
+  `closing_keyword` gate reads the approval from the predecessor's log
+  through the successor's start event (Decision 3). A successor started at
+  `deferral_approval` waits for a person there, as any run does.
 
 ## Implementation Approach
 
@@ -712,13 +755,17 @@ answer.
    `--expect-state`, refused before the fence when the template lacks the
    state. Variables and delivered captures seed the successor's log; no
    evidence or decisions carry, and `koto rewind` refuses at the start state.
-   Acceptance: a successor at work-on's `pr_creation` renders `{{BRANCH}}`
-   and `{{PR_BODY_RULES}}` without `capture_unset`, and one at execute's
-   `spawn_and_await` materializes no second batch.
+   The successor's log opens with an engine-written start event naming the
+   predecessor session and its last sequence number, a type no tick, evidence
+   or context write can produce. Acceptance: a successor at work-on's
+   `pr_creation` renders `{{BRANCH}}` and `{{PR_BODY_RULES}}` without
+   `capture_unset`, and one at execute's `spawn_and_await` materializes no
+   second batch.
 5. **A read-only chain surface.** `koto status` or
    `koto session hierarchy --json` reports `superseded_by` and `newest`
-   without a write, from the bucket under the cloud backend. Acceptance: a
-   reader on another host walks the chain to `newest`.
+   without a write, from the bucket under the cloud backend, and gives a
+   reader each member's state log read-only. Acceptance: a reader on another
+   host walks the chain to `newest` and reads a predecessor's log.
 6. **Refusals point at succession.** `execution_anchor_mismatch` and
    `execution_anchor_unresolvable` stop naming rebind as a continuation's fix.
 
@@ -727,8 +774,15 @@ answer.
 Needs Phase 1, and uses `dc_newest_member`'s log walk until koto's item 5
 lands. Deliverables: the shared newest-member lookup in the four templates
 and the readers; COMPAT numbers and CI fingerprint jobs for work-on, execute
-and scope, with each template's carry list beside its number; and the
-gate-figure readers adding `handover/gate-figures.json` to their own log.
+and scope, with each template's carry list beside its number; the
+gate-figure readers adding `handover/gate-figures.json` to their own log;
+`check-closing-keyword.sh --approved-pass` following the start event across
+the chain; and work-on's opener refusing a `--delivery` or `--delivery-reason`
+that differs from the seeded value. The chain read needs koto items 4 and 5.
+Acceptance: after an approved deferral, a successor started at
+`pr_creation` opens its pull request with `Part of #N` and goes on to CI
+monitoring; one whose chain shows a later return to `finalization` gets
+closing mode; and one whose predecessor's log can't be read holds at exit 2.
 
 ### Phase 4: Handover script and the uncoordinated route
 
@@ -739,7 +793,9 @@ Deliverables:
 - `scripts/handover.sh` with `write` and `open`, including the crashed-worker
   form, and the work-on, execute and scope openers calling `open`. `write`
   refuses a leg-bound unit until Phase 5 lands, so a leg can't be stranded by
-  the uncoordinated launch.
+  the uncoordinated launch. It also refuses a run whose chain shows an
+  approved pass while koto item 5 is missing, so an approved deferral is
+  never handed to a successor that can't read it.
 - Worker guidance: push, hand over at a cheap boundary, never rebind.
 - Field validation on both sides of `handover.sh` (see Security
   Considerations), a probe that refuses when koto's contract items are
@@ -811,6 +867,15 @@ successor's `-c<N>` name is checked for uniqueness against live and recorded
 sessions after it's cut to 40 characters, and a collision refuses before
 launch.
 
+An approved deferral keeps the partial-delivery design's trust boundary
+across a handover. The chain read uses only engine-written events: the
+`transitioned` event out of `deferral_approval` and koto's start event, which
+no tick, evidence or context write can produce. No carried key can switch the
+`closing_keyword` gate to non-closing mode. A start event naming a predecessor
+whose log can't be read holds the gate at exit 2, and the walk stops at the
+generation cap. As in that design, a forged approval can only leave an issue
+open, never close one.
+
 `koto context add` isn't anchor-checked, so the session store doesn't prove
 who wrote a key. Only `handover.sh` writes the note and the gate snapshot,
 and only the scripts that own them write the verification result, the
@@ -851,7 +916,9 @@ so it can push to the branch while the predecessor is still running.
 - Any non-terminal state is a valid handover point.
 - A successor on any host resumes with the suite result, test-change history,
   review rounds and gate figures, and reruns only what its checkout
-  invalidates.
+  invalidates. A declared partial delivery and an approved deferral both
+  survive, so the successor's pull request keeps the issue open as its
+  predecessor's would have.
 - A handover costs the worker one script and a stop, so bypassing it gains
   nothing.
 - A coordinated unit keeps one row and one lane, with a leg open throughout.
@@ -870,6 +937,9 @@ so it can push to the branch while the predecessor is still running.
   acceptance whose session can't be found from the host stops counting.
 - Retry caps that live only in directive prose aren't in the snapshot, so
   they restart with each successor.
+- The `closing_keyword` gate becomes the one gate that reads across the
+  chain, and an approved deferral can't be handed over until koto's chain
+  surface lands.
 - execute's batch children still work in place, a crashed worker's unpushed
   work is lost, and a continuation started by hand stays unrecorded.
 - deliver's successor restarts at `open_request` and relies on scope's
@@ -888,5 +958,6 @@ so it can push to the branch while the predecessor is still running.
   signing gets its own decision.
 - Worker guidance to push and hand over at a cheap boundary keeps prose retry
   counts and unpushed work small. execute's stopgap is guarded.
-- Deferred work has named triggers: koto moving the leg, superseding a
-  `--parent` child, and chain-scoped reads if the snapshot proves inadequate.
+- Deferred work has named triggers: koto moving the leg; superseding a
+  `--parent` child, tracked as koto#676, whose landing removes execute's
+  stopgap; and chain-scoped reads if the snapshot proves inadequate.
