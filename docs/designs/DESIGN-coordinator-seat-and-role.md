@@ -35,6 +35,7 @@ rationale: |
   key or into koto, keeping four roles, or taking an alias at takeover each
   either adds a second store, adds a write to every open, or changes shipped
   behaviour for a reader's convenience.
+upstream: docs/briefs/BRIEF-coordinator-seat-and-role.md
 ---
 
 # DESIGN: Coordinator Seat and Role
