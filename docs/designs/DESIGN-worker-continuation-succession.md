@@ -757,7 +757,9 @@ answer.
    evidence or decisions carry, and `koto rewind` refuses at the start state.
    The successor's log opens with an engine-written start event naming the
    predecessor session and its last sequence number, a type no tick, evidence
-   or context write can produce. Acceptance: a successor at work-on's
+   or context write can produce. koto writes it only after the fence
+   succeeds, and refuses `--continues` for a session the caller couldn't
+   fence. Acceptance: a successor at work-on's
    `pr_creation` renders `{{BRANCH}}` and `{{PR_BODY_RULES}}` without
    `capture_unset`, and one at execute's `spawn_and_await` materializes no
    second batch.
@@ -876,6 +878,20 @@ whose log can't be read holds the gate at exit 2, and the walk stops at the
 generation cap. As in that design, a forged approval can only leave an issue
 open, never close one.
 
+The chain read takes each predecessor's log only from koto's read-only chain
+surface, never from a path built out of event text. It exits 2, naming only
+the member and printing no log content, when any of these holds: a predecessor
+name fails the session-name grammar; a sequence number isn't an integer within
+that log's length; a start event names the session itself or a member already
+visited; or the walk passes the generation cap, which is the fixed constant in
+`handover.sh`, not a length koto reports. The start event is trusted because
+koto writes it only after a supersede fence succeeds, and koto item 4 refuses
+`--continues` for a session the caller couldn't fence. A hand-run
+`koto init --continues` outside `handover.sh open` can at worst leave an issue
+open. The opener's refusal of a differing `--delivery` or `--delivery-reason`
+is a consistency guard, not a security boundary: `DELIVERY` is already fixed
+at init.
+
 `koto context add` isn't anchor-checked, so the session store doesn't prove
 who wrote a key. Only `handover.sh` writes the note and the gate snapshot,
 and only the scripts that own them write the verification result, the
@@ -889,7 +905,8 @@ over forever. The progress check refuses a handover when the chain's
 previous handover recorded the same pushed head and state, so a generation
 that moved the unit nowhere can't pass it on again. `open` re-reads the
 pushed head at fence time and refuses on drift. Teardown validates a
-side-map entry's `instance` against its grammar before it reaps, compares
+side-map entry's `instance` against its grammar before it reaps, checks that
+the resolved path lies under the niwa instances root, compares
 that instance's tree and commits with the remote itself, not with the note,
 and keeps the instance on any difference. `handover.sh` probes for koto's
 contract items and refuses when they're missing, rather than running a
@@ -900,7 +917,9 @@ who can write the session store can forge carried keys, acceptances
 included, since nothing binds a key to the script that wrote it. Task text
 and recorded decisions reach the cloud session store and live as long as the
 session does; that store's access control is their only guard, and a secret
-pasted into task text is carried and stored with it. The gate snapshot grows
+pasted into task text is carried and stored with it. The same holds for the
+note's `reason` and a carried `DELIVERY_REASON`, which can also reach a public
+pull request body, so neither may hold private context or secrets. The gate snapshot grows
 with each hop, bounded by the generation cap. And a continuation started by
 hand, outside the route, is unrecorded and unfenced until its own init runs,
 so it can push to the branch while the predecessor is still running.
