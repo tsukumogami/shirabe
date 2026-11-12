@@ -47,6 +47,10 @@ pub struct Word {
     pub ansi_c: bool,
     /// Starts with an unquoted `~`, which the shell would expand.
     pub tilde: bool,
+    /// Holds an unquoted `{`, which the shell may brace-expand into more
+    /// words: `{-c,"gh pr create"}` is the two words `-c` and `gh pr create`.
+    /// A `{` inside quotes, as in a quoted JSON argument, is text.
+    pub brace: bool,
     /// The here-document this word's `<<` operator opened, as an index into
     /// [`Tokenized::heredocs`].
     pub heredoc: Option<usize>,
@@ -554,6 +558,9 @@ impl<'a> Scanner<'a> {
                 _ => {
                     if !lv.in_word && c == b'~' {
                         lv.word.tilde = true;
+                    }
+                    if c == b'{' {
+                        lv.word.brace = true;
                     }
                     lv.begin(self.i);
                     lv.cur.push(c);
