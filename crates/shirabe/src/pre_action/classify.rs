@@ -458,7 +458,10 @@ fn candidates(j: usize, ambiguous: bool) -> Vec<usize> {
 /// `-CDIR`), and all of them before the arm for any other word starting with
 /// `-`, which gives up.
 fn env_command(ws: &[Word]) -> Option<(usize, bool)> {
-    let plain = |w: &Word| !w.expansion && !w.ansi_c;
+    // A brace word may expand into several (`{A=1,gh}` is `A=1 gh`), so one
+    // anywhere in env's words, as an option's value, an assignment or the
+    // command, leaves the segment to the text test.
+    let plain = |w: &Word| !w.expansion && !w.ansi_c && !w.brace;
     let mut j = 0;
     while let Some(w) = ws.get(j) {
         if !plain(w) {
@@ -1614,6 +1617,22 @@ mod tests {
             "bash run.sh 'text mentioning gh pr edit' > out.log 2>&1",
         ] {
             assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_brace_word_among_envs_own_words_sends_the_whole_text_to_the_test() {
+        // Skipped as an assignment or an option's value, a brace word could
+        // expand into the command itself: `env {A=1,gh} pr create` runs
+        // `env A=1 gh pr create`.
+        let wrapped = [(Action::Pr(None), Case::Wrapped)];
+        for cmd in [
+            "env {A=1,gh} pr create --title x",
+            "env -u {X,gh} pr create --title x",
+            "env -C {/tmp,gh} pr create --title x",
+            "env --unset={X,gh} pr create --title x",
+        ] {
+            assert_eq!(fails(cmd), wrapped, "{cmd}");
         }
     }
 
