@@ -661,4 +661,44 @@ kill -TERM "$pid" 2> /dev/null
 wait "$pid" 2> /dev/null
 if [ -z "$(ls -A "$PT")" ]; then ok "a check killed mid-read leaves no temporary directory"; else bad "a check killed mid-read leaves no temporary directory" "$(ls -A "$PT")"; fi
 
+# A check killed while it makes its temporary directory (shirabe#1695): a
+# mktemp in front of the real one that, for the check's own template, makes
+# the directory and then sends TERM to the check before handing back its name.
+# The check's pid comes from a file the test writes once the check has
+# started, so the shim never guesses which process to signal. Every other
+# template (state-common.sh's state-driver. directories) passes straight
+# through.
+mkdir -p "$T/mk"
+cat > "$T/mk/mktemp" <<EOF
+#!/usr/bin/env bash
+out=\$("$(command -v mktemp)" "\$@") || exit \$?
+case "\$*" in *"\$MKTEMP_TERM_PREFIX"*)
+    i=0
+    while [ ! -s "\$MKTEMP_TERM_PIDFILE" ] && [ "\$i" -lt 50 ]; do sleep 0.1; i=\$((i + 1)); done
+    kill -TERM "\$(cat "\$MKTEMP_TERM_PIDFILE")" 2> /dev/null ;;
+esac
+printf '%s\n' "\$out"
+EOF
+chmod +x "$T/mk/mktemp"
+MT="$T/mk-tmp"
+mkdir -p "$MT"
+rm -f "$T/mk.pid"
+(MKTEMP_TERM_PREFIX=deferral-check. MKTEMP_TERM_PIDFILE="$T/mk.pid" PATH="$T/mk:$PATH" TMPDIR="$MT" exec bash "$DC" --session "$S" > /dev/null 2>&1) &
+pid=$!
+echo "$pid" > "$T/mk.pid.new" && mv "$T/mk.pid.new" "$T/mk.pid"
+wait "$pid" 2> /dev/null
+if [ -z "$(ls -A "$MT")" ]; then ok "a check killed while it makes its temporary directory leaves none"; else bad "a check killed while it makes its temporary directory leaves none" "$(ls -A "$MT")"; fi
+
+# lib_jobs_stop stops every background job the check started, not only the
+# ones lib_job_start recorded: a job forked by lib_job_start but not yet
+# recorded when a signal ran the EXIT trap would otherwise outlive the stop
+# and write into the directory being removed.
+SP=$( . "$HERE/state-common.sh"; sleep 30 > /dev/null 2>&1 & echo $!; lib_jobs_stop )
+if kill -0 "$SP" 2> /dev/null; then
+    kill "$SP" 2> /dev/null
+    bad "lib_jobs_stop stops a background job it has no record of" "pid $SP still running"
+else
+    ok "lib_jobs_stop stops a background job it has no record of"
+fi
+
 done_tests deferral-check

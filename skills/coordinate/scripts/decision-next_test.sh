@@ -327,4 +327,31 @@ done
 eq "kc_take routes to take" "take 6" "$VERDICT_kc_take"
 eq "kc_parked is judged parked: clear" "clear" "$VERDICT_kc_parked"
 
+# A rule read killed while it makes its temporary directory (shirabe#1695): a
+# mktemp in front of the real one that, for decision-next's own template,
+# makes the directory and then sends TERM to the script before handing back
+# its name. The pid comes from a file the test writes once the script has
+# started; every other template passes straight through.
+build take
+mkdir -p "$T/mk"
+cat > "$T/mk/mktemp" <<EOF
+#!/usr/bin/env bash
+out=\$("$(command -v mktemp)" "\$@") || exit \$?
+case "\$*" in *"\$MKTEMP_TERM_PREFIX"*)
+    i=0
+    while [ ! -s "\$MKTEMP_TERM_PIDFILE" ] && [ "\$i" -lt 50 ]; do sleep 0.1; i=\$((i + 1)); done
+    kill -TERM "\$(cat "\$MKTEMP_TERM_PIDFILE")" 2> /dev/null ;;
+esac
+printf '%s\n' "\$out"
+EOF
+chmod +x "$T/mk/mktemp"
+MT="$T/mk-tmp"
+mkdir -p "$MT"
+rm -f "$T/mk.pid"
+(MKTEMP_TERM_PREFIX=decision-next. MKTEMP_TERM_PIDFILE="$T/mk.pid" PATH="$T/mk:$PATH" TMPDIR="$MT" exec bash "$DN" --session "$S" > /dev/null 2>&1) &
+pid=$!
+echo "$pid" > "$T/mk.pid.new" && mv "$T/mk.pid.new" "$T/mk.pid"
+wait "$pid" 2> /dev/null
+if [ -z "$(ls -A "$MT")" ]; then ok "a rule read killed while it makes its temporary directory leaves none"; else bad "a rule read killed while it makes its temporary directory leaves none" "$(ls -A "$MT")"; fi
+
 done_tests decision-next
