@@ -40,7 +40,9 @@
 //! program may run), still makes the segment a wrapped guarded command. Every
 //! other wrapper, an interpreter given an option first (`bash -c`), and an
 //! `env` or a script whose words the hook can't read that way (`env_command`,
-//! [`named_in_argv`]) is judged by the coarse test on its text.
+//! [`named_in_argv`], a brace word, or a redirection that feeds input, which
+//! can be the script itself: `bash /dev/stdin <<< '...'`) is judged by the
+//! coarse test on its text.
 //!
 //! The directory starts at the input's `cwd` and moves through `cd` and
 //! `pushd` with one literal argument; `cd` with none, `-` or a non-literal
@@ -213,7 +215,8 @@ pub fn named_in_text(text: &str) -> Named {
 ///
 /// `None` when the words can't be read that way, and the caller falls back to
 /// the text test over the whole segment: a word the shell expands (`$X`,
-/// `$'...'`), which may split into more words; a word with a glob character
+/// `$'...'`, an unquoted `{`), which may split into more words (`bash
+/// {-c,"gh pr create"}` is `bash -c 'gh pr create'`); a word with a glob character
 /// (`*`, `?`, `[`) and no whitespace, which may match file names that are
 /// command words (a match of a word holding whitespace holds it too); or a
 /// word with a piece, split at `/`, `{`, `}`, `,` and `=` and folded as a head
@@ -225,7 +228,7 @@ fn named_in_argv(ws: &[Word]) -> Option<Named> {
     let mut kept = Vec::with_capacity(ws.len());
     for w in ws {
         let t = w.text.as_str();
-        if w.expansion || w.ansi_c {
+        if w.expansion || w.ansi_c || w.brace {
             return None;
         }
         let spaced = t.chars().any(char::is_whitespace);
@@ -500,11 +503,31 @@ fn env_command(ws: &[Word]) -> Option<(usize, bool)> {
 
 /// Whether an interpreter given the arguments `ws`, redirections dropped,
 /// runs a script file: its first argument is a word the shell doesn't expand
-/// and isn't an option (`-c`, `-e`, `-m`, `+O`), which could make the code
-/// inline or change how the next word is read.
+/// (a `$`, `$'...'` or an unquoted `{`, which may expand to `-c` and a
+/// string) and isn't an option (`-c`, `-e`, `-m`, `+O`), which could make the
+/// code inline or change how the next word is read.
 fn runs_a_script(ws: &[Word]) -> bool {
     ws.first().is_some_and(|w| {
-        !w.expansion && !w.ansi_c && !w.text.is_empty() && !w.text.starts_with(['-', '+'])
+        !w.expansion
+            && !w.ansi_c
+            && !w.brace
+            && !w.text.is_empty()
+            && !w.text.starts_with(['-', '+'])
+    })
+}
+
+/// Whether a segment's words `ws` carry a redirection that feeds input, before
+/// the head or after it: an operator starting with `<` after an optional
+/// file-descriptor number (`<`, `<<<`, `<&`, `<>`, `3<`), or a here-document.
+/// The script file an interpreter runs can be that input (`bash /dev/stdin
+/// <<< '...'`, `bash /dev/fd/3 3<<< '...'`), so the code is inline after all.
+fn feeds_input(ws: &[Word]) -> bool {
+    ws.iter().any(|w| {
+        w.heredoc.is_some()
+            || (w.redirect
+                && w.text
+                    .trim_start_matches(|c: char| c.is_ascii_digit())
+                    .starts_with('<'))
     })
 }
 
@@ -591,7 +614,13 @@ fn kind_words(ws: &[Word]) -> Kind {
         // or another option first, take a shell string (`bash -c`, `eval`,
         // `ssh`) or an option grammar of their own (`sudo -u`, `timeout 5`,
         // `xargs`) that can hide one, so their text decides.
-        let whole = || named_in_text(&text_of(&ws[i..]));
+        //
+        // A redirection that feeds input may carry the code a script reads
+        // (`bash /dev/stdin <<< '...'`), and it may stand before the head, so
+        // then neither argv reading runs and the text test takes every word of
+        // the segment.
+        let fed = feeds_input(ws);
+        let whole = || named_in_text(&text_of(if fed { ws } else { &ws[i..] }));
         let named = if name == "env" {
             match env_command(rest) {
                 // env's own words still get the text test, apart from the
@@ -603,6 +632,8 @@ fn kind_words(ws: &[Word]) -> Kind {
                 Some((j, is_gh)) => {
                     let command = if is_gh {
                         Some(named_by(&kind_words(&rest[j..])))
+                    } else if fed {
+                        None
                     } else {
                         named_in_argv(&rest[j..])
                     };
@@ -617,7 +648,7 @@ fn kind_words(ws: &[Word]) -> Kind {
                 }
                 None => whole(),
             }
-        } else if INTERPRETERS.contains(&name) && runs_a_script(rest) {
+        } else if INTERPRETERS.contains(&name) && !fed && runs_a_script(rest) {
             named_in_argv(rest).unwrap_or_else(whole)
         } else {
             whole()
@@ -1546,6 +1577,65 @@ mod tests {
             "bash run.sh git push",
         ] {
             assert_eq!(fails(cmd), vec![(Action::Push, Case::Wrapped)], "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_brace_word_or_fed_input_sends_the_whole_text_to_the_test() {
+        // An unquoted brace may expand into an option and a string, and a
+        // script file may be the input a redirection feeds, so the code is
+        // inline after all: the whole segment's text decides.
+        let wrapped = [(Action::Pr(None), Case::Wrapped)];
+        for cmd in [
+            "bash /dev/stdin <<< 'gh pr create --title x'",
+            "sh /dev/stdin <<<'gh pr create --title x'",
+            "python3 /dev/fd/0 <<< 'import os; os.system(\"gh pr create\")'",
+            "bash /dev/fd/3 3<<< 'gh pr create --title x'",
+            "<<< 'gh pr create --title x' bash /dev/stdin",
+            "bash run.sh 'gh pr create --title x' < input.txt",
+            "bash {-c,\"gh pr create --title x\"}",
+            "bash {-c,'gh pr edit 3 --title y'}",
+            "env {gh,pr,create,--title,\"x y\"}",
+            "env -u X {gh,pr,create,--title,\"x y\"}",
+            "env koto x <<< 'gh pr create --title x'",
+        ] {
+            assert_eq!(fails(cmd), wrapped, "{cmd}");
+        }
+        assert_eq!(
+            fails("bash /dev/stdin <<< 'git push'"),
+            vec![(Action::Push, Case::Wrapped)]
+        );
+        // A brace inside quotes is text, and an output redirection feeds
+        // nothing, so these are still data.
+        for cmd in [
+            "bash run.sh '{\"note\": \"gh pr create here\"}'",
+            "bash run.sh \"{a,b} then gh pr create\"",
+            "env -u GH_TOKEN koto next w --with-data '{\"note\": \"gh pr edit\"}'",
+            "bash run.sh 'text mentioning gh pr edit' > out.log 2>&1",
+        ] {
+            assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+    }
+
+    #[test]
+    fn every_interpreter_reads_a_script_and_the_other_wrappers_their_text() {
+        for cmd in [
+            "sh run.sh 'a note on gh pr create'",
+            "zsh run.zsh 'a note on gh pr create'",
+            "dash run.sh 'a note on gh pr create'",
+            "ruby x.rb 'a note on gh pr create'",
+            "python tool.py 'a note on gh pr create'",
+        ] {
+            assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+        let wrapped = [(Action::Pr(None), Case::Wrapped)];
+        for cmd in [
+            "eval 'gh pr create --title x'",
+            "ssh host 'gh pr create --title x'",
+            "sudo gh pr create --title x",
+            "xargs gh pr create --title x",
+        ] {
+            assert_eq!(fails(cmd), wrapped, "{cmd}");
         }
     }
 

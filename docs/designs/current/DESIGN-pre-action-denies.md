@@ -497,10 +497,17 @@ as one argument and no command word holds one, and the text test reads
 the rest. A quoted prose argument is data, then, while `bash run.sh gh
 pr create` and `env stdbuf -oL gh pr create` still name the create in
 plain words (#1524). The whole segment's text decides instead when a
-word may not be what it looks like: one the shell expands, one with a
-glob character and no whitespace, or one with a piece that is `git` or
-a listed wrapper. `git` is read by its subcommand's name, so `env git -c
-'alias.p=!git push' p` names no push. A listed wrapper, a nested `env`
+word may not be what it looks like: one the shell expands, an unquoted
+`{` included (`bash {-c,"gh pr create"}` is `bash -c 'gh pr create'`),
+one with a glob character and no whitespace, or one with a piece that is
+`git` or a listed wrapper. It decides too when the segment has a
+redirection that feeds input, before the head or after it (`<`, `<<<`,
+`3<`, a here-document): the script can be that input (`bash /dev/stdin
+<<< '...'`), so the code is inline, and the text test then reads every
+word of the segment. `git` runs an alias by its name, so in `env git -c
+'alias.p=!git push' p` the subcommand word is `p`, not `push`; the piece
+`git` is why the whole text decides there, and that text names the
+push. A listed wrapper, a nested `env`
 included, can join env's words with its own: in `env 'BASH_FUNC_f%%=() {
 gh "$@"; }' bash -c 'f pr create'` env's words hold only `gh` and bash's
 only `pr create`, and bash imports the function and runs the create. A

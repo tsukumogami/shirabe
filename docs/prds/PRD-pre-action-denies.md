@@ -236,8 +236,12 @@ These terms mean the same thing everywhere below.
   and no command word holds one, and apply the text test to the rest. So
   `bash run.sh "text mentioning gh pr edit"` names nothing and `bash
   run.sh gh pr create` still names a create. The text test over the
-  whole segment decides instead when any of those words is one the shell
-  expands, holds a glob character and no whitespace, or holds a piece
+  whole segment decides instead when the segment has a redirection that
+  feeds input (`<`, `<<<`, `3<`, a here-document), since the script can
+  be that input (`bash /dev/stdin <<< '...'`), and when any of those
+  words is one the shell expands (an unquoted `{` included: `bash
+  {-c,"gh pr create"}` is `bash -c 'gh pr create'`), holds a glob
+  character and no whitespace, or holds a piece
   (split at `/`, `{`, `}`, `,` and `=`) that is `git` or a listed
   wrapper: a wrapper there can join the words or run a string of its own
   (`env stdbuf sh -c '...'`, `env 'BASH_FUNC_f%%=() { gh "$@"; }' bash
