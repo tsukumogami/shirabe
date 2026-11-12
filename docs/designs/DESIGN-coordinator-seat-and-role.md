@@ -256,8 +256,9 @@ Key assumptions:
 - A fleet reader may name a session's role through one shirabe reader script.
   If a reader outside shirabe must read a plain stored value instead, a key
   becomes necessary and the call count has to give.
-- A top session a person runs outside `/coordinate` isn't a shirabe-opened
-  session.
+- A top session a person runs without any shirabe skill isn't a
+  shirabe-opened session and holds no seat. (A shirabe skill a person starts
+  directly does hold one, a root seat.)
 
 #### Chosen: The Run row stays the one store, every other role is derived, and one reader reads both
 
@@ -278,7 +279,7 @@ the reader. There is no copy, so there is no check to keep a copy in step.
 
 The top seat with no coordinate record needs no writer. A top session run as
 `/coordinate --role director` keeps its role in its own record like any
-coordinator. A person's session outside `/coordinate` holds no seat; the
+coordinator. A person's session that runs no shirabe skill holds no seat; the
 reader shows it only as the address a parentless coordinator's `reports-to`
 row names.
 
@@ -395,7 +396,7 @@ written:
 
 | Seat | Name | Role | Parent | Current holder | Unit |
 |------|------|------|--------|----------------|------|
-| Coordinator | `coordinate-<SLUG>` | Run `role` row (`manager`, `director`, or `no-role` in the handover gap) | seat of the first holder's dispatcher, unless that is a predecessor | newest member, by the supersede walk and scope fence | the scope in `record/meta` |
+| Coordinator | `coordinate-<SLUG>` | Run `role` row (`manager`, `director`, or `no-role` in the handover gap) | seat of the first dispatcher with another SLUG, walking back past predecessors | newest member, by the supersede walk and scope fence | the scope in `record/meta` |
 | Worker | `<parent seat>/<dispatch topic>` | `worker` | the seat whose Holdings row names it | the newest session matched to that row | the Holdings row: topic, repository, branch, pull request |
 | Root | `<skill>-<topic>` | `worker` | none | the session itself | its topic |
 
@@ -452,7 +453,9 @@ work exactly as they do today.
 - **Successor** -- a new holder of the same seat. A session never moves
   between seats.
 - **Role** -- the seat's kind: `director`, `manager` or `worker`. It says what
-  the holder owes, never what it may do.
+  the holder owes, never what it may do. `no-role` is not a role: it is what
+  the reader prints for a coordinator seat whose record is in the handover
+  gap, the same answer the report's record line gives.
 - **Unit** -- what the seat works on: a coordinator's scope, a worker's
   holding, a root session's topic. Its kind is the entry-point skill.
 
@@ -497,7 +500,7 @@ Prints, on success, one field per line:
 
 ```
 seat_name=<name>
-seat_role=director|manager|worker|no-role
+seat_role=director|manager|worker|no-role    (no-role: the handover-gap sentinel)
 seat_parent=<name>|none
 seat_holder=<koto session of the current holder>
 seat_unit=<scope, holding topic, or topic>
@@ -514,18 +517,26 @@ the contract a fleet reader builds against.
 
 ### Data Flow
 
-For a coordinate run, the reader drops the timestamp from the session name
-to get the seat name, confirms the scope in `record/meta`, walks forward to
-the newest member as `resolve-coordinator.sh` does, and reads that member's
-Run `role` row. It finds the parent from the first holder's `dispatched-by`
-link, treating a link to a run with the same SLUG, or one its `continues`
-link names, as a predecessor rather than a parent.
+For a coordinate run, the reader drops the fixed `-<YYYYMMDD>T<HHMMSS>Z`
+suffix from the session name to get the seat name, confirms the scope in
+`record/meta`, walks forward to the newest member as `resolve-coordinator.sh`
+does, and reads that member's Run `role` row. It finds the parent by walking
+back instead: from the session it was given, it follows each `dispatched-by`
+or `continues` link that names a run with the same SLUG (a predecessor, by
+takeover or by carry) until it reaches a holder whose `dispatched-by` link
+names a session with another SLUG, or none. That session's seat is the
+parent; a holder with no such link makes the seat a root. Both walks reuse
+the resolver's hop cap and cycle check (`DC_HOP_CAP`, exit 3 past it, exit 1
+on a cycle), so no chain of sessions can hang the reader.
 
 For any other session, it checks the template and `chain/parent` to decide
-whether the session holds a seat, follows the `dispatched-by` link to the
-parent, matches the session's `session/branch` against the parent's Holdings
-rows to find its dispatch topic, and prints the worker seat. With no
-`dispatched-by` link it prints a root seat named after the session.
+whether the session holds a seat, then follows its `dispatched-by` link. When
+that link names a coordinate run whose Holdings row has the session's
+`session/branch`, the session holds that worker seat, and among sessions
+matched to one row the newest by creation time is the current holder. In
+every other case (no link, a dispatcher that isn't a coordinate run, or no
+Holdings row that matches) the session holds a root seat named after itself,
+with `seat_parent=none`: the safe default when the parent can't be confirmed.
 
 Direct reports need no scan of the store: a coordinator seat's children are
 its Holdings rows. A holder history is the walk from any member.
@@ -535,45 +546,40 @@ its Holdings rows. A holder history is the walk from any member.
 This design changes nothing on its own. The later work is in shirabe, in
 this order.
 
-### Phase 1: The reader
-
-Add `seat-read.sh` and its tests against fixture sessions: a coordinate run
-of each role, one in the handover gap, a takeover, a carry, a worker matched
-to its holding, a root session, a nested child and a session from a foreign
-template.
-
-Deliverables:
-- `skills/coordinate/scripts/seat-read.sh`
-- its test file beside the coordinate script tests
-
-### Phase 2: The guards
-
-Add `seat-read.sh` to the role structure test's reader allow-list, and add a
-check that no grant, posture or dispatch path calls it.
-
-Deliverables:
-- the role structure test's allow-list entry
-- the role-blind check
-
-### Phase 3: The words
+### Phase 1: The words
 
 Add Seat and Holder entries to the coordinate skill's Glossary, and widen the
-Worker entry to cover a seated session a person started directly.
+Worker entry to cover a seated session a person started directly. It needs no
+reader, so it can land first and give both plans a definition in the skill
+itself.
 
 Deliverables:
 - `skills/coordinate/SKILL.md` Glossary entries
 
-### Follow-on issues
+### Phase 2: The reader and its guards
 
-Each is proposed for filing in its repository's own terms; this design files
+Add `seat-read.sh`, its entry on the role structure test's reader
+allow-list, and a check that no grant, posture or dispatch path calls it, in
+one change, as Decision 2 requires. Its tests use synthetic fixture
+sessions covering each kind of seat and each kind of session that holds
 none.
 
-- **shirabe: add `seat-read.sh`, the read model for a session's seat**
-  (Phases 1 and 2). Prints a session's seat name, role, parent, current holder,
-  unit and entry point from what koto already holds; joins the role reader
-  allow-list; no grant path calls it.
-- **shirabe: define Seat and Holder in the coordinate Glossary** (Phase 3),
+Deliverables:
+- `skills/coordinate/scripts/seat-read.sh` and its test file
+- the allow-list entry and the role-blind check
+
+### Follow-on work
+
+This design changes nothing itself, so the work it needs is named here in
+each repository's own terms for `/plan` or the owning lane to file; this
+design files none.
+
+- **shirabe: define Seat and Holder in the coordinate Glossary** (Phase 1),
   and widen Worker to cover a seated session nobody dispatched.
+- **shirabe: add `seat-read.sh`, the read model for a session's seat**
+  (Phase 2). Prints a session's seat name, role, parent, current holder, unit
+  and entry point from what koto already holds; joins the role reader
+  allow-list; no grant path calls it.
 - **shirabe: a carry writes a `continues` link** -- already filed as
   tsukumogami/shirabe#1740. Seat identity holds without it; an ordered holder
   history on the carry path needs it.
@@ -584,7 +590,11 @@ none.
 
 No niwa or tools change is needed. If the stable address ever has to pass
 `niwa authority check`, that binding stays on the holder's dispatch id, which
-is the stable-address work's question, not this definition's.
+is the stable-address work's question, not this definition's. That work also
+owns two prerequisites this design names but doesn't settle: how a sender
+knows the holder it resolved is genuine, and what happens when a takeover
+lands between resolving the address and delivering to it (Security
+Considerations).
 
 ## Security Considerations
 
@@ -613,15 +623,39 @@ to the stable address would reach it. That is already true of
 worker's `session/branch` and `dispatched-by` link are written by the worker
 itself, so the worker-to-holding match is a display aid that may be wrong or
 forged. The reader shows a worker seat only when the parent's Holdings row
-and the worker's link agree, and a session from a template shirabe doesn't
-ship holds no seat.
+and the worker's link agree, and even then a worker's `seat_holder` is
+unverified: a session that copies a real worker's link and branch would be
+matched too. A session from a template shirabe doesn't ship holds no seat.
 
-**Untrusted strings.** Topics, branches, scopes and session names can be
-written by other sessions. The reader checks each value it prints against a
-fixed character set and length cap, rejects a newline anywhere and a `/` in
-a topic, quotes every expansion, passes `--` before names it hands to koto,
-and exits 1 rather than print a value that fails. Its consumers, person or
-agent, read the output as data.
+**The stable address raises the stakes.** Publishing `coordinate-<SLUG>` as
+the address lanes report to makes the newest-holder exposure above matter
+more, and a takeover that lands between resolving and delivering sends a
+message to a fenced holder. Until the stable-address work settles holder
+verification and that race, a seat name carries no instruction on its own
+authority: a message to it is a report, and anything that needs authority
+still checks the holder's dispatch id.
+
+**Names can't collide.** A coordinator seat name always starts with
+`coordinate-` and comes only from a session on the coordinate template; a
+root seat's `<skill>-<topic>` never starts with it, since no other skill is
+named `coordinate`; a worker seat always contains a `/`, which no session
+name may. The suffix the reader drops has one fixed shape,
+`-<YYYYMMDD>T<HHMMSS>Z`, so dropping it is never ambiguous.
+
+**Untrusted strings and long chains.** Topics, branches, scopes and session
+names can be written by other sessions. The reader checks every name it
+prints against koto's session-name rule (`^[A-Za-z0-9][A-Za-z0-9._-]*$`, at
+most 200 bytes) and every branch against the record's branch rule
+(`^[A-Za-z0-9._/-]+$`), rejects a newline anywhere, quotes every expansion,
+passes `--` before names it hands to koto, and exits 1 rather than print a
+value that fails. Its walks stop at the resolver's hop cap and on a cycle.
+Its consumers, person or agent, read the output as data, never as
+instructions.
+
+**One user's store.** The design assumes the koto store is written only by
+the local user's own sessions, as every coordinate script already does.
+A store shared with other users would need its own access controls, which
+are koto's concern and outside this definition.
 
 **Exposure.** The output holds session names, scopes, topics, repositories
 and branches: no record bodies and no credentials. In a workspace with
