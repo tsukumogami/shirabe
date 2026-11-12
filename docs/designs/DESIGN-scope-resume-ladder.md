@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A resumed /scope session can't leave resume_route. Its ladder gate runs a
   probe that waits on seven koto lookups with koto's default 30 s and no
@@ -36,7 +36,7 @@ user_visible_surface: true
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
