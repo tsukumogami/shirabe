@@ -588,27 +588,46 @@ is the stable-address work's question, not this definition's.
 
 ## Security Considerations
 
-The design adds no store, no write, no credential and no network path; the
-reader it names only reads koto sessions the caller can already read.
+The design adds no store, no write, no credential and no network path. The
+reader it names, `seat-read.sh`, only reads koto sessions the caller can
+already read. Its trust boundary is the local user's koto store: a seat is a
+label derived from that store, not an authenticated identity.
 
-The main risk is a role or seat name turning into permission. A role says
-what a holder owes; it is never an allowance, and nothing passes it to `niwa
-dispatch --role`, whose role grants authorities. The reader joins the
-structure test's allow-list and a check keeps every grant, posture and
-dispatch path from calling it, so a later change can't quietly route the
-role into an allowance. A seat name, including the stable address, identifies
-a position and grants nothing: who may act still rests on the holder's
-dispatch and the workspace's authority configuration.
+**Role and seat name are never authority.** A role says what a holder owes.
+Nothing passes it to `niwa dispatch --role`, whose role grants authorities,
+and no allowance read takes it. The reader joins the role structure test's
+allow-list, and a check keeps shirabe's grant, posture and dispatch paths
+from calling it. That check covers shirabe only, so any other consumer,
+including a fleet-status view and a later stable-address binding, treats
+`seat_name` and `seat_role` as advisory labels. Where an action needs
+authority, the check stays on the holder's dispatch id through `niwa
+authority check`.
 
-A seat's current holder is decided by koto's supersede events and the scope
-fence `resolve-coordinator.sh` already applies, not by a name a session
-claims. A session can't take over a seat by naming itself after it, because
-the walk follows supersede events written by `koto init --supersede`, and a
-member whose `record/meta` scope differs ends the walk.
+**Spoofing.** A coordinator seat's holder is decided by koto's supersede
+events and the scope fence, not by a name a session claims, so a session
+can't become a seat's holder by being named like it. That is no protection
+against a local actor who can run `koto init --supersede` or write
+`record/meta`: such an actor can become the newest holder, and a message sent
+to the stable address would reach it. That is already true of
+`resolve-coordinator.sh`; this design neither adds nor removes it. A
+worker's `session/branch` and `dispatched-by` link are written by the worker
+itself, so the worker-to-holding match is a display aid that may be wrong or
+forged. The reader shows a worker seat only when the parent's Holdings row
+and the worker's link agree, and a session from a template shirabe doesn't
+ship holds no seat.
 
-The reader prints session names, scopes, topics and branches, the same facts
-a coordinator's reports already carry. It prints no record content beyond
-those rows and no credential.
+**Untrusted strings.** Topics, branches, scopes and session names can be
+written by other sessions. The reader checks each value it prints against a
+fixed character set and length cap, rejects a newline anywhere and a `/` in
+a topic, quotes every expansion, passes `--` before names it hands to koto,
+and exits 1 rather than print a value that fails. Its consumers, person or
+agent, read the output as data.
+
+**Exposure.** The output holds session names, scopes, topics, repositories
+and branches: no record bodies and no credentials. In a workspace with
+private repositories these can name private work, so the output stays local
+and isn't pasted into public pull requests, issues or CI logs. Test fixtures
+use synthetic names.
 
 ## Consequences
 
