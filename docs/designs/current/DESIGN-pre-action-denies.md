@@ -472,16 +472,16 @@ such as `nice`, `ssh`, `docker` and `mise`, and the interpreters
 passes the coarse "named in the text" test, and a segment whose head
 starts with `$` and that has a later word `push` or `pr` followed by
 `create`, `new` or `edit` (`$G push` names no `git` for the coarse test to
-find). All are fail-closed cases, with the one `env` exception that
-follows.
+find). All are fail-closed cases, with the `env` and script exceptions
+that follow.
 
-`env` is the one wrapper read by the command it runs. Agents prefix
+`env` is read by the command it runs. Agents prefix
 commands with `env -u GH_TOKEN` routinely, and the coarse test over the
 whole segment reads quoted arguments as words: a `gh pr merge` whose
 `--body` says "new", or a `gh issue create` whose title mentions `gh pr
 create`, would read as a wrapped create. So the classifier skips the env
-options it reads (`env_command` lists them: `-i`, `-u NAME`, `--` and a
-few that take no value) and every operand holding a `=`, since env takes
+options it reads (`env_command` lists them: `-i`, `-u NAME`, `-C DIR`,
+`--` and a few that take no value) and every operand holding a `=`, since env takes
 any of those as an assignment (`a-b=1` and `'X Y=1'` included, not only
 shell names). When the command left is `gh`, it is classified as a
 segment of its own, and the skipped words get the text test, since gh
@@ -489,21 +489,30 @@ can run what an assignment carries (`GH_BROWSER`, `GH_EDITOR`). A guarded
 command in either makes the `env` segment a wrapped guarded command, and
 anything else is no guarded action; a merge body comes after `gh`, so the
 text test never reads it, and gh is no wrapper, so nothing joins the two
-halves. Any other command gets the text test over the whole segment. It
-may be a launcher the wrapper list lacks (`stdbuf`, `arch`, `ksh -c`),
-which only the text test reads past. (`GH` is `gh`: heads compare in any
-case.) It may be `git`, which the classifier reads by its
-subcommand's name, so `git -c 'alias.p=!git push' p` names no push. Or it
-may be a listed wrapper, a nested `env` included, which can join env's
-words with its own: in `env 'BASH_FUNC_f%%=() { gh "$@"; }' bash -c 'f pr
-create'` env's words hold only `gh` and bash's only `pr create`, and
-bash imports the function and runs the create. So does an option the
-hook doesn't read (`-S` splits a string into a command, `-C` changes
-directory) and a word the shell expands before the command. The other
-wrappers keep the text test: each
-takes a shell string (`bash -c`, `eval`, `ssh`) or an option grammar of
-its own (`sudo -u`, `timeout 5`, `xargs`) that can carry a guarded command
-where a word-by-word reading would miss it.
+halves. (`GH` is `gh`: heads compare in any case.) Any other command,
+and a script an interpreter runs (`bash run.sh ...`, `python3 tool.py
+...`: a first argument that isn't an option), gets the program-words
+test: each word holding whitespace is dropped, since the program gets it
+as one argument and no command word holds one, and the text test reads
+the rest. A quoted prose argument is data, then, while `bash run.sh gh
+pr create` and `env stdbuf -oL gh pr create` still name the create in
+plain words (#1524). The whole segment's text decides instead when a
+word may not be what it looks like: one the shell expands, one with a
+glob character and no whitespace, or one with a piece that is `git` or
+a listed wrapper. `git` is read by its subcommand's name, so `env git -c
+'alias.p=!git push' p` names no push. A listed wrapper, a nested `env`
+included, can join env's words with its own: in `env 'BASH_FUNC_f%%=() {
+gh "$@"; }' bash -c 'f pr create'` env's words hold only `gh` and bash's
+only `pr create`, and bash imports the function and runs the create. A
+launcher the wrapper list lacks is read as it would be bare, so `env ksh
+-c '...'` gets no decision, as `ksh -c '...'` does; commands behind an
+unlisted launcher are #1021. An option env has that the hook doesn't
+read (`-S` splits a string into a command) and a word the shell expands
+before the command also leave the segment to the text test. The other
+wrappers, and an interpreter given an option first, keep the text test:
+each takes a shell string (`bash -c`, `python3 -c`, `eval`, `ssh`) or an
+option grammar of its own (`sudo -u`, `timeout 5`, `xargs`) that can
+carry a guarded command where a word-by-word reading would miss it.
 
 Before a guarded segment the classifier looks at every earlier segment
 of the same command. Before a `gh pr` segment, one that names the body
