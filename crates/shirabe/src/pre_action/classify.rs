@@ -1388,6 +1388,21 @@ mod tests {
     }
 
     #[test]
+    fn a_quoted_argument_to_a_script_or_program_is_data() {
+        // A script file or a program other than gh, given a quoted text that
+        // mentions a guarded command, runs no guarded command (#1524).
+        for cmd in [
+            "bash run.sh \"text mentioning gh pr edit 123 --body x\"",
+            "python3 tool.py --prompt 'then git push the branch'",
+            "node x.js \"a note on gh pr create\" more",
+            "/usr/bin/env -C /work/repo /opt/s/fix-kind.sh declare w --reason \"a directory-placed gh pr create from a private checkout\"",
+            "env --chdir=/tmp ./run.sh 'before git push'",
+        ] {
+            assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+    }
+
+    #[test]
     fn a_here_document_inside_a_substitution_is_data() {
         let cmd = "git commit -m \"$(cat <<'EOF'\nthen git push\nEOF\n)\"";
         assert_eq!(cl(cmd).items, vec![]);
