@@ -2,12 +2,10 @@
 schema: brief/v1
 status: Accepted
 problem: |
-  A coordinator's role is recorded as manager or director in its record, and
-  nothing defines what position a session holds in the work as a whole. Work
-  that wants to show every session shirabe opens, with its position, kind,
-  parent and current holder, has no definition to build on, and a planned
-  stable address for a coordinator would otherwise give the same position a
-  third name.
+  A coordinator's record holds manager or director, but nothing defines the
+  position any session shirabe opens holds, so a fleet view of positions,
+  kinds, parents and holders has nothing to build on, and a planned stable
+  address would give one position a third name.
 outcome: |
   One written definition of seat, holder and role covers every session shirabe
   opens. The shipped coordinator role is part of it unchanged, a reader can
