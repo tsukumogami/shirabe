@@ -201,9 +201,15 @@ key each verdict gets. See `references/templates/review-result-schema.md` for th
 
 ## Resume Logic
 
+R is `round` in key `work/review_loopback.md` and N is `review_rounds` in key
+`work/analysis.md` (0 if absent); `references/phases/phase-6-loop-back.md` says why
+the key's presence alone can't decide.
+
 ```
 if key work/review.md exists in plan-<topic>          → skip to Phase 7 (already reviewed, proceed)
-if key work/review_loopback.md exists in plan-<topic> → Phase 5 already wrote the verdict; execute loop-back
+if key work/review_loopback.md exists and R == N + 1  → Phase 5 already wrote the verdict; execute loop-back
+if key work/review_loopback.md exists and R <= N      → the loop-back already ran; start at Phase 0 for round N + 1
+if key work/review_loopback.md exists and R > N + 1   → inconsistent state; stop and report R and N
 else                                                   → start at Phase 0
 ```
 

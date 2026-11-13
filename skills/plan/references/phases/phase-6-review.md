@@ -5,11 +5,32 @@ act on the structured verdict it produces.
 
 ## Resume Check
 
+R is `round` in the `review_result` block of key `work/review_loopback.md`; N is
+`review_rounds` in key `work/analysis.md` (0 if absent).
+
 ```
 if key work/review.md exists in plan-<topic>          → read it; skip to Phase 7
-if key work/review_loopback.md exists in plan-<topic> → execute loop-back (see below)
+if key work/review_loopback.md exists and R == N + 1  → the loop-back is pending: execute it (see below)
+if key work/review_loopback.md exists and R <= N      → the loop-back already ran and Phases 1 to 5 rebuilt
+                                                        the plan: run /review-plan for round N + 1
+                                                        (Infinite-Loop Guard first); remove no key
+if key work/review_loopback.md exists and R > N + 1   → inconsistent state: stop and report (below)
 else                                                   → run /review-plan
 ```
+
+The loopback key outlives its loop-back so Phases 3 and 4 can read its correction
+hints, and only the next verdict replaces it, so its presence alone doesn't say
+whether the loop-back ran. The loop-back's last write, `review_rounds`, does.
+
+When R is more than one round ahead of N, stop and report:
+
+```
+Phase 6 error: review state is inconsistent (loopback round = <R>, review_rounds = <N>).
+A loop-back verdict is at most one round ahead of review_rounds. Check keys
+work/review_loopback.md and work/analysis.md in plan-<topic> before re-running /plan.
+```
+
+Don't run the loop-back or invoke `/review-plan` in that state.
 
 ## Plan Version v2
 
@@ -107,11 +128,14 @@ skills/review-plan/references/phases/phase-6-loop-back.md
 The loop-back phase:
 1. Reads `loop_target` and `correction_hint` values from the loopback key
 2. Removes `/plan`'s keys back to `loop_target` (keeping the loopback key)
-3. Increments `review_rounds` in key `work/analysis.md`
+3. Sets `review_rounds` in key `work/analysis.md` to the verdict's `round` (on
+   `loop_target: 1` that key is gone, so Phase 1 writes it)
 4. Re-enters `/plan` at `loop_target`
 
 After the removal, `/plan`'s resume logic will detect the earliest remaining key
-and re-enter at the corresponding phase naturally.
+and re-enter at the corresponding phase naturally. When Phases 1 to 5 bring the
+run back to Phase 6, the loopback key is still there, but R now equals N, so the
+Resume Check runs the next review round rather than this loop-back.
 
 ## Next Phase
 

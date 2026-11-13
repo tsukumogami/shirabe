@@ -844,6 +844,58 @@
         "Transcript runs doc-check.sh --moment post_create --phase 7 on docs/plans/PLAN-cache-layer.md at 7.4b"
       ],
       "release": true
+    },
+    {
+      "id": 54,
+      "name": "phase-6-resume-after-loop-back-runs-next-round",
+      "prompt": "/plan docs/designs/DESIGN-cache-layer.md -- An earlier session got a loop-back verdict from round 1 of /review-plan with loop_target 1; the loop-back ran and Phases 1 to 5 re-ran. The plan-cache-layer session now holds work/review_loopback.md (its review_result block has round: 1 and loop_target: 1), work/analysis.md with review_rounds: 1, and a rebuilt work/decomposition.md, issue body keys, work/manifest.json and work/dependencies.md. Describe what Phase 6 does on this resume.",
+      "expected_output": "Phase 6's Resume Check reads R = 1 from the loopback key and N = 1 from work/analysis.md. R <= N, so the loop-back already ran and Phases 1 to 5 rebuilt the plan. It checks the Infinite-Loop Guard (1 is under 3) and invokes /review-plan with round: 2. It removes no key and does not re-enter Phase 1.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "loop-back-resume",
+      "notes": "The loopback key outlives its loop-back, so its presence alone must not send the run back into round 1's loop-back.",
+      "expectations": [
+        "Transcript reads R = 1 from the loopback key and N = 1 from review_rounds and concludes the loop-back already ran",
+        "Transcript checks the Infinite-Loop Guard and finds review_rounds (1) under the limit of 3",
+        "Transcript invokes (or describes invoking) /review-plan with round: 2",
+        "Transcript removes no key: not work/analysis.md, work/manifest.json, work/dependencies.md or any issue body key",
+        "Transcript does NOT re-enter Phase 1"
+      ],
+      "release": true
+    },
+    {
+      "id": 55,
+      "name": "phase-6-resume-pending-loop-back-executes-it",
+      "prompt": "/plan docs/designs/DESIGN-cache-layer.md -- An earlier session got a loop-back verdict from round 1 of /review-plan and stopped before running the loop-back. The plan-cache-layer session holds work/review_loopback.md (its review_result block has round: 1 and loop_target: 4), work/analysis.md with review_rounds: 0, work/decomposition.md, and round 1's work/manifest.json, work/dependencies.md and issue body keys. Describe what Phase 6 does on this resume.",
+      "expected_output": "Phase 6's Resume Check reads R = 1 and N = 0. R == N + 1, so the loop-back is pending and runs: it removes work/dependencies.md, work/manifest.json and every issue body key, keeps work/review_loopback.md, work/analysis.md and work/decomposition.md, sets review_rounds to 1 and re-enters Phase 4. It does not invoke /review-plan before Phases 4 and 5 re-run.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "loop-back-resume",
+      "notes": "The pending case: the round rule must still run a loop-back that hasn't happened yet.",
+      "expectations": [
+        "Transcript reads R = 1 and N = 0 and treats the loop-back as pending",
+        "Transcript removes work/dependencies.md, work/manifest.json and every work/issue_<id>_body.md key",
+        "Transcript keeps work/review_loopback.md, work/analysis.md and work/decomposition.md",
+        "Transcript sets review_rounds in work/analysis.md to 1",
+        "Transcript re-enters Phase 4",
+        "Transcript does NOT invoke /review-plan before Phases 4 and 5 re-run"
+      ]
+    },
+    {
+      "id": 56,
+      "name": "phase-6-resume-inconsistent-round-stops",
+      "prompt": "/plan docs/designs/DESIGN-cache-layer.md -- The plan-cache-layer session holds work/review_loopback.md whose review_result block has round: 3 and loop_target: 4, and work/analysis.md with review_rounds: 1, plus work/decomposition.md, issue body keys, work/manifest.json and work/dependencies.md. Describe what Phase 6 does on this resume.",
+      "expected_output": "Phase 6's Resume Check reads R = 3 and N = 1. R > N + 1 is an inconsistent state, so it stops with the inconsistent-state report naming loopback round 3 and review_rounds 1. It neither runs the loop-back nor invokes /review-plan, and it removes no key.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "loop-back-resume",
+      "notes": "A loop-back verdict is at most one round ahead of review_rounds; anything further means the keys disagree and a person has to look.",
+      "expectations": [
+        "Transcript stops with the inconsistent-state report naming R = 3 (loopback round) and N = 1 (review_rounds)",
+        "Transcript does NOT run the loop-back",
+        "Transcript does NOT invoke /review-plan",
+        "Transcript removes no key"
+      ]
     }
   ]
 }

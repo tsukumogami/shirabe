@@ -196,6 +196,15 @@ Identify and document:
 Write key `work/analysis.md` in `plan-<topic>` (`koto context add plan-<topic> work/analysis.md`,
 the content on stdin).
 
+**On a loop-back to Phase 1.** When key `work/review_loopback.md` exists in
+`plan-<topic>` as this step writes `work/analysis.md`, the loop-back removed the
+old analysis key and its review counter with it. Read `round` from the loopback
+key's `review_result` block and write it into the new key as
+`review_rounds: <round>`, on its own line under `## Source Document`. Without it
+the counter restarts at 0, Phase 6 reads the loopback key as pending and runs
+that loop-back again, and the three-round guard can't trip. On a first pass there
+is no loopback key and no `review_rounds` line; Phase 6 reads it as 0.
+
 **For design docs and PRDs** (input_type: design or prd):
 
 ```markdown
@@ -268,6 +277,7 @@ Before proceeding:
 - [ ] Full source document read
 - [ ] `input_type` field recorded (design, prd, or roadmap)
 - [ ] `Plan Version` and `Plan Version Source` recorded, copied from `resolve-plan-version.sh --with-source`
+- [ ] On a loop-back to Phase 1, `review_rounds` equals the loopback key's `round`
 
 ## Next Phase
 

@@ -12,32 +12,39 @@ review round counter, and signals `/plan` to re-enter at the target phase.
    Category C and Category E `correction_hint` values from `critical_findings`
 2. Remove `/plan`'s keys from `loop_target` forward (`koto context remove
    plan-<topic> <key>` for each) — see the key removal sequences below; do not
-   remove the loopback key itself
-3. Increment `review_rounds` in key `work/analysis.md` (get it, edit, add it back)
+   remove the loopback key itself. Check each key exists first; one already gone
+   counts as removed, so a loop-back repeated after an interruption finishes
+3. Set `review_rounds` in key `work/analysis.md` to the loopback key's `round`,
+   one more than it was (get it, edit, add it back). This is the loop-back's last
+   write: until it lands, a resume reads the loop-back as pending. On
+   `loop_target: 1` there is no key to write; Phase 1 writes it.
 4. Signal `/plan` to re-enter at `loop_target` (the existing resume logic handles
    re-entry naturally once the keys back to that phase are removed)
 
 **Loopback key lifecycle — important:**
 
-The loopback key is NOT removed during Phase 6 execution. It persists through
-Phase 4 regeneration so agents can read correction hints directly from it.
+The loopback key is NOT removed during Phase 6 execution. It persists while Phases
+1 to 5 regenerate the plan so agents can read correction hints directly from it,
+and it is overwritten (not explicitly removed) when the next review run writes its
+verdict: a new `work/review.md` (proceed) or a new `work/review_loopback.md`
+(another loop-back round).
 
-The `/plan` resume logic distinguishes "loop-back needs to run" from "loop-back
-already ran" by checking whether the manifest still exists:
+Since the key outlives its loop-back, its presence can't tell "loop-back needs to
+run" from "loop-back already ran". The round numbers can. The verdict is written
+with `round: <review_rounds + 1>`, and the loop-back's last write raises
+`review_rounds` to that round (step 3, or Phase 1 on `loop_target: 1`). With R the
+loopback key's `round` and N the stored `review_rounds` (0 if absent):
 
 ```
-if loopback key exists AND manifest key exists   → execute loop-back (Phase 6 has not run yet)
-if loopback key exists AND manifest key is gone  → loop-back already ran; resume from
-                                                   the earliest key that still exists
+R == N + 1   → the loop-back is pending: execute it
+R <= N       → it already ran; once Phases 1 to 5 have rebuilt the plan, run
+               /review-plan for round N + 1 and remove nothing
+R > N + 1    → inconsistent state: stop and report R and N
 ```
 
-After Phase 6 runs, it has removed the manifest key (and other keys per `loop_target`).
-The loopback key remains. When `/plan` re-enters at `loop_target`, it does not
-re-trigger Phase 6 because the manifest is absent.
-
-The loopback key is eventually overwritten (not explicitly removed) when the next
-review run writes its verdict — either a new `work/review.md` (proceed) or a new
-`work/review_loopback.md` (another loop-back round).
+Whether `work/manifest.json` exists decides nothing: Phase 5 writes a new one
+before the run returns to Phase 6. `/plan`'s Phase 6 Resume Check and this skill's
+Resume Logic apply this same rule.
 
 ---
 
@@ -64,8 +71,9 @@ work/analysis.md
 Do NOT remove: `work/review_loopback.md`
 
 Phase 1 will produce a new `work/analysis.md`, which becomes the new resume anchor.
-Read `review_rounds` from the old key before removing it; step 3 has no key to
-write here, so Phase 1 writes the new key with that value plus one.
+Step 3 has no key to write here, so Phase 1 carries the counter: it writes
+`review_rounds` in the new key equal to the loopback key's `round` (step 1.4 of
+`skills/plan/references/phases/phase-1-analysis.md`).
 
 ### loop_target: 3 (re-enter at Phase 3 — Decomposition)
 

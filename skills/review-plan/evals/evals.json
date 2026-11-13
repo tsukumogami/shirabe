@@ -185,6 +185,21 @@
       ],
       "files": [],
       "fixture_dir": null
+    },
+    {
+      "id": 14,
+      "name": "resume-after-loop-back-starts-next-round",
+      "prompt": "Called as sub-operation with args: plan_topic=my-feature, round=2, mode=fast-path. The plan-my-feature session holds work/review_loopback.md from round 1 (round: 1, loop_target: 4), work/analysis.md with review_rounds: 1, and the work/ keys Phases 4 and 5 rebuilt.",
+      "expected_output": "Resume Logic reads R = 1 from the loopback key and N = 1 from work/analysis.md. R <= N, so the round 1 loop-back already ran and the review starts at Phase 0 for round 2. Phase 6's loop-back does not run before the review and no key is removed. The verdict the review writes carries round: 2.",
+      "assertions": [
+        "Resume Logic reads R = 1 and N = 1 and starts at Phase 0 rather than executing the loop-back",
+        "Phase 6's loop-back does not run and no key is removed before the review",
+        "The verdict written carries round: 2"
+      ],
+      "files": [],
+      "tier": 2,
+      "behaviour": "loop-back-resume",
+      "release": true
     }
   ]
 }
