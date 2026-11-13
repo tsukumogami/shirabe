@@ -111,6 +111,7 @@
 # validator's stderr on the same line as the word shirabe, which the scan reads
 # as a flag; those two lines are recorded as citations below.
 #not-a-call-site	skills/work-on/scripts/check-pr-output.sh	shirabe	-n	The -n is tail's, in an error message quoting the validator's stderr; the validator itself is called without it.
+#not-a-call-site	skills/work-on/scripts/check-pr-output.sh	koto	-n	The -n is tail's, in an error message quoting koto's stderr; koto itself is called without it.
 #not-a-call-site	skills/work-on/scripts/check-branch-output.sh	shirabe	-n	The -n is tail's, in an error message quoting the validator's stderr; the validator itself is called without it.
 #
 # The koto floor. /work-on needs koto 0.33.0, shirabe's koto minimum
