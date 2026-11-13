@@ -64,12 +64,13 @@
 #   --deferral-record --session <s> [--public-reason <text>]
 #                     [--body] [--owned <owned-pr.sh arguments>]
 #       For a run that deferred verification to hosted CI (work-on.md's
-#       VERIFICATION=hosted-ci, #1012), or whose local verification failed
-#       only in files the change doesn't touch and went on through
+#       VERIFICATION=hosted-ci, #1012), or whose local verification, on some
+#       lap, failed only in files the change doesn't touch and went on through
 #       verification_outside_change. --session <s> reads the reason from the
 #       session's context instead of taking it as an argument: with no
-#       verification_deferral key the run deferred nothing, and the script
-#       passes (0) without reading GitHub; with one, its value is the one
+#       verification_deferral key no deferral was taken on any lap, and the
+#       script passes (0) without reading GitHub; with one (a deferral taken
+#       on some lap, even if a later lap passed), its value is the one
 #       --reason; a koto read that fails is 2. pr_creation's gate passes
 #       --session, so a local run that never took the step costs no process
 #       beyond the koto read. In a repository that doesn't opt in
@@ -482,8 +483,8 @@ check_pr_body() {
 
 check_deferral_record() {
     # --session: the reason is the session's verification_deferral, when it
-    # has one. No key means nothing was deferred, so there is nothing to
-    # record and GitHub is never read. A read that fails holds (2): passing
+    # has one. No key means no deferral was taken on any lap, so there is
+    # nothing to record and GitHub is never read. A read that fails holds (2): passing
     # it would let a deferral go unrecorded.
     if [ $# -gt 0 ] && [ "$1" = --session ]; then
         [ $# -ge 2 ] && [ -n "$2" ] || { usage; exit 2; }

@@ -994,9 +994,15 @@ states:
     # written, so a scope left from before the fix would refuse every round;
     # with none, --record has nothing to compare and records. The verdict
     # ledger is never cleared: it is what a retry keeps.
-    # verification_deferral isn't cleared: koto refuses clearing a key a
-    # transition writes, and a stale one only says hosted CI is the build of
-    # record, which stays true.
+    # verification_deferral isn't cleared: koto's compiler refuses clearing a
+    # key a transition writes (verification -> verification_outside_change).
+    # So after a deferral, a loop back here and a later green local run, the
+    # key stays, and under workflow-content include pr_creation's
+    # verification_deferral_recorded gate still asks the body to say local
+    # verification did not pass, with the deferral's Reason: line. That errs
+    # toward an extra record, never a missed one. An empty value assigned on
+    # the exit-0 edge was rejected: it gives the key a second meaning, and
+    # check-pr-output.sh already treats an empty value as undecidable (2).
     clear_on_entry: [scrutiny_results.json, review_results.json, qa_results.json, light_results.json, summary.md, scrutiny_scope.json, review_scope.json, qa_scope.json, light_scope.json]
     gates:
       on_feature_branch_impl:
@@ -2598,9 +2604,10 @@ states:
       # where a reviewer reads it: a VERIFICATION=hosted-ci run
       # (verification_deferred), or a local run that went on through
       # verification_outside_change. Both leave verification_deferral in
-      # context, and the gate reads it with --session: a run without the key
-      # deferred nothing, and the script exits 0 with no GitHub read; with
-      # it, the key's value is the reason; a koto read that fails is 2. In a
+      # context, and the gate reads it with --session: no key means no
+      # deferral was taken on any lap of this run, and the script exits 0
+      # with no GitHub read; the key means one was taken on some lap, and its
+      # value is the reason; a koto read that fails is 2. In a
       # repository that doesn't opt in to workflow content
       # (scripts/pr-workflow-content.sh prints omit) a run with the key also
       # exits 0 with no GitHub read: verification_deferral in context is the
@@ -3920,8 +3927,9 @@ local verification failed or timed out only in files this change does not touch.
 The run goes on to `pass_counting`, then `finalization`. The pull request's hosted
 CI is the build of record: `pr_creation` holds until the pull request body records
 the deferral, saying that local verification did not pass, and `ci_monitor` requires
-that CI green. If the run comes back to `implementation`, the key stays: it can only
-say hosted CI is the build of record, which stays true.
+that CI green. If the run comes back to `implementation`, the key stays, so even a
+later local pass still has to record the deferral in the pull request body under
+`include`.
 
 ## verification_deferred
 
@@ -4277,8 +4285,9 @@ for this change.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
 pass. It runs `check-pr-output.sh --deferral-record --session {{SESSION_NAME}}`,
-which reads `verification_deferral` from context. On a run that never deferred
-there is no key, and the gate passes without reading GitHub. Under `omit` it
+which reads `verification_deferral` from context. With no key, no deferral was
+taken on any lap of this run, and the gate passes without reading GitHub. The key
+means one was taken on some lap, even if a later lap passed locally. Under `omit` it
 passes without reading GitHub too. Under `include` it reads the body from GitHub
 and holds the state until it says local verification did not run or did not
 pass, has the line `Reason: <reason>` exactly and whole (the reason anywhere else

@@ -213,6 +213,17 @@ grep -q '^          verification_deferral: "{{VERIFICATION_DEFERRAL_REASON}}"$' 
     && pass "verification_deferred writes the reason to context" \
     || fail "verification_deferred does not write verification_deferral"
 
+# No clear_on_entry list clears verification_deferral: the record gate passes
+# with no GitHub read when the key is absent, so clearing it would let a
+# deferral taken on an earlier lap go unrecorded.
+n_clear=$(grep -c '^ *clear_on_entry:' "$TEMPLATE")
+n_bad=$(grep '^ *clear_on_entry:' "$TEMPLATE" | grep -c 'verification_deferral')
+if [ "$n_clear" -ge 1 ] && [ "$n_bad" -eq 0 ]; then
+    pass "no clear_on_entry list clears verification_deferral ($n_clear lists)"
+else
+    fail "clear_on_entry: $n_bad of $n_clear lists clear verification_deferral"
+fi
+
 CREATED_EDGE=$(printf '%s\n' "$EDGES" | awk -F'|' '$1 == "pr_creation" && $2 == "ci_monitor"')
 case "$CREATED_EDGE" in
     *"gates.verification_deferral_recorded.exit_code: 0;"*)

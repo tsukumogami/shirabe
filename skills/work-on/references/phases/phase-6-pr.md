@@ -144,6 +144,9 @@ Reason: <the verification_deferral value>
 Hosted CI is the build of record for this change.
 ```
 
+A run that took the step keeps the key even if a later lap passes locally, so its
+body still records the deferral.
+
 Under `include`, `pr_creation`'s `verification_deferral_recorded` gate reads the
 body GitHub has (`check-pr-output.sh --deferral-record --session <s>`, which
 takes the reason from `verification_deferral`) and holds `pr_status: created` until it
@@ -152,9 +155,9 @@ finds all three: a line saying local verification did not run or did not pass, t
 wording is matched without regard to case. The reason line is matched exactly
 and whole: the reason showing up elsewhere in the body, inside the
 build-of-record line or a longer reason's line, doesn't count, nor does a
-`Reason:` line with a list marker, extra spaces or a trailing period. A run that
-never deferred has no `verification_deferral` key and passes the gate without
-the section. On a deferred run, don't
+`Reason:` line with a list marker, extra spaces or a trailing period. A run with
+no `verification_deferral` key took no deferral on any lap and passes the gate
+without the section. On a deferred run, don't
 re-run tests locally after merging main either: the push is what CI checks.
 
 ### A repository with no hosted CI
