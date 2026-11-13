@@ -52,6 +52,9 @@ if [ "$name" = git ]; then
         if [ "$skip" = 1 ]; then skip=0; continue; fi
         case "$a" in -c|-C) skip=1 ;; --*) ;; *) sub=$a; break ;; esac
     done
+    # A git-<subcommand>.sleep file delays that real-git read, the way a
+    # loaded runner does, without loading the host.
+    [ -f "$STUB_DIR/git-$sub.sleep" ] && sleep "$(cat "$STUB_DIR/git-$sub.sleep")"
     [ "$sub" = ls-remote ] || exec "$REAL_GIT" "$@"
     # A private repository (the case holds a "private" file) answers ls-remote
     # only when the call's own credential config yields the gh login's token,
@@ -645,6 +648,15 @@ printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M6" > "$CASE/ls-rem
 mktree "$R6" "$M6"
 out=$(run inventory --path "$I8")
 expect "a clone whose working tree is set outside is unchecked" '.items | any(.kind == "unchecked" and (.path | test("core.worktree")))' "$out"
+# The same clone on a loaded runner: its git reads take 6 s. The case decides
+# on what the script concludes, so the harness's default deadline has to
+# outlast a slow read rather than turn it into a different unchecked reason.
+new_case inventory-coreworktree-slow
+printf 'ref: refs/heads/main\tHEAD\n%s\trefs/heads/main\n' "$M6" > "$CASE/ls-remote.out.all"
+mktree "$R6" "$M6"
+echo 6 > "$CASE/git-rev-parse.sleep"
+out=$(run inventory --path "$I8")
+expect "a clone whose working tree is set outside is unchecked, with its git reads slowed to 6 s" '.items | any(.kind == "unchecked" and (.path | test("core.worktree")))' "$out"
 
 echo "== inventory: round-3 cases =="
 I9="$T/inst9"; R9="$I9/repo"; mkdir -p "$R9"

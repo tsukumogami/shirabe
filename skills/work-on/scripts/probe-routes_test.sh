@@ -464,6 +464,28 @@ printf 'sideways\n' > "$SDIR/probe/arm"
 submit '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/7","ack":"x"}'
 check "exit 6 (a record that can't be read): advances" "$(state_of)" ci_pass_counting
 
+# A gate koto kills at its 30 s default reads as exit -1, which no edge routes,
+# so on a loaded runner a slow gate can hold a case that passes on a rerun.
+# Every fixture gate that runs a real command gets a limit sized for that.
+short=$(awk '/^---$/ { n++; next } n != 1 { next }
+    /^  [a-z_]+:$/ { st = $1 }
+    /^      [a-z_]+:$/ { g = $1 }
+    pend { if (!($0 ~ /^        timeout: [0-9]+$/ && $2 >= 120)) print st g; pend = 0 }
+    /^        command: / && $0 !~ /^        command: "(exit [0-9]+|true)"$/ { pend = 1 }
+    END { if (pend) print st g }' "$FIX" | tr '\n' ' ')
+check "the gate that held: every fixture gate running a real command has a timeout of at least 120 s" "$short" ""
+# A gate that holds pr_creation is named on the FAIL line, the one line the
+# gate's CI log keeps: probe_value_absent stubbed to its own hold code stands
+# in for a gate that didn't finish.
+HELD="$T/held.md"
+awk '/^  [a-z_]+:$/ { st = $1 } /^      [a-z_]+:$/ { g = $1 }
+    st == "pr_creation:" && g == "probe_value_absent:" && /^        command:/ { print "        command: \"exit 2\""; next }
+    { print }' "$FIX" > "$HELD"
+start "$HELD" && preset near "$V" && to_choice && to_pr
+submit "{\"pr_status\":\"created\",\"pr_url\":\"https://github.com/o/r/pull/7\",\"ack\":\"$V\"}"
+check "a held gate: the run stays at pr_creation" "$(state_of)" pr_creation
+check "a held gate: the gate that held is named" "$(held)" "probe_value_absent exit=2"
+
 # far_redeliver: miss, miss, then match, one tick each; the journal records.
 # shellcheck disable=SC2154 # set by the eval in the placement loop
 SESS=$S_far_redeliver
