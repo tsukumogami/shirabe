@@ -476,6 +476,8 @@ dispatch read plan <topic> prints parent=<session>
                                                  then continue down this ladder
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
 if key work/review.md exists                  -> Resume at Phase 7
+if keys work/review_loopback.md and work/analysis.md exist
+   and R == N + 1                             -> Resume at Phase 6 (a pending loop-back)
 if key work/dependencies.md exists            -> Resume at Phase 6
 if key work/manifest.json exists              -> Resume at Phase 5
 if key work/decomposition.md exists           -> Resume at Phase 4
@@ -491,6 +493,18 @@ gh issue list --search "Design: <design-doc-path>" --json number,title,state
 
 Each key row is `koto context exists plan-<topic> <key>`. When resuming, read
 the existing key (`koto context get`) to restore context before continuing.
+
+**A pending loop-back comes first.** R is `round` in key
+`work/review_loopback.md` and N is `review_rounds` in key `work/analysis.md`, the
+numbers Phase 6's Resume Check compares. A loop-back removes keys back to its
+target and writes `review_rounds` last, so a run interrupted between the two holds
+only the keys before the target. Routed by those keys it would rebuild from the
+target phase and reach Phase 6 with the loop-back still pending, and the loop-back
+would then remove the rebuilt work. The R == N + 1 row sends it to Phase 6 first,
+where the loop-back finishes (it skips keys already removed) and writes the
+counter; after that, R <= N and the key rows route the rebuild. With no
+`work/analysis.md` the row doesn't apply: a loop-back to Phase 1 removes that key
+last, so its removals are done and Phase 1 writes the counter.
 
 **The recorded plan version, on every resume.** Whichever row a resume enters
 at, once key `work/analysis.md` exists and this invocation carries

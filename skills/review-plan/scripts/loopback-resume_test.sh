@@ -25,6 +25,12 @@
 #      round, since a loop-back to Phase 1 removes the old analysis key
 #   5. the loop_target 1 note carries the loopback key's round, not
 #      "that value plus one"
+#   6. plan's Resume Logic sends a pending loop-back (R == N + 1) to Phase 6
+#      ahead of the key-by-key rows, so a loop-back interrupted after its
+#      removals but before its counter write finishes instead of the target
+#      phase rebuilding the plan under it
+#   7. review-plan Phase 6's opening says the loop-back sets the counter to
+#      the verdict's round, not that it increments it
 #
 # Usage (from the repository root, as check-skill.sh runs it):
 #   bash skills/review-plan/scripts/loopback-resume_test.sh
@@ -39,12 +45,13 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 REPO_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd -P) || exit 2
 
+PLAN_SKILL="skills/plan/SKILL.md"
 PLAN_REVIEW="skills/plan/references/phases/phase-6-review.md"
 PLAN_ANALYSIS="skills/plan/references/phases/phase-1-analysis.md"
 REVIEW_SKILL="skills/review-plan/SKILL.md"
 REVIEW_LOOPBACK="skills/review-plan/references/phases/phase-6-loop-back.md"
 
-for f in "$PLAN_REVIEW" "$PLAN_ANALYSIS" "$REVIEW_SKILL" "$REVIEW_LOOPBACK"; do
+for f in "$PLAN_SKILL" "$PLAN_REVIEW" "$PLAN_ANALYSIS" "$REVIEW_SKILL" "$REVIEW_LOOPBACK"; do
     if [ ! -f "$REPO_ROOT/$f" ]; then
         echo "ERROR: missing $REPO_ROOT/$f" >&2
         exit 2
@@ -192,6 +199,36 @@ if require_section "$label" "$text"; then
         fail "loop_target 1 note does not carry the loopback key's round"
     else
         pass "loop_target 1 note carries the loopback key's round"
+    fi
+fi
+
+# --- 6. plan Resume Logic finishes a pending loop-back first ----------------
+# The R == N + 1 row has to name Phase 6 and come before the first key row
+# that would send the run into a rebuild (work/dependencies.md and below).
+label="$PLAN_SKILL Resume Logic"
+text=$(section "$REPO_ROOT/$PLAN_SKILL" '^### Resume Logic' '^##+ ')
+if require_section "$label" "$text"; then
+    pending=$(grep -E "$EQ_RE" <<<"$text" | grep -F 'Phase 6' | head -n 1)
+    rebuild=$(grep -E 'work/dependencies\.md[[:space:]]+exists' <<<"$text" | head -n 1)
+    if [ -z "$pending" ]; then
+        fail "$label has no R == N + 1 row resuming at Phase 6"
+    elif [ -z "$rebuild" ]; then
+        fail "$label has no work/dependencies.md row to order the pending row against"
+    elif [ "${pending%%:*}" -lt "${rebuild%%:*}" ]; then
+        pass "$label sends a pending loop-back to Phase 6 before the key rows"
+    else
+        fail "$label checks the pending loop-back after the key rows: ${pending#*:}"
+    fi
+fi
+
+# --- 7. review-plan Phase 6 opening sets the counter ------------------------
+label="$REVIEW_LOOPBACK opening"
+text=$(section "$REPO_ROOT/$REVIEW_LOOPBACK" '^# Phase 6' '^\*\*Steps')
+if require_section "$label" "$text"; then
+    if grep -qi 'increment' <<<"$text"; then
+        fail "$label says the loop-back increments the counter; step 3 sets it to the verdict's round"
+    else
+        pass "$label does not say the loop-back increments the counter"
     fi
 fi
 

@@ -3,8 +3,9 @@
 This phase executes only when the verdict is key `work/review_loopback.md` in
 `plan-<topic>` and `/plan`'s keys are there to loop back to (a run on the PLAN
 document alone stops at Phase 5). It reads the loop-back findings, extracts
-correction hints, removes `/plan`'s keys back to the loop target, increments the
-review round counter, and signals `/plan` to re-enter at the target phase.
+correction hints, removes `/plan`'s keys back to the loop target, sets the review
+round counter to the verdict's round, and signals `/plan` to re-enter at the target
+phase.
 
 **Steps:**
 
@@ -14,10 +15,12 @@ review round counter, and signals `/plan` to re-enter at the target phase.
    plan-<topic> <key>` for each) — see the key removal sequences below; do not
    remove the loopback key itself. Check each key exists first; one already gone
    counts as removed, so a loop-back repeated after an interruption finishes
-3. Set `review_rounds` in key `work/analysis.md` to the loopback key's `round`,
-   one more than it was (get it, edit, add it back). This is the loop-back's last
-   write: until it lands, a resume reads the loop-back as pending. On
-   `loop_target: 1` there is no key to write; Phase 1 writes it.
+3. Set `review_rounds` in key `work/analysis.md` to the loopback key's `round`
+   (get it, edit, add it back); the stored value was one round lower. This is the
+   loop-back's last write: until it lands, a resume reads the loop-back as
+   pending, and `/plan`'s Resume Logic sends that resume back here to finish it
+   before any phase rebuilds the plan. On `loop_target: 1` there is no key to
+   write; Phase 1 writes it.
 4. Signal `/plan` to re-enter at `loop_target` (the existing resume logic handles
    re-entry naturally once the keys back to that phase are removed)
 
@@ -45,6 +48,13 @@ R > N + 1    → inconsistent state: stop and report R and N
 Whether `work/manifest.json` exists decides nothing: Phase 5 writes a new one
 before the run returns to Phase 6. `/plan`'s Phase 6 Resume Check and this skill's
 Resume Logic apply this same rule.
+
+A loop-back interrupted after its removals but before step 3 leaves R == N + 1
+with the keys before `loop_target` still present. `/plan`'s Resume Logic sends such
+a run to Phase 6 ahead of its key-by-key rows, so the loop-back finishes before any
+phase rebuilds the plan. Without that row the run would resume at the target phase,
+rebuild, and reach Phase 6 with the loop-back still pending, which would remove the
+rebuilt work.
 
 ---
 

@@ -21,6 +21,8 @@ else                                                   → run /review-plan
 The loopback key outlives its loop-back so Phases 3 and 4 can read its correction
 hints, and only the next verdict replaces it, so its presence alone doesn't say
 whether the loop-back ran. The loop-back's last write, `review_rounds`, does.
+R below N falls under "already ran" too: the key holds an older verdict than the
+counter has recorded, so no loop-back is waiting.
 
 When R is more than one round ahead of N, stop and report:
 

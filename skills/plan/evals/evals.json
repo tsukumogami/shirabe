@@ -896,6 +896,23 @@
         "Transcript does NOT invoke /review-plan",
         "Transcript removes no key"
       ]
+    },
+    {
+      "id": 57,
+      "name": "resume-after-interrupted-loop-back-finishes-it-first",
+      "prompt": "/plan docs/designs/DESIGN-cache-layer.md -- An earlier session got a loop-back verdict from round 1 of /review-plan with loop_target 4 and was interrupted during the loop-back, after it removed the keys but before it wrote review_rounds. The plan-cache-layer session now holds work/review_loopback.md (its review_result block has round: 1 and loop_target: 4), work/analysis.md with review_rounds: 0, work/milestones.md and work/decomposition.md. There is no work/manifest.json, work/dependencies.md or issue body key. Describe where this resume enters and what happens before any issue body is generated.",
+      "expected_output": "The Resume Logic reads R = 1 from the loopback key and N = 0 from work/analysis.md. R == N + 1, so the loop-back is pending and the run resumes at Phase 6 rather than at Phase 4. Phase 6's Resume Check finds the loop-back pending and runs it: the keys it would remove are already gone and count as removed, it sets review_rounds to 1, and it re-enters Phase 4. Only then does Phase 4 regenerate the issue bodies, and when Phases 4 and 5 finish, Phase 6 reads R = 1 and N = 1 and invokes /review-plan for round 2.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "loop-back-resume",
+      "notes": "The loop-back writes the counter last. A resume routed by the keys alone would rebuild from Phase 4 with the loop-back still pending, and Phase 6 would then remove the rebuilt bodies.",
+      "expectations": [
+        "Transcript reads R = 1 and N = 0 and treats the loop-back as pending",
+        "Transcript resumes at Phase 6, not at Phase 4",
+        "Transcript sets review_rounds in work/analysis.md to 1 before any issue body is generated",
+        "Transcript keeps work/review_loopback.md, work/analysis.md, work/milestones.md and work/decomposition.md",
+        "Transcript does NOT remove an issue body key that Phase 4 generated after the loop-back"
+      ]
     }
   ]
 }
