@@ -183,6 +183,21 @@ took "a takeover's merge of another head than its predecessor verified: unconfir
 succeeded restart
 took "a restart's dispatched-by link is not followed: unconfirmed at the head GitHub merged" "unconfirmed 12 $H"
 grep -q "no verify capture for #12 in this run" "$T/err" && ok "a restart reads as no verify capture in this run" || bad "a restart reads as no verify capture in this run" "$(cat "$T/err")"
+bash "$CL" predecessor --session "$S" >/dev/null 2>&1
+eq "coord-log.sh predecessor follows no dispatched-by link: exit 1" 1 $?
+succeeded continues
+eq "coord-log.sh predecessor names the run S took over" "$P" "$(bash "$CL" predecessor --session "$S" 2>/dev/null)"
+bash "$CL" predecessor --session "$P" >/dev/null 2>&1
+eq "coord-log.sh predecessor of a run that took none over: exit 1" 1 $?
+# Two takeovers: S2 took S over, which took P over; only P verified #12.
+S2="${S%Z}2Z"
+bt_run "$S2" "$PERMIT"
+bt_append "$S" session_superseded "$(jq -nc --arg s "$S2" '{by: $s}')"
+"$KOTO_BIN" context add "$S2" "koto/links/continues/$S" --from-file "$T/link"
+bt_enter "$S2" wait; bt_evidence "$S2" wait '{"event":"merged","unit":"plugin-registry"}'
+bt_enter "$S2" merged_facts
+S=$S2
+took "two takeovers back, the newest run holding a capture gives the head: merged" "merged 12 $H"
 
 echo "== failures exit 2 =="
 at_facts

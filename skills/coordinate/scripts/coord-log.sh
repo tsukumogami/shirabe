@@ -75,6 +75,11 @@
 #       which only makes the chain shorter; a run met twice ends it too, and the
 #       walk stops after 1024 runs. Exit 0; 2 S's own log or a member's
 #       links can't be read.
+#   coord-log.sh predecessor --session S
+#       Prints the run S took over: the one its continues relation names,
+#       read as chain-start reads it. A restart's dispatched-by link is not
+#       followed. Exit 0 printed; 1 no relation, or the run it names has no
+#       readable log; 2 S's log or its relation can't be read.
 #   coord-log.sh provenance --session S [--template PATH]
 #       Exit 0 when the session's template is one this plugin can drive and
 #       its PLUGIN_ROOT, as koto applies it now (the value it opened with,
@@ -240,6 +245,47 @@ session_log() {
         return 1
     fi
     printf '%s\n' "$f"
+}
+
+# continues_of <session> <its log>: prints the run the session continues, the
+# name under its koto/links/continues/ (koto lets a session continue at most
+# one), or an empty line when it holds no such relation. Returns 2 when the
+# relation can't be listed, 3 when the listing isn't a key list.
+#
+# The relation is read first as the session's local context manifest holds
+# it, without a koto call. koto's listing is this manifest's keys, plus any
+# key only the bucket holds, sorted; every local write or removal of the link
+# updates the manifest, a take-back after a failed push and an import's
+# rewrite included, which the session log can miss. The manifest is read only
+# when it is the bytes jq prints for it (koto writes it pretty-printed, so a
+# byte-order mark, a duplicate key, a non-integer number or a stray escape
+# fails) and is one document of koto's manifest shape, {"keys": {<key>:
+# {"created_at": <string>, "size": <unsigned integer>, "hash": <string>,
+# "writer": <string or absent>}}}. Any other manifest, and one that names no
+# continues key, falls back to the listing, which then reads, or refuses, the
+# manifest as koto does. Two cases read differently. A session whose manifest
+# names one predecessor while the bucket alone holds a second that sorts
+# first: koto refuses a second predecessor, so only a race between two hosts
+# writing the link leaves that state. And a member imported into another
+# workspace: the listing refuses it, which only the bucket can tell, while its
+# local manifest still names the predecessor it had before the import.
+continues_of() {
+    local manifest=${2%/*}/ctx/manifest.json canon prev= rel
+    if canon=$(jq . "$manifest" 2>/dev/null) && [ "$canon" = "$(cat "$manifest" 2>/dev/null)" ]; then
+        prev=$(jq -rs --arg p koto/links/continues/ 'if length == 1 then .[0] else error("not one document") end
+            | .keys
+            | if type == "object" and all(.[]; type == "object"
+                    and (.created_at | type == "string") and (.hash | type == "string")
+                    and (.writer | . == null or type == "string")
+                    and (.size | type == "number" and (tojson | test("^(0|[1-9][0-9]{0,19})$") and (length < 20 or . <= "18446744073709551615"))))
+                then [keys[] | select(startswith($p))] else error("not a manifest") end
+            | .[0] // "" | ltrimstr($p)' "$manifest" 2>/dev/null) || prev=
+    fi
+    if [ -z "$prev" ]; then
+        rel=$("$KOTO" context list "$1" --prefix koto/links/continues/ </dev/null) || return 2
+        prev=$(printf '%s' "$rel" | jq -r '.[0] // "" | ltrimstr("koto/links/continues/")') || return 3
+    fi
+    printf '%s\n' "$prev"
 }
 
 # migrated_away <session>: exit 0 when koto says the session was imported
@@ -464,40 +510,12 @@ chain-start)
     START=$(head -1 "$LOG" | jq -er '.created_at') || die "no created_at in the header"
     CUR=$SESSION CUR_LOG=$LOG SEEN=" $SESSION " HOPS=0
     while [ "$HOPS" -lt 1024 ]; do
-        # The relation as CUR's local context manifest holds it, read without
-        # a koto call. koto's listing is this manifest's keys, plus any key
-        # only the bucket holds, sorted; every local write or removal of the
-        # link updates the manifest, a take-back after a failed push and an
-        # import's rewrite included, which the session log can miss. The
-        # manifest is read only when it is the bytes jq prints for it (koto
-        # writes it pretty-printed, so a byte-order mark, a duplicate key, a
-        # non-integer number or a stray escape fails) and is one document of
-        # koto's manifest shape, {"keys": {<key>: {"created_at": <string>,
-        # "size": <unsigned integer>, "hash": <string>, "writer": <string or
-        # absent>}}}. Any other manifest, and one that names no continues
-        # key, falls back to the listing, which then reads, or refuses, the
-        # manifest as koto does. Two cases read differently. A session
-        # whose manifest names one predecessor while the bucket alone holds a
-        # second that sorts first: koto refuses a second predecessor, so only
-        # a race between two hosts writing the link leaves that state. And a
-        # member imported into another workspace: the listing refuses it,
-        # which only the bucket can tell, while its local manifest still
-        # names the predecessor it had before the import.
-        CUR_MANIFEST=${CUR_LOG%/*}/ctx/manifest.json PREV=
-        if CANON=$(jq . "$CUR_MANIFEST" 2>/dev/null) && [ "$CANON" = "$(cat "$CUR_MANIFEST" 2>/dev/null)" ]; then
-            PREV=$(jq -rs --arg p koto/links/continues/ 'if length == 1 then .[0] else error("not one document") end
-                | .keys
-                | if type == "object" and all(.[]; type == "object"
-                        and (.created_at | type == "string") and (.hash | type == "string")
-                        and (.writer | . == null or type == "string")
-                        and (.size | type == "number" and (tojson | test("^(0|[1-9][0-9]{0,19})$") and (length < 20 or . <= "18446744073709551615"))))
-                    then [keys[] | select(startswith($p))] else error("not a manifest") end
-                | .[0] // "" | ltrimstr($p)' "$CUR_MANIFEST" 2>/dev/null) || PREV=
-        fi
-        if [ -z "$PREV" ]; then
-            REL=$("$KOTO" context list "$CUR" --prefix koto/links/continues/ </dev/null) || die "can't list $CUR's continues relation"
-            PREV=$(printf '%s' "$REL" | jq -r '.[0] // "" | ltrimstr("koto/links/continues/")') || die "$CUR's continues relation isn't a key list"
-        fi
+        PREV=$(continues_of "$CUR" "$CUR_LOG")
+        case $? in
+            0) ;;
+            3) die "$CUR's continues relation isn't a key list" ;;
+            *) die "can't list $CUR's continues relation" ;;
+        esac
         if [ -n "$PREV" ]; then
             PREV_LOG=$(session_log "$PREV") || break
         else
@@ -520,6 +538,19 @@ chain-start)
         CUR=$PREV CUR_LOG=$PREV_LOG SEEN="$SEEN$PREV " HOPS=$((HOPS + 1))
     done
     printf '%s\n' "$START"
+    ;;
+predecessor)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    PREV=$(continues_of "$SESSION" "$LOG")
+    case $? in
+        0) ;;
+        3) die "$SESSION's continues relation isn't a key list" ;;
+        *) die "can't list $SESSION's continues relation" ;;
+    esac
+    [ -n "$PREV" ] || exit 1
+    session_log "$PREV" >/dev/null || exit 1
+    printf '%s\n' "$PREV"
     ;;
 fence)
     need SESSION

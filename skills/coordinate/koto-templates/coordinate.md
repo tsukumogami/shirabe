@@ -3857,7 +3857,8 @@ was recorded after that read.
 
 Confirming a merge the human made. koto runs `merged-facts.sh` itself, against
 the head this run verified for the unit, or GitHub's record when there is
-none.
+none. A run that took another over also finds a head its predecessor verified,
+so a merge made across the takeover is confirmed here.
 
 <!-- details -->
 
@@ -3866,8 +3867,9 @@ and clears its Pull request cell (`state-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
 record step waits for; the row goes only at the teardown's destroy step. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
-head its verdict names. When this run never verified the pull request (an
-earlier run did, or a decision accepted it), the check reads GitHub instead,
+head its verdict names. When neither this run nor a run it took over verified
+the pull request (an earlier run did, or a decision accepted it), the check
+reads GitHub instead,
 and `coord/merged_facts.json` says why: merged is unconfirmed at the head
 GitHub merged, which gets that same Side effects row; still open is
 not-merged, so drive it through verify (a report event for its unit,
