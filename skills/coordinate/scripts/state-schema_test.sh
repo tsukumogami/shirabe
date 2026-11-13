@@ -29,8 +29,12 @@
 # and the split takes fences, headings and table lines as R45 says.
 # For the brief intake: brief_candidates on
 # the testdata/brief-golden briefs (7, 11 and 11 sentences, the ones
-# testdata/standing-rules/brief-kept.json lists) and its section rule, and
-# brief_intake_plan's writes, ends, room and untaken.
+# testdata/standing-rules/brief-kept.json lists) and its section rule; the
+# opt-in `## Standing rules` mode (near-miss headings and a fenced one fall
+# back, a CRLF one switches, only the four rule sections count, an empty one
+# gives none) and brief_outside_rules' count; brief_intake_plan's writes
+# (indexed, from a start), ends, room and untaken, and its arity;
+# briefs_read_start; and the Run briefs-read row's checks.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/state-schema_test.sh
@@ -202,6 +206,20 @@ same "two friction rows" "$(RUNS "$STORE, $(RR friction a), $(RR friction b)")" 
 same "a reports-to address shaped like a path" "$(RUNS "$STORE, $(RR reports-to "the lead at /tmp/x")")" "shape of a path"
 same "a rules digest that isn't sha256 hex" "$(RUNS "$STORE, $(RR rules "a sha256:abc")")" "<label> sha256:<64 hex>"
 same "a rules label used twice" "$(RUNS "$STORE, $(RR rules "a sha256:$SHA64"), $(RR rules "a sha256:$SHA64")")" "label is used twice"
+# A capped intake's marker (docs/designs/DESIGN-coordinator-brief-intake-cap.md,
+# Decision 2): `<label> sha256:<64 hex> <c>/<n>`, 0 < c < n, one per label.
+passes "a briefs-read row passes beside the label's briefs row" \
+    "$(RUNS "$(RR briefs "a sha256:$SHA64"), $(RR briefs-read "a sha256:$SHA64 60/61")")"
+passes "  ... and two for two labels" "$(RUNS "$(RR briefs-read "a sha256:$SHA64 60/61"), $(RR briefs-read "b sha256:$SHA64 1/2")")"
+BRMSG="run.value: a briefs-read row is \`<label> sha256:<64 hex> <c>/<n>\`, with 0 < c < n"
+same "a briefs-read row with c = 0" "$(RUNS "$(RR briefs-read "a sha256:$SHA64 0/61")")" "$BRMSG"
+same "  ... with c = n" "$(RUNS "$(RR briefs-read "a sha256:$SHA64 61/61")")" "$BRMSG"
+same "  ... with c > n" "$(RUNS "$(RR briefs-read "a sha256:$SHA64 62/61")")" "$BRMSG"
+same "  ... with a digest that isn't sha256:<64 hex>" "$(RUNS "$(RR briefs-read "a sha256:abc 60/61")")" "$BRMSG"
+same "  ... with no c/n" "$(RUNS "$(RR briefs-read "a sha256:$SHA64")")" "$BRMSG"
+same "  ... or a leading zero" "$(RUNS "$(RR briefs-read "a sha256:$SHA64 060/61")")" "$BRMSG"
+same "two briefs-read rows for one label" \
+    "$(RUNS "$(RR briefs-read "a sha256:$SHA64 60/61"), $(RR briefs-read "a sha256:$SHA64 59/61")")" "run: a briefs-read label is used twice"
 same "a friction row that isn't a label" "$(RUNS "$STORE, $(RR friction "a b")")" "a friction row is a label"
 same "a reports-to address that is two words" "$(RUNS "$STORE, $(RR reports-to "the lead at ws lead")")" "is \`<name>\` or \`<name> at <address>\`"
 passes "a reports-to row naming a person, the human, passes" "$(RUNS "$(RR reports-to "the human")")"
@@ -397,24 +415,82 @@ eq "  ... and read whole, the splitter gives 62, 65 and 74" "62 65 74" \
 printf '# Brief: x\n\n## Goal\n\nGoal text.\n\n### Inside\n\nStill the goal.\n\n# Top\n\nA top rule.\n\n## Goal of the lane\n\nNot the goal section.\n\n## Out of scope\n\n- Leave the docs.\n- leave the docs\n\n## Keep-alive\n\nPing.\n' > "$T/brief.md"
 eq "a ### heading starts no section, a # heading ends one, a heading is matched whole, and a sentence comes once" \
     '["A top rule.","Not the goal section.","- Leave the docs."]' "$(cands "$T/brief.md")"
-# plan <rows-json> <label> <digest> <cands-json>: brief_intake_plan's answer.
-plan() { jq -nc -L "$HERE" --argjson r "$1" --arg l "$2" --arg d "$3" --argjson c "$4" 'include "state-schema"; $r | brief_intake_plan($l; $d; $c)'; }
+# The brief-intake-cap design's Decision 1: a line exactly `## Standing rules`
+# switches the brief to opt-in mode, where only the four rule sections count.
+# outside <file>: brief_outside_rules, the opt-in count (null in today's mode).
+outside() { jq -R -s -c -L "$HERE" 'include "state-schema"; brief_outside_rules' "$1"; }
+eq "the golden briefs are read in today's mode" "null null null" \
+    "$(for f in min leg base; do outside "$GOLD/$f.txt"; done | tr '\n' ' ' | sed 's/ $//')"
+NBSP=$(printf '\302\240')
+for h in "## Standing Rules" "## Standing rules (kept)" "### Standing rules" "## Standing${NBSP}rules"; do
+    printf '# Brief: near\n\nPre one.\n\n## Goal\n\nGoal line.\n\n## Holdings\n\n- Held line.\n\n%s\n\n- Rule line.\n' "$h" > "$T/near.md"
+    eq "a near-miss heading [$h] reads as today: preamble, the sentences under it and every non-excluded section" \
+        '["Pre one.","- Held line.","- Rule line."]|null' "$(cands "$T/near.md")|$(outside "$T/near.md")"
+done
+printf 'Pre one.\n\n```text\n## Standing rules\n```\n\n## Holdings\n\n- Held line.\n\n## Out of scope\n\n- Out line.\n' > "$T/fenced.md"
+eq "a heading only inside a fenced block switches nothing, and the fenced line is no candidate" \
+    '["Pre one.","- Held line.","- Out line."]|null' "$(cands "$T/fenced.md")|$(outside "$T/fenced.md")"
+printf 'Pre one.\r\n\r\n```text\r\nFenced line.\r\n```\r\n\r\n## Standing rules\r\n\r\n- Rule line.\r\n\r\n## Holdings\r\n\r\n- Held line.\r\n\r\n## Out of scope\r\n\r\n- Out line.\r\n' > "$T/crlf.md"
+eq "  ... the heading outside the fence, every line ending in CRLF, switches it" \
+    '["- Rule line.","- Out line."]|2' "$(cands "$T/crlf.md")|$(outside "$T/crlf.md")"
+{
+    printf 'Pre one.\n\n# Top\n\nTop line.\n\n## Holdings\n\n- Held line.\n\n'
+    for s in Goal Checkpoints "Read first" "Acceptance criteria" Reporting Keep-alive; do printf '## %s\n\n%s line.\n\n' "$s" "$s"; done
+    printf '## Decisions already made\n\n- Decision C.\n\n## Standing rules\n\n- Rule A.\n\n### Sub\n\n- Rule B.\n- decision c\n\n'
+    printf '## Out of scope\n\n- Out D.\n\n## Workspace rules\n\n- Workspace E.\n'
+} > "$T/optin.md"
+eq "in opt-in mode only the four rule sections count, a ### inside one included, in brief order, each once" \
+    '["- Decision C.","- Rule A.","- Rule B.","- Out D.","- Workspace E."]' "$(cands "$T/optin.md")"
+eq "  ... the preamble, a # section, another ## section and the six excluded ones counted outside" 9 "$(outside "$T/optin.md")"
+eq "  ... and no heading is a candidate" 0 "$(cands "$T/optin.md" | jq '[.[] | select(test("^#"))] | length')"
+printf 'Pre one.\n\n## Holdings\n\n- Held line.\n\n## Out of scope\n\n- Out line.\n' > "$T/oos.md"
+eq "a hand-written brief with ## Out of scope and no opt-in heading reads as today" \
+    '["Pre one.","- Held line.","- Out line."]|null' "$(cands "$T/oos.md")|$(outside "$T/oos.md")"
+printf '# Brief: empty\n\nPre one.\n\n## Holdings\n\n- Held line.\n\n## Standing rules\n\n## Goal\n\nGoal line.\n' > "$T/empty.md"
+eq "an empty ## Standing rules section gives no candidate, every sentence counted outside" \
+    '[]|3' "$(cands "$T/empty.md")|$(outside "$T/empty.md")"
+eq "the 90-line successor brief: its rules, 59 sentences outside" "90 11 59" \
+    "$(wc -l < "$SD/successor-90.md" | tr -d ' ') $(cands "$SD/successor-90.md" | jq length) $(outside "$SD/successor-90.md")"
+# plan <rows-json> <label> <digest> <cands-json> <start>: brief_intake_plan's answer.
+plan() { jq -nc -L "$HERE" --argjson r "$1" --arg l "$2" --arg d "$3" --argjson c "$4" --argjson s "$5" 'include "state-schema"; $r | brief_intake_plan($l; $d; $c; $s)'; }
 D1=sha256:$SHA64
 D2=sha256:$(printf '%064d' 2)
 srow() { jq -nc --arg i "$1" --arg k "$2" --arg w "$3" --arg s "$4" '{standing: $i, kind: $k, on: "", until: "", what: $w, owner: "", relayed_by: "", set: "2026-09-26T08:00Z", source: $s}'; }
 ROWS="[$(srow s1 pause "Hold every lane until Friday." ""),$(srow s2 rule "Merge after green checks." "skill a/b x.md $SHA40")]"
 printf '## Decisions already made\n\n- hold every lane until friday\n- MERGE after green  checks.\n- Merge after green builds.\n- Keep it short.\n- Keep it short.\n' > "$T/brief2.md"
-eq "brief_intake_plan writes only unmatched candidates, once each" \
-    '{"ends":[],"writes":["- Merge after green builds.","- Keep it short."],"room":60,"untaken":0}' \
-    "$(plan "$ROWS" w "$D1" "$(cands "$T/brief2.md")")"
+eq "brief_intake_plan writes only unmatched candidates, once each, each with its index" \
+    '{"ends":[],"writes":[{"index":2,"text":"- Merge after green builds."},{"index":3,"text":"- Keep it short."}],"room":60,"untaken":0}' \
+    "$(plan "$ROWS" w "$D1" "$(cands "$T/brief2.md")" 0)"
 ROWS="[$(srow s1 rule "A." "inferred brief w $D1"),$(srow s2 rule "B." "inferred brief w $D1"),$(srow s3 rule "B." "inferred brief other $D1"),$(srow s4 rule "C." "inferred brief w $D2")]"
 eq "brief_intake_plan ends other digests' rows of the label the candidates don't state" \
-    '{"ends":["s2"],"writes":["D."],"room":57,"untaken":0}' "$(plan "$ROWS" w "$D2" '["a","D."]')"
+    '{"ends":["s2"],"writes":[{"index":1,"text":"D."}],"room":57,"untaken":0}' "$(plan "$ROWS" w "$D2" '["a","D."]' 0)"
 ROWS=$(jq -nc --arg p "pinned charter sha256:$SHA64" '[range(115) | {standing: "s\(. + 1)", kind: "rule", what: "row \(.)", source: (if . < 10 then "inferred" else $p end)}]')
 eq "  ... and the room the caps leave: 5 of 7 under the 120-rule cap, 2 untaken" "5 2" \
-    "$(plan "$ROWS" w "$D1" '["a","b","c","d","e","f","g"]' | jq -r '"\(.room) \(.untaken)"')"
+    "$(plan "$ROWS" w "$D1" '["a","b","c","d","e","f","g"]' 0 | jq -r '"\(.room) \(.untaken)"')"
 ROWS=$(jq -nc '[range(60) | {standing: "s\(. + 1)", kind: "rule", what: "row \(.)", source: "inferred"}]')
-eq "  ... none at 60 inferred, every write untaken" "0 3" "$(plan "$ROWS" w "$D1" '["a","b","c"]' | jq -r '"\(.room) \(.untaken)"')"
+eq "  ... none at 60 inferred, every write untaken" "0 3" "$(plan "$ROWS" w "$D1" '["a","b","c"]' 0 | jq -r '"\(.room) \(.untaken)"')"
+# From a start: the writes begin there, with their indices in the whole list,
+# and the ends still test every candidate, those before the start too.
+ROWS="[$(srow s1 rule "A." "inferred brief w $D1"),$(srow s2 rule "Z." "inferred brief w $D1")]"
+eq "brief_intake_plan from start 2 writes from index 2 and keeps a row only an earlier candidate states" \
+    '{"ends":["s2"],"writes":[{"index":2,"text":"C."},{"index":3,"text":"D."}],"room":59,"untaken":0}' \
+    "$(plan "$ROWS" w "$D2" '["A.","B.","C.","D."]' 2)"
+ROWS=$(jq -nc '[range(58) | {standing: "s\(. + 1)", kind: "rule", what: "row \(.)", source: "inferred"}]')
+eq "  ... and its untaken counts only the writes from the start" "2 1" \
+    "$(plan "$ROWS" w "$D1" '["a","b","c","d","e"]' 2 | jq -r '"\(.room) \(.untaken)"')"
+if jq -nc -L "$HERE" 'include "state-schema"; [] | brief_intake_plan("w"; "d"; ["a"])' > /dev/null 2>&1; then
+    bad "a three-argument brief_intake_plan is a jq error" "it ran"
+else
+    ok "a three-argument brief_intake_plan is a jq error"
+fi
+# brf <run-json> <label> <digest> <n>: briefs_read_start's answer.
+brf() { jq -nc -L "$HERE" --argjson r "$1" --arg l "$2" --arg d "$3" --argjson n "$4" 'include "state-schema"; $r | briefs_read_start($l; $d; $n)'; }
+MARK="[$(RR briefs-read "lane $D1 60/61")]"
+eq "briefs_read_start reads c from the label's row for that digest and that n" 60 "$(brf "$MARK" lane "$D1" 61)"
+eq "  ... and 0 for another digest" 0 "$(brf "$MARK" lane "$D2" 61)"
+eq "  ... another n" 0 "$(brf "$MARK" lane "$D1" 99)"
+eq "  ... another label" 0 "$(brf "$MARK" other "$D1" 61)"
+eq "  ... or no row" 0 "$(brf '[]' lane "$D1" 61)"
 
 echo "== rule_grants =="
 # under_grant <row-json> <answer-json> [<jq patch over the row's rule_view>]: the

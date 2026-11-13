@@ -1328,8 +1328,8 @@
     {
       "id": 69,
       "name": "a-capped-intake-leaves-the-gap-for-a-person",
-      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. You ran state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z. It exited 1 with `state-stored-set: took 60 of the brief's lines; 1 of its lines can't be taken under the caps: the record holds 60 inferred rule rows, the most it keeps; confirm or end one first`, and the handover check still lists `brief-unread worker: state-stored-set.sh --intake worker --by <you>; 1 of its lines can't be taken under the caps (60 inferred rule rows, 120 rule rows): ask a person which rule rows to confirm or end, then run it again`. What happened, and what do you do next?",
-      "expected_output": "The intake wrote 60 inferred brief rows and stopped at the 60-inferred-row cap, so one of the brief's lines isn't in the record and no briefs row was written: the brief-unread gap stays open on purpose. The coordinator doesn't end or drop inferred rows itself to make room, doesn't retry the intake unchanged (it would write nothing and exit 1 again), and doesn't write the briefs row by hand. It asks a person which rule rows to confirm or end, naming the cap and the one line left, and runs the intake again once they have.",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z. You ran state-stored-set.sh --session coordinate-roadmap-plugin-system-20260926T070000Z --intake worker --by coordinate-roadmap-plugin-system-20260926T070000Z. It exited 1 with `state-stored-set: took 60 of the brief's lines; 1 of its lines can't be taken under the caps: the record holds 60 inferred rule rows, the most it keeps; confirm or end one first`, and the handover check still lists `brief-unread worker: state-stored-set.sh --intake worker --by <you>; 1 of its lines can't be taken under the caps (60 inferred rule rows, 120 rule rows): when they aren't standing rules, have the brief rewritten with its rules under ## Standing rules and record it under the same label (state-stored-set.sh --host briefs:worker <absolute path>); otherwise ask a person which rule rows to confirm or end; then run it again, and it goes on after the lines it already took`. What happened, and what do you do next?",
+      "expected_output": "The intake wrote 60 inferred brief rows and stopped at the 60-inferred-row cap, so one of the brief's lines isn't in the record and no briefs row was written: the brief-unread gap stays open on purpose. The coordinator doesn't end or drop inferred rows itself to make room, doesn't retry the intake unchanged (it would write nothing and exit 1 again), and doesn't write the briefs row by hand. It takes the routes in the fix's order. When the line left out isn't a standing rule (a holding, a takeover step, a note on how things stand), it has the brief rewritten with its rules under ## Standing rules and records the rewrite under the same label, worker, with state-stored-set.sh --host briefs:worker and the rewrite's absolute path. When the line is a rule the run must keep, it asks a person which rule rows to confirm or end, naming the cap and the one line left. Then it runs the intake again, knowing it goes on after the 60 lines it already took rather than starting over.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
@@ -1338,10 +1338,32 @@
         "Names the 60-inferred-row cap as the reason",
         "Doesn't end or drop rule rows itself, or write the briefs row by hand",
         "Doesn't retry the intake unchanged",
-        "Asks a person which rule rows to confirm or end, then runs the intake again"
+        "When the left-out line isn't a standing rule, has the brief rewritten with its rules under ## Standing rules and records it with state-stored-set.sh --host briefs:worker <absolute path>",
+        "When the left-out line is a rule, asks a person which rule rows to confirm or end",
+        "Then runs the intake again, saying it goes on after the lines it already took"
       ],
       "requirements": [
-        "coordinator-standing-rule-provenance R47"
+        "coordinator-standing-rule-provenance R47",
+        "coordinator-brief-intake-cap Decision 2"
+      ]
+    },
+    {
+      "id": 70,
+      "name": "a-successor-brief-files-its-rules-under-standing-rules",
+      "prompt": "You coordinate docs/roadmaps/ROADMAP-plugin-system.md in session coordinate-roadmap-plugin-system-20260926T070000Z and are handing the run to a successor, so you're writing its brief by hand. state-stored-set.sh --rules lists, among others, s3 (rule, owner-said) `Release pull requests wait for a person's review before they merge.` and s5 (rule, owner-said) `Read a CI run's status at most once a minute.` This morning the owner also told you: dispatch no new lane until Feature 2 merges. You hold Feature 2, with worker plugin-loader and pull request #41 open and green; Feature 3 hasn't started. The successor's first steps are to tell plugin-loader its new address and then run the handover check. One more thing it should know: main is red right now from a flaky test that a fix is already open for. Write the brief, and say how it gets to the successor's record.",
+      "expected_output": "The brief carries a heading exactly ## Standing rules, spelled so, and every rule the successor must keep sits under it, one to a sentence or bullet: s3 and s5 restated in their exact words (Release pull requests wait for a person's review before they merge. and Read a CI run's status at most once a minute.), which cost no room since the record already holds them, and the owner's rule to dispatch no new lane until Feature 2 merges, a warning that holds for the rest of the run. The holdings (Feature 2 with plugin-loader and pull request #41, Feature 3 not started), the takeover steps (tell plugin-loader the new address, run the handover check) and the red main, a note on how things stand now rather than a rule, sit outside ## Standing rules, under other headings or none. The coordinator doesn't paraphrase the carried rules or turn holdings and steps into rules. The brief is recorded with state-stored-set.sh --host briefs:<label> and the brief's absolute path, and the intake (state-stored-set.sh --intake <label>) brings its rules in.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The brief has a heading exactly ## Standing rules",
+        "Puts s3 and s5 under ## Standing rules in their exact words",
+        "Puts the owner's no-new-lane rule under ## Standing rules",
+        "Keeps the holdings, the takeover steps and the red main outside ## Standing rules",
+        "Records the brief with state-stored-set.sh --host briefs:<label> and an absolute path, for the intake to read"
+      ],
+      "requirements": [
+        "coordinator-brief-intake-cap Decision 1"
       ]
     },
     {

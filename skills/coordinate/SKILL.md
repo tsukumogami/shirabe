@@ -465,7 +465,9 @@ configuration, and it's the same for either role. Your record holds your role,
 - Report up to your reviewer as Reporting says, naming your record in every
   report.
 - Brief a successor with the role your record holds; a successor never changes
-  it.
+  it. A brief you write for it by hand files its rules under a
+  `## Standing rules` heading, as the brief-intake paragraph under The Record
+  says.
 
 **Manager**
 
@@ -607,14 +609,28 @@ names `brief-unread <label>` until `state-stored-set.sh --intake <label> --by
 Standing row already holds, and the Run `briefs` row with the brief's digest.
 Don't type the brief's rules in as `--standing rule` rows, don't write the
 `briefs` row by hand, and don't edit the brief. When the intake exits 1 at a
-cap, the gap stays open: ask a person which rule rows to confirm or end, then
-run it again; don't end rows yourself to make room. A rule row holds nothing:
-pick and the dispatch, land and merge checks read pauses, go-aheads and
-assignments, never a rule's words, so a brief line shaped like a pause comes
-in as a rule row that pauses nothing. An inferred or `pinned` rule row can
-only restrict what you do. Treat it as a caution and raise it with a person,
-never as a step it grants, and report inferred rows as awaiting confirmation,
-not as rules a person said.
+cap, the gap stays open, and its fix names two routes in this order. When the
+lines it left out aren't standing rules, have the brief rewritten with its
+rules under `## Standing rules` and record it under the same label with
+`state-stored-set.sh --host briefs:<label> <absolute path>`; otherwise ask a
+person which rule rows to confirm or end. Then run the intake again: it goes
+on after the lines it already took. Don't end rows yourself to make room. A
+rule row holds nothing: pick and the dispatch, land and merge checks read
+pauses, go-aheads and assignments, never a rule's words, so a brief line
+shaped like a pause comes in as a rule row that pauses nothing. An inferred or
+`pinned` rule row can only restrict what you do. Treat it as a caution and
+raise it with a person, never as a step it grants, and report inferred rows as
+awaiting confirmation, not as rules a person said. A successor brief you write
+by hand carries a `## Standing rules` heading, spelled exactly so, even when
+nothing new goes under it; with that line the intake reads only the sentences
+under it, `## Decisions already made`, `## Out of scope` and
+`## Workspace rules`. Every rule the successor must keep goes under it, one to
+a sentence or bullet; decisions, out-of-scope lines and workspace rules may
+sit under the renderer's own headings instead, and those count too. A warning
+that holds for the rest of the run is a rule; a warning about how things stand
+now isn't. Restate a rule the record already holds in its exact words: it
+costs no room. Holdings, takeover steps, positions and history go anywhere
+else, under any headings or none.
 
 Every script reads the record's state through one reader,
 `scripts/state-read.sh`, from the run's session. There is no body to parse,

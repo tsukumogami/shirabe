@@ -57,7 +57,8 @@
 # kept); --run friction, a label; and --run reports-to, `<name>` or `<name>
 # at <address>`, who this coordinator reports up to (a person, or the
 # coordinator that dispatched it) and, for a coordinator, its messaging
-# address.
+# address. --run doesn't take `briefs-read`: only --intake writes or removes
+# that row (64).
 # --inferred SENTENCE marks a `reports-to` or `cap` value the coordinator
 # worked out rather than read from its brief, its dispatch link or a
 # person's message (docs/designs/DESIGN-coordinator-standing-rule-provenance.md,
@@ -215,9 +216,16 @@
 # regular file exits 2, naming the label. Its digest is the sha256 of its
 # bytes, D below. A Run `briefs` row `LABEL D` means the brief was taken: it
 # prints nothing, writes nothing and exits 0. Otherwise its lines are
-# state-schema.jq's brief_candidates (file_sentences less the heading lines
+# state-schema.jq's brief_candidates, each once, read in one of two modes
+# (docs/designs/DESIGN-coordinator-brief-intake-cap.md, Decision 1). A brief
+# with a line exactly `## Standing rules` opts in: only the sentences under
+# that heading and under Decisions already made, Out of scope and Workspace
+# rules are its lines, and stderr says how many of its sentences sit outside
+# those sections (`<n> of the brief's sentences sit outside its rule
+# sections ...`, no path), so an empty heading or a misfiled rule shows as a
+# count. Any other brief's lines are file_sentences less the heading lines
 # and the renderer's Goal, Checkpoints, Read first, Acceptance criteria,
-# Reporting and Keep-alive sections, each once), and brief_intake_plan says
+# Reporting and Keep-alive sections, as before. brief_intake_plan says
 # what it does with them: each Standing row whose Source is `inferred brief
 # LABEL <another digest>` and whose What matches none of the lines under
 # norm_match ends, and each line no row left (of any kind or Source) holds
@@ -234,15 +242,27 @@
 # fails exits 2 with nothing written. The caps count the rows left once the
 # ended rows go: it writes as many lines as the 60-inferred and 120-rule
 # caps leave room for, in order. When every line is taken it also replaces
-# LABEL's Run `briefs` row with `LABEL D`, Set by WHO, which clears the gap;
-# when a cap stops it, the rows up to the cap are written, no `briefs` row
-# is, and it exits 1, `took <k> of the brief's lines; <n> of its lines can't
-# be taken under the caps: <the cap>` on stderr, so the gap stays open for a
-# person to say which rows to confirm or end. The rows, the ended rows and
-# the `briefs` row go in one state write. Its entries follow, in order: one
-# rule entry per row written, `s<n> (rule): <What>. Source: inferred brief
-# LABEL D.`; one end entry per row ended, as --end tells it; and, with the
-# `briefs` row, the run entry `Run briefs LABEL D set by WHO.`
+# LABEL's Run `briefs` row with `LABEL D`, Set by WHO, which clears the gap,
+# and removes LABEL's `briefs-read` row; when a cap stops it, the rows up to
+# the cap are written, no `briefs` row is, and it exits 1, `took <k> of the
+# brief's lines; <n> of its lines can't be taken under the caps: <the cap>`
+# on stderr, so the gap stays open for a person to say which rows to confirm
+# or end. A capped intake that writes rows or ends also records how far it
+# got (docs/designs/DESIGN-coordinator-brief-intake-cap.md, Decision 2): it
+# replaces LABEL's Run `briefs-read` row with `LABEL D c/n`, Set by WHO, n
+# the count of the brief's lines and c the index of the first kept line it
+# couldn't take, or, when c is 0, removes the row and writes none. The next
+# intake of D finds that row (state-schema.jq's briefs_read_start: same D,
+# same n) and writes only lines from c on, while the ends still test every
+# line; a row for another digest or another n is ignored and it reads from
+# the first line. A capped intake that writes and ends nothing exits 1 with
+# the record, `briefs-read` row included, unchanged. The rows, the ended
+# rows and the `briefs` or `briefs-read` row go in one state write. Its
+# entries follow, in order: one rule entry per row written, `s<n> (rule):
+# <What>. Source: inferred brief LABEL D.`; one end entry per row ended, as
+# --end tells it; and, with the `briefs` row, the run entry `Run briefs
+# LABEL D set by WHO.`, or, with a `briefs-read` row, `Run briefs-read LABEL
+# D c/n set by WHO.` The `briefs-read` row's removal has no entry.
 # --rules prints one JSON object per Standing row, in record order, with its
 # class worked out from its Source (state-schema.jq's rule_view: standing,
 # kind, class, what, owner, said, set, pointer, words, source, status,
@@ -877,8 +897,9 @@ rule_checks() {
     done < "$WD/tokens"
 }
 # intake_checks: the brief's lines the intake would write ($WD/plan.json's
-# writes) checked one by one, as a rule row's What is, into $WD/kept.json;
-# each line that fails is left out and named on stderr, `left out: <reason>:
+# writes) checked one by one, as a rule row's What is, into $WD/kept.json,
+# each kept line as {index, text}, its index the plan's; each line that fails
+# is left out and named on stderr, `left out: <reason>:
 # <the line, cut to 200 characters, a token or a home directory's name
 # blanked>`, and the rest are written. A line fails at over 400 bytes, with a
 # home-directory path or a token-shaped string (text_problem, on any host),
@@ -892,7 +913,7 @@ rule_checks() {
 intake_checks() {
     local r
     jq -c -L "$HERE" 'include "state-schema";
-        [.writes[] | {text: ., bytes: utf8bytelength, problem: text_problem([]),
+        [.writes[] | .index as $i | .text | {index: $i, text: ., bytes: utf8bytelength, problem: text_problem([]),
                       links: text_named_repos, tokens: what_repo_tokens}]' "$WD/plan.json" > "$WD/lines.json" || lib_die2 "jq failed"
     echo '{}' > "$WD/vis.json"
     if [ "$RULE_HOST_PRIVATE" = false ]; then
@@ -921,7 +942,7 @@ intake_checks() {
         | gsub("(?<p>gh[pousr]_|github_pat_|sk-|xox[abprs]-)[A-Za-z0-9_-]+"; "\(.p)[redacted]")
         | gsub("(?<p>/home/|/Users/)[^/[:space:]]+"; "\(.p)[redacted]")
         | gsub("[\u0000-\u001f\u007f]"; ""))"' "$WD/judged.json" | sed "s/^/$PROG: /" >&2
-    jq -c '[.[] | select(.why == null) | .text]' "$WD/judged.json" > "$WD/kept.json" || lib_die2 "jq failed"
+    jq -c '[.[] | select(.why == null) | {index, text}]' "$WD/judged.json" > "$WD/kept.json" || lib_die2 "jq failed"
 }
 # next_standing_id: SID, the id a new Standing row in the record read ($P)
 # gets, and STANDING_USED, its number, which the write core keeps in
@@ -1137,9 +1158,18 @@ intake)
     if jq -e --arg v "$ILABEL $IDIG" 'any((.run // [])[]; .key == "briefs" and .value == $v)' "$P" > /dev/null; then
         exit 0
     fi
-    jq -R -s -c -L "$HERE" 'include "state-schema"; brief_candidates' "$WD/brief" > "$WD/cands.json" || lib_die2 "cannot read the brief $ILABEL"
-    jq -c -L "$HERE" --arg l "$ILABEL" --arg d "$IDIG" --slurpfile c "$WD/cands.json" 'include "state-schema";
-        (.standing // []) | brief_intake_plan($l; $d; $c[0])' "$P" > "$WD/plan.json" || lib_die2 "jq failed"
+    jq -R -s -c -L "$HERE" 'include "state-schema"; {cands: brief_candidates, outside: brief_outside_rules}' "$WD/brief" > "$WD/read.json" \
+        || lib_die2 "cannot read the brief $ILABEL"
+    jq -c .cands "$WD/read.json" > "$WD/cands.json" || lib_die2 "jq failed"
+    # An opt-in brief: how many of its sentences weren't read as rules.
+    IOUT=$(jq -r '.outside // empty' "$WD/read.json") || lib_die2 "jq failed"
+    [ -z "$IOUT" ] || echo "$PROG: $IOUT of the brief's sentences sit outside its rule sections (## Standing rules, ## Decisions already made, ## Out of scope, ## Workspace rules) and weren't read as rules" >&2
+    # Where this intake starts: from c when LABEL's briefs-read row names this
+    # digest and this many lines, else from the first line.
+    ISTART=$(jq -r -L "$HERE" --arg l "$ILABEL" --arg d "$IDIG" --slurpfile c "$WD/cands.json" 'include "state-schema";
+        (.run // []) | briefs_read_start($l; $d; $c[0] | length)' "$P") || lib_die2 "jq failed"
+    jq -c -L "$HERE" --arg l "$ILABEL" --arg d "$IDIG" --slurpfile c "$WD/cands.json" --argjson s "$ISTART" 'include "state-schema";
+        (.standing // []) | brief_intake_plan($l; $d; $c[0]; $s)' "$P" > "$WD/plan.json" || lib_die2 "jq failed"
     # The host's visibility, read once and handed to the write core; a
     # private host reads no repository a line names.
     # shellcheck source=dispatch-common.sh
@@ -1156,21 +1186,32 @@ intake)
     NENDS=$(jq '.ends | length' "$WD/plan.json")
     WRITE_BRIEF=false
     [ "$UNTAKEN" -gt 0 ] || WRITE_BRIEF=true
+    # A capped intake's marker: c is the index of the first kept line it
+    # couldn't take, n the count of the brief's lines; none when c is 0.
+    IREAD=
+    if [ "$UNTAKEN" -gt 0 ]; then
+        IREAD=$(jq -r --argjson k "$TAKEN" --slurpfile c "$WD/cands.json" '.[$k].index as $i
+            | if $i > 0 then "\($i)/\($c[0] | length)" else "" end' "$WD/kept.json") || lib_die2 "jq failed"
+        [ -z "$IREAD" ] || IREAD="$ILABEL $IDIG $IREAD"
+    fi
     START_N=0
     if [ "$TAKEN" -gt 0 ]; then
         next_standing_id
         START_N=${SID#s}
         STANDING_USED=$((START_N + TAKEN - 1))
     fi
+    # The briefs row on completion, the briefs-read row on a cap with c above
+    # 0, and neither briefs-read row of LABEL left otherwise.
     jq --slurpfile tk "$WD/taken.json" --slurpfile pl "$WD/plan.json" --argjson n "$START_N" --arg src "$ISRC" --arg t "$NOW" \
-        --arg b "$BY" --arg l "$ILABEL" --arg bv "$ILABEL $IDIG" --argjson brief "$WRITE_BRIEF" '
+        --arg b "$BY" --arg l "$ILABEL" --arg bv "$ILABEL $IDIG" --argjson brief "$WRITE_BRIEF" --arg rv "$IREAD" '
         ($pl[0].ends) as $e
         | .standing = ([(.standing // [])[] | select(.standing as $s | any($e[]; . == $s) | not)]
-            + [$tk[0] | to_entries[] | {standing: "s\($n + .key)", kind: "rule", on: "", until: "", what: .value,
+            + [$tk[0] | to_entries[] | {standing: "s\($n + .key)", kind: "rule", on: "", until: "", what: .value.text,
                                          owner: "", relayed_by: "", set: $t, source: $src}])
-        | if $brief then
-            .run = ([(.run // [])[] | select((.key == "briefs" and (.value | split(" ")[0]) == $l) | not)]
-                    + [{key: "briefs", value: $bv, set_by: $b, set: $t}])
+        | def drop($k): [(.run // [])[] | select((.key == $k and (.value | split(" ")[0]) == $l) | not)];
+          if any((.run // [])[]; .key == "briefs-read" and (.value | split(" ")[0]) == $l) then .run = drop("briefs-read") else . end
+        | if $brief then .run = (drop("briefs") + [{key: "briefs", value: $bv, set_by: $b, set: $t}])
+          elif $rv != "" then .run = ((.run // []) + [{key: "briefs-read", value: $rv, set_by: $b, set: $t}])
           else . end' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     if [ "$UNTAKEN" -gt 0 ]; then
         WHY=$(jq -r -L "$HERE" --arg s "$ISRC" 'include "state-schema";
@@ -1190,13 +1231,15 @@ intake)
         refuse "$(sed -n 's/.*refused: //p' "$WD/rule.err" | head -1 | lib_scrub)"
     fi
     # The entries: a rule entry per new row, an end entry per ended row, then
-    # the briefs row's run entry.
+    # the briefs row's run entry, or the briefs-read row's.
     jq -r --slurpfile tk "$WD/taken.json" --slurpfile pl "$WD/plan.json" --argjson n "$START_N" --arg src "$ISRC" \
-        --arg b "$BY" --arg bv "$ILABEL $IDIG" --argjson brief "$WRITE_BRIEF" '
+        --arg b "$BY" --arg bv "$ILABEL $IDIG" --argjson brief "$WRITE_BRIEF" --arg rv "$IREAD" '
         (.standing // []) as $rows
-        | ($tk[0] | to_entries[] | "rule\ts\($n + .key) (rule): \(.value). Source: \($src)."),
+        | ($tk[0] | to_entries[] | "rule\ts\($n + .key) (rule): \(.value.text). Source: \($src)."),
           ($pl[0].ends[] as $e | $rows[] | select(.standing == $e) | "end\t\(.standing) (\(.kind): \(.what)) ended by \($b)."),
-          (if $brief then "run\tRun briefs \($bv) set by \($b)." else empty end)' "$P" > "$WD/entries.list" || lib_die2 "jq failed"
+          (if $brief then "run\tRun briefs \($bv) set by \($b)."
+           elif $rv != "" then "run\tRun briefs-read \($rv) set by \($b)."
+           else empty end)' "$P" > "$WD/entries.list" || lib_die2 "jq failed"
     EKIND=$(head -1 "$WD/entries.list" | cut -f1)
     ETEXT=$(head -1 "$WD/entries.list" | cut -f2-)
     EXTRAS=$(tail -n +2 "$WD/entries.list")

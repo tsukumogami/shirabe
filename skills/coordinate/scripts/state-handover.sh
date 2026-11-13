@@ -77,8 +77,14 @@
 #                                            rows) would leave any of the
 #                                            brief's lines out, it names how
 #                                            many (the design's Decision
-#                                            10). A key whose file can't be
-#                                            read raises no gap
+#                                            10), counted from where the
+#                                            intake will start (a Run
+#                                            `briefs-read` row for that
+#                                            digest), and asks first for the
+#                                            brief rewritten with its rules
+#                                            under `## Standing rules`. A
+#                                            key whose file can't be read
+#                                            raises no gap
 #   no-next-step <unit>                      a live holding has no Work row
 #   leg-unclassified <worker>                a live holding's leg names a
 #                                            request this host's store
@@ -306,13 +312,15 @@ jq -c -L "$HERE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed
            else {gap: "reports-to-unsourced", fix: "state-stored-set.sh --run reports-to \"\(.reports_to)\" --inferred \"Report to \($a): worked out from <where>, not given in the brief\" --by <you>; or, when \($a) dispatched this run, koto session link <this run> --dispatched-by \($a)"} end),
         (if .role == null then {gap: "no-role", fix: "state-stored-set.sh --run role <manager|director> --by <who named it>"} else empty end),
         # A brief record/host names whose digest no Run briefs row carries;
-        # the fix names how many of its lines the caps would leave out.
+        # the fix names how many of its lines the caps would leave out,
+        # counted from where the intake starts (its briefs-read row).
         ($briefs[0][] | "sha256:\(.digest)" as $d | . as $b
          | select(any($run[]; .key == "briefs" and .value == "\($b.label) \($d)") | not)
-         | ($rows | brief_intake_plan($b.label; $d; $b.text | brief_candidates)) as $plan
+         | ($b.text | brief_candidates) as $cands
+         | ($rows | brief_intake_plan($b.label; $d; $cands; $run | briefs_read_start($b.label; $d; $cands | length))) as $plan
          | {gap: "brief-unread \($b.label)",
             fix: ("state-stored-set.sh --intake \($b.label) --by <you>"
-                  + (if $plan.untaken > 0 then "; \($plan.untaken) of its lines can'"'"'t be taken under the caps (\(inferred_cap) inferred rule rows, \(rule_cap) rule rows): ask a person which rule rows to confirm or end, then run it again" else "" end))}),
+                  + (if $plan.untaken > 0 then "; \($plan.untaken) of its lines can'"'"'t be taken under the caps (\(inferred_cap) inferred rule rows, \(rule_cap) rule rows): when they aren'"'"'t standing rules, have the brief rewritten with its rules under ## Standing rules and record it under the same label (state-stored-set.sh --host briefs:\($b.label) <absolute path>); otherwise ask a person which rule rows to confirm or end; then run it again, and it goes on after the lines it already took" else "" end))}),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "state-stored-set.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select((.told or .pending) | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then state-stored-set.sh --told \(.worker) --by <you>; when its session is gone and its instance still exists, state-stored-set.sh --pending \(.worker) --by <you>"}) else empty end)
