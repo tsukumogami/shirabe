@@ -104,7 +104,10 @@ Outcomes:
 The verdict's exit status carries the outcome: 0 passed, 1 failed, 3 no map (or a map
 that does not parse, or selects nothing) and 4 a command that needs a person, timed
 out, grew past its process bound, could not start, or a dirty tree — both of the last
-two cannot-verify, ending at `done_blocked`. Each violation names its rule
+two cannot-verify, ending at `done_blocked`. Exit 5 replaces 1 or 4 when every
+failed or timed-out command's log names failures only in files the change doesn't
+touch, or, timed out, names no failure (see **A Local Failure Outside the Change**).
+Each violation names its rule
 (`verification/...`) in a koto finding, and the result is recorded in context as
 `verification_results.json`.
 
@@ -148,6 +151,32 @@ never a silent skip:
   `Reason: <reason>`, and says hosted CI is the build of record
   (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
   that CI green, as it does for every run.
+
+### A Local Failure Outside the Change
+
+A local run can fail for reasons the change didn't cause: a suite in an untouched
+file failing under load, or a command killed at its timeout with nothing failing.
+The verdict exits 5 for that, and only for that. Every cause behind the exit must
+be a failed or timed-out command whose log, read the way the map's `failure_lines`
+says, names failures only in files that exist at the head and aren't in the
+change's diff; a timed-out one may name none. A failure in a touched file, one the
+log can't tie to a file, and every other exit-4 cause keep their exit
+(`references/verification-map.md`, "Attributing a failure", has the rules).
+
+koto doesn't route exit 5 on its own. You submit `verification_status`:
+
+- `deferred` when the failures aren't the change's. Name the files and why in
+  `detail`. The run goes through `verification_outside_change`, which records
+  `verification_deferral`, to `pass_counting` and on to finalization.
+- `fix` when a failing suite exercises code the change edits, even though the
+  suite's own file is untouched. The run goes back to implementation.
+- `blocked` to stop at `done_blocked`, with the reason in `detail`.
+
+On `deferred`, hosted CI is the build of record. The pull request body records the
+deferral as it does for a hosted-ci run, saying local verification did not pass,
+and `ci_monitor` requires hosted CI green with no override. Hosted CI runs every
+suite, so a failure the change did cause in an untouched file still stops the run
+there.
 
 ### Fixes Start Red
 

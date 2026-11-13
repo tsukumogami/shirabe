@@ -128,15 +128,33 @@ Reason: <the verification_deferral value>
 Hosted CI is the build of record for this change.
 ```
 
+A local run can defer too. When the verdict found every local failure outside the
+change (exit 5) and you submitted `verification_status: deferred`, the run passed
+through `verification_outside_change`, which wrote `verification_deferral` as a
+fixed sentence: local verification failed or timed out only in files this change
+does not touch. It's recorded the same way: under `omit` the context key is the
+record, and under `include` Part 2 carries this section, its first line changed
+because local verification did run:
+
+```markdown
+## Verification
+
+Local verification did not pass: every failure lay in files this change does not touch.
+Reason: <the verification_deferral value>
+Hosted CI is the build of record for this change.
+```
+
 Under `include`, `pr_creation`'s `verification_deferral_recorded` gate reads the
-body GitHub has (`check-pr-output.sh --deferral-record`) and holds `pr_status: created` until it
-finds all three: a line saying local verification did not run, the line
+body GitHub has (`check-pr-output.sh --deferral-record --session <s>`, which
+takes the reason from `verification_deferral`) and holds `pr_status: created` until it
+finds all three: a line saying local verification did not run or did not pass, the line
 `Reason: <reason>`, and a line saying hosted CI is the build of record. The
 wording is matched without regard to case. The reason line is matched exactly
 and whole: the reason showing up elsewhere in the body, inside the
 build-of-record line or a longer reason's line, doesn't count, nor does a
 `Reason:` line with a list marker, extra spaces or a trailing period. A run that
-didn't defer passes the gate without the section. On a deferred run, don't
+never deferred has no `verification_deferral` key and passes the gate without
+the section. On a deferred run, don't
 re-run tests locally after merging main either: the push is what CI checks.
 
 ### A repository with no hosted CI

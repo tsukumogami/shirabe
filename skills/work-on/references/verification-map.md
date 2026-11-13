@@ -79,11 +79,13 @@ Each value under `commands` is an object with these fields:
 | `network` | boolean | `false` | Whether the command reaches the network. A command that does must say so. |
 | `unattended` | boolean | `true` when `network` is `false`; none when `network` is `true` | Whether the command may be started with no person present. A command marked `network: true` must set `unattended` explicitly; a map that omits it there does not parse. A command marked `unattended: false` is never started by the gate on its own; the run stops for a person instead. |
 | `max_procs` | integer | `256` | The most processes the command's process group may hold at once. A command that grows past it is killed and counts as not passed. |
+| `failure_lines` | object | absent | How to read the command's log for failures: `{"prefix": "FAIL: ", "path_prefix": "FAIL: bash "}`. Both are non-empty literal strings, and `path_prefix` starts with `prefix`. Without it, a failure of this command is never attributed to files outside the change (see "Attributing a failure"). |
 
 A map does not parse when it isn't valid JSON, when `schema` is missing or different, when a
 required field is missing or has the wrong type, when an entry or `default` names an id that
-`commands` doesn't define, when `timeout_secs` exceeds `3600`, or when a `network: true`
-command omits `unattended`.
+`commands` doesn't define, when `timeout_secs` exceeds `3600`, when a `network: true`
+command omits `unattended`, or when `failure_lines` isn't two non-empty strings with
+`path_prefix` starting with `prefix`.
 
 ### Selection rules
 
@@ -136,13 +138,15 @@ for the current head. A settled result is also recorded in koto context as
 | 4 | a command's process group grew past `max_procs` and was killed | `verification/runaway` |
 | 4 | a command's `run[0]` is not an executable program | `verification/not-started` |
 | 4 | tracked files had uncommitted changes | `verification/dirty-tree` |
+| 5 | every cause that would give 1 or 4 is a failed or timed-out command whose failures lie outside the change | each cause keeps its own rule id |
 | 2 | the result could not be read | none; the gate holds |
 | 2 | the supervisor stopped before every command ran | none; the gate holds |
 
 A timeout, a runaway kill, a command that could not start and a command that needs a person
 exit 4, never 1: none of them says the change is wrong, so none sends the run back to
 implementation; they stop the run for a person. When one result holds both a failed command
-and a command that exits 4, the verdict is 4.
+and a command that exits 4, the verdict is 4. Either can become 5 when every cause lies
+outside the change (see "Attributing a failure").
 
 A supervisor that stopped before every command ran is not a verdict at all. A memory guard
 or a person may have killed it, or it could not run, and either way the result says nothing
@@ -156,6 +160,40 @@ moving the stopped result aside does.
 The whole run has a budget too: two hours, the length of the gate's wait. A command still
 running when the budget runs out is killed and reported as `verification/timed-out`, and the
 commands after it are not started.
+
+### Attributing a failure
+
+Exit 5 says the local run failed or timed out only for reasons the change didn't cause.
+The verdict decides it from the result alone, after the ranking above: when the ranked exit
+is 1 or 4 and every cause behind it is eligible, the exit is 5. Its findings keep their rule
+ids, `verification/command-failed` or `verification/timed-out`, and each message ends with
+`; outside the change: <files>` or `; its log names no failure`. One cause that isn't
+eligible keeps the ranked exit, so 5 never hides a failure the change may have caused.
+
+The launcher writes the change's paths into the result as `changed_paths`: the same
+merge-base diff it selected commands on. A command carries its `failure_lines` from the map
+at the merge-base, so a branch can't widen its own attribution. A failure line is a log line
+that starts with `prefix` at column 0; indented lines never count. A failure line names a
+file only when it starts with `path_prefix`, and the file is the text after it, up to the
+first space.
+
+A failed command is eligible when all of these hold:
+
+- the result carries `changed_paths` and the command carries `failure_lines`;
+- its log is readable and has at least one failure line;
+- every failure line names a file, and that file is a plain repository-relative path (no
+  leading `/`, no `.` or `..` component) that exists at the result's head;
+- none of the named files is in `changed_paths`.
+
+A timed-out command is eligible under the same rules, except that a log with no failure line
+is allowed: it names no failure. A runaway command, one that didn't start, one that needs a
+person, a dirty tree and the run's budget running out are never eligible. Nor is a result an
+older plugin wrote without `changed_paths`. Anything the result can't show leaves the
+command ineligible, so a path printed in another form fails closed.
+
+On exit 5 the template has no route of its own. The run waits for
+`verification_status`: `deferred` goes on with hosted CI as the build of record, `fix`
+goes back to implementation, and `blocked` stops the run.
 
 ## Illustrative example (not a real project's map)
 

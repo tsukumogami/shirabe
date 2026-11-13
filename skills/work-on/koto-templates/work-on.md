@@ -4277,7 +4277,7 @@ for this change.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
 pass. It runs `check-pr-output.sh --deferral-record --session {{SESSION_NAME}}`,
-which reads `verification_deferral` from context. On a run that didn't defer
+which reads `verification_deferral` from context. On a run that never deferred
 there is no key, and the gate passes without reading GitHub. Under `omit` it
 passes without reading GitHub too. Under `include` it reads the body from GitHub
 and holds the state until it says local verification did not run or did not
