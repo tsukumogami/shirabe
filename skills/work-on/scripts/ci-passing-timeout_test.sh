@@ -227,14 +227,18 @@ RESP=$(cd "$REPO" && env PATH="$T/bin:$PATH" koto init "$SESSION" --template "$T
 TOOK=$(( $(date +%s) - STARTED ))
 STATE=$(printf '%s' "$RESP" | jq -r '.state // empty' 2>/dev/null)
 
-if [ "$TOOK" -le 30 ]; then
-    fail "slow: the tick took $TOOK s; the stub's reads must run past 30 s for this case to mean anything (gh calls: $(wc -l < "$FIX/gh.log" 2>/dev/null))"
-elif [ "$STATE" = "ci_pass_counting" ]; then
-    pass "slow: a passing pull request read through the fallback in $TOOK s reaches ci_pass_counting"
-else
+# A run that didn't reach ci_pass_counting always reports the gate's own
+# finding: on a 30 s limit koto kills the gate at 30 s, so the tick can take
+# exactly 30 s, and the timeout is still the reason. The duration check only
+# means something for a run that got through.
+if [ "$STATE" != "ci_pass_counting" ]; then
     # The gate's own finding, which on a 30 s limit says the command timed out.
     why=$(printf '%s' "$RESP" | jq -r '[.blocking_conditions[]? | select(.name == "ci_passing") | .failure.findings[]?.message] | join("; ")' 2>/dev/null)
     fail "slow: after $TOOK s the run is at [${STATE:-no state}], not ci_pass_counting: ${why:-$(head -c 400 "$T/init.err" "$T/next.err" 2>/dev/null)}"
+elif [ "$TOOK" -le 30 ]; then
+    fail "slow: the tick reached ci_pass_counting in $TOOK s; the stub's reads must run past 30 s for this case to mean anything (gh calls: $(wc -l < "$FIX/gh.log" 2>/dev/null))"
+else
+    pass "slow: a passing pull request read through the fallback in $TOOK s reaches ci_pass_counting"
 fi
 
 echo
