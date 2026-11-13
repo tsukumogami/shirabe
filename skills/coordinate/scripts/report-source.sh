@@ -104,7 +104,8 @@ if [ "$SOURCE" = message ]; then
     # A leg read once carries nothing more, so a later report from its worker
     # can only come by message: once the leg's key reads taken (wait-target.sh
     # took its result), unwatchable, or spent (it ended with no promoted
-    # result: abandoned, cancelled or missing), or when this host's request store
+    # result: abandoned, cancelled or missing; shirabe#1295: its worker can still
+    # hand over once its leg is spent), or when this host's request store
     # doesn't hold its request (the coordinator moved here and hasn't
     # re-legged it yet), the message stands for the worker (PRD R16).
     REQ=${RP%%:*}

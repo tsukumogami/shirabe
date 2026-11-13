@@ -341,7 +341,7 @@ jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
                     recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
-     active: ([$h[0][] | select((.parked | not) and (.merged | not) and .dispatch_status != "handed-over")] | length), parked: ([$h[0][] | select(.parked)] | length),
+     active: ([$h[0][] | select((.parked | not) and (.merged | not) and .dispatch_status != "handed-over")] | length), parked: ([$h[0][] | select(.parked and .dispatch_status != "handed-over")] | length),
      cap: $cap, parked_bound: $pb, pauses: $p.pauses, go_aheads: $p.go_aheads, paused_all: $p.all}' > "$T/pick.json" || lib_die2 "jq failed"
 jq -c -L "$HERE" 'include "pick-slice"; pick_slice' "$T/pick.json" > "$T/pick_slice.json" || lib_die2 "jq failed"
 if [ "$NO_SEAL" != 1 ] && [ -n "$SESSION" ]; then
