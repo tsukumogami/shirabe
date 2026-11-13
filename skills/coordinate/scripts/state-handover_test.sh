@@ -7,9 +7,12 @@
 # existed reads and checks exactly as it did (no pending field anywhere, the
 # same gaps); a pending worker passes the gate while a live worker neither told
 # nor pending holds it with not-told; told passes; a cleared address holds on
-# every live worker again; a merged holding needs neither; and state-schema.jq
-# refusing a record that holds one worker as both told and pending, or as
-# pending twice, so a reader stops on it (10); the Run `role` row printed as
+# every live worker again; a merged holding needs neither; a missing worker
+# (niwa listed no instance for it) passes the gate too, the read naming it
+# missing, and a record with no missing row printing no missing field; and
+# state-schema.jq refusing a record that holds one worker as both told and
+# pending, or as pending twice, or as missing and told or pending, so a
+# reader stops on it (10); the Run `role` row printed as
 # role, manager, director or null, --check listing the gap no-role with its
 # fix when the record holds none and no such gap when it holds either; a
 # record with no reports-to row listing no-reports-to alone, and the gap
@@ -67,6 +70,7 @@ eq "  ... each worker with the same fields" "next phase told unit worker|next ph
 gate; eq "  ... and the gate holds on the untold live worker, as before" "1 not-told worker-f3" "$G"
 grep -q 'state-stored-set.sh --told worker-f3' "$T/gate" && ok "  ... its fix naming --told" || bad "  ... its fix naming --told" "$(cat "$T/gate")"
 grep -q 'state-stored-set.sh --pending worker-f3' "$T/gate" && ok "  ... and --pending" || bad "  ... and --pending" "$(cat "$T/gate")"
+grep -q 'state-stored-set.sh --missing worker-f3' "$T/gate" && ok "  ... and --missing" || bad "  ... and --missing" "$(cat "$T/gate")"
 
 echo "== pending =="
 seed "$(record "[$(row told worker-f2),$(row pending worker-f3)]")"
@@ -75,6 +79,16 @@ eq "  ... and the read names it pending" '["worker-f2"]|["worker-f3"]|worker-f2:
     "$(bash "$RH" "${RM[@]}" | jq -r '"\(.told | tojson)|\(.pending | tojson)|" + ([.workers[] | "\(.worker):\(.pending // false)"] | join(" "))')"
 seed "$(record "[$(row pending worker-f3)]")"
 gate; eq "a live worker neither told nor pending still holds it" "1 not-told worker-f2" "$G"
+
+echo "== missing =="
+seed "$(record "[$(row told worker-f2),$(row missing worker-f3)]")"
+gate; eq "a missing worker doesn't hold the gate" "0 " "$G"
+eq "  ... and the read names it missing, with no pending field" '["worker-f3"]|null|worker-f2:false worker-f3:true' \
+    "$(bash "$RH" "${RM[@]}" | jq -r '"\(.missing | tojson)|\(.pending | tojson)|" + ([.workers[] | "\(.worker):\(.missing // false)"] | join(" "))')"
+seed "$(record "[$(row pending worker-f2),$(row missing worker-f3)]")"
+gate; eq "a pending and a missing worker: the gate passes" "0 " "$G"
+seed "$(record "[$(row missing worker-f3)]")"
+gate; eq "a live worker neither told, pending nor missing still holds it" "1 not-told worker-f2" "$G"
 
 echo "== told =="
 seed "$(record "[$(row told worker-f2),$(row told worker-f3)]")"
@@ -192,6 +206,10 @@ state_json "$(record "[$(row pending worker-f2),$(row pending worker-f2)]")" >/d
 [ $? -ne 0 ] && grep -q 'pending twice' "$T/err" && ok "  ... and a worker pending twice" || bad "  ... and a worker pending twice" "$(cat "$T/err")"
 state_json "$(record "[$(row pending plugin/worker)]")" >/dev/null 2>"$T/err"
 [ $? -ne 0 ] && grep -q "shape of a path" "$T/err" && ok "  ... and a pending value that isn't a messaging address" || bad "  ... and a pending value that isn't a messaging address" "$(cat "$T/err")"
+state_json "$(record "[$(row told worker-f2),$(row missing worker-f2)]")" >/dev/null 2>"$T/err"
+[ $? -ne 0 ] && grep -q 'both told and missing' "$T/err" && ok "  ... and a worker both told and missing" || bad "  ... and a worker both told and missing" "$(cat "$T/err")"
+state_json "$(record "[$(row pending worker-f2),$(row missing worker-f2)]")" >/dev/null 2>"$T/err"
+[ $? -ne 0 ] && grep -q 'both pending and missing' "$T/err" && ok "  ... and a worker both pending and missing" || bad "  ... and a worker both pending and missing" "$(cat "$T/err")"
 # A record whose Run key was written around the write core: the reader stops.
 seed "$(record "[$(row told worker-f2)]")"
 jq -c '. + [{key: "pending", value: "worker-f2", set_by: "lane-v1", set: "2026-09-26T08:00Z"}]' "$KOTO_STORE/context/$SR/record/run" > "$T/run.json" \

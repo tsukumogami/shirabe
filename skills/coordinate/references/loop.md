@@ -85,8 +85,9 @@ measured, verified by reading, or inferred:
    its own session. This re-brief happens at `reconcile`, not in the loop's
    `rebrief` step, so record its outcome yourself, as the handover gate's
    `not-told` line says: `state-stored-set.sh --told <topic>` once the
-   message reaches the worker, or `--pending <topic>` when its session is
-   gone and its instance is still there. The report says which,
+   message reaches the worker, `--pending <topic>` when its session is
+   gone and its instance is still there, or `--missing <topic>` when niwa
+   lists no instance for it. The report says which,
    under "Changed since then", and `state-handover.sh` holds the run at
    `reconcile` (`leg-unclassified`) until each such leg has its end.
 5. **Re-check side effects in flight.** A merge is confirmed when GitHub's

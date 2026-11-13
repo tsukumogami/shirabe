@@ -16,6 +16,7 @@
 #   state-stored-set.sh --session S --reasoning-check
 #   state-stored-set.sh --session S --told WHO --by WHO
 #   state-stored-set.sh --session S --pending WHO --by WHO
+#   state-stored-set.sh --session S --missing WHO --by WHO
 #   state-stored-set.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
 #   state-stored-set.sh --session S --standing rule --what TEXT --source FORM
 #   state-stored-set.sh --session S --end ID --by WHO
@@ -38,16 +39,21 @@
 # an id or a path). `store` is no Run key here (65): the record's store is
 # always the coordinator's session, and the legacy `store session` row a session
 # opened before that holds is kept as written. A new
-# coordinator clears every `told` and `pending` row, since nobody has been
-# told the new address yet. --told records that WHO (a worker's dispatch
-# topic, or another party's session name) was sent the current address; it
-# needs a coordinator row, and turns a `pending` row for WHO into the `told`
-# one. --pending records that WHO, a worker, can't be sent the current address
-# yet (its session is gone while its instance still exists), so the handover
-# gate (state-handover.sh --check) doesn't hold on it; it needs a coordinator
-# row and refuses a worker already told or already pending. The template's
-# rebrief_record step writes both from a re-brief's evidence
-# (rebrief-record.sh).
+# coordinator clears every `told`, `pending` and `missing` row, since nobody
+# has been told the new address yet. --told records that WHO (a worker's
+# dispatch topic, or another party's session name) was sent the current
+# address; it needs a coordinator row, and turns a `pending` or `missing` row
+# for WHO into the `told` one. --pending records that WHO, a worker, can't be
+# sent the current address yet (its session is gone while its instance still
+# exists), so the handover gate (state-handover.sh --check) doesn't hold on
+# it; it needs a coordinator row and refuses a worker already told, pending
+# or missing. --missing records that niwa on this host listed no instance for
+# WHO, a worker, so it can't be sent the address at all and the gate doesn't
+# hold on it either; it needs a coordinator row and refuses a worker already
+# told or already missing, and a pending one too. The template's
+# rebrief_record step writes told and pending from a re-brief's evidence
+# (rebrief-record.sh), and handover-classify.sh writes all three at
+# reconcile.
 #
 # The record also keeps the crash set
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 9; PRD R17),
@@ -337,8 +343,8 @@
 #
 # Each change is written to the state first, through the record's write core
 # (state-write-core.sh), with the minute and who, and then told as an entry
-# with state-entry.sh, kind run, told, pending, the standing kind, end or
-# work. The section keys are the state; the entry is its account.
+# with state-entry.sh, kind run, told, pending, missing, the standing kind,
+# end or work. The section keys are the state; the entry is its account.
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
 # printed; 1 an --intake the caps stopped (its rows written, no `briefs`
@@ -396,6 +402,7 @@ while [ $# -gt 0 ]; do
         --reasoning-check) setmode reasoning-check; shift ;;
         --told) [ $# -ge 2 ] || usage; setmode told; WHO=$2; shift 2 ;;
         --pending) [ $# -ge 2 ] || usage; setmode pending; WHO=$2; shift 2 ;;
+        --missing) [ $# -ge 2 ] || usage; setmode missing; WHO=$2; shift 2 ;;
         --standing) [ $# -ge 2 ] || usage; setmode standing; KIND=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; setmode end; ID=$2; shift 2 ;;
         --intake) [ $# -ge 2 ] || usage; setmode intake; ILABEL=$2; shift 2 ;;
@@ -430,7 +437,7 @@ case "$MODE" in
     rule-files) [ -n "$BY" ] && [ -r "$RFILE" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
-    told|pending) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    told|pending|missing) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     standing) [ -n "$WHAT" ] && { [ -n "$OWNER" ] || [ "$KIND" = rule ]; } && [ -z "$BY$WHO$NEXT" ] || usage ;;
     end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     intake) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
@@ -1063,8 +1070,8 @@ told)
     jq -e 'any((.run // [])[]; .key == "coordinator")' "$P" > /dev/null || refuse "the record names no coordinator address to have told anyone; set it with --run coordinator first"
     jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "told" and .value == $w)' "$P" > /dev/null && refuse "$WHO has already been told the current address"
     ADDR=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0]' "$P")
-    # A pending worker that is told now is pending no longer.
-    jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" '.run = ([(.run // [])[] | select((.key == "pending" and .value == $w) | not)]
+    # A pending or missing worker that is told now is neither any longer.
+    jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" '.run = ([(.run // [])[] | select(((.key == "pending" or .key == "missing") and .value == $w) | not)]
         + [{key: "told", value: $w, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=told ETEXT="$WHO was told the coordinator's address, $ADDR, by $BY."
     ;;
@@ -1072,9 +1079,19 @@ pending)
     jq -e 'any((.run // [])[]; .key == "coordinator")' "$P" > /dev/null || refuse "the record names no coordinator address for anyone to be pending on; set it with --run coordinator first"
     jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "told" and .value == $w)' "$P" > /dev/null && refuse "$WHO has already been told the current address"
     jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "pending" and .value == $w)' "$P" > /dev/null && refuse "$WHO is already pending on the current address"
+    jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "missing" and .value == $w)' "$P" > /dev/null && refuse "$WHO is already recorded missing"
     ADDR=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0]' "$P")
     jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" '.run = ((.run // []) + [{key: "pending", value: $w, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=pending ETEXT="$WHO can't be told the coordinator's address, $ADDR, yet: it is pending, recorded by $BY."
+    ;;
+missing)
+    jq -e 'any((.run // [])[]; .key == "coordinator")' "$P" > /dev/null || refuse "the record names no coordinator address for anyone to be missing from; set it with --run coordinator first"
+    jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "told" and .value == $w)' "$P" > /dev/null && refuse "$WHO has already been told the current address"
+    jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "missing" and .value == $w)' "$P" > /dev/null && refuse "$WHO is already recorded missing"
+    jq -e --arg w "$WHO" 'any((.run // [])[]; .key == "pending" and .value == $w)' "$P" > /dev/null && refuse "$WHO is already pending on the current address"
+    ADDR=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0]' "$P")
+    jq --arg w "$WHO" --arg b "$BY" --arg t "$NOW" '.run = ((.run // []) + [{key: "missing", value: $w, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    EKIND=missing ETEXT="niwa on this host listed no instance for $WHO, so it can't be told the coordinator's address, $ADDR: recorded missing by $BY."
     ;;
 standing)
     case "$KIND" in pause|go-ahead|approval|answer|assignment|rule) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval, answer, assignment or rule" >&2; exit 64 ;; esac
@@ -1258,7 +1275,7 @@ work)
                     or ($takes and (.kind == "decision" or .kind == "follow-up") and (.item | same_unit)) | not)]
                  + [{item: $i, kind: $k, who: $w, next: $n, wakes: $c, updated: $t}])
         | if $k == "holding" and $first and any((.run // [])[]; .key == "coordinator") and (any((.run // [])[]; .key == "told" and .value == $w) | not)
-          then .run = ([.run[] | select((.key == "pending" and .value == $w) | not)]
+          then .run = ([.run[] | select(((.key == "pending" or .key == "missing") and .value == $w) | not)]
                        + [{key: "told", value: $w, set_by: ([.run[] | select(.key == "coordinator") | .value][0]), set: $t}])
           else . end' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=work ETEXT="Next step for $ITEM ($KIND, $WHO): $NEXT."
