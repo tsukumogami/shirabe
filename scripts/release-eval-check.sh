@@ -2,56 +2,53 @@
 #
 # release-eval-check.sh - shirabe's eval check for /shirabe:release
 #
-# Runs the evals of the skills changed since the last release, compares each
-# one's pass rate with the newest earlier release whose eval-pass-rates.json
-# asset measured it, and leaves a record for the release to attach. Declared in
-# .claude/shirabe-extensions/release.md; see
-# docs/designs/current/DESIGN-evals-at-release.md (Decision 3).
+# Runs every skill's script cases, labels each failing case against the newest
+# earlier release whose eval-pass-rates.json asset measured the skill, and
+# leaves a record for the release to attach. Any failing case stops the
+# release until a person confirms it. Declared as the release check in the
+# repository's release extension; see
+# docs/designs/current/DESIGN-skill-regression-detection.md (Decision 3).
 #
 # Usage:
-#   scripts/release-eval-check.sh --critical <a,b> --critical-runs <N>
-#       [--model <name>] [--tolerance <rate>]
+#   scripts/release-eval-check.sh
 #   scripts/release-eval-check.sh --finalize
 #
 # The check (first form):
-#   1. Validates RELEASE_LAST_TAG (empty, or vX.Y.Z) and RELEASE_VERSION (X.Y.Z).
-#   2. With RELEASE_CONFIRMED_DROPS non-empty and a state marker naming this
-#      HEAD and last tag, skips to step 6: a confirmation re-compares the saved
-#      numbers and never calls the harness.
-#   3. Otherwise empties the state directory, prints the host it runs on and
-#      what the nested eval sessions can reach, and asks the harness for the
-#      skills changed since the last tag (scripts/run-evals.sh --list-changed).
-#   4. Writes a marker naming HEAD, the last tag and the skills it measures.
-#   5. Runs scripts/run-evals.sh --runs <N> --release-subset --no-baseline
-#      --summary-out <state>/<i>.json <skill> per selected skill: N is
-#      --critical-runs for a skill in --critical and 1 otherwise. A failing
-#      skill doesn't stop the others. --release-subset runs every tier-1
-#      scenario and, of the tier-2 ones, the one each behaviour marks
-#      "release": true; the rest rotate through scripts/scheduled-evals.py.
-#      --no-baseline runs no no-skill baseline: the record and the drop rule
-#      read with-skill rates only, and what a skill adds over the bare model
-#      is the scheduled measurement's question.
-#      With --model, each run gets EVAL_MODEL=<name>, which puts the nested
-#      session (the grader) and every scenario that names no model of its own
-#      on that model (see "Models" in run-evals.sh).
-#   6. With a non-empty last tag, downloads eval-pass-rates.json with gh into a
+#   1. Validates RELEASE_LAST_TAG (empty, or vX.Y.Z), RELEASE_VERSION (X.Y.Z)
+#      and the names in RELEASE_CONFIRMED_DROPS.
+#   2. With a last tag, reads the GitHub repository from the origin remote, so
+#      an origin it can't read fails before any case runs.
+#   3. With RELEASE_CONFIRMED_DROPS non-empty and a state marker naming this
+#      HEAD and last tag, skips to step 6: a confirmation compares the saved
+#      summary again and runs no case.
+#   4. Otherwise exits 1 when koto isn't on PATH (the hand-off cases attach
+#      koto sessions), empties the state directory, prints the host it runs
+#      on, and selects every skills/<name>/ holding evals/evals.json, in name
+#      order: the set scripts/lib/script-cases.py --all runs.
+#   5. Runs python3 scripts/lib/script-cases.py --all --summary-out
+#      <state>/summary.json once, from the repository root, with its output
+#      passing through. A runner exit of 0, or 1 (a case failed), goes on and
+#      writes the marker naming HEAD, the last tag and the selected skills;
+#      any other exit is an infrastructure failure and writes no record.
+#   6. Prints "script cases: <P> of <N> passed", the totals over the saved
+#      summary, and "model-graded cases: not run": the two lines the release
+#      notes copy.
+#   7. With a non-empty last tag, downloads eval-pass-rates.json with gh into a
 #      mktemp -d directory from that release and from the older v* releases
 #      merged into HEAD, newest first, ten releases at most. A release or asset
 #      gh reports as not found is skipped, and none found anywhere means no
-#      baseline (a missing baseline passes, by design); any other download
-#      failure exits 1 with gh's reason.
-#   7. Runs scripts/lib/eval-pass-rates.py merge with every record found,
-#      newest first, and --tolerance when given. Each skill is compared with
-#      the newest release that measured it on the same models and session
-#      model over the same number of runs; with none, this run's rate is a new
-#      reference for it, never a drop. A drop is a rate lower than that reference by more than the
-#      tolerance. The merge writes <state>/eval-pass-rates.json, prints the
-#      comparison, and decides the exit code.
+#      baseline; any other download failure exits 1 with gh's reason.
+#   8. Runs scripts/lib/eval-pass-rates.py merge with the saved summary, the
+#      selected skills and every record found, newest first. The merge labels
+#      each failing case against the skill's baseline (regressed, still
+#      failing, or failing with no baseline), writes <state>/eval-pass-rates.json
+#      and decides the exit code: the baseline picks the label and never the
+#      exit. A record over the merge's size cap is skipped there, unread.
 #
 # --finalize (the release-assets half, after the draft release exists):
 #   Refuses unless the marker names the current HEAD and RELEASE_LAST_TAG and a
 #   record exists. Then stamps the record with RELEASE_VERSION (its version, and
-#   measured_at of the skills this run measured) and prints
+#   measured_at of the skills the marker names) and prints
 #   "asset: <record path>" as its last line. It uploads nothing.
 #
 # State directory: $(git rev-parse --git-dir)/shirabe-release/, per worktree
@@ -60,13 +57,15 @@
 # Environment:
 #   RELEASE_VERSION          the version being released (X.Y.Z), required
 #   RELEASE_LAST_TAG         the previous release's tag (vX.Y.Z), or empty
-#   RELEASE_CONFIRMED_DROPS  comma-separated skills whose drop a person
-#                            confirmed; set only on the re-run after a yes
+#   RELEASE_CONFIRMED_DROPS  comma-separated skills whose failing cases a
+#                            person confirmed; set only on the re-run after a yes
 #
 # Exit codes:
-#   check:    0 clean; 1 an infrastructure failure (a harness exit 2, 3 or 4,
-#             a missing summary, or the selection failing); 5 drops not in
-#             RELEASE_CONFIRMED_DROPS, the output ending with a
+#   check:    0 every case passed, or every skill with a failing case is in
+#             RELEASE_CONFIRMED_DROPS; 1 an infrastructure failure (no koto, a
+#             runner exit other than 0 or 1, a skill directory off the name
+#             pattern, a failed download, a missing summary entry); 5 a failing
+#             case not confirmed, the output ending with a
 #             "confirm: RELEASE_CONFIRMED_DROPS=<a,b>" line; 2 usage
 #   finalize: 0 with an "asset:" line; 1 the marker or record doesn't match
 #             this release; 2 usage
@@ -75,9 +74,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-HARNESS="$SCRIPT_DIR/run-evals.sh"
+RUNNER="$SCRIPT_DIR/lib/script-cases.py"
 RECORD_TOOL="$SCRIPT_DIR/lib/eval-pass-rates.py"
 ASSET_NAME="eval-pass-rates.json"
+RETRY="run the check again"
 
 SKILL_RE='^[a-z0-9][a-z0-9-]*$'
 TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
@@ -85,7 +85,7 @@ SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 REPO_RE='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 
 usage() {
-  echo "Usage: $0 --critical <a,b> --critical-runs <N> [--model <name>] [--tolerance <rate>]" >&2
+  echo "Usage: $0" >&2
   echo "       $0 --finalize" >&2
   exit 2
 }
@@ -106,72 +106,18 @@ valid_skill() {
 
 # --- arguments ----------------------------------------------------------------
 
-MODE=""
-CRITICAL=""
-CRITICAL_RUNS=""
-MODEL=""
-TOLERANCE=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --model)
-      [ $# -ge 2 ] || usage
-      MODEL="$2"
-      MODE=${MODE:-check}
-      shift 2
-      ;;
-    --tolerance)
-      [ $# -ge 2 ] || usage
-      TOLERANCE="$2"
-      MODE=${MODE:-check}
-      shift 2
-      ;;
-    --finalize)
-      MODE=finalize
-      shift
-      ;;
-    --critical)
-      [ $# -ge 2 ] || usage
-      CRITICAL="$2"
-      MODE=${MODE:-check}
-      shift 2
-      ;;
-    --critical-runs)
-      [ $# -ge 2 ] || usage
-      CRITICAL_RUNS="$2"
-      MODE=${MODE:-check}
-      shift 2
-      ;;
-    *)
-      usage
-      ;;
-  esac
-done
-[ -n "$MODE" ] || usage
-if [ "$MODE" = finalize ] && { [ -n "$CRITICAL" ] || [ -n "$CRITICAL_RUNS" ] ||
-  [ -n "$MODEL" ] || [ -n "$TOLERANCE" ]; }; then
-  usage
-fi
-if [ "$MODE" = check ]; then
-  [ -n "$CRITICAL_RUNS" ] || die_usage "--critical-runs is required"
-  grep -Eq '^[1-9][0-9]?$' <<<"$CRITICAL_RUNS" ||
-    die_usage "--critical-runs must be a number from 1 to 99"
-  OLD_IFS=$IFS
-  IFS=,
-  for name in $CRITICAL; do
-    [ -z "$name" ] || valid_skill "$name" || die_usage "--critical has an invalid skill name"
-  done
-  IFS=$OLD_IFS
-  # The pattern run-evals.sh holds EVAL_MODEL to: a model name that can't be
-  # read as an option.
-  if [ -n "$MODEL" ]; then
-    grep -Eq '^[A-Za-z0-9][A-Za-z0-9._:-]*$' <<<"$MODEL" ||
-      die_usage "--model must match ^[A-Za-z0-9][A-Za-z0-9._:-]*\$"
-  fi
-  if [ -n "$TOLERANCE" ]; then
-    grep -Eq '^(0(\.[0-9]+)?|1(\.0+)?)$' <<<"$TOLERANCE" ||
-      die_usage "--tolerance must be a rate from 0 to 1, such as 0.05"
-  fi
-fi
+# No argument runs the check and --finalize alone finalizes. Anything else,
+# the options the graded check took included, is a usage error that runs
+# nothing.
+MODE=check
+case $# in
+  0) ;;
+  1)
+    [ "$1" = --finalize ] || usage
+    MODE=finalize
+    ;;
+  *) usage ;;
+esac
 
 # --- environment ----------------------------------------------------------------
 
@@ -200,9 +146,10 @@ HEAD_SHA=$(git rev-parse HEAD) || fail "cannot resolve HEAD"
 STATE="$GIT_DIR_PATH/shirabe-release"
 MARKER="$STATE/marker"
 RECORD="$STATE/$ASSET_NAME"
+SUMMARY="$STATE/summary.json"
 
 # The marker's lines: "head <sha>", "last_tag <tag or empty>", then
-# "skill <i> <name>" per skill this run measures, <i> naming <state>/<i>.json.
+# "skill <name>" per skill this run selected.
 marker_matches() {
   [ -f "$MARKER" ] || return 1
   [ "$(sed -n 's/^head //p' "$MARKER")" = "$HEAD_SHA" ] || return 1
@@ -210,19 +157,15 @@ marker_matches() {
   [ "$(grep -c '^last_tag' "$MARKER")" -eq 1 ] || return 1
 }
 
-# Sets SKILLS and INDEXES (space-separated, parallel) from the marker.
+# Sets SKILLS (space-separated) from the marker.
 SKILLS=""
-INDEXES=""
 read_marker_skills() {
-  local tag index name
+  local tag name
   SKILLS=""
-  INDEXES=""
-  while read -r tag index name; do
+  while read -r tag name; do
     [ "$tag" = skill ] || continue
-    grep -Eq '^[0-9]+$' <<<"$index" || fail "the state marker is malformed"
     valid_skill "$name" || fail "the state marker is malformed"
     SKILLS="$SKILLS $name"
-    INDEXES="$INDEXES $index"
   done <"$MARKER"
 }
 
@@ -244,15 +187,8 @@ fi
 
 # --- check ----------------------------------------------------------------------
 
-is_critical() {
-  case ",$CRITICAL," in
-    *",$1,"*) return 0 ;;
-  esac
-  return 1
-}
-
 # The repository the previous record is downloaded from, settled before any
-# eval runs so an origin it can't read fails fast rather than after the evals.
+# case runs so an origin it can't read fails fast rather than after the cases.
 REPO=""
 if [ -n "$LAST_TAG" ]; then
   ORIGIN=$(git remote get-url origin || true)
@@ -264,72 +200,77 @@ if [ -n "$LAST_TAG" ]; then
 fi
 
 if [ -n "$CONFIRMED" ] && marker_matches; then
-  echo "Confirmation re-run: comparing the saved summaries, running no eval."
+  echo "Confirmation re-run: comparing the saved summary, running no case."
   read_marker_skills
 else
+  # The hand-off cases attach koto sessions, so a run without koto would fail
+  # them for a reason that says nothing about the skills.
+  command -v koto >/dev/null 2>&1 ||
+    fail "koto is not on PATH; the hand-off cases need it. Put koto on PATH and $RETRY"
+
   rm -rf "$STATE"
   mkdir -p "$STATE"
 
   HOST=$(hostname || uname -n)
   echo "Eval check host: $HOST"
-  echo "The nested eval sessions run shell on this host with access to its stored credentials (gh logins, git credential helpers, SSH keys on disk); only GH_TOKEN, GITHUB_TOKEN and SSH_AUTH_SOCK are unset."
 
-  SELECTION_FILE="$STATE/selection"
-  if ! "$HARNESS" --list-changed >"$SELECTION_FILE"; then
-    fail "scripts/run-evals.sh --list-changed failed; no skill was measured"
+  # The runner's own rule for --all: every directory under skills/ holding
+  # evals/evals.json, in Python's sorted order, so the marker names exactly
+  # the skills the runner measures.
+  SELECTION=$(python3 -c '
+import os, sys
+root = sys.argv[1]
+for name in sorted(os.listdir(root)):
+    if os.path.isfile(os.path.join(root, name, "evals", "evals.json")):
+        print(name)
+' "$REPO_ROOT/skills") || fail "could not list the skills under $REPO_ROOT/skills"
+  # Checked line by line before any word splitting, so a directory name with
+  # a space or a glob character is refused rather than split into others.
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    valid_skill "$name" ||
+      fail "the skill directory skills/$name does not match $SKILL_RE; no case was run"
+  done <<<"$SELECTION"
+
+  rc=0
+  python3 "$RUNNER" --all --summary-out "$SUMMARY" || rc=$?
+  if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+    fail "scripts/lib/script-cases.py exited $rc; no record was written; $RETRY"
   fi
 
+  # Written only once the runner has saved a summary, so a marker always has
+  # one beside it and a confirmation re-run always has a summary to compare.
   {
     echo "head $HEAD_SHA"
     echo "last_tag $LAST_TAG"
+    for name in $SELECTION; do
+      echo "skill $name"
+    done
   } >"$MARKER.tmp"
-  i=0
-  while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    valid_skill "$name" || fail "the harness selected an invalid skill name"
-    i=$((i + 1))
-    echo "skill $i $name" >>"$MARKER.tmp"
-  done <"$SELECTION_FILE"
   mv "$MARKER.tmp" "$MARKER"
   read_marker_skills
-
-  if [ -z "$SKILLS" ]; then
-    echo "No skill with evals changed since ${LAST_TAG:-the start of history}; no eval runs."
-  fi
-  set -- $INDEXES
-  for name in $SKILLS; do
-    index=$1
-    shift
-    runs=1
-    if is_critical "$name"; then
-      runs=$CRITICAL_RUNS
-    fi
-    echo ""
-    echo "== $name ($runs run(s)) =="
-    rc=0
-    if [ -n "$MODEL" ]; then
-      EVAL_MODEL="$MODEL" "$HARNESS" --runs "$runs" --release-subset --no-baseline \
-        --summary-out "$STATE/$index.json" "$name" || rc=$?
-    else
-      "$HARNESS" --runs "$runs" --release-subset --no-baseline \
-        --summary-out "$STATE/$index.json" "$name" || rc=$?
-    fi
-    echo "== $name: harness exit $rc =="
-  done
 fi
+
+TOTALS=$(python3 -c '
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    skills = json.load(fh)["skills"].values()
+print("%d of %d" % (sum(e["cases_passed"] for e in skills), sum(e["cases_run"] for e in skills)))
+' "$SUMMARY" 2>/dev/null) || fail "could not read the saved summary $SUMMARY; $RETRY"
+echo "script cases: $TOTALS passed"
+echo "model-graded cases: not run"
 
 # --- baseline -------------------------------------------------------------------
 
 # The baseline is composed per skill from the records of the last tag and the
 # releases before it (eval-pass-rates.py merge takes them newest first), so a
-# release that measured only some skills leaves the rest compared with the
-# newest older release that measured them. The walk takes the last tag, then
-# the older v* tags merged into HEAD, newest first, BASELINE_DEPTH releases in
-# all. Every record carries forward the skills it didn't measure, so a deep
-# walk is only needed after a release whose record went missing or was cut
-# short; the cap keeps a long history from costing a download per release.
-# Tags have to be fetched for the walk to see them: in a clone without them it
-# shrinks to the last tag.
+# release that measured only some skills, or measured a skill with graded
+# cases, leaves the skill labelled against the newest older release that
+# measured it with script cases. The walk takes the last tag, then the older
+# v* tags merged into HEAD, newest first, BASELINE_DEPTH releases in all; the
+# cap keeps a long history from costing a download per release. Tags have to
+# be fetched for the walk to see them: in a clone without them it shrinks to
+# the last tag.
 BASELINE_DEPTH=10
 
 # Reads vX.Y.Z tags, one per line, and prints "<key> <tag>". The key is
@@ -370,13 +311,14 @@ else
     # Only "there is nothing to download" skips a release: it doesn't exist,
     # or it has no such asset. gh says those two in fixed words. Any other
     # failure (network, auth, a wrong repository) is not evidence that no
-    # baseline exists, and passing the comparison on it would let a regression
-    # through on a warning, so it stops the check.
+    # baseline exists, and labelling against nothing would hide a regression,
+    # so it stops the check.
     if gh release download "$tag" --repo "$REPO" --pattern "$ASSET_NAME" \
       --dir "$dir" >/dev/null 2>"$DOWNLOAD_ERR"; then
       FOUND="$FOUND $tag"
     elif ! grep -qxE 'no assets match the file pattern|release not found' "$DOWNLOAD_ERR"; then
-      fail "could not download $ASSET_NAME from the $tag release: $(head -n 3 "$DOWNLOAD_ERR" | tr -d '\r' | tr '\n' ' ')"
+      GH_REASON=$(head -n 3 "$DOWNLOAD_ERR" | tr -d '\r' | tr '\n' ' ' | sed 's/ *$//')
+      fail "could not download $ASSET_NAME from the $tag release: $GH_REASON; $RETRY"
     fi
   done
   if [ -z "$FOUND" ]; then
@@ -401,10 +343,8 @@ fi
 # --- merge ----------------------------------------------------------------------
 
 set -- merge --no-baseline-reason "$REASON" \
-  --version "$VERSION" --last-tag "$LAST_TAG" --confirmed "$CONFIRMED" --out "$RECORD"
-if [ -n "$TOLERANCE" ]; then
-  set -- "$@" --tolerance "$TOLERANCE"
-fi
+  --version "$VERSION" --last-tag "$LAST_TAG" --confirmed "$CONFIRMED" \
+  --out "$RECORD" --summary "$SUMMARY"
 if [ -z "$FOUND" ]; then
   set -- "$@" --previous -
 fi
@@ -413,11 +353,6 @@ for tag in $FOUND; do
 done
 for name in $SKILLS; do
   set -- "$@" --selected "$name"
-done
-for index in $INDEXES; do
-  if [ -f "$STATE/$index.json" ]; then
-    set -- "$@" --summary "$STATE/$index.json"
-  fi
 done
 
 rc=0

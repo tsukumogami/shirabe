@@ -27,8 +27,9 @@ shared	state-schema.jq
 # coordinate-takeover-load_engine_test.sh at the cost of its skip, since it
 # runs on CI only (CI set) and SKIPs anywhere check-skill.sh runs it;
 # rule-sources_engine_test.sh, brief-intake_engine_test.sh,
-# discipline-carry_engine_test.sh, review-round-telemetry_engine_test.sh and
-# driver-check_engine_test.sh were each measured alone in one run.
+# discipline-carry_engine_test.sh, review-round-telemetry_engine_test.sh,
+# driver-check_engine_test.sh and directive-ceiling_engine_test.sh were each
+# measured alone in one run.
 cost	driver-check_engine_test.sh	527
 cost	coordinate_1_engine_test.sh	271
 cost	state-carry_test.sh	262
@@ -154,3 +155,4 @@ cost	alignment-read_test.sh	6
 cost	alignment-sources_test.sh	15
 cost	discipline-carry_engine_test.sh	23
 cost	review-round-telemetry_engine_test.sh	0
+cost	directive-ceiling_engine_test.sh	3

@@ -109,7 +109,10 @@
 #      worker's invocation. Otherwise the return path is `message`.
 #   5. Write ahead: the holding row with dispatch status `dispatching`, branch
 #      empty (not yet known) and the pull request cell empty, the record's
-#      "none yet".
+#      "none yet". A run that stops between steps 4 and 5, this write failing
+#      or refused included, releases the leg it opened: the request is
+#      abandoned, its leg key marked `spent`, and stderr names both, so a
+#      re-run of the topic starts with no leg left open (shirabe#1756).
 #   6. Launch: `niwa dispatch "<prompt>" --name <topic> --detach` from the
 #      workspace root, under a deadline (DISPATCH_DEADLINE_SECS, default 300),
 #      plus `--brief <brief> --skill shirabe:<entry point>` when the installed
@@ -205,7 +208,10 @@
 # the key legs/<request>/<leg> (dispatch-common.sh dc_leg_put), state `open`,
 # with the worker's topic and the leg's declaration (its templates and pinned
 # inputs), on either store (PRD R13). A leg a new one replaces (--releg, an
-# execution sent) is marked `replaced`, and a failed launch's leg `spent`.
+# execution sent) is marked `replaced`, and a failed launch's leg `spent`. A
+# leg opened by a run that exits before any holding names it (a dispatch, a
+# --releg or a sent execution whose row write fails) has its request
+# abandoned and its key marked `spent` too, whatever the exit code.
 #
 # --releg-imported <topic> re-attaches a worker that moved here with the
 # coordinator's session (`koto session import`) to a new request on this host,
@@ -314,7 +320,12 @@ command -v jq >/dev/null || die 2 "jq is not on PATH"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-worker.XXXXXX") || die 2 "cannot make a scratch directory"
 LOCK=""
+# The leg open_leg opened that no holding names yet, as <request>:<leg>. A run
+# that exits before its row is written releases it (release_unclaimed), under
+# the lock still, so no leg is left open with nothing to answer it.
+UNCLAIMED=""
 cleanup() {
+    [ -n "$UNCLAIMED" ] && release_unclaimed
     rm -rf "$WORK"
     [ -n "$LOCK" ] && rm -rf "$LOCK"
 }
@@ -621,7 +632,7 @@ write_row() {
     printf '%s\n' "$1" >"$WORK/row.json"
     dc_record_write "$SESSION" "$TOPIC" "$WORK/row.json"
     case "$?" in
-        0) return 0 ;;
+        0) UNCLAIMED=""; return 0 ;;
         10) die 8 "the record refused the write for $TOPIC (no open record, or a directed transition in the run log)" ;;
         65) die 2 "the record refused the row for $TOPIC as malformed" ;;
         *) die 2 "writing the holding for $TOPIC failed" ;;
@@ -710,10 +721,11 @@ EOF
     req=$(printf '%s' "$out" | jq -r '.request_id // "" | strings')
     grep -Eq "$RE_REQ" <<<"$req" || die 2 "koto request create printed no usable request id"
     RETURN_PATH="$req:$leg"
+    UNCLAIMED=$RETURN_PATH
     OPENED_AT=$(date -u +%s)
     # The leg as a key of the coordinator's own session (PRD R13), before any
-    # holding names it. A failed write leaves the request open with no row
-    # naming it, which the next dispatch of the topic abandons above. It also
+    # holding names it. From here until the row naming it is written, an exit
+    # releases the leg (release_unclaimed). It also
     # holds the dispatch's unit, when its tag (the part before the first `: `)
     # has the shape the cost capture reads, so a capture after the holding is
     # gone still finds the milestone.
@@ -740,6 +752,38 @@ mark_leg() {
         1) return 0 ;;
     esac
     printf '%s: could not mark the leg key for %s %s\n' "$PROG" "$rp" "$st" >&2
+}
+
+# release_unclaimed: the run is exiting with the leg UNCLAIMED names open and
+# no holding naming it: a holding write that failed, or any other stop between
+# open_leg and the row (shirabe#1756). Nothing would ever answer that leg, so
+# its request is abandoned and its key marked spent, the same end a failed
+# launch's leg gets, and stderr says what was left behind. Each step is tried
+# once and a failure is reported, never fatal: the run's exit code stays the
+# one it was leaving with, and a request still open is abandoned by the next
+# dispatch of the topic (open_leg).
+release_unclaimed() {
+    local rp=$UNCLAIMED req=${UNCLAIMED%%:*} leg=${UNCLAIMED#*:} key
+    UNCLAIMED=""
+    if "$KOTO" request abandon-request "$req" \
+        --rationale "the dispatch of $TOPIC stopped before its holding was written" </dev/null >/dev/null; then
+        printf '%s: released the leg %s, which no holding names: its request %s is abandoned\n' "$PROG" "$rp" "$req" >&2
+    else
+        printf '%s: could not abandon request %s, which no holding names: it stays open until the next dispatch of %s abandons it\n' \
+            "$PROG" "$req" "$TOPIC" >&2
+    fi
+    key=$(dc_leg_get "$SESSION" "$req" "$leg")
+    case "$?" in
+        0)
+            if dc_leg_put "$SESSION" "$req" "$leg" "$(jq -c '.state = "spent"' <<<"$key")"; then
+                printf '%s: the leg key for %s is marked spent\n' "$PROG" "$rp" >&2
+            else
+                printf '%s: could not mark the leg key for %s spent: it still reads open\n' "$PROG" "$rp" >&2
+            fi
+            ;;
+        1) printf '%s: %s has no leg key: none was written\n' "$PROG" "$rp" >&2 ;;
+        *) printf '%s: could not read the leg key for %s: it may still read open\n' "$PROG" "$rp" >&2 ;;
+    esac
 }
 
 # leg_state <request> <leg>: how koto holds a worker's leg, one word: open

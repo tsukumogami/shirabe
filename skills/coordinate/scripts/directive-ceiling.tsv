@@ -1,0 +1,9 @@
+# directive-ceiling.tsv -- the most bytes a state of
+# koto-templates/coordinate.md may deliver at an arrival: its directive plus
+# its details, rendered. directive-ceiling_engine_test.sh reads this file at
+# the merge base with the default branch and fails a change whose state
+# renders larger, so a change can lower a ceiling but can't raise its own.
+# The test's header says how a directive is rendered and measured.
+#
+# state<TAB>bytes
+wait	10802

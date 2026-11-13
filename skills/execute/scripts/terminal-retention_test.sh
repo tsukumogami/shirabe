@@ -287,6 +287,10 @@ mkdir -p "$FIXREPO"
     git remote add origin https://github.com/o/r.git
 ) >/dev/null 2>&1
 k() { (cd "$FIXREPO" && koto "$@"); }
+# k_agent: k as the agent, under a stand-in session id. From koto 0.37.0 a
+# `koto next --to` past an unmet gate and a `koto overrides record` need a
+# decider, and the guard clears the caller's id (shirabe#1733).
+k_agent() { (cd "$FIXREPO" && env CLAUDE_CODE_SESSION_ID=terminal-retention-test-agent koto "$@"); }
 # kept <session>: koto still holds the session. From koto 0.17.0 (koto#355)
 # `koto status` also answers for a session koto removed at its terminal, with
 # "removed": true and its final state and result, so an answer alone no longer
@@ -441,7 +445,7 @@ walk() {
     local s="$1" t
     shift
     for t in "$@"; do
-        k next "$s" --to "$t" --rationale "terminal-retention probe" --no-cleanup >/dev/null 2>&1
+        k_agent next "$s" --to "$t" --rationale "terminal-retention probe" --no-cleanup >/dev/null 2>&1
     done
 }
 
@@ -486,9 +490,9 @@ walk_to_pause() {
     local target
     for target in $PAUSE_PATH; do
         if [ -n "$2" ]; then
-            k next "$1" --to "$target" --rationale "terminal-retention probe" "$2" >/dev/null 2>&1
+            k_agent next "$1" --to "$target" --rationale "terminal-retention probe" "$2" >/dev/null 2>&1
         else
-            k next "$1" --to "$target" --rationale "terminal-retention probe" >/dev/null 2>&1
+            k_agent next "$1" --to "$target" --rationale "terminal-retention probe" >/dev/null 2>&1
         fi
     done
 }
@@ -650,7 +654,7 @@ expect_control() {
 pass_output_gates() {
     local g
     for g in owned_pr_body_conformant settled_commits settled_docs_visibility; do
-        k overrides record "$1" --gate "$g" --rationale "terminal-retention probe" >/dev/null 2>&1
+        k_agent overrides record "$1" --gate "$g" --rationale "terminal-retention probe" >/dev/null 2>&1
     done
 }
 init_orchestrator payload-pause false true

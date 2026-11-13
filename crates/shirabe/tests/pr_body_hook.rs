@@ -175,3 +175,68 @@ fn anything_but_a_regular_on_file_leaves_pb4_denied() {
     assert!(denied(&run(PB4_ONLY, &env)), "a directory");
     let _ = std::fs::remove_dir_all(&xdg);
 }
+
+#[test]
+fn a_quoted_argument_to_a_script_is_data() {
+    // The input from #1524, as written there: a script given a text prompt
+    // that mentions a PR command runs no PR command.
+    let input = r#"{"tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"bash run.sh \"text mentioning gh pr edit 123 --body x\""}}"#;
+    let home = scratch();
+    let out = Command::cargo_bin("shirabe")
+        .unwrap()
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", &home)
+        .arg("pr-body-hook")
+        .write_stdin(input)
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&home);
+    assert!(out.status.success(), "always exits 0");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.is_empty(), "{input}\ndenied: {stdout}");
+}
+
+fn hook_stdout(command: &str) -> String {
+    let input = serde_json::json!({
+        "tool_name": "Bash",
+        "cwd": "/tmp",
+        "tool_input": {"command": command},
+    })
+    .to_string();
+    let home = scratch();
+    let out = Command::cargo_bin("shirabe")
+        .unwrap()
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", &home)
+        .arg("pr-body-hook")
+        .write_stdin(input)
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&home);
+    assert!(out.status.success(), "always exits 0");
+    String::from_utf8(out.stdout).unwrap()
+}
+
+#[test]
+fn a_quoted_push_mention_to_a_script_is_data() {
+    let command = "python3 tool.py --prompt 'then git push the branch'";
+    let stdout = hook_stdout(command);
+    assert!(stdout.is_empty(), "{command}\ndenied: {stdout}");
+}
+
+#[test]
+fn code_a_script_reads_from_its_input_or_a_brace_is_denied() {
+    for command in [
+        "bash /dev/stdin <<< 'gh pr create --title x'",
+        "bash {-c,\"gh pr create --title x\"}",
+        "env {gh,pr,create,--title,\"x y\"}",
+    ] {
+        let stdout = hook_stdout(command);
+        assert!(
+            stdout.contains("\"deny\""),
+            "{command}\nnot denied: {stdout}"
+        );
+    }
+}

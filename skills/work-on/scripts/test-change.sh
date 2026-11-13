@@ -107,24 +107,33 @@
 #             are shown escaped.
 #
 # A moved work tree. The run's work tree is the latest relocate line's `to`,
-# else the header's. When it is gone and the current directory's work tree is
-# the same work (its origin names the header's repository, when the header
-# records one, and its HEAD has impl_base as an ancestor), seat, accept,
-# decline and status use the current one and, the first time, append a
-# relocate line naming both paths under the lock (status takes it only for
-# that), and say so on stderr. classify and covered use it for that call and
-# write nothing. record never follows the current directory: it reads the
-# relocate lines alone, lists each one, and reports the state as undecided
-# while the latest work tree is gone. Any other case is the gone work tree
-# (exit 2) it always was. init, note and overrule don't read the work tree to
-# decide, and don't follow it.
+# else the header's. Every call that reads the work tree to decide (classify,
+# seat, accept, decline, status and covered) first asks `koto session list`
+# where the run's session is bound, once per call. When the session's
+# execution_dir is in another work tree than the ledger's, that tree is the
+# run's, whether or not the old one still exists: when it is the same work
+# (its origin names the header's repository, when the header records one, and
+# its HEAD has impl_base as an ancestor) it is followed, and when it isn't the
+# call exits 2 naming both trees. A listing that fails or doesn't parse exits
+# 2 too; nothing falls back to the ledger's tree then. Only when the listing
+# gives the session no directory, or its directory is gone, does the older
+# rule apply: when the run's work tree is gone and the current directory's is
+# the same work, that one is followed; otherwise it is the gone work tree
+# (exit 2) it always was. A followed tree is used by seat, accept, decline and
+# status, which the first time append a relocate line naming both paths and
+# the HEAD moved to, under the lock (status takes it only for that), and say
+# so on stderr; classify and covered use it for that call and write nothing.
+# record never lists or follows the current directory: it reads the relocate
+# lines alone, lists each one with its HEAD, and reports the state as
+# undecided while the latest work tree is gone. init, note and overrule don't
+# read the work tree to decide, and don't follow it.
 #
 # Ledger lines (JSON, one per line). The header comes first. Then `note`,
 # `seat` (identity, nonce), `accept` and `decline` (id, identity, kind,
 # authority, files [{path, digest}], reason, outcome allow, session_exists),
 # `overrule` (id, identity, kind, authority, target, target_authority, files,
 # reason, outcome allow, session_exists), `refuse` (action, identity, kind,
-# authority, files, reason, rule_id, detail) and `relocate` (from, to). A
+# authority, files, reason, rule_id, detail) and `relocate` (from, to, head). A
 # person line also carries `tag`. The acceptance rule folds none of the
 # header, note or relocate lines.
 # Every line has ts, event, source (`session`) and rule (`interim`, the rule
@@ -159,7 +168,9 @@
 #   1   refused (a `refused:` line, and a refuse line when the rule refused),
 #       or the gate holds (`held:` lines, then a finding)
 #   2   could not decide: no impl_base, no rules copy, no work tree, a ledger
-#       or record that doesn't parse, or a koto older than the floor
+#       or record that doesn't parse, a koto older than the floor, a session
+#       listing that fails or doesn't parse, or a session bound to a work
+#       tree that isn't the run's work
 #   3   status only: one path set declined three times
 #   64  usage
 #   66  a koto context read or write failed
@@ -453,39 +464,93 @@ append() {
     cp "$TMP/ledger.next" "$TMP/ledger"
 }
 
+# same_work <top>: 0 when the work tree at <top> is clearly the run's work:
+# its origin names the header's repository (when the header records one) and
+# its HEAD has impl_base as an ancestor. A header records no repository when
+# init's origin named no owner/name; impl_base's ancestry alone decides then,
+# since there is no repository to compare.
+same_work() {
+    local url repo
+    if [ -n "$H_REPO" ]; then
+        url=$(git -C "$1" remote get-url origin 2>>"$ERRLOG") || return 1
+        repo=$(repo_of_url "$url")
+        [ "$repo" = "$H_REPO" ] || return 1
+    fi
+    git -C "$1" merge-base --is-ancestor "$H_BASE" HEAD 2>>"$ERRLOG"
+}
+
 # moved_here: prints the current directory's work tree when the run's work
-# tree is gone and this one is clearly the same work: its origin names the
-# header's repository (when the header records one) and its HEAD has
-# impl_base as an ancestor. Prints nothing otherwise. A header records no
-# repository when init's origin named no owner/name; impl_base's ancestry
-# alone decides then, since there is no repository to compare.
+# tree is gone and this one is the same work (same_work). Prints nothing
+# otherwise.
 moved_here() {
-    local top url repo
+    local top
     [ ! -d "$H_WORKTREE" ] || return 0
     top=$(git rev-parse --show-toplevel 2>>"$ERRLOG") || return 0
     [ -n "$top" ] && [ "$top" != "$H_WORKTREE" ] || return 0
-    if [ -n "$H_REPO" ]; then
-        url=$(git -C "$top" remote get-url origin 2>>"$ERRLOG") || return 0
-        repo=$(repo_of_url "$url")
-        [ "$repo" = "$H_REPO" ] || return 0
-    fi
-    git -C "$top" merge-base --is-ancestor "$H_BASE" HEAD 2>>"$ERRLOG" || return 0
+    same_work "$top" || return 0
     printf '%s\n' "$top"
 }
 
-# follow_move <session> write|read: when the run's work tree is gone and the
-# current directory's is the same work (moved_here), use it. `write` records
-# the move as one relocate line under the lock (taking it when the caller
+# bound_tree <session>: sets BOUND to the top of the work tree koto has the
+# session bound to (its execution_dir in `koto session list`), or to nothing
+# when the listing gives the session no directory or the directory is gone.
+# The listing is read once per call and reused, so the re-check under the
+# lock sees the same answer. A listing that fails or doesn't parse, or a bound
+# directory outside any git work tree, is undecided (exit 2): the run's tree
+# is unknown, and nothing falls back to the ledger's.
+BOUND="" LISTED=0
+bound_tree() {
+    local dir
+    BOUND=""
+    if [ "$LISTED" -eq 0 ]; then
+        koto session list > "$TMP/listing" 2>>"$ERRLOG" \
+            || undecided "koto session list failed, so the directory the run's session is bound to is unknown"
+        jq -e 'type == "array"' "$TMP/listing" >/dev/null 2>>"$ERRLOG" \
+            || undecided "koto session list printed something that doesn't parse, so the directory the run's session is bound to is unknown"
+        LISTED=1
+    fi
+    dir=$(jq -r --arg s "$1" 'map(select(type == "object" and .id == $s)) | first | .execution_dir // empty' "$TMP/listing" 2>>"$ERRLOG")
+    [ -n "$dir" ] && [ -d "$dir" ] || return 0
+    BOUND=$(git -C "$dir" rev-parse --show-toplevel 2>>"$ERRLOG") && [ -n "$BOUND" ] \
+        || undecided "the run's session is bound to [$dir], which is not in a git work tree"
+}
+
+# move_target <session>: sets MOVE_TO to the work tree the run is in when it
+# isn't the ledger's (H_WORKTREE), and MOVE_WHY to `bound` or `gone`; both
+# empty otherwise. The session's bound directory decides first, whether or
+# not the ledger's work tree still exists: one that differs and is the same
+# work is followed, one that differs and isn't is undecided (exit 2), naming
+# both. With no bound directory, the gone work tree's rule (moved_here) is
+# unchanged.
+MOVE_TO="" MOVE_WHY=""
+move_target() {
+    MOVE_TO="" MOVE_WHY=""
+    bound_tree "$1"
+    if [ -n "$BOUND" ]; then
+        [ "$BOUND" != "$H_WORKTREE" ] || return 0
+        same_work "$BOUND" \
+            || undecided "the run's session is bound to [$BOUND], which is not the same work as the ledger's work tree [$H_WORKTREE]: another repository, or impl_base is not in its history"
+        MOVE_TO=$BOUND MOVE_WHY=bound
+        return 0
+    fi
+    MOVE_TO=$(moved_here)
+    [ -z "$MOVE_TO" ] || MOVE_WHY=gone
+}
+
+# follow_move <session> write|read: when the run is in another work tree than
+# the ledger's (move_target), use it. `write` records the move as one relocate
+# line, with the HEAD it moved to, under the lock (taking it when the caller
 # doesn't hold it, and reading the ledger again once it does) and names it on
 # stderr; `read` uses it for this call only. Otherwise nothing changes, and
-# compute_items reports the gone work tree as before. A refuse or die66 while
-# it holds the lock exits through the EXIT trap, which removes the lock.
+# compute_items reports a gone work tree as before. A refuse, undecided or
+# die66 while it holds the lock exits through the EXIT trap, which removes
+# the lock.
 follow_move() {
-    local s="$1" mode="$2" to from locked_here=0
-    to=$(moved_here)
-    [ -n "$to" ] || return 0
+    local s="$1" mode="$2" from head locked_here=0
+    move_target "$s"
+    [ -n "$MOVE_TO" ] || return 0
     if [ "$mode" = read ]; then
-        H_WORKTREE=$to
+        H_WORKTREE=$MOVE_TO
         return 0
     fi
     if [ -z "$LOCK" ]; then
@@ -493,18 +558,24 @@ follow_move() {
         locked_here=1
         load_ledger "$s"
         load_header || refuse "the ledger has no header; test-change.sh init writes it at fix_determination"
-        to=$(moved_here)
-        if [ -z "$to" ]; then
+        move_target "$s"
+        if [ -z "$MOVE_TO" ]; then
             drop_lock
             return 0
         fi
     fi
     from=$H_WORKTREE
-    jq -nc --arg ts "$(now)" --arg from "$from" --arg to "$to" '
-        {ts: $ts, event: "relocate", from: $from, to: $to, source: "session", rule: "interim"}' > "$TMP/relocate.line"
+    head=$(git -C "$MOVE_TO" rev-parse -q --verify "HEAD^{commit}" 2>>"$ERRLOG") \
+        || undecided "HEAD names no commit in $MOVE_TO"
+    jq -nc --arg ts "$(now)" --arg from "$from" --arg to "$MOVE_TO" --arg head "$head" '
+        {ts: $ts, event: "relocate", from: $from, to: $to, head: $head, source: "session", rule: "interim"}' > "$TMP/relocate.line"
     append "$s" "$TMP/relocate.line"
-    H_WORKTREE=$to
-    echo "test-change: the run's work tree [$from] is gone; following it to [$to], the same repository with impl_base in its history (recorded)" >&2
+    H_WORKTREE=$MOVE_TO
+    if [ "$MOVE_WHY" = gone ]; then
+        echo "test-change: the run's work tree [$from] is gone; following it to [$MOVE_TO], the same repository with impl_base in its history (recorded)" >&2
+    else
+        echo "test-change: the run's session is bound to [$MOVE_TO], not the ledger's work tree [$from]; following it there, the same repository with impl_base in its history (recorded)" >&2
+    fi
     [ "$locked_here" -eq 0 ] || drop_lock
 }
 
@@ -1297,14 +1368,17 @@ kind_of() {
 
 # history_rows: one tab-separated row per ledger event for record:
 # ts, event, identity, kind, authority, items, rule, reason, id, target.
-# A relocate line carries its from path as items and its to path as target.
+# A relocate line carries its from path as items, its to path as target and
+# the HEAD it moved to as id (`-` on a line written before relocate recorded
+# one).
 history_rows() {
     jq -Rr 'fromjson? | select(type == "object" and .event != "header")
         | [(.ts // ""), (.event // ""), (.identity // ""), (.kind // ""), (.authority // ""),
            (if .event == "note" then (.file // "") elif .event == "relocate" then (.from // "")
             else ([(.files // [])[] | select(type == "object") | .path] | join(",")) end),
            (if .event == "refuse" then "\(.action // "") refused, rule \(.rule_id // "")" else (.rule // "") end),
-           (.reason // ""), (.id // ""), (if .event == "relocate" then (.to // "") else (.target // "") end)]
+           (.reason // ""), (if .event == "relocate" then (.head // "") else (.id // "") end),
+           (if .event == "relocate" then (.to // "") else (.target // "") end)]
         | map(tostring | gsub("[\t\n\r]"; " ") | if . == "" then "-" else . end) | join("\t")' "$TMP/ledger"
 }
 
@@ -1350,7 +1424,12 @@ cmd_record() {
             while IFS="$tab" read -r ts ev who kind auth items rule reason id target; do
                 case "$ev" in
                     seat) printf '  %s seat %s minted\n' "$ts" "$who" ;;
-                    relocate) printf '  %s relocate: the work tree [%s] moved to [%s]\n' "$ts" "$items" "$target" ;;
+                    relocate)
+                        if [ "$id" = - ]; then
+                            printf '  %s relocate: the work tree [%s] moved to [%s]\n' "$ts" "$items" "$target"
+                        else
+                            printf '  %s relocate: the work tree [%s] moved to [%s] at %s\n' "$ts" "$items" "$target" "$id"
+                        fi ;;
                     note) printf '  %s note by %s on %s: %s\n' "$ts" "$who" "$items" "$reason" ;;
                     overrule) printf '  %s %s %s by %s (%s at %s) of %s [%s]: %s\n' "$ts" "$ev" "$id" "$who" "$kind" "$auth" "$target" "$items" "$reason" ;;
                     refuse) printf '  %s refuse: %s by %s (%s at %s) of %s: %s\n' "$ts" "$rule" "$who" "$kind" "$auth" "$items" "$reason" ;;

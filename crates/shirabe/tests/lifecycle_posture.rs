@@ -8,7 +8,9 @@
 //! findings L02/L06/L07 are draft-tolerable (notice under draft, error
 //! under ready), while L01/L03/L04/L05 are always-enforced (error under
 //! both). The exit code and the JSON `severity` are read from the same
-//! `effective_severity` seam, so each test asserts they agree.
+//! `effective_severity` seam, so each test asserts they agree. L11, a
+//! design still at `Draft`, is draft-tolerable too, in both the whole-tree
+//! and the chain-targeted mode.
 //!
 //! Exit-code contract: 0 clean (only notices/none), 2 violations (any
 //! error-level finding). A draft-tolerable-only tree therefore exits 0
@@ -103,6 +105,31 @@ fn design(status: &str, upstream: &str) -> String {
     doc(&fm, &body)
 }
 
+/// A design at `Draft`: frontmatter holds only `schema`, `status` and
+/// `problem` (plus `upstream` when one is given), the body Status reads
+/// `Draft`, and all nine required sections are present, the six not yet
+/// reached holding one stub line each.
+fn draft_design(upstream: &str) -> String {
+    let mut fm = String::from("schema: design/v1\nstatus: Draft\nproblem: |\n  problem.\n");
+    if !upstream.is_empty() {
+        fm.push_str(&format!("upstream: {}\n", upstream));
+    }
+    let body = "# DESIGN: t\n\n## Status\n\nDraft\n\n## Context and Problem Statement\n\nP.\n\n## Decision Drivers\n\nD.\n\n## Considered Options\n\nTo be written.\n\n## Decision Outcome\n\nTo be written.\n\n## Solution Architecture\n\nTo be written.\n\n## Implementation Approach\n\nTo be written.\n\n## Security Considerations\n\nTo be written.\n\n## Consequences\n\nTo be written.\n";
+    doc(&fm, body)
+}
+
+fn roadmap(status: &str) -> String {
+    let fm = format!(
+        "schema: roadmap/v1\nstatus: {}\ntheme: |\n  theme.\nscope: |\n  scope.\n",
+        status
+    );
+    let body = format!(
+        "# ROADMAP: t\n\n## Status\n\n{}\n\n## Theme\n\nT.\n\n## Scope\n\nS.\n",
+        status
+    );
+    doc(&fm, &body)
+}
+
 /// A single-pr PLAN. `acs` is the verbatim acceptance-criteria bullet
 /// block under the `### Issue 1` outline (e.g. `"- [ ] open\n"` for an
 /// unticked AC, or `"- [x] done\n"` for a ticked one).
@@ -134,6 +161,37 @@ fn run_lifecycle(root: &Path, mode: &str) -> (i32, String) {
     let code = out.status.code().expect("exit code");
     let stdout = String::from_utf8(out.stdout).expect("utf8 stdout");
     (code, stdout)
+}
+
+/// Run `validate --lifecycle-chain <root>/<doc> --mode <mode> --format json`
+/// and return (exit_code, stdout).
+fn run_lifecycle_chain(root: &Path, doc: &str, mode: &str) -> (i32, String) {
+    let out = shirabe()
+        .arg("validate")
+        .arg("--lifecycle-chain")
+        .arg(root.join(doc))
+        .arg("--mode")
+        .arg(mode)
+        .arg("--format")
+        .arg("json")
+        .output()
+        .expect("run shirabe");
+    let code = out.status.code().expect("exit code");
+    let stdout = String::from_utf8(out.stdout).expect("utf8 stdout");
+    (code, stdout)
+}
+
+/// The `severity` of every L11 finding in a JSON envelope.
+fn l11_severities(json: &str) -> Vec<String> {
+    let envelope: serde_json::Value =
+        serde_json::from_str(json).unwrap_or_else(|e| panic!("invalid json ({}): {}", e, json));
+    envelope["findings"]
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .filter(|f| f["code"] == "L11")
+        .map(|f| f["severity"].as_str().expect("severity").to_string())
+        .collect()
 }
 
 // ---- #197 reproduction: an orphan BRIEF at Draft (L02) ----
@@ -397,4 +455,157 @@ fn l02_draft_emits_notice_annotation_not_error() {
         .assert()
         .failure()
         .stdout(contains("::error").and(contains("[L02]")));
+}
+
+// ---- L11: a design still at Draft ----
+//
+// A lone Draft design is also an orphan (L02), which is draft-tolerable as
+// well, so the run is clean at draft and fails at ready either way; the
+// assertions pin L11's own presence and severity.
+
+#[test]
+fn l11_draft_design_chain_mode_notice_at_draft_error_at_ready() {
+    // No plan or roadmap names the design.
+    let design_path = "docs/designs/DESIGN-draft.md";
+    let root = build_tree(&[(design_path, draft_design(""))]);
+
+    let (code_draft, json_draft) = run_lifecycle_chain(&root, design_path, "draft");
+    assert_eq!(
+        code_draft, 0,
+        "a Draft design must exit 0 under draft; json: {}",
+        json_draft
+    );
+    assert_eq!(
+        l11_severities(&json_draft),
+        vec!["notice"],
+        "json: {}",
+        json_draft
+    );
+    assert!(
+        json_draft.contains("design is still a draft"),
+        "json: {}",
+        json_draft
+    );
+    assert!(
+        json_draft.contains("\"outcome\": \"clean\""),
+        "json: {}",
+        json_draft
+    );
+
+    let (code_ready, json_ready) = run_lifecycle_chain(&root, design_path, "ready");
+    assert_eq!(
+        code_ready, 2,
+        "a Draft design must exit 2 under ready; json: {}",
+        json_ready
+    );
+    assert_eq!(
+        l11_severities(&json_ready),
+        vec!["error"],
+        "json: {}",
+        json_ready
+    );
+    assert!(
+        json_ready.contains("\"outcome\": \"violations\""),
+        "json: {}",
+        json_ready
+    );
+}
+
+#[test]
+fn l11_draft_design_whole_tree_notice_at_draft_error_at_ready() {
+    let root = build_tree(&[("docs/designs/DESIGN-draft.md", draft_design(""))]);
+
+    let (code_draft, json_draft) = run_lifecycle(&root, "draft");
+    assert_eq!(
+        code_draft, 0,
+        "a Draft design must exit 0 under draft; json: {}",
+        json_draft
+    );
+    assert_eq!(
+        l11_severities(&json_draft),
+        vec!["notice"],
+        "json: {}",
+        json_draft
+    );
+    assert!(
+        json_draft.contains("design is still a draft"),
+        "json: {}",
+        json_draft
+    );
+
+    let (code_ready, json_ready) = run_lifecycle(&root, "ready");
+    assert_eq!(
+        code_ready, 2,
+        "a Draft design must exit 2 under ready; json: {}",
+        json_ready
+    );
+    assert_eq!(
+        l11_severities(&json_ready),
+        vec!["error"],
+        "json: {}",
+        json_ready
+    );
+}
+
+#[test]
+fn l11_absent_for_proposed_and_later_designs() {
+    for (rel, status) in [
+        ("docs/designs/DESIGN-proposed.md", "Proposed"),
+        ("docs/designs/DESIGN-accepted.md", "Accepted"),
+        ("docs/designs/DESIGN-planned.md", "Planned"),
+        ("docs/designs/current/DESIGN-current.md", "Current"),
+    ] {
+        let root = build_tree(&[(rel, design(status, ""))]);
+        for mode in ["draft", "ready"] {
+            let (_, json) = run_lifecycle(&root, mode);
+            assert!(
+                l11_severities(&json).is_empty(),
+                "{} design, --lifecycle --mode {}: {}",
+                status,
+                mode,
+                json
+            );
+            let (_, json) = run_lifecycle_chain(&root, rel, mode);
+            assert!(
+                l11_severities(&json).is_empty(),
+                "{} design, --lifecycle-chain --mode {}: {}",
+                status,
+                mode,
+                json
+            );
+        }
+    }
+}
+
+#[test]
+fn draft_non_design_docs_unchanged() {
+    let docs = [
+        ("docs/briefs/BRIEF-draft.md", brief("Draft", "")),
+        ("docs/prds/PRD-draft.md", prd("Draft", "")),
+        (
+            "docs/plans/PLAN-draft.md",
+            single_pr_plan("Draft", "", "- [ ] open\n"),
+        ),
+        ("docs/roadmaps/ROADMAP-draft.md", roadmap("Draft")),
+    ];
+    let root = build_tree(&docs);
+    for mode in ["draft", "ready"] {
+        let (_, json) = run_lifecycle(&root, mode);
+        assert!(
+            l11_severities(&json).is_empty(),
+            "--lifecycle --mode {}: {}",
+            mode,
+            json
+        );
+        for (rel, _) in &docs {
+            let (_, json) = run_lifecycle_chain(&root, rel, mode);
+            assert!(
+                l11_severities(&json).is_empty(),
+                "{} --lifecycle-chain --mode {}: {}",
+                rel,
+                mode,
+                json
+            );
+        }
+    }
 }

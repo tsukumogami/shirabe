@@ -724,7 +724,8 @@ states never ask you to do these steps by hand.
   re-reads every fact, archives the transcript, the job's files and the
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
-  removes the holding row last, and `teardown_confirm` checks the result.
+  removes the holding row last, with `state-holding.sh --retire`, and
+  `teardown_confirm` checks the result.
   A unit torn down outside the pass is submitted as `removed`; when its
   worker is gone and never wrote a handoff comment, it goes with no link,
   the seal checks that the worker is over, the pass records an entry in
@@ -1372,6 +1373,9 @@ Invented process and general practice belong here. A rule whose justification
 would disappear once a filed defect is fixed does not: state the invariant the
 defect breaks, and keep the defect filed. Check each new rule against that test
 before adding it.
+
+`scripts/directive-ceiling_engine_test.sh` fails a change that grows the `wait` directive past its ceiling at the merge base (`scripts/directive-ceiling.tsv`).
+New text goes in a script or gate first, then the state its event routes to, then a reference file with a one-line cue, and into `wait` only by replacing or tightening text already there.
 
 ## Reference Files
 
