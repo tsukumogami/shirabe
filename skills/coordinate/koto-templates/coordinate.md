@@ -55,8 +55,8 @@ version: "1.0"
 #                               merge-order-entry.sh's input)
 #   coord/quiet.json            quiet_check: the quiet workers and why
 #   coord/closeout.json         roadmap_close: the stage and its facts
-#   dispatch_topic              pick's edges: the topic chosen, for the
-#                               dispatch path's dispatch-worker.sh
+#   dispatch_topic              pick's edges, and dispatch_check on `ok`: the
+#                               topic it sealed, for dispatch-worker.sh
 #   coord/decision.json         decision_next on `verdict`: the entry awaiting a
 #                               verdict (decision_verdict's decider input;
 #                               decision_input requires it)
@@ -509,6 +509,8 @@ states:
     # topic it compiles a brief for). The check itself never reads it:
     # dispatch_check takes the topic from this visit's pick evidence in the log,
     # and record confirms a dispatch only on the topic dispatch_check sealed.
+    # On `ok`, dispatch_check's action writes its sealed topic over this key,
+    # which is how a redispatch from failure gets one.
     transitions:
       - target: dispatch_check
         when:
@@ -2848,7 +2850,8 @@ Name the discipline coordinators for each surface the work touches when you
 know them.
 
 `brief_input.json` is one JSON object; `render-brief.sh`'s header lists every
-field. Its `topic` must be the `dispatch_topic` pick chose. It carries the
+field. Its `topic` must be the one `dispatch_check` passed, which it writes to
+`dispatch_topic`. It carries the
 unit, the repository, the entry point with its positional argument and flags
 as a token array, the run mode (`--auto` unless the human's decisions say
 otherwise), the phase (`scoping`, `scoping-ahead` or `executing`), the authority sentence

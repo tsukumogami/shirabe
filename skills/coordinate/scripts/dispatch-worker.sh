@@ -17,8 +17,9 @@
 #
 # Inputs, read from the session's context (never from arguments):
 #
-#   dispatch_topic     the topic pick chose; written fresh on the edge into
-#                      dispatch_check and passed through to dispatch
+#   dispatch_topic     the topic to dispatch; written by pick's edge into
+#                      dispatch_check and by dispatch_check on ok (the topic
+#                      it sealed), so a redispatch from failure carries one
 #   brief_input.json   the brief input (see render-brief.sh); its topic must
 #                      equal dispatch_topic, or report_topic under --rebrief.
 #                      Its optional `grant` is what the worker is dispatched

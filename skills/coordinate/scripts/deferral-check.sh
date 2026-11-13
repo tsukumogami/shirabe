@@ -77,7 +77,10 @@
 #                         pick, or on a redispatch the unit that failed),
 #                         always a dispatch topic: with none, the verdict is
 #                         unknown-topic or unresolved-topic. state-confirm.sh holds the
-#                         dispatch that follows to this topic
+#                         dispatch that follows to this topic. The check
+#                         writes it to context key dispatch_topic, which
+#                         dispatch-worker.sh and holding-recorded.sh read,
+#                         before it seals; no other verdict writes that key
 # A row is parked when it has a Verified head and its pull request is open and
 # not a draft; a row with a Verified head and a cleared Pull request cell, or
 # one whose linked pull request GitHub reads merged and that state-common.sh
@@ -244,6 +247,13 @@ finish() {
         --arg choice "$CHOICE" --arg topic "$TOPIC" \
         '{verdict: $v, reason: $reason, open_deferrals: $open, active: $a, parked: $p, cap: $cap,
           parked_bound: $pb, choice: $choice, topic: $topic}' > "$T/detail.json"
+    # On ok, the sealed topic goes to dispatch_topic before the seal, so every
+    # path into dispatch (a pick, a redispatch from failure) carries it and a
+    # sealed ok always means the key holds this visit's topic.
+    if [ "${1%% *}" = ok ] && [ "$NO_SEAL" != 1 ]; then
+        printf '%s' "$TOPIC" > "$T/dispatch_topic" || lib_die2 "cannot write the topic"
+        "$KOTO" context add "$SESSION" dispatch_topic --from-file "$T/dispatch_topic" >/dev/null || lib_die2 "koto context add dispatch_topic failed"
+    fi
     lib_emit dispatch_check "$1" coord/dispatch_check.json "$T/detail.json"
 }
 
