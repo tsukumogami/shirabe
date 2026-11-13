@@ -555,15 +555,31 @@ koto_reason() {
 # which leaves its copy here, so a session with no copy here is not this child's
 # parent. Any other answer session_state can't place still returns 4, among
 # them koto not telling whether this directory's prefix holds the session.
+#
+# koto up to 0.37.0 gives that answer with exit 2. From 0.37.1 a lookup that
+# couldn't finish refuses with exit 3 and code session_lookup_failed
+# (tsukumogami/koto#670, tsukumogami/shirabe#1764); its text keeps the same
+# words when only other directories' prefixes failed, and says koto can't tell
+# whether this directory's prefix holds the session when that one failed, which
+# stays 4.
 PARENT_NO_COPY_HERE="has no copy on this host and the bucket holds none under this directory's prefix"
 parent_state() {
     session_state "$1" && return 0
-    if [ "$SRC" -eq 2 ]; then
-        case "$SOUT" in
-            *"$PARENT_NO_COPY_HERE"*) SSTATE=absent; SERR=""; return 0 ;;
-        esac
-    fi
+    case "$SRC" in
+        2) ;;
+        3) [ "$(koto_code "$SOUT")" = session_lookup_failed ] || return 4 ;;
+        *) return 4 ;;
+    esac
+    case "$SOUT" in
+        *"$PARENT_NO_COPY_HERE"*) SSTATE=absent; SERR=""; return 0 ;;
+    esac
     return 4
+}
+
+# koto_code <stdout> -- print the `code` of koto's answer: the last stdout line
+# that is a JSON object with a string `code`, else nothing.
+koto_code() {
+    printf '%s\n' "$1" | jq -R -r 'fromjson? | select(type == "object") | .code | select(type == "string")' 2>/dev/null | tail -n 1
 }
 
 # kget <session> <key> -- set KVAL to the key's exact bytes. Returns 0 when
