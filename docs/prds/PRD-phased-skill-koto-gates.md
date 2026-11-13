@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   Nine of shirabe's ten phased skills run their koto session on a store
   template with one working state, so koto can't report which phase a run is
@@ -20,7 +20,7 @@ upstream: docs/briefs/BRIEF-phased-skill-koto-gates.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
