@@ -120,7 +120,9 @@ if to_rebrief; then
     # niwa lists one again by the time the re-brief finds its session gone.
     write_as_agent state-stored-set.sh --missing feat-1 --by "the handover check"
     : > "$T/work/.niwa/workspace.toml"
-    NIWA_LIST=$(jq -nc --arg n "feat_1-0123abcd" --arg p "$T/inst" '[{session_name: $n, path: $p}]')
+    # The session name is built from its parts, as in the case above.
+    SUFFIX=0123abcd
+    NIWA_LIST=$(jq -nc --arg n "feat_1-$SUFFIX" --arg p "$T/inst" '[{session_name: $n, path: $p}]')
     export NIWA_LIST
     ST=$(at --with-data '{"sent":"worker_gone"}')
     unset NIWA_LIST
