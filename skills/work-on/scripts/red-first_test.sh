@@ -68,6 +68,7 @@ mkdir -p "$BIN" "$STORE"
 # another workspace: the refusal on stdout, exit 2 (or SHIM_REFUSE_RC).
 cat > "$BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
+if [ "$1" = session ] && [ "$2" = list ]; then echo '[]'; exit 0; fi
 [ "$1" = context ] || { echo "shim: unsupported $*" >&2; exit 2; }
 if [ "${SHIM_REFUSE:-}" = "$3" ] || { [ "$2" = exists ] && [ "${SHIM_REFUSE_KEY:-}" = "$4" ]; }; then
     printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"

@@ -530,6 +530,96 @@ cseal
 case "$OUT" in "handoff-refused sealed:"*) ok "removed, two candidates: prints handoff-refused" ;; *) bad "removed, two candidates: prints handoff-refused" "$OUT $(cat "$T/seal.err")" ;; esac
 has "removed, two candidates: the verdict names both" "$(verdict | sed -n 2p)" "2 instance paths for w5 were recovered"
 
+# A merged holding whose worker was torn down outside the pass, with no
+# handoff comment (shirabe#1529): niwa lists no instance, Claude Code lists no
+# job, the pull request merged, and the gone worker never wrote a comment, so
+# the evidence says removed with no handoff. The seal is ready, and the
+# verdict says `handoff none` where a link would be.
+rfixture
+header wk-rm "$RINST/public/repo"
+# The worker's own koto session last moved long ago: it is over.
+printf '{"seq":2,"timestamp":"2026-10-01T09:00:00.000Z","type":"transitioned"}\n' \
+    >>"$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl"
+printf '{"teardown":"removed"}' >"$ST/teardown-ev"
+cseal
+eq  "removed, no handoff comment: exit 0" 0 "$RC"
+case "$OUT" in "handoff-ready keyseal:7:"*) ok "removed, no handoff comment: prints handoff-ready" ;; *) bad "removed, no handoff comment: prints handoff-ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "removed, no handoff comment: the verdict says handoff none" \
+    "ready|topic w5|removed yes|instance - $RINST|job -|pr acme/widgets#600 $MERGE|handoff none|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "removed, no handoff comment: nothing else ran" "" "$(cat "$ST/calls")"
+
+# The same unit, with the worker's transcript left behind, so the worker's
+# session id is known. Each case below changes one thing that says the
+# worker is not over; with none of them the seal is ready.
+# nfixture: removed, no link, the worker's koto session idle since
+# 2026-10-01T09:00:00Z, and its transcript in the instance's project directory.
+nfixture() {
+    rfixture
+    header wk-rm "$RINST/public/repo"
+    printf '{"seq":2,"timestamp":"2026-10-01T09:00:00.000Z","type":"transitioned"}\n' \
+        >>"$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl"
+    printf '{"teardown":"removed"}' >"$ST/teardown-ev"
+    rm -rf "$RPD" "$TEARDOWN_CLAUDE_HOME/jobs/$RJOB"
+    mkdir -p "$RPD"
+    printf '{"type":"user","timestamp":"2026-10-01T09:00:00.000Z","cwd":"%s","sessionId":"%s"}\n' "$RINST" "$RSID" >"$RPD/$RSID.jsonl"
+}
+NVERDICT="ready|topic w5|removed yes|instance - $RINST|job $RJOB $RSID|transcript $RPD/$RSID.jsonl|pr acme/widgets#600 $MERGE|handoff none|dispatch -|inventory sealed:6:$(printf '%064d' 0)"
+nfixture
+cseal
+eq  "removed, no handoff comment, the worker's transcript left: exit 0" 0 "$RC"
+eq  "removed, no handoff comment, the worker's transcript left: the verdict names its session and says handoff none" "$NVERDICT" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+
+# Its job finished: its own state file says so.
+nfixture
+mkdir -p "$TEARDOWN_CLAUDE_HOME/jobs/$RJOB"
+printf '{"state":"done","sessionId":"%s"}\n' "$RSID" >"$TEARDOWN_CLAUDE_HOME/jobs/$RJOB/state.json"
+cseal
+eq  "removed, no handoff comment, the worker's job state reads done: the verdict says handoff none" "$NVERDICT" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+
+nfixture
+printf '[{"id":"%s","cwd":"%s/elsewhere","sessionId":"%s","state":"working"}]\n' "$RJOB" "$T" "$RSID" >"$ST/agents.json"
+refused "removed, no handoff comment, Claude Code lists a job for the worker's session" "the worker's session $RSID is still live: Claude Code lists job $RJOB"
+
+nfixture
+mkdir -p "$TEARDOWN_CLAUDE_HOME/jobs/$RJOB"
+printf '{"state":"working","sessionId":"%s"}\n' "$RSID" >"$TEARDOWN_CLAUDE_HOME/jobs/$RJOB/state.json"
+refused "removed, no handoff comment, the worker's job state reads working" "the worker's session $RSID is still live: the state file of job $RJOB reads working"
+rm -rf "$TEARDOWN_CLAUDE_HOME/jobs/$RJOB"
+
+# The worker's koto session moved a minute ago: live.
+nfixture
+NOW_EPOCH=$(jq -rn '"2026-10-01T09:00:00Z" | fromdateiso8601')
+export DC_NOW=$((NOW_EPOCH + 60))
+refused "removed, no handoff comment, the worker's koto session moved a minute ago" "the worker's koto session wk-rm is still live: its last event is 60s old"
+# Cancelled a minute ago: over.
+nfixture
+printf '{"seq":3,"timestamp":"2026-10-01T09:00:00.000Z","type":"workflow_cancelled"}\n' \
+    >>"$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl"
+cseal
+eq  "removed, no handoff comment, the worker's koto session was cancelled a minute ago: the verdict says handoff none" "$NVERDICT" "$(verdict | tr '\n' '|' | sed 's/|$//')"
+unset DC_NOW
+
+# A worker's koto session with no event time can't be judged: the seal stops
+# (exit 2, tick again), and no verdict is sealed.
+nfixture
+header wk-rm "$RINST/public/repo"
+cseal
+eq  "removed, no handoff comment, a worker session with no event time: exit 2" 2 "$RC"
+has "removed, no handoff comment, a worker session with no event time: says why" "$(cat "$T/seal.err")" "the worker's koto session wk-rm has no timed event"
+eq  "removed, no handoff comment, a worker session with no event time: no verdict" "" "$(verdict)"
+nfixture
+printf 'not json\n' >>"$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl"
+cseal
+eq  "removed, no handoff comment, a worker session log that can't be read: exit 2" 2 "$RC"
+has "removed, no handoff comment, a worker session log that can't be read: says why" "$(cat "$T/seal.err")" "the worker's koto session wk-rm can't be read"
+
+# A link that is there is checked in full, never read as none.
+nfixture
+printf '{"teardown":"removed","handoff":"not a link"}' >"$ST/teardown-ev"
+refused "removed with a malformed handoff link" "the handoff link is not a GitHub comment link"
+rm -rf "$RPD"
+
 # --- ready: the holding read doesn't grow with the entries (shirabe#1315) ---------------------
 #
 # The holding comes from the real state-holding.sh, reading the record the

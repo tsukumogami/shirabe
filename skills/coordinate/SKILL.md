@@ -307,7 +307,17 @@ work.
    carries it, except after `session-source`: a run whose find didn't record
    the session as its store is no resume candidate, so a plain start opens a
    new run as it would with no session here and cancels the imported one.
-   `record/host` takes the source workspace, session and template hash.
+   `record/host` takes the source workspace, session and template hash, on
+   the run the import leaves driving: the new run after a takeover, the copy
+   on an older koto. The copy keeps the plugin root its source ran from, so
+   nothing is written to a copy that is taken over.
+
+   An import that stops after koto has imported the copy, before the run is
+   taken over or resumed, prints `failed=<kind>`, `imported=<name>`,
+   `outcome=incomplete` and `reason=<kind>`, with the refused step's own
+   reason on stderr. Run the same import again from the same session to
+   finish it: koto's import of a copy already complete here writes nothing,
+   and the opener goes on from the step that stopped.
 
    On koto 0.32.0 and later the import is a takeover of the copy. The copy is
    the predecessor, and the opener continues it in a new run opened from this
@@ -714,7 +724,12 @@ states never ask you to do these steps by hand.
   re-reads every fact, archives the transcript, the job's files and the
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
-  removes the holding row last, and `teardown_confirm` checks the result.
+  removes the holding row last, with `state-holding.sh --retire`, and
+  `teardown_confirm` checks the result.
+  A unit torn down outside the pass is submitted as `removed`; when its
+  worker is gone and never wrote a handoff comment, it goes with no link,
+  the seal checks that the worker is over, the pass records an entry in
+  place of the link, and the row goes with `state-holding.sh --retire`.
   Before the destroy the pass writes the unit's `cost` entry into the record,
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a
@@ -1296,7 +1311,11 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   (`state-holding.sh --strand <topic>`, refused for a leg-bound worker); the
   new topic's brief names the old branch and last pushed head, and the
   stranded row is retired once the new worker is dispatched, so a late report
-  from the old topic matches no holding.
+  from the old topic matches no holding. A `dispatch-failed` row whose unit has
+  moved on, such as one carried into a continued run, is retired the same way
+  (`state-holding.sh --topic <topic> --retire`), which refuses while niwa lists
+  a session or an unfinished Claude job carries the topic and leaves an entry
+  when the row goes.
 - **A worker launched outside the dispatch script can't be adopted.** The
   dispatch script refuses a topic whose session is already live, so a worker
   started by hand never gets a holding through it. Stop that worker's session
@@ -1354,6 +1373,9 @@ Invented process and general practice belong here. A rule whose justification
 would disappear once a filed defect is fixed does not: state the invariant the
 defect breaks, and keep the defect filed. Check each new rule against that test
 before adding it.
+
+`scripts/directive-ceiling_engine_test.sh` fails a change that grows the `wait` directive past its ceiling at the merge base (`scripts/directive-ceiling.tsv`).
+New text goes in a script or gate first, then the state its event routes to, then a reference file with a one-line cue, and into `wait` only by replacing or tightening text already there.
 
 ## Reference Files
 

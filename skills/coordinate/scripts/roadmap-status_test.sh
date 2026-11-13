@@ -61,7 +61,9 @@
 # reads In progress with no reopen line, refuses a comment changed since its
 # line hashed it, then writes a rework row (Who `failure <id>`, `Evidence
 # clause <n> failed: ...`, a 600-byte report cut to 600 bytes); --drop clears
-# it and the failure written again reopens.
+# it and the failure written again reopens. Once the roadmap moved to
+# docs/roadmaps/done/, --confirm reads it there and clears the verdict-owed
+# row, and with the roadmap at neither path exits 2 naming both.
 #
 # Every verdict and failure is a session entry (state-entry.sh --on none),
 # given as --entry N and posted on the pull request its edit opens, whose
@@ -787,5 +789,23 @@ eq "  ... and writes the rework row under the record's tag" "0|failure ${URLF3##
     "$(live | jq '.side_effects | length')|$(live | jq -r '[.work[] | select(.kind == "rework" and .item == "Feature 1")][0] | "\(.who)|\(.next)"')"
 
 eq "no record issue was read or written, only the roadmap pull request's comments" "" "$(record_issue_calls | grep -v 'issues/8/comments')"
+
+echo "== --confirm once the roadmap moved to docs/roadmaps/done/ (shirabe#1512) =="
+# The pull request that finishes the roadmap may set it Done and move it to
+# docs/roadmaps/done/ in one go; the verdict-owed row still clears.
+mv_seed
+bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>&1
+ventry "$T/vd.txt" MV1 verified coordinate-plugins "acme/widgets#12, acme/widgets#3" fits none none held held
+ND=$(post "$T/vd.txt")
+bash "$RS" "${W[@]}" --verdict MV1 --entry "$ND" >/dev/null 2>"$T/err"; eq "the verdict's edit opens" 0 $?
+PRD=$(jq -r '.prs[-1].headRefName' "$GH_DB")
+db '.files["acme/widgets"] |= del(.["main:docs/roadmaps/ROADMAP-plugin-system.md"])'
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm with the roadmap at neither path exits 2" 2 $?
+grep -q 'docs/roadmaps/done/ROADMAP-plugin-system.md' "$T/err" && ok "  ... naming its done/ path too" || bad "  ... naming its done/ path too" "$(cat "$T/err")"
+eq "  ... and leaves the row and the mark" "1 plugin-list|verdict owed since $TODAY" "$(live | jq '.side_effects | length') $(owed MV1)"
+db '.files["acme/widgets"]["main:docs/roadmaps/done/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRD")"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; rc=$?
+eq "--confirm reads the roadmap at docs/roadmaps/done/, MV1 Done there" 0 $rc; [ $rc = 0 ] || cat "$T/err"
+eq "  ... and clears the row and the verdict-owed mark" "0 none" "$(live | jq '.side_effects | length') $(owed MV1)"
 
 done_tests roadmap-status_test
