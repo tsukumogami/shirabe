@@ -6,25 +6,30 @@
 #
 # Usage: handover-classify.sh --session S
 #
-# First, a pending worker whose report reached this run turns told: a `wait`
-# evidence of event report or progress naming it (coord-log.sh evidence), in
-# the minute the Run `coordinator` row was set or later, means its message
-# reached the current address, so it is recorded told
+# First, a pending or missing worker whose report reached this run turns
+# told: a `wait` evidence of event report or progress naming it (coord-log.sh
+# evidence), in the minute the Run `coordinator` row was set or later, means
+# its message reached the current address, so it is recorded told
 # (state-stored-set.sh --told). A worker started again after a takeover finds
 # that address itself (resolve-coordinator.sh), so its first report is what
 # shows it has it.
 #
-# Then each live holding's worker with neither a `told` nor a `pending` row
+# Then each live holding's worker with no `told`, `pending` or `missing` row
 # (state-handover.sh's workers) is classified by the liveness probe
 # (dispatch-common.sh dc_session_live): its instance is the one niwa lists for
 # its topic (dc_find_session, from the workspace root), its Claude session the
 # instance's session name, and its koto session the newest running root
 # session under the instance's path (koto session list --execution-dir), or
 # none when there is none, which leaves the Claude job to decide alone.
+# A worker niwa's listing doesn't name is read again once the first pass over
+# every worker is done, after one wait of NIWA_REREAD_SECONDS (30) for the
+# whole run; it is recorded missing only when that re-read misses it too, so
+# only after the listing missed it twice, 30 seconds apart. A re-read that
+# finds its instance classifies it as though the first read had.
 #
 # Prints one line per worker it read:
-#   told <worker>               a pending worker whose report reached this run;
-#                               recorded told
+#   told <worker>               a pending or missing worker whose report
+#                               reached this run; recorded told
 #   live <worker> <address>     its session is live: send it a line naming the
 #                               coordinator's address, then record it with
 #                               state-stored-set.sh --told; a refused message
@@ -35,17 +40,22 @@
 #                               passes; it reaches the run's newest member on
 #                               its next start, and its first report turns it
 #                               told
-#   missing <worker>            niwa lists no instance for it: nothing is
-#                               recorded, and the gate keeps its not-told gap
-#                               until the holding is dealt with as today
+#   missing <worker>            niwa's listing named no instance for it
+#                               twice, 30 seconds apart, as after a teardown
+#                               made outside the run: recorded missing, so the
+#                               gate passes; a later report from it turns it
+#                               told
 #   unknown <worker> <why>      its koto log couldn't be read: nothing is
 #                               recorded
+# The told lines come first; then the workers the first listing read found,
+# in state-handover.sh's order; then the ones it missed, in that same order,
+# each by what the re-read found.
 #
 # Exit codes: 0 classified; 2 a read or a write failed, the record names no
 # coordinator address, or there is no workspace root to look for instances
 # from; 64 usage.
 #
-# Writes only through state-stored-set.sh (--told and --pending). Reads: the
+# Writes only through state-stored-set.sh (--told, --pending and --missing). Reads: the
 # record (state-stored-set.sh --list, state-handover.sh), the run's log
 # (coord-log.sh evidence), niwa list, koto session list and the workers' koto
 # logs, and the Claude job directory (DC_CLAUDE_HOME).
@@ -67,7 +77,7 @@ done
 . "$HERE/dispatch-common.sh" || exit 64
 die2() { echo "$PROG: $*" >&2; exit 2; }
 
-# set_row <--told|--pending> <worker>: the write, again while the record
+# set_row <--told|--pending|--missing> <worker>: the write, again while the record
 # changes under it (11, 12); 14 is a state written whose entry is unposted.
 set_row() {
     local try rc
@@ -88,8 +98,9 @@ SINCE=$(jq -r '[.run[] | select(.key == "coordinator") | .set][0] // "" | string
 [ -n "$SINCE" ] || die2 "the record names no coordinator address; set it with state-stored-set.sh --run coordinator first"
 ADDR=$(jq -r '[.run[] | select(.key == "coordinator") | .value][0]' <<<"$LIST")
 
-# A pending worker whose report reached this run since the address was set.
-for W in $(jq -r '.run[] | select(.key == "pending") | .value' <<<"$LIST"); do
+# A pending or missing worker whose report reached this run since the address
+# was set.
+for W in $(jq -r '.run[] | select(.key == "pending" or .key == "missing") | .value' <<<"$LIST"); do
     EV=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=report|progress' --where "unit=$W")
     case $? in 0) ;; 1) continue ;; *) die2 "cannot read the run's log" ;; esac
     AT=$(jq -r '.timestamp // "" | strings | select(test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}")) | .[0:16] + "Z"' <<<"$EV") \
@@ -101,16 +112,13 @@ for W in $(jq -r '.run[] | select(.key == "pending") | .value' <<<"$LIST"); do
 done
 
 HAND=$(bash "$HERE/state-handover.sh" --session "$SESSION") || die2 "state-handover.sh couldn't read the record"
-WORKERS=$(jq -r '.workers[] | select((.told or (.pending // false)) | not) | .worker' <<<"$HAND") || die2 "jq failed"
+WORKERS=$(jq -r '.workers[] | select((.told or (.pending // false) or (.missing // false)) | not) | .worker' <<<"$HAND") || die2 "jq failed"
 [ -n "$WORKERS" ] || exit 0
 ROOT=$(dc_workspace_root) || die2 "no workspace root to look for the workers' instances from"
-for W in $WORKERS; do
-    FOUND=$(dc_find_session "$ROOT" "$W")
-    case $? in
-        0) ;;
-        1) printf 'missing %s\n' "$W"; continue ;;
-        *) die2 "niwa list could not be read" ;;
-    esac
+# classify <worker> <found>: the liveness probe on the instance
+# dc_find_session found for the worker; prints its line and records it.
+classify() {
+    local W=$1 FOUND=$2 NAME IPATH KS WHY
     NAME=${FOUND%%	*} IPATH=${FOUND#*	}
     KS=
     if [ -n "$IPATH" ] && [ -d "$IPATH" ]; then
@@ -123,6 +131,28 @@ for W in $WORKERS; do
         0) printf 'live %s %s\n' "$W" "$ADDR" ;;
         1) set_row --pending "$W"; printf 'pending %s\n' "$W" ;;
         *) printf 'unknown %s %s\n' "$W" "$WHY" ;;
+    esac
+}
+
+# A single listing read under host load can miss a live worker, so every
+# worker the first pass missed is read once more, all after the same wait.
+MISSED=
+for W in $WORKERS; do
+    FOUND=$(dc_find_session "$ROOT" "$W")
+    case $? in
+        0) classify "$W" "$FOUND" ;;
+        1) MISSED="$MISSED $W" ;;
+        *) die2 "niwa list could not be read" ;;
+    esac
+done
+[ -n "$MISSED" ] || exit 0
+sleep "${NIWA_REREAD_SECONDS:-30}" || die2 "cannot wait NIWA_REREAD_SECONDS (${NIWA_REREAD_SECONDS:-30}) before reading niwa's listing again"
+for W in $MISSED; do
+    FOUND=$(dc_find_session "$ROOT" "$W")
+    case $? in
+        0) classify "$W" "$FOUND" ;;
+        1) set_row --missing "$W"; printf 'missing %s\n' "$W" ;;
+        *) die2 "niwa list could not be read" ;;
     esac
 done
 exit 0

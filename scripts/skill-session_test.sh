@@ -370,7 +370,7 @@ case "${1:-} ${2:-}" in
             if [ "$(cat "$S/status/$2")" = live ]; then printf '{"is_terminal":false}\n'; else printf '{"is_terminal":true}\n'; fi
             exit 0
         fi
-        printf '{"error":"workflow %s not found"}\n' "$2"
+        printf '{"command":"status","error":"workflow '"'"'%s'"'"' not found"}\n' "$2"
         exit 2 ;;
     "context add")
         if [ -n "${LINK_ADD_FAILS:-}" ] && [ "$4" = session/link-warning ]; then exit 1; fi
@@ -911,6 +911,18 @@ case "${1:-}" in
     context)
         case "${2:-}" in
             remove) exit 0 ;;
+            get) cat "$PARENT_ANSWERS/${3:-}@${4:-}.val" 2>/dev/null || exit 1; exit 0 ;;
+            exists|list)
+                # <name>@<key> scripts `context exists`, <name>@list scripts
+                # `context list`: exit code on line 1, stdout after it.
+                if [ "$2" = exists ]; then f="$PARENT_ANSWERS/${3:-}@${4:-}"; else f="$PARENT_ANSWERS/${3:-}@list"; fi
+                if [ -f "$f" ]; then
+                    rc=$(sed -n 1p "$f")
+                    sed -n '2,$p' "$f"
+                    exit "$rc"
+                fi
+                [ "$2" = exists ] && exit 1
+                printf '[]\n'; exit 0 ;;
         esac ;;
 esac
 printf '{"error":"stub"}\n'
@@ -951,6 +963,19 @@ parent_answer() {
         session_lookup_failed-bucket)
             msg="session '$1' has no copy on this host, and koto can't tell whether the bucket holds it: io: connection refused; nothing was read"
             printf '3\n{"code":"session_lookup_failed","command":"status","error":"%s","session":"%s"}\n' "$msg" "$1" >"$PARENT_ANSWERS/$1" ;;
+        # Replies only koto's exact not-found answer may read as absent from:
+        # "not found" inside a failure, the exact text with a code, exit 3
+        # with another code or none, and an exit 0 that isn't a status.
+        notfound-substring)
+            printf '2\n{"command":"status","error":"listing ws-a/%s/ failed: HTTP 404 not found"}\n' "$1" >"$PARENT_ANSWERS/$1" ;;
+        exact-with-code)
+            printf '2\n{"code":"session_unlocated","command":"status","error":"workflow '"'"'%s'"'"' not found"}\n' "$1" >"$PARENT_ANSWERS/$1" ;;
+        workspace_unreadable)
+            printf '3\n{"code":"workspace_unreadable","command":"status","error":"workspace ws-a could not be read: HTTP 503"}\n' >"$PARENT_ANSWERS/$1" ;;
+        exit3-nocode)
+            printf '3\n{"command":"status","error":"koto could not finish the lookup: HTTP 500"}\n' >"$PARENT_ANSWERS/$1" ;;
+        not-a-status)
+            printf '0\n{"command":"status"}\n' >"$PARENT_ANSWERS/$1" ;;
     esac
 }
 run_parent_stub() {
@@ -966,7 +991,8 @@ parent_writes() { [ -f "$STUB_LOG" ] && grep -E '^context (add|remove) ' "$STUB_
 
 # No parent: both lookups answer that the parent has no copy here.
 for case in "pa1|others-unlisted|others-unlisted" "pa2|elsewhere|elsewhere" "pa3|others-unlisted|absent" \
-    "pa4|session_lookup_failed-others|session_lookup_failed-others" "pa5|session_lookup_failed-others|absent"; do
+    "pa4|session_lookup_failed-others|session_lookup_failed-others" "pa5|session_lookup_failed-others|absent" \
+    "pa6|session_lookup_failed-own|absent" "pa7|session_lookup_failed-bucket|absent"; do
     topic="${case%%|*}"
     rest="${case#*|}"
     scope_kind="${rest%%|*}"
@@ -992,8 +1018,8 @@ done
 # koto can't place, still stops adopt and dispatch read, and says why.
 for case in "pb1|own-unreadable|can't tell whether the bucket holds it under this directory's prefix" \
     "pb2|copy-mismatch|records its copy under prefix ws-a, but the bucket holds no copy of it there" \
-    "pb3|session_lookup_failed-own|can't tell whether the bucket holds it under this directory's prefix ws-a or another directory's" \
-    "pb4|session_lookup_failed-bucket|and koto can't tell whether the bucket holds it: io: connection refused"; do
+    "pb5|workspace_unreadable|workspace ws-a could not be read: HTTP 503" \
+    "pb6|exit3-nocode|koto could not finish the lookup: HTTP 500"; do
     topic="${case%%|*}"
     rest="${case#*|}"
     kind="${rest%%|*}"
@@ -1023,6 +1049,78 @@ parent_answer scope-pc1 others-unlisted
 run_parent_stub status scope-pc1
 assert_eq "status of a session koto can't place still exits 4" "4" "$RC"
 assert_eq "status of a session koto can't place prints nothing" "" "$STDOUT"
+
+# "Not a parent here" is never absent: status of each such reply can't tell.
+for kind in others-unlisted elsewhere session_lookup_failed-others session_lookup_failed-own session_lookup_failed-bucket; do
+    rm -rf "$PARENT_ANSWERS"
+    parent_answer scope-pd1 "$kind"
+    run_parent_stub status scope-pd1
+    assert_eq "status of a scope parent answering $kind exits 4" "4" "$RC"
+    assert_eq "status of a scope parent answering $kind prints nothing" "" "$STDOUT"
+done
+assert_eq "parent_state never sets SSTATE=absent" "0" \
+    "$(sed -n '/^parent_state()/,/^}/p' "$SS" | grep -c 'SSTATE=absent')"
+assert_contains "the header documents exit 7 as has-work's refusal" "has-work" \
+    "$(grep -nE '^#   7 ' "$SS")"
+
+# The reply table: only koto's exact not-found reply is absent. A refusal
+# (any other exit 2, or exit 3 session_lookup_failed) gives has-work exit 7
+# with koto's line on stdout; anything else stays cannot-tell (4).
+for kind in notfound-substring exact-with-code session_lookup_failed-others session_lookup_failed-own session_lookup_failed-bucket; do
+    rm -rf "$PARENT_ANSWERS"
+    parent_answer design-rt1 "$kind"
+    run_parent_stub status design-rt1
+    assert_eq "status against $kind: status exiting 4" "4" "$RC"
+    assert_eq "status against $kind prints nothing on stdout" "" "$STDOUT"
+    run_parent_stub has-work design rt1
+    assert_eq "has-work against $kind: has-work exiting 7" "7" "$RC"
+    if sed -n '2,$p' "$PARENT_ANSWERS/design-rt1" | cmp -s - "$T/stdout"; then
+        pass "has-work against $kind prints koto's reply line unchanged"
+    else
+        fail "has-work against $kind prints koto's reply line unchanged (got [$STDOUT])"
+    fi
+    assert_contains "has-work against $kind names design-rt1 on stderr" "design-rt1" "$STDERR"
+    assert_eq "has-work against $kind says so on one stderr line" "1" "$(printf '%s\n' "$STDERR" | grep -c .)"
+done
+for kind in workspace_unreadable exit3-nocode not-a-status; do
+    rm -rf "$PARENT_ANSWERS"
+    parent_answer design-rt2 "$kind"
+    run_parent_stub has-work design rt2
+    assert_eq "has-work against $kind stays cannot-tell: exit 4" "4" "$RC"
+    assert_eq "has-work against $kind prints nothing on stdout" "" "$STDOUT"
+done
+
+# has-work's read of session/branch: a refusal is exit 7 with koto's line,
+# anything else unexpected (there or from context list) stays 4.
+RT_BRANCH=$(git -C "$REPO" rev-parse --abbrev-ref HEAD)
+for case in "2|{\"command\":\"context exists\",\"error\":\"listing ws-a/design-rt3/ failed: HTTP 503\"}|7" \
+    "3|{\"code\":\"session_lookup_failed\",\"command\":\"context exists\",\"error\":\"koto can't tell whether the bucket holds it\"}|7" \
+    "3|{\"code\":\"workspace_unreadable\",\"command\":\"context exists\",\"error\":\"workspace ws-a could not be read\"}|4"; do
+    rc="${case%%|*}"
+    rest="${case#*|}"
+    line="${rest%|*}"
+    want="${rest##*|}"
+    rm -rf "$PARENT_ANSWERS"
+    parent_answer design-rt3 live
+    mkdir -p "$PARENT_ANSWERS/design-rt3@session"
+    printf '%s\n%s\n' "$rc" "$line" >"$PARENT_ANSWERS/design-rt3@session/branch"
+    run_parent_stub has-work design rt3
+    assert_eq "has-work with session/branch answering exit $rc ($want): has-work exiting $want" "$want" "$RC"
+    if [ "$want" = 7 ]; then
+        assert_eq "has-work with session/branch answering exit $rc prints koto's line" "$line" "$STDOUT"
+    else
+        assert_eq "has-work with session/branch answering exit $rc prints nothing" "" "$STDOUT"
+    fi
+done
+rm -rf "$PARENT_ANSWERS"
+parent_answer design-rt4 live
+mkdir -p "$PARENT_ANSWERS/design-rt4@session"
+printf '0\n' >"$PARENT_ANSWERS/design-rt4@session/branch"
+printf '%s' "$RT_BRANCH" >"$PARENT_ANSWERS/design-rt4@session/branch.val"
+printf '2\n{"command":"context list","error":"listing failed"}\n' >"$PARENT_ANSWERS/design-rt4@list"
+run_parent_stub has-work design rt4
+assert_eq "has-work with a failing context list stays cannot-tell: exit 4" "4" "$RC"
+assert_eq "has-work with a failing context list prints nothing" "" "$STDOUT"
 
 # --- engine-backed -------------------------------------------------------------------
 

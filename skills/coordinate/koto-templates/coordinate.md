@@ -2545,8 +2545,9 @@ fills `no-reports-to` with
 never a bare name. A new
 address leaves every live worker untold: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/handover-classify.sh" --session {{SESSION_NAME}}`,
-which records a worker whose session isn't live as pending and a pending
-worker whose report reached you as told, then send each worker it prints as
+which records a worker whose session isn't live as pending, one niwa lists
+no instance for as missing, and a pending or missing worker whose report
+reached you as told, then send each worker it prints as
 `live` a line naming the address and record it with `--told`. The workflow
 stays here until the check passes.
 
@@ -3545,7 +3546,7 @@ Update the brief input with what was learned (`koto context add
 "{{SESSION_NAME}}" --rebrief`, send the worker a message pointing at the brief
 it printed, and submit `sent: sent`; submit `sent: refused` when the message
 was refused, and `sent: worker_gone` when the worker's session no longer
-exists. Don't run `state-stored-set.sh --told` or `--pending` yourself: the
+exists. Don't run `state-stored-set.sh --told`, `--pending` or `--missing` yourself: the
 next step records what the outcome means.
 
 Arriving here from `land` or `land_merge` on `paused`, there is nothing to fix:
@@ -3594,9 +3595,11 @@ instance for it, and nothing when it doesn't, and goes back through pick.
 
 A pending worker is one that can't be told the address yet: its session is
 gone, but its instance is still there to be started again. The handover gate
-(`state-handover.sh --check`) doesn't hold on a pending worker, as it does on a
-live one that is neither told nor pending, and a later `--told` for it turns
-the pending row into a told one. A new coordinator address clears both.
+(`state-handover.sh --check`) doesn't hold on a pending worker, or on one
+reconcile recorded missing, as it does on a live one with no told, pending or
+missing row, and a later `--told` for it turns the pending or missing row into a
+told one. A worker already recorded missing is left missing here, even when niwa
+lists an instance for it again. A new coordinator address clears all three.
 
 ## verify
 
