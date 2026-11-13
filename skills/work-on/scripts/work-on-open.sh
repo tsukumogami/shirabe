@@ -141,7 +141,11 @@
 # level event's `to`). An attach resets every rebind variable it isn't passed,
 # and without this a resume through this script would empty the run's chosen
 # level. With no session or no ledger nothing is added, so a new session's
-# variables are unchanged. Without --koto-leg the level is not read: that open
+# variables are unchanged. A name that only another directory's prefix holds
+# reads the same as no session (koto refuses the read with session_unlocated,
+# reason no_local_copy, and `level` prints nothing): koto init checks only this
+# host and this directory's prefix, so the open goes ahead as a new session
+# here. Without --koto-leg the level is not read: that open
 # never attaches, so a live session is refused whatever it is handed, and a
 # new one has no ledger. A read that fails stops the open before koto init: `level`
 # exiting non-zero, or printing anything but one level name. The second is
@@ -320,7 +324,9 @@ REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
 # Under --koto-leg, the level the live session's ledger last recorded, or
-# nothing. Anything but a clean read of nothing or one level name stops the
+# nothing. A name held only under another directory's prefix reads as nothing
+# (`level` exits 0 and prints nothing), so the open goes ahead as a new session.
+# Anything but a clean read of nothing or one level name stops the
 # open here, before koto init: passed on, it would reach koto as REVIEW_LEVEL,
 # and koto's invalid_var would resolve a still-open leg as refused. The plain
 # open never attaches, so it reads nothing.

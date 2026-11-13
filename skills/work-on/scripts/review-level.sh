@@ -98,7 +98,9 @@
 #           vetoes breaches overrides seats. With no session named, every
 #           session `koto workflows` lists whose template is named work-on.
 #   level   the ledger's last level (the `to` of its last level event), or
-#           nothing when the session has no ledger or no level event in it.
+#           nothing when the session has no ledger or no level event in it,
+#           or when koto refuses the read because only another directory's
+#           prefix holds the name (session_unlocated, no_local_copy).
 #           Read-only. work-on-open.sh passes it as REVIEW_LEVEL when it
 #           attaches a live session, because an attach resets every rebind
 #           variable it isn't passed.
@@ -136,7 +138,9 @@
 #         level, a ledger that exists but can't be read, or a session koto
 #         refuses to read, such as one bound to another workspace; nothing
 #         is printed on stdout, and koto's reason goes to stderr). A key
-#         koto answers is absent is never a failure. After
+#         koto answers is absent is never a failure, and for level only,
+#         neither is a name held only under another directory's prefix:
+#         level runs before koto init, which doesn't see that prefix. After
 #         set exits 66 neither the variable nor the ledger has changed. (check
 #         and agree never exit 66: a read they can't make is a hold)
 #
@@ -214,12 +218,18 @@ valid_session() {
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # ctx_has <session> <key>: 0 when the key is present, 1 when koto answers that
-# it is absent, 2 when the read failed. koto's `context exists` answers an
-# absent key with exit 1 and nothing on stdout; a refusal (a session bound to
-# another workspace, say) prints its JSON on stdout and exits 2. An exit 1
-# that prints anything is a failed read too, never an absent key. Anything
-# koto prints goes to stderr, so a refusal never reaches the caller's stdout
-# as a value.
+# it is absent, 2 when the read failed, 3 when koto refused it because the
+# name is held only elsewhere. koto's `context exists` answers an absent key
+# with exit 1 and nothing on stdout; a refusal (a session bound to another
+# workspace, say) prints its JSON on stdout and exits 2. An exit 1 that prints
+# anything is a failed read too, never an absent key. Anything koto prints
+# goes to stderr, so a refusal never reaches the caller's stdout as a value.
+#
+# 3 is exactly the refusal with code session_unlocated and reason
+# no_local_copy: this host has no copy of the name and this directory's prefix
+# has none either, but another directory's prefix does (names carry no repo,
+# so another directory's earlier run of the same issue claims it). It is still
+# a failed read, and every caller but `level` treats it as one; see cmd_level.
 ctx_has() {
     local rc=0
     koto context exists "$1" "$2" > "$WORK/exists.out" || rc=$?
@@ -229,18 +239,25 @@ ctx_has() {
         1) [ -s "$WORK/exists.out" ] || return 1 ;;
     esac
     echo "review-level: koto context exists $1 $2 exited $rc" >&2
+    if [ "$rc" -eq 2 ] && jq -e '.code == "session_unlocated" and .reason == "no_local_copy"' \
+        "$WORK/exists.out" >/dev/null 2>&1; then
+        return 3
+    fi
     return 2
 }
 
 # ctx_get <session> <key> <file>: the key's content into <file>, empty when the
 # key is absent. Returns 1 when the read failed (koto refused it, or the key
-# exists but can't be read), with <file> empty and koto's output on stderr.
+# exists but can't be read), or 3 when ctx_has does (the name is held only
+# elsewhere), with <file> empty and koto's output on stderr. Callers that
+# don't tell 3 apart fail on it as on 1.
 ctx_get() {
     : > "$3"
     ctx_has "$1" "$2"
     case $? in
         0) ;;
         1) return 0 ;;
+        3) return 3 ;;
         *) return 1 ;;
     esac
     if ! koto context get "$1" "$2" > "$3"; then
@@ -994,11 +1011,24 @@ cmd_classify() {
 
 # Prints only one of the three names: a ledger line whose `to` is anything else
 # prints nothing, and the level check then holds on the empty variable.
+#
+# A name held only under another directory's prefix (ctx_get's 3) prints
+# nothing and exits 0, as a name with no session does. This is the read
+# work-on-open.sh makes before `koto init`, and koto init checks only this
+# host's copy and this directory's prefix, so for this directory the name has
+# no session and the open goes ahead as a new one. Every other subcommand reads
+# a session this directory already holds, so there the same refusal stays a
+# failed read, and so does any other refusal here.
 cmd_level() {
     [ $# -eq 1 ] || usage "level takes <session>"
-    local s="$1" recorded
+    local s="$1" recorded rc=0
     valid_session "$s" || usage "bad session name [$s]"
-    ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER of $s"
+    ctx_get "$s" "$LEDGER" "$WORK/ledger" || rc=$?
+    case "$rc" in
+        0) ;;
+        3) exit 0 ;;
+        *) die 66 "could not read $LEDGER of $s" ;;
+    esac
     recorded=$(last_level "$WORK/ledger")
     if valid_level "$recorded"; then
         printf '%s\n' "$recorded"
