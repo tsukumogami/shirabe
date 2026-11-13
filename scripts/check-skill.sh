@@ -93,10 +93,15 @@
 #                      TEST-ONLY. With --changed, the changed paths, one per
 #                      line, in place of the ones git reports. No extension
 #                      file or workflow sets it.
-#   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*
+#   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*, AWS_*
 #                      Cleared before any check runs: a koto session running
 #                      this script passes its own store and session to it, and
-#                      no suite may reach the caller's store.
+#                      no suite may reach the caller's store. AWS_* is every
+#                      standard cloud credential and endpoint name a cloud
+#                      client falls back to. Files under HOME aren't covered:
+#                      a suite that keeps the caller's HOME can still read
+#                      ~/.aws/credentials, and one that gives itself a HOME
+#                      can't.
 #
 # Exit codes:
 #   0 - every check passed
@@ -151,9 +156,13 @@ fi
 # check run from a koto session (the verification gate is one) would pass
 # them to every suite, which then reads and writes that real store whatever
 # HOME it gives itself. The KOTO_SESSION_* settings (a backend, a bucket) are
-# cleared too, so a suite never reaches an owner's cloud store either.
+# cleared too, so a suite never reaches an owner's cloud store either. So are
+# the AWS_* names: an S3-compatible client a suite builds, or a tool it runs,
+# falls back to them when given no credentials, and would reach the caller's
+# bucket with the caller's credentials.
 unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
-for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+for v in $(env | sed -n -e 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p' \
+    -e 's/^\(AWS_[A-Za-z0-9_]*\)=.*/\1/p'); do
     unset "$v"
 done
 

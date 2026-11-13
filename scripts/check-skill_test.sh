@@ -413,6 +413,22 @@ KOTO_SESSIONS_BASE="$WORK/caller-store" KOTO_TICK_SESSION=caller-run \
     KOTO_SESSION_BACKEND=cloud KOTO_SESSION_CLOUD_BUCKET=owner-bucket run_check
 expect "a suite inherits none of koto's session context" 0 "ok: bash skills/demo/scripts/env_test.sh"
 
+# Nor the standard cloud credential and endpoint names: a cloud client a suite
+# builds falls back to them, and would reach the caller's bucket with the
+# caller's credentials. The suite names what it inherits, never a value.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+cat > "$ROOT/skills/demo/scripts/cloud_env_test.sh" <<'SUITE'
+seen=$(env | grep -E '^AWS_[A-Za-z0-9_]*=' | cut -d= -f1 | tr '\n' ' ')
+[ -z "$seen" ] || { echo "inherited: $seen"; exit 1; }
+SUITE
+AWS_ACCESS_KEY_ID=dummy-key AWS_SECRET_ACCESS_KEY=dummy-secret \
+    AWS_SESSION_TOKEN=dummy-token AWS_ENDPOINT_URL=http://127.0.0.1:9 \
+    AWS_ENDPOINT_URL_S3=http://127.0.0.1:9 AWS_REGION=dummy-region \
+    AWS_DEFAULT_REGION=dummy-region AWS_PROFILE=dummy-profile run_check
+expect "a suite inherits none of the standard cloud credential names" 0 \
+    "ok: bash skills/demo/scripts/cloud_env_test.sh"
+
 # With the real koto, a suite that gives itself a HOME keeps its sessions there,
 # though the check was handed another store.
 REAL_KOTO_BIN=$(command -v koto 2>/dev/null || true)
