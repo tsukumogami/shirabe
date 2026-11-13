@@ -69,12 +69,13 @@ tag: the cases cost seconds, and a change to a shared file or to a hand-off targ
 a skill whose own files didn't change. No model-graded case runs. Those
 scenarios stay in each skill's `evals.json`, where they describe its
 behaviour, and nothing runs them. The runner's output passes through, and the
-check then prints the two lines the release notes carry, along with the names
-of any skills a person confirmed:
+check then prints the two lines the release notes carry, marked with the
+`notes: ` prefix `/shirabe:release` copies into the notes, along with the
+names of any skills a person confirmed:
 
 ```text
-script cases: <P> of <N> passed
-model-graded cases: not run
+notes: script cases: <P> of <N> passed
+notes: model-graded cases: not run
 ```
 
 Each failing case is labelled against the skill's newest script-measured
@@ -91,10 +92,14 @@ again and runs no case. When koto is missing, the runner can't run or a
 download fails, the check exits 1 with a message ending `run the check again`.
 
 The `--finalize` item stamps the record with the confirmed version and names
-it for upload as the release asset `eval-pass-rates.json`. If that command or
-its upload fails, the next release falls back to older records, and the skills
-this release measured have no baseline newer than those: retry the upload
-before the release is published.
+it for upload as the release asset `eval-pass-rates.json`. The record holds
+each skill's script-case results; with no model-graded case run, that is all
+it holds, and the release attaches it all the same. `--finalize` refuses when
+the check didn't run on the HEAD and last tag being released, and a refused
+item or a failed upload stops the release before it is published: run the
+release again, check included. A release published without the record
+leaves the next one comparing against older records, as every release from
+v0.25.0 to v0.47.1 did.
 
 The release host needs `koto`, which the hand-off cases attach sessions with,
 `python3`, `git` and `gh`. The check runs under macOS's `/bin/bash` 3.2 and

@@ -293,10 +293,10 @@ if [ "$RC" -eq 0 ] && has_line "Eval check host: $HOST" \
   && [ "$(grep -c '^PASS ' <<<"$OUT")" = 3 ] \
   && has_line "REFUSED 1 graded-one: graded cases don't run" \
   && has_line "script cases: 3 of 3 passed" \
-  && [ "$(grep -cx 'script cases: 3 of 3 passed' <<<"$OUT")" = 2 ] \
-  && has_line "model-graded cases: not run" \
+  && has_line "notes: script cases: 3 of 3 passed" \
+  && has_line "notes: model-graded cases: not run" \
   && has_text "no baseline: no last tag, so no previous release"; then
-  pass "a clean run prints the host, the runner's lines, the totals, the graded line and no baseline, and exits 0"
+  pass "a clean run prints the host, the runner's lines, the totals and the graded line as notes lines, no baseline, and exits 0"
 else
   fail "clean run (rc=$RC): $OUT"
 fi
@@ -331,7 +331,7 @@ new_case
 fail_case alpha two
 run_check "" 0.41.0
 if [ "$RC" -eq 5 ] && has_line "FAIL 2 two: exited 1" \
-  && has_line "script cases: 2 of 3 passed" && has_line "model-graded cases: not run" \
+  && has_line "notes: script cases: 2 of 3 passed" && has_line "notes: model-graded cases: not run" \
   && has_line "case alpha/two: failing, no baseline" \
   && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=alpha" ]; then
   pass "a failing case exits 5 with its label and the confirm line last"
@@ -350,7 +350,7 @@ run_check "" 0.41.0 alpha
 if [ "$RC" -eq 0 ] \
   && has_line "Confirmation re-run: comparing the saved summary, running no case." \
   && [ "$(run_count)" = "$BEFORE" ] \
-  && has_line "script cases: 2 of 3 passed" && has_line "model-graded cases: not run" \
+  && has_line "notes: script cases: 2 of 3 passed" && has_line "notes: model-graded cases: not run" \
   && has_line "confirmed: alpha" && ! grep -q '^Eval check host:' <<<"$OUT"; then
   pass "confirming the failing skill compares the saved summary, runs no case and exits 0"
 else
@@ -589,6 +589,48 @@ run_finalize "" 0.41.0
 new_case
 run_finalize "" 0.41.0
 [ "$RC" -eq 1 ] && pass "--finalize refuses with no marker" || fail "finalize no marker (rc=$RC): $OUT"
+
+# -- a cut that runs no model-graded case still names its record ---------------
+#
+# The release this repository cuts: a last tag whose release has no record,
+# script cases only, no model. The check passes with its notes lines, and
+# --finalize names eval-pass-rates.json, holding every skill's script results,
+# for the release to attach. release-state_test.sh carries an asset line from
+# here to the upload.
+
+new_case
+tag_head v0.40.0
+run_check v0.40.0 0.41.0
+CHECK_RC=$RC
+CHECK_OUT=$OUT
+run_finalize v0.40.0 0.41.0
+if [ "$CHECK_RC" -eq 0 ] && [ "$(calls claude)" = 0 ] \
+  && grep -qx 'notes: script cases: 3 of 3 passed' <<<"$CHECK_OUT" \
+  && grep -qx 'notes: model-graded cases: not run' <<<"$CHECK_OUT" \
+  && [ "$RC" -eq 0 ] && [ "$(last_line)" = "asset: $STATE/eval-pass-rates.json" ] \
+  && [ -f "$STATE/eval-pass-rates.json" ] && [ ! -L "$STATE/eval-pass-rates.json" ] \
+  && [ "$(record_field 'r["version"]')" = 0.41.0 ] \
+  && [ "$(record_field 'sorted(r["skills"])')" = "['alpha', 'beta', 'gamma']" ] \
+  && [ "$(record_field 'all(e["models"] == ["script"] for e in r["skills"].values())')" = True ]; then
+  pass "a cut with no model-graded case passes, calls no model, and --finalize names eval-pass-rates.json with every skill's script results"
+else
+  fail "script-only cut (check rc=$CHECK_RC, finalize rc=$RC): $CHECK_OUT / $OUT / $(cat "$CALLS")"
+fi
+
+# The same cut with a failing case a person confirmed still names the record.
+new_case
+tag_head v0.40.0
+fail_case alpha two
+run_check v0.40.0 0.41.0
+run_check v0.40.0 0.41.0 alpha
+CHECK_RC=$RC
+run_finalize v0.40.0 0.41.0
+if [ "$CHECK_RC" -eq 0 ] && [ "$(calls claude)" = 0 ] \
+  && [ "$RC" -eq 0 ] && [ "$(last_line)" = "asset: $STATE/eval-pass-rates.json" ]; then
+  pass "a confirmed failing case still leaves a record for --finalize to name"
+else
+  fail "confirmed script-only cut (check rc=$CHECK_RC, finalize rc=$RC): $OUT"
+fi
 
 new_case
 mkdir -p "$STATE"

@@ -90,7 +90,10 @@ export GIT_CEILING_DIRECTORIES="$T"
 # `gh repo view --json owner,name` prints $GH_REPO_JSON and exits $GH_REPO_RC.
 # `gh release create ...` records its arguments, copies the file it was given
 # with --notes-file to $GH_NOTES_COPY while it still exists, records that
-# file's path in $GH_NOTES_PATH, and exits $GH_CREATE_RC. Every call is logged.
+# file's path in $GH_NOTES_PATH, and exits $GH_CREATE_RC.
+# `gh release upload ...` exits $GH_UPLOAD_RC; `gh release view ...` prints
+# $GH_VIEW_NAMES (the release's asset names) and exits $GH_VIEW_RC. Every call
+# is logged.
 STUB_DIR="$T/stubbin"
 mkdir -p "$STUB_DIR"
 GH_LOG="$T/gh-calls"
@@ -112,6 +115,13 @@ case "$1 $2" in
             prev="$a"
         done
         exit "${GH_CREATE_RC:-0}"
+        ;;
+    "release upload")
+        exit "${GH_UPLOAD_RC:-0}"
+        ;;
+    "release view")
+        [ -n "${GH_VIEW_NAMES+x}" ] && printf '%s\n' "$GH_VIEW_NAMES"
+        exit "${GH_VIEW_RC:-0}"
         ;;
 esac
 exit 1
@@ -301,6 +311,14 @@ check_usage "read with one argument" read topic
 check_usage "read with topic -x" read -x prs
 check_usage "read of an unknown key" read topic frobnicate
 check_usage "read of a key path" read topic work/prs
+check_usage "check-notes with one argument" check-notes topic
+check_usage "check-notes of a file that isn't one" check-notes topic "$T/no-such-file"
+check_usage "carries with one argument" carries topic
+check_usage "asset with one argument" asset topic
+check_usage "asset with topic -x" asset -x "$T/no-such-file"
+check_usage "upload with one argument" upload topic
+check_usage "upload with a v-prefixed version" upload topic v0.3.0
+check_usage "upload with a version holding a slash" upload topic 0.3.0/x
 
 # --- koto missing, koto below the floor, at the open Phase 1 runs ------------------------------
 
@@ -742,6 +760,162 @@ if [ "$ENGINE" -eq 1 ] && [ -n "$STORE_BLOCK" ] && [ -n "$CREATE_BLOCK" ]; then
     assert_eq "the session is finished after the done close" "finished" "$STDOUT"
 fi
 
+# --- check-notes, carries, asset and upload ---------------------------------------------------
+
+if [ "$ENGINE" -eq 1 ]; then
+
+echo
+echo "== notes lines and assets =="
+NA=notes-assets
+NS="release-$NA"
+open_release "$NA"
+rs membership "$NA"
+assert_eq "membership writes work/check-notes empty" "" "$(kget "$NS" work/check-notes)"
+assert_eq "membership writes work/assets empty" "" "$(kget "$NS" work/assets)"
+rs read "$NA" check-notes
+assert_eq "read check-notes of an empty key exits 0" "0" "$RC"
+rs read "$NA" assets
+assert_eq "read assets of an empty key exits 0" "0" "$RC"
+
+# A check's output: the runner's lines, two notes lines (one ending in a
+# carriage return), and a line that only mentions notes.
+printf '%s\n' 'PASS 1 one' 'script cases: 3 of 3 passed' 'notes: script cases: 3 of 3 passed' \
+    'see the notes: below' >"$T/check1.log"
+printf 'notes: model-graded cases: not run\r\n' >>"$T/check1.log"
+rs check-notes "$NA" "$T/check1.log"
+assert_eq "check-notes exits 0" "0" "$RC"
+assert_eq "check-notes counts the notes lines" "notes=2" "$STDOUT"
+assert_eq "work/check-notes holds the lines without the prefix, as printed" "script cases: 3 of 3 passed
+model-graded cases: not run" "$(kget "$NS" work/check-notes)"
+printf '%s\n' 'notes: second check: clean' >"$T/check2.log"
+rs check-notes "$NA" "$T/check2.log"
+assert_eq "a second check's line is added after the first's" "script cases: 3 of 3 passed
+model-graded cases: not run
+second check: clean" "$(kget "$NS" work/check-notes)"
+printf '%s\n' 'nothing for the notes' >"$T/check3.log"
+rs check-notes "$NA" "$T/check3.log"
+assert_eq "a check with no notes line adds nothing" "notes=0" "$STDOUT"
+printf 'notes: bad\033[1m line\n' >"$T/check4.log"
+rs check-notes "$NA" "$T/check4.log"
+assert_eq "a notes line with a control character is refused with 2" "2" "$RC"
+assert_contains "it says refused=bad_notes_line" "refused=bad_notes_line" "$STDOUT"
+rs read "$NA" check-notes
+assert_eq "read check-notes prints the stored lines" "script cases: 3 of 3 passed
+model-graded cases: not run
+second check: clean" "$STDOUT"
+rs check-notes never-opened "$T/check1.log"
+assert_eq "check-notes on a session that isn't live is refused" "2" "$RC"
+
+# carries: notes holding every line, as list items or lines of their own.
+printf '%s\n' '## Fixes' '- fix: repair beta (#7)' '' '## Release checks' \
+    '- script cases: 3 of 3 passed' '- model-graded cases: not run' 'second check: clean' >"$T/notes-ok.md"
+rs carries "$NA" "$T/notes-ok.md"
+assert_eq "carries passes notes holding every line" "0" "$RC"
+assert_eq "it counts them" "carried=3" "$STDOUT"
+printf '%s\n' '## Fixes' '- fix: repair beta (#7)' '' '## Release checks' \
+    '- script cases: 3 of 3 passed (all good)' 'second check: clean' >"$T/notes-short.md"
+rs carries "$NA" "$T/notes-short.md"
+assert_eq "carries refuses notes that drop or reword a line, with 2" "2" "$RC"
+assert_contains "it names the reworded line" "missing=script cases: 3 of 3 passed" "$STDOUT"
+assert_contains "it names the dropped line" "missing=model-graded cases: not run" "$STDOUT"
+assert_contains "it says refused=notes_missing_check_lines" "refused=notes_missing_check_lines" "$STDOUT"
+rs carries never-opened "$T/notes-ok.md"
+assert_eq "carries without Phase 1 exits 1" "1" "$RC"
+
+# The notes-store block, cut from Phase 4, with these lines stored: notes
+# that carry them are stored, notes that drop one are not.
+subst "$STORE_BLOCK" "$NA" >"$T/store-ok.sh"
+sed -i.bak "s|^# write the confirmed notes.*|cp '$T/notes-ok.md' \"\$dir/notes.md\"|" "$T/store-ok.sh"
+RC=0
+(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" PATH="$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$T/store-ok.sh") >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "the store block stores notes that carry every check line" "0" "$RC"
+assert_eq "the drafted notes hold the check lines verbatim" "$(cat "$T/notes-ok.md")" "$(kget "$NS" work/notes.md)"
+subst "$STORE_BLOCK" "$NA" >"$T/store-short.sh"
+sed -i.bak "s|^# write the confirmed notes.*|cp '$T/notes-short.md' \"\$dir/notes.md\"|" "$T/store-short.sh"
+RC=0
+(cd "$REPO" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" PATH="$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$T/store-short.sh") >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "the store block refuses notes that drop a check line" "1" "$RC"
+assert_eq "and leaves the stored notes as they were" "$(cat "$T/notes-ok.md")" "$(kget "$NS" work/notes.md)"
+
+# asset: the last line of an asset command's output.
+mkdir -p "$T/assets"
+printf '{}\n' >"$T/assets/eval-pass-rates.json"
+printf '%s\n' 'stamped' "asset: $T/assets/eval-pass-rates.json" '' >"$T/asset1.log"
+rs asset "$NA" "$T/asset1.log"
+assert_eq "asset exits 0 on an asset line" "0" "$RC"
+assert_eq "it prints the path" "asset=$T/assets/eval-pass-rates.json" "$STDOUT"
+assert_eq "work/assets holds the path" "$T/assets/eval-pass-rates.json" "$(kget "$NS" work/assets)"
+printf '%s\n' "asset: $T/assets/eval-pass-rates.json" 'done' >"$T/asset2.log"
+rs asset "$NA" "$T/asset2.log"
+assert_eq "an asset line that isn't last names nothing" "asset=none" "$STDOUT"
+printf '%s\n' 'asset: assets/eval-pass-rates.json' >"$T/asset3.log"
+rs asset "$NA" "$T/asset3.log"
+assert_eq "a relative path is refused with 2" "2" "$RC"
+assert_contains "it says refused=bad_asset" "refused=bad_asset" "$STDOUT"
+printf '%s\n' "asset: $T/assets/missing.json" >"$T/asset4.log"
+rs asset "$NA" "$T/asset4.log"
+assert_eq "a path to no file is refused" "2" "$RC"
+ln -s "$T/assets/eval-pass-rates.json" "$T/assets/link.json"
+printf '%s\n' "asset: $T/assets/link.json" >"$T/asset5.log"
+rs asset "$NA" "$T/asset5.log"
+assert_eq "a symlink is refused" "2" "$RC"
+DOLLAR_FILE="$T/assets/it\$s.json"
+printf '{}\n' >"$DOLLAR_FILE"
+printf '%s\n' "asset: $DOLLAR_FILE" >"$T/asset6.log"
+rs asset "$NA" "$T/asset6.log"
+assert_eq "a path holding a dollar sign is refused" "2" "$RC"
+mkdir -p "$T/assets2"
+printf '{}\n' >"$T/assets2/eval-pass-rates.json"
+printf '%s\n' "asset: $T/assets2/eval-pass-rates.json" >"$T/asset7.log"
+rs asset "$NA" "$T/asset7.log"
+assert_eq "a second file of the same name is refused" "2" "$RC"
+assert_contains "it says refused=duplicate_asset" "refused=duplicate_asset" "$STDOUT"
+assert_eq "work/assets still holds the one path" "$T/assets/eval-pass-rates.json" "$(kget "$NS" work/assets)"
+
+# The upload block, cut from Phase 4: an asset line ends in an upload.
+UPLOAD_BLOCK=$(printf '%s\n' "$PH4" | bash_block_with 'release-state.sh" upload')
+if [ -z "$UPLOAD_BLOCK" ]; then fail "could not extract the upload block from Phase 4 of SKILL.md"; else pass "extracted the upload block from Phase 4"; fi
+subst "$UPLOAD_BLOCK" "$NA" >"$T/upload.sh"
+run_upload() {
+    RC=0
+    (cd "$REPO" && CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" PATH="$TOOLS_KOTO:$SYS_PATH" "$BASH_BIN" "$T/upload.sh") >"$T/stdout" 2>"$T/stderr" || RC=$?
+    STDOUT=$(cat "$T/stdout")
+    STDERR=$(cat "$T/stderr")
+}
+: >"$GH_LOG"
+GH_VIEW_NAMES=$(printf '%s\n' checksums.txt eval-pass-rates.json) run_upload
+assert_eq "the shipped upload block exits 0" "0" "$RC"
+assert_eq "it reports the attached asset" "uploaded=eval-pass-rates.json" "$STDOUT"
+assert_contains "gh release upload was called with the recorded path" "release upload v0.3.0 $T/assets/eval-pass-rates.json --clobber" "$(cat "$GH_LOG")"
+assert_contains "the release was read back" "release view v0.3.0 --json assets" "$(cat "$GH_LOG")"
+
+GH_UPLOAD_RC=1 GH_VIEW_NAMES=eval-pass-rates.json run_upload
+assert_eq "a failed upload fails the block" "1" "$RC"
+assert_contains "it says failed=upload" "failed=upload" "$STDOUT"
+GH_VIEW_NAMES=checksums.txt run_upload
+assert_eq "an asset the release doesn't list fails the block" "1" "$RC"
+assert_contains "it says failed=not_attached" "failed=not_attached" "$STDOUT"
+GH_VIEW_RC=1 run_upload
+assert_eq "a failed read-back fails the block" "1" "$RC"
+assert_contains "it says failed=read_back" "failed=read_back" "$STDOUT"
+rm -f "$T/assets/eval-pass-rates.json"
+run_upload
+assert_eq "an asset file gone before the upload fails the block" "1" "$RC"
+assert_contains "it says failed=asset_missing" "failed=asset_missing" "$STDOUT"
+
+# The next membership starts both lists empty.
+rs membership "$NA"
+assert_eq "membership empties an earlier run's check-notes" "" "$(kget "$NS" work/check-notes)"
+assert_eq "membership empties an earlier run's assets" "" "$(kget "$NS" work/assets)"
+: >"$GH_LOG"
+run_upload
+assert_eq "with no assets the upload block exits 0" "0" "$RC"
+assert_eq "it says uploaded=0" "uploaded=0" "$STDOUT"
+assert_eq "and calls no gh" "" "$(cat "$GH_LOG")"
+ss close "$NS" done
+
+fi
+
 # --- static cases: the prose calls the script -----------------------------------------------------------
 
 echo
@@ -912,6 +1086,46 @@ if grep -qE "^[^\`]*(>|<) *${WP}|cat ${WP}|mkdir -p wip" "$SKILL_MD"; then
 else
     pass "no command in SKILL.md reads or writes the staging folder"
 fi
+
+# Notes lines and assets: each phase calls the subcommand that carries them.
+case "$PH2" in
+    *"\"$CALL\" check-notes"*) pass "Phase 2 records a check's notes lines with check-notes" ;;
+    *) fail "Phase 2 does not call \"$CALL\" check-notes" ;;
+esac
+case "$PH2" in
+    *'`notes: `'*) pass "Phase 2 says how a check marks a notes line" ;;
+    *) fail "Phase 2 does not name the notes: prefix" ;;
+esac
+case "$PH3" in
+    *"read <topic> check-notes"*) pass "Phase 3 reads the check notes lines into the draft" ;;
+    *) fail "Phase 3 does not read check-notes" ;;
+esac
+case "$PH4" in
+    *"\"$CALL\" carries"*) pass "Phase 4 checks the notes carry every check line" ;;
+    *) fail "Phase 4 does not call \"$CALL\" carries" ;;
+esac
+case "$PH4" in
+    *"\"$CALL\" asset"*) pass "Phase 4 records each asset command's asset line" ;;
+    *) fail "Phase 4 does not call \"$CALL\" asset" ;;
+esac
+case "$PH4" in
+    *"does not stop the release"*) fail "Phase 4 still lets a failed asset through to publishing" ;;
+    *) pass "Phase 4 no longer lets a failed asset through to publishing" ;;
+esac
+# The assets are recorded before the draft and uploaded after it.
+ASSET_AT=$(printf '%s\n' "$PH4" | grep -n "\"$CALL\" asset" | head -n 1 | cut -d: -f1)
+CREATE_AT=$(printf '%s\n' "$PH4" | grep -n '^gh release create "v' | head -n 1 | cut -d: -f1)
+UPLOAD_AT=$(printf '%s\n' "$PH4" | grep -n "\"$CALL\" upload" | head -n 1 | cut -d: -f1)
+if [ -n "$ASSET_AT" ] && [ -n "$CREATE_AT" ] && [ -n "$UPLOAD_AT" ] \
+    && [ "$ASSET_AT" -lt "$CREATE_AT" ] && [ "$CREATE_AT" -lt "$UPLOAD_AT" ]; then
+    pass "Phase 4 runs the asset commands before the draft and uploads after it"
+else
+    fail "Phase 4's order is not asset, draft, upload (asset=$ASSET_AT create=$CREATE_AT upload=$UPLOAD_AT)"
+fi
+case "$DRY" in
+    *'`carries`'*'`asset`'*) pass "a dry run checks the notes lines and runs the asset commands" ;;
+    *) fail "Dry-Run Mode does not run carries and the asset commands" ;;
+esac
 
 echo
 echo "release-state_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"

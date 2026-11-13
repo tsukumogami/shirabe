@@ -30,9 +30,11 @@
 #      passing through. A runner exit of 0, or 1 (a case failed), goes on and
 #      writes the marker naming HEAD, the last tag and the selected skills;
 #      any other exit is an infrastructure failure and writes no record.
-#   6. Prints "script cases: <P> of <N> passed", the totals over the saved
-#      summary, and "model-graded cases: not run": the two lines the release
-#      notes copy.
+#   6. Prints "notes: script cases: <P> of <N> passed", the totals over the
+#      saved summary, and "notes: model-graded cases: not run": the two lines
+#      the release notes carry. The "notes: " prefix is /shirabe:release's
+#      mark for a line the published notes copy (skills/release/SKILL.md,
+#      Phase 2 step 7).
 #   7. With a non-empty last tag, downloads eval-pass-rates.json with gh into a
 #      mktemp -d directory from that release and from the older v* releases
 #      merged into HEAD, newest first, ten releases at most. A release or asset
@@ -45,7 +47,8 @@
 #      and decides the exit code: the baseline picks the label and never the
 #      exit. A record over the merge's size cap is skipped there, unread.
 #
-# --finalize (the release-assets half, after the draft release exists):
+# --finalize (the release-assets half; /shirabe:release runs it before the
+# draft and uploads the record once the draft exists):
 #   Refuses unless the marker names the current HEAD and RELEASE_LAST_TAG and a
 #   record exists. Then stamps the record with RELEASE_VERSION (its version, and
 #   measured_at of the skills the marker names) and prints
@@ -257,8 +260,8 @@ with open(sys.argv[1], encoding="utf-8") as fh:
     skills = json.load(fh)["skills"].values()
 print("%d of %d" % (sum(e["cases_passed"] for e in skills), sum(e["cases_run"] for e in skills)))
 ' "$SUMMARY" 2>/dev/null) || fail "could not read the saved summary $SUMMARY; $RETRY"
-echo "script cases: $TOTALS passed"
-echo "model-graded cases: not run"
+echo "notes: script cases: $TOTALS passed"
+echo "notes: model-graded cases: not run"
 
 # --- baseline -------------------------------------------------------------------
 

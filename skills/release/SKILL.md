@@ -337,8 +337,28 @@ All must pass before proceeding:
       session allows, or run it in the background and wait for it to exit;
       never treat a timeout as a pass.
 
+      Save the check's output to a file in a scratch directory as well as
+      showing it, since step d reads its notes lines from there:
+
+      ```bash
+      out=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch) || exit
+      RELEASE_VERSION=0.3.0 RELEASE_LAST_TAG=v0.2.0 RELEASE_DRY_RUN=0 RELEASE_CONFIRMED_DROPS= scripts/example-check.sh --flag >"$out/check.log" 2>&1
+      echo "exit=$?"
+      cat "$out/check.log"
+      ```
+
    d. **Act on the exit code.**
-      - **0**: the check passed. Go to the next one.
+      - **0**: the check passed. Record the lines it printed for the
+        release notes (see **Notes lines** below), remove the scratch
+        directory, and go to the next one:
+
+        ```bash
+        topic=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" topic) || exit
+        "${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" check-notes "$topic" "$out/check.log"
+        rm -rf "$out"
+        ```
+
+        A `refused=` line stops the release as any failed check does.
       - **5**: the check needs a person to confirm something before the
         release goes on. Its last output line reads `confirm: <NAME>=<value>`.
         Show the check's output and ask with AskUserQuestion whether to
@@ -357,6 +377,18 @@ All must pass before proceeding:
       anything beyond letters, digits, `.`, `_`, `-` and `,`: the value goes
       onto a command line, so it is never passed through when it could be
       read as shell.
+
+      The notes lines come from the run that exited 0: after a confirmation,
+      the re-run's output, never the run that exited 5.
+
+   **Notes lines.** A check marks a line for the published release notes by
+   starting it with `notes: ` (the word, a colon and one space). The release
+   copies the rest of the line into the notes exactly as printed, in the
+   order the checks ran and printed them, and Phase 4 refuses notes that
+   leave one out. Any repository's check can use this: print, for example,
+   `notes: script cases: 40 of 40 passed`, and the notes carry
+   `script cases: 40 of 40 passed`. A check with nothing to say in the
+   notes prints no such line.
 
 Report the specific failure and stop on any check, closing the session first:
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> abandoned`.
@@ -379,7 +411,9 @@ for a session holding the release grant on an ordinary cut, from the grant
    ```
 
    Each subject carries the conventional-commit type, the description, and the
-   `(#N)` suffix, so this one read has everything the notes are written from.
+   `(#N)` suffix, so this one read has everything the list of changes is
+   written from. The only other thing the notes carry is the release checks'
+   notes lines (step 4).
 2. Cross-check against `work/prs` from Phase 1 (`release-state.sh read <topic>
    prs`) -- the release's membership. Every number in it must appear in a
    subject step 1 gathered, and no other pull request may be credited. It is a
@@ -392,6 +426,11 @@ for a session holding the release grant on an ordinary cut, from the grant
    - One sentence per change
    - Highlight breaking changes prominently
    - Handle security-labeled PRs per user's Phase 2 decision
+   - Carry the release checks' notes lines. Read them with
+     `release-state.sh read <topic> check-notes`; when it prints anything,
+     end the notes with a `## Release checks` section that lists each line
+     as a `- ` item, word for word and in the order printed. Don't reword,
+     merge or drop one: Phase 4's `carries` check refuses notes that do.
 
 5. **Print the notes in chat** so the user can read them,
    followed by the output of `release-state.sh read <topic> unattributed`
@@ -459,9 +498,52 @@ Write tool, then:
 ```bash
 dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch) || exit
 # write the confirmed notes to "$dir/notes.md", then:
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" carries <topic> "$dir/notes.md" || { rm -rf "$dir"; exit 1; }
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put release-<topic> work/notes.md "$dir/notes.md"
 rm -rf "$dir"
 ```
+
+`carries` checks the notes hold every line a release check printed for them
+(Phase 2 step 7, **Notes lines**). `refused=notes_missing_check_lines` lists
+each one it missed as a `missing=` line: add them to the notes' `## Release
+checks` section as written and run the block again. Nothing is stored until
+it passes.
+
+**Release assets.** Before the draft, run each bullet under `## Release
+assets` in the release extension (`release.md`, then `release.local.md`; a
+local one is asked about, or run on the grant, as in Phase 2 step 7). No
+heading means nothing to attach. Print each command and its file, then run it
+from the repository root with `RELEASE_VERSION` set to the version confirmed
+in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in Phase 2 (read the
+range back with `release-state.sh read <topic> range`, as Phase 2 step 7a
+does, since this is a new shell), `RELEASE_DRY_RUN=0`, and
+`RELEASE_CONFIRMED_DROPS` set to the empty string, as in Phase 2. Save its
+output to a file and record what it names:
+
+```bash
+out=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch) || exit
+RELEASE_VERSION=0.3.0 RELEASE_LAST_TAG=v0.2.0 RELEASE_DRY_RUN=0 RELEASE_CONFIRMED_DROPS= scripts/example-asset.sh >"$out/asset.log" 2>&1
+echo "exit=$?"
+cat "$out/asset.log"
+```
+
+On exit 0:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" asset <topic> "$out/asset.log"
+rm -rf "$out"
+```
+
+- A last output line `asset: <path>` names a file to attach: `asset` prints
+  `asset=<path>` and keeps the path for the upload below. The path must be
+  absolute and name a regular file, with no quotes, `$`, backticks or line
+  breaks.
+- Any other last line means there is nothing to attach (`asset=none`).
+- A non-zero exit, or a `refused=` line from `asset`, stops the release here,
+  before the draft: name the command and its file, repeat the last lines of
+  its output, quote the extension's note on what that item's failure costs
+  if it gives one, remove `$out`, and close the session `abandoned`.
+  Nothing has been created; fix what it reports and run the release again.
 
 Then create the draft:
 
@@ -480,30 +562,20 @@ exit "$rc"
 The draft survives workflow failures and is editable in the GitHub
 UI.
 
-**Release assets.** Once the draft exists, and only when this isn't a dry
-run, run each bullet under `## Release assets` in the release extension
-(`release.md`, then `release.local.md`; a local one is asked about, or run on
-the grant, as in Phase 2 step 7). No heading means nothing to attach. Print each command and its file,
-then run it from the repository root with `RELEASE_VERSION` set to the
-version confirmed in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in
-Phase 2 (read the range back with `release-state.sh read <topic> range`, as
-Phase 2 step 7a does, since this is a new shell),
-`RELEASE_DRY_RUN=0`, and `RELEASE_CONFIRMED_DROPS` set to the empty
-string, as in Phase 2.
+**Upload the assets.** Once the draft exists, attach every file the release
+assets named:
 
-- Exit 0 with a last output line `asset: <path>` names a file to attach. The
-  path must name an existing regular file and hold no quotes, `$`, backticks
-  or line breaks; anything else is reported as a failed asset, not uploaded.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" upload <topic> <version>
+```
 
-  ```bash
-  gh release upload "v<version>" "<path>" --clobber
-  ```
-
-- Exit 0 without an `asset:` line means there is nothing to attach.
-- A non-zero exit, or a failed upload, does not stop the release: the draft
-  already exists. Report it with the command to retry (the item's command, or
-  the `gh release upload` line above), and quote the extension's note on what
-  that item's failure costs, if it gives one.
+It uploads each one with `gh release upload --clobber`, reads the release's
+assets back, and prints `uploaded=<name>` for each one the release lists
+(`uploaded=0` when there was nothing to attach). A `failed=` line stops the
+release before Phase 5, so nothing is published without its assets: report
+the line and the message after it, and close the session `abandoned`. The
+draft stays unpublished; delete it (`gh release delete v<version> --yes`)
+and run the release again.
 
 The session stays open through Phases 5 to 7 and is closed once, at the end
 of the run (Phase 7), so a step refused on the way closes it `abandoned`
@@ -669,8 +741,14 @@ When `--dry-run` is passed:
 - The repository's declared checks (Phase 2 step 7) run, with
   `RELEASE_DRY_RUN=1`, and stop the dry run the same way they would stop a
   release.
-- Phase 4-7 are skipped (no draft, no dispatch), so no `## Release assets`
-  command runs, nothing is attached, and no `## After release` command
+- Phase 4 runs as far as the draft: the `carries` check on the drafted
+  notes, and each `## Release assets` command with `RELEASE_DRY_RUN=1`, its
+  output recorded with `asset`. A missing notes line or a failed asset
+  command stops the dry run as it would stop the release, so a dry run says
+  whether a real cut would attach its assets. For each `asset=<path>` line
+  print `would attach <file name>`, then stop: no notes are stored, no draft
+  is created and nothing is uploaded.
+- Phases 5-7 are skipped (no dispatch), so no `## After release` command
   runs. The session is closed `done` at the
   end of the dry run: `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close
   release-<topic> done`.
@@ -693,7 +771,9 @@ When `--dry-run` is passed:
 | 2 | Blockers open | Resolve the listed issues first |
 | 2 | A declared release check exits non-zero (other than 5) | The step repeated the last lines of the check's output; fix what they report, and run the release again; the check is named with the file that declared it |
 | 2 | A declared check exits 5 and the answer is no, or nobody can answer | The release stopped on purpose. Look into what the check reported; run the release again, interactively, to confirm it |
-| 4 | A `## Release assets` command fails or its upload fails | The draft stands. Re-run the command from the repository root with the same `RELEASE_*` values, then `gh release upload v<version> <path> --clobber` |
+| 4 | `carries` prints `refused=notes_missing_check_lines` | The drafted notes leave out a line a release check printed for them. Add each `missing=` line, as written, to the notes' `## Release checks` section and run the store block again |
+| 4 | A `## Release assets` command exits non-zero, or `asset` prints `refused=` | The run stopped before the draft and closed its session `abandoned`; nothing was created. Fix what the command reported (for this repository's eval record: the declared check didn't run on this HEAD and last tag, so run the release again, check included) and run the release again |
+| 4 | `upload` prints `failed=` | The run stopped before dispatch and closed its session `abandoned`; the draft is unpublished. `gh release delete v<version> --yes`, then run the release again |
 | 3 | `go` prints `go=person` for a session dispatched to release | The reason says why: `unresolved` is a finding the grant never answers (see **The release grant**); the others (`not-held`, `decider-person`, `no-niwa`, ...) mean niwa didn't confirm the grant. The go is asked as usual |
 | 3 | The go is declined, or nobody can answer it | The run stopped and closed its session `abandoned`. Run `/release` again when a person can give the go |
 | 4 | The workspace gate refuses `gh release create` | The run stopped, closed its session `abandoned`, and printed the gate's reason. Ask whoever dispatched the session for the grant, or cut the release from a session that holds it; don't create the draft another way |

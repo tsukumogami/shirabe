@@ -14,11 +14,15 @@
 # Usage:
 #   release-state.sh topic
 #   release-state.sh membership <topic>
-#   release-state.sh read <topic> <range|prs|unattributed|notes|head>
+#   release-state.sh read <topic> <range|prs|unattributed|notes|head|check-notes|assets>
 #   release-state.sh version <value>
 #   release-state.sh go <topic> [--unresolved]
 #   release-state.sh mark <topic> dispatched <version>
 #   release-state.sh mark <topic> concluded <success|failure|timeout>
+#   release-state.sh check-notes <topic> <output-file>
+#   release-state.sh carries <topic> <notes-file>
+#   release-state.sh asset <topic> <output-file>
+#   release-state.sh upload <topic> <version>
 #
 # Arguments (checked before any koto call):
 #   <topic>   ^[a-z0-9][a-z0-9-]*$; `topic` prints one.
@@ -48,6 +52,8 @@
 #               work/head           the full hash of HEAD, the commit the
 #                                   release is cut from; after-release.sh reads
 #                                   the committed extension there
+#             and writes work/check-notes and work/assets empty, for
+#             check-notes and asset to add to.
 #             A list with nothing in it is an empty key. It also removes the
 #             keys a later phase writes (work/notes.md, work/dispatched,
 #             work/concluded, work/after, work/after-go) when an earlier run
@@ -59,7 +65,8 @@
 #
 #   read         prints the key's content as stored (range -> work/range,
 #             prs -> work/prs, unattributed -> work/unattributed, notes ->
-#             work/notes.md, head -> work/head), or exits 1 with "Phase 1 did not run" on stderr
+#             work/notes.md, head -> work/head, check-notes -> work/check-notes,
+#             assets -> work/assets), or exits 1 with "Phase 1 did not run" on stderr
 #             when the key is absent. An empty key prints nothing and exits 0.
 #
 #   version      checks a version before it reaches any command line: one
@@ -91,12 +98,44 @@
 #                                      timeout, as Phase 6's monitoring ended
 #             Prints nothing. A session that isn't live is refused.
 #
+#   check-notes  takes the lines of a declared check's saved output that start
+#             with "notes: ", drops that prefix, and appends the rest, as
+#             printed, to work/check-notes (blank lines skipped, a trailing
+#             carriage return dropped). Prints notes=<count>. A line holding a
+#             control character is refused (refused=bad_notes_line); a session
+#             that isn't live is refused.
+#
+#   carries      checks drafted notes against work/check-notes: every stored
+#             line must appear in the notes file as a whole line, or as a
+#             "- " list item. Prints carried=<count>, or a missing=<line> per
+#             absent line and refused=notes_missing_check_lines with exit 2.
+#
+#   asset        reads a release-assets command's saved output. A last
+#             non-blank line "asset: <path>" names a file to attach: <path>
+#             must be absolute, a regular file (not a symlink), and hold no
+#             quotes, $, backticks or control characters, and no earlier
+#             asset may share its file name. It is appended to work/assets
+#             and asset=<path> printed; any other last line prints asset=none.
+#             A bad path is refused=bad_asset, a repeated name
+#             refused=duplicate_asset, both exit 2.
+#
+#   upload       uploads each path in work/assets to the release v<version>
+#             with `gh release upload --clobber`, then reads the release's
+#             asset names back with `gh release view` and prints
+#             uploaded=<name> for each one listed. A missing file
+#             (failed=asset_missing), a failed upload (failed=upload), a failed
+#             read-back (failed=read_back) or a name the release doesn't list
+#             (failed=not_attached) exits 1. No assets prints uploaded=0.
+#
 # Exit codes:
 #   0    success
-#   1    a koto, gh or git operation failed; read, go: the key is absent
-#   2    refused: topic's empty result, membership's or mark's session not
-#        live, membership's directory not a git work tree, a version that
-#        fails the check
+#   1    a koto, gh or git operation failed; read, go, check-notes, carries,
+#        asset, upload: the key is absent; upload: an asset file is gone, its
+#        upload failed, or the release doesn't list it afterwards
+#   2    refused: topic's empty result, membership's, mark's, check-notes' or
+#        asset's session not live, membership's directory not a git work tree,
+#        a version that fails the check, a notes line or asset path check-notes
+#        or asset refuses, drafted notes that leave out a check's line (carries)
 #   4    cannot tell: koto answered something other than a session's state
 #   64   usage error; no koto call was made
 #   127  koto, gh, git or jq is not on PATH (whichever the subcommand needs)
@@ -104,10 +143,11 @@
 # Environment:
 #   KOTO_BIN   the koto binary to run (default: `koto` from PATH); the nested
 #              skill-session.sh reads it too.
-#   TMPDIR     where membership's temporary files are made (a private 0700
+#   TMPDIR     where the temporary files are made (a private 0700
 #              directory, removed on every exit path).
 #
-# Requires: bash 3.2+, jq, git, gh (topic), koto (membership, read, go, mark). No eval,
+# Requires: bash 3.2+, jq, git, gh (topic, upload), koto (every subcommand but
+# topic and version). No eval,
 # no associative arrays, no mapfile, no namerefs.
 
 set -uo pipefail
@@ -127,7 +167,7 @@ say() { printf '%s: %s\n' "$PROG" "$*" >&2; }
 usage() {
     printf 'error=usage\n'
     say "$1"
-    say "usage: release-state.sh topic | membership <topic> | read <topic> <range|prs|unattributed|notes|head> | version <value> | go <topic> [--unresolved] | mark <topic> (dispatched <version> | concluded <success|failure|timeout>) (see the header of this script)"
+    say "usage: release-state.sh topic | membership <topic> | read <topic> <range|prs|unattributed|notes|head|check-notes|assets> | version <value> | go <topic> [--unresolved] | mark <topic> (dispatched <version> | concluded <success|failure|timeout>) | check-notes <topic> <output-file> | carries <topic> <notes-file> | asset <topic> <output-file> | upload <topic> <version> (see the header of this script)"
     exit 64
 }
 
@@ -257,7 +297,7 @@ cmd_membership() {
     # one is written so a write that fails part-way leaves keys missing (read
     # stops on them) rather than a mix of this run's and the last one's.
     for k in work/notes.md work/dispatched work/concluded work/after work/after-go \
-        work/range work/prs work/unattributed work/head; do
+        work/range work/prs work/unattributed work/head work/check-notes work/assets; do
         key_exists "$s" "$k" || continue
         if ! "$KOTO" context remove "$s" "$k" >/dev/null; then
             printf 'failed=%s\n' "$k"
@@ -270,6 +310,9 @@ cmd_membership() {
     put_file "$s" work/prs "$TMPD/prs"
     put_file "$s" work/unattributed "$TMPD/unattributed"
     put_file "$s" work/head "$TMPD/head"
+    : >"$TMPD/empty"
+    put_file "$s" work/check-notes "$TMPD/empty"
+    put_file "$s" work/assets "$TMPD/empty"
 
     count_prs=$(grep -c . "$TMPD/prs" || true)
     count_un=$(grep -c . "$TMPD/unattributed" || true)
@@ -282,7 +325,7 @@ cmd_membership() {
 
 cmd_read() {
     local topic which s key
-    [ "$#" -eq 2 ] || usage "read takes <topic> <range|prs|unattributed|notes|head>"
+    [ "$#" -eq 2 ] || usage "read takes <topic> <range|prs|unattributed|notes|head|check-notes|assets>"
     topic="$1"
     which="$2"
     check_topic "$topic"
@@ -292,7 +335,9 @@ cmd_read() {
         unattributed) key="work/unattributed" ;;
         notes) key="work/notes.md" ;;
         head) key="work/head" ;;
-        *) usage "read's key must be range, prs, unattributed, notes or head" ;;
+        check-notes) key="work/check-notes" ;;
+        assets) key="work/assets" ;;
+        *) usage "read's key must be range, prs, unattributed, notes, head, check-notes or assets" ;;
     esac
     need_koto
     s="release-$topic"
@@ -384,6 +429,195 @@ cmd_mark() {
     put_file "$s" "work/$what" "$TMPD/value"
 }
 
+# --- check-notes and carries ------------------------------------------------------------
+
+# need_phase1_key <session> <key> -- exit 1 when Phase 1's membership didn't write it.
+need_phase1_key() {
+    if ! key_exists "$1" "$2"; then
+        say "Phase 1 did not run: $2 is absent from $1 (run Phase 1 first; its membership step writes it)"
+        exit 1
+    fi
+}
+
+# need_live <session> -- refuse a session that isn't live.
+need_live() {
+    if ! session_live "$1"; then
+        printf 'refused=session_not_live\n'
+        say "$1 is not live; Phase 1 opens it"
+        exit 2
+    fi
+}
+
+# get_key <session> <key> <file> -- the key's content into the file, ending in
+# a newline when it holds anything.
+get_key() {
+    "$KOTO" context get "$1" "$2" >"$3" || { say "cannot read $2"; exit 1; }
+    if [ -s "$3" ] && [ -n "$(tail -c 1 "$3")" ]; then printf '\n' >>"$3"; fi
+}
+
+cmd_check_notes() {
+    local topic file s count
+    [ "$#" -eq 2 ] || usage "check-notes takes <topic> <output-file>"
+    topic="$1"
+    file="$2"
+    check_topic "$topic"
+    [ -f "$file" ] || usage "check-notes reads a check's output from a file, and $file is not one"
+    need_koto
+    s="release-$topic"
+    need_live "$s"
+    need_phase1_key "$s" work/check-notes
+    TMPD=$(mktemp -d "${TMPDIR:-/tmp}/release-state.XXXXXX") || { say "cannot make a temporary directory"; exit 1; }
+    trap cleanup EXIT
+
+    # A notes line is one the check started with "notes: ". The prefix goes;
+    # the rest is copied as printed. A carriage return ending a line is dropped.
+    LC_ALL=C sed -n 's/^notes: //p' "$file" | LC_ALL=C sed 's/\r$//' | { grep -v '^[[:space:]]*$' || true; } >"$TMPD/new"
+    if LC_ALL=C grep -q '[[:cntrl:]]' "$TMPD/new"; then
+        printf 'refused=bad_notes_line\n'
+        say "a notes line in $file holds a control character; the check's output can't go into the notes as printed"
+        exit 2
+    fi
+    get_key "$s" work/check-notes "$TMPD/notes"
+    cat "$TMPD/new" >>"$TMPD/notes"
+    put_file "$s" work/check-notes "$TMPD/notes"
+    count=$(grep -c . "$TMPD/new" || true)
+    printf 'notes=%s\n' "${count:-0}"
+}
+
+cmd_carries() {
+    local topic notes s line carried=0 missing=0
+    [ "$#" -eq 2 ] || usage "carries takes <topic> <notes-file>"
+    topic="$1"
+    notes="$2"
+    check_topic "$topic"
+    [ -f "$notes" ] || usage "carries reads drafted notes from a file, and $notes is not one"
+    need_koto
+    s="release-$topic"
+    need_phase1_key "$s" work/check-notes
+    TMPD=$(mktemp -d "${TMPDIR:-/tmp}/release-state.XXXXXX") || { say "cannot make a temporary directory"; exit 1; }
+    trap cleanup EXIT
+    get_key "$s" work/check-notes "$TMPD/lines"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        if grep -qxF -- "$line" "$notes" || grep -qxF -- "- $line" "$notes"; then
+            carried=$((carried + 1))
+        else
+            printf 'missing=%s\n' "$line"
+            missing=$((missing + 1))
+        fi
+    done <"$TMPD/lines"
+    if [ "$missing" -gt 0 ]; then
+        printf 'refused=notes_missing_check_lines\n'
+        say "the notes leave out $missing line(s) a release check printed for them; add each as written, a line of its own or a '- ' list item"
+        exit 2
+    fi
+    printf 'carried=%s\n' "$carried"
+}
+
+# --- asset and upload --------------------------------------------------------------------
+
+cmd_asset() {
+    local topic file s last path name
+    [ "$#" -eq 2 ] || usage "asset takes <topic> <output-file>"
+    topic="$1"
+    file="$2"
+    check_topic "$topic"
+    [ -f "$file" ] || usage "asset reads an asset command's output from a file, and $file is not one"
+    need_koto
+    s="release-$topic"
+    need_live "$s"
+    need_phase1_key "$s" work/assets
+    TMPD=$(mktemp -d "${TMPDIR:-/tmp}/release-state.XXXXXX") || { say "cannot make a temporary directory"; exit 1; }
+    trap cleanup EXIT
+
+    last=$({ grep -v '^[[:space:]]*$' "$file" || true; } | tail -n 1)
+    last="${last%$'\r'}"
+    case "$last" in
+        "asset: "*) path="${last#asset: }" ;;
+        *)
+            printf 'asset=none\n'
+            return 0
+            ;;
+    esac
+    case "$path" in
+        /*) ;;
+        *) path="" ;;
+    esac
+    case "$path" in
+        *\'* | *\"* | *\$* | *\`* | *[[:cntrl:]]*) path="" ;;
+    esac
+    if [ -z "$path" ] || [ -L "$path" ] || [ ! -f "$path" ]; then
+        printf 'refused=bad_asset\n'
+        say "the asset line names $(printf '%q' "${last#asset: }"), which is not an absolute path to a regular file free of quotes, \$ and backticks; nothing is attached"
+        exit 2
+    fi
+    name=$(basename -- "$path")
+    get_key "$s" work/assets "$TMPD/assets"
+    while IFS= read -r prior; do
+        [ -n "$prior" ] || continue
+        if [ "$(basename -- "$prior")" = "$name" ]; then
+            printf 'refused=duplicate_asset\n'
+            say "an earlier asset command already named a file called $name; one would replace the other on the release"
+            exit 2
+        fi
+    done <"$TMPD/assets"
+    printf '%s\n' "$path" >>"$TMPD/assets"
+    put_file "$s" work/assets "$TMPD/assets"
+    printf 'asset=%s\n' "$path"
+}
+
+cmd_upload() {
+    local topic version s path name count=0
+    [ "$#" -eq 2 ] || usage "upload takes <topic> <version>"
+    topic="$1"
+    version="$2"
+    check_topic "$topic"
+    [[ "$version" =~ $RE_VERSION ]] || usage "upload takes a bare X.Y.Z or X.Y.Z-<pre> version"
+    need_koto
+    need_tool gh "/release uploads release assets with gh"
+    s="release-$topic"
+    need_phase1_key "$s" work/assets
+    TMPD=$(mktemp -d "${TMPDIR:-/tmp}/release-state.XXXXXX") || { say "cannot make a temporary directory"; exit 1; }
+    trap cleanup EXIT
+    get_key "$s" work/assets "$TMPD/assets"
+
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        if [ ! -f "$path" ]; then
+            printf 'failed=asset_missing\n'
+            say "$path is gone; run its asset command again"
+            exit 1
+        fi
+        if ! gh release upload "v$version" "$path" --clobber >&2; then
+            printf 'failed=upload\n'
+            say "gh release upload v$version $path failed"
+            exit 1
+        fi
+        count=$((count + 1))
+    done <"$TMPD/assets"
+    if [ "$count" -eq 0 ]; then
+        printf 'uploaded=0\n'
+        return 0
+    fi
+
+    # Read the release back: an upload counts once GitHub lists the asset.
+    if ! gh release view "v$version" --json assets --jq '.assets[].name' >"$TMPD/names"; then
+        printf 'failed=read_back\n'
+        say "gh release view v$version failed, so the upload can't be confirmed"
+        exit 1
+    fi
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        name=$(basename -- "$path")
+        if ! grep -qxF -- "$name" "$TMPD/names"; then
+            printf 'failed=not_attached\n'
+            say "v$version doesn't list $name after its upload"
+            exit 1
+        fi
+        printf 'uploaded=%s\n' "$name"
+    done <"$TMPD/assets"
+}
+
 # --- dispatch ---------------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage "a subcommand is required"
@@ -396,5 +630,9 @@ case "$sub" in
     version) cmd_version "$@" ;;
     go) cmd_go "$@" ;;
     mark) cmd_mark "$@" ;;
+    check-notes) cmd_check_notes "$@" ;;
+    carries) cmd_carries "$@" ;;
+    asset) cmd_asset "$@" ;;
+    upload) cmd_upload "$@" ;;
     *) usage "unknown subcommand: $sub" ;;
 esac
