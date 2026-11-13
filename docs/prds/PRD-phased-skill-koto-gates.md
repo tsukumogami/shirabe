@@ -144,7 +144,10 @@ stands.
 Every criterion below is checked by a script that drives the skill's koto
 workflow directly in a temporary repository: it opens the session the way the
 skill does and submits each phase's evidence itself, with no agent and no
-model. "The ten skills" means explore, prd, design, plan, work-on, decision,
+model. "Starting a skill" means running the session-opening step its
+SKILL.md names, the same command the skill runs before its first phase. "The
+floor version" is the minimum koto version shirabe enforces at session open
+(0.33.0 when this PRD was written). "The ten skills" means explore, prd, design, plan, work-on, decision,
 review-plan, roadmap, vision and release.
 
 Phase state (R1, R5):
@@ -158,15 +161,20 @@ Phase state (R1, R5):
       the walk has reached.
 - [ ] A session left in each of its non-terminal phases, then reopened the way
       a resumed run reopens it, reports the same phase before and after, both
-      for a direct run and for a run opened under a `/scope` dispatch key.
+      for a direct run and for a run opened under a `/scope` or `/charter`
+      dispatch key.
 
 Refusals (R2, R3):
 
+- [ ] For each of the ten skills, a script reads its SKILL.md and confirms
+      the session-opening step opens the skill's per-phase workflow and runs
+      the koto check before the first phase.
 - [ ] A script that reads each of the ten skills' workflows lists every
       non-terminal phase state with the evidence field, required key or gate
       that completes it, and fails when any phase state has none.
 - [ ] For each of the ten skills, from a phase whose evidence is absent: an
-      ordinary advance, and a directed move to the skill's last phase, each
+      ordinary advance, and a directed move to each later phase, the last
+      one included, each
       exit non-zero, leave the current state unchanged, and print the name of
       the missing evidence field, key or gate.
 - [ ] For each of the ten skills, evidence submitted with a required field
@@ -174,14 +182,15 @@ Refusals (R2, R3):
       field.
 - [ ] For each of the ten skills, recording an override on the gate that
       guards entry to the last phase and then attempting the directed move is
-      still refused; an override on a gate the workflow declares overridable
-      is accepted.
+      still refused; where the workflow declares an overridable gate, an
+      override on it is accepted.
 
 Nested runs (R4):
 
 - [ ] A decision run inside a design run, and a plan review inside a plan run,
       each report their current phase name through one `koto status` call on
-      a session the script can name from the host's topic.
+      a session whose name the session convention documents, derived from the
+      host's topic.
 
 koto absent (R6, R7):
 
@@ -189,13 +198,19 @@ koto absent (R6, R7):
       version on PATH, starting each of the ten skills exits non-zero before
       its first phase, prints a message containing "koto is required", the
       floor version and an install route, and leaves `git status` clean and
-      no session behind.
+      no session behind. The ten messages are identical apart from the
+      skill's name.
 - [ ] With both koto and tsuku removed from PATH, that message names an
-      install route that doesn't use tsuku.
+      install route that doesn't use tsuku and is a runnable command or an
+      https URL.
 
 Compatibility (R8, R9, R11):
 
-- [ ] For each of the nine skills that a parent chain dispatches, a child
+- [ ] For each of the skills among the ten that a parent chain dispatches
+      (prd, design and plan under `/scope`; vision and roadmap under
+      `/charter`), a child opened under the parent's dispatch key reads it
+      and the parent reads the child's result keys as it does today.
+- [ ] For each of those five skills, a child
       session left in each of its non-terminal phases is closed by the parent
       chain's close call and ends in a terminal state; the child session is a
       root whose dispatched-by link names the parent.
@@ -203,8 +218,9 @@ Compatibility (R8, R9, R11):
       dispatch key's name and fields, and the store template's file name are
       unchanged by the feature.
 - [ ] Attaching to a session opened from the store template before the change
-      either succeeds and the run finishes on it, or is refused with a message
-      that names the session and the step to take.
+      either succeeds and the run finishes on it, or replaces it with a fresh
+      session while the old session's keys stay readable, or is refused with a
+      message that names the session and the step to take.
 - [ ] The workflows compile and every script above passes with the koto
       version shirabe's floor names, with no newer koto installed.
 
