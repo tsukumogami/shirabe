@@ -264,25 +264,32 @@ a skill's koto loop, not after.
 ## Skill Evals
 
 Whenever a skill is created or updated, create or update its scenarios in
-`skills/<name>/evals/evals.json`. The pull request doesn't run them: its
-definition of done is `scripts/check-skill.sh --changed <skill>` (see
-`.claude/shirabe-extensions/README.md`), which checks the scenarios' shape
-along with the skill's Markdown, templates and the script suites the change
-touches. CI runs every suite.
+`skills/<name>/evals/evals.json`. A skill keeps two kinds. Its model-graded
+scenarios describe its behaviour and don't run: no path runs a model-graded
+scenario, not the pull request, the release or a schedule. Its `grader: script`
+cases run a command and need no model. A skill whose koto templates hand off
+to another skill needs a `grader: script` case per hand-off target, which the
+shape check derives from the templates and requires.
 
-The evals run in the release precondition. `/shirabe:release` runs the eval
-check declared in `.claude/shirabe-extensions/release.md` on every skill
-changed since the last tag and stops on a pass-rate drop. It runs the
-with-skill agent only, with no no-skill baseline, on every tier-1 scenario
-and, of the tier-2 ones, only the release subset: each tier-2
-scenario names the behaviour it exercises in `"behaviour"`, and exactly one
-scenario per behaviour carries `"release": true`. The shape check enforces
-that, so a new tier-2 scenario either joins a behaviour or starts one and
-marks itself `release`. The rest rotate through `scripts/scheduled-evals.py`.
+The pull request's definition of done is `scripts/check-skill.sh --changed
+<skill>` (see `.claude/shirabe-extensions/README.md`). It checks the
+scenarios' shape along with the skill's Markdown, templates and the script
+suites the change touches, then runs the skill's own script cases and every
+case other skills keep on their hand-offs to it. CI runs every suite.
 
-For a local run, use `scripts/run-evals.sh <skill>`. It invokes `claude -p`
-with the skill-creator plugin to execute each scenario and grade it, so run it
-from a session that has `/skill-creator` available.
+The shape check still holds the tier-2 rule: each tier-2 scenario names the
+behaviour it exercises in `"behaviour"`, and exactly one scenario per
+behaviour carries `"release": true`, so a new tier-2 scenario either joins a
+behaviour or starts one and marks itself `release`.
+
+`/shirabe:release` runs the eval check declared in
+`.claude/shirabe-extensions/release.md`, which runs every skill's script
+cases, changed or not, and stops the release on any failing case until a
+person confirms it.
+
+For a local run, use `scripts/run-evals.sh <skill>`. It runs the skill's
+script cases on any host, macOS's bash 3.2 included, and refuses its graded
+ones.
 
 ## Directory Structure
 

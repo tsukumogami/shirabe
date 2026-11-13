@@ -32,21 +32,28 @@ and **fails closed** (never reads as "verified").
   `scripts/*_test.sh`, and checks the shape of `evals/evals.json` with
   `scripts/lib/check-evals-shape.py`: valid JSON, and every scenario with a `name`, a
   `prompt`, and a non-empty `expectations` or `assertions` list. A skill that declares
-  `disable-model-invocation: true` may have no `evals.json`. It needs `shirabe`, `koto`,
+  `disable-model-invocation: true` may have no `evals.json`. After the shape check it runs the script cases
+  that check the skill's hand-offs with the tree's `scripts/lib/script-cases.py --for
+  <skill>`: the skill's own `grader: script` cases and every other skill's whose `handoff`
+  names it, so a change to `/execute` fails the cases `/deliver` and `/coordinate` keep on
+  their hand-offs to it. Each failing case is named as `script case: <skill> <id> <name>`.
+  Last, it runs `scripts/check-pipe-readers.sh` and `scripts/check-mktemp-guards.sh` over
+  the skill's directory. It needs `shirabe`, `koto`,
   `python3` and `git`, and fails closed (exit 2) when one is missing. It never starts
   `claude`.
 
   The gate runs it as `scripts/check-skill.sh --changed <skill>`, which runs only the suites
   the branch's changes touch, as described in the next section. Every other check runs in
-  full. Each invocation gets 3600 seconds (`timeout_secs`) instead of the gate's default of
+  full, the script cases included. Each invocation gets 3600 seconds (`timeout_secs`) instead of the gate's default of
   1800: when `--changed` falls back to every suite, `/coordinate`'s script and engine suites
   run back to back in one invocation and take longer than 1800 seconds.
 
-  It does not run the evals. A pull request that changes a skill writes or updates the
-  scenarios in `evals/evals.json`; the scenarios run at release, through the eval check
-  declared in [`release.md`](release.md), which compares each changed skill's pass rate with
-  the previous release's. `scripts/run-evals.sh <skill>` is still there for an author who
-  wants a local run.
+  No model-graded scenario runs, here or anywhere else. A pull request that changes a skill
+  writes or updates the scenarios in `evals/evals.json`; the model-graded ones describe the
+  skill and don't run. At release, the eval check declared in [`release.md`](release.md)
+  runs every skill's script cases and stops the release on any failing case until the
+  maintainer confirms it. `scripts/run-evals.sh <skill>` runs a skill's script cases on an
+  author's host.
 
 - **Default** (no entry matches) — every one of `cargo test --workspace` (with a 1200-second
   deadline), `skills/plan/scripts/plan-to-tasks_test.sh`, and
@@ -100,6 +107,12 @@ and the record's schema (`state-schema.jq`).
 tail. Results still print in the glob's order. `scripts/check-skill.sh --changed --list
 <skill>` prints what a branch would run, and why, without running it.
 
+`--changed` narrows the suites and nothing else. The script cases run whatever changed: a
+branch whose only change is under an `evals/` selects few suites or none, and the cases
+still run, since a hand-off can break without any of the skill's suites changing.
+`--changed --list` prints them after the suites, one `script case: <skill> <id> <name>`
+line each.
+
 CI never uses `--changed`. Each skill's workflow runs every suite on every pull request
 that touches it, so whatever the selection misses, CI still catches before merge.
 
@@ -133,6 +146,6 @@ has the rest; the takeover, outcome, takeover-load, chain and newest-member suit
 
 `release.md` lists the commands `/shirabe:release` runs before it tags (`## Release checks`)
 and after the draft release exists (`## Release assets`). shirabe's check is
-`scripts/release-eval-check.sh`, which runs the evals of every skill changed since the last
-tag and stops the release on a pass-rate drop until the maintainer confirms it. The file
-itself says what the check needs on the release host.
+`scripts/release-eval-check.sh`, which runs every skill's script cases and stops the release
+on any failing case until the maintainer confirms it. No model-graded scenario runs. The
+file itself says what the check needs on the release host.
