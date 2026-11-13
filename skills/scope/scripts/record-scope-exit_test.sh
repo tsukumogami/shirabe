@@ -39,6 +39,8 @@ cat >"$SHIM/koto" <<'STUB'
 #!/usr/bin/env bash
 [ "$1" = context ] || exit 2
 d="$STORE/$3"
+printf '%s %s\n' "$2" "$4" >>"$STORE/.calls"
+[ "$2" = add ] && [ -n "${FAIL_ADD_KEY-}" ] && [ "$4" = "$FAIL_ADD_KEY" ] && exit 1
 case "$2" in
     add) mkdir -p "$d"; cat >"$d/$4" ;;
     remove) rm -f "$d/$4" ;;
@@ -211,6 +213,31 @@ run x-stale none exit
 eq "a stale next is cleared" "" "$(key x-stale next)"
 eq "a stale mode is cleared" "" "$(key x-stale plan_execution_mode)"
 eq "a stale pr is cleared" "" "$(key x-stale pr)"
+
+echo "== the record stays inside koto's action limit =="
+calls() { # calls <verb-regex> -- koto context calls logged since the last reset
+    grep -c -E "^($1) " "$STORE/.calls"
+}
+plan multi-pr; fixture "[]"; : >"$STORE/.calls"
+run c-resume none resume
+n=$(calls 'add|remove|exists|get|list')
+if [ "$n" -le 4 ]; then ok "the resume stage makes at most four koto context calls"; else bad "the resume stage makes at most four koto context calls" "made $n koto context calls, one after another"; fi
+eq "the resume stage makes no remove" "0" "$(calls remove)"
+
+fixture "[]"; : >"$STORE/.calls"
+run c-exit none exit
+n=$(calls 'add|remove|exists|get|list')
+if [ "$n" -le 7 ]; then ok "the no-intent exit stage makes at most seven koto context calls"; else bad "the no-intent exit stage makes at most seven koto context calls" "made $n koto context calls, one after another"; fi
+eq "the exit stage removes exit_record and nothing else" "remove exit_record" "$(grep '^remove ' "$STORE/.calls")"
+
+mkdir -p "$STORE/c-fail"
+printf 'ok' >"$STORE/c-fail/exit_record"
+fixture "[]"
+export FAIL_ADD_KEY=next
+run c-fail none exit
+unset FAIL_ADD_KEY
+eq "an exit run whose add fails exits 66" "66" "$RC"
+eq "a failed exit run leaves no earlier exit_record" "no" "$(has c-fail exit_record && echo yes || echo no)"
 
 echo "== usage =="
 (cd "$R" && PATH="$SHIM:$PATH" GHF="$GHF" bash "$S" --session u --topic topic --intent maybe --stage exit >/dev/null 2>&1); RC=$?
