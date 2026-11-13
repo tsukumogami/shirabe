@@ -39,9 +39,9 @@ EOF
 chmod +x "$T/niwa-rb/niwa"
 export NIWA="$T/niwa-rb/niwa"
 
-# told_set: the record's told and pending rows, printed and kept in TS.
+# told_set: the record's told, pending and missing rows, printed and kept in TS.
 told_set() {
-    TS=$(live_body | jq -r '[(.run // [])[] | select(.key == "told" or .key == "pending") | "\(.key) \(.value)"] | join(", ")')
+    TS=$(live_body | jq -r '[(.run // [])[] | select(.key == "told" or .key == "pending" or .key == "missing") | "\(.key) \(.value)"] | join(", ")')
     echo "     told set: [${TS}]"
 }
 # gate: the handover gate's result, as the reconcile step runs it.
@@ -112,6 +112,25 @@ if to_rebrief; then
     eq "  ... feat-1 recorded pending, and the gate passes" "pending feat-1|0 " "$TS|$G"
 else
     bad "worker_gone: reach rebrief" "$(cat "$T/tick.err" 2>/dev/null)"
+fi
+
+echo "== worker_gone, its instance listed again after it was recorded missing =="
+if to_rebrief; then
+    # Reconcile recorded feat-1 missing when niwa listed no instance for it;
+    # niwa lists one again by the time the re-brief finds its session gone.
+    write_as_agent state-stored-set.sh --missing feat-1 --by "the handover check"
+    : > "$T/work/.niwa/workspace.toml"
+    NIWA_LIST=$(jq -nc --arg n "feat_1-0123abcd" --arg p "$T/inst" '[{session_name: $n, path: $p}]')
+    export NIWA_LIST
+    ST=$(at --with-data '{"sent":"worker_gone"}')
+    unset NIWA_LIST
+    rm -f "$T/work/.niwa/workspace.toml"
+    from_to rebrief_record pick_facts && ok "worker_gone for a missing worker: rebrief_record goes on to pick_facts" \
+        || bad "worker_gone for a missing worker: rebrief_record goes on to pick_facts" "$ST $(cat "$T/tick.err")"
+    told_set; gate
+    eq "  ... feat-1 stays missing, no pending row beside it, and the gate passes" "missing feat-1|0 " "$TS|$G"
+else
+    bad "worker_gone for a missing worker: reach rebrief" "$(cat "$T/tick.err" 2>/dev/null)"
 fi
 
 echo "== worker_gone, no instance left =="

@@ -3592,9 +3592,11 @@ instance for it, and nothing when it doesn't, and goes back through pick.
 
 A pending worker is one that can't be told the address yet: its session is
 gone, but its instance is still there to be started again. The handover gate
-(`state-handover.sh --check`) doesn't hold on a pending worker, as it does on a
-live one that is neither told nor pending, and a later `--told` for it turns
-the pending row into a told one. A new coordinator address clears both.
+(`state-handover.sh --check`) doesn't hold on a pending worker, or on one
+reconcile recorded missing, as it does on a live one with no told, pending or
+missing row, and a later `--told` for it turns the pending or missing row into a
+told one. A worker already recorded missing is left missing here, even when niwa
+lists an instance for it again. A new coordinator address clears all three.
 
 ## verify
 
