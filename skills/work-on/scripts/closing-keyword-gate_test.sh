@@ -15,6 +15,11 @@
 # wrong, these cases still pass. The merge-state gate has the same exposure and
 # the same answer: the invocation is copied from a shipped, working gate.
 #
+# check-closing-keyword.sh's two other modes, --non-closing (a pull request
+# that refers to its issue without closing it) and --approved-pass (the state
+# log probe), are called directly, with the same stub ahead of the real gh,
+# along with the script's usage refusals.
+#
 # Usage: closing-keyword-gate_test.sh
 # Exit codes: 0 all pass, 1 any failed.
 
@@ -67,12 +72,17 @@ fi
 # lookup fail the way gh does: `rate` (403, rate limit), `limit` (429),
 # `net` (no connection) or `5xx` (502). $GH_API_SLEEP makes it wait that many
 # seconds before it answers, and $GH_PR_SLEEP the pull request read.
-# $GH_API_WARN makes a lookup that works also write to stderr.
+# $GH_API_WARN makes a lookup that works also write to stderr. Asked for
+# `--json url,title,body,commits` (the script's non-closing read), it prints
+# that JSON object, built from $PR_URL, $PR_TITLE, $PR_BODY and $PR_COMMITS
+# (a JSON array of {oid, messageHeadline, messageBody}), or $GH_RAW as it
+# stands when that is set, for an answer jq can't parse.
 STUB_DIR=$(mktemp -d) || exit 1; TMPS+=("$STUB_DIR")
 cat > "$STUB_DIR/gh" <<'STUB'
 #!/usr/bin/env bash
 # Stands in for `gh pr view --json body --jq .body`,
-# `gh pr view --json url,body --jq '.url, .body'` and
+# `gh pr view --json url,body --jq '.url, .body'`,
+# `gh pr view --json url,title,body,commits` and
 # `gh api --hostname <host> repos/<owner>/<name> --jq .full_name`.
 [[ -z "${GH_LOG:-}" ]] || echo "$*" >> "$GH_LOG"
 if [[ "${1:-}" == "api" ]]; then
@@ -105,6 +115,13 @@ if [[ "${GH_FAIL:-0}" == "1" ]]; then
     echo "gh: could not resolve to a PullRequest" >&2
     exit 1
 fi
+if [[ " $* " == *" url,title,body,commits "* ]]; then
+    if [[ -n "${GH_RAW:-}" ]]; then printf '%s\n' "$GH_RAW"; exit 0; fi
+    jq -n --arg url "${PR_URL:-https://github.com/acme/app/pull/7}" --arg title "${PR_TITLE:-}" \
+        --arg body "${PR_BODY:-}" --argjson commits "${PR_COMMITS:-[]}" \
+        '{url: $url, title: $title, body: $body, commits: $commits}'
+    exit
+fi
 [[ " $* " == *" url,body "* ]] && printf '%s\n' "${PR_URL:-https://github.com/acme/app/pull/7}"
 printf '%s\n' "${PR_BODY:-}"
 STUB
@@ -112,6 +129,8 @@ chmod +x "$STUB_DIR/gh"
 
 # The plugin root the gate reaches check-closing-keyword.sh through.
 PLUGIN_DIR=$(cd "$SKILL_DIR/../.." && pwd)
+# The script itself, for the cases that call it directly.
+SCRIPT="$SCRIPT_DIR/check-closing-keyword.sh"
 
 # run_gate <issue-number> <body> [<gh-fails>] — substitute {{ISSUE_NUMBER}},
 # {{ISSUE_REPO}} (from $ISSUE_REPO, empty by default, as an unset variable
@@ -545,14 +564,333 @@ PR_URL=not-a-url expect "an unreadable PR url fails closed" 1 42 "Fixes acme/tra
 expect "an empty issue number passes with ISSUE_REPO set" 0 "" "no keyword here"
 unset ISSUE_REPO
 
+# --- the script's non-closing mode --------------------------------------------
+# A pull request that delivers part of its issue, or follows an approved
+# deferral, leaves the issue open: its body must refer to the issue with Ref,
+# Refs or Part of, and nothing in its body, title or commits may close it.
+ERR=$(mktemp) || exit 1; TMPS+=("$ERR")
+# run_script <args...>: the script with the stub ahead of the real gh, its
+# stderr kept in $ERR for the message checks.
+run_script() {
+    PATH="$STUB_DIR:$PATH" PR_BODY="${PR_BODY:-}" PR_TITLE="${PR_TITLE:-}" \
+        PR_COMMITS="${PR_COMMITS:-[]}" PR_URL="${PR_URL:-}" GH_FAIL="${GH_FAIL:-0}" \
+        GH_RAW="${GH_RAW:-}" GH_RENAMED="${GH_RENAMED:-}" GH_MISSING="${GH_MISSING:-}" \
+        GH_API_FAIL="${GH_API_FAIL:-}" "$SCRIPT" "$@" >/dev/null 2>"$ERR"
+}
+# expect_open <label> <want> <body>: non-closing mode for issue 42, with
+# --repo "$ISSUE_REPO" when that is set.
+expect_open() {
+    local label="$1" want="$2" args got
+    args=(--issue 42 --non-closing)
+    [[ -z "${ISSUE_REPO:-}" ]] || args+=(--repo "$ISSUE_REPO")
+    PR_BODY="$3" run_script "${args[@]}"; got=$?
+    if [[ "$got" == "$want" ]]; then pass "$label (exit $got)"
+    else fail "$label: expected exit $want, got $got: $(cat "$ERR")"; fi
+}
+# expect_got <label> <want> <got>: a direct call's exit status.
+expect_got() {
+    if [[ "$3" == "$2" ]]; then pass "$1 (exit $3)"
+    else fail "$1: expected exit $2, got $3"; fi
+}
+# expect_said <label> <text>: the last run's stderr holds <text>.
+expect_said() {
+    if grep -qF -- "$2" "$ERR"; then pass "$1"
+    else fail "$1: stderr lacks [$2]: $(cat "$ERR")"; fi
+}
+
+# The three words, in the forms closing mode passes with its keywords.
+expect_open "non-closing: Refs #N passes" 0 "Refs #42"
+expect_open "non-closing: Ref #N passes" 0 "Ref #42"
+expect_open "non-closing: Part of #N after Part 1 passes" 0 "Part 1
+
+---
+
+Part of #42"
+expect_open "non-closing: a colon after the word passes" 0 "Part of: #42"
+expect_open "non-closing: Refs: #N passes" 0 "Refs: #42"
+expect_open "non-closing: a lowercase word passes" 0 "part of #42"
+expect_open "non-closing: a reference followed by a full stop passes" 0 "Refs #42."
+expect_open "non-closing: a reference mid-line passes" 0 "Refs #841, part of #42."
+expect_open "non-closing: the qualified form passes" 0 "Part of acme/app#42"
+expect_open "non-closing: a closing keyword for another issue passes" 0 "Fixes #43
+Part of #42"
+
+# What isn't the reference: refused as missing, though none of it closes.
+expect_open "non-closing: #N running into more digits is no reference" 1 "Refs #421"
+expect_said "non-closing: a missing reference gives the line to add" "add the line Part of #42"
+expect_open "non-closing: the word inside a word is no reference" 1 "prefs #42"
+expect_open "non-closing: See #N is no reference" 1 "See #42"
+expect_open "non-closing: a bare issue URL is no reference" 1 "https://github.com/acme/app/issues/42"
+expect_open "non-closing: a bare #N is no reference" 1 "#42"
+expect_open "non-closing: Part and of on two lines is no reference" 1 "Part
+of #42"
+expect_open "non-closing: an empty body fails" 1 ""
+
+# Every form that closes the issue is refused, even beside the reference. GH-N,
+# the issue URL and the link don't satisfy closing mode's same-repository
+# expression, but GitHub closes the issue on each (#1044): refused here on
+# purpose.
+expect_open "non-closing: Fixes #N is refused" 1 "Fixes #42"
+expect_said "non-closing: the refusal quotes the phrase and where it stands" 'body: "Fixes #42" closes #42 on merge'
+expect_said "non-closing: the missing reference is reported beside it" "body: no Ref, Refs or Part of reference to #42"
+expect_said "non-closing: the refusal says why the issue stays open" "declared a partial delivery or came from an approved deferral"
+expect_said "non-closing: the refusal warns off the closing keyword" "not Fixes #42"
+expect_open "non-closing: Fixes #N beside Part of #N is refused" 1 "Part of #42
+Fixes #42"
+expect_open "non-closing: Fixes GH-N is refused" 1 "Part of #42
+Fixes GH-42"
+expect_open "non-closing: Fixes <issue URL> is refused" 1 "Part of #42
+Fixes https://github.com/acme/app/issues/42"
+expect_open "non-closing: the markdown link is refused" 1 "Part of #42
+Fixes [#42](https://github.com/acme/app/issues/42)"
+expect_said "non-closing: the link is quoted whole" '"Fixes [#42](https://github.com/acme/app/issues/42)"'
+expect_open "non-closing: Closes <PR repo>#N is refused" 1 "Part of #42
+Closes acme/app#42"
+expect_open "non-closing: Fixes:#N with no space is refused" 1 "Part of #42
+Fixes:#42"
+expect_open "non-closing: a keyword inside a word is refused" 1 "Part of #42
+prefixes #42"
+expect_open "non-closing: a keyword split from #N by a newline is refused" 1 "Part of #42
+Fixes
+#42"
+
+# The title and the commits are read for refusals too, and every finding is
+# reported in one run.
+PR_TITLE="fix: parser (closes #42)" \
+    PR_COMMITS='[{"oid":"abcdef0123456789","messageHeadline":"fix: parser","messageBody":"Fixes #42"}]' \
+    expect_open "non-closing: closing forms in the body, title and a commit are refused" 1 "Fixes #42"
+expect_said "non-closing: the title is named" 'title: "closes #42" closes #42 on merge'
+expect_said "non-closing: the commit is named by its short SHA" 'commit abcdef0: "Fixes #42" closes #42 on merge'
+expect_said "non-closing: the body is named in the same run" 'body: "Fixes #42"'
+expect_said "non-closing: the missing reference is named in the same run" "body: no Ref, Refs or Part of reference to #42"
+PR_TITLE="Fixes #42" expect_open "non-closing: a closing keyword in the title alone is refused" 1 "Part of #42"
+expect_said "non-closing: a title refusal says what to do" "take it out of the title"
+PR_COMMITS='[{"oid":"0123456789abcdef","messageHeadline":"feat: step one","messageBody":"Resolves\n#42"}]' \
+    expect_open "non-closing: a commit closing the issue across its lines is refused" 1 "Part of #42"
+expect_said "non-closing: that commit is named" 'commit 0123456: "Resolves #42"'
+PR_COMMITS='[{"oid":"1111111aaaa","messageHeadline":"feat: one","messageBody":""},{"oid":"2222222bbbb","messageHeadline":"fixes #42","messageBody":""}]' \
+    expect_open "non-closing: a closing headline in the second commit is refused" 1 "Part of #42"
+expect_said "non-closing: the second commit is the one named" 'commit 2222222: "fixes #42"'
+PR_COMMITS='[{"oid":"0123456789abcdef","messageHeadline":"fix: other","messageBody":"Fixes #43"}]' \
+    expect_open "non-closing: a commit closing another issue passes" 0 "Part of #42"
+PR_TITLE="Part of #42" expect_open "non-closing: a reference only in the title is missing" 1 ""
+PR_COMMITS='[{"oid":"0123456789abcdef","messageHeadline":"feat: x","messageBody":"Part of #42"}]' \
+    expect_open "non-closing: a reference only in a commit is missing" 1 ""
+PR_COMMITS='[{"oid":"0123456789abcdef","messageHeadline":"feat: x","messageBody":"token-s3cr3t-value Fixes #42 trailing-words"}]' \
+    expect_open "non-closing: a commit refusal" 1 "Part of #42"
+if grep -q 's3cr3t' "$ERR" || grep -q 'trailing-words' "$ERR"; then
+    fail "non-closing: a refusal echoed more than the matched phrase: $(cat "$ERR")"
+else
+    pass "non-closing: a refusal quotes only the matched phrase"
+fi
+
+# An unreadable pull request fails closed, as in closing mode.
+GH_FAIL=1 expect_open "non-closing: an unreadable pull request fails" 1 "Part of #42"
+GH_RAW="not json" expect_open "non-closing: an answer jq can't parse fails" 1 "Part of #42"
+PR_URL=not-a-url expect_open "non-closing: an unreadable PR url fails closed" 1 "Part of #42"
+EMPTY_DIR=$(mktemp -d) || exit 1; TMPS+=("$EMPTY_DIR")
+PATH="$EMPTY_DIR" "$BASH" "$SCRIPT" --issue 42 --non-closing >/dev/null 2>&1; got=$?
+expect_got "non-closing: no jq holds" 2 "$got"
+
+# One read of the pull request, with the four fields.
+GH_LOG=$(mktemp) || exit 1; TMPS+=("$GH_LOG")
+export GH_LOG
+expect_open "non-closing: a plain reference passes" 0 "Part of #42"
+if [[ "$(grep -c . "$GH_LOG")" == 1 ]] && grep -qx 'pr view --json url,title,body,commits' "$GH_LOG"; then
+    pass "non-closing: one gh pr view reads url, title, body and commits"
+else
+    fail "non-closing: unexpected gh calls: $(cat "$GH_LOG")"
+fi
+
+# Old names, from every source, under one cap and one deadline.
+export GH_RENAMED="acme/old-app=acme/app"
+expect_open "non-closing: this repo's old name in the body is refused" 1 "Part of #42
+Fixes acme/old-app#42"
+expect_said "non-closing: the old name is named" "body: acme/old-app is an old name of acme/app"
+PR_COMMITS='[{"oid":"abcdef0123456789","messageHeadline":"fix: x","messageBody":"Fixes acme/old-app#42"}]' \
+    expect_open "non-closing: this repo's old name in a commit is refused" 1 "Part of #42"
+expect_said "non-closing: the old name's commit is named" "commit abcdef0: acme/old-app is an old name of acme/app"
+PR_TITLE="Closes acme/old-app#42" expect_open "non-closing: this repo's old name in the title is refused" 1 "Part of #42"
+expect_said "non-closing: the old name's title is named" "title: acme/old-app is an old name of acme/app"
+expect_open "non-closing: a third repository's issue passes" 0 "Part of #42
+Fixes acme/other#42"
+: > "$GH_LOG"
+PR_TITLE="Fixes acme/other#42" \
+    PR_COMMITS='[{"oid":"abcdef0123456789","messageHeadline":"Fixes ACME/Other#42","messageBody":""}]' \
+    expect_open "non-closing: one name in the body, title and a commit passes" 0 "Part of #42
+Fixes acme/other#42"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 1 ]]; then
+    pass "non-closing: one name across the sources is looked up once"
+else
+    fail "non-closing: one name made $(grep -c '^api' "$GH_LOG") lookups"
+fi
+: > "$GH_LOG"
+PR_TITLE="Fixes acme/r4#42" \
+    PR_COMMITS='[{"oid":"abcdef0123456789","messageHeadline":"Fixes acme/r5#42","messageBody":"Fixes acme/r6#42"}]' \
+    expect_open "non-closing: six other repositories across the sources fail" 1 "Part of #42
+Fixes acme/r1#42, fixes acme/r2#42, fixes acme/r3#42"
+expect_said "non-closing: the cap is named" "in more than 5 other repositories"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "non-closing: six other repositories fail before any lookup"
+else
+    fail "non-closing: six other repositories made lookups: $(cat "$GH_LOG")"
+fi
+: > "$GH_LOG"
+PR_TITLE="Fixes acme/r4#42" \
+    PR_COMMITS='[{"oid":"abcdef0123456789","messageHeadline":"Fixes acme/r5#42","messageBody":""}]' \
+    expect_open "non-closing: five other repositories across the sources pass" 0 "Part of #42
+Fixes acme/r1#42, fixes acme/r2#42, fixes acme/r3#42"
+if [[ "$(grep -c '^api' "$GH_LOG")" == 5 ]]; then
+    pass "non-closing: the five are looked up"
+else
+    fail "non-closing: expected 5 lookups, got $(grep -c '^api' "$GH_LOG")"
+fi
+: > "$GH_LOG"
+GH_API_FAIL=rate expect_open "non-closing: a local finding is reported before any lookup" 1 "Part of #42
+Fixes #42
+Fixes acme/other#42"
+if ! grep -q '^api' "$GH_LOG"; then
+    pass "non-closing: a local finding makes no lookup"
+else
+    fail "non-closing: a local finding made lookups: $(cat "$GH_LOG")"
+fi
+GH_API_FAIL=rate expect_open "non-closing: a failed lookup holds the gate" 3 "Part of #42
+Fixes acme/other#42"
+unset GH_LOG
+
+# An issue in another repository: the reference is qualified or linked, and
+# the issue's own closing forms are refused along with this repository's.
+export ISSUE_REPO=acme/tracker
+expect_open "non-closing cross-repo: Part of owner/repo#N passes" 0 "Part of acme/tracker#42"
+expect_open "non-closing cross-repo: the link passes" 0 "Refs [acme/tracker#42](https://github.com/acme/tracker/issues/42)"
+expect_open "non-closing cross-repo: owner/repo in another case passes" 0 "part of ACME/Tracker#42"
+expect_open "non-closing cross-repo: a bare Part of #N is no reference" 1 "Part of #42"
+expect_said "non-closing cross-repo: the missing reference gives the qualified line" "add the line Part of acme/tracker#42"
+expect_open "non-closing cross-repo: Fixes owner/repo#N is refused" 1 "Part of acme/tracker#42
+Fixes acme/tracker#42"
+expect_said "non-closing cross-repo: it names the issue it closes" 'body: "Fixes acme/tracker#42" closes acme/tracker#42 on merge'
+expect_open "non-closing cross-repo: the link closing mode accepts is refused" 1 "Part of acme/tracker#42
+Fixes [acme/tracker#42](https://github.com/acme/tracker/issues/42)"
+expect_open "non-closing cross-repo: the issue's URL is refused" 1 "Part of acme/tracker#42
+Closes https://github.com/acme/tracker/issues/42"
+expect_open "non-closing cross-repo: Fixes #N, closing this repo's issue, is refused" 1 "Part of acme/tracker#42
+Fixes #42"
+expect_said "non-closing cross-repo: it names this repo's issue" 'body: "Fixes #42" closes acme/app#42 on merge'
+expect_open "non-closing cross-repo: another issue there passes" 0 "Part of acme/tracker#42
+Fixes acme/tracker#43"
+export GH_RENAMED="acme/old-tracker=acme/tracker acme/old-app=acme/app"
+expect_open "non-closing cross-repo: the issue repository's old name is refused" 1 "Part of acme/tracker#42
+Fixes acme/old-tracker#42"
+expect_said "non-closing cross-repo: that old name is named" "acme/old-tracker is an old name of acme/tracker"
+expect_open "non-closing cross-repo: this repo's old name is refused" 1 "Part of acme/tracker#42
+Fixes acme/old-app#42"
+unset GH_RENAMED
+export ISSUE_REPO=ACME/App
+expect_open "non-closing: ISSUE_REPO naming the PR's repo in another case takes Part of #N" 0 "Part of #42"
+unset ISSUE_REPO
+
+# --- the script's log probe -----------------------------------------------------
+# Did this pass reach pre_pr_evidence through the engine's approved transition
+# out of deferral_approval, with no return to finalization or
+# deferral_approval since?
+LOGS=$(mktemp -d) || exit 1; TMPS+=("$LOGS")
+PROBE_LOG="$LOGS/koto-run.state.jsonl"
+HDR='{"schema_version":1,"workflow":"work-on"}'
+# ev <type> <from> <to>: one event line, in the shape koto writes.
+ev() { printf '{"seq":1,"timestamp":"t","type":"%s","payload":{"from":"%s","to":"%s"}}' "$1" "$2" "$3"; }
+UP_TO_APPROVAL="$(ev transitioned implementation finalization)
+$(ev transitioned finalization deferral_approval)
+{\"seq\":1,\"type\":\"decision_recorded\",\"payload\":{\"state\":\"deferral_approval\",\"decision\":{\"choice\":\"approve\"}}}
+$(ev transitioned deferral_approval pre_pr_evidence)"
+APPROVED="$HDR
+$UP_TO_APPROVAL
+{\"seq\":1,\"type\":\"evidence_submitted\",\"payload\":\"not an object\"}
+$(ev transitioned pre_pr_evidence pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
+# expect_probe <label> <want> <log content>
+expect_probe() {
+    local got
+    printf '%s\n' "$3" > "$PROBE_LOG"
+    run_script --approved-pass "$PROBE_LOG"; got=$?
+    if [[ "$got" == "$2" ]]; then pass "$1 (exit $got)"
+    else fail "$1: expected exit $2, got $got: $(cat "$ERR")"; fi
+}
+GH_LOG=$(mktemp) || exit 1; TMPS+=("$GH_LOG")
+export GH_LOG
+expect_probe "probe: an approved pass" 0 "$APPROVED"
+if [[ ! -s "$GH_LOG" ]]; then pass "probe: makes no gh call"
+else fail "probe: made gh calls: $(cat "$GH_LOG")"; fi
+unset GH_LOG
+expect_probe "probe: a header-less log reads" 0 "$UP_TO_APPROVAL"
+expect_probe "probe: a recount back through finalization to ready_for_pr is not approved" 1 "$APPROVED
+$(ev transitioned pr_creation pr_precheck)
+$(ev transitioned pr_precheck finalization)
+$(ev transitioned finalization pre_pr_evidence)
+$(ev transitioned pre_pr_evidence pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
+expect_probe "probe: a return to finalization with no arrival since is not approved" 1 "$APPROVED
+$(ev transitioned pr_creation finalization)"
+expect_probe "probe: a directed move into deferral_approval cancels the approval" 1 "$APPROVED
+$(ev directed_transition pr_creation deferral_approval)"
+expect_probe "probe: a directed arrival from deferral_approval is not approved" 1 "$HDR
+$(ev transitioned implementation finalization)
+$(ev transitioned finalization deferral_approval)
+$(ev directed_transition deferral_approval pre_pr_evidence)
+$(ev transitioned pre_pr_evidence pr_creation)"
+# The same log twice, differing only in the latest arrival's type: the
+# directed one is what makes the answer no.
+expect_probe "probe: a later transitioned arrival from deferral_approval is approved" 0 "$HDR
+$UP_TO_APPROVAL
+$(ev transitioned deferral_approval pre_pr_evidence)"
+expect_probe "probe: a later directed arrival after an approval is not approved" 1 "$HDR
+$UP_TO_APPROVAL
+$(ev directed_transition deferral_approval pre_pr_evidence)"
+expect_probe "probe: a rewind into pr_creation after the approval keeps it" 0 "$APPROVED
+$(ev transitioned pr_creation done_blocked)
+$(ev rewound done_blocked pr_creation)"
+expect_probe "probe: a rewind into pre_pr_evidence after the approval keeps it" 0 "$APPROVED
+$(ev rewound pr_creation pre_pr_evidence)"
+expect_probe "probe: a rewind to finalization after the approval is not approved" 1 "$APPROVED
+$(ev rewound pr_creation finalization)"
+expect_probe "probe: a rewind out of deferral_approval is no arrival" 1 "$HDR
+$(ev transitioned finalization pre_pr_evidence)
+$(ev transitioned pre_pr_evidence deferral_approval)
+$(ev rewound deferral_approval pre_pr_evidence)"
+expect_probe "probe: an arrival from finalization is not approved" 1 "$HDR
+$(ev transitioned implementation finalization)
+$(ev transitioned finalization pre_pr_evidence)
+$(ev transitioned pre_pr_evidence pr_creation)"
+expect_probe "probe: a header alone is not approved" 1 "$HDR"
+expect_probe "probe: a line that isn't JSON holds" 2 "$APPROVED
+not json"
+expect_probe "probe: a truncated line holds" 2 "$APPROVED
+{\"seq\":9,\"type\":\"transitioned\",\"payload\":{\"to\":\"done\""
+rm -f "$PROBE_LOG"
+run_script --approved-pass "$PROBE_LOG"; got=$?
+expect_got "probe: an absent log is not approved" 1 "$got"
+: > "$PROBE_LOG"
+run_script --approved-pass "$PROBE_LOG"; got=$?
+expect_got "probe: an empty log is not approved" 1 "$got"
+run_script --approved-pass "$LOGS"; got=$?
+expect_got "probe: a path that can't be read as a file holds" 2 "$got"
+printf '%s\n' "$APPROVED" > "$PROBE_LOG"
+PATH="$EMPTY_DIR" "$BASH" "$SCRIPT" --approved-pass "$PROBE_LOG" >/dev/null 2>&1; got=$?
+expect_got "probe: no jq holds" 2 "$got"
+
 # --- the script's own usage refusals ------------------------------------------
 # Exit 2, which no pr_creation edge routes, so the state holds rather than
 # reaching done_blocked or ci_monitor.
-SCRIPT="$SCRIPT_DIR/check-closing-keyword.sh"
 for args in "" "--issue 42" "--repo acme/tracker" "--issue 042 --repo acme/tracker" \
             "--issue 4x2 --repo acme/tracker" "--issue 42 --repo acme" \
             "--issue 42 --repo acme/tracker/extra" "--issue 42 --repo acme/tr;cker" \
-            "--issue 42 --repo acme/tracker --bogus"; do
+            "--issue 42 --repo acme/tracker --bogus" "--bogus" \
+            "--non-closing" "--repo acme/tracker --non-closing" \
+            "--issue 42 --non-closing yes" "--issue 042 --non-closing" \
+            "--issue 42 --non-closing --repo acme" "--issue 42 --non-closing --bogus" \
+            "--issue --non-closing" "--approved-pass" \
+            "--approved-pass $LOGS/x --issue 42" "--issue 42 --approved-pass $LOGS/x" \
+            "--approved-pass $LOGS/x --repo acme/tracker" "--approved-pass $LOGS/x --non-closing" \
+            "--issue 42 --repo acme/tracker --approved-pass $LOGS/x"; do
     # shellcheck disable=SC2086
     PATH="$STUB_DIR:$PATH" PR_BODY="Fixes acme/tracker#42" "$SCRIPT" $args >/dev/null 2>&1; got=$?
     if [[ "$got" == 2 ]]; then pass "usage [$args] exits 2"
@@ -561,6 +899,8 @@ done
 PATH="$STUB_DIR:$PATH" PR_BODY="Fixes acme/tracker#42" "$SCRIPT" --issue 42 --repo "acme/tracker
 evil/x" >/dev/null 2>&1; got=$?
 [[ "$got" == 2 ]] && pass "a repo value with a newline exits 2" || fail "a repo value with a newline: exit $got"
+PATH="$STUB_DIR:$PATH" "$SCRIPT" --approved-pass "" >/dev/null 2>&1; got=$?
+expect_got "an empty --approved-pass value is a usage error" 2 "$got"
 
 echo
 echo "closing-keyword-gate_test.sh: $PASS_COUNT passed, $FAIL_COUNT failed"
