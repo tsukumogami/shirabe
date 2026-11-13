@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Current
 problem: |
   work-on's closing_keyword gate at pr_creation accepts only a pull request
   body that closes its issue. A pull request that delivers one planned step
@@ -43,7 +43,7 @@ upstream: docs/prds/PRD-work-on-definition-of-done.md
 
 ## Status
 
-Proposed
+Current
 
 ## Context and Problem Statement
 
