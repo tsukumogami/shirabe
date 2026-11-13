@@ -18,7 +18,10 @@
 # check-closing-keyword.sh's two other modes, --non-closing (a pull request
 # that refers to its issue without closing it) and --approved-pass (the state
 # log probe), are called directly, with the same stub ahead of the real gh,
-# along with the script's usage refusals.
+# along with the script's usage refusals. The gate picks between the modes
+# from DELIVERY and the probe's answer, so the gate cases run with no state log
+# (closing mode, as before), and a section near the end writes one where the
+# gate looks for it.
 #
 # Usage: closing-keyword-gate_test.sh
 # Exit codes: 0 all pass, 1 any failed.
@@ -132,16 +135,34 @@ PLUGIN_DIR=$(cd "$SKILL_DIR/../.." && pwd)
 # The script itself, for the cases that call it directly.
 SCRIPT="$SCRIPT_DIR/check-closing-keyword.sh"
 
+# The session the gate reads its state log from: {{SESSION_DIR}} and
+# {{SESSION_NAME}} resolve to these, so the log is $GATE_LOG. It doesn't exist
+# until a case writes it, so every case before then runs in closing mode.
+GATE_SESSION_DIR=$(mktemp -d) || exit 1; TMPS+=("$GATE_SESSION_DIR")
+GATE_SESSION_NAME=gate-test
+GATE_LOG="$GATE_SESSION_DIR/koto-$GATE_SESSION_NAME.state.jsonl"
+
 # run_gate <issue-number> <body> [<gh-fails>] — substitute {{ISSUE_NUMBER}},
 # {{ISSUE_REPO}} (from $ISSUE_REPO, empty by default, as an unset variable
-# resolves) and {{PLUGIN_ROOT}} as koto would, then run the expression with
-# the stub ahead of the real gh.
+# resolves), {{DELIVERY}} (from $DELIVERY, `closes` by default, as the
+# template declares), {{SESSION_DIR}}, {{SESSION_NAME}} and {{PLUGIN_ROOT}} as
+# koto would, then run the expression with the stub ahead of the real gh. A
+# `{{` left after that fails the case: an unsubstituted log path reads as no
+# log, and a case would pass in closing mode for the wrong reason.
 run_gate() {
     local issue="$1" body="$2"
     local cmd="${GATE//\{\{ISSUE_NUMBER\}\}/$issue}"
     cmd="${cmd//\{\{ISSUE_REPO\}\}/${ISSUE_REPO:-}}"
+    cmd="${cmd//\{\{DELIVERY\}\}/${DELIVERY:-closes}}"
+    cmd="${cmd//\{\{SESSION_DIR\}\}/$GATE_SESSION_DIR}"
+    cmd="${cmd//\{\{SESSION_NAME\}\}/$GATE_SESSION_NAME}"
     cmd="${cmd//\{\{PLUGIN_ROOT\}\}/$PLUGIN_DIR}"
+    if [[ "$cmd" == *'{{'* ]]; then
+        fail "the gate command still holds a template variable after substitution: $cmd"
+        return 125
+    fi
     PATH="$STUB_DIR:$PATH" PR_BODY="$body" PR_URL="${PR_URL:-}" GH_FAIL="${3:-0}" \
+        PR_TITLE="${PR_TITLE:-}" PR_COMMITS="${PR_COMMITS:-[]}" \
         GH_RENAMED="${GH_RENAMED:-}" GH_MISSING="${GH_MISSING:-}" GH_API_FAIL="${GH_API_FAIL:-}" \
         sh -c "$cmd" >/dev/null 2>&1
 }
@@ -204,8 +225,9 @@ expect "an unreadable pull request fails rather than passing" 1 42 "Fixes #42" 1
 
 # --- same repository: ISSUE_REPO empty runs the expression unchanged ----------
 # The run above had ISSUE_REPO empty throughout. This pins that it never asked
-# gh for the url, which only check-closing-keyword.sh does, so a
-# same-repository run never starts the script.
+# gh for the url, which only check-closing-keyword.sh's closing and
+# non-closing modes do: a same-repository closing run starts the script only
+# as the log probe, which makes no gh call, and reads only the body.
 GH_LOG=$(mktemp) || exit 1; TMPS+=("$GH_LOG")
 export GH_LOG
 run_gate 42 "Fixes #42"
@@ -876,6 +898,118 @@ expect_got "probe: a path that can't be read as a file holds" 2 "$got"
 printf '%s\n' "$APPROVED" > "$PROBE_LOG"
 PATH="$EMPTY_DIR" "$BASH" "$SCRIPT" --approved-pass "$PROBE_LOG" >/dev/null 2>&1; got=$?
 expect_got "probe: no jq holds" 2 "$got"
+
+# --- the gate picks its mode ----------------------------------------------------
+# Through the gate command, as the template has it: DELIVERY=partial goes to
+# non-closing mode without reading the log; otherwise the probe reads the log
+# at {{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl, and an approved pass is
+# non-closing, anything it says no to is closing, and a log it can't read
+# holds.
+rm -f "$GATE_LOG"
+DELIVERY=partial expect "gate, declared split: Part of #N passes" 0 42 "Part 1
+
+---
+
+Part of #42"
+DELIVERY=partial expect "gate, declared split: Refs #N passes" 0 42 "Refs #42"
+DELIVERY=partial expect "gate, declared split: Fixes #N is refused" 1 42 "Fixes #42"
+DELIVERY=partial expect "gate, declared split: Fixes #N beside Part of #N is refused" 1 42 "Part of #42
+Fixes #42"
+DELIVERY=partial expect "gate, declared split: no reference fails" 1 42 "See #42"
+DELIVERY=partial PR_TITLE="Fixes #42" \
+    expect "gate, declared split: a closing title is refused" 1 42 "Part of #42"
+DELIVERY=partial PR_COMMITS='[{"oid":"abcdef0123456789","messageHeadline":"fix: x","messageBody":"Closes #42"}]' \
+    expect "gate, declared split: a closing commit is refused" 1 42 "Part of #42"
+DELIVERY=partial expect "gate, declared split: an empty issue number still passes" 0 "" "Fixes #42"
+# A declared split never reads the log, so a log that would hold doesn't.
+printf '%s\n' "not json" > "$GATE_LOG"
+DELIVERY=partial expect "gate, declared split: an unreadable log isn't read" 0 42 "Part of #42"
+rm -f "$GATE_LOG"
+export ISSUE_REPO=acme/tracker
+DELIVERY=partial expect "gate, declared split cross-repo: Part of owner/repo#N passes" 0 42 "Part of acme/tracker#42"
+DELIVERY=partial expect "gate, declared split cross-repo: the link passes" 0 42 "Part of [acme/tracker#42](https://github.com/acme/tracker/issues/42)"
+DELIVERY=partial expect "gate, declared split cross-repo: a bare Part of #N fails" 1 42 "Part of #42"
+DELIVERY=partial expect "gate, declared split cross-repo: Fixes owner/repo#N is refused" 1 42 "Part of acme/tracker#42
+Fixes acme/tracker#42"
+DELIVERY=partial expect "gate, declared split cross-repo: Fixes #N is refused" 1 42 "Part of acme/tracker#42
+Fixes #42"
+unset ISSUE_REPO
+
+# An approved pass in the log switches a run with DELIVERY=closes, the
+# default, to non-closing mode.
+printf '%s\n' "$APPROVED" > "$GATE_LOG"
+expect "gate, approved pass: Part of #N passes" 0 42 "Part of #42"
+expect "gate, approved pass: Fixes #N is refused" 1 42 "Fixes #42"
+DELIVERY=closes expect "gate, approved pass with DELIVERY=closes written out: Fixes #N is refused" 1 42 "Fixes #42"
+export ISSUE_REPO=acme/tracker
+expect "gate, approved pass cross-repo: Part of owner/repo#N passes" 0 42 "Part of acme/tracker#42"
+expect "gate, approved pass cross-repo: Fixes owner/repo#N is refused" 1 42 "Fixes acme/tracker#42"
+unset ISSUE_REPO
+# A rewind from done_blocked back into pr_creation keeps the approval.
+printf '%s\n' "$APPROVED
+$(ev transitioned pr_creation done_blocked)
+$(ev rewound done_blocked pr_creation)" > "$GATE_LOG"
+expect "gate, approved pass then a rewind into pr_creation: still non-closing" 0 42 "Part of #42"
+
+# A recount back through finalization to ready_for_pr is closing again.
+RECOUNT="$APPROVED
+$(ev transitioned pr_creation pr_precheck)
+$(ev transitioned pr_precheck finalization)
+$(ev transitioned finalization pre_pr_evidence)
+$(ev transitioned pre_pr_evidence pr_precheck)
+$(ev transitioned pr_precheck pr_creation)"
+printf '%s\n' "$RECOUNT" > "$GATE_LOG"
+expect "gate, recount: Fixes #N passes" 0 42 "Fixes #42"
+expect "gate, recount: Part of #N fails" 1 42 "Part of #42"
+export ISSUE_REPO=acme/tracker
+expect "gate, recount cross-repo: Fixes owner/repo#N passes" 0 42 "Fixes acme/tracker#42"
+unset ISSUE_REPO
+# A directed arrival from deferral_approval is no approval either.
+printf '%s\n' "$HDR
+$UP_TO_APPROVAL
+$(ev directed_transition deferral_approval pre_pr_evidence)" > "$GATE_LOG"
+expect "gate, directed arrival: Fixes #N passes" 0 42 "Fixes #42"
+expect "gate, directed arrival: Part of #N fails" 1 42 "Part of #42"
+
+# A log the probe can't read holds the state, whatever the body says.
+printf '%s\n' "$APPROVED
+not json" > "$GATE_LOG"
+expect "gate, unparseable log: Fixes #N holds" 2 42 "Fixes #42"
+expect "gate, unparseable log: Part of #N holds" 2 42 "Part of #42"
+export ISSUE_REPO=acme/tracker
+expect "gate, unparseable log cross-repo: holds" 2 42 "Fixes acme/tracker#42"
+unset ISSUE_REPO
+expect "gate, unparseable log: an empty issue number still passes" 0 "" "no keyword here"
+
+# What the gate asks gh. A same-repository closing run with a log that holds
+# no approval still makes only the inline read, and asks for no url.
+GH_LOG=$(mktemp) || exit 1; TMPS+=("$GH_LOG")
+export GH_LOG
+printf '%s\n' "$RECOUNT" > "$GATE_LOG"
+run_gate 42 "Fixes #42"
+if [[ "$(grep -c . "$GH_LOG")" == 1 ]] && grep -qx 'pr view --json body --jq .body' "$GH_LOG"; then
+    pass "gate, a non-approved log: a same-repository closing run reads only the body"
+else
+    fail "gate, a non-approved log: unexpected gh calls: $(cat "$GH_LOG")"
+fi
+# A non-closing run, either way in, makes one pr view with the four fields.
+: > "$GH_LOG"
+DELIVERY=partial run_gate 42 "Part of #42"
+if [[ "$(grep -c . "$GH_LOG")" == 1 ]] && grep -qx 'pr view --json url,title,body,commits' "$GH_LOG"; then
+    pass "gate, declared split: one gh pr view reads url, title, body and commits"
+else
+    fail "gate, declared split: unexpected gh calls: $(cat "$GH_LOG")"
+fi
+: > "$GH_LOG"
+printf '%s\n' "$APPROVED" > "$GATE_LOG"
+run_gate 42 "Part of #42"
+if [[ "$(grep -c . "$GH_LOG")" == 1 ]] && grep -qx 'pr view --json url,title,body,commits' "$GH_LOG"; then
+    pass "gate, approved pass: one gh pr view reads url, title, body and commits"
+else
+    fail "gate, approved pass: unexpected gh calls: $(cat "$GH_LOG")"
+fi
+unset GH_LOG
+rm -f "$GATE_LOG"
 
 # --- the script's own usage refusals ------------------------------------------
 # Exit 2, which no pr_creation edge routes, so the state holds rather than

@@ -2526,23 +2526,46 @@ states:
       # its absence.
       #
       # Free-form work has no issue to close, so an empty ISSUE_NUMBER passes
-      # rather than blocking: the obligation does not exist for that mode. The
-      # trailing character class stops `#12` matching in `#123`. GitHub lets a
-      # colon follow the keyword (`Fixes: #42`), so the expression takes one.
+      # rather than blocking: the obligation does not exist for that mode.
+      #
+      # A run that delivers only part of its issue leaves the issue open
+      # (#1736, #1550), so the gate has two modes, picked in a fixed order.
+      # DELIVERY=partial, declared at init, goes straight to non-closing mode
+      # without reading the log. Otherwise check-closing-keyword.sh
+      # --approved-pass reads the run's state log, and makes no GitHub call:
+      # 0 this pass reached pre_pr_evidence through the engine's approved
+      # transition out of deferral_approval, with no return to finalization or
+      # deferral_approval since (non-closing mode); 1 it didn't, or there is no
+      # log (closing mode); anything else, an unreadable log included, holds
+      # the state at exit 2. The probe's exits never reach the routes below.
+      # So the script and jq sit in front of every issue-backed run, and a
+      # missing script holds at exit 2. The branches are nested rather than
+      # kept in a shell variable, because a bare $NAME in a command fails
+      # scripts/check-template-interpolation.sh.
+      #
+      # Non-closing mode is check-closing-keyword.sh --issue N --non-closing,
+      # with --repo for an issue elsewhere: the body must refer to the issue
+      # with Ref, Refs or Part of, and nothing in the body, the title or a
+      # commit may close it.
+      #
+      # Closing mode is the gate as it was. With ISSUE_REPO empty the
+      # expression here decides, and the script runs only as the log probe, so
+      # the body is the one thing read from GitHub. The trailing character
+      # class stops `#12` matching in `#123`. GitHub lets a colon follow the
+      # keyword (`Fixes: #42`), so the expression takes one.
       #
       # An issue in another repository (ISSUE_REPO set) is closed only by
       # `Fixes owner/repo#N`, and `#N`, `GH-N`, this repository's
       # `owner/repo#N` or its issue URL there, the markdown link to it, or any
       # of them under the repository's old name, would close this repository's
-      # issue N, so
-      # check-closing-keyword.sh decides that case: it exits 0 closed, 1 not
-      # closed, closing the wrong issue too, or unreadable (done_blocked, like
-      # the expression here), 2 usage (holds), 3 a repository lookup it needed
-      # failed or ran out of time (holds; tick again). With ISSUE_REPO empty the
-      # expression runs and the script is never started.
+      # issue N, so check-closing-keyword.sh --issue N --repo R decides that
+      # case. Both of the script's gate modes exit 0 pass, 1 refused or
+      # unreadable (done_blocked, like the expression here), 2 usage (holds),
+      # 3 a repository lookup it needed failed or ran out of time (holds; tick
+      # again).
       closing_keyword:
         type: command
-        command: 'test -z "{{ISSUE_NUMBER}}" || if test -z "{{ISSUE_REPO}}"; then gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?):?[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"; else test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}"; fi'
+        command: 'test -z "{{ISSUE_NUMBER}}" || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" || exit 2; if test "{{DELIVERY}}" = partial; then if test -z "{{ISSUE_REPO}}"; then "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --non-closing; else "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}" --non-closing; fi; else "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --approved-pass "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"; case $? in 0) if test -z "{{ISSUE_REPO}}"; then "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --non-closing; else "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}" --non-closing; fi ;; 1) if test -z "{{ISSUE_REPO}}"; then gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?):?[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"; else "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-closing-keyword.sh" --issue "{{ISSUE_NUMBER}}" --repo "{{ISSUE_REPO}}"; fi ;; *) exit 2 ;; esac; fi; }'
       # The pull request's title and body against the PR-body conformance
       # rules (references/pr-body-conformance.md, PB1 to PB4) and the banned
       # words of skills/writing-style/rules.yaml (PB5, pr-body/banned-word),

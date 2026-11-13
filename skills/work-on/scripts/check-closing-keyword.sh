@@ -5,10 +5,14 @@
 # approved deferral?
 # Part of the work-on skill
 #
-# pr_creation's closing_keyword gate runs this only when the run recorded
-# ISSUE_REPO, the repository a cross-repository issue lives in. With
-# ISSUE_REPO empty the gate keeps its own inline expression and never starts
-# this script, so a same-repository run is checked exactly as it was before
+# pr_creation's closing_keyword gate starts this on every issue-backed run.
+# A run that didn't declare a partial delivery first asks it, as the log
+# probe, whether this pass came out of an approved deferral. A run that
+# declared one, or came out of an approved deferral, then runs non-closing
+# mode. Any other run is checked for closing: with ISSUE_REPO, the repository
+# a cross-repository issue lives in, through closing mode; with ISSUE_REPO
+# empty, through the gate's own inline expression, which reads only the
+# body, so a same-repository closing run is checked exactly as it was before
 # ISSUE_REPO existed.
 #
 # Three modes:
