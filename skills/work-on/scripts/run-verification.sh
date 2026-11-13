@@ -43,9 +43,18 @@
 #
 #   {"schema": "shirabe-verification-result/v1", "head": "...",
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
-#    timed-out|supervisor-error", "detail": "...", "commands": [{"id", "argv",
-#    "exit_status", "duration_secs", "timed_out", "runaway", "not_started",
-#    "pgid", "log"}]}
+#    timed-out|supervisor-error", "detail": "...", "changed_paths": [...],
+#    "commands": [{"id", "argv", "exit_status", "duration_secs", "timed_out",
+#    "runaway", "not_started", "pgid", "log", "failure_lines"}]}
+#
+# changed_paths is the diff step 4 selected on, and is present on every result
+# a supervisor writes (done, timed-out, supervisor-error). A command carries
+# failure_lines only when the map declares it for that command: how to read
+# its log's failure lines, {"prefix": "...", "path_prefix": "..."}, two
+# non-empty literal strings with path_prefix starting with prefix. Together
+# they let check-verification.sh attribute a failure to files the change
+# doesn't touch from the result alone; a result without changed_paths, which
+# an older plugin wrote under the same v1 schema, attributes nothing.
 #
 # The bound on each command: its own process group and its own deadline
 # (timeout_secs; TERM to the group, then KILL), and a watchdog that counts the
@@ -109,6 +118,13 @@ def glob_re:
          | join(".*")) + "$";
 def is_int: type == "number" and . == floor;
 def need(cond; msg): if cond then . else error(msg) end;
+# failure_lines: literal prefixes, no patterns, so check-verification.sh reads
+# them with startswith and no regex dialect decides what a line means.
+def fl_ok($f):
+  ($f | type) == "object"
+  and ($f.prefix | type) == "string" and $f.prefix != ""
+  and ($f.path_prefix | type) == "string" and $f.path_prefix != ""
+  and ($f.path_prefix | startswith($f.prefix));
 def command_ok($id):
   need(type == "object"; "command \($id) is not an object")
   | need((.run | type) == "array" and (.run | length) > 0 and (.run | all(type == "string")) and (.run[0] != "");
@@ -120,8 +136,11 @@ def command_ok($id):
   | need((has("unattended") | not) or (.unattended | type) == "boolean"; "command \($id): unattended is not a boolean")
   | need((.network != true) or has("unattended"); "command \($id): network is true and unattended is not set")
   | need((has("max_procs") | not) or ((.max_procs | is_int) and .max_procs >= 1); "command \($id): max_procs is not a positive integer")
+  | need((has("failure_lines") | not) or fl_ok(.failure_lines);
+         "command \($id): failure_lines is not {\"prefix\", \"path_prefix\"}, two non-empty strings with path_prefix starting with prefix")
   | {id: $id, run: .run, each: (.each // null), timeout_secs: (.timeout_secs // 1800),
-     max_procs: (.max_procs // 256), unattended: (if has("unattended") then .unattended else true end)};
+     max_procs: (.max_procs // 256), unattended: (if has("unattended") then .unattended else true end),
+     failure_lines: (if has("failure_lines") then {prefix: .failure_lines.prefix, path_prefix: .failure_lines.path_prefix} else null end)};
 def ids_ok($where; $defined):
   need(type == "array" and all(type == "string"); "\($where) is not an array of command ids")
   | (map(select(. as $i | $defined | index([$i]) | not))) as $bad
@@ -150,10 +169,10 @@ try (
   | ($cmds | map({key: .id, value: .}) | from_entries) as $byid
   | [$changed[] | split("/") as $parts | range(1; $parts | length) | $parts[0:.] | join("/")] | unique as $dirs
   | [$ids[] | $byid[.] as $c
-     | if $c.each == null then {id: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+     | if $c.each == null then {id: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended, failure_lines: $c.failure_lines}
        else ($c.each | glob_re) as $er
          | $dirs[] | select(test($er))
-         | {id: $c.id, argv: ($c.run + [split("/") | last]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+         | {id: $c.id, argv: ($c.run + [split("/") | last]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended, failure_lines: $c.failure_lines}
        end] as $inv
   | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe)}
 ) catch {error: (if type == "string" then . else tostring end)}
@@ -237,6 +256,10 @@ lock_live() {
 
 # --- --supervise ---------------------------------------------------------------------
 
+# Appended to each command entry's jq program: the invocation's failure_lines,
+# when the map declared it, so the verdict reads the log the way the map says.
+WITH_FL=' | if $run[0].invocations[$i].failure_lines then .failure_lines = $run[0].invocations[$i].failure_lines else . end'
+
 count_group() {
     ps -A -o pgid= 2>/dev/null | awk -v g="$1" '$1 == g { c++ } END { print c + 0 }'
 }
@@ -250,6 +273,11 @@ supervise() {
     RUN="$dir/run.json"
     [ -r "$RUN" ] || { echo "no run.json in $dir" >&2; exit 2; }
     ROOT=$(jq -r .root "$RUN"); HEAD_SHA=$(jq -r .head "$RUN"); MB=$(jq -r .merge_base "$RUN")
+    # The diff --start selected on, carried into every result written here.
+    # null (a run.json without it) leaves the key out, which attributes
+    # nothing; an empty list would read as a change that touched nothing.
+    SUP_CHANGED=$(jq -c '.changed_paths // null' "$RUN") || SUP_CHANGED=null
+    [ -n "$SUP_CHANGED" ] || SUP_CHANGED=null
     RESULT="$dir/result.json"
     # Globals, not locals: the EXIT trap reads them after the function is gone.
     SUP_LOCK="$dir/lock"
@@ -264,8 +292,10 @@ supervise() {
     finish() {
         [ "$SUP_WRITTEN" -eq 1 ] && return 0
         write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
+            --argjson ch "$SUP_CHANGED" \
             '{schema: $schema, head: $head, merge_base: $mb, status: "supervisor-error",
-              detail: "the supervisor stopped before every command ran", commands: .}' "$SUP_ENTRIES")"
+              detail: "the supervisor stopped before every command ran"}
+             + (if $ch == null then {} else {changed_paths: $ch} end) + {commands: .}' "$SUP_ENTRIES")"
         rm -f "$SUP_LOCK" "$SUP_ENTRIES"
     }
     # A signal that stops the supervisor stops the running command too. The
@@ -322,7 +352,7 @@ supervise() {
         if [ -z "$prog" ] || [ ! -f "$prog" ] || [ ! -x "$prog" ]; then
             jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --arg log "$log" \
                 '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: null, duration_secs: 0,
-                  timed_out: false, runaway: false, not_started: true, pgid: null, log: $log}' >> "$SUP_ENTRIES"
+                  timed_out: false, runaway: false, not_started: true, pgid: null, log: $log}'"$WITH_FL" >> "$SUP_ENTRIES"
             echo "not started: [${argv[0]}] is not an executable program" > "$log"
             i=$((i + 1)); continue
         fi
@@ -365,7 +395,7 @@ supervise() {
             --argjson dur $((now - start)) --argjson to "$timed_out" --argjson ra "$runaway" \
             --argjson pgid "$pid" --arg log "$log" \
             '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: $status, duration_secs: $dur,
-              timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log}' >> "$SUP_ENTRIES"
+              timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log}'"$WITH_FL" >> "$SUP_ENTRIES"
         i=$((i + 1))
         if [ "$timed_out" = true ] && [ "$capped" -eq 1 ]; then
             over=1; stopped=$id; break
@@ -380,8 +410,9 @@ supervise() {
         [ "$i" -lt "$n" ] && detail="$detail; $((n - i)) later command(s) were not started: $(jq -r --argjson i "$i" '[.invocations[$i:][].id] | join(", ")' "$RUN")"
     fi
     write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
-        --arg status "$final" --arg detail "$detail" \
-        '{schema: $schema, head: $head, merge_base: $mb, status: $status, detail: $detail, commands: .}' "$SUP_ENTRIES")" \
+        --arg status "$final" --arg detail "$detail" --argjson ch "$SUP_CHANGED" \
+        '{schema: $schema, head: $head, merge_base: $mb, status: $status, detail: $detail}
+         + (if $ch == null then {} else {changed_paths: $ch} end) + {commands: .}' "$SUP_ENTRIES")" \
         && SUP_WRITTEN=1
     rm -f "$SUP_LOCK" "$SUP_ENTRIES"
     exit 0
@@ -496,7 +527,9 @@ fi
 BUDGET=${SHIRABE_VERIFICATION_BUDGET_SECS:-$BUDGET_SECS}
 case "$BUDGET" in ''|*[!0-9]*|0) BUDGET=$BUDGET_SECS ;; esac
 jq -cn --arg root "$ROOT" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson sel "$SELECTION" --argjson budget "$BUDGET" \
-    '{root: $root, head: $head, merge_base: $mb, budget_secs: $budget, invocations: $sel.invocations}' > "$HEAD_DIR/run.json" \
+    --argjson changed "$CHANGED" \
+    '{root: $root, head: $head, merge_base: $mb, budget_secs: $budget, changed_paths: $changed,
+      invocations: $sel.invocations}' > "$HEAD_DIR/run.json" \
     || { rm -f "$LOCK"; die "could not write run.json"; }
 
 # 6. Detach. `set -m` gives the background job its own process group, so the

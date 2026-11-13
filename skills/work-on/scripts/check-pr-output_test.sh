@@ -1222,6 +1222,78 @@ run --deferral-record --reason "$DREASON"
     || fail "--deferral-record: gh failure rc $RC"
 FAKE_GH_RC=0
 
+# --- --deferral-record: "did not pass", for a run that went on through
+# verification_outside_change
+
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass: it failed only in files this change does not touch." \
+    "Reason: $DREASON" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$DREASON"
+[ "$RC" -eq 0 ] && pass "--deferral-record: a body saying local verification did not pass is accepted" \
+    || fail "--deferral-record: did-not-pass body rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+
+# --- --deferral-record --session: the reason from the session's context
+
+# A koto stand-in, on PATH only for these runs: `context exists` exits
+# FAKE_KOTO_EXISTS_RC, `context get` prints FAKE_KOTO_VALUE and exits
+# FAKE_KOTO_GET_RC. Every call is recorded under $LOG/koto.
+KBIN="$WORKDIR/kotobin"
+mkdir -p "$KBIN"
+cat > "$KBIN/koto" <<EOF
+#!/usr/bin/env bash
+. "$BIN/record.sh" koto "\$@"
+[ "\$1" = context ] || exit 9
+case "\$2" in
+    exists) exit "\${FAKE_KOTO_EXISTS_RC:-1}" ;;
+    get) [ "\${FAKE_KOTO_GET_RC:-0}" = 0 ] || { echo "koto: read failed" >&2; exit "\$FAKE_KOTO_GET_RC"; }
+         printf '%s\n' "\${FAKE_KOTO_VALUE-}" ;;
+    *) exit 9 ;;
+esac
+EOF
+chmod +x "$KBIN/koto"
+export FAKE_KOTO_EXISTS_RC FAKE_KOTO_GET_RC FAKE_KOTO_VALUE
+gh_calls() { if [ -f "$LOG/gh/calls" ]; then wc -l < "$LOG/gh/calls" | tr -d ' '; else echo 0; fi; }
+krun() { PATH="$KBIN:$PATH" run "$@"; }
+
+FAKE_KOTO_EXISTS_RC=1 FAKE_KOTO_GET_RC=0 FAKE_KOTO_VALUE=""
+BEFORE=$(gh_calls)
+krun --deferral-record --session s-local
+if [ "$RC" -eq 0 ] && [ "$(gh_calls)" = "$BEFORE" ] && [ "$(cat "$LOG/koto/arg.3" 2>/dev/null)" = s-local ]; then
+    pass "--deferral-record --session: no verification_deferral passes (0) with no GitHub read"
+else
+    fail "--deferral-record --session, no key: rc $RC, gh calls $BEFORE -> $(gh_calls), stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+FAKE_KOTO_EXISTS_RC=0 FAKE_KOTO_VALUE="$DREASON"
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass: it failed only in files this change does not touch." \
+    "Reason: $DREASON" "Hosted CI is the build of record for this change.")
+krun --deferral-record --session s-took
+[ "$RC" -eq 0 ] && pass "--deferral-record --session: a key the body records passes (0)" \
+    || fail "--deferral-record --session, recorded key: rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+FAKE_KOTO_VALUE="a reason the body doesn't give"
+krun --deferral-record --session s-took
+if [ "$RC" -eq 1 ] && grep -qF "exactly: Reason: a reason the body doesn't give" "$WORKDIR/stderr"; then
+    pass "--deferral-record --session: the key's value acts as the reason, and a body without it fails (1)"
+else
+    fail "--deferral-record --session, unrecorded key: rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+
+FAKE_KOTO_EXISTS_RC=3
+krun --deferral-record --session s-took
+[ "$RC" -eq 2 ] && pass "--deferral-record --session: a koto exists call that fails can't be decided (2)" \
+    || fail "--deferral-record --session, exists failed: rc $RC"
+FAKE_KOTO_EXISTS_RC=0 FAKE_KOTO_GET_RC=1
+krun --deferral-record --session s-took
+[ "$RC" -eq 2 ] && pass "--deferral-record --session: a koto get that fails can't be decided (2)" \
+    || fail "--deferral-record --session, get failed: rc $RC"
+FAKE_KOTO_GET_RC=0 FAKE_KOTO_VALUE="   "
+krun --deferral-record --session s-took
+[ "$RC" -eq 2 ] && pass "--deferral-record --session: a key of spaces alone can't be decided (2)" \
+    || fail "--deferral-record --session, blank key: rc $RC"
+krun --deferral-record --session
+[ "$RC" -eq 2 ] && pass "--deferral-record: --session with no name is a usage error (2)" \
+    || fail "--deferral-record: bare --session rc $RC"
+FAKE_KOTO_EXISTS_RC=1 FAKE_KOTO_VALUE=""
+
 # --- --deferral-record with several reasons and --owned (/execute's shared PR, #1017)
 
 DREASON2="CI only while the runner pool is down"

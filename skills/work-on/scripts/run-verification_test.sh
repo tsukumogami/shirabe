@@ -581,6 +581,45 @@ expect_rc "an unattended: false command" 4
 expect_rule "an unattended: false command" verification/needs-person
 [ ! -e "$WORKDIR/attended.rec" ] && pass "the attended command was never started" || fail "the attended command ran"
 
+echo "--- a failure only in a file the change doesn't touch"
+# End to end: the map declares failure_lines for a command that prints a
+# failure line naming skills/b/f.txt and exits 1, while the change touches
+# skills/a/f.txt. The supervisor carries changed_paths and failure_lines into
+# the result, and the verdict attributes the failure outside the change (5).
+# verification-outside-change_test.sh holds the attribution matrix.
+FL='{"prefix": "FAIL: ", "path_prefix": "FAIL: bash "}'
+OUTSIDE_CMD=$(jq -cn --argjson fl "$FL" '{outside: {run: ["bin/outside.sh"], failure_lines: $fl}}')
+mkrepo outside "$(map "$OUTSIDE_CMD" '[]' '["outside"]')"
+printf '#!/bin/sh\necho "ok: bash skills/a/f.txt"\necho "FAIL: bash skills/b/f.txt exited 1"\nexit 1\n' > bin/outside.sh
+chmod +x bin/outside.sh
+change skills/a/f.txt
+start s-outside
+settle s-outside
+expect_rc "a command failing only in a file the change doesn't touch" 5
+expect_rule "a command failing only in a file the change doesn't touch" verification/command-failed
+case "$OUT" in
+    *"outside the change: skills/b/f.txt"*) pass "the finding names the file outside the change" ;;
+    *) fail "the finding does not name skills/b/f.txt as outside the change: [$OUT]" ;;
+esac
+if jq -e --argjson fl "$FL" 'any(.changed_paths[]; . == "skills/a/f.txt")
+        and all(.changed_paths[]; . != "skills/b/f.txt")
+        and .commands[0].failure_lines == $fl' "$(result_of s-outside)" >/dev/null 2>&1; then
+    pass "the result carries changed_paths and the command's failure_lines"
+else
+    fail "the result lacks changed_paths or failure_lines: $(head -c 400 "$(result_of s-outside)" 2>&1)"
+fi
+
+mkrepo badfl "$(map '{"bad": {"run": ["bin/fail.sh"], "failure_lines": {"prefix": "FAIL: ", "path_prefix": "ok: "}}}' '[]' '["bad"]')"
+change top.txt
+start s-badfl
+settle s-badfl
+expect_rc "failure_lines whose path_prefix doesn't start with its prefix" 3
+expect_rule "failure_lines whose path_prefix doesn't start with its prefix" verification/bad-map
+case "$OUT" in
+    *"failure_lines is not"*"path_prefix starting with prefix"*) pass "the bad-map finding says what is wrong with failure_lines" ;;
+    *) fail "the bad-map finding does not explain failure_lines: [$OUT]" ;;
+esac
+
 echo "--- the route ranks only the causes at block"
 # verdict_at_warn <session> <rule at warn> <label> <exit> <levels>: the verdict
 # from a plugin copy with <rule> at warn; <levels> is the sorted

@@ -61,8 +61,18 @@
 #   --deferral-record --reason <reason> [--reason <reason>]...
 #                     [--public-reason <text>]
 #                     [--body] [--owned <owned-pr.sh arguments>]
+#   --deferral-record --session <s> [--public-reason <text>]
+#                     [--body] [--owned <owned-pr.sh arguments>]
 #       For a run that deferred verification to hosted CI (work-on.md's
-#       VERIFICATION=hosted-ci, #1012). In a repository that doesn't opt in
+#       VERIFICATION=hosted-ci, #1012), or whose local verification failed
+#       only in files the change doesn't touch and went on through
+#       verification_outside_change. --session <s> reads the reason from the
+#       session's context instead of taking it as an argument: with no
+#       verification_deferral key the run deferred nothing, and the script
+#       passes (0) without reading GitHub; with one, its value is the one
+#       --reason; a koto read that fails is 2. pr_creation's gate passes
+#       --session, so a local run that never took the step costs no process
+#       beyond the koto read. In a repository that doesn't opt in
 #       to workflow content (scripts/pr-workflow-content.sh prints omit, the
 #       default) it passes (0) without reading GitHub: the deferral is
 #       recorded in the run's context as verification_deferral, and the body
@@ -71,7 +81,9 @@
 #       record whatever the setting), it reads the pull request body with
 #       `gh pr view --json body` and checks that it records the deferral, in
 #       three parts:
-#         a line saying "local verification did not run"
+#         a line saying "local verification did not run" or "local
+#         verification did not pass" (the second is the true sentence for a
+#         run that went on through verification_outside_change)
 #         for each <reason>, a line reading exactly `Reason: <reason>`
 #         a line saying "hosted CI is the build of record"
 #       The two phrases are matched without regard to case, anywhere in the
@@ -162,6 +174,7 @@ usage() {
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
        check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--public-reason <text>] [--body] [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --deferral-record --session <s> [--public-reason <text>] [--body] [--owned <owned-pr.sh arguments>]
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
@@ -468,6 +481,31 @@ check_pr_body() {
 }
 
 check_deferral_record() {
+    # --session: the reason is the session's verification_deferral, when it
+    # has one. No key means nothing was deferred, so there is nothing to
+    # record and GitHub is never read. A read that fails holds (2): passing
+    # it would let a deferral go unrecorded.
+    if [ $# -gt 0 ] && [ "$1" = --session ]; then
+        [ $# -ge 2 ] && [ -n "$2" ] || { usage; exit 2; }
+        session=$2
+        shift 2
+        command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH; cannot read verification_deferral"
+        make_work
+        koto context exists "$session" verification_deferral > /dev/null 2> "$WORK/koto.err" < /dev/null
+        rc=$?
+        case "$rc" in
+            0) ;;
+            1)
+                echo "check-pr-output: $session has no verification_deferral in context, so there is no deferral to record" >&2
+                exit 0 ;;
+            *) undecided "koto context exists $session verification_deferral failed (exit $rc): $(tail -n 1 "$WORK/koto.err")" ;;
+        esac
+        koto context get "$session" verification_deferral > "$WORK/reason" 2> "$WORK/koto.err" < /dev/null \
+            || undecided "koto context get $session verification_deferral failed: $(tail -n 1 "$WORK/koto.err")"
+        # $(...) drops the trailing newline koto prints; the checks below
+        # still refuse an empty value and one over more than one line.
+        set -- --reason "$(cat "$WORK/reason")" "$@"
+    fi
     reasons=()
     while [ $# -gt 0 ] && [ "$1" = --reason ]; do
         [ $# -ge 2 ] || { usage; exit 2; }
@@ -514,7 +552,7 @@ check_deferral_record() {
         [ $# -gt 0 ] || { usage; exit 2; }
         OWNED=1
     fi
-    make_work
+    [ -n "${WORK:-}" ] || make_work
     # A repository that doesn't opt in to workflow content keeps the deferral
     # out of the body: the run's context already records it
     # (verification_deferral), and the body's Verification section says in
@@ -549,8 +587,11 @@ check_deferral_record() {
     jq -j '.body | gsub("\r\n?"; "\n")' "$WORK/pr.json" > "$WORK/body.md"
 
     missing=0
-    if ! grep -qiF -- "local verification did not run" "$WORK/body.md"; then
-        echo "check-pr-output: the PR body does not say that local verification did not run" >&2
+    # "did not pass" is the true sentence for a run whose local verification
+    # failed outside the change and went on; "did not run" for a deferral
+    # chosen at init. Either says the local run isn't the record.
+    if ! grep -qiF -e "local verification did not run" -e "local verification did not pass" "$WORK/body.md"; then
+        echo "check-pr-output: the PR body does not say that local verification did not run or did not pass" >&2
         missing=$((missing + 1))
     fi
     # Each reason must be a whole line, `Reason: <reason>`, not just appear

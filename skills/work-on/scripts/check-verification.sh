@@ -26,6 +26,11 @@
 #       a command grew past max_procs          verification/runaway
 #       a command could not start              verification/not-started
 #       tracked files were dirty               verification/dirty-tree
+#   5   every cause above that counted is a    verification/command-failed
+#       failed or timed-out command whose log  verification/timed-out
+#       names failures only in files the
+#       change doesn't touch (or, timed out,
+#       names no failure)
 #   2   the result could not be read, or recorded in koto context, or the
 #       supervisor stopped before every command ran; the gate holds. No
 #       finding; the reason goes to stderr.
@@ -50,6 +55,13 @@
 # command whose rule is at warn, beside a failed command whose rule is at
 # block, routes to 1, not 4. A non-zero route also prints a line on stderr
 # saying how to dispute a finding.
+#
+# Exit 5 comes after that ranking, never inside it: when the ranked exit is 1
+# or 4 and every cause counted at block is eligible (see "attribution" below),
+# the exit is 5 instead. Its findings keep their rule ids; an eligible cause's
+# message ends with `; outside the change: <files>` or `; its log names no
+# failure`. The template has no automatic route on 5: the run goes on only on
+# the agent's evidence, and hosted CI stays the build of record.
 #
 # Each violation prints one koto finding per cause:
 #   ::koto-finding::{"rule_id":"verification/<rule>","level":"error",
@@ -134,25 +146,134 @@ fi
 JQ_ERR=$(mktemp "${TMPDIR:-/tmp}/check-verification.XXXXXX") || undecided "could not create a temporary file"
 trap 'rm -f "$JQ_ERR"' EXIT
 
+# --- attribution: which failures lie only outside the change -------------------
+#
+# A failed or timed-out command is eligible for exit 5 when its log attributes
+# its failures only to files the change doesn't touch. Every test below fails
+# closed: anything the result can't show leaves the command ineligible, and an
+# ineligible cause keeps today's exit.
+#
+#   - The result is a `done` one and carries changed_paths, the merge-base diff
+#     run-verification.sh --start selected on. A `timed-out` result (the run's
+#     budget) never qualifies: the commands after the budget never started.
+#   - The command failed (not runaway, not not-started) or timed out, and
+#     carries failure_lines, read from the map at the merge-base, so a branch
+#     can't widen its own attribution.
+#   - Its log is readable. A failure line starts with `prefix` at column 0;
+#     indented lines never count. A failed command needs at least one; a
+#     timed-out one may have none, which is "its log names no failure".
+#   - Every failure line starts with `path_prefix`, and the file it names (the
+#     text after it, up to the first space) is a plain repo-relative path, no
+#     leading `/`, no `.` or `..` component, that names a file (a blob) at the
+#     result's head. A path printed in any other form can't then slip past the
+#     comparison below.
+#   - No named file is in changed_paths.
+#
+# The log is read with jq -R, and every prefix is a literal string compared
+# with startswith, so no regex dialect decides what a line means.
+
+# path_plain <path>: true when <path> is a plain repo-relative path.
+path_plain() {
+    case "$1" in
+        ''|/*|.|..|./*|../*|*/./*|*/../*|*/.|*/..|*//*|*/) return 1 ;;
+    esac
+    return 0
+}
+
+# attribute <index>: true when command <index> is eligible. Sets ATTR_FILES to
+# the JSON list of files its failure lines name (empty for a timed-out command
+# whose log names no failure).
+attribute() {
+    local kind log fl scan unattr count f
+    ATTR_FILES='[]'
+    kind=$(jq -r --argjson i "$1" '.commands[$i]
+        | if .not_started == true or .runaway == true then "none"
+          elif .timed_out == true then "timed"
+          elif .exit_status != 0 then "failed"
+          else "none" end' "$RESULT" 2>/dev/null) || return 1
+    [ "$kind" = failed ] || [ "$kind" = timed ] || return 1
+    fl=$(jq -c --argjson i "$1" '.commands[$i].failure_lines
+        | if type == "object" and (.prefix | type) == "string" and .prefix != ""
+             and (.path_prefix | type) == "string"
+             and (.prefix as $p | .path_prefix | startswith($p))
+          then {prefix, path_prefix} else null end' "$RESULT" 2>/dev/null) || return 1
+    [ -n "$fl" ] && [ "$fl" != null ] || return 1
+    log=$(jq -r --argjson i "$1" '.commands[$i].log | if type == "string" then . else "" end' "$RESULT" 2>/dev/null) || return 1
+    [ -n "$log" ] && [ -f "$log" ] && [ -r "$log" ] || return 1
+    # One pass over the log: how many failure lines, how many of them name no
+    # file, and the distinct files named.
+    scan=$(jq -Rnc --argjson fl "$fl" '
+        [inputs | select(startswith($fl.prefix))] as $lines
+        | ($fl.path_prefix | length) as $n
+        | [$lines[] | select(startswith($fl.path_prefix)) | .[$n:] | split(" ")[0]] as $named
+        | {count: ($lines | length), unattributed: (($lines | length) - ($named | length)),
+           files: ($named | unique)}' "$log" 2>/dev/null) || return 1
+    count=$(printf '%s' "$scan" | jq -r .count) || return 1
+    unattr=$(printf '%s' "$scan" | jq -r .unattributed) || return 1
+    [ "$unattr" = 0 ] || return 1
+    [ "$kind" = timed ] || [ "$count" -gt 0 ] || return 1
+    ATTR_FILES=$(printf '%s' "$scan" | jq -c .files) || return 1
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        path_plain "$f" || return 1
+        [ "$(git -C "$ROOT" cat-file -t "$HEAD_SHA:$f" 2>/dev/null)" = blob ] || return 1
+    done <<EOF
+$(printf '%s' "$ATTR_FILES" | jq -r '.[]')
+EOF
+    # The loop skips blank lines (an empty list prints one), so an empty name,
+    # a path_prefix line with nothing after it, is refused here.
+    printf '%s' "$ATTR_FILES" | jq -e 'all(. != "")' >/dev/null || return 1
+    jq -e --argjson f "$ATTR_FILES" '(.changed_paths) as $ch | all($f[]; . as $p | $ch | index([$p]) | not)' \
+        "$RESULT" >/dev/null 2>&1 || return 1
+    return 0
+}
+
+# ELIG: [{i, files}] for each eligible command, read by the jq program below.
+ELIG='[]'
+if jq -e '.status == "done" and (.changed_paths | type) == "array" and all(.changed_paths[]; type == "string")' \
+    "$RESULT" >/dev/null 2>&1; then
+    ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=""
+    NCMD=$(jq '.commands | length' "$RESULT" 2>/dev/null) || NCMD=0
+    if [ -n "$ROOT" ]; then
+        i=0
+        while [ "$i" -lt "$NCMD" ]; do
+            if attribute "$i"; then
+                ELIG=$(jq -cn --argjson e "$ELIG" --argjson i "$i" --argjson f "$ATTR_FILES" '$e + [{i: $i, files: $f}]') \
+                    || undecided "could not record the attribution of command $i"
+            fi
+            i=$((i + 1))
+        done
+    fi
+fi
+
 # The findings and the verdict, both from the result, in one jq program. Each
-# line is `<exit>\t<rule>\t<message>`; the verdict is the highest-ranked exit
-# among the lines whose finding printed at block.
-LINES=$(jq -r '
+# line is `<exit>\t<rule>\t<eligible>\t<message>`, where <eligible> is 1 for a
+# cause whose failures lie only outside the change (above) and 0 otherwise;
+# the verdict is the highest-ranked exit among the lines whose finding printed
+# at block, or 5 when every one of those is eligible.
+LINES=$(jq -r --argjson elig "$ELIG" '
     def argv: (.argv // []) | join(" ");
     def logpart: if .log then " (log: \(.log))" else "" end;
+    def outside($e): if ($e.files | length) == 0 then "; its log names no failure"
+                     else "; outside the change: \($e.files | join(", "))" end;
     if .status == "done" or .status == "timed-out" then
-        (.commands[]
-         | if .not_started then "4\tnot-started\tcommand \(.id) did not start: [\(.argv[0])] is not an executable program\(logpart)"
-           elif .runaway then "4\trunaway\tcommand \(.id) [\(argv)] grew past its max_procs and was killed\(logpart)"
-           elif .timed_out then "4\ttimed-out\tcommand \(.id) [\(argv)] ran past its timeout_secs or the total run budget and was killed\(logpart)"
-           elif .exit_status != 0 then "1\tcommand-failed\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)"
+        (.commands | to_entries[] | .key as $k | .value
+         | ([$elig[] | select(.i == $k)] | first) as $e
+         | if .not_started then "4\tnot-started\t0\tcommand \(.id) did not start: [\(.argv[0])] is not an executable program\(logpart)"
+           elif .runaway then "4\trunaway\t0\tcommand \(.id) [\(argv)] grew past its max_procs and was killed\(logpart)"
+           elif .timed_out then
+               if $e then "4\ttimed-out\t1\tcommand \(.id) [\(argv)] ran past its timeout_secs or the total run budget and was killed\(logpart)\(outside($e))"
+               else "4\ttimed-out\t0\tcommand \(.id) [\(argv)] ran past its timeout_secs or the total run budget and was killed\(logpart)" end
+           elif .exit_status != 0 then
+               if $e then "1\tcommand-failed\t1\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)\(outside($e))"
+               else "1\tcommand-failed\t0\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)" end
            else empty end),
-        (if .status == "timed-out" then "4\ttimed-out\t\(.detail)" else empty end)
-    elif .status == "no-map" then "3\tno-map\t\(.detail)"
-    elif .status == "bad-map" then "3\tbad-map\tthe verification map does not parse: \(.detail)"
-    elif .status == "attended" then "4\tneeds-person\t\(.detail)"
-    elif .status == "dirty-tree" then "4\tdirty-tree\t\(.detail)"
-    else "2\t\t" + "unknown result status \(.status)" end
+        (if .status == "timed-out" then "4\ttimed-out\t0\t\(.detail)" else empty end)
+    elif .status == "no-map" then "3\tno-map\t0\t\(.detail)"
+    elif .status == "bad-map" then "3\tbad-map\t0\tthe verification map does not parse: \(.detail)"
+    elif .status == "attended" then "4\tneeds-person\t0\t\(.detail)"
+    elif .status == "dirty-tree" then "4\tdirty-tree\t0\t\(.detail)"
+    else "2\t\t0\t" + "unknown result status \(.status)" end
 ' "$RESULT" 2>"$JQ_ERR") || undecided "could not read the result $RESULT: $(tail -n 3 "$JQ_ERR")"
 
 TAB=$(printf '\t')
@@ -174,14 +295,20 @@ koto context add "$SESSION" verification_results.json --from-file "$RESULT" >/de
 # rf_finding sets RF_COUNTED to 1 for exactly those, so a cause whose rule is
 # below block reports without choosing the route.
 VERDICT=0
+COUNTED=0
+ALL_ELIGIBLE=1
 while IFS= read -r line; do
     [ -n "$line" ] || continue
     code=${line%%"$TAB"*}
     rest=${line#*"$TAB"}
     rule=verification/${rest%%"$TAB"*}
+    rest=${rest#*"$TAB"}
+    eligible=${rest%%"$TAB"*}
     msg=${rest#*"$TAB"}
     rf_finding "$rule" "$msg"
     [ "$RF_COUNTED" -eq 1 ] || continue
+    COUNTED=$((COUNTED + 1))
+    [ "$eligible" = 1 ] || ALL_ELIGIBLE=0
     case "$code" in
         4) VERDICT=4 ;;
         3) [ "$VERDICT" -eq 4 ] || VERDICT=3 ;;
@@ -190,6 +317,15 @@ while IFS= read -r line; do
 done <<EOF
 $LINES
 EOF
+
+# Exit 5: the ranking above settled on 1 or 4, and every cause counted at
+# block is a failed or timed-out command outside the change. One cause that isn't --
+# a touched or unattributable failure, a runaway, a command that never
+# started, the run's budget -- keeps the ranked exit, so 5 never hides one.
+if [ "$COUNTED" -gt 0 ] && [ "$ALL_ELIGIBLE" -eq 1 ] && { [ "$VERDICT" -eq 1 ] || [ "$VERDICT" -eq 4 ]; }; then
+    VERDICT=5
+    echo "check-verification: every failure above lies outside the change. Submit verification_status: deferred with the files and your reading in detail to go on with hosted CI as the build of record, fix to go back to implementation (pick it when a failing suite exercises code this change edits), or blocked to stop." >&2
+fi
 
 [ "$VERDICT" -eq 0 ] || rf_dispute_hint
 # The escalation ladder (scripts/lib/rule-findings.sh): nothing without the
