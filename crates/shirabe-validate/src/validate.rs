@@ -57,8 +57,9 @@ pub enum Severity {
 ///
 /// The draft-tolerable set is the lifecycle in-flight findings `L02`
 /// (orphan/connectivity), `L06` (outline-AC completeness), `L07`
-/// (design-location), `L09` (split-rationale presence) and `L10` (an
-/// outline step left in a step plan): these are legitimate intermediate
+/// (design-location), `L09` (split-rationale presence), `L10` (an
+/// outline step left in a step plan) and `L11` (a design still at
+/// `Draft`): these are legitimate intermediate
 /// states while a chain is being drafted, so they tolerate `Draft` posture
 /// but must be resolved before `Ready`.
 /// Everything else — the always-defect lifecycle findings
@@ -73,6 +74,9 @@ pub enum Severity {
 /// and reviewed (`/plan`'s Phase 7, the PLAN-docs CI job). The completion
 /// cascade runs it at `Ready`, where an outline step is an error and stops
 /// the plan from completing.
+///
+/// `L11` is draft-tolerable because a design is drafted at `Draft` on
+/// purpose, so it is tolerated while the PR is a draft and refused at ready.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PostureClass {
     DraftTolerable,
@@ -125,7 +129,7 @@ fn is_intrinsic_notice(code: &str) -> bool {
 
 /// Classify a finding code by how its enforcement responds to posture.
 ///
-/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09`/`L10`
+/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09`/`L10`/`L11`
 /// resolve to a notice under `Draft` posture and an error under `Ready`;
 /// this is the single point that drives posture sensitivity. Every other
 /// code — including the always-defect lifecycle findings
@@ -135,7 +139,7 @@ fn is_intrinsic_notice(code: &str) -> bool {
 /// notices regardless of posture).
 pub fn posture_class(code: &str) -> PostureClass {
     match code {
-        "L02" | "L06" | "L07" | "L09" | "L10" => PostureClass::DraftTolerable,
+        "L02" | "L06" | "L07" | "L09" | "L10" | "L11" => PostureClass::DraftTolerable,
         _ => PostureClass::AlwaysEnforced,
     }
 }
@@ -171,7 +175,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
 /// can emit: `SCHEMA`, `FC01`-`FC25`, `FC-CONVENTIONS`, and `R6`-`R11`. The
-/// lifecycle codes (`L01`-`L10`) are produced by the `--lifecycle` traversal
+/// lifecycle codes (`L01`-`L11`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
     matches!(
@@ -533,8 +537,8 @@ mod tests {
     #[test]
     fn posture_class_classifies_lifecycle_codes() {
         // The draft-tolerable set is exactly the lifecycle in-flight
-        // findings L02/L06/L07/L09.
-        for code in ["L02", "L06", "L07", "L09"] {
+        // findings L02/L06/L07/L09/L11.
+        for code in ["L02", "L06", "L07", "L09", "L11"] {
             assert_eq!(
                 posture_class(code),
                 PostureClass::DraftTolerable,
@@ -642,6 +646,22 @@ mod tests {
             Severity::Error
         );
         assert!(!is_known_check_code("L10"));
+    }
+
+    /// L11 is a notice while a design is drafted and an error at ready.
+    /// Like every lifecycle code, it is not a `--check` selection.
+    #[test]
+    fn l11_is_draft_tolerable_and_not_selectable() {
+        assert_eq!(posture_class("L11"), PostureClass::DraftTolerable);
+        assert_eq!(
+            effective_severity("L11", ReviewPosture::Draft),
+            Severity::Notice
+        );
+        assert_eq!(
+            effective_severity("L11", ReviewPosture::Ready),
+            Severity::Error
+        );
+        assert!(!is_known_check_code("L11"));
     }
 
     /// FC20 is an error in both postures.

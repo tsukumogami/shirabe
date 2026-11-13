@@ -152,9 +152,12 @@ decider_on() {
         KOTO_DECIDER_ENDPOINT="http://127.0.0.1:9/v1/systemone"
 }
 decider_off() { unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT; }
+# The agent answers under a stand-in session id: from koto 0.37.0 a pass needs
+# a decider, and the guard clears the caller's id (shirabe#1733).
 answer() {
     # $1 session, $2 gate, $3 criterion, $4 answer
-    koto decider answer "$1" --gate "$2" --criterion "$3" --answer "$4" >/dev/null 2>"$WORKDIR/answer.err" \
+    env CLAUDE_CODE_SESSION_ID=scrutiny-routes-test-agent \
+        koto decider answer "$1" --gate "$2" --criterion "$3" --answer "$4" >/dev/null 2>"$WORKDIR/answer.err" \
         || fail "$1: koto decider answer $2 $4 failed: $(cat "$WORKDIR/answer.err")"
 }
 record_round() {

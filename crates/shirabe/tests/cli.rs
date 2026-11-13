@@ -83,7 +83,7 @@ fn custom_statuses_at_cap_is_accepted() {
     // Exactly 64 KiB is allowed (the guard is strictly greater-than). The
     // value is valid YAML (one mapping entry padded with a comment) so the
     // cap check passes and parsing succeeds; no files means exit 0.
-    let mut value = String::from("design/v1: [Draft]\n");
+    let mut value = String::from("design/v1: [Drafting]\n");
     value.push_str(&"#".repeat(64 * 1024 - value.len()));
     assert_eq!(value.len(), 64 * 1024);
     shirabe()
