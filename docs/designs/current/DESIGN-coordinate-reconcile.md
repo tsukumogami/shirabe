@@ -119,7 +119,9 @@ session directory, launches the reads that remain (up to four in parallel)
 until 20 seconds have passed, clips each read's deadline to the time left
 before 24 seconds, holds the work document in memory and saves it after
 every read with an atomic rename, and keeps the last seconds for the report
-and the context writes, so no run reaches koto's 30-second kill. Everything
+and the context writes, so no run reaches koto's 30-second kill. The record
+read shares that window, and when it ends past the 20-second cutoff the
+report waits for the next pass. Everything
 else a pass needs (each read's output, each deferral's row) lives in the
 pass's own temporary directory and is gone when it ends; nothing but the
 hashed work document carries over between passes. When work remains it exits 0 printing
@@ -479,9 +481,12 @@ reconcile-pass.sh            (every child's stdout goes to stderr)
     its seq differs from visit -> discard it, remove reconcile/* keys
     its hash differs from the hash in this state's last engine-logged
       pass output -> discard it, start the visit's reads again
-  no record yet -> reconcile-read.sh
+  no record yet -> reconcile-read.sh, given the time left before 24 s
+                   (at least 2 s)
     none | unreadable
       -> write reconcile/refusal, print blocked:<case>, exit 0
+    read ended at/after 20 s -> save work file,
+      print pending:<visit>:<n>:<sha256 of work file>, n may be 0
   queue = one read per claim (table above), minus those done
   launch reads, up to 4 at once, until 20 s have passed,
     each with its deadline clipped to the time left
