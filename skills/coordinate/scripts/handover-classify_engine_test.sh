@@ -8,13 +8,20 @@
 # A niwa stand-in lists an instance for feat-1 and feat-2 and none for feat-3;
 # feat-1's instance holds a running koto session driven by a working Claude
 # job, and feat-2's holds no koto session and a Claude job that is done
-# (DC_CLAUDE_HOME). Proves:
+# (DC_CLAUDE_HOME). Every classification runs with NIWA_REREAD_SECONDS=0, so
+# the wait before a re-read of niwa's listing takes no time. Proves:
 #   1. handover-classify.sh refuses a call with no session (64), and a record
 #      with no coordinator row (2), recording nothing;
 #   2. with the coordinator row set, the handover gate holds the run at
 #      reconcile; the classification prints `live feat-1 <address>`,
-#      `pending feat-2` and `missing feat-3`, records feat-2 pending, feat-3
+#      `pending feat-2` and `missing feat-3`, reading niwa's listing again for
+#      feat-3 alone, which misses it too; it records feat-2 pending, feat-3
 #      missing and nobody told, and the gate's one gap is feat-1's;
+#   2b. on the record put back as it stood before 2's classification, a first
+#      listing that names feat-1 alone and re-reads that name feat-1 and
+#      feat-2: the output is the same, feat-2 classified pending from its
+#      re-read, which runs for feat-2 and feat-3 only; feat-2 gets a pending
+#      row and no missing row, feat-3 a missing row;
 #   3. the live worker told its address (the agent's --told), the gate has
 #      no gap; a second classification prints nothing, and feat-2 stays
 #      pending and feat-3 missing while neither has reported;
@@ -37,7 +44,7 @@ case "$(koto session dir probe)" in "$T"/*|"$KOTO_TEST_GUARD_DIR"/*) ;; *) echo 
 HC="$PS/handover-classify.sh"
 classify() { # classify: handover-classify.sh from $WD, as the agent runs it at reconcile; HC_OUT, HC_ERR, HC_RC
     : > "$WD/.niwa/workspace.toml"
-    HC_OUT=$(cd "$WD" && NIWA="$T/niwa-bin/niwa" bash "$HC" --session "$S" 2>"$T/hc.err"); HC_RC=$?
+    HC_OUT=$(cd "$WD" && NIWA="$T/niwa-bin/niwa" NIWA_REREAD_SECONDS=0 bash "$HC" --session "$S" 2>"$T/hc.err"); HC_RC=$?
     HC_ERR=$(cat "$T/hc.err")
     rm -f "$WD/.niwa/workspace.toml"
 }
@@ -45,17 +52,23 @@ run_rows() { live_body | jq -r '[(.run // [])[] | select(.key == "told" or .key 
 gaps() { (cd "$WD" && bash "$PS/state-handover.sh" --session "$S") | jq -r '[.gaps[].gap] | join("|")'; }
 
 # niwa: `list --json` names an instance for feat-1 and feat-2, each a directory
-# under ws/, and none for feat-3.
+# under ws/, and none for feat-3. Each call adds one to niwa-calls; while that
+# count is no more than niwa-short holds, the listing names feat-1 alone, as a
+# read that misses a live instance would.
 # The session names and job ids are built here, so no id-shaped literal ships.
 N1=$(printf 'feat_1-%s' 0a1a1a1a) N2=$(printf 'feat_2-%s' 0b2b2b2b)
 J1=$(printf '%s%s' a1a1 a1a1) J2=$(printf '%s%s' b2b2 b2b2)
 mkdir -p "$T/niwa-bin" "$T/ws/feat-1" "$T/ws/feat-2"
 jq -n --arg a "$T/ws/feat-1" --arg b "$T/ws/feat-2" --arg n1 "$N1" --arg n2 "$N2" \
     '[{name: "feat-1", path: $a, session_name: $n1}, {name: "feat-2", path: $b, session_name: $n2}]' > "$T/niwa-list.json"
+jq '[.[0]]' "$T/niwa-list.json" > "$T/niwa-list-short.json"
+echo 0 > "$T/niwa-calls"; echo 0 > "$T/niwa-short"
 cat > "$T/niwa-bin/niwa" <<EOF
 #!/usr/bin/env bash
 case "\$*" in
-    "list --json") cat "$T/niwa-list.json" ;;
+    "list --json")
+        n=\$((\$(cat "$T/niwa-calls") + 1)); echo "\$n" > "$T/niwa-calls"
+        if [ "\$n" -le "\$(cat "$T/niwa-short")" ]; then cat "$T/niwa-list-short.json"; else cat "$T/niwa-list.json"; fi ;;
     *) echo "niwa stand-in: unexpected call: \$*" >&2; exit 1 ;;
 esac
 EOF
@@ -125,13 +138,33 @@ echo "== 2. a live, a gone-with-instance and a gone worker =="
 write_as_agent state-stored-set.sh --run coordinator coord-test --by coord-test
 eq "2: the agent sets the coordinator row" 0 $?
 eq "2: with nobody told, the handover gate holds the run at reconcile" reconcile "$(at --with-data '{"reconciled":"reported"}')"
+PRE2=$(live_body)
 classify
 printf '%s\n' "$HC_OUT"
 eq "2: handover-classify.sh exits 0" 0 "$HC_RC"
 eq "2: feat-1 live (address coord-test), feat-2 pending, feat-3 missing" \
     "live feat-1 coord-test|pending feat-2|missing feat-3" "$(printf '%s' "$HC_OUT" | tr '\n' '|')"
+eq "2: niwa was read once per worker, then once more for feat-3 alone" 4 "$(cat "$T/niwa-calls")"
 eq "2: the record has feat-2 pending, feat-3 missing and nobody told" "missing:feat-3 pending:feat-2" "$(run_rows)"
 eq "2: the gate's one gap: feat-1 not told" "not-told feat-1" "$(gaps)"
+
+echo "== 2b. a first listing that misses a worker the re-read lists =="
+# The record as it stood before 2's classification, the coordinator row set
+# and no told, pending or missing row: the first pass's three listing reads
+# name feat-1 alone, the two re-reads name feat-1 and feat-2.
+(cd "$WD" && session_seed "$S" "$PRE2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+eq "2b: the record is put back as it stood before 2's classification" 0 $?
+eq "2b: ... with no told, pending or missing row" "" "$(run_rows)"
+echo 0 > "$T/niwa-calls"; echo 3 > "$T/niwa-short"
+classify
+printf '%s\n' "$HC_OUT"
+eq "2b: handover-classify.sh exits 0" 0 "$HC_RC"
+eq "2b: feat-1 live from the first read; feat-2 pending from the re-read, then feat-3 missing" \
+    "live feat-1 coord-test|pending feat-2|missing feat-3" "$(printf '%s' "$HC_OUT" | tr '\n' '|')"
+eq "2b: niwa was read once per worker, then again for feat-2 and feat-3 only" 5 "$(cat "$T/niwa-calls")"
+eq "2b: the record has feat-2 pending, not missing, and feat-3 missing" "missing:feat-3 pending:feat-2" "$(run_rows)"
+eq "2b: the gate's one gap: feat-1 not told" "not-told feat-1" "$(gaps)"
+echo 0 > "$T/niwa-short"
 
 echo "== 3. the live worker told; the pending and missing ones haven't reported =="
 write_as_agent state-stored-set.sh --told feat-1 --by coord-test
