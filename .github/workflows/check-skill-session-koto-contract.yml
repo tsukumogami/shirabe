@@ -1,0 +1,191 @@
+name: Check skill-session koto contract
+
+# scripts/skill-session.sh reads koto's replies by exit code and `code`, and
+# parent_state reads two of koto's refusals as "not a parent here". This job
+# runs that reading against the real releases it was written for, 0.37.0,
+# 0.37.1 and 0.37.2, through scripts/skill-session-koto-contract_test.sh. The
+# suite needs a bucket: a MinIO server on 127.0.0.1 with a bucket made for the
+# run and credentials generated for it, so no repository secret is involved.
+# The parent sessions are written by 0.34.0, the last release before the
+# bucket's name index, and the suite fails chosen listings through its own
+# proxy in front of MinIO.
+#
+# The suite skips with exit 0 when an input is missing, so the steps before it
+# check each release's version and that the bucket answers a listing, and the
+# step after it requires one clean summary line per release.
+
+on:
+  # The two paths lists below must match; edit both together.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'scripts/skill-session.sh'
+      - 'scripts/skill-session-koto-contract_test.sh'
+      - 'scripts/lib/koto-test-guard.sh'
+      - '.github/workflows/check-skill-session-koto-contract.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above.
+    paths:
+      - 'scripts/skill-session.sh'
+      - 'scripts/skill-session-koto-contract_test.sh'
+      - 'scripts/lib/koto-test-guard.sh'
+      - '.github/workflows/check-skill-session-koto-contract.yml'
+
+env:
+  # `tsuku install` calls the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
+# A newer push to the same pull request supersedes this run. The group is
+# this workflow plus the pull request; any other event groups on its own
+# commit and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  koto-contract:
+    runs-on: ubuntu-latest
+    env:
+      # The releases the suite runs, and the one that writes the parent
+      # sessions before the name index existed.
+      KOTO_RELEASES: "0.34.0 0.37.0 0.37.1 0.37.2"
+      MINIO_RELEASE: RELEASE.2025-09-07T16-13-09Z
+      # The sha256 published beside the binary, as minio.<release>.sha256sum.
+      MINIO_SHA256: REPLACE_WITH_THE_PUBLISHED_SHA256
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install the koto releases
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: |
+          set -euo pipefail
+          for v in $KOTO_RELEASES; do
+            tsuku install -y "tsukumogami/koto@$v"
+          done
+
+      # The suite skips without its binaries, and runs whatever a path holds;
+      # each path must hold the release it is named for.
+      - name: Check each release's version
+        run: |
+          set -euo pipefail
+          for v in $KOTO_RELEASES; do
+            bin="$HOME/.tsuku/tools/koto-$v/bin/koto"
+            if [ ! -x "$bin" ]; then
+              echo "no koto binary at $bin" >&2
+              exit 1
+            fi
+            got=$("$bin" version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
+            if [ "$got" != "$v" ]; then
+              echo "$bin is ${got:-unknown}, expected $v" >&2
+              exit 1
+            fi
+            echo "$bin is $v"
+          done
+
+      - name: Download MinIO
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/minio-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/minio" \
+            "https://dl.min.io/server/minio/release/linux-amd64/archive/minio.${MINIO_RELEASE}"
+          echo "${MINIO_SHA256}  $dir/minio" | sha256sum -c -
+          chmod +x "$dir/minio"
+          echo "MINIO_BIN=$dir/minio" >> "$GITHUB_ENV"
+
+      # Made for this run and masked; nothing outside the runner ever holds
+      # them.
+      - name: Generate the bucket's credentials
+        run: |
+          set -euo pipefail
+          user=$(openssl rand -hex 16)
+          pass=$(openssl rand -hex 16)
+          echo "::add-mask::$user"
+          echo "::add-mask::$pass"
+          {
+            echo "CONTRACT_S3_ACCESS_KEY=$user"
+            echo "CONTRACT_S3_SECRET_KEY=$pass"
+          } >> "$GITHUB_ENV"
+
+      - name: Start MinIO on 127.0.0.1
+        run: |
+          set -euo pipefail
+          data="$RUNNER_TEMP/minio-data"
+          mkdir -p "$data"
+          MINIO_ROOT_USER="$CONTRACT_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$CONTRACT_S3_SECRET_KEY" \
+            nohup "$MINIO_BIN" server "$data" \
+              --address 127.0.0.1:9000 --console-address 127.0.0.1:9001 \
+              </dev/null >"$RUNNER_TEMP/minio.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:9000/minio/health/ready; then
+              echo "MinIO answered ready after ${i} s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MinIO was not ready within 60 s" >&2
+          cat "$RUNNER_TEMP/minio.log" >&2
+          exit 1
+
+      - name: Create the scratch bucket
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.CONTRACT_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.CONTRACT_S3_SECRET_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: aws --endpoint-url http://127.0.0.1:9000 s3api create-bucket --bucket koto-contract
+
+      # A bucket that doesn't answer fails the job here, before the suite
+      # could fail every case on it.
+      - name: Check the bucket answers a listing
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.CONTRACT_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.CONTRACT_S3_SECRET_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: aws --endpoint-url http://127.0.0.1:9000 s3api list-objects-v2 --bucket koto-contract
+
+      - name: Run the contract suite
+        env:
+          CONTRACT_S3_ENDPOINT: http://127.0.0.1:9000
+          CONTRACT_S3_BUCKET: koto-contract
+        run: |
+          set -euo pipefail
+          tools="$HOME/.tsuku/tools"
+          export CONTRACT_KOTO_PREINDEX="$tools/koto-0.34.0/bin/koto"
+          export CONTRACT_KOTO_0_37_0="$tools/koto-0.37.0/bin/koto"
+          export CONTRACT_KOTO_0_37_1="$tools/koto-0.37.1/bin/koto"
+          export CONTRACT_KOTO_0_37_2="$tools/koto-0.37.2/bin/koto"
+          bash scripts/skill-session-koto-contract_test.sh 2>&1 | tee "$RUNNER_TEMP/contract.out"
+
+      # A skip, a release that never ran, or a failed case all leave fewer
+      # than three clean summary lines.
+      - name: Require one clean summary line per release
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/contract.out"
+          re='^release=(0\.37\.0|0\.37\.1|0\.37\.2) cases=[1-9][0-9]* failed=0$'
+          clean=$(grep -cE "$re" "$out" || true)
+          if [ "$clean" -ne 3 ]; then
+            echo "expected exactly three clean summary lines, found $clean:" >&2
+            grep -E '^release=' "$out" >&2 || true
+            exit 1
+          fi
+          for v in 0.37.0 0.37.1 0.37.2; do
+            n=$(grep -E "$re" "$out" | grep -cF "release=$v " || true)
+            if [ "$n" -ne 1 ]; then
+              echo "expected one clean summary line for $v, found $n" >&2
+              exit 1
+            fi
+          done
+          grep -E "$re" "$out"
