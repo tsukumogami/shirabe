@@ -20,8 +20,10 @@
 # replaces a key's content, so no remove precedes an add. On the exit stage
 # exit_record alone is removed first: it is written last, so a run that fails
 # part way never leaves an earlier run's `ok` for the exit_recorded gate.
-# That keeps the action to four `koto context` calls on resume and seven on
-# exit, well inside koto's 30 s action limit on a cloud-backed session.
+# That keeps the action to four `koto context` calls on resume, seven on exit
+# with intent none, and nine on exit with intent continue or stop, where
+# run-id.sh adds an exists and a get to read the run's identity: well inside
+# koto's 30 s action limit on a cloud-backed session.
 #
 #   plan_path            docs/plans/PLAN-<topic>.md when that file exists
 #   plan_execution_mode  single-pr | multi-pr | coordinated, from the PLAN's

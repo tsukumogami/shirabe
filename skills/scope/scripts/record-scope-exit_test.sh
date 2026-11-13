@@ -230,6 +230,13 @@ n=$(calls 'add|remove|exists|get|list')
 if [ "$n" -le 7 ]; then ok "the no-intent exit stage makes at most seven koto context calls"; else bad "the no-intent exit stage makes at most seven koto context calls" "made $n koto context calls, one after another"; fi
 eq "the exit stage removes exit_record and nothing else" "remove exit_record" "$(grep '^remove ' "$STORE/.calls")"
 
+fixture "[$(pr "$URL" false me)]"; : >"$STORE/.calls"
+run c-intent continue exit
+n=$(calls 'add|remove|exists|get|list')
+if [ "$n" -le 9 ]; then ok "the intent exit stage makes at most nine koto context calls"; else bad "the intent exit stage makes at most nine koto context calls" "made $n koto context calls, one after another"; fi
+eq "the intent exit stage records the owned PR" "$URL" "$(key c-intent pr)"
+eq "the intent exit stage removes exit_record and nothing else" "remove exit_record" "$(grep '^remove ' "$STORE/.calls")"
+
 mkdir -p "$STORE/c-fail"
 printf 'ok' >"$STORE/c-fail/exit_record"
 fixture "[]"
