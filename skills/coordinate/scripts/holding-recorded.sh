@@ -6,8 +6,8 @@
 # doesn't show. This gate reads the record itself, through the record
 # feature's reader, never a value the coordinator submits or a context key it
 # could write. The topic it checks is dispatch_topic, which the pick edge
-# writes fresh on every pass, so the gate never passes on an earlier topic's
-# row.
+# writes and dispatch_check writes again on ok (the topic it sealed), fresh on
+# every pass, so the gate never passes on an earlier topic's row.
 #
 # Usage:
 #   holding-recorded.sh --session <koto-session>

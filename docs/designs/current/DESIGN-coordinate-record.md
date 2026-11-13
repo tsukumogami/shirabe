@@ -540,7 +540,7 @@ The turn:
 | `pick_facts` | check + data: `pick-facts.sh` prints `pick`, `scope-complete` or `rotation-over`; writes `coord/pick.json` (units in order with blocked and blocker-landed flags, holdings with phase, active and parked counts) | `pick` -> `pick`; `scope-complete` -> `roadmap_close`; `rotation-over` -> `rotation_close` |
 | `pick` | evidence `choice: dispatch, scope_ahead, send_execution, ask_up, hold` with a shadow decider over `coord/pick.json`, `CAP` and `PARKED_BOUND`; optional `unit` | dispatch, scope_ahead, send_execution -> `dispatch_check`, writing `dispatch_topic` from `unit`; ask_up -> `ask_up`; hold -> `wait` |
 | `ask_up` | evidence `sent` | -> `wait` |
-| `dispatch_check` | check: `deferral-check.sh` (record found once with four sections; no deferral raised before the run start undisposed; the predecessor's committed handoff file, read from the host's default branch, compared until the first pass in this run; the cap and parked bound, where `send_execution` doesn't add an active worker; a `dispatch` or `scope_ahead` topic a Holdings row already names is refused, since worker session names are machine-wide); passes `dispatch_topic` through | ok -> `dispatch`; `deferral-open` -> `deferral_dispose`; `record-changed` -> `record_find`; `at-cap` -> `wait`; `duplicate-topic` -> `pick_facts` |
+| `dispatch_check` | check: `deferral-check.sh` (record found once with four sections; no deferral raised before the run start undisposed; the predecessor's committed handoff file, read from the host's default branch, compared until the first pass in this run; the cap and parked bound, where `send_execution` doesn't add an active worker; a `dispatch` or `scope_ahead` topic a Holdings row already names is refused, since worker session names are machine-wide); on `ok`, writes the topic it sealed to `dispatch_topic` | ok -> `dispatch`; `deferral-open` -> `deferral_dispose`; `record-changed` -> `record_find`; `at-cap` -> `wait`; `duplicate-topic` -> `pick_facts` |
 | `deferral_dispose` | evidence `rewritten` after `record-write.sh` | -> `dispatch_check` |
 | `dispatch` | evidence `sent` or `failed`, `topic`; the dispatch path fills its procedure | sent -> `record`; failed -> `failure` |
 | `record` | check: `record-confirm.sh`, which reads the source state and its evidence from the log and checks the change it implies (below) | confirmed -> `pick_facts`; a `--to` in the run or an unconfirmable change -> `record_conflict` |
@@ -617,7 +617,7 @@ states beside `report_facts`, writes the `worker_report` key (which it adds as a
 `classify_report`'s decider, gated where it's written), and extends `teardown` with its sealed
 inventory (through `coord-log.sh`) and the states after it. This feature owns `classify_report` and
 the prose `teardown`; the dispatch path extends both and duplicates neither. `pick` writes
-`dispatch_topic` on its edge to `dispatch_check`, which passes it through to `dispatch`. Reconcile
+`dispatch_topic` on its edge to `dispatch_check`, which writes the topic it sealed on `ok`. Reconcile
 hardens `reconcile` and reuses `coord-log.sh`. Every holding row changes only through
 `record-holding.sh`:
 
@@ -657,7 +657,7 @@ that never fires with no test failing:
 | `teardown_inventory`, `destroy` | states | shirabe#404 | `record-confirm.sh` (source `destroy`) |
 | `TEARDOWN_SEAL`, key `teardown_verdict` | capture, context key | shirabe#404's `teardown_inventory` | `record-confirm.sh` (the topic, through `coord-log.sh check --key`) |
 | `destroyed`, `handed_over` | `destroy` evidence values | shirabe#404 | `record-confirm.sh` |
-| `dispatch_topic` | context key | `pick`'s edges | shirabe#404's `dispatch-worker.sh` |
+| `dispatch_topic` | context key | `pick`'s edges; `dispatch_check` on `ok` | shirabe#404's `dispatch-worker.sh` |
 | `worker_report` | context key | shirabe#404 | `classify_report`'s decider |
 | `reconcile_pass`, `reconciled` (140) | state, verdict | shirabe#406 | `coord-verdict.sh` |
 

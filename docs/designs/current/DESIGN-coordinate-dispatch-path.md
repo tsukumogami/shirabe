@@ -397,7 +397,7 @@ feature's template carries them:
 
 | Seam | What this feature needs |
 |---|---|
-| `pick -> dispatch_check -> dispatch` | the pick edge writes the context key `dispatch_topic`, fresh on every pass, and the record feature's deferral gate `dispatch_check` passes it through to `dispatch` |
+| `pick -> dispatch_check -> dispatch` | the pick edge writes the context key `dispatch_topic`, fresh on every pass, and the record feature's deferral gate `dispatch_check` writes the topic it sealed over it on `ok`, so a redispatch from `failure` carries one too |
 | `wait`'s exits | `wait`'s `report` event leaves to `take_report` and its `leg` event to `leg_pick`, both added here; its other events go to the record feature's states |
 | `take_report -> report_facts -> classify_report` | an admitted report passes through the record feature's `report_facts`, which reads the reporting holding and writes the gated `coord/report.json`, before it's classified. `report-facts.sh` finds the reporting worker from the log: the hub's `unit` for a message report, and for a leg report the holding whose Return path is `leg <WAIT_REQ>:<WAIT_LEG>`, from leg_pick's and wait_leg's captures. That leg-path read is on the record feature's branch (#408) and isn't in the copy of it merged here |
 | `classify_report`'s exits | `verify` on `done`, `rebrief` on `needs_fix`, and the record feature's surface step on `blocked` |
@@ -453,8 +453,9 @@ refused leg goes to the surface step, never to classification, so no route
 reaches `verify` for a leg-bound worker without a promoted result.
 
 **Why the keys are cleared.** `dispatch_topic` is written fresh on every
-`pick -> dispatch` edge, so the dispatch gate never passes on the previous
-topic's row. Every edge into `take_report` writes `worker_report`,
+`pick -> dispatch` edge, and `dispatch_check` writes the topic it sealed on
+`ok`, so the dispatch gate never passes on the previous topic's row. Every
+edge into `take_report` writes `worker_report`,
 `report_topic` and `report_source` fresh, and the dispatch path's edges back
 into `wait` (from `take_report`, from `leg_pick`, from `wait_leg`'s `back`,
 and from `rebrief`'s `sent`) clear `worker_report` and `report_topic`. So
