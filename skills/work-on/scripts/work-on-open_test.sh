@@ -101,6 +101,13 @@ FIXREPO="$WORK/repo"
 mkdir -p "$FIXREPO"
 (cd "$FIXREPO" && git init -q . && git config user.email t@example.com && git config user.name t \
     && git commit -q --allow-empty -m init) >/dev/null 2>&1
+# An issue-backed session is named from the issue's repository (#1842): issue 7
+# of the fixture's origin, acme/tools, is issue_7.acme.tools, as session-name.sh
+# derives it. ARTIFACT_PREFIX stays issue_<N>. The opener doesn't check the name
+# under --koto-leg (that open attaches a run opened before the name changed), so
+# the leg cases that keep the bare issue_<N> still open.
+(cd "$FIXREPO" && git remote add origin https://github.com/acme/tools.git) >/dev/null 2>&1
+FIXTAIL=.acme.tools
 
 # koto admits a variable value only inside its allowlist, and no case here runs
 # a gate or action that needs the real plugin root, so a clean stand-in does.
@@ -130,7 +137,7 @@ own_refusal() { # own_refusal <label> <json tokens>
     : > "$WORK/stub.log"
     tokens "$2"
     OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
-        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>/dev/null)
+        bash "$OPEN" --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>/dev/null)
     RC=$?
     if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
         pass "own refusal: $1 (exit 64, no koto call, tokens file and its directory removed)"
@@ -173,7 +180,7 @@ reason_refusal() {
     # Only the reason can hold a newline, and it goes in through --arg.
     tokens "$(printf '%s\n' 7 "$@" | jq -R . | jq -sc --arg r "$reason" '. + ["--verification-reason=" + $r]')"
     OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
-        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>"$WORK/stderr")
+        bash "$OPEN" --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" 2>"$WORK/stderr")
     RC=$?
     ERR=$(cat "$WORK/stderr")
     if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ ! -s "$WORK/stub.log" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
@@ -225,7 +232,7 @@ pairs_of() { # pairs_of <json tokens>
     rm -f "$WORK/vars.json"
     tokens "$1"
     (cd "$FIXREPO" && KOTO_STUB_VARS="$WORK/vars.json" PATH="$PAIRS_BIN:$PATH" \
-        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" >/dev/null 2>&1)
+        bash "$OPEN" --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" >/dev/null 2>&1)
 }
 pairs_of '["7","--koto-leg=r1:work-on"]'
 eq "no bound flags: the pairs are the ones before the flags existed" \
@@ -305,13 +312,13 @@ plain_open() { # plain_open <json tokens> [opener args]...
     CALLS=$(cat "$WORK/stub.log")
 }
 
-plain_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+plain_open '["7"]' --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
 eq "the plain open: exit 0" 0 "$RC"
 eq "the plain open: opened=new, then session=" "opened=new
-session=issue_7" "$OUT"
+session=issue_7$FIXTAIL" "$OUT"
 eq "the plain open: one koto call, an init of the session from work-on.md" 1 "$(printf '%s\n' "$CALLS" | grep -c .)"
 case "$CALLS" in
-    "init issue_7 --template "*"/koto-templates/work-on.md --vars-file "*) pass "the plain open: an init of issue_7 from work-on.md with --vars-file" ;;
+    "init issue_7$FIXTAIL --template "*"/koto-templates/work-on.md --vars-file "*) pass "the plain open: an init of issue_7$FIXTAIL from work-on.md with --vars-file" ;;
     *) fail "the plain open: koto calls [$CALLS]" ;;
 esac
 case "$CALLS" in
@@ -331,25 +338,25 @@ eq "the plain open, free-form: the pairs koto is handed" \
     "$(jq -c . "$WORK/vars.json" 2>/dev/null)"
 
 # A name in use: koto's refusal passes through, and no session= line follows.
-PLAIN_LIVE=1 plain_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+PLAIN_LIVE=1 plain_open '["7"]' --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
 eq "the plain open of a live session: exit 2" 2 "$RC"
 eq "the plain open of a live session: koto's refusal, no session= line" "refused=session_live" "$OUT"
 case "$CALLS" in
     *--attach-live*) fail "the plain open of a live session: it tried to attach: [$CALLS]" ;;
-    "init issue_7 "*) pass "the plain open of a live session: one init, no attach" ;;
+    "init issue_7$FIXTAIL "*) pass "the plain open of a live session: one init, no attach" ;;
     *) fail "the plain open of a live session: koto calls [$CALLS]" ;;
 esac
 case "$ERR" in *"already exists"*) pass "the plain open of a live session: koto's message reaches stderr" ;; *) fail "the plain open of a live session: stderr [$ERR]" ;; esac
 
 # A multi-pr PLAN run opens each issue here with the PLAN path in its tokens;
 # only under --koto-leg is that refused.
-plain_open '["docs/plans/PLAN-x.md"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+plain_open '["docs/plans/PLAN-x.md"]' --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
 eq "the plain open with a PLAN path among the tokens: exit 0" 0 "$RC"
 eq "the plain open with a PLAN path among the tokens: opened" "opened=new
-session=issue_7" "$OUT"
+session=issue_7$FIXTAIL" "$OUT"
 
 # --dispatched-by works without the leg too.
-plain_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 --dispatched-by ../x
+plain_open '["7"]' --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 --dispatched-by ../x
 eq "the plain open: a malformed --dispatched-by is still refused" "64|error=usage|" "$RC|$OUT|$CALLS"
 
 # --- the unit.mode event field --------------------------------------------------
@@ -360,6 +367,7 @@ eq "the plain open: a malformed --dispatched-by is still refused" "64|error=usag
 MODE_TREE="$WORK/mode-tree"
 mkdir -p "$MODE_TREE/skills/work-on/scripts" "$MODE_TREE/skills/work-on/koto-templates" "$MODE_TREE/scripts/lib"
 cp "$OPEN" "$MODE_TREE/skills/work-on/scripts/work-on-open.sh"
+cp "$SCRIPT_DIR/session-name.sh" "$MODE_TREE/skills/work-on/scripts/session-name.sh"
 cp "$REPO_ROOT/scripts/lib/verification-deferral.sh" "$REPO_ROOT/scripts/lib/dispatch-link.sh" "$MODE_TREE/scripts/lib/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$MODE_TREE/skills/work-on/scripts/review-level.sh"
 cat > "$MODE_TREE/scripts/koto-open.sh" <<'STUB'
@@ -382,15 +390,15 @@ mode_open() { # mode_open <json tokens> [opener args]...
     RC=$?
     ARGV=$(tr '\n' ' ' < "$WORK/open-argv" 2>/dev/null)
 }
-mode_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+mode_open '["7"]' --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
 eq "issue-backed, no --koto-leg: koto-open.sh gets unit.mode=issue_backed and no leg" \
-    "0|issue_7 --event-field unit.mode=issue_backed " "$RC|$ARGV"
+    "0|issue_7$FIXTAIL --event-field unit.mode=issue_backed " "$RC|$ARGV"
 mode_open '["7","--koto-leg=r1:work-on"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
 eq "issue-backed under --koto-leg: koto-open.sh gets the leg and unit.mode=issue_backed" \
     "0|issue_7 --attach-live --koto-leg r1:work-on --event-field unit.mode=issue_backed " "$RC|$ARGV"
-mode_open '["7"]' --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 --var ISSUE_REPO=acme/tracker
+mode_open '["7"]' --workflow issue_7.acme.tracker --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 --var ISSUE_REPO=acme/tracker
 eq "an issue in another repository: still unit.mode=issue_backed" \
-    "0|issue_7 --event-field unit.mode=issue_backed " "$RC|$ARGV"
+    "0|issue_7.acme.tracker --event-field unit.mode=issue_backed " "$RC|$ARGV"
 mode_open '["tidy notes.md"]' --workflow task_tidy --var ARTIFACT_PREFIX=task_tidy
 eq "free-form, no --koto-leg: koto-open.sh gets unit.mode=free_form" \
     "0|task_tidy --event-field unit.mode=free_form " "$RC|$ARGV"
@@ -438,7 +446,7 @@ level_fail_open() { # level_fail_open <mode> <json tokens>
     rm -f "$WORK/vars.json"
     tokens "$2"
     OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" LEVEL_FAIL="$1" \
-        PATH="$LEVEL_BIN:$PATH" bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 \
+        PATH="$LEVEL_BIN:$PATH" bash "$OPEN" --workflow issue_7$FIXTAIL --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 \
         "$TOKENS" 2>"$WORK/stderr")
     RC=$?
     ERR=$(cat "$WORK/stderr")
@@ -453,14 +461,14 @@ for mode in bound-elsewhere unreadable; do
         fail "a failed level read ($mode) under --koto-leg: exit $RC, out [$OUT], init calls [$INITS], pairs [$(cat "$WORK/vars.json" 2>/dev/null)]"
     fi
     case "$ERR" in
-        *"issue_7's review level"*"no koto init"*) pass "a failed level read ($mode): the message names the session and says koto init was not run" ;;
+        *"issue_7$FIXTAIL's review level"*"no koto init"*) pass "a failed level read ($mode): the message names the session and says koto init was not run" ;;
         *) fail "a failed level read ($mode): stderr [$ERR]" ;;
     esac
     # Without --koto-leg the level is never read: the plain open never
     # attaches, so the one koto call is its init.
     level_fail_open "$mode" '["7"]'
     if [ "$RC" -eq 0 ] && [ "$OUT" = "opened=new
-session=issue_7" ] && [ -z "$(grep -v '^init ' "$WORK/stub.log")" ] && [ -n "$INITS" ] \
+session=issue_7$FIXTAIL" ] && [ -z "$(grep -v '^init ' "$WORK/stub.log")" ] && [ -n "$INITS" ] \
         && [ ! -e "$(dirname "$TOKENS")" ]; then
         pass "a failing level read ($mode) without --koto-leg: never run; the plain open goes ahead"
     else
@@ -579,6 +587,157 @@ dispatch_refusal "--dispatched-by -x" --dispatched-by -x
 dispatch_refusal "--dispatched-by naming the run itself" --dispatched-by issue_7
 dispatch_refusal "--dispatched-by given twice" --dispatched-by a1 --dispatched-by a2
 
+# --- session-name.sh: the issue-backed session name (#1842) --------------------
+#
+# issue_<N>.<owner>.<repo>, lowercased, from the repository given or else the
+# checkout's origin; every refusal is exit 64 with nothing on stdout. Each name
+# printed must be one koto accepts as a workflow name (koto's
+# validate_workflow_name): a first character that is a letter or digit, then
+# letters, digits, `.`, `_` and `-`, no `~`, at most 255 bytes.
+NAMES="$SCRIPT_DIR/session-name.sh"
+NAMEREPO="$WORK/names"
+mkdir -p "$NAMEREPO"
+(cd "$NAMEREPO" && git init -q .) >/dev/null 2>&1
+name_in() { # name_in <checkout> <args>... -- sets NAME_OUT and NAME_RC
+    local d="$1"
+    shift
+    NAME_OUT=$(cd "$d" && bash "$NAMES" "$@" 2>/dev/null)
+    NAME_RC=$?
+}
+koto_name_ok() { # koto_name_ok <name>: 0 when koto would accept it
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [ "${#1}" -le 255 ] && case "$1" in *~*) false ;; *) true ;; esac
+}
+name_case() { # name_case <label> <want> <checkout> <args>...
+    local label="$1" want="$2"
+    shift 2
+    name_in "$@"
+    eq "session-name.sh: $label" "0|$want" "$NAME_RC|$NAME_OUT"
+    koto_name_ok "$NAME_OUT" && pass "session-name.sh: $label: koto accepts [$NAME_OUT] as a workflow name" \
+        || fail "session-name.sh: $label: koto would refuse [$NAME_OUT]"
+}
+name_refusal() { # name_refusal <label> <checkout> <args>...
+    local label="$1"
+    shift
+    name_in "$@"
+    eq "session-name.sh refuses $label: exit 64, nothing on stdout" "64|" "$NAME_RC|$NAME_OUT"
+}
+origin_case() { # origin_case <url> <want>
+    (cd "$NAMEREPO" && { git remote remove origin 2>/dev/null; git remote add origin "$1"; }) >/dev/null 2>&1
+    name_case "origin $1" "$2" "$NAMEREPO" 7
+}
+
+name_case "the repository given wins over origin" issue_7.other.thing "$FIXREPO" 7 other/thing
+name_case "no repository given: the checkout's origin" issue_7.acme.tools "$FIXREPO" 7
+name_case "an empty repository is none given" issue_7.acme.tools "$FIXREPO" 7 ""
+name_case "case is folded" issue_7.acme.my-repo "$FIXREPO" 7 Acme/My-Repo
+name_case "a repository name with dots" issue_7.acme.tools.v2 "$FIXREPO" 7 acme/tools.v2
+name_case "a repository name starting with a dot" issue_7.acme..github "$FIXREPO" 7 acme/.github
+name_case "a large issue number" issue_1234567890.acme.tools "$FIXREPO" 1234567890
+LONG_OWNER=$(printf 'o%.0s' $(seq 1 39))
+LONG_REPO=$(printf 'r%.0s' $(seq 1 100))
+name_case "the longest owner and repository GitHub allows" "issue_9999999999.$LONG_OWNER.$LONG_REPO" \
+    "$FIXREPO" 9999999999 "$LONG_OWNER/$LONG_REPO"
+origin_case https://github.com/acme/tools.git issue_7.acme.tools
+origin_case https://github.com/acme/tools issue_7.acme.tools
+origin_case ssh://git@github.com/acme/tools.git issue_7.acme.tools
+origin_case ssh://git@github.com/acme/tools issue_7.acme.tools
+origin_case git@github.com:acme/tools.git issue_7.acme.tools
+origin_case git@github.com:Acme/Tools issue_7.acme.tools
+
+# One name per repository: `.` can't occur in an owner, so a hyphen moving
+# across the owner/repository boundary still gives two names.
+name_in "$FIXREPO" 7 a-b/c
+A=$NAME_OUT
+name_in "$FIXREPO" 7 a/b-c
+[ -n "$A" ] && [ -n "$NAME_OUT" ] && [ "$A" != "$NAME_OUT" ] \
+    && pass "session-name.sh: a-b/c and a/b-c get distinct names [$A] [$NAME_OUT]" \
+    || fail "session-name.sh: a-b/c and a/b-c: [$A] [$NAME_OUT]"
+
+(cd "$NAMEREPO" && git remote remove origin) >/dev/null 2>&1
+name_refusal "a checkout with no origin and no repository given" "$NAMEREPO" 7
+(cd "$NAMEREPO" && git remote add origin /srv/git/tools) >/dev/null 2>&1
+name_case "a local origin path still names two segments" issue_7.git.tools "$NAMEREPO" 7
+(cd "$NAMEREPO" && git remote set-url origin tools) >/dev/null 2>&1
+name_refusal "an origin that names no owner/repo" "$NAMEREPO" 7
+name_refusal "no issue number" "$FIXREPO"
+name_refusal "a non-numeric issue number" "$FIXREPO" x7
+name_refusal "issue number 0" "$FIXREPO" 0
+name_refusal "a zero-padded issue number" "$FIXREPO" 07
+name_refusal "an extra argument" "$FIXREPO" 7 acme/tools more
+for bad in acme acme/ /tools a/b/c ac.me/tools -acme/tools acme_x/tools acme/.. acme/. "acme/to ols" \
+    "acme/to~ols" "$(printf 'o%.0s' $(seq 1 40))/tools" "acme/$(printf 'r%.0s' $(seq 1 101))"; do
+    name_refusal "the repository [$bad]" "$FIXREPO" 7 "$bad"
+done
+
+# --- the plain issue-backed open checks the name (#1842) -----------------------
+#
+# Without --koto-leg, an issue-backed open (an ISSUE_NUMBER --var) is refused
+# before any koto call unless --workflow is session-name.sh's name for the issue,
+# or that name renamed with a suffix after the number. Free-form opens and opens
+# under --koto-leg are not checked; the cases above cover them.
+name_check() { # name_check <checkout> <tokens json> <opener args>...
+    local d="$1" t="$2"
+    shift 2
+    : > "$WORK/stub.log"
+    rm -f "$WORK/vars.json"
+    tokens "$t"
+    OUT=$(cd "$d" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" PATH="$PLAIN_BIN:$PATH" \
+        bash "$OPEN" "$@" "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+    CALLS=$(cat "$WORK/stub.log")
+}
+name_check_refused() { # name_check_refused <label> <checkout> <opener args>...
+    local label="$1" d="$2"
+    shift 2
+    name_check "$d" '["7"]' "$@"
+    if [ "$RC" -eq 64 ] && [ "$OUT" = "error=usage" ] && [ -z "$CALLS" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "the plain issue-backed open refuses $label (exit 64, no koto call, tokens directory removed)"
+    else
+        fail "the plain issue-backed open, $label: exit $RC, out [$OUT], koto calls [$CALLS], stderr [$ERR]"
+    fi
+}
+name_check_refused "the bare issue_7" "$FIXREPO" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+case "$ERR" in
+    *"--workflow issue_7 does not name this issue's repository"*"open issue 7 as issue_7.acme.tools"*"issue_7_<suffix>.acme.tools"*)
+        pass "the refusal names the session to open, and the renamed form" ;;
+    *) fail "the refusal of the bare issue_7: stderr [$ERR]" ;;
+esac
+name_check_refused "another repository's name for the same number" "$FIXREPO" \
+    --workflow issue_7.acme.other --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+name_check_refused "the checkout's name when the issue is in another repository" "$FIXREPO" \
+    --workflow issue_7.acme.tools --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 --var ISSUE_REPO=acme/tracker
+name_check_refused "another issue number's name" "$FIXREPO" \
+    --workflow issue_8.acme.tools --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+name_check_refused "a suffix after the repository" "$FIXREPO" \
+    --workflow issue_7.acme.tools-old --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+name_check_refused "a renamed suffix with a dot" "$FIXREPO" \
+    --workflow issue_7_a.b.acme.tools --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+name_check_refused "an empty renamed suffix" "$FIXREPO" \
+    --workflow issue_7_.acme.tools --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+name_check_refused "a checkout whose origin names no repository" "$NAMEREPO" \
+    --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+case "$ERR" in
+    *"named from the issue's repository, and none could be read"*"origin is not owner/repo"*)
+        pass "the refusal with no usable origin says no repository could be read, and why" ;;
+    *) fail "the refusal with no usable origin: stderr [$ERR]" ;;
+esac
+
+name_check "$FIXREPO" '["7"]' --workflow issue_7_old-run.acme.tools --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7
+eq "a renamed run (issue_7_<suffix>.acme.tools) opens" "0|opened=new
+session=issue_7_old-run.acme.tools" "$RC|$OUT"
+name_check "$FIXREPO" '["7"]' --workflow issue_7.acme.tracker --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 \
+    --var ISSUE_REPO=Acme/Tracker
+eq "an issue in another repository opens under that repository's name, case folded" "0|opened=new
+session=issue_7.acme.tracker" "$RC|$OUT"
+name_check "$NAMEREPO" '["7"]' --workflow issue_7.acme.tracker --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 \
+    --var ISSUE_REPO=acme/tracker
+eq "with the repository given, a checkout with no usable origin still opens" "0|opened=new
+session=issue_7.acme.tracker" "$RC|$OUT"
+name_check "$NAMEREPO" '["tidy notes"]' --workflow task_tidy --var ARTIFACT_PREFIX=task_tidy
+eq "a free-form open in a checkout with no origin is not checked" "0|opened=new
+session=task_tidy" "$RC|$OUT"
+
 # --- engine-backed ------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1 || ! koto init --help 2>/dev/null | grep -q -- '--koto-leg'; then
@@ -633,24 +792,24 @@ eq "the leg's status is success" '"success"' "$(leg "$REQ" .result.status)"
 
 # The plain open (no --koto-leg): a new session, and a second plain open of
 # the live session is koto's refusal, leaving it where it was.
-run_open issue_8 '["8"]' --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
+run_open issue_8$FIXTAIL '["8"]' --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
 eq "the plain open: exit 0" 0 "$RC"
-case "$OUT" in opened=new*session=issue_8) pass "the plain open prints opened=new and session=issue_8" ;; *) fail "plain open output: [$OUT] [$ERR]" ;; esac
-eq "the plain open: the session is at entry" entry "$(state_of issue_8)"
-tick issue_8 --with-data '{"mode":"issue_backed","issue_number":"8"}'
-run_open issue_8 '["8"]' --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
+case "$OUT" in opened=new*session=issue_8$FIXTAIL) pass "the plain open prints opened=new and session=issue_8$FIXTAIL" ;; *) fail "plain open output: [$OUT] [$ERR]" ;; esac
+eq "the plain open: the session is at entry" entry "$(state_of issue_8$FIXTAIL)"
+tick issue_8$FIXTAIL --with-data '{"mode":"issue_backed","issue_number":"8"}'
+run_open issue_8$FIXTAIL '["8"]' --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
 case "$RC:$OUT" in 0:*|*:*session=*) fail "a second plain open of a live session was not refused: exit $RC, [$OUT]" ;;
     *:refused=*) pass "a second plain open of a live session is refused ($OUT, exit $RC)" ;;
     *) fail "a second plain open: exit $RC, [$OUT] [$ERR]" ;; esac
-eq "and the live session stays where it was" context_injection "$(state_of issue_8)"
+eq "and the live session stays where it was" context_injection "$(state_of issue_8$FIXTAIL)"
 
 # Resume: a live session opened the plain way is attached and bound.
 REQ=$(new_request '{"ISSUE_NUMBER":"8","ARTIFACT_PREFIX":"issue_8"}')
-run_open issue_8 "[\"8\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
+run_open issue_8$FIXTAIL "[\"8\",\"--koto-leg=$REQ:work-on\"]" --var ISSUE_NUMBER=8 --var ARTIFACT_PREFIX=issue_8
 eq "a live session under --koto-leg: exit 0" 0 "$RC"
 case "$OUT" in *opened=attached*) pass "the live session is attached" ;; *) fail "resume output: [$OUT] [$ERR]" ;; esac
-eq "and stays where it was" context_injection "$(state_of issue_8)"
-eq "the attached session is bound to the leg" '"issue_8"' "$(leg "$REQ" .bound_child)"
+eq "and stays where it was" context_injection "$(state_of issue_8$FIXTAIL)"
+eq "the attached session is bound to the leg" "\"issue_8$FIXTAIL\"" "$(leg "$REQ" .bound_child)"
 
 # A resume after the plugin moved: PLUGIN_ROOT is rebind, so the attach
 # re-applies the new path instead of refusing the changed value.
@@ -791,36 +950,36 @@ eq "the ledger reads bound, then choose" "bound choose" "$(ledger_events issue_4
 # the plain way (this script with no --koto-leg, the bound in the tokens), its
 # level chosen, and a bare attach shows what the script guards against: the
 # attach resets REVIEW_LEVEL, which isn't passed.
-CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43 '["43","--review-floor=standard"]' \
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43$FIXTAIL '["43","--review-floor=standard"]' \
     --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43
 eq "the plain open with --review-floor=standard: exit 0" 0 "$RC"
-eq "the plain open records REVIEW_FLOOR=standard" standard "$(session_var issue_43 REVIEW_FLOOR)"
-to_choice issue_43
-(cd "$FIXREPO" && "$RL" set issue_43 full >/dev/null 2>&1)
-eq "the level is chosen" full "$(session_var issue_43 REVIEW_LEVEL)"
-eq "review-level.sh level reads it from the ledger" full "$(cd "$FIXREPO" && "$RL" level issue_43 2>/dev/null)"
-k init issue_43 --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" >/dev/null 2>&1
-eq "control: a bare attach empties REVIEW_LEVEL" "" "$(session_var issue_43 REVIEW_LEVEL)"
-(cd "$FIXREPO" && "$RL" set issue_43 full >/dev/null 2>&1)
+eq "the plain open records REVIEW_FLOOR=standard" standard "$(session_var issue_43$FIXTAIL REVIEW_FLOOR)"
+to_choice issue_43$FIXTAIL
+(cd "$FIXREPO" && "$RL" set issue_43$FIXTAIL full >/dev/null 2>&1)
+eq "the level is chosen" full "$(session_var issue_43$FIXTAIL REVIEW_LEVEL)"
+eq "review-level.sh level reads it from the ledger" full "$(cd "$FIXREPO" && "$RL" level issue_43$FIXTAIL 2>/dev/null)"
+k init issue_43$FIXTAIL --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" >/dev/null 2>&1
+eq "control: a bare attach empties REVIEW_LEVEL" "" "$(session_var issue_43$FIXTAIL REVIEW_LEVEL)"
+(cd "$FIXREPO" && "$RL" set issue_43$FIXTAIL full >/dev/null 2>&1)
 REQ=$(new_request '{"ISSUE_NUMBER":"43"}')
-CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43 "[\"43\",\"--review-floor=standard\",\"--koto-leg=$REQ:work-on\"]" \
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43$FIXTAIL "[\"43\",\"--review-floor=standard\",\"--koto-leg=$REQ:work-on\"]" \
     --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43
 eq "a resume through work-on-open.sh: exit 0" 0 "$RC"
 case "$OUT" in *opened=attached*) pass "the live session is attached" ;; *) fail "resume output: [$OUT] [$ERR]" ;; esac
-eq "the resume keeps REVIEW_LEVEL at the ledger's level" full "$(session_var issue_43 REVIEW_LEVEL)"
-eq "and the bound it was opened with" standard "$(session_var issue_43 REVIEW_FLOOR)"
-eq "the resumed session is bound to the leg" '"issue_43"' "$(leg "$REQ" .bound_child)"
-eq "and still waits where it was" review_level_choice "$(state_of issue_43)"
+eq "the resume keeps REVIEW_LEVEL at the ledger's level" full "$(session_var issue_43$FIXTAIL REVIEW_LEVEL)"
+eq "and the bound it was opened with" standard "$(session_var issue_43$FIXTAIL REVIEW_FLOOR)"
+eq "the resumed session is bound to the leg" "\"issue_43$FIXTAIL\"" "$(leg "$REQ" .bound_child)"
+eq "and still waits where it was" review_level_choice "$(state_of issue_43$FIXTAIL)"
 
 # The bound doesn't move inside a run: REVIEW_FLOOR isn't rebind in
 # work-on.md, so a resume naming a different floor is refused.
 REQ=$(new_request '{"ISSUE_NUMBER":"43"}')
-CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43 "[\"43\",\"--review-floor=full\",\"--koto-leg=$REQ:work-on\"]" \
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43$FIXTAIL "[\"43\",\"--review-floor=full\",\"--koto-leg=$REQ:work-on\"]" \
     --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43
 eq "a resume with a different floor: exit 2" 2 "$RC"
 eq "koto's refusal code" "refused=var_mismatch" "$OUT"
-eq "the session keeps its floor" standard "$(session_var issue_43 REVIEW_FLOOR)"
-eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
+eq "the session keeps its floor" standard "$(session_var issue_43$FIXTAIL REVIEW_FLOOR)"
+eq "and its level" full "$(session_var issue_43$FIXTAIL REVIEW_LEVEL)"
 
 # --- the reason check against koto's value allowlist (#1040) --------------------
 

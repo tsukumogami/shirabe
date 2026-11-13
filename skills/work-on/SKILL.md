@@ -342,7 +342,7 @@ The plan-level orchestrator — shared branch and draft PR, child spawning, esca
 
 ---
 
-You are assigned to work on the resolved issue. The issue number determined above replaces `<N>` throughout this workflow. The workflow name `<WF>` is the ARTIFACT_PREFIX value: `issue_<N>` for issue-backed, `task_<slug>` for free-form.
+You are assigned to work on the resolved issue. The issue number determined above replaces `<N>` throughout this workflow. The workflow name `<WF>` is the koto session's name. For a free-form run it is the ARTIFACT_PREFIX value, `task_<slug>`. For an issue-backed run it carries the issue's repository, because two repositories' issues with the same number would otherwise share one name on the host: it is what `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-name.sh <N> "<ISSUE_REPO>"` prints, `issue_<N>.<owner>.<repo>` lowercased, with the repository taken from the checkout's origin when `ISSUE_REPO` is empty. Run it from the checkout before **Resume** and use its output wherever `<WF>` appears; it exits 64 when no repository can be read, so report that and stop. ARTIFACT_PREFIX stays `issue_<N>` either way: it names the run's context keys and branch, not the session.
 
 ## Koto Orchestration
 
@@ -642,6 +642,10 @@ leg, since one leg answers one session.
   shared decision rule replaces in that one file. Exit codes are in its header;
   `scripts/test-change_test.sh`, `scripts/test-change-routes_test.sh` and
   `scripts/lib/acceptance-rule_test.sh` are its harnesses.
+- `scripts/session-name.sh <N> [<owner/repo>]` -- prints an issue-backed run's
+  `<WF>`, `issue_<N>.<owner>.<repo>` lowercased, from the repository given or
+  else the checkout's origin; exit 64 when there is no repository to read or
+  the number or repository is malformed, never a bare `issue_<N>`.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... [--dispatched-by <dispatcher>] <tokens-file>`
   — the one entry for every issue-backed and free-form run (see **Initialize**
   and **Answering a Caller's Leg**): maps `--review-floor=`/`--review-ceiling=`
@@ -781,7 +785,12 @@ is a blocking finding raised by that seat. None of it reaches the pull request.
 
 ### Resume
 
-1. `koto workflows` — find a workflow matching this issue.
+1. `koto workflows` — find the workflow named exactly `<WF>`, the
+   `session-name.sh` name. A session under another repository's name is not
+   this run, even with the same issue number: never read, tick, attach, clean
+   up or rename it. A run opened before session names carried the repository
+   is named bare `issue_<N>`; resume it by that recorded name only when its
+   context shows it is this repository's issue, and otherwise open fresh.
 2. **If found, read its state before ticking it:**
    ```bash
    koto status <WF>
@@ -790,7 +799,10 @@ is a blocking finding raised by that seat. None of it reaches the pull request.
    resumable, and this run has done no work — do not report the issue complete.
    Start fresh instead: `koto session cleanup <WF>` when its record is no longer
    wanted and then open as **Initialize** says, or open under a different
-   workflow name (`--workflow`) to keep the record. (An open on a name still in
+   workflow name (`--workflow`) to keep the record: for an issue-backed run,
+   `<WF>` with `_<suffix>` after the number, `issue_<N>_<suffix>.<owner>.<repo>`
+   (letters, digits, `_` and `-` in the suffix), the one other form
+   `work-on-open.sh` accepts without `--koto-leg`. (An open on a name still in
    use is refused and says the same.) Either open goes through
    `work-on-open.sh`; a renamed run still passes `ARTIFACT_PREFIX=issue_<N>`, so
    a leg that pins it still admits the session.

@@ -61,7 +61,10 @@ variables:
   ARTIFACT_PREFIX:
     description: >
       Prefix for context keys and branch names. Set at koto init time:
-      issue_<N> for issue-backed, task_<slug> for free-form.
+      issue_<N> for issue-backed, task_<slug> for free-form. It is not
+      always the session name: an issue-backed session is named
+      issue_<N>.<owner>.<repo> (session-name.sh), so two repositories'
+      issues with the same number don't share one.
     required: true
   ISSUE_SOURCE:
     description: Source of issue data for plan-backed mode (github or plan_outline)

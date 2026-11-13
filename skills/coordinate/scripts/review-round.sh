@@ -22,7 +22,8 @@
 #
 # The session is the worker's own: the run the coordinator's leg is bound to,
 # or on the message path the one its opener opened (its name, such as
-# issue_<N>). The coordinator finds it through the leg; a worker with no leg
+# issue_<N>.<owner>.<repo> for an issue-backed /work-on run). The coordinator
+# finds it through the leg; a worker with no leg
 # reports it instead, since render-result.sh carries the stored round in the
 # result block of its final report.
 #

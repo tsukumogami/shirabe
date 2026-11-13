@@ -7,7 +7,7 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/work-on #42",
-      "expected_output": "Resolves issue #42, reads it with gh issue view, checks for blocking labels, then initializes a koto workflow with `koto init issue_42 --template ... --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42`. Submits entry evidence with mode: issue_backed. Enters the koto execution loop using `koto next issue_42` to advance through states.",
+      "expected_output": "Resolves issue #42, reads it with gh issue view, checks for blocking labels, then derives the session name with session-name.sh (issue_42.<owner>.<repo>, from the checkout's origin) and opens it through work-on-open.sh with `--workflow issue_42.<owner>.<repo> --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42`. Submits entry evidence with mode: issue_backed. Enters the koto execution loop using `koto next issue_42.<owner>.<repo> --no-cleanup` to advance through states.",
       "files": [],
       "expectations": [
         "Agent plans to read issue #42 using gh issue view",

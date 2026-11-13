@@ -47,7 +47,10 @@
 # runs several issues or steps where one leg answers one. Without the leg
 # neither shape is refused: a multi-pr PLAN run opens each issue's session
 # here, with the PLAN path among its tokens, and a plan-backed child's session
-# is opened by /execute, not through this script. Each refusal
+# is opened by /execute, not through this script. Without the leg, an
+# issue-backed open is refused when --workflow doesn't carry the issue's
+# repository (see --workflow below), since two repositories' issues with one
+# number would otherwise share a name on the host (#1842). Each refusal
 # exits 64 with `error=usage` and makes no koto call. koto-open.sh adds two: an
 # args file inside the work tree, and no koto binary.
 #
@@ -55,7 +58,13 @@
 #   work-on-open.sh --workflow <name> [--var NAME=VALUE]...
 #                   [--dispatched-by <dispatcher>] <tokens-file>
 #
-#   --workflow     the session name, <WF> in SKILL.md: issue_<N> or task_<slug>.
+#   --workflow     the session name, <WF> in SKILL.md: for an issue-backed run
+#                  the name session-name.sh prints, issue_<N>.<owner>.<repo>
+#                  (or issue_<N>_<suffix>.<owner>.<repo> for a renamed run),
+#                  and task_<slug> for a free-form one. On the plain
+#                  issue-backed open (an ISSUE_NUMBER --var, no --koto-leg)
+#                  any other name is this script's usage refusal, before any
+#                  koto call; under --koto-leg the name is koto's to check.
 #   --dispatched-by
 #                  the session that dispatched this run, when one did: any koto
 #                  session name (^[A-Za-z0-9][A-Za-z0-9._-]*$, at most 200
@@ -316,6 +325,45 @@ fi
 # A deferral to hosted CI needs its reason (shared with /execute's opener).
 REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
 [ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
+
+# The plain issue-backed open names a new session, so its name must carry the
+# issue's repository (#1842): session-name.sh's issue_<N>.<owner>.<repo>, or
+# that name renamed as SKILL.md's Resume says, issue_<N>_<suffix>.<owner>.<repo>.
+# The suffix sits after the number, where no derived name has one, so a renamed
+# run can't take another repository's name: a suffix after the repository
+# could, since repository names may contain `.`, `-` and `_`. Under --koto-leg
+# the name goes to koto unchecked: that open attaches a live session, which is
+# how a run opened as issue_<N> before this check is resumed, and koto refuses
+# to attach one that is live in another worktree.
+NUM=""
+ISSUE_REPO=""
+HAVE_NUM=0
+for v in ${VARS[@]+"${VARS[@]}"}; do
+    case "$v" in
+        ISSUE_NUMBER=*) [ "$HAVE_NUM" -eq 1 ] || { NUM="${v#ISSUE_NUMBER=}"; HAVE_NUM=1; } ;;
+        ISSUE_REPO=*) [ -n "$ISSUE_REPO" ] || ISSUE_REPO="${v#ISSUE_REPO=}" ;;
+    esac
+done
+if [ -z "$LEG" ] && [ "$HAVE_NUM" -eq 1 ]; then
+    NAME_ERR="$DIR/session-name.err"
+    DERIVED=$(bash "$SELF_DIR/session-name.sh" "$NUM" "$ISSUE_REPO" 2>"$NAME_ERR") || {
+        WHY=$(tr '\n' ' ' < "$NAME_ERR" 2>/dev/null)
+        rm -f -- "$NAME_ERR"
+        own_refusal "an issue-backed session is named from the issue's repository, and none could be read: ${WHY% }"
+    }
+    rm -f -- "$NAME_ERR"
+    TAIL="${DERIVED#"issue_$NUM"}"
+    RENAMED=0
+    case "$WORKFLOW" in
+        "issue_${NUM}_"*"$TAIL")
+            SUFFIX="${WORKFLOW#"issue_${NUM}_"}"
+            SUFFIX="${SUFFIX%"$TAIL"}"
+            [[ "$SUFFIX" =~ ^[A-Za-z0-9_-]+$ ]] && RENAMED=1
+            ;;
+    esac
+    [ "$WORKFLOW" = "$DERIVED" ] || [ "$RENAMED" -eq 1 ] \
+        || own_refusal "--workflow $WORKFLOW does not name this issue's repository: open issue $NUM as $DERIVED (session-name.sh), or, to keep a finished run's record, as issue_${NUM}_<suffix>$TAIL"
+fi
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
