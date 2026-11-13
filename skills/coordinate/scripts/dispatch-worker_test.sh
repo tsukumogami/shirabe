@@ -1484,6 +1484,107 @@ eq  "  ... leaves the old key unreplaced" open "$(lkey req_1 scope | jq -r .stat
 eq  "  ... and the holding on the old leg" "leg req_1:scope" "$(row return_path)"
 fi
 
+# --- a re-dispatch's earlier legs (shirabe#1759) -------------------------------------------------------------
+#
+# A plain dispatch of a topic ends the topic's earlier leg keys still reading
+# open once its row names the new leg, as --releg does: each one whose request
+# is no longer open is marked replaced. That covers the request this dispatch
+# abandons and a key an earlier re-dispatch left open. Another topic's keys,
+# keys in any other state, a request still open and one this host doesn't hold
+# are left as they are, and nothing here stops the dispatch.
+
+# seed_leg <request> <leg> <topic> <state>: a leg key an earlier dispatch wrote.
+seed_leg() {
+    mkdir -p "$ST/ctx/legs/$1"
+    jq -nc --arg r "$1" --arg l "$2" --arg t "$3" --arg s "$4" \
+        '{request: $r, leg: $l, topic: $t, state: $s, templates: ["deliver.md"], inputs: {}}' >"$ST/ctx/legs/$1/$2"
+}
+# req_view <request> <request_state> <leg> <disposition>: koto's view of it.
+req_view() {
+    mkdir -p "$ST/requests"
+    jq -nc --arg r "$1" --arg s "$2" --arg l "$3" --arg d "$4" \
+        '{request_id: $r, request_state: $s, legs: {($l): {name: $l, disposition: $d, bound_child: null}}}' >"$ST/requests/$1.json"
+}
+# left_state <request> <leg>: the key's state, a key still open as the report has it.
+left_state() { lkey "$1" "$2" | jq -r 'if .state == "open" then "still reads open" else .state end'; }
+
+if section "deliver" "a re-dispatch's earlier legs: the request it abandons"; then
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+printf '{"requests":[{"request_id":"req_7","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run >/dev/null 2>"$T/left.err"; RC=$?
+eq  "redispatch: dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+has "  ... abandons the earlier request" "$(calls)" "koto request abandon-request req_7"
+eq  "  ... the holding is on the new leg" "leg req_1:deliver" "$(row return_path)"
+eq  "  ... whose key is open" open "$(lkey req_1 deliver | jq -r .state)"
+eq  "  ... and the earlier leg's key is replaced" replaced "$(left_state req_7 deliver)"
+has "  ... stderr names the key it marked" "$(cat "$T/left.err")" \
+    "the leg key for req_7:deliver, left open by an earlier dispatch of plugin-api, is marked replaced"
+fi
+
+if section "deliver" "a re-dispatch's earlier legs: a key left open before"; then
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+run >/dev/null 2>"$T/left.err"; RC=$?
+eq  "redispatch: a key left open by an earlier re-dispatch: dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+lacks "  ... its request is already closed: nothing to abandon" "$(calls)" "abandon-request req_7"
+eq  "  ... and its key is replaced" replaced "$(left_state req_7 deliver)"
+has "  ... stderr names it" "$(cat "$T/left.err")" "the leg key for req_7:deliver, left open by an earlier dispatch of plugin-api, is marked replaced"
+fi
+
+if section "deliver" "a re-dispatch's earlier legs: what it leaves"; then
+reset "$INPUT_DELIVER"
+seed_leg req_8 deliver other-topic open
+req_view req_8 closed deliver open
+seed_leg req_9 deliver plugin-api open
+req_view req_9 open deliver open
+seed_leg req_10 deliver plugin-api open
+seed_leg req_11 deliver plugin-api spent
+req_view req_11 closed deliver resolved
+seed_leg req_12 deliver plugin-api taken
+req_view req_12 closed deliver resolved
+run >/dev/null 2>"$T/left.err"; RC=$?
+ERR=$(cat "$T/left.err")
+eq  "redispatch: keys it leaves: dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+eq  "  ... another topic's open key stays open" open "$(lkey req_8 deliver | jq -r .state)"
+eq  "  ... a key whose request is still open stays open" open "$(lkey req_9 deliver | jq -r .state)"
+has "  ... and stderr says so" "$ERR" "the leg key for req_9:deliver reads open and its request is still open: left as it is"
+eq  "  ... a key whose request this host doesn't hold stays open" open "$(lkey req_10 deliver | jq -r .state)"
+has "  ... and is left to reconcile-legs.sh" "$ERR" "this host's store doesn't hold request req_10: left for reconcile-legs.sh"
+eq  "  ... a spent key stays spent" spent "$(lkey req_11 deliver | jq -r .state)"
+eq  "  ... a taken key stays taken" taken "$(lkey req_12 deliver | jq -r .state)"
+eq  "  ... the new leg's key is open" open "$(lkey req_1 deliver | jq -r .state)"
+lacks "  ... and nothing else is marked" "$ERR" "is marked replaced"
+
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+printf '1' >"$ST/request_get.rc"
+run >/dev/null 2>"$T/left.err"; RC=$?
+eq  "redispatch: a request read that fails still dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+eq  "  ... and leaves the key open" open "$(lkey req_7 deliver | jq -r .state)"
+has "  ... saying so" "$(cat "$T/left.err")" "could not read request req_7: the leg key for req_7:deliver may still read open"
+
+reset "$INPUT_DELIVER"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+chmod 444 "$ST/ctx/legs/req_7/deliver"
+run >/dev/null 2>"$T/left.err"; RC=$?
+chmod 644 "$ST/ctx/legs/req_7/deliver"
+eq  "redispatch: a mark that fails still dispatches" "0 dispatched" "$RC $(row dispatch_status)"
+has "  ... saying the key still reads open" "$(cat "$T/left.err")" "could not mark the leg key for req_7:deliver replaced: it still reads open"
+fi
+
+if section "" "a re-dispatch's earlier legs: the message path"; then
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
+seed_leg req_7 deliver plugin-api open
+req_view req_7 closed deliver open
+run >/dev/null 2>&1; RC=$?
+eq  "redispatch: a message-path re-dispatch: dispatches" "0 message" "$RC $(row return_path)"
+eq  "  ... and replaces the topic's earlier key" replaced "$(left_state req_7 deliver)"
+fi
+
 # --- a stranded holding (PRD R15; shirabe#732) ---------------------------------------------------------------
 
 if section "deliver" "a stranded holding"; then
