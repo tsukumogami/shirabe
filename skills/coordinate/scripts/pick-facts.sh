@@ -55,7 +55,11 @@
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
 # waiting for its worker's teardown; or a linked pull request GitHub reads
 # merged, when state-common.sh lib_link_merge_frees says its worker has
-# nothing left) or active; only active ones count against the cap. Local
+# nothing left) or active; only active ones count against the cap. A
+# handed-over holding (state-holding.sh --hand-over) is none of these: its
+# worker stopped and its unit went to a fresh worker, so it counts against
+# nothing and stands as no unit's holding, though it is still listed until its
+# worker's teardown after the merge (shirabe#1295). Local
 # agents have no holding and are never counted. The counts sit beside CAP and
 # PARKED_BOUND from the session's variables, the cap from the record's Run
 # section when it has one.
@@ -218,7 +222,7 @@ if [ "$SCOPE" = roadmap ]; then
         | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $u.done,
            blocked: (($by | length) > 0), blocked_by: $by,
            blocker_landed: ((($u.dependencies | length) > 0) and (($by | length) == 0)),
-           holding: ([$h[0][] | select(.unit | covers($u.id; $u.title))][0]
+           holding: ([$h[0][] | select(.dispatch_status != "handed-over" and (.unit | covers($u.id; $u.title)))][0]
                      | if . == null then null else {worker, phase} end),
            landed: ([$l[0][] | select((.unit | tag_key) == ($u.id | tag_key)) | .pull_request][0] // null)})' "$T/features.json" > "$T/units.json" \
         || lib_die2 "jq failed"
@@ -241,7 +245,7 @@ else
         | ("#\($i.number)") as $id
         | {unit: $id, number: $i.number, title: ($i.title | .[0:120]), status: "open", done: false,
            blocked: false, blocked_by: [], blocker_landed: false, landed: null,
-           holding: ([$h[0][] | select(.unit == $id or .unit == ($r + $id))][0]
+           holding: ([$h[0][] | select(.dispatch_status != "handed-over" and (.unit == $id or .unit == ($r + $id)))][0]
                      | if . == null then null else {worker, phase} end)})' "$T/issues.json" > "$T/units.json" \
         || lib_die2 "jq failed"
 fi
@@ -301,7 +305,7 @@ jq -c --slurpfile r "$T/issues-read.json" '
     | .out[]' "$T/assigned.json" > "$T/assigned.lines" 2> "$T/assigned.err" \
     || lib_die2 "cannot read the assigned units: $(lib_scrub < "$T/assigned.err")"
 jq -c -s --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --arg r "$REPO" '$u[0] + map(. as $a
-    | . + {holding: ([$h[0][] | select(.unit == $a.unit or .unit == ($r + $a.unit))][0]
+    | . + {holding: ([$h[0][] | select(.dispatch_status != "handed-over" and (.unit == $a.unit or .unit == ($r + $a.unit)))][0]
                      | if . == null then null else {worker, phase} end)})' "$T/assigned.lines" > "$T/units2.json" \
     && mv "$T/units2.json" "$T/units.json" || lib_die2 "jq failed"
 # Assigned work still open keeps a roadmap from reading complete.
@@ -337,7 +341,7 @@ jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
                     recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
-     active: ([$h[0][] | select((.parked | not) and (.merged | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
+     active: ([$h[0][] | select((.parked | not) and (.merged | not) and .dispatch_status != "handed-over")] | length), parked: ([$h[0][] | select(.parked)] | length),
      cap: $cap, parked_bound: $pb, pauses: $p.pauses, go_aheads: $p.go_aheads, paused_all: $p.all}' > "$T/pick.json" || lib_die2 "jq failed"
 jq -c -L "$HERE" 'include "pick-slice"; pick_slice' "$T/pick.json" > "$T/pick_slice.json" || lib_die2 "jq failed"
 if [ "$NO_SEAL" != 1 ] && [ -n "$SESSION" ]; then

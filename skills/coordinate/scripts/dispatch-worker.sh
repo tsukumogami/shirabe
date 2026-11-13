@@ -83,7 +83,7 @@
 # The run, in order, under a per-topic lock:
 #
 #   1. Read the topic's holding. `dispatched`: print already-dispatched, exit
-#      0. `dispatch-failed` or `stranded`: exit 3 (such a topic is
+#      0. `dispatch-failed`, `stranded` or `handed-over`: exit 3 (such a topic is
 #      re-dispatched under a new topic, by the coordinator's choice).
 #      `dispatching`: an earlier run
 #      stopped partway. When `niwa list --json` shows the topic's session, go
@@ -253,7 +253,8 @@
 #      execution's, or a /shirabe:deliver or /shirabe:scope brief for a unit
 #      whose scoping landed (pick's follow_up); nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
-#   3  the topic already failed or is stranded; dispatch under a new topic
+#   3  the topic already failed, is stranded or is handed over; dispatch
+#      under a new topic
 #   4  the launch failed; the row says dispatch-failed
 #   5  a live session already uses the topic
 #   6  the launch outcome is unknown; the row stays dispatching
@@ -1192,6 +1193,9 @@ case "$STATUS" in
     stranded)
         die 3 "$TOPIC is stranded; dispatch the unit under a new topic"
         ;;
+    handed-over)
+        die 3 "$TOPIC is handed over; dispatch the unit under a new topic"
+        ;;
 esac
 
 ENTRY=$(jq -r '.entry_point // "" | strings' "$INPUT")
@@ -1338,25 +1342,36 @@ clear_follow_up() {
 # and last pushed head, so the new worker continues from what was pushed, and
 # the stranded row is retired once this one is dispatched (PRD R15;
 # shirabe#732). A report from the retired topic then matches no holding.
+# A unit whose earlier worker was handed over (state-holding.sh --hand-over)
+# goes out the same way, its brief naming that row's branch and head, but the
+# handed-over row stays: its worker is torn down once the unit's pull request
+# merges (shirabe#1295). The new worker opens a run of its own on its own leg,
+# since the old worker's session stays bound to the old leg.
 ALL_ROWS=$(dc_record_list "$SESSION")
 case "$?" in
     0) ;;
     10) die 8 "the record refused the read for $TOPIC (no open record, or a directed transition in the run log)" ;;
     *) die 2 "reading the holdings failed" ;;
 esac
-STRANDED=$(jq -c --arg u "$(jq -r '.unit // ""' "$INPUT")" --arg t "$TOPIC" \
-    '[.[] | select(.dispatch_status == "stranded" and .unit == $u and .worker != $t)]' <<<"$ALL_ROWS") ||
+PRIOR=$(jq -c --arg u "$(jq -r '.unit // ""' "$INPUT")" --arg t "$TOPIC" \
+    '[.[] | select((.dispatch_status == "stranded" or .dispatch_status == "handed-over") and .unit == $u and .worker != $t)]' <<<"$ALL_ROWS") ||
     die 2 "the holdings are not JSON"
-if [ "$STRANDED" != '[]' ]; then
-    jq --argjson s "$STRANDED" '.decisions = ((.decisions // []) + [$s[]
+STRANDED=$(jq -c '[.[] | select(.dispatch_status == "stranded")]' <<<"$PRIOR") || die 2 "the holdings are not JSON"
+if [ "$PRIOR" != '[]' ]; then
+    jq --argjson s "$PRIOR" '.decisions = ((.decisions // []) + [$s[]
         | ((.pushed_head // "") | if . == "" then null else . end) as $p
         | ((.verified_head // "") | if . == "" then null else . end) as $v
-        | {decision: ("This unit was held by worker " + .worker + ", which was stranded: continue from its branch "
+        | {decision: ("This unit was held by worker " + .worker
+            + (if .dispatch_status == "handed-over" then ", which handed it over" else ", which was stranded" end)
+            + ": continue from its branch "
             + (if (.branch // "") == "" then "(it recorded none)" else "`" + .branch + "`" end)
             + (if ($p // $v) != null then ", last pushed head `" + ($p // $v) + "`" else ", with no pushed head recorded" end)
-            + ", rather than starting over."),
+            + ", rather than starting over."
+            + (if .dispatch_status == "handed-over"
+               then " Open a run of your own for it rather than resuming that worker'"'"'s session, which stays bound to its own leg."
+               else "" end)),
            by: "the coordinator'"'"'s record"}])' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" ||
-        die 2 "cannot add the stranded worker's branch to the brief input"
+        die 2 "cannot add the earlier worker's branch to the brief input"
 fi
 
 if [ "$STATUS" = dispatching ]; then

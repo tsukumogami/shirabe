@@ -81,6 +81,14 @@ seed; run
 sweep 08:31; eq "a merged row is never quiet; the other worker is" "first-silence alpha" "$TOK"
 HOLDINGS=$SAVED
 
+echo "== a handed-over row isn't watched (shirabe#1295) =="
+SAVED=$HOLDINGS
+HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
+    --argjson b "$(holding beta '{"dispatch_status": "handed-over", "return_path": "leg req_7:work-on"}')" '[$a, $b]')
+seed; run
+sweep 08:31; eq "a handed-over row is never quiet; the other worker is" "first-silence alpha" "$TOK"
+HOLDINGS=$SAVED
+
 echo "== a paused worker isn't watched =="
 SAVED=$HOLDINGS
 HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \

@@ -141,6 +141,9 @@ while [ "$i" -lt "$N" ]; do
     # silence is expected until the teardown removes the row, not a sign of
     # a stalled worker.
     lib_row_merged "$ROW" && continue
+    # So does a handed-over row (state-holding.sh --hand-over): its worker
+    # stopped on purpose and its unit went to a fresh worker (shirabe#1295).
+    [ "$(printf '%s' "$ROW" | jq -r '.dispatch_status // ""')" = handed-over ] && continue
     PAUSED=$(jq -r --arg u "$(printf '%s' "$ROW" | jq -r .unit)" '.covers[$u] // empty' "$T/pauses.json")
     if [ -n "$PAUSED" ]; then
         jq -nc --arg w "$W" --arg p "$PAUSED" '{worker: $w, silent: false, paused: $p}' >> "$T/detail.jsonl"

@@ -7,9 +7,12 @@
 # leg-bound worker's result, and a report claimed to come from a leg must be
 # the leg the record names. The gate reads the reporting topic's holding from
 # the record: a message report is admitted for a holding whose return path is
-# `message`, or whose leg is spent for reporting (its key reads taken or
-# unwatchable, koto's own record of the leg holds the result the worker's
-# session promoted, or this host's store doesn't hold its request: PRD R16);
+# `message`, or whose leg is spent for reporting (its key reads taken,
+# unwatchable or spent, koto's own record of the leg holds the result the
+# worker's session promoted, or this host's store doesn't hold its request:
+# PRD R16), or a handed-over holding on any return path, whose worker's
+# handover is the input its successor's brief is dispatched from and whose
+# leg nothing watches any more (shirabe#1295);
 # nothing is admitted for a stranded holding; a leg
 # report only when the holding's return path is the
 # leg the wait state read (wait_target), which wait_leg's gate admitted on a
@@ -31,8 +34,8 @@
 #
 # Exit codes (overridable: false on the gate):
 #   0  the report may stand for its worker
-#   1  refused message: a message for a leg-bound worker whose leg is still
-#      watched here, a stranded holding, or no holding for the topic (a
+#   1  refused message: a message for a leg-bound worker that isn't handed
+#      over and whose leg is still watched here, a stranded holding, or no holding for the topic (a
 #      progress report with no holding, or a stranded one, too)
 #   2  a read failed, the record refused the read, or an input is malformed
 #   3  refused leg report: no holding for the topic, a leg other than the
@@ -94,16 +97,21 @@ fi
 
 if [ "$SOURCE" = message ]; then
     [ "$RP" = message ] && exit 0
+    # A handed-over holding's leg is no longer watched for a result: the unit
+    # went to a fresh worker, and its old worker's handover is a report the
+    # coordinator records whatever its return path (shirabe#1295).
+    [ "$(jq -r '.dispatch_status // "" | strings' <<<"$ROW")" = handed-over ] && exit 0
     # A leg read once carries nothing more, so a later report from its worker
     # can only come by message: once the leg's key reads taken (wait-target.sh
-    # took its result) or unwatchable, or when this host's request store
+    # took its result), unwatchable, or spent (it ended with no promoted
+    # result: abandoned, cancelled or missing), or when this host's request store
     # doesn't hold its request (the coordinator moved here and hasn't
     # re-legged it yet), the message stands for the worker (PRD R16).
     REQ=${RP%%:*}
     LEG=${RP#*:}
     KEY=$(dc_leg_get "$SESSION" "$REQ" "$LEG")
     case "$?" in
-        0) case "$(jq -r '.state // "" | strings' <<<"$KEY")" in taken | unwatchable) exit 0 ;; esac ;;
+        0) case "$(jq -r '.state // "" | strings' <<<"$KEY")" in taken | unwatchable | spent) exit 0 ;; esac ;;
         1) ;;
         *) printf '%s: cannot read the leg key for %s\n' "$PROG" "$RP" >&2; exit 2 ;;
     esac

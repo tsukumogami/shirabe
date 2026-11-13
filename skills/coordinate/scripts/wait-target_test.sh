@@ -343,6 +343,18 @@ legkey req_g execute taken
 eq  "source: a message for a worker whose leg was taken is admitted" 0 "$(src gamma message)"
 legkey req_g execute unwatchable
 eq  "source: a message for a worker whose leg is unwatchable is admitted" 0 "$(src gamma message)"
+# shirabe#1295: a leg that ended with no promoted result (abandoned, cancelled
+# or missing) carries nothing more, so its worker's handover stands too.
+legkey req_g execute spent
+eq  "source: a message for a worker whose leg is spent is admitted" 0 "$(src gamma message)"
+# A handed-over worker's leg is no longer watched: its handover stands whatever
+# the leg reads, while a leg report still has to be the leg's promoted result.
+legkey req_g execute open
+eq  "source: a message for a leg-bound worker on an open leg is still refused" 1 "$(src gamma message)"
+jq -c 'map(if .worker == "gamma" then .dispatch_status = "handed-over" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
+eq  "source: a message for a handed-over leg-bound worker is admitted" 0 "$(src gamma message)"
+eq  "source: so is its progress" 0 "$(src gamma progress)"
+jq -c 'map(if .worker == "gamma" then .dispatch_status = "dispatched" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
 legkey req_g execute open
 eq  "source: a message for a worker whose leg is open here is refused" 1 "$(src gamma message)"
 printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result":{"status":"success"}}}}\n' >"$ST/req/req_g.json"

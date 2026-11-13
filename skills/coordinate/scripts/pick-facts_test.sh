@@ -133,6 +133,22 @@ session "$(roadmap_vars plugin-system)" roadmap-plugin-system
 bash "$PF" --session "$S" >/dev/null 2>"$T/err"
 eq "a merged row reads merged, neither active nor parked" "alpha:true:false 1 0" "$(facts | jq -r '([.holdings[] | select(.worker == "alpha") | "\(.worker):\(.merged):\(.parked)"] | join(" ")) + " \(.active) \(.parked)"')"
 grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "it only reads" "$(calls)" || ok "it only reads"
+# shirabe#1295: a handed-over row (state-holding.sh --hand-over) holds no slot
+# and stands as no unit's holding, so its unit goes out again to a fresh
+# worker under the cap; it is still listed until its worker's teardown. Its
+# successor, once dispatched, is the unit's holding.
+X_H='{"unit": "Feature 2", "dispatch_status": "handed-over", "return_path": "leg req_7:work-on", "entry_point": "/shirabe:work-on", "pull_request": ""}'
+handed() { # handed <record-json>: a run at pick_facts holding it
+    seed "$1"
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
+    session "$(roadmap_vars plugin-system)" roadmap-plugin-system
+    bash "$PF" --session "$S" >/dev/null 2>"$T/err" || bad "pick-facts reads a handed-over row" "$(cat "$T/err")"
+}
+handed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha "$X_H")" --argjson b "$(holding beta '{"unit": "Feature 4", "pull_request": ""}')" '.holdings = [$a, $b]')"
+eq "a handed-over row is listed but holds no slot" "alpha:handed-over 1 0" "$(facts | jq -r '([.holdings[] | select(.worker == "alpha") | "\(.worker):\(.dispatch_status)"] | join(" ")) + " \(.active) \(.parked)"')"
+eq "  ... and isn't its unit's holding" "null" "$(facts | jq -c '.units[] | select(.unit == "Feature 2") | .holding')"
+handed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha "$X_H")" --argjson c "$(holding gamma '{"unit": "Feature 2", "pull_request": ""}')" '.holdings = [$a, $c]')"
+eq "  ... its successor is, and takes the one slot" "gamma 1" "$(facts | jq -r '"\(.units[] | select(.unit == "Feature 2") | .holding.worker) \(.active)"')"
 # A pull request GitHub reads MERGED frees its holding's slot before the
 # record confirms the merge (shirabe#1385), when the worker has nothing left:
 # a Verified head, or the work-on entry point, which lands one pull request.

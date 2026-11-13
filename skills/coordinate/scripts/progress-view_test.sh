@@ -44,6 +44,17 @@ jq '.holdings += [{worker: "plugin-quiet", unit: "Feature 9: Themes", phase: "ex
 SOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-stranded.json" 2> "$T/err")
 grep -qF '| Ongoing | Feature 9: Themes | `plugin-quiet` | none yet | stranded | dispatch its unit again under a new topic |' <<<"$SOUT" \
     && ok "a stranded row reads stranded, its unit to dispatch again" || bad "a stranded row reads stranded, its unit to dispatch again" "$SOUT $(cat "$T/err")"
+# A handed-over row (state-holding.sh --hand-over): not a live worker; its
+# worker is torn down once the unit's pull request merges, then like any
+# merged row (shirabe#1295).
+jq '.holdings += [{worker: "plugin-spent", unit: "Feature 10: Hints", phase: "executing", dispatch_status: "handed-over", parked: false, merged: false, pull_request: ""}]' "$F" > "$T/pick-handed.json"
+HOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-handed.json" 2> "$T/err")
+grep -qF '| Ongoing | Feature 10: Hints | `plugin-spent` | none yet | handed over | tear down its worker once the pull request of its unit merges |' <<<"$HOUT" \
+    && ok "a handed-over row reads handed over, its teardown after the merge" || bad "a handed-over row reads handed over, its teardown after the merge" "$HOUT $(cat "$T/err")"
+jq '.holdings += [{worker: "plugin-spent", unit: "Feature 10: Hints", phase: "executing", dispatch_status: "handed-over", parked: false, merged: true, pull_request: ""}]' "$F" > "$T/pick-handed.json"
+HOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-handed.json" 2> "$T/err")
+grep -qF '| Ongoing | Feature 10: Hints | `plugin-spent` | none yet | handed over | tear down its worker |' <<<"$HOUT" \
+    && ok "a handed-over row whose pull request merged: its worker to tear down" || bad "a handed-over row whose pull request merged" "$HOUT $(cat "$T/err")"
 [ "$(col "$OUT" 2)" = "Feature 4: Plugin sandbox,Feature 1: Plugin manifest,Feature 6: CLI,Feature 7: Guides,Feature 3: Plugin registry,Feature 2: Plugin loader," ] \
     && ok "the queue is unblocked first, then blocked, and done or held units are left out" || bad "the queue order" "$(col "$OUT" 2)"
 grep -qF '| Waiting to be assigned | Feature 2: Plugin loader | N/A | N/A | waits on feature 1 | assigned as the cap frees, 2 of 2 in line |' <<<"$OUT" \

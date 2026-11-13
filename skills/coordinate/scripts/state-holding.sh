@@ -10,11 +10,13 @@
 #   state-holding.sh --session S --topic T --read          print the row
 #   state-holding.sh --session S --list                    print every row
 #   state-holding.sh --session S --topic T --strand        mark it stranded
+#   state-holding.sh --session S --topic T --hand-over     mark it handed over
 #   state-holding.sh --session S --topic T --retire        remove a stranded row,
-#                                                           a merged one whose
-#                                                           teardown is confirmed,
-#                                                           or a dispatch-failed
-#                                                           one with no worker
+#                                                           a merged or handed-over
+#                                                           one whose teardown is
+#                                                           confirmed, or a
+#                                                           dispatch-failed one
+#                                                           with no worker
 #   ... [--scope roadmap|discipline --name N --repo O/R
 #        --skip-session-checks]                             (tests)
 #
@@ -55,6 +57,24 @@
 # --retire removes the stranded row once the new worker is dispatched. A report
 # that later arrives from the retired topic matches no holding and is refused.
 #
+# --hand-over marks a holding `handed-over` (shirabe#1295): the coordinator's
+# choice to move its unit to a fresh worker before the unit's pull request
+# merges, typically because the worker stopped at its context checkpoint.
+# Unlike a stranded worker, this one stopped on purpose and left its work
+# pushed, so any return path is accepted, a request leg included. Only a
+# `dispatched` holding with a branch and a head to continue from (its pushed
+# head, else its Verified head) is handed over; any other is refused (65).
+# The one write also tells an `entry` naming the branch and head; when the row
+# was marked but the entry wasn't written, it exits 14 with the entry's text.
+# A handed-over row holds no cap slot and no longer stands as its unit's
+# holding (pick-facts.sh), so the unit goes out again under a new topic, whose
+# brief names this row's branch and head (dispatch-worker.sh), on its own
+# leg. Unlike a stranded row it is not retired at that dispatch: its worker's
+# instance stays until the unit's pull request merges, and is torn down then
+# under the usual teardown rules. Nothing watches its leg any more, and a
+# message from its worker (its handover) stands in the record
+# (report-source.sh).
+#
 # --retire also removes a merged holding (lib_row_merged) at destroy, once
 # `teardown-pass.sh check --session S --topic T` confirms the run's done
 # teardown pass for T: one the pass tore down itself (shirabe#1148) or one torn
@@ -62,7 +82,10 @@
 # be stranded, so without it the row would stay. The check is read-only;
 # STATE_HOLDING_TEARDOWN_PASS names a stand-in for it (tests). --retire refuses
 # (65) a row that is neither stranded nor merged, and a merged one the check
-# doesn't confirm, with the check's reason.
+# doesn't confirm, with the check's reason. A handed-over row goes the same
+# way, on the same check: teardown-handoff.sh seals no teardown of a worker
+# whose branch has no merged pull request, so the check confirms one only
+# after the merge, and a handed-over row is never retired before it.
 #
 # --retire also removes a `dispatch-failed` holding (shirabe#1612): a launch
 # that failed leaves its row, and once the run has moved past the dispatch state
@@ -87,8 +110,8 @@
 # record, the session holds no record of this scope, provenance, a directed
 # transition, or a writing session that isn't the record's driver); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
-# the write failed; 14 a dispatch-failed row was removed but its entry wasn't
-# written; 64 usage; 65 the row was refused (the reason on stderr).
+# the write failed; 14 a dispatch-failed row was removed, or a row handed
+# over, but its entry wasn't written; 64 usage; 65 the row was refused (the reason on stderr).
 #
 # The record is read through state-read.sh; writes happen only in
 # state-write.sh.
@@ -112,6 +135,7 @@ while [ $# -gt 0 ]; do
         --read) [ -z "$MODE" ] || usage; MODE=read; shift ;;
         --list) [ -z "$MODE" ] || usage; MODE=list; shift ;;
         --strand) [ -z "$MODE" ] || usage; MODE=strand; shift ;;
+        --hand-over) [ -z "$MODE" ] || usage; MODE=handover; shift ;;
         --retire) [ -z "$MODE" ] || usage; MODE=retire; shift ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
@@ -119,7 +143,7 @@ while [ $# -gt 0 ]; do
 done
 case "$MODE" in
     write) [ -n "$TOPIC" ] && [ -r "$ROWFILE" ] || usage ;;
-    pushed|read|strand|retire) [ -n "$TOPIC" ] || usage ;;
+    pushed|read|strand|handover|retire) [ -n "$TOPIC" ] || usage ;;
     list) [ -z "$TOPIC" ] || usage ;;
     *) usage ;;
 esac
@@ -170,16 +194,27 @@ list)
         'include "state-schema"; holdings_list | map(.worker as $w | if $p[0][$w] then . + {pushed_head: $p[0][$w]} else . end)' "$T/parsed.json"
     exit 0
     ;;
-strand|retire)
+strand|handover|retire)
     ROW=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json")
     [ -n "$ROW" ] || { echo "$PROG: refused: no holding's Worker is $TOPIC" >&2; exit 65; }
     ST=$(jq -r '.dispatch_status' <<< "$ROW")
     if [ "$MODE" = strand ]; then
         [ "$ST" = dispatched ] || { echo "$PROG: refused: only a dispatched holding is stranded; $TOPIC is $ST" >&2; exit 65; }
         [ "$(jq -r '.return_path' <<< "$ROW")" = message ] \
-            || { echo "$PROG: refused: only a holding on the message path is stranded; $TOPIC reports on $(jq -r '.return_path' <<< "$ROW")" >&2; exit 65; }
+            || { echo "$PROG: refused: only a holding on the message path is stranded; $TOPIC reports on $(jq -r '.return_path' <<< "$ROW"); to move its unit to a fresh worker, hand it over (--hand-over)" >&2; exit 65; }
         jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "stranded" else . end)' \
             "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    elif [ "$MODE" = handover ]; then
+        [ "$ST" = dispatched ] || { echo "$PROG: refused: only a dispatched holding is handed over; $TOPIC is $ST" >&2; exit 65; }
+        BRANCH=$(jq -r '.branch // "" | strings' <<< "$ROW")
+        [ -n "$BRANCH" ] || { echo "$PROG: refused: $TOPIC has no branch for a fresh worker to continue from" >&2; exit 65; }
+        HEAD=$(jq -r --arg t "$TOPIC" '.[$t] // "" | strings' "$T/parsed.json.pushed")
+        [ -n "$HEAD" ] || HEAD=$(jq -r '.verified_head // "" | strings' <<< "$ROW")
+        [ -n "$HEAD" ] || { echo "$PROG: refused: $TOPIC has neither a pushed head nor a Verified head for a fresh worker to continue from; record its pushed head first (--pushed-head)" >&2; exit 65; }
+        jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "handed-over" else . end)' \
+            "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+        jq -r --arg h "$HEAD" '"Holding \(.worker) (unit \(.unit)) handed over: a fresh worker continues its unit from branch \(.branch) at \($h); its worker is torn down once the unit'"'"'s pull request merges."' \
+            <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
     else
         if [ "$ST" = dispatch-failed ]; then
             # A failed launch's row goes only once no worker exists for its
@@ -215,14 +250,21 @@ strand|retire)
         elif [ "$ST" != stranded ]; then
             # A merged holding goes once teardown-pass.sh check confirms its
             # done teardown pass, removed or not (shirabe#1593, shirabe#1148);
-            # a live one never does.
-            lib_row_merged "$ROW" \
-                || { echo "$PROG: refused: only a stranded holding, a merged one whose teardown is confirmed, or a dispatch-failed one with no worker, is retired; $TOPIC is $ST" >&2; exit 65; }
+            # a live one never does. A handed-over one goes on the same check,
+            # which confirms nothing before its branch's pull request merges
+            # (shirabe#1295).
+            [ "$ST" = handed-over ] || lib_row_merged "$ROW" \
+                || { echo "$PROG: refused: only a stranded holding, a merged or handed-over one whose teardown is confirmed, or a dispatch-failed one with no worker, is retired; $TOPIC is $ST" >&2; exit 65; }
             CHECK_OUT=$(bash "${STATE_HOLDING_TEARDOWN_PASS:-$HERE/teardown-pass.sh}" check \
                 --session "${RS_SESSION:-${SESSION:-}}" --topic "$TOPIC" 2>&1)
             case $? in
                 0) ;;
-                1) echo "$PROG: refused: $TOPIC's teardown is not confirmed: $CHECK_OUT" >&2; exit 65 ;;
+                1) if [ "$ST" = handed-over ]; then
+                       echo "$PROG: refused: $TOPIC is handed over, and its worker is torn down only once the unit's pull request merges; its teardown is not confirmed: $CHECK_OUT" >&2
+                   else
+                       echo "$PROG: refused: $TOPIC's teardown is not confirmed: $CHECK_OUT" >&2
+                   fi
+                   exit 65 ;;
                 *) lib_die2 "the teardown check could not run: $(printf '%s\n' "$CHECK_OUT" | tail -1)" ;;
             esac
         fi
@@ -264,7 +306,9 @@ fi
 bash "$HERE/state-write.sh" "$@"
 RC=$?
 # The record keeps no history of a removed row, so a dispatch-failed holding's
-# retirement is also told as an entry in the account (shirabe#1612).
+# retirement is also told as an entry in the account (shirabe#1612), and so is
+# a hand-over, which names the branch and head the fresh worker continues
+# from (shirabe#1295).
 [ "$RC" = 0 ] && [ -s "$T/retire-entry" ] || exit "$RC"
 if [ "$OVERRIDE" = 1 ]; then
     ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
@@ -272,6 +316,10 @@ else
     ADDR_ARGS=(--session "$SESSION")
 fi
 if ! bash "$HERE/state-entry.sh" "${ADDR_ARGS[@]}" --kind entry --text-file "$T/retire-entry" > /dev/null; then
-    echo "$PROG: the holding was retired, but its entry wasn't written; post it with state-entry.sh --kind entry: $(cat "$T/retire-entry")" >&2
+    if [ "$MODE" = handover ]; then
+        echo "$PROG: the holding was handed over, but its entry wasn't written; post it with state-entry.sh --kind entry: $(cat "$T/retire-entry")" >&2
+    else
+        echo "$PROG: the holding was retired, but its entry wasn't written; post it with state-entry.sh --kind entry: $(cat "$T/retire-entry")" >&2
+    fi
     exit 14
 fi

@@ -105,7 +105,7 @@ The four sections every record has, as JSON rows:
 ```json
 {"holdings": [{"unit": "<feature, issue, question or choice>", "entry_point": "<skill>", "mode": "<--auto and flags>",
                "phase": "<scoping, scoping-ahead, executing or held>",
-               "dispatch_status": "<dispatching, dispatched, dispatch-failed or stranded>",
+               "dispatch_status": "<dispatching, dispatched, dispatch-failed, stranded or handed-over>",
                "return_path": "<message, or leg <request-id>:<leg>>", "worker": "<dispatch topic>", "repo": "<owner/repo>",
                "branch": "<branch, empty until known>", "verified_head": "<full sha once verified, else empty>",
                "dispatched": "<YYYY-MM-DD>", "pull_request": "<[#n](URL), empty for none yet>"}],
@@ -131,7 +131,16 @@ its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs). A merged row also goes with `--retire`, at
+dispatch-worker.sh runs). A worker on any return path, a request leg
+included, whose unit you move to a fresh worker before its pull request
+merges (it stopped at its context checkpoint with its work pushed) is
+`handed-over` (`state-holding.sh --hand-over`, one write and an entry naming
+its branch and head). The row holds no cap slot and stands as no unit's
+holding, so the unit is dispatched again under a new topic whose brief names
+that branch and head, on its own leg; a message from the old worker (its
+handover) stands in the record. The row stays until the unit's pull request
+merges, and goes with `--retire` once its worker's teardown pass is done, as
+a merged row does. A merged row also goes with `--retire`, at
 destroy, once its teardown pass is done: one the pass tore down itself, or
 one torn down outside the pass (a removed pass), including one closed with no
 handoff comment, where the pass's entry stands in for the link. A `dispatch-failed` row, a launch that never

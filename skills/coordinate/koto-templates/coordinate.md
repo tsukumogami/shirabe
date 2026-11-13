@@ -4198,6 +4198,19 @@ new worker's brief names the stranded worker's branch and last pushed head,
 and the stranded row is retired once the new worker is dispatched; a report
 that later comes from the old topic matches no holding and is refused.
 
+A worker that stopped on purpose with its work pushed (at its context
+checkpoint, say), whose unit you move to a fresh worker before the unit's
+pull request merges, is handed over rather than stranded, whatever its return
+path, a leg included: mark it with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-holding.sh" --session {{SESSION_NAME}} --topic <its topic> --hand-over`
+and dispatch the unit under a new topic. The script refuses a row with no
+branch or no pushed or Verified head to continue from. The handed-over row
+holds no cap slot and stands as no unit's holding; the new worker's brief
+names its branch and head and goes out on its own leg; the old worker's
+handover message stands as a report; and the row stays until the unit's pull
+request merges, when its worker is torn down as any merged worker is. Never
+retire or tear it down before the merge.
+
 A unit sent here by a second silence whose worker turns out to be parked on a
 person's order (its last report says it parked, or the order stands in the
 record as an `answer` row) hasn't failed; its `pause` row is missing, the row

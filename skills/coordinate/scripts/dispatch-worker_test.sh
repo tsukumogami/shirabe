@@ -1515,6 +1515,35 @@ has "stranded: another unit's stranded row isn't named" "$(cat "$W/.niwa/dispatc
 [ -f "$ST/rows/plugin-api.json" ] && ok "  ... or retired" || bad "  ... or retired" ""
 fi
 
+# --- a handed-over holding (shirabe#1295) ----------------------------------------------------------------------
+
+if section "deliver" "a handed-over holding"; then
+# A leg-bound worker handed over before its unit's pull request merged
+# (state-holding.sh --hand-over): its unit goes out under a new topic, the new
+# brief names its branch and pushed head, and its row stays for its worker's
+# teardown after the merge.
+PUSHED=dddddddddddddddddddddddddddddddddddddddd
+handed_row() {
+    jq -nc --arg h "$PUSHED" '{unit: "Feature 2: the plugin API", entry_point: "deliver", mode: "--auto --no-merge", phase: "executing",
+        dispatch_status: "handed-over", return_path: "leg req_7:deliver", worker: "plugin-api", repo: "acme/widgets", branch: "feat/plugin-api",
+        verified_head: "", dispatched: "2026-10-01", pull_request: "", pushed_head: $h}' >"$ST/rows/plugin-api.json"
+}
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch"')" relaunch
+handed_row
+export NIWA_NAME=relaunch-1a2b3c4d
+OUT=$(run 2>"$T/ho.err"); RC=$?
+eq  "handed over: the unit is dispatched under a new topic" "0 session=relaunch-1a2b3c4d" "$RC $OUT"
+has "handed over: the new brief names the old branch and pushed head" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" \
+    "This unit was held by worker plugin-api, which handed it over: continue from its branch \`feat/plugin-api\`, last pushed head \`$PUSHED\`, rather than starting over. Open a run of your own for it rather than resuming that worker's session, which stays bound to its own leg."
+[ -f "$ST/rows/plugin-api.json" ] && ok "handed over: the handed-over row stays for its teardown after the merge" \
+    || bad "handed over: the handed-over row stays for its teardown after the merge" ""
+eq  "  ... and nothing retires it" 0 "$(grep -c 'record retire plugin-api' "$ST/calls.log")"
+reset "$INPUT_DELIVER"
+handed_row
+run >/dev/null 2>&1; eq "handed over: dispatching the handed-over topic itself is exit 3" 3 "$?"
+eq  "  ... and launches nothing" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+fi
+
 # --- --releg-imported: a worker that moved here with the session (PRD R15) ------------------------------------
 
 if section "deliver" "--releg-imported"; then

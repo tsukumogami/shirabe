@@ -1316,7 +1316,14 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   moved on, such as one carried into a continued run, is retired the same way
   (`state-holding.sh --topic <topic> --retire`), which refuses while niwa lists
   a session or an unfinished Claude job carries the topic and leaves an entry
-  when the row goes.
+  when the row goes. A worker you move to a fresh worker before its unit's
+  pull request merges, such as one that stopped at its context checkpoint
+  with its work pushed, is handed over instead, on any return path, a leg
+  included (`state-holding.sh --topic <topic> --hand-over`, one write and an
+  entry naming its branch and head). Its row frees its cap slot and its unit,
+  the new topic's brief names that branch and head, its handover message
+  stands in the record, and its worker is torn down once the unit's pull
+  request merges, under the usual teardown rules.
 - **A worker launched outside the dispatch script can't be adopted.** The
   dispatch script refuses a topic whose session is already live, so a worker
   started by hand never gets a holding through it. Stop that worker's session

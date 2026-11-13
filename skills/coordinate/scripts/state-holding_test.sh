@@ -185,6 +185,54 @@ eq "  ... and only it" "alpha beta" "$(live | jq -r '.holdings | map(.worker) | 
     || bad "  ... and the retire carries a new written time" "still $W0"
 eq "  ... the write goes to the session, nothing to GitHub" "" "$(gh_writes)"
 
+echo "== handed over before the merge (shirabe#1295) =="
+# A leg-bound worker that stopped at its context checkpoint can't be stranded,
+# and retiring it before its unit merges goes nowhere. --hand-over is the one
+# recorded step that moves its unit to a fresh worker: the row reads
+# handed-over (not stranded), an entry names the branch and head to continue
+# from, and the row stays until its worker's teardown after the merge.
+seed "$(record_json roadmap plugin-system | jq -c \
+    --argjson a "$(holding alpha '{"return_path": "leg req_7:work-on", "entry_point": "/shirabe:work-on"}')" \
+    --argjson b "$(holding beta '{"return_path": "leg req_6:work-on", "entry_point": "/shirabe:work-on", "verified_head": "4444444444444444444444444444444444444444"}')" \
+    --argjson c "$(holding gamma '{"return_path": "leg req_5:work-on", "branch": ""}')" \
+    --argjson d "$(holding delta '{"dispatch_status": "dispatching"}')" \
+    --argjson e "$(holding eps '{"return_path": "leg req_4:work-on"}')" '.holdings = [$a, $b, $c, $d, $e]')"
+hw --topic alpha --strand >/dev/null 2>"$T/err"; eq "--strand still refuses a leg-bound holding" 65 $?
+grep -q 'hand it over (--hand-over)' "$T/err" && ok "  ... and names the step that moves its unit" || bad "  ... and names the step that moves its unit" "$(cat "$T/err")"
+SNAP=$(session_snapshot "$SR")
+hw --topic gamma --hand-over >/dev/null 2>"$T/err"; eq "--hand-over refuses a holding with no branch" 65 $?
+hw --topic delta --hand-over >/dev/null 2>"$T/err"; eq "--hand-over refuses a holding that isn't dispatched" 65 $?
+hw --topic eps --hand-over >/dev/null 2>"$T/err"; eq "--hand-over refuses a holding with no head to continue from" 65 $?
+grep -q 'neither a pushed head nor a Verified head' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+hw --topic nobody --hand-over >/dev/null 2>"$T/err"; eq "--hand-over refuses a topic with no holding" 65 $?
+eq "  ... and none of the refusals wrote anything" "$SNAP" "$(session_snapshot "$SR")"
+hw --topic alpha --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "a leg-bound holding's pushed head is recorded" 0 $?
+hw --topic alpha --hand-over >/dev/null 2>"$T/err"; eq "--hand-over marks a leg-bound holding with a pushed head" 0 $?
+eq "  ... handed-over, its leg and branch as they were" "handed-over leg req_7:work-on feat/x" \
+    "$(live | jq -r '.holdings[] | select(.worker == "alpha") | "\(.dispatch_status) \(.return_path) \(.branch)"')"
+eq "  ... and one entry names the branch and pushed head" \
+    "entry|Holding alpha (unit Feature 2) handed over: a fresh worker continues its unit from branch feat/x at $HEAD1; its worker is torn down once the unit's pull request merges." \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+hw --topic beta --hand-over >/dev/null 2>"$T/err"; eq "--hand-over takes the Verified head when no pushed head is kept" 0 $?
+koto context get "$SR" record/entries/000002 | jq -r .text | grep -q "from branch feat/x at 4444444444444444444444444444444444444444" \
+    && ok "  ... and names it" || bad "  ... and names it" "$(koto context get "$SR" record/entries/000002)"
+hw --topic alpha --hand-over >/dev/null 2>"$T/err"; eq "--hand-over refuses a row already handed over" 65 $?
+hw --topic alpha --strand >/dev/null 2>"$T/err"; eq "--strand refuses a handed-over row" 65 $?
+# Its teardown waits for the merge: the teardown check confirms nothing before
+# the unit's pull request merges, so the row stays.
+: >"$CHECK_LOG"
+echo 1 >"$CHECK_RC"
+SNAP=$(session_snapshot "$SR")
+hr --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire refuses a handed-over row whose teardown isn't confirmed" 65 $?
+grep -q 'torn down only once the unit.s pull request merges' "$T/err" && ok "  ... and says it waits for the merge" || bad "  ... and says it waits for the merge" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... the teardown check asked of its topic" "check --session $SR --topic alpha" "$(head -1 "$CHECK_LOG")"
+echo 0 >"$CHECK_RC"
+hr --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire removes a handed-over row once its teardown is confirmed" 0 $?
+eq "  ... and only it" "beta gamma delta eps" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+hw --hand-over >/dev/null 2>&1; eq "--hand-over without --topic is a usage error" 64 $?
+hw --topic beta --hand-over --strand >/dev/null 2>&1; eq "--hand-over with another mode is a usage error" 64 $?
+
 echo "== a dispatch-failed holding retired (shirabe#1612) =="
 # A failed launch's row goes through --retire only when no worker exists for
 # its topic: niwa lists no session for it, and no unfinished Claude job carries
