@@ -44,12 +44,30 @@ both parts of the body (`pr-body/banned-word`, PB5). Write that prose to
 `skills/writing-style`. A violation holds the state with a finding naming the
 rule: fix it with `gh pr edit` and submit `pr_status: created` again. For the **subjective**
 Part 2 section selection (which reviewer-context sections this change needs),
-apply the reasoning framework from your project's PR creation skill. Include
-`Fixes #<N>` in Part 2 — `pr_creation`'s `closing_keyword` gate reads the pull
-request GitHub actually has and blocks the run when the body does not close the
-issue, so this is an obligation the workflow enforces rather than a convention
-it asks for. Free-form work has no issue to close and the gate passes without
-consulting the body.
+apply the reasoning framework from your project's PR creation skill. Reference
+the issue in Part 2. `pr_creation`'s `closing_keyword` gate reads the pull
+request GitHub actually has and blocks the run when the reference is wrong, so
+this is an obligation the workflow enforces rather than a convention it asks
+for. Free-form work has no issue to close and the gate passes without
+consulting the body. Which reference depends on whether the pull request
+closes the issue:
+
+- **It closes the issue.** This is every run that didn't declare a partial
+  delivery and didn't come straight from an approved deferral. Include
+  `Fixes #<N>`; the gate blocks the run when the body doesn't close the issue.
+- **It leaves the issue open.** This is a run started with
+  `--delivery=partial --delivery-reason=<why>` (a planned split, where this pull
+  request is one step), or one whose pass came straight from an approved
+  deferral at `deferral_approval` with no return to `finalization` since.
+  Write `Part of #<N>`. The gate also accepts `Ref` or `Refs` in place of
+  `Part of`, but `Part of` is the line the directive, these docs and the
+  gate's refusal all give. Nothing in the pull request may close the issue:
+  the gate refuses a closing keyword before any spelling of `<N>` (a bare
+  `#<N>`, `GH-<N>`, this repository's `owner/repo#<N>`, its issue URL or the
+  markdown link to it) in the body, the title or any commit message, and
+  names where it found it. Part 2 also says in plain terms what this pull
+  request delivers and what stays open on the issue: for a split, the step
+  the delivery reason names; for a deferral, the deferred criterion.
 
 An issue in another repository (the run was initialized with `ISSUE_REPO`) is
 closed only by its qualified reference: write `Fixes <owner/repo>#<N>`, with
@@ -75,6 +93,15 @@ again. That issue then won't close on merge, so close it by hand if it
 should. A colon
 after the keyword (`Fixes: #<N>`) closes the issue too, and the gate reads
 it that way.
+
+When that run leaves its issue open, write `Part of <owner/repo>#<N>`, with
+the run's own `ISSUE_REPO`, or the markdown link
+`Part of [<owner/repo>#<N>](<its issue URL>)`. A bare `Part of #<N>` names
+this repository's issue `<N>` and doesn't count. Nothing may close either
+issue: the gate refuses a closing keyword before `<owner/repo>#<N>`, its
+issue URL or the link to it, as well as every form above that closes this
+repository's issue `<N>`, in the body, the title or a commit message. The
+old-name lookups run here too, with the same limits and the same exit 3.
 
 ### Workflow content: what the body leaves out
 
@@ -107,8 +134,10 @@ showed, in plain terms: "the coordinate script suites pass", "hosted CI built an
 tested the change", never a state or gate name.
 
 If `deferral_approval` approved a deferral, say in Part 2, in plain terms, which
-acceptance criterion the change leaves undone and where it is tracked. Under
-`include`, also name the recorded approval.
+acceptance criterion the change leaves undone and where it is tracked. The
+undone criterion stays open on the issue, so the body writes `Part of #<N>`
+rather than `Fixes #<N>` (see **Create PR** above). Under `include`, also name
+the recorded approval.
 
 ### Verification deferred to hosted CI
 

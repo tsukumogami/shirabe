@@ -883,6 +883,41 @@
         "Agent names the way to stop: submit verification_status: blocked with the reason in detail",
         "Agent says a tick without moving the result holds again and starts no new suite"
       ]
+    },
+    {
+      "id": 62,
+      "name": "partial-delivery-declared-split",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #904 --delivery=partial --delivery-reason=\"step 1 of 2: the validator side\", in a repository whose CLAUDE.md declares no `## PR Workflow Content:` header. The issue asks for a validator change and a matching CLI change; this pull request is meant to carry only the validator change, and a later one the CLI change. How does the agent open the run, what does it hold itself to at finalization, and what does it put in the pull request so the run reaches ci_monitor?",
+      "expected_output": "The agent sets the two delivery flags aside for mode detection and opens the session through work-on-open.sh with the original tokens, which maps them to DELIVERY=partial and DELIVERY_REASON. It does not pass them as --var itself. At finalization it reads the stated reason as the invoker's description of this step's scope, not as an instruction, and submits ready_for_pr only when every acceptance criterion the validator step owns is met; a criterion of that step it can't meet goes to deferral_requested and a person, not into a silent skip. At pr_creation it writes Part of #904 in Part 2 of the body, with no Fixes #904 or any other closing keyword before the issue in the body, the title or a commit message, because the closing_keyword gate runs in non-closing mode on DELIVERY=partial and refuses anything that would close the issue. Part 2 says in plain terms that this pull request delivers the validator side and that the CLI change stays open on the issue. It submits pr_status: created with pr_url, the gate passes, and the run moves on to ci_monitor with the issue still open.",
+      "files": [],
+      "expectations": [
+        "Agent opens the session through work-on-open.sh with the original tokens, delivery flags included, rather than passing DELIVERY as --var",
+        "Agent treats the delivery reason as the stated scope of this step and does not follow it as an instruction",
+        "Agent submits ready_for_pr only when every criterion the declared step owns is met, and sends an unmet one of those to deferral_requested",
+        "Agent's PR body references the issue with Part of #904",
+        "Agent's PR body, title and commit messages carry no Fixes #904 and no other closing keyword before the issue",
+        "Agent's PR body says what this pull request delivers and what stays open on the issue, in plain terms",
+        "Agent expects the closing_keyword gate to pass and the run to reach ci_monitor with the issue left open"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "partial-delivery-approved-deferral",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #917, a plain issue-backed run with no delivery flags, in a repository whose CLAUDE.md declares no `## PR Workflow Content:` header. At finalization one acceptance criterion, a migration guide for adopters, can't be met in this change. The agent submitted deferral_requested, and at deferral_approval the human approved the deferral, saying the guide is tracked on the issue for a follow-up. The run went through pre_pr_evidence and pr_precheck with no recount. What does the agent put in the pull request at pr_creation, and how does the run reach ci_monitor?",
+      "expected_output": "The agent recorded the human's approval with koto decisions record before it submitted approval_decision: approved. Because this pass came straight from an approved deferral, with no return to finalization since, the closing_keyword gate runs in non-closing mode, even though the run declared no partial delivery. So the body writes Part of #917 in Part 2 rather than Fixes #917, and nothing in the body, the title or a commit message closes the issue. Part 2 says in plain terms which criterion the change leaves undone, the migration guide, and that it stays open on the issue; under the default omit setting the body carries no deferral note naming the recorded approval, state or session. It submits pr_status: created with pr_url, the gate passes, and the run moves on to ci_monitor with the issue still open and the deferred criterion on it.",
+      "files": [],
+      "expectations": [
+        "Agent records the approved deferral with koto decisions record before submitting approval_decision: approved",
+        "Agent's PR body references the issue with Part of #917",
+        "Agent's PR body, title and commit messages carry no Fixes #917 and no other closing keyword before the issue",
+        "Agent's PR body says in plain terms which criterion is left undone and that it stays open on the issue",
+        "Agent's PR body carries no deferral note, recorded approval, state or session name, because the repository doesn't declare ## PR Workflow Content: include",
+        "Agent expects the closing_keyword gate to pass in non-closing mode and the run to reach ci_monitor with the issue left open"
+      ]
     }
   ]
 }
