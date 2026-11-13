@@ -661,4 +661,115 @@ kill -TERM "$pid" 2> /dev/null
 wait "$pid" 2> /dev/null
 if [ -z "$(ls -A "$PT")" ]; then ok "a check killed mid-read leaves no temporary directory"; else bad "a check killed mid-read leaves no temporary directory" "$(ls -A "$PT")"; fi
 
+echo "== check mode: a redispatch's topic reaches the dispatch path (shirabe#1487) =="
+# failure's redispatch edge writes no dispatch_topic; only pick's dispatching
+# edges do. The check resolves the unit a redispatch is about and seals it,
+# while dispatch-worker.sh and holding-recorded.sh take the topic from
+# dispatch_topic, so on an ok the key names the topic the check sealed. A run
+# that took over a predecessor's worker carries only record/ and legs/ keys,
+# and its pick held, so no edge wrote the key.
+M=0
+# topic_key: the session's dispatch_topic, or `absent`.
+topic_key() { koto context get "$S" dispatch_topic 2>/dev/null || echo absent; }
+# put_topic <topic>: dispatch_topic as pick's edge writes it.
+put_topic() { printf '%s' "$1" | koto context add "$S" dispatch_topic; }
+# to_wait: a run holding the seeded record whose pick held, now in wait.
+to_wait() {
+    M=$((M + 1))
+    S="coordinate-roadmap-plugin-system-20260926T09$(printf %02d "$M")00Z"
+    found_session "$S" "$(roadmap_vars plugin-system)"
+    seed_session "$S" "$REC"
+    log_to "$S" reconcile pick_facts; log_to "$S" pick_facts pick
+    log_evidence "$S" pick '{"choice":"hold"}'; log_to "$S" pick wait
+}
+# redispatch <unit>: from wait, failure moved to redispatch the unit the wait
+# evidence names.
+redispatch() {
+    to_wait
+    log_evidence "$S" wait "$(jq -nc --arg u "$1" '{event: "redispatch", unit: $u}')"; log_to "$S" wait failure
+    log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
+}
+# Stand-ins for the record's scripts, reading the holdings the stand-in koto
+# holds for the session, and a workspace for dispatch-worker.sh. NIWA is
+# false, so nothing can launch.
+mkdir -p "$T/r1487" "$T/r1487-ws/.niwa"
+: > "$T/r1487-ws/.niwa/instance.json"; : > "$T/r1487-ws/.niwa/workspace.toml"
+cat > "$T/r1487/state-holding.sh" <<'EOF'
+#!/usr/bin/env bash
+TOPIC= SESSION= LIST=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --read) shift ;;
+        --list) LIST=1; shift ;;
+        --topic) TOPIC=$2; shift 2 ;;
+        --session) SESSION=$2; shift 2 ;;
+        *) exit 64 ;;
+    esac
+done
+H="$KOTO_STORE/context/$SESSION/record/holdings"
+[ -f "$H" ] || exit 2
+if [ "$LIST" = 1 ]; then cat "$H"; exit 0; fi
+jq -ce --arg t "$TOPIC" '.[] | select(.worker == $t)' "$H" || exit 1
+EOF
+cat > "$T/r1487/state-stored-set.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "${1-}" = --list ] || exit 64
+echo '{"run":[{"key":"coordinator","value":"lane-coord","set_by":"lane-coord","set":"2026-09-26T08:00Z"}],"standing":[],"work":[]}'
+EOF
+r1487_env() { env KOTO="$HERE/testdata/koto" NIWA=false DC_RECORD_HOLDING="$T/r1487/state-holding.sh" DC_RECORD_STATE="$T/r1487/state-stored-set.sh" "$@"; }
+# A takeover redispatching the worker it carried, under the same topic.
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
+redispatch beta
+eq "a run that took over has no dispatch_topic before the check" absent "$(topic_key)"
+eq "a takeover's redispatch from failure checks the unit wait named" "ok beta" "$(check)"
+eq "  ... and dispatch_topic names that unit" beta "$(topic_key)"
+jq -nc '{topic: "beta", repo: "acme/widgets", entry_point: "deliver", run_mode: "--auto", phase: "executing"}' | koto context add "$S" brief_input.json
+(cd "$T/r1487-ws" && r1487_env bash "$HERE/dispatch-worker.sh" --session "$S" > "$T/dw.out" 2> "$T/dw.err"); RC=$?
+if [ "$RC" = 0 ] && [ "$(cat "$T/dw.out")" = already-dispatched ]; then
+    ok "  ... so dispatch-worker.sh finds the held, dispatched topic"
+else
+    bad "  ... so dispatch-worker.sh finds the held, dispatched topic" "exit $RC: $(cat "$T/dw.out") $(cat "$T/dw.err")"
+fi
+(r1487_env bash "$HERE/holding-recorded.sh" --session "$S" > /dev/null 2> "$T/hr.err"); RC=$?
+if [ "$RC" = 0 ]; then ok "  ... and holding-recorded.sh passes"; else bad "  ... and holding-recorded.sh passes" "exit $RC: $(cat "$T/hr.err")"; fi
+# A continuation under a new topic, over an earlier pick's dispatch_topic.
+redispatch beta-cont; put_topic beta
+OUT=$(check)
+eq "a redispatch under a new topic checks the unit wait named" "ok beta-cont" "$OUT"
+eq "  ... and dispatch_topic is the topic the ok sealed, not an earlier pick's" "${OUT#ok }" "$(topic_key)"
+# A pick's dispatch: its edge wrote the key, and the check leaves it so.
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)" dispatch gamma; put_topic gamma
+eq "a pick's dispatch is checked as before" "ok gamma" "$(check)"
+eq "  ... and dispatch_topic still names the pick's unit" gamma "$(topic_key)"
+# Only ok writes the key.
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding theta '{"return_path": "leg req-9:execute"}')" '.holdings = [$h]')"
+leg_redispatch() {
+    to_wait
+    log_evidence "$S" wait '{"event":"leg"}'; log_to "$S" wait leg_pick
+    log_capture "$S" WAIT_REQ req-1; log_to "$S" leg_pick wait_leg
+    log_capture "$S" WAIT_LEG execute; log_to "$S" wait_leg take_report
+    log_to "$S" take_report failure
+    log_evidence "$S" failure '{"move":"redispatch"}'; log_to "$S" failure dispatch_check
+}
+leg_redispatch
+eq "a redispatch whose unit can't be resolved is refused" "unresolved-topic" "$(check)"
+eq "  ... and writes no dispatch_topic" absent "$(topic_key)"
+leg_redispatch; put_topic gamma
+eq "the same refusal over an earlier dispatch_topic" "unresolved-topic" "$(check)"
+eq "  ... leaves the key as it was" gamma "$(topic_key)"
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(active a5 25)")"
+for n in 21 22 23 24 25; do pr $n OPEN true; done
+session "$(roadmap_vars plugin-system)"
+eq "a pick at the cap is refused" "at-cap 5/5 0/3" "$(check)"
+eq "  ... and writes no dispatch_topic" absent "$(topic_key)"
+session "$(roadmap_vars plugin-system)"; put_topic beta
+eq "a pick at the cap, its edge having written the key" "at-cap 5/5 0/3" "$(check)"
+eq "  ... leaves the key as it was" beta "$(topic_key)"
+# --no-seal, the tests' override mode, writes nothing.
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"pull_request": "[#41](https://github.com/acme/widgets/pull/41)"}')" '.holdings = [$h]')"
+redispatch beta
+OUT=$(bash "$DC" --session "$S" --scope roadmap --name plugin-system --repo acme/widgets --no-seal 2>"$T/err")
+eq "--no-seal prints the bare verdict of a takeover's redispatch" "ok beta" "$OUT"
+eq "  ... and writes no dispatch_topic" absent "$(topic_key)"
+
 done_tests deferral-check
