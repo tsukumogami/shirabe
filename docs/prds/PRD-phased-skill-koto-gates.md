@@ -90,23 +90,31 @@ stands.
 
 - **R1. A phase state per run.** Every run of explore, prd, design, plan,
   work-on, decision, review-plan, roadmap, vision and release has a koto
-  session whose current state names the phase the run is in, using the phase
-  names that skill's SKILL.md lists, in the order it lists them. The state
-  changes as the run moves between phases.
-- **R2. Declared evidence per phase.** Each non-terminal phase of each of the
-  ten skills declares the evidence that completes it: a submitted field, a
+  session whose current state names the phase the run is in. Each skill's
+  SKILL.md carries one phase table that lists its phases in order with the
+  koto state name of each, and the workflow's phase states are exactly the
+  names in that table, in that order. The state changes as the run moves
+  between phases. Besides its phase states, a workflow has end states (a
+  run finished, a run abandoned) that come after the final phase; they are
+  not phases and are not in the table. The final phase is the last row of
+  the table.
+- **R2. Declared evidence per phase.** Each phase state of each of the ten
+  skills declares the evidence that completes it: a submitted field, a
   session key the phase writes, or a check koto runs. koto, not the agent,
-  decides whether it is present. A terminal phase completes nothing and
-  declares no evidence.
+  decides whether it is present. End states complete nothing and declare no
+  evidence.
 - **R3. Refusal of a skipped phase.** A move out of a phase whose declared
   evidence is missing is refused by koto. This holds for an ordinary advance
-  and for a directed jump to any later phase, the last one included. The
-  refusal names the missing evidence field, key or check. The checks that
-  guard entry to a skill's final phase can't be waived by an override.
-- **R3a. Declared loops and conditional phases.** A skill whose SKILL.md
-  documents a return to an earlier phase (a review that sends the draft back,
-  a retry) or a phase it runs only under a stated condition declares that move
-  in its workflow as an edge of its own. A return carries the evidence that
+  and for a directed jump to any later phase, the last one included, and for
+  a jump from a completed phase over a later phase whose evidence is
+  missing. The refusal names the missing evidence field, key or check. Entry
+  to each skill's final phase is guarded by at least one check koto runs,
+  whatever other evidence the phase before it declares, and no check on that
+  entry can be waived by an override.
+- **R3a. Declared loops and conditional phases.** Each return to an earlier
+  phase (a review that sends the draft back, a retry) and each phase run
+  only under a stated condition is marked as such in the skill's phase
+  table, and the workflow declares that move as an edge of its own. A return carries the evidence that
   calls for it, such as a failing verdict. Passing over a conditional phase
   carries the evidence that the condition doesn't hold, such as a submitted
   reason. Any move the workflow doesn't declare, and any declared move whose
@@ -138,11 +146,12 @@ stands.
   link, never koto parent-child lineage.
 - **R9. Session convention kept.** The key names in the session convention's
   per-skill table, the dispatch key and the store template's file name stay
-  as they are, so readers of those keys and sessions opened from the store
-  template keep working. A skill that moves to its own workflow says in its
-  SKILL.md how a session opened on the store template before the change is
-  finished or replaced; it never leaves such a session unable to attach
-  without saying why.
+  as they are, so every reader of those keys keeps working. A skill that
+  moves to its own workflow says in its SKILL.md what happens to a session
+  opened on the store template before the change: the run finishes on it,
+  or it is replaced by a fresh session while its keys stay readable, or the
+  attach is refused with a message that names the session and the step to
+  take. No other outcome is allowed.
 
 ### Non-functional
 
@@ -154,7 +163,7 @@ stands.
   shirabe's floor already requires, or names the koto change it needs as a
   separate request; it doesn't assume an unreleased koto behaviour.
 - **R12. Bounded cost per phase.** Each move between phases a run makes,
-  forward, back or into the terminal state, costs exactly one koto call that
+  forward, back or into an end state, costs exactly one koto call that
   changes the current state, so a run's state changes grow with the moves it
   makes and not with its key writes. Opening and closing the session are not
   moves between phases and aren't counted.
@@ -174,18 +183,19 @@ review-plan, roadmap, vision and release.
 Phase state (R1, R5):
 
 - [ ] For each of the ten skills, right after the session opens, `koto
-      status` reports a current state whose name is the skill's first
-      documented phase; after the script submits that phase's evidence, it
+      status` reports a current state whose name is the first row of
+      the skill's phase table; after the script submits that phase's evidence, it
       reports the second phase.
-- [ ] For each of the ten skills, a script walks every phase in order to the
-      terminal state, and each `koto status` along the way names the phase
+- [ ] For each of the ten skills, a script walks every phase in order to an
+      end state, and each `koto status` along the way names the phase
       the walk has reached.
-- [ ] For each of the ten skills, a script extracts the ordered phase list
-      from the skill's SKILL.md and the ordered phase state names from its
-      workflow, and fails on any phase missing from either, any extra state,
-      any name that differs, or any difference in order.
-- [ ] For each of the ten skills, a session left in each of its non-terminal
-      phases, then reopened the way a resumed run reopens it, reports the
+- [ ] For each of the ten skills, a script extracts the ordered state names
+      from the phase table in the skill's SKILL.md and the ordered phase
+      states from its workflow (end states aside), and fails on any name
+      missing from either, any extra phase state, any name that differs, or
+      any difference in order.
+- [ ] For each of the ten skills, a session left in each of its phases,
+      then reopened the way a resumed run reopens it, reports the
       same phase before and after. For the five skills a parent chain
       dispatches (prd, design and plan under `/scope`; vision and roadmap
       under `/charter`), the same holds for a session opened under that
@@ -194,13 +204,13 @@ Phase state (R1, R5):
 Loops and conditional phases (R3a):
 
 - [ ] For each return to an earlier phase and each pass over a conditional
-      phase that a skill's SKILL.md documents, the script submits the move's
+      phase that a skill's phase table marks, the script submits the move's
       declared evidence and the move succeeds, and submits the move without
       it and the move is refused with the current state unchanged and the
       missing evidence named.
 - [ ] For each of the ten skills, a script lists the workflow's edges and
       fails on any edge between phase states that is neither the next phase
-      in order nor a return or conditional pass its SKILL.md documents.
+      in order nor a return or conditional pass its phase table marks.
 
 Refusals (R2, R3):
 
@@ -208,15 +218,19 @@ Refusals (R2, R3):
       the session-opening step opens the skill's per-phase workflow and runs
       the koto check before the first phase.
 - [ ] A script that reads each of the ten skills' workflows lists every
-      non-terminal phase state with the evidence field, required key or gate
-      that completes it, and fails when any phase state has none, or when a
-      skill's final phase has no gate on its entry that is marked
-      non-overridable.
+      phase state with the evidence field, required key or gate that
+      completes it, and fails when any phase state has none, when the edge
+      into a skill's final phase carries no gate, or when any gate on that
+      edge is overridable.
 - [ ] For each of the ten skills, from a phase whose evidence is absent: an
       ordinary advance, and a directed move to each later phase, the last
-      one included, each
-      exit non-zero, leave the current state unchanged, and print the name of
-      the missing evidence field, key or gate.
+      one included, each exit non-zero, leave the current state unchanged,
+      and print the name of the missing evidence field, key or gate.
+- [ ] For each of the ten skills with three or more phases, from its first
+      phase with that phase's evidence submitted and the second phase's
+      evidence absent, a directed move to the final phase exits non-zero,
+      leaves the current state unchanged, and prints the name of the second
+      phase's missing evidence field, key or gate.
 - [ ] For each phase of the ten skills whose evidence includes a submitted
       field, evidence submitted with a required field missing or of the
       wrong type is refused, and the refusal names the field. A phase whose
@@ -244,8 +258,9 @@ koto absent (R6, R7):
       parsed, starting each of the ten skills exits non-zero before
       its first phase, prints a message containing "koto is required", the
       floor version and an install route, and leaves `git status` clean and
-      no session behind. The ten messages are identical apart from the
-      skill's name.
+      no session behind. Within each of these cases, the ten skills
+      print the same message apart from the skill's name; the message may
+      also name the version it found.
 - [ ] With both koto and tsuku removed from PATH, that message names an
       install route that doesn't use tsuku and is a runnable command or an
       https URL.
@@ -257,8 +272,8 @@ Compatibility (R8, R9, R11):
       `/charter`), a child opened under the parent's dispatch key reads it
       and the parent reads the child's result keys as it does today.
 - [ ] For each of those five skills, a child
-      session left in each of its non-terminal phases is closed by the parent
-      chain's close call and ends in a terminal state; the child session is a
+      session left in each of its phases is closed by the parent chain's
+      close call and ends in an end state; the child session is a
       root whose dispatched-by link names the parent.
 - [ ] The key names in the session convention's per-skill table, the
       dispatch key's name and fields, and the store template's file name are
@@ -267,16 +282,19 @@ Compatibility (R8, R9, R11):
       either succeeds and the run finishes on it, or replaces it with a fresh
       session while the old session's keys stay readable, or is refused with a
       message that names the session and the step to take.
+- [ ] For each skill that moves off the store template, a script reads its
+      SKILL.md and finds a statement that names the store template and says
+      which of the three outcomes above applies to a session opened on it.
 - [ ] The workflows compile and every script above passes with the koto
       version shirabe's floor names, with no newer koto installed.
 
 Cost and verification (R10, R12):
 
 - [ ] In each skill's full scripted walk, and in each scripted walk that takes
-      a documented return or conditional pass, the number of koto calls that
+      a return or conditional pass its phase table marks, the number of koto calls that
       change the current state, counted after the session opens and before
       it closes, equals the number of moves between phases the walk makes,
-      the move into the terminal state included.
+      the move into an end state included.
 - [ ] Every script named in these criteria runs in CI, and none of them calls
       a model.
 
