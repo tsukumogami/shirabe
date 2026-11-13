@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   Agents that change a shirabe skill must run its full model-graded eval suite
   at work-on's definition-of-done gate. The suite is slow and noisy, it can't
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-evals-at-release](docs/briefs/BRIEF-evals-at-release.md); carried in Absorbed Brief.
 

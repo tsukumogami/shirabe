@@ -1,7 +1,7 @@
 # release extension: shirabe
 
 shirabe's declarations for `/shirabe:release`, imported by
-`skills/release/SKILL.md`. Designs: `docs/designs/DESIGN-skill-regression-detection.md` for the eval check, and `docs/designs/current/DESIGN-evals-at-release.md` for the release-checks hook.
+`skills/release/SKILL.md`. Designs: `docs/designs/current/DESIGN-skill-regression-detection.md` for the eval check, and `docs/designs/current/DESIGN-evals-at-release.md` for the release-checks hook.
 
 ## Release checks
 

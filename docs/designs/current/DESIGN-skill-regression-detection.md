@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   shirabe wants a maintainer to learn that a change broke a skill, including a
   hand-off from one skill to another, before the release carrying it ships, and
@@ -43,7 +43,7 @@ absorbed:
 
 ## Status
 
-Planned
+Current
 
 Absorbed [BRIEF-skill-regression-detection](docs/briefs/BRIEF-skill-regression-detection.md); carried in Absorbed Brief.
 
