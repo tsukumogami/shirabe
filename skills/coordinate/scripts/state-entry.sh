@@ -104,7 +104,7 @@
 #   <the text>
 #
 # K is entry (the default), or one of the kinds the record's other writers
-# append for what they change (the design's Decisions 3 and 4): run, told, pending,
+# append for what they change (the design's Decisions 3 and 4): run, told, pending, missing,
 # pause, go-ahead, approval, answer, assignment, rule (a Standing rule row,
 # state-stored-set.sh --standing rule), end, work, roadmap-status,
 # hold (a hold added or lifted, state-hold.sh), moved (found in a record an
@@ -181,7 +181,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-ENTRY_KINDS=" entry run told pending pause go-ahead approval answer assignment rule end work roadmap-status hold moved takeover cost milestone-verdict milestone-failure goal-fit decisions alignment "
+ENTRY_KINDS=" entry run told pending missing pause go-ahead approval answer assignment rule end work roadmap-status hold moved takeover cost milestone-verdict milestone-failure goal-fit decisions alignment "
 # The kinds a reader outside the coordinator reads from GitHub.
 OUTWARD_KINDS=" cost milestone-verdict goal-fit milestone-failure "
 case "$MODE" in

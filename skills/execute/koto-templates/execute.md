@@ -846,6 +846,14 @@ states:
       #   semantics: skills/execute/scripts/owned-ci-cancel_test.sh,
       #              skills/work-on/scripts/ci-none-declared_test.sh
       #
+      # Like work-on.md's ci_passing, the gate carries its own time limit
+      # (#1809): under koto's 30 s command-gate default, pr-checks.sh's REST
+      # fallback, one pass of which took about 28 s on a loaded host, plus
+      # owned-pr.sh's lookups and the fallback scripts' own reads don't fit,
+      # and a command koto kills reads exit -1, which no edge matches. 180 s
+      # covers three fallback reads at about twice that.
+      #   test: skills/work-on/scripts/ci-passing-timeout_test.sh
+      #
       # owned_merge_state_clean exits 1 only when GitHub reports DIRTY, since
       # koto routes that answer to escalate_dirty_merge_state with no evidence.
       # A read that returned nothing (a failed lookup or gh call) is 2, which
@@ -853,6 +861,7 @@ states:
       owned_ci_passing:
         type: command
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} \"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" {} --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || exit 1"
+        timeout: 180
       owned_merge_state_clean:
         type: command
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"

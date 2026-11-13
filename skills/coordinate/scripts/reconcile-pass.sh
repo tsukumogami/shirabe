@@ -8,11 +8,16 @@
 # re-checks (reconcile-check.sh), at most four at once, launching none after
 # 20 seconds and giving each a deadline clipped to the time left before the
 # 24-second mark, which leaves the report and its seal the rest of koto's
-# 30-second cap. When every re-check is done it builds the report
-# (reconcile-report.sh), writes it to context, and prints the sealed line.
+# 30-second cap. The record read gets the same window: the time left before
+# the 24-second mark, at least 2 s. A read that ends at or past the 20-second
+# cutoff ends the pass pending, with nothing left to re-check if need be, and
+# the next pass seals without reading the record again. When every re-check
+# is done it builds the report (reconcile-report.sh), writes it to context,
+# and prints the sealed line.
 #
 # Output, one line on stdout (every child's stdout goes to stderr):
-#   pending:<seq>:<n>:<sha256 of the work file>   n re-checks left; tick again
+#   pending:<seq>:<n>:<sha256 of the work file>   n re-checks left (0 after a
+#                                                 late record read); tick again
 #   blocked:<case>                                 none | unreadable
 #   reconciled <sha256 of report.json> sealed:<seq>:<sha256>
 # The last is sealed with the record feature's coord-log.sh for this state's
@@ -226,10 +231,19 @@ else
     discard
 fi
 
-# The record, once per visit.
+# The record, once per visit. The read gets the time left before the
+# 24-second mark, at least 2 s, measured on the pass's own clock; its
+# per-read deadlines get the same budget. A read that ends at or past the
+# 20-second cutoff ends the pass pending (READ_LATE), so the report and its
+# seal happen on the next tick, inside that tick's own 30 seconds.
+READ_LATE=0
 if [ -z "$WJ" ]; then
     rm -f "$W/reasoning.md"
-    REC=$(rd_deadline 12 "${RUNBASH[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2>/dev/null 3>&-)
+    tr=$(now) || exit 1
+    RB=$((READS_END - (tr - T0)))
+    [ "$RB" -lt 2 ] && RB=2
+    echo "reconcile-pass: record read with ${RB}s" >&2
+    REC=$(rd_deadline "$RB" env RECONCILE_READ_DEADLINE="$RB" "${RUNBASH[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2> "$T/read.err" 3>&-)
     RC=$?
     if [ "$RC" -ne 0 ]; then
         case "$RC" in
@@ -237,7 +251,13 @@ if [ -z "$WJ" ]; then
             *) CASE=unreadable ;;
         esac
         REASON=$(printf '%s' "$REC" | jq -r '.reason // empty' 2>/dev/null)
-        [ "$RC" = 124 ] && REASON="reading the record timed out"
+        if [ "$RC" = 124 ]; then
+            # The reader names each part before it reads it; the last one
+            # named is where the time ran out.
+            PART=$(sed -n 's/^reconcile-read: reading \(.*\)$/\1/p' "$T/read.err" | tail -n 1 | tr -d '\000-\037' | cut -c1-80)
+            REASON="reading the record timed out after ${RB} s"
+            [ -n "$PART" ] && REASON="$REASON, while reading $PART"
+        fi
         [ -n "$REASON" ] || REASON="the record could not be read"
         printf 'case: %s\nreason: %s\n' "$CASE" "$REASON" > "$T/refusal"
         ctx_put reconcile/refusal "$T/refusal"
@@ -258,6 +278,8 @@ if [ -z "$WJ" ]; then
         '{visit: $v, record: $rec, run_start: $rs, chain_start: $cs, plugin_root: $place, facts: {}, done: false}') \
         || die "the record could not be stored"
     save "$NEW"
+    te=$(now) || exit 1
+    [ $((te - T0)) -ge "$CUTOFF" ] && READ_LATE=1
 fi
 
 # plan NOW -- the re-checks not yet done, one JSON object per line:
@@ -478,13 +500,19 @@ while :; do
 done
 
 # Anything left is read in a later pass. A plan that can't be read must not
-# count as nothing left, or the pass would seal with re-checks unread.
+# count as nothing left, or the pass would seal with re-checks unread. A
+# record read that ended late leaves the report to the next pass even with
+# nothing left to re-check.
 t=$(now) || exit 1
 plan "$t" > "$T/plan" || die "the plan could not be read"
 LEFT=$(grep -c . "$T/plan" || true)
-if [ "$LEFT" -gt 0 ]; then
+if [ "$LEFT" -gt 0 ] || [ "$READ_LATE" = 1 ]; then
     H=$(printf '%s\n' "$WJ" | rd_sha256)
-    printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    if [ "$LEFT" -gt 0 ]; then
+        printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    else
+        printf 'The record was read late in this pass; the report is built on the next tick. Tick again with no evidence.\n' > "$T/progress"
+    fi
     ctx_put reconcile/progress "$T/progress"
     say "pending:$VISIT:$LEFT:$H"
 fi

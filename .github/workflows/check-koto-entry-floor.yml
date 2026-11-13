@@ -181,6 +181,7 @@ jobs:
           bash scripts/run-suites.sh \
             skills/work-on/scripts/terminal-retention_test.sh \
             skills/work-on/scripts/ci-monitor-role_test.sh \
+            skills/work-on/scripts/ci-passing-timeout_test.sh \
             skills/work-on/scripts/retry-clearing_test.sh \
             skills/work-on/scripts/cascade-chaining_test.sh \
             skills/work-on/scripts/pre-pr-evidence_test.sh \
