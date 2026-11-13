@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   Nine of shirabe's ten phased skills keep their koto session in one state from
   start to finish, so nothing outside the agent's reading of the instructions
@@ -22,9 +22,10 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
-Framing for the phased-skill gates feature, written under `/scope`.
+Framing for the phased-skill gates feature, written under `/scope`. Its open
+questions (template shape, evidence encoding, nested runs) moved to the PRD.
 
 ## Problem Statement
 
@@ -143,16 +144,6 @@ does today.
   might expect the refusal to be proven that way; whatever verifies this
   feature has to run as a script, without a paid model.
 
-## Open Questions
-
-- Whether each skill carries its own workflow template or the skills share
-  one parameterised template, and how a live session opened on the store
-  template moves to the new one.
-- How a phase's evidence is encoded so that koto, rather than the agent,
-  decides whether it is present, and which of those checks can't be
-  overridden.
-- Where a nested `/decision` or `/review-plan` run records its phase: a
-  session of its own, or state in its host's session.
 
 ## References
 
