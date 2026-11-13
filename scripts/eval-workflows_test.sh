@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # eval-workflows_test.sh -- the workflows that run eval cases keep the
 # properties Security Considerations in
-# docs/designs/DESIGN-skill-regression-detection.md gives them.
+# docs/designs/current/DESIGN-skill-regression-detection.md gives them.
 #
 # The two gates that run a pull request's script cases, check-evals.yml and
 # check-skill-gate.yml, must:

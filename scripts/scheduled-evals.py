@@ -2,7 +2,7 @@
 """scheduled-evals.py - retired. It runs nothing.
 
 This script used to run model-graded evals on a schedule, under a weekly
-cap. Decision 1 of docs/designs/DESIGN-skill-regression-detection.md retires
+cap. Decision 1 of docs/designs/current/DESIGN-skill-regression-detection.md retires
 graded runs: the eval harness runs script-graded cases only and refuses every
 graded case. So this script starts no process, reads and writes no ledger, and
 looks at none of its arguments or its environment. Whatever it is given, it

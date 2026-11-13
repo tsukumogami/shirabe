@@ -216,7 +216,7 @@ class Source(unittest.TestCase):
     def test_docstring_says_retired_and_what_runs_now(self):
         self.assertIsNotNone(self.docstring)
         self.assertIn("retired", self.docstring)
-        self.assertIn("Decision 1 of docs/designs/DESIGN-skill-regression-detection.md",
+        self.assertIn("Decision 1 of docs/designs/current/DESIGN-skill-regression-detection.md",
                       " ".join(self.docstring.split()))
         self.assertIn("scripts/run-evals.sh <skill>", self.docstring)
 

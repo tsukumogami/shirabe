@@ -3,7 +3,7 @@
 #
 # scripts/run-evals.sh runs a skill's script-graded cases only and lists every
 # graded case as refused (Decision 1 of
-# docs/designs/DESIGN-skill-regression-detection.md). So a dispatch needs no
+# docs/designs/current/DESIGN-skill-regression-detection.md). So a dispatch needs no
 # model, no API key and no repository secret: the job installs koto, which the
 # hand-off cases compile templates with, checks it against the floor, and runs
 # the harness. The koto install passes github.token to tsuku only so that its

@@ -7,7 +7,7 @@
 # leaves a record for the release to attach. Any failing case stops the
 # release until a person confirms it. Declared as the release check in the
 # repository's release extension; see
-# docs/designs/DESIGN-skill-regression-detection.md (Decision 3).
+# docs/designs/current/DESIGN-skill-regression-detection.md (Decision 3).
 #
 # Usage:
 #   scripts/release-eval-check.sh

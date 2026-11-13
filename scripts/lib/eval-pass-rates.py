@@ -59,7 +59,7 @@ merge
 merge, script run
   A run whose --summary files are script-cases-summary/v1, written by
   scripts/lib/script-cases.py, is a script run (Decision 3 of
-  docs/designs/DESIGN-skill-regression-detection.md). Every summary is then
+  docs/designs/current/DESIGN-skill-regression-detection.md). Every summary is then
   held to that schema, and the rules above give way to these:
   - The record holds the --selected skills and nothing else: no baseline
     entry is carried forward, since the release runs every skill. Each entry
