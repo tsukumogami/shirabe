@@ -37,6 +37,7 @@ to these codes:
 | 8 | nothing on disk, on a branch naming the topic | [11] | `setup` |
 | 9 | nothing on disk, any other branch | [10] | `setup` |
 | — | the probe cannot tell | [2] | `done_error` with `step=scope:resume-probe` |
+| — | a lookup the ladder needs ran past the probe's deadline, or koto refused it | [3] | none: the run holds at `resume_route`, and the probe's finding lines are on the gate's blocking condition |
 
 The publish retry sits under row 2 because it is an exit already
 recorded: the run ended at `done_error` before cleanup, so `work/state.md`
@@ -171,7 +172,8 @@ surface they defended.
 live session, so a child whose direct run finished and closed its
 session falls through to the Slot 5 artifact rows, which read the
 durable document's status. A session koto cannot report is the
-probe's cannot-tell [2]; koto absent from `PATH` means no child
+probe's cannot-tell [2], and a child koto refuses (`has-work` exit 7)
+is the unsettled answer [3], never a miss; koto absent from `PATH` means no child
 session can exist, so Slot 6 matches nothing and the ladder falls
 through.
 

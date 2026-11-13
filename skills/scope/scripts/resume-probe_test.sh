@@ -549,19 +549,23 @@ repo
 STUB_KEYS="explore-t:handoff/scope.md" STUB_BROKEN=design-t KOTO_BIN="$STUB" TMPDIR="$PT" \
     expect "a child koto cannot report (has-work exit 4) is cannot-tell, ahead of a present handoff" 2 t none
 tmp_gone "a has-work exit 4"
-# A child koto refuses (has-work exit 7) reads as cannot-tell until the probe
-# learns to hold on it; the handoff still can't fire past it.
-repo
+# A child koto refuses (has-work exit 7) is unsettled: the run holds at
+# resume_route instead of ending (#1792), and the handoff still can't fire
+# past it, since row 12 needs every child settled.
+repo; : >"$STUB_PIDS"
 STUB_KEYS="explore-t:handoff/scope.md" STUB_REFUSED=design-t KOTO_BIN="$STUB" TMPDIR="$PT" \
-    expect "a child koto refuses (has-work exit 7) is cannot-tell, ahead of a present handoff" 2 t none
-case "$(cat "$T/out")" in
-    *"row=2 cannot-tell"*) ok "a refused child prints row=2 cannot-tell" ;;
-    *) bad "a refused child prints row=2 cannot-tell" "$(cat "$T/out")" ;;
+    expect "a child koto refuses (has-work exit 7) is unsettled, ahead of a present handoff" 3 t none
+case "$(grep '^::koto-finding:: lookup=design-t outcome=refused ' "$T/out")" in
+    *" koto=session_lookup_failed session 'design-t' has no copy on this host"*)
+        ok "a refused child: a finding line for design-t with koto's code and message" ;;
+    *) bad "a refused child: a finding line for design-t with koto's code and message" "$(cat "$T/out")" ;;
 esac
-case "$(cat "$T/err")" in
-    *"has-work design t exited 7"*) ok "a refused child: stderr says has-work design t exited 7" ;;
-    *) bad "a refused child: stderr says has-work design t exited 7" "$(cat "$T/err")" ;;
-esac
+if [ "$(tail -n 1 "$T/out")" = "row=3 unsettled" ]; then
+    ok "a refused child ends with row=3 unsettled"
+else
+    bad "a refused child ends with row=3 unsettled" "$(cat "$T/out")"
+fi
+stubs_gone "a has-work exit 7"
 tmp_gone "a has-work exit 7"
 repo; doc docs/plans/PLAN-t.md Active
 STUB_BROKEN="plan-t explore-t" KOTO_BIN="$STUB" TMPDIR="$PT" \
@@ -632,6 +636,207 @@ else
 fi
 stubs_gone "$L"
 tmp_gone "$L"
+
+# shape <label> -- every finding line has the header's shape: lookup=,
+# outcome= and next=, the remedy field on a stop-and-act line, and koto= last.
+# Nothing the probe printed names --local-topic.
+shape() {
+    local l wrong=""
+    while IFS= read -r l; do
+        case "$l" in ::koto-finding::*) ;; *) continue ;; esac
+        printf '%s\n' "$l" | grep -qE '^::koto-finding:: lookup=[a-z0-9-]+( [a-z0-9/._-]+)? outcome=(deadline|refused) next=(tick-again|stop-and-act)( remedy=declare-the-bucket-name-index)? koto=[^=]*$' ||
+            wrong="$wrong [$l]"
+        case "$l" in
+            *" next=stop-and-act remedy=declare-the-bucket-name-index koto="*|*" next=tick-again koto="*) ;;
+            *) wrong="$wrong [$l]" ;;
+        esac
+    done <"$T/out"
+    if [ -z "$wrong" ]; then ok "$1: finding lines have their shape"; else bad "$1: finding lines have their shape" "$wrong"; fi
+    if grep -q -e '--local-topic' "$T/out" "$T/err"; then
+        bad "$1: no output names --local-topic" "$(cat "$T/out" "$T/err")"
+    else
+        ok "$1: no output names --local-topic"
+    fi
+}
+# nofind <label> -- no finding line.
+nofind() {
+    if grep -q '::koto-finding::' "$T/out"; then bad "$1: no finding line" "$(cat "$T/out")"; else ok "$1: no finding line"; fi
+}
+# hasline <label> <text> -- a finding line starts with <text>.
+hasline() {
+    if grep -qF -- "$2" "$T/out" && [ "$(grep -F -- "$2" "$T/out" | cut -c1-${#2})" = "$2" ]; then
+        ok "$1: $2"
+    else
+        bad "$1: $2" "$(cat "$T/out")"
+    fi
+}
+# after <label> -- the checks every new case ends with.
+after() { shape "$1"; stubs_gone "$1"; tmp_gone "$1"; }
+# val <session> <key> -- stdin becomes the key's bytes in the stub's store V.
+val() { mkdir -p "$(dirname "$V/$1/$2")" && cat >"$V/$1/$2"; }
+STATE2=$(printf 'topic: t\nlast_updated: %s\nphase_pointer: 2' "$FRESH")
+PRIOR27=$(printf 'outcome: error\nexit: full-run\nintent: continue\nstep: scope:push')
+
+L="early answer on the topic's own keys"
+repo; V="$T/vals$N"; printf '%s\n' "$STATE2" | val scope-t work/state.md
+STUB_VALS="$V" STUB_DELAY="$FRESH_DELAY" SCOPE_PROBE_DEADLINE=5 KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect_within "$L" 21 3 t none
+if [ "$(cat "$T/out")" = "row=21 fresh-phase-2" ]; then ok "$L: row=21 fresh-phase-2 only"; else bad "$L: row=21 fresh-phase-2 only" "$(cat "$T/out")"; fi
+nofind "$L"; after "$L"
+
+L="early answer on the artifact tree"
+repo; doc docs/plans/PLAN-t.md Active
+STUB_DELAY="$FRESH_DELAY" SCOPE_PROBE_DEADLINE=5 KOTO_BIN="$STUB" TMPDIR="$PT" expect_within "$L" 41 3 t none
+nofind "$L"; after "$L"
+
+L="early answer on a prior run"
+repo; V="$T/vals$N"; printf '%s\n' "$PRIOR27" | val scope-t work/prior-run.md
+STUB_VALS="$V" STUB_DELAY="$FRESH_DELAY" SCOPE_PROBE_DEADLINE=5 KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect_within "$L" 27 3 t continue
+nofind "$L"; after "$L"
+
+L="a refusal no remaining row needs is ignored"
+repo; V="$T/vals$N"; printf '%s\n' "$STATE2" | val scope-t work/state.md
+STUB_VALS="$V" STUB_REFUSED="plan-t design-t prd-t brief-t" KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 21 t none
+nofind "$L"; after "$L"
+
+# The suite's one slow case: the default deadline, with the kill and the print,
+# fits inside the gate's 30 s, and an override past 20 is not honoured.
+L="the bound holds without an override"
+repo
+STUB_DELAY="scope-t:40 explore-t:40 plan-t:40 design-t:40 prd-t:40 brief-t:40" SCOPE_PROBE_DEADLINE=600 \
+    KOTO_BIN="$STUB" TMPDIR="$PT" expect_within "$L" 3 25 t none
+hasline "$L" "::koto-finding:: lookup=scope-t work/state.md outcome=deadline next=stop-and-act "
+after "$L"
+
+L="a slow context get of work/state.md runs under the deadline"
+repo; V="$T/vals$N"; printf '%s\n' "$STATE2" | val scope-t work/state.md
+STUB_VALS="$V" STUB_GET_DELAY="scope-t/work/state.md:30" SCOPE_PROBE_DEADLINE=2 KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect_within "$L" 3 5 t none
+hasline "$L" "::koto-finding:: lookup=scope-t work/state.md outcome=deadline next=stop-and-act "
+after "$L"
+
+L="a slow context get of work/prior-run.md runs under the deadline"
+repo; V="$T/vals$N"; printf '%s\n' "$PRIOR27" | val scope-t work/prior-run.md
+STUB_VALS="$V" STUB_GET_DELAY="scope-t/work/prior-run.md:30" SCOPE_PROBE_DEADLINE=2 KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect_within "$L" 3 5 t continue
+hasline "$L" "::koto-finding:: lookup=scope-t work/prior-run.md outcome=deadline next=stop-and-act "
+after "$L"
+
+L="a refused state key (v0.37.1) is unsettled"
+repo; STUB_REFUSED=scope-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+hasline "$L" "::koto-finding:: lookup=scope-t work/state.md outcome=refused next=stop-and-act remedy=declare-the-bucket-name-index koto=session_lookup_failed "
+after "$L"
+
+L="a refused state key (v0.37.0, exit 2) is unsettled"
+repo; STUB_REFUSED0=scope-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+hasline "$L" "::koto-finding:: lookup=scope-t work/state.md outcome=refused next=tick-again koto=listing ws-b/scope-t/ failed"
+after "$L"
+
+L="a child refused with the own-prefix-empty text: stop and act"
+repo; STUB_REFUSED=design-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+hasline "$L" "::koto-finding:: lookup=design-t outcome=refused next=stop-and-act remedy=declare-the-bucket-name-index koto=session_lookup_failed session 'design-t'"
+after "$L"
+
+L="a child refused with the other v0.37.1 text: tick again"
+repo; STUB_REFUSED2=design-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+hasline "$L" "::koto-finding:: lookup=design-t outcome=refused next=tick-again koto=session_lookup_failed session 'design-t'"
+after "$L"
+
+L="a child refused the v0.37.0 way (has-work exit 7): tick again"
+repo; STUB_REFUSED0=design-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+hasline "$L" "::koto-finding:: lookup=design-t outcome=refused next=tick-again koto=listing ws-b/design-t/ failed"
+after "$L"
+
+L="a refused state key ahead of a cannot-tell child"
+repo; STUB_REFUSED=scope-t STUB_BROKEN=design-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+after "$L"
+L="a cannot-tell state key ahead of a refused child"
+repo; STUB_BROKEN=scope-t STUB_REFUSED=design-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 2 t none
+stubs_gone "$L"; tmp_gone "$L"
+
+L="a refused handoff on an empty topic is never absent"
+repo; STUB_REFUSED=explore-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+hasline "$L" "::koto-finding:: lookup=explore-t handoff/scope.md outcome=refused "
+after "$L"
+
+L="koto's text is reduced by allowlist"
+PAD=$(printf '%1000s' '' | tr ' ' p)
+MSG=$(printf 'refused at https://user:secret@host.example/p/x?sig=abc $ ; = & \\ ` " < > ::koto-finding:: lookup=forged %s\nsecond line' "$PAD")
+repo; STUB_REFUSED=design-t STUB_MSG="$MSG" KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
+n=$(grep -o '::koto-finding::' "$T/out" | wc -l | tr -d ' ')
+if [ "$n" = 1 ]; then ok "$L: one finding marker in stdout"; else bad "$L: one finding marker in stdout" "got $n: $(cat "$T/out")"; fi
+kv=$(sed -n 's/^::koto-finding:: lookup=design-t .* koto=//p' "$T/out")
+case "$kv" in
+    "session_lookup_failed refused at https://host.example/p/x "*) ok "$L: the code is kept and the URL cut to scheme, host and path" ;;
+    *) bad "$L: the code is kept and the URL cut to scheme, host and path" "$kv" ;;
+esac
+case "$kv" in
+    *secret*|*sig*|*"second line"*|*forged*" "*"="*) bad "$L: no userinfo, query or second line" "$kv" ;;
+    *) ok "$L: no userinfo, query or second line" ;;
+esac
+if [ "${#kv}" -le 300 ] && [ -n "$kv" ]; then ok "$L: koto= is at most 300 characters (${#kv})"; else bad "$L: koto= is at most 300 characters" "${#kv}"; fi
+if printf '%s' "$kv" | LC_ALL=C grep -q "[^A-Za-z0-9 ._:/'()-]"; then
+    bad "$L: koto= holds only allowed characters" "$kv"
+else
+    ok "$L: koto= holds only allowed characters"
+fi
+after "$L"
+
+echo "== --local-topic =="
+for v in stated unstated; do
+    repo; : >"$STUB_LOG"
+    a=$(cd "$R" && KOTO_BIN="$STUB" TMPDIR="$PT" bash "$S" --topic t --intent none 2>&1); ra=$?
+    b=$(cd "$R" && KOTO_BIN="$STUB" TMPDIR="$PT" bash "$S" --topic t --intent none --local-topic "$v" 2>&1); rb=$?
+    if [ "$ra" = 10 ] && [ "$rb" = "$ra" ] && [ "$a" = "$b" ]; then
+        ok "--local-topic $v: the same exit and lines as without it"
+    else
+        bad "--local-topic $v: the same exit and lines as without it" "$ra [$a] / $rb [$b]"
+    fi
+    tmp_gone "--local-topic $v"
+done
+for args in "--local-topic stated --local-topic stated" "--local-topic" "--local-topic maybe" "--local-topic=stated"; do
+    repo; : >"$STUB_LOG"
+    # shellcheck disable=SC2086
+    (cd "$R" && KOTO_BIN="$STUB" TMPDIR="$PT" bash "$S" --topic t --intent none $args >/dev/null 2>&1); rc=$?
+    if [ "$rc" = 64 ] && [ ! -s "$STUB_LOG" ]; then
+        ok "[$args] is a usage error before any koto call"
+    else
+        bad "[$args] is a usage error before any koto call" "got $rc, stub log: $(cat "$STUB_LOG")"
+    fi
+done
+usage_line=$(bash "$S" --topic t 2>&1 >/dev/null)
+case "$usage_line" in
+    *"--local-topic <stated|unstated>"*) ok "the usage line names --local-topic <stated|unstated>" ;;
+    *) bad "the usage line names --local-topic <stated|unstated>" "$usage_line" ;;
+esac
+
+echo "== the probe's text =="
+if grep -nE 'pkill +-f|killall|pgrep +-f' "$S" | grep -v '^[0-9]*:[[:space:]]*#' >/dev/null; then
+    bad "the kill never matches by name" "$(grep -nE 'pkill +-f|killall|pgrep +-f' "$S")"
+else
+    ok "the kill never matches by name"
+fi
+if grep -nE 'wait -n|declare -A|local -A|mapfile|readarray' "$S" >/dev/null; then
+    bad "nothing past bash 3.2" "$(grep -nE 'wait -n|declare -A|local -A|mapfile|readarray' "$S")"
+else
+    ok "nothing past bash 3.2"
+fi
+if awk '/SCOPE_PROBE_NOW/ { n = NR } /SCOPE_PROBE_DEADLINE/ && n && NR - n <= 3 { f = 1 } END { exit !f }' "$S"; then
+    ok "the header names SCOPE_PROBE_DEADLINE next to SCOPE_PROBE_NOW"
+else
+    bad "the header names SCOPE_PROBE_DEADLINE next to SCOPE_PROBE_NOW" ""
+fi
+if grep -n SCOPE_PROBE_DEADLINE "$HERE/../koto-templates/scope.md" >/dev/null; then
+    bad "no gate passes SCOPE_PROBE_DEADLINE" "$(grep -n SCOPE_PROBE_DEADLINE "$HERE/../koto-templates/scope.md")"
+else
+    ok "no gate passes SCOPE_PROBE_DEADLINE"
+fi
+if grep -n '\[3\]' "$HERE/../references/phases/phase-resume.md" | grep -q 'resume_route'; then
+    ok "phase-resume.md has the unsettled row [3], holding at resume_route"
+else
+    bad "phase-resume.md has the unsettled row [3], holding at resume_route" ""
+fi
 
 echo "== cannot tell and usage =="
 repo; expect "an invalid topic" 2 Bad-Topic none
