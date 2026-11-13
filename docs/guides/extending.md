@@ -50,15 +50,16 @@ These skills carry the slots today:
 | `/plan` | `.claude/shirabe-extensions/plan.md` |
 | `/prd` | `.claude/shirabe-extensions/prd.md` |
 | `/release` | `.claude/shirabe-extensions/release.md` |
+| `/review-plan` | `.claude/shirabe-extensions/review-plan.md` |
 | `/roadmap` | `.claude/shirabe-extensions/roadmap.md` |
 | `/strategy` | `.claude/shirabe-extensions/strategy.md` |
 | `/vision` | `.claude/shirabe-extensions/vision.md` |
 | `/work-on` | `.claude/shirabe-extensions/work-on.md` |
 
 Each one also takes the matching `.local.md` file. The other skills (`/scope`,
-`/charter`, `/deliver`, `/execute`, `/coordinate`, `/comp`, `/review-plan`,
-`/inflight`, `/writing-style` and the two content-governance skills) have no
-slot, so a file named after one of them is never loaded.
+`/charter`, `/deliver`, `/execute`, `/coordinate`, `/comp`, `/inflight`,
+`/writing-style` and the two content-governance skills) have no slot, so a
+file named after one of them is never loaded.
 
 The `.local.md` variant is for personal, machine-level additions. Keep it out
 of version control (a `*.local.md` line in `.gitignore` does it); the committed
