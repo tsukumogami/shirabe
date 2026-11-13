@@ -113,7 +113,30 @@
 #
 #   has-work  exit 0 when <skill>-<topic> is live, its session/branch equals
 #             the current branch, and it holds a key under work/; exit 1
-#             otherwise. Prints nothing.
+#             otherwise. Prints nothing on either. When koto refuses the
+#             status read or the session/branch read (see the reply table
+#             below), exit 7: koto's reply line on stdout, unchanged, and one
+#             stderr line naming <skill>-<topic>.
+#
+#   the reply table (status, has-work, dispatch read, adopt)
+#             koto's replies are read by exit code and `code` first, its text
+#             only where no code tells (tsukumogami/shirabe#1792):
+#               exit 0, a status object       live, finished, or absent when
+#                                             "removed": true
+#               exit 2, error exactly "workflow '<session>' not found", no code
+#                                             absent, the only not-found reply
+#               any other exit 2, including a "not found" inside another error
+#                 or the exact text with a code          a refusal
+#               exit 3, code session_lookup_failed       a refusal
+#               anything else, among them exit 3 with another code or none
+#                 and an exit 0 that isn't a status      cannot tell
+#             status answers a refusal or cannot-tell with exit 4. has-work
+#             answers a refusal with exit 7 and cannot-tell with exit 4; its
+#             session/branch read is a refusal on exit 2, or exit 3 with code
+#             session_lookup_failed, and its key list stays 4 on any failure.
+#             dispatch read and adopt read a parent as below; the session
+#             adopt reads for itself is absent, live or finished as status
+#             reads it, and exit 4 otherwise.
 #
 #   close     a live session from the store template gets
 #             `koto next <session> --no-cleanup --with-data {"close":<v>}`.
@@ -133,24 +156,26 @@
 #             Prints dispatched=<child>.
 #
 #   dispatch read    checks scope-<topic> and charter-<topic>. A parent session
-#             that is absent or finished, whose session/branch is missing or
-#             differs from the current branch, with no chain/dispatch, or
-#             whose value fails re-validation (exactly the three lines above;
-#             child in the closed set of children; the other two fields in
-#             their sets) or names another child, is no match. On one match:
+#             that is absent, finished or not a parent here, whose
+#             session/branch is missing or differs from the current branch,
+#             with no chain/dispatch, or whose value fails re-validation
+#             (exactly the three lines above; child in the closed set of
+#             children; the other two fields in their sets) or names another
+#             child, is no match. On one match:
 #               parent=<parent>-<topic>
 #               child=<child>
 #               suppress_status_aware_prompt=true|false
 #               rationale=fresh-chain|revise
 #             No match: no output, exit 0. Two matches: no output, exit 3,
-#             both session names on stderr. A parent koto reports as having
-#             no copy on this host and none under this directory's prefix is
-#             absent, even when koto can't list the other directories'
-#             prefixes: the parent that dispatched this child ran `dispatch
-#             write` from this checkout. Any other answer koto gives that is
-#             neither a state nor not found, among them koto not telling
-#             whether this directory's prefix holds the parent, exits 4 with
-#             the parent's name and koto's reason on stderr.
+#             both session names on stderr. A parent is not a parent here, and
+#             never absent, on two of koto's refusals: exit 3 with code
+#             session_lookup_failed, read by its code alone whatever its text,
+#             and an exit 2 saying it has no copy on this host and none under
+#             this directory's prefix (koto up to 0.37.0). The parent that
+#             dispatched this child ran `dispatch write` from this checkout, so
+#             koto can read it here. Any other answer that is neither a state
+#             nor koto's exact not-found reply exits 4 with the parent's name
+#             and koto's reason on stderr.
 #
 #   dispatch clear   removes chain/dispatch from <parent>-<topic>; idempotent.
 #             Prints cleared=<parent>-<topic> (or cleared=absent when there is
@@ -243,9 +268,12 @@
 #   3    dispatch read / adopt: two parent sessions match; import: no
 #        session of the set exists at the source
 #   4    cannot tell: koto answered something other than a session's state
-#        (status, has-work, dispatch read, adopt, close-children)
+#        (status, has-work, dispatch read, adopt, close-children); for every
+#        subcommand but has-work, a refusal too
 #   5    refused=branch_mismatch: the session belongs to another branch
 #   6    refused=no_branch: HEAD is not on a branch, or not in a git work tree
+#   7    has-work: koto refused the status or session/branch read; its reply
+#        line is on stdout
 #   64   usage error; no koto call was made
 #   69   failed=koto_below_floor: koto is older than shirabe's floor;
 #        import: failed=koto_no_import, the installed koto has no
@@ -500,8 +528,18 @@ check_area() {
 # --- koto reads ----------------------------------------------------------------
 
 # session_state <session> -- set SSTATE to absent, live or finished. Returns 4
-# when koto's answer is neither a state nor "not found". `koto status` reads
-# only; nothing here ticks.
+# when koto's answer is neither a state nor its exact not-found reply. `koto
+# status` reads only; nothing here ticks.
+#
+# koto's replies are read by exit code and `code` first (tsukumogami/shirabe#1792):
+#   exit 0, a status object       live, finished, or absent when "removed": true
+#   exit 2, last JSON object line with no `code` and `error` exactly
+#           "workflow '<session>' not found"                  absent
+#   any other exit 2              a refusal: return 4, SREFUSED=1
+#   exit 3, code session_lookup_failed                        a refusal, the same
+#   anything else                 return 4, SREFUSED=0
+# A "not found" inside another error, or the exact text with a `code`, is not
+# the not-found reply.
 #
 # A session koto removed at its terminal is absent. A koto that keeps finished
 # records (tsukumogami/koto#355) answers for one from the record: exit 0,
@@ -511,28 +549,36 @@ check_area() {
 #
 # On return 4, SERR holds koto's reason: the error text of its answer, or the
 # exit code when the answer carries none. SRC and SOUT keep koto's exit code and
-# stdout for a caller that reads more of the answer (parent_state).
-SSTATE=""; SERR=""; SRC=0; SOUT=""
+# stdout for a caller that reads more of the answer (parent_state, has-work).
+SSTATE=""; SERR=""; SRC=0; SOUT=""; SREFUSED=0
 session_state() {
-    local out rc=0 term
-    SSTATE=""; SERR=""
+    local out rc=0 term nf
+    SSTATE=""; SERR=""; SREFUSED=0
     out=$("$KOTO" status "$1" 2>/dev/null) || rc=$?
     SRC="$rc"; SOUT="$out"
-    if [ "$rc" -eq 0 ]; then
-        term=$(printf '%s' "$out" | jq -r 'if type != "object" then "" elif .removed == true then "removed" elif has("is_terminal") then (.is_terminal | tostring) else "" end' 2>/dev/null) || term=""
-        case "$term" in
-            removed) SSTATE=absent; return 0 ;;
-            true) SSTATE=finished; return 0 ;;
-            false) SSTATE=live; return 0 ;;
-        esac
-        SERR=$(koto_reason "$out" "$rc")
-        return 4
-    fi
-    if [ "$rc" -eq 2 ]; then
-        case "$out" in
-            *"not found"*) SSTATE=absent; return 0 ;;
-        esac
-    fi
+    case "$rc" in
+        0)
+            term=$(printf '%s' "$out" | jq -r 'if type != "object" then "" elif .removed == true then "removed" elif has("is_terminal") then (.is_terminal | tostring) else "" end' 2>/dev/null) || term=""
+            case "$term" in
+                removed) SSTATE=absent; return 0 ;;
+                true) SSTATE=finished; return 0 ;;
+                false) SSTATE=live; return 0 ;;
+            esac
+            ;;
+        2)
+            nf=$(printf '%s\n' "$out" | jq -R -r --arg want "workflow '$1' not found" 'fromjson? | select(type == "object") | if (has("code") | not) and .error == $want then "yes" else "no" end' 2>/dev/null | tail -n 1) || nf=""
+            if [ "$nf" = yes ]; then
+                SSTATE=absent
+                return 0
+            fi
+            SREFUSED=1
+            ;;
+        3)
+            if [ "$(koto_code "$out")" = session_lookup_failed ]; then
+                SREFUSED=1
+            fi
+            ;;
+    esac
     SERR=$(koto_reason "$out" "$rc")
     return 4
 }
@@ -548,32 +594,34 @@ koto_reason() {
 }
 
 # parent_state <session> -- session_state for a parent dispatch_match checks,
-# which also reads as absent a session koto reports as having no copy on this
-# host and none under this directory's prefix, whether or not another
-# directory's prefix holds it or could be listed (tsukumogami/shirabe#1637). A
-# parent dispatches its child by running `dispatch write` from this checkout,
-# which leaves its copy here, so a session with no copy here is not this child's
-# parent. Any other answer session_state can't place still returns 4, among
-# them koto not telling whether this directory's prefix holds the session.
-#
-# koto up to 0.37.0 gives that answer with exit 2. From 0.37.1 a lookup that
-# couldn't finish refuses with exit 3 and code session_lookup_failed
-# (tsukumogami/koto#670, tsukumogami/shirabe#1764); its text keeps the same
-# words when only other directories' prefixes failed, and says koto can't tell
-# whether this directory's prefix holds the session when that one failed, which
-# stays 4.
+# which also sets SSTATE=not_parent_here, "not a parent here", for two of
+# koto's refusals (tsukumogami/shirabe#1637, tsukumogami/shirabe#1792):
+#   exit 3 with code session_lookup_failed, read by its code alone, whatever
+#     its text (koto 0.37.1 on, tsukumogami/koto#670, tsukumogami/shirabe#1764);
+#   exit 2 whose stdout says the session has no copy on this host and none
+#     under this directory's prefix (koto up to 0.37.0).
+# A parent dispatches its child by running `dispatch write` from this checkout,
+# which leaves its copy here and keeps it readable, so a session koto can't
+# read here is not this child's parent. Such a session is never absent: only
+# koto's exact not-found reply is. Any other answer session_state can't place
+# still returns 4.
 PARENT_NO_COPY_HERE="has no copy on this host and the bucket holds none under this directory's prefix"
 parent_state() {
     session_state "$1" && return 0
     case "$SRC" in
-        2) ;;
-        3) [ "$(koto_code "$SOUT")" = session_lookup_failed ] || return 4 ;;
+        3)
+            [ "$(koto_code "$SOUT")" = session_lookup_failed ] || return 4
+            ;;
+        2)
+            case "$SOUT" in
+                *"$PARENT_NO_COPY_HERE"*) ;;
+                *) return 4 ;;
+            esac
+            ;;
         *) return 4 ;;
     esac
-    case "$SOUT" in
-        *"$PARENT_NO_COPY_HERE"*) SSTATE=absent; SERR=""; return 0 ;;
-    esac
-    return 4
+    SSTATE=not_parent_here; SERR=""
+    return 0
 }
 
 # koto_code <stdout> -- print the `code` of koto's answer: the last stdout line
@@ -583,12 +631,15 @@ koto_code() {
 }
 
 # kget <session> <key> -- set KVAL to the key's exact bytes. Returns 0 when
-# read, 1 when the key is absent, 4 when koto's answer is anything else.
-KVAL=""
+# read, 1 when the key is absent, 4 when koto's answer is anything else. KRC and
+# KOUT keep the exit code and stdout of `context exists`, for a caller that
+# tells a refusal from another answer (has-work).
+KVAL=""; KRC=0; KOUT=""
 kget() {
     local rc=0 out
     KVAL=""
-    "$KOTO" context exists "$1" "$2" >/dev/null 2>&1 || rc=$?
+    KOUT=$("$KOTO" context exists "$1" "$2" 2>/dev/null) || rc=$?
+    KRC="$rc"
     case "$rc" in
         0) ;;
         1) return 1 ;;
@@ -763,7 +814,15 @@ cmd_has_work() {
     check_topic "$2"
     s="$1-$2"
     need_tools
-    session_state "$s" || { say "cannot tell the state of $s"; exit 4; }
+    if ! session_state "$s"; then
+        if [ "$SREFUSED" -eq 1 ]; then
+            [ -z "$SOUT" ] || printf '%s\n' "$SOUT"
+            say "koto refused to report the state of $s"
+            exit 7
+        fi
+        say "cannot tell the state of $s"
+        exit 4
+    fi
     [ "$SSTATE" = "live" ] || exit 1
     current_branch || exit 1
     rc=0
@@ -771,8 +830,13 @@ cmd_has_work() {
     case "$rc" in
         0) [ "$KVAL" = "$BRANCH" ] || exit 1 ;;
         1) exit 1 ;;
-        *) say "cannot read session/branch from $s"; exit 4 ;;
     esac
+    if [ "$KRC" -eq 2 ] || { [ "$KRC" -eq 3 ] && [ "$(koto_code "$KOUT")" = session_lookup_failed ]; }; then
+        [ -z "$KOUT" ] || printf '%s\n' "$KOUT"
+        say "koto refused to read session/branch from $s"
+        exit 7
+    fi
+    [ "$rc" -eq 0 ] || { say "cannot read session/branch from $s"; exit 4; }
     list=$("$KOTO" context list "$s" 2>/dev/null) || { say "cannot list the keys of $s"; exit 4; }
     rc=0
     printf '%s' "$list" | jq -e 'type == "array" and any(.[]; type == "string" and startswith("work/"))' >/dev/null 2>&1 || rc=$?
