@@ -1401,6 +1401,7 @@ fi
 # names it releases the leg: the request is abandoned, the key marked spent,
 # and stderr says what was left. The exit code is the one the stop had.
 
+if section "deliver" "a leg no holding names: a failed holding write"; then
 reset "$INPUT_DELIVER"
 export RECORD_WRITE_MODE=full
 run >/dev/null 2>"$T/unclaimed.err"; RC=$?
@@ -1442,14 +1443,18 @@ run >/dev/null 2>"$T/unclaimed.err"; RC=$?
 eq  "unclaimed: a leg key that can't be written: exit 2" 2 "$RC"
 has "  ... the request just created is abandoned" "$(calls)" "koto request abandon-request req_1"
 has "  ... and stderr says no key was written" "$(cat "$T/unclaimed.err")" "req_1:deliver has no leg key: none was written"
+fi
 
+if section "" "a leg no holding names: the message path"; then
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "explore" | .entry_args = ["plugin-api"]')"
 export RECORD_WRITE_MODE=full
 run >/dev/null 2>"$T/unclaimed.err"; RC=$?
 eq  "unclaimed: a message-path dispatch whose write fails: exit 2" 2 "$RC"
 lacks "  ... opens and abandons no request" "$(calls)" "koto request"
 lacks "  ... and releases nothing" "$(cat "$T/unclaimed.err")" "released"
+fi
 
+if section "deliver" "a leg no holding names: a written row and a failed launch"; then
 reset "$INPUT_DELIVER"
 run >/dev/null 2>&1
 lacks "unclaimed: a dispatch whose row is written releases nothing" "$(calls)" "abandon-request"
@@ -1458,9 +1463,11 @@ reset "$INPUT_DELIVER"
 export NIWA_MODE=fail
 run >/dev/null 2>&1
 eq  "unclaimed: a failed launch abandons its request once" 1 "$(grep -c 'abandon-request req_1' "$ST/calls.log")"
+fi
 
 # A --releg whose row write fails: the new request is released, and the
 # holding and the old key stay as they were.
+if section "scope" "a leg no holding names: --releg"; then
 reset "$INPUT_SCOPE"
 run >/dev/null 2>&1
 printf 'plugin-api' >"$ST/ctx/report_topic"
@@ -1475,6 +1482,7 @@ has "  ... abandons the new request" "$(calls)" "koto request abandon-request re
 eq  "  ... marks its key spent" spent "$(lkey req_2 scope | jq -r .state)"
 eq  "  ... leaves the old key unreplaced" open "$(lkey req_1 scope | jq -r .state)"
 eq  "  ... and the holding on the old leg" "leg req_1:scope" "$(row return_path)"
+fi
 
 # --- a stranded holding (PRD R15; shirabe#732) ---------------------------------------------------------------
 
