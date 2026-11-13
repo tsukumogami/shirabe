@@ -994,6 +994,9 @@ states:
     # written, so a scope left from before the fix would refuse every round;
     # with none, --record has nothing to compare and records. The verdict
     # ledger is never cleared: it is what a retry keeps.
+    # verification_deferral isn't cleared: koto refuses clearing a key a
+    # transition writes, and a stale one only says hosted CI is the build of
+    # record, which stays true.
     clear_on_entry: [scrutiny_results.json, review_results.json, qa_results.json, light_results.json, summary.md, scrutiny_scope.json, review_scope.json, qa_scope.json, light_scope.json]
     gates:
       on_feature_branch_impl:
@@ -1813,6 +1816,13 @@ states:
     #                                             done_blocked (fail closed)
     #   4  a command needs a person, timed out, grew past max_procs, could
     #      not start, or the tree was dirty       done_blocked
+    #   5  every failure counted lies outside the change: a failed or
+    #      timed-out command whose log names only files the change doesn't
+    #      touch (or, timed out, names no failure)
+    #                                             waits for evidence:
+    #        deferred  verification_outside_change, then pass_counting
+    #        fix       implementation
+    #        blocked   done_blocked
     #   75 no result yet                          waits
     #   2  the result could not be read, or the supervisor stopped before
     #      every command ran                      holds
@@ -1824,11 +1834,23 @@ states:
     # Each violation exit prints `::koto-finding::` lines whose rule_id is a
     # verification/ rule from references/rule-registry.json, so the event log names the cause.
     #
-    # The one evidence left is `verification_status: blocked`, for a run that
-    # can't settle: a launcher that can't start (the wait is then pending and,
-    # past its deadline, timed out, both exit 75), a result that can't be
-    # read (2), or a gate run koto killed or could not start (-1). Each edge names the gate value, which is what lets koto prove
-    # it exclusive of the routed ones.
+    # `verification_status: blocked` is for a run that can't settle: a
+    # launcher that can't start (the wait is then pending and, past its
+    # deadline, timed out, both exit 75), a result that can't be read (2), or
+    # a gate run koto killed or could not start (-1). Each edge names the gate
+    # value, which is what lets koto prove it exclusive of the routed ones.
+    #
+    # Exit 5 is the one settled exit with no route of its own (#1098): the
+    # run goes on only on evidence. check-verification.sh decides
+    # eligibility from the result and the merge-base map, so the agent's
+    # `deferred` is accepted only where the script already found every
+    # failure outside the change, and hosted CI must still go green at
+    # ci_monitor, which has no override. A bare `exit_code: 5` edge beside
+    # `5 + deferred` would share every field, and koto refuses that as not
+    # exclusive, so 5 waits for evidence as 2 and 75 do. `deferred` on any
+    # other exit matches no edge: 1, 3 and 4 advance on their own edges, so
+    # a failure in a touched file, or one the result can't attribute, still
+    # goes back to implementation with no way past it.
     #
     # How koto 0.15.0 reports the gate when it is not one of the exits above:
     #   - Still pending at the poll deadline (timeout_secs): the gate's outcome
@@ -1871,15 +1893,20 @@ states:
     accepts:
       verification_status:
         type: enum
-        values: [blocked]
+        values: [blocked, deferred, fix]
         description: >-
-          Absent on every settled path: koto routes on the verdict. Submit
-          `blocked` only when the run can't settle -- the launcher can't
-          start, the wait timed out, the result can't be read, or koto
-          could not run the check (exit -1).
+          Absent on every settled path but exit 5: koto routes on the verdict.
+          On exit 5 (every failure lies outside the change) submit `deferred`
+          to go on with hosted CI as the build of record, `fix` to go back to
+          implementation, or `blocked` to stop. Otherwise submit `blocked`
+          only when the run can't settle -- the launcher can't start, the
+          wait timed out, the result can't be read, or koto could not run the
+          check (exit -1).
       detail:
         type: string
-        description: Why verification could not run or be read.
+        description: >-
+          Why verification could not run or be read, or, on exit 5, the files
+          the failures name and why the change doesn't cause them.
     transitions:
       - target: pass_counting
         when:
@@ -1897,6 +1924,26 @@ states:
           gates.verification_verdict.exit_code: 4
         context_assignments:
           failure_reason: "verification: a command needs a person, timed out, grew past max_procs, could not start, or the tree had uncommitted changes to tracked files (fail closed). The finding names which; the result is in context as verification_results.json."
+      # Exit 5: evidence only. verification_deferral is a fixed one-line
+      # literal, which check-pr-output.sh --deferral-record and /execute's
+      # shared-deferral-record.sh match as a whole `Reason:` line; the agent's
+      # own account is `detail` on the evidence event before the step.
+      - target: verification_outside_change
+        when:
+          gates.verification_verdict.exit_code: 5
+          verification_status: deferred
+        context_assignments:
+          verification_deferral: "local verification failed or timed out only in files this change does not touch"
+      - target: implementation
+        when:
+          gates.verification_verdict.exit_code: 5
+          verification_status: fix
+      - target: done_blocked
+        when:
+          gates.verification_verdict.exit_code: 5
+          verification_status: blocked
+        context_assignments:
+          failure_reason: "verification blocked: ${evidence.detail}"
       - target: done_blocked
         when:
           gates.verification_verdict.exit_code: 75
@@ -1962,9 +2009,27 @@ states:
         context_assignments:
           failure_reason: "verification_deferred: VERIFICATION=hosted-ci was chosen without VERIFICATION_DEFERRAL_REASON. A deferral to hosted CI needs a stated reason, and the variable is fixed at init: start the run again with both, or without the deferral."
 
+  # The named step for a local run whose verification failed or timed out
+  # only in files the change doesn't touch (#1098). verification's exit 5 +
+  # `verification_status: deferred` edge is the only way in, and it writes
+  # verification_deferral, so from here on the run is a deferral to hosted CI
+  # like verification_deferred's: pr_creation holds until the body records
+  # it, and ci_monitor requires hosted CI green with no override. That is the
+  # safety net for a failure the change causes in a file it doesn't touch,
+  # since hosted CI runs every suite.
+  #
+  # No action, no gates, no accepts: it passes straight through, as
+  # check_exit does. Its name is what the event log shows (state_entered);
+  # the evidence that took it, with the agent's detail, is the event before.
+  verification_outside_change:
+    transitions:
+      - target: pass_counting
+
   pass_counting:
     # Entered only after a check passed: verification's exit 0, or a
-    # deferral to hosted CI. A pass is counted here before the run finalizes
+    # deferral to hosted CI (verification_deferred, or
+    # verification_outside_change for a local run whose every failure lay
+    # outside the change). A pass is counted here before the run finalizes
     # (../references/red-first.md), and only when both gates pass:
     #
     #   fix_green      red-first.sh check-green. Passes for a unit that isn't a
@@ -2121,10 +2186,12 @@ states:
         #   the pass (verification goes to pass_counting only on that exit, and
         #   pass_counting to finalization only on fix_green 0), so ready_for_pr is
         #   backed by run verification evidence -- there is no clean finalization without it.
-        #   The one other way in is verification_deferred, for a run that chose
-        #   VERIFICATION=hosted-ci with a reason: its evidence is the pull
-        #   request's hosted CI, which pr_creation makes the body record and
-        #   ci_monitor requires green.
+        #   The other ways in are deferrals to hosted CI: verification_deferred,
+        #   for a run that chose VERIFICATION=hosted-ci with a reason, and
+        #   verification_outside_change, for a local run whose verdict found
+        #   every failure outside the change (exit 5) and whose agent submitted
+        #   deferred. Their evidence is the pull request's hosted CI, which
+        #   pr_creation makes the body record and ci_monitor requires green.
         # deferral_requested: an acceptance criterion is unmet/deferred. There is NO clean
         #   self-reported deferral terminal here (the old deferred_items_noted loophole is
         #   removed). This routes to the blocking deferral_approval human gate instead.
@@ -2152,7 +2219,7 @@ states:
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable through pass_counting, after
       # verification_verdict exit 0 or a deferral to hosted CI with a reason
-      # (verification_deferred).
+      # (verification_deferred, or verification_outside_change on exit 5).
       # It also requires both artifacts to pass the checks pre_pr_evidence makes.
       - target: pre_pr_evidence
         when:
@@ -2527,22 +2594,26 @@ states:
       pr_body_conformant:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
-      # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
-      # verification_deferred) records the deferral where a reviewer reads it.
-      # In a repository that doesn't opt in to workflow content
-      # (scripts/pr-workflow-content.sh prints omit) the script exits 0 with no
-      # GitHub read: verification_deferral in context is the record. Otherwise
-      # check-pr-output.sh --deferral-record reads the pull request body from
-      # GitHub and exits 0 when it says local verification did not run, has
-      # the line `Reason: <reason>`, and names hosted CI as the build of record; 1
-      # when any of the three is missing; 2 when it could not decide. It gates
-      # the created edge only, so 1 and 2 hold here, like pr_body_conformant:
-      # fix the body with `gh pr edit` and submit again. A local run never
-      # starts the script: the test short-circuits to 0, with no process and
-      # no GitHub read.
+      # A run that deferred verification to hosted CI records the deferral
+      # where a reviewer reads it: a VERIFICATION=hosted-ci run
+      # (verification_deferred), or a local run that went on through
+      # verification_outside_change. Both leave verification_deferral in
+      # context, and the gate reads it with --session: a run without the key
+      # deferred nothing, and the script exits 0 with no GitHub read; with
+      # it, the key's value is the reason; a koto read that fails is 2. In a
+      # repository that doesn't opt in to workflow content
+      # (scripts/pr-workflow-content.sh prints omit) a run with the key also
+      # exits 0 with no GitHub read: verification_deferral in context is the
+      # record. Otherwise check-pr-output.sh --deferral-record reads the pull
+      # request body from GitHub and exits 0 when it says local verification
+      # did not run or did not pass, has the line `Reason: <reason>`, and
+      # names hosted CI as the build of record; 1 when any of the three is
+      # missing; 2 when it could not decide. It gates the created edge only,
+      # so 1 and 2 hold here, like pr_body_conformant: fix the body with `gh
+      # pr edit` and submit again.
       verification_deferral_recorded:
         type: command
-        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --session "{{SESSION_NAME}}"'
       # The probe's check (docs/guides/probe.md): probe.sh check reads the
       # `ack` field of this visit's `pr_status: created` submissions from the
       # session log. 0 a match or a run in no arm, and 0 with the not-ready
@@ -3768,6 +3839,11 @@ on the result and koto routes on it, with no evidence from you:
 - **exit 4**: a command needs a person (`unattended: false`), timed out, grew past
   its `max_procs`, could not start, or tracked files had uncommitted changes.
   Fails closed at `done_blocked`.
+- **exit 5**: every failure lies outside the change. Each failed or timed-out
+  command's log names failures only in files this change doesn't touch, or, timed
+  out, names no failure, and nothing else stopped the run. The findings keep their
+  rule ids and end with `; outside the change: <files>` or `; its log names no
+  failure`. koto doesn't route this one by itself; it waits for you (below).
 - **exit 75**: no result for this head yet. The gate is pending: koto re-checks it
   every 15 seconds for up to eight minutes of one tick, and the response says when
   to tick again (`poll.retry_after_secs`). Tick again with
@@ -3802,9 +3878,50 @@ If koto could not start the run (the action's fallback is shown above), the wait
 timed out, or the gate holds on exit 2 or -1 and the cause can't be fixed, submit `verification_status: blocked`
 with the reason in `detail`. The run stops at `done_blocked`.
 
-Evidence schema (only when the run can't settle):
-- `verification_status`: `blocked`
-- `detail`: why verification could not run or be read
+### On exit 5
+
+The verdict script has already checked that the failures lie outside the change:
+it read each log the way the repository's verification map (at the merge-base)
+says to, and found every failure line naming a file that exists at this head and
+isn't in the change's diff. What's left is your judgment, and one of three answers:
+
+- `verification_status: deferred`: the failures aren't this change's. Put the files
+  the findings name in `detail`, with why the change doesn't cause them (a suite
+  failing under load, a timeout with nothing failing). The run goes through
+  `verification_outside_change` to `pass_counting`, with hosted CI as the build of
+  record: the pull request body records the deferral at `pr_creation`, and
+  `ci_monitor` requires that CI green.
+- `verification_status: fix`: the run goes back to `implementation`. Pick it when a
+  failing suite exercises code this change edits, even though the suite's own file
+  is untouched (a helper, a script it runs, a template it reads). Hosted CI runs
+  every suite, so a failure the change causes would still stop the run at
+  `ci_monitor`; fixing it now is cheaper.
+- `verification_status: blocked`: stop at `done_blocked`, with the reason in
+  `detail`.
+
+`deferred` is accepted only on exit 5. On exit 1 or 4 koto has already routed the
+run, so there's nothing to submit there.
+
+Evidence schema (on exit 5, or when the run can't settle):
+- `verification_status`: `deferred` or `fix` (exit 5 only), or `blocked`
+- `detail`: on exit 5, the files the failures name and why the change doesn't cause
+  them; otherwise why verification could not run or be read
+
+## verification_outside_change
+
+koto passes through this state without stopping, and nothing here runs a command.
+The verdict found every local failure outside the change (exit 5) and you submitted
+`verification_status: deferred`, so the run goes on as a deferral to hosted CI. The
+step's record is this state's name in the event log, your `detail` on the evidence
+before it, and `verification_deferral` in context
+(`koto context get {{SESSION_NAME}} verification_deferral`), a fixed sentence saying
+local verification failed or timed out only in files this change does not touch.
+
+The run goes on to `pass_counting`, then `finalization`. The pull request's hosted
+CI is the build of record: `pr_creation` holds until the pull request body records
+the deferral, saying that local verification did not pass, and `ci_monitor` requires
+that CI green. If the run comes back to `implementation`, the key stays: it can only
+say hosted CI is the build of record, which stays true.
 
 ## verification_deferred
 
@@ -4148,22 +4265,25 @@ PLAN or ROADMAP file (`pr-body/workflow-content`); `references/phases/phase-6-pr
 says what goes where under each.
 
 A run that deferred verification to hosted CI (it passed through
-`verification_deferred`, and `verification_deferral` is in context) says so in
-plain terms under `omit`: the body's Verification section says hosted CI verified
-the change, and the reason stays in context. Under `include` it records the
-deferral in Part 2, under a `Verification` heading, with the three lines
-`references/phases/phase-6-pr.md` gives: that local verification did not run,
-`Reason: ` followed by the `verification_deferral` value verbatim, and that
-hosted CI is the build of record for this change.
+`verification_deferred` or `verification_outside_change`, and
+`verification_deferral` is in context) says so in plain terms under `omit`: the
+body's Verification section says hosted CI verified the change, and the reason
+stays in context. Under `include` it records the deferral in Part 2, under a
+`Verification` heading, with the three lines `references/phases/phase-6-pr.md`
+gives: that local verification did not run (`verification_deferred`) or did not
+pass (`verification_outside_change`), `Reason: ` followed by the
+`verification_deferral` value verbatim, and that hosted CI is the build of record
+for this change.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
-pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`. Under
-`omit` it passes without reading GitHub. Under `include` it reads the body from
-GitHub and holds the state until it says local verification did not run, has the
-line `Reason: <reason>` exactly and whole (the reason anywhere else in the body
-doesn't count), and says hosted CI is the build of record. Fix the body with
-`gh pr edit` and submit `pr_status: created` again. On a run that didn't defer
-the gate passes without running anything.
+pass. It runs `check-pr-output.sh --deferral-record --session {{SESSION_NAME}}`,
+which reads `verification_deferral` from context. On a run that didn't defer
+there is no key, and the gate passes without reading GitHub. Under `omit` it
+passes without reading GitHub too. Under `include` it reads the body from GitHub
+and holds the state until it says local verification did not run or did not
+pass, has the line `Reason: <reason>` exactly and whole (the reason anywhere else
+in the body doesn't count), and says hosted CI is the build of record. Fix the
+body with `gh pr edit` and submit `pr_status: created` again.
 
 The gate's output escalates. The first time a rule fails here, its finding
 carries the rule's summary. From the second failed evaluation of the same
