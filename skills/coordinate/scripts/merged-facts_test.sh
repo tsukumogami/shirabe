@@ -13,8 +13,11 @@
 # for the pull request in this run, and an unverified capture, each a sealed
 # verdict from GitHub's record of the pull request (unconfirmed at the head it
 # merged, or not-merged) with the reason in coord/merged_facts.json, and exit 2
-# only when that read fails (shirabe#560); the token sealed to merged_facts;
-# the topic as a locator only.
+# only when that read fails (shirabe#560); a run that took another over
+# (its continues relation) and holds no capture of its own, taking the head
+# from its predecessor's sealed capture, while a restart's dispatched-by link
+# is not followed (shirabe#1824); the token sealed to merged_facts; the topic
+# as a locator only.
 #
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/merged-facts_test.sh
@@ -133,6 +136,53 @@ unverified_head "the latest capture for the pull request is unverified" unverifi
 at_facts; jq -c '. + [{worker: "later", repo: "acme/widgets", pull_request: "[#14](https://github.com/acme/widgets/pull/14)"}]' "$BT_STATE/holdings" > "$T/h" && mv "$T/h" "$BT_STATE/holdings"
 bt_merged OPEN; mv "$GH_BOARD_DIR/prview-12.out" "$GH_BOARD_DIR/prview-14.out"
 eq "another pull request with no verify capture here is read by its own number" "not-merged 14" "$(bash "$MF" --session "$S" --unit later --no-seal 2>/dev/null)"
+
+echo "== a takeover: the head from the predecessor's verify capture (shirabe#1824) =="
+# succeeded <continues|restart>: run P verified #12 at $H and #13 at $MOVED;
+# run S came after it, holds no verify capture of its own, and is at
+# merged_facts on a merged event for plugin-registry, with #12 merged at $H.
+# continues: S took P over (koto init --continues --supersede), so S holds the
+# koto/links/continues/<P> key and P is fenced. restart: P was cancelled and S
+# holds only a dispatched-by link to it, which isn't a takeover.
+succeeded() {
+    N=$((N + 1))
+    P="coordinate-demo-20260926T1500$(printf '%02d' "$N")Z"
+    S="coordinate-demo-20260926T1600$(printf '%02d' "$N")Z"
+    bt_run "$P" "$PERMIT"
+    bt_verified "$P" 12 "$H"
+    bt_enter "$P" verify; bt_evidence "$P" verify '{"prediction":"green"}'
+    bt_verified "$P" 13 "$MOVED"
+    bt_run "$S" "$PERMIT"
+    echo '{}' > "$T/link"
+    case "$1" in
+        continues)
+            bt_append "$P" session_superseded "$(jq -nc --arg s "$S" '{by: $s}')"
+            "$KOTO_BIN" context add "$S" "koto/links/continues/$P" --from-file "$T/link" ;;
+        restart)
+            bt_append "$P" workflow_cancelled '{}'
+            "$KOTO_BIN" context add "$S" "koto/links/dispatched-by/$P" --from-file "$T/link" ;;
+    esac
+    bt_enter "$S" wait; bt_evidence "$S" wait '{"event":"merged","unit":"plugin-registry"}'
+    bt_enter "$S" merged_facts
+    jq -nc '[{worker: "plugin-registry", repo: "acme/widgets", pull_request: "[#12](https://github.com/acme/widgets/pull/12)"},
+             {worker: "sandbox", repo: "acme/widgets", pull_request: "[#13](https://github.com/acme/widgets/pull/13)"}]' > "$BT_STATE/holdings"
+    rm -rf "$GH_BOARD_DIR"; mkdir -p "$GH_BOARD_DIR"
+    bt_merged MERGED; bt_reach behind
+}
+# took <label> <want>: the verdict on S, sealed (its output left in OUT), with
+# merged-facts.sh's stderr shown when it differs.
+took() {
+    OUT=$(bash "$MF" --session "$S" --unit plugin-registry 2>"$T/err")
+    if [ "${OUT% sealed:*}" = "$2" ]; then ok "$1"; else bad "$1" "want [$2], got [${OUT% sealed:*}]: $(cat "$T/err")"; fi
+}
+succeeded continues
+took "a takeover's merge of the head its predecessor verified: merged" "merged 12 $H"
+bash "$CL" check --session "$S" --state merged_facts --sealed "$OUT" && ok "a takeover's verdict is sealed to S's own merged_facts" || bad "a takeover's verdict is sealed to S's own merged_facts" "$OUT"
+succeeded continues; bt_merged MERGED "$MOVED"
+took "a takeover's merge of another head than its predecessor verified: unconfirmed at the verified head" "unconfirmed 12 $H"
+succeeded restart
+took "a restart's dispatched-by link is not followed: unconfirmed at the head GitHub merged" "unconfirmed 12 $H"
+grep -q "no verify capture for #12 in this run" "$T/err" && ok "a restart reads as no verify capture in this run" || bad "a restart reads as no verify capture in this run" "$(cat "$T/err")"
 
 echo "== failures exit 2 =="
 at_facts
