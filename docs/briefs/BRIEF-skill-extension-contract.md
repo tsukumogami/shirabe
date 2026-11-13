@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   An adopter outside the workspace shirabe grew up in can't rely on what it reads
   from their repository: with no visibility header, skills guess visibility from
@@ -17,7 +17,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 Frames the two parts of shirabe's extension contract that still rest on
 convention: how a skill decides visibility when nothing declares it, and what
