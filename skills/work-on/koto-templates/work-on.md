@@ -4284,7 +4284,7 @@ pass (`verification_outside_change`), `Reason: ` followed by the
 for this change.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
-pass. It runs `check-pr-output.sh --deferral-record --session {{SESSION_NAME}}`,
+pass. It runs `check-pr-output.sh --deferral-record --session` with this run's session name,
 which reads `verification_deferral` from context. With no key, no deferral was
 taken on any lap of this run, and the gate passes without reading GitHub. The key
 means one was taken on some lap, even if a later lap passed locally. Under `omit` it
