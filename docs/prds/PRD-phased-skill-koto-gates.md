@@ -13,7 +13,8 @@ goals: |
   without koto is stopped before any work with a working install route. The
   change builds on the shipped session convention and work-on's template and
   is verified by scripts, not by a model.
-upstream: docs/briefs/BRIEF-phased-skill-koto-gates.md
+absorbed:
+  - docs/briefs/BRIEF-phased-skill-koto-gates.md
 ---
 
 # PRD: Phased skills that can't skip a phase
@@ -21,6 +22,32 @@ upstream: docs/briefs/BRIEF-phased-skill-koto-gates.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-phased-skill-koto-gates](docs/briefs/BRIEF-phased-skill-koto-gates.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because nine of the ten phased skills keep their koto
+session in one state from start to finish. Nothing outside the agent's
+reading of its instructions stops a run from skipping a phase or leaving one
+without its evidence, and nobody can ask koto which phase a run is in. This
+document's Problem Statement states that in full.
+
+The outcome the brief asked for: anyone running or checking one of the ten
+skills asks koto which phase a run is in and gets it by name; a move past a
+phase whose evidence is missing is refused at the moment it happens, with
+the missing piece named; and a host without koto is stopped before any work
+and told how to install it. Parent chains don't notice the change.
+
+It framed four journeys, which the User Stories carry: a reviewer reading a
+`/design` run's phase partway through; an agent in `/plan` refused when it
+jumps to the filing phase without the current phase's review; a new user
+without koto or tsuku stopped by `/prd` with a working install route; and a
+`/scope` run interrupted in its `/design` hop's third phase that resumes in
+that phase. Its boundary is this document's Requirements and Out of Scope:
+the ten skills, nested runs and the koto-absent path are in, and delegated
+agents' state, other skills, koto changes, judging evidence quality and
+model-graded tests are out.
 
 ## Problem Statement
 
@@ -325,7 +352,7 @@ Cost and verification (R10, R12):
 - **work-on stays in the list.** It already runs on a per-phase template; it
   is listed so every check runs against all ten, any gap the checks find in
   it is closed here, and it shares the R6 and R7 message.
-- **The BRIEF's open questions go to the design.** Whether each skill carries
+- **The brief's open questions go to the design.** Whether each skill carries
   its own template or the skills share one, how each phase's evidence is
   encoded, and where a nested run keeps its phase are how-questions. This
   PRD fixes what each answer must satisfy (R1 to R4, R8, R9) and leaves the
