@@ -1102,6 +1102,7 @@ for case in "2|{\"command\":\"context exists\",\"error\":\"listing ws-a/design-r
     want="${rest##*|}"
     rm -rf "$PARENT_ANSWERS"
     parent_answer design-rt3 live
+    mkdir -p "$PARENT_ANSWERS/design-rt3@session"
     printf '%s\n%s\n' "$rc" "$line" >"$PARENT_ANSWERS/design-rt3@session/branch"
     run_parent_stub has-work design rt3
     assert_eq "has-work with session/branch answering exit $rc ($want): has-work exiting $want" "$want" "$RC"
@@ -1113,6 +1114,7 @@ for case in "2|{\"command\":\"context exists\",\"error\":\"listing ws-a/design-r
 done
 rm -rf "$PARENT_ANSWERS"
 parent_answer design-rt4 live
+mkdir -p "$PARENT_ANSWERS/design-rt4@session"
 printf '0\n' >"$PARENT_ANSWERS/design-rt4@session/branch"
 printf '%s' "$RT_BRANCH" >"$PARENT_ANSWERS/design-rt4@session/branch.val"
 printf '2\n{"command":"context list","error":"listing failed"}\n' >"$PARENT_ANSWERS/design-rt4@list"
