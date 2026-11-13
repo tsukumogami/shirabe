@@ -343,10 +343,11 @@ legkey req_g execute taken
 eq  "source: a message for a worker whose leg was taken is admitted" 0 "$(src gamma message)"
 legkey req_g execute unwatchable
 eq  "source: a message for a worker whose leg is unwatchable is admitted" 0 "$(src gamma message)"
-# shirabe#1295: a leg that ended with no promoted result (abandoned, cancelled
-# or missing) carries nothing more, so its worker's handover stands too.
+# shirabe#1295 keeps this gate's answer for every leg a run can already hold: a
+# leg that ended with no promoted result (spent) still refuses a message until
+# the coordinator marks the holding handed over, which the next cases admit.
 legkey req_g execute spent
-eq  "source: a message for a worker whose leg is spent is admitted" 0 "$(src gamma message)"
+eq  "source: a message for a worker whose leg is spent and not handed over is still refused" 1 "$(src gamma message)"
 # A handed-over worker's leg is no longer watched: its handover stands whatever
 # the leg reads, while a leg report still has to be the leg's promoted result.
 legkey req_g execute open

@@ -214,7 +214,8 @@ eq "  ... and one entry names the branch and pushed head" \
     "entry|Holding alpha (unit Feature 2) handed over: a fresh worker continues its unit from branch feat/x at $HEAD1; its worker is torn down once the unit's pull request merges." \
     "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
 hw --topic beta --hand-over >/dev/null 2>"$T/err"; eq "--hand-over takes the Verified head when no pushed head is kept" 0 $?
-koto context get "$SR" record/entries/000002 | jq -r .text | grep -q "from branch feat/x at 4444444444444444444444444444444444444444" \
+E2=$(koto context get "$SR" record/entries/000002 | jq -r .text)
+case "$E2" in *"from branch feat/x at 4444444444444444444444444444444444444444"*) true ;; *) false ;; esac \
     && ok "  ... and names it" || bad "  ... and names it" "$(koto context get "$SR" record/entries/000002)"
 hw --topic alpha --hand-over >/dev/null 2>"$T/err"; eq "--hand-over refuses a row already handed over" 65 $?
 hw --topic alpha --strand >/dev/null 2>"$T/err"; eq "--strand refuses a handed-over row" 65 $?

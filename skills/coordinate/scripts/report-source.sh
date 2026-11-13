@@ -7,10 +7,10 @@
 # leg-bound worker's result, and a report claimed to come from a leg must be
 # the leg the record names. The gate reads the reporting topic's holding from
 # the record: a message report is admitted for a holding whose return path is
-# `message`, or whose leg is spent for reporting (its key reads taken,
-# unwatchable or spent, koto's own record of the leg holds the result the
-# worker's session promoted, or this host's store doesn't hold its request:
-# PRD R16), or a handed-over holding on any return path, whose worker's
+# `message`, or whose leg is spent for reporting (its key reads taken or
+# unwatchable, koto's own record of the leg holds the result the worker's
+# session promoted, or this host's store doesn't hold its request: PRD R16),
+# or a handed-over holding on any return path, whose worker's
 # handover is the input its successor's brief is dispatched from and whose
 # leg nothing watches any more (shirabe#1295);
 # nothing is admitted for a stranded holding; a leg
@@ -103,16 +103,20 @@ if [ "$SOURCE" = message ]; then
     [ "$(jq -r '.dispatch_status // "" | strings' <<<"$ROW")" = handed-over ] && exit 0
     # A leg read once carries nothing more, so a later report from its worker
     # can only come by message: once the leg's key reads taken (wait-target.sh
-    # took its result), unwatchable, or spent (it ended with no promoted
-    # result: abandoned, cancelled or missing; shirabe#1295: its worker can still
-    # hand over once its leg is spent), or when this host's request store
+    # took its result) or unwatchable, or when this host's request store
     # doesn't hold its request (the coordinator moved here and hasn't
-    # re-legged it yet), the message stands for the worker (PRD R16).
+    # re-legged it yet), the message stands for the worker (PRD R16). A leg
+    # that reads spent is still refused here, as before this gate knew of
+    # hand-overs: the worker's handover enters the record once the coordinator
+    # marks its holding handed over (state-holding.sh --hand-over), which
+    # admits it above. Admitting spent here would change this gate's answer
+    # for legs a run already holds, which coordinate.compat.json's recorded
+    # gate_scripts digest says it doesn't (shirabe#1295).
     REQ=${RP%%:*}
     LEG=${RP#*:}
     KEY=$(dc_leg_get "$SESSION" "$REQ" "$LEG")
     case "$?" in
-        0) case "$(jq -r '.state // "" | strings' <<<"$KEY")" in taken | unwatchable | spent) exit 0 ;; esac ;;
+        0) case "$(jq -r '.state // "" | strings' <<<"$KEY")" in taken | unwatchable) exit 0 ;; esac ;;
         1) ;;
         *) printf '%s: cannot read the leg key for %s\n' "$PROG" "$RP" >&2; exit 2 ;;
     esac
