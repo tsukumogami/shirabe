@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   An adopter who installs shirabe outside the workspace it was built in can't
   rely on what the skills read from their repository. With no visibility
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-skill-extension-contract.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
