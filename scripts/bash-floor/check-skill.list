@@ -3,3 +3,6 @@ workflow: .github/workflows/check-skill-gate.yml
 # throwaway skills with stand-in shirabe, koto and claude and needs
 # only bash, git and python3, so every case runs on 3.2.
 scripts/check-skill_test.sh
+# The pull request gate's selection, against a fixture repository with
+# stand-in check-skill.sh and script-cases.py; it needs git and python3.
+scripts/skill-gate_test.sh

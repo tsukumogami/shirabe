@@ -1365,6 +1365,34 @@
       "requirements": [
         "coordinator-brief-intake-cap Decision 1"
       ]
+    },
+    {
+      "id": 70,
+      "name": "handoff-deliver-contract",
+      "grader": "script",
+      "handoff": "deliver",
+      "run": "scripts/check-handoff.sh coordinate deliver"
+    },
+    {
+      "id": 71,
+      "name": "handoff-execute-contract",
+      "grader": "script",
+      "handoff": "execute",
+      "run": "scripts/check-handoff.sh coordinate execute"
+    },
+    {
+      "id": 72,
+      "name": "handoff-scope-contract",
+      "grader": "script",
+      "handoff": "scope",
+      "run": "scripts/check-handoff.sh coordinate scope"
+    },
+    {
+      "id": 73,
+      "name": "handoff-work-on-contract",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/check-handoff.sh coordinate work-on"
     }
   ]
 }
