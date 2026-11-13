@@ -124,7 +124,7 @@ Key assumptions:
 
 By default a never-opened name's refusal is unsettled, never absent. A fresh topic on a large undeclared bucket stops with the probe's exit 3. The finding says another tick won't clear it and names two ways through:
 
-- **Re-run with `--local-topic`.** The operator runs `/scope <topic> --local-topic` when they know the topic has no session elsewhere. Anything held elsewhere is given up: a second session of the same name opens here, and a handoff held elsewhere isn't read.
+- **Re-run with `--local-topic=stated`.** The operator runs `/scope <topic> --local-topic=stated` when they know the topic has no session elsewhere. Anything held elsewhere is given up: a second session of the same name opens here, and a handoff held elsewhere isn't read.
 - **Declare the bucket's name index.** This clears the stop for every topic.
 
 The flag sets a rebind template variable that both resume gates pass to the probe, so it covers only the invocation that typed it and koto's events record it. The agent never adds it, and `scope-open.sh` refuses it under `--auto` and in a run another session dispatched, so the statement can only come from an operator at an interactive session.
