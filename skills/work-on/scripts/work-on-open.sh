@@ -83,8 +83,9 @@
 #   <tokens-file>  a JSON array of strings, the invocation's tokens in order,
 #                  written with the Write tool or jq into a directory from
 #                  `koto-open.sh --alloc-dir`. Read from it: the --koto-leg
-#                  tokens (`--koto-leg=<v>` or `--koto-leg <v>`) and the
-#                  review-level bound, below. This script removes it, and
+#                  tokens (`--koto-leg=<v>` or `--koto-leg <v>`), and the
+#                  review-level bound, the verification deferral and the
+#                  partial delivery, below. This script removes it, and
 #                  koto-open.sh removes the pairs file and the directory.
 #
 # The review-level bound, mapped from the tokens to pairs, one per occurrence,
@@ -132,6 +133,35 @@
 #
 # Like the bound, both variables are not rebind: an attach that passes none
 # keeps what the session started with.
+#
+# A partial delivery (#1736), a pull request that delivers part of its issue
+# and leaves the issue open, is declared the same way:
+#
+#   --delivery=<closes|partial>   DELIVERY=<value>
+#   --delivery-reason=<text>      DELIVERY_REASON=<text>
+#
+# The reason says what this pull request delivers and what stays open on the
+# issue. koto refuses a value outside DELIVERY's values, and a reason that does
+# not start with a letter or digit, as invalid_var. This script refuses three
+# shapes itself, each with error=usage and exit 64 before any koto call:
+#
+#   - --delivery=partial with no non-empty --delivery-reason. Only the last
+#     occurrence of each flag is looked at, as for the deferral; a repeat
+#     still reaches koto, which refuses it;
+#   - a --delivery-reason with a character outside koto's allowlist, by the
+#     same check and in the same words as --verification-reason, and on the
+#     same terms: before the --koto-leg checks, whatever --delivery says;
+#   - --delivery=partial on a run that isn't one issue-backed run: one with no
+#     non-empty ISSUE_NUMBER --var (a free-form run), or one with a PLAN path
+#     among its tokens (a multi-pr PLAN run, where one declaration would cover
+#     every issue). The PLAN test is the one --koto-leg uses, over every token
+#     but --koto-leg's own value, with or without the leg.
+#
+# --delivery=closes changes nothing, and a --delivery-reason given alone or
+# with --delivery=closes is passed on and ignored, its characters still
+# checked. The character check is vd_reason_chars_refusal in
+# scripts/lib/verification-deferral.sh; the other two live here, since only
+# /work-on maps the delivery flags. Both variables are not rebind.
 #
 # PLUGIN_ROOT is added by this script: $CLAUDE_PLUGIN_ROOT, else the plugin
 # root this script ships in. The template is this skill's work-on.md.
@@ -263,8 +293,8 @@ TOKENS=$(cat -- "$TOKENS_FILE") || own_refusal "could not read the tokens file"
 DIR=$(dirname -- "$TOKENS_FILE")
 rm -f -- "$TOKENS_FILE"
 
-# A deferral reason koto would refuse, refused here first in words a caller can
-# act on. The check is shared with /execute's opener.
+# A deferral or delivery reason koto would refuse, refused here first in words
+# a caller can act on. The check is shared with /execute's opener.
 REFUSAL=$(vd_reason_chars_refusal "$TOKENS")
 [ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
 
@@ -285,37 +315,76 @@ case "$(printf '%s' "$LEGS" | jq 'length')" in
     *) own_refusal "--koto-leg given more than once" ;;
 esac
 
-# The inputs --koto-leg doesn't apply to. Every token but --koto-leg's own
-# value is looked at. Without the leg there is nothing to refuse: a multi-pr
-# PLAN run opens each issue's session here with the PLAN path in its tokens.
-if [ -n "$LEG" ]; then
-    REST=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
-        | select(($t[$i] | startswith("--koto-leg")) | not)
-        | select($i == 0 or $t[$i - 1] != "--koto-leg")
-        | $t[$i]]')
-    if printf '%s' "$REST" | jq -e '.[0] == "--" and .[1] == "plan-backed"' >/dev/null; then
-        own_refusal "--koto-leg does not apply to a plan-backed child: /execute receives its result"
-    fi
+# Every token but --koto-leg's own value: what the input-shape checks below
+# look at, with or without the leg.
+REST=$(printf '%s' "$TOKENS" | jq -c '. as $t | [range(0; length) as $i
+    | select(($t[$i] | startswith("--koto-leg")) | not)
+    | select($i == 0 or $t[$i - 1] != "--koto-leg")
+    | $t[$i]]')
+
+# plan_among <json tokens> -- print the first token that names a PLAN, or
+# nothing: a token whose file name is PLAN-*.md, or a .md file whose
+# frontmatter says `schema: plan/v1` or `schema: plan/v2`. A token starting
+# with `-` is a flag, never a path.
+plan_among() {
+    local t
     while IFS= read -r t; do
         [ -n "$t" ] || continue
-        plan=0
-        case "$(basename -- "$t")" in PLAN-*.md) plan=1 ;; esac
-        if [ "$plan" -eq 0 ] && [ -f "$t" ] \
+        case "$(basename -- "$t")" in PLAN-*.md) printf '%s\n' "$t"; return 0 ;; esac
+        if [ -f "$t" ] \
             && awk 'NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit 1; next }
                     /^---[[:space:]]*$/ { exit 1 }
                     /^schema:[[:space:]]*plan\/v[12][[:space:]]*$/ { found = 1; exit 0 }
                     END { exit found ? 0 : 1 }' "$t"; then
-            plan=1
+            printf '%s\n' "$t"; return 0
         fi
-        [ "$plan" -eq 0 ] || own_refusal "--koto-leg does not apply to a PLAN ($t): one leg answers one issue's run"
     done <<TOKENS_EOF
-$(printf '%s' "$REST" | jq -r '.[] | select(endswith(".md") and (startswith("-") | not))')
+$(printf '%s' "$1" | jq -r '.[] | select(endswith(".md") and (startswith("-") | not))')
 TOKENS_EOF
+    return 0
+}
+
+# The inputs --koto-leg doesn't apply to. Without the leg this refuses
+# nothing: a multi-pr PLAN run opens each issue's session here with the PLAN
+# path in its tokens.
+if [ -n "$LEG" ]; then
+    if printf '%s' "$REST" | jq -e '.[0] == "--" and .[1] == "plan-backed"' >/dev/null; then
+        own_refusal "--koto-leg does not apply to a plan-backed child: /execute receives its result"
+    fi
+    PLAN=$(plan_among "$REST")
+    [ -z "$PLAN" ] || own_refusal "--koto-leg does not apply to a PLAN ($PLAN): one leg answers one issue's run"
 fi
 
 # A deferral to hosted CI needs its reason (shared with /execute's opener).
 REFUSAL=$(vd_missing_reason_refusal "$TOKENS")
 [ -z "$REFUSAL" ] || own_refusal "$REFUSAL"
+
+# The run's entry mode, for koto-open.sh's session_opened event, and whether an
+# issue number was given at all, for the partial delivery check below.
+MODE=free_form
+HAVE_ISSUE=0
+for v in ${VARS[@]+"${VARS[@]}"}; do
+    case "$v" in
+        ISSUE_NUMBER=?*) MODE=issue_backed; HAVE_ISSUE=1 ;;
+        ISSUE_NUMBER=*) MODE=issue_backed ;;
+    esac
+done
+
+# A partial delivery needs its reason and one issue-backed run. Only the last
+# occurrence of each flag is looked at; a repeat still reaches koto.
+DELIVERY=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--delivery="))
+    | ltrimstr("--delivery=")] | last // ""')
+if [ "$DELIVERY" = partial ]; then
+    DELIVERY_REASON=$(printf '%s' "$TOKENS" | jq -r '[.[] | select(startswith("--delivery-reason="))
+        | ltrimstr("--delivery-reason=")] | last // ""')
+    [ -n "$DELIVERY_REASON" ] \
+        || own_refusal "--delivery=partial needs --delivery-reason=<why>: a partial delivery has to say what this pull request delivers and what stays open on the issue"
+    [ "$HAVE_ISSUE" -eq 1 ] \
+        || own_refusal "--delivery=partial needs an issue-backed run (an ISSUE_NUMBER --var): a free-form run has no issue to leave open"
+    PLAN=$(plan_among "$REST")
+    [ -z "$PLAN" ] \
+        || own_refusal "--delivery=partial does not apply to a PLAN ($PLAN): one declaration would cover every issue the plan runs"
+fi
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
@@ -354,15 +423,11 @@ jq -nc --arg root "$ROOT" --arg level "$LEVEL" --argjson tokens "$TOKENS" '
     + [ $tokens[] | bound(.; "--review-ceiling"; "REVIEW_CEILING")[] ]
     + [ $tokens[] | bound(.; "--verification"; "VERIFICATION")[] ]
     + [ $tokens[] | bound(.; "--verification-reason"; "VERIFICATION_DEFERRAL_REASON")[] ]
+    + [ $tokens[] | bound(.; "--delivery"; "DELIVERY")[] ]
+    + [ $tokens[] | bound(.; "--delivery-reason"; "DELIVERY_REASON")[] ]
     + [["PLUGIN_ROOT", $root]]
     + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
     || { rm -f -- "$PAIRS_FILE"; own_refusal "could not write the variables file"; }
-
-# The run's entry mode, for koto-open.sh's session_opened event.
-MODE=free_form
-for v in ${VARS[@]+"${VARS[@]}"}; do
-    case "$v" in ISSUE_NUMBER=*) MODE=issue_backed ;; esac
-done
 
 set -- "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE"
 [ -z "$LEG" ] || set -- "$@" --attach-live --koto-leg "$LEG"

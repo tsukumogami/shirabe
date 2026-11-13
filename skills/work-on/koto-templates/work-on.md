@@ -207,6 +207,36 @@ variables:
       measurement window until 02:40Z". Not rebindable, like VERIFICATION.
     required: false
     pattern: ^([a-zA-Z0-9].*)?$
+  DELIVERY:
+    description: >-
+      Whether this run's pull request closes its issue. `closes` (the default)
+      is every run before partial deliveries existed. `partial` declares a
+      planned split: the pull request delivers part of the issue and leaves
+      the issue open, with DELIVERY_REASON saying which part. It doesn't
+      loosen finalization: every criterion the declared part owns still has
+      to be met, and one the run can't meet still goes to deferral_requested.
+      Set at init through work-on-open.sh (`--delivery=partial` with
+      `--delivery-reason=<why>`), which refuses it without a reason, on a
+      free-form run and with a PLAN path among the tokens. Not rebindable:
+      nothing in the run can declare a split after it starts, and an attach
+      that leaves it out keeps the value the run started with.
+    required: false
+    default: closes
+    values: [closes, partial]
+  DELIVERY_REASON:
+    description: >-
+      What a DELIVERY=partial run's pull request delivers and what stays open
+      on the issue, in one line: the invoker's stated scope for this run.
+      Ignored when DELIVERY is closes. Set from `--delivery-reason=<why>`
+      through work-on-open.sh, which refuses a partial delivery without it.
+      The pattern refuses a value that does not start with a letter or digit,
+      so a bare flag can't pass for a reason. koto accepts only letters,
+      digits, spaces and . _ / : @ + - in any variable value
+      (^[a-zA-Z0-9._/:@+ \-]*$), so a reason with an apostrophe or a comma is
+      refused; write it without them, for example "step 1 of 2: validator
+      side". Not rebindable, like DELIVERY.
+    required: false
+    pattern: ^([a-zA-Z0-9].*)?$
   UNIT_KIND:
     description: >-
       Whether the unit is a fix (../references/red-first.md): `change` or
