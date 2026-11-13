@@ -320,11 +320,18 @@ stub_block() {
 }
 
 # build <dir> <state> <gate=exit>...: a template whose `start` routes into the
-# shipped <state>, every target it names a stub terminal.
+# shipped <state>, every target it names a stub terminal. EXTRA_STATES names
+# more shipped states to include as they are, so a run can pass through one
+# (verification_outside_change) instead of stopping at its stub.
 build() {
     local dir="$1" state="$2"; shift 2
-    local block targets t
+    local block targets t x shipped
     block=$(stub_block "$(extract_state "$state")" "$@")
+    shipped=" $state "
+    for x in ${EXTRA_STATES:-}; do
+        block=$(printf '%s\n%s' "$block" "$(stub_block "$(extract_state "$x")" "$@")")
+        shipped="$shipped$x "
+    done
     targets=$(printf '%s\n' "$block" | awk '/^      - target:/ { print $3 }' | sort -u)
     {
         printf '%s\n' '---' 'name: output-gates-routing-fixture' 'version: "1.0"' \
@@ -342,15 +349,18 @@ build() {
             'states:' '  start:' '    transitions:' "      - target: $state"
         printf '%s\n' "$block"
         for t in $targets; do
-            [ "$t" = "$state" ] && continue
+            case "$shipped" in *" $t "*) continue ;; esac
             printf '%s\n' "  $t:" '    terminal: true'
             if [ "$t" = done_blocked ]; then
                 printf '%s\n' '    failure: true' '    accepts:' '      failure_reason:' '        type: string'
             fi
         done
         printf '%s\n' '---' '' '## start' '' 'Start.' '' "## $state" '' 'The state under test.'
+        for x in ${EXTRA_STATES:-}; do
+            printf '%s\n' '' "## $x" '' 'A shipped state the run passes through.'
+        done
         for t in $targets; do
-            [ "$t" = "$state" ] && continue
+            case "$shipped" in *" $t "*) continue ;; esac
             printf '%s\n' '' "## $t" '' 'Stub.'
         done
     } > "$dir/fixture.md"
@@ -450,6 +460,45 @@ TIMEOUT_GATE=verification_verdict drive verification "" ""
 holds "verification_verdict exit -1 (timed out), no evidence" verification verification_verdict
 TIMEOUT_GATE=verification_verdict drive verification "" '{"verification_status":"blocked","detail":"the check keeps timing out"}'
 expect "verification_status: blocked on exit -1" done_blocked
+
+# Exit 5, every failure outside the change (#1098): no route of its own, so it
+# holds for evidence. `deferred` passes through the shipped
+# verification_outside_change, which the session's log shows, to
+# pass_counting with verification_deferral set; `fix` goes back to
+# implementation and `blocked` stops. `deferred` on any other exit matches no
+# edge.
+# slog_to <session> <state>: how many times the session's log transitioned to <state>.
+slog_to() {
+    jq -s --arg st "$2" '[.[] | select(.type == "transitioned" and .payload.to == $st)] | length' \
+        "$(cd "$REPO" && koto session dir "$1")/koto-$1.state.jsonl" 2>/dev/null
+}
+DEFERRAL_TEXT="local verification failed or timed out only in files this change does not touch"
+reset_rc; set_rc check-verification.sh--verdict 5
+drive verification "" ""
+holds "verification_verdict exit 5, no evidence" verification verification_verdict
+EXTRA_STATES=verification_outside_change drive verification "" \
+    '{"verification_status":"deferred","detail":"skills/b/scripts/b_test.sh failed under load; the change does not reach it"}'
+expect "verification_status: deferred on exit 5" pass_counting
+[ "$(slog_to "og-$N" verification_outside_change)" = 1 ] \
+    && pass "deferred on exit 5 passes through verification_outside_change in the session's log" \
+    || fail "deferred on exit 5: no transition to verification_outside_change in og-$N's log"
+reason=$(cd "$REPO" && koto context get "og-$N" verification_deferral 2>/dev/null)
+[ "$reason" = "$DEFERRAL_TEXT" ] \
+    && pass "deferred on exit 5 sets verification_deferral to the fixed sentence" \
+    || fail "deferred on exit 5: verification_deferral [$reason]"
+drive verification "" '{"verification_status":"fix","detail":"the failing suite runs a script this change edits"}'
+expect "verification_status: fix on exit 5" implementation
+if (cd "$REPO" && koto context get "og-$N" verification_deferral) >/dev/null 2>&1; then
+    fail "fix on exit 5 wrote verification_deferral"
+else
+    pass "fix on exit 5 writes no verification_deferral"
+fi
+drive verification "" '{"verification_status":"blocked","detail":"the host cannot run the suite"}'
+expect "verification_status: blocked on exit 5" done_blocked
+reset_rc; set_rc check-verification.sh--verdict 2
+drive verification "" '{"verification_status":"deferred","detail":"x"}'
+expect "verification_status: deferred on exit 2 (holds)" verification
+reset_rc
 
 # ci_monitor: green CI goes on to ci_pass_counting, which counts the pass and
 # routes on is_root; the two failing values route on red CI.

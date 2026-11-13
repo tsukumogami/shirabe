@@ -12,8 +12,9 @@
 # pass_counting, to finalization with the reason in context as
 # `verification_deferral`, or to done_blocked
 # when no reason was given. pr_creation's verification_deferral_recorded gate
-# holds the created edge until check-pr-output.sh --deferral-record finds the
-# deferral in the body; on a local run it passes without running anything.
+# runs check-pr-output.sh --deferral-record --session, which holds the created
+# edge until it finds the deferral in the body; a run without
+# verification_deferral in context passes without reading the pull request.
 #
 # This file checks:
 #
@@ -22,9 +23,10 @@
 #      from the same state, on the same conditions with `hosted-ci`; the two
 #      variables are not rebindable; verification_deferred has no action and
 #      no gates; and pr_creation's created edge needs the record gate.
-#   2. The record gate's shipped command, no engine: a local run never starts
-#      the script; a hosted-ci run passes the reason to
-#      check-pr-output.sh --deferral-record and routes on its exit.
+#   2. The record gate's shipped command, no engine: it passes the session to
+#      check-pr-output.sh --deferral-record and routes on its exit, and with
+#      the real script and no verification_deferral key (a koto stand-in) it
+#      passes and never reads the pull request.
 #   3. Engine: fixtures built from the SHIPPED state blocks, extracted at run
 #      time, with every gate script replaced by a fake under a fake
 #      PLUGIN_ROOT that logs its calls:
@@ -50,7 +52,10 @@
 #        - on a `work-on` leg, pr_creation holds a deferred run's
 #          `pr_status: created` while the body lacks the record, then reaches
 #          done with the pull request in the leg's payload once it has it; a
-#          local run never calls --deferral-record.
+#          run without verification_deferral never reads the pull request;
+#          and a local run that took the step past a failure outside the
+#          change (the key as verification_outside_change writes it) holds
+#          until the body records the deferral.
 #
 # The engine part skips, loudly, when koto is not on PATH (the bash 3.2 floor
 # leg has no koto), and its leg cases skip when koto lacks --koto-leg.
@@ -65,6 +70,7 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SKILL_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
+REAL_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -247,31 +253,49 @@ calls() { grep -c -- "^$1" "$LOG" 2>/dev/null || true; }
 
 RECORD_CMD=$(gate_command pr_creation verification_deferral_recorded)
 [ -n "$RECORD_CMD" ] || { echo "could not extract verification_deferral_recorded's command" >&2; exit 2; }
-# render <verification> <reason>: the command as koto would hand it to sh.
+# render <plugin root> <session>: the command as koto would hand it to sh.
 render() {
     local c="$RECORD_CMD"
-    c=${c//\{\{PLUGIN_ROOT\}\}/$FAKE_ROOT}
-    c=${c//\{\{VERIFICATION_DEFERRAL_REASON\}\}/$2}
-    c=${c//\{\{VERIFICATION\}\}/$1}
+    c=${c//\{\{PLUGIN_ROOT\}\}/$1}
+    c=${c//\{\{SESSION_NAME\}\}/$2}
     printf '%s' "$c"
 }
 
+# The gate hands the session to --deferral-record, which reads the reason
+# from verification_deferral, and routes on its exit.
 reset_rc; : > "$LOG"
-set_rc check-pr-output.sh--deferral-record 1
-sh -c "$(render local "")" >/dev/null 2>&1
-eq "local: the record gate passes" 0 "$?"
-eq "local: the record gate never starts check-pr-output.sh" 0 "$(calls check-pr-output.sh)"
-
-reset_rc; : > "$LOG"
-sh -c "$(render hosted-ci "$REASON")" >/dev/null 2>&1
-eq "hosted-ci, body records it: the record gate passes" 0 "$?"
-eq "hosted-ci: the gate passes the reason to --deferral-record" \
-    "check-pr-output.sh --deferral-record --reason $REASON" "$(cat "$LOG")"
+sh -c "$(render "$FAKE_ROOT" vd-record)" >/dev/null 2>&1
+eq "body records it: the record gate passes" 0 "$?"
+eq "the gate passes the session to --deferral-record" \
+    "check-pr-output.sh --deferral-record --session vd-record" "$(cat "$LOG")"
 
 reset_rc; : > "$LOG"
 set_rc check-pr-output.sh--deferral-record 1
-sh -c "$(render hosted-ci "$REASON")" >/dev/null 2>&1
-eq "hosted-ci, body lacks it: the record gate fails" 1 "$?"
+sh -c "$(render "$FAKE_ROOT" vd-record)" >/dev/null 2>&1
+eq "body lacks it: the record gate fails" 1 "$?"
+
+# A run without verification_deferral never reads the pull request: the real
+# check-pr-output.sh behind the shipped command, a koto stand-in whose session
+# has no such key, and a gh stand-in that logs every call.
+STAND="$WORKDIR/stand"
+mkdir -p "$STAND"
+cat > "$STAND/koto" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "koto \$*" >> "$LOG"
+case "\$1 \$2" in "context exists") exit 1 ;; esac
+exit 3
+EOF
+cat > "$STAND/gh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "gh \$*" >> "$LOG"
+exit 1
+EOF
+chmod +x "$STAND/koto" "$STAND/gh"
+reset_rc; : > "$LOG"
+env PATH="$STAND:$PATH" sh -c "$(render "$REAL_ROOT" vd-local)" >/dev/null 2>&1
+eq "no verification_deferral: the record gate passes" 0 "$?"
+eq "no verification_deferral: the gate asked koto for the key" 1 "$(calls "koto context exists vd-local verification_deferral")"
+eq "no verification_deferral: the pull request is never read" 0 "$(calls gh)"
 
 # --- 3. engine -----------------------------------------------------------------------
 
@@ -298,6 +322,26 @@ mkdir -p "$REPO"
 (cd "$REPO" && git init -q . && git config user.email t@example.com && git config user.name t \
     && git commit -q --allow-empty -m "chore: init" && git checkout -q -b feature/x) >/dev/null 2>&1 \
     || { echo "could not create the fixture repository" >&2; exit 2; }
+
+# check-pr-output.sh, for the engine cases: --deferral-record --session <s>
+# decides as the real script does on the key, reading it through koto (the
+# gate runs with the HOME the session was created under, this suite's), and
+# logs `check-pr-output.sh reads-body` where the real one would read the pull
+# request. Every other call answers as the generic fake does.
+cat > "$FAKE_ROOT/skills/work-on/scripts/check-pr-output.sh" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "check-pr-output.sh \$*" >> "$LOG"
+if [ "\${1-}" = --deferral-record ] && [ "\${2-}" = --session ]; then
+    koto context exists "\$3" verification_deferral >/dev/null 2>&1 < /dev/null
+    case \$? in 0) ;; 1) exit 0 ;; *) exit 2 ;; esac
+    printf '%s\n' "check-pr-output.sh reads-body" >> "$LOG"
+fi
+rc=0
+if [ -f "$RC_DIR/check-pr-output.sh\${1-}" ]; then rc=\$(cat "$RC_DIR/check-pr-output.sh\${1-}")
+elif [ -f "$RC_DIR/check-pr-output.sh" ]; then rc=\$(cat "$RC_DIR/check-pr-output.sh"); fi
+exit "\$rc"
+EOF
+chmod +x "$FAKE_ROOT/skills/work-on/scripts/check-pr-output.sh"
 
 # stub_block <block> <gate=exit>...: the named gates' commands replaced by
 # fixed exits, keyed on the gate name above each command.
@@ -595,17 +639,21 @@ reset_rc
 set_rc find-anchor-plan.sh 1
 set_rc check-pr-output.sh--deferral-record 1
 if open_leg --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$REASON"; then
+    # The fixture starts at pr_creation, past verification_deferred, so the
+    # key that state writes (the cases above show it does) is seeded here.
+    printf '%s' "$REASON" | (cd "$REPO" && koto context add "$S" verification_deferral) >/dev/null 2>&1 \
+        || fail "deferred: could not seed verification_deferral"
     : > "$LOG"
     tick --with-data '{"go":"pr"}'
     tick --with-data "$CREATED"
     eq "deferred, body without the record: pr_status created holds at pr_creation" pr_creation "$(state)"
     # The gate runs on every evaluation of pr_creation, the entering tick
-    # included, so it was asked at least once.
-    n=$(calls "check-pr-output.sh --deferral-record --reason $REASON")
-    if [ "$n" -ge 1 ]; then
-        pass "deferred: the gate asked check-pr-output.sh about this run's reason"
+    # included, so it was asked at least once, and found the key.
+    n=$(calls "check-pr-output.sh --deferral-record --session $S")
+    if [ "$n" -ge 1 ] && [ "$(calls "check-pr-output.sh reads-body")" -ge 1 ]; then
+        pass "deferred: the gate asked check-pr-output.sh about this session's deferral"
     else
-        fail "deferred: check-pr-output.sh --deferral-record --reason was not called: [$(cat "$LOG")]"
+        fail "deferred: check-pr-output.sh --deferral-record --session did not reach the body: [$(cat "$LOG")]"
     fi
     set_rc check-pr-output.sh--deferral-record 0
     tick --with-data "$CREATED"
@@ -623,8 +671,34 @@ if open_leg; then
     tick --with-data '{"go":"pr"}'
     tick --with-data "$CREATED"
     eq "local: created with CI green ends at done" "done" "$(state)"
-    eq "local: --deferral-record is never called" 0 "$(calls "check-pr-output.sh --deferral-record")"
+    eq "a run without verification_deferral never reads the pull request" 0 "$(calls "check-pr-output.sh reads-body")"
     eq "local: the leg's payload carries the pull request" "\"$URL\"" "$(leg .result.payload.pr)"
+fi
+
+# A local run that took the step past a failure outside the change (#1098):
+# verification_outside_change wrote verification_deferral, a fixed sentence
+# (output-gates-routing_test.sh drives that edge). Seeded here as that edge
+# writes it, the run's pr_status: created holds until the body records the
+# deferral, as a hosted-ci run's does.
+OUTSIDE="local verification failed or timed out only in files this change does not touch"
+reset_rc
+set_rc find-anchor-plan.sh 1
+set_rc check-pr-output.sh--deferral-record 1
+if open_leg; then
+    printf '%s' "$OUTSIDE" | (cd "$REPO" && koto context add "$S" verification_deferral) >/dev/null 2>&1 \
+        || fail "outside the change: could not seed verification_deferral"
+    : > "$LOG"
+    tick --with-data '{"go":"pr"}'
+    tick --with-data "$CREATED"
+    eq "outside the change, body without the record: pr_status created holds at pr_creation" pr_creation "$(state)"
+    if [ "$(calls "check-pr-output.sh reads-body")" -ge 1 ]; then
+        pass "outside the change: the gate reads the body for the deferral"
+    else
+        fail "outside the change: the gate never reached the body: [$(cat "$LOG")]"
+    fi
+    set_rc check-pr-output.sh--deferral-record 0
+    tick --with-data "$CREATED"
+    eq "outside the change, body with the record: the run ends at done" "done" "$(state)"
 fi
 
 echo

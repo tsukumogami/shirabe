@@ -7,7 +7,8 @@
 # Markdown list in .claude/shirabe-extensions/work-on.md. This holds the map to
 # what that list said (the same default commands, check-skill once per changed
 # skill) and to the schema's one cross-field rule: a command marked
-# network: true sets unattended explicitly. It also holds the schema reference
+# network: true sets unattended explicitly. check-skill declares how to read
+# its log's failure lines (failure_lines). It also holds the schema reference
 # to naming every field and the merge-base read, and work-on.md to pointing at
 # the map without listing commands itself.
 #
@@ -60,6 +61,11 @@ Q_NETWORK='[.commands[] | select(.network == true) | has("unattended")] | all'
 # Every id an entry or the default names is defined.
 Q_IDS='. as $m | [($m.entries[].commands[]), ($m.default // [])[]]
     | all(. as $id | $m.commands | has($id))'
+# check-skill tells the verdict how to read its log (#1098): a failure line
+# starts "FAIL: ", and one naming a suite starts "FAIL: bash ", as
+# scripts/check-skill.sh prints them.
+Q_FAILURE_LINES='.commands["check-skill"].failure_lines
+    == {"prefix": "FAIL: ", "path_prefix": "FAIL: bash "}'
 
 # holds <file> <query>: exit 0 when the query is true on the file.
 holds() { jq -e "$2" "$1" >/dev/null 2>&1; }
@@ -73,6 +79,7 @@ check "the default list names the three Markdown default commands" "$Q_DEFAULT"
 check "the skills/** entry runs scripts/check-skill.sh --changed with each: skills/*" "$Q_SKILLS"
 check "every network: true command sets unattended explicitly" "$Q_NETWORK"
 check "every command id an entry or the default names is defined" "$Q_IDS"
+check "check-skill declares failure_lines {FAIL: , FAIL: bash }" "$Q_FAILURE_LINES"
 
 # Negative cases: altered copies of the map must fail the same queries.
 neg() { # neg <label> <query> <jq edit>
@@ -95,6 +102,10 @@ neg "a networked command without unattended is refused" "$Q_NETWORK" \
     '.commands["net"] = {"run": ["true"], "network": true}'
 neg "an entry naming an undefined id is refused" "$Q_IDS" \
     '.entries += [{"paths": ["x/**"], "commands": ["nope"]}]'
+neg "a check-skill without failure_lines is refused" "$Q_FAILURE_LINES" \
+    '.commands["check-skill"] |= del(.failure_lines)'
+neg "a check-skill whose path_prefix drops bash is refused" "$Q_FAILURE_LINES" \
+    '.commands["check-skill"].failure_lines.path_prefix = "FAIL: "'
 
 # The positive twin of the network case: setting unattended either way passes.
 copy="$WORKDIR/net.json"
@@ -107,7 +118,7 @@ fi
 
 # The schema reference names every field the design lists, and the merge-base
 # read.
-for field in run each timeout_secs network unattended max_procs entries default; do
+for field in run each timeout_secs network unattended max_procs failure_lines entries default; do
     if grep -Fq "\`$field\`" "$REF"; then
         pass "verification-map.md documents \`$field\`"
     else
