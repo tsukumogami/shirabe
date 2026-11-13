@@ -162,12 +162,21 @@ new_case() {
 }
 serve() { printf '%s' "$3" > "$CASE/$1.out.$2"; }           # serve <key> <n> <stdout>
 fail_with() { echo "$3" > "$CASE/$1.rc.$2"; [ -n "${4-}" ] && printf '%s' "$4" > "$CASE/$1.err.$2"; return 0; }
+# The default deadlines are the script's 60 s ceiling, so a case decides on
+# what the script concludes and not on how loaded the host is: a read that
+# runs past a short deadline turns into a different unchecked reason. A case
+# about the deadline itself sets DL or BDL (or RECONCILE_READ_DEADLINE) low.
 run() {
     STUB_LOG="$CASE/log" STUB_DIR="$CASE" PATH="$T/bin:$PATH" \
-      RECONCILE_READ_DEADLINE="${DL:-5}" RECONCILE_BOARD_DEADLINE="${BDL:-5}" "$BASH" "$S" "$@"
+      RECONCILE_READ_DEADLINE="${DL:-60}" RECONCILE_BOARD_DEADLINE="${BDL:-60}" "$BASH" "$S" "$@"
 }
-expect() {  # expect <label> <jq predicate> <output>
-    if printf '%s' "$3" | jq -e "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1" "$3 | log: $(cat "$CASE/log")"; fi
+# expect <label> <jq predicate> <output>. A miss names the output's unchecked
+# clones and their reasons on the FAIL line, the one line a CI log keeps.
+expect() {
+    local unchecked
+    if printf '%s' "$3" | jq -e "$2" >/dev/null 2>&1; then ok "$1"; return; fi
+    unchecked=$(printf '%s' "$3" | jq -r '[.items[]? | select(.kind == "unchecked") | "\(.clone)=\(.path)"] | join(", ")' 2>/dev/null)
+    bad "$1${unchecked:+ (unchecked: $unchecked)}" "$3 | log: $(cat "$CASE/log")"
 }
 
 VH=1111111111111111111111111111111111111111

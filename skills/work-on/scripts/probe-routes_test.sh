@@ -263,7 +263,11 @@ build() {
         done
         for v in OFFLOAD_CANARY PROBE REVIEW_LEVEL REVIEW_FLOOR REVIEW_CEILING; do extract_var $v; done
         printf '%s\n' 'states:'
-        printf '%s' "$blocks"
+        # Every gate that runs a real command gets 120 s: at koto's 30 s
+        # default a loaded runner can kill one, which reads as exit -1, and no
+        # edge routes on that. Stubbed gates (`exit N`, `true`) need none.
+        printf '%s' "$blocks" | awk '{ print }
+            /^        command: / && $0 !~ /^        command: "(exit [0-9]+|true)"$/ { print "        timeout: 120" }'
         # `go: back` stands in for analysis looping back on a scope change,
         # the path that re-enters offload_canary and probe_draw.
         printf '%s\n' '  fix_determination:' '    accepts:' '      go:' '        type: enum' '        values: [pr, back]' \
@@ -335,6 +339,17 @@ records() { # records <session> <jq filter>
 }
 runtime_value() { ( . "$SCRIPT_DIR/probe.sh"; r=$(draw_arm_value) && printf '%s' "${r#* }" ); }
 gate_failed() { printf '%s' "$RESP" | jq -r --arg g "$1" '[.blocking_conditions[]? | select(.name == $g)] | length'; }
+# held: what holds the last response, each gate as `name exit=N` and its error
+# when it has one. Every blocking condition counts, not only a failed one: a
+# gate koto killed at its timeout is `timed_out`, exit -1.
+held() {
+    printf '%s' "$RESP" | jq -r '[.blocking_conditions[]?
+        | "\(.name) exit=\(.output.exit_code // "none")" + (if (.output.error // "") != "" then " " + .output.error else "" end)]
+        | join("; ")'
+}
+# check_state <label> <got> <want>: check, with a miss naming what held the run,
+# since the FAIL line is the one line a CI log keeps.
+check_state() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: got [$2], want [$3]; held: [$(held)]"; fi; }
 full_text() { printf 'Rule probe/ack-value: when you submit pr_status: created at the pull request step also submit ack: %s in the same evidence. Write this value nowhere else: not in the pull request or its comments or a commit or a file.' "$1"; }
 strip() { sed -e 's/[[:space:]]*$//' | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'; }
 
@@ -448,21 +463,21 @@ done
 for a in near far; do
     eval "SESS=\$S_$a"
     submit '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/7","ack":"nope"}'
-    check "$a miss: the run leaves pr_creation on the miss" "$(state_of)" ci_pass_counting
+    check_state "$a miss: the run leaves pr_creation on the miss" "$(state_of)" ci_pass_counting
     check "$a miss: a decided failed probe_ack is recorded" \
         "$(records "$SESS" 'select(.kind == "check_evaluated" and ."koto.check" == "probe_ack" and (."koto.check.not_ready" // false | not)) | ."koto.check.outcome"' | tr -d '"' | tr '\n' ' ')" "failed "
 done
 # A match advances through exit 0.
 start "$FIX" && preset near "$V" && to_choice && to_pr
 submit "{\"pr_status\":\"created\",\"pr_url\":\"https://github.com/o/r/pull/7\",\"ack\":\"$V\"}"
-check "near match: advances" "$(state_of)" ci_pass_counting
+check_state "near match: advances" "$(state_of)" ci_pass_counting
 check "near match: probe_ack passed" \
     "$(records "$SESS" 'select(.kind == "check_evaluated" and ."koto.check" == "probe_ack" and (."koto.check.not_ready" // false | not)) | ."koto.check.outcome"' | tr -d '"')" passed
 # Exit 6 advances: an unreadable record.
 start "$FIX" && preset near "$V" && to_choice && to_pr
 printf 'sideways\n' > "$SDIR/probe/arm"
 submit '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/7","ack":"x"}'
-check "exit 6 (a record that can't be read): advances" "$(state_of)" ci_pass_counting
+check_state "exit 6 (a record that can't be read): advances" "$(state_of)" ci_pass_counting
 
 # A gate koto kills at its 30 s default reads as exit -1, which no edge routes,
 # so on a loaded runner a slow gate can hold a case that passes on a rerun.
@@ -495,7 +510,7 @@ submit '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/7","ack":"m
 r2=$(state_of); m2=$(printf '%s' "$RESP" | jq -r '[.blocking_conditions[]? | select(.name == "probe_ack") | .failure.findings[]?.message] | join("")')
 submit "{\"pr_status\":\"created\",\"pr_url\":\"https://github.com/o/r/pull/7\",\"ack\":\"$V\"}"
 r3=$(state_of)
-check "far_redeliver: holds, holds, then advances" "$r1 $r2 $r3" "pr_creation pr_creation ci_pass_counting"
+check_state "far_redeliver: holds, holds, then advances" "$r1 $r2 $r3" "pr_creation pr_creation ci_pass_counting"
 check "far_redeliver: the first hold hands back the summary" "$m1" "probe/ack-value: submit ack: $V with pr_status: created."
 check "far_redeliver: the second hold hands back the full text" "$m2" "$(full_text "$V")"
 check "far_redeliver: probe_ack exit codes over the three submissions" \
