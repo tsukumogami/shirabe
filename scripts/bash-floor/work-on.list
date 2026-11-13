@@ -118,6 +118,9 @@ skills/work-on/scripts/step-detail-check_test.sh
 # files a diff touched, against git fixtures. No engine.
 scripts/lib/claude-md-header_test.sh
 scripts/lib/test-classify_test.sh
+# The default-branch fold panel-scope.sh and review-packet.sh measure from,
+# against git fixtures. No engine.
+scripts/lib/default-merge_test.sh
 # fix-kind.sh and red-first.sh through a koto stand-in and a gh stand-in, on
 # git fixtures, so every case runs on the floor.
 skills/work-on/scripts/fix-kind_test.sh

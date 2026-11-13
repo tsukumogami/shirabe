@@ -127,7 +127,8 @@ repository and design documents turn after turn, and each turn re-reads
 everything before it. [`scripts/review-packet.sh`](../scripts/review-packet.sh)
 assembles a bounded input instead. A `code` packet carries the acceptance
 criteria, the design context phase 0 recorded, the changed paths and the diff
-from `impl_base`. A `recheck` packet is for a panel's re-verifier, the one
+from `impl_base`, without anything a later merge of the default branch brought
+in. A `recheck` packet is for a panel's re-verifier, the one
 run a retry round plans: it carries the due findings by id and the diff since
 they were last judged, plus every panel's criteria when the run also reviews
 the fix diff, and nothing the seats already read. A `doc` packet carries the document under review, its format

@@ -42,7 +42,10 @@
 #     one re-verifier reading it is no substitute for the panel's seats. It is
 #     measured from this panel's own records, so a large fix one panel
 #     reviewed in full still reaches the next panel's seats. 200 is a
-#     judgment, not a measurement: about one screenful of diff per seat
+#     judgment, not a measurement: about one screenful of diff per seat. A
+#     merge of the default branch made after that commit is folded into the
+#     diff's base (scripts/lib/default-merge.sh), so what the merge brought in
+#     doesn't count toward the threshold
 #   - nothing the ledger recorded can bound a fix diff: the panel recorded no
 #     commit, or no commit any panel recorded is an ancestor of HEAD, or the
 #     diff from it fails. The safe answer to a diff it can't judge is to
@@ -407,6 +410,8 @@ PLUGIN_ROOT_PS="$(cd "$(dirname "$0")/../../.." && pwd)"
 REGISTRY="$PLUGIN_ROOT_PS/scripts/rule-registry.sh"
 # shellcheck source=../../../scripts/lib/test-classify.sh
 . "$PLUGIN_ROOT_PS/scripts/lib/test-classify.sh" || refuse 64 "cannot load scripts/lib/test-classify.sh"
+# shellcheck source=../../../scripts/lib/default-merge.sh
+. "$PLUGIN_ROOT_PS/scripts/lib/default-merge.sh" || refuse 64 "cannot load scripts/lib/default-merge.sh"
 
 # The jq every mode that reads or writes findings shares: the shapes --record
 # accepts, a finding's id string, its status, whether it is closed, and the
@@ -1136,9 +1141,12 @@ pick_commit() {
 }
 
 # changed_lines <from>: added plus deleted lines from <from> to HEAD, a binary
-# file counting 1 per side. Fails when the diff does.
+# file counting 1 per side, with any merge of the default branch made after
+# <from> folded into the base (scripts/lib/default-merge.sh), so the count is
+# the branch's own change. Fails when the diff does.
 changed_lines() {
-    git diff --no-renames --numstat "$1" HEAD > "$WORK/numstat" || return 1
+    fold_default_merge "$1"
+    git diff --no-renames --numstat "$FOLDED_BASE" HEAD > "$WORK/numstat" || return 1
     awk '{ a = ($1 == "-") ? 1 : $1; d = ($2 == "-") ? 1 : $2; n += a + d } END { print n + 0 }' "$WORK/numstat"
 }
 
