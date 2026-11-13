@@ -13,15 +13,15 @@
 #      with no coordinator row (2), recording nothing;
 #   2. with the coordinator row set, the handover gate holds the run at
 #      reconcile; the classification prints `live feat-1 <address>`,
-#      `pending feat-2` and `missing feat-3`, records feat-2 pending and
-#      nobody told;
-#   3. the live worker told its address (the agent's --told), the gate's gap
-#      is feat-3's alone; a second classification prints `missing feat-3`
-#      only, and feat-2 stays pending while it hasn't reported;
-#   4. with feat-3 recorded told by the fixture, the gate passes with feat-2
-#      pending: the run reaches pick, and wait after a hold. feat-2's first
-#      report at wait turns it told on the next classification, which prints
-#      `told feat-2`; one more prints nothing.
+#      `pending feat-2` and `missing feat-3`, records feat-2 pending, feat-3
+#      missing and nobody told, and the gate's one gap is feat-1's;
+#   3. the live worker told its address (the agent's --told), the gate has
+#      no gap; a second classification prints nothing, and feat-2 stays
+#      pending and feat-3 missing while neither has reported;
+#   4. the gate passes with feat-2 pending and feat-3 missing: the run
+#      reaches pick, and wait after a hold. feat-2's first report at wait
+#      turns it told on the next classification, which prints `told feat-2`;
+#      one more prints nothing.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME and KOTO_HOME,
 # every KOTO_SESSION_* name and KOTO_SESSIONS_BASE unset, and the store
@@ -41,7 +41,7 @@ classify() { # classify: handover-classify.sh from $WD, as the agent runs it at 
     HC_ERR=$(cat "$T/hc.err")
     rm -f "$WD/.niwa/workspace.toml"
 }
-run_rows() { live_body | jq -r '[(.run // [])[] | select(.key == "told" or .key == "pending") | "\(.key):\(.value)"] | sort | join(" ")'; }
+run_rows() { live_body | jq -r '[(.run // [])[] | select(.key == "told" or .key == "pending" or .key == "missing") | "\(.key):\(.value)"] | sort | join(" ")'; }
 gaps() { (cd "$WD" && bash "$PS/state-handover.sh" --session "$S") | jq -r '[.gaps[].gap] | join("|")'; }
 
 # niwa: `list --json` names an instance for feat-1 and feat-2, each a directory
@@ -130,31 +130,27 @@ printf '%s\n' "$HC_OUT"
 eq "2: handover-classify.sh exits 0" 0 "$HC_RC"
 eq "2: feat-1 live (address coord-test), feat-2 pending, feat-3 missing" \
     "live feat-1 coord-test|pending feat-2|missing feat-3" "$(printf '%s' "$HC_OUT" | tr '\n' '|')"
-eq "2: the record has feat-2 pending and nobody told" "pending:feat-2" "$(run_rows)"
-eq "2: the gate's gaps: feat-1 and feat-3 not told" "not-told feat-1|not-told feat-3" "$(gaps)"
+eq "2: the record has feat-2 pending, feat-3 missing and nobody told" "missing:feat-3 pending:feat-2" "$(run_rows)"
+eq "2: the gate's one gap: feat-1 not told" "not-told feat-1" "$(gaps)"
 
-echo "== 3. the live worker told; the pending one hasn't reported =="
+echo "== 3. the live worker told; the pending and missing ones haven't reported =="
 write_as_agent state-stored-set.sh --told feat-1 --by coord-test
 eq "3: the agent records feat-1 told after its message" 0 $?
-eq "3: the gate's one gap is feat-3's" "not-told feat-3" "$(gaps)"
+eq "3: the gate has no gap" "" "$(gaps)"
 classify
 printf '%s\n' "$HC_OUT"
-eq "3: a second classification prints only feat-3 missing" "missing feat-3" "$HC_OUT"
-eq "3: feat-2 stays pending without a report" "pending:feat-2 told:feat-1" "$(run_rows)"
+eq "3: a second classification prints nothing" "0 " "$HC_RC $HC_OUT"
+eq "3: feat-2 stays pending and feat-3 missing without a report" "missing:feat-3 pending:feat-2 told:feat-1" "$(run_rows)"
 
 echo "== 4. the pending worker's first report turns it told =="
-# A fixture shortcut, not how a missing worker is resolved: feat-3 is recorded
-# told only so the gate passes and the run can reach wait for feat-2's report.
-write_as_agent state-stored-set.sh --told feat-3 --by coord-test
-eq "4: feat-3 recorded told by the fixture, to clear the gate" 0 $?
-eq "4: the gate passes with feat-2 pending, and the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
+eq "4: the gate passes with feat-2 pending and feat-3 missing, and the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 eq "4: hold reaches wait" wait "$(at --with-data '{"choice":"hold"}')"
 AFTER=$(at --with-data '{"event":"report","unit":"feat-2","report":"Feature 2 is under way; no pull request yet."}')
 [ -n "$AFTER" ] && ok "4: feat-2's report is taken at wait ($AFTER)" || bad "4: feat-2's report is taken at wait" "$(cat "$T/tick.err")"
 classify
 printf '%s\n' "$HC_OUT"
 eq "4: the next classification prints feat-2 told" "told feat-2" "$HC_OUT"
-eq "4: ... and records it told, its pending row gone" "told:feat-1 told:feat-2 told:feat-3" "$(run_rows)"
+eq "4: ... and records it told, its pending row gone" "missing:feat-3 told:feat-1 told:feat-2" "$(run_rows)"
 classify
 eq "4: one more classification prints nothing" "0 " "$HC_RC $HC_OUT"
 
