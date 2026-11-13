@@ -322,6 +322,15 @@ record "[]"; echo 20 > "$CASE/read.sleep"
 LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" PATH="$T/bin:$PATH" bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2>/dev/null)
 [ "$LINE" = blocked:unreadable ]; check "a record read that runs out its deadline is blocked" $? "$LINE"
 ctx reconcile/refusal | grep -q 'timed out'; check "and the refusal says it timed out" $?
+new_case slow-read
+record "[]"; echo 14 > "$CASE/read.sleep"
+# A record that reads fine in 14 s, past the 12 s the pass once gave its read
+# (shirabe#1140): the pass goes on and seals the visit.
+pass
+case "$LINE" in
+    "reconciled "*" sealed:7:"*) ok "a record read that takes 14 s, past 12, goes on to seal the visit" ;;
+    *) bad "a record read that takes 14 s, past 12, goes on to seal the visit" "$LINE $(ctx reconcile/refusal | tr '\n' ' ')" ;;
+esac
 
 echo "== the budget =="
 new_case budget
