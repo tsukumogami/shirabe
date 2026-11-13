@@ -16,7 +16,12 @@
 #   republish_record  --stage exit     the PLAN facts plus, on an intent run,
 #                                      the owned PR, then exit_record
 #
-# Context keys this script owns, cleared first on every run:
+# Context keys this script owns, written on every run. `koto context add`
+# replaces a key's content, so no remove precedes an add. On the exit stage
+# exit_record alone is removed first: it is written last, so a run that fails
+# part way never leaves an earlier run's `ok` for the exit_recorded gate.
+# That keeps the action to four `koto context` calls on resume and seven on
+# exit, well inside koto's 30 s action limit on a cloud-backed session.
 #
 #   plan_path            docs/plans/PLAN-<topic>.md when that file exists
 #   plan_execution_mode  single-pr | multi-pr | coordinated, from the PLAN's
@@ -112,9 +117,7 @@ ctx_add() {
     exit 66
 }
 
-KEYS="plan_path plan_execution_mode next startable"
-[ "$STAGE" = exit ] && KEYS="$KEYS pr exit_record"
-for k in $KEYS; do ctx_remove "$k"; done
+[ "$STAGE" = exit ] && ctx_remove exit_record
 
 # --- the PLAN ---------------------------------------------------------------------
 
