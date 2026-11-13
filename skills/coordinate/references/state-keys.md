@@ -298,7 +298,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction, reports-to or role>",
+{"run": [{"key": "<arguments, cap, coordinator, told, pending, missing, rules, briefs, friction, reports-to or role>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer, assignment or rule>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -321,8 +321,10 @@ may hold `_`, or a dispatch topic; never a session id, a path or an instance
 name), one `told` row per party
 that has been sent that address, and one `pending` row per worker that can't
 be sent it yet: its session is gone, but its instance is still there to be
-started again. A worker is never both told and pending (the record is refused
-if it is). A new address clears the `told` and `pending` rows. It also
+started again. A `missing` row is a worker niwa on this host listed no
+instance for, so it can't be sent the address at all. A worker is never both
+told and pending, nor missing and told or pending (the record is refused if
+it is). A new address clears the `told`, `pending` and `missing` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<name>` or `<name>
@@ -406,6 +408,7 @@ state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>
 state-stored-set.sh --session S --pending <topic> --by <who>
+state-stored-set.sh --session S --missing <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 state-stored-set.sh --session S --standing rule --what <text> --source <form>
 state-stored-set.sh --session S --end <s<n>> --by <who>
@@ -441,9 +444,12 @@ A re-brief records its worker by itself: the template's `rebrief_record` step
 reads what you submitted at `rebrief` and writes `--told` when the worker was
 messaged its new brief (which names your address), `--pending` when its
 session is gone while niwa still lists its instance, and nothing when the
-message was refused or no instance is left. `--told` for a pending worker
-turns its `pending` row into a `told` one; `--pending` refuses a worker already
-told or already pending.
+message was refused or no instance is left. `--told` for a pending or missing
+worker turns its row into a `told` one; `--pending` and `--missing` each
+refuse a worker already told, pending or missing.
+At `reconcile`, `handover-classify.sh` writes `--missing` for a live holding's
+worker when niwa lists no instance for it, as it does after a teardown made
+outside the run.
 
 **Rule rows.** A Standing row of kind `rule` is a rule that binds the
 coordinator until `--end` ends it. It has no On and no Until, a blank Owner
@@ -535,14 +541,16 @@ ended row, and `Run briefs <label> sha256:<digest> set by <who>.`
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
-has been neither told the current address nor recorded pending; a brief
+has been neither told the current address nor recorded pending or missing; a brief
 `record/host` names as `briefs:<label>` whose digest no Run `briefs` row
 carries (`brief-unread <label>`, its fix the intake, naming how many lines
 the caps would leave out; a key whose file can't be read raises none). The
 step's gate runs it at every start, so a replacement that writes its own
-address can't go on until each live worker is told or pending. A pending
-worker doesn't hold the gate; it is told when it can be. A record with no
-`pending` row reads, checks and hands over as it did before the row existed.
+address can't go on until each live worker is told, pending or missing. A
+pending or missing worker doesn't hold the gate; it is told when it can be,
+and a missing one's report reaching the run turns it told. A record with no
+`pending` or `missing` row reads, checks and hands over as it did before the
+row existed.
 A record written before these sections existed
 has every gap at its first start under this version; fill them once. A
 rotation's carry copies the three sections into the next rotation as they
