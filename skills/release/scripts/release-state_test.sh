@@ -912,6 +912,42 @@ run_upload
 assert_eq "with no assets the upload block exits 0" "0" "$RC"
 assert_eq "it says uploaded=0" "uploaded=0" "$STDOUT"
 assert_eq "and calls no gh" "" "$(cat "$GH_LOG")"
+assert_eq "membership empties an earlier run's asset runs" "" "$(kget "$NS" work/asset-runs)"
+
+# Trailing whitespace on a notes line is dropped, so an editor that strips it
+# from the drafted notes still carries the line.
+printf 'notes: script cases: 3 of 3 passed \t\n' >"$T/check5.log"
+rs check-notes "$NA" "$T/check5.log"
+assert_eq "check-notes stores a line without its trailing whitespace" "script cases: 3 of 3 passed" "$(kget "$NS" work/check-notes)"
+
+# A committed extension that declares a release asset: the upload refuses
+# until an asset run is recorded, so a skipped asset step can't publish.
+mkdir -p "$REPO/.claude/shirabe-extensions"
+printf '%s\n' '# release extension' '' '## Release assets' '' \
+    '- `scripts/release-eval-check.sh --finalize`' '' '## After release' '' '- `true`' \
+    >"$REPO/.claude/shirabe-extensions/release.md"
+g add .claude/shirabe-extensions/release.md
+g commit -q -m "chore: declare a release asset"
+rs membership "$NA"
+: >"$GH_LOG"
+run_upload
+assert_eq "an upload with a declared asset that never ran fails the block" "1" "$RC"
+assert_contains "it says failed=assets_not_run" "failed=assets_not_run" "$STDOUT"
+assert_eq "and uploads nothing" "" "$(cat "$GH_LOG")"
+printf '%s\n' 'nothing to attach' >"$T/asset8.log"
+rs asset "$NA" "$T/asset8.log"
+assert_eq "an asset run naming nothing is counted" "none" "$(kget "$NS" work/asset-runs)"
+run_upload
+assert_eq "with the declared item run, the upload block exits 0" "0" "$RC"
+assert_eq "it says uploaded=0" "uploaded=0" "$STDOUT"
+rs membership "$NA"
+printf '{}\n' >"$T/assets/eval-pass-rates.json"
+rs asset "$NA" "$T/asset1.log"
+assert_eq "an asset run is counted by its file name" "eval-pass-rates.json" "$(kget "$NS" work/asset-runs)"
+: >"$GH_LOG"
+GH_VIEW_NAMES=eval-pass-rates.json run_upload
+assert_eq "the declared asset ends in an upload" "uploaded=eval-pass-rates.json" "$STDOUT"
+assert_contains "gh release upload was called" "release upload v0.3.0 $T/assets/eval-pass-rates.json --clobber" "$(cat "$GH_LOG")"
 ss close "$NS" done
 
 fi

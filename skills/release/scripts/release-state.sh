@@ -52,8 +52,8 @@
 #               work/head           the full hash of HEAD, the commit the
 #                                   release is cut from; after-release.sh reads
 #                                   the committed extension there
-#             and writes work/check-notes and work/assets empty, for
-#             check-notes and asset to add to.
+#             and writes work/check-notes, work/assets and work/asset-runs
+#             empty, for check-notes and asset to add to.
 #             A list with nothing in it is an empty key. It also removes the
 #             keys a later phase writes (work/notes.md, work/dispatched,
 #             work/concluded, work/after, work/after-go) when an earlier run
@@ -100,8 +100,8 @@
 #
 #   check-notes  takes the lines of a declared check's saved output that start
 #             with "notes: ", drops that prefix, and appends the rest, as
-#             printed, to work/check-notes (blank lines skipped, a trailing
-#             carriage return dropped). Prints notes=<count>. A line holding a
+#             printed, to work/check-notes (blank lines skipped, trailing
+#             spaces, tabs and a carriage return dropped). Prints notes=<count>. A line holding a
 #             control character is refused (refused=bad_notes_line); a session
 #             that isn't live is refused.
 #
@@ -116,7 +116,8 @@
 #             quotes, $, backticks or control characters, and no earlier
 #             asset may share its file name. It is appended to work/assets
 #             and asset=<path> printed; any other last line prints asset=none.
-#             A bad path is refused=bad_asset, a repeated name
+#             Either way the run is counted in work/asset-runs, which upload
+#             reads. A bad path is refused=bad_asset, a repeated name
 #             refused=duplicate_asset, both exit 2.
 #
 #   upload       uploads each path in work/assets to the release v<version>
@@ -126,11 +127,19 @@
 #             (failed=asset_missing), a failed upload (failed=upload), a failed
 #             read-back (failed=read_back) or a name the release doesn't list
 #             (failed=not_attached) exits 1. No assets prints uploaded=0.
+#             Before any upload it counts the bullets under `## Release
+#             assets` in .claude/shirabe-extensions/release.md as committed
+#             at work/head; when asset recorded fewer runs than that, nothing
+#             is uploaded and it prints failed=assets_not_run with exit 1, so
+#             a cut whose asset step was skipped can't publish without its
+#             assets. A release.local.md item isn't counted: a person may
+#             decline it.
 #
 # Exit codes:
 #   0    success
 #   1    a koto, gh or git operation failed; read, go, check-notes, carries,
-#        asset, upload: the key is absent; upload: an asset file is gone, its
+#        asset, upload: the key is absent; upload: fewer asset runs than the
+#        committed extension declares, an asset file is gone, its
 #        upload failed, or the release doesn't list it afterwards
 #   2    refused: topic's empty result, membership's, mark's, check-notes' or
 #        asset's session not live, membership's directory not a git work tree,
@@ -161,6 +170,8 @@ KOTO="${KOTO_BIN:-koto}"
 
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
 RE_VERSION='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+RE_ASSETS_HEADING='^## Release assets[[:space:]]*$'
+EXT_TRACKED=.claude/shirabe-extensions/release.md
 
 say() { printf '%s: %s\n' "$PROG" "$*" >&2; }
 
@@ -297,7 +308,8 @@ cmd_membership() {
     # one is written so a write that fails part-way leaves keys missing (read
     # stops on them) rather than a mix of this run's and the last one's.
     for k in work/notes.md work/dispatched work/concluded work/after work/after-go \
-        work/range work/prs work/unattributed work/head work/check-notes work/assets; do
+        work/range work/prs work/unattributed work/head work/check-notes work/assets \
+        work/asset-runs; do
         key_exists "$s" "$k" || continue
         if ! "$KOTO" context remove "$s" "$k" >/dev/null; then
             printf 'failed=%s\n' "$k"
@@ -313,6 +325,7 @@ cmd_membership() {
     : >"$TMPD/empty"
     put_file "$s" work/check-notes "$TMPD/empty"
     put_file "$s" work/assets "$TMPD/empty"
+    put_file "$s" work/asset-runs "$TMPD/empty"
 
     count_prs=$(grep -c . "$TMPD/prs" || true)
     count_un=$(grep -c . "$TMPD/unattributed" || true)
@@ -470,8 +483,10 @@ cmd_check_notes() {
     trap cleanup EXIT
 
     # A notes line is one the check started with "notes: ". The prefix goes;
-    # the rest is copied as printed. A carriage return ending a line is dropped.
-    LC_ALL=C sed -n 's/^notes: //p' "$file" | LC_ALL=C sed 's/\r$//' | { grep -v '^[[:space:]]*$' || true; } >"$TMPD/new"
+    # the rest is copied as printed. Trailing whitespace, a carriage return
+    # included, is dropped: an editor strips it from the drafted notes, and
+    # carries would then miss a line that is really there.
+    LC_ALL=C sed -n 's/^notes: //p' "$file" | LC_ALL=C sed 's/[[:space:]]*$//' | { grep -v '^$' || true; } >"$TMPD/new"
     if LC_ALL=C grep -q '[[:cntrl:]]' "$TMPD/new"; then
         printf 'refused=bad_notes_line\n'
         say "a notes line in $file holds a control character; the check's output can't go into the notes as printed"
@@ -516,6 +531,44 @@ cmd_carries() {
 
 # --- asset and upload --------------------------------------------------------------------
 
+# count_run <session> <what> -- add one line to work/asset-runs for an asset
+# command whose output asset read: the file name it named, or "none".
+count_run() {
+    get_key "$1" work/asset-runs "$TMPD/runs"
+    printf '%s\n' "$2" >>"$TMPD/runs"
+    put_file "$1" work/asset-runs "$TMPD/runs"
+}
+
+# declared_assets <head> -- print how many bullets under `## Release assets`
+# name a command (a backtick span) in the extension committed at <head>,
+# outside code fences; 0 when the commit has no extension.
+declared_assets() {
+    local listed line in=0 fence=0 n=0
+    listed=$(git ls-tree --name-only "$1" -- "$EXT_TRACKED") || { say "cannot read commit $1 (work/head)"; exit 1; }
+    if [ -z "$listed" ]; then
+        printf '0\n'
+        return 0
+    fi
+    git show "$1:$EXT_TRACKED" >"$TMPD/ext" || { say "cannot read $EXT_TRACKED at $1"; exit 1; }
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            '```'*) fence=$((1 - fence)); continue ;;
+        esac
+        [ "$fence" -eq 0 ] || continue
+        case "$line" in
+            '## '*)
+                if [[ "$line" =~ $RE_ASSETS_HEADING ]]; then in=1; else in=0; fi
+                continue
+                ;;
+        esac
+        [ "$in" -eq 1 ] || continue
+        case "$line" in
+            '- '*'`'*'`'* | '* '*'`'*'`'*) n=$((n + 1)) ;;
+        esac
+    done <"$TMPD/ext"
+    printf '%s\n' "$n"
+}
+
 cmd_asset() {
     local topic file s last path name
     [ "$#" -eq 2 ] || usage "asset takes <topic> <output-file>"
@@ -527,6 +580,7 @@ cmd_asset() {
     s="release-$topic"
     need_live "$s"
     need_phase1_key "$s" work/assets
+    need_phase1_key "$s" work/asset-runs
     TMPD=$(mktemp -d "${TMPDIR:-/tmp}/release-state.XXXXXX") || { say "cannot make a temporary directory"; exit 1; }
     trap cleanup EXIT
 
@@ -535,6 +589,7 @@ cmd_asset() {
     case "$last" in
         "asset: "*) path="${last#asset: }" ;;
         *)
+            count_run "$s" none
             printf 'asset=none\n'
             return 0
             ;;
@@ -563,11 +618,12 @@ cmd_asset() {
     done <"$TMPD/assets"
     printf '%s\n' "$path" >>"$TMPD/assets"
     put_file "$s" work/assets "$TMPD/assets"
+    count_run "$s" "$name"
     printf 'asset=%s\n' "$path"
 }
 
 cmd_upload() {
-    local topic version s path name count=0
+    local topic version s path name count=0 head declared ran
     [ "$#" -eq 2 ] || usage "upload takes <topic> <version>"
     topic="$1"
     version="$2"
@@ -576,10 +632,26 @@ cmd_upload() {
     need_koto
     need_tool gh "/release uploads release assets with gh"
     s="release-$topic"
+    need_tool git "install git"
     need_phase1_key "$s" work/assets
+    need_phase1_key "$s" work/asset-runs
+    need_phase1_key "$s" work/head
     TMPD=$(mktemp -d "${TMPDIR:-/tmp}/release-state.XXXXXX") || { say "cannot make a temporary directory"; exit 1; }
     trap cleanup EXIT
     get_key "$s" work/assets "$TMPD/assets"
+
+    # Every asset item the committed extension declares has to have run: a
+    # skipped step would otherwise publish the release without its assets.
+    get_key "$s" work/head "$TMPD/head"
+    head=$(tr -d '[:space:]' <"$TMPD/head")
+    declared=$(declared_assets "$head") || exit 1
+    get_key "$s" work/asset-runs "$TMPD/runs"
+    ran=$(grep -c . "$TMPD/runs" || true)
+    if [ "${ran:-0}" -lt "$declared" ]; then
+        printf 'failed=assets_not_run\n'
+        say "$EXT_TRACKED declares $declared release asset item(s) and ${ran:-0} ran; run each one and record its output with asset before the upload"
+        exit 1
+    fi
 
     while IFS= read -r path; do
         [ -n "$path" ] || continue

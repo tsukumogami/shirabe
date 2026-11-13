@@ -383,7 +383,8 @@ All must pass before proceeding:
 
    **Notes lines.** A check marks a line for the published release notes by
    starting it with `notes: ` (the word, a colon and one space). The release
-   copies the rest of the line into the notes exactly as printed, in the
+   copies the rest of the line into the notes exactly as printed (less any
+   trailing whitespace), in the
    order the checks ran and printed them, and Phase 4 refuses notes that
    leave one out. Any repository's check can use this: print, for example,
    `notes: script cases: 40 of 40 passed`, and the notes carry
@@ -571,7 +572,10 @@ assets named:
 
 It uploads each one with `gh release upload --clobber`, reads the release's
 assets back, and prints `uploaded=<name>` for each one the release lists
-(`uploaded=0` when there was nothing to attach). A `failed=` line stops the
+(`uploaded=0` when there was nothing to attach). Before it uploads anything
+it counts the `## Release assets` bullets in the committed `release.md`, and
+prints `failed=assets_not_run` when `asset` recorded fewer runs than that: the
+step above was skipped or cut short. A `failed=` line stops the
 release before Phase 5, so nothing is published without its assets: report
 the line and the message after it, and close the session `abandoned`. The
 draft stays unpublished; delete it (`gh release delete v<version> --yes`)
@@ -773,7 +777,7 @@ When `--dry-run` is passed:
 | 2 | A declared check exits 5 and the answer is no, or nobody can answer | The release stopped on purpose. Look into what the check reported; run the release again, interactively, to confirm it |
 | 4 | `carries` prints `refused=notes_missing_check_lines` | The drafted notes leave out a line a release check printed for them. Add each `missing=` line, as written, to the notes' `## Release checks` section and run the store block again |
 | 4 | A `## Release assets` command exits non-zero, or `asset` prints `refused=` | The run stopped before the draft and closed its session `abandoned`; nothing was created. Fix what the command reported (for this repository's eval record: the declared check didn't run on this HEAD and last tag, so run the release again, check included) and run the release again |
-| 4 | `upload` prints `failed=` | The run stopped before dispatch and closed its session `abandoned`; the draft is unpublished. `gh release delete v<version> --yes`, then run the release again |
+| 4 | `upload` prints `failed=` | The run stopped before dispatch and closed its session `abandoned`; the draft is unpublished. `gh release delete v<version> --yes`, then run the release again. `failed=assets_not_run` means a declared `## Release assets` item never ran, so run every one this time |
 | 3 | `go` prints `go=person` for a session dispatched to release | The reason says why: `unresolved` is a finding the grant never answers (see **The release grant**); the others (`not-held`, `decider-person`, `no-niwa`, ...) mean niwa didn't confirm the grant. The go is asked as usual |
 | 3 | The go is declined, or nobody can answer it | The run stopped and closed its session `abandoned`. Run `/release` again when a person can give the go |
 | 4 | The workspace gate refuses `gh release create` | The run stopped, closed its session `abandoned`, and printed the gate's reason. Ask whoever dispatched the session for the grant, or cut the release from a session that holds it; don't create the draft another way |
