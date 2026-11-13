@@ -87,48 +87,57 @@ with each other and with what the skills actually read.
 
 ## Requirements
 
-Terms used below. An **interactive run** is a skill run with an author
-present to answer questions: one started with `--interactive`, or with no mode
-flag where the repository's execution mode is interactive. An **unattended
-run** is one started with `--auto`, or a child run dispatched by a parent that
-runs unattended. The **previous release** is the most recent release tag
-reachable from the release candidate.
+Terms used below. An **unattended run** is a skill run started with `--auto`,
+one with no mode flag in a repository whose `## Execution Mode:` is `auto`,
+or a child run dispatched by a parent that runs unattended. Every other run
+is an **interactive run**. A **release tag** is a tag of the form
+`v<major>.<minor>.<patch>`, and the **previous release** is the most recent
+release tag reachable from the release candidate. A **slot line** is a line
+of a skill's SKILL.md that consists only of
+`@.claude/shirabe-extensions/<skill>.md` or
+`@.claude/shirabe-extensions/<skill>.local.md`, and its path is the part
+after the `@`.
 
 ### Functional: visibility
 
 - **R1. A declared header wins.** When the repository declares
-  `## Repo Visibility: Public|Private` in CLAUDE.md or CLAUDE.local.md, every
-  skill and `shirabe validate` use that value. When the two files declare
-  different values, Private applies and the run says the two files disagree.
-  A `--visibility` value given to `shirabe validate` outranks both.
+  `## Repo Visibility: Public` or `## Repo Visibility: Private` in CLAUDE.md
+  or CLAUDE.local.md, every skill and `shirabe validate` use that value. When
+  the declarations disagree (between the two files, or twice in one file),
+  Private applies and the run says they disagree. A declaration with any
+  other value counts as no declaration, and the run says the value wasn't
+  recognised. A `--visibility` value given to `shirabe validate` outranks
+  every declaration.
 - **R2. No directory-name inference.** No skill, reference file, script or
   `shirabe validate` mode derives visibility from any component of the
   checkout's path, and the README and extension guide no longer document
   such a rule.
-- **R3. Settled from the repository's host record.** With no header, a run
-  asks the repository's host for the repository's visibility. The repository
-  is the one the `origin` remote names, or the only remote when there is
-  exactly one and it isn't named `origin`. The supported host is GitHub, the
-  host shirabe's skills already work against. A repository the host reports
-  as public is Public; private or internal is Private.
+- **R3. Settled from the repository's host record.** With no declaration, a
+  run asks the repository's host for the repository's visibility. The
+  repository is the one the `origin` remote names, or the only remote when
+  there is exactly one and it isn't named `origin`; when `origin` names a
+  fork, the fork's visibility is the one read. The supported host is GitHub
+  (a remote URL whose host is `github.com`), which shirabe's skills already
+  work against. A repository the host reports as public is Public; private
+  or internal is Private.
 - **R4. Unsettled is said, then asked or failed closed.** Visibility is
-  unsettled when no header is declared and any of these holds: there is no
-  remote, or several remotes and none named `origin`; the remote isn't on a
-  supported host; the lookup fails for any reason (the repository isn't
-  found, credentials are missing or refused, the network or host returns an
-  error); or the lookup passes the time bound in R12. Unsettled is never
-  resolved by a guess:
+  unsettled when nothing is declared and one of these holds, each a reason a
+  run can name: no remote; several remotes and none named `origin`; a remote
+  not on GitHub; the repository not found; credentials missing or refused; a
+  network or host error; the lookup passing the time bound in R12. Unsettled
+  is never resolved by a guess:
   - an interactive run asks the author once whether the repository is
     Public or Private, and the question says that declaring the
     `## Repo Visibility:` header stops it being asked;
-  - an unattended run applies Private and prints one line that says
-    visibility was not settled, gives the reason from the list above, says
-    Private rules were applied, and names the `## Repo Visibility:` header;
-  - `shirabe validate` with no header and no `--visibility` value applies
-    Private and reports a notice carrying the same three facts.
+  - an unattended run applies Private and prints one line carrying four
+    facts: visibility was not settled, the reason, Private rules were
+    applied, and the `## Repo Visibility:` header that settles it;
+  - `shirabe validate` with no declaration and no `--visibility` value
+    applies Private and reports a notice carrying the same four facts.
 - **R5. One answer per run.** A run settles visibility once. A parent skill
   hands its answer to every child it dispatches, and a child under a parent
-  neither queries the host again nor asks the author again.
+  neither queries the host, nor asks the author, nor prints the unattended
+  line again.
 
 ### Functional: the pre-release check
 
@@ -137,32 +146,42 @@ reachable from the release candidate.
   CLAUDE.local.md headers that shirabe's skills, scripts and validator read.
   `references/fixes/claude-md-conventions.md` and the README point to that
   list rather than keep their own.
-- **R7. Slot check.** A check compares the include slot lines of every skill
-  at the previous release with those at the candidate. It flags each slot line
+- **R7. Slot check.** A check compares the slot lines of every skill at the
+  previous release with those at the candidate. It flags each slot path
   present at the previous release and absent at the candidate, which covers a
   removed line, a changed slot path and a renamed skill (a rename moves both
   of the skill's slot paths). A slot added at the candidate isn't flagged.
-- **R8. Header check.** The same check compares the published header list at
-  the previous release with the candidate's and flags each header that left
-  the list. It also flags each header on the candidate's list that has no
-  reader at the candidate. A header has a reader when its name, matched
-  without regard to case and with or without the leading `## ` and trailing
-  colon, appears in a file under `skills/`, `references/`, `scripts/` or
-  `crates/` other than test and eval fixtures.
+- **R8. Header check.** The same check flags two kinds of header change, both
+  breaking:
+  - a header on the previous release's list that is not on the candidate's;
+  - a header on both lists that has no reader at the candidate.
+
+  A header has a reader when its bare name (for example `Repo Visibility`),
+  matched without regard to case, appears in a file under `skills/`,
+  `references/`, `scripts/` or `crates/`, leaving out test and eval fixtures
+  and `references/fixes/claude-md-conventions.md`. A header that is on the
+  candidate's list only and has no reader is a list error, not a breaking
+  change: the check fails and names it, and the fix is to the list.
 - **R9. A flag holds the release until the notes name it.** A flagged change
-  stops the release from completing until the release notes carry a section
-  headed `Breaking changes` with an entry that contains the flagged slot path
-  or header name verbatim, followed by at least one sentence saying what an
-  adopter changes in their own files. A deliberate break is allowed; an
+  stops the release before its tag is created until the release notes carry
+  a heading whose text is `Breaking changes` and, under it, a list entry that
+  contains the flagged slot path or the header's bare name exactly as the
+  check printed it, plus at least one further sentence. The check verifies
+  that the entry exists; whether the sentence tells an adopter what to change
+  is for the person reviewing the release. A deliberate break is allowed; an
   unnamed one isn't.
 - **R10. The check runs where releases run.** `/shirabe:release` runs the
   check among the checks it runs before tagging, with no option or extra step
   needed to turn it on. The check also runs on its own against two named
-  revisions, so a contributor can see the result on a pull request; given a
-  revision that doesn't exist, it exits non-zero and names the revision.
-- **R11. Without an earlier release there's nothing to compare.** When the
-  candidate has no reachable release tag, the check says it has no baseline
-  and flags nothing.
+  revisions, so a contributor can run it while a pull request is open; it
+  isn't required on every pull request. Run on its own, it prints each flag
+  and exits zero when there are none and non-zero when there are any; given
+  a revision that doesn't exist, it exits non-zero and names the revision.
+- **R11. Without a baseline there's nothing to compare.** When the candidate
+  has no reachable release tag, or the previous release has no published
+  header list (the first release after this change), the check says which
+  baseline is missing and flags nothing for that part. The reader test of R8
+  still runs on the candidate's list, so its list errors are still caught.
 
 ### Non-functional, and the guide
 
@@ -172,11 +191,11 @@ reachable from the release candidate.
   the GitHub CLI, which shirabe's skills already require; no new install step
   is added.
 - **R14. The guide describes what's enforced.** `docs/guides/extending.md`
-  states the visibility order (header, then host record, then unsettled), what
-  an unsettled run does, and that removed or renamed slots and headers are
-  flagged before release and must be named in the notes. It no longer
-  documents the path-based rule or calls slot and header stability a review
-  convention.
+  states the visibility order (`shirabe validate`'s `--visibility` value,
+  then the header, then the host record, then unsettled), what an unsettled
+  run does, and that removed or renamed slots and headers are flagged before
+  release and must be named in the notes. It no longer documents the
+  path-based rule or calls slot and header stability a review convention.
 - **R15. The check needs no model and no network.** The pre-release check
   reads files at two revisions of a local clone. It makes no model call and
   no network request.
@@ -185,11 +204,11 @@ reachable from the release candidate.
 
 Visibility:
 
-- [ ] `git grep -nE 'infer_visibility_from_path|infer from repo path'` over
-      `skills/`, `references/`, `scripts/`, `crates/`, `README.md` and
-      `docs/guides/extending.md` returns no match, and neither does a
-      `git grep` there for a `private/` or `public/` path component followed
-      by `->` and a visibility.
+- [ ] Over `skills/`, `references/`, `scripts/`, `crates/`, `README.md` and
+      `docs/guides/extending.md`, both
+      `git grep -nE 'infer_visibility_from_path|infer from repo path'` and
+      `` git grep -nE '`?(private|public)/`? *(->|→) *(Private|Public)' ``
+      return no match.
 - [ ] A public GitHub repository with no header, checked out under a
       directory named `private`, gets the public-content rules from a skill
       run.
@@ -198,27 +217,39 @@ Visibility:
 - [ ] A repository checked out under macOS's `/private/var/folders` temporary
       area with no header gets the visibility its host reports.
 - [ ] A repository the host reports as internal is handled as Private.
+- [ ] A repository whose only remote is a GitHub remote named `upstream`, with
+      no header, gets the visibility the host reports for that remote.
 - [ ] A header in CLAUDE.md is used even when the host reports the opposite;
       a header only in CLAUDE.local.md is used the same way; when the two
-      files disagree, Private applies and the run's output says they
-      disagree.
+      files disagree, or one file declares both values, Private applies and
+      the run's output says the declarations disagree.
+- [ ] A `## Repo Visibility: Secret` declaration is treated as no
+      declaration, and the run's output says the value wasn't recognised.
 - [ ] With no header, an unattended run prints exactly one unsettled line in
-      each of these cases, each line naming its own reason: no remote; two
-      remotes and none named `origin`; a remote on a host other than GitHub;
-      a repository the host can't find; missing credentials.
+      each of these cases, each line naming its own reason and also saying
+      that visibility was not settled, that Private rules were applied, and
+      naming `## Repo Visibility:`: no remote; two remotes and none named
+      `origin`; a remote on a host other than GitHub; a repository the host
+      can't find; missing credentials; the network disabled; the lookup made
+      to hang.
 - [ ] With no header and no remote, an interactive run asks the author once,
       the question names the `## Repo Visibility:` header, and the answer
-      is used for the rest of the run.
+      is used for the rest of the run; with no header and the network
+      disabled, it asks the same way.
 - [ ] With the host lookup made to hang, the run reaches the unsettled
-      outcome no later than 10 seconds after the lookup starts.
+      outcome no later than 11 seconds after the lookup starts (the 10-second
+      bound plus one second of tolerance).
 - [ ] `shirabe validate` with no header and no `--visibility`, on a document
       whose path contains `public/`, reports Private and a notice that says
-      visibility was not settled, why, and names the header.
-- [ ] `shirabe validate --visibility public` reports Public whatever the
-      headers and path say.
-- [ ] In a `/scope` run with no header, the host is queried at most once and
-      the author is asked at most once across the parent and all its
-      children, and every child applies the parent's answer.
+      visibility was not settled, gives the reason, says Private was applied,
+      and names the header.
+- [ ] `shirabe validate --visibility public` reports Public, and
+      `--visibility private` reports Private, whatever the headers and path
+      say.
+- [ ] In an unattended `/scope` run with no header, the host is queried at
+      most once, the unsettled line is printed at most once, and every child
+      applies the parent's answer; in an interactive one, the author is asked
+      at most once across the parent and its children.
 - [ ] The README's installation steps gain no new tool.
 
 Pre-release check:
@@ -230,10 +261,10 @@ Pre-release check:
       Reviewability Ceiling, Prose Vocabulary and Label Vocabulary, and each
       skill's two slot paths; `references/fixes/claude-md-conventions.md` and
       the README link to it and carry no header list of their own.
-- [ ] Against a candidate that deletes one skill's `.local.md` include line,
-      the check flags that slot path; against one that renames a skill, it
-      flags both of that skill's old slot paths; against one that changes a
-      slot's path, it flags the old path.
+- [ ] Against a candidate that deletes one skill's `.local.md` slot line, the
+      check flags that slot path; against one that renames a skill, it flags
+      both of that skill's old slot paths; against one that changes a slot's
+      path, it flags the old path.
 - [ ] Against a candidate that adds a slot, the check flags nothing.
 - [ ] Against a candidate that drops a header from the list, the check flags
       that header.
@@ -241,22 +272,32 @@ Pre-release check:
       check flags that header; where the header is still read only in
       lowercase (for example `## repo visibility:` in Rust source), it
       doesn't.
+- [ ] Against a candidate that adds a header to the list with no reader, the
+      check fails and names it as a list error, not as a breaking change.
+- [ ] Against a candidate that both drops a header and deletes a slot line,
+      the check prints both flags.
 - [ ] Against a candidate with no slot or header change, the check flags
-      nothing and exits zero.
+      nothing and exits zero; run on demand against two valid revisions with
+      a flagged change between them, it exits non-zero and prints the flag.
 - [ ] With no reachable release tag, the check prints that there's no
-      baseline and flags nothing.
+      baseline and flags nothing; with a previous release that has no header
+      list, it prints that the header baseline is missing, flags no header
+      removal, and still runs the reader test.
 - [ ] Run on demand with a revision that doesn't exist, the check exits
       non-zero and its message names that revision.
 - [ ] `/shirabe:release` on a candidate with a flagged change stops before
-      creating the tag while the notes lack a `Breaking changes` entry
-      containing the flagged name and a following sentence, and goes on to
-      tag once that entry is present; no option is added to the invocation.
+      creating the tag while the notes have no `Breaking changes` heading,
+      while the flagged name appears only outside that heading, or while the
+      entry holds the name and no further sentence; it goes on to tag once
+      an entry under that heading holds the name and a further sentence. No
+      option is added to the invocation.
 - [ ] The check completes with networking disabled and no model credentials
       in the environment.
-- [ ] `docs/guides/extending.md` contains the visibility order, the unsettled
-      behaviour for interactive and unattended runs, and the pre-release
-      check, and `git grep -n "review convention" docs/guides/extending.md`
-      returns no match.
+- [ ] `docs/guides/extending.md` has a section that gives the visibility
+      order as `--visibility`, header, host record, unsettled; says what an
+      interactive and an unattended run do when unsettled; and describes the
+      pre-release check. `git grep -n "review convention"
+      docs/guides/extending.md` returns no match.
 
 ## Out of Scope
 
