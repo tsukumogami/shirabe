@@ -147,7 +147,7 @@
 # paths have control characters stripped, and every line is built with jq.
 #
 # Writers (init, note, seat, accept, decline, overrule, and status while it
-# records a moved work tree) hold a mkdir lock
+# records a moved work tree) hold a lock file, created with bash's noclobber,
 # named for the session in a per-user state directory (mode 0700, owner
 # checked), record their pid and its start time in it, break it only when
 # that process is gone, exit 75 when it stays held past TEST_CHANGE_LOCK_WAIT
@@ -158,7 +158,8 @@
 # a retained session.
 #
 # Environment:
-#   SHIRABE_STATE_DIR      where the lock directory and the tag key live;
+#   SHIRABE_STATE_DIR      where `locks/` (the directory the lock files go in)
+#                          and the tag key live;
 #                          default ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe
 #   TEST_CHANGE_LOCK_WAIT  seconds a writer waits for the lock (tests)
 #
@@ -388,7 +389,7 @@ proc_start() {
 }
 
 take_lock() {
-    local s="$1" base dir wait_s start opid ostart
+    local s="$1" base dir wait_s start opid ostart own
     base=$(state_base)
     dir="$base/locks"
     private_dir "$base"
@@ -397,14 +398,17 @@ take_lock() {
     case "$wait_s" in ""|*[!0-9]*) wait_s=10 ;; esac
     start=$(date +%s)
     while :; do
-        if mkdir "$dir/test-change.$s.lock" 2>/dev/null; then
+        # One open with O_EXCL, made by bash itself: not mkdir, which on
+        # Ubuntu 26.04 (uutils) can report success to two racing callers.
+        if (set -C && printf '%s\t%s\n' "$$" "$(proc_start "$$")" > "$dir/test-change.$s.lock") 2>/dev/null; then
             LOCK="$dir/test-change.$s.lock"
-            printf '%s\t%s\n' "$$" "$(proc_start "$$")" > "$LOCK/owner"
             return 0
         fi
-        opid="" ostart=""
-        if [ -f "$dir/test-change.$s.lock/owner" ]; then
-            IFS="$(printf '\t')" read -r opid ostart < "$dir/test-change.$s.lock/owner"
+        opid="" ostart="" own="$dir/test-change.$s.lock"
+        # A lock directory an earlier version left holds its owner in `owner`.
+        [ -d "$own" ] && own="$own/owner"
+        if [ -f "$own" ]; then
+            IFS="$(printf '\t')" read -r opid ostart < "$own"
         fi
         if [ -n "$opid" ]; then
             if ! kill -0 "$opid" 2>/dev/null || [ "$(proc_start "$opid")" != "$ostart" ]; then
