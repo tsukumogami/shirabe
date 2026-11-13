@@ -54,10 +54,11 @@
 # and leaves nothing running. A whole pass writes
 # MANIFEST.sha256 with the MANIFEST's digest.
 #
-# And `check`, confirm's reads for one topic's removed verdict: it confirms
-# (exit 0) a removed verdict whose unit both listings no longer show, with a
-# whole archive or with `job -` and none; it doesn't (exit 1, the reason
-# printed) for another topic, a verdict that isn't removed, an instance or a
+# And `check`, confirm's reads for one topic's verdict: it confirms (exit 0)
+# a removed verdict whose unit both listings no longer show, with a whole
+# archive or with `job -` and none, and an ordinary verdict whose instance and
+# job are gone with a whole archive; it doesn't (exit 1, the reason printed)
+# for another topic, an ordinary instance niwa still lists, an instance or a
 # job still listed at the path, the job still listed, a RESULT that isn't
 # done, or a surviving session with no archive; it stores no context key and
 # seals nothing; and it takes no --keyseal and needs a dispatch topic.
@@ -722,7 +723,7 @@ done
 [ -z "$left" ] && ok "  ... and leaves no read running" || { bad "  ... and leaves no read running" "$left"; for p in $left; do kill "$p" 2>/dev/null; done; }
 
 # ---------------------------------------------------------------------------
-# check (shirabe#1593): confirm's reads for a removed verdict of one topic,
+# check (shirabe#1593, shirabe#1148): confirm's reads for one topic's verdict,
 # answered by the exit code, with nothing stored and nothing sealed, so
 # state-holding.sh --retire can ask it at destroy, before teardown_confirm.
 echo "== check: a removed teardown, read-only =="
@@ -768,8 +769,17 @@ run_check --session s --topic w6
 [ "$KRC" = 1 ] && ok "another topic's check: not confirmed" || bad "another topic's check: not confirmed" "exit $KRC: $KOUT"
 case "$KOUT" in *"the verdict is for w5, not w6"*) ok "  ... says why" ;; *) bad "  ... says why" "$KOUT" ;; esac
 wrote_nothing "  ... storing nothing and sealing nothing"
+# An ordinary pass, the pass's own destroy, is confirmed the same way
+# (shirabe#1148): --retire asks it at destroy whether or not the verdict says
+# `removed yes`.
 setup_confirm
-unconfirmed "a verdict that isn't removed" "the verdict is not a removed teardown"
+run_check --session s --topic w5
+[ "$KRC" = 0 ] && ok "an ordinary verdict, the unit gone, the archive whole: confirmed" \
+    || bad "an ordinary verdict, the unit gone, the archive whole: confirmed" "exit $KRC: $KOUT"
+wrote_nothing "  ... storing nothing and sealing nothing"
+setup_confirm
+echo '[{"name":"tsuku+w5","path":"/elsewhere"}]' >"$C3/niwa.json"
+unconfirmed "an ordinary verdict whose instance niwa still lists by name" "niwa still lists tsuku+w5"
 wrote_nothing "  ... storing nothing and sealing nothing"
 setup_check
 echo '[{"name":"tsuku+w5b","path":"/i/w5"}]' >"$C3/niwa.json"
@@ -888,6 +898,101 @@ eq_ "the archive holds what a pass held before trees were left out" \
     "MANIFEST|MANIFEST.sha256|README.md|RESULT|claude-projects|job|koto|teardown.json|unit-cost.json" "$(LC_ALL=C ls "$ARCHD" | tr '\n' '|' | sed 's/|$//')"
 confirm_archive
 [ "$CRC" = 0 ] && [ "$COUT" = teardown-confirmed ] && ok "and confirm passes it" || bad "and confirm passes it" "exit $CRC: $COUT ($CWHY)"
+
+# ---------------------------------------------------------------------------
+# A removed teardown with no handoff comment (shirabe#1529): the verdict says
+# `handoff none`. The pass re-reads no comment, appends one entry that stands
+# in for the link before it says done, and confirm and check read the result
+# as they read any removed pass's.
+echo "== a removed teardown with no handoff comment =="
+# none_verdict [job-line]: removed_verdict's, its handoff line `handoff none`.
+none_verdict() {
+    removed_verdict "$@"
+    sed -i.bak 's/^handoff .*/handoff none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+}
+MSHA=0123456789012345678901234567890123456789
+# run_check_here: check over the run's own verdict and archive; KRC, KOUT.
+run_check_here() {
+    KOUT=$(cd "$T/ws" && PATH="$B3:$PATH" TEARDOWN_ARCHIVE_DIR="$T/archive" DC_COORD_LOG="$P3/coord-log.sh" \
+        bash "$P3/teardown-pass.sh" check --session s --topic w5 2>&1)
+    KRC=$?
+}
+cp "$P2/state-entry.sh" "$T/state-entry.stand-in"
+
+setup_run
+none_verdict 'job -'
+run_pass
+eq_ "no handoff comment, no session survived: done, nothing archived" \
+    "0|teardown-pass: done: the unit was removed outside the pass and no session of it survives; nothing archived" "$RC|$LAST"
+eq_ "  ... the entry stands in for the link" \
+    "Teardown of w5 closed without a handoff comment: the unit was removed outside the pass, niwa lists no instance w5, Claude Code lists no job there, no session of the worker survived, and its pull request merged (#600 at $MSHA). No handoff comment exists on the pull request, so this entry stands in for the link." \
+    "$(cat "$ST/posted.txt" 2>&1)"
+eq_ "  ... no comment is read" "" "$(line_of 'issues/comments/1')"
+[ -z "$(line_of 'niwa destroy')" ] && [ -z "$(line_of 'claude rm')" ] && ok "  ... nothing destroyed or removed" || bad "  ... nothing destroyed or removed" "$(cat "$ST/log")"
+eq_ "  ... the retired event still goes" 1 "$(grep -c '^retired$' "$ST/emit.calls" 2>/dev/null)"
+confirm_archive
+eq_ "  ... confirm confirms it with no archive" "0 teardown-confirmed" "$CRC $COUT"
+run_check_here
+eq_ "  ... and check confirms it" 0 "$KRC"
+
+setup_run
+coord_request
+none_verdict
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && [ -z "$(line_of 'niwa destroy')" ] && ok "no handoff comment, the worker's session survived: done, archived, nothing destroyed" \
+    || bad "no handoff comment, the worker's session survived: done, archived, nothing destroyed" "exit $RC: $OUT $ERR"
+eq_ "  ... the README's Handoff line says none" \
+    "- Handoff: none (removed outside the pass with no handoff comment; see the record entry)" \
+    "$(grep '^- Handoff:' "$ARCHD/README.md" 2>&1)"
+eq_ "  ... the entry, written after the cost entry, names the worker's session" \
+    "Teardown of w5 closed without a handoff comment: the unit was removed outside the pass, niwa lists no instance w5, Claude Code lists no job there, the worker's session $SID is not live, and its pull request merged (#600 at $MSHA). No handoff comment exists on the pull request, so this entry stands in for the link." \
+    "$(cat "$ST/posted.txt" 2>&1)"
+eq_ "  ... no comment is read" "" "$(line_of 'issues/comments/1')"
+confirm_archive
+eq_ "  ... confirm passes the archive" "0 teardown-confirmed" "$CRC $COUT"
+run_check_here
+eq_ "  ... and check confirms it" 0 "$KRC"
+
+# A stopped verdict can't say none: only a unit removed outside the pass
+# lost its worker before the comment.
+setup_run
+sed -i.bak 's/^handoff .*/handoff none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "a stopped verdict with handoff none: refused" \
+    "1|teardown-pass: refused: a verdict without a handoff link is not a removed teardown" "$RC|$LAST"
+[ -z "$(line_of 'niwa destroy')" ] && [ ! -e "$ST/posted.txt" ] && ok "  ... nothing destroyed, no entry" || bad "  ... nothing destroyed, no entry" "$(cat "$ST/log")"
+
+# The entry is the record of why the row may go: a pass that can't write it
+# never says done.
+printf '#!/usr/bin/env bash\ncase " $* " in *" --kind entry "*) echo "state-entry: refused: the record is locked" >&2; exit 65 ;; esac\nexec bash "%s" "$@"\n' \
+    "$T/state-entry.stand-in" >"$P2/state-entry.sh"
+setup_run
+none_verdict 'job -'
+run_pass
+eq_ "no handoff comment, the entry not written, no session survived: refused" \
+    "1|teardown-pass: refused: the entry standing in for the handoff link could not be written: state-entry: refused: the record is locked" "$RC|$LAST"
+eq_ "  ... and no retired event" "" "$(emits)"
+setup_run
+none_verdict
+run_pass
+eq_ "no handoff comment, the entry not written, the session archived: refused" \
+    "1|teardown-pass: refused: the entry standing in for the handoff link could not be written: state-entry: refused: the record is locked" "$RC|$LAST"
+case "$(cat "$ARCHD/RESULT" 2>&1)" in "refused at entry: "*) ok "  ... RESULT says refused, never done" ;; *) bad "  ... RESULT says refused, never done" "$(cat "$ARCHD/RESULT" 2>&1)" ;; esac
+confirm_archive
+eq_ "  ... so confirm doesn't confirm it" "0 teardown-incomplete" "$CRC $COUT"
+run_check_here
+eq_ "  ... nor does check" 1 "$KRC"
+cp "$T/state-entry.stand-in" "$P2/state-entry.sh"
+
+# The pull request is still re-read: one not merged at the verdict's commit
+# refuses, as with a link.
+setup_run
+none_verdict 'job -'
+sed -i.bak "s/^pr acme\/widgets#600 .*/pr acme\/widgets#600 $(printf '%040d' 9)/" "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "no handoff comment, the pull request not merged at the verdict's commit: refused" \
+    "1|teardown-pass: refused: acme/widgets#600 is not merged at $(printf '%040d' 9)" "$RC|$LAST"
+[ ! -e "$ST/posted.txt" ] && ok "  ... no entry" || bad "  ... no entry" "$(cat "$ST/posted.txt")"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

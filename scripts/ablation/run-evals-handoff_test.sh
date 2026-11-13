@@ -64,14 +64,17 @@ case "$RC:$OUT" in
     *) fail "a file with several cases needs --case-id (rc=$RC): $OUT" ;;
 esac
 
-# Without --withhold the runner never reaches the harness. With no claude on
-# PATH it stops at its own prerequisite check, and nothing says "ablation".
+# Without --withhold the runner never reaches the harness. It runs the
+# skill's script cases only and lists every graded case as refused, before
+# its claude prerequisite check, so with no claude on PATH it still exits 0,
+# and nothing says "ablation" or "claude CLI not found".
 mkdir -p "$T/bin"
 ln -s "$(command -v python3)" "$T/bin/python3"
 run env PATH="$T/bin:/usr/bin:/bin" "$RUNNER" --runs 1 work-on
 case "$RC:$OUT" in
     *ablation*) fail "without --withhold the harness is not reached (rc=$RC): $OUT" ;;
-    3:*"claude CLI not found"*) pass "without --withhold the runner takes its own path" ;;
+    *"claude CLI not found"*) fail "without --withhold the runner refuses graded cases before its claude check (rc=$RC): $OUT" ;;
+    0:*"graded cases don't run"*) pass "without --withhold the runner takes its own path" ;;
     *) fail "without --withhold the runner takes its own path (rc=$RC): $OUT" ;;
 esac
 

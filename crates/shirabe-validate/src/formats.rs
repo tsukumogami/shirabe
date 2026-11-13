@@ -224,6 +224,14 @@ pub fn plan_v2_required_fields() -> Vec<String> {
     s(&["status", "execution_mode", "milestone", "step_count"])
 }
 
+/// The required frontmatter fields of a design at status `Draft`. A design is
+/// written at `Draft` before its decision is made, so only `status` and
+/// `problem` are required; `decision` and `rationale` join the list once the
+/// design moves to `Proposed`.
+pub fn design_draft_required_fields() -> Vec<String> {
+    s(&["status", "problem"])
+}
+
 /// The required sections of a `plan/v2` document, in order. One list for
 /// every execution mode: a step plan carries no Implementation Issues table
 /// or Dependency Graph, and its step order is its sequence, so
@@ -385,7 +393,14 @@ pub fn formats() -> Vec<FormatSpec> {
             prefix: "DESIGN-".to_string(),
             schema_version: "design/v1".to_string(),
             required_fields: s(&["status", "problem", "decision", "rationale"]),
-            valid_statuses: s(&["Proposed", "Accepted", "Planned", "Current", "Superseded"]),
+            valid_statuses: s(&[
+                "Draft",
+                "Proposed",
+                "Accepted",
+                "Planned",
+                "Current",
+                "Superseded",
+            ]),
             required_sections: s(&[
                 "Status",
                 "Context and Problem Statement",

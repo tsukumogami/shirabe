@@ -938,6 +938,19 @@ parent_answer() {
         copy-mismatch)
             msg="session_unlocated: session '$1' records its copy under prefix ws-a, but the bucket holds no copy of it there, so nothing was read or written"
             printf '2\n{"code":"session_unlocated","command":"status","error":"%s","locations":["ws-a"],"reason":"recorded_copy_mismatch","session":"%s"}\n' "$msg" "$1" >"$PARENT_ANSWERS/$1" ;;
+        # koto 0.37.1 refuses a lookup it couldn't finish with exit 3 and
+        # session_lookup_failed (tsukumogami/shirabe#1764), in three texts:
+        # this directory's prefix holds none and only the others failed, this
+        # directory's prefix couldn't be read, or the bucket couldn't be read.
+        session_lookup_failed-others)
+            msg="session '$1' has no copy on this host and the bucket holds none under this directory's prefix ws-a, and koto can't tell whether another directory's prefix holds it: listing the bucket's workspace prefixes failed: io: no answer within 5.44s; nothing was read, so run the command again once the bucket answers"
+            printf '3\n{"code":"session_lookup_failed","command":"status","error":"%s","session":"%s"}\n' "$msg" "$1" >"$PARENT_ANSWERS/$1" ;;
+        session_lookup_failed-own)
+            msg="session '$1' has no copy on this host, and koto can't tell whether the bucket holds it under this directory's prefix ws-a or another directory's, because the bucket gave no answer within the lookup's deadline: io: no answer within 6s; nothing was read, so run the command again once the bucket answers"
+            printf '3\n{"code":"session_lookup_failed","command":"status","error":"%s","session":"%s"}\n' "$msg" "$1" >"$PARENT_ANSWERS/$1" ;;
+        session_lookup_failed-bucket)
+            msg="session '$1' has no copy on this host, and koto can't tell whether the bucket holds it: io: connection refused; nothing was read"
+            printf '3\n{"code":"session_lookup_failed","command":"status","error":"%s","session":"%s"}\n' "$msg" "$1" >"$PARENT_ANSWERS/$1" ;;
     esac
 }
 run_parent_stub() {
@@ -952,7 +965,8 @@ run_parent_stub() {
 parent_writes() { [ -f "$STUB_LOG" ] && grep -E '^context (add|remove) ' "$STUB_LOG"; return 0; }
 
 # No parent: both lookups answer that the parent has no copy here.
-for case in "pa1|others-unlisted|others-unlisted" "pa2|elsewhere|elsewhere" "pa3|others-unlisted|absent"; do
+for case in "pa1|others-unlisted|others-unlisted" "pa2|elsewhere|elsewhere" "pa3|others-unlisted|absent" \
+    "pa4|session_lookup_failed-others|session_lookup_failed-others" "pa5|session_lookup_failed-others|absent"; do
     topic="${case%%|*}"
     rest="${case#*|}"
     scope_kind="${rest%%|*}"
@@ -977,7 +991,9 @@ done
 # A parent that could be under this directory's prefix, or that has a copy here
 # koto can't place, still stops adopt and dispatch read, and says why.
 for case in "pb1|own-unreadable|can't tell whether the bucket holds it under this directory's prefix" \
-    "pb2|copy-mismatch|records its copy under prefix ws-a, but the bucket holds no copy of it there"; do
+    "pb2|copy-mismatch|records its copy under prefix ws-a, but the bucket holds no copy of it there" \
+    "pb3|session_lookup_failed-own|can't tell whether the bucket holds it under this directory's prefix ws-a or another directory's" \
+    "pb4|session_lookup_failed-bucket|and koto can't tell whether the bucket holds it: io: connection refused"; do
     topic="${case%%|*}"
     rest="${case#*|}"
     kind="${rest%%|*}"
