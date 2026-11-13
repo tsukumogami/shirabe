@@ -971,6 +971,67 @@ else
     done
 fi
 
+# --- the same issue number in two repositories (#1842) -------------------------
+#
+# Two checkouts on one host, whose origins name different repositories, each
+# open their own issue 750 the way SKILL.md says. Each must get a session of
+# its own: the second open is not refused on the first's name, and the first
+# session is left where it was. The name comes from session-name.sh; where
+# that script is absent, the name is the one SKILL.md gave before it existed,
+# issue_<N>, which is the same for both repositories.
+
+name_of() { # name_of <checkout> <issue number>
+    local n
+    if [ -f "$SCRIPT_DIR/session-name.sh" ]; then
+        n=$(cd "$1" && bash "$SCRIPT_DIR/session-name.sh" "$2" 2>/dev/null) || n=""
+    else
+        n="issue_$2"
+    fi
+    printf '%s' "$n"
+}
+
+for r in alpha beta; do
+    mkdir -p "$WORK/collide-$r"
+    (cd "$WORK/collide-$r" && git init -q . && git config user.email t@example.com && git config user.name t \
+        && git commit -q --allow-empty -m init \
+        && git remote add origin "https://github.com/acme/$r.git") >/dev/null 2>&1
+done
+
+collide_open() { # collide_open <checkout> <workflow>
+    tokens '["750"]'
+    OUT=$(cd "$1" && bash "$OPEN" --workflow "$2" --var ISSUE_NUMBER=750 --var ARTIFACT_PREFIX=issue_750 \
+        "$TOKENS" 2>"$WORK/stderr")
+    RC=$?
+    ERR=$(cat "$WORK/stderr")
+}
+
+WF_A=$(name_of "$WORK/collide-alpha" 750)
+WF_B=$(name_of "$WORK/collide-beta" 750)
+collide_open "$WORK/collide-alpha" "$WF_A"
+OUT_A=$OUT RC_A=$RC
+collide_open "$WORK/collide-beta" "$WF_B"
+OUT_B=$OUT RC_B=$RC ERR_B=$ERR
+STATE_A=$( (cd "$WORK/collide-alpha" && koto status "$WF_A" 2>/dev/null) | jq -r '.current_state // "none"')
+
+if [ -n "$WF_A" ] && [ -n "$WF_B" ] && [ "$WF_A" != "$WF_B" ]; then
+    pass "issue 750 in acme/alpha and acme/beta: distinct session names [$WF_A] [$WF_B]"
+else
+    fail "issue 750 in acme/alpha and acme/beta: one session name for both, [$WF_A] and [$WF_B]"
+fi
+if [ "$RC_A" -eq 0 ] && [ "$OUT_A" = "opened=new
+session=$WF_A" ]; then
+    pass "issue 750 in acme/alpha: opened as a new session"
+else
+    fail "issue 750 in acme/alpha: exit $RC_A, out [$OUT_A]"
+fi
+if [ "$RC_B" -eq 0 ] && [ "$OUT_B" = "opened=new
+session=$WF_B" ]; then
+    pass "issue 750 in acme/beta: opened as a new session, not refused on acme/alpha's"
+else
+    fail "issue 750 in acme/beta: refused on the name acme/alpha's run holds, $WF_B: exit $RC_B, out [$OUT_B], stderr [$ERR_B]"
+fi
+eq "acme/alpha's session is left at entry" entry "$STATE_A"
+
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]
