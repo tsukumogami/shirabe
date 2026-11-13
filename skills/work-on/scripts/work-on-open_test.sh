@@ -420,6 +420,15 @@ case "${1:-} ${2:-}" in
                 printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "${3:-}"
                 exit 1 ;;
             unreadable) exit 0 ;;
+            held-elsewhere)
+                printf '{"code":"session_unlocated","command":"context exists","error":"session_unlocated: session '"'"'%s'"'"' has no copy on this host and the bucket holds none under this directory'"'"'s prefix b04857cbacbe6c90, so nothing was read; run the command from the directory the session was started in","locations":["b04857cbacbe6c90"],"reason":"no_local_copy","session":"%s"}\n' "${3:-}" "${3:-}"
+                exit 2 ;;
+            recorded-mismatch)
+                printf '{"code":"session_unlocated","command":"context exists","error":"session_unlocated: session '"'"'%s'"'"' records its copy under prefix b04857cbacbe6c90, but the copy there is missing","locations":["b04857cbacbe6c90"],"reason":"recorded_copy_mismatch","session":"%s"}\n' "${3:-}" "${3:-}"
+                exit 2 ;;
+            lookup-failed)
+                printf '{"code":"session_lookup_failed","command":"context exists","error":"session '"'"'%s'"'"' has no copy on this host, and koto can'"'"'t tell whether the bucket holds it","index":"unknown","reason":"unreachable","session":"%s"}\n' "${3:-}" "${3:-}"
+                exit 3 ;;
         esac
         exit 1 ;;
     "context get") exit 1 ;;
@@ -465,6 +474,34 @@ session=issue_7" ] && [ -z "$(grep -v '^init ' "$WORK/stub.log")" ] && [ -n "$IN
         pass "a failing level read ($mode) without --koto-leg: never run; the plain open goes ahead"
     else
         fail "a failing level read ($mode) without --koto-leg: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
+    fi
+done
+
+# A name another directory's prefix holds (#1387): koto 0.37.2 refuses
+# `context exists` with session_unlocated, reason no_local_copy, exit 2, when
+# the name has no copy here and none under this directory's prefix but another
+# prefix holds one. `koto init` checks only this host and this prefix, so the
+# open makes a new session here; the level read before it answers the same
+# scope, as no session, and the open goes ahead with an empty REVIEW_LEVEL.
+level_fail_open held-elsewhere '["7","--koto-leg=r1:work-on"]'
+if [ "$RC" -eq 0 ] && [ "$OUT" = "opened=new
+session=issue_7" ] && [ -n "$INITS" ] \
+    && [ "$(jq -r '[.[] | select(.[0] == "REVIEW_LEVEL")] | length' "$WORK/vars.json" 2>/dev/null)" = 0 ] \
+    && [ ! -e "$(dirname "$TOKENS")" ]; then
+    pass "a name held only under another directory's prefix under --koto-leg: opened as a new session, no level"
+else
+    fail "a name held only under another directory's prefix under --koto-leg: exit $RC, out [$OUT], init calls [$INITS], stderr [$ERR], pairs [$(cat "$WORK/vars.json" 2>/dev/null)]"
+fi
+
+# Every other refusal still stops the open: another unlocated reason, and a
+# lookup koto couldn't finish (session_lookup_failed, exit 3).
+for mode in recorded-mismatch lookup-failed; do
+    level_fail_open "$mode" '["7","--koto-leg=r1:work-on"]'
+    if [ "$RC" -eq 66 ] && [ "$OUT" = "failed=level_unreadable" ] && [ -z "$INITS" ] \
+        && [ ! -e "$WORK/vars.json" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "a refused level read ($mode) under --koto-leg: exit 66, failed=level_unreadable, no koto init"
+    else
+        fail "a refused level read ($mode) under --koto-leg: exit $RC, out [$OUT], init calls [$INITS], pairs [$(cat "$WORK/vars.json" 2>/dev/null)]"
     fi
 done
 

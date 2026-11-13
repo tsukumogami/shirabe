@@ -97,6 +97,11 @@ case "$1" in
             printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "$3"
             exit "${SHIM_REFUSE_RC:-2}"
         fi
+        if [ -n "${SHIM_UNLOCATED:-}" ] && [ "$3" = "$SHIM_UNLOCATED" ]; then
+            printf '{"code":"session_unlocated","command":"context %s","error":"session_unlocated: session %s has no copy here","locations":["b04857cbacbe6c90"],"reason":"%s","session":"%s"}\n' \
+                "$2" "$3" "${SHIM_UNLOCATED_REASON:-no_local_copy}" "$3"
+            exit 2
+        fi
         f="$SHIM_STORE/$3/$4"
         case "$2" in
             add)
@@ -1305,6 +1310,35 @@ expect_out "check holds on the read it couldn't make" "hold: could not read revi
 refused "report of a refused session" 2 report "$SESSION"
 [ "$(printf '%s\n' "$OUT" | sed -n 2p | cut -f1-2)" = "$(printf 'refused\tunreadable')" ] \
     && pass "a refused ledger reads unreadable, not none" || fail "report printed [$OUT]"
+
+# A name only another directory's prefix holds (#1387): koto refuses every
+# read with session_unlocated, reason no_local_copy, exit 2. For `level`, the
+# read work-on-open.sh makes before `koto init`, that is no session in this
+# directory, so no level: exit 0, nothing printed. Every other subcommand
+# reads a session this directory holds, so there it is still a failed read,
+# and so is any other unlocated reason for `level`.
+# unlocated <label> <exit> <reason> <args...>: the script on such a session.
+unlocated() {
+    local label="$1" want="$2" reason="$3"
+    shift 3
+    OUT=$(cd "$FX/repo" && SHIM_UNLOCATED="$SESSION" SHIM_UNLOCATED_REASON="$reason" PATH="$SHIM_BIN:$PATH" \
+        "$SCRIPT" "$@" 2>"$WORKDIR/stderr")
+    RC=$?
+    ERR=$(cat "$WORKDIR/stderr")
+    [ "$RC" -eq "$want" ] && pass "$label: exit $want" || fail "$label: exit $RC, expected $want (out: $OUT; err: $ERR)"
+    case "$OUT" in
+        *session_unlocated*) fail "$label: koto's refusal reached stdout [$OUT]" ;;
+        *) pass "$label: koto's refusal kept off stdout" ;;
+    esac
+}
+unlocated "level of a name held only under another directory's prefix" 0 no_local_copy level "$SESSION"
+[ -z "$OUT" ] && pass "level of a name held elsewhere prints no level" || fail "level of a name held elsewhere printed [$OUT]"
+unlocated "level of a session whose recorded copy is missing" 66 recorded_copy_mismatch level "$SESSION"
+unlocated "set on a name held elsewhere" 66 no_local_copy set "$SESSION" standard
+unlocated "facts on a name held elsewhere" 66 no_local_copy facts "$SESSION" standard
+unlocated "check on a name held elsewhere" 1 no_local_copy check "$SESSION" standard
+expect_out "check holds on a name held elsewhere" "hold: could not read review_level.jsonl"
+unlocated "report of a name held elsewhere" 2 no_local_copy report "$SESSION"
 
 # ==============================================================================
 echo "--- script: usage"
