@@ -106,12 +106,12 @@ if [ "$SOURCE" = message ]; then
     # took its result) or unwatchable, or when this host's request store
     # doesn't hold its request (the coordinator moved here and hasn't
     # re-legged it yet), the message stands for the worker (PRD R16). A leg
-    # that reads spent is still refused here, as before this gate knew of
-    # hand-overs: the worker's handover enters the record once the coordinator
-    # marks its holding handed over (state-holding.sh --hand-over), which
-    # admits it above. Admitting spent here would change this gate's answer
-    # for legs a run already holds, which coordinate.compat.json's recorded
-    # gate_scripts digest says it doesn't (shirabe#1295).
+    # that reads spent is refused here: this gate must give the same answer
+    # for every leg key a run started on an earlier template can hold, since
+    # the template's compat number didn't change with hand-overs. The
+    # worker's handover still enters the record once the coordinator marks
+    # its holding handed over (state-holding.sh --hand-over), which admits it
+    # above (shirabe#1295).
     REQ=${RP%%:*}
     LEG=${RP#*:}
     KEY=$(dc_leg_get "$SESSION" "$REQ" "$LEG")
