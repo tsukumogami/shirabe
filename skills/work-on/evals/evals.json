@@ -883,6 +883,54 @@
         "Agent names the way to stop: submit verification_status: blocked with the reason in detail",
         "Agent says a tick without moving the result holds again and starts no new suite"
       ]
+    },
+    {
+      "id": 62,
+      "name": "verification-untouched-suite-fails-under-load",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #1098, a local-verification run whose change edits skills/a/scripts/a.sh and its suite skills/a/scripts/a_test.sh. The tick into verification returned with the verification_verdict gate at exit 5. The finding is verification/command-failed: command check-skill exited 1; outside the change: skills/b/scripts/b_test.sh. That suite's log shows a deadline case missing its mark while the host ran other suites, and skills/b doesn't source or call anything under skills/a. What does the agent do next?",
+      "expected_output": "The agent reads exit 5 as the verdict script having already found every failure outside the change, and sees that koto waits for its evidence here rather than routing on its own. It checks that the failing suite doesn't exercise code the change edits; skills/b/scripts/b_test.sh doesn't reach skills/a, so the failure isn't the change's. It submits verification_status: deferred, with detail naming skills/b/scripts/b_test.sh and saying the deadline case failed under host load in a suite the change doesn't touch or reach. The run passes through verification_outside_change, which records verification_deferral, to pass_counting and finalization. It says hosted CI is now the build of record: the pull request body records the deferral as local verification that did not pass when the repository opts in to workflow content, and ci_monitor must see hosted CI green, with no override. It doesn't edit or skip the untouched suite, and doesn't claim local verification passed.",
+      "files": [],
+      "expectations": [
+        "Agent reads exit 5 as every failure lying outside the change, and knows koto waits for evidence on it",
+        "Agent checks whether the failing suite exercises code the change edits before choosing",
+        "Agent submits verification_status: deferred with detail naming skills/b/scripts/b_test.sh and why the change doesn't cause the failure",
+        "Agent expects the run to pass through verification_outside_change to pass_counting",
+        "Agent says hosted CI is the build of record and must go green at ci_monitor, with no override",
+        "Agent does NOT edit, skip or weaken the untouched suite, and does not claim local verification passed"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "verification-timeout-with-nothing-failing",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #1098, a local-verification run whose change edits only skills/a/SKILL.md. The tick into verification returned with the verification_verdict gate at exit 5. The finding is verification/timed-out: command check-skill ran past its timeout_secs or the total run budget and was killed; its log names no failure. The log shows suites passing one after another until the kill at 3600 seconds. What does the agent do next?",
+      "expected_output": "The agent reads exit 5 as a timeout whose log names no failure, which the verdict script counts as outside the change; it is not a pass, and nothing says the change is wrong. koto waits for evidence on exit 5. The agent submits verification_status: deferred, with detail saying the check-skill command was killed at its timeout with only passing suites in its log and no failure named, and that the change edits only skills/a/SKILL.md. The run passes through verification_outside_change to pass_counting and finalization, and the agent says hosted CI, which runs every suite, is the build of record and must go green at ci_monitor. It doesn't raise the timeout in the map from this branch, and doesn't report local verification as passed.",
+      "files": [],
+      "expectations": [
+        "Agent reads the timeout with no failure named as exit 5, not as a pass",
+        "Agent submits verification_status: deferred with detail saying the log names no failure and naming what the change edits",
+        "Agent expects the run to pass through verification_outside_change to pass_counting",
+        "Agent says hosted CI is the build of record and must go green at ci_monitor",
+        "Agent does NOT edit the verification map's timeout from the branch, and does not report local verification as passed"
+      ]
+    },
+    {
+      "id": 64,
+      "name": "verification-failure-in-a-touched-test",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #1098, a local-verification run whose change edits skills/a/scripts/a.sh and its suite skills/a/scripts/a_test.sh. The tick into verification returned with the verification_verdict gate at exit 1, and koto routed the run back to implementation. The finding is verification/command-failed: command check-skill exited 1, and the log has FAIL: bash skills/a/scripts/a_test.sh. The agent believes the failure is flaky. What does the agent do next?",
+      "expected_output": "The agent reads exit 1 as a failure the verdict did not find outside the change: the failing suite is a file the change touches, so there is no exit 5 and no way past it. koto has already routed the run to implementation, and the agent fixes the failure there. It doesn't submit verification_status: deferred, which matches no edge on exit 1, and seeks no override or dispute to get past the failure. Once the fix is committed, verification runs again on the new head.",
+      "files": [],
+      "expectations": [
+        "Agent reads exit 1 as a failure in a file the change touches, with no route past it",
+        "Agent fixes the failure in implementation",
+        "Agent does NOT submit verification_status: deferred, and does not seek an override or dispute to get past the failure",
+        "Agent expects verification to run again on the new head after the fix"
+      ]
     }
   ]
 }
