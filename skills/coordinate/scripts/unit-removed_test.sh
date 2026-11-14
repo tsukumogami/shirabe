@@ -360,6 +360,51 @@ mkdir "$R/.$DID.lock"
 printf '%s %s\n' "$GONE" "$(date +%s)" >"$R/.$DID.lock/owner"
 eq "a record lock whose holder's pid is gone is taken over and the capture runs" "$DID: captured|1" \
     "$(bash "$UR" sweep)|$(costs "$S" | jq length)"
+seed
+rm -rf "$R"
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
+sleep 30 &
+LIVE=$!
+printf '%s %s\n' "$LIVE" "$(date +%s)" >"$R/.$DID.lock"
+eq "a record lock file a live sweep holds: passed over" "$DID: held by another sweep|0" \
+    "$(bash "$UR" sweep)|$(costs "$S" | jq length)"
+kill "$LIVE" 2>/dev/null
+wait "$LIVE" 2>/dev/null
+eq "  ... and once its holder is gone, taken over and the capture runs" "$DID: captured|1" \
+    "$(bash "$UR" sweep)|$(costs "$S" | jq length)"
+
+echo "== ac_lock: racing takers =="
+# Five processes take one lock at once, under a mkdir that reports success for
+# a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The one that gets the lock holds it
+# until the others have given up.
+RACE="$T/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" >"$RACE/bin/mkdir"
+chmod +x "$RACE/bin/mkdir"
+PIDS=""
+for i in 1 2 3 4 5; do
+    PATH="$RACE/bin:$PATH" bash -c '
+        . "$1/archive-common.sh"
+        if ac_lock "$2/lock" 60 0; then
+            : >"$2/in.$$"
+            n=0
+            until [ -e "$2/release" ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+            ac_unlock "$2/lock"
+        else
+            : >"$2/out.$$"
+        fi' _ "$HERE" "$RACE" &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^out\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+eq "five takers racing for one ac_lock: exactly one wins" 1 "$(ls "$RACE" | grep -c '^in\.')"
+: >"$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+eq "  ... and the lock is gone once it lets go" 0 "$(count "$RACE/lock")"
 
 echo "== a sweep with no record does nothing =="
 rm -rf "$R" "$T/gh.env" "$T/koto.env"

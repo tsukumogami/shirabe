@@ -582,26 +582,27 @@ mkdir -p "$BRIEFS" || die 2 "cannot create $BRIEFS"
 
 # --- the per-topic lock --------------------------------------------------------------
 #
-# mkdir is atomic on every filesystem these run on, and flock isn't on macOS.
-# A lock whose owner is gone (its pid no longer runs) is taken over.
-
+# The lock is a file holding its owner's pid, created with bash's noclobber,
+# which is one open(O_CREAT|O_EXCL) bash makes itself. Not mkdir: the uutils
+# mkdir Ubuntu 26.04 ships reports success when it loses a race to create the
+# directory, so two runs could both take a mkdir lock. flock isn't on macOS.
+# A lock whose owner is gone (its pid no longer runs) is taken over. A lock
+# directory an earlier version left, its pid in `pid` inside, is read the same.
 #
-# A lock with no pid file is one whose owner died between mkdir and writing
-# its pid, a window of microseconds: once the directory is over a minute old
-# it's taken over too. Two runs that find the same dead owner at the same
-# moment can both take over; the second's rm then removes the first's lock.
-# That race needs two coordinators dispatching one topic at once, which the
-# record's one-holding-per-topic already rules out, so it is left as is.
+# A lock with no pid is one whose owner died between creating it and writing
+# its pid, a window of microseconds: once it is over a minute old it's taken
+# over too. Two runs that find the same dead owner at the same moment can both
+# take over; the second's rm then removes the first's lock. That race needs two
+# coordinators dispatching one topic at once, which the record's
+# one-holding-per-topic already rules out, so it is left as is.
 LOCK_OWNER=""
 take_lock() {
     local l="$BRIEFS/.$TOPIC.lock"
-    if mkdir "$l" >/dev/null 2>&1; then
-        printf '%s\n' "$$" >"$l/pid"
+    if (set -C && printf '%s\n' "$$" >"$l") 2>/dev/null; then
         LOCK="$l"
         return 0
     fi
-    LOCK_OWNER=""
-    [ -f "$l/pid" ] && LOCK_OWNER=$(cat "$l/pid")
+    LOCK_OWNER=$(cat "$l" 2>/dev/null) || LOCK_OWNER=$(cat "$l/pid" 2>/dev/null) || LOCK_OWNER=""
     case "$LOCK_OWNER" in
         '')
             [ -n "$(find "$l" -maxdepth 0 -mmin +1)" ] || return 1
@@ -614,8 +615,7 @@ take_lock() {
             ;;
     esac
     rm -rf "$l"
-    mkdir "$l" >/dev/null 2>&1 || return 1
-    printf '%s\n' "$$" >"$l/pid"
+    (set -C && printf '%s\n' "$$" >"$l") 2>/dev/null || return 1
     LOCK="$l"
 }
 take_lock || die 7 "another run holds the lock for $TOPIC (pid ${LOCK_OWNER:-not yet written}; the lock is $BRIEFS/.$TOPIC.lock)"
