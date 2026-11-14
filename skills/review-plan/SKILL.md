@@ -20,6 +20,9 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 
 !`${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh review-plan 2>&1 || true`
 
+@.claude/shirabe-extensions/review-plan.md
+@.claude/shirabe-extensions/review-plan.local.md
+
 # Review Plan Skill
 
 `/review-plan` adversarially challenges a complete plan artifact before any issues

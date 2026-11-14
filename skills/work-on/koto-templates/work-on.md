@@ -2789,9 +2789,20 @@ states:
       #   PR its ownership filter resolves, under its own name because
       #   scripts/validate-template-mermaid.sh check 4 holds one gate name to one
       #   command across templates
+      #
+      # The gate carries its own time limit (#1809). Without one it runs under
+      # koto's 30 s command-gate default, and koto reads a command it killed
+      # as exit -1, which no edge below matches, so the run holds here however
+      # green the checks are. pr-checks.sh's fallback is several REST reads in
+      # a row, one pass of them took about 28 s on a loaded host, and the
+      # not-green path can make up to three (the filter's read, then each
+      # fallback script's own). 180 s covers three at about twice that.
+      # owned_ci_passing in execute.md carries the same limit.
+      #   test: skills/work-on/scripts/ci-passing-timeout_test.sh
       ci_passing:
         type: command
         command: "\"{{PLUGIN_ROOT}}/skills/work-on/scripts/pr-checks.sh\" $(gh pr list --head $(git rev-parse --abbrev-ref HEAD) --json number --jq '.[0].number // empty') --json bucket --jq 'length > 0 and ([.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0)' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" \"{{SESSION_NAME}}\" || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-none-declared.sh\" \"{{SESSION_NAME}}\" || exit 1"
+        timeout: 180
       # A DIRTY pull request has merge conflicts, and GitHub creates no new
       # check-runs for one, so its CI gate says nothing about the change: it
       # can read green on checks from an earlier head, or red on zero checks

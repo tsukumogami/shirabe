@@ -58,12 +58,13 @@
 #       schema unit-removal/1, the id in the reap-key shape) whose
 #       instance_path is the given path; the latest removed_at when several
 #       are. 1 when R or such a record is missing.
-#   ac_lock <lock dir> <max age secs> <wait secs>, ac_unlock <lock dir>
-#       A lock that is a directory made with mkdir and holding `owner`
-#       (`<pid> <epoch secs>`): waited for while a live holder younger than
-#       <max age> keeps it, taken over from a holder that is gone or older;
-#       released only by the process that holds it. The capture's list and
-#       post run under R/.post-lock.
+#   ac_lock <lock file> <max age secs> <wait secs>, ac_unlock <lock file>
+#       A lock that is a file holding its owner (`<pid> <epoch secs>`),
+#       created with bash's noclobber rather than mkdir (a lock directory an
+#       earlier version left is read too): waited for while a live holder
+#       younger than <max age> keeps it, taken over from a holder that is gone
+#       or older; released only by the process that holds it. The capture's
+#       list and post run under R/.post-lock.
 #
 # The dispatch request:
 #   ac_dispatch_request <session dir>...
@@ -304,25 +305,28 @@ ac_removal_for_path() {
     [ -n "$AC_REMOVAL_ID" ] || { AC_WHY="no removal record names the instance path"; return 1; }
 }
 
-# ac_lock <lock dir> <max age secs> <wait secs>: take a lock that is a
-# directory holding `owner` (`<pid> <epoch secs>`), made with mkdir, which is
-# atomic. One held by a live process younger than <max age> is waited for, one
-# second at a time, for at most <wait> seconds. One whose holder is gone, or
-# that is older, is taken over: renamed aside, its owner read again from the
+# ac_lock <lock file> <max age secs> <wait secs>: take a lock that is a file
+# holding its owner (`<pid> <epoch secs>`), created with bash's noclobber: one
+# open with O_EXCL, made by bash itself. Not mkdir: the uutils mkdir Ubuntu
+# 26.04 ships can report success to two callers racing to create one
+# directory. One held by a live process younger than <max age> is waited for,
+# one second at a time, for at most <wait> seconds. One whose holder is gone,
+# or that is older, is taken over: renamed aside, its owner read again from the
 # renamed copy, and removed only when that is still the owner judged stale (a
-# copy that changed, because another process took the lock meanwhile, is moved
-# back). A lock with no owner yet may be one its holder has just made and not
-# yet written, so it is judged stale only once it has stayed ownerless for two
-# seconds. Returns 0 holding the lock, 1 when it is still held at
-# the end of the wait (AC_WHY says so).
+# copy that changed, because another process took the lock meanwhile, is put
+# back unless the lock has been taken again since). A lock with no owner yet
+# may be one its holder has just made and not yet written, so it is judged
+# stale only once it has stayed ownerless for two seconds. A lock directory an
+# earlier version left, its owner in `owner` inside, is read the same way.
+# Returns 0 holding the lock, 1 when it is still held at the end of the wait
+# (AC_WHY says so).
 ac_lock() {
     local d=$1 max=$2 wait=$3 own sown pid at now waited=0 side blank=0
     while :; do
-        if mkdir -- "$d" 2>/dev/null; then
-            printf '%s %s\n' "$$" "$(date +%s)" >"$d/owner" || { rm -rf -- "$d"; AC_WHY="cannot write $d/owner"; return 1; }
+        if (set -C && printf '%s %s\n' "$$" "$(date +%s)" >"$d") 2>/dev/null; then
             return 0
         fi
-        own=$(cat -- "$d/owner" 2>&1) || own=""
+        own=$(ac_lock_owner "$d") || own=""
         pid=${own%% *} at=${own##* }
         now=$(date +%s)
         case "$pid$at" in '' | *[!0-9]*) pid="" at=0 ;; esac
@@ -334,14 +338,23 @@ ac_lock() {
         if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null || [ $((now - at)) -gt "$max" ]; then
             side="$d.stale.$$"
             if mv -- "$d" "$side" 2>/dev/null; then
-                # Read the way $own was, so an owner file that is missing
-                # both times compares equal and the lock is taken over.
-                sown=$(cat -- "$side/owner" 2>&1) || sown=""
-                if [ "$sown" = "$own" ]; then
-                    rm -rf -- "$side"
-                else
-                    mv -- "$side" "$d" 2>/dev/null || rm -rf -- "$side"
+                # Read the way $own was, so an owner that is missing both
+                # times compares equal and the lock is taken over.
+                sown=$(ac_lock_owner "$side") || sown=""
+                if [ "$sown" != "$own" ]; then
+                    # Put it back with a noclobber write, which fails rather
+                    # than overwrite a lock taken again since. A lock
+                    # directory an earlier version left can't be written that
+                    # way: it is moved back only when nothing is at the path,
+                    # a check then a move, so a taker landing between the two
+                    # can still lose it.
+                    if [ -d "$side" ]; then
+                        [ -e "$d" ] || mv -- "$side" "$d" 2>/dev/null
+                    else
+                        (set -C && cat -- "$side" >"$d") 2>/dev/null
+                    fi
                 fi
+                rm -rf -- "$side"
             fi
             continue
         fi
@@ -351,10 +364,16 @@ ac_lock() {
     done
 }
 
-# ac_unlock <lock dir>: release a lock this process holds; one another process
+# ac_lock_owner <lock>: print the lock's owner line, from the lock file or from
+# `owner` in a lock directory an earlier version made; nonzero when unreadable.
+ac_lock_owner() {
+    if [ -d "$1" ]; then cat -- "$1/owner"; else cat -- "$1"; fi 2>/dev/null
+}
+
+# ac_unlock <lock>: release a lock this process holds; one another process
 # holds is left alone.
 ac_unlock() {
-    case "$(cat -- "$1/owner" 2>&1)" in "$$ "*) rm -rf -- "$1" ;; esac
+    case "$(ac_lock_owner "$1")" in "$$ "*) rm -rf -- "$1" ;; esac
     return 0
 }
 

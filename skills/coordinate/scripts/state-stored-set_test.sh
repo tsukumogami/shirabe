@@ -29,7 +29,10 @@
 # them); the crash set's rows written in a fresh session with no store row, and
 # --host; --pending (its refusals, its row and entry, the gate passing a pending
 # worker while holding on an untold one, --told turning it told, a new address
-# clearing told and pending, a holding's first Work row never leaving both),
+# clearing told and pending, a holding's first Work row never leaving both);
+# --missing (its refusals, its row and entry, the gate passing a missing
+# worker, --pending refusing one, --told turning it told, a new address
+# clearing it, a holding's first Work row dropping it),
 # with each gate result printed; the Run `role` row (--run role): written once,
 # the same value again exiting 0 with the record byte-identical, a different
 # value refused (65) naming both and the row unchanged, a --by over 80
@@ -511,6 +514,32 @@ bash "$RS" "${W[@]}" --done "Feature 3" >/dev/null 2>&1
 bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next "dispatched again" >/dev/null 2>"$T/err"
 eq "a holding's first Work row for a pending worker records it told, not both" "worker-f3|" "$(run_rows told)|$(run_rows pending)"
 gate; eq "  ... and the gate holds only on the untold one" "1 not-told worker-f2" "$G"
+
+echo "== missing: a worker niwa lists no instance for =="
+bash "$RS" "${W[@]}" --missing worker-f2 >/dev/null 2>"$T/err"; eq "--missing without --by is usage" 64 $?
+bash "$RS" "${W[@]}" --missing worker-f2 --by lane-v4 >/dev/null 2>"$T/err"; eq "--missing records a worker" 0 $?
+eq "  ... as a missing row" "worker-f2 lane-v4" \
+    "$(live | jq -r '.run[] | select(.key == "missing") | "\(.value) \(.set_by)"')"
+eq "  ... told as a missing entry" "missing|niwa on this host listed no instance for worker-f2, so it can't be told the coordinator's address, lane-v4: recorded missing by lane-v4." \
+    "$(entries | jq -r 'last | "\(.kind)|\(.text)"')"
+gate; eq "  ... the gate passes the missing worker" "0 " "$G"
+eq "  ... and the handover read names it missing" '["worker-f2"]|worker-f2:true worker-f3:false' \
+    "$(bash "$RH" "${RM[@]}" | jq -r '"\(.missing | tojson)|" + ([.workers[] | "\(.worker):\(.missing // false)"] | join(" "))')"
+bash "$RS" "${W[@]}" --missing worker-f2 --by lane-v4 >/dev/null 2>"$T/err"; eq "  ... not twice" 65 $?
+grep -q 'already recorded missing' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --pending worker-f2 --by lane-v4 >/dev/null 2>"$T/err"; eq "--pending refuses a worker already missing" 65 $?
+bash "$RS" "${W[@]}" --missing worker-f3 --by lane-v4 >/dev/null 2>"$T/err"; eq "--missing refuses a worker already told" 65 $?
+bash "$RS" "${W[@]}" --pending worker-f4 --by lane-v4 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --missing worker-f4 --by lane-v4 >/dev/null 2>"$T/err"; eq "--missing refuses a worker already pending" 65 $?
+bash "$RS" "${W[@]}" --told worker-f2 --by lane-v4 >/dev/null 2>"$T/err"; eq "--told for a missing worker" 0 $?
+eq "  ... turns its missing row into a told one" "worker-f3 worker-f2|" "$(run_rows told)|$(run_rows missing)"
+bash "$RS" "${W[@]}" --missing worker-f5 --by lane-v4 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --run coordinator lane-v5 --by lane-v5 >/dev/null 2>"$T/err"; eq "clear: a new address is set over a missing row" 0 $?
+eq "  ... clearing every told, pending and missing row" "||" "$(run_rows told)|$(run_rows pending)|$(run_rows missing)"
+bash "$RS" "${W[@]}" --missing worker-f3 --by lane-v5 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --done "Feature 3" >/dev/null 2>&1
+bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next "dispatched again" >/dev/null 2>"$T/err"
+eq "a holding's first Work row for a missing worker records it told, not both" "worker-f3|" "$(run_rows told)|$(run_rows missing)"
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
 echo "== a write's koto calls don't grow with the entries (shirabe#1283) =="
