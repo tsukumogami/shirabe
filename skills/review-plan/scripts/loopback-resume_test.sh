@@ -208,8 +208,10 @@ fi
 label="$PLAN_SKILL Resume Logic"
 text=$(section "$REPO_ROOT/$PLAN_SKILL" '^### Resume Logic' '^##+ ')
 if require_section "$label" "$text"; then
-    pending=$(grep -E "$EQ_RE" <<<"$text" | grep -F 'Phase 6' | head -n 1)
-    rebuild=$(grep -E 'work/dependencies\.md[[:space:]]+exists' <<<"$text" | head -n 1)
+    pending=$(grep -E "$EQ_RE" <<<"$text" | grep -F 'Phase 6')
+    pending=${pending%%$'\n'*}
+    rebuild=$(grep -E 'work/dependencies\.md[[:space:]]+exists' <<<"$text")
+    rebuild=${rebuild%%$'\n'*}
     if [ -z "$pending" ]; then
         fail "$label has no R == N + 1 row resuming at Phase 6"
     elif [ -z "$rebuild" ]; then
