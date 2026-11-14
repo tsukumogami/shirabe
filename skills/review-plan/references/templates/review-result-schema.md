@@ -84,8 +84,9 @@ The review round number. Monotonically increasing per topic.
 **Authoritative source**: `args.round` when called as a sub-operation (passed in by
 `/plan`). When called standalone, derive as `review_rounds + 1` from
 key `work/analysis.md` in `plan-<topic>`. **Never compute from `review_rounds + 1` when
-`args.round` is present** — `/plan` increments `review_rounds` in Phase 6 loop-back,
-so on a second review call the key-derived value and the args value can diverge.
+`args.round` is present**: `args.round` is the round `/plan` is running and the one it
+vouches for. Since the Phase 6 loop-back sets `review_rounds` to the verdict's round, the
+key-derived value normally agrees with it, but a standalone derivation is only the fallback.
 
 This field is informational — it provides context to the review skill and to anyone
 reading the artifact. `/plan` tracks the authoritative round counter independently
