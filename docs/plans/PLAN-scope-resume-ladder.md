@@ -147,7 +147,7 @@ Decisions this plan makes, with the reasons:
 
 *Reads write nothing*
 
-- [ ] The fault layer or the server logs every write request (PUT, POST, DELETE) during each read-only phase of the suite: the `status`, `context exists`, `has-work`, `dispatch read` and refused `adopt` calls, including the calls killed at the per-call bound. The suite asserts that the count is 0 for each release. (`adopt` writes its own child's `chain/parent` key by design, and the suite excludes exactly that write by session and key.)
+- [ ] The fault layer or the server logs every write request (PUT, POST, DELETE) during each read-only phase of the suite: the `status`, `context exists`, `has-work`, `dispatch read` and refused `adopt` calls, including the calls killed at the per-call bound. The suite asserts that the count is 0 for each release. (`adopt` writes under its own child's session by design: the child's `chain/parent` key, its `koto/links/dispatched-by/scope-<topic>` link, the removal of its `session/link-warning` key, and the `ctx/manifest.json`, `koto-<child>.state.jsonl` and `version.json` objects koto pushes after each of those writes. The suite excludes exactly those objects, only inside `adopt` calls and only under the child's session on this directory's prefix. Any other write, including one under the parent's session or under another prefix, counts.)
 
 *Existing suites*
 
