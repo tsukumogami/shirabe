@@ -1394,6 +1394,138 @@ run --deferral-record --public-reason "$PREASON" --reason "$DREASON"
 [ "$RC" -eq 2 ] && pass "--deferral-record: --public-reason before the --reasons is a usage error (2)" \
     || fail "--deferral-record: --public-reason first rc $RC"
 
+# --- --deferral-record --session: the reason read from the run's context (#1098)
+
+# koto context exists|get <session> <key>: answers from the file
+# $FAKE_KOTO_CTX/<session>/<key>. exists exits 0 when it is there and 1 when
+# it isn't; get prints it. FAKE_KOTO_EXISTS_RC or FAKE_KOTO_GET_RC, when set,
+# makes that subcommand fail with that status and FAKE_KOTO_ERR on stderr.
+# Every call is recorded like the other stand-ins'.
+cat > "$BIN/koto" <<'EOF'
+#!/usr/bin/env bash
+. "$(dirname "$0")/record.sh" koto "$@"
+[ "${1-}" = context ] || { echo "koto stand-in: only context is faked, got [$*]" >&2; exit 64; }
+f="$FAKE_KOTO_CTX/${3-}/${4-}"
+case "${2-}" in
+    exists)
+        [ -z "${FAKE_KOTO_EXISTS_RC-}" ] || { echo "${FAKE_KOTO_ERR:-koto: failed}" >&2; exit "$FAKE_KOTO_EXISTS_RC"; }
+        [ -f "$f" ] || exit 1
+        exit 0
+        ;;
+    get)
+        [ -z "${FAKE_KOTO_GET_RC-}" ] || { echo "${FAKE_KOTO_ERR:-koto: failed}" >&2; exit "$FAKE_KOTO_GET_RC"; }
+        [ -f "$f" ] || { echo "koto: no key ${4-} in ${3-}" >&2; exit 1; }
+        cat "$f"
+        ;;
+    *) echo "koto stand-in: only context exists and get are faked, got [$*]" >&2; exit 64 ;;
+esac
+EOF
+chmod +x "$BIN/koto"
+FAKE_KOTO_CTX="$WORKDIR/ctx"
+mkdir -p "$FAKE_KOTO_CTX/run-none" "$FAKE_KOTO_CTX/run-local"
+export FAKE_KOTO_CTX FAKE_KOTO_EXISTS_RC FAKE_KOTO_GET_RC FAKE_KOTO_ERR
+FAKE_KOTO_EXISTS_RC=""
+FAKE_KOTO_GET_RC=""
+FAKE_KOTO_ERR=""
+# The value check-verification.sh --record-deferral writes, with its newline.
+SREASON="local verification failed at head 1111111111111111111111111111111111111111 and at the merge-base 2222222222222222222222222222222222222222 with the same exit status for unit, so the failure predates this change; hosted CI is the build of record"
+printf '%s\n' "$SREASON" > "$FAKE_KOTO_CTX/run-local/verification_deferral"
+
+# No key: the run deferred nothing, so the gate passes with no GitHub read.
+rm -rf "$LOG/gh" "$LOG/koto"
+run --deferral-record --session run-none
+expect_rc "--deferral-record --session: no verification_deferral passes (0)" 0
+[ ! -e "$LOG/gh/calls" ] && pass "--deferral-record --session: no key reads nothing from GitHub" \
+    || fail "--deferral-record --session: no key, gh was called"
+if [ "$(cat "$LOG/koto/arg.1" 2>/dev/null)" = context ] && [ "$(cat "$LOG/koto/arg.2" 2>/dev/null)" = exists ] \
+    && [ "$(cat "$LOG/koto/arg.3" 2>/dev/null)" = run-none ] \
+    && [ "$(cat "$LOG/koto/arg.4" 2>/dev/null)" = verification_deferral ] \
+    && [ "$(cat "$LOG/koto/argc" 2>/dev/null)" = 4 ] && [ "$(grep -c . "$LOG/koto/calls")" = 1 ]; then
+    pass "--deferral-record --session: asks koto context exists for the session's verification_deferral, once"
+else
+    fail "--deferral-record --session: koto calls $(grep -c . "$LOG/koto/calls" 2>/dev/null), last [$(cat "$LOG/koto/arg."* 2>/dev/null | tr '\n' ' ')]"
+fi
+
+# A key under include: its value is the reason, matched as --reason's is.
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: a plain change" "A change.
+
+---
+
+Fixes #12")
+rm -rf "$LOG/gh"
+run --deferral-record --session run-local
+if [ "$RC" -eq 1 ] && [ -e "$LOG/gh/calls" ] && [ -z "$(findings)" ] \
+    && grep -qF "no line reading exactly: Reason: $SREASON" "$WORKDIR/stderr"; then
+    pass "--deferral-record --session: with a key, a body lacking the record fails (1), naming the context's reason"
+else
+    fail "--deferral-record --session: key, bare body rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass: every failed command failed the same way at the merge-base." \
+    "Reason: $SREASON" "Hosted CI is the build of record for this change.")
+run --deferral-record --session run-local
+expect_rc "--deferral-record --session: a body saying local verification did not pass, with the context's reason line, passes (0)" 0
+[ "$(cat "$LOG/koto/arg.2" 2>/dev/null)" = get ] && [ "$(cat "$LOG/koto/arg.3" 2>/dev/null)" = run-local ] \
+    && pass "--deferral-record --session: reads the value with koto context get" \
+    || fail "--deferral-record --session: last koto call [$(cat "$LOG/koto/arg."* 2>/dev/null | tr '\n' ' ')]"
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not run: it was deferred to hosted CI." \
+    "Reason: $SREASON" "Hosted CI is the build of record for this change.")
+run --deferral-record --session run-local
+expect_rc "--deferral-record --session: a body saying local verification did not run passes too (0)" 0
+FAKE_GH_BRANCH_JSON=$(deferral_body "LOCAL VERIFICATION DID NOT PASS." \
+    "Reason: $SREASON" "hosted ci is the build of record.")
+run --deferral-record --session run-local
+expect_rc "--deferral-record --session: did not pass matches without regard to case (0)" 0
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass." \
+    "Reason: $DREASON" "Hosted CI is the build of record for this change.")
+run --deferral-record --session run-local
+expect_rc "--deferral-record --session: a Reason line other than the context's fails (1)" 1
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass." \
+    "Reason: $SREASON" "Hosted CI is the build of record for this change.")
+run --deferral-record --reason "$SREASON"
+expect_rc "--deferral-record --reason: did not pass is accepted there too (0)" 0
+
+# A context read that fails can't be decided.
+FAKE_KOTO_EXISTS_RC=3
+FAKE_KOTO_ERR="koto: the session store is locked"
+rm -rf "$LOG/gh"
+run --deferral-record --session run-local
+if [ "$RC" -eq 2 ] && [ ! -e "$LOG/gh/calls" ] \
+    && grep -qF "context exists run-local verification_deferral failed (exit 3): koto: the session store is locked" "$WORKDIR/stderr"; then
+    pass "--deferral-record --session: a failing koto context exists can't be decided (2), naming koto's stderr"
+else
+    fail "--deferral-record --session: exists failure rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+FAKE_KOTO_EXISTS_RC=""
+FAKE_KOTO_GET_RC=1
+FAKE_KOTO_ERR="koto: read failed"
+run --deferral-record --session run-local
+if [ "$RC" -eq 2 ] && [ ! -e "$LOG/gh/calls" ] \
+    && grep -qF "context get run-local verification_deferral failed: koto: read failed" "$WORKDIR/stderr"; then
+    pass "--deferral-record --session: a failing koto context get can't be decided (2), naming koto's stderr"
+else
+    fail "--deferral-record --session: get failure rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
+FAKE_KOTO_GET_RC=""
+FAKE_KOTO_ERR=""
+
+# A key the --reason checks refuse can't be decided either.
+mkdir -p "$FAKE_KOTO_CTX/run-two-lines" "$FAKE_KOTO_CTX/run-blank"
+printf 'one line\nHosted CI is the build of record for this change.\n' > "$FAKE_KOTO_CTX/run-two-lines/verification_deferral"
+printf '   \n' > "$FAKE_KOTO_CTX/run-blank/verification_deferral"
+run --deferral-record --session run-two-lines
+expect_rc "--deferral-record --session: a verification_deferral over two lines can't be decided (2)" 2
+run --deferral-record --session run-blank
+expect_rc "--deferral-record --session: a verification_deferral of spaces alone can't be decided (2)" 2
+
+run --deferral-record --session
+expect_rc "--deferral-record: --session with no value is a usage error (2)" 2
+run --deferral-record --session ""
+expect_rc "--deferral-record: an empty --session is a usage error (2)" 2
+run --deferral-record --session run-local --reason "$DREASON"
+expect_rc "--deferral-record: --session with --reason is a usage error (2)" 2
+run --deferral-record --reason "$DREASON" --session run-local
+expect_rc "--deferral-record: --reason with --session after it is a usage error (2)" 2
+
 # --- workflow content: the default omits it, a repository opts in (#1114) ------
 
 cd "$WORKDIR/omit-repo" || exit 2
@@ -1414,6 +1546,16 @@ run --deferral-record --reason "$DREASON" --owned $OWNED_ARGS
 expect_rc "--deferral-record --owned, default: passes too" 0
 run --deferral-record
 expect_rc "--deferral-record, default: still refuses a missing --reason (2)" 2
+rm -rf "$LOG/gh" "$LOG/koto"
+run --deferral-record --session run-local
+expect_rc "--deferral-record --session, default: a key present passes without the deferral in the body (0)" 0
+if [ ! -e "$LOG/gh/calls" ] && [ "$(grep -c . "$LOG/koto/calls" 2>/dev/null)" = 2 ]; then
+    pass "--deferral-record --session, default: reads the key and nothing from GitHub"
+else
+    fail "--deferral-record --session, default: gh calls [$(cat "$LOG/gh/calls" 2>/dev/null)], koto calls $(grep -c . "$LOG/koto/calls" 2>/dev/null)"
+fi
+run --deferral-record --session run-none
+expect_rc "--deferral-record --session, default: no key passes (0)" 0
 
 FAKE_SHIRABE_RC=0
 FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'

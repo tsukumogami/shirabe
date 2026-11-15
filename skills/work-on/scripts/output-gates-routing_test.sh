@@ -435,6 +435,31 @@ if [ "$STATE" = verification_preexisting ]; then
 else
     fail "verification_verdict exit 5 (failed at the head and at the merge-base too): a run that failed has no override edge; want verification_preexisting, got $STATE ($(head -c 300 <<<"$RESP"))"
 fi
+# verification_preexisting's action records the deferral
+# (check-verification.sh --record-deferral); its one edge goes to
+# pass_counting, and a failing action stops the tick there.
+reset_rc; set_rc check-verification.sh--record-deferral 0
+drive verification_preexisting "" ""
+expect "verification_preexisting, --record-deferral exit 0" pass_counting
+reset_rc; set_rc check-verification.sh--record-deferral 2
+drive verification_preexisting "" ""
+holds "verification_preexisting, --record-deferral exit 2" verification_preexisting __action__
+# Exit 6: the comparison could not decide. No edge takes it alone; the agent
+# answers fix (back to implementation) or blocked (stop).
+reset_rc; set_rc check-verification.sh--verdict 6
+drive verification "" ""
+holds "verification_verdict exit 6 (the comparison could not decide), no evidence" verification verification_verdict
+drive verification "" '{"verification_status":"fix"}'
+expect "verification_status: fix on exit 6" implementation
+drive verification "" '{"verification_status":"blocked","detail":"the failure does not reproduce in a clean checkout"}'
+expect "verification_status: blocked on exit 6" done_blocked
+# fix is exit 6's answer alone: on a result that can't be read (2) or one
+# still pending (75) it matches no edge and the state holds.
+for rc in 2 75; do
+    reset_rc; set_rc check-verification.sh--verdict "$rc"
+    drive verification "" '{"verification_status":"fix"}'
+    holds "verification_status: fix on exit $rc" verification verification_verdict
+done
 reset_rc; set_rc check-verification.sh--verdict 75
 drive verification "" ""
 if [ "$STATE" = verification ] && printf '%s' "$RESP" | jq -e '[.blocking_conditions[]? | select(.name == "verification_verdict" and .status == "pending")] | length > 0' >/dev/null 2>&1; then

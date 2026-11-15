@@ -61,8 +61,24 @@
 #   --deferral-record --reason <reason> [--reason <reason>]...
 #                     [--public-reason <text>]
 #                     [--body] [--owned <owned-pr.sh arguments>]
-#       For a run that deferred verification to hosted CI (work-on.md's
-#       VERIFICATION=hosted-ci, #1012). In a repository that doesn't opt in
+#   --deferral-record --session <s>
+#                     [--public-reason <text>]
+#                     [--body] [--owned <owned-pr.sh arguments>]
+#       For a run that deferred verification: to hosted CI (work-on.md's
+#       VERIFICATION=hosted-ci, #1012), or past a local failure that predates
+#       the change (work-on.md's verification_preexisting, #1098).
+#       With --session the reason is read from the session's context rather
+#       than given: `koto context exists <s> verification_deferral` decides
+#       whether the run deferred, and `koto context get <s>
+#       verification_deferral` reads the value, one line, its trailing
+#       newline stripped. koto's stderr goes to a work file and its last line
+#       into the could-not-decide message. No key passes (0) with no GitHub
+#       read, since the run deferred nothing; a key present is the one
+#       <reason>, held to the checks below as a --reason is; a context read
+#       that fails is 2. work-on.md's pr_creation runs this form for every
+#       run, local and hosted-ci alike. --session takes a value, and with
+#       --reason it is a usage error (2).
+#       In a repository that doesn't opt in
 #       to workflow content (scripts/pr-workflow-content.sh prints omit, the
 #       default) it passes (0) without reading GitHub: the deferral is
 #       recorded in the run's context as verification_deferral, and the body
@@ -71,7 +87,9 @@
 #       record whatever the setting), it reads the pull request body with
 #       `gh pr view --json body` and checks that it records the deferral, in
 #       three parts:
-#         a line saying "local verification did not run"
+#         a line saying "local verification did not run" (a deferral to
+#           hosted CI) or "local verification did not pass" (a failure
+#           that predates the change); either phrase passes
 #         for each <reason>, a line reading exactly `Reason: <reason>`
 #         a line saying "hosted CI is the build of record"
 #       The two phrases are matched without regard to case, anywhere in the
@@ -99,8 +117,10 @@
 #                                                       and no line of either
 #                                                       kind, one more naming
 #                                                       its line)
+#         --session with no verification_deferral    -> 0, no GitHub read
 #         an empty reason or public wording, no single owned pull request,
-#         gh missing or failing, no body             -> 2
+#         gh missing or failing, no body, a context
+#         read that failed                           -> 2
 #       It prints no ::koto-finding:: line. Like pr_creation's closing
 #       keyword, the obligation is the template's own, with no registry rule
 #       behind it, and the stderr lines say what is missing.
@@ -162,10 +182,11 @@ usage() {
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
        check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--public-reason <text>] [--body] [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --deferral-record --session <s> [--public-reason <text>] [--body] [--owned <owned-pr.sh arguments>]
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
---deferral-record: exit 0 the body records the deferral, 1 it does not, 2 could not decide.
+--deferral-record: exit 0 the body records the deferral (--session: or the run deferred nothing), 1 it does not, 2 could not decide.
 EOF
 }
 
@@ -205,7 +226,9 @@ pr_undecided() {
 WORK=""
 cleanup() { [ -z "$WORK" ] || rm -rf "$WORK"; return 0; }
 trap cleanup EXIT
+# make_work: creates the work directory once; a second call keeps it.
 make_work() {
+    [ -z "$WORK" ] || return 0
     WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-pr-output.XXXXXX") \
         || undecided "cannot create a temporary directory"
 }
@@ -467,26 +490,66 @@ check_pr_body() {
     exit 0
 }
 
+# check_reason <what> <reason>: the checks a reason must pass before it is
+# matched, whether it came from --reason or from the session's context.
+check_reason() {
+    [ -n "$2" ] || undecided "--deferral-record needs a non-empty $1"
+    # A reason is matched as one whole line, and grep -F reads a pattern
+    # with a newline as several patterns, any one of which would do.
+    case "$2" in
+        *$'\n'*|*$'\r'*) undecided "--deferral-record: a $1 must be one line" ;;
+    esac
+    # A reason of spaces alone names nothing, so a bare `Reason:` line
+    # with trailing spaces would pass for it.
+    case "$2" in
+        *[![:space:]]*) ;;
+        *) undecided "--deferral-record: a $1 must have more than spaces" ;;
+    esac
+}
+
+# session_reason <s>: the session's verification_deferral, read from koto
+# context into REASON_FROM_SESSION. Returns 1 when the key is absent; a
+# failed read is undecided. koto's stderr goes to a work file, never
+# discarded, and its last line names the cause.
+REASON_FROM_SESSION=""
+session_reason() {
+    local rc
+    command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH; cannot read verification_deferral for session $1"
+    make_work
+    koto context exists "$1" verification_deferral > "$WORK/koto.out" 2> "$WORK/koto.err" < /dev/null
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 1 ;;
+        *) undecided "koto context exists $1 verification_deferral failed (exit $rc): $(tail -n 1 "$WORK/koto.err")" ;;
+    esac
+    koto context get "$1" verification_deferral > "$WORK/deferral" 2> "$WORK/koto.err" < /dev/null \
+        || undecided "koto context get $1 verification_deferral failed: $(tail -n 1 "$WORK/koto.err")"
+    # $(...) strips the trailing newline the key was written with.
+    REASON_FROM_SESSION=$(cat "$WORK/deferral") \
+        || undecided "could not read the verification_deferral value koto returned"
+    return 0
+}
+
 check_deferral_record() {
     reasons=()
+    session=""
+    if [ $# -gt 0 ] && [ "$1" = --session ]; then
+        [ $# -ge 2 ] && [ -n "$2" ] || { usage; exit 2; }
+        session=$2
+        shift 2
+        # The reason is the session's; one given beside it is a usage error.
+        # A --reason anywhere later falls to the usage error below, since
+        # only --public-reason, --body and --owned may follow.
+        [ "${1:-}" != --reason ] || { usage; exit 2; }
+    fi
     while [ $# -gt 0 ] && [ "$1" = --reason ]; do
         [ $# -ge 2 ] || { usage; exit 2; }
-        [ -n "$2" ] || undecided "--deferral-record needs a non-empty --reason"
-        # A reason is matched as one whole line, and grep -F reads a pattern
-        # with a newline as several patterns, any one of which would do.
-        case "$2" in
-            *$'\n'*|*$'\r'*) undecided "--deferral-record: a --reason must be one line" ;;
-        esac
-        # A reason of spaces alone names nothing, so a bare `Reason:` line
-        # with trailing spaces would pass for it.
-        case "$2" in
-            *[![:space:]]*) ;;
-            *) undecided "--deferral-record: a --reason must have more than spaces" ;;
-        esac
+        check_reason --reason "$2"
         reasons+=("$2")
         shift 2
     done
-    [ "${#reasons[@]}" -gt 0 ] || { usage; exit 2; }
+    [ -n "$session" ] || [ "${#reasons[@]}" -gt 0 ] || { usage; exit 2; }
     # One public wording may stand in for the verbatim reasons' lines; it is
     # matched as a whole line too, so it is held to the same rules.
     public_reason=""
@@ -513,6 +576,17 @@ check_deferral_record() {
         shift
         [ $# -gt 0 ] || { usage; exit 2; }
         OWNED=1
+    fi
+    # --session: the run's own record decides whether there is anything to
+    # check. No key, no deferral: pass with no GitHub read. A key is the one
+    # reason, held to the same checks as a --reason.
+    if [ -n "$session" ]; then
+        if ! session_reason "$session"; then
+            echo "check-pr-output: session $session has no verification_deferral; the run deferred nothing, so there is no record to check" >&2
+            exit 0
+        fi
+        check_reason "verification_deferral (session $session)" "$REASON_FROM_SESSION"
+        reasons+=("$REASON_FROM_SESSION")
     fi
     make_work
     # A repository that doesn't opt in to workflow content keeps the deferral
@@ -549,8 +623,10 @@ check_deferral_record() {
     jq -j '.body | gsub("\r\n?"; "\n")' "$WORK/pr.json" > "$WORK/body.md"
 
     missing=0
-    if ! grep -qiF -- "local verification did not run" "$WORK/body.md"; then
-        echo "check-pr-output: the PR body does not say that local verification did not run" >&2
+    # A deferral to hosted CI says local verification did not run; a local
+    # failure that predates the change says it did not pass. Either will do.
+    if ! grep -qiF -e "local verification did not run" -e "local verification did not pass" "$WORK/body.md"; then
+        echo "check-pr-output: the PR body does not say that local verification did not run or did not pass" >&2
         missing=$((missing + 1))
     fi
     # Each reason must be a whole line, `Reason: <reason>`, not just appear

@@ -12,8 +12,9 @@
 # pass_counting, to finalization with the reason in context as
 # `verification_deferral`, or to done_blocked
 # when no reason was given. pr_creation's verification_deferral_recorded gate
-# holds the created edge until check-pr-output.sh --deferral-record finds the
-# deferral in the body; on a local run it passes without running anything.
+# runs check-pr-output.sh --deferral-record --session for every run (#1098):
+# it holds the created edge until the body records the session's
+# verification_deferral, and passes when there is none.
 #
 # This file checks:
 #
@@ -22,9 +23,9 @@
 #      from the same state, on the same conditions with `hosted-ci`; the two
 #      variables are not rebindable; verification_deferred has no action and
 #      no gates; and pr_creation's created edge needs the record gate.
-#   2. The record gate's shipped command, no engine: a local run never starts
-#      the script; a hosted-ci run passes the reason to
-#      check-pr-output.sh --deferral-record and routes on its exit.
+#   2. The record gate's shipped command, no engine: local and hosted-ci
+#      runs alike pass the session to check-pr-output.sh --deferral-record
+#      --session, and the gate routes on its exit.
 #   3. Engine: fixtures built from the SHIPPED state blocks, extracted at run
 #      time, with every gate script replaced by a fake under a fake
 #      PLUGIN_ROOT that logs its calls:
@@ -50,7 +51,8 @@
 #        - on a `work-on` leg, pr_creation holds a deferred run's
 #          `pr_status: created` while the body lacks the record, then reaches
 #          done with the pull request in the leg's payload once it has it; a
-#          local run never calls --deferral-record.
+#          local run asks the same gate about its session and, with the fake
+#          answering 0 as the script does for no key, reaches done.
 #
 # The engine part skips, loudly, when koto is not on PATH (the bash 3.2 floor
 # leg has no koto), and its leg cases skip when koto lacks --koto-leg.
@@ -247,31 +249,52 @@ calls() { grep -c -- "^$1" "$LOG" 2>/dev/null || true; }
 
 RECORD_CMD=$(gate_command pr_creation verification_deferral_recorded)
 [ -n "$RECORD_CMD" ] || { echo "could not extract verification_deferral_recorded's command" >&2; exit 2; }
-# render <verification> <reason>: the command as koto would hand it to sh.
+# render <verification> <reason> <session>: the command as koto would hand it
+# to sh.
 render() {
     local c="$RECORD_CMD"
     c=${c//\{\{PLUGIN_ROOT\}\}/$FAKE_ROOT}
     c=${c//\{\{VERIFICATION_DEFERRAL_REASON\}\}/$2}
     c=${c//\{\{VERIFICATION\}\}/$1}
+    c=${c//\{\{SESSION_NAME\}\}/$3}
     printf '%s' "$c"
 }
 
-reset_rc; : > "$LOG"
-set_rc check-pr-output.sh--deferral-record 1
-sh -c "$(render local "")" >/dev/null 2>&1
-eq "local: the record gate passes" 0 "$?"
-eq "local: the record gate never starts check-pr-output.sh" 0 "$(calls check-pr-output.sh)"
+# The gate is the same for every run (#1098): check-pr-output.sh reads the
+# session's verification_deferral, which a hosted-ci run and a local run whose
+# failure predates the change both write, and passes when there is none.
+if [ "$(render local "" vd-gate)" = "$(render hosted-ci "$REASON" vd-gate)" ]; then
+    pass "the record gate's command is the same for a local and a hosted-ci run"
+else
+    fail "the record gate's command differs between local and hosted-ci: [$RECORD_CMD]"
+fi
 
 reset_rc; : > "$LOG"
-sh -c "$(render hosted-ci "$REASON")" >/dev/null 2>&1
+sh -c "$(render local "" vd-gate)" >/dev/null 2>&1
+eq "local, no deferral on record: the record gate passes" 0 "$?"
+eq "local: the gate passes the session to --deferral-record" \
+    "check-pr-output.sh --deferral-record --session vd-gate" "$(cat "$LOG")"
+
+reset_rc; : > "$LOG"
+set_rc check-pr-output.sh--deferral-record 1
+sh -c "$(render local "" vd-gate)" >/dev/null 2>&1
+eq "local, a deferral the body lacks: the record gate fails" 1 "$?"
+
+reset_rc; : > "$LOG"
+sh -c "$(render hosted-ci "$REASON" vd-gate)" >/dev/null 2>&1
 eq "hosted-ci, body records it: the record gate passes" 0 "$?"
-eq "hosted-ci: the gate passes the reason to --deferral-record" \
-    "check-pr-output.sh --deferral-record --reason $REASON" "$(cat "$LOG")"
+eq "hosted-ci: the gate passes the session to --deferral-record" \
+    "check-pr-output.sh --deferral-record --session vd-gate" "$(cat "$LOG")"
 
 reset_rc; : > "$LOG"
 set_rc check-pr-output.sh--deferral-record 1
-sh -c "$(render hosted-ci "$REASON")" >/dev/null 2>&1
+sh -c "$(render hosted-ci "$REASON" vd-gate)" >/dev/null 2>&1
 eq "hosted-ci, body lacks it: the record gate fails" 1 "$?"
+
+reset_rc; : > "$LOG"
+set_rc check-pr-output.sh--deferral-record 2
+sh -c "$(render hosted-ci "$REASON" vd-gate)" >/dev/null 2>&1
+eq "hosted-ci, the record can't be decided: the record gate holds (2)" 2 "$?"
 
 # --- 3. engine -----------------------------------------------------------------------
 
@@ -601,11 +624,11 @@ if open_leg --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$RE
     eq "deferred, body without the record: pr_status created holds at pr_creation" pr_creation "$(state)"
     # The gate runs on every evaluation of pr_creation, the entering tick
     # included, so it was asked at least once.
-    n=$(calls "check-pr-output.sh --deferral-record --reason $REASON")
+    n=$(calls "check-pr-output.sh --deferral-record --session $S")
     if [ "$n" -ge 1 ]; then
-        pass "deferred: the gate asked check-pr-output.sh about this run's reason"
+        pass "deferred: the gate asked check-pr-output.sh about this run's session"
     else
-        fail "deferred: check-pr-output.sh --deferral-record --reason was not called: [$(cat "$LOG")]"
+        fail "deferred: check-pr-output.sh --deferral-record --session $S was not called: [$(cat "$LOG")]"
     fi
     set_rc check-pr-output.sh--deferral-record 0
     tick --with-data "$CREATED"
@@ -615,15 +638,24 @@ if open_leg --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=$RE
     eq "deferred: the leg's payload carries the pull request" "\"$URL\"" "$(leg .result.payload.pr)"
 fi
 
+# A local run starts the same gate: check-pr-output.sh --deferral-record
+# --session answers 0 for a run with no verification_deferral, which the fake
+# stands in for here.
 reset_rc
 set_rc find-anchor-plan.sh 1
-set_rc check-pr-output.sh--deferral-record 1
+set_rc check-pr-output.sh--deferral-record 0
 if open_leg; then
     : > "$LOG"
     tick --with-data '{"go":"pr"}'
     tick --with-data "$CREATED"
     eq "local: created with CI green ends at done" "done" "$(state)"
-    eq "local: --deferral-record is never called" 0 "$(calls "check-pr-output.sh --deferral-record")"
+    n=$(calls "check-pr-output.sh --deferral-record --session $S")
+    if [ "$n" -ge 1 ]; then
+        pass "local: the gate asked check-pr-output.sh about this run's session too"
+    else
+        fail "local: check-pr-output.sh --deferral-record --session $S was not called: [$(cat "$LOG")]"
+    fi
+    eq "local: the gate never passes a --reason" 0 "$(calls "check-pr-output.sh --deferral-record --reason")"
     eq "local: the leg's payload carries the pull request" "\"$URL\"" "$(leg .result.payload.pr)"
 fi
 
