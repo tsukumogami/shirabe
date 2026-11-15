@@ -3088,6 +3088,39 @@
       "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
+      "id": "verification/baseline-undecidable",
+      "status": "active",
+      "summary": "A failed verification command's comparison with the merge-base could not decide whether the change caused it",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/baseline-undecidable` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-11-15",
+      "gates": [
+        "work-on:verification:verification_verdict"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
       "id": "verification/command-failed",
       "status": "active",
       "summary": "A verification command failed",
@@ -3112,6 +3145,39 @@
       ],
       "stage": "block",
       "stage_since": "2026-10-16",
+      "gates": [
+        "work-on:verification:verification_verdict"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/command-failed-preexisting",
+      "status": "active",
+      "summary": "A verification command failed the same way at the merge-base, so the failure predates the change",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/command-failed-preexisting` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "stage": "block",
+      "stage_since": "2026-11-15",
       "gates": [
         "work-on:verification:verification_verdict"
       ],

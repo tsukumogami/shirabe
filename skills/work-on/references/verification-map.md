@@ -128,7 +128,9 @@ for the current head. A settled result is also recorded in koto context as
 |------|---------|-----------|
 | 75 | no result for this head yet; the gate waits | none |
 | 0 | every selected command ran and passed | none |
-| 1 | a command ran and failed | `verification/command-failed` |
+| 1 | a command ran and failed, and it passes at the merge-base (or the result holds no comparison) | `verification/command-failed` |
+| 6 | a failed command's comparison with the merge-base could not decide whether the change caused it | `verification/baseline-undecidable` |
+| 5 | every failed command fails the same way at the merge-base, so the failure predates the change | `verification/command-failed-preexisting` |
 | 3 | no map at the merge-base, or a map that selects nothing | `verification/no-map` |
 | 3 | a map that does not parse | `verification/bad-map` |
 | 4 | a selected command is `unattended: false`; nothing was started | `verification/needs-person` |
