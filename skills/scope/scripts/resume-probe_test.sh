@@ -644,7 +644,7 @@ shape() {
     local l wrong=""
     while IFS= read -r l; do
         case "$l" in ::koto-finding::*) ;; *) continue ;; esac
-        printf '%s\n' "$l" | grep -qE '^::koto-finding:: lookup=[a-z0-9-]+( [a-z0-9/._-]+)? outcome=(deadline|refused) next=(tick-again|stop-and-act)( remedy=declare-the-bucket-name-index)? koto=[^=]*$' ||
+        grep -qE '^::koto-finding:: lookup=[a-z0-9-]+( [a-z0-9/._-]+)? outcome=(deadline|refused) next=(tick-again|stop-and-act)( remedy=declare-the-bucket-name-index)? koto=[^=]*$' <<<"$l" ||
             wrong="$wrong [$l]"
         case "$l" in
             *" next=stop-and-act remedy=declare-the-bucket-name-index koto="*|*" next=tick-again koto="*) ;;
@@ -776,7 +776,7 @@ case "$kv" in
     *) ok "$L: no userinfo, query or second line" ;;
 esac
 if [ "${#kv}" -le 300 ] && [ -n "$kv" ]; then ok "$L: koto= is at most 300 characters (${#kv})"; else bad "$L: koto= is at most 300 characters" "${#kv}"; fi
-if printf '%s' "$kv" | LC_ALL=C grep -q "[^A-Za-z0-9 ._:/'()-]"; then
+if LC_ALL=C grep -q "[^A-Za-z0-9 ._:/'()-]" <<<"$kv"; then
     bad "$L: koto= holds only allowed characters" "$kv"
 else
     ok "$L: koto= holds only allowed characters"

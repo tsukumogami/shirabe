@@ -376,8 +376,9 @@ reduce_koto() {
     msg=$(json_field error "$f")
     [ -n "$msg" ] || msg=$(head -n 1 "$f" 2>/dev/null)
     msg="${msg%%\\n*}"
-    v=$(printf '%s %s\n' "$code" "$msg" | head -n 1 |
-        sed -E 's#([A-Za-z][A-Za-z0-9+.-]*://)([^/@[:space:]]*@)?([^/?#[:space:]]*)([^?#[:space:]]*)[^[:space:]]*#\1\3\4#g' |
+    v="$code $msg"
+    v="${v%%$'\n'*}"
+    v=$(sed -E 's#([A-Za-z][A-Za-z0-9+.-]*://)([^/@[:space:]]*@)?([^/?#[:space:]]*)([^?#[:space:]]*)[^[:space:]]*#\1\3\4#g' <<<"$v" |
         LC_ALL=C tr -cd "A-Za-z0-9 ._:/'()-" |
         sed -E 's/:{2,}/:/g; s/^ +//; s/ +$//')
     v="${v:0:300}"
