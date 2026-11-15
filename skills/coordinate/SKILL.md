@@ -363,8 +363,9 @@ work.
    before leg keys existed) moves to the message path, and the handover gate's
    told rule has you send it your address, or record it pending when its
    session is gone and its instance is still there (`state-stored-set.sh
-   --pending`): a pending worker doesn't hold the gate. The gate holds while a
-   leg has no end (`leg-unclassified <worker>`).
+   --pending`), or missing when niwa lists no instance for it at all
+   (`--missing`): neither a pending nor a missing worker holds the gate. The
+   gate holds while a leg has no end (`leg-unclassified <worker>`).
 
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries

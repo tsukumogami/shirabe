@@ -15,9 +15,12 @@
 #   worker_gone  the worker's session no longer exists. When niwa still lists
 #                an instance for it (dc_find_session from the workspace root),
 #                it can be told on its next start and is recorded pending
-#                (state-stored-set.sh --pending), unless it is already told or
-#                pending; with no instance, or no workspace root to look from,
-#                nothing is recorded
+#                (state-stored-set.sh --pending), unless it is already told,
+#                pending or missing; with no instance, or no workspace root to
+#                look from, nothing is recorded. A missing row stays as it is:
+#                --pending refuses one, and it stops the handover gate holding
+#                on the worker just as a pending row would, until the worker is
+#                told or a new address clears it
 # A `refused` re-brief never reaches this state: rebrief routes it to wait,
 # and the handover gate keeps its not-told gap for the worker.
 #
@@ -95,6 +98,8 @@ case "$SENT" in
             echo "$PROG: $TOPIC was already told the current address" >&2
         elif run_has pending; then
             echo "$PROG: $TOPIC is already pending" >&2
+        elif run_has missing; then
+            echo "$PROG: $TOPIC is already recorded missing" >&2
         else
             record --pending
         fi

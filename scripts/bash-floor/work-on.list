@@ -15,6 +15,9 @@ skills/work-on/scripts/verify-cascade-commit_test.sh
 # Drives real koto sessions, and skips cleanly without them. Its
 # engine-free case invokes the discriminator it carries.
 skills/work-on/scripts/ci-monitor-role_test.sh
+# Drives the ci_monitor block under real koto past the 30-second
+# default gate limit, and skips cleanly without the engine.
+skills/work-on/scripts/ci-passing-timeout_test.sh
 # Needs no engine: it sources the pull request URL parse and checks its
 # answers, so every case runs on the floor.
 skills/work-on/scripts/pr-url_test.sh

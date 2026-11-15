@@ -114,8 +114,9 @@
 #
 # A coordinated PLAN, before `koto init`:
 #
-#   the lock      `<carry root>/<session>.lock`, a directory holding the
-#                 holder's pid, taken with mkdir (retried every 0.2 s, 25
+#   the lock      `<carry root>/<session>.lock`, a file holding the
+#                 holder's pid, created with bash's noclobber rather than
+#                 mkdir (retried every 0.2 s, 25
 #                 times; a lock whose pid is gone is removed), released on
 #                 exit. Still held: `error=session-busy`, exit 64. The carry
 #                 root is $SHIRABE_STATE_DIR/execute-carry, else
@@ -385,7 +386,10 @@ esac
 
 # The coordinated run's lock, before the session is read: one opener at a time
 # reads, replaces, and carries a session's record. (The mode fallback above
-# only reads.)
+# only reads.) The lock is a file holding the opener's pid, created with
+# bash's noclobber (one open with O_EXCL), not a directory made with mkdir:
+# the uutils mkdir on Ubuntu 26.04 can report success to two racing callers.
+# A lock directory an earlier version left, its pid in `pid`, is read the same.
 LOCK=""
 release_lock() { [ -n "$LOCK" ] && rm -rf -- "$LOCK"; return 0; }
 if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
@@ -396,13 +400,13 @@ if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
     }
     tries=0
     while :; do
-        if mkdir "$CR/$SESSION.lock" 2>/dev/null; then
-            printf '%s\n' "$$" > "$CR/$SESSION.lock/pid"
+        if (set -C && printf '%s\n' "$$" > "$CR/$SESSION.lock") 2>/dev/null; then
             LOCK="$CR/$SESSION.lock"
             trap release_lock EXIT
             break
         fi
-        holder=$(cat -- "$CR/$SESSION.lock/pid" 2>/dev/null) || holder=""
+        holder=$(cat -- "$CR/$SESSION.lock" 2>/dev/null) ||
+            holder=$(cat -- "$CR/$SESSION.lock/pid" 2>/dev/null) || holder=""
         # A holder that is gone left its lock behind: take it over. A lock
         # with no pid yet is a holder that just took it, unless it stays so
         # for the whole wait.

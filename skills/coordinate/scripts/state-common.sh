@@ -175,11 +175,11 @@ lib_write_guard() {
 RE_CLAUDE_ID='^[0-9a-f][0-9a-f-]{7,63}$'
 
 # LIB_COORD_ROW_JQ: the Run section with its coordinator row set to $v, set
-# by $b at $t, and every `told` and `pending` row gone, since nobody has been
-# told the new address. The one filter a `--run coordinator` write
+# by $b at $t, and every `told`, `pending` and `missing` row gone, since
+# nobody has been told the new address. The one filter a `--run coordinator` write
 # (state-stored-set.sh) and a carry's in-copy row (core_carry, state-open.sh
 # --carry) apply.
-LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending" and .key != "missing")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
 
 # lib_caller: the Claude session running this script. LIB_CALLER_ID is
 # CLAUDE_CODE_SESSION_ID when it has a session id's shape, else empty;

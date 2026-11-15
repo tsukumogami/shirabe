@@ -410,6 +410,62 @@ if grep -q '^init' "$WORK/stub.log" && [ ! -e "$SHIRABE_STATE_DIR/execute-carry/
 else
     fail "stale lock: out [$OUT], lock [$(ls "$SHIRABE_STATE_DIR/execute-carry" 2>&1)]"
 fi
+# The lock as this version writes it, a file holding the pid: a live holder
+# makes the opener busy.
+sleep 60 &
+HOLDER=$!
+printf '%s\n' "$HOLDER" > "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock"
+: > "$WORK/stub.log"
+tokens '["docs/plans/PLAN-cpairs.md"]'
+OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+    PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" 2>/dev/null)
+RC=$?
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+rm -f "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock"
+if [ "$RC" -eq 64 ] && [ "$OUT" = "error=session-busy" ] && ! grep -q '^init' "$WORK/stub.log"; then
+    pass "a lock file a live opener holds: error=session-busy, exit 64, no koto init"
+else
+    fail "session-busy, lock file: exit $RC, out [$OUT]"
+fi
+# Five openers race for one session's lock, under a mkdir that reports success
+# for a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The opener that gets the lock is held at
+# its koto status read until the others have given up.
+RACE="$WORK/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" > "$RACE/bin/mkdir"
+cat > "$RACE/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1-}" = status ]; then
+    : > "$RACE/in.\$\$"
+    n=0
+    until [ -e "$RACE/release" ] || [ "\$n" -ge 150 ]; do sleep 0.1; n=\$((n + 1)); done
+fi
+exec "$PAIRS_BIN/koto" "\$@"
+EOF
+chmod +x "$RACE/bin/mkdir" "$RACE/bin/koto"
+: > "$WORK/stub.log"
+PIDS=""
+for i in 1 2 3 4 5; do
+    tokens '["docs/plans/PLAN-cpairs.md"]'
+    (cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" KOTO_STUB_VARS="$WORK/vars.json" \
+        PATH="$RACE/bin:$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" > "$RACE/out.$i" 2>/dev/null
+     echo "$?" > "$RACE/rc.$i") &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^rc\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+INSIDE=$(ls "$RACE" | grep -c '^in\.')
+: > "$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+BUSY=$(cat "$RACE"/out.* | grep -c '^error=session-busy$')
+if [ "$INSIDE" -eq 1 ] && [ "$BUSY" -eq 4 ] && [ ! -e "$SHIRABE_STATE_DIR/execute-carry/execute-cpairs.lock" ]; then
+    pass "five openers racing for one session's lock: exactly one wins, four are busy, and the lock is released"
+else
+    fail "five openers racing for one session's lock: exactly one wins: $INSIDE inside, $BUSY busy, lock [$(ls "$SHIRABE_STATE_DIR/execute-carry" 2>&1)]"
+fi
 rm -f "$FIXREPO/docs/plans/PLAN-cpairs.md"
 
 # A PLAN the cascade deleted takes its run's mode: the session's run/setup,

@@ -196,6 +196,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/ci-monitor-role_test.sh
 
+      # Reads the time limit ci_passing and execute.md's owned_ci_passing
+      # declare, then drives the shipped ci_monitor block under real koto
+      # against a gh that answers slower than koto's 30-second default, and
+      # asserts the gate still reaches its verdict. Needs the engine.
+      - name: Run ci_passing time limit tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/ci-passing-timeout_test.sh
+
       # Sources the pull request URL parse both CI fallbacks share and checks
       # its answer for each URL. No engine needed; the macOS leg runs it on the
       # floor through the work-on suite.
