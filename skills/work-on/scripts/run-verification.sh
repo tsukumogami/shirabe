@@ -355,11 +355,14 @@ attempt() {
     [ "$left" -ge "$limit" ] || limit=$left
     maxp=$(jq -r --argjson k "$k" '.invocations[$k].max_procs' "$RUN")
     wt="$SUP_DIR/wt-$k-$kind"
+    # Named before the add, so a signal that lands while git registers the
+    # worktree still has the trap remove it.
+    SUP_WT=$wt SUP_WT_LOG=$log
     if ! git -c core.hooksPath=/dev/null -C "$ROOT" worktree add --detach --quiet "$wt" "$commit" </dev/null >"$log" 2>&1; then
+        SUP_WT=""
         ATT_WHY="a worktree at $commit for the $kind attempt could not be made (log: $log)"
         return 0
     fi
-    SUP_WT=$wt SUP_WT_LOG=$log
     ARGV=()
     while IFS= read -r -d '' a; do ARGV+=("$a"); done < <(jq -j --argjson k "$k" '.invocations[$k].argv[] | (., "\u0000")' "$RUN")
     prog=$(resolve_prog "$wt" "${ARGV[0]}")
