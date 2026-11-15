@@ -45,7 +45,31 @@
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
 #    timed-out|supervisor-error", "detail": "...", "commands": [{"id", "argv",
 #    "exit_status", "duration_secs", "timed_out", "runaway", "not_started",
-#    "pgid", "log"}]}
+#    "pgid", "log", "baseline"?}]}
+#
+# The comparison with the merge-base: when every command ran to an exit
+# status within the budget and one or more exited non-zero, each of those is
+# run twice more before the result is written, back to back: once at the
+# merge-base and once at the head, each in a fresh worktree of the
+# repository (`git -c core.hooksPath=/dev/null worktree add --detach`) inside
+# the head directory, removed after the attempt, and bounded the same way as
+# a head command. The command's entry gains an optional `baseline` object:
+#
+#   {"verdict": "preexisting|caused|undecidable", "reason": "...",
+#    "merge_base": <attempt>|null, "clean_head": <attempt>|null}
+#   <attempt> = {"commit", "exit_status", "duration_secs", "timed_out",
+#                "runaway", "not_started", "log"}
+#
+# By exit status, B at the merge-base and C in the clean head: the same
+# non-zero B and C is `preexisting`; B 0 with C equal to the head's status is
+# `caused`; anything else is `undecidable`, as is an attempt that times out,
+# runs away, is cut by the budget, can't get its worktree or can't start, and
+# an `each` directory absent at the merge-base (checked with ls-tree, nothing
+# run). An attempt that never ran is null; when the base attempt decides
+# nothing, the clean-head one is skipped. A result without `baseline` is read
+# as before. A supervisor killed with SIGKILL during an attempt can leave the
+# attempt's worktree registered in the repository; a HUP, INT or TERM removes
+# it.
 #
 # The bound on each command: its own process group and its own deadline
 # (timeout_secs; TERM to the group, then KILL), and a watchdog that counts the
@@ -150,10 +174,10 @@ try (
   | ($cmds | map({key: .id, value: .}) | from_entries) as $byid
   | [$changed[] | split("/") as $parts | range(1; $parts | length) | $parts[0:.] | join("/")] | unique as $dirs
   | [$ids[] | $byid[.] as $c
-     | if $c.each == null then {id: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+     | if $c.each == null then {id: $c.id, argv: $c.run, each_dir: null, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
        else ($c.each | glob_re) as $er
          | $dirs[] | select(test($er))
-         | {id: $c.id, argv: ($c.run + [split("/") | last]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+         | {id: $c.id, argv: ($c.run + [split("/") | last]), each_dir: ., timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
        end] as $inv
   | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe)}
 ) catch {error: (if type == "string" then . else tostring end)}
@@ -245,6 +269,169 @@ kill_group() {
     kill "-$1" -- "-$2" 2>/dev/null
 }
 
+# resolve_prog <root> <prog>: the program to start, a relative path resolved
+# against <root> and a bare name against PATH; empty when there is none.
+resolve_prog() {
+    case "$2" in
+        /*) printf '%s' "$2" ;;
+        */*) printf '%s' "$1/$2" ;;
+        *) type -P "$2" 2>/dev/null ;;
+    esac
+}
+
+# bounded <cwd> <log> <limit> <maxp>: run ARGV (a global array whose first
+# word is already resolved) from <cwd>, in its own process group with standard
+# input from /dev/null and both outputs appended to <log>, under the deadline
+# <limit> and the max_procs watchdog <maxp>; the group is killed after. Sets
+# RUN_STATUS, RUN_TO, RUN_RA, RUN_PID and RUN_DUR. The head commands and the
+# comparison attempts share it, so both are bounded the same way.
+bounded() {
+    local cwd=$1 log=$2 limit=$3 maxp=$4 start now pid count
+    start=$(date +%s)
+    RUN_TO=false; RUN_RA=false
+    set -m
+    if [ "$SUP_SCOPE" -eq 1 ]; then
+        (cd "$cwd" && exec systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${ARGV[@]}") </dev/null >>"$log" 2>&1 &
+    else
+        (cd "$cwd" && exec "${ARGV[@]}") </dev/null >>"$log" 2>&1 &
+    fi
+    pid=$!
+    SUP_PGID=$pid
+    set +m
+    # The job's process group is its pid: job control put it there.
+    while kill -0 "$pid" 2>/dev/null; do
+        count=$(count_group "$pid")
+        if [ "$count" -gt "$maxp" ]; then
+            kill_group KILL "$pid"; RUN_RA=true; break
+        fi
+        now=$(date +%s)
+        if [ $((now - start)) -ge "$limit" ]; then
+            kill_group TERM "$pid"; sleep 1; kill_group KILL "$pid"; RUN_TO=true; break
+        fi
+        sleep 0.25
+    done
+    # The leader may exit leaving its group behind; a group still past the
+    # bound at that point is a runaway too.
+    if [ "$RUN_RA" = false ] && [ "$RUN_TO" = false ] && [ "$(count_group "$pid")" -gt "$maxp" ]; then
+        RUN_RA=true
+    fi
+    wait "$pid" 2>/dev/null
+    RUN_STATUS=$?
+    kill_group KILL "$pid"
+    SUP_PGID=""
+    RUN_PID=$pid
+    now=$(date +%s)
+    RUN_DUR=$((now - start))
+}
+
+# drop_worktree: remove the comparison attempt's worktree, if one is in
+# flight, with git's output in the attempt's log. A removal that fails leaves
+# the registration behind; nothing here sweeps registrations it didn't make.
+drop_worktree() {
+    [ -n "$SUP_WT" ] || return 0
+    git -c core.hooksPath=/dev/null -C "$ROOT" worktree remove --force "$SUP_WT" </dev/null >>"$SUP_WT_LOG" 2>&1 \
+        || echo "could not remove the worktree $SUP_WT" >>"$SUP_WT_LOG"
+    SUP_WT=""
+}
+
+# attempt <k> <kind> <commit>: one comparison attempt for invocation <k>, in a
+# fresh worktree of the repository at <commit>, detached, with hooks off, inside
+# the head's state directory, and removed after. <kind> is `base` or
+# `clean-head`, and names the log. Sets ATT_JSON (the attempt object, or null
+# when nothing ran) and ATT_WHY (empty when the command ran to an exit status,
+# else why the attempt decides nothing).
+attempt() {
+    local k=$1 kind=$2 commit=$3 id safe log wt prog limit left maxp a
+    ATT_JSON=null ATT_WHY=""
+    id=$(jq -r --argjson k "$k" '.invocations[$k].id' "$RUN")
+    safe=$(printf '%s' "$id" | tr -c 'A-Za-z0-9._-' '_')
+    log="$SUP_DIR/$k-$safe.$kind.log"
+    left=$((SUP_START + SUP_BUDGET - $(date +%s)))
+    if [ "$left" -le 0 ]; then
+        ATT_WHY="the run's budget was spent before the $kind attempt could start"
+        return 0
+    fi
+    limit=$(jq -r --argjson k "$k" '.invocations[$k].timeout_secs' "$RUN")
+    [ "$left" -ge "$limit" ] || limit=$left
+    maxp=$(jq -r --argjson k "$k" '.invocations[$k].max_procs' "$RUN")
+    wt="$SUP_DIR/wt-$k-$kind"
+    if ! git -c core.hooksPath=/dev/null -C "$ROOT" worktree add --detach --quiet "$wt" "$commit" </dev/null >"$log" 2>&1; then
+        ATT_WHY="a worktree at $commit for the $kind attempt could not be made (log: $log)"
+        return 0
+    fi
+    SUP_WT=$wt SUP_WT_LOG=$log
+    ARGV=()
+    while IFS= read -r -d '' a; do ARGV+=("$a"); done < <(jq -j --argjson k "$k" '.invocations[$k].argv[] | (., "\u0000")' "$RUN")
+    prog=$(resolve_prog "$wt" "${ARGV[0]}")
+    if [ -z "$prog" ] || [ ! -f "$prog" ] || [ ! -x "$prog" ]; then
+        echo "not started: [${ARGV[0]}] is not an executable program in the $kind worktree" >>"$log"
+        drop_worktree
+        ATT_JSON=$(jq -cn --arg c "$commit" --arg log "$log" \
+            '{commit: $c, exit_status: null, duration_secs: 0, timed_out: false, runaway: false, not_started: true, log: $log}')
+        ATT_WHY="[${ARGV[0]}] is not an executable program in the $kind worktree"
+        return 0
+    fi
+    ARGV[0]=$prog
+    bounded "$wt" "$log" "$limit" "$maxp"
+    drop_worktree
+    ATT_JSON=$(jq -cn --arg c "$commit" --argjson status "$RUN_STATUS" --argjson dur "$RUN_DUR" \
+        --argjson to "$RUN_TO" --argjson ra "$RUN_RA" --arg log "$log" \
+        '{commit: $c, exit_status: $status, duration_secs: $dur, timed_out: $to, runaway: $ra, not_started: false, log: $log}')
+    if [ "$RUN_RA" = true ]; then
+        ATT_WHY="the $kind attempt grew past its max_procs and was killed"
+    elif [ "$RUN_TO" = true ]; then
+        ATT_WHY="the $kind attempt ran past its timeout_secs or the run's budget and was killed"
+    fi
+}
+
+# compare <k> <head-status>: compare failed invocation <k> with the
+# merge-base. One attempt at the merge-base, then one in a clean checkout of
+# the head, back to back, by exit status (B and C):
+#   preexisting  B and C are the same non-zero status
+#   caused       B is 0 and C equals the head's status
+#   undecidable  anything else, an attempt that didn't run to a status, or an
+#                `each` directory absent at the merge-base (nothing runs)
+# Sets BASELINE to the command's `baseline` object. A global, not a command
+# substitution: the in-flight worktree must be visible to the signal trap.
+compare() {
+    local k=$1 h=$2 each entry base=null clean=null b c verdict="" reason=""
+    each=$(jq -r --argjson k "$k" '.invocations[$k].each_dir // empty' "$RUN")
+    if [ -n "$each" ]; then
+        # ls-tree prints nothing for an absent path and exits 0.
+        if ! entry=$(git -C "$ROOT" ls-tree "$MB" -- "$each" </dev/null); then
+            reason="could not list the each directory $each at the merge-base"
+        elif [ -z "$entry" ]; then
+            reason="the each directory $each does not exist at the merge-base, so the command can't run there"
+        fi
+    fi
+    if [ -z "$reason" ]; then
+        attempt "$k" base "$MB"
+        base=$ATT_JSON reason=$ATT_WHY
+    fi
+    if [ -z "$reason" ]; then
+        attempt "$k" clean-head "$HEAD_SHA"
+        clean=$ATT_JSON reason=$ATT_WHY
+    fi
+    if [ -z "$reason" ]; then
+        b=$(printf '%s' "$base" | jq -r .exit_status)
+        c=$(printf '%s' "$clean" | jq -r .exit_status)
+        if [ "$c" -eq 0 ]; then
+            reason="the failure did not reproduce in a clean checkout of the head: it exited 0 there and $h in the working tree"
+        elif [ "$b" -eq "$c" ]; then
+            verdict=preexisting
+            reason="it exited $c at the merge-base and in a clean checkout of the head"
+        elif [ "$b" -eq 0 ] && [ "$c" -eq "$h" ]; then
+            verdict=caused
+            reason="it passed at the merge-base and exited $c in a clean checkout of the head"
+        else
+            reason="it exited $b at the merge-base and $c in a clean checkout of the head, against $h in the working tree"
+        fi
+    fi
+    [ -n "$verdict" ] || verdict=undecidable
+    BASELINE=$(jq -cn --arg v "$verdict" --arg r "$reason" --argjson base "$base" --argjson clean "$clean" \
+        '{verdict: $v, reason: $r, merge_base: $base, clean_head: $clean}')
+}
+
 supervise() {
     local dir=$1
     RUN="$dir/run.json"
@@ -257,11 +444,15 @@ supervise() {
     SUP_WRITTEN=0
     # The running command's process group, empty between commands.
     SUP_PGID=""
+    # The comparison attempt's worktree and its log, empty between attempts.
+    SUP_WT="" SUP_WT_LOG=""
+    SUP_DIR=$dir
     : > "$SUP_ENTRIES"
 
     # Whatever stops the supervisor, a result gets written, so the verdict
     # never waits on a supervisor that is gone.
     finish() {
+        drop_worktree
         [ "$SUP_WRITTEN" -eq 1 ] && return 0
         write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
             '{schema: $schema, head: $head, merge_base: $mb, status: "supervisor-error",
@@ -272,35 +463,36 @@ supervise() {
     # command has its own process group, so nothing sent to the supervisor
     # reaches it, and exiting without this left it and everything it started
     # running after the supervisor was gone. The same TERM, then KILL, as a
-    # command past its deadline.
+    # command past its deadline. A comparison attempt's worktree goes with it.
     stop_running() {
-        [ -n "$SUP_PGID" ] || return 0
-        kill_group TERM "$SUP_PGID"; sleep 1; kill_group KILL "$SUP_PGID"
-        SUP_PGID=""
+        if [ -n "$SUP_PGID" ]; then
+            kill_group TERM "$SUP_PGID"; sleep 1; kill_group KILL "$SUP_PGID"
+            SUP_PGID=""
+        fi
+        drop_worktree
     }
     trap finish EXIT
     trap 'stop_running; exit 1' HUP INT TERM
 
     cd "$ROOT" || exit 1
 
-    local scope=0
+    SUP_SCOPE=0
     if command -v systemd-run >/dev/null 2>&1 \
         && systemd-run --user --scope --quiet -p TasksMax=8 true </dev/null >/dev/null 2>&1; then
-        scope=1
+        SUP_SCOPE=1
     fi
 
-    local n i id safe limit maxp prog log start now pid status timed_out runaway count
-    local budget sup_start left capped=0 over=0 stopped=""
-    budget=$(jq -r ".budget_secs // $BUDGET_SECS" "$RUN")
-    case "$budget" in ''|*[!0-9]*|0) budget=$BUDGET_SECS ;; esac
-    sup_start=$(date +%s)
+    local n i id safe limit maxp prog log left capped=0 over=0 stopped="" a
+    SUP_BUDGET=$(jq -r ".budget_secs // $BUDGET_SECS" "$RUN")
+    case "$SUP_BUDGET" in ''|*[!0-9]*|0) SUP_BUDGET=$BUDGET_SECS ;; esac
+    SUP_START=$(date +%s)
     n=$(jq '.invocations | length' "$RUN")
     i=0
     while [ "$i" -lt "$n" ]; do
         id=$(jq -r --argjson i "$i" '.invocations[$i].id' "$RUN")
         limit=$(jq -r --argjson i "$i" '.invocations[$i].timeout_secs' "$RUN")
         # The run's budget caps each command's own deadline.
-        left=$((sup_start + budget - $(date +%s)))
+        left=$((SUP_START + SUP_BUDGET - $(date +%s)))
         if [ "$left" -le 0 ]; then
             over=1; break
         fi
@@ -309,73 +501,59 @@ supervise() {
             limit=$left; capped=1
         fi
         maxp=$(jq -r --argjson i "$i" '.invocations[$i].max_procs' "$RUN")
-        argv=()
-        while IFS= read -r -d '' a; do argv+=("$a"); done < <(jq -j --argjson i "$i" '.invocations[$i].argv[] | (., "\u0000")' "$RUN")
+        ARGV=()
+        while IFS= read -r -d '' a; do ARGV+=("$a"); done < <(jq -j --argjson i "$i" '.invocations[$i].argv[] | (., "\u0000")' "$RUN")
         safe=$(printf '%s' "$id" | tr -c 'A-Za-z0-9._-' '_')
         log="$dir/$i-$safe.log"
-        prog=${argv[0]}
-        case "$prog" in
-            /*) ;;
-            */*) prog="$ROOT/$prog" ;;
-            *) prog=$(type -P "$prog" 2>/dev/null) ;;
-        esac
+        prog=$(resolve_prog "$ROOT" "${ARGV[0]}")
         if [ -z "$prog" ] || [ ! -f "$prog" ] || [ ! -x "$prog" ]; then
             jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --arg log "$log" \
                 '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: null, duration_secs: 0,
                   timed_out: false, runaway: false, not_started: true, pgid: null, log: $log}' >> "$SUP_ENTRIES"
-            echo "not started: [${argv[0]}] is not an executable program" > "$log"
+            echo "not started: [${ARGV[0]}] is not an executable program" > "$log"
             i=$((i + 1)); continue
         fi
-        argv[0]=$prog
+        ARGV[0]=$prog
 
-        start=$(date +%s)
-        timed_out=false; runaway=false
-        set -m
-        if [ "$scope" -eq 1 ]; then
-            systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
-        else
-            "${argv[@]}" </dev/null >"$log" 2>&1 &
-        fi
-        pid=$!
-        SUP_PGID=$pid
-        set +m
-        # The job's process group is its pid: job control put it there.
-        while kill -0 "$pid" 2>/dev/null; do
-            count=$(count_group "$pid")
-            if [ "$count" -gt "$maxp" ]; then
-                kill_group KILL "$pid"; runaway=true; break
-            fi
-            now=$(date +%s)
-            if [ $((now - start)) -ge "$limit" ]; then
-                kill_group TERM "$pid"; sleep 1; kill_group KILL "$pid"; timed_out=true; break
-            fi
-            sleep 0.25
-        done
-        # The leader may exit leaving its group behind; a group still past the
-        # bound at that point is a runaway too.
-        if [ "$runaway" = false ] && [ "$timed_out" = false ] && [ "$(count_group "$pid")" -gt "$maxp" ]; then
-            runaway=true
-        fi
-        wait "$pid" 2>/dev/null
-        status=$?
-        kill_group KILL "$pid"
-        SUP_PGID=""
-        now=$(date +%s)
-        jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --argjson status "$status" \
-            --argjson dur $((now - start)) --argjson to "$timed_out" --argjson ra "$runaway" \
-            --argjson pgid "$pid" --arg log "$log" \
+        : > "$log"
+        bounded "$ROOT" "$log" "$limit" "$maxp"
+        jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --argjson status "$RUN_STATUS" \
+            --argjson dur "$RUN_DUR" --argjson to "$RUN_TO" --argjson ra "$RUN_RA" \
+            --argjson pgid "$RUN_PID" --arg log "$log" \
             '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: $status, duration_secs: $dur,
               timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log}' >> "$SUP_ENTRIES"
         i=$((i + 1))
-        if [ "$timed_out" = true ] && [ "$capped" -eq 1 ]; then
+        if [ "$RUN_TO" = true ] && [ "$capped" -eq 1 ]; then
             over=1; stopped=$id; break
         fi
     done
 
+    # The comparison with the merge-base, before the result is written: for
+    # each command that ran and exited non-zero, one attempt at the merge-base
+    # and one in a clean checkout of the head (compare). Skipped when the run
+    # passed its budget or a command timed out, ran away or didn't start: that
+    # verdict is 4, and the comparison would decide nothing.
+    if [ "$over" -eq 0 ] \
+        && jq -se 'all(.[]; (.timed_out or .runaway or .not_started) | not) and any(.[]; .exit_status != 0)' "$SUP_ENTRIES" >/dev/null; then
+        local k=0 entry hs
+        : > "$SUP_ENTRIES.compared"
+        while IFS= read -r entry <&3; do
+            hs=$(printf '%s' "$entry" | jq -r .exit_status)
+            if [ "$hs" != 0 ]; then
+                compare "$k" "$hs"
+                printf '%s' "$entry" | jq -c --argjson bl "$BASELINE" '. + {baseline: $bl}' >> "$SUP_ENTRIES.compared"
+            else
+                printf '%s\n' "$entry" >> "$SUP_ENTRIES.compared"
+            fi
+            k=$((k + 1))
+        done 3< "$SUP_ENTRIES"
+        mv -f "$SUP_ENTRIES.compared" "$SUP_ENTRIES"
+    fi
+
     local final=done detail=""
     if [ "$over" -eq 1 ]; then
         final=timed-out
-        detail="the run passed its total budget of $budget seconds"
+        detail="the run passed its total budget of $SUP_BUDGET seconds"
         [ -n "$stopped" ] && detail="$detail; command $stopped was stopped"
         [ "$i" -lt "$n" ] && detail="$detail; $((n - i)) later command(s) were not started: $(jq -r --argjson i "$i" '[.invocations[$i:][].id] | join(", ")' "$RUN")"
     fi
