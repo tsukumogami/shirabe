@@ -426,6 +426,15 @@ for pair in 0:pass_counting 1:implementation 3:done_blocked 4:done_blocked; do
     drive verification "" ""
     expect "verification_verdict exit ${pair%%:*}, no evidence" "${pair#*:}"
 done
+# A failure that fails the same way at the merge-base predates the change:
+# exit 5 routes on its own, with no evidence, into the named deferral step.
+reset_rc; set_rc check-verification.sh--verdict 5
+drive verification "" ""
+if [ "$STATE" = verification_preexisting ]; then
+    pass "verification_verdict exit 5 (failed at the head and at the merge-base too), no evidence -> $STATE"
+else
+    fail "verification_verdict exit 5 (failed at the head and at the merge-base too): a run that failed has no override edge; want verification_preexisting, got $STATE ($(head -c 300 <<<"$RESP"))"
+fi
 reset_rc; set_rc check-verification.sh--verdict 75
 drive verification "" ""
 if [ "$STATE" = verification ] && printf '%s' "$RESP" | jq -e '[.blocking_conditions[]? | select(.name == "verification_verdict" and .status == "pending")] | length > 0' >/dev/null 2>&1; then
