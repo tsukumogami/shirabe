@@ -82,10 +82,18 @@ default branch, the gate's own base, and classifies each changed path:
   `evals/fixtures/` or read `evals.json`. Unlike the rules for scripts, a miss here
   can't fall back to every suite, so a suite that reaches `evals/` another way (a third
   helper in a chain, a path built at run time) isn't run locally; CI still runs it;
+- a `koto-templates/<name>.compat.json` runs what a change to a script would: the suites
+  that name it or one of the skill's scripts that names it, unit suites first. The
+  skill's scripts read it, not the template compile;
+- a Markdown file under `docs/` or at the repository root, or a file under
+  `.github/workflows/`, runs the suites that name it, and none when no suite does. The
+  suites that walk the tree aren't added for these paths, since CI runs every suite and
+  adding them would select about half of coordinate's suites again;
 - everything else runs every suite: a shared script, anything under a subdirectory of
-  `scripts/` (testdata and the test libraries), a koto template, the skill's Markdown and
-  data files, `check-skill.tsv` itself, a deleted file, and any other path outside the
-  skill, `scripts/check-skill.sh` included. So do a change with no merge-base and a
+  `scripts/` (testdata and the test libraries), a koto template, the skill's other
+  Markdown and data files, `check-skill.tsv` itself, a deleted file, and any other path
+  outside the skill (`scripts/`, `references/`, another skill's files),
+  `scripts/check-skill.sh` included. So do a change with no merge-base and a
   branch with no changes. Markdown and data files run everything because suites read them
   by glob as well as by name (`references/`, `SKILL.md`, `requires.tsv`), which name
   matching can't see.
