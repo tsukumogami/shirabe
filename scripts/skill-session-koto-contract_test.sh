@@ -779,7 +779,7 @@ case_held_elsewhere_sweep() {
     else
         case "$OUT" in
             *"$PARENT_NO_COPY_HERE"*) printf 'NOTE: %s koto status scope-%s (exit %s) carries the PARENT_NO_COPY_HERE text\n' "$VER" "$TE" "$RC" ;;
-            *) printf 'NOTE: %s koto status scope-%s (exit %s) does not carry the PARENT_NO_COPY_HERE text: [%s]\n' "$VER" "$TE" "$RC" "$(oneline "$OUT")" ;;
+            *) bad "koto status scope-$TE: exit $RC does not carry the PARENT_NO_COPY_HERE text; stdout [$(oneline "$OUT")]" ;;
         esac
     fi
     sread "design-$TE" "design-$TE" adopt design "$TE"
