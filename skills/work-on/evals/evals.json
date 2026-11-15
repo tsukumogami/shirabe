@@ -883,6 +883,40 @@
         "Agent names the way to stop: submit verification_status: blocked with the reason in detail",
         "Agent says a tick without moving the result holds again and starts no new suite"
       ]
+    },
+    {
+      "id": 62,
+      "name": "verification-failure-predates-change",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #733, a local-verification run in a repository whose CLAUDE.md declares `## PR Workflow Content: include`. The tick into verification waited on the suite. The command `unit` exited 1 at the head, and the supervisor's comparison ran it again at the merge-base and in a clean checkout of the head: it exited 1 at both. The verification_verdict gate exited 5 with a verification/command-failed-preexisting finding. What does the agent do from here through the pull request?",
+      "expected_output": "The agent reads exit 5 as a failure that predates the change: unit fails the same way at the merge-base, so this branch didn't cause it. It doesn't go back to implementation to fix code the change never touched, and it submits no evidence at verification: koto routes on the verdict alone to verification_preexisting, whose action runs check-verification.sh --record-deferral and writes verification_deferral, one line naming the head, the merge-base and the command id unit, and the run goes on to pass_counting and finalization. It submits nothing at verification_preexisting either. Because the repository opts in to workflow content, the pull request body carries a ## Verification section saying local verification did not pass because the failing commands fail the same way at the merge-base, the line Reason: followed by the verification_deferral value verbatim, and a line saying hosted CI is the build of record. pr_creation's verification_deferral_recorded gate reads the key and checks the body for all three; if it holds, the agent fixes the body with gh pr edit and submits pr_status: created again. It then waits on hosted CI at ci_monitor as the build of record and doesn't re-run the suite locally.",
+      "files": [],
+      "expectations": [
+        "Agent says the failure predates the change because the command fails the same way at the merge-base",
+        "Agent does NOT return to implementation or change code to fix the pre-existing failure",
+        "Agent submits no evidence at verification and none at verification_preexisting, letting koto route on the verdict",
+        "Agent expects verification_preexisting to record verification_deferral naming the head, the merge-base and the failed command id",
+        "Agent's PR body has a ## Verification section saying local verification did not pass, the line Reason: with the verification_deferral value verbatim, and a line saying hosted CI is the build of record",
+        "Agent fixes the body with gh pr edit and submits again if verification_deferral_recorded holds",
+        "Agent treats hosted CI at ci_monitor as the build of record, waits for it to go green, and runs no local suite to override it"
+      ]
+    },
+    {
+      "id": 63,
+      "name": "verification-baseline-undecidable-holds",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #918, a local-verification run. The command `integration` exited 2 at the head. The supervisor's comparison ran it at the merge-base, where it exited 0, and in a clean checkout of the head, where it also exited 0. The verification_verdict gate exited 6 with a verification/baseline-undecidable finding whose reason says the failure did not reproduce in a clean checkout of the head, and the tick held in verification. Stderr names verification_status: fix, verification_status: blocked and the result file. What does the agent do next?",
+      "expected_output": "The agent reads exit 6 as a comparison that couldn't decide, not a pass and not a failure that predates the change, and it reads the finding's reason: the clean checkout of the head passed, so the failure came from something in the working tree or the host, not plainly from the committed change. It doesn't try to defer: there is no deferral on exit 6, and it doesn't look for a way into verification_preexisting or claim hosted CI as the build of record. It picks one of the ways the hold names. To change the code it submits verification_status: fix, which returns the run to implementation. To stop it submits verification_status: blocked with the reason in detail, which ends the run at done_blocked. When the cause looks transient, for example load on the host, it moves the named result file aside and ticks, which runs the whole suite and its comparison again; it knows a tick without moving the result holds again.",
+      "files": [],
+      "expectations": [
+        "Agent reads the finding's reason and says the comparison could not decide whether the change caused the failure",
+        "Agent does NOT try to defer verification, enter verification_preexisting, or treat hosted CI as the build of record",
+        "Agent names verification_status: fix as the way back to implementation to change the code",
+        "Agent names verification_status: blocked with the reason in detail as the way to stop at done_blocked",
+        "Agent names the rerun path: move the named result file aside and tick, which runs the suite and its comparison again"
+      ]
     }
   ]
 }

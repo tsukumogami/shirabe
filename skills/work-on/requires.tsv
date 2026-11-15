@@ -46,6 +46,12 @@
 #                   check-pre-pr-referents.sh (the referent gates), no flag
 #   context exists  the impl_base test in record-changed-paths.sh and
 #                   has-commits.sh, no flag
+#   context exists/get also read verification_deferral in check-pr-output.sh
+#                   --deferral-record --session (pr_creation's
+#                   verification_deferral_recorded gate), no flag; the key is
+#                   written by check-verification.sh --record-deferral
+#                   (verification_preexisting's action) with context add
+#                   --from-file
 #   context remove  record-changed-paths.sh clears a stale changed_paths.txt,
 #                   no flag
 #   context exists/get/add are also panel-scope.sh's, which koto runs as each

@@ -95,18 +95,44 @@ Outcomes:
 
 - **Passed** — every selected command ran and passed. The workflow advances to
   `pass_counting` (see **Fixes Start Red**), then finalization.
-- **Failed** — a command ran and did not pass. The workflow returns to implementation to
-  fix the failure; a failing verification never advances toward a clean finalization.
+- **Failed** — a command ran and did not pass, and the change caused it. The workflow
+  returns to implementation to fix the failure; a failing verification never advances
+  toward a clean finalization.
+- **Pre-existing** — every failed command fails the same way at the merge-base, so the
+  failure predates the change. The workflow records the deferral and goes on with hosted
+  CI as the build of record (see **Deferring Verification to Hosted CI**).
+- **Undecidable** — the comparison with the merge-base couldn't tell whether the change
+  caused a failure. The run waits for the agent to choose: fix the code, stop, or rerun.
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.
 
-The verdict's exit status carries the outcome: 0 passed, 1 failed, 3 no map (or a map
-that does not parse, or selects nothing) and 4 a command that needs a person, timed
-out, grew past its process bound, could not start, or a dirty tree — both of the last
-two cannot-verify, ending at `done_blocked`. Each violation names its rule
-(`verification/...`) in a koto finding, and the result is recorded in context as
-`verification_results.json`.
+When a command fails and every command ran to an exit status within the run's budget,
+the supervisor runs each failed command again at the merge-base and in a clean checkout
+of the head, each in a fresh detached worktree with hooks off, removed after, and
+compares the exit statuses (`references/verification-map.md` has the details).
+
+The verdict's exit status carries the outcome:
+
+- **0** passed: on to `pass_counting`.
+- **1** a command failed, and it passed at the merge-base while a clean checkout of the
+  head failed the same way, or the result holds no comparison: back to `implementation`.
+- **5** every failed command failed with the same exit status at the merge-base and in
+  the clean head: koto routes on its own to `verification_preexisting`, which records
+  `verification_deferral`, then to `pass_counting`. Submit nothing.
+- **6** the comparison couldn't decide (the clean head passed, the statuses differed, an
+  attempt timed out or couldn't run, or an `each` directory is absent at the merge-base).
+  There's no deferral: submit `verification_status: fix` to change the code or
+  `verification_status: blocked` to stop at `done_blocked`, or move the result file aside
+  and tick to run the suite and its comparison again.
+- **3** no map (or a map that does not parse, or selects nothing), and **4** a command
+  that needs a person, timed out, grew past its process bound, could not start, the run
+  passed its budget, or a dirty tree. Both are cannot-verify, ending at `done_blocked`,
+  and neither runs the comparison.
+
+Across one result the highest-ranked cause wins: 4, then 3, 1, 6, 5, 0. Each violation
+names its rule (`verification/...`) in a koto finding, and the result is recorded in
+context as `verification_results.json`.
 
 ### Deferring Verification to Hosted CI
 
@@ -139,15 +165,22 @@ never a silent skip:
 - **The run still finishes.** From `verification_deferred` the run goes through
   `pass_counting` and `finalization` and opens its pull request as any other, and
   its result carries `pr`.
+- **A local failure that predates the change defers the same way.** On a local run
+  whose verdict is exit 5, `verification_preexisting` writes `verification_deferral`
+  (the head, the merge-base and the failed command ids), and from there the run goes
+  on as a deferred one: `pass_counting`, `finalization`, the pull request, and hosted
+  CI as the build of record.
 - **The record is the run's, and the body says it plainly.** `verification_deferral`
   in context is the record, and the PR body's Verification section says hosted CI
-  verified the change. A repository that opts in to workflow content (see **Pull
-  Request Text** below) gets the deferral in the body too: there
-  `pr_creation`'s `verification_deferral_recorded` gate holds `pr_status: created`
-  until the body says local verification did not run, has the line
-  `Reason: <reason>`, and says hosted CI is the build of record
-  (`references/phases/phase-6-pr.md` has the section). `ci_monitor` then requires
-  that CI green, as it does for every run.
+  verified the change. `pr_creation`'s `verification_deferral_recorded` gate runs for
+  every run: `check-pr-output.sh --deferral-record --session <session>` reads
+  `verification_deferral` from context and passes with no GitHub read when the key
+  is absent. A repository that opts in to workflow content (see **Pull Request
+  Text** below) gets the deferral in the body too: there the gate holds
+  `pr_status: created` until the body says local verification did not run or did
+  not pass, has the line `Reason: <reason>`, and says hosted CI is the build of
+  record (`references/phases/phase-6-pr.md` has both sections). `ci_monitor` then
+  requires that CI green, as it does for every run.
 
 ### Fixes Start Red
 

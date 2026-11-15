@@ -3,7 +3,9 @@
 `/work-on`'s definition-of-done gate reads a project's **verification map** from
 `.claude/shirabe-extensions/verification-map.json`. The map tells the gate which
 verification commands to run for what an issue changed, and the gate requires every run to
-pass before the issue can finalize.
+pass before the issue can finalize. The one way past a local failure is a failure that fails
+the same way at the merge-base, which hands the verdict to hosted CI (see **The comparison
+with the merge-base**).
 
 This doc is the single source for the schema, `shirabe-verification-map/v1`. It is generic
 and project-agnostic: it carries no project-specific commands. A project declares its own
@@ -111,11 +113,105 @@ Logs and the result live under
 `${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/<session>/<head>/`, in
 directories created with mode 0700, outside every repository, pruned to the last ten heads
 per session. The result is one JSON object, keyed by the head and the merge-base it was
-computed against, written atomically.
+computed against, written atomically, with schema `shirabe-verification-result/v1`:
+
+```
+{"schema": "shirabe-verification-result/v1", "head": "<sha>", "merge_base": "<sha>",
+ "status": "done|no-map|bad-map|attended|dirty-tree|timed-out|supervisor-error",
+ "detail": "...",
+ "commands": [{"id", "argv", "exit_status", "duration_secs", "timed_out", "runaway",
+               "not_started", "pgid", "log", "baseline"?}]}
+```
+
+`baseline` is present only on a command that failed and was compared with the merge-base
+(see the next section):
+
+```
+{"verdict": "preexisting|caused|undecidable", "reason": "...",
+ "merge_base": <attempt>|null, "clean_head": <attempt>|null}
+
+<attempt> = {"commit", "exit_status", "duration_secs", "timed_out", "runaway",
+             "not_started", "log"}
+```
+
+An attempt that never ran is `null`. The field is optional and the schema stays v1: a
+result written without it reads as it always did, and a failed command with no `baseline`
+reads as exit 1.
 
 Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_procs`
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.
+
+## The comparison with the merge-base
+
+A failed command doesn't by itself say the change broke something: the default branch may
+already fail the same way. So when every command ran to an exit status within the run's
+budget and one or more exited non-zero, the supervisor runs each failed command twice more
+before it writes the result, back to back:
+
+1. **At the merge-base.** The command runs in a checkout of the merge-base commit.
+2. **In a clean checkout of the head.** The command runs again at the head commit, away from
+   the working tree and anything it holds that isn't committed.
+
+Each attempt gets a fresh detached worktree of the repository
+(`git -c core.hooksPath=/dev/null worktree add --detach`), made inside the head's state
+directory with hooks off, so no hook in the repository runs, and removed after the attempt.
+An attempt is bounded the way a head command is: its own process group, its `timeout_secs`
+deadline, and the `max_procs` watchdog. Its log sits beside the head command's, and its
+commit, exit status and log go into the command's `baseline`.
+
+The comparison doesn't run at all when the head run already exits 4: a command timed out,
+ran away or did not start, or the run passed its budget. Those keep exit 4, since the change
+was never fully verified and a comparison would decide nothing. A dirty tree, no map, a bad
+map and a command that needs a person never start a command, so they have nothing to
+compare either.
+
+With B the merge-base attempt's exit status, C the clean head's, and H the head run's:
+
+| Exit | `baseline.verdict` | When | Where the run goes |
+|------|--------------------|------|--------------------|
+| 5 | `preexisting` | B and C are the same non-zero status | `verification_preexisting`, then `pass_counting`; hosted CI is the build of record |
+| 1 | `caused` | B is 0 and C equals H | back to `implementation` |
+| 6 | `undecidable` | anything else | holds for `verification_status: fix` or `blocked` |
+
+Exit 5 prints `verification/command-failed-preexisting` and exit 6 prints
+`verification/baseline-undecidable`, each with the comparison's reason; a caused failure
+prints `verification/command-failed` as before. The verdict is 5 only when every failed
+command is `preexisting`. With several failed commands, one `caused` makes the verdict 1
+whatever the others showed, and one `undecidable` with none caused makes it 6.
+
+`undecidable` covers every case where the two attempts don't line up, or don't both run to
+a status:
+
+- the clean head passes (C is 0), so the failure didn't reproduce outside the working tree;
+- B and C are different non-zero statuses, or B is 0 and C differs from H;
+- an attempt timed out, grew past `max_procs`, or was cut by the run's budget;
+- an attempt's worktree couldn't be made, or its `run[0]` isn't an executable program there;
+- an `each` command's directory doesn't exist at the merge-base. That's checked with
+  `git ls-tree` and nothing runs, since the command has nothing to run against there.
+
+When the merge-base attempt decides nothing, the clean-head attempt is skipped and its
+`clean_head` is `null`.
+
+The attempts share the run's two-hour budget with the head commands, so a slow suite that
+fails can leave too little time for its comparison and come out `undecidable` rather than
+`preexisting`. On exit 6 there's no deferral. The agent reads the reason and submits
+`verification_status: fix` to go back to `implementation` and change the code, or
+`verification_status: blocked` with the reason in `detail` to stop at `done_blocked`. To run
+the suite and its comparison again instead, say once load on the host has dropped, move the
+result file aside and tick, the same way as for a stopped supervisor.
+
+On exit 5, `verification_preexisting` runs `check-verification.sh --record-deferral`, which
+re-derives the verdict from the same result, refuses unless it is 5, and writes the context
+key `verification_deferral`: one line naming the head, the merge-base and the failed command
+ids, and saying hosted CI is the build of record. From there the run goes on like a deferral
+to hosted CI, and the pull request records it (see `references/phases/phase-6-pr.md`).
+
+A HUP, INT or TERM that stops the supervisor during an attempt removes the attempt's
+worktree. A supervisor killed with SIGKILL can't clean up, and can leave the worktree
+registered in the repository. Nothing in the supervisor sweeps registrations it didn't make;
+sweeping such leftovers is tracked in
+[tsukumogami/niwa#507](https://github.com/tsukumogami/niwa/issues/507).
 
 ## Verdicts
 
@@ -128,7 +224,7 @@ for the current head. A settled result is also recorded in koto context as
 |------|---------|-----------|
 | 75 | no result for this head yet; the gate waits | none |
 | 0 | every selected command ran and passed | none |
-| 1 | a command ran and failed, and it passes at the merge-base (or the result holds no comparison) | `verification/command-failed` |
+| 1 | a command ran and failed, and it passes at the merge-base while a clean checkout of the head fails the same way (or the result holds no comparison) | `verification/command-failed` |
 | 6 | a failed command's comparison with the merge-base could not decide whether the change caused it | `verification/baseline-undecidable` |
 | 5 | every failed command fails the same way at the merge-base, so the failure predates the change | `verification/command-failed-preexisting` |
 | 3 | no map at the merge-base, or a map that selects nothing | `verification/no-map` |
@@ -144,7 +240,9 @@ for the current head. A settled result is also recorded in koto context as
 A timeout, a runaway kill, a command that could not start and a command that needs a person
 exit 4, never 1: none of them says the change is wrong, so none sends the run back to
 implementation; they stop the run for a person. When one result holds both a failed command
-and a command that exits 4, the verdict is 4.
+and a command that exits 4, the verdict is 4, and no comparison with the merge-base runs.
+Across one result the ranking, highest first, is 4, 3, 1, 6, 5, 0: one failed command the
+change caused outranks any number of undecidable or pre-existing ones.
 
 A supervisor that stopped before every command ran is not a verdict at all. A memory guard
 or a person may have killed it, or it could not run, and either way the result says nothing
@@ -157,7 +255,8 @@ moving the stopped result aside does.
 
 The whole run has a budget too: two hours, the length of the gate's wait. A command still
 running when the budget runs out is killed and reported as `verification/timed-out`, and the
-commands after it are not started.
+commands after it are not started. The comparison's attempts spend the same budget; one cut
+short by it makes that command's comparison `undecidable`, not a timeout.
 
 ## Illustrative example (not a real project's map)
 

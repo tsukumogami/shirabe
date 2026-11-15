@@ -128,16 +128,47 @@ Reason: <the verification_deferral value>
 Hosted CI is the build of record for this change.
 ```
 
-Under `include`, `pr_creation`'s `verification_deferral_recorded` gate reads the
-body GitHub has (`check-pr-output.sh --deferral-record`) and holds `pr_status: created` until it
-finds all three: a line saying local verification did not run, the line
-`Reason: <reason>`, and a line saying hosted CI is the build of record. The
-wording is matched without regard to case. The reason line is matched exactly
-and whole: the reason showing up elsewhere in the body, inside the
-build-of-record line or a longer reason's line, doesn't count, nor does a
-`Reason:` line with a list marker, extra spaces or a trailing period. A run that
-didn't defer passes the gate without the section. On a deferred run, don't
-re-run tests locally after merging main either: the push is what CI checks.
+### Local verification failed the same way at the merge-base
+
+A local run whose verification failed, where every failed command failed with the
+same exit status at the merge-base and in a clean checkout of the head, passed
+through `verification_preexisting`: the failure predates this change, and that
+state wrote `verification_deferral` to context, one line naming the head, the
+merge-base and the failed command ids. Under `omit` that context key is the
+record, as for a deferral to hosted CI: the body's Verification section says in
+plain terms that hosted CI verified the change, and the reason stays out. Under
+`include`, record it in Part 2 with this section, the reason copied
+verbatim:
+
+```markdown
+## Verification
+
+Local verification did not pass: the failing commands fail the same way at the merge-base.
+Reason: <the verification_deferral value>
+Hosted CI is the build of record for this change.
+```
+
+### The deferral gate
+
+`pr_creation`'s `verification_deferral_recorded` gate runs for every run, local
+or hosted-ci: `check-pr-output.sh --deferral-record --session <session>` reads
+`verification_deferral` from context. With no key it passes without reading
+GitHub. With the key, under `omit` it passes without reading GitHub too. Under
+`include` it reads the body GitHub has and holds `pr_status: created` until it
+finds all three: a line saying local verification did not run or did not pass,
+the line `Reason: <reason>` with the key's value, and a line saying hosted CI is
+the build of record. The wording is matched without regard to case. The reason
+line is matched exactly and whole: the reason showing up elsewhere in the body,
+inside the build-of-record line or a longer reason's line, doesn't count, nor
+does a `Reason:` line with a list marker, extra spaces or a trailing period. A
+failed context read holds the gate too. Fix the body with `gh pr edit` and
+submit again.
+
+The key stays once written. A run that deferred on an earlier lap and passed
+locally later still records the deferral; the head commit in a pre-existing
+failure's reason says which lap wrote it. A run that never deferred passes the
+gate without the section. On a deferred run, don't re-run tests locally after
+merging main either: the push is what CI checks.
 
 ### A repository with no hosted CI
 
