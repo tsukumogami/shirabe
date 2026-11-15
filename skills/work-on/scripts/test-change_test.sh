@@ -506,6 +506,49 @@ kill "$LIVE" 2>/dev/null
 wait "$LIVE" 2>/dev/null
 run note "$S" --file tests/greet_test.sh --reason "x"
 eq "a dead owner's lock is broken" 0 "$RC"
+sleep 30 &
+LIVE=$!
+printf '%s\t%s\n' "$LIVE" "$(ps -o lstart= -p "$LIVE" | tr -s ' ' | sed 's/^ //; s/ $//')" > "$LOCKDIR"
+run note "$S" --file tests/greet_test.sh --reason "x"
+eq "a lock file with a live owner: exit 75" 75 "$RC"
+kill "$LIVE" 2>/dev/null
+wait "$LIVE" 2>/dev/null
+run note "$S" --file tests/greet_test.sh --reason "x"
+eq "a lock file whose owner is gone is broken" 0 "$RC"
+[ -e "$LOCKDIR" ] && bad "the lock is released after the write" "[$LOCKDIR] is there" || ok "the lock is released after the write"
+
+# Five writers race for one session's lock, under a mkdir that reports success
+# for a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The writer that gets the lock is held at
+# its first ledger read until the others have given up.
+rm -rf "$LOCKDIR"
+RACE="$W/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" > "$RACE/bin/mkdir"
+cat > "$RACE/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1-}" = context ] && [ "\${2-}" = exists ]; then
+    : > "$RACE/in.\$\$"
+    n=0
+    until [ -e "$RACE/release" ] || [ "\$n" -ge 150 ]; do sleep 0.1; n=\$((n + 1)); done
+fi
+exec "$BIN/koto" "\$@"
+EOF
+chmod +x "$RACE/bin/mkdir" "$RACE/bin/koto"
+PIDS=""
+for i in 1 2 3 4 5; do
+    (cd "$R" && PATH="$RACE/bin:$BIN:$PATH" bash "$SCRIPT" note "$S" --file tests/greet_test.sh --reason "race $i" >/dev/null 2>&1
+     echo "$?" > "$RACE/rc.$i") &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^rc\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+eq "five writers racing for one session's lock: exactly one wins" 1 "$(ls "$RACE" | grep -c '^in\.')"
+: > "$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+eq "  ... and the other four exit 75" 4 "$(cat "$RACE"/rc.* | grep -c '^75$')"
 
 # --- the person-required declaration -----------------------------------------------------
 echo "--- the person-required declaration"

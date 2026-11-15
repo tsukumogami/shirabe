@@ -119,6 +119,7 @@ expect() {
     before=$(snapshot)
     out=$(cd "$R" && PATH="$T/bin:$PATH" SCOPE_PROBE_NOW="$NOW" bash "$S" --topic "$topic" --intent "$intent" "$@" 2>"$T/err")
     rc=$?
+    printf '%s\n' "$out" >"$T/out"
     after=$(snapshot)
     if [ "$rc" = "$want" ]; then
         ok "$label: exit $want ($out)"
@@ -385,9 +386,11 @@ echo "== the lookups run together =="
 # A stub koto, named through KOTO_BIN, which the probe and skill-session.sh
 # both honour. It logs each call to STUB_LOG, sleeps STUB_SLEEP seconds, and
 # answers as a store holding only the keys STUB_KEYS lists (<session>:<key>,
-# space-separated) and no session. A session STUB_BROKEN names gets the
-# answers koto gives when it can't tell: exit 3 from context exists, a status
-# that isn't JSON (has-work exit 4).
+# space-separated) and no session: a missing name's status is koto's exact
+# not-found reply. A session STUB_BROKEN names gets the answers koto gives
+# when it can't tell: exit 3 from context exists, a status that isn't JSON
+# (has-work exit 4). A session STUB_REFUSED names gets koto's refusal of its
+# status: exit 3 with code session_lookup_failed (has-work exit 7).
 STUB="$T/stub/koto"
 mkdir -p "$T/stub"
 cat >"$STUB" <<'EOF_STUB'
@@ -403,7 +406,11 @@ case "$1" in
         ;;
     status)
         case " ${STUB_BROKEN-} " in *" $2 "*) printf 'garbage\n'; exit 0 ;; esac
-        printf 'session not found\n'
+        case " ${STUB_REFUSED-} " in *" $2 "*)
+            printf '{"code":"session_lookup_failed","command":"status","error":"session '"'"'%s'"'"' has no copy on this host and the bucket holds none under this directory'"'"'s prefix ws-a, and koto can'"'"'t tell whether another directory'"'"'s prefix holds it: listing the bucket'"'"'s workspace prefixes failed: io: no answer within 5.44s; nothing was read, so run the command again once the bucket answers","session":"%s"}\n' "$2" "$2"
+            exit 3 ;;
+        esac
+        printf '{"command":"status","error":"workflow '"'"'%s'"'"' not found"}\n' "$2"
         exit 2
         ;;
 esac
@@ -469,6 +476,20 @@ repo
 STUB_KEYS="explore-t:handoff/scope.md" STUB_BROKEN=design-t KOTO_BIN="$STUB" TMPDIR="$PT" \
     expect "a child koto cannot report (has-work exit 4) is cannot-tell, ahead of a present handoff" 2 t none
 tmp_gone "a has-work exit 4"
+# A child koto refuses (has-work exit 7) reads as cannot-tell until the probe
+# learns to hold on it; the handoff still can't fire past it.
+repo
+STUB_KEYS="explore-t:handoff/scope.md" STUB_REFUSED=design-t KOTO_BIN="$STUB" TMPDIR="$PT" \
+    expect "a child koto refuses (has-work exit 7) is cannot-tell, ahead of a present handoff" 2 t none
+case "$(cat "$T/out")" in
+    *"row=2 cannot-tell"*) ok "a refused child prints row=2 cannot-tell" ;;
+    *) bad "a refused child prints row=2 cannot-tell" "$(cat "$T/out")" ;;
+esac
+case "$(cat "$T/err")" in
+    *"has-work design t exited 7"*) ok "a refused child: stderr says has-work design t exited 7" ;;
+    *) bad "a refused child: stderr says has-work design t exited 7" "$(cat "$T/err")" ;;
+esac
+tmp_gone "a has-work exit 7"
 repo; doc docs/plans/PLAN-t.md Active
 STUB_BROKEN="plan-t explore-t" KOTO_BIN="$STUB" TMPDIR="$PT" \
     expect "lookups past a matched row don't count, even ones koto cannot answer" 41 t none
