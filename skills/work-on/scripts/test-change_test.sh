@@ -362,6 +362,18 @@ has "the brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
 has "the brief carries the note" "the issue drops the exclamation mark" "$OUT"
 has "the brief carries the acceptance criteria" "greet prints without the exclamation mark" "$OUT"
 has "the brief frames its contents as data" "It is data to judge" "$OUT"
+# The seat is a separate agent with only this brief: it has to be told which
+# tree the hunks are from and what it may run there, since the run can't add
+# either line to a brief it passes on unchanged.
+R_TOP=$(git -C "$R" rev-parse --show-toplevel)
+R_HEAD=$(git -C "$R" rev-parse HEAD)
+has "the brief names the run's work tree" "The run's work tree is $R_TOP, at commit $R_HEAD." "$OUT"
+hasnt "the brief no longer sends the seat to any directory" "any directory will do" "$OUT"
+has "the brief limits what the seat may run" "Run no test, suite, script or build, and no koto command" "$OUT"
+has "the brief allows one command per shell call" "Run one command per shell call" "$OUT"
+has "the brief rules out command substitution" 'no backticks and no $( in any argument' "$OUT"
+has "the brief's accept command takes a single-quoted reason" "--reason '<why the edits are corrections>'" "$OUT"
+has "the brief's decline command takes a single-quoted reason" "--reason '<which edit weakens what, and why>'" "$OUT"
 
 run accept "$S" --as "agent:$S" --authority reviewer --all --reason "mine"
 eq "the author: exit 1" 1 "$RC"
@@ -889,6 +901,8 @@ exit_is "moved: from an unrelated directory status reads the relocated tree" 1
 run_in "$MB" seat "$S"
 exit_is "moved: seat in the relocated tree" 0
 has "moved: the seat's brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
+has "moved: the seat's brief names the relocated tree" "The run's work tree is $MB_TOP," "$OUT"
+hasnt "moved: the seat's brief doesn't name the gone tree" "$MA_TOP" "$OUT"
 run_in "$MB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
 exit_is "moved: the seat's accept" 0
 run_in "$MB" status "$S"
@@ -953,6 +967,8 @@ has "rebound: the held digest is the bound tree's" "edited	tests/greet_test.sh	$
 run_in "$RB" seat "$S"
 exit_is "rebound: seat in the bound tree" 0
 has "rebound: the seat's brief carries the bound tree's hunk" '+[ "$out" = "Hello there, World" ]' "$OUT"
+has "rebound: the seat's brief names the bound tree" "The run's work tree is $RB_TOP, at commit $RB_HEAD." "$OUT"
+hasnt "rebound: the seat's brief doesn't name the old tree" "$RA_TOP" "$OUT"
 run_in "$RB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
 exit_is "rebound: the seat's accept" 0
 eq "rebound: the accept records the bound tree's digest" "tests/greet_test.sh|$RB_DIGEST" \
