@@ -254,7 +254,7 @@ EOF
     command -v koto >/dev/null || undecided "koto is not on PATH; the deferral was not recorded"
     REASON=$(mktemp "${TMPDIR:-/tmp}/check-verification-deferral.XXXXXX") || undecided "could not create a temporary file"
     trap 'rm -f "$JQ_ERR" "$REASON"' EXIT
-    printf 'local verification failed at head %s and at the merge-base %s with the same exit status for %s, so the failure predates this change; hosted CI is the build of record\n' \
+    printf 'local verification failed at head %s and at the merge-base %s with the same exit status for %s, so the failure predates this change\n' \
         "$HEAD_SHA" "$MB" "$IDS" > "$REASON" || undecided "could not write the deferral reason"
     koto context add "$SESSION" verification_deferral --from-file "$REASON" >/dev/null \
         || undecided "could not record verification_deferral in koto context"

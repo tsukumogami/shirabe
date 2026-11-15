@@ -1428,7 +1428,7 @@ FAKE_KOTO_EXISTS_RC=""
 FAKE_KOTO_GET_RC=""
 FAKE_KOTO_ERR=""
 # The value check-verification.sh --record-deferral writes, with its newline.
-SREASON="local verification failed at head 1111111111111111111111111111111111111111 and at the merge-base 2222222222222222222222222222222222222222 with the same exit status for unit, so the failure predates this change; hosted CI is the build of record"
+SREASON="local verification failed at head 1111111111111111111111111111111111111111 and at the merge-base 2222222222222222222222222222222222222222 with the same exit status for unit, so the failure predates this change"
 printf '%s\n' "$SREASON" > "$FAKE_KOTO_CTX/run-local/verification_deferral"
 
 # No key: the run deferred nothing, so the gate passes with no GitHub read.
@@ -1479,6 +1479,16 @@ FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass." \
     "Reason: $DREASON" "Hosted CI is the build of record for this change.")
 run --deferral-record --session run-local
 expect_rc "--deferral-record --session: a Reason line other than the context's fails (1)" 1
+# The recorded reason doesn't name the build of record, so the Reason: line
+# can't stand in for the body's own line saying it.
+FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass." \
+    "Reason: $SREASON" "")
+run --deferral-record --session run-local
+if [ "$RC" -eq 1 ] && grep -q 'build of record' "$WORKDIR/stderr"; then
+    pass "--deferral-record --session: the context's Reason line with no build-of-record line of its own fails (1)"
+else
+    fail "--deferral-record --session: no build-of-record line rc $RC, stderr [$(cat "$WORKDIR/stderr")]"
+fi
 FAKE_GH_BRANCH_JSON=$(deferral_body "Local verification did not pass." \
     "Reason: $SREASON" "Hosted CI is the build of record for this change.")
 run --deferral-record --reason "$SREASON"

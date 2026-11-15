@@ -1075,7 +1075,7 @@ DRC=$?
 [ "$DRC" -eq 0 ] && pass "--record-deferral on a pre-existing result exits 0" \
     || fail "--record-deferral on a pre-existing result exited $DRC: $(cat "$WORKDIR/defer.err")"
 DFILE="$KOTO_STUB_STORE/s-pre/verification_deferral"
-WANT_DEFER="local verification failed at head $(loc_line s-pre 1) and at the merge-base $(loc_line s-pre 2) with the same exit status for pre, so the failure predates this change; hosted CI is the build of record"
+WANT_DEFER="local verification failed at head $(loc_line s-pre 1) and at the merge-base $(loc_line s-pre 2) with the same exit status for pre, so the failure predates this change"
 if [ -f "$DFILE" ] && [ "$(wc -l < "$DFILE" | tr -d ' ')" = 1 ] && [ "$(cat "$DFILE")" = "$WANT_DEFER" ]; then
     pass "--record-deferral stores one line naming the head, the merge-base and the command"
 else

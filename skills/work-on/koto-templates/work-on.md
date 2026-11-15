@@ -3943,8 +3943,8 @@ verification failed, but every failed command failed with the same exit status a
 the merge-base and in a clean checkout of the head, so the failure predates this
 change. On entry koto runs `check-verification.sh --record-deferral`, which checks
 the verdict again and writes `verification_deferral` to context: one line naming
-the head commit, the merge-base and the failed command ids, and saying hosted CI is
-the build of record (`koto context get {{SESSION_NAME}} verification_deferral`).
+the head commit, the merge-base and the failed command ids
+(`koto context get {{SESSION_NAME}} verification_deferral`).
 
 The run then goes on to `pass_counting` and `finalization`. As for a deferral to
 hosted CI, `pr_creation` holds until the pull request body records it (under

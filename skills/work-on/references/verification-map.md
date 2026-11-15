@@ -204,7 +204,7 @@ result file aside and tick, the same way as for a stopped supervisor.
 On exit 5, `verification_preexisting` runs `check-verification.sh --record-deferral`, which
 re-derives the verdict from the same result, refuses unless it is 5, and writes the context
 key `verification_deferral`: one line naming the head, the merge-base and the failed command
-ids, and saying hosted CI is the build of record. From there the run goes on like a deferral
+ids. From there the run goes on like a deferral
 to hosted CI, and the pull request records it (see `references/phases/phase-6-pr.md`).
 
 A HUP, INT or TERM that stops the supervisor during an attempt removes the attempt's
