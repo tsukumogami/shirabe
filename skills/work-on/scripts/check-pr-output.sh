@@ -514,7 +514,7 @@ check_reason() {
 REASON_FROM_SESSION=""
 session_reason() {
     local rc
-    command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH; cannot read verification_deferral for session $1"
+    command -v koto >/dev/null || undecided "koto is not on PATH; cannot read verification_deferral for session $1"
     make_work
     koto context exists "$1" verification_deferral > "$WORK/koto.out" 2> "$WORK/koto.err" < /dev/null
     rc=$?
