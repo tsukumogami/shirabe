@@ -891,7 +891,7 @@ that would pass the cap there stops at it as designed, leaving the gap open
 for a person to decide. A re-run of that capped digest goes on after the
 lines it already took, so a row ended in between doesn't come back. Both the
 `## Standing rules` reading and the re-run are set in
-`docs/designs/DESIGN-coordinator-brief-intake-cap.md`.
+`docs/designs/current/DESIGN-coordinator-brief-intake-cap.md`.
 
 - R47 (step 7's intake suite). The first intake of `min.txt`, `leg.txt`
   and `base.txt`, each on an empty record, writes exactly 7, 11 and 11
