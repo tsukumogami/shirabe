@@ -3825,7 +3825,9 @@ on the default branch.
 A merge confirmed keeps the holding until teardown and clears its Pull request
 cell: read the row with `state-holding.sh --read`, write it back with
 `pull_request` empty and nothing else changed (`--row-file`), and the record
-step waits for that. The row goes only at the teardown's destroy step. A merge
+step waits for that. That write also drops the pull request's Side effects
+merge row at the verified head, if there is one, and the record step waits
+for it to be gone. The row goes only at the teardown's destroy step. A merge
 not confirmed keeps the holding and its link and adds a Side effects row
 naming the pull request as `owner/repo#<n>` with the verified head, which a
 later reconcile settles.
@@ -3865,7 +3867,10 @@ so a merge made across the takeover is confirmed here.
 As after a merge you made: a merge confirmed keeps the holding until teardown
 and clears its Pull request cell (`state-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
-record step waits for; the row goes only at the teardown's destroy step. A
+record step waits for; the row goes only at the teardown's destroy step. That
+write also drops the pull request's Side effects merge row at the verified
+head, one a run this one took over carried included, and the record step
+waits for it to be gone. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
 head its verdict names. When neither this run nor a run it took over verified
 the pull request (an earlier run did, or a decision accepted it), the check

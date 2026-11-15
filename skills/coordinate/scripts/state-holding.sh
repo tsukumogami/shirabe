@@ -36,6 +36,11 @@
 # A row with a Verified head and a blank Pull request cell reads as merged and
 # waiting for teardown (state-common.sh lib_row_merged): only the cleared
 # cell after a confirmed merge writes that pair, so no other write may.
+# That write, the one that turns a row linking o/r#n merged, also drops the
+# Side effects merge row for o/r#n at the row's Verified head (a merge not
+# confirmed added it, here or in a run this one took over), since the merge
+# it waited on is now confirmed (shirabe#1824). Any other write leaves Side
+# effects as it was.
 #
 # A holding also keeps its last pushed head, the pull request's head as a
 # report or a link last read it (PRD R17): 40 hex, never in the row.
@@ -242,6 +247,20 @@ write)
         | if any(.holdings[]; .worker == $t)
         then .holdings |= map(if .worker == $t then $r else . end)
         else .holdings += [$r] end' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    # The cleared cell after a confirmed merge settles the merge's Side
+    # effects row at that head, one a takeover carried included: the same
+    # write drops it (shirabe#1824). Only the write that turns a linked row
+    # merged does; every other row stays.
+    OLD=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json") || lib_die2 "jq failed"
+    NEW=$(jq -c 'del(.pushed_head)' "$ROWFILE") || lib_die2 "jq failed"
+    if [ -n "$OLD" ] && lib_row_merged "$NEW" \
+        && lib_pr_link "$(printf '%s' "$OLD" | jq -r '.pull_request // ""')"; then
+        jq --arg re "$(lib_re_repo "$LINK_REPO")" --arg pr "$LINK_NUM" \
+            --arg sha "$(printf '%s' "$NEW" | jq -r '.verified_head')" \
+            "$LIB_MERGE_ROW_JQ"' .side_effects |= map(select(merge_row($re; $pr; $sha) | not))' \
+            "$T/next.json" > "$T/settled.json" || lib_die2 "jq failed"
+        mv "$T/settled.json" "$T/next.json"
+    fi
     ;;
 esac
 if lib_dispatched; then
