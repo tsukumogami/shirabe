@@ -656,7 +656,11 @@ mkdir -p "$PT"
 pid=$!
 i=0
 while [ -z "$(ls -A "$PT")" ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
-sleep 1
+# TERM goes once every read is out: the seven jobs' .out files exist (no
+# override is passed, so the run-facts read starts too), not after a fixed
+# second that a loaded runner can outlast (shirabe#1695).
+i=0
+while [ "$(ls "$PT"/deferral-check.*/*.out 2> /dev/null | wc -l | tr -d ' ')" -lt 7 ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
 kill -TERM "$pid" 2> /dev/null
 wait "$pid" 2> /dev/null
 if [ -z "$(ls -A "$PT")" ]; then ok "a check killed mid-read leaves no temporary directory"; else bad "a check killed mid-read leaves no temporary directory" "$(ls -A "$PT")"; fi
