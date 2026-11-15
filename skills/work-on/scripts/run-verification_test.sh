@@ -111,6 +111,21 @@ EOF
     printf '#!/bin/sh\nsleep 30\n' > bin/slow.sh
     printf '#!/bin/sh\nsleep 30\n' > bin/child.sh
     printf '#!/bin/sh\nsleep "${NAP_SECS:-1}"\n' > bin/nap.sh
+    # status.sh <file> [<default>]: exit with the status <file> holds, else
+    # with <default> (0). A default of `hang` marks its directory with a file
+    # named `hanging` and sleeps instead. Paths are relative to the directory
+    # it runs in, so a file the work branch commits, or an untracked one, sets
+    # what it does at each commit.
+    cat > bin/status.sh <<'EOF'
+#!/bin/sh
+[ -f "$1" ] && exit "$(cat "$1")"
+if [ "${2:-0}" = hang ]; then
+    : > hanging
+    sleep 30
+    exit 0
+fi
+exit "${2:-0}"
+EOF
     cat > bin/forker.sh <<'EOF'
 #!/bin/sh
 here=$(dirname "$0")
@@ -335,7 +350,10 @@ verdict s-pass
 expect_rc "a result for an older head only" 75
 
 echo "--- a failing command"
-mkrepo fail "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+# The work branch commits the status the command exits with, so it passes at
+# the merge-base and the comparison reads the failure as caused (exit 1).
+mkrepo fail "$(map '{"bad": {"run": ["bin/status.sh", "status.txt"]}}' '[]' '["bad"]')"
+echo 3 > status.txt
 change top.txt
 start s-fail
 settle s-fail
@@ -553,9 +571,10 @@ expect_rc "a map that selects nothing" 3
 expect_rule "a map that selects nothing" verification/no-map
 
 echo "--- a map edited only on the branch"
-mkrepo edited "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+mkrepo edited "$(map '{"bad": {"run": ["bin/status.sh", "status.txt"]}}' '[]' '["bad"]')"
 printf '%s\n' "$(map "{\"bad\": $(rec "$WORKDIR/edited.rec" ok)}" '[]' '["bad"]')" > .claude/shirabe-extensions/verification-map.json
-git commit -q -am "branch edits the map"
+echo 3 > status.txt
+git add -A && git commit -q -m "branch edits the map"
 start s-edited
 settle s-edited
 expect_rc "the branch's own map is not used" 1
@@ -768,6 +787,330 @@ for f in "$START" "$VERDICT"; do
     c=$(grep -c -E '\bsetsid\b|\btimeout ' "$f")
     [ "$c" -eq 0 ] && pass "$(basename "$f") uses neither setsid nor GNU timeout" || fail "$(basename "$f"): $c matches"
 done
+
+# --- the comparison with the merge-base ----------------------------------------------------
+#
+# A failed command is run again at the merge-base (main's commit, which every
+# mkrepo branch starts from) and in a clean checkout of the head. Each case's
+# fixture decides what the command exits at each place: bin/fail.sh exits 3
+# everywhere, bin/status.sh exits with a status the work branch commits (or an
+# untracked file holds), and bin/status.sh's `hang` default sleeps where that
+# file is absent.
+
+# loc_line <session> <n>: line <n> of --locate (1 head, 2 merge-base, 3 result).
+loc_line() { sed -n "$2p" <<EOF
+$("$START" --locate --session "$1")
+EOF
+}
+
+# expect_result <label> <session> <jq filter>: the session's result satisfies
+# the filter, with $head and $mb bound to the head and the merge-base.
+expect_result() {
+    local res
+    res=$(loc_line "$2" 3)
+    if jq -e --arg head "$(loc_line "$2" 1)" --arg mb "$(loc_line "$2" 2)" "$3" "$res" >/dev/null 2>&1; then
+        pass "$1"
+    else
+        fail "$1: $(head -c 800 "$res" 2>&1)"
+    fi
+}
+
+# expect_said <label> <text>: a finding's message says <text>.
+expect_said() {
+    case "$OUT" in
+        *"$2"*) pass "$1: the finding says [$2]" ;;
+        *) fail "$1: no [$2] in [$OUT]" ;;
+    esac
+}
+
+# expect_hold <label> <session>: the exit-6 hold on stderr names both answers
+# and the result to move aside.
+expect_hold() {
+    if grep -q 'verification_status: fix' "$WORKDIR/verdict.err" && grep -q 'verification_status: blocked' "$WORKDIR/verdict.err" \
+        && grep -q -F -- "$(loc_line "$2" 3)" "$WORKDIR/verdict.err"; then
+        pass "$1: the hold names verification_status: fix, verification_status: blocked and the result"
+    else
+        fail "$1: the hold's message: $(cat "$WORKDIR/verdict.err")"
+    fi
+}
+
+# findings_of: the sorted `<rule>=<level>` list OUT's findings print, space-terminated.
+findings_of() {
+    printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '"\(.rule_id)=\(.level)"' | LC_ALL=C sort -u | tr '\n' ' '
+}
+
+# worktrees_of <repo>: the worktrees registered in <repo>, space-terminated.
+worktrees_of() {
+    git -C "$1" worktree list --porcelain | sed -n 's/^worktree //p' | tr '\n' ' '
+}
+
+echo "--- the comparison: a failure that predates the change"
+mkrepo pre "$(map '{"pre": {"run": ["bin/fail.sh"]}}' '[]' '["pre"]')"
+change top.txt
+# A post-checkout hook that would mark any checkout made with hooks on.
+printf '#!/bin/sh\necho ran >> "%s"\n' "$WORKDIR/hook.ran" > .git/hooks/post-checkout
+chmod +x .git/hooks/post-checkout
+start s-pre
+settle s-pre
+expect_rc "pre-existing" 5
+expect_rule "pre-existing" verification/command-failed-preexisting
+expect_result "pre-existing: baseline preexisting, exit 3 at the merge-base and in the clean head" s-pre \
+    '.commands[0].baseline | .verdict == "preexisting" and .merge_base.commit == $mb and .merge_base.exit_status == 3
+     and .clean_head.commit == $head and .clean_head.exit_status == 3'
+expect_said "pre-existing" "it exited 3 at the merge-base and in a clean checkout of the head"
+PRE_DIR=$(dirname "$(result_of s-pre)")
+jq -e '.invocations[0] | has("each_dir") and .each_dir == null' "$PRE_DIR/run.json" >/dev/null 2>&1 \
+    && pass "run.json: a plain invocation carries each_dir null" \
+    || fail "run.json: a plain invocation's each_dir: $(head -c 400 "$PRE_DIR/run.json")"
+WTS=$(worktrees_of "$WORKDIR/r-pre")
+[ "$WTS" = "$WORKDIR/r-pre " ] && pass "after the attempts the repository lists only its own worktree" \
+    || fail "after the attempts the repository lists worktrees [$WTS]"
+ls -d "$PRE_DIR"/wt-* >/dev/null 2>&1 && fail "an attempt's wt- directory is left in $PRE_DIR" \
+    || pass "no attempt's wt- directory is left in the head directory"
+[ ! -e "$WORKDIR/hook.ran" ] && pass "the repository's post-checkout hook never ran during the attempts" \
+    || fail "the post-checkout hook ran during the attempts"
+# The control: the same hook does run for a worktree add with hooks on.
+git worktree add -q --detach "$WORKDIR/hookcheck" HEAD >/dev/null 2>&1
+[ -e "$WORKDIR/hook.ran" ] && pass "control: the post-checkout hook runs for a worktree add with hooks on" \
+    || fail "control: the post-checkout hook did not run for a plain worktree add, so its absence proves nothing"
+git worktree remove --force "$WORKDIR/hookcheck" >/dev/null 2>&1
+
+echo "--- the comparison: a failure the change caused"
+mkrepo cau "$(map '{"cau": {"run": ["bin/status.sh", "status.txt"]}}' '[]' '["cau"]')"
+echo 3 > status.txt
+change top.txt
+start s-cau
+settle s-cau
+expect_rc "caused" 1
+expect_rule "caused" verification/command-failed
+expect_result "caused: baseline caused, 0 at the merge-base and 3 in the clean head" s-cau \
+    '.commands[0].baseline | .verdict == "caused" and .merge_base.exit_status == 0 and .clean_head.exit_status == 3'
+expect_said "caused" "it passed at the merge-base and exited 3 in a clean checkout of the head"
+
+echo "--- the comparison: undecidable"
+# (a) The head fails on an untracked file only the lived-in tree has.
+mkrepo untr "$(map '{"untr": {"run": ["bin/status.sh", "local.txt"]}}' '[]' '["untr"]')"
+change top.txt
+echo 4 > local.txt
+start s-untr
+settle s-untr
+expect_rc "undecidable, the clean head passes" 6
+expect_rule "undecidable, the clean head passes" verification/baseline-undecidable
+expect_result "undecidable, the clean head passes: 0 at both attempts" s-untr \
+    '.commands[0].exit_status == 4 and (.commands[0].baseline | .verdict == "undecidable"
+     and .merge_base.exit_status == 0 and .clean_head.exit_status == 0)'
+expect_said "undecidable, the clean head passes" \
+    "the failure did not reproduce in a clean checkout of the head: it exited 0 there and 4 in the working tree"
+expect_hold "undecidable, the clean head passes" s-untr
+
+# (b) Different non-zero statuses at the merge-base and in the clean head.
+mkrepo differ "$(map '{"differ": {"run": ["bin/status.sh", "status.txt", "2"]}}' '[]' '["differ"]')"
+echo 3 > status.txt
+change top.txt
+start s-differ
+settle s-differ
+expect_rc "undecidable, different statuses" 6
+expect_rule "undecidable, different statuses" verification/baseline-undecidable
+expect_result "undecidable, different statuses: 2 at the merge-base, 3 in the clean head" s-differ \
+    '.commands[0].baseline | .verdict == "undecidable" and .merge_base.exit_status == 2 and .clean_head.exit_status == 3'
+expect_said "undecidable, different statuses" \
+    "it exited 2 at the merge-base and 3 in a clean checkout of the head, against 3 in the working tree"
+expect_hold "undecidable, different statuses" s-differ
+
+# (c) The base attempt runs past the command's timeout_secs.
+mkrepo basetime "$(map '{"basetime": {"run": ["bin/status.sh", "status.txt", "hang"], "timeout_secs": 2}}' '[]' '["basetime"]')"
+echo 3 > status.txt
+change top.txt
+start s-basetime
+settle s-basetime
+expect_rc "undecidable, the base attempt times out" 6
+expect_rule "undecidable, the base attempt times out" verification/baseline-undecidable
+expect_result "undecidable, the base attempt times out: the base timed out and the clean head was skipped" s-basetime \
+    '.commands[0].baseline | .verdict == "undecidable" and .merge_base.timed_out == true and .clean_head == null'
+expect_said "undecidable, the base attempt times out" \
+    "the base attempt ran past its timeout_secs or the run's budget and was killed"
+
+# (d) The run's budget cuts the base phase: the first command's base attempt
+# is stopped at the budget (its own timeout_secs is 60), and the second's
+# never starts.
+mkrepo basebudget "$(map '{"a": {"run": ["bin/status.sh", "status.txt", "hang"], "timeout_secs": 60}, "b": {"run": ["bin/fail.sh"], "timeout_secs": 60}}' '[]' '["a", "b"]')"
+echo 3 > status.txt
+change top.txt
+SHIRABE_VERIFICATION_BUDGET_SECS=5 start s-basebudget
+settle s-basebudget
+expect_rc "undecidable, the budget cuts the base phase" 6
+expect_rule "undecidable, the budget cuts the base phase" verification/baseline-undecidable
+expect_result "undecidable, the budget cuts the base phase: a's base attempt stopped at the budget, b's never started" s-basebudget \
+    '(.commands[0].baseline | .verdict == "undecidable" and .merge_base.timed_out == true
+      and .merge_base.duration_secs < 20 and .clean_head == null)
+     and (.commands[1].baseline | .verdict == "undecidable" and .merge_base == null and .clean_head == null)'
+expect_said "undecidable, the budget cuts the base phase" \
+    "the base attempt ran past its timeout_secs or the run's budget and was killed"
+expect_said "undecidable, the budget cuts the base phase" \
+    "the run's budget was spent before the base attempt could start"
+
+# (e) The attempt's worktree path is already a file.
+mkrepo wtfile "$(map '{"wtfile": {"run": ["bin/fail.sh"]}}' '[]' '["wtfile"]')"
+change top.txt
+WTF_DIR=$(dirname "$(result_of s-wtfile)")
+(umask 077 && mkdir -p "$WTF_DIR")
+: > "$WTF_DIR/wt-0-base"
+start s-wtfile
+settle s-wtfile
+expect_rc "undecidable, no worktree" 6
+expect_rule "undecidable, no worktree" verification/baseline-undecidable
+expect_result "undecidable, no worktree: neither attempt ran" s-wtfile \
+    '.commands[0].baseline | .verdict == "undecidable" and .merge_base == null and .clean_head == null'
+expect_said "undecidable, no worktree" "a worktree at $(loc_line s-wtfile 2) for the base attempt could not be made"
+WTS=$(worktrees_of "$WORKDIR/r-wtfile")
+[ "$WTS" = "$WORKDIR/r-wtfile " ] && pass "undecidable, no worktree: nothing is left registered" \
+    || fail "undecidable, no worktree: worktrees [$WTS]"
+
+# (f) run[0] exists only on the work branch.
+mkrepo newprog "$(map '{"newprog": {"run": ["bin/new.sh"]}}' '[]' '["newprog"]')"
+printf '#!/bin/sh\nexit 3\n' > bin/new.sh
+chmod +x bin/new.sh
+change top.txt
+start s-newprog
+settle s-newprog
+expect_rc "undecidable, run[0] only on the branch" 6
+expect_rule "undecidable, run[0] only on the branch" verification/baseline-undecidable
+expect_result "undecidable, run[0] only on the branch: the base attempt did not start" s-newprog \
+    '.commands[0].baseline | .verdict == "undecidable" and .merge_base.not_started == true
+     and .merge_base.exit_status == null and .clean_head == null'
+expect_said "undecidable, run[0] only on the branch" "[bin/new.sh] is not an executable program in the base worktree"
+
+# (g) An each directory the work branch adds.
+mkrepo neweach "$(map '{"E": {"run": ["bin/fail.sh"], "each": "skills/*"}}' '[{"paths": ["skills/**"], "commands": ["E"]}]')"
+change skills/c/f.txt
+start s-neweach
+settle s-neweach
+expect_rc "undecidable, a new each directory" 6
+expect_rule "undecidable, a new each directory" verification/baseline-undecidable
+expect_result "undecidable, a new each directory: nothing ran, merge_base and clean_head null" s-neweach \
+    '(.commands | length) == 1 and .commands[0].argv == ["bin/fail.sh", "c"]
+     and (.commands[0].baseline | .verdict == "undecidable" and .merge_base == null and .clean_head == null)'
+expect_said "undecidable, a new each directory" "the each directory skills/c does not exist at the merge-base"
+jq -e '.invocations[0].each_dir == "skills/c"' "$(dirname "$(result_of s-neweach)")/run.json" >/dev/null 2>&1 \
+    && pass "run.json: an each invocation carries its full directory, skills/c, as each_dir" \
+    || fail "run.json: the each invocation's each_dir: $(head -c 400 "$(dirname "$(result_of s-neweach)")/run.json")"
+
+echo "--- the comparison: mixed results"
+mkrepo mixcp "$(map '{"cau": {"run": ["bin/status.sh", "status.txt"]}, "pre": {"run": ["bin/fail.sh"]}}' '[]' '["cau", "pre"]')"
+echo 3 > status.txt
+change top.txt
+start s-mixcp
+settle s-mixcp
+expect_rc "one caused beside one pre-existing" 1
+GOT=$(findings_of)
+[ "$GOT" = "verification/command-failed-preexisting=error verification/command-failed=error " ] \
+    && pass "one caused beside one pre-existing: both findings print at error" \
+    || fail "one caused beside one pre-existing: findings [$GOT]"
+
+mkrepo mixup "$(map '{"und": {"run": ["bin/status.sh", "status.txt", "2"]}, "pre": {"run": ["bin/fail.sh"]}}' '[]' '["und", "pre"]')"
+echo 3 > status.txt
+change top.txt
+start s-mixup
+settle s-mixup
+expect_rc "one undecidable beside one pre-existing" 6
+GOT=$(findings_of)
+[ "$GOT" = "verification/baseline-undecidable=error verification/command-failed-preexisting=error " ] \
+    && pass "one undecidable beside one pre-existing: both findings print at error" \
+    || fail "one undecidable beside one pre-existing: findings [$GOT]"
+expect_hold "one undecidable beside one pre-existing" s-mixup
+
+echo "--- the comparison: skipped beside a timed-out command"
+cd "$WORKDIR/r-mixed" || exit 2
+verdict s-mixed
+expect_rc "a failed command beside a timed-out one" 4
+expect_result "a failed command beside a timed-out one: no baseline on either entry" s-mixed \
+    '(.commands | length) == 2 and all(.commands[]; has("baseline") | not)'
+
+echo "--- the comparison: a supervisor stopped by TERM during an attempt"
+mkrepo termwt "$(map '{"termwt": {"run": ["bin/status.sh", "status.txt", "hang"], "timeout_secs": 60}}' '[]' '["termwt"]')"
+echo 3 > status.txt
+change top.txt
+start s-termwt
+TW_DIR=$(dirname "$(result_of s-termwt)")
+n=0
+while [ ! -e "$TW_DIR/wt-0-base/hanging" ] && [ "$n" -lt 200 ]; do sleep 0.1; n=$((n + 1)); done
+SUP=$(readlink "$TW_DIR/lock" 2>/dev/null)
+if [ -e "$TW_DIR/wt-0-base/hanging" ] && [ -n "$SUP" ]; then
+    WTS=$(worktrees_of "$WORKDIR/r-termwt")
+    [ "$WTS" = "$WORKDIR/r-termwt $TW_DIR/wt-0-base " ] && pass "the base attempt runs in a registered worktree in the head directory" \
+        || fail "while the base attempt runs the repository lists [$WTS]"
+    kill -TERM "$SUP"
+    n=0
+    while kill -0 "$SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    jq -e '.status == "supervisor-error"' "$TW_DIR/result.json" >/dev/null 2>&1 \
+        && pass "a TERM during an attempt still writes a supervisor-error result" \
+        || fail "a TERM during an attempt wrote no supervisor-error result: $(head -c 300 "$TW_DIR/result.json" 2>&1)"
+    WTS=$(worktrees_of "$WORKDIR/r-termwt")
+    [ "$WTS" = "$WORKDIR/r-termwt " ] && pass "a TERM during an attempt leaves no worktree registered" \
+        || fail "a TERM during an attempt left worktrees [$WTS]"
+    ls -d "$TW_DIR"/wt-* >/dev/null 2>&1 && fail "a TERM during an attempt left a wt- directory: $(ls -d "$TW_DIR"/wt-*)" \
+        || pass "a TERM during an attempt leaves no wt- directory"
+else
+    fail "the base attempt was never seen running (supervisor [$SUP], $(ls "$TW_DIR" 2>&1 | tr '\n' ' '))"
+    [ -n "$SUP" ] && kill -TERM "$SUP" 2>/dev/null
+fi
+
+echo "--- the comparison: a result written before it existed"
+mkrepo v1 "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+V1_RES=$(loc_line s-v1 3)
+(umask 077 && mkdir -p "$(dirname "$V1_RES")")
+jq -cn --arg h "$(loc_line s-v1 1)" --arg m "$(loc_line s-v1 2)" \
+    '{schema: "shirabe-verification-result/v1", head: $h, merge_base: $m, status: "done", detail: "",
+      commands: [{id: "bad", argv: ["bin/fail.sh"], exit_status: 3, duration_secs: 0, timed_out: false,
+                  runaway: false, not_started: false, pgid: null, log: null}]}' > "$V1_RES"
+verdict s-v1
+expect_rc "a hand-written v1 result, a failed command with no baseline" 1
+expect_rule "a hand-written v1 result, a failed command with no baseline" verification/command-failed
+
+echo "--- the comparison: --record-deferral"
+cd "$WORKDIR/r-pre" || exit 2
+"$VERDICT" --record-deferral --session s-pre >"$WORKDIR/defer.out" 2>"$WORKDIR/defer.err"
+DRC=$?
+[ "$DRC" -eq 0 ] && pass "--record-deferral on a pre-existing result exits 0" \
+    || fail "--record-deferral on a pre-existing result exited $DRC: $(cat "$WORKDIR/defer.err")"
+DFILE="$KOTO_STUB_STORE/s-pre/verification_deferral"
+WANT_DEFER="local verification failed at head $(loc_line s-pre 1) and at the merge-base $(loc_line s-pre 2) with the same exit status for pre, so the failure predates this change; hosted CI is the build of record"
+if [ -f "$DFILE" ] && [ "$(wc -l < "$DFILE" | tr -d ' ')" = 1 ] && [ "$(cat "$DFILE")" = "$WANT_DEFER" ]; then
+    pass "--record-deferral stores one line naming the head, the merge-base and the command"
+else
+    fail "--record-deferral stored [$(cat "$DFILE" 2>&1)], want [$WANT_DEFER]"
+fi
+[ ! -s "$WORKDIR/defer.out" ] && pass "--record-deferral prints no finding" \
+    || fail "--record-deferral printed [$(cat "$WORKDIR/defer.out")]"
+
+cd "$WORKDIR/r-cau" || exit 2
+"$VERDICT" --record-deferral --session s-cau >"$WORKDIR/defer.out" 2>"$WORKDIR/defer.err"
+DRC=$?
+[ "$DRC" -eq 2 ] && pass "--record-deferral on a result that reads 1 exits 2" \
+    || fail "--record-deferral on a result that reads 1 exited $DRC"
+[ ! -e "$KOTO_STUB_STORE/s-cau/verification_deferral" ] && pass "--record-deferral on a result that reads 1 writes nothing" \
+    || fail "--record-deferral on a result that reads 1 wrote [$(cat "$KOTO_STUB_STORE/s-cau/verification_deferral")]"
+
+cd "$WORKDIR/r-pre" || exit 2
+"$VERDICT" --record-deferral --session s-pre-none >"$WORKDIR/defer.out" 2>"$WORKDIR/defer.err"
+DRC=$?
+[ "$DRC" -eq 2 ] && pass "--record-deferral with no result for the head exits 2" \
+    || fail "--record-deferral with no result for the head exited $DRC"
+[ ! -e "$KOTO_STUB_STORE/s-pre-none/verification_deferral" ] && pass "--record-deferral with no result writes nothing" \
+    || fail "--record-deferral with no result wrote a deferral"
+
+echo "--- the comparison's rules below block"
+verdict_at_warn s-pre verification/command-failed-preexisting "a lone pre-existing failure with its rule at warn" 0 \
+    "verification/command-failed-preexisting=warning "
+verdict_at_warn s-untr verification/baseline-undecidable "a lone undecidable failure with its rule at warn" 0 \
+    "verification/baseline-undecidable=warning "
+grep -q 'verification_status: fix' "$WORKDIR/verdict.err" \
+    && fail "an undecidable failure at warn still prints the exit-6 hold" \
+    || pass "an undecidable failure at warn prints no exit-6 hold"
+verdict_at_warn s-mixup verification/baseline-undecidable "undecidable at warn beside pre-existing at block" 5 \
+    "verification/baseline-undecidable=warning verification/command-failed-preexisting=error "
+rm -rf "$STAGE_COPY" "$STAGE_LOG"
 
 # --- a real koto ---------------------------------------------------------------------------
 
