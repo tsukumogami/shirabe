@@ -3752,7 +3752,10 @@ also gives its alignment reading there.
 <!-- details -->
 
 Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
-brief you dispatched. Code quality is the seats' question, already answered in
+brief you dispatched. A director also reads the manager's report on the pull
+request: that is where the goal fit it confirms, and submits, comes from; the
+changed files and the brief are for its alignment reading, not a second
+judgment. Code quality is the seats' question, already answered in
 the body; don't re-review it and don't launch reviewers. A fit pull request,
 with or without follow-ups, goes on by the land check's own verdict: to
 `land_merge` where the workspace permits the merge, and where it doesn't,
@@ -3776,7 +3779,8 @@ clause 1 first:
    Rationale: <what in the pull request decided it>
    ```
 
-   `Fit` is the judgment you submit as `fit`, written with spaces
+   `Fit` is what you submit as `fit` (a manager's judgment, or the manager's
+   fit a director confirmed), written with spaces
    (`fits_with_follow_ups` is `fits with follow-ups`). `Clauses` names each clause
    the pull request moves toward held, by its number, or `advances none`.
 2. Read the roadmap on the default branch into a file outside any

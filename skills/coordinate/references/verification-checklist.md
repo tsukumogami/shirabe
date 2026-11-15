@@ -128,8 +128,7 @@ unverified until you read it again.
 Every row has passed the land check: the worker's review round at a fresh
 reviewed head, the body's mechanical checks, and goal fit, which a manager
 judges and a director, on a lane's pull request, confirms the manager judged.
-Under the
-table, for each pull request, give the squash message the merge should carry
+Under the table, for each pull request, give the squash message the merge should carry
 (`message` in `coord/land.json`, the title and Part 1 as plain text) and say
 where the seats' verdicts are (the hand-over block `merge-order-entry.sh`
 prints names it), so whoever merges reads neither a second panel nor a
