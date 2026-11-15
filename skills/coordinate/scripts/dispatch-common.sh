@@ -169,7 +169,8 @@
 #     spent          it ended with no result its worker promoted, or no
 #                    holding was ever written naming it
 #     replaced       a new leg replaced it on this host (--releg, an
-#                    execution sent)
+#                    execution sent, a re-dispatch of its topic once its
+#                    request is no longer open)
 #     releg-pending  an import's re-leg opened new_request and hasn't finished
 #     relegged       the re-leg finished: the holding names new_request
 #     unwatchable    after an import its worker can't be watched from this
