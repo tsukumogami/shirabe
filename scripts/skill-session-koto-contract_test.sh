@@ -75,7 +75,7 @@
 set -uo pipefail
 . "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
-KNOWN_GAP_ISSUE="ISSUE_PENDING"
+KNOWN_GAP_ISSUE="koto#695"
 BOUND=90
 
 SCRIPT_DIR=$(cd -P "$(dirname "$0")" && pwd -P)
@@ -518,12 +518,15 @@ log_lines() { wc -l <"$PLOG" | tr -d ' '; }
 #                             <child> --dispatched-by <parent>` (dl_link in
 #                             scripts/lib/dispatch-link.sh)
 #   ctx/session/link-warning  dl_link removes it after a link that took
-#   ctx/manifest.json, koto-<child>.state.jsonl, version.json
+#   ctx/manifest.json, koto-<child>.state.jsonl, summary.json, version.json
 #                             what koto pushes beside every context write: the
 #                             manifest after the key (koto src/session/sync.rs,
 #                             try_push_context_key), then the state file and
 #                             the version (src/session/cloud.rs, state_key and
-#                             version_key)
+#                             version_key), and the session's summary after
+#                             each push of its state file (src/session/cloud.rs,
+#                             CloudBackend::put_summary, :1965 at v0.37.2 and
+#                             :1764 at v0.37.0)
 adopt_writes() {
     local s="/$CONTRACT_S3_BUCKET/$PREFIX_A/$1/" topic=${1#design-}
     printf '%s\n' \
@@ -532,6 +535,7 @@ adopt_writes() {
         "${s}ctx/session/link-warning" \
         "${s}ctx/manifest.json" \
         "${s}koto-$1.state.jsonl" \
+        "${s}summary.json" \
         "${s}version.json"
 }
 
