@@ -191,6 +191,9 @@ stateDiagram-v2
     task_validation --> validation_exit : verdict: exit
     verification --> pass_counting : gates.verification_verdict.exit_code: 0
     verification --> implementation : gates.verification_verdict.exit_code: 1
+    verification --> verification_preexisting : gates.verification_verdict.exit_code: 5
+    verification --> implementation : gates.verification_verdict.exit_code: 6, verification_status: fix
+    verification --> done_blocked : gates.verification_verdict.exit_code: 6, verification_status: blocked
     verification --> done_blocked : gates.verification_verdict.exit_code: 3
     verification --> done_blocked : gates.verification_verdict.exit_code: 4
     verification --> done_blocked : gates.verification_verdict.exit_code: 75, verification_status: blocked
@@ -198,6 +201,7 @@ stateDiagram-v2
     verification --> done_blocked : gates.verification_verdict.exit_code: -1, verification_status: blocked
     verification_deferred --> pass_counting : vars.VERIFICATION_DEFERRAL_REASON: {"is_set":true}
     verification_deferred --> done_blocked : vars.VERIFICATION_DEFERRAL_REASON: {"is_set":false}
+    verification_preexisting --> pass_counting
     done --> [*]
     done_already_complete --> [*]
     done_blocked --> [*]

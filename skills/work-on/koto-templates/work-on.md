@@ -985,7 +985,8 @@ states:
     # the code as it was is stale: the panels' results and the summary. The
     # panel retry blocks and finalization's issues_found block already clear
     # them before routing back, and confirm it; verification's exit 1 is koto's
-    # own edge, with no agent step before it, so koto clears them on entry. The
+    # own edge, with no agent step before it, and its exit 6 + fix edge carries
+    # only that answer, so koto clears them on entry. The
     # session's first entry clears nothing.
     #
     # The four panels' <panel>_scope.json go too. A scope names the HEAD it was
@@ -1806,9 +1807,20 @@ states:
     # empty or wrong PLUGIN_ROOT into exit 2 rather than 127: the action then
     # stops the tick with its fallback, and the gate holds.
     #
+    # When a command fails, the supervisor re-runs it at the merge-base and in
+    # a clean checkout of the head before it writes the result (#1098), and the
+    # verdict reads that comparison.
+    #
     # The verdict routes:
     #   0  every selected command passed          pass_counting
-    #   1  a command failed                       implementation
+    #   1  a command failed, and passed at the merge-base while a clean
+    #      checkout of the head reproduced it     implementation
+    #   5  every failed command failed the same way at the merge-base and in
+    #      a clean checkout of the head: the failure predates the change
+    #                                             verification_preexisting
+    #   6  a failed command's comparison could not decide (it didn't
+    #      reproduce, the statuses differed, an attempt timed out or
+    #      couldn't run)                          holds for fix or blocked
     #   3  no map, a map that does not parse, or one that selects nothing
     #                                             done_blocked (fail closed)
     #   4  a command needs a person, timed out, grew past max_procs, could
@@ -1824,8 +1836,17 @@ states:
     # Each violation exit prints `::koto-finding::` lines whose rule_id is a
     # verification/ rule from references/rule-registry.json, so the event log names the cause.
     #
-    # The one evidence left is `verification_status: blocked`, for a run that
-    # can't settle: a launcher that can't start (the wait is then pending and,
+    # Exit 5 needs no evidence: the comparison koto ran already decided, and
+    # the transition into verification_preexisting is the named step the
+    # event log records. Exit 6 is the one settled verdict that waits:
+    # `verification_status: fix` goes back to implementation, `blocked` stops
+    # the run. There is no bare exit-6 edge, since koto would refuse a
+    # gate-only edge beside the evidence edges on the same exit as not
+    # exclusive, and no rerun answer: moving the result aside and ticking
+    # reruns the suite and its comparison, as for a stopped supervisor.
+    #
+    # Otherwise `verification_status: blocked` is for a run that can't
+    # settle: a launcher that can't start (the wait is then pending and,
     # past its deadline, timed out, both exit 75), a result that can't be
     # read (2), or a gate run koto killed or could not start (-1). Each edge names the gate value, which is what lets koto prove
     # it exclusive of the routed ones.
@@ -1871,12 +1892,14 @@ states:
     accepts:
       verification_status:
         type: enum
-        values: [blocked]
+        values: [blocked, fix]
         description: >-
-          Absent on every settled path: koto routes on the verdict. Submit
-          `blocked` only when the run can't settle -- the launcher can't
-          start, the wait timed out, the result can't be read, or koto
-          could not run the check (exit -1).
+          Absent on every settled path but exit 6: koto routes on the
+          verdict. On exit 6 (the comparison with the merge-base could not
+          decide), submit `fix` to change the code or `blocked` to stop.
+          Otherwise submit `blocked` only when the run can't settle -- the
+          launcher can't start, the wait timed out, the result can't be
+          read, or koto could not run the check (exit -1).
       detail:
         type: string
         description: Why verification could not run or be read.
@@ -1887,6 +1910,19 @@ states:
       - target: implementation
         when:
           gates.verification_verdict.exit_code: 1
+      - target: verification_preexisting
+        when:
+          gates.verification_verdict.exit_code: 5
+      - target: implementation
+        when:
+          gates.verification_verdict.exit_code: 6
+          verification_status: fix
+      - target: done_blocked
+        when:
+          gates.verification_verdict.exit_code: 6
+          verification_status: blocked
+        context_assignments:
+          failure_reason: "verification blocked: ${evidence.detail}"
       - target: done_blocked
         when:
           gates.verification_verdict.exit_code: 3
@@ -1962,9 +1998,47 @@ states:
         context_assignments:
           failure_reason: "verification_deferred: VERIFICATION=hosted-ci was chosen without VERIFICATION_DEFERRAL_REASON. A deferral to hosted CI needs a stated reason, and the variable is fixed at init: start the run again with both, or without the deferral."
 
+  verification_preexisting:
+    # Where verification's exit 5 goes (#1098): every failed command failed
+    # with the same exit status at the merge-base and in a clean checkout of
+    # the head, so the failure predates the change. koto routes here on the
+    # verdict alone; the comparison it ran decided, and the agent submits
+    # nothing. The transition into this state is the named, logged step past
+    # a local failure, kept apart from verification_deferred so a hosted-ci
+    # deferral and a pre-existing failure stay distinct in the event log.
+    #
+    # The action writes the record: check-verification.sh --record-deferral
+    # re-derives the verdict from the same result, refuses (exit 2) unless it
+    # is 5, and writes verification_deferral as one line naming the head, the
+    # merge-base and the command ids, saying hosted CI is the build of
+    # record. A failing action stops the tick, so the edge out is never taken
+    # without the write; the action re-runs on every tick until it succeeds.
+    # There is no gate here: verification_deferral can be on record from an
+    # earlier lap, since koto won't clear a key a transition or action wrote,
+    # so a context-exists gate would prove nothing about this one. The head
+    # commit in the line tells a reader which lap wrote it.
+    #
+    # From here the run goes on like a deferral to hosted CI: pass_counting,
+    # finalization, and pr_creation's verification_deferral_recorded gate,
+    # which reads the key for every run. ci_monitor then requires hosted CI
+    # green as always, which is what makes it the build of record.
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" --record-deferral --session "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not record the deferral of a local failure that predates
+        the change. Read the command's own output above:
+        check-verification.sh --record-deferral exits 2 when the result for
+        this head can't be read, its verdict is not 5, or the
+        verification_deferral write to koto context failed, and the test -x
+        guard exits 2 when PLUGIN_ROOT does not reach the plugin. Fix the
+        cause and tick again -- the action re-runs on every tick.
+    transitions:
+      - target: pass_counting
+
   pass_counting:
-    # Entered only after a check passed: verification's exit 0, or a
-    # deferral to hosted CI. A pass is counted here before the run finalizes
+    # Entered only after a check passed: verification's exit 0, a deferral
+    # to hosted CI, or a local failure that verification_preexisting showed
+    # predates the change. A pass is counted here before the run finalizes
     # (../references/red-first.md), and only when both gates pass:
     #
     #   fix_green      red-first.sh check-green. Passes for a unit that isn't a
@@ -2124,7 +2198,10 @@ states:
         #   The one other way in is verification_deferred, for a run that chose
         #   VERIFICATION=hosted-ci with a reason: its evidence is the pull
         #   request's hosted CI, which pr_creation makes the body record and
-        #   ci_monitor requires green.
+        #   ci_monitor requires green. verification_preexisting is the same
+        #   for a local run whose failures failed the same way at the
+        #   merge-base (verdict exit 5): it records verification_deferral, and
+        #   hosted CI becomes the build of record the same way.
         # deferral_requested: an acceptance criterion is unmet/deferred. There is NO clean
         #   self-reported deferral terminal here (the old deferred_items_noted loophole is
         #   removed). This routes to the blocking deferral_approval human gate instead.
@@ -2151,8 +2228,9 @@ states:
           failure_reason: "check_exit at finalization: commit_convention could not be satisfied: ${evidence.check_exit_reason}"
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
       # passed, since finalization is only reachable through pass_counting, after
-      # verification_verdict exit 0 or a deferral to hosted CI with a reason
-      # (verification_deferred).
+      # verification_verdict exit 0, a deferral to hosted CI with a reason
+      # (verification_deferred), or a local failure that predates the change
+      # (verification_verdict exit 5, through verification_preexisting).
       # It also requires both artifacts to pass the checks pre_pr_evidence makes.
       - target: pre_pr_evidence
         when:
@@ -2527,22 +2605,27 @@ states:
       pr_body_conformant:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=pr_body_conformant SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
-      # A run that deferred verification to hosted CI (VERIFICATION=hosted-ci,
-      # verification_deferred) records the deferral where a reviewer reads it.
-      # In a repository that doesn't opt in to workflow content
-      # (scripts/pr-workflow-content.sh prints omit) the script exits 0 with no
-      # GitHub read: verification_deferral in context is the record. Otherwise
-      # check-pr-output.sh --deferral-record reads the pull request body from
-      # GitHub and exits 0 when it says local verification did not run, has
-      # the line `Reason: <reason>`, and names hosted CI as the build of record; 1
-      # when any of the three is missing; 2 when it could not decide. It gates
-      # the created edge only, so 1 and 2 hold here, like pr_body_conformant:
-      # fix the body with `gh pr edit` and submit again. A local run never
-      # starts the script: the test short-circuits to 0, with no process and
-      # no GitHub read.
+      # A run that deferred verification records the deferral where a
+      # reviewer reads it: a hosted-ci run (verification_deferred) and a local
+      # run whose failures predate the change (verification_preexisting) both
+      # leave verification_deferral in context, and this gate runs for every
+      # run. check-pr-output.sh --deferral-record --session reads that key:
+      # absent, it exits 0 with no GitHub read. Present, its value is the
+      # reason. In a repository that doesn't opt in to workflow content
+      # (scripts/pr-workflow-content.sh prints omit) the script then exits 0
+      # with no GitHub read: the context key is the record. Otherwise it reads
+      # the pull request body from GitHub and exits 0 when it says local
+      # verification did not run or did not pass, has the line
+      # `Reason: <reason>`, and names hosted CI as the build of record; 1 when
+      # any of the three is missing; 2 when it could not decide, a failed
+      # context read included. It gates the created edge only, so 1 and 2 hold
+      # here, like pr_body_conformant: fix the body with `gh pr edit` and
+      # submit again. The key stays once written, even when a later lap passed
+      # locally, so the record is required whenever it exists; the head commit
+      # in a local run's reason says which lap wrote it.
       verification_deferral_recorded:
         type: command
-        command: 'test "{{VERIFICATION}}" != hosted-ci || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --reason "{{VERIFICATION_DEFERRAL_REASON}}"; }'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --deferral-record --session "{{SESSION_NAME}}"'
       # The probe's check (docs/guides/probe.md): probe.sh check reads the
       # `ack` field of this visit's `pr_status: created` submissions from the
       # session log. 0 a match or a run in no arm, and 0 with the not-ready
@@ -3767,13 +3850,32 @@ nothing matches), and require every run to pass.
 On entry koto starts it with `run-verification.sh --start`, which reads the
 verification map committed at the merge-base with the default branch, selects the
 commands for this branch's changed files, and starts them in a bounded, detached
-supervisor. The `verification_verdict` gate runs `check-verification.sh --verdict`
-on the result and koto routes on it, with no evidence from you:
+supervisor. When a command fails, the supervisor runs it twice more before it
+writes the result: once in a clean checkout of the merge-base and once in a clean
+checkout of the head, and compares the exit statuses. The `verification_verdict`
+gate runs `check-verification.sh --verdict` on the result and koto routes on it,
+with no evidence from you except on exit 6:
 
 - **exit 0**: every selected command ran and passed. The run goes to `pass_counting`.
-- **exit 1**: a command ran and did not pass. The run returns to `implementation`
-  to fix the failure, and koto clears the panel results and `summary.md` as it
-  enters there, so the panels judge the fixed code.
+- **exit 1**: a command ran and did not pass, and the comparison shows the change
+  caused it: it passed at the merge-base and failed again in the clean head. The run
+  returns to `implementation` to fix the failure, whatever file it is in, and koto
+  clears the panel results and `summary.md` as it enters there, so the panels judge
+  the fixed code.
+- **exit 5**: every failed command failed with the same exit status at the
+  merge-base and in the clean head, so the failure predates this change. koto routes
+  on its own to `verification_preexisting`, which records the deferral; submit
+  nothing. Hosted CI becomes the build of record.
+- **exit 6**: the comparison could not decide for a failed command: it didn't fail
+  again in the clean head, the exit statuses differed, an attempt timed out or ran
+  out of the run's budget, its checkout couldn't be made, the command couldn't
+  start at the merge-base, or its `each` directory doesn't exist there. The
+  finding gives the reason. There is no deferral: submit
+  `verification_status: fix` to change the code (the run returns to
+  `implementation`), or `verification_status: blocked` with the reason in `detail`
+  to stop at `done_blocked`. To run the suite and the comparison again instead,
+  for example after load on the host has dropped, move the result file the stderr
+  line names aside and tick.
 - **exit 3**: no verification map at the merge-base, a map that does not parse, or
   a map that selects nothing for this change. Fails closed at `done_blocked`.
 - **exit 4**: a command needs a person (`unattended: false`), timed out, grew past
@@ -3806,16 +3908,18 @@ changes is exit 4, since the paths selected and the code tested would differ.
 Announce which commands ran and their results.
 They are in the result koto records as `verification_results.json` (`koto context get {{SESSION_NAME}} verification_results.json`):
 each command's id, argv, exit status, duration, and whether it timed out or was
-killed for runaway growth. Each command's log is beside it, under
+killed for runaway growth, and for a failed command its `baseline` comparison
+(the verdict, the reason, and each attempt's commit, exit status and log). Each
+command's log is beside it, under
 `${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/{{SESSION_NAME}}/<head>/`.
 
 If koto could not start the run (the action's fallback is shown above), the wait
 timed out, or the gate holds on exit 2 or -1 and the cause can't be fixed, submit `verification_status: blocked`
 with the reason in `detail`. The run stops at `done_blocked`.
 
-Evidence schema (only when the run can't settle):
-- `verification_status`: `blocked`
-- `detail`: why verification could not run or be read
+Evidence schema (only on exit 6, or when the run can't settle):
+- `verification_status`: `fix` (exit 6 only) or `blocked`
+- `detail`: with `blocked`, why verification could not run, be read, or be decided
 
 ## verification_deferred
 
@@ -3831,6 +3935,26 @@ CI is the build of record: `pr_creation` holds until the pull request body recor
 the deferral, and `ci_monitor` requires that CI green. A run that chose the deferral
 without a reason stops at `done_blocked` instead; start it again with both
 variables, or without the deferral.
+
+## verification_preexisting
+
+koto routes here from `verification` on exit 5, and you submit nothing. Local
+verification failed, but every failed command failed with the same exit status at
+the merge-base and in a clean checkout of the head, so the failure predates this
+change. On entry koto runs `check-verification.sh --record-deferral`, which checks
+the verdict again and writes `verification_deferral` to context: one line naming
+the head commit, the merge-base and the failed command ids, and saying hosted CI is
+the build of record (`koto context get {{SESSION_NAME}} verification_deferral`).
+
+The run then goes on to `pass_counting` and `finalization`. As for a deferral to
+hosted CI, `pr_creation` holds until the pull request body records it (under
+workflow content, a `## Verification` section saying local verification did not
+pass, with the line `Reason: <that value>`, and naming hosted CI as the build of
+record), and `ci_monitor` requires hosted CI green. The failing commands' logs and
+the comparison are in `verification_results.json`.
+
+If the action fails (its fallback is shown above), read its output, fix the cause
+and tick again; the run doesn't move on without the record.
 
 ## pass_counting
 
@@ -4158,23 +4282,27 @@ heading or table, a `Plan:` or `Roadmap:` line, or an `Implements` line naming a
 PLAN or ROADMAP file (`pr-body/workflow-content`); `references/phases/phase-6-pr.md`
 says what goes where under each.
 
-A run that deferred verification to hosted CI (it passed through
-`verification_deferred`, and `verification_deferral` is in context) says so in
+A run that deferred verification (it passed through `verification_deferred` or
+`verification_preexisting`, and `verification_deferral` is in context) says so in
 plain terms under `omit`: the body's Verification section says hosted CI verified
 the change, and the reason stays in context. Under `include` it records the
 deferral in Part 2, under a `Verification` heading, with the three lines
-`references/phases/phase-6-pr.md` gives: that local verification did not run,
+`references/phases/phase-6-pr.md` gives: that local verification did not run (a
+hosted-ci deferral) or did not pass (a failure that predates the change),
 `Reason: ` followed by the `verification_deferral` value verbatim, and that
-hosted CI is the build of record for this change.
+hosted CI is the build of record for this change. The key stays once written, so a
+run that deferred on an earlier lap and passed later still records it; the head
+commit in the reason says which lap.
 
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
-pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`. Under
-`omit` it passes without reading GitHub. Under `include` it reads the body from
-GitHub and holds the state until it says local verification did not run, has the
-line `Reason: <reason>` exactly and whole (the reason anywhere else in the body
-doesn't count), and says hosted CI is the build of record. Fix the body with
-`gh pr edit` and submit `pr_status: created` again. On a run that didn't defer
-the gate passes without running anything.
+pass. It runs `check-pr-output.sh --deferral-record --session {{SESSION_NAME}}`,
+which reads `verification_deferral` from context. Without the key it passes with
+no GitHub read. With it, under `omit` it passes without reading GitHub; under
+`include` it reads the body from GitHub and holds the state until it says local
+verification did not run or did not pass, has the line `Reason: <reason>` exactly
+and whole (the reason anywhere else in the body doesn't count), and says hosted CI
+is the build of record. Fix the body with `gh pr edit` and submit
+`pr_status: created` again.
 
 The gate's output escalates. The first time a rule fails here, its finding
 carries the rule's summary. From the second failed evaluation of the same
