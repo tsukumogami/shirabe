@@ -122,21 +122,25 @@ The cleanup checks each path in a fixed order and stops at the first word that r
 | `outside` | The path leaves the repository root, through a `..` or any other route, or is `.` itself. |
 | `gone` | The path passed the two checks above and doesn't exist. Nothing is removed and nothing more is checked. |
 | `symlink` | The path, or a directory on the way to it, is a symbolic link. |
-| `tracked` | git tracks something at or under the path. |
+| `tracked` | git tracks something at or under the path. On a case-insensitive repository (`core.ignorecase` true), a path whose on-disk or case-folded spelling matches a tracked path counts too. |
 | `not-ignored` | `git check-ignore` doesn't match the path. |
-| `protected` | The path is or contains the git directory, holds a `.git` entry at any depth (a nested clone or worktree) or a mount, or is one of `.git`, `.claude`, `CLAUDE.md`, `CLAUDE.local.md`, `.env`, `.env.*` or the cleanup's own directory. |
+| `protected` | The path is or contains the git directory or the common git directory, holds a `.git` entry at any depth (a nested clone or worktree) or a mount, or is one of `.git`, `.claude`, `CLAUDE.md`, `CLAUDE.local.md`, `.env`, `.env.*` or the cleanup's own directory. |
 
-Two more words fall outside that order. `malformed` names a `build_output` that isn't a
-list, which removes nothing, and an entry that isn't a non-empty string or that holds a
-newline or other control character, which is skipped. `failed` names a path that passed
-every check but couldn't be removed safely, for example because it changed between the
-check and the removal; it stays in place.
+A path that passes every check is removed and reported `removed`. Two more words fall
+outside that order. `malformed` names a `build_output` that isn't a list, which removes
+nothing, and an entry that isn't a non-empty string or that holds a newline or other
+control character, which is skipped. `failed` names a path that passed every check but
+couldn't be removed safely: it changed between the check and the removal, it sits on
+another device, or its `protected` check ran out of time. It also names a problem with the
+cleanup's own records directory, in which case nothing is removed. A `failed` path stays in
+place.
 
 **Turning the cleanup on.** The cleanup is off unless a workspace turns it on. It runs only
 when the line `## Build Output Cleanup: on` sits in a `CLAUDE.local.md` that git doesn't
 track and that isn't a symbolic link, in the work tree the run takes its instructions from.
 The header's name is matched exactly; its value `on` in any case turns the cleanup on, and
-anything else leaves it off. A tracked or symlinked `CLAUDE.local.md` leaves it off too. The
+anything else leaves it off. A tracked or symlinked `CLAUDE.local.md`, an unreadable one, or
+one with the header twice leaves it off too, and the cleanup says which. The
 committed `CLAUDE.md` is never read for this line, so a repository can't turn the cleanup
 on for everyone who clones it. An operator adds the line to each worktree's untracked
 `CLAUDE.local.md`, or a workspace manager's config adds it to the `CLAUDE.local.md` it
