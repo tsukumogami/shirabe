@@ -231,7 +231,11 @@ and its trash goes to this call's detached delete.
 Before it builds, `run-verification.sh` reads the records and waits, inside
 its own budget, while any of them says `running` with a live pid. A record
 whose pid is dead counts as ended; the runner leaves its trash for the
-script's next call to reap. The git directory is never part of the work
+script's next call to reap. If the budget runs out while a record still says
+`running` with a live pid, as it can with a reused pid, the runner builds
+nothing: it starts no command, reports the verification as not run, and
+prints one line naming the record. That keeps R12's rule that nothing builds
+during a removal. The git directory is never part of the work
 tree, is never tracked, and is private to each worktree.
 
 The rename frees the build path at once, so a later build can't race the
@@ -264,21 +268,46 @@ reaping half of this option is taken; the wait stays in the runner.
 
 Resolved inline. A child on a shared branch, or one whose worktree a later child uses, must
 not clean, and the plan's parent cleans once per worktree at its own
-successful end (R9). Where the parent cleans is settled: at `/execute`'s
-`plan_completion`, once per recorded worktree, and at the end of the
-multi-pr driver's item loop. What stays open is only the work-on state that
-calls the script for a single run, held for the tsukumogami/shirabe#1230
-design.
+successful end (R9). Where the parent cleans is settled here: at
+`/execute`'s successful end, after CI is green, once per recorded worktree,
+and at the end of the multi-pr driver's item loop. What stays open is the
+work-on state that calls the script for a single run, held for the
+tsukumogami/shirabe#1230 design.
 
 #### Chosen: the run that owns the worktree's last use cleans it
 
 A `/work-on` run that a plan parent dispatched never cleans, whatever its
 edge, and the shared-branch edge (`pr_creation` to `done` on `pr_status:
-shared`) never cleans either. `/execute` runs the script in its
-`plan_completion` state, after every child landed with CI green, once for
-each worktree the run recorded: one in single-pr mode, one per worktree in
-coordinated mode. `plan_completion` is outside the work-on states the
-tsukumogami/shirabe#1230 design is changing.
+shared`) never cleans either. `/execute` cleans at its successful end, and
+the two templates reach that end differently.
+
+In single-pr mode, `plan_completion` runs before `ci_monitor`, so it can't
+carry the cleanup: CI isn't being watched yet. The successful ends come
+after `ci_monitor` reports CI green, through `merge_readiness` and then
+`merge_route`, which routes to `ready_awaiting_merge` or, after
+`merge_confirm`, to `done`. The parent cleans once, on those routes, in its
+one worktree. It never cleans at `plan_completion`, and never on
+`done_blocked`, which `ci_monitor` and `merge_route` can both reach.
+
+The coordinated template, `execute-coordinated.md`, has no
+`plan_completion` state. Its successful ends follow `coord_verdict`: it
+cleans once per recorded worktree when `coord_verdict` routes to
+`ready_awaiting_merge` or `merged`. `paused_awaiting_merges`, `done_blocked`
+and `done_error` aren't successful ends, and none of them cleans.
+
+Which exact state carries the call in each template is the implementer's to
+wire, within those bounds. These are `/execute` states, outside the work-on
+states the tsukumogami/shirabe#1230 design is changing.
+
+A plan parent has no `result.json` or `impl_base` of its own, so it pins
+its own base. When its run starts it records, in its own session, one base
+per repository: the commit the default branch's remote ref names at that
+moment. It passes that as `--base` for every worktree of that repository
+and never recomputes it. Every child's base comes after it, so the pinned
+base is an ancestor of every child's head and the script's ancestry check
+passes. After the branch's pull request merges and the default branch is
+fetched, a recomputed merge base would be the branch head itself, which is
+why the parent keeps the base it pinned at its start (R2).
 
 In a multi-pr PLAN, `/work-on` is the driver: it takes the items one at a
 time, so the driver itself, not a child, knows when no item remains. It calls
@@ -328,7 +357,8 @@ hasn't finished.
 
 The pieces fit because they all resolve to one script and the records it
 writes, one per removal. The work-on end, the multi-pr driver's item loop,
-`/execute`'s `plan_completion` and a fix round's end all call
+`/execute`'s successful end after CI is green (once per recorded worktree,
+with the base the parent pinned at its start) and a fix round's end all call
 `clean-build-output.sh`; `run-verification.sh` reads its records and waits on
 any that's still running. The script never fails the run: it prints its
 lines and exits 0, whatever it found. The exact work-on state it runs in
@@ -357,10 +387,10 @@ tsukumogami/koto#490.
 | `skills/work-on/references/verification-map.md` | Documents `build_output` as a fifth, optional top-level field: literal paths, the normalization, the refusal words, and that a remover may read it and the field isn't renamed or changed in meaning without a schema change (R10). |
 | `skills/work-on/scripts/verification-map-schema_test.sh` | Accepts a map with and without the field; a malformed field doesn't fail the map. |
 | `skills/work-on/scripts/clean-build-output.sh` (new) | Reads the switch at the root, checks its own directory, reaps dead removals, checks the base's ancestry and reads the declaration there, checks each path, renames the passing ones into numbered trash entries, writes one record per removal, starts the deleter, prints one line per path, exits 0. |
-| `skills/work-on/scripts/run-verification.sh` | Before building, waits inside its budget on every removal record that says `running` with a live pid. It doesn't reap; the script does. `SELECT_JQ` is unchanged. |
+| `skills/work-on/scripts/run-verification.sh` | Before building, waits inside its budget on every removal record that says `running` with a live pid. If the budget runs out first, it starts no command, reports the verification as not run and names the record. It doesn't reap; the script does. `SELECT_JQ` is unchanged. |
 | work-on template, single run | Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief. Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The state is named when the tsukumogami/shirabe#1230 design settles. Dispatched children and the shared-branch edge don't call it. |
 | work-on template, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. It calls the script once, when its item loop finds no next item, in the one worktree the items share. Its exact state name waits on the tsukumogami/shirabe#1230 design, like the single run's caller. |
-| `/execute` template, `plan_completion` | Calls the script once per recorded worktree. |
+| `/execute` templates, successful end | Pin one base per repository at the run's start, in the parent's session. Single-pr: calls the script once after `ci_monitor` reports CI green, on the routes from `merge_route` into `ready_awaiting_merge` or, after `merge_confirm`, into `done`; never at `plan_completion` or on `done_blocked`. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree when `coord_verdict` routes to `ready_awaiting_merge` or `merged`; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
 | koto's verification map and command list | `env CARGO_INCREMENTAL=0` right after `scripts/without-session-env.sh` on each of the seven cargo commands; the wrapper is unchanged (koto's own item). |
 
 ### The script's contract
@@ -373,8 +403,13 @@ clean-build-output.sh --base <sha> [--root <dir>]
 declared path resolves against it. It defaults to `git rev-parse
 --show-toplevel`. `--base` is the base the run pinned: verification's
 recorded `merge_base` from `result.json`, or the run's `impl_base` when it
-relied on hosted CI and has no `result.json`. The script never computes a
-merge base itself.
+relied on hosted CI and has no `result.json`. A plan parent has neither, so
+it passes the base it pinned when its run started: for each repository, the
+commit the default branch's remote ref named at that moment, recorded in the
+parent's own session and passed unchanged for every worktree of that
+repository. Each child's base comes after it, so it's an ancestor of every
+child's head. Neither the script nor its caller ever computes a merge base at
+cleanup time.
 
 Callers run it once, at a run's successful end with CI green, or at the
 successful end alone in a repo with no hosted checks. It never runs on a
@@ -471,9 +506,19 @@ run ends, CI green
        detached rm -rf trash -> removal-<stamp>.json {status: done, ended_at}
   -> exit 0 (outcome unchanged)
 
+/execute parent
+  start: pin one base per repository (default branch's remote ref, now)
+  single-pr: ci_monitor green -> merge_readiness -> merge_route
+       -> ready_awaiting_merge, or merge_confirm -> done
+       -> clean-build-output.sh --base <parent's pinned base>, once
+  coordinated: coord_verdict -> ready_awaiting_merge or merged
+       -> clean-build-output.sh --base <parent's pinned base>, per worktree
+  done_blocked, done_error, paused_awaiting_merges -> no cleanup
+
 next run, same worktree
   -> run-verification.sh reads every removal-*.json
        any running with a live pid -> wait inside budget
+       budget out, still running -> build nothing, not run, name the record
        dead pid -> counts as ended (the script's next call reaps it)
   -> build
 ```
@@ -495,9 +540,13 @@ next run, same worktree
    removal record. It's verification code the tsukumogami/shirabe#1230
    design also changes, so it lands after that design's PR, or rebased onto
    it.
-4. **The callers.** Wire `/execute`'s `plan_completion`, and wire the
-   work-on end and the multi-pr driver's item loop once the
-   tsukumogami/shirabe#1230 design names their states.
+4. **The callers.** Wire `/execute`'s successful ends: in single-pr mode
+   after `ci_monitor` reports CI green, on the routes from `merge_route`
+   into `ready_awaiting_merge` or `done`, and in coordinated mode when
+   `coord_verdict` routes to `ready_awaiting_merge` or `merged`, each with
+   the base the parent pinned at its start. Wire the work-on end and the
+   multi-pr driver's item loop once the tsukumogami/shirabe#1230 design
+   names their states.
 5. **koto's suite.** `env CARGO_INCREMENTAL=0` on the seven cargo commands
    in koto's verification map, and koto's command list, against
    tsukumogami/koto#490. Independent of the rest.
@@ -564,7 +613,8 @@ directories the script created or reaped, with each path computed from the
 git directory and the record's file name and a non-empty and prefix check,
 never from a path inside a record. The runner only reads records and waits;
 it removes nothing. A recorded pid that has been reused makes a later run
-wait, at most its own budget.
+wait, at most its own budget; if the budget runs out first, the run builds
+nothing and reports its verification as not run, naming the record.
 
 **Data.** Nothing is sent anywhere (R14). The records and the deleters' logs
 hold only paths from the repo's own map, pids and timestamps, in the git
@@ -597,6 +647,9 @@ earlier commit passes.
 - A fix round and a re-run after `done` build from cold.
 - Files a worker wrote by hand inside a declared tree go with it.
 - The verification runner gains a wait on a running removal.
+- Rarely, a verification doesn't run: when the runner's budget runs out while
+  a record still says `running` with a live pid (a reused pid, say), it
+  builds nothing and reports the verification as not run.
 - A run that blocks, or a worker that dies, keeps its tree; the cleanup only
   bounds runs that finish.
 
@@ -605,6 +658,8 @@ earlier commit passes.
 - The cold build is the accepted cost of leaving nothing, and only fix
   rounds and re-runs pay it.
 - The wait is bounded by the runner's own budget, a dead deleter's record
-  counts as ended, and the script's next call reaps its trash.
+  counts as ended, and the script's next call reaps its trash. A wait that
+  runs out builds nothing and names the record it waited on, so the
+  verification that didn't run says why.
 - Trees left by blocked or dead runs are the instance remover's to trim, and
   it reads the same declaration.

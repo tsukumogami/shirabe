@@ -33,7 +33,7 @@ work-on template call the script at a run's successful end. koto's suite
 gets `env CARGO_INCREMENTAL=0` on its seven cargo commands as its own item,
 against tsukumogami/koto#490.
 
-The plan follows the Accepted design and the PRD's requirements R1 to R15.
+The plan follows the design and the PRD's requirements R1 to R15.
 It runs no measured build and adds no debug-information setting (R15), sends
 no telemetry (R14), and builds no trim of idle trees and no instance remover:
 those belong to another milestone, and this plan only supplies the
@@ -58,8 +58,9 @@ it can't be written before the record format exists. The runner is
 verification code the tsukumogami/shirabe#1230 design also changes, so the
 guard lands after that design's pull request, tsukumogami/shirabe#1881, or
 rebased onto it. Decision 4 settles where a plan's parent cleans
-(`/execute`'s `plan_completion`, once per worktree, and the multi-pr driver
-when its item loop ends) and leaves the single run's state to the same
+(`/execute`'s successful end after CI is green, once per recorded worktree,
+with the base the parent pinned at its start, and the multi-pr driver when
+its item loop ends) and leaves the single run's state to the same
 design, so the callers come last and the work-on caller names no state.
 
 A walking skeleton wasn't used. Its first issue would have to run the
@@ -147,28 +148,37 @@ it removes nothing (R12).
 **Acceptance Criteria**:
 - [ ] With a `removal-*.json` at `status: running` whose pid is live, a verification run starts no command until the record reads `done` or `failed`; the test shows the first command's start time after the record's `ended_at`.
 - [ ] A `running` record whose pid is dead counts as ended: verification starts at once, and the record and its trash are left untouched for the script's next call.
-- [ ] A record whose pid stays live (a reused pid) ends the wait inside the run's own budget: the run's total time never passes its budget because of the wait.
+- [ ] A record whose pid stays live (a reused pid) ends the wait inside the run's own budget, and the run's total time never passes its budget because of the wait; when the budget runs out with that record still `running`, the runner starts no command, reports the verification as not run, and prints one line naming the record.
 - [ ] With no records, or only `done` and `failed` ones, the runner's selected invocations, verdicts and `result.json` match a run without this change.
 - [ ] The runner deletes, renames and rewrites nothing under `shirabe-build-output`, and `SELECT_JQ` is unchanged.
 
 **Dependencies**: Blocked by <<ISSUE:2>>
 
-### Issue 4: feat(execute): clean each recorded worktree at plan_completion
+### Issue 4: feat(execute): clean each recorded worktree at the run's successful end
 
 **Repo**: tsukumogami/shirabe
 
 **Group**: wiring
 
-**Goal**: `/execute`'s `plan_completion` state runs `clean-build-output.sh`
-once for each worktree the run recorded, after every child landed with CI
-green (R9).
+**Goal**: `/execute` runs `clean-build-output.sh` once per recorded
+worktree at the run's successful end, with the base the parent pinned at its
+start (R2, R9). In single-pr mode that's after `ci_monitor` reports CI
+green, on the routes from `merge_route` into `ready_awaiting_merge` or,
+after `merge_confirm`, into `done`; never at `plan_completion`, which runs
+before CI is watched. In coordinated mode it's when `coord_verdict` routes
+to `ready_awaiting_merge` or `merged`. The implementer picks the exact state
+in each template within those bounds.
 
 **Acceptance Criteria**:
-- [ ] A single-pr plan's run calls the script exactly once, in its one worktree, with that worktree's pinned base and root.
-- [ ] A coordinated run with children in two worktrees, each holding its declared tree before `plan_completion`, calls it once in each, and the declared paths are gone from both afterwards.
-- [ ] A run that ends at `done_blocked` after one child finished calls it nowhere, and that child's tree stays.
-- [ ] A script line of `failed`, `malformed` or `base unreadable` leaves the state's outcome and the run's terminal unchanged.
-- [ ] The execute template's structure test and its owned-PR caller tests pass with the new step.
+- [ ] A single-pr run calls the script exactly once, in its one worktree, after `ci_monitor` reports CI green, whether it ends at `ready_awaiting_merge` or at `done` after `merge_confirm`; `plan_completion` calls nothing.
+- [ ] A coordinated run with children in two worktrees, each holding its declared tree, calls the script once in each when `coord_verdict` routes to `ready_awaiting_merge` or `merged`, and the declared paths are gone from both afterwards.
+- [ ] The parent records one base per repository in its own session when its run starts, the commit the default branch's remote ref names at that moment, and passes that same base as `--base` for every worktree of that repository; it never recomputes it.
+- [ ] After the branch's pull request is merged and the default branch fetched, so that a recomputed merge base would be the branch head, the cleanup still leaves in place a path the branch added to the declaration (R2).
+- [ ] A run that ends at `done_blocked` calls the script nowhere, and every tree stays.
+- [ ] A single-pr run whose `ci_monitor` reports failing CI that's then fixed before the end cleans nothing while CI is failing, and cleans once, at the end.
+- [ ] A coordinated run that reaches `paused_awaiting_merges` cleans nothing, and neither does one that ends at `done_blocked` or `done_error`.
+- [ ] A script line of `failed`, `malformed` or `base unreadable` leaves the run's terminal unchanged.
+- [ ] The execute template's structure test, its owned-PR caller tests and the coordinated template's tests pass with the new step.
 
 **Dependencies**: Blocked by <<ISSUE:3>>
 
@@ -191,6 +201,8 @@ names neither state (R6, R7, R9).
 - [ ] A child dispatched by a plan parent, and the `pr_creation` to `done` edge on `pr_status: shared`, never call the script; the next child in the same worktree finds the earlier child's tree.
 - [ ] In a multi-pr PLAN the driver calls the script once, when its item loop finds no next item, in the one worktree the items share.
 - [ ] A fix round started by `fix-round.sh` cleans again at its own successful end with CI green.
+- [ ] The caller passes the run's pinned base as `--base`: verification's recorded `merge_base`, or `impl_base` for a run with no `result.json`.
+- [ ] After the branch's pull request is merged and the default branch fetched, so that a recomputed merge base would be the branch head, the cleanup still leaves in place a path the branch added to the declaration (R2).
 - [ ] A cleanup line of `failed`, `malformed`, `gone` or a refusal leaves the run's result successful.
 - [ ] The state that runs the cleanup returns within 30 seconds of the tick that enters it, on a declared tree of at least 9 GiB.
 
@@ -233,7 +245,7 @@ graph TD
 
     subgraph shirabe_wiring["tsukumogami/shirabe: wiring"]
         I3["Issue 3: runner waits on a live removal"]
-        I4["Issue 4: /execute plan_completion"]
+        I4["Issue 4: /execute successful end"]
         I5["Issue 5: work-on run end and multi-pr loop end"]
     end
 
