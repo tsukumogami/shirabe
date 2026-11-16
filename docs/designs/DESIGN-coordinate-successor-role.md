@@ -617,7 +617,9 @@ confirm code and replaces the holding row with a Run row.
     `dispatcher_session`, a fixed `unit` naming the scope, and `phase:
     executing`; check the brief with `render-brief.sh --stdout` and no
     `--units`; write the row `dispatching` (or reuse a resumed one);
-    render the brief; launch; confirm. Output `session=<name>`.
+    render the brief; launch; confirm, all under the run lock. Every
+    derived scope token is checked against its variable's pattern and
+    refused when it starts with `-`. Output `session=<name>`.
   - `input_role`: the own-scope test reads run-facts at both scopes; an
     own-scope `coordinate` brief on the worker path exits 1 naming
     `--successor`.
@@ -627,7 +629,9 @@ confirm code and replaces the holding row with a Run row.
 - `skills/coordinate/scripts/dispatch-common.sh`
   - `dc_invocation`: `--role` after the scope group, four tokens when
     `successor` is set and the first token is `--discipline`.
-  - `dc_successor_settle <session> <root>`: the shared settle.
+  - `dc_successor_settle <session> <root>`: the shared settle. It writes
+    `stranded` only after a listing that was read successfully; a listing
+    that can't be read leaves the row as it is.
 - `skills/coordinate/scripts/render-brief.sh`: the `successor` field and
   its checks; the keep-alive wording on `coordinate` briefs.
 - `skills/coordinate/scripts/state-schema.jq` and `state-stored-set.sh`:
@@ -762,7 +766,64 @@ Deliverables:
 
 ## Security Considerations
 
-To be completed in Phase 5.
+The successor mode doesn't download or run anything new. Its inputs are
+the coordinator's own brief text, the record's Run rows, and the run's
+facts as `coord-log.sh` prints them. Its one outward step is a `niwa
+dispatch` call, built as an argument array and never passed through a
+shell, so characters in the coordinator's text can't become commands.
+
+The invocation line matters most, and the coordinator doesn't write it.
+The scope tokens (the roadmap path, or the discipline name and host) come
+from the run's facts, and the role comes from the record's Run `role`
+row. An input `entry_args` or `repo` is accepted only when it equals the
+derived value token for token. The mode checks each derived token against
+its grammar before use (the `ROADMAP` and `DISCIPLINE` variable patterns,
+`owner/repo`) and refuses any that starts with a dash, so a damaged record
+or session variable can't add a flag to the launch. The topic goes through
+`dc_valid_topic` before it names a brief file, a lock or a session, which
+keeps it free of path separators and a leading dash.
+
+A successor can't change its role through its brief. The mode refuses a
+`role_change` input and sets no change flags, so the only way a successor
+starts in a different role is an intervention from above, which only the
+opener accepts. If a brief's `--role` ever differed from the record, the
+opener would refuse the start as `role-mismatch`. The refusal of the words
+`manager` and `director` in the coordinator's text keeps the brief to one
+role line; it's a hygiene check, not a boundary, and the record check at
+the takeover is what holds.
+
+The successor's grant is `own`, the same as its predecessor's. The mode
+sets it and takes none from input, and niwa's refusal of a grant wider
+than the dispatcher's still applies, with the same exit 11 as on the
+worker path. A successor can't be given more authority than the
+coordinator that launched it.
+
+Two sessions driving one run is the risk the pending row and the fence
+exist for. The mode holds the run lock from its read of the row through
+the `dispatching` write, the launch and the confirm. A second dispatch
+with another topic is refused while the row is pending, and a re-run with
+the same topic resumes under the same row. A row goes `stranded` only
+when `niwa list` was read successfully and doesn't show the session, so a
+failed listing can't free the slot for a second launch. If two successors
+did start, koto's fence lets one take the run over at a time and the later
+takeover supersedes the earlier, so the run never has two drivers. The
+row clears only on a start whose `--dispatched-by` names the run that
+wrote it. That flag comes from the brief's opener line, so a person
+starting a session by hand with the same flag would clear it too; such a
+start is a takeover by the same rules, refused for a role it doesn't
+hold, and the takeover entry names it.
+
+A successor brief follows the worker rule: it holds no credentials, and
+it's written with the worker path's file mode under the workspace's
+briefs directory. The record entries the mode writes name the topic, the
+brief's path and the role, and nothing secret.
+
+No dependency is added. The successor runs the workspace's installed
+plugin and niwa binary, as a worker does. An older plugin that meets a
+record holding the `successor` row refuses it rather than reading it,
+which fails closed. The re-recorded `gate_scripts` digest in
+`coordinate.compat.json` is the integrity record for the gate scripts and
+is reviewed with the change.
 
 ## Consequences
 
