@@ -10,11 +10,13 @@
 # port fails at the deadline CLOUD_HOSTS_S3_WAIT sets, and that a deadline that
 # isn't a whole number of seconds is refused before any server starts.
 #
-# No host is laid out and nothing else is run: each stub is a python3 file that
-# s3_start launches through CLOUD_HOSTS_S3.
+# No host is laid out and nothing else is run: each stub is a sh script that
+# s3_start launches through CLOUD_HOSTS_S3. The offline runner gives this suite
+# no python3 (the real fake S3 server stays with the engine suites), so the
+# stubs run through the test's own python3 stand-in, which hands them to sh.
 #
 # Usage: bash skills/coordinate/scripts/cloud-hosts-start_test.sh
-# Requires: bash 3.2+, python3.
+# Requires: bash 3.2+.
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 
@@ -35,30 +37,32 @@ fail() {
     while [ $# -gt 0 ]; do echo "       $1"; shift; done
 }
 
-mkdir -p "$T/stubs" || exit 1
+mkdir -p "$T/stubs" "$T/bin" || exit 1
+
+# s3_start runs `python3 -I <server> <bucket> <port file>`. The stand-in drops
+# -I and execs sh on the stub, so S3_PID is the stub itself.
+printf '#!/bin/sh\n[ "$1" = -I ] && shift\nexec sh "$@"\n' > "$T/bin/python3"
+chmod +x "$T/bin/python3" || exit 1
+PATH="$T/bin:$PATH"
 
 # A server that writes its port file only after 12 seconds, through a
 # temporary name and a rename as fake-s3.py does, then stays up.
-cat > "$T/stubs/slow.py" <<'EOF'
-import os, sys, time
-time.sleep(12)
-with open(sys.argv[2] + ".tmp", "w") as f:
-    f.write("54321\n")
-os.rename(sys.argv[2] + ".tmp", sys.argv[2])
-time.sleep(3600)
+cat > "$T/stubs/slow.sh" <<'EOF'
+sleep 12
+printf '54321\n' > "$2.tmp"
+mv "$2.tmp" "$2"
+exec sleep 3600
 EOF
 
 # A server that fails at once, saying why on stderr.
-cat > "$T/stubs/exits.py" <<'EOF'
-import sys
-sys.stderr.write("stub server: cannot bind\n")
-sys.exit(3)
+cat > "$T/stubs/exits.sh" <<'EOF'
+echo "stub server: cannot bind" >&2
+exit 3
 EOF
 
 # A server that stays up and never writes its port file.
-cat > "$T/stubs/never.py" <<'EOF'
-import time
-time.sleep(3600)
+cat > "$T/stubs/never.sh" <<'EOF'
+exec sleep 3600
 EOF
 
 # start <stub> [<wait>]: run s3_start against a stub with CLOUD_HOSTS_S3_WAIT
@@ -80,7 +84,7 @@ start() {
 }
 
 echo "== a server that takes 12 s to write its port is waited for =="
-start slow.py
+start slow.sh
 if [ "$RC" = 0 ] && [ "$S3_ENDPOINT" = "http://127.0.0.1:54321" ]; then
     ok "s3_start returns 0 with the stub's endpoint"
 else
@@ -89,7 +93,7 @@ else
 fi
 
 echo "== a server that exits fails at once, with its log =="
-start exits.py
+start exits.sh
 case "$RC:$ERR" in
     1:*"the fake S3 server exited"*"stub server: cannot bind"*) ok "s3_start returns 1 naming the exit and the server's log" ;;
     *) fail "s3_start returns 1 naming the exit and the server's log" "rc [$RC]" "stderr: $ERR" ;;
@@ -101,7 +105,7 @@ else
 fi
 
 echo "== a server that never writes its port fails at the deadline =="
-start never.py 2
+start never.sh 2
 case "$RC:$ERR" in
     1:*"the fake S3 server didn't start within 2s"*) ok "s3_start returns 1 naming the deadline" ;;
     *) fail "s3_start returns 1 naming the deadline" "rc [$RC]" "stderr: $ERR" ;;
@@ -114,7 +118,7 @@ fi
 
 echo "== a deadline that isn't a whole number of seconds is refused =="
 for bad in abc 0 -1 2.5; do
-    start never.py "$bad"
+    start never.sh "$bad"
     case "$RC:$ERR:$S3_PID" in
         1:*"CLOUD_HOSTS_S3_WAIT"*:) ok "CLOUD_HOSTS_S3_WAIT=[$bad]: refused, no server started" ;;
         *) fail "CLOUD_HOSTS_S3_WAIT=[$bad]: refused, no server started" \
