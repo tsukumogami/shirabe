@@ -309,9 +309,16 @@ eq "  ... and no record/holdings write" 0 "$(holdings_adds)"
 report '{"event":"progress","unit":"alpha","report":"checkpoint"}'
 eq "  ... progress the same" "progress 12 alpha 0" "${OUT% sealed:*} $(holdings_adds)"
 
+# Each timed case allows MARGIN seconds past its deadline for the stop, the
+# TERM/KILL grace and the exit, which a loaded host can stretch past 2 s
+# (shirabe#1724). FIRST_DEADLINE is for a case whose first call is the slow
+# one. A case that reaches its slow call after other reads, which a loaded host
+# can take 3 s over, gets LATE_DEADLINE (shirabe#1705, shirabe#1872).
+MARGIN=5 FIRST_DEADLINE=3 LATE_DEADLINE=10
 seed
 BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
+# SLOW stays past LATE_DEADLINE + MARGIN, so a write left running fails the case.
 SLOW=20
 rm -f "$KOTO_STORE/add-delay.pid"
 # The reads before the write take time on a loaded host: the coord/report.json
@@ -319,18 +326,18 @@ rm -f "$KOTO_STORE/add-delay.pid"
 # starts, so the write is reached a few seconds into the script's clock.
 HOLD_UNTIL=$(($(date +%s) + 3))
 START=$SECONDS
-KOTO_ADD_UNTIL="coord/report.json:$HOLD_UNTIL" KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 \
+KOTO_ADD_UNTIL="coord/report.json:$HOLD_UNTIL" KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=$LATE_DEADLINE \
     report '{"event":"report","unit":"alpha"}'
 TOOK=$((SECONDS - START))
 eq "a slow write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
-[ "$TOOK" -le 5 ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
-    || bad "  ... the action returns within the deadline and a small margin" "${TOOK} s"
+[ "$TOOK" -le $((LATE_DEADLINE + MARGIN)) ] && ok "  ... the action returns within its deadline plus a small margin (${TOOK} s)" \
+    || bad "  ... the action returns within its deadline plus a small margin" "${TOOK} s"
 log_to "$S" wait report_facts
 bash "$CL" check --session "$S" --state report_facts --sealed "$OUT" --any-visit && ok "  ... the token is sealed" || bad "  ... the token is sealed"
 log_to "$S" report_facts wait
 [ -s "$KOTO_STORE/context/$S/coord/report.json" ] && ok "  ... coord/report.json is written" || bad "  ... coord/report.json is written"
 eq "  ... record/holdings is unchanged" "$BEFORE" "$(cat "$KOTO_STORE/context/$S/record/holdings")"
-grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the 3 s the action allows; it's tried again on the holding's next visit" "$T/err" \
+grep -qF "alpha's pushed head $SHA_HEAD wasn't kept: the write took longer than the $LATE_DEADLINE s the action allows; it's tried again on the holding's next visit" "$T/err" \
     && ok "  ... and stderr names the head the stopped write didn't keep" \
     || bad "  ... and stderr names the head the stopped write didn't keep" "$(cat "$T/err")"
 eq "  ... with nothing else on stderr" 1 "$(wc -l < "$T/err" | tr -d ' ')"
@@ -410,15 +417,13 @@ eq "a deadline that isn't whole seconds is a usage error" 64 "$RC"
 echo "== the reads and the coord/report.json add bounded by the deadline (shirabe#1531) =="
 # Every backend call before the verdict is stopped at the deadline, so the
 # action exits 2 (a failed read, never a verdict) before koto's kill. Each
-# case times the script alone and allows MARGIN seconds past the deadline for
-# the stop, the TERM/KILL grace and the exit, which a loaded host can stretch
-# past 2 s (shirabe#1724); SLOW stays past the bound, so a call left running
-# still fails it. With KOTO_CALL_DELAY every call is slow from the first, and
-# a deadline the earlier work spent refuses the read with the same text, so
-# FIRST_DEADLINE can be short. A slowed call after other reads needs those
-# reads done first, which a loaded host can take 3 s over, so those cases
-# give them LATE_DEADLINE, as the slow write does (shirabe#1705).
-MARGIN=5 FIRST_DEADLINE=3 LATE_DEADLINE=10
+# case times the script alone and allows MARGIN seconds past the deadline, as
+# the slow write does (MARGIN, FIRST_DEADLINE and LATE_DEADLINE are set there);
+# SLOW stays past the bound, so a call left running still fails it. With
+# KOTO_CALL_DELAY every call is slow from the first, and a deadline the earlier
+# work spent refuses the read with the same text, so FIRST_DEADLINE can be
+# short. A slowed call after other reads needs those reads done first, so
+# those cases give them LATE_DEADLINE, as the slow write does.
 seed
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
 KOTO_CALL_DELAY=$SLOW REPORT_FACTS_DEADLINE=$FIRST_DEADLINE report '{"event":"report","unit":"alpha"}'
