@@ -405,11 +405,16 @@ named path that isn't a regular file, has a symlink in it, or is missing or
 unreadable; a path outside the session's scratch and the instance's
 worktrees, or under `.git/`, `.niwa/`, `.claude/` or a home-directory
 dotfile; a basename matching a credential pattern (`.env*`, `*.pem`,
-`*.key`, `id_*`, `.netrc`, `credentials*`, `settings*.json`); a hit from a
-scan for token shapes (private-key headers, `ghp_`, `github_pat_`, `AKIA`,
-`sk-ant-`, bearer headers, `user:secret@` URLs) over the files, the
-reasoning, the standing rules and the watch strings; a newline or control
-character in a watch value; a total over the record cap. It copies each file
+`*.key`, `*.p12`, `*.pfx`, `id_*`, `.netrc`, `.npmrc`, `.pypirc`,
+`.git-credentials`, `*.tfstate`, `credentials*`, `settings*.json`,
+`*secret*`, `*token*`); a hit from a scan for token shapes (private-key
+headers, `gh[pousr]_`, `github_pat_`, `glpat-`, `xox[abprs]-`, `AKIA`,
+`AIza`, `sk-ant-`, JWT-shaped strings, bearer headers, `user:secret@` URLs)
+over the files, the reasoning, the standing rules and the watch strings; a
+newline, control character or the Files line's field delimiter in a named
+path or a watch value; a total over the record cap. A pointer (pull request
+number, commit, branch, job id) that doesn't match its expected shape is left
+out. It copies each file
 once into a private 0700 temporary directory and takes the size, the hash
 and the stored bytes from that copy. It stores the inline ones, writes
 `handover/brief.md`, then writes the record, in that order, so a record never
@@ -533,8 +538,10 @@ the main exposure here: a file holding a credential would travel with the
 brief and stay on the backend after local scratch is gone. A warning in the
 reference doc doesn't stop a model from naming such a file, so the script
 refuses instead, on the path rules, name patterns and token scan that `write`
-lists. The scan is a net with holes, not a guarantee, and the reference doc
-says so. Each file is copied once into a private temporary directory, and the
+lists. The token scan and the credential-name check run on the private copy
+and the resolved path, and the source is checked again after the copy. The
+scan is a net with holes, not a guarantee, and the reference doc says so.
+Each file is copied once into a private temporary directory, and the
 hash, the size and the stored bytes all come from that copy, so a file
 swapped after the check can't put other bytes under a verified hash. The
 script never stores a remote's URL, and paths in the brief are relative to
@@ -546,7 +553,9 @@ brief session. The record's protections are Decision 2's: an unpredictable
 temporary name under a 077 umask, a rename that replaces rather than follows
 a symlink, refusal when `.niwa` or `keep.json` is a symlink, an owner check on
 `--instance`, a lock around the read and rename, and a corrupt record moved
-aside rather than blocking.
+aside rather than blocking. The lock directory carries an age after which a
+later writer breaks it, and the remover reads the keep record as untrusted
+input too.
 
 On takeover the predecessor's list is untrusted input, because the
 predecessor may have been steered by hostile text and a hash that the record
@@ -555,6 +564,9 @@ builds each destination from the hash, checks the hash's form, hashes the
 copy rather than the source, and restores files without an execute bit.
 Restored files, the brief's text and any watch command are data for the
 successor to read, not instructions, and `read` never runs a watch command.
+The brief's free text and file paths are data. `read` replaces control
+characters other than newline and tab with a visible mark, and `read` and
+`takeover` refuse a Files line that doesn't match the exact shape.
 Backend write access is trusted: someone who can write the koto session can
 plant a key or text, which the brief's list of names and hashes limits for
 files but can't stop for prose. The takeover mark is written only when
@@ -563,7 +575,9 @@ absent, is advisory, and gates nothing.
 The closing step reads file names and counts from git, not file contents.
 The context reader prints one integer from a transcript and nothing else. The
 compaction hook ignores its stdin, prints fixed text that tells the session
-not to put credentials in the note, and exits 0 on every path. The residual
+not to put credentials in the note, and exits 0 on every path. The
+compaction note is written by the session straight into koto and isn't
+scanned, so it carries the same residual risk as the brief's prose. The residual
 risks are the limits of a pattern scan, the backend's retention of synced
 keys, which koto owns, and trust in whoever can write the koto session.
 
