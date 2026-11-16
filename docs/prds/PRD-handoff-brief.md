@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A session that stops leaves its reasoning unreadable and its files unclaimed.
   The next session, its coordinator and the cleanup that removes its instance
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-handoff-brief.md
 
 ## Status
 
-Draft
+Accepted
 
 Written from the accepted BRIEF-handoff-brief. The handoff brief is buildable
 now. Compaction for workers is specified, but making it the worker default is
@@ -52,23 +52,30 @@ out of scope and nothing this work builds turns it on.
   that reaps, that is deletes, finished instances; a kept unit is one it must
   not reap. Disposable scratch may go at a reap; unique scratch is the only
   copy and keeps its unit.
-- **Keep record, kept set, expiry.** The keep record,
-  `<instance>/.niwa/keep.json`, is what the remover reads; the removal work
-  owns its fields. One whose `protects` includes `instance` is a hold. The
-  kept set is where the remover will move a record and its named files at a
-  reap. Expiry is the record's `review_by` date, after which the removal work
-  decides what it still protects.
-- **Inline size, record cap.** The largest named file that travels inside the
-  brief, as a key beside it; the bound on everything one keep record names.
+- **Keep record, hold, preserve instruction, kept set, expiry.** The keep
+  record, `<instance>/.niwa/keep.json`, is what the remover reads; the removal
+  work defines its fields and the brief script is one of their writers. A
+  hold is a record whose `protects` includes `instance`; a preserve
+  instruction protects `files` and not `instance`. R5 says which a brief
+  writes. The kept set is where the remover will move a record and its named
+  files at a reap. Expiry is the record's `review_by` date, after which the
+  removal work decides what it still protects.
+- **Inline size, travels inside the brief, record cap.** A named file at or
+  below the inline size travels inside the brief: its content is stored as
+  its own koto context key in the same koto session as the brief, next to the
+  brief's key. A larger file is named by reference (path and hash only) and
+  stays on its host. The record cap bounds, in bytes, the total size of every
+  file one keep record names, by reference included.
 - **Closing step.** The work-on step before the brief: it confirms everything
   is pushed, has stray files committed or cleared, and leaves the worktree
   while keeping it on disk.
 - **Landed takeover, job state file.** A takeover lands when koto writes
   `koto/superseded-carry-complete` at the end of a carried supersede (a
   successor run superseding its predecessor and carrying resume state across)
-  or, with no koto run, when R10's takeover mark exists. The job state file is
-  Claude Code's `~/.claude/jobs/<session-id>/state.json`; niwa reads a session
-  as live only while it exists with a matching `sessionId`.
+  or, with no koto run, when the successor writes its takeover mark: a key in
+  the predecessor's brief session, whose exact name the design gives. The job
+  state file is Claude Code's `~/.claude/jobs/<session-id>/state.json`; niwa
+  reads a session as live only while it exists with a matching `sessionId`.
 - **Issues cited.** #1785: an open draft shirabe design for a fallback worker
   continuation, a new instance that supersedes the stopped worker in koto.
   #1230: the design in progress for re-running a failed verification at the
@@ -154,7 +161,8 @@ traceability table states them.
   the session concluded, what it ruled out and why, the next step) and
   pointers to state that already travels: koto session, branch, pull request,
   pushed head, and any watch it armed with the command to re-arm it. The
-  script refuses a brief with no reasoning. Serves: E1, E3.
+  script refuses reasoning that is empty once whitespace is trimmed, and
+  judges nothing beyond that. Serves: E1, E3.
 - **R3. Named files with hashes.** Each named file is recorded with path,
   sha256 and bytes, computed from disk when the script runs; an empty file is
   valid. The script refuses a directory, a symlink, a missing path or an
@@ -162,26 +170,34 @@ traceability table states them.
   Serves: E1, E3.
 - **R4. Two named limits.** The script enforces the inline size and record
   cap, each a named, documented value. A file at or below the inline size
-  travels inside the brief; a larger one is named by path and hash and stays
-  on the host. Over the record cap the script refuses and writes nothing, so
-  nothing is declared disposable and the unit stays kept. Serves: E1, E3.
-- **R5. One copy of the file list.** When a brief has files to name or the
-  unit is parked, the script writes the keep record's `files` (path, sha256,
-  bytes), `brief` (koto session, key), `unit`, `written_by` and `written_at`.
-  The brief renders its list from the record and holds none of its own. Other
-  writers' fields stay intact. A brief with no files and no park writes no
-  record and leaves an existing one untouched. Serves: E1.
+  travels inside the brief; a larger one is named by reference and stays on
+  the host. When the named files' total bytes exceed the record cap the
+  script refuses and writes nothing, so the unit stays kept. Serves: E1, E3.
+- **R5. One copy of the file list, and what a brief's record protects.** When
+  a brief has files to name or the unit is parked, the script writes the keep
+  record's `files` (path, sha256, bytes), `brief` (koto session and key of the
+  brief just written), `unit`, `written_by`, `written_at` and `protects`; the
+  brief renders its list from the record and holds none of its own, and other
+  writers' fields stay intact. This is the one statement of what the record
+  protects. A park writes a hold (`protects` includes `instance`); resumed
+  work, however the design marks it, voids that hold but not the named files
+  (R7). A brief at a run's end or a handover that names files writes a
+  preserve instruction (`protects` names `files`, not `instance`). While the
+  interim rule applies (R6), a file named by reference makes any brief's
+  record a hold on the instance, which resumed work leaves in place. A brief
+  with no files and no park writes no record and leaves an existing one
+  untouched. Serves: E1.
 - **R6. The interim rule.** Until the kept set and the move into it exist, a
-  file counts as handed forward only if it travels inside the brief. A brief
-  naming a file by reference writes the record as a hold, so the unit is kept
-  and a successor on another host can't take that file (R10). Serves: E1, E3.
+  file counts as handed forward only if it travels inside the brief. A file
+  named by reference keeps its unit through the hold R5 states and can't
+  reach a successor on another host (R10). Serves: E1, E3.
 - **R7. Disposability tied to the brief's time.** A brief records when it was
   written and declares disposable only the scratch that existed then and that
   it did not name. A scratch file created or changed later (by mtime or ctime,
   whichever is later) is unique and keeps the unit until a newer brief names
   it or declares it disposable. Named files stay named, entries as written,
-  until the session's next brief replaces the list or expiry. Resumed work
-  ends a park's hold, not a name. Serves: E1, E4.
+  until the session's next brief replaces the list or expiry, including after
+  resumed work voids a park's hold (R5). Serves: E1, E4.
 - **R8. Brief on by default.** Every workflow that adopts the brief step
   writes a brief at a run's end, a park and a handover, with no setting to
   turn on or off. A workflow opts out only by not adopting the step; it then
@@ -193,12 +209,11 @@ traceability table states them.
   it's resolved; a refused brief stops the run before done. Serves: E5, E1.
 - **R10. Successor takeover fits #1785.** A successor taking over through
   #1785's route copies every file in its predecessor's keep record `files`
-  into its own scratch and checks each sha256 before the takeover lands: for
-  a koto run, before koto writes `koto/superseded-carry-complete`; with no
-  run, before it writes a takeover mark as a key in the predecessor's brief
-  session. A mismatch or missing file (a by-reference file on another host
-  included) leaves it not landed. The predecessor's record stays as it was.
-  This adds no route. Serves: E3.
+  into its own scratch and checks each sha256 before the takeover lands:
+  before koto writes `koto/superseded-carry-complete`, or with no run, before
+  it writes its takeover mark. A mismatch or missing file (a by-reference file
+  on another host included) leaves it not landed. The predecessor's record
+  stays as it was. This adds no route. Serves: E3.
 
 ### Compaction for workers (stated now, default not in scope)
 
@@ -255,24 +270,25 @@ waits. A marker is a unique string the test plants.
   marker afterwards. With no run, the script opens a plain koto session and
   prints its name and key; a new session reading that key gets the marker.
   With koto on a cloud backend, a session on a second host reads the marker
-  and each inline file with a matching sha256. (R1, E3)
+  and each file that travels inside the brief with a matching sha256. (R1, E3)
 - [ ] Markers planted as what was concluded, what was ruled out (with its
   reason) and the next step appear verbatim when another session reads the
   brief, as does the exact re-arm command of a watch armed before it. Branch,
   pull request and pushed head equal `git branch --show-current`, the number
   `gh pr view` reports and the remote branch's commit at write time; with
   local HEAD one commit ahead, the remote's commit is recorded. (R2)
-- [ ] Empty reasoning, or naming a directory, a symlink, a missing path or an
-  unreadable file, exits non-zero naming the cause, with no brief written and
-  an existing keep record byte-identical. Each named file's sha256 and size
-  equal `sha256sum` and the byte count when the script runs, including a file
-  rewritten after the session chose it; an empty file shows 0 bytes and the
-  sha256 of empty input. (R2, R3)
+- [ ] Empty or whitespace-only reasoning, or naming a directory, a symlink, a
+  missing path or an unreadable file, exits non-zero naming the cause, with no
+  brief written and an existing keep record byte-identical. Each named file's
+  sha256 and size equal `sha256sum` and the byte count when the script runs,
+  including a file rewritten after the session chose it; an empty file shows
+  0 bytes and the sha256 of empty input. (R2, R3)
 - [ ] Both limits appear by name and value in the script's documentation. A
-  file exactly at the inline size reads back inline from another session with
-  a matching sha256; one a byte over has no inline key. A set exactly at the
-  record cap is accepted; one unit over exits non-zero with no brief and no
-  keep record. The remover keeping that unit waits on the remover. (R4)
+  file exactly at the inline size travels inside the brief, read from another
+  session at its own key with a matching sha256; one a byte over has no key
+  holding its content. Named files totalling exactly the record cap are
+  accepted; one byte over exits non-zero with no brief and an existing keep
+  record byte-identical; the remover keeping that unit waits. (R4)
 - [ ] End to end: a run ends in a fresh instance leaving two scratch files
   under the inline size, one named. From another session the brief shows the
   markers, the pointers checked above and the named file with a hash equal to
@@ -281,13 +297,20 @@ waits. A marker is a unique string the test plants.
   end; the same check through a work-on run waits on placement. (R5, E1)
 - [ ] The brief's file list equals the record's `files`, its stored key holds
   no path or hash list, and another writer's `reason`, `owner` and `wake` are
-  unchanged. A brief naming no files in an unparked unit creates no record
-  and leaves an existing one byte-identical; a park naming no files writes
-  `brief`, `unit`, `written_by`, `written_at` and empty `files`. (R5)
-- [ ] A brief naming a file over the inline size writes a record whose `files`
-  holds it by path, sha256 and bytes and whose `protects` includes
-  `instance`, with no inline key for it. The remover keeping the unit waits
-  on the remover. (R6)
+  unchanged. The record's `brief` resolves to the brief just written: reading
+  it returns that brief's marker, and a second brief's after a second brief.
+  A brief naming no files in an unparked unit creates no record and leaves an
+  existing one byte-identical; a park naming no files writes `brief`, `unit`,
+  `written_by`, `written_at`, empty `files` and `protects` with `instance`.
+  (R5)
+- [ ] A run's-end brief naming only files that travel inside the brief writes
+  `protects` naming `files` and not `instance`; one naming a file over the
+  inline size records it by path, sha256 and bytes with `protects` including
+  `instance`. A park naming one file that travels inside the brief writes
+  `protects` including `instance`; after resumed work, as the design marks
+  it, `protects` drops `instance` and the `files` entry is unchanged, while a
+  park that also names a file by reference keeps `instance`. The remover
+  keeping these units waits on the remover. (R5, R6, R7)
 - [ ] For a scratch file created one second after the brief, and one whose
   mtime is set back before the brief while its ctime falls after it, the
   brief's recorded time sorts before the later of mtime and ctime; the
@@ -347,16 +370,15 @@ waits. A marker is a unique string the test plants.
 **Inline size and record cap.** Decided: two named, documented limits, with a
 refusal over the cap, since a brief that silently drops a file reads as
 complete. One limit for both was rejected: per-file travel and a record's
-total answer different questions. Values, and the cap's unit, are left to the
-design, which weighs a koto key's size against hand-written briefs.
+total answer different questions. The cap counts bytes; both values are left
+to the design, which weighs a koto key's size against hand-written briefs.
 
 **Where a no-run session's brief lives.** Decided: a plain koto session the
 script opens (R1); a file in the instance can't move hosts. Whether that koto
 session ever ends is left to the design.
 
-**Symlinks and empty reasoning are refused.** A symlink's target may sit
-outside the instance and never travel (R3); a brief with no reasoning passes
-every check while carrying nothing to act on (R2).
+**Symlinks and empty reasoning are refused.** A symlink's target may never
+travel (R3); empty reasoning passes every check yet carries nothing (R2).
 
 **Two acts, not one.** The brief and the compaction note stay separate (R11)
 because a note that freed files would let a routine compaction declare
@@ -374,15 +396,14 @@ existing reader is one message behind after a compaction.
 - A file that existed at the brief and that the session wrongly left unnamed
   is removed at the reap. The checks are mechanical; what to name is the
   model's choice. Accepted untested.
-- Until the kept set exists, a named file above the inline size keeps its
-  unit and can't reach a successor on another host (checked under R6).
+- Until the kept set exists, a file named by reference keeps its unit and
+  can't reach a successor on another host (checked under R6).
 - A compaction fires at a chosen size, not a chosen moment; sending a compact
   command to a running session is untested. Accepted untested.
 
 ## Pending Owner Rulings
 
-Both items are open. Neither blocks this work, and each says what this PRD
-does until it's ruled.
+Both are open, neither blocks this work, and each says what it does meanwhile.
 
 - **Who owns the coordinator and supervising-session successor brief?** A
   separate plan also designs one. Until the owner rules, this work builds
