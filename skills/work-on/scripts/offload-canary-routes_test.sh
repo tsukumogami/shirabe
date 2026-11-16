@@ -296,13 +296,15 @@ if ! koto template compile "$FIX" >/dev/null 2>"$T/compile.err"; then
 fi
 
 # directive <root> [--var K=V]...: sets D to the rendered stub directive, the
-# plugin root replaced by a placeholder so runs from different roots compare.
+# plugin root and the run's own session name replaced by placeholders so runs
+# from different roots and sessions compare. The session name is per run, not
+# per arm: pr_creation's directive names it in the command line it gives.
 # It sets a variable rather than printing, because start's session counter
 # must survive the call, which a command substitution would throw away.
 directive() {
     local root=$1; shift
     if start "$FIX" "$root" --var BRANCH=feature/x "$@"; then
-        D=$(printf '%s' "$RESP" | jq -r '.directive // ""' | sed "s#$root#ROOT#g")
+        D=$(printf '%s' "$RESP" | jq -r '.directive // ""' | sed -e "s#$root#ROOT#g" -e "s#--session $SESS\([^0-9]\)#--session SESSION\1#g")
     else
         D="INIT-FAILED: $(cat "$T/init.err")"
     fi

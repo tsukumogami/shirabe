@@ -162,8 +162,11 @@ render() { printf '%s\n' "$1" | sed "s|<WF>|$2|g"; }
 # walk would stick at scrutiny, short of the other panels.
 #
 # `verification` runs the verification map committed at the merge-base with
-# main, so the init commit carries one: `true` by default, and `false` for a
-# change touching fail.txt, which case 10b commits to fail verification.
+# main, so the init commit carries one: `true` by default, and for a change
+# touching fail.txt, which case 10b commits to fail verification, a command
+# that fails only while fail.txt exists. It passes at the merge-base, which has
+# no fail.txt, and fails again in a clean checkout of the head, so the
+# comparison with the merge-base reads the failure as caused by the change.
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (
@@ -173,7 +176,7 @@ mkdir -p "$REPO"
     git config user.name t
     mkdir -p .claude/shirabe-extensions
     printf '%s\n' '{"schema": "shirabe-verification-map/v1",
-  "commands": {"ok": {"run": ["true"]}, "no": {"run": ["false"]}},
+  "commands": {"ok": {"run": ["true"]}, "no": {"run": ["test", "!", "-e", "fail.txt"]}},
   "entries": [{"paths": ["fail.txt"], "commands": ["no"]}],
   "default": ["ok"]}' > .claude/shirabe-extensions/verification-map.json
     git add .claude
@@ -784,7 +787,7 @@ check_edge_traversal() {
 check_edge_traversal edge-issues FINAL_BLOCK  "finalization issues_found"  to_finalization
 
 # Verification's failed edge, driven for real: a branch whose change touches
-# fail.txt selects the map's `false` command, the verdict exits 1, and koto
+# fail.txt selects the map's `no` command, the verdict exits 1, and koto
 # routes back to implementation, clearing the keys as it enters. The branch is
 # cut from main, so the base to_implementation records (the commit before the
 # change) is the merge-base, which test-change.sh init accepts as where the

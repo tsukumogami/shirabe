@@ -2010,8 +2010,8 @@ states:
     # The action writes the record: check-verification.sh --record-deferral
     # re-derives the verdict from the same result, refuses (exit 2) unless it
     # is 5, and writes verification_deferral as one line naming the head, the
-    # merge-base and the command ids, saying hosted CI is the build of
-    # record. A failing action stops the tick, so the edge out is never taken
+    # merge-base and the command ids; the PR body names hosted CI as the build
+    # of record. A failing action stops the tick, so the edge out is never taken
     # without the write; the action re-runs on every tick until it succeeds.
     # There is no gate here: verification_deferral can be on record from an
     # earlier lap, since koto won't clear a key a transition or action wrote,
