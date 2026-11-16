@@ -32,7 +32,7 @@ rationale: |
   Copying before the fence keeps the predecessor
   writable for a retry and keeps a failed copy from ever looking landed. One
   brief format for every role avoids a second format for coordinators, and
-  the limits sit far under koto's and shirabe's existing caps.
+  every stored key sits far under koto's and shirabe's existing caps.
 upstream: docs/prds/PRD-handoff-brief.md
 decision_provenance: inline-resolved
 ---
@@ -166,6 +166,11 @@ sat near 6 KiB.
 - **One limit for both questions.** Rejected, as the PRD already did: how big
   one file can be to travel and how much one record may name are different
   questions.
+- **Inline only, refusing any file over the inline size.** This would drop
+  the interim hold rule and the by-reference path checks. Rejected: R4 names a
+  larger file by reference rather than refusing it, and a refusal would leave
+  a session unable to hand forward the one large file that matters, which
+  pushes it back to the teardown copy the brief exists to replace.
 
 ### Decision 2: What the keep record says and how a park's hold is voided
 
@@ -187,7 +192,8 @@ fields (`unit`, `written_by`, `written_at`, `files`, `brief`, `protects`) and
 writes the result to a `mktemp` file in `.niwa/` under `umask 077`, then
 renames it over `keep.json`, so a reader never sees a half-written record and
 other writers' fields survive. A lock directory made with `mkdir` guards the
-read and the rename, since macOS has no `flock`. The script refuses when
+read and the rename, since macOS has no `flock`; a lock older than ten
+minutes is stale, and a later writer removes it and takes its own. The script refuses when
 `--instance` isn't a directory the current user owns, or when `.niwa` or
 `keep.json` is a symlink. A record that doesn't parse is moved aside as
 `keep.json.corrupt-<time>` and a fresh one is written, so one bad writer
@@ -231,17 +237,24 @@ Key assumptions:
 #### Chosen: `handoff-brief.sh takeover` runs inside `handover.sh open`, before the fence
 
 `takeover` treats the predecessor's list as untrusted input, since the hash
-a record supplies proves nothing about the path beside it. It reads the list
-from the predecessor's keep record on the same host, or from the brief key on
-another. It copies each named file into the successor's own scratch (from
+a record supplies proves nothing about the path beside it. On another host
+the brief key's Files section is the only list. On the same host it reads both
+that section and the keep record, and refuses when they name different files
+or hashes, since a predecessor could edit the record after writing the brief.
+It copies each named file into the successor's own scratch (from
 `handover/files/<sha256>` for an inline file, from the predecessor's path for
 a by-reference file on the same host), at a destination built from the hash
 and a sanitized basename, never from the record's path. A by-reference path
-must resolve under the predecessor's instance or scratch, outside `.git/`,
-`.niwa/` and `.claude/`, as a regular file with no symlink in it. A sha256
-must be exactly 64 lowercase hex characters before it names a key or a path.
-The successor hashes its copy, not the source, renames it into place only on
-a match, and leaves it without an execute bit. Any missing file, refused path
+must resolve under the predecessor's scratch (the PRD's term: the job's
+scratch directory and loose files at the instance root outside any repo),
+outside `.git/`, `.niwa/` and `.claude/`, as a regular file with no symlink in
+it. A sha256 must be exactly 64 lowercase hex characters before it names a key
+or a path. The successor reads at most the record's stated bytes for each
+file, and never more than the inline size for an inline key or the record cap
+in all, so a planted or grown file can't overrun it. It hashes its copy, not
+the source, runs the same credential-name check and token scan `write` runs
+on that copy, renames it into place only on a match, and leaves it without
+an execute bit. Any missing file, refused path
 or mismatch exits non-zero naming the file. `handover.sh open` then stops before the supersede,
 so the predecessor stays unfenced for a retry and no carry marker exists. On
 success the open proceeds, and koto's marker is the landed mark. The
@@ -289,7 +302,10 @@ that `git check-ignore` doesn't match, or when the branch has no upstream or
 `git rev-list @{u}..HEAD` is non-empty. On a pass it prints the instance root
 for the caller to move to. It never deletes the worktree, and it checks that
 the caller's working directory is outside the worktree before it reports
-done. Scratch is outside any worktree, so it is never stray.
+done. Scratch is outside any worktree, so it is never stray. Every git call
+runs with `-c core.fsmonitor=false` and `-c core.hooksPath=/dev/null`, since
+the session can edit the worktree's config and these are the settings that
+run a program on a status read.
 
 A role's compaction window travels as Claude Code's compaction-window
 environment value, listed in the workspace's `[session.dispatch_env]
@@ -297,8 +313,10 @@ passthrough` only for the roles that set it. The PreCompact hook ships as an
 instance hook that the workspace installs, and with no window the hook never
 fires. The margin is 120,000 tokens over the harness floor, so with a floor
 near 58K the smallest allowed window is 178K; the trials ran near 250K. The
-hook tells the session to write `handover/compaction-note.md` in its koto
-session and to re-read that key after the compaction.
+hook tells the session to write its note through `handoff-brief.sh note`,
+which runs the same token scan `write` runs and stores
+`handover/compaction-note.md` in its koto session, and to re-read that key
+after the compaction.
 
 Supervising sessions keep their stated handover line. For that trigger,
 shirabe ships `scripts/context-size.sh`, which reads a transcript and reports
@@ -341,7 +359,14 @@ The brief format has four fixed sections (Reasoning, Pointers, Files,
 Standing rules). The script writes Standing rules from an optional
 `--standing-rules <file>` and otherwise leaves the heading with the line
 `None stated.` This design defines the slot only: its content, its budget
-and the restatement check belong to the other work. Adoption runs in order:
+and the restatement check belong to the other work. What it fixes here is
+the slot's integrity. The rules file must be a regular, readable file with no
+symlink in its path, and its text passes the same scan as a named file's. `write` refuses a line in the
+Reasoning, the rules file or a watch value that begins with `## `, so free
+text can't open a forged section, and `read` treats only the four fixed
+headings, in their fixed order, as structure. A successor reads the section
+as the predecessor's claim about its rules, never as rules in force, until
+the other work's check compares it with each rule's source. Adoption runs in order:
 workers first, then /coordinate's handover writing its rendered successor
 text as the Reasoning of a brief through the same script, then the two
 top-level supervising sessions last.
@@ -382,14 +407,18 @@ Three scripts and one hook, all in shirabe:
 
 | Component | Path | Job |
 |-----------|------|-----|
-| Brief script | `scripts/handoff-brief.sh` | `write`, `resume`, `read`, `takeover` |
+| Brief script | `scripts/handoff-brief.sh` | `write`, `resume`, `read`, `takeover`, `note` |
 | Closing step | `scripts/closing-step.sh` | push and stray checks before the brief |
 | Context reader | `scripts/context-size.sh` | newest usage after the last compaction |
 | Compaction hook | `hooks/pre-compact-note.sh` | tells the session to write its note |
 
-niwa and koto change nothing. #1785's `handover.sh open` gains one call to
-`handoff-brief.sh takeover` before its supersede. /coordinate's handover
-gains one call to `handoff-brief.sh write` in its adoption step.
+niwa's and koto's code change nothing, though koto's sync, retention and read
+access now carry file bytes and so are part of this design's exposure
+(Security Considerations). Turning compaction on for a role would be a
+workspace-config change (the passthrough entry and the hook install), which
+this work documents and doesn't make. #1785's `handover.sh open` gains one
+call to `handoff-brief.sh takeover` before its supersede. /coordinate's
+handover gains one call to `handoff-brief.sh write` in its adoption step.
 
 ### Components
 
@@ -399,36 +428,68 @@ gains one call to `handoff-brief.sh write` in its adoption step.
 not passed: the session (`KOTO_SESSION` when set, otherwise a new plain
 session named `handoff-<job-id>` opened through `skill-session.sh`), the
 current branch, the open pull request from `gh pr view`, and the remote
-branch's commit from `git ls-remote`, by remote name and never by URL. It
-refuses, writing nothing, on: empty reasoning once whitespace is trimmed; a
-named path that isn't a regular file, has a symlink in it, or is missing or
-unreadable; a path outside the session's scratch and the instance's
-worktrees, or under `.git/`, `.niwa/`, `.claude/` or a home-directory
-dotfile; a basename matching a credential pattern (`.env*`, `*.pem`,
-`*.key`, `*.p12`, `*.pfx`, `id_*`, `.netrc`, `.npmrc`, `.pypirc`,
-`.git-credentials`, `*.tfstate`, `credentials*`, `settings*.json`,
-`*secret*`, `*token*`); a hit from a scan for token shapes (private-key
-headers, `gh[pousr]_`, `github_pat_`, `glpat-`, `xox[abprs]-`, `AKIA`,
-`AIza`, `sk-ant-`, JWT-shaped strings, bearer headers, `user:secret@` URLs)
-over the files, the reasoning, the standing rules and the watch strings; a
-newline, control character or the Files line's field delimiter in a named
-path or a watch value; a total over the record cap. A pointer (pull request
-number, commit, branch, job id) that doesn't match its expected shape is left
-out. It copies each file
-once into a private 0700 temporary directory and takes the size, the hash
-and the stored bytes from that copy. It stores the inline ones, writes
-`handover/brief.md`, then writes the record, in that order, so a record never
-points at a brief that isn't there.
+branch's commit from `git ls-remote`, by remote name and never by URL. The
+job id is the base name of the harness's job directory and the session id is
+the `sessionId` in that job's state file; either is null when absent. Both
+the `KOTO_SESSION` value and a derived `handoff-<job-id>` must match koto's
+session-name grammar before they name a session, and the script refuses
+otherwise.
 
-**`handoff-brief.sh resume`** voids a park's hold as Decision 2 says.
-**`read`** prints a brief with its file list rendered from the record, apart
-from and after the free text, verifies each inline key's hash, and prints
-watch commands as data without running them. **`takeover`** is Decision 3.
+It refuses, writing nothing, on: empty reasoning once whitespace is trimmed;
+a named path that isn't a regular file, has a symlink in it, or is missing or
+unreadable; a path outside scratch as the PRD defines it (the job's scratch
+directory, and loose files at the instance root outside any repo), which
+leaves out every repo worktree, since a file there is either pushed or stray,
+and `.git/`, `.niwa/` and `.claude/`; a basename matching a credential
+pattern (`.env*`, `*.local.*`, `.local.env`, `.mcp.json`, `*.pem`, `*.key`,
+`*.p12`, `*.pfx`, `id_*`, `.netrc`, `.npmrc`, `.pypirc`, `.git-credentials`,
+`*.tfstate`, `credentials*`, `settings*.json`, `*secret*`, `*token*`); a hit
+from a scan for token shapes (private-key headers, `gh[pousr]_`,
+`github_pat_`, `glpat-`, `xox[abprs]-`, Slack webhook URLs, `AKIA`, `AIza`,
+`sk-ant-`, `sk_live_`, `npm_`, `pypi-`, `SG.`, JWT-shaped strings, bearer
+headers, `user:secret@` URLs) over the files, the reasoning, the standing
+rules and the watch strings; a newline, a control character, a Unicode format
+character (the tag block, bidirectional overrides, zero-width characters) or
+a tab in a named path or a watch value; a watch value holding a shell
+operator (`;`, `|`, `&`, `$`, a backtick, `<` or `>`), so a watch is one plain
+command; `handover/brief.md` over the inline size once rendered; a total over
+the record cap. A pointer (pull request number, commit, branch, job id) that
+doesn't match its expected shape is left out.
+
+It copies each file once into a private 0700 temporary directory and takes
+the size, the hash and the stored bytes from that copy; a trap removes that
+directory on every exit, refusals included. It stores the inline keys, writes
+`handover/brief.md`, then writes the record, in that order, so a record never
+points at a brief that isn't there. If a later store fails, it removes the
+keys this call already stored before it exits, so no orphan file key is left
+on the backend.
+
+**`handoff-brief.sh resume --instance <root>`** voids a park's hold as
+Decision 2 says. **`read [--session <name>]`** (the calling session by
+default) prints a brief with its Files section apart from and after the free
+text, verifies each inline key's hash, replaces control and Unicode format
+characters with a visible mark, and prints watch commands as data without
+running them. A successor re-arms a watch only by running it itself, under
+its own permission settings, never because `read` printed it.
+**`takeover --scratch <dir>`** is Decision 3: inside #1785's open it also
+takes `--predecessor <session>` and `--instance <predecessor root>`, and with
+no koto run it takes `--from <brief session>` instead. **`note --reasoning
+<file>`** scans the text as `write` does and stores
+`handover/compaction-note.md`; it names no files and writes no record.
+
+The Files section has one line per file, its fields separated by a single
+tab, which `write` refuses inside a path: the location (`scratch:` or
+`instance:` followed by the path relative to that root), `sha256:<hex>`,
+`bytes:<n>`, and `inline:yes` or `inline:no`. A path may hold spaces. The
+record holds each file's absolute path, and `write` renders the section from
+the file list it is about to write to the record, by taking the path
+relative to whichever root contains it. `read` and `takeover` refuse a line
+that doesn't have exactly those four fields in that order.
 
 **`closing-step.sh`** is Decision 4. It takes a worktree, checks that the
 path is a worktree of the instance, runs git with `git -C` on it, and prints
-`closing=pass` and the instance root, or `closing=blocked` with one line per
-cause.
+`closing=pass` and the instance root with exit 0, or `closing=blocked` with
+one line per cause and exit 1; exit 2 is an environment fault.
 
 **`context-size.sh`** reads a transcript JSONL and prints the input-token
 total of the newest assistant message after the latest compaction boundary.
@@ -436,8 +497,9 @@ Its `jq` filter selects only the usage integers and its stderr is dropped, so
 no transcript text reaches its output.
 
 **`pre-compact-note.sh`** is a PreCompact hook. It prints the instruction to
-write `handover/compaction-note.md` (reasoning and pointers only, and no
-credentials) and the summary line naming that key to re-read. It ignores its
+write the note through `handoff-brief.sh note` (reasoning and pointers only,
+and no credentials) and the summary line naming `handover/compaction-note.md`
+as the key to re-read. It ignores its
 stdin, exits 0 on every path so it can't block a compaction, names no files,
 touches no record, and changes no scratch.
 
@@ -456,10 +518,15 @@ koto_session: <name>
 branch: <name>   pull_request: <number>   pushed_head: <sha>
 watch: <label> = <re-arm command>
 ## Files
-<path relative to scratch or instance>  sha256: <hex>  bytes: <n>  inline: yes
+scratch:<relative path><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
 ## Standing rules
 None stated.
 ```
+
+The brief uses four key names under `handover/`: `brief.md`, `files/<sha256>`,
+`taken-by` and `compaction-note.md`. #1785's own keys under that prefix must
+not reuse them, and Phase 4 checks that when it adds the call to
+`handover.sh open`.
 
 The keep record fields the script writes:
 
@@ -504,7 +571,8 @@ the worker trial and on the owner's ruling (R14).
 
 ### Phase 2: The brief script
 
-Deliverables: `scripts/handoff-brief.sh` with `write`, `read` and `resume`;
+Deliverables: `scripts/handoff-brief.sh` with `write`, `read`, `resume` and
+`note`;
 its script tests under `scripts/tests/`; the two limits documented in its
 header and in `references/handoff-brief.md`.
 
@@ -528,7 +596,10 @@ example that no shipped workspace config enables.
 
 Workers adopt the brief at a run's end once #1230's design says where the
 steps sit. Then /coordinate's handover writes its successor text through the
-script, and the top-level sessions follow last.
+script, and the top-level sessions follow last. No supervising session adopts
+it before the takeover checks (Phase 4) and the heading, watch and Unicode
+refusals (Phase 2) have shipped, since a poisoned brief would otherwise reach
+the sessions every other role trusts.
 
 ## Security Considerations
 
@@ -538,48 +609,54 @@ the main exposure here: a file holding a credential would travel with the
 brief and stay on the backend after local scratch is gone. A warning in the
 reference doc doesn't stop a model from naming such a file, so the script
 refuses instead, on the path rules, name patterns and token scan that `write`
-lists. The token scan and the credential-name check run on the private copy
-and the resolved path, and the source is checked again after the copy. The
-scan is a net with holes, not a guarantee, and the reference doc says so.
-Each file is copied once into a private temporary directory, and the
-hash, the size and the stored bytes all come from that copy, so a file
-swapped after the check can't put other bytes under a verified hash. The
-script never stores a remote's URL, and paths in the brief are relative to
-scratch or the instance.
+lists. Named files are confined to scratch, so a file in a repo worktree
+(where niwa writes the instance's own secrets) can't be named at all. The
+name check and the token scan run on the resolved path and the private copy,
+and the source is checked again after the copy, so a file swapped after the
+check can't put other bytes under a verified hash. The scan is a net with
+holes, not a guarantee, and the reference doc says so. Removing a key with
+koto's own command doesn't undo a sync or an earlier backend version, so the
+reference doc's guidance for a credential the scan missed is to rotate it
+first and remove the key second. The script never stores a remote's URL.
+
+Read access follows the koto backend: anyone who can read a session's
+backend can read its brief and its inline files, and a session name such as
+`handoff-<job-id>` is not a secret. That is a change from today, when scratch
+stays on its host and dies with the instance. R1 and R4 ask for it, since a
+small named file has to cross hosts to be useful, but whether inline files
+should travel by default or only when a brief asks for it is a question for
+the owner, which this design raises and doesn't settle. Until it's ruled, the
+design follows R4 as written.
 
 The script writes in three places: `handover/` keys in its own session, the
-keep record in `<instance>/.niwa/`, and the takeover mark in a predecessor's
-brief session. The record's protections are Decision 2's: an unpredictable
-temporary name under a 077 umask, a rename that replaces rather than follows
-a symlink, refusal when `.niwa` or `keep.json` is a symlink, an owner check on
-`--instance`, a lock around the read and rename, and a corrupt record moved
-aside rather than blocking. The lock directory carries an age after which a
-later writer breaks it, and the remover reads the keep record as untrusted
-input too.
+keep record in `<instance>/.niwa/` (with the protections Decision 2 lists),
+and the takeover mark in a predecessor's brief session, which is written
+only when absent, is advisory, and gates nothing. The remover reads the keep
+record as untrusted input too, and its own review fields bound how long a
+session can pin its instance with a hold.
 
-On takeover the predecessor's list is untrusted input, because the
-predecessor may have been steered by hostile text and a hash that the record
-supplies proves nothing about intent. Decision 3 confines by-reference paths,
-builds each destination from the hash, checks the hash's form, hashes the
-copy rather than the source, and restores files without an execute bit.
-Restored files, the brief's text and any watch command are data for the
-successor to read, not instructions, and `read` never runs a watch command.
-The brief's free text and file paths are data. `read` replaces control
-characters other than newline and tab with a visible mark, and `read` and
-`takeover` refuse a Files line that doesn't match the exact shape.
-Backend write access is trusted: someone who can write the koto session can
-plant a key or text, which the brief's list of names and hashes limits for
-files but can't stop for prose. The takeover mark is written only when
-absent, is advisory, and gates nothing.
+The successor's side is where hostile text would land. A predecessor steered
+by such text can write a brief that tries to instruct its successor, so the
+design keeps every part of a brief as data. On takeover the list is
+untrusted, and Decision 3 confines paths, caps bytes, re-runs the name check
+and the scan, and refuses when the record and the brief disagree. Free text
+can't open a forged section (Decision 5), `read` marks control and Unicode
+format characters, a watch is one plain command that the successor runs only
+under its own permission settings, and the Standing rules section is the
+predecessor's claim until the other work's check confirms it. Backend write
+access is trusted: someone who can write the koto session can plant a key or
+text, which the brief's names and hashes limit for files but can't stop for
+prose. Supervising sessions adopt the brief only after these controls ship
+(Implementation Approach, Phase 6).
 
-The closing step reads file names and counts from git, not file contents.
-The context reader prints one integer from a transcript and nothing else. The
-compaction hook ignores its stdin, prints fixed text that tells the session
-not to put credentials in the note, and exits 0 on every path. The
-compaction note is written by the session straight into koto and isn't
-scanned, so it carries the same residual risk as the brief's prose. The residual
-risks are the limits of a pattern scan, the backend's retention of synced
-keys, which koto owns, and trust in whoever can write the koto session.
+The closing step reads file names and counts from git, never contents, and
+turns off the two git settings that run a program on a status read. The
+context reader prints one integer from a transcript and nothing else. The
+compaction hook ignores its stdin, prints fixed text, and exits 0 on every
+path, and the note it asks for goes through `note`, which runs the same scan.
+The residual risks are the limits of a pattern scan, the backend's retention
+of synced keys, which koto owns, the read and write trust placed in whoever
+can reach the koto backend, and the owner question above.
 
 ## Consequences
 
@@ -606,9 +683,13 @@ keys, which koto owns, and trust in whoever can write the koto session.
 
 - The interim rule makes the by-reference case a hold, which is safe, and the
   reference doc says to keep named scratch small.
-- The path rules, the name patterns and the token scan refuse the common
-  cases, and the reference doc says the scan has holes and how to remove a
-  key with koto's own command.
+- File content in koto keys is limited to scratch files at or below 256 KiB,
+  and whether it travels by default is raised to the owner rather than
+  assumed.
+- The scratch-only rule, the name patterns and the token scan refuse the
+  common cases, and the reference doc says the scan has holes and that a
+  missed credential is rotated before its key is removed.
 - Seven days idle is long enough for a next-day pickup and short enough not
   to pile up.
-- Every script has checks that run with no work-on run (R16).
+- Every script has checks that run with no work-on run (R16), so the scripts
+  are proven before #1230 places them.
