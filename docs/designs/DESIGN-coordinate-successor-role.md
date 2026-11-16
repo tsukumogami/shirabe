@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A coordinator starts its successor through the worker dispatch path, which
   needs a unit pick can hand out and recognizes a successor only by a
@@ -36,7 +36,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
