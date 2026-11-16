@@ -353,6 +353,15 @@ for decl in none '[]'; do
     eq "declaration $decl: no record, no trash" "" "$(ls -A "$R/.git/shirabe-build-output")"
 done
 
+R="$W/nomap"
+mkrepo "$R" '["target/"]' >/dev/null
+git -C "$R" rm -q -r .claude
+git -C "$R" commit -q -m no-map
+B=$(git -C "$R" rev-parse HEAD)
+cbo "$R" --base "$B"
+eq "no map at the base: declares nothing, prints nothing" "" "$OUT"
+exists "no map at the base: target stays" "$R/target/debug/app"
+
 R="$W/reap"
 B=$(mkrepo "$R" '[]')
 BO="$R/.git/shirabe-build-output"
@@ -604,6 +613,13 @@ eq "target and target/debug: one line, for target" "target removed" "$(printf '%
 missing "target and target/debug: target gone" "$R/target"
 wait_status "$(record_of "$OUT")" >/dev/null
 
+R="$W/slashes"
+B=$(mkrepo "$R" '[".//target", "././target/"]')
+cbo "$R" --base "$B"
+has_line "a leading .// leaves an absolute-looking path: outside" ".//target outside" "$OUT"
+has_line "a repeated leading ./ is dropped" "././target/ removed" "$OUT"
+wait_status "$(record_of "$OUT")" >/dev/null
+
 R="$W/glob"
 B=$(mkrepo "$R" '["target*"]')
 mkdir -p "$R/target1"
@@ -681,11 +697,13 @@ eq "one record line" 1 "$(printf '%s\n' "$OUT" | grep -c 'removal recorded at')"
 # A reader polling the record while the deleter rewrites it always parses it.
 (
     n=0 f=0
-    while [ "$n" -lt 400 ]; do
+    while [ "$n" -lt 600 ]; do
         s=$(jq -r .status "$REC" 2>/dev/null) || f=$((f + 1))
         [ "$s" = done ] && break
         n=$((n + 1))
+        sleep 0.05
     done
+    [ "$s" = done ] || f=$((f + 1000))
     echo "$f" > "$W/parse-failures"
 ) &
 POLLER=$!

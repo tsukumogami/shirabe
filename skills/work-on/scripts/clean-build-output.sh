@@ -97,7 +97,10 @@
 # a run's outcome. A usage error exits 2. Nothing is sent anywhere.
 #
 # Test hooks, read only from the environment, which koto's fixed environment
-# never carries; none of them can widen what is removed:
+# never carries. The stamp and the pause points can't widen what is removed.
+# The two device ids can: a forged value equal to the real one would pass a
+# path that sits on another device. Only the tests set them, to a value that
+# differs, so the refusal they guard is exercised without a second filesystem:
 #   SHIRABE_BUILD_OUTPUT_TEST_STAMP     use this stamp (it must have a stamp's
 #                                       shape) instead of the time and pid
 #   SHIRABE_BUILD_OUTPUT_TEST_PAUSE     a directory: at a point <p> the test
@@ -399,8 +402,10 @@ read_declaration() {
         git -C "$ROOT" merge-base --is-ancestor "$sha" "$ref" 2>/dev/null || return 1
     fi
     entry=$(git -C "$ROOT" ls-tree "$sha" -- "$MAP_PATH" 2>/dev/null) || return 1
-    # No map at the base declares nothing.
-    [ -n "$entry" ] || { kind=absent; return 0; }
+    # A repository with no map at the base has declared nothing: that's a
+    # healthy base, not an unreadable one, so it reads like a map without
+    # build_output and says nothing.
+    [ -n "$entry" ] || return 0
     json=$(git -C "$ROOT" show "$sha:$MAP_PATH" 2>/dev/null) || return 1
     printf '%s' "$json" | jq -se 'length == 1 and (.[0] | type == "object")' >/dev/null 2>&1 || return 1
     kind=$(printf '%s' "$json" | jq -r 'if has("build_output") then (.build_output | type) else "absent" end')
@@ -437,6 +442,9 @@ if [ -n "$DECL" ]; then
                 E_NORM[$i]=$val
                 E_WORD[$i]=absolute
             else
+                # Only a leading `./` (repeated, as in `././x`) and a trailing
+                # `/` are dropped. `.//x` leaves `/x`, which the outside check
+                # refuses rather than rewriting the interior `//`.
                 p=$val
                 while [ "${p#./}" != "$p" ]; do p=${p#./}; done
                 while [ "${p%/}" != "$p" ]; do p=${p%/}; done
