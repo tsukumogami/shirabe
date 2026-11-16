@@ -154,8 +154,10 @@ line someone else committed to the repo would take it from them.
   ignore it. A path that names the repository root itself (`.`) resolves
   outside it for this check. Each refusal is one line of the run's output
   carrying the declared path as written and one fixed reason word for the
-  check it failed: `absolute`, `outside`, `symlink`, `tracked` or
-  `not-ignored`. The checks run in that order and the line names the first
+  check it failed: `absolute`, `outside`, `symlink`, `tracked`,
+  `not-ignored` or `protected`, the last for a path that is or holds the git
+  directory, a nested clone or a mount, or is one of a fixed set of local
+  files such as `.env`. The checks run in that order and the line names the first
   one the path fails. A path that passes the first two checks and doesn't
   exist is reported as `gone` (R8) and checked no further. A refused path
   doesn't stop the remaining declared paths from being checked and handled.
