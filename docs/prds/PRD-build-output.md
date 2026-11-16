@@ -15,7 +15,8 @@ goals: |
   finished, while a developer who never turned it on keeps their warm tree.
   koto's verification suite builds a tree at least a third smaller without
   changing a hand-run build.
-upstream: docs/briefs/BRIEF-build-output.md
+absorbed:
+  - docs/briefs/BRIEF-build-output.md
 ---
 
 # PRD: build-output
@@ -23,6 +24,38 @@ upstream: docs/briefs/BRIEF-build-output.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-build-output](docs/briefs/BRIEF-build-output.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a finished `/work-on` run leaves its build tree in
+the worktree and nothing in the workflow takes it away. The brief framed the
+cost from one shared host, where a worker fleet held sixteen finished trees
+of about 43 GiB and free disk decided how many workers could run, and it
+named why the rules written into workers' instructions didn't help: nobody
+enforced them, and the cargo setting among them never reached the suite.
+This document's Problem Statement states that in full.
+
+The outcome it asked for has three sides at once. A maintainer says once, in
+the repo, what its build output is. A workspace that turns the cleanup on
+gets no build tree left by a finished run, while a run sent back for more
+work still finds its tree warm. A developer who runs the same workflow in
+their own checkout keeps their tree, because the repo's statement turned
+nothing on for them, and the suite builds smaller trees without changing that
+developer's own builds. That is this document's Goals. Its five journeys (a
+maintainer declaring the output, an operator turning the cleanup on, a
+developer in their own clone, an operator seeing a smaller suite tree, and an
+instance remover recognising a tree with no marker) are the User Stories.
+
+Its boundary kept the feature to a declaration in the repo's verification
+configuration, an opt-in cleanup at the end of a run that removes only what
+is declared, its place last among the end-of-run steps, and one setting on
+koto's suite commands. It left out trimming idle trees from kept instances,
+the exact state the cleanup sits in while the design for
+tsukumogami/shirabe#1230 is in progress, building the koto change or running
+the measured build, shared build directories, caches and age-based pruning,
+and telemetry. Requirements and Out of Scope carry that boundary.
 
 ## Problem Statement
 
