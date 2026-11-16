@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A coordinator hands over to its successor through the worker dispatch
   path, which needs a unit pick can hand out and recognizes a successor
@@ -21,7 +21,7 @@ source_issue: 1862
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -99,8 +99,8 @@ Each story below names the requirement that carries it.
   parks, and not when pick lists no open unit. Those refusals keep
   holding every worker dispatch.
 - **R3. Successor recognized at discipline scope.** A `coordinate`
-  brief is the run's own successor when its scope and name equal the
-  run's own: the roadmap whose scope slug matches the run's, as today,
+  brief is the run's own successor when its scope, name and host equal
+  the run's own: the roadmap whose scope slug matches the run's, as today,
   or the `--discipline <name>` and `--host <owner/repo>` the run was
   opened with, as `coord-log.sh run-facts` reports them. For such a
   brief the role is the record's Run `role` row, at either scope.
@@ -112,11 +112,12 @@ Each story below names the requirement that carries it.
   before anything is written.
 - **R5. Same run, not a new lane.** A successor at either scope starts
   as a takeover of its predecessor's run: its opener continues the
-  predecessor's record and links the two runs, so `coord-log.sh
+  predecessor's record rather than opening a new one, so `coord-log.sh
   chain-start` on the successor prints the predecessor's chain start.
-  A discipline successor started on or before the rotation's end date
-  (the opener's window rule) continues that rotation rather than
-  opening the next one.
+  A discipline rotation ends on its end date, its start date plus its
+  rotation days. A discipline successor started on or before that date
+  continues the same rotation; one started after it opens the next
+  rotation, which carries the last one's record and role.
 - **R6. No role row, no successor.** With no Run `role` row on the
   record, a successor dispatch exits 1 before any holding row, leg or
   session is created, and its message names `state-stored-set.sh --run
@@ -138,20 +139,23 @@ Each story below names the requirement that carries it.
   row's dispatch status reads `dispatching` or `dispatched`, a second
   successor dispatch from the same run is refused with a non-zero exit
   that names the pending successor. A row that reads `dispatch-failed`
-  doesn't block a new attempt. A coordinator that restarts while the
-  row reads `dispatching` settles it the way it settles a worker's
-  (confirm the session or re-launch), never by dispatching a second
-  successor.
+  or `stranded` doesn't block a new attempt, and a `dispatched` row
+  whose session `niwa list` no longer shows is settled `stranded` by the
+  next reconcile. A coordinator that restarts while the row reads
+  `dispatching` settles it the way it settles a worker's: confirmed as
+  `dispatched` when `niwa list` shows the successor's session,
+  re-launched under the same row when it doesn't, and never by a second
+  successor row.
 - **R10. Worker paths unchanged.** A worker brief still carries no
   `--role`. A `coordinate` brief naming a different roadmap still
-  renders `--role manager`. A `--rebrief` or `--releg` still renders the
-  role the holding row's entry point calls for and never reads the Run
-  `role` row. An input `role_change` on a successor dispatch is still
+  renders `--role manager`. A `--rebrief` or `--releg` never reads the
+  Run `role` row, and a `--rebrief` of a held lane renders no `--role`
+  unless its input names a `role_change`. An input `role_change` on a successor dispatch is still
   refused with exit 1.
 
 ### Non-functional
 
-- **R11. Tested in the script suites.** R2, R3, R4, R6, R7, R9 and R10
+- **R11. Tested in the script suites.** R1 through R10
   each have a case in the coordinate scripts' test suites that fails
   on today's code and passes after the change.
 - **R12. Documented where coordinators read.** The coordinate skill's
@@ -199,11 +203,25 @@ Each story below names the requirement that carries it.
 - [ ] In a rendered successor brief at each scope, the only line naming
   `manager` or `director` is the invocation line.
 - [ ] A successor started with a `--role` other than its record's is
-  refused `role-mismatch` at both scopes, and an accepted successor's
-  first report record line reads "Role: <the predecessor's role>".
-- [ ] SKILL.md's Roles section and `references/brief-template.md`
-  describe the successor dispatch at both scopes, and the discipline
-  invocation line appears in the brief template.
+  refused `role-mismatch` at both scopes, and in the engine tests an
+  accepted successor's first record line, as `reconcile-report-get.sh
+  --md` prints it, reads "Role: <the predecessor's role>".
+- [ ] A restart that finds the successor row at `dispatching` confirms
+  it when `niwa list` shows the session and re-launches it under the
+  same row when it doesn't; neither path writes a second successor row.
+- [ ] A `coordinate` brief naming `--discipline` with a different name
+  or host from the run's own isn't treated as the successor: the
+  successor dispatch refuses it.
+- [ ] A discipline successor started after its rotation's end date
+  opens the next rotation, and that rotation's record holds the
+  predecessor's role.
+- [ ] A successor whose `--role` differs from its record is accepted
+  when the change flags name an intervention from above, at both
+  scopes.
+- [ ] SKILL.md's Roles section states that a successor dispatch needs no
+  unit and shows the discipline invocation line, and
+  `references/brief-template.md`'s `role` paragraph shows the same
+  line.
 - [ ] The suites hold a case for each requirement R11 lists that fails
   on the base commit and passes at the change's head.
 
