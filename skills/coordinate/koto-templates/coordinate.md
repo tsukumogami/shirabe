@@ -3731,18 +3731,31 @@ Never ask the human for a step the workspace already permits once its review is 
 
 ## goal_fit
 
-The pull request passed the closed checks. Judge goal fit, your one call at
-this step: read it against the unit's brief and submit `fit: fits` when it
-delivers what the unit asked, in the way intended, without stopping short,
-drifting or deciding what the lane didn't; `fit: fits_with_follow_ups` when it
-does and what it leaves is follow-up work rather than a defect; `fit: gap` when
-the worker must correct it first. Give the `rationale`: each follow-up, or for a
-gap, what to correct.
+The pull request passed the closed checks. Goal fit is your one call at this
+step, and the role your record holds says how you make it (SKILL.md, Roles).
+
+As a manager, on your worker's pull request, judge goal fit: read it against
+the unit's brief and submit `fit: fits` when it delivers what the unit asked, in
+the way intended, without stopping short, drifting or deciding what the lane
+didn't; `fit: fits_with_follow_ups` when it does and what it leaves is
+follow-up work rather than a defect; `fit: gap` when the worker must correct it
+first.
+
+As a director, on a lane's pull request, goal fit is the manager's check, made
+at its land step: confirm from the manager's report that it happened and submit
+the fit it reached, without judging it again. Your own call is the alignment
+reading: whether the work fits the other lanes and the direction of the effort.
+
+Give the `rationale`: each follow-up, or for a gap, what to correct; a director
+also gives its alignment reading there.
 
 <!-- details -->
 
 Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
-brief you dispatched. Code quality is the seats' question, already answered in
+brief you dispatched. A director also reads the manager's report on the pull
+request: that is where the goal fit it confirms, and submits, comes from; the
+changed files and the brief are for its alignment reading, not a second
+judgment. Code quality is the seats' question, already answered in
 the body; don't re-review it and don't launch reviewers. A fit pull request,
 with or without follow-ups, goes on by the land check's own verdict: to
 `land_merge` where the workspace permits the merge, and where it doesn't,
@@ -3766,7 +3779,8 @@ clause 1 first:
    Rationale: <what in the pull request decided it>
    ```
 
-   `Fit` is the judgment you submit as `fit`, written with spaces
+   `Fit` is what you submit as `fit` (a manager's judgment, or the manager's
+   fit a director confirmed), written with spaces
    (`fits_with_follow_ups` is `fits with follow-ups`). `Clauses` names each clause
    the pull request moves toward held, by its number, or `advances none`.
 2. Read the roadmap on the default branch into a file outside any

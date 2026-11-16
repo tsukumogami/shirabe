@@ -924,8 +924,11 @@ Decisions); don't ask for anything else.
 
 **Review comes before every merge.** Work is reviewed by whoever dispatched
 its author, and a merge grant decides who merges after the review, never whether the review happens.
-Your land step is the review of your workers' pull requests: nothing a worker
-reports merges until you have checked it there. A pull request you authored
+A manager's land step is the review of its workers' pull requests: nothing a
+worker reports merges until the manager has checked it there, goal fit
+included. A director's land step, on a lane's pull request, confirms that the
+manager's checks happened and gives the director's alignment reading (Roles).
+A pull request you authored
 yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
 You can't tell whether you are bound when `niwa authority check` fails or isn't installed.
 
