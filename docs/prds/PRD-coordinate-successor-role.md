@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A coordinator hands over to its successor through the worker dispatch
   path, which needs a unit pick can hand out and recognizes a successor
@@ -21,7 +21,7 @@ source_issue: 1862
 
 ## Status
 
-Accepted
+In Progress
 
 ## Problem Statement
 
