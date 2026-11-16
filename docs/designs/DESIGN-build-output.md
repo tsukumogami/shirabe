@@ -14,8 +14,9 @@ decision: |
   on. A new `clean-build-output.sh` checks each path in a fixed order,
   renames the passing ones into the worktree's git directory and deletes them
   detached, recording the end; the verification runner waits on a running
-  removal. A plan's parent cleans once per worktree; a fix round cleans at its
-  own end.
+  removal. A plan's parent cleans once per worktree with the base it pinned
+  for that worktree, and a session it dispatched never cleans; a fix round
+  cleans at its own end unless it's plan-dispatched.
 rationale: |
   Every piece reuses something shirabe already has: the map read at the
   merge base, the fence-aware header reader, the run's pinned base. Renaming
@@ -182,7 +183,9 @@ header. A `CLAUDE.local.md` that git tracks, or one that is a symlink, leaves
 the switch off and the script says which, so committed content can't reach
 the switch through a link either. A workspace that generates
 `CLAUDE.local.md` adds the line once in its config, and every worktree it
-makes carries it.
+makes carries it. Nothing in this feature writes the header. The operator,
+or the workspace manager's config, adds it, and the schema reference in
+`verification-map.md` says how.
 
 #### Alternatives Considered
 
@@ -232,7 +235,17 @@ a record whose status is `running` but whose pid is dead is marked `failed`,
 and its trash goes to this call's detached delete.
 
 Before it builds, `run-verification.sh` reads the records and waits, inside
-its own budget, while any of them says `running` with a live pid. A record
+its own budget, while any of them says `running` with a live pid. The same
+wait runs once more, earlier, at a run's start, since an agent can build
+during implementation before verification ever runs.
+`run-verification.sh --await-removals` does only the wait, builds nothing and
+exits 0 once no record says `running` with a live pid, or non-zero while one
+still does. A gate on the work-on edge into the run's first implementation
+state runs it; a gate takes its own timeout, so it isn't held to the 30 s
+action bound. A gate that fails holds the run before implementation until a
+later tick finds the removal ended. A person can override it, as with any
+gate, for the reused-pid case. That edge is at the start of the run, outside
+the end-of-run stretch the tsukumogami/shirabe#1230 design changes. A record
 whose pid is dead counts as ended; the runner leaves its trash for the
 script's next call to reap. If the budget runs out while a record still says
 `running` with a live pid, as it can with a reused pid, the runner builds
@@ -247,7 +260,7 @@ same worktree mustn't build while a removal is still running, because the
 build and the delete compete for the same disk. A 9 GiB delete and a fresh
 build in the same worktree on a full disk is the case the PRD names, and the
 runner's wait is what meets it. Reaping lives in the script, so the runner's
-change is that one wait.
+only change is the wait, run in the two places above.
 
 #### Alternatives Considered
 
@@ -284,6 +297,30 @@ edge, and the shared-branch edge (`pr_creation` to `done` on `pr_status:
 shared`) never cleans either. `/execute` cleans at its successful end, and
 the two templates reach that end differently.
 
+"Dispatched by a plan parent" is one mark, defined here once: a session is
+plan-dispatched when koto's `parent_workflow` is set on it, or when it
+carries the key `work/plan-dispatched`. Each opener that makes a plan's
+child writes one of the two, and nothing else does:
+
+- `/execute`'s single-pr `spawn_and_await` creates every child with
+  `parent_workflow` set. koto writes it, and `session-role.sh` already reads
+  it as `child`.
+- A coordinated child is opened by its own agent with `koto init ...
+  --dispatched-by execute-<plan-slug>`
+  (`skills/execute/references/step-agent-handoff.md`). That handoff gains one
+  more line: right after the `koto init`, the child writes
+  `work/plan-dispatched` on its own session, holding the parent's name.
+- The multi-pr driver writes `work/plan-dispatched` on each item session
+  right after it opens it. The driver has no koto session of its own, so no
+  link could name it.
+
+A dispatched-by link alone isn't the mark. A coordinator that dispatches a
+standalone `/work-on` run links it the same way, and that run owns its
+worktree and cleans at its own end. The single run's caller reads the mark
+before it calls the script, and an answer it can't read (a failed `koto
+session list` or `koto context exists`) counts as plan-dispatched, so a doubt
+leaves the tree in place rather than removing it.
+
 In single-pr mode, `plan_completion` runs before `ci_monitor`, so it can't
 carry the cleanup: CI isn't being watched yet. The successful ends are the
 two terminals past `ci_monitor`, `merge_readiness` and `merge_route`:
@@ -311,34 +348,61 @@ Which exact state carries the call in each template is the implementer's to
 wire, within those bounds. These are `/execute` states, outside the work-on
 states the tsukumogami/shirabe#1230 design is changing.
 
-A plan parent has no `result.json` or `impl_base` of its own, so it pins
-its own base. When its run starts it records, in its own session, one base
-per repository: the commit the default branch's remote ref names at that
-moment. It passes that as `--base` for every worktree of that repository
-and never recomputes it. Every child's base comes after it, so the pinned
-base is an ancestor of every child's head and the script's ancestry check
-passes. After the branch's pull request merges and the default branch is
-fetched, a recomputed merge base would be the branch head itself, which is
-why the parent keeps the base it pinned at its start (R2). A paused run that
-resumes in a replacement session carries the pin over from the session it
-replaces and never pins again.
+A plan parent has no `result.json` or `impl_base` of its own, so it pins a
+base per worktree. It pins when it records that worktree's branch: in
+single-pr mode at `settled_branch_record`, and in coordinated mode at the
+step that cuts or attaches a node's worktree (`node-cut.sh`, which prints
+`worktree=`). The pin is `git merge-base <recorded head> <default branch's
+remote ref>`, taken at that moment, before any of the plan's work has
+merged. For a branch freshly cut from the default branch that is the remote
+ref itself; for an adopted branch, a reused or attached node branch, or one
+that already carries commits, it is the branch's fork point. The parent
+writes one key per worktree in its own session, `run/cleanup/<worktree-id>`,
+holding the worktree's path and its pin. Those keys are the "recorded
+worktrees" the cleanup walks, and nothing else writes them.
+
+The pin sits on the default branch and is an ancestor of the recorded head.
+A branch only moves forward from there: `worktree_sync` merges the default
+branch in, or, under `sync_status: override`, leaves it out. A rebase onto a
+newer default branch keeps the pin as an ancestor too, since the pin is on
+that branch. Either way it stays an ancestor of every later head, and the
+script's ancestry checks pass. A branch rewritten onto some other base fails
+them; the script then prints `base unreadable`, removes nothing, and the tree
+is left for the instance remover. After the branch's pull request merges and
+the default branch is fetched, a recomputed merge base would be the branch
+head itself, which is why the parent passes the pin unchanged as `--base`
+and never recomputes it (R2).
+
+A paused run that resumes in a replacement session copies every
+`run/cleanup/*` key from the session it replaces and never pins again. A run
+recovered with `--adopt-run` reads the keys from the session it adopts. When
+it can't read them, it doesn't pin afresh, because after a merge a fresh
+merge base is the branch head. For each worktree it prints
+`build-output: base unreadable, removed nothing` itself, without calling
+the script.
 
 In a multi-pr PLAN, `/work-on` is the driver: it takes the items one at a
-time, so the driver itself, not a child, knows when no item remains. It calls
-the script once, when its item loop finds no next item, in the one worktree
-the items share. That loop is prose in `skills/work-on/SKILL.md`, not a
-template state, and each item runs in its own session, so no state of the
-tsukumogami/shirabe#1230 design carries the call: the skill's loop makes it
-itself after the last item. Each item would otherwise reach an ordinary
-single run's successful end and clean the worktree the next item reuses
-(R9), so every item session the driver opens counts as dispatched by a plan
-parent and never cleans; the driver records that on the item's session when
-it opens it, and the single run's caller skips the cleanup when it finds
-the mark. The driver has one result per item and no base of its own that
-covers them all, so it pins its base the way a plan parent does: when its
-run starts it records the commit the default branch's remote ref names then,
-and passes that as `--base`, never an item's `merge_base` or a recomputed
-one.
+time, so the driver itself, not a child, knows when no item remains. That
+loop is prose in `skills/work-on/SKILL.md`, not a template state, and each
+item runs in its own session, so no state of the tsukumogami/shirabe#1230
+design carries the call: the skill's loop makes it itself. It calls the
+script once, in the one worktree the items share, when every item in the
+PLAN has reached its successful end. A loop that stops because the items
+left are blocked on open dependencies is a pause, not an end, and cleans
+nothing; the driver that resumes it cleans when the last item ends. Each
+item would otherwise reach an ordinary single run's successful end and clean
+the worktree the next item reuses (R9), so the driver marks each item
+session plan-dispatched when it opens it, as above.
+
+The driver has one result per item and no base of its own that covers them
+all, so it pins a base the way a plan parent does: before its first item it
+records the commit the default branch's remote ref names then. It has no
+session to keep it in, so it writes it to
+`<git-dir>/shirabe-build-output/pin-<plan-slug>`, the worktree's private
+directory the script already checks. A resumed driver reads that file and
+never pins again. After its cleanup call it removes the file, so a later run
+of the same PLAN pins afresh. It passes the pin as `--base`, never an item's
+`merge_base` or a recomputed one.
 
 #### Alternatives Considered
 
@@ -359,13 +423,35 @@ question is whether that run's own successful end cleans again.
 
 A fix round is a run of its own, and it rebuilt the declared tree. Its
 successful end with CI green (or alone, with no hosted checks) cleans it,
-the same way. Its base is the one the original run pinned, carried into the
-fix round's session when `fix-round.sh` opens it, not the fix round's own
-`impl_base`: a hosted-CI fix round starts from the branch, so its
-`impl_base` is a branch commit that fails the script's ancestry check and
-would read the branch's own declaration (R2). It already starts
-cold, because the first run's end cleaned, and that cold build is the cost
-of a finished run leaving nothing.
+the same way, unless the round is plan-dispatched. It already starts cold,
+because the first run's end cleaned, and that cold build is the cost of a
+finished run leaving nothing.
+
+`fix-round.sh` opens the round's session, so it carries both things the
+round's end reads:
+
+- **The base.** Today the script records `base` as the fix round's HEAD,
+  which is the round's review base and stays as it is. It gains a second
+  field, `cleanup_base`, in the same round record: the base the original run
+  pinned, read the way the original's caller reads it (verification's
+  recorded `merge_base` from the original's `result.json`, or its
+  `impl_base`). The round's caller passes `cleanup_base` as `--base`, never
+  the round's own `impl_base`. A hosted-CI fix round starts from the branch,
+  so its `impl_base` is a branch commit that fails the script's ancestry
+  check and would read the branch's own declaration (R2). When the original's
+  base can't be read, `cleanup_base` is left empty, and the round's caller
+  prints `build-output: base unreadable, removed nothing` instead of calling
+  the script.
+- **The mark.** `fix-round.sh` already copies the original's
+  `parent_workflow` with `--parent`. It also copies `work/plan-dispatched`
+  when the original carries it. A fix round of a plan's child is then
+  plan-dispatched like the child, and never cleans, so a multi-pr item's
+  fix round can't clean the worktree the next item reuses.
+
+A plan child's fix round that runs after the parent has already reached its
+successful end leaves the tree it rebuilt. The parent's cleanup ran once and
+doesn't run again. That tree is the instance remover's to take, the same as a
+blocked run's.
 
 #### Alternatives Considered
 
@@ -387,9 +473,10 @@ hasn't finished.
 The pieces fit because they all resolve to one script and the records it
 writes, one per removal. The work-on end, the multi-pr driver's item loop,
 `/execute`'s successful end after CI is green (once per recorded worktree,
-with the base the parent pinned at its start) and a fix round's end all call
-`clean-build-output.sh`; `run-verification.sh` reads its records and waits on
-any that's still running. The script never fails the run: it prints its
+with the base the parent pinned when it recorded that worktree's branch) and
+an undispatched fix round's end all call `clean-build-output.sh`.
+`run-verification.sh` reads its records and waits on any that's still
+running, before verification and at the run's start. The script never fails the run: it prints its
 lines and exits 0, whatever it found. The exact work-on state it runs in
 stays open until the tsukumogami/shirabe#1230 design settles; the order
 (closing step, handoff brief, cleanup) is fixed here.
@@ -416,30 +503,38 @@ tsukumogami/koto#490.
 | `skills/work-on/references/verification-map.md` | Documents `build_output` as a fifth, optional top-level field: literal paths, the normalization, the refusal words, and that a remover may read it and the field isn't renamed or changed in meaning without a schema change (R10). |
 | `skills/work-on/scripts/verification-map-schema_test.sh` | Accepts a map with and without the field; a malformed field doesn't fail the map. |
 | `skills/work-on/scripts/clean-build-output.sh` (new) | Reads the switch at the root, checks its own directory, reaps dead removals, checks the base's ancestry and reads the declaration there, checks each path, renames the passing ones into numbered trash entries, writes one record per removal, starts the deleter, prints one line per path, exits 0. |
-| `skills/work-on/scripts/run-verification.sh` | Before building, waits inside its budget on every removal record that says `running` with a live pid. If the budget runs out first, it starts no command, reports the verification as not run and names the record. It doesn't reap; the script does. `SELECT_JQ` is unchanged. |
-| work-on template, single run | Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief. Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The state is named when the tsukumogami/shirabe#1230 design settles. Dispatched children and the shared-branch edge don't call it. |
-| `skills/work-on/SKILL.md`, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. The loop is skill prose, not a template state: it calls the script itself, once, when it finds no next item, in the one worktree the items share, with the base it pinned when its run started (as a plan parent does). It marks each item session it opens as plan-dispatched, so no item's own successful end cleans. |
+| `skills/work-on/scripts/run-verification.sh` | Before building, waits inside its budget on every removal record that says `running` with a live pid. If the budget runs out first, it starts no command, reports the verification as not run and names the record. Gains `--await-removals`, which does only the wait and exits non-zero while a live record remains. It doesn't reap; the script does. `SELECT_JQ` is unchanged. |
+| work-on template, single run | A gate on the edge into the run's first implementation state runs `run-verification.sh --await-removals` (R12). Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief, unless the session is plan-dispatched (Decision 4's mark, read fail-safe). Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The end state is named when the tsukumogami/shirabe#1230 design settles. The shared-branch edge doesn't call it. |
+| `skills/work-on/scripts/fix-round.sh` | Adds `cleanup_base` (the original run's pinned base) to the round record beside the existing `base`, and copies `work/plan-dispatched` from the original when it carries it, as it already copies `parent_workflow`. |
+| `skills/work-on/SKILL.md`, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. Before its first item it writes its pin to `<git-dir>/shirabe-build-output/pin-<plan-slug>`, or reads that file on resume. It writes `work/plan-dispatched` on each item session it opens. The loop is skill prose, not a template state: it calls the script itself, once, when every item has reached its successful end, in the one worktree the items share, with that pin, then removes the pin file. A loop that stops on blocked items cleans nothing. |
+| `skills/execute/references/step-agent-handoff.md` | After the coordinated child's `koto init ... --dispatched-by execute-<plan-slug>`, the child writes `work/plan-dispatched` on its own session. |
 | `scripts/lib/claude-md-header.sh` | Gains a way to return the matched header line, or its name as written, beside the value, so the script can refuse a wrongly cased name; its existing callers are unchanged. |
-| `/execute` templates, successful end | Pin one base per repository at the run's start, in the parent's session. Single-pr: calls the script once on the way into `merged` or `ready_awaiting_merge`, with the owned pull request's hosted CI green at that head, or at that end alone in a repo with no hosted checks; never at `plan_completion` or on `done_blocked`. A paused run's replacement session carries the pin over. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree on the way into `ready_awaiting_merge` (from `coord_verdict` or `coord_merge_confirm`) or `merged` (from `coord_merge_confirm`), under the same CI check; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
+| `/execute` templates, successful end | Pin a base per worktree when the parent records its branch (`settled_branch_record`, or the step that cuts or attaches a node's worktree), as `run/cleanup/<worktree-id>` in the parent's session holding the path and the pin; those keys are the recorded worktrees. Single-pr: calls the script once on the way into `merged` or `ready_awaiting_merge`, with the owned pull request's hosted CI green at that head, or at that end alone in a repo with no hosted checks; never at `plan_completion` or on `done_blocked`. A paused run's replacement session copies every `run/cleanup/*` key; an `--adopt-run` recovery that can't read them prints `base unreadable` per worktree and calls nothing. Several calls in one action share the walk budget through `--walk-budget`. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree on the way into `ready_awaiting_merge` (from `coord_verdict` or `coord_merge_confirm`) or `merged` (from `coord_merge_confirm`), under the same CI check; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
+| The workspace's `CLAUDE.local.md` (outside shirabe) | The operator, or a workspace manager's config, adds `## Build Output Cleanup: on`. No component of this feature writes it; `verification-map.md` documents the line. |
 | koto's verification map and command list | `env CARGO_INCREMENTAL=0` right after `scripts/without-session-env.sh` on each of the seven cargo commands; the wrapper is unchanged (koto's own item). |
 
 ### The script's contract
 
 ```
-clean-build-output.sh --base <sha> [--root <dir>]
+clean-build-output.sh --base <sha> [--root <dir>] [--walk-budget <seconds>]
 ```
 
 `--root` is the work tree root: `CLAUDE.local.md` is read there, and every
 declared path resolves against it. It defaults to `git rev-parse
 --show-toplevel`. `--base` is the base the run pinned: verification's
 recorded `merge_base` from `result.json`, or the run's `impl_base` when it
-relied on hosted CI and has no `result.json`. A plan parent has neither, so
-it passes the base it pinned when its run started: for each repository, the
-commit the default branch's remote ref named at that moment, recorded in the
-parent's own session and passed unchanged for every worktree of that
-repository. Each child's base comes after it, so it's an ancestor of every
-child's head. Neither the script nor its caller ever computes a merge base at
-cleanup time.
+relied on hosted CI and has no `result.json`. A fix round passes its round
+record's `cleanup_base`. A plan parent passes the pin in that worktree's
+`run/cleanup/<worktree-id>` key, and the multi-pr driver passes the pin in
+its `pin-<plan-slug>` file (Decision 4). Neither the script nor its caller
+ever computes a merge base at cleanup time.
+
+`--walk-budget` is the time the `protected` walk may take across all paths,
+20 s by default. A caller that makes several calls inside one action, such
+as a coordinated parent cleaning two worktrees in one tick, splits the 20 s
+between them, so the action stays inside koto's 30 s bound whatever the
+number of worktrees. A path whose walk can't finish in its share is `failed`
+and kept.
 
 Callers run it once, at a run's successful end with CI green, or at the
 successful end alone in a repo with no hosted checks. It never runs on a
@@ -456,7 +551,11 @@ run or `done_already_complete` (R6). In order:
 2. Check the script's own directory, `<git-dir>/shirabe-build-output`. If it
    exists and is a symlink, or isn't a directory owned by the current user,
    print one `build-output: <dir> failed` line naming it, remove nothing and
-   exit 0. If it's missing, create it with plain `mkdir` (no `-p`).
+   exit 0. If it's missing, create it with plain `mkdir` (no `-p`). Then
+   pick this call's stamp and check that none of `removal-<stamp>.json`,
+   `removal-<stamp>.log` and `trash-<stamp>` exists, as a file, a directory
+   or a symlink. If one does, print one `build-output: <name> failed` line
+   naming it, reap nothing, rename nothing and exit 0.
 3. Reap. Find each `removal-<stamp>.json` whose status is `running` but whose
    pid is dead. Its trash directory is derived from the record's file name
    (`trash-<stamp>`), never from a path inside the record. Every exit from
@@ -465,11 +564,13 @@ run or `done_already_complete` (R6). In order:
 4. Check the base. `--base` must name a commit that is an ancestor of HEAD
    (`git merge-base --is-ancestor <base> HEAD`) and, when the upstream
    default branch's remote ref exists locally, an ancestor of or equal to
-   that ref. Then read the map with
+   that ref. With no such ref, only the first check applies (see Residual
+   risk). Then read the map with
    `git show <base>:.claude/shirabe-extensions/verification-map.json`. A base
    that fails either check, or an unreadable base or map: print
-   `build-output: base unreadable, removed nothing`. No field: print nothing
-   more. A non-list: one `malformed` line. Each of these goes to step 7.
+   `build-output: base unreadable, removed nothing`. No field, or an empty
+   list: print nothing more. A non-list: one `malformed` line. Each of these
+   goes to step 7.
 5. Normalize each entry. A non-string or empty entry, or one holding a
    newline or other control character, is `malformed`, named and skipped.
    Then check in this order and stop at the first refusal:
@@ -491,12 +592,16 @@ run or `done_already_complete` (R6). In order:
      worktree); contains a directory whose device id differs from the work
      tree's (a mount); or is one of `.git`, `.claude`, `CLAUDE.md`,
      `CLAUDE.local.md`, `.env`, `.env.*` and the `shirabe-build-output`
-     directory itself. The walk shares about 20 s across all paths, inside
-     koto's 30 s bound; a path whose walk can't finish in its share is
-     reported `failed` and not removed.
-6. Create `trash-<stamp>` with plain `mkdir`. If it already exists, print one
-   `build-output: trash-<stamp> failed` line, rename nothing and go to step
-   7. Otherwise, for each path that passed, in declaration order, n from 1:
+     directory itself. The walk shares `--walk-budget` (20 s by default)
+     across all paths, inside koto's 30 s bound; a path whose walk can't
+     finish in its share is reported `failed` and not removed.
+   - Duplicates collapse after normalization, and a path under another
+     declared path is handled with that path: it gets no line of its own
+     and no error.
+6. Create `trash-<stamp>` with plain `mkdir`. If that fails (something made
+   it since step 2), print one `build-output: trash-<stamp> failed` line,
+   rename nothing and go to step 7. Otherwise, for each path that passed, in
+   declaration order, n from 1:
    compare the device ids of the path and the trash directory; right before
    the rename, re-check that neither the path nor any directory on the way is
    a symlink and that its dev:inode still matches the recorded one; rename it
@@ -505,14 +610,19 @@ run or `done_already_complete` (R6). In order:
    mismatch renames the entry back and prints `<path> failed`. A cross-device
    path, a failed re-check or a failed rename prints `<path> failed` and
    stays in place.
-7. If this call renamed a path or reaped a record, check that neither
-   `removal-<stamp>.json` nor `removal-<stamp>.log` is a symlink, write the
-   record (`started_at`, the map from each n to the path as written, the
-   reaped trash directories, the deleter's pid, `status: running`), mark the
-   reaped records `failed`, and start the deleter detached on this call's
-   trash and the reaped trash, with its output to the log. It rewrites this
-   record with `status: done` or `failed` and `ended_at` when it exits.
-   Exit 0.
+7. If this call renamed nothing and reaped nothing, it writes no record,
+   starts no deleter and exits 0. Otherwise it writes the record
+   (`started_at`, the map from each n to the path as written, the reaped
+   trash directories, the deleter's pid, `status: running`) and opens the log
+   with no-clobber, so a file or symlink planted there since step 2 fails the
+   write instead of being followed. On that failure it prints one
+   `build-output: <name> failed` line, renames this call's entries back to
+   their paths (each such path's line reads `failed`), leaves the reaped
+   records as they were, starts no deleter and exits 0. Otherwise it marks
+   the reaped records `failed` and starts the deleter detached on this call's
+   trash and the reaped trash, with its output to the log. The deleter
+   rewrites this record with `status: done` or `failed` and `ended_at` when
+   it exits. Exit 0.
 
 A path's line is the path as the maintainer wrote it, then its word (R3).
 Lines about the switch, the base and the script's own directories start with
@@ -537,16 +647,25 @@ run ends, CI green
   -> exit 0 (outcome unchanged)
 
 /execute parent
-  start: pin one base per repository (default branch's remote ref, now)
+  branch recorded (settled_branch_record, or node cut/attach):
+       run/cleanup/<worktree-id> = {path, merge-base(head, default remote ref)}
   single-pr: ci_monitor -> merge_readiness -> merge_route
        -> ([merge_attempt ->] merge_confirm ->) merged | ready_awaiting_merge
-       -> hosted CI green at head, or no hosted checks? clean-build-output.sh --base <parent's pinned base>, once
+       -> hosted CI green at head, or no hosted checks? clean-build-output.sh --base <the worktree's pin>, once
   coordinated: coord_verdict -> ready_awaiting_merge,
        or coord_merge_confirm -> merged | ready_awaiting_merge
-       -> hosted CI green, or no hosted checks? clean-build-output.sh --base <parent's pinned base>, per worktree
+       -> hosted CI green, or no hosted checks? clean-build-output.sh --base <that worktree's pin>, per recorded worktree
   done_blocked, done_error, paused_awaiting_merges -> no cleanup
 
+multi-pr driver (skill prose, no session)
+  before item 1: pin-<plan-slug> in <git-dir>/shirabe-build-output (read on resume)
+  each item: open session, write work/plan-dispatched -> item never cleans
+  every item ended successfully? clean-build-output.sh --base <pin>, then remove pin
+  items left blocked -> pause, no cleanup
+
 next run, same worktree
+  -> gate into first implementation state: run-verification.sh --await-removals
+       a live running record -> gate fails, run holds before implementation
   -> run-verification.sh reads every removal-*.json
        any running with a live pid -> wait inside budget
        budget out, still running -> build nothing, not run, name the record
@@ -568,16 +687,19 @@ next run, same worktree
    `trash-<stamp>`, numbered entries, a second call during a live removal,
    reaping a dead one, and the record.
 3. **The guard.** Teach `run-verification.sh` to wait on every live running
-   removal record. It's verification code the tsukumogami/shirabe#1230
-   design also changes, so it lands after that design's PR, or rebased onto
-   it.
-4. **The callers.** Wire `/execute`'s successful ends: the way into
-   `merged` or `ready_awaiting_merge` in both templates, with hosted CI
-   green at the head or with no hosted checks, each with the base the parent pinned at its
-   start. Wire the work-on end once the tsukumogami/shirabe#1230 design
-   names its state, and the multi-pr driver's loop in
-   `skills/work-on/SKILL.md` with it, since the item runs' skip of the
-   cleanup sits in that same end.
+   removal record, add `--await-removals`, and put the gate on the work-on
+   edge into the first implementation state. It's verification code the
+   tsukumogami/shirabe#1230 design also changes, so it lands after that
+   design's PR, or rebased onto it.
+4. **The callers.** Wire `/execute`: the per-worktree pin at
+   `settled_branch_record` and at the node cut, the `work/plan-dispatched`
+   line in the coordinated handoff, and the successful ends (the way into
+   `merged` or `ready_awaiting_merge` in both templates, with hosted CI green
+   at the head or with no hosted checks, each worktree with its own pin).
+   Wire the work-on end once the tsukumogami/shirabe#1230 design names its
+   state, together with `fix-round.sh`'s two additions and the multi-pr
+   driver's loop in `skills/work-on/SKILL.md`, since the item runs' skip of
+   the cleanup sits in that same end.
 5. **koto's suite.** `env CARGO_INCREMENTAL=0` on the seven cargo commands
    in koto's verification map, and koto's command list, against
    tsukumogami/koto#490. Independent of the rest.
@@ -598,8 +720,9 @@ irreversible.
 
 **What it trusts.** It reads the `build_output` declaration only at the base
 the run pinned before the branch's own changes, so a branch can't add a path
-to what its own run removes. That base comes from files the working agent can
-write (`result.json`, `impl_base`), so the script checks it: the base must be
+to what its own run removes. That base comes from places the working agent can
+write (`result.json`, `impl_base`, a round's `cleanup_base`, a parent's
+`run/cleanup/*` keys, the driver's pin file), so the script checks it: the base must be
 an ancestor of HEAD and, when the upstream default branch's remote ref exists
 locally, an ancestor of or equal to that ref. A branch's own commit, or an
 unmerged commit carrying a wider map, fails and counts as unreadable, so
@@ -683,6 +806,11 @@ earlier commit passes.
   builds nothing and reports the verification as not run.
 - A run that blocks, or a worker that dies, keeps its tree; the cleanup only
   bounds runs that finish.
+- A plan child's fix round that runs after the parent's successful end
+  keeps the tree it rebuilt, and so does a branch rewritten onto a base that
+  isn't on the default branch, which reads as `base unreadable`.
+- A run can hold before implementation while an earlier removal in its
+  worktree is still running.
 
 ### Mitigations
 
@@ -692,5 +820,6 @@ earlier commit passes.
   counts as ended, and the script's next call reaps its trash. A wait that
   runs out builds nothing and names the record it waited on, so the
   verification that didn't run says why.
-- Trees left by blocked or dead runs are the instance remover's to trim, and
-  it reads the same declaration.
+- Trees left by blocked or dead runs, by a late fix round of a plan child
+  or by a rewritten branch are the instance remover's to trim, and it reads
+  the same declaration.
