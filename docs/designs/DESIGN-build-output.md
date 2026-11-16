@@ -167,7 +167,7 @@ and refuses a duplicate. The value `on`, trimmed and case-insensitive, turns
 it on. An absent file or header, any other value, a duplicate or an
 unreadable file means off; the last two are reported, since they mean
 someone tried to set it. The committed `CLAUDE.md` is never read for this
-header. A workspace that generates `CLAUDE.local.md` adds the line once in
+header, and a `CLAUDE.local.md` that git tracks leaves the switch off. A workspace that generates `CLAUDE.local.md` adds the line once in
 its config, and every worktree it makes carries it.
 
 #### Alternatives Considered
@@ -315,7 +315,9 @@ from `result.json`, or the run's `impl_base` when it relied on hosted CI and
 has no `result.json`. The script never computes a merge base itself. In
 order:
 
-1. Read the switch. Off: print `build-output: cleanup off` and exit 0.
+1. Read the switch. Off: print `build-output: cleanup off` and exit 0. A
+   `CLAUDE.local.md` that git tracks counts as off, and the line says so:
+   `build-output: cleanup off (CLAUDE.local.md is tracked)`.
 2. Read the map with `git show <base>:.claude/shirabe-extensions/verification-map.json`.
    An unreadable base or map: print `build-output: base unreadable, removed
    nothing` and exit 0. No field: print nothing more and exit 0. A non-list:
@@ -376,16 +378,47 @@ outside this work, and no such setting is added until it does (R15).
 
 ## Security Considerations
 
-The script deletes files, so its checks are the security boundary. It reads
-the declaration only at the base the run pinned before the branch's own
-changes, so a branch can't add a path to what its run removes. Every path
-must be relative, stay inside the root, pass through no symlink, cover no
-tracked file and be ignored by git before anything moves; a path that fails
-any check is named and kept. The rename target is inside the worktree's own
-git directory, so the deleter never operates on a path a user or a later
-build can see, and it runs `rm -rf` only on a directory the script created.
-The switch is read only from the uncommitted local file. Nothing is sent
-anywhere (R14).
+The script deletes files, so its checks are the security boundary.
+
+**What it trusts.** It reads the `build_output` declaration only at the base
+the run pinned before the branch's own changes, so a branch can't add a path
+to what its own run removes. That base comes from files the working agent can
+write (`result.json`, `impl_base`), so the pin protects against a branch's
+committed changes, not against the worker itself, which could run `rm`
+directly. The switch is read only from `CLAUDE.local.md` in the working tree,
+and only when that file is not tracked by git; a tracked copy leaves the
+cleanup off and says so, so a committed file can't turn it on for someone's
+own clone.
+
+**What it checks before anything moves.** Each path must be relative, stay
+inside the root, pass through no symlink, cover no tracked file and be
+ignored by git. A path that fails any check is named and kept. Entries are
+literal data: the script quotes them, passes them after `--`, never expands
+globs, and treats an entry with a newline or other control character as
+`malformed`. `--base` must name a commit.
+
+**How it removes.** The path is renamed into the worktree's own git directory
+(the script's test suite asserts that `git rev-parse --git-path` resolves
+there in a linked worktree), after a device-id comparison that fails toward
+`failed` and leaves the path in place, and after a last symlink re-check. The
+detached `rm -rf` runs only on a `trash-*` directory the script created, with
+a path computed from the git directory and a non-empty and prefix check,
+never from a path in `removal.json`. The runner likewise clears leftover
+trash by computing the directory itself and ignores any path in the record. A
+recorded pid that has been reused makes a later run wait, at most its own
+budget.
+
+**Data.** Nothing is sent anywhere (R14). The record and the deleter's log
+hold only paths from the repo's own map, pids and timestamps, in the git
+directory, and go with the worktree.
+
+**Residual risk.** Deletion can't be undone once the detached removal runs. A
+declared tree that holds untracked files a worker wrote by hand loses them;
+the maintainer's declaration, made at the pinned base and limited to ignored
+paths, is the accepted boundary. A path swapped for a symlink between the
+check and the rename is possible only for a process writing to the worktree
+at the run's end; the last re-check narrows the window and doesn't close it.
+A mount nested inside a declared tree is not detected.
 
 ## Consequences
 
