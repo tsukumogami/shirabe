@@ -90,8 +90,9 @@ within 30 s, record when the removal ends, and keep a later run in the same
 worktree from building while a removal is still running (R12).
 
 The suite side is separate and small: `CARGO_INCREMENTAL=0` on every cargo
-command in koto's map, set in one place, the wrapper script every command in
-that map already runs through, with koto's prose command list changed
+command in koto's map, set in the same place on each of those commands,
+right after the wrapper script every command in that map already runs
+through, with koto's prose command list changed
 alongside, planned against tsukumogami/koto#490 (R11). The field is a stable
 part of the map's schema (R10), older shirabe releases ignore it (R13), and
 there's no telemetry (R14) and no debug-information setting until the
@@ -335,11 +336,14 @@ stays open until the tsukumogami/shirabe#1230 design settles; the order
 (closing step, handoff brief, cleanup) is fixed here.
 
 koto's suite gets `CARGO_INCREMENTAL=0` on every cargo command in its
-verification map through one edit to koto's wrapper script
-`scripts/without-session-env.sh`: a line that sets `CARGO_INCREMENTAL=0` in
-the environment before the script's `exec "$@"`. All twelve commands in
-koto's map, the seven cargo commands among them, already run through that
-wrapper, so the map's command strings don't change. There's no
+verification map, in the map itself. All twelve commands in koto's map, the
+seven cargo commands among them, already run through koto's wrapper
+`scripts/without-session-env.sh`, which ends in `exec "$@"` and so passes its
+arguments on unchanged. Each of the seven cargo commands gets
+`env CARGO_INCREMENTAL=0` in the same place, right after the wrapper and
+before `cargo`; the wrapper itself doesn't change, so nothing else that runs
+through it is touched, and the five other commands stay as they are. There's
+no
 `.cargo/config.toml` change and no `pass_env`. koto's prose command list
 changes alongside (R11). That is its own plan item against
 tsukumogami/koto#490.
@@ -357,7 +361,7 @@ tsukumogami/koto#490.
 | work-on template, single run | Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief. Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The state is named when the tsukumogami/shirabe#1230 design settles. Dispatched children and the shared-branch edge don't call it. |
 | work-on template, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. It calls the script once, when its item loop finds no next item, in the one worktree the items share. Its exact state name waits on the tsukumogami/shirabe#1230 design, like the single run's caller. |
 | `/execute` template, `plan_completion` | Calls the script once per recorded worktree. |
-| koto's `scripts/without-session-env.sh` and command list | One line setting `CARGO_INCREMENTAL=0` before the wrapper's `exec "$@"`; the map's command strings are unchanged (koto's own item). |
+| koto's verification map and command list | `env CARGO_INCREMENTAL=0` right after `scripts/without-session-env.sh` on each of the seven cargo commands; the wrapper is unchanged (koto's own item). |
 
 ### The script's contract
 
@@ -494,8 +498,8 @@ next run, same worktree
 4. **The callers.** Wire `/execute`'s `plan_completion`, and wire the
    work-on end and the multi-pr driver's item loop once the
    tsukumogami/shirabe#1230 design names their states.
-5. **koto's suite.** The `CARGO_INCREMENTAL=0` line in koto's
-   `scripts/without-session-env.sh` and koto's command list, against
+5. **koto's suite.** `env CARGO_INCREMENTAL=0` on the seven cargo commands
+   in koto's verification map, and koto's command list, against
    tsukumogami/koto#490. Independent of the rest.
 
 The measured build that would decide a debug-information setting runs
