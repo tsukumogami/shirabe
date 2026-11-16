@@ -74,7 +74,7 @@ out of scope and nothing this work builds turns it on.
   successor run superseding its predecessor and carrying resume state across)
   or, with no koto run, when the successor writes its takeover mark: a key in
   the predecessor's brief session, whose exact name the design gives. The job
-  state file is Claude Code's `~/.claude/jobs/<session-id>/state.json`; niwa
+  state file is Claude Code's `.claude/jobs/<session-id>/state.json` under the home directory; niwa
   reads a session as live only while it exists with a matching `sessionId`.
 - **Issues cited.** #1785: an open draft shirabe design for a fallback worker
   continuation, a new instance that supersedes the stopped worker in koto.

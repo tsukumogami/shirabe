@@ -94,7 +94,7 @@ across. koto writes `koto/superseded-carry-complete` last.
 **Compaction without turning it on.** Claude Code compacts a background
 session in place when it is given a window and the instance has a PreCompact
 hook, and the session id doesn't change. niwa reads a session as live while
-`~/.claude/jobs/<id>/state.json` exists with a matching `sessionId`. Its
+`.claude/jobs/<id>/state.json` under the home directory exists with a matching `sessionId`. Its
 dispatch launch settings take constant keys only, apart from an `env` object,
 and the workspace config already has a `[session.dispatch_env] passthrough`
 list. A 100K window over a harness floor near 58K thrashed and blocked a

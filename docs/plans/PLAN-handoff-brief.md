@@ -92,7 +92,7 @@ The plan files no issue.
 
 ### Step 2: The job's sessionId is read before and after one compaction and the result is recorded
 
-**Goal**: In a test instance, the job state file's `sessionId` (`~/.claude/jobs/<id>/state.json`) is read once before and once after a single compaction of that job's session, and the compaction section of `references/handoff-brief.md` says whether it changed. Nothing is built, and compaction is turned on for no role: making it the worker default still waits on this read, on the remaining arms of the worker trial and on the owner's ruling.
+**Goal**: In a test instance, the job state file's `sessionId` (`.claude/jobs/<id>/state.json` under the home directory) is read once before and once after a single compaction of that job's session, and the compaction section of `references/handoff-brief.md` says whether it changed. Nothing is built, and compaction is turned on for no role: making it the worker default still waits on this read, on the remaining arms of the worker trial and on the owner's ruling.
 
 **Acceptance Criteria**:
 
