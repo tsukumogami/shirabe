@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A session that stops leaves its reasoning unreadable and its files unclaimed.
   The next session, its coordinator and the cleanup that removes its instance
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-handoff-brief.md
 
 ## Status
 
-Accepted
+In Progress
 
 Written from the accepted BRIEF-handoff-brief. The handoff brief is buildable
 now. Compaction for workers is specified, but making it the worker default is
