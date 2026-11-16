@@ -14,7 +14,8 @@
 #                       <commit>, so a unit's own diff can't change what it
 #                       reads; the caller is inside the repository
 #
-# All three print the declaration's value, trimmed, and return:
+# Each prints the declaration's value, trimmed (claude_md_header_named puts
+# the name and a tab before it), and returns:
 #
 #   0  the header is declared once; its value is printed (it may be empty)
 #   1  the file has no such header, or the file doesn't exist (at <commit>)

@@ -21,10 +21,11 @@
 #      `on`, trimmed and in any case, is the one value that turns it on. The
 #      committed CLAUDE.md is never read for it. Off prints one
 #      `build-output: cleanup off` line and exits.
-#   2. Its own directory, `bo_dir <root>` (build-output-lib.sh), inside the
-#      work tree's git directory. A symlink there, or anything but a directory
-#      the current user owns, is `failed` and nothing is removed; a missing one
-#      is made with plain `mkdir`. Then the call's stamp,
+#   2. The records directory, `bo_dir <root>` (build-output-lib.sh), inside
+#      the work tree's git directory. A symlink there, or anything but a
+#      directory the current user owns, is `failed` and nothing is removed; a
+#      missing one is made with plain `mkdir` (no `-p`) under umask 077, so
+#      only its owner can read it. Then the call's stamp,
 #      `<UTC time to the second>-<pid>`: a `removal-<stamp>.json`,
 #      `removal-<stamp>.log` or `trash-<stamp>` already there, in any form, is
 #      `failed` and nothing is reaped or removed.
@@ -50,8 +51,8 @@
 #      `symlink` (the path or a directory on the way), `tracked` (git tracks
 #      something at or under its on-disk spelling, or, with core.ignorecase,
 #      under its case-folded spelling), `not-ignored`, and `protected` (the
-#      git directory, the common git directory or this script's own
-#      directory, at or under the path; a `.git` entry at any depth; a
+#      git directory, the common git directory or the records directory, at
+#      or under the path; a `.git` entry at any depth; a
 #      directory on another device; or a name in `.git`, `.claude`,
 #      `CLAUDE.md`, `CLAUDE.local.md`, `.env`, `.env.*`). The `protected` walk
 #      shares --walk-budget (20 s by default) across the paths that reach it;
@@ -63,6 +64,11 @@
 #      dev:inode recorded at the symlink check. After it, the entry's
 #      dev:inode is compared again, and a mismatch renames it back. Any of
 #      these failing prints `<path> failed` and leaves the path in place.
+#      When something already sits at the path again, so the entry can't go
+#      back, it is moved to `kept-<stamp>-<n>` in the records directory, and
+#      if even that fails the whole trash becomes `kept-<stamp>`. Nothing
+#      deletes a `kept-*` entry: it isn't known to be build output, so it
+#      waits for a person.
 #   7. The record. A call that renamed nothing and reaped nothing writes no
 #      record and starts no deleter. Otherwise it links `removal-<stamp>.log`
 #      into place, starts the deleter (`--delete <stamp>`) as a `set -m` job
@@ -550,7 +556,7 @@ BO_P=$(cd "$BO" && pwd -P)
 ROOT_DEV=${SHIRABE_BUILD_OUTPUT_TEST_ROOT_DEV:-$(devof "$ROOT")}
 
 # protected_name <relative path>: the path is one of the fixed local files, or
-# holds the git directory, the common git directory or this script's directory.
+# holds the git directory, the common git directory or the records directory.
 protected_name() {
     local b phys g
     b=$(lower "${1##*/}")
@@ -580,6 +586,8 @@ walk() {
     local path="$ROOT/$1" ticks="$2" point="$3" out wpid t=0 rc
     out="$WORK/walk.out"
     : > "$out"
+    # Job control puts the walk in its own process group, so running out of
+    # its share stops find and the stat calls it started in one kill.
     set -m
     if [ "$STAT_DIALECT" = gnu ]; then
         ( test_pause "$point"; exec find "$path" \( -type d -o -name .git \) -exec stat -c '%d %n' {} + ) >"$out" 2>/dev/null &
@@ -814,6 +822,10 @@ rm -f "$LOG_TMP"
 
 REAPED_ARGS=""
 for s in $REAP_TRASH; do REAPED_ARGS="$REAPED_ARGS --reaped $s"; done
+# `set -m` gives the deleter its own process group, so koto's group kill of
+# the calling action never reaches it. The `exec` keeps one process, so `$!`
+# is the deleter's own pid: the record names it, the deleter waits to see it
+# there, and bo_record_live matches its command line.
 set -m
 (
     unset KOTO_TICK_SESSION
