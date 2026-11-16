@@ -156,3 +156,4 @@ cost	alignment-sources_test.sh	15
 cost	discipline-carry_engine_test.sh	23
 cost	review-round-telemetry_engine_test.sh	0
 cost	directive-ceiling_engine_test.sh	3
+cost	cloud-hosts-start_test.sh	0
