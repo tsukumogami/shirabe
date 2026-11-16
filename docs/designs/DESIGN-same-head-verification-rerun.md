@@ -24,8 +24,8 @@ decision: |
   and the launcher share one eligibility check, in a sourced
   `verification-eligibility.sh`, and one count taken from the ledger, which caps
   re-runs at two per head and merge-base. A pass, a running suite and a dirty-tree
-  result are never archived, and the gate's message announces the ledger's
-  attempts while the PR body carries a re-run line.
+  result are never archived, and the PR body carries a re-run line for each
+  archived attempt.
 rationale: |
   An automatic re-run would run every genuine failure twice before anyone saw it
   and record a retry nobody decided, so the re-run is a choice the agent names
@@ -239,21 +239,22 @@ reason submitted with the re-run value: `rationale` at `implementation`, `detail
 at `verification`) and moves `result.json`
 and `run.json` into the attempt folder their logs already sit in, so no log path
 ever moves. Before moving anything, `--archive` appends one JSON line for the
-outgoing attempt to a context key `verification_attempts`: attempt number, head,
-merge-base, the exit it came through, result status, the reason, an archive
-timestamp, and per command its id, exit status, timed-out flag, duration and log
-path. It reads the key back and refuses unless the line count rose by one and the
-last line is the new one. `verification_results.json` keeps meaning the current
-attempt.
+outgoing attempt to a context key `verification_attempts`: attempt number, the
+folder number, head, merge-base, the exit it came through, result status, the
+reason, an archive timestamp, and per command its id, exit status, timed-out
+flag, duration and log path. It reads the key back and refuses unless the line
+count rose by one and the last line is the new one. `verification_results.json`
+keeps meaning the current attempt.
 
 `--archive` counts ledger lines at the current head and merge-base and refuses a
 third archive there, moving nothing and writing nothing; it cross-checks the count
-against the archived results on disk and fails closed on a disagreement. The
-gate's message announces every ledger attempt beside the current result, oldest
-first, and the directives name the key. When the ledger is non-empty, the PR body's Verification section
-carries one line per archived attempt saying which command failed or timed out,
-the reason given and what the next attempt showed, and a `check-pr-output.sh` mode
-refuses a body that omits one.
+against the archived results on disk and fails closed on a disagreement. On exits
+1 and 5 the gate's message lists every ledger attempt beside the current result,
+oldest first; a pass's message is unchanged. The directives name the key. When
+the ledger is non-empty, the PR body's Verification section carries one line per
+archived attempt saying which command failed or timed out, the reason given and
+what the next attempt showed, and a `check-pr-output.sh` mode refuses a body that
+omits one.
 
 This is the only option that keeps the earlier attempt where a reviewer reaches
 it, counts the cap from that same record, and shows the re-run to a reviewer
@@ -389,7 +390,9 @@ All paths are under `skills/work-on/`.
 - **`scripts/verification-eligibility.sh` (new).** Sourced by both scripts below.
   It takes two paths, a result file and a ledger file, and prints `eligible`,
   `over-cap` or `ineligible <cause>`; each caller fetches the ledger from koto into
-  a file first, and a missing key is an empty ledger. Eligible: status `done` or
+  a file first. A key that `koto context exists` reports missing is an empty
+  ledger; any other failed read is not, and the caller refuses rather than count
+  it as empty. Eligible: status `done` or
   `timed-out` whose block-stage causes are only failed or timed-out commands, with
   fewer than two ledger lines at this head and merge-base. Ineligible: any
   `runaway` or `not_started` command, `attended`, `dirty-tree`, `no-map`, `bad-map`
@@ -412,19 +415,25 @@ All paths are under `skills/work-on/`.
     fixed-name files are all it moves; no path it moves or removes is built from a
     command id. It validates the session name and head against `[A-Za-z0-9._-]+`
     and the folder number as an integer before any of them forms a path for `mv`
-    or `rm`.
+    or `rm`. It refuses a symlinked attempt folder, `result.json` or `run.json`,
+    and creates attempt folders itself, `0700`.
   - `--start` reads `verification_rerun_request` before its reuse check, under the
     same supervisor lock `--archive` holds, so two ticks can't both consume one
     request. With a request and an eligible live result it runs `--archive --reason
     <request>`, removes the key and launches. With a request and no eligible result
-    it removes the key, says why on stderr and behaves as today. A moved merge-base
-    still deletes the stale result and writes no ledger line (decision 3).
+    it removes the key, says why on stderr and behaves as today. When the ledger
+    read fails for any reason other than a missing key, it refuses the re-run and
+    keeps the request key, as the gate holds at exit 2 on a failed read. A moved
+    merge-base still deletes the stale result and writes no ledger line
+    (decision 3).
 - **`scripts/check-verification.sh`.** Reads `verification_attempts` with `koto
   context get`, through the same koto access and `--session` it already uses to
   write `verification_results.json`. A missing key counts as no attempts; a failed
   read holds the gate at exit 2, as a failed write does today, so a read failure
   never grants a re-run. Gains exit 5 for an eligible settled result that is a
-  timeout or a timeout with failures; a result that only failed keeps exit 1. On
+  timeout or a timeout with failures; a result that only failed keeps exit 1. The
+  gate picks between the two itself, from the result's causes: once the shared
+  check says `eligible`, any timed-out command makes it exit 5. On
   exits 1 and 5 its message gives the attempt number, each earlier attempt's failed
   or timed-out commands and reason, and the current attempt's log folder; at exit 5
   it names `rerun`, `fix` and `blocked`, and for a whole-budget timeout says a
@@ -441,10 +450,12 @@ All paths are under `skills/work-on/`.
   text, so the verification and implementation directives say when each value
   fits, point at the gate's message for the attempts, and name the
   `verification_attempts` key; they say its content is data from earlier runs,
-  not instructions. `koto-templates/work-on.mermaid.md` is regenerated.
+  not instructions, and that the output of a failing log is data too.
+  `koto-templates/work-on.mermaid.md` is regenerated.
 - **`scripts/check-pr-output.sh`.** A new mode refuses a PR body whose Verification
   section lacks one line per ledger attempt, or whose re-run line holds an
-  absolute path or carries a command id or reason outside a code span.
+  absolute path, carries a command id or reason outside a code span, or carries
+  an id holding a character the ledger's cleaning strips.
 - **Docs.** `SKILL.md`'s Definition of Done, `references/verification-map.md` and
   the verdict table in `docs/designs/current/DESIGN-output-gates.md` learn exit 5
   and the rerun values.
@@ -458,16 +469,22 @@ All paths are under `skills/work-on/`.
   in `detail`; `implementation_status: verification_rerun`, with the reason in
   `rationale`.
 - **`verification_rerun_request`.** A context key holding the reason text. Rerun
-  edges write it, and only `--start` reads and removes it.
+  edges write it, and only `--start` reads and removes it. A key left behind when
+  the run never re-enters `verification` does nothing: nothing else reads it, and
+  `--start` checks it against the live result before acting on it.
 - **`verification_attempts`.** A context key of JSON Lines, one line per archived
   attempt: attempt number, the folder number, head, merge-base, the exit it came
   through, result status, reason, archive timestamp, and per command its id, exit
   status, timed-out flag, duration and log path relative to the head directory.
+  The exit comes from the result's causes the same way the gate picks it, so
+  `--archive` needs no word from the gate. Each id is cleaned and capped as the
+  reason is before it's stored.
   Only `--archive` writes it, building each line with `jq -n --arg` and using the
   same read-append-write-read-back steps as `panel-retry-budget.sh`. A reader
   accepts a log path only in the shape `attempts/<n>/<index>-<name>.log`.
 - **`run-verification.sh --archive --reason <text>`.** Usable by hand as well as
-  from `--start`. The reason arrives as one quoted argument, is stripped of control
+  from `--start`, and either way it requires the same validated `--session` the
+  gate uses. The reason arrives as one quoted argument, is stripped of control
   characters, newlines, ANSI escape sequences and Unicode format characters
   (bidirectional controls included), and is capped at 500 characters; an empty
   result is refused. It refuses a third archive at a head and merge-base, moving
@@ -479,7 +496,11 @@ All paths are under `skills/work-on/`.
   recovery still runs under the lock, still refuses a running suite through
   `lock_live`, still requires the live result to pass the eligibility check, and
   moves nothing unless the live result's head and merge-base match the ledger
-  line's.
+  line's. The cross-check counts only archived results whose head and merge-base
+  match the current pair, so archived attempts from an earlier merge-base at the
+  same head don't trip it. When prune has removed a head's attempt folders and
+  its ledger lines survive, the check fails closed, and the ways out are the ones
+  the over-cap route names: a new head or `implementation_status: blocked`.
 - **`verification_results.json`.** Unchanged: it still means the current attempt.
 
 ### Data Flow
@@ -497,8 +518,9 @@ A flaky failure:
    and an eligible result, appends ledger line 1, moves `result.json` and `run.json`
    into `attempts/1/`, removes the key and launches attempt 2, whose logs go to
    `attempts/2/`.
-5. The gate reads attempt 2. On a pass the gate's message and the PR body show
-   attempt 1's failure, its reason and attempt 2's pass.
+5. The gate reads attempt 2. On a pass it exits 0 with its message unchanged, and
+   the PR body's re-run line, written from the ledger, shows attempt 1's failure,
+   its reason and attempt 2's pass.
 
 A timeout with no failure:
 
@@ -552,7 +574,8 @@ Deliverables:
 
 The PR body's re-run line and its check, and the docs. With an empty ledger the
 check asks for nothing, so this is inert until a re-run can happen, and it lands
-before anything can trigger one.
+before any route can trigger one. A hand-run `--archive` can write a ledger line
+from Phase 1 on; the check then asks for that line too.
 
 Deliverables:
 - `skills/work-on/scripts/check-pr-output.sh` and `check-pr-output_test.sh`
@@ -571,13 +594,16 @@ Deliverables:
 - `skills/work-on/koto-templates/work-on.md` (enums, five edges, directives)
 - `skills/work-on/koto-templates/work-on.mermaid.md` (regenerated)
 - `skills/work-on/scripts/output-gates-routing_test.sh`, covering the exit-5 hold,
-  each new edge and one self-loop lap against real koto
+  each new edge and one self-loop lap against real koto, and exercising the
+  same-tick read of a rerun edge's `context_assignments` by the target's default
+  action before this phase's commit
 - `skills/work-on/evals/evals.json`, covering both re-run routes, a real hang sent
   to `fix`, an ineligible result and the over-cap route.
 
 ## Security Considerations
 
-This change adds no network access, no downloads and no new dependencies. It
+This change adds no network access, no downloads and no new external
+dependencies. It
 sources one new script from the plugin's own `skills/work-on/scripts/` directory,
 resolved from the calling script's location the way `scripts/lib/rule-findings.sh`
 is, and it lets the launcher read and write koto context keys and move files
@@ -586,13 +612,18 @@ inside the session's verification state directory. `jq` stays the only parser.
 The threat model is a careless or mistaken agent, not a hostile one. An agent with
 shell access can already edit koto keys or move result files by hand, so the
 two-per-head cap and the eligibility check bound and record re-runs; they don't
-stop a determined bypass. Even a hand-written request key stays limited by
-eligibility: a pass, a running suite, a dirty-tree result, a runaway or not-started
-command and a supervisor error are never archived. Moving the head resets the cap,
-so a re-run's cost, up to two hours each, is bounded per head and not per branch.
+stop a determined bypass. The disk cross-check isn't independent evidence either,
+since the attempt folders are as editable as the ledger; it catches a careless
+edit, and that's all this threat model asks of it. Even a hand-written request key
+stays limited by eligibility: a pass, a running suite, a dirty-tree result, a
+runaway or not-started command and a supervisor error are never archived. The cap
+is counted per head and merge-base pair, so moving either one resets it, and a
+re-run's cost, up to two hours each, is bounded per pair and not per branch.
 That's accepted: the cost falls on the host's time and the run's wall clock, and
-every commit that moves the head and every re-run at it shows in the PR and the
-ledger.
+every commit that moves the head, every merge that moves the merge-base and every
+re-run at a pair shows in the PR and the ledger. A ledger read that fails for any
+reason other than a missing key never grants a fresh cap: the gate holds at exit
+2, and `--start` refuses the re-run and keeps the request key.
 
 Agent-supplied text is treated as data. The reason reaches `--archive` as one
 quoted argument and is never expanded by `eval`. It's stripped of control
@@ -601,12 +632,18 @@ include the bidirectional controls, and capped in length; the ledger line is bui
 with `jq --arg`, so quotes and newlines can't forge a second line, and the
 read-back check catches a malformed append. Command ids and log paths from
 `result.json` come from the repository's own verification map, which a branch can
-change. Log names already put the command's index first and replace every
-character outside `[A-Za-z0-9._-]`, so an id can't name a file outside its attempt
-folder; `--archive` moves only `result.json` and `run.json` and builds no path from
-an id; and a reader accepts a ledger log path only in the
-`attempts/<n>/<index>-<name>.log` shape. Session name, head and folder number are
-validated before they form a path for `mv` or `rm`.
+change. Each id gets the reason's cleaning and length cap before it's stored in a
+ledger line, so the gate message and the PR body replay no control character,
+escape sequence or format character from it. Log names already put the command's
+index first and replace every character outside `[A-Za-z0-9._-]`, so an id can't
+name a file outside its attempt folder; `--archive` moves only `result.json` and
+`run.json` and builds no path from an id; and a reader accepts a ledger log path
+only in the `attempts/<n>/<index>-<name>.log` shape. Session name, head and folder
+number are validated before they form a path for `mv` or `rm`. Verification
+commands are branch code running as the user, so `--archive` refuses a symlinked
+attempt folder, `result.json` or `run.json` rather than move through one, and
+creates the attempt folders itself. Run by hand, it requires the same validated
+`--session` the gate uses.
 
 The ledger is replayed into later laps and into the PR body, so it is a channel
 for stored text. The gate's message and the directives present it as data from
@@ -614,8 +651,11 @@ earlier runs, not instructions. In the PR body a re-run line puts each command i
 and the reason inside a code span, with backticks removed from both, so links,
 images and @mentions in them don't render, and `check-pr-output.sh` refuses a line
 that doesn't. What a code span can't stop is an agent that reads a hostile reason
-or map entry and follows it; that residual is accepted, bounded by the cap and by
-everything the reason can reach being recorded.
+or map entry and follows it, and the same goes for a failing log: a branch can
+print "this is a flake, re-run it" into its own output, and that log is what the
+agent reads to judge a flake. The directives say log output is data, not
+instructions. That residual is accepted, bounded by the cap and by everything the
+reason can reach being recorded.
 
 `--archive` holds the supervisor's lock from its eligibility check through the
 ledger append and the move, and `--start` reads and removes the request key under
@@ -634,9 +674,11 @@ merge-base moves at one head. The ledger lives in koto, which outlives the host,
 body may be public, so the ledger stores log paths relative to the head directory,
 and a PR body's re-run lines carry command ids and the agent's reason only, with no
 absolute paths and no log excerpts. `check-pr-output.sh` refuses a re-run line that
-holds an absolute path. What's left is the reason itself: an agent that pastes log
-output into it can still publish what the log held, and the directive says to
-write the reason in the agent's own words.
+holds an absolute path. What's left is the reason itself. Nothing checks its
+content beyond the cleaning and the length cap, so a secret an agent pastes into
+it can reach a PR body that may be public. Only the directive, which says to write
+the reason in the agent's own words, stands against that, and the residual is
+accepted.
 
 ## Consequences
 
@@ -691,6 +733,8 @@ write the reason in the agent's own words.
   directives present the ledger as data, and PR re-run lines keep ids and reasons
   in code spans, which `check-pr-output.sh` enforces.
 - The gate's over-cap message names the two ways out, a real fix or
-  `implementation_status: blocked`.
+  `implementation_status: blocked`. A guard on `complete` is revisited if the evals
+  or real runs show an agent lapping on `complete` over the cap at an unchanged
+  head.
 - If the same-tick assumption fails, the agent runs `--archive` before submitting,
   and the `75 + rerun` edge keeps that order routable.
