@@ -14,7 +14,7 @@ goals: |
   with a matching hash, and nothing is fetched from a teardown copy. Larger
   named files stay on the host that wrote them. A worker at its context line
   keeps going in the same session and instance once compaction is proven for
-  workers and the owner rules on making it the default.
+  workers and a separate decision makes it the default.
 upstream: docs/briefs/BRIEF-handoff-brief.md
 ---
 
@@ -34,9 +34,8 @@ out of scope and nothing this work builds turns it on.
   its koto session is the named state koto keeps for it (a workflow run, or
   only keys when plain). A unit is one piece of work a worker does in its own
   niwa instance.
-- **Supervising session, owner.** A supervising session hands units to others
-  and reads their results: coordinators, and two top-level sessions above
-  them. The owner rules on the compaction default and on Pending Owner Rulings.
+- **Supervising session.** A supervising session hands units to others and
+  reads their results: coordinators, and two top-level sessions above them.
 - **Context line, harness floor.** The context size at which a session must
   stop or compact; the context the harness fills before any work (near 58K
   tokens on the workspace cited here).
@@ -234,15 +233,16 @@ traceability table states them.
   file's session id before and after one compaction is the first task the
   plan schedules. Making compaction the worker default waits on its result,
   the remaining worker trial arms (two trial workers passed; a wider trial
-  has one of four results in) and the owner's ruling. Nothing here sets it on
+  has one of four results in) and a separate decision to make it the
+  default. Nothing here sets it on
   in shipped configuration; R11 to R13 are checked in test instances where
   the reviewer sets it on. Serves: E2.
 
 ### Constraints
 
-- **R15. One brief format for every role; coordinators don't compact.** Per
-  the owner's ruling, every session writes the same brief, coordinators and
-  the top-level supervising sessions included, adopted after workers. The
+- **R15. One brief format for every role; coordinators don't compact.** Every
+  session writes the same brief, coordinators and the top-level supervising
+  sessions included, adopted after workers. The
   part listing standing rules with their sources, its size budget and the
   incoming session's restatement belong to separate work, delivered as a
   section of this brief and a check on it, never a second format. The record,
@@ -298,10 +298,11 @@ waits. A marker is a unique string the test plants.
   `sha256sum`; the keep record's `files` lists exactly that file; the unnamed
   file's path is in neither. Checked now with the script called at a run's
   end; the same check through a work-on run waits on placement. (R5, E1)
-- [ ] The brief's file list equals the record's `files`, its stored key holds
-  no path or hash list, and another writer's `reason`, `owner` and `wake` are
-  unchanged. The record's `brief` resolves to the brief just written: reading
-  it returns that brief's marker, and a second brief's after a second brief.
+- [ ] The brief's Files section is rendered from the record's `files` when
+  the brief is written and names exactly the same files, sha256 values and
+  sizes, so it is a rendering of that list and never a second one; another
+  writer's `reason`, `owner` and `wake` are unchanged. The record's `brief`
+  resolves to the brief just written: reading it returns that brief's marker, and a second brief's after a second brief.
   A brief naming no files in an unparked unit creates no record and leaves an
   existing one byte-identical; a park naming no files writes `brief`, `unit`,
   `written_by`, `written_at`, empty `files` and `protects` with `instance`.
@@ -365,7 +366,8 @@ waits. A marker is a unique string the test plants.
 
 - The remover, the kept set and the move into it; this work writes what they
   read. The command that says a unit is over; build cleanup; transcripts.
-- Switching compaction on for any role, and settling Pending Owner Rulings.
+- Switching compaction on for any role, and the decision to make it the
+  worker default.
 - Any new continuation route; #1785's route is fitted, not replaced.
 - For coordinators and the two top-level supervising sessions: the
   standing-rules section's content and budget, and compaction.
@@ -389,6 +391,16 @@ travel (R3); empty reasoning passes every check yet carries nothing (R2).
 because a note that freed files would let a routine compaction declare
 scratch disposable that nobody meant to give up.
 
+**One brief for supervising sessions too.** Decided: this work builds the one
+brief every session writes, supervising sessions included. Separate work
+keeps the standing-rules part, its size budget and the incoming session's
+restatement, as a section of this brief and a check on it, never a second
+format (R15).
+
+**Coordinators don't compact.** Decided: coordinators keep handing over.
+Compaction is proven for workers only, and nothing this work ships sets it
+on for coordinators (R15).
+
 **Left to the design.** Which workflows adopt the brief step and where
 (work-on's placement is held, R16); the margin over the harness floor (R13);
 how a role carries the compaction window, given niwa's launch settings take
@@ -405,18 +417,3 @@ existing reader is one message behind after a compaction.
   can't reach a successor on another host (checked under R6).
 - A compaction fires at a chosen size, not a chosen moment; sending a compact
   command to a running session is untested. Accepted untested.
-
-## Owner Rulings
-
-Both questions this PRD held open have been ruled.
-
-- **Who owns the coordinator and supervising-session successor brief?** This
-  work builds the one brief every session writes, supervising sessions
-  included. Separate work keeps the standing-rules part, its size budget and
-  the incoming session's restatement, as a section of this brief and a check
-  on it, never a second format (R15).
-- **Do coordinators compact?** No: coordinators keep handing over. Two checks
-  that touch no running coordinator come first, then one trial on a quiet
-  lane against recorded pass criteria, with the top-level session last. Until
-  that trial, compaction is proven for workers only, and nothing this work
-  ships sets it on for coordinators.

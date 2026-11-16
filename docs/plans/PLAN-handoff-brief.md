@@ -56,12 +56,14 @@ Several things stay held, and nothing in this plan releases them:
   directly first and calls it from #1785's `handover.sh open` only once that
   route lands.
 - Compaction as the worker default waits on the session-id read in step 2, on
-  the remaining arms of the worker trial and on the owner's ruling. Nothing
-  here turns it on: step 7 ships the hook with a passthrough example that no
-  workspace config enables.
-- Nothing builds a coordinator or seat successor brief beyond what the design
-  states. The design's Decision 5 records both rulings: every session,
-  coordinators and seats included, writes the one brief this plan builds, and
+  the remaining arms of the worker trial and on a separate decision to make
+  it the default. Nothing here turns it on: step 7 ships the hook with a
+  passthrough example that no workspace config enables.
+- Nothing builds a successor brief for coordinators or the two top-level
+  supervising sessions beyond what the design states. The design's Decision 5,
+  following PRD R15, settles both questions: every session, coordinators and
+  the two top-level supervising sessions included, writes the one brief this
+  plan builds, and
   coordinators don't compact; they keep handing over. No step turns compaction
   on for a coordinator, and step 8 adopts the brief in /coordinate's handover
   only after steps 3 and 6.
@@ -92,7 +94,7 @@ The plan files no issue.
 
 ### Step 2: The job's sessionId is read before and after one compaction and the result is recorded
 
-**Goal**: In a test instance, the job state file's `sessionId` (`.claude/jobs/<id>/state.json` under the home directory) is read once before and once after a single compaction of that job's session, and the compaction section of `references/handoff-brief.md` says whether it changed. Nothing is built, and compaction is turned on for no role: making it the worker default still waits on this read, on the remaining arms of the worker trial and on the owner's ruling.
+**Goal**: In a test instance, the job state file's `sessionId` (`.claude/jobs/<id>/state.json` under the home directory) is read once before and once after a single compaction of that job's session, and the compaction section of `references/handoff-brief.md` says whether it changed. Nothing is built, and compaction is turned on for no role: making it the worker default still waits on this read, on the remaining arms of the worker trial and on a separate decision to make it the default.
 
 **Acceptance Criteria**:
 
@@ -101,7 +103,7 @@ The plan files no issue.
 - [ ] The section states one verdict: `unchanged` when the two values are equal, `changed` when they differ
 - [ ] When either read finds no state file, no `sessionId` field or a null value, the verdict reads `not determined` with the reason (which read failed and what it found), and no value is filled in as if it had been read
 - [ ] After the step, the workspace config and the test instance's settings hold no new dispatch passthrough entry and no installed PreCompact hook: `git diff` on the workspace config shows nothing, and compaction is on for no role
-- [ ] The section says that compaction as the worker default still waits on the remaining arms of the worker trial and the owner's ruling, whatever the verdict
+- [ ] The section says that compaction as the worker default still waits on the remaining arms of the worker trial and a separate decision to make it the default, whatever the verdict
 
 **Check**: A written walkthrough in the compaction section of `references/handoff-brief.md`: in a test instance, read `sessionId` from the job's state file and note the time, trigger one compaction of that session, read `sessionId` again and note the time, then find the compaction boundary in the session transcript. The section shows both values, both read times, the boundary timestamp between them, and the verdict (`unchanged`, `changed`, or `not determined` with its reason).
 
@@ -129,7 +131,7 @@ handoff-brief.sh takeover copies and checks each named file, driven directly fir
 
 handoff-brief.sh note stores handover/compaction-note.md and hooks/pre-compact-note.sh tells the session to write it, shipped with a documented passthrough example that no workspace config enables.
 
-### Step 8: Later roles write their brief through the script in the ruled order
+### Step 8: Later roles write their brief through the script in the design's order
 
 workers write the brief at a run's end at the place #1230's design names once it settles, then /coordinate's handover, then the two top-level sessions, none of them before steps 3 and 6 ship.
 
@@ -147,7 +149,7 @@ another.
 | Step 5: The closing step blocks a run with unpushed or stray work, and the context reader prints the size since the last compaction | Step 1 |
 | Step 6: A successor's takeover copies and hash-checks every named file before the fence | Step 3 |
 | Step 7: A compaction note is written when the PreCompact hook fires, with compaction still off | Step 3 |
-| Step 8: Later roles write their brief through the script in the ruled order | Step 6 |
+| Step 8: Later roles write their brief through the script in the design's order | Step 6 |
 
 ```mermaid
 graph TD

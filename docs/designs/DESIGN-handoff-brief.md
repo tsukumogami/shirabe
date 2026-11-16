@@ -43,9 +43,9 @@ decision_provenance: inline-resolved
 
 Planned
 
-Written from the accepted PRD-handoff-brief under `/scope`. The owner has
-since ruled on the PRD's two pending questions; Decision 5 records both
-rulings and what they change here.
+Written from the accepted PRD-handoff-brief under `/scope`. Decision 5 states
+which roles write the brief and that coordinators don't compact, as R15
+requires.
 
 ## Context and Problem Statement
 
@@ -337,12 +337,11 @@ behind after a compaction.
   them as separate steps, and the brief script must stay callable with no
   worktree at all.
 
-### Decision 5: Which roles write the brief, after the owner's rulings
+### Decision 5: Which roles write the brief
 
 Resolved inline.
 
-The PRD held two questions for the owner. Both are now ruled. This work
-builds the one brief that every session writes, coordinators and the two
+R15 settles which roles write the brief. This work builds the one brief that every session writes, coordinators and the two
 top-level supervising sessions included. Separate work keeps the part of that
 brief that lists standing rules with their sources, the size budget on that
 part, and the incoming session's restatement of it; that work delivers them
@@ -371,18 +370,15 @@ workers first, then /coordinate's handover writing its rendered successor
 text as the Reasoning of a brief through the same script, then the two
 top-level supervising sessions last.
 
-Compaction for coordinators stays off. Before any trial: two checks that
-touch no running coordinator, then one trial on a quiet lane against the
-recorded pass criteria, with the top-level session last. Until that trial,
-compaction is proven for workers only, and nothing in the plan turns it on
-for coordinators.
+Compaction for coordinators stays off: coordinators keep handing over, and
+nothing this work ships turns compaction on for them (R15).
 
 #### Alternatives Considered
 
-- **A separate supervising-session brief format.** Rejected by the ruling: it
-  would be the second format the ruling forbids.
-- **Workers only, as the PRD's interim stated.** Rejected: the ruling moved
-  supervising sessions into this work.
+- **A separate supervising-session brief format.** Rejected: it would be the
+  second format R15 forbids.
+- **Workers only.** Rejected: R15 has every session write the same brief,
+  supervising sessions included.
 
 ## Decision Outcome
 
@@ -454,9 +450,9 @@ a tab in a named path or a watch value; a watch value holding a shell
 operator (`;`, `|`, `&`, `$`, a backtick, `<` or `>`), so a watch is one plain
 command; `handover/brief.md` over the inline size once rendered; a total over
 the record cap. A pointer (pull request number, commit, branch, job id) that
-doesn't match its expected shape is left out. Under the owner's 2026-11-16
-bucket ruling (scratch is disposable, and no plain transcript leaves the
-host), a session transcript is never named, raw or copied: the raw one sits
+doesn't match its expected shape is left out. A design constraint holds here:
+scratch is disposable, and no plain session transcript leaves its host, so a
+session transcript is never named, raw or copied: the raw one sits
 outside scratch, and the script refuses a copy by its `*.jsonl` name or by a
 first line that parses as a transcript record.
 
@@ -571,7 +567,7 @@ nothing written, 2 environment fault (koto, git or gh unavailable).
 The first task, before any build: read the job state file's `sessionId`
 before and after one compaction in a test instance, and record the result.
 Making compaction the worker default waits on it, on the remaining arms of
-the worker trial and on the owner's ruling (R14).
+the worker trial and on a separate decision to make it the default (R14).
 
 ### Phase 2: The brief script
 

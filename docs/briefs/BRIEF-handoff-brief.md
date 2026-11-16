@@ -21,7 +21,7 @@ Accepted
 
 Framed under `/scope` for the feature that gives a stopping session one way
 to hand its reasoning and files forward. The compaction half is framed here
-but waits on evidence and an owner ruling before it can become a default.
+but waits on evidence and a separate decision before it can become a default.
 
 Four framing details are left to the downstream PRD, which records a decision
 on each or names it as an unknown it owns: how large a file can be and still
@@ -164,11 +164,12 @@ tomorrow's session at it.
 
 - Switching compaction on for any role. It waits on a check that a session
   keeps its identity through a compaction as niwa sees it, on the remaining
-  runs of a worker trial, and on the owner's ruling on the worker default.
-- Anything for coordinators or the two top-level supervising sessions that the
-  separate plan for their successor brief would also build. Who owns that brief
-  is an open owner question, and so is whether coordinators compact at all.
-  Coordinators keep succeeding through the handover `/coordinate` already ships.
+  runs of a worker trial, and on a separate decision on the worker default.
+- A second brief format for coordinators or the two top-level supervising
+  sessions, and compaction for them. They write the same brief as workers,
+  adopted after workers, and keep succeeding through the handover
+  `/coordinate` already ships. The standing-rules section of their brief and
+  its size budget belong to separate work.
 - Where the closing step and the brief step sit inside a work-on run's final
   states. That stretch is being redesigned for #1230, and placement waits for
   that design. The brief script itself isn't held by it.
