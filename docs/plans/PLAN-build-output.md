@@ -109,7 +109,7 @@ numbered trash under the worktree's git directory, writes one record per
 removal, starts a detached delete and exits 0 (R2 to R5, R8, R12, R14).
 
 **Acceptance Criteria**:
-- [ ] With no `CLAUDE.local.md`, a value other than `on` (trimmed, case-insensitive), a misspelled header, a duplicate header, a `CLAUDE.local.md` git tracks, or one that is a symlink, the script prints one `build-output: cleanup off` line (naming tracked, symlink, duplicate or unreadable where that applies), removes nothing and exits 0; `## Build Output Cleanup: on` only in the committed `CLAUDE.md` also leaves the declared path in place.
+- [ ] With no `CLAUDE.local.md`, a value other than `on` (trimmed, case-insensitive), a misspelled header, a wrongly cased name (`## build output cleanup: on`), a duplicate header, a `CLAUDE.local.md` git tracks, or one that is a symlink, the script prints one `build-output: cleanup off` line (naming tracked, symlink, duplicate or unreadable where that applies), removes nothing and exits 0; `## Build Output Cleanup: on` only in the committed `CLAUDE.md` also leaves the declared path in place.
 - [ ] A `<git-dir>/shirabe-build-output` that is a symlink, or isn't a directory the current user owns, prints one `failed` line naming it, and nothing is renamed.
 - [ ] A `--base` that isn't an ancestor of HEAD, or isn't an ancestor of or equal to the upstream default branch's remote ref when that ref exists, or an unreadable base or map, prints `build-output: base unreadable, removed nothing` and removes nothing.
 - [ ] The declaration is read only with `git show <base>:...`: a branch commit that adds a path to the map leaves that path in place, and one that removes the base's path still has it removed.
@@ -165,9 +165,10 @@ worktree at the run's successful end, with the base the parent pinned at its
 start (R2, R9). In both templates that's on the way into the successful
 terminals, `merged` or `ready_awaiting_merge`, and only when the owned pull
 request's hosted CI is green at that head; never at `plan_completion`, which
-runs before CI is watched. In single-pr mode `merged` comes through
-`merge_attempt` and `merge_confirm`; in coordinated mode through
-`coord_merge_confirm`. The implementer picks the exact state
+runs before CI is watched. In single-pr mode only `merge_confirm` reaches
+`merged`, handed on by `merge_attempt` or straight from `merge_route` for a
+pull request already merged, so the call can't sit in `merge_attempt`; in
+coordinated mode only `coord_merge_confirm` reaches it. The implementer picks the exact state
 in each template within those bounds.
 
 **Acceptance Criteria**:

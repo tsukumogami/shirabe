@@ -171,8 +171,11 @@ committed to the repo must never turn it on for someone's own clone (R4).
 
 The script reads the header with `claude_md_header "Build Output Cleanup"
 CLAUDE.local.md` from `scripts/lib/claude-md-header.sh`, which is fence-aware
-and refuses a duplicate. The value `on`, trimmed and case-insensitive, turns
-it on. An absent file or header, any other value, a duplicate or an
+and refuses a duplicate. That reader matches the header's name in any case,
+so the script also checks that the matched line spells the name exactly
+`Build Output Cleanup`; a wrongly cased name means off, as the PRD asks. The
+value `on`, trimmed and case-insensitive, turns it on. An absent file or
+header, a wrongly cased name, any other value, a duplicate or an
 unreadable file means off; the last two are reported, since they mean
 someone tried to set it. The committed `CLAUDE.md` is never read for this
 header. A `CLAUDE.local.md` that git tracks, or one that is a symlink, leaves
@@ -284,7 +287,8 @@ the two templates reach that end differently.
 In single-pr mode, `plan_completion` runs before `ci_monitor`, so it can't
 carry the cleanup: CI isn't being watched yet. The successful ends are the
 two terminals past `ci_monitor`, `merge_readiness` and `merge_route`:
-`merged`, reached through `merge_attempt` and `merge_confirm`, and
+`merged`, which only `merge_confirm` reaches (`merge_attempt` hands it a
+called merge, and `merge_route` hands it one already merged), and
 `ready_awaiting_merge`, which `merge_route`, `merge_attempt` and
 `merge_confirm` can each route to. The parent cleans once, in its one
 worktree, on the way into either terminal, and only when the owned pull
@@ -520,7 +524,7 @@ run ends, CI green
 /execute parent
   start: pin one base per repository (default branch's remote ref, now)
   single-pr: ci_monitor -> merge_readiness -> merge_route
-       -> (merge_attempt -> merge_confirm ->) merged | ready_awaiting_merge
+       -> ([merge_attempt ->] merge_confirm ->) merged | ready_awaiting_merge
        -> hosted CI green at head? clean-build-output.sh --base <parent's pinned base>, once
   coordinated: coord_verdict -> ready_awaiting_merge,
        or coord_merge_confirm -> merged | ready_awaiting_merge
