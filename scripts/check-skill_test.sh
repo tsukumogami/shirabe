@@ -648,6 +648,36 @@ else
     fail "results print in the glob's order: got [$order]"
 fi
 
+# -- Where a stopped check stood --------------------------------------------------
+# Each launch prints a line, and a TERM prints, before the suites are stopped,
+# how many suites finished and which are still running, so the log of a check
+# stopped at its time limit says where it stood.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+rm -rf "$MARKS"; mkdir -p "$MARKS"
+printf 'exit 0\n' > "$ROOT/skills/demo/scripts/fast_test.sh"
+printf ': > "$MARKS/slow.started"\nsleep 30 &\nwait\n' > "$ROOT/skills/demo/scripts/slow_test.sh"
+cd "$WORK" || exit 1
+CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" demo >"$WORK/stopped.out" 2>&1 &
+CHECKER=$!
+cd - >/dev/null || exit 1
+n=0
+while [ ! -f "$MARKS/slow.started" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+sleep 1
+kill -TERM "$CHECKER"
+wait "$CHECKER" 2>/dev/null
+OUT=$(cat "$WORK/stopped.out")
+if out_has "check-skill: started bash skills/demo/scripts/slow_test.sh (" \
+    && grep -q '^check-skill: stopped with 1 of 2 suites done; still running: .*skills/demo/scripts/slow_test\.sh' <<EOF
+$OUT
+EOF
+then
+    pass "a stopped check names each launch, and how many suites finished and which still run"
+else
+    fail "a stopped check doesn't say where it stood"
+    printf '%s\n' "$OUT" | sed 's/^/    /'
+fi
+
 # -- Selecting suites by changed path (--changed) ---------------------------------
 # select_tree: skill demo with a check-skill.tsv and these scripts:
 #   lib.sh       sourced by one.sh and two.sh, so shared without a row
@@ -813,6 +843,27 @@ run_list "skills/demo/evals/evals.json
 skills/demo/scripts/caller.sh"
 expect_listed "  ... and an evals change beside any other runs every suite" "$ALL_DEMO" \
     "has no check-skill.tsv"
+
+# A Markdown file outside skills/ (a design doc) selects only the suites that
+# name it, so beside a script change it selects what the script change does.
+select_tree
+run_list "docs/designs/DESIGN-demo.md
+skills/demo/scripts/caller.sh"
+expect_listed "a design doc beside a script change selects what the script change does" \
+    "skills/demo/scripts/caller_test.sh"
+
+# A koto-templates/*.compat.json is read by the skill's scripts: it selects the
+# suites that name it or a script that reads it, unit suites before engine
+# suites, as a change to that script would.
+select_tree
+mkdir -p "$ROOT/skills/demo/koto-templates"
+printf '{}\n' > "$ROOT/skills/demo/koto-templates/demo.compat.json"
+printf 'jq . "$HERE/../koto-templates/demo.compat.json"\n' > "$ROOT/skills/demo/scripts/fingerprint.sh"
+printf '# fingerprint.sh\nexit 0\n' > "$ROOT/skills/demo/scripts/fingerprint_test.sh"
+printf '# demo.compat.json\nexit 0\n' > "$ROOT/skills/demo/scripts/compat_engine_test.sh"
+run_list skills/demo/koto-templates/demo.compat.json
+expect_listed "a compat.json change selects the unit suites of the scripts that read it" \
+    "skills/demo/scripts/fingerprint_test.sh"
 
 new_tree
 run_check_args() {

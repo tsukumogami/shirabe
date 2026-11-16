@@ -69,7 +69,13 @@
 #     through a helper, and those that walk the tree). The eval harness
 #     reads evals/, the script suites mostly don't, so a change to it alone
 #     runs few suites, or none;
-#   - any other path outside skills/<skill>/: every suite;
+#   - a Markdown file under docs/ or at the repository root, or a file under
+#     .github/workflows/: the suites that name it (by file name, which a
+#     suite naming its path does too). None names it: it selects none, and
+#     says so. Suites that walk the tree are not added for these paths, since
+#     CI runs every suite and the walkers are about half of coordinate's;
+#   - any other path outside skills/<skill>/ (scripts/, references/, another
+#     skill's files): every suite;
 #   - a path under a subdirectory of scripts/ (testdata, test libraries):
 #     every suite;
 #   - scripts/<name>_test.sh: that suite;
@@ -80,8 +86,16 @@
 #     skill's other scripts/*.sh and *.jq files that name it, shared ones
 #     excepted. Engine suites are taken only when no unit suite names any of
 #     them, and when none does either, every suite runs;
+#   - koto-templates/<name>.compat.json: as a scripts/ file would, since the
+#     skill's scripts are what read it: the suites that name it or a script
+#     that names it, unit suites first;
 #   - anything else (Markdown, templates, check-skill.tsv itself): every
 #     suite.
+#
+# Each suite's launch prints `check-skill: started bash <suite> (<n> of <m>)`,
+# and a TERM or INT first prints `check-skill: stopped with <k> of <m> suites
+# done; still running: <suites>`, so a check stopped at a time limit says
+# where it stood.
 #
 # check-skill.tsv sits at skills/<skill>/check-skill.tsv, tab-separated, with
 # `#` comments, and has two kinds of row:
@@ -240,8 +254,26 @@ stop_suites() {
     # shellcheck disable=SC2086,SC2046 # lists of pids
     kill -KILL $first $(our_processes) 2>/dev/null
 }
-trap 'stop_suites; exit 143' TERM
-trap 'stop_suites; exit 130' INT
+# report_stopped: once suites have launched, says how many finished and which
+# are still running (a log but no status yet). It runs first in the traps,
+# before stop_suites, because the verification gate sends KILL a second after
+# TERM and a KILL runs no trap; the launch lines are what's left then.
+LAUNCHED=0
+report_stopped() {
+    local i=0 finished=0 running=""
+    [ "$LAUNCHED" -gt 0 ] || return 0
+    while [ "$i" -lt "${#suites[@]}" ]; do
+        if [ -f "$RUNS/$i.rc" ]; then
+            finished=$((finished + 1))
+        elif [ -f "$RUNS/$i.log" ]; then
+            running="$running${running:+, }${suites[$i]}"
+        fi
+        i=$((i + 1))
+    done
+    echo "check-skill: stopped with $finished of ${#suites[@]} suites done; still running: ${running:-none}"
+}
+trap 'report_stopped; stop_suites; exit 143' TERM
+trap 'report_stopped; stop_suites; exit 130' INT
 
 FAILURES=""
 fail() {
@@ -391,6 +423,21 @@ evals_readers() {
     } | sort -u
 }
 
+# naming_suites <path>: adds to SELECTED the suites that name <path>'s file
+# name, which every suite naming its repository-relative path does too. When
+# none names it, it selects none and says so; suites that walk the tree are not
+# added, since CI runs every suite.
+naming_suites() {
+    local hits
+    hits=$(grep -lF -- "${1##*/}" "${suites[@]}")
+    if [ -n "$hits" ]; then
+        SELECTED="$SELECTED
+$hits"
+    else
+        echo "check-skill: --changed: no suite names $1, so it selects none (CI runs every suite)"
+    fi
+}
+
 # select_suites: sets SELECTED (suite paths, newline-separated, possibly with
 # repeats) or ALL_REASON, which means every suite runs.
 SELECTED=""
@@ -444,8 +491,10 @@ $p" ;;
                 [ -n "$READERS_DONE" ] || { READERS=$(evals_readers); READERS_DONE=1; }
                 SELECTED="$SELECTED
 $READERS" ;;
-            "$SKILL_DIR"/scripts/*)
-                name=${p#"$SKILL_DIR"/scripts/}
+            "$SKILL_DIR"/scripts/*|"$SKILL_DIR"/koto-templates/*.compat.json)
+                # A compat file is read by the skill's scripts, so it selects
+                # as a change to one of them would.
+                name=${p##*/}
                 if [ ! -f "$p" ]; then
                     ALL_REASON="$p is deleted"; return
                 fi
@@ -473,6 +522,15 @@ $engines"
                 else
                     ALL_REASON="no suite names $p"; return
                 fi ;;
+            docs/*.md|.github/workflows/*)
+                naming_suites "$p" ;;
+            *.md)
+                # Only a document at the repository root; other Markdown
+                # (SKILL.md, references/) runs every suite.
+                case "$p" in
+                    */*) ALL_REASON="$p is not one of $SKILL_DIR's scripts"; return ;;
+                esac
+                naming_suites "$p" ;;
             *)
                 ALL_REASON="$p is not one of $SKILL_DIR's scripts"; return ;;
         esac
@@ -650,7 +708,12 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
     # The .rc file appears whole (written, then renamed), so a reader never
     # sees a suite as finished before its status is there.
     # A failed suite also records the load as it ended, which a failure under
-    # load is filed with.
+    # load is filed with. Each launch is named as it happens, which a KILL
+    # leaves in the log when no trap can run. The log is made here, before
+    # the job starts, so a stop always counts a launched suite as running.
+    LAUNCHED=$((LAUNCHED + 1))
+    echo "check-skill: started bash ${suites[$i]} ($LAUNCHED of ${#suites[@]})"
+    : > "$RUNS/$i.log"
     ( bash "${suites[$i]}" </dev/null >"$RUNS/$i.log" 2>&1
       rc=$?
       [ "$rc" = 0 ] || load1 > "$RUNS/$i.load"
