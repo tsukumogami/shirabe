@@ -38,8 +38,9 @@ It runs no measured build and adds no debug-information setting (R15), sends
 no telemetry (R14), and builds no trim of idle trees and no instance remover:
 those belong to another milestone, and this plan only supplies the
 declaration such a remover reads (R10). Which work-on state carries the
-cleanup in a single run, and the name of the state that ends the multi-pr
-item loop, stay open until the tsukumogami/shirabe#1230 design settles; the
+cleanup in a single run stays open until the tsukumogami/shirabe#1230
+design settles; the multi-pr driver's loop is skill prose and calls the
+script itself after its last item; the
 declaration and the script aren't held by it.
 
 ## Decomposition Strategy
@@ -192,9 +193,11 @@ in each template within those bounds.
 **Group**: wiring
 
 **Goal**: The work-on template calls `clean-build-output.sh` once at a run's
-successful end and once when a multi-pr driver's item loop finds no next
-item, in the states the tsukumogami/shirabe#1230 design names; this outline
-names neither state (R6, R7, R9).
+successful end, in the state the tsukumogami/shirabe#1230 design names
+(this outline names none), and skips it for an item session a multi-pr
+driver opened. The driver's loop in `skills/work-on/SKILL.md`, which is
+skill prose rather than a template state, calls the script itself once when
+it finds no next item (R6, R7, R9).
 
 **Acceptance Criteria**:
 - [ ] A run that reaches its successful end with hosted CI green, or its successful end in a repo with no hosted checks, removes the declared paths and leaves every other tracked and ignored file, and a sibling directory beside the worktree, unchanged.
@@ -202,7 +205,7 @@ names neither state (R6, R7, R9).
 - [ ] A run's output carries exactly one cleanup record, however many verification rounds it took.
 - [ ] The cleanup doesn't run on a passing verification, a return to implementation, the CI fix loop, a run blocked during verification or while waiting on CI, or `done_already_complete`; each case finds its tree in place.
 - [ ] A child dispatched by a plan parent, and the `pr_creation` to `done` edge on `pr_status: shared`, never call the script; the next child in the same worktree finds the earlier child's tree.
-- [ ] In a multi-pr PLAN the driver calls the script once, when its item loop finds no next item, in the one worktree the items share, passing the base it pinned when its run started (the commit the default branch's remote ref named then), never an item's `merge_base`.
+- [ ] In a multi-pr PLAN of three items, no item session cleans at its own successful end (each is marked plan-dispatched when the driver opens it), the second and third items find the earlier tree, and the driver calls the script once, when its item loop finds no next item, in the one worktree the items share, passing the base it pinned when its run started (the commit the default branch's remote ref named then), never an item's `merge_base`.
 - [ ] A fix round started by `fix-round.sh` cleans again at its own successful end with CI green.
 - [ ] A single run's caller passes the run's pinned base as `--base`: verification's recorded `merge_base`, or `impl_base` for a run with no `result.json`.
 - [ ] After the branch's pull request is merged and the default branch fetched, so that a recomputed merge base would be the branch head, the cleanup still leaves in place a path the branch added to the declaration (R2).

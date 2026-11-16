@@ -323,9 +323,15 @@ why the parent keeps the base it pinned at its start (R2).
 In a multi-pr PLAN, `/work-on` is the driver: it takes the items one at a
 time, so the driver itself, not a child, knows when no item remains. It calls
 the script once, when its item loop finds no next item, in the one worktree
-the items share. That point is fixed here; the name of the template state
-that holds it follows the tsukumogami/shirabe#1230 design, as the single
-run's does. The driver has one result per item and no base of its own that
+the items share. That loop is prose in `skills/work-on/SKILL.md`, not a
+template state, and each item runs in its own session, so no state of the
+tsukumogami/shirabe#1230 design carries the call: the skill's loop makes it
+itself after the last item. Each item would otherwise reach an ordinary
+single run's successful end and clean the worktree the next item reuses
+(R9), so every item session the driver opens counts as dispatched by a plan
+parent and never cleans; the driver records that on the item's session when
+it opens it, and the single run's caller skips the cleanup when it finds
+the mark. The driver has one result per item and no base of its own that
 covers them all, so it pins its base the way a plan parent does: when its
 run starts it records the commit the default branch's remote ref names then,
 and passes that as `--base`, never an item's `merge_base` or a recomputed
@@ -404,7 +410,7 @@ tsukumogami/koto#490.
 | `skills/work-on/scripts/clean-build-output.sh` (new) | Reads the switch at the root, checks its own directory, reaps dead removals, checks the base's ancestry and reads the declaration there, checks each path, renames the passing ones into numbered trash entries, writes one record per removal, starts the deleter, prints one line per path, exits 0. |
 | `skills/work-on/scripts/run-verification.sh` | Before building, waits inside its budget on every removal record that says `running` with a live pid. If the budget runs out first, it starts no command, reports the verification as not run and names the record. It doesn't reap; the script does. `SELECT_JQ` is unchanged. |
 | work-on template, single run | Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief. Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The state is named when the tsukumogami/shirabe#1230 design settles. Dispatched children and the shared-branch edge don't call it. |
-| work-on template, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. It calls the script once, when its item loop finds no next item, in the one worktree the items share, with the base it pinned when its run started (as a plan parent does). Its exact state name waits on the tsukumogami/shirabe#1230 design, like the single run's caller. |
+| `skills/work-on/SKILL.md`, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. The loop is skill prose, not a template state: it calls the script itself, once, when it finds no next item, in the one worktree the items share, with the base it pinned when its run started (as a plan parent does). It marks each item session it opens as plan-dispatched, so no item's own successful end cleans. |
 | `/execute` templates, successful end | Pin one base per repository at the run's start, in the parent's session. Single-pr: calls the script once on the way into `merged` or `ready_awaiting_merge`, only with the owned pull request's hosted CI green at that head; never at `plan_completion` or on `done_blocked`. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree on the way into `ready_awaiting_merge` (from `coord_verdict` or `coord_merge_confirm`) or `merged` (from `coord_merge_confirm`), under the same CI check; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
 | koto's verification map and command list | `env CARGO_INCREMENTAL=0` right after `scripts/without-session-env.sh` on each of the seven cargo commands; the wrapper is unchanged (koto's own item). |
 
@@ -559,9 +565,10 @@ next run, same worktree
 4. **The callers.** Wire `/execute`'s successful ends: the way into
    `merged` or `ready_awaiting_merge` in both templates, only with hosted
    CI green at the head, each with the base the parent pinned at its
-   start. Wire the work-on end and the
-   multi-pr driver's item loop once the tsukumogami/shirabe#1230 design
-   names their states.
+   start. Wire the work-on end once the tsukumogami/shirabe#1230 design
+   names its state, and the multi-pr driver's loop in
+   `skills/work-on/SKILL.md` with it, since the item runs' skip of the
+   cleanup sits in that same end.
 5. **koto's suite.** `env CARGO_INCREMENTAL=0` on the seven cargo commands
    in koto's verification map, and koto's command list, against
    tsukumogami/koto#490. Independent of the rest.
