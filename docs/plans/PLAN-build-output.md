@@ -114,7 +114,7 @@ removal, starts a detached delete and exits 0 (R2 to R5, R8, R12, R14).
 - [ ] A `<git-dir>/shirabe-build-output` that is a symlink, or isn't a directory the current user owns, prints one `failed` line naming it, and nothing is renamed.
 - [ ] A `--base` that isn't an ancestor of HEAD, or isn't an ancestor of or equal to the upstream default branch's remote ref when that ref exists, or an unreadable base or map, prints `build-output: base unreadable, removed nothing` and removes nothing.
 - [ ] The declaration is read only with `git show <base>:...`: a branch commit that adds a path to the map leaves that path in place, and one that removes the base's path still has it removed.
-- [ ] Each of these is refused with one line of the path as written and its word, and none is touched: `/abs` (`absolute`); `../x`, `a/../../x` and `.` (`outside`); a symlinked path and a path under a symlinked directory (`symlink`, the link target unchanged); a tracked path and an ignored directory holding one tracked file (`tracked`); `Target/` against a tracked `target/` when `core.ignorecase` is true (`tracked`); a path git doesn't ignore (`not-ignored`); a directory holding a nested `.git`, a mount, and each of `.git`, `.claude`, `CLAUDE.md`, `CLAUDE.local.md`, `.env`, `.env.local` (`protected`).
+- [ ] Each of these is refused with one line of the path as written and its word, and none is touched: `/abs` (`absolute`); `../x`, `a/../../x` and `.` (`outside`); a symlinked path and a path under a symlinked directory (`symlink`, the link target unchanged); a tracked path and an ignored directory holding one tracked file (`tracked`); `Target/` against a tracked `target/` when `core.ignorecase` is true (`tracked`); a path git doesn't ignore (`not-ignored`), which is also what a declared `.git` itself reports, since git never reports `.git` as ignored and `not-ignored` comes first; and, with each fixture untracked and ignored so that only the last check can refuse it, an ignored directory holding a nested `.git`, an ignored mount, and each of `.claude`, `CLAUDE.md`, `CLAUDE.local.md`, `.env`, `.env.local` (`protected`). A tracked `CLAUDE.md` or `.claude` reports `tracked`, the earlier word.
 - [ ] A path failing two checks reports only the first in the order absolute, outside, gone, symlink, tracked, not-ignored, protected; a missing path that passes the first two reports `gone`.
 - [ ] A non-list `build_output` prints one `malformed` line and removes nothing; a number or empty-string entry beside `target/` is named `malformed` and `target/` is still removed; `target` and `./target/` together remove once with no error; `target*` removes nothing named `target1`.
 - [ ] Passing paths are renamed in declaration order to `trash-<stamp>/1`, `/2`, ... under `git rev-parse --git-path shirabe-build-output`, which the test asserts lies inside the worktree's own git directory in a linked worktree; a pre-existing `trash-<stamp>` prints one `failed` line and renames nothing.
@@ -164,8 +164,10 @@ it removes nothing (R12).
 **Goal**: `/execute` runs `clean-build-output.sh` once per recorded
 worktree at the run's successful end, with the base the parent pinned at its
 start (R2, R9). In both templates that's on the way into the successful
-terminals, `merged` or `ready_awaiting_merge`, and only when the owned pull
-request's hosted CI is green at that head; never at `plan_completion`, which
+terminals, `merged` or `ready_awaiting_merge`, when the owned pull
+request's hosted CI is green at that head, or at that end alone in a repo
+with no hosted checks (R6); a paused run's replacement session carries the
+pin over; never at `plan_completion`, which
 runs before CI is watched. In single-pr mode only `merge_confirm` reaches
 `merged`, handed on by `merge_attempt` or straight from `merge_route` for a
 pull request already merged, so the call can't sit in `merge_attempt`; in
@@ -173,7 +175,7 @@ coordinated mode only `coord_merge_confirm` reaches it. The implementer picks th
 in each template within those bounds.
 
 **Acceptance Criteria**:
-- [ ] A single-pr run with hosted CI green calls the script exactly once, in its one worktree, whether it ends at `merged` or at `ready_awaiting_merge`; `plan_completion` calls nothing.
+- [ ] A single-pr run with hosted CI green, and one in a repo with no hosted checks, each call the script exactly once, in the one worktree, whether it ends at `merged` or at `ready_awaiting_merge`; `plan_completion` calls nothing.
 - [ ] A single-pr run that reaches `ready_awaiting_merge` while the owned pull request's CI is still pending calls the script nowhere, and the tree stays.
 - [ ] A coordinated run with children in two worktrees, each holding its declared tree, calls the script once in each on the way into `ready_awaiting_merge` or `merged`, and the declared paths are gone from both afterwards.
 - [ ] The parent records one base per repository in its own session when its run starts, the commit the default branch's remote ref names at that moment, and passes that same base as `--base` for every worktree of that repository; it never recomputes it.
@@ -206,7 +208,7 @@ it finds no next item (R6, R7, R9).
 - [ ] The cleanup doesn't run on a passing verification, a return to implementation, the CI fix loop, a run blocked during verification or while waiting on CI, or `done_already_complete`; each case finds its tree in place.
 - [ ] A child dispatched by a plan parent, and the `pr_creation` to `done` edge on `pr_status: shared`, never call the script; the next child in the same worktree finds the earlier child's tree.
 - [ ] In a multi-pr PLAN of three items, no item session cleans at its own successful end (each is marked plan-dispatched when the driver opens it), the second and third items find the earlier tree, and the driver calls the script once, when its item loop finds no next item, in the one worktree the items share, passing the base it pinned when its run started (the commit the default branch's remote ref named then), never an item's `merge_base`.
-- [ ] A fix round started by `fix-round.sh` cleans again at its own successful end with CI green.
+- [ ] A fix round started by `fix-round.sh` cleans again at its own successful end with CI green, passing the base the original run pinned, never its own `impl_base`.
 - [ ] A single run's caller passes the run's pinned base as `--base`: verification's recorded `merge_base`, or `impl_base` for a run with no `result.json`.
 - [ ] After the branch's pull request is merged and the default branch fetched, so that a recomputed merge base would be the branch head, the cleanup still leaves in place a path the branch added to the declaration (R2).
 - [ ] A cleanup line of `failed`, `malformed`, `gone` or a refusal leaves the run's result successful.

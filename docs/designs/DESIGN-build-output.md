@@ -291,10 +291,11 @@ two terminals past `ci_monitor`, `merge_readiness` and `merge_route`:
 called merge, and `merge_route` hands it one already merged), and
 `ready_awaiting_merge`, which `merge_route`, `merge_attempt` and
 `merge_confirm` can each route to. The parent cleans once, in its one
-worktree, on the way into either terminal, and only when the owned pull
-request's hosted CI is green at the head it reached them with; `ci_monitor`
-can hand `merge_readiness` a pending CI, so the call checks rather than
-assumes. With CI not green it cleans nothing and the tree stays. It never
+worktree, on the way into either terminal, when the owned pull request's
+hosted CI is green at the head it reached them with, or, in a repo with no
+hosted checks, at that successful end alone (R6); `ci_monitor` can hand
+`merge_readiness` a pending CI, so the call checks rather than assumes. With
+hosted CI present and not green it cleans nothing and the tree stays. It never
 cleans at `plan_completion`, and never on `done_blocked`, which `ci_monitor`
 and `merge_route` can both reach.
 
@@ -318,7 +319,9 @@ and never recomputes it. Every child's base comes after it, so the pinned
 base is an ancestor of every child's head and the script's ancestry check
 passes. After the branch's pull request merges and the default branch is
 fetched, a recomputed merge base would be the branch head itself, which is
-why the parent keeps the base it pinned at its start (R2).
+why the parent keeps the base it pinned at its start (R2). A paused run that
+resumes in a replacement session carries the pin over from the session it
+replaces and never pins again.
 
 In a multi-pr PLAN, `/work-on` is the driver: it takes the items one at a
 time, so the driver itself, not a child, knows when no item remains. It calls
@@ -355,7 +358,12 @@ question is whether that run's own successful end cleans again.
 #### Chosen: yes, like any run
 
 A fix round is a run of its own, and it rebuilt the declared tree. Its
-successful end with CI green cleans it, the same way. It already starts
+successful end with CI green (or alone, with no hosted checks) cleans it,
+the same way. Its base is the one the original run pinned, carried into the
+fix round's session when `fix-round.sh` opens it, not the fix round's own
+`impl_base`: a hosted-CI fix round starts from the branch, so its
+`impl_base` is a branch commit that fails the script's ancestry check and
+would read the branch's own declaration (R2). It already starts
 cold, because the first run's end cleaned, and that cold build is the cost
 of a finished run leaving nothing.
 
@@ -411,7 +419,8 @@ tsukumogami/koto#490.
 | `skills/work-on/scripts/run-verification.sh` | Before building, waits inside its budget on every removal record that says `running` with a live pid. If the budget runs out first, it starts no command, reports the verification as not run and names the record. It doesn't reap; the script does. `SELECT_JQ` is unchanged. |
 | work-on template, single run | Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief. Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The state is named when the tsukumogami/shirabe#1230 design settles. Dispatched children and the shared-branch edge don't call it. |
 | `skills/work-on/SKILL.md`, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. The loop is skill prose, not a template state: it calls the script itself, once, when it finds no next item, in the one worktree the items share, with the base it pinned when its run started (as a plan parent does). It marks each item session it opens as plan-dispatched, so no item's own successful end cleans. |
-| `/execute` templates, successful end | Pin one base per repository at the run's start, in the parent's session. Single-pr: calls the script once on the way into `merged` or `ready_awaiting_merge`, only with the owned pull request's hosted CI green at that head; never at `plan_completion` or on `done_blocked`. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree on the way into `ready_awaiting_merge` (from `coord_verdict` or `coord_merge_confirm`) or `merged` (from `coord_merge_confirm`), under the same CI check; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
+| `scripts/lib/claude-md-header.sh` | Gains a way to return the matched header line, or its name as written, beside the value, so the script can refuse a wrongly cased name; its existing callers are unchanged. |
+| `/execute` templates, successful end | Pin one base per repository at the run's start, in the parent's session. Single-pr: calls the script once on the way into `merged` or `ready_awaiting_merge`, with the owned pull request's hosted CI green at that head, or at that end alone in a repo with no hosted checks; never at `plan_completion` or on `done_blocked`. A paused run's replacement session carries the pin over. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree on the way into `ready_awaiting_merge` (from `coord_verdict` or `coord_merge_confirm`) or `merged` (from `coord_merge_confirm`), under the same CI check; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
 | koto's verification map and command list | `env CARGO_INCREMENTAL=0` right after `scripts/without-session-env.sh` on each of the seven cargo commands; the wrapper is unchanged (koto's own item). |
 
 ### The script's contract
@@ -531,10 +540,10 @@ run ends, CI green
   start: pin one base per repository (default branch's remote ref, now)
   single-pr: ci_monitor -> merge_readiness -> merge_route
        -> ([merge_attempt ->] merge_confirm ->) merged | ready_awaiting_merge
-       -> hosted CI green at head? clean-build-output.sh --base <parent's pinned base>, once
+       -> hosted CI green at head, or no hosted checks? clean-build-output.sh --base <parent's pinned base>, once
   coordinated: coord_verdict -> ready_awaiting_merge,
        or coord_merge_confirm -> merged | ready_awaiting_merge
-       -> hosted CI green? clean-build-output.sh --base <parent's pinned base>, per worktree
+       -> hosted CI green, or no hosted checks? clean-build-output.sh --base <parent's pinned base>, per worktree
   done_blocked, done_error, paused_awaiting_merges -> no cleanup
 
 next run, same worktree
@@ -563,8 +572,8 @@ next run, same worktree
    design also changes, so it lands after that design's PR, or rebased onto
    it.
 4. **The callers.** Wire `/execute`'s successful ends: the way into
-   `merged` or `ready_awaiting_merge` in both templates, only with hosted
-   CI green at the head, each with the base the parent pinned at its
+   `merged` or `ready_awaiting_merge` in both templates, with hosted CI
+   green at the head or with no hosted checks, each with the base the parent pinned at its
    start. Wire the work-on end once the tsukumogami/shirabe#1230 design
    names its state, and the multi-pr driver's loop in
    `skills/work-on/SKILL.md` with it, since the item runs' skip of the
