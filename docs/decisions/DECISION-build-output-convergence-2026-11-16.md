@@ -1,5 +1,5 @@
 ---
-status: Proposed
+status: Accepted
 decision: |
   The build-output scope has converged everywhere except one stretch: the
   work-on run's own end (the single run and the fix round) and the multi-pr
@@ -24,11 +24,11 @@ rationale: |
 
 ## Status
 
-Proposed on 2026-11-16, for the build-output scope in
+Accepted on 2026-11-16, for the build-output scope in
 tsukumogami/shirabe#1885 at 1951eeec. Review of that scope stopped after round
-10, and this record decides the next step in place of an eleventh fix round.
-The PRD, DESIGN and PLAN are unchanged by this record. The cut it describes is
-the next edit, once it's accepted.
+10, and this record decided the next step in place of an eleventh fix round.
+The record itself changed no other document. The cut it describes was made
+in the PRD, DESIGN and PLAN by the edit that followed its acceptance.
 
 ## Context
 

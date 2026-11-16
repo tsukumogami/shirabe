@@ -66,8 +66,10 @@ tsukumogami/shirabe#1903, and the cleanup here runs at the end of a run that
 
 ## Problem Statement
 
-When `/work-on` verifies a change in a repo built with a compiled language,
-the verification suite writes a build tree into the run's worktree. For a
+When a workflow run verifies a change in a repo built with a compiled
+language, whether that's a `/work-on` child an `/execute` plan dispatches or
+a `/work-on` run on its own, the verification suite writes a build tree into
+the run's worktree. For a
 Rust repo such as koto that tree is 3 to 9 GiB, and it grows as the same
 worktree is rebuilt. Nothing in the workflow removes it: the tree stays until
 the worktree is deleted, and setups that keep worktrees after their worker

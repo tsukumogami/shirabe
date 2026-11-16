@@ -85,9 +85,10 @@ coordinated mode, at its own successful end (R9).
 
 Removal has to fit koto. A default action returns within koto's fixed 30 s
 limit with no override, while gates take a `timeout:`. Removing a 9 GiB tree
-can take longer than that on a loaded disk, so the state must return control
-within 30 s, record when the removal ends, and keep a later run in the same
-worktree from building while a removal is still running (R12).
+can take longer than that on a loaded disk, so a call made inside a koto
+action must return control within 30 s, record when the removal ends, and
+keep a later run in the same worktree from building while a removal is still
+running (R12).
 
 The suite side is separate and small: `CARGO_INCREMENTAL=0` on every cargo
 command in koto's map, set in the same place on each of those commands,
@@ -111,8 +112,8 @@ measured build runs (R15).
   and says why (R3, R8).
 - **Reuse, don't fork.** Read the map the way `run-verification.sh` already
   does, and the header with `scripts/lib/claude-md-header.sh`.
-- **Fit koto's limits.** The state returns within 30 s and records the end of
-  any removal still running (R12).
+- **Fit koto's limits.** A call made inside a koto action returns within
+  30 s and records the end of any removal still running (R12).
 - **Backward compatible.** Older releases ignore the field, and the map's
   schema string doesn't change (R10, R13).
 - **One mechanism for every caller.** The same script serves `/execute`'s
@@ -635,10 +636,12 @@ clean-build-output.sh --base <sha> [--root <dir>] [--switch-root <dir>] [--walk-
 clean-build-output.sh --delete <stamp> [--root <dir>]     (the deleter; started only by the script)
 ```
 
-Every caller runs it as `test -x <script> && <script> ...; exit 0` (or
-`; true` in a directive), so a missing script, a usage error or a killed
-process can't stop the tick or change the run (R8), and stores its stdout
-once as the context key `build_output_cleanup`.
+This release has one caller, `build-output-end.sh`. It runs the script as
+`test -x <script> && <script> ...; exit 0` (or `; true` in a directive), so a
+missing script, a usage error or a killed process can't stop the tick or
+change the run (R8), and stores the script's stdout once as the context key
+`build_output_cleanup`. A caller tsukumogami/shirabe#1903 adds is held to
+the same form.
 
 `--root` is the work tree root: every declared path resolves against it, and
 it is the tree cleaned. It defaults to `git rev-parse --show-toplevel`.
@@ -653,10 +656,9 @@ passes the pin in that worktree's `run/cleanup/<worktree-id>` key (Decision
 time.
 
 `--walk-budget` is the time the `protected` walk may take across all paths,
-20 s by default. A caller that runs it inside a koto action and makes
-several calls there splits the 20 s between them, so the action stays inside
-koto's 30 s bound; `build-output-end.sh` runs outside any action and passes
-none. A path whose walk can't finish in its share is `failed` and kept. The
+20 s by default. This release's only caller, `build-output-end.sh`, runs
+outside any koto action and passes none. A path whose walk can't finish in
+its share of the budget is `failed` and kept. The
 limit is a polling one, as the supervisor's is, since the macOS floor has no
 `timeout`.
 
@@ -858,7 +860,9 @@ next run, same worktree
    `build-output-pin.sh` from `drift-facts.sh` and `node-push.sh`, the
    single-pr carry in `execute-open.sh`, and `build-output-end.sh` in the
    `merged` and `ready_awaiting_merge` directives of both templates. The
-   work-on run's own end is tsukumogami/shirabe#1903's.
+   work-on run's own end is tsukumogami/shirabe#1903's, and that follow-up
+   doesn't ship ahead of step 3: a work-on end that cleans needs the
+   runner's wait on a running removal under it.
 5. **koto's suite.** `env CARGO_INCREMENTAL=0` on the seven cargo commands
    in koto's verification map, and koto's command list, against
    tsukumogami/koto#490. Independent of the rest.
