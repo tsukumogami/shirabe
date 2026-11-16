@@ -187,12 +187,16 @@ because koto runs a session's commands with a fixed environment, so a
 variable exported in the ticking shell never reaches the state
 (tsukumogami/koto#578).
 
-**Local then committed, as `scripts/pr-workflow-content.sh` reads**:
-Rejected because a committed line would turn the cleanup on for every
+**Local then committed, as `scripts/pr-workflow-content.sh` reads**: the
+script reads the header from `CLAUDE.local.md` and, when that has none, from
+the committed `CLAUDE.md`, so a repo could ship the switch on. Rejected
+because a committed line would turn the cleanup on for every
 developer who clones the repo, which R4 forbids.
 
-**A setting in a workspace manager's config**: Rejected because it ties the
-feature to one manager; the header works with one or with none.
+**A setting in a workspace manager's config**: the manager that provisions
+the worktree records the switch, and the script asks it. Rejected because it
+ties the feature to one manager and gives a plain clone no way to turn it on;
+the header works with one manager, another, or none.
 
 ### Decision 3: Fitting removal into koto's time limit
 
