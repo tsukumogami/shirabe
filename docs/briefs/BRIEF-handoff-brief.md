@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A session that stops leaves its reasoning unreadable and its files unclaimed.
   The next session, or the cleanup that removes the instance, can't tell what
@@ -17,11 +17,18 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 Framed under `/scope` for the feature that gives a stopping session one way
 to hand its reasoning and files forward. The compaction half is framed here
 but waits on evidence and an owner ruling before it can become a default.
+
+Four framing details are left to the downstream PRD, which records a decision
+on each or names it as an unknown it owns: how large a file can be and still
+travel inside the brief, and how much one brief may name in all; where the
+brief of a session with no workflow run lives, and whether that session ever
+ends; how a dispatch or a role carries the compaction setting into an
+instance; and what reads a session's context size for a trigger.
 
 ## Problem Statement
 
@@ -171,18 +178,6 @@ tomorrow's session at it.
   command that says a unit is over. Those belong to the removal work; this
   feature only writes what they read.
 - Build cleanup at the end of a run, and how long transcripts live.
-
-## Open Questions
-
-Each of these defers to the downstream PRD, which records a decision or names
-it as an unknown it owns.
-
-- What the brief's inline size and the record cap are.
-- Where the brief of a session with no koto run lives, and whether that session
-  ever ends.
-- How a dispatch or a role carries the compaction window into an instance.
-- What reads a session's context size for a trigger, and whether `/coordinate`
-  states one.
 
 ## References
 
