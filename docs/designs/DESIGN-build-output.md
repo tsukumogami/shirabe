@@ -14,9 +14,9 @@ decision: |
   on. A new `clean-build-output.sh` checks each path in a fixed order,
   renames the passing ones into the worktree's git directory and deletes them
   detached, recording the end; the verification runner waits on a running
-  removal. A plan's parent cleans once per worktree with the base it pinned
-  for that worktree, and a session it dispatched never cleans; a fix round
-  cleans at its own end unless it's plan-dispatched.
+  removal. /execute cleans once per recorded worktree at its successful end,
+  with the base it pinned for that worktree. The work-on run's own end is
+  left to tsukumogami/shirabe#1903.
 rationale: |
   Every piece reuses something shirabe already has: the map read at the
   merge base, the fence-aware header reader, the run's pinned base. Renaming
@@ -45,12 +45,10 @@ it. The PRD asks for four pieces, and each lands on code that already exists.
 
 The declaration has to live in the verification map, as a new optional
 top-level field next to `schema`, `commands`, `entries` and `default`, made
-of literal repo-relative paths (R1). It has to be read from the same base the
-run already pinned: the `merge_base` of the settled result that
-`check-verification.sh` stores as the `verification_results.json` context
-key, or `impl_base` for a run with `VERIFICATION=hosted-ci`. It is never
-recomputed at cleanup time, because after a merge and fetch the merge base
-can be HEAD itself (R2). A malformed declaration must not make the map
+of literal repo-relative paths (R1). It has to be read from a base pinned
+before the cleanup: the `/execute` parent's per-worktree pin (Decision 4).
+It is never recomputed at cleanup time, because after a merge and fetch the
+merge base can be HEAD itself (R2). A malformed declaration must not make the map
 invalid, so its check stays out of `SELECT_JQ`, the jq program that turns the
 map into the selected invocations (R8). Each declared path is refused, in a
 fixed order and with a fixed word, when it's absolute, outside the repo, a
@@ -67,17 +65,17 @@ for it (R4). That differs from `scripts/pr-workflow-content.sh`, which reads
 local and then committed; `scripts/lib/claude-md-header.sh` is the
 fence-aware reader to reuse.
 
-The cleanup runs once per run, at the run's successful end with hosted CI
-green, or at the successful end alone in a repo with no hosted checks (R6).
-It never runs on a verification pass, on a return to implementation, in the
-CI fix loop, when the run is blocked, or at `done_already_complete`. After CI
-is green the order is the closing step, then the handoff brief, then the
-cleanup, and nothing after it reaches implementation or verification (R7).
-Which work-on state carries it is held for the design of
-tsukumogami/shirabe#1230 (draft PR tsukumogami/shirabe#1881), which is
-changing implementation, verification and `done_blocked`. This design fixes
-the mechanism and the order and leaves the state named as open. The cleanup
-never changes the run's outcome (R8).
+The cleanup runs once per recorded worktree, at an `/execute` run's
+successful end with that worktree's hosted CI green, or at the successful
+end alone in a repo with no hosted checks (R6). It never runs on a
+verification pass, on a return to implementation, in the CI fix loop, or
+when the run is blocked. It runs from the successful terminal's directive
+after the exit lines, so nothing after it reaches implementation or
+verification (R7). The work-on run's own end, a fix round's end and the
+multi-pr loop's end are left to tsukumogami/shirabe#1903
+(`docs/decisions/DECISION-build-output-convergence-2026-11-16.md`); this
+design wires `/execute`'s end. The cleanup never changes the run's outcome
+(R8).
 
 A plan complicates the once-per-run rule. A child on a shared branch (the
 `pr_creation` to `done` edge on `pr_status: shared`) and a child whose
@@ -115,13 +113,11 @@ measured build runs (R15).
   does, and the header with `scripts/lib/claude-md-header.sh`.
 - **Fit koto's limits.** The state returns within 30 s and records the end of
   any removal still running (R12).
-- **Don't place what's held.** The work-on state that carries the cleanup
-  waits on the tsukumogami/shirabe#1230 design; the mechanism, the order and
-  the declaration don't (R7).
 - **Backward compatible.** Older releases ignore the field, and the map's
   schema string doesn't change (R10, R13).
-- **One mechanism for every caller.** The same script serves a work-on run's
-  end, a plan parent's end and any instance remover that reads the field.
+- **One mechanism for every caller.** The same script serves `/execute`'s
+  end now, the work-on run's end later (tsukumogami/shirabe#1903), and any
+  instance remover that reads the field.
 
 ## Considered Options
 
@@ -255,7 +251,7 @@ and says so.
 
 There's one record per removal, and a call never rewrites another removal's
 record. A second call while a deleter is still running (a plan parent
-cleaning its worktrees in turn, a fix round right after `done`, a retry)
+cleaning its worktrees in turn, a retry)
 leaves that deleter's record and trash alone. At its start the script reaps:
 a record that says `running` but reads ended is marked `failed`, and its
 trash goes to this call's deleter.
@@ -376,56 +372,17 @@ is gone.
 Resolved inline. A child on a shared branch, or one whose worktree a later child uses, must
 not clean, and the plan's parent cleans once per worktree at its own
 successful end (R9). Where the parent cleans is settled here: at
-`/execute`'s successful end, after CI is green, once per recorded worktree,
-and at the end of the multi-pr driver's item loop. What stays open is the
-work-on state that calls the script for a single run, held for the
-tsukumogami/shirabe#1230 design.
+`/execute`'s successful end, after CI is green, once per recorded worktree.
+The work-on run's own end and the multi-pr loop are
+tsukumogami/shirabe#1903's.
 
 #### Chosen: the run that owns the worktree's last use cleans it
 
-A `/work-on` run that a plan parent dispatched never cleans, whatever its
-edge, and the shared-branch edge (`pr_creation` to `done` on `pr_status:
-shared`) never cleans either. `/execute` cleans at its successful end, and
-the two templates reach that end differently.
-
-"Dispatched by a plan parent" is one mark, defined here once: a session is
-plan-dispatched when koto's `parent_workflow` is set on it, or when it
-carries the key `work/plan-dispatched`. Each opener that makes a plan's
-child writes one of the two, and nothing else does:
-
-- `/execute`'s single-pr `spawn_and_await` creates every child with
-  `parent_workflow` set. koto writes it, and `session-role.sh` already reads
-  it as `child`.
-- A coordinated child is opened by its own agent with `koto init ...
-  --dispatched-by execute-<plan-slug>`
-  (`skills/execute/references/step-agent-handoff.md`). That handoff gains one
-  step: on every start, after the `koto init` or on finding the session
-  already there, and before its first tick, the step agent writes
-  `work/plan-dispatched` holding `execute-<plan-slug>` when the session
-  doesn't carry it yet. A retried step agent then can't leave a child
-  unmarked. A failed write stops the step agent before its first tick.
-- The multi-pr driver writes `work/plan-dispatched`, holding
-  `multi-pr:<plan-slug>`, on each item session right after it opens it, and
-  stops its loop before driving an item whose write failed. The driver has no
-  koto session of its own, so no link could name it.
-
-A dispatched-by link alone isn't the mark. A coordinator that dispatches a
-standalone `/work-on` run links it the same way, and that run owns its
-worktree and cleans at its own end. The single run's caller reads the mark
-before it calls the script, from the session's own directory. It first reads
-its own row in `koto session list`: a failed list or no row counts as
-plan-dispatched, and a row with `parent_workflow` set is plan-dispatched.
-Only once the row is found does it read the key with `koto context list
-<session> --prefix work/plan-dispatched`, which prints a JSON array. It
-tests for the exact key, `any(.[]; . == "work/plan-dispatched")`, since
-`--prefix` is a plain string prefix that a key such as
-`work/plan-dispatched-old` would also match. Neither `koto context exists`
-nor `list` alone tells absence from failure: `exists` exits 1 for an absent
-key and for a session it can't find, and `list` prints `[]` for a session it
-can't find. The row check comes first for that reason. A failed list or
-output that isn't a JSON array also counts as plan-dispatched, so a doubt
-leaves the tree in place. The work-on preflight, `skills/work-on/requires.tsv`,
-declares `koto context list --prefix` beside its other context verbs.
+Neither a child a plan parent dispatched nor the shared-branch edge
+(`pr_creation` to `done` on `pr_status: shared`) cleans. That holds because no `/work-on` end cleans
+in this release; tsukumogami/shirabe#1903 must keep it true when it adds
+one. `/execute` cleans at its successful end, and the two templates reach
+that end differently.
 
 In single-pr mode, `plan_completion` runs before `ci_monitor`, so it can't
 carry the cleanup: CI isn't being watched yet. The successful ends are the
@@ -506,9 +463,9 @@ base per worktree: `git merge-base <head> <ref>`, where `<ref>` is the
 default branch's remote ref as `default_remote_ref <dir>`, in the new
 `scripts/lib/default-remote-ref.sh`, resolves it: the
 `refs/remotes/origin/HEAD` symref, else `refs/remotes/origin/main` when it
-exists, else none. The script's ancestry check, both `/execute` pins and the
-multi-pr driver's pin all use that one function, so they can't resolve
-different refs, and none falls back to a local branch. With no ref, nothing
+exists, else none. The script's ancestry check and both `/execute` pins use
+that one function, so they can't resolve different refs, and none falls
+back to a local branch. With no ref, nothing
 is pinned. Every `/execute` pin is written by one new script,
 `skills/execute/scripts/build-output-pin.sh --session <S> --id <id>
 --worktree <dir> [--fetch]`. It fetches `origin` in the worktree's clone
@@ -582,54 +539,11 @@ a merge a fresh merge base is the branch head. At its end every node prints
 `build-output: <node> base unreadable, removed nothing`, and nothing is
 cleaned.
 
-In a multi-pr PLAN, `/work-on` is the driver: it takes the items one at a
-time, so the driver itself, not a child, knows when no item remains. That
-loop is prose in `skills/work-on/SKILL.md`, not a template state, and each
-item runs in its own session, so no state of the tsukumogami/shirabe#1230
-design carries the call: the skill's loop makes it itself. It calls the
-script once, in the one worktree the items share, when every item in the
-PLAN has reached its successful end: each item's session reads `done` as
-its `current_state` in `koto status <session>`, and no other terminal
-counts, `done_already_complete` included (R6). A loop that stops because the items
-left are blocked on open dependencies is a pause, not an end, and cleans
-nothing; the driver that resumes it cleans when the last item ends. Each
-item would otherwise reach an ordinary single run's successful end and clean
-the worktree the next item reuses (R9), so the driver marks each item
-session plan-dispatched when it opens it, as above.
-
-The driver has one result per item and no base of its own that covers them
-all, so it pins a base by the same rule as a plan parent: before its first
-item it records `git merge-base HEAD <ref>`, with `default_remote_ref`'s
-ref, taken then. A raw remote-ref tip would fail the ancestry check whenever
-HEAD doesn't yet contain it, for example after a fetch moved the remote ref
-past a stale local default branch; the merge base sits on the default branch
-and is an ancestor of HEAD either way. Each item's branch is cut later from
-a default branch at or past that point, so the pin stays an ancestor of
-every item's head. It has no session to keep it in, so it writes it with
-`clean-build-output.sh --write-pin <plan-slug> --base <sha>`, which reads
-the switch first (off: it writes nothing), makes step 2's checks on its
-directory, and writes `<git-dir>/shirabe-build-output/pin-<plan-slug>` the
-way it writes a record (a temp file linked into place with `ln -n`), holding
-`{"pin": "<sha>", "plan": "<PLAN path>", "written_at": "<UTC ISO-8601>"}`.
-`<plan-slug>` is the PLAN's file name less `PLAN-` and `.md`, and it must
-match `^[a-z0-9][a-z0-9-]*$`; a PLAN whose name doesn't is never pinned. A
-resumed driver reads that file and never pins again. One that finds no pin
-file while any of the PLAN's item sessions already exists doesn't pin
-either, since an item may have merged: it ends with `build-output: base
-unreadable, removed nothing` and calls nothing. A driver that died between
-the pin and item 1 reads its file as a resume, and a file left by an
-abandoned PLAN waits for the next run of that PLAN; both pins sit on the
-default branch, and the script's ancestry check reads them again at the end.
-After its cleanup call the driver removes the file, so a later run of the
-same PLAN pins afresh. It passes the pin as `--base`, never an item's
-`merge_base` or a recomputed one.
-
 #### Alternatives Considered
 
 **The last dispatched child of a plan parent cleans**: Rejected because
 `/execute`'s children run independently, and none of them can know it's the
-last. The multi-pr case isn't this option: no child decides anything there,
-because the driver iterates the items itself and sees its loop end.
+last.
 
 **Every child cleans**: Rejected because each later child then rebuilds from
 cold, the cost R9 exists to prevent.
@@ -656,109 +570,27 @@ cleanup. The coordination PR never builds in a node worktree, so its CI says
 nothing about whether that tree is still needed. Cleaning a merged node
 whatever its CI is closer to the need, but R6 asks for CI green.
 
-**A `context list` arm in the eval koto shim**: Rejected. The shim's
-`session list` answers `[]`, so every eval already reads plan-dispatched
-before the list is consulted; evals run on canned `koto next` replies and
-never run a default action; and a new arm would change what every unrelated
-eval sees, the regression the shim's own comment records. The cleaning and
-plan-dispatched cases are proved by script tests against real koto.
-
-### Decision 5: A fix round's end
-
-Resolved inline. `fix-round.sh` starts a new run on the same worktree after `done`. The
-question is whether that run's own successful end cleans again.
-
-#### Chosen: yes, like any run
-
-A fix round is a run of its own, and it rebuilt the declared tree. Its
-successful end with CI green (or alone, with no hosted checks) cleans it,
-the same way, unless the round is plan-dispatched. It already starts cold,
-because the first run's end cleaned, and that cold build is the cost of a
-finished run leaving nothing.
-
-`fix-round.sh` opens the round's session, so it carries both things the
-round's end reads:
-
-- **The base.** Today the script records `base` as the fix round's HEAD in
-  the round session's `fix_round.json`, which is the round's review base and
-  stays as it is. `fix_round.json` gains a second field, `cleanup_base`; the
-  original's `fix_rounds.jsonl` doesn't carry it. It is the base the original
-  run pinned, read the way a single run's caller reads its own: `koto context
-  get <original> verification_results.json`, taking `.merge_base`, or the
-  original's `impl_base` when its `VERIFICATION` variable is `hosted-ci`. A
-  missing `result.json` never means hosted CI: `result.json` sits under the
-  head it verified, and the run's finalization commit moves HEAD past it.
-  The round's caller reads `koto context get <round> fix_round.json | jq -r
-  '.cleanup_base // empty'`. "The original" is always the first run, never an earlier
-  round: `fix-round.sh` already opens every round from the first run's
-  session (`$ORIG`), so round 2 and round 3 read the same first-run base,
-  never a round's own `merge_base`. The round's caller passes `cleanup_base` as `--base`, never
-  the round's own `impl_base`. A hosted-CI fix round starts from the branch,
-  so its `impl_base` is a branch commit that fails the script's ancestry
-  check and would read the branch's own declaration (R2). When the original's
-  base can't be read, `cleanup_base` is left empty, and the round's caller
-  prints `build-output: base unreadable, removed nothing` instead of calling
-  the script.
-- **The mark.** `fix-round.sh` already copies the original's
-  `parent_workflow` with `--parent`. It also copies `work/plan-dispatched`
-  when the original carries it, read before `koto init` with `koto context
-  list "$ORIG" --prefix work/plan-dispatched` and the exact-key test, never
-  with its `koto context exists` idiom. A failed read, or output that isn't
-  a JSON array, exits 2 before any round session exists; a failed write
-  after `koto init` exits 2 without printing `session=`, so no caller drives
-  an unmarked round. A fix round of a plan's child is then
-  plan-dispatched like the child, and never cleans, so a multi-pr item's
-  fix round can't clean the worktree the next item reuses.
-
-The work-on run has one end caller, and it runs at a first run's end and at
-a round's end alike, so it picks its base by one rule. It reads `koto
-context list <session> --prefix fix_round.json` and tests the output for
-the exact key `fix_round.json`, the same idiom it uses for the mark. When
-the key is there, the session is a round: the caller reads `koto context get
-<session> fix_round.json | jq -r '.cleanup_base // empty'` and passes that
-value as `--base`, never the round's own `verification_results.json`
-`.merge_base` or its `impl_base`. An empty value, or a `koto context get`
-that fails, prints `build-output: base unreadable, removed nothing` and
-makes no call, with no fallback to the single-run read. A `koto context
-list` that fails, or prints something other than a JSON array, is handled
-the same way, since the caller can't then tell a round from a first run.
-Only when the list reads cleanly and lacks the key does the caller take the
-single-run base.
-
-A plan child's fix round that runs after the parent has already reached its
-successful end leaves the tree it rebuilt. The parent's cleanup ran once and
-doesn't run again. That tree is the instance remover's to take, the same as a
-blocked run's.
-
-#### Alternatives Considered
-
-**Skip the cleanup at a fix round's end**: Rejected because the fix round's
-tree stays, which is the original problem in a smaller form, and it would
-need a second rule in the template that readers have to know about.
-
 ## Decision Outcome
 
 The repo declares `build_output` in its verification map, and a workspace
-turns the cleanup on with one header in `CLAUDE.local.md`. At a run's
-successful end, after the closing step and the handoff brief, one script
-reads the declaration at the run's pinned base, checks every path, renames
+turns the cleanup on with one header in `CLAUDE.local.md`. At `/execute`'s
+successful end, for each recorded worktree whose CI is green, one script
+reads the declaration at the base the parent pinned, checks every path, renames
 the passing ones out of the work tree and deletes them in the background,
 then returns. Nothing a branch commits can widen what its own run removes, a
 developer's clone keeps its tree, and a later build waits for a removal that
 hasn't finished.
 
 The pieces fit because they all resolve to one script and the records it
-writes, one per removal. The work-on end, the multi-pr driver's item loop,
-`/execute`'s two successful terminals through `build-output-end.sh` (once
-per recorded worktree whose own CI is green, with the base the parent pinned
-for it) and an undispatched fix round's end all call `clean-build-output.sh`,
-and each caller stores its lines once as `build_output_cleanup`.
+writes, one per removal. `/execute`'s two successful terminals call
+`clean-build-output.sh` through `build-output-end.sh`, once per recorded
+worktree whose own CI is green, with the base the parent pinned for it, and
+`build-output-end.sh` stores the lines once as `build_output_cleanup`.
 `run-verification.sh`'s supervisor waits on any record that reads live
 before its first command, and the `await_removals` gate holds a run before
 setup while one does. The script never fails the run: it prints its
-lines and exits 0, whatever it found. The exact work-on state it runs in
-stays open until the tsukumogami/shirabe#1230 design settles; the order
-(closing step, handoff brief, cleanup) is fixed here.
+lines and exits 0, whatever it found. The work-on run's own end is
+tsukumogami/shirabe#1903's.
 
 koto's suite gets `CARGO_INCREMENTAL=0` on every cargo command in its
 verification map, in the map itself. All twelve commands in koto's map, the
@@ -781,16 +613,12 @@ tsukumogami/koto#490.
 |-----------|--------|
 | `skills/work-on/references/verification-map.md` | Documents `build_output` as a fifth, optional top-level field: literal paths, the normalization, the refusal words, and that a remover may read it and the field isn't renamed or changed in meaning without a schema change (R10). |
 | `skills/work-on/scripts/verification-map-schema_test.sh` | Adds `build_output` to its documented-field loop. The selection cases (with and without the field, and malformed) go in `run-verification_test.sh`'s selection section, since the schema test never runs `SELECT_JQ`. |
-| `skills/work-on/scripts/clean-build-output.sh` (new) | Reads the switch at `--switch-root` (default `--root`), checks its own directory, reaps ended removals, checks the base's ancestry and reads the declaration there, checks each path, renames the passing ones into numbered trash entries, writes one record per removal, starts the deleter (`--delete <stamp>`), prints one line per path, exits 0. `--write-pin <plan-slug>` writes the multi-pr driver's pin file. |
+| `skills/work-on/scripts/clean-build-output.sh` (new) | Reads the switch at `--switch-root` (default `--root`), checks its own directory, reaps ended removals, checks the base's ancestry and reads the declaration there, checks each path, renames the passing ones into numbered trash entries, writes one record per removal, starts the deleter (`--delete <stamp>`), prints one line per path, exits 0. |
 | `skills/work-on/scripts/build-output-lib.sh` (new) | Sourced by the script and the runner: `bo_dir <root>` (the absolute records directory) and `bo_record_live <record>` (Decision 3's one liveness and parse rule). |
 | `scripts/lib/default-remote-ref.sh` (new) | `default_remote_ref <dir>`: the `origin/HEAD` symref, else `refs/remotes/origin/main`, else none. Used by the script's ancestry check and every pinner. |
 | `skills/work-on/scripts/run-verification.sh` | The supervisor waits inside its budget, after `sup_start` and before its first command, on every record that reads live; out of budget, it starts no command and writes a `removal-running` result naming the record. `--start` keeps that result. Gains `--await-removals` (exit 0 nothing live, 1 a live record, 2 usage). It doesn't reap. `SELECT_JQ` is unchanged. |
 | `skills/work-on/scripts/check-verification.sh`, `verification-eligibility.sh` | A branch right after `supervisor-error`'s holds at exit 2 on `removal-running` with a message naming the record and the two ways on; no rule or edge is added. The eligibility script, added by tsukumogami/shirabe#1881, lists `removal-running` as ineligible beside `supervisor-error`. The exit-2 row of `references/verification-map.md`'s verdict table, and `docs/designs/current/DESIGN-output-gates.md`, name it. |
-| work-on template, single run | The command gate `await_removals` on `context_injection`, `post_research_validation` and `plan_context_injection`, required by every edge into a setup state or `plan_validation`, with the trailing unconditional edge of `context_injection` and of `plan_context_injection` removed; `work-on.mermaid.md` is regenerated. Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief, unless the session is plan-dispatched (Decision 4's mark, read fail-safe), as `test -x <script> && <script> ...; exit 0`, and stores its lines as `build_output_cleanup`. Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The end state is named when the tsukumogami/shirabe#1230 design settles. The shared-branch edge doesn't call it. |
-| `skills/work-on/scripts/fix-round.sh` | Adds `cleanup_base` to `fix_round.json` beside the existing `base`, and copies `work/plan-dispatched` from the original, both as Decision 5 says. |
-| `skills/work-on/SKILL.md`, multi-pr item loop | Before its first item the driver writes `pin-<plan-slug>` through `clean-build-output.sh --write-pin`, or reads it on resume. It writes `work/plan-dispatched` (`multi-pr:<plan-slug>`) on each item session it opens. It calls the script itself, once, when every item's session reads `done`, in the one worktree the items share, with that pin, then removes the pin file. A loop that stops on blocked items cleans nothing. |
-| `skills/work-on/requires.tsv` | Declares `koto context list --prefix`, naming the single run's end caller as its reader. The eval koto shim is unchanged. |
-| `skills/execute/references/step-agent-handoff.md` | On every start, before the first tick, the coordinated step agent writes `work/plan-dispatched` (`execute-<plan-slug>`) when the child lacks it. |
+| work-on template, pre-setup states | The command gate `await_removals` on `context_injection`, `post_research_validation` and `plan_context_injection`, required by every edge into a setup state or `plan_validation`, with the trailing unconditional edge of `context_injection` and of `plan_context_injection` removed; `work-on.mermaid.md` is regenerated. The template calls no cleanup; its run's own end is tsukumogami/shirabe#1903's. |
 | `scripts/lib/claude-md-header.sh` | Gains `claude_md_header_named <name> <file>`, printing `<name as written><TAB><value>`; its existing callers are unchanged. Lands with the script, in the plan's Issue 2. |
 | `skills/execute/scripts/run-record.sh`, `run-record-lib.sh` | The `cleanup` kind in `RR_KEY_RE`, the verb-to-field table, `kind()`, `valid()` and `required()`, and the write-once verb `pin`. |
 | `skills/execute/scripts/build-output-pin.sh` (new) | Computes a worktree's pin with `default_remote_ref` and writes it through `run-record.sh pin`; output to stderr, exit 0. Called by `drift-facts.sh` (single-pr) and `node-push.sh node` (coordinated). |
@@ -804,7 +632,6 @@ tsukumogami/koto#490.
 
 ```
 clean-build-output.sh --base <sha> [--root <dir>] [--switch-root <dir>] [--walk-budget <seconds>]
-clean-build-output.sh --write-pin <plan-slug> --base <sha> [--root <dir>]
 clean-build-output.sh --delete <stamp> [--root <dir>]     (the deleter; started only by the script)
 ```
 
@@ -816,25 +643,14 @@ once as the context key `build_output_cleanup`.
 `--root` is the work tree root: every declared path resolves against it, and
 it is the tree cleaned. It defaults to `git rev-parse --show-toplevel`.
 `--switch-root` is the work tree root whose `CLAUDE.local.md` holds the
-switch, and it defaults to `--root`. A single run, a fix round and the
-multi-pr driver clean their own tree and pass neither. An `/execute` parent
-passes its own checkout's root as `--switch-root` for every worktree it
-cleans, because a node worktree has no `CLAUDE.local.md` of its own
-(Decision 2). The tracked and symlink checks on `CLAUDE.local.md` are made in
-the switch root's own repository. `--base` is the base the run pinned:
-`.merge_base` of the run's `verification_results.json` context key, or the
-run's `impl_base` when its `VERIFICATION` is `hosted-ci`; a failed read
-leaves it empty, and the caller prints `build-output: base unreadable,
-removed nothing` instead of calling. A fix round passes `fix_round.json`'s
-`cleanup_base`. The single end caller tells the two apart by Decision 5's
-rule: a `fix_round.json` key in the session, found with `koto context list
---prefix` and the exact-key test, means a round, and a round with an empty
-or unreadable `cleanup_base` makes no call and never falls back to its own
-`.merge_base` or `impl_base`; a list read that fails makes no call either.
-A plan parent passes the pin in that worktree's
-`run/cleanup/<worktree-id>` key, and the multi-pr driver passes the pin in
-its `pin-<plan-slug>` file (Decision 4). Neither the script nor its caller
-ever computes a merge base at cleanup time.
+switch, and it defaults to `--root`. An `/execute` parent passes its own
+checkout's root as `--switch-root` for every worktree it cleans, because a
+node worktree has no `CLAUDE.local.md` of its own (Decision 2). The tracked
+and symlink checks on `CLAUDE.local.md` are made in the switch root's own
+repository. `--base` is the base the caller pinned: an `/execute` parent
+passes the pin in that worktree's `run/cleanup/<worktree-id>` key (Decision
+4). Neither the script nor its caller ever computes a merge base at cleanup
+time.
 
 `--walk-budget` is the time the `protected` walk may take across all paths,
 20 s by default. A caller that runs it inside a koto action and makes
@@ -844,10 +660,10 @@ none. A path whose walk can't finish in its share is `failed` and kept. The
 limit is a polling one, as the supervisor's is, since the macOS floor has no
 `timeout`.
 
-Callers run it once, at a run's successful end with CI green, or at the
-successful end alone in a repo with no hosted checks. It never runs on a
-verification pass, a return to implementation, the CI fix loop, a blocked
-run or `done_already_complete` (R6). In order:
+`/execute` runs it once per recorded worktree, at its successful end with
+that worktree's CI green, or at the successful end alone in a repo with no
+hosted checks. It never runs on a verification pass, a return to
+implementation, the CI fix loop or a blocked run (R6). In order:
 
 1. Read the switch from `CLAUDE.local.md` at the switch root, with
    Decision 2's checks in order (symlink, tracked, readable, then
@@ -961,9 +777,7 @@ run or `done_already_complete` (R6). In order:
    The deleter rewrites the record with `status: done` or `failed` and
    `ended_at` when it exits.
 
-`--write-pin <plan-slug> --base <sha>` runs step 1 (off: it writes nothing
-and exits 0) and step 2's directory check, then writes `pin-<plan-slug>` as
-step 7 writes a record (Decision 4 gives its fields). `--delete <stamp>` is
+`--delete <stamp>` is
 the deleter itself and is started only by step 7.
 
 A path's line is the path as the maintainer wrote it, then its word (R3).
@@ -973,9 +787,8 @@ Lines about the switch, the base and the script's own directories start with
 ### Data flow
 
 ```
-run ends, CI green
-  -> closing step -> handoff brief
-  -> clean-build-output.sh --base <pinned> [--root <work tree>]
+build-output-end.sh, per verified worktree with CI green
+  -> clean-build-output.sh --base <pin> --root <path> --switch-root <parent>
        switch? -- off, tracked or symlink --> exit 0
        <git-dir>/shirabe-build-output ok? -- no --> failed, exit 0
        reap: running record that bo_record_live reads ended -> its trash joins this call's deleter
@@ -987,7 +800,7 @@ run ends, CI green
        deleter (--delete <stamp>) started; removal-<stamp>.json {status: running, pid, paths}
        "build-output: removal recorded at <path>"
        deleter ends -> removal-<stamp>.json {status: done | failed, ended_at}
-  -> exit 0 (outcome unchanged); caller writes build_output_cleanup once
+  -> exit 0 (outcome unchanged); build-output-end.sh writes build_output_cleanup once
 
 /execute parent
   single-pr: drift-facts.sh fetch -> build-output-pin.sh --id single
@@ -998,12 +811,6 @@ run ends, CI green
            clean-build-output.sh --base <pin> --root <path> --switch-root <parent>
        run/node/<node> with no run/cleanup/<node> -> base unreadable
   done_blocked, done_error, paused_for_review, paused_awaiting_merges -> no call
-
-multi-pr driver (skill prose, no session)
-  before item 1: clean-build-output.sh --write-pin <plan-slug> (read on resume)
-  each item: open session, write work/plan-dispatched -> item never cleans
-  every item's session at done? clean-build-output.sh --base <pin>, then remove pin
-  items left blocked -> pause, no cleanup
 
 next run, same worktree
   -> await_removals gate on context_injection | post_research_validation |
@@ -1021,11 +828,9 @@ next run, same worktree
 |------|-----------|---------|
 | `removal-<stamp>.json` fields `schema`, `started_at`, `pid`, `paths`, `reaped`, `status`, `ended_at` | `clean-build-output.sh` (Issue 2) | `bo_record_live`, the runner and `--await-removals` (Issue 3) |
 | `build-output-lib.sh`: `bo_dir`, `bo_record_live` | Issue 2 | Issue 3 |
-| `default-remote-ref.sh`: `default_remote_ref` | Issue 2 | `build-output-pin.sh` (Issue 4), the driver (Issue 5) |
-| `clean-build-output.sh --write-pin`, `pin-<plan-slug>` | Issue 2 | the driver (Issue 5) |
-| `build-output: removal recorded at <path>`; the script's exit 0 | Issue 2 | the callers (Issues 4, 5) |
-| `build_output_cleanup` context key | `build-output-end.sh` (Issue 4), work-on end callers (Issue 5) | Issue 5's count of one per run |
-| `work/plan-dispatched` (`execute-<plan-slug>` or `multi-pr:<plan-slug>`) | the coordinated handoff (Issue 4); the driver and `fix-round.sh` (Issue 5) | the single run's end caller and `fix-round.sh` (Issue 5) |
+| `default-remote-ref.sh`: `default_remote_ref` | Issue 2 | `build-output-pin.sh` (Issue 4) |
+| `build-output: removal recorded at <path>`; the script's exit 0 | Issue 2 | `build-output-end.sh` (Issue 4) |
+| `build_output_cleanup` context key | `build-output-end.sh` (Issue 4) | Issue 4's check of one key per parent session |
 
 ## Implementation Approach
 
@@ -1040,7 +845,7 @@ next run, same worktree
    check, a case-folded tracked path, a cross-device path, a dev:inode
    mismatch, a symlinked or foreign trash directory, a pre-existing
    `trash-<stamp>`, numbered entries, a second call during a live removal,
-   reaping an ended one, the record, `--write-pin`, and a plain clone with
+   reaping an ended one, the record, and a plain clone with
    the caller's directory outside the root. The test joins the bash 3.2
    floor list, `scripts/bash-floor/work-on.list`.
 3. **The guard.** Teach the supervisor to wait on every live record and
@@ -1051,13 +856,9 @@ next run, same worktree
    design's PR, or rebased onto it.
 4. **The callers.** Wire `/execute`: the `cleanup` kind and the `pin` verb,
    `build-output-pin.sh` from `drift-facts.sh` and `node-push.sh`, the
-   single-pr carry in `execute-open.sh`, the `work/plan-dispatched` step in
-   the coordinated handoff, and `build-output-end.sh` in the `merged` and
-   `ready_awaiting_merge` directives of both templates.
-   Wire the work-on end once the tsukumogami/shirabe#1230 design names its
-   state, together with `fix-round.sh`'s two additions and the multi-pr
-   driver's loop in `skills/work-on/SKILL.md`, since the item runs' skip of
-   the cleanup sits in that same end.
+   single-pr carry in `execute-open.sh`, and `build-output-end.sh` in the
+   `merged` and `ready_awaiting_merge` directives of both templates. The
+   work-on run's own end is tsukumogami/shirabe#1903's.
 5. **koto's suite.** `env CARGO_INCREMENTAL=0` on the seven cargo commands
    in koto's verification map, and koto's command list, against
    tsukumogami/koto#490. Independent of the rest.
@@ -1079,8 +880,7 @@ irreversible.
 **What it trusts.** It reads the `build_output` declaration only at the base
 the run pinned before the branch's own changes, so a branch can't add a path
 to what its own run removes. That base comes from places the working agent can
-write (`verification_results.json`, `impl_base`, a round's `cleanup_base`, a
-parent's `run/cleanup/*` keys, the driver's pin file), so the script checks
+write (a parent's `run/cleanup/*` keys), so the script checks
 it: the base must be an ancestor of HEAD and, when `default_remote_ref`
 resolves a ref, an ancestor of or equal to that ref. A branch's own commit, or an
 unmerged commit carrying a wider map, fails and counts as unreadable, so
@@ -1162,7 +962,7 @@ earlier commit passes.
 
 ### Negative
 
-- A fix round and a re-run after `done` build from cold.
+- A later run in a worktree `/execute` cleaned builds from cold.
 - Files a worker wrote by hand inside a declared tree go with it.
 - The verification runner gains a wait on a running removal.
 - Rarely, a verification doesn't run: when the runner's budget runs out while
@@ -1170,20 +970,21 @@ earlier commit passes.
   the gate holds at exit 2 until a person moves the result aside or blocks.
 - A run that blocks, or a worker that dies, keeps its tree; the cleanup only
   bounds runs that finish.
-- A plan child's fix round that runs after the parent's successful end
-  keeps the tree it rebuilt, and so does a branch rewritten onto a base that
-  isn't on the default branch, which reads as `base unreadable`.
+- A standalone `/work-on` run, its fix rounds and a multi-pr PLAN keep their
+  trees until tsukumogami/shirabe#1903 lands, and so does a branch rewritten
+  onto a base that isn't on the default branch, which reads as `base
+  unreadable`.
 - A run can hold before implementation while an earlier removal in its
   worktree is still running.
 
 ### Mitigations
 
-- The cold build is the accepted cost of leaving nothing, and only fix
-  rounds and re-runs pay it.
+- The cold build is the accepted cost of leaving nothing, and only a later
+  run in a cleaned worktree pays it.
 - The wait is bounded by the runner's own budget, an ended or unparsable
   record never holds it, and the script's next call reaps an ended one's
   trash. A wait that runs out names the record in its `removal-running`
   result, so the verification that didn't run says why.
-- Trees left by blocked or dead runs, by a late fix round of a plan child
-  or by a rewritten branch are the instance remover's to trim, and it reads
-  the same declaration.
+- Trees left by blocked or dead runs, by runs `/execute` doesn't drive, or
+  by a rewritten branch are the instance remover's to trim, and it reads the
+  same declaration.

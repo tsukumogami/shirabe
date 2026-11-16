@@ -12,7 +12,9 @@ problem: |
 goals: |
   A repo says once, in its verification map, which paths are build output.
   A workspace that turns the cleanup on gets no build tree left by a run that
-  finished, while a developer who never turned it on keeps their warm tree.
+  /execute drove to its successful end, while a developer who never turned it
+  on keeps their warm tree. The standalone /work-on run's own end is the
+  follow-up's, tsukumogami/shirabe#1903.
   koto's verification suite builds a tree at least a third smaller without
   changing a hand-run build.
 absorbed:
@@ -55,7 +57,12 @@ koto's suite commands. It left out trimming idle trees from kept instances,
 the exact state the cleanup sits in while the design for
 tsukumogami/shirabe#1230 is in progress, building the koto change or running
 the measured build, shared build directories, caches and age-based pruning,
-and telemetry. Requirements and Out of Scope carry that boundary.
+and telemetry. Requirements and Out of Scope carry that boundary. This
+document narrows it further: the standalone `/work-on` run's own end, a fix
+round's end and the end of a multi-pr PLAN's item loop belong to
+tsukumogami/shirabe#1903, and the cleanup here runs at the end of a run that
+`/execute` drives
+(`docs/decisions/DECISION-build-output-convergence-2026-11-16.md`).
 
 ## Problem Statement
 
@@ -91,8 +98,12 @@ line someone else committed to the repo would take it from them.
   reader of that declaration (the workflow's cleanup and any instance
   remover) reads the same paths.
 - A workspace operator turns the end-of-run cleanup on in one place, and a
-  run in that workspace that reaches its successful end with hosted CI green
-  leaves no declared build output behind.
+  run that `/execute` drives to its successful end in that workspace, with
+  each worktree's hosted CI green, leaves no declared build output in any
+  worktree it recorded.
+- The standalone `/work-on` run, its fix rounds and a multi-pr PLAN are the
+  follow-up's (tsukumogami/shirabe#1903). The first release cleans after
+  `/execute`-driven runs only.
 - A developer who has not turned the cleanup on sees no change, whatever the
   repo declares.
 - koto's verification suite builds a smaller tree, the way its hosted CI
@@ -107,9 +118,10 @@ line someone else committed to the repo would take it from them.
   path outside the repo or a symlink to be refused by name, so that a typo
   can't make the workflow delete source or follow a link out of the repo.
 - As a fleet operator, I want one switch in my workspace's instructions that
-  turns the end-of-run cleanup on, so that every worker run on my host that
-  reaches its successful end leaves no build tree and I stop reclaiming disk
-  by hand.
+  turns the end-of-run cleanup on, so that every `/execute`-driven run on my
+  host that reaches its successful end leaves no build tree and I stop
+  reclaiming disk by hand. A standalone `/work-on` run is the follow-up's
+  (tsukumogami/shirabe#1903).
 - As the operator of a plan whose children run one after another in one
   worktree, I want the cleanup to run once, when the plan's own run ends, so
   that no child rebuilds from cold because an earlier child cleaned up.
@@ -174,19 +186,19 @@ line someone else committed to the repo would take it from them.
 - **R5. What is removed.** With the cleanup on, the step removes each
   declared path that passed R3, and nothing else: no tracked file, no other
   ignored file, nothing outside the worktree.
-- **R6. When it runs.** The cleanup runs once per run, at the end of a run
-  that reached its successful end with hosted CI green. In a repo whose pull
-  requests have no hosted checks, the run's successful end is the trigger on
-  its own. It does not run on a
+- **R6. When it runs.** The cleanup runs once per recorded worktree, at the
+  end of an `/execute` run that reached its successful end with that
+  worktree's hosted CI green. In a repo whose pull requests have no hosted
+  checks, the run's successful end is the trigger on its own. It does not run on a
   passing verification, on a return to implementation, on a CI fix loop, or
   on a run that ends blocked. A blocked run's tree is left for whoever resumes
   it, or for an instance remover. A run that ends because the work was
   already done, having built nothing, doesn't run it either.
-- **R7. End-of-run order.** Among the steps that run after hosted CI is
-  green, the cleanup runs last: first the closing step, then the handoff
-  brief, then the cleanup. A step before it that sends the run back for more
-  work therefore finds the tree still warm. Which state of the work-on
-  template carries the cleanup is not settled here; see Out of Scope.
+- **R7. End-of-run order.** The cleanup runs last: from the directives of
+  `/execute`'s successful terminals, after the run has reached the terminal
+  and printed its exit lines. A terminal has no edge back, so nothing after
+  the cleanup reaches implementation or verification, and a step before it
+  that sends the run back for more work finds the tree still warm.
 - **R8. The cleanup never changes a run's outcome.** A run that reached its
   successful end stays successful whatever the cleanup does. A refusal (R3),
   a declared path that is already gone (`gone`), or a removal that fails
@@ -197,16 +209,17 @@ line someone else committed to the repo would take it from them.
   it is named and skipped, and the list's other entries are handled. Neither
   ever makes the rest of the verification map invalid: verification selects
   and runs its commands as if the declaration were absent.
-- **R9. Plan children sharing a worktree.** Where several plan-backed
-  children run in sequence in one worktree, a child's cleanup doesn't remove
-  a tree a later child in the same worktree is about to build in. A child
-  that ends on a branch it shares with the plan, without hosted CI of its
-  own, never runs the cleanup, and neither does a child with a branch and
+- **R9. Plan children sharing a worktree.** Where an `/execute` parent runs
+  several children in sequence in one worktree, a child's cleanup doesn't
+  remove a tree a later child in the same worktree is about to build in. A
+  child that ends on a branch it shares with the plan, without hosted CI of
+  its own, never runs the cleanup, and neither does a child with a branch and
   hosted CI of its own when a later child of the same plan uses its
-  worktree. The cleanup for a shared worktree runs once,
-  when the plan's parent run reaches its own successful end: once per plan,
-  or once per worktree where the parent runs several. Where in the parent's
-  run it sits is settled in the design.
+  worktree. That holds because no `/work-on` end cleans in this release;
+  tsukumogami/shirabe#1903 must keep it true when it adds one. The cleanup
+  for a shared worktree runs once, when the `/execute` parent reaches its own
+  successful end: once per plan, or once per worktree where the parent runs
+  several. Where in the parent's run it sits is settled in the design.
 - **R10. A second reader.** The declaration is documented as a stable part
   of the verification map's schema, so that a reader outside shirabe, such as
   an instance remover, can treat a declared path as a build tree. Stable means
@@ -223,11 +236,10 @@ line someone else committed to the repo would take it from them.
 
 ### Non-functional
 
-- **R12. Time bound.** The state that runs the cleanup returns control to
-  the workflow within the time limit the engine gives one state's action,
+- **R12. Time bound.** The cleanup script returns within 30 seconds,
   whatever the size of the tree, and the declared path is gone once the
-  removal finishes. koto gives a state's default action a fixed 30 seconds,
-  with no per-action override; a gate takes its own timeout. However the
+  removal finishes. That is the fixed limit koto gives a state's default
+  action, with no per-action override; a gate takes its own timeout. However the
   removal runs, its end, finished or failed, is recorded where the run's
   output or session can be read afterwards, and a later run in the same
   worktree doesn't start building while a removal of that worktree's tree is
@@ -248,28 +260,21 @@ line someone else committed to the repo would take it from them.
 
 Each criterion names the requirement it verifies.
 
-- [ ] On a worktree whose `CLAUDE.local.md` carries the cleanup header, with
-  a repo whose map at the merge base declares its build output, a reviewer
-  runs a `/work-on` run to its successful end with hosted CI green and finds
-  each declared path gone, every other file in the worktree, tracked or
-  ignored, unchanged, and a sibling directory beside the worktree unchanged
-  (R4, R5, R6).
 - [ ] A header with its name in the wrong case or misspelled, or with any
   value other than its on value, turns nothing on; with the on value only in
   the committed `CLAUDE.md` and an off value in `CLAUDE.local.md`, the
   declared path stays in place (R4).
-- [ ] In a repo whose pull requests have no hosted checks, a run that
-  reaches its successful end with the cleanup on removes the declared paths
-  (R6).
-- [ ] A run's output carries exactly one cleanup record, however many
-  verification rounds the run took (R6).
-- [ ] On a workspace without the header, the same run leaves the declared
-  path in place, byte for byte (R4).
-- [ ] With the header present and no declaration in the map, the run removes
-  nothing, and verification selects the same commands it selects today (R1,
-  R4).
+- [ ] In a repo whose pull requests have no hosted checks, an `/execute`
+  run that reaches its successful end with the cleanup on removes the
+  declared paths (R6).
+- [ ] On a workspace without the header, an `/execute` run that reaches its
+  successful end leaves the declared path in place, byte for byte (R4).
+- [ ] With the header present and no declaration in the map, an `/execute`
+  run removes nothing, and verification selects the same commands it selects
+  today (R1, R4).
 - [ ] With the header only in the repo's committed `CLAUDE.md` and none in
-  `CLAUDE.local.md`, the run leaves the declared path in place (R4).
+  `CLAUDE.local.md`, an `/execute` run leaves the declared path in place
+  (R4).
 - [ ] Each of these declared paths is refused and not removed, and the run's
   output has one line carrying the path as written and the reason word shown:
   a tracked path (`tracked`); an ignored directory holding one tracked file
@@ -296,14 +301,17 @@ Each criterion names the requirement it verifies.
 - [ ] When the pinned base can't be read, the cleanup removes nothing and
   the run's output says so, and the run still ends successful (R2, R8).
 - [ ] A run that ends at its blocked terminal leaves its build tree in place,
-  checked for a run blocked during verification and for one blocked while
-  waiting on hosted CI (R6).
+  checked for an `/execute` run blocked while waiting on hosted CI, and for a
+  run blocked during verification, which holds because no `/work-on` end
+  cleans in this release (R6).
 - [ ] A run whose hosted CI fails, goes through the CI fix loop and then
   passes finds its tree in place at the start of the fix (R6).
 - [ ] A run that ends because the work was already done leaves the
-  worktree as it found it (R6).
+  worktree as it found it, since no `/work-on` end cleans in this release
+  (R6).
 - [ ] A run that passes verification, returns to implementation, and passes
-  again finds its tree in place on the second verification (R6).
+  again finds its tree in place on the second verification, since no
+  `/work-on` end cleans in this release (R6).
 - [ ] A run whose cleanup hits a refusal, a declared path that is already
   gone, or a removal that fails (induced by a declared directory whose parent
   has no write permission) still ends successful, and its output has a line
@@ -315,16 +323,12 @@ Each criterion names the requirement it verifies.
   map without the declaration. The first removes nothing and has one
   `malformed` line; the second has a `malformed` line per bad entry and
   removes the valid path (R8).
-- [ ] In a run's event log, the cleanup's removal comes after the closing
-  step and the handoff brief where those steps exist, and no state after it
-  is an implementation or verification state; in the work-on template, no
-  path of edges from the state that runs the removal reaches an
-  implementation or verification state (R7).
 - [ ] A plan-backed child that ends on a shared branch leaves its tree in
   place, and the next child in the same worktree finds the tree the earlier
-  child built (R9).
-- [ ] A plan whose children share one worktree has its declared paths
-  removed once, when the plan's parent run reaches its successful end (R9).
+  child built, since no `/work-on` end cleans in this release (R9).
+- [ ] A single-pr plan that `/execute` runs, whose children share one
+  worktree, has its declared paths removed once, when the parent run reaches
+  its successful end (R9).
 - [ ] A plan whose parent runs children in two worktrees has the declared
   paths removed in each worktree, once each, at the parent's successful end
   (R9).
@@ -348,9 +352,8 @@ Each criterion names the requirement it verifies.
 - [ ] Every cargo command in koto's map carries `CARGO_INCREMENTAL=0` in the
   same place, and koto's prose list of its suite commands matches the map
   (R11).
-- [ ] On a worktree holding a declared tree of at least 9 GiB, the state
-  that runs the cleanup returns control to the workflow within 30 seconds,
-  timed from the tick that enters it; the removal's recorded end then says
+- [ ] On a worktree holding a declared tree of at least 9 GiB, the cleanup
+  script returns within 30 seconds; the removal's recorded end then says
   finished, and the declared path is gone (R12).
 - [ ] A removal made to fail records its end as failed, and the run's result
   is unchanged (R8, R12).
@@ -367,11 +370,10 @@ Each criterion names the requirement it verifies.
   remover's job, designed and built as a separate feature. This feature
   supplies the declaration such a remover reads (R10) and removes nothing
   outside a run's own end.
-- **The state the cleanup sits in.** The cleanup runs after hosted CI is
-  green, in the stretch of the work-on run that the design for
-  tsukumogami/shirabe#1230 is changing. Which state carries it is held until
-  that design settles; this PRD fixes only the order (R7). The declaration
-  isn't held by it.
+- **The `/work-on` run's own end, a fix round's end and the multi-pr loop's
+  end.** Cleaning at those ends, and how a dispatched child skips it, is
+  tsukumogami/shirabe#1903. The first release cleans after `/execute`-driven
+  runs only.
 - **Building koto's incremental change.** R11 is a plain change to koto's
   map, planned as its own item against tsukumogami/koto#490; this feature's
   documents plan it and build nothing.
@@ -394,10 +396,10 @@ Each criterion names the requirement it verifies.
   instance remover trims it.
 - A run that reached its end and later gets more work in the same worktree,
   such as a review fix after the pull request is open, pays one cold build.
-  A fix round starts a new run on the same worktree after the first run's
-  end, so the first fix round pays one, and if the design has a fix round's
-  own end clean up again, each later one does too. For koto that is about
-  3 GiB written back and some minutes of compile.
+  For koto that is about 3 GiB written back and some minutes of compile.
+- A standalone `/work-on` run, its fix rounds and a multi-pr PLAN keep their
+  trees until tsukumogami/shirabe#1903 lands. koto's incremental setting
+  (R11) still shrinks those trees.
 - The incremental setting reaches only the commands the verification map
   runs. Cargo run by hand by an agent in a worktree still builds
   incrementally unless something outside this feature turns it off.
@@ -446,6 +448,5 @@ Each criterion names the requirement it verifies.
   and are settled there, not here: the declaration's name and shape in the
   verification map (R1); where in the plan's parent run the cleanup for a
   shared worktree sits (R9); and whether removing a large tree fits the
-  engine's 30-second action limit, or detaches or runs as a gate (R12). Two
-  more go with them: the cleanup header's name (R4), and whether a fix
-  round's own successful end runs the cleanup again.
+  engine's 30-second action limit, or detaches or runs as a gate (R12). The
+  cleanup header's name (R4) goes with them.
