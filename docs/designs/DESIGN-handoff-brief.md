@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A session that stops leaves no plain-text statement of its reasoning and no
   record of which of its files matter, so a successor fetches scratch from
@@ -41,7 +41,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 Written from the accepted PRD-handoff-brief under `/scope`. The owner has
 since ruled on the PRD's two pending questions; Decision 5 records both
