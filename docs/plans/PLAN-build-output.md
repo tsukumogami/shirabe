@@ -178,6 +178,7 @@ checks once, and the command gate `await_removals` on `context_injection`,
 `post_research_validation` and `plan_context_injection` runs it, so a run
 doesn't enter setup, where the baseline builds, while a removal in its
 worktree is still running (R12).
+The criteria on `skills/work-on/scripts/verification-eligibility.sh`, its attempts ledger, `--archive`, exit 5 and the per-head cap apply against the tree after tsukumogami/shirabe#1881 merges, since those come from the tsukumogami/shirabe#1230 design that pull request carries (`docs/designs/DESIGN-same-head-verification-rerun.md`); the `check-verification.sh` and `run-verification.sh` halves don't depend on it.
 
 **Acceptance Criteria**:
 - [ ] With a `removal-*.json` at `status: running` whose `pid` is a live `clean-build-output.sh --delete <stamp>`, a verification run starts no command until the record reads `done` or `failed`; the fixture's first command writes its own start time with `date -u +%Y-%m-%dT%H:%M:%SZ`, and the test shows it at or after the record's `ended_at`. `--start` still returns within a second while the record is live.
@@ -187,7 +188,8 @@ worktree is still running (R12).
 - [ ] `RULE_IDS`, `references/rule-registry.json` and the verification state's edges are unchanged; the exit-2 row of the verdict table in `skills/work-on/references/verification-map.md`, and `docs/designs/current/DESIGN-output-gates.md`, name `removal-running` beside `supervisor-error`.
 - [ ] With no records, or only `done` and `failed` ones, the runner's selected invocations, verdicts and `result.json` match a run without this change.
 - [ ] `run-verification.sh --await-removals` takes no `--session`, resolves no merge base and starts no command; it exits 0 with no `shirabe-build-output` directory, no records, or only ended or unparsable ones, 1 while a record reads live (naming it on stderr), and 2 only for a usage error. It exits 0 in a repo whose default branch doesn't resolve.
-- [ ] A work-on run started in a worktree while a removal's record reads live holds at `context_injection`, `post_research_validation` or `plan_context_injection` (checked for each, and for a plan child with `SHARED_BRANCH` set), never enters a setup state while the record reads live, moves on the first tick after it reads `done`, and a person's override of `await_removals` lets it on; with no `shirabe-build-output` directory, or a `PLUGIN_ROOT` with no runner, the gate passes. Every forward edge out of the three states, override and fallback edges included, requires `gates.await_removals.exit_code: 0`, and each directive says a removal is running and to tick again.
+- [ ] A work-on run started in a worktree while a removal's record reads live holds at `context_injection`, `post_research_validation` or `plan_context_injection` (checked for each, and for a plan child with `SHARED_BRANCH` set), never enters a setup state while the record reads live, moves on the first tick after it reads `done`, and a person's override of `await_removals` lets it on; with no `shirabe-build-output` directory, or a `PLUGIN_ROOT` with no runner, the gate passes. The trailing unconditional edge in `context_injection` and in `plan_context_injection` is removed, and every edge into a setup state or `plan_validation` requires `gates.await_removals.exit_code: 0`; a `status: completed` without `context.md`, or with the gate failing, holds in the state. Each directive says a removal is running and to tick again.
+- [ ] The changed `work-on.md` compiles under `koto template compile`, as `.github/workflows/validate-templates.yml` runs it, and on the floor release `.github/workflows/check-koto-entry-floor.yml` compiles against.
 - [ ] `work-on.mermaid.md` is regenerated, and `terminal-retention_test.sh`, `step-detail-check_test.sh`, `record-changed-paths_test.sh`, `offload-canary-routes_test.sh` and `work-on-open_test.sh` pass unchanged.
 - [ ] The runner deletes, renames and rewrites nothing under `shirabe-build-output`, and `SELECT_JQ` is unchanged.
 
@@ -265,8 +267,13 @@ answer counted as dispatched. The call is `test -x <script> && <script>
 ...; exit 0`, and the caller stores the script's lines once as
 `build_output_cleanup`. `fix-round.sh` adds `cleanup_base`, the original
 run's pinned base, to `fix_round.json` beside its existing `base`, and
-copies `work/plan-dispatched` from the original. A fix round's caller
-passes `cleanup_base`. The driver's loop in `skills/work-on/SKILL.md`,
+copies `work/plan-dispatched` from the original. The single end caller
+tells a round from a first run as the design's Decision 5 says: a
+`fix_round.json` key in the session (`koto context list --prefix` and the
+exact-key test) means a round, which passes `cleanup_base` and, when that is
+empty or unreadable, makes no call with no fallback; a failed list read
+makes no call either; only an absent key takes the single-run base. The
+driver's loop in `skills/work-on/SKILL.md`,
 which is skill prose rather than a template state, writes its pin with
 Issue 2's `clean-build-output.sh --write-pin <plan-slug>` before its first
 item, marks each item session it opens with `work/plan-dispatched` holding
@@ -284,6 +291,7 @@ handoff writes, `execute-<plan-slug>`, is read here under the same key.
 - [ ] The work-on preflight (`skills/work-on/requires.tsv`) declares `koto context list --prefix`; the eval koto shim is unchanged, and the cleaning and plan-dispatched cases are covered by script tests against real koto, not by evals.
 - [ ] A missing script, a usage error or a killed script at the end leaves the run's result unchanged, since the call ends in `; exit 0`.
 - [ ] A second fix round carries the same `cleanup_base` as the first, the first run's pinned base, never the first round's `merge_base` or `impl_base`.
+- [ ] A round whose own `verification_results.json` `.merge_base` differs from its `cleanup_base` passes `cleanup_base` as `--base`. A round with an empty `cleanup_base`, one whose `koto context get` of `fix_round.json` fails, and a session whose `koto context list` fails or prints something other than a JSON array each make no call and print `build-output: base unreadable, removed nothing`. `fix-round_test.sh` gains these cases.
 - [ ] `<plan-slug>` is the PLAN's file name less `PLAN-` and `.md`, checked against `^[a-z0-9][a-z0-9-]*$`; a PLAN whose name fails it is never pinned and its loop ends with `build-output: base unreadable, removed nothing`.
 - [ ] In a multi-pr PLAN of three items, the driver writes `pin-<plan-slug>` with `--write-pin` before item 1, holding `git merge-base HEAD <ref>` with `default_remote_ref`'s ref taken then, and the cleanup still removes the declared paths when the local default branch was stale behind a freshly fetched remote ref at that moment; every item session carries `work/plan-dispatched` holding `multi-pr:<plan-slug>` and none cleans at its own successful end; the second and third items find the earlier tree; and the driver calls the script once, after the third item's session reads `done`, in the one worktree the items share, passing that pin, never an item's `merge_base`, then removes the pin file. A PLAN whose last item ends at `done_already_complete` cleans nothing.
 - [ ] A multi-pr loop that stops with an item still blocked on an open dependency cleans nothing and keeps the pin file; a driver resumed on that PLAN reads the same pin, writes no new one, and cleans once when the last item ends. A driver that died after the pin and before item 1 reads its pin as a resume. A driver that finds no pin file while an item session of the PLAN already exists pins nothing and ends with `build-output: base unreadable, removed nothing`. A failed mark write stops the loop before that item is driven.
