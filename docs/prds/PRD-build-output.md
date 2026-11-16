@@ -98,9 +98,11 @@ line someone else committed to the repo would take it from them.
 
 - **R1. Declaration.** A repo's verification map can carry an optional list
   of repo-relative paths that are the repo's build output. A map without the
-  list behaves exactly as today, and so does an empty list. A path listed
-  twice is handled once, and a path that lies under another declared path is
-  handled with that path. The list's name and shape are settled in the
+  list behaves exactly as today, and so does an empty list. Each entry is a
+  literal path: no glob is expanded, and a leading `./` or a trailing `/` is
+  dropped before entries are compared. A path listed twice is handled once,
+  and a path that lies under another declared path is handled with that
+  path. The list's name and shape are settled in the
   design.
 - **R2. Read from the merge base.** Every reader in shirabe reads the
   declaration from the same place the rest of the map is read: the default
@@ -116,24 +118,31 @@ line someone else committed to the repo would take it from them.
   when it is absolute, when it resolves outside the repository (through `..`
   or any other route), when it or any directory on the way to it is a
   symbolic link, when git tracks any file at or under it, or when git does not
-  ignore it. Each refusal is one line of the run's output carrying the
-  declared path as written and one fixed reason word for the check it
-  failed: `absolute`, `outside`, `symlink`, `tracked` or `not-ignored`. A
-  refused path doesn't stop the remaining declared paths from being checked
-  and handled.
+  ignore it. A path that names the repository root itself (`.`) resolves
+  outside it for this check. Each refusal is one line of the run's output
+  carrying the declared path as written and one fixed reason word for the
+  check it failed: `absolute`, `outside`, `symlink`, `tracked` or
+  `not-ignored`. The checks run in that order and the line names the first
+  one the path fails. A path that passes the first two checks and doesn't
+  exist is reported as `gone` (R8) and checked no further. A refused path
+  doesn't stop the remaining declared paths from being checked and handled.
 - **R4. Off by default.** The end-of-run cleanup runs only when two things
   are both true: the repo declares its build output (R1), and the workspace's
   instructions carry the cleanup header that turns it on. Either one alone
   turns nothing on. The header counts only where a workspace sets it for its
   own worktrees, in the uncommitted `CLAUDE.local.md`; the same header in a
-  committed `CLAUDE.md` turns nothing on, because a committed line would turn
-  the cleanup on for every developer of the repo. The header's name is
+  committed `CLAUDE.md` is never read, because a committed line would turn
+  the cleanup on for every developer of the repo. The header has one value
+  that turns the cleanup on; any other value, a misspelled or wrongly cased
+  name, or no header leaves it off. The header's name and its on value are
   settled in the design.
 - **R5. What is removed.** With the cleanup on, the step removes each
   declared path that passed R3, and nothing else: no tracked file, no other
   ignored file, nothing outside the worktree.
 - **R6. When it runs.** The cleanup runs once per run, at the end of a run
-  that reached its successful end with hosted CI green. It does not run on a
+  that reached its successful end with hosted CI green. In a repo whose pull
+  requests have no hosted checks, the run's successful end is the trigger on
+  its own. It does not run on a
   passing verification, on a return to implementation, on a CI fix loop, or
   on a run that ends blocked. A blocked run's tree is left for whoever resumes
   it, or for an instance remover. A run that ends because the work was
@@ -144,18 +153,22 @@ line someone else committed to the repo would take it from them.
   work therefore finds the tree still warm. Which state of the work-on
   template carries the cleanup is not settled here; see Out of Scope.
 - **R8. The cleanup never changes a run's outcome.** A run that reached its
-  successful end stays successful whatever the cleanup does. A refusal, a
-  declared path that is already gone, or a removal that fails is reported in
-  the run's output, each with the declared path, and leaves the run's result
-  unchanged. A declaration that is malformed is
-  reported the same way, and it never makes the rest of the verification map
-  invalid: verification selects and runs its commands as if the declaration
-  were absent.
+  successful end stays successful whatever the cleanup does. A refusal (R3),
+  a declared path that is already gone (`gone`), or a removal that fails
+  (`failed`) is one line of the run's output carrying the declared path and
+  its word, and leaves the run's result unchanged. A declaration that isn't a
+  list is malformed as a whole: one `malformed` line, and nothing is removed.
+  An entry that isn't a string, or is an empty string, is a `malformed` entry:
+  it is named and skipped, and the list's other entries are handled. Neither
+  ever makes the rest of the verification map invalid: verification selects
+  and runs its commands as if the declaration were absent.
 - **R9. Plan children sharing a worktree.** Where several plan-backed
   children run in sequence in one worktree, a child's cleanup doesn't remove
   a tree a later child in the same worktree is about to build in. A child
   that ends on a branch it shares with the plan, without hosted CI of its
-  own, never runs the cleanup. The cleanup for a shared worktree runs once,
+  own, never runs the cleanup, and neither does a child with a branch and
+  hosted CI of its own when a later child of the same plan uses its
+  worktree. The cleanup for a shared worktree runs once,
   when the plan's parent run reaches its own successful end: once per plan,
   or once per worktree where the parent runs several. Where in the parent's
   run it sits is settled in the design.
@@ -179,7 +192,11 @@ line someone else committed to the repo would take it from them.
   the workflow within the time limit the engine gives one state's action,
   whatever the size of the tree, and the declared path is gone once the
   removal finishes. koto gives a state's default action a fixed 30 seconds,
-  with no per-action override; a gate takes its own timeout. Whether removing a large tree (about 9 GiB and tens of
+  with no per-action override; a gate takes its own timeout. However the
+  removal runs, its end, finished or failed, is recorded where the run's
+  output or session can be read afterwards, and a later run in the same
+  worktree doesn't start building while a removal of that worktree's tree is
+  still running. Whether removing a large tree (about 9 GiB and tens of
   thousands of files) fits that limit, or the removal detaches from the
   action or runs as a gate, is settled in the design.
 - **R13. Compatibility.** A shirabe release that predates the declaration
@@ -202,25 +219,35 @@ Each criterion names the requirement it verifies.
   each declared path gone, every other file in the worktree, tracked or
   ignored, unchanged, and a sibling directory beside the worktree unchanged
   (R4, R5, R6).
-- [ ] A header with the right name in the wrong case or misspelled turns
-  nothing on; with the header in both `CLAUDE.local.md` and the committed
-  `CLAUDE.md`, the run behaves as the `CLAUDE.local.md` copy says (R4).
+- [ ] A header with its name in the wrong case or misspelled, or with any
+  value other than its on value, turns nothing on; with the on value only in
+  the committed `CLAUDE.md` and an off value in `CLAUDE.local.md`, the
+  declared path stays in place (R4).
+- [ ] In a repo whose pull requests have no hosted checks, a run that
+  reaches its successful end with the cleanup on removes the declared paths
+  (R6).
+- [ ] A run's output carries exactly one cleanup record, however many
+  verification rounds the run took (R6).
 - [ ] On a workspace without the header, the same run leaves the declared
   path in place, byte for byte (R4).
 - [ ] With the header present and no declaration in the map, the run removes
-  nothing (R4).
+  nothing, and verification selects the same commands it selects today (R1,
+  R4).
 - [ ] With the header only in the repo's committed `CLAUDE.md` and none in
   `CLAUDE.local.md`, the run leaves the declared path in place (R4).
 - [ ] Each of these declared paths is refused and not removed, and the run's
   output has one line carrying the path as written and the reason word shown:
   a tracked path (`tracked`); an ignored directory holding one tracked file
-  (`tracked`); `../x` and `a/../../x` (`outside`); a path that is a symbolic
+  (`tracked`); `../x`, `a/../../x` and `.` (`outside`, though `../x` is also
+  not ignored); a path that is a symbolic
   link, and a path under a directory that is a symbolic link (`symlink`); an
   absolute path (`absolute`); a path git does not ignore (`not-ignored`). No
   link's target is touched (R3).
-- [ ] An empty list removes nothing; a path declared twice is removed once
-  with no error; a declared directory and a path under it are both handled
-  with no error and the directory is gone (R1).
+- [ ] An empty list removes nothing; a path declared twice, once as
+  `target` and once as `./target/`, is removed once with no error; a declared
+  directory and a path under it are both handled with no error and the
+  directory is gone; an entry `target*` removes nothing named `target1`
+  (R1).
 - [ ] When one declared path is refused and another is valid, the valid one
   is removed and the refused one is named (R3, R5).
 - [ ] A branch that changes the declaration (adds a path, or removes the one
@@ -245,11 +272,14 @@ Each criterion names the requirement it verifies.
 - [ ] A run whose cleanup hits a refusal, a declared path that is already
   gone, or a removal that fails (induced by a declared directory whose parent
   has no write permission) still ends successful, and its output has a line
-  for each naming the declared path (R8).
-- [ ] A map whose declaration is malformed (not a list, a list holding a
-  non-string entry, a list holding an empty string) selects and runs the same
-  verification commands, with the same verdicts, as the same map without the
-  declaration, and the run's output names the malformed declaration (R8).
+  for each with the declared path and its word: the refusal's reason word,
+  `gone` or `failed` (R8).
+- [ ] A map whose declaration isn't a list, and one whose list holds a
+  non-string entry and an empty string beside a valid path, each selects and
+  runs the same verification commands, with the same verdicts, as the same
+  map without the declaration. The first removes nothing and has one
+  `malformed` line; the second has a `malformed` line per bad entry and
+  removes the valid path (R8).
 - [ ] In a run's event log, the cleanup's removal comes after the closing
   step and the handoff brief where those steps exist, and no state after it
   is an implementation or verification state; in the work-on template, no
@@ -272,7 +302,9 @@ Each criterion names the requirement it verifies.
   carrying a valid declaration and against one carrying a malformed one,
   selects the same commands with the same verdicts as against the same map
   without it (R13).
-- [ ] On one host and one toolchain, a reviewer runs koto's verification
+- [ ] The three R11 criteria below are checked when koto's own item lands,
+  not against this feature's shirabe work, which builds nothing in koto.
+  On one host and one toolchain, a reviewer runs koto's verification
   suite from a clean checkout before and after the change to koto's map,
   measures `target/` with one `du -sk` pass each time, and finds the second
   figure at most two thirds of the first (R11).
@@ -283,8 +315,12 @@ Each criterion names the requirement it verifies.
   (R11).
 - [ ] On a worktree holding a declared tree of at least 9 GiB, the state
   that runs the cleanup returns control to the workflow within 30 seconds,
-  timed from the tick that enters it, and the declared path is gone once the
-  removal finishes (R12).
+  timed from the tick that enters it; the removal's recorded end then says
+  finished, and the declared path is gone (R12).
+- [ ] A removal made to fail records its end as failed, and the run's result
+  is unchanged (R8, R12).
+- [ ] A run started in a worktree while a removal of that worktree's tree is
+  still running doesn't start building until the removal has ended (R12).
 - [ ] A search of this feature's diff finds no call to shirabe's telemetry
   scripts and no new telemetry event name (R14).
 - [ ] A search of this feature's diff finds no `debug =` profile key and no
