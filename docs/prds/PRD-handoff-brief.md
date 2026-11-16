@@ -240,11 +240,14 @@ traceability table states them.
 
 ### Constraints
 
-- **R15. Workers only, until the owner rules.** Pending the first owner
-  ruling, this work builds nothing for coordinators or the top-level
-  supervising sessions, which keep the handover `/coordinate` ships. A
-  coordinator gains only reading a worker's brief and dispatching its
-  successor through #1785. Serves: E3, E2.
+- **R15. One brief format for every role; coordinators don't compact.** Per
+  the owner's ruling, every session writes the same brief, coordinators and
+  the top-level supervising sessions included, adopted after workers. The
+  part listing standing rules with their sources, its size budget and the
+  incoming session's restatement belong to separate work, delivered as a
+  section of this brief and a check on it, never a second format. The record,
+  fence and gate of the handover `/coordinate` ships are not rebuilt, and
+  nothing sets compaction on for coordinators. Serves: E3, E2.
 - **R16. Placement held for #1230.** Where the closing step and the brief step
   sit inside a work-on run is held while the design for #1230 is in progress.
   The brief script of R1 is not held by it. Serves: E1, E5.
@@ -352,10 +355,11 @@ waits. A marker is a unique string the test plants.
 - [ ] No shipped template, skill, setting or workspace default sets compaction
   on, so a fresh workspace with this work has no role with it on; the plan
   lists the session-id read as its first task. (R14)
-- [ ] No change touches the handover `/coordinate` ships or adds a successor
-  brief for any supervising session (R15), or edits the work-on run to place
-  the closing step or brief step; the script's checks pass with no work-on
-  run (R16).
+- [ ] No change rebuilds the record, fence or gate of the handover
+  `/coordinate` ships, adds a second brief format for any supervising
+  session, writes the standing-rules section's content, or sets compaction on
+  for a coordinator (R15); none edits the work-on run to place the closing
+  step or brief step; the script's checks pass with no work-on run (R16).
 
 ## Out of Scope
 
@@ -363,7 +367,8 @@ waits. A marker is a unique string the test plants.
   read. The command that says a unit is over; build cleanup; transcripts.
 - Switching compaction on for any role, and settling Pending Owner Rulings.
 - Any new continuation route; #1785's route is fitted, not replaced.
-- Anything for coordinators or the two top-level supervising sessions.
+- For coordinators and the two top-level supervising sessions: the
+  standing-rules section's content and budget, and compaction.
 
 ## Decisions and Trade-offs
 
@@ -401,15 +406,17 @@ existing reader is one message behind after a compaction.
 - A compaction fires at a chosen size, not a chosen moment; sending a compact
   command to a running session is untested. Accepted untested.
 
-## Pending Owner Rulings
+## Owner Rulings
 
-Both are open, neither blocks this work, and each says what it does meanwhile.
+Both questions this PRD held open have been ruled.
 
-- **Who owns the coordinator and supervising-session successor brief?** A
-  separate plan also designs one. Until the owner rules, this work builds
-  nothing for supervising sessions (R15). If the ruling keeps that brief with
-  the other plan, this work stops at workers and the fallback continuation,
-  and the order in which supervising sessions adopt a brief follows it.
-- **Do coordinators compact?** This work is proven for workers only. Until the
-  owner rules, coordinators keep succeeding through the handover `/coordinate`
-  ships, and nothing this work ships sets compaction on for them.
+- **Who owns the coordinator and supervising-session successor brief?** This
+  work builds the one brief every session writes, supervising sessions
+  included. Separate work keeps the standing-rules part, its size budget and
+  the incoming session's restatement, as a section of this brief and a check
+  on it, never a second format (R15).
+- **Do coordinators compact?** No: coordinators keep handing over. Two checks
+  that touch no running coordinator come first, then one trial on a quiet
+  lane against recorded pass criteria, with the top-level session last. Until
+  that trial, compaction is proven for workers only, and nothing this work
+  ships sets it on for coordinators.
