@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A /work-on run that verifies a compiled-language change leaves its build
   tree in the worktree, and nothing in the workflow removes it, so teams that
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-build-output.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
