@@ -32,8 +32,8 @@ PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
-has_line() { if printf '%s\n' "$3" | grep -qxF -- "$2"; then ok "$1"; else bad "$1" "no line [$2] in [$3]"; fi; }
-no_match() { if printf '%s\n' "$3" | grep -qE -- "$2"; then bad "$1" "[$2] matched in [$3]"; else ok "$1"; fi; }
+has_line() { if grep -qxF -- "$2" <<< "$3"; then ok "$1"; else bad "$1" "no line [$2] in [$3]"; fi; }
+no_match() { if grep -qE -- "$2" <<< "$3"; then bad "$1" "[$2] matched in [$3]"; else ok "$1"; fi; }
 exists() { if [ -e "$2" ] || [ -L "$2" ]; then ok "$1"; else bad "$1" "[$2] is gone"; fi; }
 missing() { if [ -e "$2" ] || [ -L "$2" ]; then bad "$1" "[$2] is still there"; else ok "$1"; fi; }
 
@@ -338,7 +338,7 @@ if [ -n "$R1" ] && [ -n "$R2" ] && [ "$R1" != "$R2" ]; then ok "two calls at onc
 else bad "two calls at once: two records, two stamps" "[$R1] [$R2]"; fi
 for f in "$R1" "$R2"; do
     s=$(bo_record_stamp "$f")
-    if printf '%s\n' "$s" | grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9]+$'; then ok "a stamp is <UTC time>-<pid>"; else bad "a stamp is <UTC time>-<pid>" "[$s]"; fi
+    if grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9]+$' <<< "$s"; then ok "a stamp is <UTC time>-<pid>"; else bad "a stamp is <UTC time>-<pid>" "[$s]"; fi
     wait_status "$f" >/dev/null
 done
 

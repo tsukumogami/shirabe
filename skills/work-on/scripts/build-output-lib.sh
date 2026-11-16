@@ -67,7 +67,7 @@ bo_record_stamp() {
     esac
     stamp=${base#removal-}
     stamp=${stamp%.json}
-    printf '%s\n' "$stamp" | grep -Eq "$BO_STAMP_RE" || return 1
+    grep -Eq "$BO_STAMP_RE" <<< "$stamp" || return 1
     printf '%s\n' "$stamp"
 }
 

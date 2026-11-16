@@ -89,8 +89,8 @@
 #      the reaped records are marked `failed` and the call prints
 #      `build-output: removal recorded at <absolute path of the record>`.
 #
-# The deleter waits until the record names its pid (up to 10 s, then exits
-# removing nothing), removes this call's trash and the reaped trash, and
+# The deleter waits until the record names its pid (for at most
+# DELETER_WAIT_TICKS polls, then exits removing nothing), removes this call's trash and the reaped trash, and
 # rewrites the record with `status` `done` or `failed` and `ended_at`. Every
 # rewrite is a temp file renamed over the record, and only while the record is
 # still a regular file and not a symlink.
@@ -111,8 +111,9 @@
 #                                       shape) instead of the time and pid
 #   SHIRABE_BUILD_OUTPUT_TEST_PAUSE     a directory: at a point <p> the test
 #                                       armed with `<p>.wait`, touch
-#                                       `<p>.reached` and wait (up to 30 s) for
-#                                       `<p>.go`. Points: walk-<k>, recheck-<n>,
+#                                       `<p>.reached` and wait for `<p>.go`,
+#                                       as long as test_pause's loop bound
+#                                       allows. Points: walk-<k>, recheck-<n>,
 #                                       rename-<n>, record, delete
 #   SHIRABE_BUILD_OUTPUT_TEST_ROOT_DEV  the work tree's device id, as the
 #                                       `protected` walk compares it
@@ -155,7 +156,7 @@ export GIT_LITERAL_PATHSPECS=1
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-is_stamp() { printf '%s\n' "$1" | grep -Eq "$BO_STAMP_RE"; }
+is_stamp() { grep -Eq "$BO_STAMP_RE" <<< "$1"; }
 
 lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
