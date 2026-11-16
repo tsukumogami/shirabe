@@ -172,6 +172,11 @@ test-change.sh accept  <session> --as agent:<session>/accept-<n> --authority rev
 test-change.sh decline <session> --as agent:<session>/accept-<n> --authority reviewer --all --reason '<why>'
 ```
 
+The brief names the run's work tree and the commit its hunks end at, and says
+what the seat may run there: read-only commands, one per shell call, with no
+test, suite, script, build or koto command, and no command substitution in any
+argument.
+
 An acceptance covers the items at the digests they have at the run's head (a
 blob id, `deleted`, or an observation's digest). A commit that changes an
 accepted file ends that acceptance: the unit is held again, `changed since
