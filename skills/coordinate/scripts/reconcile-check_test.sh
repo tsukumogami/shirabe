@@ -726,6 +726,17 @@ expect "a moved tag is listed" '[.[] | .path] | index("tag moved-tag") != null' 
 expect "a tag at a live id is not listed" '[.[] | .path] | index("tag live-tag") == null' "$par"
 walk=$(RECONCILE_TIP_LOOKUP=0 run inventory --path "$I12" | jq -c .items)
 [ "$walk" = "$par" ] && ok "the tip lookup lists what walking every tip lists" || bad "the tip lookup lists what walking every tip lists" "walk $walk | lookup $par"
+# A read that runs past its deadline lists its clone unchecked, so the listing
+# comparisons above hold only while no read is late. A loaded runner can make
+# one late (shirabe#1871). Here the first refs read of the same fixture takes
+# 7s, as a slow runner might, and the default waves must still list what the
+# serial read did.
+new_case inventory-parallel-late
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n%s\trefs/tags/moved-tag\n' "$M12" "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
+mktree "$R12" "$M12"
+echo 7 > "$CASE/ls-remote.sleep.1"
+late=$(run inventory --path "$I12" | jq -c .items)
+[ "$ser" = "$late" ] && ok "the default waves list what a serial read lists, one clone's read taking 7s" || bad "the default waves list what a serial read lists, one clone's read taking 7s" "serial $ser | late $late"
 
 # The cap on GitHub compare reads binds: three clones of sixteen tips each,
 # against a remote main none of them has, so every tip asks one compare read
