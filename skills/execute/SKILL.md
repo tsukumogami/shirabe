@@ -789,8 +789,10 @@ against its chain shape:
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
      `coord_branch`, `plan_abs` (fixed at setup, except that the opener
-     re-roots it on a moved attach: when the recorded PLAN is gone and this
-     checkout is on `coord_branch` with `home_repo` as its origin, it becomes
+     re-roots it on a moved attach: when this checkout is on `coord_branch`
+     with `home_repo` as its origin and the recorded PLAN is gone, or the old
+     checkout was kept and the session was rebound here (`koto session
+     rebind`) with the old PLAN the same file at the same commit, it becomes
      the PLAN here, through `record-coord-setup.sh --reroot-plan`),
      `merge_attempts` (`<id>:<result>` entries,
      the id a node, a follow-up's `<node>/follow-up-<n>` or `coordination`:
