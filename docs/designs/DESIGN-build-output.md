@@ -1,0 +1,415 @@
+---
+schema: design/v1
+status: Proposed
+problem: |
+  A finished /work-on run leaves the build tree its verification commands
+  wrote in the worktree, and no work-on state removes it. A repo has no place
+  to say which paths are build output, a workspace has no switch to have
+  finished runs remove them, and koto's suite builds larger trees than it
+  needs because a cargo setting exported in the shell never reaches it.
+decision: |
+  An optional top-level `build_output` array of literal paths in the
+  verification map, read at the run's pinned base. A `## Build Output
+  Cleanup: on` header in the uncommitted CLAUDE.local.md turns the cleanup
+  on. A new `clean-build-output.sh` checks each path in a fixed order,
+  renames the passing ones into the worktree's git directory and deletes them
+  detached, recording the end; the verification runner waits on a running
+  removal. A plan's parent cleans once per worktree; a fix round cleans at its
+  own end.
+rationale: |
+  Every piece reuses something shirabe already has: the map read at the
+  merge base, the fence-aware header reader, the run's pinned base. Renaming
+  first takes the tree off its path at once, so the state returns inside
+  koto's 30 s action limit and no later build races the deleter. Only the
+  local file can turn it on, so a developer's clone keeps its warm tree
+  whatever the repo declares.
+upstream: docs/prds/PRD-build-output.md
+decision_provenance: inline-resolved
+---
+
+# DESIGN: Build Output
+
+## Status
+
+Proposed
+
+## Context and Problem Statement
+
+A `/work-on` run verifies a change by running the commands the repo's
+verification map selects (`skills/work-on/scripts/run-verification.sh`, which
+reads `.claude/shirabe-extensions/verification-map.json` with `git show` at
+the run's pinned merge base). For a compiled repo those commands write a
+build tree into the worktree, and no state in the work-on template removes
+it. The PRD asks for four pieces, and each lands on code that already exists.
+
+The declaration has to live in the verification map, as a new optional
+top-level field next to `schema`, `commands`, `entries` and `default`, made
+of literal repo-relative paths (R1). It has to be read from the same base the
+run already pinned: verification's recorded `merge_base`, or `impl_base` for
+a run that has no `result.json` because it relies on hosted CI. It is never
+recomputed at cleanup time, because after a merge and fetch the merge base
+can be HEAD itself (R2). A malformed declaration must not make the map
+invalid, so its check stays out of `SELECT_JQ`, the jq program that turns the
+map into the selected invocations (R8). Each declared path is refused, in a
+fixed order and with a fixed word, when it's absolute, outside the repo, a
+symlink or under one, tracked, or not ignored; a path that passes those and
+doesn't exist is reported `gone` (R3). Only the paths that pass are removed
+(R5).
+
+The switch has to be per workspace and never come from the repo. The cleanup
+runs only when the declaration exists and a header with its one on value sits
+in the uncommitted `CLAUDE.local.md`; the committed `CLAUDE.md` is never read
+for it (R4). That differs from `scripts/pr-workflow-content.sh`, which reads
+local and then committed; `scripts/lib/claude-md-header.sh` is the
+fence-aware reader to reuse.
+
+The cleanup runs once per run, at the run's successful end with hosted CI
+green, or at the successful end alone in a repo with no hosted checks (R6).
+It never runs on a verification pass, on a return to implementation, in the
+CI fix loop, when the run is blocked, or at `done_already_complete`. After CI
+is green the order is the closing step, then the handoff brief, then the
+cleanup, and nothing after it reaches implementation or verification (R7).
+Which work-on state carries it is held for the design of
+tsukumogami/shirabe#1230 (draft PR tsukumogami/shirabe#1881), which is
+changing implementation, verification and `done_blocked`. This design fixes
+the mechanism and the order and leaves the state named as open. The cleanup
+never changes the run's outcome (R8).
+
+A plan complicates the once-per-run rule. A child on a shared branch (the
+`pr_creation` to `done` edge on `pr_status: shared`) and a child whose
+worktree a later child uses must not clean, or the next child rebuilds from
+cold; the plan's parent cleans once per plan, once per worktree in
+coordinated mode, at its own successful end (R9).
+
+Removal has to fit koto. A default action returns within koto's fixed 30 s
+limit with no override, while gates take a `timeout:`. Removing a 9 GiB tree
+can take longer than that on a loaded disk, so the state must return control
+within 30 s, record when the removal ends, and keep a later run in the same
+worktree from building while a removal is still running (R12).
+
+The suite side is separate and small: `CARGO_INCREMENTAL=0` on every cargo
+command in koto's map, in one place, with koto's prose command list changed
+alongside, planned against tsukumogami/koto#490 (R11). The field is a stable
+part of the map's schema (R10), older shirabe releases ignore it (R13), and
+there's no telemetry (R14) and no debug-information setting until the
+measured build runs (R15).
+
+## Decision Drivers
+
+- **Nothing on by default.** A repo's declaration alone changes nothing; only
+  a workspace's local header turns the cleanup on (R4).
+- **The branch can't widen its own cleanup.** Every read of the declaration
+  uses the base the run pinned before the branch's changes (R2).
+- **Fail toward keeping.** Any doubt about a path (its shape, a symlink, a
+  tracked file, an unreadable base) keeps the tree and says why (R3, R8).
+- **Reuse, don't fork.** Read the map the way `run-verification.sh` already
+  does, and the header with `scripts/lib/claude-md-header.sh`.
+- **Fit koto's limits.** The state returns within 30 s and records the end of
+  any removal still running (R12).
+- **Don't place what's held.** The work-on state that carries the cleanup
+  waits on the tsukumogami/shirabe#1230 design; the mechanism, the order and
+  the declaration don't (R7).
+- **Backward compatible.** Older releases ignore the field, and the map's
+  schema string doesn't change (R10, R13).
+- **One mechanism for every caller.** The same script serves a work-on run's
+  end, a plan parent's end and any instance remover that reads the field.
+
+## Considered Options
+
+### Decision 1: The declaration's name and shape
+
+Resolved inline. The cleanup and any instance remover need one repo-wide list of the paths
+that are build output. It has to sit in the verification map, read at the
+run's pinned base, and must not disturb the map's existing parse (R1, R10,
+R13).
+
+#### Chosen: a top-level `build_output` array of literal paths
+
+```json
+{
+  "schema": "shirabe-verification-map/v1",
+  "commands": { "...": {} },
+  "entries": [],
+  "build_output": ["target/"]
+}
+```
+
+Each entry is a repo-relative path string. A leading `./` and a trailing `/`
+are dropped before comparison, duplicates collapse, and a path nested under
+another declared path is handled once, under its parent (R1). The schema
+string stays `shirabe-verification-map/v1`, because an older release ignores
+an unknown top-level field (R13). The field's check runs in the cleanup
+script, not in `SELECT_JQ`, so a malformed declaration never makes the map
+invalid for verification (R8): a non-list is one `malformed` line and removes
+nothing, and a non-string or empty entry is named `malformed` and skipped.
+
+#### Alternatives Considered
+
+**Per-command `outputs`**: each entry under `commands` names the paths it
+writes. Rejected because two commands that share `target/` would both declare
+it, and every reader would have to union the lists to learn what the repo's
+build output is.
+
+**An object (`build_output: {paths: [...]}`)**: leaves room for options per
+path. Rejected because no caller needs an option, and every reader pays an
+extra level for room that R10 would make a schema change to use anyway.
+
+### Decision 2: The switch
+
+Resolved inline. The cleanup must stay off unless a workspace turns it on, and a line
+committed to the repo must never turn it on for someone's own clone (R4).
+
+#### Chosen: `## Build Output Cleanup: on` in CLAUDE.local.md
+
+The script reads the header with `claude_md_header "Build Output Cleanup"
+CLAUDE.local.md` from `scripts/lib/claude-md-header.sh`, which is fence-aware
+and refuses a duplicate. The value `on`, trimmed and case-insensitive, turns
+it on. An absent file or header, any other value, a duplicate or an
+unreadable file means off; the last two are reported, since they mean
+someone tried to set it. The committed `CLAUDE.md` is never read for this
+header. A workspace that generates `CLAUDE.local.md` adds the line once in
+its config, and every worktree it makes carries it.
+
+#### Alternatives Considered
+
+**An environment variable**: an operator exports a variable. Rejected
+because koto runs a session's commands with a fixed environment, so a
+variable exported in the ticking shell never reaches the state
+(tsukumogami/koto#578).
+
+**Local then committed, as `scripts/pr-workflow-content.sh` reads**:
+Rejected because a committed line would turn the cleanup on for every
+developer who clones the repo, which R4 forbids.
+
+**A setting in a workspace manager's config**: Rejected because it ties the
+feature to one manager; the header works with one or with none.
+
+### Decision 3: Fitting removal into koto's time limit
+
+Resolved inline. A default action returns within 30 s with no override, and removing a 9 GiB
+tree can take longer on a loaded disk. The state has to return in time,
+record when the removal ends, and keep a later run in the same worktree from
+building while it's still running (R12).
+
+#### Chosen: rename into the git directory, then delete detached
+
+`clean-build-output.sh` checks each path. For each one that passes it
+renames the path into `$(git rev-parse --git-path shirabe-build-output)/trash-<stamp>`,
+the worktree's own git directory, which is on the same filesystem and so
+takes constant time. It first compares the device ids of the path and the
+trash directory: a path on another filesystem can't be renamed in constant
+time, so it's reported `failed` and left in place. Then it writes
+`removal.json` beside the trash (`started_at`, the paths, the deleter's pid,
+`status: running`), starts a detached `rm -rf` of the trash that rewrites the
+record with `status: done` or `failed` and `ended_at` when it exits, prints
+one line per path, and returns.
+
+Before it builds, `run-verification.sh` reads the record. While it names a
+live pid and `status: running`, the runner waits, inside its own budget. A
+record whose pid is gone counts as ended, and the runner removes any trash it
+left before building. The git directory is never part of the work tree, is
+never tracked, and is private to each worktree.
+
+#### Alternatives Considered
+
+**A gate running `rm -rf` with a `timeout:`**: Rejected because a gate that
+times out leaves the tree half removed and the run held on its cleanup, and
+the cleanup must never change the outcome (R8).
+
+**A detached `rm -rf` in place**: Rejected because a later run that builds
+in the same path races the deleter, and the two can interleave.
+
+**Rename now, sweep later**: Rejected because the disk stays used until
+something sweeps it, which is the problem this feature removes.
+
+### Decision 4: Where a plan's parent cleans
+
+Resolved inline. A child on a shared branch, or one whose worktree a later child uses, must
+not clean, and the plan's parent cleans once per worktree at its own
+successful end (R9). Where in the parent's run is open.
+
+#### Chosen: the run that owns the worktree's last use cleans it
+
+A `/work-on` run that a plan parent dispatched never cleans, whatever its
+edge, and the shared-branch edge (`pr_creation` to `done` on `pr_status:
+shared`) never cleans either. `/execute` runs the script in its
+`plan_completion` state, after every child landed with CI green, once for
+each worktree the run recorded: one in single-pr mode, one per worktree in
+coordinated mode. A multi-pr PLAN that `/work-on` drives cleans once, after
+its last item. `plan_completion` is outside the work-on states the
+tsukumogami/shirabe#1230 design is changing.
+
+#### Alternatives Considered
+
+**The last child cleans**: Rejected because a child can't reliably know
+it's last when the parent retries or reorders work.
+
+**Every child cleans**: Rejected because each later child then rebuilds from
+cold, the cost R9 exists to prevent.
+
+### Decision 5: A fix round's end
+
+Resolved inline. `fix-round.sh` starts a new run on the same worktree after `done`. The
+question is whether that run's own successful end cleans again.
+
+#### Chosen: yes, like any run
+
+A fix round is a run of its own, and it rebuilt the declared tree. Its
+successful end with CI green cleans it, the same way. It already starts
+cold, because the first run's end cleaned, and that cold build is the cost
+of a finished run leaving nothing.
+
+#### Alternatives Considered
+
+**Skip the cleanup at a fix round's end**: Rejected because the fix round's
+tree stays, which is the original problem in a smaller form, and it would
+need a second rule in the template that readers have to know about.
+
+## Decision Outcome
+
+The repo declares `build_output` in its verification map, and a workspace
+turns the cleanup on with one header in `CLAUDE.local.md`. At a run's
+successful end, after the closing step and the handoff brief, one script
+reads the declaration at the run's pinned base, checks every path, renames
+the passing ones out of the work tree and deletes them in the background,
+then returns. Nothing a branch commits can widen what its own run removes, a
+developer's clone keeps its tree, and a later build waits for a removal that
+hasn't finished.
+
+The pieces fit because they all resolve to one script and one record. The
+work-on end, `/execute`'s `plan_completion` and a fix round's end all call
+`clean-build-output.sh`; `run-verification.sh` reads the one record it
+writes. The script never fails the run: it prints its lines and exits 0,
+whatever it found. The exact work-on state it runs in stays open until the
+tsukumogami/shirabe#1230 design settles; the order (closing step, handoff
+brief, cleanup) is fixed here.
+
+koto's suite gets `CARGO_INCREMENTAL=0` on every cargo command in its
+verification map, set once by prefixing `env CARGO_INCREMENTAL=0` inside the
+`scripts/without-session-env.sh` wrapper's command line, which ends in
+`exec "$@"`, with koto's prose command list changed alongside (R11). That is
+its own plan item against tsukumogami/koto#490.
+
+## Solution Architecture
+
+### Components
+
+| Component | Change |
+|-----------|--------|
+| `skills/work-on/references/verification-map.md` | Documents `build_output` as a fifth, optional top-level field: literal paths, the normalization, the refusal words, and that a remover may read it and the field isn't renamed or changed in meaning without a schema change (R10). |
+| `skills/work-on/scripts/verification-map-schema_test.sh` | Accepts a map with and without the field; a malformed field doesn't fail the map. |
+| `skills/work-on/scripts/clean-build-output.sh` (new) | Reads the switch, reads the declaration at the pinned base, checks, renames, records, starts the deleter, prints one line per path, exits 0. |
+| `skills/work-on/scripts/run-verification.sh` | Before building, waits on a running removal record and clears trash a dead one left. `SELECT_JQ` is unchanged. |
+| work-on template | Calls the script once at the successful end, after the closing step and the handoff brief. The state is named when the tsukumogami/shirabe#1230 design settles. Dispatched children and the shared-branch edge don't call it. |
+| `/execute` template, `plan_completion` | Calls the script once per recorded worktree. |
+| koto's verification map and command list | `CARGO_INCREMENTAL=0` on every cargo command (koto's own item). |
+
+### The script's contract
+
+```
+clean-build-output.sh --base <sha> [--root <dir>]
+```
+
+`--base` is the base the run pinned: verification's recorded `merge_base`
+from `result.json`, or the run's `impl_base` when it relied on hosted CI and
+has no `result.json`. The script never computes a merge base itself. In
+order:
+
+1. Read the switch. Off: print `build-output: cleanup off` and exit 0.
+2. Read the map with `git show <base>:.claude/shirabe-extensions/verification-map.json`.
+   An unreadable base or map: print `build-output: base unreadable, removed
+   nothing` and exit 0. No field: print nothing more and exit 0. A non-list:
+   one `malformed` line, exit 0.
+3. Normalize each entry, then check in this order and stop at the first
+   refusal: `absolute`, `outside` (a `..`, any other route out of the root,
+   or `.` itself), `symlink` (the path or any directory on the way), `tracked`
+   (`git ls-files` names anything at or under it), `not-ignored`
+   (`git check-ignore` doesn't match it). A path that passes the first two and
+   doesn't exist is `gone`.
+4. For each path that passed, check the device ids, rename it into the trash
+   directory, and print `<path> removed`; a failed rename prints `<path>
+   failed`.
+5. Write `removal.json`, start the deleter detached with its output to a log
+   beside the record, and exit 0.
+
+Every line is the path as the maintainer wrote it, then its word (R3).
+
+### Data flow
+
+```
+run ends, CI green
+  -> closing step -> handoff brief
+  -> clean-build-output.sh --base <pinned>
+       switch? -- off --> exit 0
+       git show <base>:map -> build_output
+       per path: absolute/outside/symlink/tracked/not-ignored/gone
+       passing: rename -> <git-dir>/shirabe-build-output/trash-<stamp>
+       removal.json {status: running, pid}
+       detached rm -rf trash -> removal.json {status: done, ended_at}
+  -> exit 0 (outcome unchanged)
+
+next run, same worktree
+  -> run-verification.sh reads removal.json
+       running and pid alive -> wait inside budget
+       pid gone -> clear leftover trash
+  -> build
+```
+
+## Implementation Approach
+
+1. **The declaration.** Add `build_output` to `verification-map.md` and the
+   schema test. Nothing reads it yet, so it's safe to land first.
+2. **The script.** Add `clean-build-output.sh` with its own test suite
+   covering every refusal word, the order, `gone`, `malformed`, the switch
+   values, an unreadable base, a cross-device path and the record.
+3. **The guard.** Teach `run-verification.sh` to wait on a running removal
+   and clear a dead one's trash. It's verification code the
+   tsukumogami/shirabe#1230 design also changes, so it lands after that
+   design's PR, or rebased onto it.
+4. **The callers.** Wire the work-on end once the tsukumogami/shirabe#1230
+   design names the state, and `/execute`'s `plan_completion`.
+5. **koto's suite.** `CARGO_INCREMENTAL=0` in koto's map and command list,
+   against tsukumogami/koto#490. Independent of the rest.
+
+The measured build that would decide a debug-information setting runs
+outside this work, and no such setting is added until it does (R15).
+
+## Security Considerations
+
+The script deletes files, so its checks are the security boundary. It reads
+the declaration only at the base the run pinned before the branch's own
+changes, so a branch can't add a path to what its run removes. Every path
+must be relative, stay inside the root, pass through no symlink, cover no
+tracked file and be ignored by git before anything moves; a path that fails
+any check is named and kept. The rename target is inside the worktree's own
+git directory, so the deleter never operates on a path a user or a later
+build can see, and it runs `rm -rf` only on a directory the script created.
+The switch is read only from the uncommitted local file. Nothing is sent
+anywhere (R14).
+
+## Consequences
+
+### Positive
+
+- A finished run in a workspace that turned the cleanup on leaves no declared
+  build tree, and every other checkout keeps its tree.
+- A remover gets a declaration it can read for build systems that write no
+  marker.
+- koto's suite builds a smaller tree, and hand-run builds don't change.
+
+### Negative
+
+- A fix round and a re-run after `done` build from cold.
+- Files a worker wrote by hand inside a declared tree go with it.
+- The verification runner gains a wait on a running removal.
+- A run that blocks, or a worker that dies, keeps its tree; the cleanup only
+  bounds runs that finish.
+
+### Mitigations
+
+- The cold build is the accepted cost of leaving nothing, and only fix
+  rounds and re-runs pay it.
+- The wait is bounded by the runner's own budget, and a dead deleter's
+  record counts as ended.
+- Trees left by blocked or dead runs are the instance remover's to trim, and
+  it reads the same declaration.
