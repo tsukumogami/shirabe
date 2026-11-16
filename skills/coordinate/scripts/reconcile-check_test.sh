@@ -530,11 +530,14 @@ pool_case() {
     for k in 1 2 3; do printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.$k"; done
     mktree "$R3" "$M3"
 }
+# 60s is the script's clamp maximum, so a loaded runner can't push these reads past it (shirabe#1871).
+DL=60
 pool_case inventory-serial
 SER=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I3" | jq -c 'del(.read_at)')
 pool_case inventory-pool
 POOL=$(run inventory --path "$I3" | jq -c 'del(.read_at)')
 if [ -n "$SER" ] && [ "$SER" = "$POOL" ]; then ok "the pool lists what a serial read does"; else bad "the pool lists what a serial read does" "serial: $SER | pool: $POOL"; fi
+unset DL
 
 # The default branch's tree is read only when something is compared with it
 # (shirabe#750): never for a clean clone, once for one with a changed file,
@@ -715,6 +718,8 @@ new_case inventory-parallel
 # moved-tag is on the remote at main; the clone has it on side's commit.
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n%s\trefs/tags/moved-tag\n' "$M12" "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
 mktree "$R12" "$M12"
+# 60s is the script's clamp maximum, so a loaded runner can't push these reads past it (shirabe#1871).
+DL=60
 ser=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I12" | jq -c .items)
 par=$(run inventory --path "$I12" | jq -c .items)
 par2=$(RECONCILE_INV_PARALLEL=2 run inventory --path "$I12" | jq -c .items)
@@ -763,6 +768,7 @@ for par in 1 8; do
         [ "$n" = 40 ] && ok "compare cap, serially: the whole cap is spent" || bad "compare cap, serially: the whole cap is spent" "$n"
     fi
 done
+unset DL
 
 I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
 git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git
