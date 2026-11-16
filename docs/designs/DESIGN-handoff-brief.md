@@ -454,7 +454,11 @@ a tab in a named path or a watch value; a watch value holding a shell
 operator (`;`, `|`, `&`, `$`, a backtick, `<` or `>`), so a watch is one plain
 command; `handover/brief.md` over the inline size once rendered; a total over
 the record cap. A pointer (pull request number, commit, branch, job id) that
-doesn't match its expected shape is left out.
+doesn't match its expected shape is left out. Under the owner's 2026-11-16
+bucket ruling (scratch is disposable, and no plain transcript leaves the
+host), a session transcript is never named, raw or copied: the raw one sits
+outside scratch, and the script refuses a copy by its `*.jsonl` name or by a
+first line that parses as a transcript record.
 
 It copies each file once into a private 0700 temporary directory and takes
 the size, the hash and the stored bytes from that copy; a trap removes that
