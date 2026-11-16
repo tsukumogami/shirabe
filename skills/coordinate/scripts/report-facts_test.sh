@@ -314,8 +314,13 @@ BEFORE=$(cat "$KOTO_STORE/context/$S/record/holdings")
 rm -f "$KOTO_STORE/context/$S/coord/report.json"
 SLOW=20
 rm -f "$KOTO_STORE/add-delay.pid"
+# The reads before the write take time on a loaded host: the coord/report.json
+# add, written before the pushed-head write, is held until 3 s after the case
+# starts, so the write is reached a few seconds into the script's clock.
+HOLD_UNTIL=$(($(date +%s) + 3))
 START=$SECONDS
-KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 report '{"event":"report","unit":"alpha"}'
+KOTO_ADD_UNTIL="coord/report.json:$HOLD_UNTIL" KOTO_ADD_DELAY="record/holdings:$SLOW" REPORT_FACTS_DEADLINE=3 \
+    report '{"event":"report","unit":"alpha"}'
 TOOK=$((SECONDS - START))
 eq "a slow write: the same verdict and exit code" "holding 12 alpha 0" "${OUT% sealed:*} $RC"
 [ "$TOOK" -le 5 ] && ok "  ... the action returns within the deadline and a small margin (${TOOK} s)" \
