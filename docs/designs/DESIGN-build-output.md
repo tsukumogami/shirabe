@@ -282,18 +282,25 @@ shared`) never cleans either. `/execute` cleans at its successful end, and
 the two templates reach that end differently.
 
 In single-pr mode, `plan_completion` runs before `ci_monitor`, so it can't
-carry the cleanup: CI isn't being watched yet. The successful ends come
-after `ci_monitor` reports CI green, through `merge_readiness` and then
-`merge_route`, which routes to `ready_awaiting_merge` or, after
-`merge_confirm`, to `done`. The parent cleans once, on those routes, in its
-one worktree. It never cleans at `plan_completion`, and never on
-`done_blocked`, which `ci_monitor` and `merge_route` can both reach.
+carry the cleanup: CI isn't being watched yet. The successful ends are the
+two terminals past `ci_monitor`, `merge_readiness` and `merge_route`:
+`merged`, reached through `merge_attempt` and `merge_confirm`, and
+`ready_awaiting_merge`, which `merge_route`, `merge_attempt` and
+`merge_confirm` can each route to. The parent cleans once, in its one
+worktree, on the way into either terminal, and only when the owned pull
+request's hosted CI is green at the head it reached them with; `ci_monitor`
+can hand `merge_readiness` a pending CI, so the call checks rather than
+assumes. With CI not green it cleans nothing and the tree stays. It never
+cleans at `plan_completion`, and never on `done_blocked`, which `ci_monitor`
+and `merge_route` can both reach.
 
 The coordinated template, `execute-coordinated.md`, has no
-`plan_completion` state. Its successful ends follow `coord_verdict`: it
-cleans once per recorded worktree when `coord_verdict` routes to
-`ready_awaiting_merge` or `merged`. `paused_awaiting_merges`, `done_blocked`
-and `done_error` aren't successful ends, and none of them cleans.
+`plan_completion` state. Its successful ends are `ready_awaiting_merge`,
+which `coord_verdict` or `coord_merge_confirm` routes to, and `merged`,
+which only `coord_merge_confirm` reaches. It cleans once per recorded
+worktree on the way into either, under the same CI-green check.
+`paused_awaiting_merges`, `done_blocked` and `done_error` aren't successful
+ends, and none of them cleans.
 
 Which exact state carries the call in each template is the implementer's to
 wire, within those bounds. These are `/execute` states, outside the work-on
@@ -314,7 +321,11 @@ time, so the driver itself, not a child, knows when no item remains. It calls
 the script once, when its item loop finds no next item, in the one worktree
 the items share. That point is fixed here; the name of the template state
 that holds it follows the tsukumogami/shirabe#1230 design, as the single
-run's does.
+run's does. The driver has one result per item and no base of its own that
+covers them all, so it pins its base the way a plan parent does: when its
+run starts it records the commit the default branch's remote ref names then,
+and passes that as `--base`, never an item's `merge_base` or a recomputed
+one.
 
 #### Alternatives Considered
 
@@ -389,8 +400,8 @@ tsukumogami/koto#490.
 | `skills/work-on/scripts/clean-build-output.sh` (new) | Reads the switch at the root, checks its own directory, reaps dead removals, checks the base's ancestry and reads the declaration there, checks each path, renames the passing ones into numbered trash entries, writes one record per removal, starts the deleter, prints one line per path, exits 0. |
 | `skills/work-on/scripts/run-verification.sh` | Before building, waits inside its budget on every removal record that says `running` with a live pid. If the budget runs out first, it starts no command, reports the verification as not run and names the record. It doesn't reap; the script does. `SELECT_JQ` is unchanged. |
 | work-on template, single run | Calls the script once at the run's successful end with CI green (or the successful end alone with no hosted checks), after the closing step and the handoff brief. Never on a verification pass, a return to implementation, the CI fix loop, a blocked run or `done_already_complete` (R6). The state is named when the tsukumogami/shirabe#1230 design settles. Dispatched children and the shared-branch edge don't call it. |
-| work-on template, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. It calls the script once, when its item loop finds no next item, in the one worktree the items share. Its exact state name waits on the tsukumogami/shirabe#1230 design, like the single run's caller. |
-| `/execute` templates, successful end | Pin one base per repository at the run's start, in the parent's session. Single-pr: calls the script once after `ci_monitor` reports CI green, on the routes from `merge_route` into `ready_awaiting_merge` or, after `merge_confirm`, into `done`; never at `plan_completion` or on `done_blocked`. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree when `coord_verdict` routes to `ready_awaiting_merge` or `merged`; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
+| work-on template, multi-pr item loop | In a multi-pr PLAN, `/work-on` is the driver that takes the items one at a time, so the driver, not a child, knows when no item remains. It calls the script once, when its item loop finds no next item, in the one worktree the items share, with the base it pinned when its run started (as a plan parent does). Its exact state name waits on the tsukumogami/shirabe#1230 design, like the single run's caller. |
+| `/execute` templates, successful end | Pin one base per repository at the run's start, in the parent's session. Single-pr: calls the script once on the way into `merged` or `ready_awaiting_merge`, only with the owned pull request's hosted CI green at that head; never at `plan_completion` or on `done_blocked`. Coordinated (`execute-coordinated.md`): calls it once per recorded worktree on the way into `ready_awaiting_merge` (from `coord_verdict` or `coord_merge_confirm`) or `merged` (from `coord_merge_confirm`), under the same CI check; never on `paused_awaiting_merges`, `done_blocked` or `done_error`. The implementer picks the exact state within those bounds. |
 | koto's verification map and command list | `env CARGO_INCREMENTAL=0` right after `scripts/without-session-env.sh` on each of the seven cargo commands; the wrapper is unchanged (koto's own item). |
 
 ### The script's contract
@@ -508,11 +519,12 @@ run ends, CI green
 
 /execute parent
   start: pin one base per repository (default branch's remote ref, now)
-  single-pr: ci_monitor green -> merge_readiness -> merge_route
-       -> ready_awaiting_merge, or merge_confirm -> done
-       -> clean-build-output.sh --base <parent's pinned base>, once
-  coordinated: coord_verdict -> ready_awaiting_merge or merged
-       -> clean-build-output.sh --base <parent's pinned base>, per worktree
+  single-pr: ci_monitor -> merge_readiness -> merge_route
+       -> (merge_attempt -> merge_confirm ->) merged | ready_awaiting_merge
+       -> hosted CI green at head? clean-build-output.sh --base <parent's pinned base>, once
+  coordinated: coord_verdict -> ready_awaiting_merge,
+       or coord_merge_confirm -> merged | ready_awaiting_merge
+       -> hosted CI green? clean-build-output.sh --base <parent's pinned base>, per worktree
   done_blocked, done_error, paused_awaiting_merges -> no cleanup
 
 next run, same worktree
@@ -540,11 +552,10 @@ next run, same worktree
    removal record. It's verification code the tsukumogami/shirabe#1230
    design also changes, so it lands after that design's PR, or rebased onto
    it.
-4. **The callers.** Wire `/execute`'s successful ends: in single-pr mode
-   after `ci_monitor` reports CI green, on the routes from `merge_route`
-   into `ready_awaiting_merge` or `done`, and in coordinated mode when
-   `coord_verdict` routes to `ready_awaiting_merge` or `merged`, each with
-   the base the parent pinned at its start. Wire the work-on end and the
+4. **The callers.** Wire `/execute`'s successful ends: the way into
+   `merged` or `ready_awaiting_merge` in both templates, only with hosted
+   CI green at the head, each with the base the parent pinned at its
+   start. Wire the work-on end and the
    multi-pr driver's item loop once the tsukumogami/shirabe#1230 design
    names their states.
 5. **koto's suite.** `env CARGO_INCREMENTAL=0` on the seven cargo commands

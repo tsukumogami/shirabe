@@ -162,16 +162,18 @@ it removes nothing (R12).
 
 **Goal**: `/execute` runs `clean-build-output.sh` once per recorded
 worktree at the run's successful end, with the base the parent pinned at its
-start (R2, R9). In single-pr mode that's after `ci_monitor` reports CI
-green, on the routes from `merge_route` into `ready_awaiting_merge` or,
-after `merge_confirm`, into `done`; never at `plan_completion`, which runs
-before CI is watched. In coordinated mode it's when `coord_verdict` routes
-to `ready_awaiting_merge` or `merged`. The implementer picks the exact state
+start (R2, R9). In both templates that's on the way into the successful
+terminals, `merged` or `ready_awaiting_merge`, and only when the owned pull
+request's hosted CI is green at that head; never at `plan_completion`, which
+runs before CI is watched. In single-pr mode `merged` comes through
+`merge_attempt` and `merge_confirm`; in coordinated mode through
+`coord_merge_confirm`. The implementer picks the exact state
 in each template within those bounds.
 
 **Acceptance Criteria**:
-- [ ] A single-pr run calls the script exactly once, in its one worktree, after `ci_monitor` reports CI green, whether it ends at `ready_awaiting_merge` or at `done` after `merge_confirm`; `plan_completion` calls nothing.
-- [ ] A coordinated run with children in two worktrees, each holding its declared tree, calls the script once in each when `coord_verdict` routes to `ready_awaiting_merge` or `merged`, and the declared paths are gone from both afterwards.
+- [ ] A single-pr run with hosted CI green calls the script exactly once, in its one worktree, whether it ends at `merged` or at `ready_awaiting_merge`; `plan_completion` calls nothing.
+- [ ] A single-pr run that reaches `ready_awaiting_merge` while the owned pull request's CI is still pending calls the script nowhere, and the tree stays.
+- [ ] A coordinated run with children in two worktrees, each holding its declared tree, calls the script once in each on the way into `ready_awaiting_merge` or `merged`, and the declared paths are gone from both afterwards.
 - [ ] The parent records one base per repository in its own session when its run starts, the commit the default branch's remote ref names at that moment, and passes that same base as `--base` for every worktree of that repository; it never recomputes it.
 - [ ] After the branch's pull request is merged and the default branch fetched, so that a recomputed merge base would be the branch head, the cleanup still leaves in place a path the branch added to the declaration (R2).
 - [ ] A run that ends at `done_blocked` calls the script nowhere, and every tree stays.
@@ -199,9 +201,9 @@ names neither state (R6, R7, R9).
 - [ ] A run's output carries exactly one cleanup record, however many verification rounds it took.
 - [ ] The cleanup doesn't run on a passing verification, a return to implementation, the CI fix loop, a run blocked during verification or while waiting on CI, or `done_already_complete`; each case finds its tree in place.
 - [ ] A child dispatched by a plan parent, and the `pr_creation` to `done` edge on `pr_status: shared`, never call the script; the next child in the same worktree finds the earlier child's tree.
-- [ ] In a multi-pr PLAN the driver calls the script once, when its item loop finds no next item, in the one worktree the items share.
+- [ ] In a multi-pr PLAN the driver calls the script once, when its item loop finds no next item, in the one worktree the items share, passing the base it pinned when its run started (the commit the default branch's remote ref named then), never an item's `merge_base`.
 - [ ] A fix round started by `fix-round.sh` cleans again at its own successful end with CI green.
-- [ ] The caller passes the run's pinned base as `--base`: verification's recorded `merge_base`, or `impl_base` for a run with no `result.json`.
+- [ ] A single run's caller passes the run's pinned base as `--base`: verification's recorded `merge_base`, or `impl_base` for a run with no `result.json`.
 - [ ] After the branch's pull request is merged and the default branch fetched, so that a recomputed merge base would be the branch head, the cleanup still leaves in place a path the branch added to the declaration (R2).
 - [ ] A cleanup line of `failed`, `malformed`, `gone` or a refusal leaves the run's result successful.
 - [ ] The state that runs the cleanup returns within 30 seconds of the tick that enters it, on a declared tree of at least 9 GiB.
