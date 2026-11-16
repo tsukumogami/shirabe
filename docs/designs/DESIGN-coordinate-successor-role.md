@@ -638,11 +638,15 @@ confirm code and replaces the holding row with a Run row.
   the `successor` Run key and the `--successor <status> <topic>` write
   mode.
 - `skills/coordinate/scripts/reconcile-settle.sh` and `reconcile-pass.sh`:
-  a `--successor` arm launched when the record holds a pending row; the
-  reconcile report gets one optional line naming it.
+  a `--successor` arm launched when the record holds a pending row.
+- `skills/coordinate/scripts/reconcile-report.sh`: one optional line
+  naming a pending successor row, its status and topic, and, for an
+  unlisted `dispatching` row, the command to run again.
 - `skills/coordinate/scripts/coordinate-open.sh` (`finish_takeover`) and
   `state-open.sh` (`--carry`): clear the row when `--dispatched-by` names
-  the run that wrote it.
+  the run that wrote it. A carry whose run has no `koto/links/dispatched-by/`
+  key, or one naming another run, keeps the row, and the new rotation's
+  reconcile settles it.
 - Docs: `SKILL.md` (Roles; the takeover paragraph's mention of a successor
   brief), `references/brief-template.md` (the `role` paragraph and the
   successor input), `references/state-keys.md` (the Run key),
@@ -658,7 +662,8 @@ dispatch-worker.sh --session <run> --successor
   reads   successor_input.json (context), record Run section,
           coord-log.sh run-facts / vars
   prints  session=<niwa session>  [taken_over=<run>]
-  exit    0 dispatched or confirmed
+  exit    0 dispatched or confirmed, or confirmed by a takeover that
+            fenced the run first (taken_over= printed)
           1 refused: no role row, role_change, another scope, unreadable
             facts, role words in coordinator text, brief refused
           3 the topic is a failed or stranded row's
@@ -675,7 +680,35 @@ Run row  {key: "successor", value: "<status> <topic> <YYYY-MM-DD>",
 The successor input carries the same fields as a brief input except
 `role`, `held_rerender`, `role_change_by`, `successor`, `grant`, `unit`
 and `phase`, which the mode writes; `entry_args` and `repo` are optional
-and checked.
+and checked. In full:
+
+```json
+{"topic": "plugin-system-successor-1", "entry_point": "coordinate",
+ "run_mode": "", "authority": "...", "goal": "...",
+ "checkpoints": ["..."], "acceptance": ["..."],
+ "decisions": [{"decision": "...", "by": "..."}],
+ "read_first": ["..."], "out_of_scope": ["..."],
+ "standing_rules": ["..."], "surfaces": [{"surface": "...", "coordinator": "..."}],
+ "launch": {"model": "powerful"},
+ "entry_args": ["docs/roadmaps/ROADMAP-plugin-system.md"], "repo": "owner/repo"}
+```
+
+The last two are optional; `reports_to` and `dispatcher_session` are
+written over as for every brief.
+
+Status moves the `--successor` write accepts, each from the row as read:
+
+| From | To |
+|------|----|
+| none, `dispatch-failed`, `stranded` | `dispatching` (a new topic) |
+| `dispatching` | `dispatched`, `dispatch-failed` |
+| `dispatched` | `stranded` |
+| any | removed (the clear) |
+
+A `dispatching` row always leaves that status once `niwa list` can be
+read: a re-run with its topic confirms it, re-launches it, or rewrites it
+`dispatch-failed` when the launch fails, which frees the slot. A listing
+that can't be read leaves it `dispatching` (exit 6) for the next run.
 
 ### Data Flow
 
@@ -702,6 +735,10 @@ predecessor restart (no takeover yet)
 ```
 
 ## Implementation Approach
+
+Each phase that changes a script the template's gates or actions reach
+re-records `gate_scripts` in `coordinate.compat.json` at compat 2 in the
+same commit, since CI checks the digest on every change.
 
 ### Phase 1: The record row
 
@@ -736,15 +773,16 @@ own-scope brief on the worker path.
 Deliverables:
 - `dispatch-worker.sh`
 - `dispatch-worker_test.sh` cases for R1, R2 (verdict owed, pause,
-  decision, no open unit), R3, R4, R6, R7, R9 and R10, each failing on the
-  base commit
+  decision, no open unit), R3, R4, R6, R7, R10, and R9's refusal of a
+  second successor and its same-topic confirm or re-launch, each failing
+  on the base commit; R9's settle by reconcile and its clear at a
+  takeover land in Phase 4
 
 ### Phase 4: Settle and clear
 
 Add `reconcile-settle.sh --successor` and its launch in
 `reconcile-pass.sh`, the report line, and the clear in `finish_takeover`
-and `state-open.sh --carry`. Re-record `gate_scripts` in
-`coordinate.compat.json`.
+and `state-open.sh --carry`.
 
 Deliverables:
 - `reconcile-settle.sh`, `reconcile-pass.sh`, `reconcile-report.sh`,
@@ -808,22 +846,50 @@ failed listing can't free the slot for a second launch. If two successors
 did start, koto's fence lets one take the run over at a time and the later
 takeover supersedes the earlier, so the run never has two drivers. The
 row clears only on a start whose `--dispatched-by` names the run that
-wrote it. That flag comes from the brief's opener line, so a person
-starting a session by hand with the same flag would clear it too; such a
-start is a takeover by the same rules, refused for a role it doesn't
-hold, and the takeover entry names it.
+wrote it, a flag the brief's opener line carries.
 
-A successor brief follows the worker rule: it holds no credentials, and
-it's written with the worker path's file mode under the workspace's
-briefs directory. The record entries the mode writes name the topic, the
-brief's path and the role, and nothing secret.
+A hand-started session given the same `--dispatched-by` can take the run
+over and clear the row. That's no new power: any session on the host
+that can run the opener can already take a coordinator run over, and the
+takeover entry names it. It's accepted as residual risk rather than
+fenced here.
+
+The brief is an instruction channel, and the mode doesn't vet what the
+coordinator writes into it. That's the same channel every worker brief
+is, and the same rules hold: the coordinator writes the text in its own
+words, quoting a worker's report or a CI log only as data, and the
+successor's brief intake files every sentence under its rule headings as
+a rule row, which can only restrict what the successor does and grants no
+step. Nothing in the mode copies a worker's output into the brief. The
+coordinator also mustn't paste a credential into it: `render-brief.sh`
+refuses a UUID-shaped token, but nothing scans for other secrets, so a
+pasted secret would land in the brief file and the successor's
+transcript. That's residual risk the brief template's guidance covers,
+not a check this design adds.
+
+The context key `successor_input.json` lives in the coordinator's own
+koto session, which only that session and its own scripts write; the
+mode reads it from there and nowhere else. The brief file is written as
+every brief is, through a temporary file in the same directory and a
+rename, so a reader never sees half a brief; the run lock is created with
+bash's noclobber (one exclusive create), as the worker's per-topic lock
+is. Both live in the workspace's `.niwa/dispatch-briefs/` directory,
+which the workspace owns.
+
+Successors don't chain without bound in any way this design adds. Each
+successor takes the run over and fences its predecessor, and only one
+can be pending at a time, so at most one coordinator drives the run and
+at most one more is on its way. How often a coordinator hands over stays
+its handover rules' call, which this design leaves as they are.
 
 No dependency is added. The successor runs the workspace's installed
 plugin and niwa binary, as a worker does. An older plugin that meets a
 record holding the `successor` row refuses it rather than reading it,
 which fails closed. The re-recorded `gate_scripts` digest in
-`coordinate.compat.json` is the integrity record for the gate scripts and
-is reviewed with the change.
+`coordinate.compat.json` isn't an integrity control, since the same
+change that edits the scripts records it; it makes CI fail a later gate
+script change that isn't recorded, and a reviewer reads it with the
+change.
 
 ## Consequences
 
@@ -857,15 +923,37 @@ is reviewed with the change.
 
 ### Mitigations
 
-- The `wait` pointer, the reconcile report's pending-row line and the
-  mode's own messages keep the trigger in front of the coordinator; a new
-  `handover` state can follow beside an unrelated compat raise.
-- A successor's instance runs the workspace's installed plugin, which is
-  at least as new as its predecessor's in practice; the takeover refuses
-  rather than reading a record it can't parse.
-- The mode shares the worker's lock, launch and confirm code, so it adds a
-  branch rather than a second copy.
-- The worker path's refusal names `--successor` and the input to write.
-- Exit 13's message names the one write that clears it.
-- The reconcile report names the pending row, and the arriving
-  successor's takeover entry says which run it continued.
+Each mitigation answers the negative in the same position above.
+
+- **Prose trigger.** The `wait` pointer, the reconcile report's
+  pending-row line and the mode's own messages keep the trigger in front
+  of the coordinator; a `handover` state can follow beside an unrelated
+  compat raise.
+- **Older plugin.** A successor's instance runs the workspace's installed
+  plugin, which is at least as new as its predecessor's in practice; the
+  takeover refuses rather than reading a record it can't parse.
+- **A longer script.** The mode shares the worker's lock, launch and
+  confirm code, so it adds a branch rather than a second copy.
+- **The worker path's new refusal.** Its message names `--successor` and
+  the input to write.
+- **Exit 13.** Its message names the one write that clears it.
+- **A hand-started rotation.** The reconcile report names the pending
+  row, and the arriving successor's takeover entry says which run it
+  continued.
+
+### Follow-ups
+
+None of these blocks the PRD's acceptance criteria.
+
+- A discipline successor refusing a predecessor opened from an older
+  template (#1860), which follows this work.
+- A `handover` template state that runs the same `--successor` mode, if
+  coordinators are seen skipping the prose trigger, made only beside a
+  compat raise taken for another reason.
+- Whether exit 13 should become a warning, if it's seen refusing
+  handovers that were ready.
+- A discipline route for lanes, which the named-roles design deferred and
+  this design doesn't add: a lane a coordinator dispatches stays a roadmap
+  manager.
+- The merge seat's teardown step and the coordinator handoff brief's
+  text, both held for a ruling; this design changes neither.
