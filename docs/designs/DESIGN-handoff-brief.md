@@ -623,10 +623,23 @@ Read access follows the koto backend: anyone who can read a session's
 backend can read its brief and its inline files, and a session name such as
 `handoff-<job-id>` is not a secret. That is a change from today, when scratch
 stays on its host and dies with the instance. R1 and R4 ask for it, since a
-small named file has to cross hosts to be useful, but whether inline files
-should travel by default or only when a brief asks for it is a question for
-the owner, which this design raises and doesn't settle. Until it's ruled, the
-design follows R4 as written.
+small named file has to cross hosts to be useful.
+
+Whether a named file travels by default or only when a brief asks is settled
+here, not left open: it travels once named. Two facts make that a design call
+rather than a new requirement. koto's backend is local unless a host or
+workspace turns cloud sync on, and once it's on every context key syncs, so
+the workspace has already chosen whether anything leaves the host. And a file
+travels only when the session names it, so naming it is the request. A
+second, opt-in flag would turn every small file a model forgot to flag into a
+by-reference entry, which under the interim rule (R6) holds the instance and
+hands nothing across hosts, while the file it does send passes the same scan.
+A per-file opt-out has the same cost and gives nothing a session can't get by
+not naming the file; it can come back once the kept set exists and by
+reference no longer means a hold. Keeping files on their host whatever the
+backend would change R1, R4 and R6, which is a requirements change and not
+this design's. The reference doc says the backend decides whether a named
+file leaves the host.
 
 The script writes in three places: `handover/` keys in its own session, the
 keep record in `<instance>/.niwa/` (with the protections Decision 2 lists),
@@ -655,8 +668,8 @@ context reader prints one integer from a transcript and nothing else. The
 compaction hook ignores its stdin, prints fixed text, and exits 0 on every
 path, and the note it asks for goes through `note`, which runs the same scan.
 The residual risks are the limits of a pattern scan, the backend's retention
-of synced keys, which koto owns, the read and write trust placed in whoever
-can reach the koto backend, and the owner question above.
+of synced keys, which koto owns, and the read and write trust placed in
+whoever can reach the koto backend.
 
 ## Consequences
 
@@ -683,9 +696,9 @@ can reach the koto backend, and the owner question above.
 
 - The interim rule makes the by-reference case a hold, which is safe, and the
   reference doc says to keep named scratch small.
-- File content in koto keys is limited to scratch files at or below 256 KiB,
-  and whether it travels by default is raised to the owner rather than
-  assumed.
+- File content in koto keys is limited to named scratch files at or below
+  256 KiB, and it leaves the host only when the workspace has turned koto's
+  cloud sync on, which the reference doc states.
 - The scratch-only rule, the name patterns and the token scan refuse the
   common cases, and the reference doc says the scan has holes and that a
   missed credential is rotated before its key is removed.
