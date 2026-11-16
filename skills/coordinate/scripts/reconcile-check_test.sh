@@ -530,11 +530,14 @@ pool_case() {
     for k in 1 2 3; do printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.$k"; done
     mktree "$R3" "$M3"
 }
+# 60s is the script's clamp maximum, so a loaded runner can't push these reads past it (shirabe#1871).
+DL=60
 pool_case inventory-serial
 SER=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I3" | jq -c 'del(.read_at)')
 pool_case inventory-pool
 POOL=$(run inventory --path "$I3" | jq -c 'del(.read_at)')
 if [ -n "$SER" ] && [ "$SER" = "$POOL" ]; then ok "the pool lists what a serial read does"; else bad "the pool lists what a serial read does" "serial: $SER | pool: $POOL"; fi
+unset DL
 
 # The default branch's tree is read only when something is compared with it
 # (shirabe#750): never for a clean clone, once for one with a changed file,
@@ -715,6 +718,8 @@ new_case inventory-parallel
 # moved-tag is on the remote at main; the clone has it on side's commit.
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n%s\trefs/tags/moved-tag\n' "$M12" "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
 mktree "$R12" "$M12"
+# 60s is the script's clamp maximum, so a loaded runner can't push these reads past it (shirabe#1871).
+DL=60
 ser=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I12" | jq -c .items)
 par=$(run inventory --path "$I12" | jq -c .items)
 par2=$(RECONCILE_INV_PARALLEL=2 run inventory --path "$I12" | jq -c .items)
@@ -726,6 +731,17 @@ expect "a moved tag is listed" '[.[] | .path] | index("tag moved-tag") != null' 
 expect "a tag at a live id is not listed" '[.[] | .path] | index("tag live-tag") == null' "$par"
 walk=$(RECONCILE_TIP_LOOKUP=0 run inventory --path "$I12" | jq -c .items)
 [ "$walk" = "$par" ] && ok "the tip lookup lists what walking every tip lists" || bad "the tip lookup lists what walking every tip lists" "walk $walk | lookup $par"
+# A read that runs past its deadline lists its clone unchecked, so the listing
+# comparisons above hold only while no read is late. A loaded runner can make
+# one late (shirabe#1871). Here the first refs read of the same fixture takes
+# 7s, as a slow runner might, and the default waves must still list what the
+# serial read did.
+new_case inventory-parallel-late
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n%s\trefs/tags/moved-tag\n' "$M12" "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
+mktree "$R12" "$M12"
+echo 7 > "$CASE/ls-remote.sleep.1"
+late=$(run inventory --path "$I12" | jq -c .items)
+[ "$ser" = "$late" ] && ok "the default waves list what a serial read lists, one clone's read taking 7s" || bad "the default waves list what a serial read lists, one clone's read taking 7s" "serial $ser | late $late"
 
 # The cap on GitHub compare reads binds: three clones of sixteen tips each,
 # against a remote main none of them has, so every tip asks one compare read
@@ -752,6 +768,7 @@ for par in 1 8; do
         [ "$n" = 40 ] && ok "compare cap, serially: the whole cap is spent" || bad "compare cap, serially: the whole cap is spent" "$n"
     fi
 done
+unset DL
 
 I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
 git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git
