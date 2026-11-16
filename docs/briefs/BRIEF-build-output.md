@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A /work-on run that verifies a compiled-language change leaves its build
   tree in the worktree, and nothing in the workflow ever removes it. Teams
@@ -24,7 +24,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 The framing covers the shirabe side (a repo's declaration and an opt-in
 cleanup at the end of a run) and one setting on koto's own verification
