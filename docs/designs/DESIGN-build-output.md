@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A finished /work-on run leaves the build tree its verification commands
   wrote in the worktree, and no work-on state removes it. A repo has no place
@@ -31,7 +31,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
