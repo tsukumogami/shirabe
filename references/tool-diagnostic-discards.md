@@ -470,6 +470,9 @@ skills/deliver/scripts/deliver-open.sh	if ! jq -s -e 'length == 1 and (.[0] | ty
 skills/deliver/scripts/deliver-open.sh	elif ! "$KOTO" context add "$session" review_round.json <"$ROUND_FILE" >/dev/null 2>&1; then	1	non-zero	A failed write of the carried round is reported as the one warning naming the session and review-round.sh, and the open goes on with its stdout and exit unchanged; koto's own text would be a second stderr line for the same failure.	shirabe#1367
 skills/coordinate/scripts/coord-log.sh	if CANON=$(jq . "$CUR_MANIFEST" 2>/dev/null) && [ "$CANON" = "$(cat "$CUR_MANIFEST" 2>/dev/null)" ]; then	1	2,5	chain-start's read of a member's local context manifest is only a shortcut: a missing or unreadable manifest (2) or one jq can't parse (5) leaves the predecessor unset, and the hop falls back to koto's own listing, which reads or refuses the manifest and dies with its own message.	shirabe#1548
 skills/coordinate/scripts/state-holding.sh	if ! JNAME=$(jq -er '.name | strings' "$JF" 2>/dev/null); then	1	2,4,5	Retiring a dispatch-failed holding reads each Claude job state file's name: a file that can't be read (2), has no string name (4) or isn't JSON (5) could be the topic's worker, so the retire refuses with exit 65 naming the job; jq's own text would be a second stderr line for the same refusal.	shirabe#1612
+# shirabe#1910 -- --reroot-plan asks whether the run was rebound into this
+# checkout. A session bound to a directory that is not a git checkout is not.
+skills/execute/scripts/record-coord-setup.sh	exec_dir=$(git -C "$exec_dir" rev-parse --show-toplevel 2>/dev/null) || return 1	1	128	A session whose execution_dir isn't a git checkout, such as a workspace root, isn't bound here, and that keep is meant to be quiet; the recorded plan_abs is kept and the caller prints plan_abs=kept.	shirabe#1910
 ```
 
 ## Running the scan
