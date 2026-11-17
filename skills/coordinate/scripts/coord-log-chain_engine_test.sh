@@ -40,10 +40,13 @@
 #     unbounded walk's alone; --back-to stops at the first run that started
 #     at or before its minute, with no hop when S's own start is; --deadline
 #     0 makes one hop a call, and --from resumes each cursor to the unbounded
-#     walk's start; the seen list and the 1024-run cap hold across a resume;
-#     and a cursor for another session, or whose hops, start, member or seen
-#     list is wrong, is refused with 64, as are a bad --back-to and
-#     --deadline.
+#     walk's start, through a member whose name starts with a digit; the seen
+#     list and the 1024-run cap hold across a resume; on a chain whose clock
+#     ran back, a bounded walk prints the earliest start it met, across a
+#     resume too, while the unbounded walk's output is unchanged; and a
+#     cursor for another session, or whose hops, start, earliest start,
+#     member or seen list is wrong, is refused with 64, each case named by
+#     its rule, as are a bad --back-to and --deadline.
 #
 # Every session lives in a scratch HOME and KOTO_HOME (koto-test-guard.sh
 # clears every KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME first).
@@ -406,10 +409,13 @@ fi
 
 echo "== a bounded walk: --back-to, --deadline and --from (shirabe#1548) =="
 # A five-run chain of takeovers, a day apart: bw-0 on 2026-11-01 to bw-4 on
-# 2026-11-05.
-if needs_takeover "--back-to stops early and at zero hops; --deadline 0 and --from resume hop by hop to the unbounded walk's start; the cycle and 1024-run rules across resumes; a bad cursor is refused; no flag changes nothing"; then
-    open bw-0 && takeover bw-1 bw-0 && takeover bw-2 bw-1 && takeover bw-3 bw-2 && takeover bw-4 bw-3
-    for i in 0 1 2 3 4; do stamp "bw-$i" "2026-11-0$((i + 1))T00:00:00.000Z"; done
+# 2026-11-05. The fourth run's name, 3bw, starts with a digit, as koto lets a
+# session name start, so the resume loop below hands back a cursor whose
+# member and seen list hold one.
+if needs_takeover "--back-to stops early and at zero hops; --deadline 0 and --from resume hop by hop to the unbounded walk's start, through a digit-led member; the earliest start met is held across resumes; the cycle and 1024-run rules across resumes; a bad cursor is refused; no flag changes nothing"; then
+    open bw-0 && takeover bw-1 bw-0 && takeover bw-2 bw-1 && takeover 3bw bw-2 && takeover bw-4 3bw
+    i=0
+    for m in bw-0 bw-1 bw-2 3bw bw-4; do stamp "$m" "2026-11-0$((i + 1))T00:00:00.000Z"; i=$((i + 1)); done
     walk() { bash "$CL" chain-start --session "$@" 2>"$T/chain.err"; }
 
     OUT=$(walk bw-4); RC=$?
@@ -437,30 +443,65 @@ if needs_takeover "--back-to stops early and at zero hops; --deadline 0 and --fr
     done
     eq "--deadline 0 and --from walk hop by hop to the unbounded walk's start" "0 2026-11-01T00:00:00.000Z" "$RC $OUT"
     eq "  ... one hop a call, four calls stopped and a fifth that ends" "5 1 2 3 4" "$n $(for c in "${CURS[@]}"; do printf '%s ' "${c%% *}"; done | sed 's/ $//')"
-    eq "  ... the cursor naming the hops, the start, the member and the runs seen" \
-        "2 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" "${CURS[1]}"
+    eq "  ... the first cursor naming the digit-led member it reached" \
+        "1 2026-11-04T00:00:00.000Z 2026-11-04T00:00:00.000Z 3bw bw-4 3bw" "${CURS[0]}"
+    eq "  ... the cursor naming the hops, the start, the earliest start, the member and the runs seen" \
+        "2 2026-11-03T00:00:00.000Z 2026-11-03T00:00:00.000Z bw-2 bw-4 3bw bw-2" "${CURS[1]}"
     OUT=$(walk bw-4 --deadline 0 --back-to 2026-11-03T00:00Z --from "${CURS[0]}"); RC=$?
     eq "--back-to holds on a resumed walk, ending it before the deadline is asked" "0 2026-11-03T00:00:00.000Z" "$RC $OUT"
     OUT=$(walk bw-4 --back-to 2026-11-03T00:00Z --from "${CURS[1]}"); RC=$?
     eq "  ... and a resume already at its bound makes no hop" "0 2026-11-03T00:00:00.000Z" "$RC $OUT"
     # The seen list carries across a resume: bw-2's predecessor bw-1 is in it.
-    OUT=$(walk bw-4 --from "2 2026-11-07T00:00:00.000Z bw-2 bw-4 bw-1 bw-2"); RC=$?
-    eq "a run the resumed walk has seen ends it, as in one call" "0 2026-11-07T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk bw-4 --from "2 2026-11-03T00:00:00.000Z 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-1 bw-2"); RC=$?
+    eq "a run the resumed walk has seen ends it, as in one call" "0 2026-11-03T00:00:00.000Z" "$RC $OUT"
     LIST=bw-4 i=1
     while [ "$i" -lt 1024 ]; do LIST="$LIST x$i"; i=$((i + 1)); done
-    OUT=$(walk bw-4 --from "1024 2026-11-08T00:00:00.000Z bw-1 $LIST bw-1"); RC=$?
-    eq "a resumed walk at 1024 runs stops there" "0 2026-11-08T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk bw-4 --from "1024 2026-11-02T00:00:00.000Z 2026-11-02T00:00:00.000Z bw-1 $LIST bw-1"); RC=$?
+    eq "a resumed walk at 1024 runs stops there, short of bw-0" "0 2026-11-02T00:00:00.000Z" "$RC $OUT"
 
-    for bad in "bw-3:${CURS[1]}" "bw-4:1025 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" \
-               "bw-4:3 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" "bw-4:2 2026-11-03T00:00:00.000Z bw-3 bw-4 bw-3 bw-2" \
-               "bw-4:02 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" "bw-4:2 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-2 bw-2" \
-               "bw-4:2 yesterday bw-2 bw-4 bw-3 bw-2" "bw-4:2 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2 " \
-               "bw-4:2 2026-11-03T00:00:00.000Z bw-2 bw-4 b\$w bw-2"; do
-        walk "${bad%%:*}" --from "${bad#*:}" > /dev/null; RC=$?
-        eq "a cursor for another session, or with bad hops, is refused: [${bad}]" 64 "$RC"
+    # Each refusal names the rule the cursor breaks: "<rule>|<session>|<cursor>".
+    C=2026-11-03T00:00:00.000Z
+    for bad in "a seen list not starting at the session walked|3bw|${CURS[1]}" \
+               "a hop count over 1024|bw-4|1025 $C $C bw-2 bw-4 3bw bw-2" \
+               "a hop count that isn't the seen list's length|bw-4|3 $C $C bw-2 bw-4 3bw bw-2" \
+               "a member that isn't the last run seen|bw-4|2 $C $C 3bw bw-4 3bw bw-2" \
+               "a hop count with a leading zero|bw-4|02 $C $C bw-2 bw-4 3bw bw-2" \
+               "a run seen twice|bw-4|2 $C $C bw-2 bw-4 bw-2 bw-2" \
+               "a start that isn't a time|bw-4|2 yesterday $C bw-2 bw-4 3bw bw-2" \
+               "an earliest start that isn't a time|bw-4|2 $C yesterday bw-2 bw-4 3bw bw-2" \
+               "a trailing space|bw-4|2 $C $C bw-2 bw-4 3bw bw-2 " \
+               "a name koto can't hold|bw-4|2 $C $C bw-2 bw-4 b\$w bw-2" \
+               "a name starting with a dot|bw-4|2 $C $C bw-2 bw-4 .3bw bw-2" \
+               "a start that isn't the member's own created_at|bw-4|2 2026-11-04T00:00:00.000Z 2026-11-04T00:00:00.000Z bw-2 bw-4 3bw bw-2" \
+               "an earliest start after the start|bw-4|2 $C 2026-11-04T00:00:00.000Z bw-2 bw-4 3bw bw-2" \
+               "no hop made and an earliest start other than the start|bw-4|0 2026-11-05T00:00:00.000Z 2026-11-04T00:00:00.000Z bw-4 bw-4"; do
+        rule=${bad%%|*} rest=${bad#*|}
+        walk "${rest%%|*}" --from "${rest#*|}" > /dev/null; RC=$?
+        eq "a cursor with $rule is refused" 64 "$RC"
     done
     walk bw-4 --back-to yesterday > /dev/null; eq "a --back-to that isn't a time is refused" 64 $?
     walk bw-4 --deadline -1 > /dev/null; eq "a --deadline that isn't a whole number is refused" 64 $?
+
+    # A clock that ran back: sk-1 started before sk-0, the run it took over.
+    # The bounded walk holds the earliest start it met, 11-08, not the last,
+    # sk-0's 11-10, which the unbounded walk still prints, and it holds it
+    # across a resume.
+    open sk-0 && takeover sk-1 sk-0 && takeover sk-2 sk-1
+    stamp sk-0 2026-11-10T00:00:00.000Z
+    stamp sk-1 2026-11-08T00:00:00.000Z
+    stamp sk-2 2026-11-12T00:00:00.000Z
+    OUT=$(walk sk-2); RC=$?
+    eq "with no flag, a chain whose clock ran back prints its last run's start, as before" "0 2026-11-10T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk sk-2 --back-to 2026-11-07T00:00Z); RC=$?
+    eq "--back-to prints the earliest start the walk met" "0 2026-11-08T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk sk-2 --back-to 2026-11-09T00:00Z); RC=$?
+    eq "  ... and stops at it once that is at or before the bound" "0 2026-11-08T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk sk-2 --back-to 2026-11-07T00:00Z --deadline 0); RC=$?
+    OUT=$(walk sk-2 --back-to 2026-11-07T00:00Z --deadline 0 --from "${OUT#partial }"); RC=$?
+    eq "  ... the cursor keeping it past a later start" \
+        "3 2 2026-11-10T00:00:00.000Z 2026-11-08T00:00:00.000Z sk-0 sk-2 sk-1 sk-0" "$RC ${OUT#partial }"
+    OUT=$(walk sk-2 --back-to 2026-11-07T00:00Z --from "${OUT#partial }"); RC=$?
+    eq "  ... and the resume printing it" "0 2026-11-08T00:00:00.000Z" "$RC $OUT"
 fi
 
 echo "== reads that fail =="

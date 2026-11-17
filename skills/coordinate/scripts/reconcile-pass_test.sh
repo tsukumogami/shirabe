@@ -225,18 +225,25 @@ case "$cmd" in
             starts=(2026-09-27T00:00:00Z)
             [ -s "$STUB_DIR/chain-start" ] && starts+=("$(cat "$STUB_DIR/chain-start")")
         fi
+        # The cursor is "<hops> <start> <earliest> <member> <seen...>".
         i=0 start=${starts[0]} moved=0
-        if [ -n "$FROM" ]; then i=${FROM%% *}; r=${FROM#* }; start=${r%% *}; fi
+        if [ -n "$FROM" ]; then i=${FROM%% *}; r=${FROM#* }; start=${r%% *}; r=${r#* }; least=${r%% *}; else least=$start; fi
         t0=$(clock)
-        while [ $((i + 1)) -lt "${#starts[@]}" ]; do
-            [ -n "$BACK" ] && ! [[ ${start:0:16} > ${BACK:0:16} ]] && break
+        # In coord-log.sh's order: the bound, then the deadline, and only
+        # then whether a run is left, so a deadline can stop a call that has
+        # no hop left, as the real walk learns that only once it reads the
+        # member's links.
+        while :; do
+            [ -n "$BACK" ] && ! [[ ${least:0:16} > ${BACK:0:16} ]] && break
             if [ -n "$DL" ] && [ "$moved" = 1 ] && [ $(( $(clock) - t0 )) -ge "$DL" ]; then
                 seen=$S j=1
                 while [ "$j" -le "$i" ]; do seen="$seen m$j"; j=$((j + 1)); done
-                printf 'partial %s %s %s %s\n' "$i" "$start" "${seen##* }" "$seen"
+                printf 'partial %s %s %s %s %s\n' "$i" "$start" "$least" "${seen##* }" "$seen"
                 exit 3
             fi
+            [ $((i + 1)) -lt "${#starts[@]}" ] || break
             i=$((i + 1)); start=${starts[$i]}; moved=1
+            if [[ ${start:0:16} < ${least:0:16} ]]; then least=$start; fi
             echo "$i" >> "$STUB_DIR/hops"
             if [ -f "$STUB_DIR/hop.cost" ]; then
                 tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
@@ -244,7 +251,9 @@ case "$cmd" in
                 [ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
             fi
         done
-        printf '%s\n' "$start" ;;
+        # A bounded walk prints the earliest start it met, an unbounded one
+        # the last, as coord-log.sh does.
+        if [ -n "$BACK" ]; then printf '%s\n' "$least"; else printf '%s\n' "$start"; fi ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
     *) exit 64 ;;
@@ -771,6 +780,8 @@ ticks 4
 check "a carried run at the end of a 107-run chain seals its visit within four ticks" $? "after $TICKS ticks: [$LINE] $(tail -3 "$CASE/stderr")"
 eq "  ... with no tick killed at koto's 30-second limit" 0 "$KILLS"
 eq "  ... and no chain walked: no deferral carries a time before the run start" 0 "$(grep -c '^coord-log chain-start' "$CASE/log")"
+eq "  ... the sealed report keeping the run start as the chain start, with no bound" \
+    '{"start":"2026-09-27T00:00:00Z","back_to":null}' "$(ctx reconcile/report.json | jq -c .chain)"
 
 new_case long-chain-later-carry
 record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-27T00:30Z: this run"}]'
@@ -793,6 +804,8 @@ eq "  ... the record read once, the later ticks trusting the work file" 1 "$(gre
 eq "  ... each of the 106 hops made once" "106 106" "$(wc -l < "$CASE/hops" | tr -d ' ') $(sort -u "$CASE/hops" | wc -l | tr -d ' ')"
 eq "  ... the deferral re-checked once, after the walk" 1 "$(grep -c ' deferral ' "$CASE/checks")"
 grep -q -- "--chain-start $EARLIEST" "$CASE/checks"; check "  ... against the start of the chain's first run" $? "$(cat "$CASE/checks")"
+eq "  ... which the sealed report keeps, with the carry's minute as its bound" \
+    "$(jq -nc --arg s "$EARLIEST" '{start: $s, back_to: "2026-09-01T00:00"}')" "$(ctx reconcile/report.json | jq -c .chain)"
 # The first tick's progress, as it was left: the walk then unfinished.
 new_case long-chain-progress
 record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-08-30T10:00Z","disposition":"carried 2026-09-01T00:00Z: long ago"}]'
@@ -812,10 +825,8 @@ ticks 1
 check "a carry three runs back seals in one tick" $? "[$LINE] $(tail -3 "$CASE/stderr")"
 eq "  ... the walk bounded by it to three hops" 3 "$(wc -l < "$CASE/hops" | tr -d ' ')"
 grep -q -- '--chain-start 2026-09-26T21:00:00Z' "$CASE/checks"; check "  ... the carry judged against the start of the run it stopped at" $? "$(cat "$CASE/checks")"
-
-# The pass bounds its walk with the pattern deferral-check.sh judges a carry by.
-eq "reconcile-pass.sh's carry pattern is deferral-check.sh's" \
-    "$(sed -n "s/^RE_CARRIED='\(.*\)'$/\1/p" "$HERE/deferral-check.sh")" "$(sed -n "s/^RE_CARRIED='\(.*\)'$/\1/p" "$P")"
+eq "  ... and the sealed report keeping that start and the minute it holds for" \
+    '{"start":"2026-09-26T21:00:00Z","back_to":"2026-09-26T21:30"}' "$(ctx reconcile/report.json | jq -c .chain)"
 
 echo "== the report reader =="
 new_case getter

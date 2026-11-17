@@ -61,6 +61,12 @@
 #   reconciled_at  <ISO time the pass finished>
 #   plugin_root    optional: inside|outside|unknown, where the scripts that
 #                  ran sit relative to the repository being worked on
+#   chain          optional: {start, back_to}, the chain start the pass
+#                  judged the deferrals' carries against (coord-log.sh
+#                  chain-start) and the minute (YYYY-MM-DDTHH:MM) its
+#                  bounded walk went back to, which a carry at or after it is
+#                  judged by; back_to null when the start is the run start,
+#                  no carry dating before it
 #   holdings[]     one per Holdings row:
 #     source       optional: record|handoff, for a discipline start that
 #                  mixes its predecessor's rows with its own
@@ -159,6 +165,11 @@
 #                  (filed #<n>, closed, carried <time>, raised this run)
 #   reasoning      {status, key} or null
 #   not_verified[] {what, reason, raw}
+#   chain          the facts' chain, {start, back_to}, as given, present only
+#                  when the facts hold one whose start is a string and whose
+#                  back_to is a string or null. It is not rendered: the pass
+#                  seals it so deferral-check.sh can take the chain start
+#                  from the sealed report rather than walk the chain again.
 #
 # Phase. A row's `phase` value decides it, matched whole and ignoring case:
 # "scoping" or "scoping-ahead" is scoping ahead, "executing" is executing,
@@ -495,6 +506,11 @@ def changes_of($written):
       + [$in.side_effects[]? | select((.fact.status // "ok") != "ok")
           | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}])
   }
+  # The chain facts the deferrals were judged against, carried for the later
+  # readers of the seal; a facts document without them gets no key, so its
+  # report reads as it did before.
+  + ($in.chain | if type == "object" and (.start | type == "string") and (.back_to == null or (.back_to | type == "string"))
+                 then {chain: {start, back_to}} else {} end)
 | .waiting = (
     [.holdings[] | select(.next_code == "land" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])

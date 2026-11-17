@@ -9,6 +9,8 @@
 # name reaches the report; an imported run's facts (record.import) reach the
 # header and one sentence naming the source session, workspace and template
 # hash (PRD R14 names them in every report up), and a malformed one is dropped.
+# The facts' chain ({start, back_to}) reaches the report unrendered, only
+# when well formed, and facts without one give a report without the key.
 # The record line (docs/designs/DESIGN-coordinator-named-roles.md, Decision 3):
 # the line mode prints it from {session, host, address, role}, with the
 # address clause only for an address that differs from the session, matching
@@ -524,6 +526,24 @@ Scope: injected"; do
 done
 printf '%s' "$REP" | "$BASH" "$S" md --record-line >/dev/null 2>&1; rl_eq "  ... and a --record-line with no value" 64 $?
 printf '%s' "$REP" | "$BASH" "$S" json --record-line "$LINE3" >/dev/null 2>&1; rl_eq "json takes no --record-line (64)" 64 $?
+
+echo "== the chain facts (shirabe#1548) =="
+# chain_report <chain-json>: the report's chain key, or `absent`.
+chain_report() { facts '[]' | jq -c --argjson c "$1" '.chain = $c' | report | jq -c 'if has("chain") then .chain else "absent" end'; }
+got=$(chain_report '{"start":"2026-09-20T08:00:00Z","back_to":"2026-09-21T07:30"}')
+[ "$got" = '{"start":"2026-09-20T08:00:00Z","back_to":"2026-09-21T07:30"}' ] \
+  && ok "the facts' chain reaches the report as given" || bad "the facts' chain reaches the report as given" "$got"
+got=$(chain_report '{"start":"2026-09-26T08:00:00Z","back_to":null,"extra":1}')
+[ "$got" = '{"start":"2026-09-26T08:00:00Z","back_to":null}' ] \
+  && ok "  ... a null back_to too, and nothing beyond start and back_to" || bad "  ... a null back_to too, and nothing beyond start and back_to" "$got"
+got=$(facts '[]' | report | jq -c 'if has("chain") then .chain else "absent" end')
+[ "$got" = '"absent"' ] && ok "facts with no chain give a report with no chain key" || bad "facts with no chain give a report with no chain key" "$got"
+for c in '{"start":null,"back_to":null}' '{"start":"2026-09-26T08:00:00Z","back_to":5}' '"2026-09-26T08:00:00Z"'; do
+    got=$(chain_report "$c")
+    [ "$got" = '"absent"' ] && ok "a malformed chain is dropped: $c" || bad "a malformed chain is dropped: $c" "$got"
+done
+facts '[]' | jq -c '.chain = {start: "2026-09-26T08:00:00Z", back_to: null}' | render | grep -q '2026-09-26T08:00:00Z' \
+  && bad "the chain is not rendered" || ok "the chain is not rendered"
 
 echo "== purity =="
 EMPTYBIN=$(mktemp -d) || exit 1

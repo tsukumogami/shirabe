@@ -57,7 +57,11 @@
 # the time left before the 24-second mark (coord-log.sh's --back-to,
 # --deadline and --from), saving its cursor or, once it ends, the start it
 # reached. No deferral re-check starts before then, and the visit stays
-# pending until they are done.
+# pending until they are done. The sealed report keeps what the walk found,
+# chain: {start, back_to}, back_to the minute the start holds for, or null
+# when the start is the run start and nothing was walked, so dispatch_check,
+# which a run reaches only after this state seals, can take the start from
+# the report instead of walking again (deferral-check.sh).
 #
 # The work file, <session-dir>/coordinate-reconcile/visit.json, is trusted
 # only when its sha256 is the one this state's last engine-logged output
@@ -166,31 +170,6 @@ ctx_rm() {
     HAVE=${HAVE/ $1 / }
 }
 ctx_rm_all() { local k; for k in progress refusal report.json report.md reasoning.md; do ctx_rm "reconcile/$k"; done; }
-
-# A carry's disposition: deferral-check.sh's RE_CARRIED, the pattern its
-# judge_row reads a carry with. Change the two together.
-RE_CARRIED='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z)( until ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z))?: (.+)$'
-# carry_bound RECORD RUN_START_MINUTE -- the earliest minute of a carry dated
-# before the run start among the record's deferral rows, or nothing. judge_row
-# compares a carry's minute with the chain start, which is no later than the
-# run start, so a carry at or after the run start is never before it, and
-# only an earlier one needs the walk. Each Disposition is read as judge_row
-# reads it: trailing newlines dropped, as its command substitution drops them,
-# and any other newline made a character the pattern's `.` still matches. A
-# time judge_row would find malformed only makes the walk longer.
-carry_bound() {
-    local lines d m b=
-    lines=$(printf '%s' "$1" | jq -r 'def chomp: if endswith("\n") then .[:-1] | chomp else . end;
-        (.deferrals // [])[] | .row | (if type == "object" then .disposition // "" else "" end)
-        | tostring | chomp | gsub("\n"; "\u0001")') || return 1
-    while IFS= read -r d; do
-        [[ $d =~ $RE_CARRIED ]] || continue
-        m=${BASH_REMATCH[1]:0:16}
-        [[ $m < $2 ]] || continue
-        { [ -z "$b" ] || [[ $m < $b ]]; } && b=$m
-    done <<< "$lines"
-    printf '%s' "$b"
-}
 
 T0=$(now) || exit 1
 W="$SDIR/coordinate-reconcile"
@@ -306,8 +285,10 @@ if [ -z "$WJ" ]; then
     # the run start can be before it; with none, the run start serves for
     # every row of this record and nothing is walked. Otherwise the chain
     # start is left null, and the walk below finds it, bounded by the
-    # earliest such carry's minute.
-    BOUND=$(carry_bound "$REC" "${RUN_START:0:16}") || die "the record's deferrals can't be read"
+    # earliest such carry's minute (state-read.sh's rs_carry_bound, the bound
+    # deferral-check.sh puts on its own walk).
+    BOUND=$(printf '%s' "$REC" | jq -c '[(.deferrals // [])[] | .row]' | rs_carry_bound "${RUN_START:0:16}") \
+        || die "the record's deferrals can't be read"
     # Where the scripts sit relative to the repository being worked on.
     PR_ROOT=$(cd "$HERE/../../.." && pwd -P)
     TOP=$(rd_git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd "$TOP" && pwd -P) || TOP=""
@@ -329,11 +310,12 @@ fi
 # time left before the 24-second mark, with coord-log.sh's own deadline a few
 # seconds under that so the step ends on its own and leaves a cursor the
 # next pass resumes from. The walk goes back no further than the bound the
-# record read set (--back-to). Starts only get earlier along the chain, so
-# for every carry in this record, all dated at or after the bound, being
-# before the start of the run the walk stops at is being before the chain
-# start. A step cut at the hard deadline changes nothing, and the next pass
-# takes the same step again; the record read stays saved either way.
+# record read set (--back-to). Under coord-log.sh's precondition for that
+# bound, that no run in the chain started before the run it continues, for
+# every carry in this record, all dated at or after the bound, being before
+# the start the walk prints is being before the chain start. A step cut at
+# the hard deadline changes nothing, and the next pass takes the same step
+# again; the record read stays saved either way.
 CHAIN_KNOWN=1
 if [ "$(wj -r '.chain_start == null')" = true ]; then
     CHAIN_KNOWN=0
@@ -341,8 +323,9 @@ if [ "$(wj -r '.chain_start == null')" = true ]; then
     CB=$((READS_END - (tw - T0)))
     if [ "$CB" -ge 2 ]; then
         SOFT=$((CB - 3)); [ "$SOFT" -lt 0 ] && SOFT=0
+        # The record read set the bound beside the null start, in the work
+        # file whose hash this pass checked.
         BACK=$(wj -r '.chain_back_to // empty')
-        [[ $BACK =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || die "the work file holds no bound for the chain walk"
         CURSOR=$(wj -r '.chain_cursor // empty')
         WALK=(chain-start --session "$SESSION" --back-to "${BACK}Z" --deadline "$SOFT")
         [ -n "$CURSOR" ] && WALK+=(--from "$CURSOR")
@@ -617,6 +600,7 @@ jq -c --arg at "$(iso)" '
       def get($id): if $f[$id] == null then empty else $f[$id] | strip end;
     {schema: "coordinate-reconcile-facts/v1",
      scope: $rec.scope, record: $rec.record, reconciled_at: $at, plugin_root: .plugin_root,
+     chain: {start: .chain_start, back_to: (.chain_back_to // null)},
      decisions: ($rec.decisions // []),
      holdings: [$rec.holdings | to_entries[] | .key as $i | "h\($i)" as $p
        | (if $f["\($p).host2"] != null then ($f["\($p).host2"] | strip | .reads = 2)
