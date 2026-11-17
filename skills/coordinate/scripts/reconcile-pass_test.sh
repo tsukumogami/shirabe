@@ -166,13 +166,15 @@ STUB
 # with ACTION_LIMIT set (pass, below, sets it for a case holding an
 # action-limit file) is killed once the clock passes <case>/limit, its tick's
 # start plus 30, as koto kills an action at its 30-second limit, and whatever
-# it had yet to write is lost. <case>/killed records that it happened.
+# it had yet to write is lost. <case>/killed records that it happened, and the
+# tick's stderr ends with koto's own message for it.
 cat > "$T/limit.sh" <<'STUB'
 action_limit() {
     [ -f "$STUB_DIR/limit" ] || return 0
     [ "$(cat "$CLOCK")" -gt "$(cat "$STUB_DIR/limit")" ] || return 0
     : > "$STUB_DIR/killed"
     kill -KILL "$(cat "$STUB_DIR/pass.pid")" 2>/dev/null
+    echo "command timed out after 30 seconds" >> "$STUB_DIR/stderr"
     exit 137
 }
 STUB
