@@ -262,6 +262,17 @@
 #       messaging address. Returns 0; 1 when no job names the session or its
 #       name isn't a session name.
 #
+#   dc_topic_stopped <claude-home> <topic>
+#       0 when the topic's worker is stopped on this host: at least one
+#       Claude job under <claude-home>/jobs carries the topic's session (its
+#       state file's `name` passes dc_session_matches) and every such job is
+#       finished (dc_job_finished). 1 otherwise: no job for the topic is seen
+#       here (a worker on another host, or none yet), one of them is
+#       unfinished, or a state file that names the topic's slug can't be
+#       read. Only a positive answer frees anything, so every doubt reads as
+#       not stopped. state-common.sh lib_parked counts a stopped holding as
+#       neither active nor parked (shirabe#1419).
+#
 #   dc_session_live <koto-session> <claude-session-id> <session-name>
 #       The liveness probe: 0 when the koto session is live by the
 #       coordinator's definition, 1 when it isn't, printing why either way; 2
@@ -860,6 +871,23 @@ dc_claude_name() {
     name=$(jq -r '.name // "" | strings' "$home/jobs/$job/state.json" 2>/dev/null) || return 1
     [[ $name =~ $DC_RE_SESSION ]] || return 1
     printf '%s\n' "$name"
+}
+
+dc_topic_stopped() {
+    local home="$1" topic="$2" slug f name job seen=0
+    slug=$(dc_niwa_slug "$topic")
+    [ -n "$slug" ] && [ -d "$home/jobs" ] || return 1
+    # A grep for the slug picks the few state files worth parsing, so a large
+    # jobs directory costs one grep per holding rather than one jq per job.
+    while IFS= read -r f; do
+        name=$(jq -r '.name // "" | strings' "$f" 2>/dev/null) || return 1
+        dc_session_matches "$topic" "$name" || continue
+        job=${f%/state.json}
+        job=${job##*/}
+        dc_job_finished "$home" "$job" '{}' > /dev/null || return 1
+        seen=1
+    done < <(grep -lF -- "$slug-" "$home"/jobs/*/state.json 2>/dev/null)
+    [ "$seen" = 1 ]
 }
 
 dc_session_live() {
