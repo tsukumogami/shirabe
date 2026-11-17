@@ -595,11 +595,13 @@ leg, since one leg answers one session.
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
-- `scripts/panel-scope.sh --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed <panel> <session>`
+- `scripts/panel-scope.sh --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed|--promote <panel> <session>`
   — the findings ledger and what a panel round runs. koto runs `--plan` on
   entering `scrutiny`, `review`, `qa_validation` and `light_review`, and
   `--carried`, `--recorded` and `--verdict` as each one's gates; the agent runs
-  `--record` after each round and `--mark-fixed` after committing a fix. A full
+  `--record` after each round, `--mark-fixed` after committing a fix, and
+  `--promote` when a later read confirms an advisory finding is a defect,
+  naming the panel the run is at (the finding may be an earlier panel's). A full
   round spawns every seat; any other round keeps every seat and runs at most one
   re-verifier, which answers the findings the fix made due by id and reviews the
   fix diff once per retry. A panel passes only when every blocking finding is
