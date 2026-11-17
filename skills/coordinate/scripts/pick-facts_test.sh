@@ -48,6 +48,8 @@
 # coordinate.pick.choice fixture's input is a slice, and some carry a long
 # done list. The record is the run's session's; no record issue or pull request
 # is read.
+# A holding whose worker's Claude jobs here are all finished is stopped and
+# holds no slot, draft or waiting on its merge; a live one counts.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail

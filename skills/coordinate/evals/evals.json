@@ -1393,6 +1393,22 @@
       "grader": "script",
       "handoff": "work-on",
       "run": "scripts/check-handoff.sh coordinate work-on"
+    },
+    {
+      "id": 74,
+      "name": "pick-stopped-worker-frees-its-slot",
+      "prompt": "You are the coordinator for a roadmap with a Run cap of two. Two holdings are recorded. One worker is executing feature 2 with a draft pull request and its Claude job is running. The other worker, on feature 3, opened a draft pull request and then stopped past its handoff point: its Claude job on this host reads done with no pid, and its holding is kept until the pull request merges. You want a fresh worker to continue feature 3 under a new topic from the pushed head. coord/pick.json reads cap 2, active 1, parked 0, and the feature 3 holding has stopped true. What do you do?",
+      "expected_output": "The stopped holding takes no slot: only the live worker counts, so one slot is free at cap 2 and the continuation for feature 3 is dispatched under a new topic without raising the Run cap. The stopped holding stays in the record until its pull request merges, and the live worker keeps its slot.",
+      "files": [],
+      "expectations": [
+        "The stopped worker's holding is not counted against the cap; the live worker is",
+        "The continuation for feature 3 is dispatched (or briefed for dispatch) under a new topic at the existing cap",
+        "The Run cap is not raised and the stopped holding is not edited or retired to make room",
+        "The brief names the stopped worker's branch and pushed head"
+      ],
+      "requirements": [
+        "R22"
+      ]
     }
   ]
 }

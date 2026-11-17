@@ -55,8 +55,11 @@
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
 # waiting for its worker's teardown; or a linked pull request GitHub reads
 # merged, when state-common.sh lib_link_merge_frees says its worker has
-# nothing left) or active; only active ones count against the cap. Local
-# agents have no holding and are never counted. The counts sit beside CAP and
+# nothing left), stopped (its worker's Claude jobs on this host are all
+# finished, dispatch-common.sh dc_topic_stopped: kept until its pull request
+# merges, draft or not, with nothing running for it) or active; only active
+# ones count against the cap (shirabe#1419). Local agents have no holding and
+# are never counted. The counts sit beside CAP and
 # PARKED_BOUND from the session's variables, the cap from the record's Run
 # section when it has one.
 #
@@ -107,7 +110,7 @@
 #    units: [{unit, number, title, status, done, blocked,
 #    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
 #    follow_up, verdict_owed, rework, assigned?}], holdings: [{worker, unit, phase,
-#    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
+#    dispatch_status, parked, merged, stopped, pull_request, paused}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound, pauses, go_aheads, paused_all}
 # decisions is the record's unsettled entries (state-decision.sh --list),
@@ -333,11 +336,11 @@ jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "
                      + {follow_up: (row("follow-up"; .unit) | if . == null then null else {after: .who, next: .next} end)}
                      + {verdict_owed: (row("verdict-owed"; .unit) != null)}
                      + {rework: (row("rework"; .unit) | if . == null then null else .next end)}],
-     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request, paused: ($p.covers[.unit] // null)}],
+     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, stopped, pull_request, paused: ($p.covers[.unit] // null)}],
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
                     recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
-     active: ([$h[0][] | select((.parked | not) and (.merged | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
+     active: ([$h[0][] | select((.parked | not) and (.merged | not) and (.stopped | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
      cap: $cap, parked_bound: $pb, pauses: $p.pauses, go_aheads: $p.go_aheads, paused_all: $p.all}' > "$T/pick.json" || lib_die2 "jq failed"
 jq -c -L "$HERE" 'include "pick-slice"; pick_slice' "$T/pick.json" > "$T/pick_slice.json" || lib_die2 "jq failed"
 if [ "$NO_SEAL" != 1 ] && [ -n "$SESSION" ]; then

@@ -21,6 +21,8 @@
 # read (2); the sealed token and its detail; every token in koto's capture
 # alphabet; verdict-owed for a topic whose holding covers a milestone with a
 # verdict-owed row, or that the row names as its Who, and ok for another topic.
+# A holding whose worker's Claude jobs here are all finished holds no slot at
+# the cap, draft or not, while a live one does.
 # The record read once per check (one assembly, record/meta got and never
 # listed), with decision-next judging that read and not a later one. The
 # check's koto calls the same with 3 entries and with 300, no entry read and
