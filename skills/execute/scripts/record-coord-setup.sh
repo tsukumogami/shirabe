@@ -283,9 +283,9 @@ case "$PLAN" in *"
 # session listing that fails.
 reroot_kept_checkout() {
     local here exec_dir listing old_top here_oid old_oid keep
-    here=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+    here=$(git rev-parse --show-toplevel) || return 1
     here=$(CDPATH='' cd "$here" && pwd -P) || return 1
-    listing=$(koto session list </dev/null 2>/dev/null) || {
+    listing=$(koto session list </dev/null) || {
         echo "$PROG: koto session list failed, so whether $SESSION was rebound here can't be read; plan_abs [$OLD_ABS] kept" >&2
         return 1
     }
@@ -301,7 +301,7 @@ reroot_kept_checkout() {
         "$here"/*) ;;
         *) echo "$keep and --plan [$PLAN_ABS] is outside this checkout; kept" >&2; return 1 ;;
     esac
-    old_top=$(git -C "$(dirname -- "$OLD_ABS")" rev-parse --show-toplevel 2>/dev/null) \
+    old_top=$(git -C "$(dirname -- "$OLD_ABS")" rev-parse --show-toplevel) \
         && old_top=$(CDPATH='' cd "$old_top" && pwd -P) || {
         echo "$keep outside a git checkout; kept" >&2
         return 1
