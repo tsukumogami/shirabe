@@ -282,7 +282,7 @@ case "$PLAN" in *"
 # prints one stderr line saying why; before that it keeps quietly, except for a
 # session listing that fails.
 reroot_kept_checkout() {
-    local here exec_dir listing old_top here_head old_head keep
+    local here exec_dir listing old_top here_oid old_oid keep
     here=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
     here=$(CDPATH='' cd "$here" && pwd -P) || return 1
     listing=$(koto session list </dev/null 2>/dev/null) || {
@@ -311,10 +311,10 @@ reroot_kept_checkout() {
         echo "$keep at another path in its checkout than [$PLAN_ABS] here; kept" >&2
         return 1
     }
-    here_head=$(git rev-parse --verify --quiet HEAD) || here_head=""
-    old_head=$(git -C "$old_top" rev-parse --verify --quiet HEAD) || old_head=""
-    [ -n "$here_head" ] && [ "$here_head" = "$old_head" ] || {
-        echo "$keep in a checkout at commit [${old_head:-none}], not this checkout's [${here_head:-none}]; kept" >&2
+    here_oid=$(git rev-parse --verify --quiet HEAD) || here_oid=""
+    old_oid=$(git -C "$old_top" rev-parse --verify --quiet HEAD) || old_oid=""
+    [ -n "$here_oid" ] && [ "$here_oid" = "$old_oid" ] || {
+        echo "$keep in a checkout at commit [${old_oid:-none}], not this checkout's [${here_oid:-none}]; kept" >&2
         return 1
     }
     cmp -s -- "$OLD_ABS" "$PLAN_ABS" || { echo "$keep and differs from [$PLAN_ABS]; kept" >&2; return 1; }
