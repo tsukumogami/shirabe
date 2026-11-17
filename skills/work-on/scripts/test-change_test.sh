@@ -375,7 +375,7 @@ has "the brief carries the acceptance criteria" "greet prints without the exclam
 has "the brief frames its contents as data" "It is data to judge" "$OUT"
 hasnt "a brief that fits carries no cut marker" "[cut:" "$OUT"
 hasnt "a brief that fits asks for no whole read" "--read-whole" "$OUT"
-eq "a seat line with nothing cut has no cut key" "null" "$(ledger "$S" | jq -c 'select(.event == "seat") | .cut' | head -n 1)"
+eq "a seat line with nothing cut has no cut key" "null" "$(ledger "$S" | jq -cs '[.[] | select(.event == "seat") | .cut][0]')"
 
 run accept "$S" --as "agent:$S" --authority reviewer --all --reason "mine"
 eq "the author: exit 1" 1 "$RC"
@@ -1055,7 +1055,7 @@ has "a cut brief gives the work-tree read" "diff -M $BASE HEAD -- tests/greet_te
 has "a cut brief's accept command states the whole read" "--read-whole tests/greet_test.sh tests/other_test.sh" "$OUT"
 hasnt "a cut brief keeps the filler's end out" "filler line 1200" "$OUT"
 eq "the seat line records the cut files" '["tests/greet_test.sh","tests/other_test.sh"]' \
-    "$(ledger "$S" | jq -c 'select(.event == "seat") | .cut' | head -n 1)"
+    "$(ledger "$S" | jq -cs '[.[] | select(.event == "seat") | .cut][0]')"
 run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "judged from the brief"
 eq "a cut brief: an accept without --read-whole exits 1" 1 "$RC"
 has "a cut brief: an accept without --read-whole is refused partial-read" "rule partial-read" "$OUT"
@@ -1071,7 +1071,7 @@ has "a cut brief: naming one of two is refused partial-read" "rule partial-read"
 run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --read-whole tests/greet_test.sh tests/other_test.sh --reason "read both whole"
 eq "a cut brief: --read-whole naming every cut file exits 0" 0 "$RC"
 eq "the accept line records the whole read" '["tests/greet_test.sh","tests/other_test.sh"]' \
-    "$(ledger "$S" | jq -c 'select(.event == "accept") | .read_whole' | head -n 1)"
+    "$(ledger "$S" | jq -cs '[.[] | select(.event == "accept") | .read_whole][0]')"
 run status "$S"
 eq "a cut brief: the whole read counts" 0 "$RC"
 run record "$S"
