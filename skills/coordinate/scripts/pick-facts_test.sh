@@ -173,6 +173,52 @@ eq "an execute row sent on from scoping ahead keeps its slot, its scoping's Veri
 eq "gamma, delta, epsilon, zeta and iota are active, eta parked" "5 1" "$(facts | jq -r '"\(.active) \(.parked)"')"
 grep -qE 'search|PUT|POST|DELETE|edit|ready' "$GH_DB.calls" && bad "  ... it only reads" "$(calls)" || ok "  ... it only reads"
 
+echo "== roadmap: a stopped worker holds no slot (shirabe#1419) =="
+# A worker whose Claude job on this host is finished (its state file reads
+# done, stopped or failed) is kept in the record until its pull request
+# merges, but nothing runs for it: it doesn't count against the cap, whether
+# its pull request is a draft or open and waiting on its merge. A live job, a
+# topic with any unfinished job, and a topic with no job seen here still
+# count. The jobs are DC_CLAUDE_HOME's, as dispatch-common.sh reads them.
+export DC_CLAUDE_HOME="$T/claude-1419"
+job() { # job <id> <session name> <state>
+    mkdir -p "$DC_CLAUDE_HOME/jobs/$1"
+    jq -nc --arg n "$2" --arg s "$3" '{name: $n, state: $s}' > "$DC_CLAUDE_HOME/jobs/$1/state.json"
+}
+job a1a1a1a1 live_one-0000aaa1 working
+job a2a2a2a2 live_two-0000aaa2 working
+job b1b1b1b1 gone_one-0000bbb1 done
+job b2b2b2b2 gone_two-0000bbb2 stopped
+job b3b3b3b3 gone_ready-0000bbb3 failed
+job c1c1c1c1 mixed-0000ccc1 done
+job c2c2c2c2 mixed-0000ccc2 working
+dr() { lk "$1" | jq -c --arg u "$2" '. + {unit: $u, entry_point: "work-on"}'; }
+STOPPED_HOLDINGS=$(jq -nc \
+    --argjson a "$(holding live-one "$(dr 51 '#51')")" \
+    --argjson b "$(holding live-two "$(dr 52 '#52')")" \
+    --argjson c "$(holding gone-one "$(dr 53 '#53')")" \
+    --argjson d "$(holding gone-two "$(dr 54 '#54')")" \
+    --argjson e "$(holding gone-ready "$(dr 55 '#55')")" \
+    --argjson f "$(holding mixed "$(dr 56 '#56')")" \
+    --argjson g "$(holding unseen "$(dr 57 '#57')")" \
+    '[$a, $b, $c, $d, $e, $f, $g]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$STOPPED_HOLDINGS" '.holdings = $h')"
+for n in 51 52 53 54 56 57; do pr $n OPEN true; done; pr 55 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
+session "$(roadmap_vars plugin-system)" roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+st_of() { facts | jq -r --arg w "$1" '.holdings[] | select(.worker == $w) | "stopped \(.stopped), parked \(.parked)"'; }
+eq "a live worker with a draft pull request counts as active" "stopped false, parked false" "$(st_of live-one)"
+eq "a stopped worker with a draft pull request holds no slot" "stopped true, parked false" "$(st_of gone-one)"
+eq "a worker whose job reads stopped holds no slot" "stopped true, parked false" "$(st_of gone-two)"
+eq "a stopped worker whose ready pull request waits on its merge holds no slot" "stopped true, parked false" "$(st_of gone-ready)"
+eq "a topic with one finished job and one running is live" "stopped false, parked false" "$(st_of mixed)"
+eq "a topic with no job seen on this host still counts as active" "stopped false, parked false" "$(st_of unseen)"
+eq "stopped workers hold no slot: pick no longer counts the stopped holding as active" "4 0" "$(facts | jq -r '"\(.active) \(.parked)"')"
+eq "  ... the slice carries the stopped mark" "gone-one,gone-ready,gone-two" \
+    "$(jq -r '[.holdings[] | select(.stopped == true) | .worker] | sort | join(",")' "$KOTO_STORE/context/$S/coord/pick_slice.json")"
+unset DC_CLAUDE_HOME
+
 echo "== roadmap: owed decision work, the DESIGN's blocking table's third column =="
 ESC='"round": "1", "verdict": "escalate", "recommendation": "wait", "reason": "r", "context": "c", "problem": "p", "grounds": "scope", "target": "a person"'
 dentry() { # dentry <n> <state> [extra JSON members]
