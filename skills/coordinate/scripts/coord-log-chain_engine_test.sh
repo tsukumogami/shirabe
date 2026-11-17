@@ -36,6 +36,14 @@
 #     chain lists only its
 #     root, so with each listing taking 0.75 s (a remote store) it finishes
 #     well inside koto's 30-second action limit.
+# And the bounded walk (shirabe#1548): with no flag the output is the
+#     unbounded walk's alone; --back-to stops at the first run that started
+#     at or before its minute, with no hop when S's own start is; --deadline
+#     0 makes one hop a call, and --from resumes each cursor to the unbounded
+#     walk's start; the seen list and the 1024-run cap hold across a resume;
+#     and a cursor for another session, or whose hops, start, member or seen
+#     list is wrong, is refused with 64, as are a bad --back-to and
+#     --deadline.
 #
 # Every session lives in a scratch HOME and KOTO_HOME (koto-test-guard.sh
 # clears every KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME first).
@@ -394,6 +402,65 @@ if needs_takeover "a link the manifest holds is followed with the listing hidden
     else
         fail "a 40-member chain on 0.75 s listings finishes inside koto's limit" "took ${TOOK} s and returned [$GOT]; a koto action running it would have timed out after 30 seconds"
     fi
+fi
+
+echo "== a bounded walk: --back-to, --deadline and --from (shirabe#1548) =="
+# A five-run chain of takeovers, a day apart: bw-0 on 2026-11-01 to bw-4 on
+# 2026-11-05.
+if needs_takeover "--back-to stops early and at zero hops; --deadline 0 and --from resume hop by hop to the unbounded walk's start; the cycle and 1024-run rules across resumes; a bad cursor is refused; no flag changes nothing"; then
+    open bw-0 && takeover bw-1 bw-0 && takeover bw-2 bw-1 && takeover bw-3 bw-2 && takeover bw-4 bw-3
+    for i in 0 1 2 3 4; do stamp "bw-$i" "2026-11-0$((i + 1))T00:00:00.000Z"; done
+    walk() { bash "$CL" chain-start --session "$@" 2>"$T/chain.err"; }
+
+    OUT=$(walk bw-4); RC=$?
+    eq "with no flag, the walk prints the first run's start alone, as before" "0|2026-11-01T00:00:00.000Z|1|" \
+        "$RC|$OUT|$(walk bw-4 | wc -l | tr -d ' ')|$(cat "$T/chain.err")"
+
+    OUT=$(walk bw-4 --back-to 2026-11-03T12:00Z); RC=$?
+    eq "--back-to stops at the first run that started at or before its minute" "0 2026-11-03T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk bw-4 --back-to 2026-11-03T00:00:59.999Z); RC=$?
+    eq "  ... a start in the same minute is at it" "0 2026-11-03T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk bw-4 --back-to 2026-11-05T00:00Z); RC=$?
+    eq "--back-to at S's own start's minute makes no hop" "0 2026-11-05T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk bw-4 --back-to 2026-10-01T00:00Z); RC=$?
+    eq "--back-to before the whole chain walks all of it" "0 2026-11-01T00:00:00.000Z" "$RC $OUT"
+
+    # One hop a call: each call prints a cursor the next resumes from, until
+    # the call that finds no run before the one it holds.
+    CURS=()
+    OUT=$(walk bw-4 --deadline 0); RC=$?
+    n=1
+    while [ "$RC" = 3 ] && [ "$n" -lt 10 ]; do
+        CURS+=("${OUT#partial }")
+        OUT=$(walk bw-4 --deadline 0 --from "${OUT#partial }"); RC=$?
+        n=$((n + 1))
+    done
+    eq "--deadline 0 and --from walk hop by hop to the unbounded walk's start" "0 2026-11-01T00:00:00.000Z" "$RC $OUT"
+    eq "  ... one hop a call, four calls stopped and a fifth that ends" "5 1 2 3 4" "$n $(for c in "${CURS[@]}"; do printf '%s ' "${c%% *}"; done | sed 's/ $//')"
+    eq "  ... the cursor naming the hops, the start, the member and the runs seen" \
+        "2 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" "${CURS[1]}"
+    OUT=$(walk bw-4 --deadline 0 --back-to 2026-11-03T00:00Z --from "${CURS[0]}"); RC=$?
+    eq "--back-to holds on a resumed walk, ending it before the deadline is asked" "0 2026-11-03T00:00:00.000Z" "$RC $OUT"
+    OUT=$(walk bw-4 --back-to 2026-11-03T00:00Z --from "${CURS[1]}"); RC=$?
+    eq "  ... and a resume already at its bound makes no hop" "0 2026-11-03T00:00:00.000Z" "$RC $OUT"
+    # The seen list carries across a resume: bw-2's predecessor bw-1 is in it.
+    OUT=$(walk bw-4 --from "2 2026-11-07T00:00:00.000Z bw-2 bw-4 bw-1 bw-2"); RC=$?
+    eq "a run the resumed walk has seen ends it, as in one call" "0 2026-11-07T00:00:00.000Z" "$RC $OUT"
+    LIST=bw-4 i=1
+    while [ "$i" -lt 1024 ]; do LIST="$LIST x$i"; i=$((i + 1)); done
+    OUT=$(walk bw-4 --from "1024 2026-11-08T00:00:00.000Z bw-1 $LIST bw-1"); RC=$?
+    eq "a resumed walk at 1024 runs stops there" "0 2026-11-08T00:00:00.000Z" "$RC $OUT"
+
+    for bad in "bw-3:${CURS[1]}" "bw-4:1025 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" \
+               "bw-4:3 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" "bw-4:2 2026-11-03T00:00:00.000Z bw-3 bw-4 bw-3 bw-2" \
+               "bw-4:02 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2" "bw-4:2 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-2 bw-2" \
+               "bw-4:2 yesterday bw-2 bw-4 bw-3 bw-2" "bw-4:2 2026-11-03T00:00:00.000Z bw-2 bw-4 bw-3 bw-2 " \
+               "bw-4:2 2026-11-03T00:00:00.000Z bw-2 bw-4 b\$w bw-2"; do
+        walk "${bad%%:*}" --from "${bad#*:}" > /dev/null; RC=$?
+        eq "a cursor for another session, or with bad hops, is refused: [${bad}]" 64 "$RC"
+    done
+    walk bw-4 --back-to yesterday > /dev/null; eq "a --back-to that isn't a time is refused" 64 $?
+    walk bw-4 --deadline -1 > /dev/null; eq "a --deadline that isn't a whole number is refused" 64 $?
 fi
 
 echo "== reads that fail =="

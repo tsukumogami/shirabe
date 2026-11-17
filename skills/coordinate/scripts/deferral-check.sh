@@ -19,7 +19,9 @@
 #                         run start (coord-log.sh run-start) that isn't
 #                         disposed (row mode below, with the chain start from
 #                         coord-log.sh chain-start, so a carry made by a run
-#                         this one restarted or took over still counts), or a `filed #<n>` naming no
+#                         this one restarted or took over still counts; the
+#                         walk is made only for a carry dated before the run
+#                         start, and only back to that carry's minute), or a `filed #<n>` naming no
 #                         issue in the host repository. A discipline rotation's
 #                         predecessor's deferrals are rows of this record from
 #                         its first state (state-open.sh --carry), judged the
@@ -152,11 +154,15 @@ done
 # minute <time>: YYYY-MM-DDTHH:MM of a valid time, else empty.
 minute() { lib_epoch "$1" > /dev/null 2>&1 && printf '%s' "${1:0:16}"; }
 
+# A carry's disposition. reconcile-pass.sh bounds its chain walk with a copy
+# of this pattern; change the two together.
+RE_CARRIED='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z)( until ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z))?: (.+)$'
+
 # judge_row <row-json> <chain-start-minute>: sets ROW_VERDICT; returns 0 when
 # disposed, 1 when not. The raised-this-run exemption is the caller's.
 judge_row() {
     local d re_filed='^filed #([1-9][0-9]*)$' t u why
-    local re_carried='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z)( until ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z))?: (.+)$'
+    local re_carried=$RE_CARRIED
     d=$(printf '%s' "$1" | jq -r '.disposition // "" | tostring')
     ROW_FILED=
     if [ -z "$d" ]; then ROW_VERDICT="undisposed empty"; return 1; fi
@@ -173,6 +179,23 @@ judge_row() {
     fi
     ROW_VERDICT="undisposed malformed"
     return 1
+}
+
+# carry_bound <run-start-minute>: of the Dispositions on stdin, one a line,
+# the earliest minute of a carry dated before the run start, or nothing when
+# there is none. Only such a carry is judged by the chain start: judge_row
+# compares a carry's minute with it, and one at or after the run start is
+# never before the chain start. A line taken here that judge_row then finds
+# malformed would only make the walk longer.
+carry_bound() {
+    local d m b=
+    while IFS= read -r d; do
+        [[ $d =~ $RE_CARRIED ]] || continue
+        m=$(minute "${BASH_REMATCH[1]}")
+        [ -n "$m" ] && [[ $m < $1 ]] || continue
+        { [ -z "$b" ] || [[ $m < $b ]]; } && b=$m
+    done
+    printf '%s' "$b"
 }
 
 # raised_this_run <row-json> <run-start-minute>: the row's Raised is a valid
@@ -205,14 +228,18 @@ lib_facts
 
 # The reads below that don't wait on each other start here, together, as
 # background jobs (state-common.sh lib_job_start): the log's count, the
-# entries into dispatch_check and pick, the run's facts, the record, the run
-# start and the chain start. Each answer is taken where the check read it
-# before, in the same order, so the verdict, output and exit code are those
-# of the reads made one after another; a read past the verdict reached is
-# made and ignored. One after another, on a loaded host, they outran koto's
-# 30-second action limit (shirabe#1406). A job's stderr is replayed where its
-# answer is taken. A temporary directory that can't be made is still refused
-# where it was, after the log check; no job starts without one.
+# entries into dispatch_check and pick, the run's facts, the record and the
+# run start. Each answer is taken where the check read it before, in the same
+# order, so the verdict, output and exit code are those of the reads made one
+# after another; a read past the verdict reached is made and ignored. One
+# after another, on a loaded host, they outran koto's 30-second action limit
+# (shirabe#1406). A job's stderr is replayed where its answer is taken. A
+# temporary directory that can't be made is still refused where it was, after
+# the log check; no job starts without one.
+# The chain start is not one of them. Its walk reads every run before this
+# one, and at the end of a long chain it alone outran the limit
+# (shirabe#1548), so it starts only once the record says a deferral needs it,
+# bounded to that deferral's carry (carry_bound, below).
 T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX") || T=
 trap 'lib_jobs_stop; [ -z "$T" ] || rm -rf "$T"' EXIT
 trap 'exit 129' HUP
@@ -226,7 +253,6 @@ if [ -n "$T" ]; then
     [ "$OVERRIDE" = 1 ] || lib_job_start "$T" found bash "$CL" run-facts --session "$SESSION"
     lib_job_start "$T" record rs_record "$T/parsed.json" "holdings deferrals decisions run standing work"
     lib_job_start "$T" start bash "$CL" run-start --session "$SESSION"
-    lib_job_start "$T" chain bash "$CL" chain-start --session "$SESSION"
 fi
 # answer <name>: wait for the job, replay its stderr and set JOB_RC.
 answer() { lib_job_wait "$1"; cat "$T/$1.err" >&2; }
@@ -341,6 +367,33 @@ esac
 # The owed decision work, judged on that record (below), starts now beside the
 # reads in between; its temporary directory goes in this check's.
 lib_job_start "$T" owed env TMPDIR="$T" bash "$HERE/decision-next.sh" --session "$SESSION" --owed dispatch --parsed "$T/parsed.json"
+
+# The chain start, as far as these deferrals need it. Only a carry decides
+# by it, and a carry dated at or after the run start is never before the
+# chain start, which is no later than the run start; so with no carry dated
+# before the run start the chain start is taken to be the run start, with no
+# walk. Otherwise the walk starts now, beside the reads in between, and
+# stops at the first run that started at or before the earliest such carry's
+# minute (--back-to): starts only get earlier along the chain, so every
+# carry here is before that run's start exactly when it is before the chain
+# start. The run start's answer is taken here to find that carry; a run
+# start that can't be read or isn't a time starts no walk, and is still
+# refused where it was, below.
+lib_job_wait start; START_RC=$JOB_RC
+START='' RS='' CHAIN_JOB=0
+[ "$START_RC" != 0 ] || { START=$(cat "$T/start.out"); RS=$(minute "$START"); }
+if [ -n "$RS" ]; then
+    # Each Disposition on one line, as judge_row reads it: the trailing
+    # newlines its command substitution drops dropped here too, and any
+    # other newline made a character the pattern's `.` still matches.
+    BOUND=$(jq -r 'def chomp: if endswith("\n") then .[:-1] | chomp else . end;
+            (.deferrals // [])[] | (if type == "object" then .disposition // "" else "" end) | tostring | chomp | gsub("\n"; "\u0001")' "$T/parsed.json" \
+        | carry_bound "$RS") || lib_die2 "jq failed"
+    if [ -n "$BOUND" ]; then
+        lib_job_start "$T" chain bash "$CL" chain-start --session "$SESSION" --back-to "${BOUND}Z"
+        CHAIN_JOB=1
+    fi
+fi
 # The cap a person set in the record's Run section wins over the session's.
 # The first lib_bounds, above, read only the session, for the verdicts that
 # finish before the record is read; the cap check below uses this one.
@@ -396,14 +449,15 @@ fi
 
 # Deferrals raised before the run start.
 # Both from their jobs, whose stderr the check never showed.
-lib_job_wait start
-[ "$JOB_RC" = 0 ] || lib_die2 "cannot read the run start"
-START=$(cat "$T/start.out")
-RS=$(minute "$START"); [ -n "$RS" ] || lib_die2 "the run start $START is not a time"
-lib_job_wait chain
-[ "$JOB_RC" = 0 ] || lib_die2 "cannot read the chain start"
-CHAIN=$(cat "$T/chain.out")
-CS=$(minute "$CHAIN"); [ -n "$CS" ] || lib_die2 "the chain start $CHAIN is not a time"
+[ "$START_RC" = 0 ] || lib_die2 "cannot read the run start"
+[ -n "$RS" ] || lib_die2 "the run start $START is not a time"
+CS=$RS
+if [ "$CHAIN_JOB" = 1 ]; then
+    lib_job_wait chain
+    [ "$JOB_RC" = 0 ] || lib_die2 "cannot read the chain start"
+    CHAIN=$(cat "$T/chain.out")
+    CS=$(minute "$CHAIN"); [ -n "$CS" ] || lib_die2 "the chain start $CHAIN is not a time"
+fi
 : > "$T/open.jsonl"
 open_row() { # open_row <deferral-text> <why>
     jq -nc --arg d "$1" --arg w "$2" '{deferral: ($d | .[0:200]), why: $w}' >> "$T/open.jsonl"

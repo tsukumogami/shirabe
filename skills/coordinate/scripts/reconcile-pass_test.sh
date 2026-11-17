@@ -70,6 +70,7 @@ if [ -f "$STUB_DIR/read.cost" ] && [ -n "${CLOCK-}" ]; then
     tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -f "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
     echo $(( now + $(cat "$STUB_DIR/read.cost") )) > "$tmp" && mv "$tmp" "$CLOCK"
     rm -f "$CLOCK.lock"
+    [ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
 fi
 [ -f "$STUB_DIR/read.sleep" ] && sleep "$(cat "$STUB_DIR/read.sleep")"
 cat "$STUB_DIR/read.out" 2>/dev/null
@@ -116,6 +117,7 @@ now=$(cat "$CLOCK")
 tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -f "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
 echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$tmp" && mv "$tmp" "$CLOCK"
 rm -f "$CLOCK.lock"
+[ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
 [ -f "$STUB_DIR/hang.$sub" ] && sleep 60
@@ -160,20 +162,44 @@ case "$sub" in
 esac
 STUB
 
+# koto's action limit, played by the stand-ins that move the clock: a pass run
+# with ACTION_LIMIT set (pass, below, sets it for a case holding an
+# action-limit file) is killed once the clock passes <case>/limit, its tick's
+# start plus 30, as koto kills an action at its 30-second limit, and whatever
+# it had yet to write is lost. <case>/killed records that it happened.
+cat > "$T/limit.sh" <<'STUB'
+action_limit() {
+    [ -f "$STUB_DIR/limit" ] || return 0
+    [ "$(cat "$CLOCK")" -gt "$(cat "$STUB_DIR/limit")" ] || return 0
+    : > "$STUB_DIR/killed"
+    kill -KILL "$(cat "$STUB_DIR/pass.pid")" 2>/dev/null
+    exit 137
+}
+STUB
+
 # The record feature's session-log helper, for the calls the pass and the
 # report reader make. The visit is <case>/visit; the latest capture is
 # <case>/capture.
+# chain-start walks the chain in <case>/chain, one start a line, S's own
+# first and then each run before it (members S, m1, m2, ...); without that
+# file the chain is S at the run start and, when <case>/chain-start holds a
+# time, one run before it. Each hop logs its number to <case>/hops and adds
+# <case>/hop.cost seconds to the clock (none when absent). --back-to,
+# --deadline (on this clock, not the wall's) and --from behave as
+# coord-log.sh's, but the walk here knows its end without reading it.
 cat > "$SC/coord-log.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "coord-log $*" >> "$STUB_DIR/log"
 cmd=$1; shift
-S="" ST="" TOK="" NAME=""
+S="" ST="" TOK="" NAME="" BACK="" DL="" FROM=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) S=$2; shift 2 ;; --state) ST=$2; shift 2 ;; --token) TOK=$2; shift 2 ;;
-        --name) NAME=$2; shift 2 ;; *) shift ;;
+        --name) NAME=$2; shift 2 ;; --back-to) BACK=$2; shift 2 ;; --deadline) DL=$2; shift 2 ;;
+        --from) FROM=$2; shift 2 ;; *) shift ;;
     esac
 done
+clock() { cat "${CLOCK:-/dev/null}" 2>/dev/null || echo 0; }
 h() { if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 case "$cmd" in
     seal)
@@ -191,7 +217,34 @@ case "$cmd" in
         fi
         printf '%s\n' "$c" ;;
     run-start) echo 2026-09-27T00:00:00Z ;;
-    chain-start) cat "$STUB_DIR/chain-start" 2>/dev/null || echo 2026-09-27T00:00:00Z ;;
+    chain-start)
+        starts=()
+        if [ -f "$STUB_DIR/chain" ]; then
+            while IFS= read -r l; do starts+=("$l"); done < "$STUB_DIR/chain"
+        else
+            starts=(2026-09-27T00:00:00Z)
+            [ -s "$STUB_DIR/chain-start" ] && starts+=("$(cat "$STUB_DIR/chain-start")")
+        fi
+        i=0 start=${starts[0]} moved=0
+        if [ -n "$FROM" ]; then i=${FROM%% *}; r=${FROM#* }; start=${r%% *}; fi
+        t0=$(clock)
+        while [ $((i + 1)) -lt "${#starts[@]}" ]; do
+            [ -n "$BACK" ] && ! [[ ${start:0:16} > ${BACK:0:16} ]] && break
+            if [ -n "$DL" ] && [ "$moved" = 1 ] && [ $(( $(clock) - t0 )) -ge "$DL" ]; then
+                seen=$S j=1
+                while [ "$j" -le "$i" ]; do seen="$seen m$j"; j=$((j + 1)); done
+                printf 'partial %s %s %s %s\n' "$i" "$start" "${seen##* }" "$seen"
+                exit 3
+            fi
+            i=$((i + 1)); start=${starts[$i]}; moved=1
+            echo "$i" >> "$STUB_DIR/hops"
+            if [ -f "$STUB_DIR/hop.cost" ]; then
+                tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
+                echo $(( $(clock) + $(cat "$STUB_DIR/hop.cost") )) > "$tmp" && mv "$tmp" "$CLOCK"
+                [ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
+            fi
+        done
+        printf '%s\n' "$start" ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
     *) exit 64 ;;
@@ -218,6 +271,7 @@ if [ -f "$STUB_DIR/koto.cost" ] && [ -n "${CLOCK-}" ]; then
     now=$(cat "$CLOCK")
     tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
     echo $(( now + $(cat "$STUB_DIR/koto.cost") )) > "$tmp" && mv "$tmp" "$CLOCK"
+    [ -n "${ACTION_LIMIT-}" ] && { . "$ACTION_LIMIT"; action_limit; }
 fi
 [ "$1" = context ] || exit 2
 mkdir -p "$STUB_DIR/ctx"
@@ -269,11 +323,29 @@ new_case() {
     echo 1000 > "$CASE/clock"
 }
 # pass -- one pass through the test entry; the line goes to $LINE, and the
-# engine's capture becomes it.
+# engine's capture becomes it. In a case holding an action-limit file the pass
+# runs under the stand-in limit (limit.sh): in the background, its pid in
+# <case>/pass.pid, written before it starts. A pass killed there prints
+# nothing koto would capture, so the capture keeps the last tick's line, and
+# KILLED is 1.
 pass() {
-    LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$SDIR/coordinate-reconcile/visit.json" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
-        bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2> "$CASE/stderr")
-    RC=$?
+    KILLED=0
+    if [ -f "$CASE/action-limit" ]; then
+        rm -f "$CASE/killed"
+        echo $(( $(cat "$CASE/clock") + 30 )) > "$CASE/limit"
+        STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$SDIR/coordinate-reconcile/visit.json" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
+            ACTION_LIMIT="$T/limit.sh" bash -c 'echo $$ > "$0" && exec "$@"' "$CASE/pass.pid" \
+            bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" > "$CASE/out" 2> "$CASE/stderr" &
+        wait $!
+        RC=$?
+        rm -f "$CASE/limit" "$CASE/pass.pid"
+        if [ -f "$CASE/killed" ]; then KILLED=1 LINE=; return; fi
+        LINE=$(cat "$CASE/out")
+    else
+        LINE=$(STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$SDIR/coordinate-reconcile/visit.json" PATH="$T/bin:$PATH" GH_TOKEN="${TOKEN-}" \
+            bash "$P" --test-entry --clock-file "$CASE/clock" --session "$SESSION" --session-dir "$SDIR" 2> "$CASE/stderr")
+        RC=$?
+    fi
     printf '%s\n' "$LINE" > "$CASE/capture"
 }
 get() { STUB_DIR="$CASE" PATH="$T/bin:$PATH" bash "$G" --session "$SESSION" "$@" 2>/dev/null; }
@@ -662,6 +734,88 @@ echo x > "$CASE/ctx/reconcile%refusal"; echo x > "$CASE/ctx/reconcile%progress"
 pass
 has_ctx reconcile/refusal || has_ctx reconcile/progress
 [ $? != 0 ]; check "refusal and progress are cleared at the start of every pass" $?
+
+echo "== a run at the end of a long chain, under koto's 30-second limit (shirabe#1548) =="
+# A run carried by its opener at the end of a 107-run chain, every hop of the
+# walk a second of the clock, the record read six. The pass runs under the
+# stand-in action limit, so a tick that outruns 30 seconds is killed with
+# nothing written, as koto kills it. What passes is what the ticks leave, never
+# how long they took.
+long_chain() {
+    jq -rn '("2026-09-27T00:00:00Z" | fromdateiso8601) as $s | range(0; 107) | ($s - . * 3600 | todate)' > "$CASE/chain"
+    echo 1 > "$CASE/hop.cost"; echo 6 > "$CASE/read.cost"; : > "$CASE/action-limit"
+}
+# ticks N -- up to N ticks, a second apart, until the visit seals. KILLS counts
+# the ticks killed at the limit; QUIET the ticks that ended pending with no
+# reconcile/progress left behind.
+ticks() {
+    local n=0
+    KILLS=0 QUIET=0 TICKS=0
+    while [ "$n" -lt "$1" ]; do
+        pass; n=$((n + 1)); TICKS=$n
+        [ "$KILLED" = 1 ] && KILLS=$((KILLS + 1))
+        case "$LINE" in
+            "reconciled "*) return 0 ;;
+            pending:*) has_ctx reconcile/progress || QUIET=$((QUIET + 1)) ;;
+        esac
+        tick 1
+    done
+    return 1
+}
+EARLIEST=$(jq -rn '("2026-09-27T00:00:00Z" | fromdateiso8601) - 106 * 3600 | todate')
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+
+new_case long-chain-no-deferral
+record "[]"; long_chain
+ticks 4
+check "a carried run at the end of a 107-run chain seals its visit within four ticks" $? "after $TICKS ticks: [$LINE] $(tail -3 "$CASE/stderr")"
+eq "  ... with no tick killed at koto's 30-second limit" 0 "$KILLS"
+eq "  ... and no chain walked: no deferral carries a time before the run start" 0 "$(grep -c '^coord-log chain-start' "$CASE/log")"
+
+new_case long-chain-later-carry
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-27T00:30Z: this run"}]'
+long_chain
+ticks 4
+check "a carry dated after the run start seals within four ticks" $? "after $TICKS ticks: [$LINE] $(tail -3 "$CASE/stderr")"
+eq "  ... walking no chain" 0 "$(grep -c '^coord-log chain-start' "$CASE/log")"
+grep -q -- '--chain-start 2026-09-27T00:00:00Z' "$CASE/checks"; check "  ... and judging the carry against the run start" $? "$(cat "$CASE/checks")"
+
+new_case long-chain-old-carry
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-08-30T10:00Z","disposition":"carried 2026-09-01T00:00Z: long ago"}]'
+long_chain
+ticks 12
+check "a predecessor's carry from before the whole chain seals within twelve ticks" $? "after $TICKS ticks: [$LINE] $(tail -3 "$CASE/stderr")"
+[ "$TICKS" -gt 2 ]; check "  ... over several ticks, the walk not fitting one" $? "$TICKS ticks"
+eq "  ... with no tick killed at koto's 30-second limit" 0 "$KILLS"
+eq "  ... and every pending tick leaving reconcile/progress" 0 "$QUIET"
+eq "  ... the record read once, the later ticks trusting the work file" 1 "$(grep -c '^read ' "$CASE/log")"
+[ "$(grep -c -- '^coord-log chain-start .*--from ' "$CASE/log")" -ge 1 ]; check "  ... the walk resumed from its cursor" $? "$(grep '^coord-log chain-start' "$CASE/log" | cut -c1-120)"
+eq "  ... each of the 106 hops made once" "106 106" "$(wc -l < "$CASE/hops" | tr -d ' ') $(sort -u "$CASE/hops" | wc -l | tr -d ' ')"
+eq "  ... the deferral re-checked once, after the walk" 1 "$(grep -c ' deferral ' "$CASE/checks")"
+grep -q -- "--chain-start $EARLIEST" "$CASE/checks"; check "  ... against the start of the chain's first run" $? "$(cat "$CASE/checks")"
+# The first tick's progress, as it was left: the walk then unfinished.
+new_case long-chain-progress
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-08-30T10:00Z","disposition":"carried 2026-09-01T00:00Z: long ago"}]'
+long_chain
+pass
+case "$LINE" in pending:7:1:*) ok "a tick that leaves the walk unfinished ends pending, the deferral left" ;; *) bad "a tick that leaves the walk unfinished ends pending, the deferral left" "$LINE $(tail -3 "$CASE/stderr")" ;; esac
+ctx reconcile/progress | grep -q 'chain start.*still being read'; check "  ... and its progress says the chain start is still being read" $? "$(ctx reconcile/progress)"
+[ ! -s "$CASE/checks" ]; check "  ... launching no deferral re-check" $? "$(cat "$CASE/checks")"
+jq -e '.chain_start == null and .chain_back_to == "2026-09-01T00:00" and (.chain_cursor | test("^[0-9]+ "))' "$SDIR/coordinate-reconcile/visit.json" >/dev/null
+check "  ... its work file keeping the bound and the cursor" $? "$(jq -c '{chain_start, chain_back_to, chain_cursor: (.chain_cursor // "" | .[0:60])}' "$SDIR/coordinate-reconcile/visit.json")"
+
+new_case long-chain-near-carry
+# Carried half an hour after the third run back started: the walk stops there.
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T21:30Z: three runs back"}]'
+long_chain
+ticks 1
+check "a carry three runs back seals in one tick" $? "[$LINE] $(tail -3 "$CASE/stderr")"
+eq "  ... the walk bounded by it to three hops" 3 "$(wc -l < "$CASE/hops" | tr -d ' ')"
+grep -q -- '--chain-start 2026-09-26T21:00:00Z' "$CASE/checks"; check "  ... the carry judged against the start of the run it stopped at" $? "$(cat "$CASE/checks")"
+
+# The pass bounds its walk with the pattern deferral-check.sh judges a carry by.
+eq "reconcile-pass.sh's carry pattern is deferral-check.sh's" \
+    "$(sed -n "s/^RE_CARRIED='\(.*\)'$/\1/p" "$HERE/deferral-check.sh")" "$(sed -n "s/^RE_CARRIED='\(.*\)'$/\1/p" "$P")"
 
 echo "== the report reader =="
 new_case getter

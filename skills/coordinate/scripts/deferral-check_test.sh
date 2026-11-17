@@ -624,8 +624,8 @@ koto_calls "$FULL" 300 > /dev/null
 eq "FULL: it reads only the sections and keys its checks need, each got once" \
     "decisions deferrals holdings run standing work" \
     "$(sed -n "s|^context get $S record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-# The chain start (coord-log.sh chain-start) lists the run's koto/links/
-# relations, a fixed few keys; no record/ key is listed.
+# The chain start (coord-log.sh chain-start), when a carry needs it, lists
+# the run's koto/links/ relations, a fixed few keys; no record/ key is listed.
 eq "  ... and no record key is listed, since every one it reads is there" 0 "$(grep -c "^context list $S --prefix record/" "$T/kc.calls")"
 # A section that isn't there is told apart from a failed get by a listing of
 # that one key, which names no entry.
@@ -692,5 +692,76 @@ sleep 1
 kill -TERM "$pid" 2> /dev/null
 wait "$pid" 2> /dev/null
 if [ -z "$(ls -A "$PT")" ]; then ok "a check killed mid-read leaves no temporary directory"; else bad "a check killed mid-read leaves no temporary directory" "$(ls -A "$PT")"; fi
+
+echo "== check mode: a run at the end of a long chain, under koto's 30-second limit (shirabe#1548) =="
+# The run checked continues lc-1, which continues lc-2, and so on to lc-106,
+# each an hour older. A koto in front of the stand-in charges HOP_COST seconds
+# of a clock file for each member's log the walk looks up (one a hop) and,
+# once the clock passes its start plus 30, kills the check, as koto kills an
+# action at its limit, and fails every later lookup so the walk left behind
+# ends. What passes is what the check printed, never how long it took.
+LC=$T/long-chain
+mkdir -p "$LC/bin"
+cat > "$LC/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-}" = "session dir" ]; then
+    case "\${3:-}" in lc-*)
+        [ -f "$LC/killed" ] && exit 1
+        echo "\$3" >> "$LC/hops"
+        c=\$(( \$(cat "$LC/clock") + \${HOP_COST:-0} ))
+        echo "\$c" > "$LC/clock"
+        if [ "\$c" -gt "\$(cat "$LC/limit")" ]; then
+            : > "$LC/killed"
+            kill -KILL "\$(cat "$LC/pid")" 2> /dev/null
+            exit 1
+        fi ;;
+    esac
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$LC/bin/koto"
+# limited <hop cost>: the check on S under the stand-in limit; OUT its verdict
+# (empty when it printed none), KILLED 1 when the limit ended it, HOPS the
+# hops its walk made.
+limited() {
+    echo 1000 > "$LC/clock"; echo 1030 > "$LC/limit"; : > "$LC/hops"; rm -f "$LC/killed"
+    HOP_COST=$1 PATH="$LC/bin:$PATH" bash -c 'echo $$ > "$0" && exec "$@"' "$LC/pid" bash "$DC" --session "$S" > "$LC/out" 2> "$T/err" &
+    wait $! 2> /dev/null
+    OUT=$(sed 's/ sealed:.*//' "$LC/out")
+    KILLED=0; [ -f "$LC/killed" ] && KILLED=1
+    HOPS=$(wc -l < "$LC/hops" | tr -d ' ')
+}
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)"
+prev=$S k=1
+while [ "$k" -le 106 ]; do
+    m=lc-$k
+    mkdir -p "$KOTO_STORE/sessions/$m" "$KOTO_STORE/context/$prev/koto/links/continues"
+    : > "$KOTO_STORE/context/$prev/koto/links/continues/$m"
+    printf '{"schema_version":1,"workflow":"%s","template_hash":"feedface","created_at":"%s","template_name":"coordinate"}\n' \
+        "$m" "$(jq -rn --argjson k "$k" '("2026-09-26T08:00:00Z" | fromdateiso8601) - $k * 3600 | todate')" > "$KOTO_STORE/sessions/$m/koto-$m.state.jsonl"
+    prev=$m k=$((k + 1))
+done
+limited 1
+eq "a check at the end of a 107-run chain with no deferral prints its verdict" "ok beta" "$OUT"
+eq "  ... not killed at koto's 30-second limit, and walking no chain" "0 0" "$KILLED $HOPS"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T08:30Z: this run')")"
+limited 1
+eq "a carry dated after the run start walks no chain either" "ok beta 0 0" "$OUT $KILLED $HOPS"
+# lc-3 started at 05:00: a carry at 05:30 is judged against it, as against
+# the chain start, and the walk stops there.
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z: three runs back')")"
+limited 1
+eq "a predecessor's carry three runs back is disposed" "ok beta" "$OUT"
+eq "  ... the walk bounded by it to three hops, inside the limit" "0 3" "$KILLED $HOPS"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z until 2026-09-26T05:45Z: three runs back')")"
+limited 1
+eq "  ... unless its decide-by has passed" "deferral-open 1 3" "$OUT $HOPS"
+# A carry from before the first run is before the chain start: the walk goes
+# all the way back to say so (free hops here: the bound can't shorten it).
+seed "$(with_deferrals "$(def 'carried 2026-09-01T00:00Z: before the chain')")"
+limited 0
+eq "a carry from before the whole chain is open, the walk reaching its first run" "deferral-open 1 106" "$OUT $HOPS"
+for k in $(seq 1 106); do rm -rf "$KOTO_STORE/sessions/lc-$k"; done
+rm -rf "$KOTO_STORE/context/$S/koto"
 
 done_tests deferral-check
