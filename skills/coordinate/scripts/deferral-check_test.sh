@@ -818,7 +818,7 @@ log_to "$S" dispatch_check reconcile_pass
 again
 limited 1
 eq "  ... with a seal from an earlier visit to reconcile_pass, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
-for k in $(seq 1 106); do rm -rf "$KOTO_STORE/sessions/lc-$k"; done
+for ((k = 1; k <= 106; k++)); do rm -rf "$KOTO_STORE/sessions/lc-$k"; done
 rm -rf "$KOTO_STORE/context/$S/koto" "$RDIR"
 
 done_tests deferral-check

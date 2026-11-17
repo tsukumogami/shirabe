@@ -542,7 +542,8 @@ for c in '{"start":null,"back_to":null}' '{"start":"2026-09-26T08:00:00Z","back_
     got=$(chain_report "$c")
     [ "$got" = '"absent"' ] && ok "a malformed chain is dropped: $c" || bad "a malformed chain is dropped: $c" "$got"
 done
-facts '[]' | jq -c '.chain = {start: "2026-09-26T08:00:00Z", back_to: null}' | render | grep -q '2026-09-26T08:00:00Z' \
+got=$(facts '[]' | jq -c '.chain = {start: "2026-09-26T08:00:00Z", back_to: null}' | render)
+grep -q '2026-09-26T08:00:00Z' <<< "$got" \
   && bad "the chain is not rendered" || ok "the chain is not rendered"
 
 echo "== purity =="
