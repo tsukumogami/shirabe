@@ -36,6 +36,12 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
+# deferral-check.sh reads Claude jobs under DC_CLAUDE_HOME (default ~/.claude)
+# to mark a stopped worker. Point it at an empty fixture home so no block reads
+# the host's real jobs; the stopped-worker block swaps in its own jobs.
+EMPTY_CLAUDE_HOME="$T/claude-empty"
+mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
 DC="$HERE/deferral-check.sh"
 CL="$HERE/coord-log.sh"
 tok_shape() {
@@ -472,7 +478,7 @@ job e2e2e2e2 s2-0000eee2 working
 job e3e3e3e3 s3-0000eee3 working
 session "$(roadmap_vars plugin-system)"
 eq "the same holdings with live workers are at-cap" "at-cap 5/5 0/3" "$(check)"
-unset DC_CLAUDE_HOME
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
 
 echo "== check mode: a discipline rotation =="
 # A rotation's predecessor's deferrals are rows of its own record from its
