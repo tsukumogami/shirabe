@@ -1746,6 +1746,96 @@ run --plan scrutiny "$SESSION"
 record scrutiny '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]'
 [ "$RC" -eq 0 ] && pass "no edited test: a round without test_edits records" || fail "no edited test: exit $RC"
 
+# --- --promote: reopening a round that stands at an unchanged HEAD -------------
+#
+# A round whose every run is recorded stands at an unchanged HEAD. When a later
+# whole read of the diff confirms a defect that round recorded only as an
+# advisory finding, --promote makes it blocking with a reason, so the round is
+# re-planned, --verdict blocks the panel, and the run goes back to
+# implementation, on a clean work tree.
+
+echo "--- script: --promote reopens a standing round on a confirmed advisory finding"
+
+fixture promote
+PROMOTE_SUMMARY="the loop over the new lines never ends on empty input"
+plan_record scrutiny "[{\"seat\":\"completeness\",\"findings\":[{\"severity\":\"advisory\",\"summary\":\"$PROMOTE_SUMMARY\",\"path\":\"src/a.sh\",\"lines\":\"41-42\"}]},
+                       {\"seat\":\"justification\"},{\"seat\":\"intent\"}]"
+PID=$(sid "$PROMOTE_SUMMARY")
+[ -n "$PID" ] && pass "the advisory finding is in the ledger" || fail "no advisory finding recorded"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict on a round with only an advisory finding" 0
+cp "$SHIM_STORE/$SESSION/scrutiny_scope.json" "$WORKDIR/scope.before"
+run --plan scrutiny "$SESSION"
+cmp -s "$WORKDIR/scope.before" "$SHIM_STORE/$SESSION/scrutiny_scope.json" \
+    && pass "the recorded round stands at the same HEAD" || fail "the recorded round was re-planned before any promotion"
+
+snap
+run --promote scrutiny "$SESSION" 0000000000000000 "a whole read confirmed it"
+expect_rc "--promote on an id the ledger does not hold" 65
+run --promote review "$SESSION" "$PID" "a whole read confirmed it"
+expect_rc "--promote on another panel's finding" 65
+run --promote scrutiny "$SESSION" "${PID%?}" "a whole read confirmed it"
+expect_rc "--promote on a malformed id" 65
+run --promote scrutiny "$SESSION" "$PID" ""
+expect_rc "--promote with an empty reason" 65
+run --promote scrutiny "$SESSION" "$PID" "   "
+expect_rc "--promote with a blank reason" 65
+run --promote scrutiny "$SESSION" "$PID" "$(head -c 1001 /dev/zero | tr '\0' x)"
+expect_rc "--promote with a reason over 1000 bytes" 65
+run --promote scrutiny "$SESSION" "$PID"
+expect_rc "--promote with no reason argument" 67
+unchanged "the refused --promote calls"
+
+PROMOTE_REASON="a whole read of the diff confirmed the loop never ends on empty input"
+run --promote scrutiny "$SESSION" "$PID" "$PROMOTE_REASON"
+expect_rc "--promote on an open advisory finding" 0
+led -e --arg id "$PID" --arg r "$PROMOTE_REASON" '.findings[$id] | .severity == "blocking"
+       and (.records[-1] | .kind == "promoted" and .reason == $r and .writer == {kind: "agent", name: "work-on"})' >/dev/null \
+    && pass "--promote makes the finding blocking with an agent promoted record and its reason" \
+    || fail "after --promote: $(led -c --arg id "$PID" '.findings[$id]')"
+led -e --arg id "$PID" '.seats["scrutiny/completeness"] | .verdict == "blocking" and ([.findings[].id] | index($id)) != null' >/dev/null \
+    && pass "the raising seat is blocking on the promoted finding" || fail "seat $(led -c '.seats["scrutiny/completeness"]')"
+[ -z "$(cd "$FX/repo" && git status --porcelain)" ] \
+    && pass "the work tree is clean: the reopen does not rest on the dirty-tree trigger" || fail "the work tree is dirty"
+run --plan scrutiny "$SESSION"
+expect_rc "--plan after --promote" 0
+cmp -s "$WORKDIR/scope.before" "$SHIM_STORE/$SESSION/scrutiny_scope.json" \
+    && fail "the round still stands after --promote" || pass "--promote re-plans the round at the same HEAD"
+grep -q 'stands' "$WORKDIR/stderr" && fail "--plan said the round stands: $(cat "$WORKDIR/stderr")" || pass "--plan does not report the round as standing"
+expect_not_full "the re-plan after --promote" scrutiny
+run --recorded scrutiny "$SESSION"
+expect_rc "--recorded on the re-planned round" 0
+run --carried scrutiny "$SESSION"
+expect_rc "--carried with a promoted finding open" 1
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict blocks on the promoted finding" 1
+case "$OUT" in *"$PROMOTE_SUMMARY"*) pass "--verdict names the promoted finding" ;;
+    *) fail "--verdict printed [$OUT]" ;; esac
+run --open-count scrutiny "$SESSION"
+[ "$OUT" = 1 ] && pass "--open-count counts the promoted finding" || fail "--open-count printed [$OUT]"
+snap
+run --promote scrutiny "$SESSION" "$PID" "$PROMOTE_REASON"
+expect_rc "--promote on a finding already blocking" 65
+unchanged "--promote on a blocking finding"
+
+# Back in implementation: the fix is committed, marked fixed, and re-verified.
+edit src/a.sh 41 "fortyone, now guarded"
+run --mark-fixed scrutiny "$SESSION" "$PID"
+expect_rc "--mark-fixed on the promoted finding" 0
+run --plan scrutiny "$SESSION"
+[ "$(due scrutiny)" = "$PID" ] && pass "the re-verifier is given the promoted finding" || fail "due is [$(due scrutiny)]"
+reverify scrutiny "$PID" "line 41 now guards the empty case"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict once the promoted finding is re-verified" 0
+
+# A closed finding is refused even where its severity reads advisory.
+jq --arg id "$PID" '.findings[$id].severity = "advisory"' "$SHIM_STORE/$SESSION/verdict_ledger.json" > "$WORKDIR/l.json" \
+    && cp "$WORKDIR/l.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
+snap
+run --promote scrutiny "$SESSION" "$PID" "$PROMOTE_REASON"
+expect_rc "--promote on a closed finding" 65
+unchanged "--promote on a closed finding"
+
 # --- engine cases -------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then

@@ -410,6 +410,7 @@ suite drives them with a fixture log.
 | `reverified` | `reverified` | yes | reviewer; check on a finding a check raised; decider on its own finding |
 | `dismissed` (reason required) | `dismissed` | yes | the raising seat, in a full round |
 | `fixed` | `fixed` | no | agent (`--mark-fixed` only) |
+| `promoted` (reason required) | `open` | no | agent (`--promote` only) |
 | `unverified` | `unverified` | no | decider |
 
 The `check` writer kind is reserved: no check writes ledger records yet, and
@@ -420,7 +421,12 @@ check raises will be closable only by a check.
 Severity is set when a finding is first raised. A re-raise of a known id
 appends `raised` (re-opening it if closed) and keeps the stricter severity,
 so `blocking` wins. Advisory findings get `raised` and nothing else; they are
-never due and never counted.
+never due and never counted. The one other way a severity changes is
+`--promote <panel> <session> <id> <reason>`: when a later whole read of the
+diff confirms a defect that a round recorded only as advisory, the agent makes
+the finding blocking with a `promoted` record carrying the reason. It only
+tightens the panel: it closes nothing, and the finding then needs a fix and a
+reviewer's `reverified` like any blocking finding.
 
 ### Planning a round (`--plan`)
 
@@ -475,10 +481,10 @@ the re-verifier's commit lives in its marker.
 
 The guard that leaves a recorded round's scope in place at an unchanged HEAD
 is generalised: when every run the scope minted is recorded, HEAD, the tree
-and the criteria are what the round saw, and no `fixed` record was written
-since, the scope stands, whether or not a finding is still open. A `fixed`
-record after the round re-plans it, so `--mark-fixed` takes effect at an
-unchanged HEAD. `--carried` exits 0 only when every decision is `keep`
+and the criteria are what the round saw, and no agent record (`fixed` or
+`promoted`) was written since, the scope stands, whether or not a finding is
+still open. An agent record after the round re-plans it, so `--mark-fixed`
+and `--promote` take effect at an unchanged HEAD. `--carried` exits 0 only when every decision is `keep`
 and the panel has no unclosed blocking finding.
 
 ### Recording (`--record`) and marking (`--mark-fixed`)

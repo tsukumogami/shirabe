@@ -101,7 +101,8 @@
 #
 # The template runs --plan on each entry to a panel state, and --carried,
 # --recorded and --verdict as that state's gates (evaluated on every tick
-# there); the agent runs --record once per round and --mark-fixed after a fix:
+# there); the agent runs --record once per round, --mark-fixed after a fix and
+# --promote when a later read confirms an advisory finding is a defect:
 #
 #   --plan <panel> <session>     default_action on `scrutiny`, `review`,
 #                                `qa_validation` and `light_review`. Writes
@@ -142,6 +143,15 @@
 #                                the agent, after committing a fix: a `fixed`
 #                                record per finding, asking for its
 #                                re-verification. It never closes anything.
+#   --promote <panel> <session> <id> <reason>
+#                                the agent, when a later whole read of the
+#                                diff confirms a defect the ledger holds only
+#                                as an advisory finding: makes it blocking,
+#                                with a `promoted` record carrying the reason.
+#                                The round planned at this HEAD then no longer
+#                                stands, and --verdict blocks the panel on the
+#                                finding, so the run goes back to
+#                                implementation. It never closes anything.
 #
 # Usage: panel-scope.sh --plan    <panel> <koto-session-name>
 #        panel-scope.sh --carried <panel> <koto-session-name>
@@ -150,6 +160,7 @@
 #        panel-scope.sh --open-count <panel> <koto-session-name>
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
 #        panel-scope.sh --mark-fixed <panel> <koto-session-name> <id>...
+#        panel-scope.sh --promote <panel> <koto-session-name> <id> <reason>
 #
 # <panel> is scrutiny, review, qa (the qa_validation state) or light (the
 # light_review state, the `light` review level's one seat).
@@ -218,8 +229,8 @@
 # recorded at the commit it was judged at. Its status is its latest record's:
 # raised and holds are open, reverified and dismissed are closed when their
 # writer was allowed to write them (a reviewer; a check on a check's finding; a
-# decider on its own finding; a dismissal only by the raising seat), fixed (the
-# agent's) and unverified (a decider's no-verdict) are open.
+# decider on its own finding; a dismissal only by the raising seat), fixed and
+# promoted (the agent's) and unverified (a decider's no-verdict) are open.
 #
 # `cited` is what the seat judged: the paths and, where it can say, the line
 # ranges ("N" or "N-M", in HEAD's numbering) its verdict rests on. Findings'
@@ -233,7 +244,8 @@
 # finding with no severity, or any other value, makes --record refuse the
 # whole round (65), so a seat can't be recorded as passing by leaving the
 # field out. Advisory findings are recorded with `raised` and nothing else:
-# they are never due, never counted and never block. `blocking_count`,
+# they are never due, never counted and never block, until --promote makes one
+# blocking. `blocking_count`,
 # `passed` and any other summary field are ignored: the verdict is the
 # findings', not the agent's count of them.
 #
@@ -267,9 +279,11 @@
 # HEAD, on a clean tree and unchanged criteria, after every run the scope
 # minted was recorded and with no `fixed` record written since, leaves the
 # scope as it is, whether or not a finding is still open: that round is
-# complete, and the <panel>_verdict gate reports its result. A `fixed` record
-# written after the round re-plans it, so --mark-fixed takes effect at an
-# unchanged HEAD.
+# complete, and the <panel>_verdict gate reports its result. A `fixed` or
+# `promoted` record written after the round re-plans it, so --mark-fixed and
+# --promote take effect at an unchanged HEAD. --promote is the supported way to
+# reopen such a round: a dirty work tree also forces a full round, but that
+# trigger is for a fix not yet committed and is not a way to reopen one.
 #
 # Diagnostics go to stderr. --plan prints the scope it wrote on stdout, for a
 # human running it by hand; --verdict prints its findings and --open-count its
@@ -290,7 +304,7 @@
 # block, after a line on stderr saying how to dispute a finding.
 #
 # Exit codes:
-#   0   -- --plan/--record/--mark-fixed: written. --carried: the panel carries.
+#   0   -- --plan/--record/--mark-fixed/--promote: written. --carried: the panel carries.
 #          --recorded: every planned run was recorded, or there is no scope or
 #          ledger to check. --verdict: every blocking finding is closed, or
 #          panel/open-finding is below the block stage.
@@ -316,14 +330,16 @@
 #          panel, breaks a rule above (a run, an answer, a finding's shape or
 #          severity, a rule id that isn't active, a decider event koto's log
 #          doesn't hold), or --mark-fixed names an id that is unknown, advisory
-#          or closed; or (--plan or --record) jq could not merge the result
+#          or closed, or --promote names one that is malformed, unknown,
+#          already blocking or closed, or gives an empty reason or one over
+#          1000 bytes; or (--plan or --record) jq could not merge the result
 #          into the ledger. A refused write leaves the ledger byte-identical
 #   66  -- a `koto context add` failed, or --record's `koto session dir`
 #          did; koto's own stderr says why
 #   67  -- a mode, panel or argument is missing or unrecognised
 #   68  -- --record only: HEAD moved since the panel's scope was planned, so
 #          the round's verdicts are about a commit that is no longer HEAD
-#   69  -- --record or --mark-fixed: the ledger changed while the write was
+#   69  -- --record, --mark-fixed or --promote: the ledger changed while the write was
 #          being built; nothing was stored
 #   127 -- jq is not on PATH
 #
@@ -376,9 +392,9 @@ refuse() {
 }
 
 case "$MODE" in
-    --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed) ;;
-    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --record or --mark-fixed" ;;
-    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --record or --mark-fixed" ;;
+    --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed|--promote) ;;
+    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed or --promote" ;;
+    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed or --promote" ;;
 esac
 
 case "$PANEL" in
@@ -425,7 +441,7 @@ def canon($panel; $kind; $name; $path; $summary):
      ($summary | tostring | gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" "))] | join("\n");
 def status:
     ({raised: "open", holds: "open", reverified: "reverified", dismissed: "dismissed",
-      fixed: "fixed", unverified: "unverified"})[(.records[-1].kind // "raised")] // "open";
+      fixed: "fixed", unverified: "unverified", promoted: "open"})[(.records[-1].kind // "raised")] // "open";
 # Closed: the latest record is a reverified or dismissed one that its writer
 # was allowed to write, naming a run the ledger holds as recorded. Checked when
 # read as well as when written, so a ledger edited by hand can not close a
@@ -483,6 +499,22 @@ def answer_problem($seat; $d; $l; $panel):
       elif (.lines // null) != null and (((.path // "") == "") or ((.lines | tostring) | test(lines_re) | not)) then
           "seat [\($seat)]: an answer has lines without a path, or malformed lines"
       else empty end;
+# Every seat summary of the panel follows from the findings: a seat is
+# blocking exactly while it raised an unclosed blocking finding, and its
+# findings are the unclosed blocking ones it raised, in the shape
+# review-packet.sh expects of seat entries. A seat with no entry gets none.
+def seat_summaries($panel; $seats):
+    . as $L
+    | reduce ($seats | split(" "))[] as $s (.;
+        ("\($panel)/\($s)") as $k
+        | if (.seats[$k] // null) == null then . else
+            [ $L.findings[] | select(.panel == $panel and .raiser.kind == "reviewer" and .raiser.name == $s)
+              | select(.severity == "blocking" and (closed($L.runs // {}) | not)) ] as $open
+            | .seats[$k].findings = [ $open[] | {id, severity, summary}
+                + (if .location.path then {path: .location.path} else {} end)
+                + (if .location.lines then {lines: .location.lines} else {} end) ]
+            | .seats[$k].verdict = (if any($open[]; .severity == "blocking") then "blocking" else "passed" end)
+          end);
 # The decisions of a scope whose runs the ledger does not hold as recorded,
 # by seat. A decision with a run is recorded when the ledger holds that run;
 # one without (a scope written by hand or by an older script) when its seat
@@ -741,6 +773,52 @@ if [ "$MODE" = "--mark-fixed" ]; then
             .findings[$id].records += [{kind: "fixed", writer: {kind: "agent", name: "work-on"},
                                         round: $round, commit: $head, rev: $rev}])' > "$WORK/ledger" \
         || die 65 "could not write the fixed records"
+    store_ledger "$WORK/ledger"
+    exit 0
+fi
+
+# ---------------------------------------------------------------- --promote ---
+
+# The agent's record that an advisory finding is blocking after all, with the
+# reason: a later whole read of the diff confirmed a defect the round recorded
+# only as advisory, say because its seats read a cut packet. The finding
+# becomes blocking and gets a `promoted` record by writer `agent`; it is open,
+# so --verdict fails the panel and the run goes back to implementation, and a
+# fix then takes --mark-fixed and a re-verifier like any blocking finding. A
+# promotion only makes the panel stricter: it closes nothing and passes no
+# seat. The round planned at this HEAD no longer stands (see --plan). Refuses
+# (65) a malformed id, an id the panel doesn't hold, a finding that is already
+# blocking or is closed, and a reason that is empty or over 1000 bytes, all
+# before anything is written.
+if [ "$MODE" = "--promote" ]; then
+    [ $# -eq 5 ] || die 67 "--promote needs one finding id and a reason: --promote <panel> <session> <id> <reason>"
+    id=$4
+    reason=$5
+    case "$id" in
+        *[!0-9a-f]*|"") die 65 "finding id [$id] is not 16 lowercase hex characters" ;;
+    esac
+    [ "${#id}" -eq 16 ] || die 65 "finding id [$id] is not 16 lowercase hex characters"
+    problem=$(printf '%s' "$LEDGER_JSON" | jq -r --arg panel "$PANEL" --arg id "$id" --arg reason "$reason" "$JQ_DEFS"'
+        . as $l
+        | ($l.findings // {})[$id] as $f
+        | if $f == null or $f.panel != $panel then "the \($panel) ledger holds no finding [\($id)]"
+          elif $f.severity == "blocking" then "finding [\($id)] is already blocking"
+          elif $f.severity != "advisory" then "finding [\($id)] has no severity a promotion can raise"
+          elif ($f | closed($l.runs // {})) then "finding [\($id)] is closed"
+          elif ($reason | gsub("\\s"; "")) == "" then "a promotion needs a reason"
+          elif ($reason | utf8bytelength) > 1000 then "the reason is over 1000 bytes"
+          else empty end') || die 65 "could not read $LEDGER"
+    [ -z "$problem" ] || die 65 "$problem"
+    ROUND_NO=$(printf '%s' "$LEDGER_JSON" | jq --arg p "$PANEL" '[(.history // [])[] | select(.panel == $p) | .round] | max // 1')
+    printf '%s' "$LEDGER_JSON" | jq --arg panel "$PANEL" --arg seats "$SEATS" --arg head "$HEAD" \
+        --argjson round "$ROUND_NO" --arg id "$id" --arg reason "$reason" "$JQ_DEFS"'
+        .rev = ((.rev // 0) + 1)
+        | .rev as $rev
+        | .findings[$id].severity = "blocking"
+        | .findings[$id].records += [{kind: "promoted", writer: {kind: "agent", name: "work-on"},
+                                      round: $round, commit: $head, rev: $rev, reason: $reason}]
+        | seat_summaries($panel; $seats)' > "$WORK/ledger" \
+        || die 65 "could not write the promoted record"
     store_ledger "$WORK/ledger"
     exit 0
 fi
@@ -1072,21 +1150,7 @@ if [ "$MODE" = "--record" ]; then
                             + ([($e.findings // [])[] | select(.path) | {path, lines}] | norm) | unique)})
                   end
               end)
-        # Every seat summary of the panel follows from the findings: a seat is
-        # blocking exactly while it raised an unclosed blocking finding, and its
-        # findings are the unclosed blocking ones it raised, in the shape
-        # review-packet.sh expects of seat entries.
-        | . as $L
-        | reduce ($seats | split(" "))[] as $s (.;
-            ("\($panel)/\($s)") as $k
-            | if (.seats[$k] // null) == null then . else
-                [ $L.findings[] | select(.panel == $panel and .raiser.kind == "reviewer" and .raiser.name == $s)
-                  | select(.severity == "blocking" and (closed($L.runs) | not)) ] as $open
-                | .seats[$k].findings = [ $open[] | {id, severity, summary}
-                    + (if .location.path then {path: .location.path} else {} end)
-                    + (if .location.lines then {lines: .location.lines} else {} end) ]
-                | .seats[$k].verdict = (if any($open[]; .severity == "blocking") then "blocking" else "passed" end)
-              end)
+        | seat_summaries($panel; $seats)
         # The round history counts the runs it recorded, so `spawned` is the
         # reviewer runs the round made, whatever its plan said.
         | ([(.history // []) | to_entries[] | select(.value.panel == $panel)] | last) as $h
@@ -1195,8 +1259,9 @@ fi
 # recorded, so the <panel>_verdict gate can route it. A fresh plan there would
 # re-verify findings with no fix behind them. The scope stands while HEAD, a
 # clean tree and the criteria are what it was planned against, every run it
-# minted is recorded, and no `fixed` record was written since; anything else
-# plans a new round.
+# minted is recorded, and no agent record (`fixed` from --mark-fixed,
+# `promoted` from --promote) was written since; anything else plans a new
+# round.
 if [ -z "$DIRTY" ]; then
     prev_scope=$(ctx_get "${PANEL}_scope.json")
     if [ -n "$prev_scope" ] && [ "$(jq -n --argjson s "$prev_scope" --argjson l "$LEDGER_JSON" \
@@ -1205,8 +1270,8 @@ if [ -z "$DIRTY" ]; then
             and all(($s.decisions // [])[]; .decision == "keep" or (.run // null) != null)
             and (unrecorded($s; $l; $panel) | length) == 0
             and ([($l.findings // {})[] | select(.panel == $panel) | (.records // [])[]
-                  | select(.kind == "fixed" and ((.rev // 0) > ($s.rev // -1)))] | length) == 0' 2>/dev/null)" = true ]; then
-        echo "panel-scope: the $PANEL round planned at $(printf '%.12s' "$HEAD") stands: every run it planned is recorded and nothing was marked fixed since" >&2
+                  | select((.writer.kind // "") == "agent" and ((.rev // 0) > ($s.rev // -1)))] | length) == 0' 2>/dev/null)" = true ]; then
+        echo "panel-scope: the $PANEL round planned at $(printf '%.12s' "$HEAD") stands: every run it planned is recorded and nothing was marked fixed or promoted since" >&2
         printf '%s\n' "$prev_scope"
         exit 0
     fi
