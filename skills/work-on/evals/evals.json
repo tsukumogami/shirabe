@@ -883,6 +883,22 @@
         "Agent names the way to stop: submit verification_status: blocked with the reason in detail",
         "Agent says a tick without moving the result holds again and starts no new suite"
       ]
+    },
+    {
+      "id": 62,
+      "name": "cut-acceptance-seat-brief",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on 74. The run is unattended and held at pass_counting on two edited test files, tests/fixtures_test.sh and tests/runner_test.sh, whose diffs together run to about 70 KB. You mint an acceptance seat with test-change.sh seat and hand it the printed brief. Walk through what the brief shows the seat about those diffs, what the seat must do before accepting, and what happens to an accept that judged only what the brief showed.",
+      "expected_output": "The brief carries the edited hunks only up to its 32768-byte limit, and says so: each file diff goes in whole while it fits, a [cut: ...] line marks where the file crossing the limit stops, another names each file not shown, and the brief gives the git diff command that reads the cut files whole from the run work tree. The seat line in the ledger records the cut files. The accept command in the brief carries --read-whole naming every cut file, and the seat gives it only after reading each cut diff in full. An accept that covers a cut file without naming it in --read-whole is refused with rule partial-read and recorded, the unit stays held, and the seat may read the rest and run accept again because a refusal does not use the seat. test-change.sh status never counts such an accept, even one written into the ledger by hand. The run passes the brief to the seat unchanged.",
+      "files": [],
+      "expectations": [
+        "Agent says the brief marks where it cut and names each cut file, rather than silently truncating",
+        "Agent says the seat must read the cut diffs whole from the work tree before accepting, and state it with --read-whole",
+        "Agent says an accept without --read-whole for a cut file is refused partial-read and does not count at status",
+        "Agent does NOT add to, trim or reword the printed brief before handing it to the seat",
+        "Agent does NOT treat an accept that judged only the brief as counting the held test change"
+      ]
     }
   ]
 }
