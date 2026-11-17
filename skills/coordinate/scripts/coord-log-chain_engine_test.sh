@@ -413,7 +413,7 @@ echo "== a bounded walk: --back-to, --deadline and --from (shirabe#1548) =="
 # lets a session name hold, so the resume loop below hands back a cursor whose
 # member and seen list hold one. koto refuses a name that starts with a digit,
 # so a cursor naming one is refused below.
-if needs_takeover "--back-to stops early and at zero hops; --deadline 0 and --from resume hop by hop to the unbounded walk's start, through a member named with `_` and `.`; the earliest start met is held across resumes; the cycle and 1024-run rules across resumes; a bad cursor is refused; no flag changes nothing"; then
+if needs_takeover "--back-to stops early and at zero hops; --deadline 0 and --from resume hop by hop to the unbounded walk's start, through a member named with an underscore and a dot; the earliest start met is held across resumes; the cycle and 1024-run rules across resumes; a bad cursor is refused; no flag changes nothing"; then
     open bw-0 && takeover bw-1 bw-0 && takeover bw-2 bw-1 && takeover bw_3.c bw-2 && takeover bw-4 bw_3.c
     i=0
     for m in bw-0 bw-1 bw-2 bw_3.c bw-4; do stamp "$m" "2026-11-0$((i + 1))T00:00:00.000Z"; i=$((i + 1)); done
@@ -444,7 +444,7 @@ if needs_takeover "--back-to stops early and at zero hops; --deadline 0 and --fr
     done
     eq "--deadline 0 and --from walk hop by hop to the unbounded walk's start" "0 2026-11-01T00:00:00.000Z" "$RC $OUT"
     eq "  ... one hop a call, four calls stopped and a fifth that ends" "5 1 2 3 4" "$n $(for c in "${CURS[@]}"; do printf '%s ' "${c%% *}"; done | sed 's/ $//')"
-    eq "  ... the first cursor naming the member it reached, `_` and `.` and all" \
+    eq "  ... the first cursor naming the member it reached, underscore and dot and all" \
         "1 2026-11-04T00:00:00.000Z 2026-11-04T00:00:00.000Z bw_3.c bw-4 bw_3.c" "${CURS[0]}"
     eq "  ... the cursor naming the hops, the start, the earliest start, the member and the runs seen" \
         "2 2026-11-03T00:00:00.000Z 2026-11-03T00:00:00.000Z bw-2 bw-4 bw_3.c bw-2" "${CURS[1]}"
