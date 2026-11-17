@@ -598,7 +598,8 @@ leg, since one leg answers one session.
   entering `scrutiny`, `review`, `qa_validation` and `light_review`, and
   `--carried`, `--recorded` and `--verdict` as each one's gates; the agent runs
   `--record` after each round, `--mark-fixed` after committing a fix, and
-  `--promote` when a later read confirms an advisory finding is a defect. A full
+  `--promote` when a later read confirms an advisory finding is a defect,
+  naming the panel the run is at (the finding may be an earlier panel's). A full
   round spawns every seat; any other round keeps every seat and runs at most one
   re-verifier, which answers the findings the fix made due by id and reviews the
   fix diff once per retry. A panel passes only when every blocking finding is

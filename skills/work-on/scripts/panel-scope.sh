@@ -148,10 +148,14 @@
 #                                diff confirms a defect the ledger holds only
 #                                as an advisory finding: makes it blocking,
 #                                with a `promoted` record carrying the reason.
-#                                The round planned at this HEAD then no longer
-#                                stands, and --verdict blocks the panel on the
-#                                finding, so the run goes back to
-#                                implementation. It never closes anything.
+#                                <panel> is the panel the run is at; the
+#                                finding may be that panel's or an earlier
+#                                one's (a scrutiny advisory, promoted from
+#                                review with `--promote review`). The round
+#                                planned at this HEAD then no longer stands,
+#                                and --verdict blocks <panel> on the finding,
+#                                so the run goes back to implementation. It
+#                                never closes anything.
 #
 # Usage: panel-scope.sh --plan    <panel> <koto-session-name>
 #        panel-scope.sh --carried <panel> <koto-session-name>
@@ -277,10 +281,11 @@
 # tick without evidence, say) replaces its own history entry instead of adding
 # one, so the history counts rounds, not ticks. A --plan re-run at the same
 # HEAD, on a clean tree and unchanged criteria, after every run the scope
-# minted was recorded and with no `fixed` record written since, leaves the
-# scope as it is, whether or not a finding is still open: that round is
-# complete, and the <panel>_verdict gate reports its result. A `fixed` or
-# `promoted` record written after the round re-plans it, so --mark-fixed and
+# minted was recorded and with no `fixed` or `promoted` record written since,
+# leaves the scope as it is, whether or not a finding is still open: that round
+# is complete, and the <panel>_verdict gate reports its result. A `fixed` or
+# `promoted` record written after the round re-plans it (a promotion re-plans
+# the panel it was promoted into as well as the finding's own), so --mark-fixed and
 # --promote take effect at an unchanged HEAD. --promote is the supported way to
 # reopen such a round: a dirty work tree also forces a full round, but that
 # trigger is for a fix not yet committed and is not a way to reopen one.
@@ -397,14 +402,19 @@ case "$MODE" in
     *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed or --promote" ;;
 esac
 
-case "$PANEL" in
-    scrutiny) SEATS="completeness justification intent" ;;
-    review)   SEATS="pragmatic architect maintainer" ;;
-    qa)       SEATS="tester" ;;
-    light)    SEATS="reviewer" ;;
-    "") refuse 67 "missing panel" ;;
-    *)  refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review, qa or light" ;;
-esac
+# seats_of <panel>: the panel's real seats, or nothing for a panel that isn't
+# one. --promote also asks it for the seats of the panel that raised a finding.
+seats_of() {
+    case "$1" in
+        scrutiny) echo "completeness justification intent" ;;
+        review)   echo "pragmatic architect maintainer" ;;
+        qa)       echo "tester" ;;
+        light)    echo "reviewer" ;;
+    esac
+}
+[ -n "$PANEL" ] || refuse 67 "missing panel"
+SEATS=$(seats_of "$PANEL")
+[ -n "$SEATS" ] || refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review, qa or light"
 [ -n "$SESSION" ] || refuse 67 "missing session argument for $MODE"
 command -v jq >/dev/null || refuse 127 "jq not on PATH"
 
@@ -455,12 +465,20 @@ def closed($runs):
                  or ($r.writer.kind == "decider" and .raiser.kind == "decider" and $r.writer.name == .raiser.name)))
            or ($r.kind == "dismissed" and $r.writer.kind == "reviewer" and .raiser.kind == "reviewer"
                and $r.writer.name == .raiser.name and (($r.reason // "") != "")));
+# The order the panels run in on the full path. --promote takes a finding of the
+# panel it names or of one before it; light runs alone, so it has no rank.
+def panel_rank: {scrutiny: 0, review: 1, qa: 2}[.];
+# The panel a finding'"'"'s latest promotion named, or null if it was never
+# promoted. A finding of an earlier panel promoted into the panel the run is at
+# counts as that panel'"'"'s too, so its gates block on it.
+def promoted_into: [(.records // [])[] | select(.kind == "promoted") | .into // empty] | last;
 # The panel'"'"'s blocking findings that are not closed, oldest round first: what
-# --verdict prints and --open-count counts.
+# --verdict prints and --open-count counts. They are the panel'"'"'s own and any
+# an earlier panel raised that were promoted into it.
 def open_blocking($panel):
     . as $l
     | [ ($l.findings // {}) | to_entries[] | .value
-        | select(type == "object" and .panel == $panel and .severity == "blocking")
+        | select(type == "object" and (.panel == $panel or promoted_into == $panel) and .severity == "blocking")
         | select(closed($l.runs // {}) | not) ]
     | sort_by([(.round // 0), (.raiser.name // ""), (.summary // "" | tostring)]);
 def bad_path:
@@ -786,8 +804,18 @@ fi
 # so --verdict fails the panel and the run goes back to implementation, and a
 # fix then takes --mark-fixed and a re-verifier like any blocking finding. A
 # promotion only makes the panel stricter: it closes nothing and passes no
-# seat. The round planned at this HEAD no longer stands (see --plan). Refuses
-# (65) a malformed id, an id the panel doesn't hold, a finding that is already
+# seat. The round planned at this HEAD no longer stands (see --plan).
+#
+# <panel> is the panel the run is at, the one whose gate has to block. The
+# finding may be that panel's or an earlier one's (scrutiny, then review, then
+# qa): a run at review whose defect is held as a scrutiny advisory promotes it
+# with `--promote review`. The record names the panel it was promoted into, and
+# that panel's gates count the finding as its own (open_blocking), so
+# review_verdict blocks and the run goes back to implementation. The finding
+# stays its raising panel's: --mark-fixed names that panel, and that panel's
+# re-verifier closes it when the run walks back through. Refuses (65) a
+# malformed id, an id the ledger doesn't hold, a later panel's finding or one
+# of a panel with no place in that order (light), a finding that is already
 # blocking or is closed, and a reason that is empty or over 1000 bytes, all
 # before anything is written.
 if [ "$MODE" = "--promote" ]; then
@@ -801,7 +829,11 @@ if [ "$MODE" = "--promote" ]; then
     problem=$(printf '%s' "$LEDGER_JSON" | jq -r --arg panel "$PANEL" --arg id "$id" --arg reason "$reason" "$JQ_DEFS"'
         . as $l
         | ($l.findings // {})[$id] as $f
-        | if $f == null or $f.panel != $panel then "the \($panel) ledger holds no finding [\($id)]"
+        | if $f == null then "the \($panel) ledger holds no finding [\($id)]"
+          elif $f.panel != $panel
+               and (($f.panel | panel_rank) == null or ($panel | panel_rank) == null
+                    or ($f.panel | panel_rank) >= ($panel | panel_rank))
+          then "finding [\($id)] is the \($f.panel) panel'"'"'s, which does not run before \($panel)"
           elif $f.severity == "blocking" then "finding [\($id)] is already blocking"
           elif $f.severity != "advisory" then "finding [\($id)] has no severity a promotion can raise"
           elif ($f | closed($l.runs // {})) then "finding [\($id)] is closed"
@@ -810,14 +842,18 @@ if [ "$MODE" = "--promote" ]; then
           else empty end') || die 65 "could not read $LEDGER"
     [ -z "$problem" ] || die 65 "$problem"
     ROUND_NO=$(printf '%s' "$LEDGER_JSON" | jq --arg p "$PANEL" '[(.history // [])[] | select(.panel == $p) | .round] | max // 1')
-    printf '%s' "$LEDGER_JSON" | jq --arg panel "$PANEL" --arg seats "$SEATS" --arg head "$HEAD" \
-        --argjson round "$ROUND_NO" --arg id "$id" --arg reason "$reason" "$JQ_DEFS"'
+    # The raising seat's summary is its own panel's, which is not $PANEL when
+    # the finding came from an earlier panel.
+    FPANEL=$(printf '%s' "$LEDGER_JSON" | jq -r --arg id "$id" '.findings[$id].panel') \
+        || die 65 "could not read $LEDGER"
+    printf '%s' "$LEDGER_JSON" | jq --arg panel "$PANEL" --arg fpanel "$FPANEL" --arg fseats "$(seats_of "$FPANEL")" \
+        --arg head "$HEAD" --argjson round "$ROUND_NO" --arg id "$id" --arg reason "$reason" "$JQ_DEFS"'
         .rev = ((.rev // 0) + 1)
         | .rev as $rev
         | .findings[$id].severity = "blocking"
         | .findings[$id].records += [{kind: "promoted", writer: {kind: "agent", name: "work-on"},
-                                      round: $round, commit: $head, rev: $rev, reason: $reason}]
-        | seat_summaries($panel; $seats)' > "$WORK/ledger" \
+                                      round: $round, commit: $head, rev: $rev, reason: $reason, into: $panel}]
+        | seat_summaries($fpanel; $fseats)' > "$WORK/ledger" \
         || die 65 "could not write the promoted record"
     store_ledger "$WORK/ledger"
     exit 0
@@ -1260,8 +1296,10 @@ fi
 # re-verify findings with no fix behind them. The scope stands while HEAD, a
 # clean tree and the criteria are what it was planned against, every run it
 # minted is recorded, and no agent record (`fixed` from --mark-fixed,
-# `promoted` from --promote) was written since; anything else plans a new
-# round.
+# `promoted` from --promote) was written since on a finding of the panel's own
+# or one an earlier panel raised and --promote moved into it; anything else
+# plans a new round. Every agent record counts, not only those two kinds, so a
+# kind added later errs toward re-planning.
 if [ -z "$DIRTY" ]; then
     prev_scope=$(ctx_get "${PANEL}_scope.json")
     if [ -n "$prev_scope" ] && [ "$(jq -n --argjson s "$prev_scope" --argjson l "$LEDGER_JSON" \
@@ -1269,7 +1307,7 @@ if [ -z "$DIRTY" ]; then
             $s.head == $head and ($s.ac_sha // "") == $ac
             and all(($s.decisions // [])[]; .decision == "keep" or (.run // null) != null)
             and (unrecorded($s; $l; $panel) | length) == 0
-            and ([($l.findings // {})[] | select(.panel == $panel) | (.records // [])[]
+            and ([($l.findings // {})[] | select(.panel == $panel or promoted_into == $panel) | (.records // [])[]
                   | select((.writer.kind // "") == "agent" and ((.rev // 0) > ($s.rev // -1)))] | length) == 0' 2>/dev/null)" = true ]; then
         echo "panel-scope: the $PANEL round planned at $(printf '%.12s' "$HEAD") stands: every run it planned is recorded and nothing was marked fixed or promoted since" >&2
         printf '%s\n' "$prev_scope"

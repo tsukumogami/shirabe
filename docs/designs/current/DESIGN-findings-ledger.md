@@ -410,7 +410,7 @@ suite drives them with a fixture log.
 | `reverified` | `reverified` | yes | reviewer; check on a finding a check raised; decider on its own finding |
 | `dismissed` (reason required) | `dismissed` | yes | the raising seat, in a full round |
 | `fixed` | `fixed` | no | agent (`--mark-fixed` only) |
-| `promoted` (reason required) | `open` | no | agent (`--promote` only) |
+| `promoted` (reason and `into` panel required) | `open` | no | agent (`--promote` only) |
 | `unverified` | `unverified` | no | decider |
 
 The `check` writer kind is reserved: no check writes ledger records yet, and
@@ -427,6 +427,17 @@ diff confirms a defect that a round recorded only as advisory, the agent makes
 the finding blocking with a `promoted` record carrying the reason. It only
 tightens the panel: it closes nothing, and the finding then needs a fix and a
 reviewer's `reverified` like any blocking finding.
+
+`<panel>` is the panel the run is at, whose gate has to block. The finding may
+be that panel's or an earlier one's in the order scrutiny, review, qa, because
+the defect a later read confirms is often one an earlier panel held as
+advisory after the run has moved past it. The `promoted` record names the
+panel it was promoted into (`into`), and that panel's `--verdict`,
+`--open-count`, `--carried` and stands check count the finding as their own.
+The finding keeps its raising panel: `--mark-fixed` names that panel, and that
+panel's re-verifier closes it on the walk back, which clears the later panel
+too. A later panel's finding can't be promoted into an earlier one, and `light`
+has no place in the order.
 
 ### Planning a round (`--plan`)
 
