@@ -494,10 +494,11 @@ run-start)
     ;;
 chain-start)
     need SESSION
-    # A koto session name: a letter or a digit, then letters, digits, `.`,
-    # `_` or `-`, as koto takes one, so no member the walk can reach makes a
+    # A koto session name, as koto's session-ID rule takes one: a letter,
+    # then letters, digits, `.`, `_`, `~` or `-` (`~` is koto's own, for the
+    # epoch branches a rewind makes). So no member the walk can reach makes a
     # cursor its own resume refuses.
-    RE_NAME='[A-Za-z0-9][A-Za-z0-9._-]*'
+    RE_NAME='[A-Za-z][A-Za-z0-9._~-]*'
     RE_TIME='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,9})?)?Z'
     RE_CURSOR="^(0|[1-9][0-9]{0,3}) ($RE_TIME) ($RE_TIME) ($RE_NAME)(( $RE_NAME)+)\$"
     RE_SECS='^(0|[1-9][0-9]{0,5})$'
