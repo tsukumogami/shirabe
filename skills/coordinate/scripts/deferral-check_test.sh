@@ -36,7 +36,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
-# deferral-check.sh reads Claude jobs under DC_CLAUDE_HOME (default ~/.claude)
+# deferral-check.sh reads Claude jobs under DC_CLAUDE_HOME (default $HOME/.claude)
 # to mark a stopped worker. Point it at an empty fixture home so no block reads
 # the host's real jobs; the stopped-worker block swaps in its own jobs.
 EMPTY_CLAUDE_HOME="$T/claude-empty"
