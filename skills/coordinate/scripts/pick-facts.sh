@@ -58,7 +58,10 @@
 # nothing left), stopped (its worker's Claude jobs on this host are all
 # finished, dispatch-common.sh dc_topic_stopped: kept until its pull request
 # merges, draft or not, with nothing running for it) or active; only active
-# ones count against the cap (shirabe#1419). Local agents have no holding and
+# ones count against the cap (shirabe#1419). Stopped is a mark beside the
+# others, not an exclusive class: it takes a row out of the active count
+# only, so a stopped row that is also parked still counts as parked toward
+# PARKED_BOUND. Local agents have no holding and
 # are never counted. The counts sit beside CAP and
 # PARKED_BOUND from the session's variables, the cap from the record's Run
 # section when it has one.

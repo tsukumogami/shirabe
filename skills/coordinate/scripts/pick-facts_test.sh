@@ -198,6 +198,7 @@ job a2a2a2a2 live_two-0000aaa2 working
 job b1b1b1b1 gone_one-0000bbb1 done
 job b2b2b2b2 gone_two-0000bbb2 stopped
 job b3b3b3b3 gone_ready-0000bbb3 failed
+job b4b4b4b4 gone_parked-0000bbb4 done
 job c1c1c1c1 mixed-0000ccc1 done
 job c2c2c2c2 mixed-0000ccc2 working
 dr() { lk "$1" | jq -c --arg u "$2" '. + {unit: $u, entry_point: "work-on"}'; }
@@ -209,9 +210,10 @@ STOPPED_HOLDINGS=$(jq -nc \
     --argjson e "$(holding gone-ready "$(dr 55 '#55')")" \
     --argjson f "$(holding mixed "$(dr 56 '#56')")" \
     --argjson g "$(holding unseen "$(dr 57 '#57')")" \
-    '[$a, $b, $c, $d, $e, $f, $g]')
+    --argjson i "$(holding gone-parked "$(dr 58 '#58' | vh)")" \
+    '[$a, $b, $c, $d, $e, $f, $g, $i]')
 seed "$(record_json roadmap plugin-system | jq -c --argjson h "$STOPPED_HOLDINGS" '.holdings = $h')"
-for n in 51 52 53 54 56 57; do pr $n OPEN true; done; pr 55 OPEN false
+for n in 51 52 53 54 56 57; do pr $n OPEN true; done; pr 55 OPEN false; pr 58 OPEN false
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' Dropped)"
 session "$(roadmap_vars plugin-system)" roadmap-plugin-system
 bash "$PF" --session "$S" >/dev/null 2>"$T/err"
@@ -222,8 +224,9 @@ eq "a worker whose job reads stopped holds no slot" "stopped true, parked false"
 eq "a stopped worker whose ready pull request waits on its merge holds no slot" "stopped true, parked false" "$(st_of gone-ready)"
 eq "a topic with one finished job and one running is live" "stopped false, parked false" "$(st_of mixed)"
 eq "a topic with no job seen on this host still counts as active" "stopped false, parked false" "$(st_of unseen)"
-eq "stopped workers hold no slot: pick no longer counts the stopped holding as active" "4 0" "$(facts | jq -r '"\(.active) \(.parked)"')"
-eq "  ... the slice carries the stopped mark" "gone-one,gone-ready,gone-two" \
+eq "a stopped worker with a Verified head and a ready pull request still counts as parked" "stopped true, parked true" "$(st_of gone-parked)"
+eq "stopped workers hold no slot: pick no longer counts the stopped holding as active" "4 1" "$(facts | jq -r '"\(.active) \(.parked)"')"
+eq "  ... the slice carries the stopped mark" "gone-one,gone-parked,gone-ready,gone-two" \
     "$(jq -r '[.holdings[] | select(.stopped == true) | .worker] | sort | join(",")' "$KOTO_STORE/context/$S/coord/pick_slice.json")"
 export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
 

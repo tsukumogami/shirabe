@@ -83,8 +83,9 @@
 # one whose linked pull request GitHub reads merged and that state-common.sh
 # lib_link_merge_frees allows, is merged and counts as neither; one whose
 # worker's Claude jobs on this host are all finished (dispatch-common.sh
-# dc_topic_stopped) is stopped and counts as neither, whatever its pull
-# request's state (shirabe#1419); every other Holdings row is active. CAP and PARKED_BOUND are the
+# dc_topic_stopped) is stopped and leaves the active count, whatever its
+# pull request's state, though a stopped row that is also parked still
+# counts as parked (shirabe#1419); every other Holdings row is active. CAP and PARKED_BOUND are the
 # session's variables. The detail goes to context key coord/dispatch_check.json.
 #
 # Row mode judges one Deferrals row (a JSON object with deferral, reason,

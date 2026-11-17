@@ -737,7 +737,10 @@ lib_link_merge_frees() {
 # stopped past its handoff, say, is kept until its pull request merges, but
 # nothing runs for it, so it takes no slot under the cap whatever its pull
 # request's state (shirabe#1419). With no job seen here the row isn't
-# stopped. A row that is neither parked, merged nor stopped is active. Local
+# stopped. The stopped mark is set beside parked and merged, not in place of
+# them: it takes a row out of the active count only, and a row that is both
+# stopped and parked still counts as parked. A row that is neither parked,
+# merged nor stopped is active. Local
 # agents never have a row, so they are never counted. Returns 2 on a failed
 # read.
 lib_parked() {
