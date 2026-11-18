@@ -67,6 +67,19 @@ every suite under `--changed` too, short of a change only to `evals/` (below).
 default branch, the gate's own base, and classifies each changed path:
 
 - a suite (`scripts/<name>_test.sh`) runs itself;
+- a shared script (below), and the skill's `SKILL.md`, a file under its `references/`
+  or one of its koto templates, runs what it reaches: the suites that name it or one of
+  its callers, the own `<stem>_test.sh` of it and of each caller, and every engine suite
+  when it is the template or the template's front matter names it or a caller. A caller
+  is one of the skill's scripts whose code names it (a comment line doesn't count: it
+  reads and runs nothing) or a file under a subdirectory of `scripts/` that names it. A
+  jq module is also named by its quoted stem, the way `include` names it. A file under
+  `references/` is also named by `references`, since suites and scripts build those paths
+  at run time, and by `SKILL.md` when `SKILL.md` lists it, since a script can follow that
+  table. Engine suites come in only through the front matter, where koto's gates and
+  default actions name the scripts it runs; the body's directives tell the agent what to
+  run, which an engine suite doesn't do. A file nothing names, or a deleted one, runs
+  every suite;
 - a script under `scripts/` that is neither shared nor deleted runs its own
   `<stem>_test.sh` and the unit suites that name it or one of its direct callers, the
   skill's other scripts that name it. Engine suites (`*_engine_test.sh`) run only when no
@@ -89,14 +102,12 @@ default branch, the gate's own base, and classifies each changed path:
   `.github/workflows/`, runs the suites that name it, and none when no suite does. The
   suites that walk the tree aren't added for these paths, since CI runs every suite and
   adding them would select about half of coordinate's suites again;
-- everything else runs every suite: a shared script, anything under a subdirectory of
-  `scripts/` (testdata and the test libraries), a koto template, the skill's other
-  Markdown and data files, `check-skill.tsv` itself, a deleted file, and any other path
+- everything else runs every suite: anything under a subdirectory of `scripts/`
+  (testdata and the test libraries), the skill's other Markdown and data files
+  (`requires.tsv`, say), `check-skill.tsv` itself, a deleted file, and any other path
   outside the skill (`scripts/`, `references/`, another skill's files),
   `scripts/check-skill.sh` included. So do a change with no merge-base and a
-  branch with no changes. Markdown and data files run everything because suites read them
-  by glob as well as by name (`references/`, `SKILL.md`, `requires.tsv`), which name
-  matching can't see.
+  branch with no changes.
 
 Callers are followed one level only. A suite that reaches a changed script only through
 two scripts in a row, or an engine suite that drives the script while a unit suite names
@@ -108,7 +119,10 @@ A script is shared when two or more of the skill's files source it, which the sc
 out on each run, or when `check-skill.tsv` names it on a `shared` row. The rows hold what
 sourcing can't show. For coordinate, that's the template's own scripts (`coord-verdict.sh`,
 `coord-log.sh`, `coordinate-open.sh` and its wording table), which every engine suite drives,
-and the record's schema (`state-schema.jq`).
+and the record's schema (`state-schema.jq`). A shared script used to run every suite; it now
+runs what it reaches (shirabe#1934), which for some is still most of them: on coordinate,
+`coord-log.sh` reaches 119 of 127 suites and the template 92, while `coord-verdict.sh`
+reaches 56 and a reference document about 36.
 
 `check-skill.tsv`'s `cost` rows give each suite's measured CPU seconds. With or without
 `--changed`, suites launch costliest first, so a long suite doesn't start last and set the
@@ -128,7 +142,8 @@ Keeping `check-skill.tsv` current:
 
 - Add a `shared` row when a script becomes one that many others reach without sourcing it:
   a script the template or another skill's code drives directly, or a jq module. A script
-  two files source is shared without a row.
+  two files source is shared without a row. The row makes a change to it run what it
+  reaches, engine suites included, instead of only the unit suites a plain script gets.
 - Add a `cost` row for a new suite, and re-measure the rows when a suite's cost changes
   much. A suite with no row launches last, which costs time but never correctness;
   `scripts/check-cost-rows.sh` fails when a skill's rows and suites differ. The

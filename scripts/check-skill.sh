@@ -79,8 +79,19 @@
 #   - a path under a subdirectory of scripts/ (testdata, test libraries):
 #     every suite;
 #   - scripts/<name>_test.sh: that suite;
-#   - scripts/<file> named on a `shared` row of check-skill.tsv, sourced by
-#     two or more of the skill's files, or deleted: every suite;
+#   - a deleted scripts/<file>: every suite;
+#   - scripts/<file> named on a `shared` row of check-skill.tsv, or sourced by
+#     two or more of the skill's files, and the skill's SKILL.md, a file under
+#     its references/ or a koto-templates/<name>.md: what it reaches
+#     (shirabe#1934). That's the suites that name it or one of its callers
+#     (the skill's scripts whose code, not a comment, names it, and the files
+#     under scripts/ subdirectories that name it), the own <stem>_test.sh of
+#     it and of each caller, and every engine suite when it is a template or a
+#     template's front matter, where koto's gates and actions run scripts,
+#     names it or a caller. A jq module is also named by its quoted stem, the
+#     way `include` names it; a file under references/ also by `references`,
+#     and by `SKILL.md` when SKILL.md lists it. Deleted, or nothing selected:
+#     every suite. See reach_suites;
 #   - any other scripts/<file>: its own <stem>_test.sh, and every unit suite
 #     (not *_engine_test.sh) that names the file or one of its callers, the
 #     skill's other scripts/*.sh and *.jq files that name it, shared ones
@@ -89,7 +100,7 @@
 #   - koto-templates/<name>.compat.json: as a scripts/ file would, since the
 #     skill's scripts are what read it: the suites that name it or a script
 #     that names it, unit suites first;
-#   - anything else (Markdown, templates, check-skill.tsv itself): every
+#   - anything else (other Markdown and data, check-skill.tsv itself): every
 #     suite.
 #
 # Each suite's launch prints `check-skill: started bash <suite> (<n> of <m>)`,
@@ -99,7 +110,8 @@
 #
 # check-skill.tsv sits at skills/<skill>/check-skill.tsv, tab-separated, with
 # `#` comments, and has two kinds of row:
-#   shared <file under scripts/>   a change to it runs every suite
+#   shared <file under scripts/>   a change to it runs what it reaches, engine
+#                                  suites included, not only its unit suites
 #   cost <suite file name> <secs>  the suite's measured CPU seconds; suites
 #                                  launch costliest first, unlisted ones last
 #                                  in glob order
@@ -438,6 +450,120 @@ $hits"
     fi
 }
 
+# is_template <path>: whether <path> is one of the skill's koto templates,
+# koto-templates/<name>.md and not a .mermaid.md diagram.
+is_template() {
+    case "$1" in
+        "$SKILL_DIR"/koto-templates/*.mermaid.md) return 1 ;;
+        "$SKILL_DIR"/koto-templates/*/*) return 1 ;;
+        "$SKILL_DIR"/koto-templates/*.md) return 0 ;;
+    esac
+    return 1
+}
+
+# template_heads: the front matter of each of the skill's koto templates, where
+# the gates and default actions name the scripts koto itself runs. The body's
+# directives only tell the agent what to run, which an engine suite doesn't.
+template_heads() {
+    local t
+    for t in "$SKILL_DIR"/koto-templates/*.md; do
+        [ -f "$t" ] && is_template "$t" || continue
+        awk 'NR == 1 && /^---[[:space:]]*$/ { on = 1; next }
+             on && /^---[[:space:]]*$/ { exit }
+             on' "$t"
+    done
+}
+
+# CODE_NAMES: an awk program that, given CODE_NAMES_WANT=<strings, one per
+# line> in its environment (macOS awk refuses a newline in -v), prints each
+# input file with a line naming one of the strings, a comment line (first
+# non-blank character #) not counting. Standard input prints as "-".
+CODE_NAMES='BEGIN { n = split(ENVIRON["CODE_NAMES_WANT"], want, "\n") }
+FNR == 1 { done = 0 }
+done || /^[[:space:]]*#/ { next }
+{ for (i = 1; i <= n; i++) if (want[i] != "" && index($0, want[i])) { print (FILENAME == "" ? "-" : FILENAME); done = 1; next } }'
+
+# name_forms <file>: the strings that name <file> in code, one per line: its
+# file name, and for a jq module also its quoted stem, which is how jq's
+# `include` and `import` name it.
+name_forms() {
+    local n=${1##*/}
+    echo "$n"
+    case "$n" in *.jq) printf '"%s"\n' "${n%.jq}" ;; esac
+}
+
+# reach_suites <path>: the suites a change to <path> can reach
+# (shirabe#1934), for a script that several of the skill's files source and
+# for the skill's own Markdown and data files (SKILL.md, references/, koto
+# templates), which all used to select every suite, and for a script on a
+# shared row of check-skill.tsv. Sets REACH (suite paths, newline-separated)
+# or REACH_ALL (why every suite runs).
+#   - Names: <path>'s name forms. A file under references/ also counts as
+#     named by `references`, since suites and scripts build those paths at run
+#     time and glob the directory, and by `SKILL.md` when SKILL.md names it,
+#     since a script can follow SKILL.md's table of reference files.
+#   - Callers, one level, as for any script: each of the skill's scripts
+#     whose code names one of them, a comment line not counting, since a
+#     comment runs and reads nothing; and each file under a subdirectory of
+#     scripts/ (test libraries, testdata) that names one anywhere, as a suite
+#     would.
+#   - The suites that name <path> or a caller (anywhere in the file, comments
+#     included, the way a suite declares a script it reaches only through a
+#     variable), and the own <stem>_test.sh of <path> and of each caller.
+#   - Every engine suite (*_engine_test.sh) when <path> is a koto template, or
+#     when a template's front matter names <path> or a caller: koto runs
+#     those scripts in any engine run that reaches the state.
+#   - Nothing selected: every suite, since nothing says where it reaches.
+REACH=""
+REACH_ALL=""
+reach_suites() {
+    local p=$1 names callers c s engine=""
+    REACH="" REACH_ALL=""
+    names=$(name_forms "$p")
+    case "$p" in
+        "$SKILL_DIR"/references/*)
+            names="$names
+references"
+            if [ -f "$SKILL_DIR/SKILL.md" ] && grep -qF -- "${p##*/}" "$SKILL_DIR/SKILL.md"; then
+                names="$names
+SKILL.md"
+            fi ;;
+    esac
+    callers=$({
+        find "$SKILL_DIR/scripts" -mindepth 1 -maxdepth 1 -type f ! -name '*_test.sh' ! -path "$p" \
+            -exec env CODE_NAMES_WANT="$names" awk "$CODE_NAMES" {} + 2>/dev/null
+        find "$SKILL_DIR/scripts" -mindepth 2 -type f ! -path "$p" -exec grep -lF -- "$names" {} + 2>/dev/null
+    } | sort)
+    for c in $callers; do
+        names="$names
+$(name_forms "$c")"
+    done
+    REACH=$(grep -lF -- "$names" "${suites[@]}")
+    for c in "$p" $callers; do
+        case "$c" in
+            "$SKILL_DIR"/scripts/*) ;;
+            *) continue ;;
+        esac
+        c=${c##*/}
+        s="$SKILL_DIR/scripts/${c%.*}_test.sh"
+        [ -f "$s" ] && REACH="$REACH
+$s"
+    done
+    if is_template "$p" || [ -n "$(template_heads | CODE_NAMES_WANT="$names" awk "$CODE_NAMES")" ]; then
+        engine=1
+        for s in "${suites[@]}"; do
+            case "$s" in
+                *_engine_test.sh) REACH="$REACH
+$s" ;;
+            esac
+        done
+    fi
+    REACH=$(printf '%s\n' "$REACH" | sed '/^$/d')
+    if [ -z "$REACH" ]; then
+        REACH_ALL="no suite names $p${engine:+ and the skill has no engine suite}"
+    fi
+}
+
 # select_suites: sets SELECTED (suite paths, newline-separated, possibly with
 # repeats) or ALL_REASON, which means every suite runs.
 SELECTED=""
@@ -498,12 +624,16 @@ $READERS" ;;
                 if [ ! -f "$p" ]; then
                     ALL_REASON="$p is deleted"; return
                 fi
-                if in_list "$name" "$rows"; then
-                    ALL_REASON="$p is shared (check-skill.tsv)"; return
-                fi
                 if in_list "$name" "$shared"; then
-                    ALL_REASON="$p is sourced by $(printf '%s\n' "$sourced" | awk -F'\t' -v n="$name" '$1 == n { print $2 }') files"
-                    return
+                    # On a shared row or sourced by several: everything it
+                    # and its callers reach, engine suites included.
+                    reach_suites "$p"
+                    if [ -n "$REACH_ALL" ]; then
+                        ALL_REASON=$REACH_ALL; return
+                    fi
+                    SELECTED="$SELECTED
+$REACH"
+                    continue
                 fi
                 names=$(callers_of "$name" "$shared")
                 hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
@@ -522,6 +652,18 @@ $engines"
                 else
                     ALL_REASON="no suite names $p"; return
                 fi ;;
+            "$SKILL_DIR"/SKILL.md|"$SKILL_DIR"/references/*|"$SKILL_DIR"/koto-templates/*.md)
+                # The skill's own documents and the template: the suites
+                # they can reach (reach_suites).
+                if [ ! -f "$p" ]; then
+                    ALL_REASON="$p is deleted"; return
+                fi
+                reach_suites "$p"
+                if [ -n "$REACH_ALL" ]; then
+                    ALL_REASON=$REACH_ALL; return
+                fi
+                SELECTED="$SELECTED
+$REACH" ;;
             docs/*.md|.github/workflows/*)
                 naming_suites "$p" ;;
             *.md)
