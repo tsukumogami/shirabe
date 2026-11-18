@@ -4120,9 +4120,10 @@ already archived the unit as they tore it down. Run `--retire` only after that
 pass reports done: the check reads only the archive this run's own pass made,
 never one someone else left, so skipping the pass leaves the holding in Work
 and teardown_confirm surfaces. `--retire` retires a holding whose removed
-pass is confirmed even when its pull request merged outside the run's land
-path, so its row was never marked merged, and it records an entry saying the
-teardown was not the run's own.
+pass is confirmed whether or not its pull request merged: it reads no pull
+request state, so a row a person merged outside the run's land path, never
+marked merged, retires, and so does one whose pull request closed unmerged.
+It records an entry saying the teardown was not the run's own.
 
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or
