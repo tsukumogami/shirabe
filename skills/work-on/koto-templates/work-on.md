@@ -1996,6 +1996,21 @@ states:
     # compares the green's head with HEAD, and status compares every
     # acceptance's digests with HEAD's, so a later commit holds again. The
     # third decline of one path set goes to done_blocked with no evidence.
+    #
+    # A held run that finds a gap in its own tests before anyone has judged
+    # them (an assertion narrowed too far, a case left unchecked) submits
+    # `test_gap` with the gap in `detail` (#1915). The fix is a test-only
+    # commit, and the review panels have to see it: a commit made here with
+    # no route out moves HEAD under the held gates, and nothing on this
+    # state plans a review of it. `test_gap` returns to implementation like
+    # a decline, but no seat declined: the acceptance ledger is untouched
+    # and the decline limit doesn't move. The next lap reaches the run's
+    # first panel, whose panel-scope.sh --plan plans a re-verifier with a
+    # fix-diff review for any commit since the panel last recorded, so the
+    # fix is reviewed before verification runs again. Its two edges are the
+    # two holds a run can stop at short of the decline limit: an edit not
+    # yet counted (tests_counted 1), and a fix held only on its green
+    # (tests_counted 0, fix_green 1).
     gates:
       fix_green:
         type: command
@@ -2006,16 +2021,20 @@ states:
     accepts:
       counting_status:
         type: enum
-        values: [green_failed, declined, blocked]
+        values: [green_failed, declined, test_gap, blocked]
         description: >-
           Absent on the passing path: koto advances once fix_green and
           tests_counted pass. `green_failed` returns to implementation after a
           green that exited non-zero; `declined` returns to implementation
-          after the acceptance seat declined a test edit; `blocked` stops the
-          run when a hold can't be cleared.
+          after the acceptance seat declined a test edit; `test_gap` returns
+          to implementation for a test-only fix the run found itself, named in
+          `detail`, with no seat's decline; `blocked` stops the run when a
+          hold can't be cleared.
       detail:
         type: string
-        description: Why the run can't be counted.
+        description: >-
+          Why the run can't be counted, or, with `test_gap`, the gap in the
+          unit's own tests that the test-only fix closes.
     transitions:
       - target: finalization
         when:
@@ -2040,6 +2059,15 @@ states:
         when:
           gates.tests_counted.exit_code: 1
           counting_status: declined
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 1
+          counting_status: test_gap
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 0
+          gates.fix_green.exit_code: 1
+          counting_status: test_gap
       - target: done_blocked
         when:
           gates.tests_counted.exit_code: 0
@@ -3905,6 +3933,17 @@ changes` means the work tree has changes the gate can't classify: commit them.
 A fix recorded by observations is held by both gates until a seat accepts the pair:
 the brief lists the observations, and `check-green` passes once the acceptance
 covers both digests.
+
+**A gap in your own tests.** When you find, while the run is held here, that the
+unit's tests need a test-only fix (an assertion narrowed further than the change
+calls for, a case or a row nothing checks), don't commission a seat on tests you
+know are incomplete, and don't submit `declined` when no seat declined. Submit
+`counting_status: test_gap` with `detail` naming the gap. The run returns to
+`implementation`: commit the fix there and finish as usual, answering the issue
+type as before. The run's first panel then plans a re-verifier that reviews the
+fix diff, and verification runs again only after it. Nothing is written to the
+acceptance ledger, so the decline limit doesn't move, and the edit is held again
+at its new digest when the run comes back here.
 
 Submit `counting_status: blocked` with `detail` to stop the run when a hold can't be
 cleared.
