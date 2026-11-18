@@ -14,6 +14,9 @@ on:
     paths:
       - 'scripts/review-packet.sh'
       - 'scripts/review-packet_test.sh'
+      # review-packet.sh sources it to fold a merge of the default branch
+      # into the packet's base.
+      - 'scripts/lib/default-merge.sh'
       # A relative --format resolves against the plugin root, and the suite
       # reads a shipped format reference to prove it.
       - 'skills/brief/references/brief-format.md'
@@ -33,6 +36,7 @@ on:
     paths:
       - 'scripts/review-packet.sh'
       - 'scripts/review-packet_test.sh'
+      - 'scripts/lib/default-merge.sh'
       - 'skills/brief/references/brief-format.md'
       - 'skills/*/references/phases/*.md'
       - 'skills/review-plan/SKILL.md'
