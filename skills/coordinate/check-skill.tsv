@@ -31,12 +31,18 @@ all	run-tests.sh
 # file under scripts/ and koto-templates/;
 # coordinate-template-structure_engine_test.sh every .sh and .jq file except
 # the suites and scripts/testdata/ (its rows take testdata in too, which is
-# wider than the walk and harmless: a change there runs every suite anyway).
+# wider than the walk and harmless: a change there runs every suite anyway),
+# and SKILL.md, every references/*.md and every koto-templates/*.md, which it
+# scans for an outward-kind state-entry.sh call without --on (and SKILL.md
+# for "the human merges", references/state-keys.md for the key table).
 walk	skill-hygiene_test.sh	*	*_test.sh
 walk	state-structure_test.sh	scripts/*
 walk	state-structure_test.sh	koto-templates/*
 walk	coordinate-template-structure_engine_test.sh	*.sh	*_test.sh
 walk	coordinate-template-structure_engine_test.sh	*.jq
+walk	coordinate-template-structure_engine_test.sh	SKILL.md
+walk	coordinate-template-structure_engine_test.sh	references/*.md
+walk	coordinate-template-structure_engine_test.sh	koto-templates/*.md
 
 # cost <suite> <seconds>: the suite's CPU seconds (user plus system), measured
 # on main at 05d3a50 with four suites at a time on a loaded host. Suites

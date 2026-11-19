@@ -1612,6 +1612,58 @@ coord_walks "references/teardown-agent.md" "skill-hygiene_test.sh" $CS/reference
 coord_walks "SKILL.md" "skill-hygiene_test.sh" $CS/SKILL.md
 coord_walks "a suite (teardown-pass_test.sh)" "state-structure_test.sh" $CS/scripts/teardown-pass_test.sh
 
+# The walk rows alone, not the walkers' text. The three walking suites name
+# `references`, `SKILL.md` and many scripts, and template-structure is an
+# engine suite, which a document or the template selects anyway, so a walk row
+# that misses a path they read passes the cases above unnoticed. On a copy of
+# the real skill, the walking suites name nothing and template-structure runs
+# under a unit suite's name, its rows renamed with it: there only a walk row
+# can select them, and each must still be selected for every changed file its
+# walk reads.
+WALK_COPY="$WORK/walk-copy"
+rm -rf "$WALK_COPY"
+if mkdir -p "$WALK_COPY/scripts/lib" \
+    && cp "$SCRIPT_DIR/lib/script-cases.py" "$WALK_COPY/scripts/lib/" \
+    && (cd "$REPO_ROOT" && git ls-files -co --exclude-standard -z -- "$CS" | tar -cf - --null -T -) \
+        | tar -xf - -C "$WALK_COPY"; then
+    for w in $WALK3; do
+        printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$WALK_COPY/$CS/scripts/$w"
+    done
+    TS=template-walk_test.sh
+    mv "$WALK_COPY/$CS/scripts/coordinate-template-structure_engine_test.sh" "$WALK_COPY/$CS/scripts/$TS"
+    sed "s/coordinate-template-structure_engine_test\.sh/$TS/" "$WALK_COPY/$CS/check-skill.tsv" > "$WALK_COPY/tsv" \
+        && mv "$WALK_COPY/tsv" "$WALK_COPY/$CS/check-skill.tsv"
+    WALKED="skill-hygiene_test.sh state-structure_test.sh $TS"
+    # copy_walks <name> <walking suites, space-separated> <changed path>
+    copy_walks() {
+        local miss="" w
+        OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$WALK_COPY" PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$3" \
+            "$BASH_BIN" "$CHECK_SH" --changed --list coordinate 2>&1)
+        RC=$?
+        LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+        for w in $2; do
+            case " $LISTED " in *" $CS/scripts/$w "*) ;; *) miss="$miss $w" ;; esac
+        done
+        if [ "$RC" = 0 ] && [ -z "$miss" ] && out_has "check-skill: --changed selects "; then
+            pass "coordinate, walkers naming nothing: $1 selects the suites whose walk rows cover it ($2)"
+        else
+            fail "coordinate, walkers naming nothing: $1: exit $RC, missing:${miss:- none}"
+            printf '%s\n' "$OUT" | grep '^check-skill:' | sed 's/^/    /'
+        fi
+    }
+    copy_walks "SKILL.md" "skill-hygiene_test.sh $TS" $CS/SKILL.md
+    copy_walks "references/state-keys.md" "skill-hygiene_test.sh $TS" $CS/references/state-keys.md
+    copy_walks "references/teardown-agent.md" "skill-hygiene_test.sh $TS" $CS/references/teardown-agent.md
+    copy_walks "koto-templates/coordinate.md" "$WALKED" $CS/koto-templates/coordinate.md
+    copy_walks "coord-log.sh (a shared script)" "$WALKED" $CS/scripts/coord-log.sh
+    copy_walks "state-schema.jq (a shared jq module)" "$WALKED" $CS/scripts/state-schema.jq
+    copy_walks "quiet-check.sh (a plain script)" "$WALKED" $CS/scripts/quiet-check.sh
+    copy_walks "a suite (teardown-pass_test.sh)" "state-structure_test.sh" $CS/scripts/teardown-pass_test.sh
+else
+    fail "coordinate, walkers naming nothing: could not copy the skill"
+fi
+rm -rf "$WALK_COPY"
+
 # Every coordinate suite has a cost row and every cost row names a suite, so
 # a new suite can't quietly launch last. scripts/check-cost-rows.sh holds the
 # one copy of the comparison; pull request CI runs it in check-cost-rows.yml,

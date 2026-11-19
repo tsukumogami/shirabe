@@ -118,7 +118,9 @@ suite a `walk` row of `check-skill.tsv` declares as walking to it. Such a suite 
 tree (`find`, `git ls-files`) and reads each file it finds, so it reaches a file without
 naming it, and none of the rules above would select it. On coordinate three suites do:
 `skill-hygiene_test.sh`, `state-structure_test.sh` and
-`coordinate-template-structure_engine_test.sh`. A suite change is no exception: it runs
+`coordinate-template-structure_engine_test.sh`. The last reads more than scripts: besides
+every `.sh` and `.jq` file, it scans `SKILL.md`, the `references/` documents and the koto
+templates, so its rows cover those too. A suite change is no exception: it runs
 itself, and the suites whose walk reads suites too. A malformed walk row, or one that names
 no suite of the skill, runs every suite, since it would otherwise drop the suite it declares.
 
@@ -141,22 +143,24 @@ anything it runs, runs every suite. A shared script used to run every suite; it 
 what it reaches (shirabe#1934). Callers are followed all the way up, and on coordinate
 almost every chain reaches `scripts/testdata/test-lib.sh`, which most suites name, so most
 paths still select about 119 to 121 of the 127 suites. A plain script selects far fewer,
-the walking suites among them. Measured with the `cost` rows:
+the walking suites among them. Measured with the `cost` rows: the CPU seconds summed, and
+the shortest wall time those rows allow at four suites at a time (the sum over four, or the
+costliest suite when that's longer). A loaded host takes far longer than that.
 
-| Changed path | Suites | CPU seconds |
-|--------------|--------|-------------|
-| `coord-verdict.sh` | 58 | 3,065 |
-| `coordinate-open.wording.tsv` | 119 | 6,162 |
-| `SKILL.md` | 121 | 6,163 |
-| `references/teardown-agent.md` | 121 | 6,163 |
-| `koto-templates/coordinate.md` | 121 | 6,163 |
-| `state-schema.jq` | 120 | 6,168 |
-| `coord-log.sh` | 119 | 6,162 |
-| `run-tests.sh` (the `all` row) | 127 | 6,194 |
-| `state-common.sh` | 119 | 6,162 |
-| `quiet-check.sh` (a plain script) | 4 | 62 |
-| `state-holding.sh` (a plain script) | 41 | 2,232 |
-| #1934's example diff (`state-holding.sh`, `teardown-pass.sh`, the template, `teardown-agent.md`, two suites) | 121 | 6,163 |
+| Changed path | Suites | CPU seconds | At 4 jobs |
+|--------------|--------|-------------|-----------|
+| `coord-verdict.sh` | 58 | 3,065 | 767 |
+| `coordinate-open.wording.tsv` | 119 | 6,162 | 1,541 |
+| `SKILL.md` | 121 | 6,163 | 1,541 |
+| `references/teardown-agent.md` | 121 | 6,163 | 1,541 |
+| `koto-templates/coordinate.md` | 121 | 6,163 | 1,541 |
+| `state-schema.jq` | 120 | 6,168 | 1,542 |
+| `coord-log.sh` | 119 | 6,162 | 1,541 |
+| `run-tests.sh` (the `all` row) | 127 | 6,194 | 1,549 |
+| `state-common.sh` | 119 | 6,162 | 1,541 |
+| `quiet-check.sh` (a plain script) | 4 | 62 | 46 |
+| `state-holding.sh` (a plain script) | 41 | 2,232 | 558 |
+| #1934's example diff (`state-holding.sh`, `teardown-pass.sh`, the template, `teardown-agent.md`, two suites) | 121 | 6,163 | 1,541 |
 
 `check-skill.tsv`'s `cost` rows give each suite's measured CPU seconds. With or without
 `--changed`, suites launch costliest first, so a long suite doesn't start last and set the
