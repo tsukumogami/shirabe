@@ -344,7 +344,7 @@ archive_refuse() {
 # confirmed and the files are moved, 1 on a refusal. The lock it takes is
 # released before it returns, so a --start that follows can take it.
 archive_attempt() {
-    local reason=$1 elig n run_attempt count line new back back_count back_last adir status
+    local reason=$1 elig n run_attempt count at_head line new back back_count back_last adir status
     case "$reason" in
         *[![:space:]]*) ;;
         *) archive_refuse "the reason is empty"; return 1 ;;
@@ -386,8 +386,15 @@ archive_attempt() {
 
     ctx_read "$LEDGER_KEY" || { archive_refuse "could not read $LEDGER_KEY for session $SESSION"; return 1; }
     count=$(count_lines "$CTX_VALUE")
+    # The attempt is numbered at this head and merge-base; count is the whole
+    # ledger. A line that will not parse refuses the archive before any write.
+    at_head=0
+    if [ "$count" -gt 0 ]; then
+        at_head=$(printf '%s\n' "$CTX_VALUE" | grep . | jq -s --arg head "$HEAD_SHA" --arg mb "$MB" '[.[] | select(.head == $head and .merge_base == $mb)] | length') \
+            || { archive_refuse "could not count the attempts in $LEDGER_KEY for session $SESSION"; return 1; }
+    fi
     status=$(jq -r .status "$RESULT")
-    line=$(jq -nc --argjson attempt "$((count + 1))" --argjson folder "$n" \
+    line=$(jq -nc --argjson attempt "$((at_head + 1))" --argjson folder "$n" \
         --arg head "$HEAD_SHA" --arg mb "$MB" --arg status "$status" --arg reason "$reason" \
         --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hd "$HEAD_DIR/" --slurpfile result "$RESULT" '
         def rel: if (type == "string") and startswith($hd) then .[($hd | length):] else null end
@@ -417,15 +424,15 @@ archive_attempt() {
     # The ledger has the attempt; now, and only now, the files move.
     if [ ! -d "$adir" ]; then
         (umask 077 && mkdir -p "$adir") \
-            || { archive_refuse "the ledger has attempt $((count + 1)), but $adir could not be created"; return 1; }
+            || { archive_refuse "the ledger has attempt $((at_head + 1)), but $adir could not be created"; return 1; }
     fi
     mv -f "$RESULT" "$adir/result.json" \
-        || { archive_refuse "the ledger has attempt $((count + 1)), but $RESULT could not be moved"; return 1; }
+        || { archive_refuse "the ledger has attempt $((at_head + 1)), but $RESULT could not be moved"; return 1; }
     if [ -f "$HEAD_DIR/run.json" ]; then
         mv -f "$HEAD_DIR/run.json" "$adir/run.json" \
-            || { archive_refuse "attempt $((count + 1)) is archived, but $HEAD_DIR/run.json could not be moved"; return 1; }
+            || { archive_refuse "attempt $((at_head + 1)) is archived, but $HEAD_DIR/run.json could not be moved"; return 1; }
     fi
-    echo "run-verification: archived attempt $((count + 1)) at $HEAD_SHA into attempts/$n"
+    echo "run-verification: archived attempt $((at_head + 1)) at $HEAD_SHA into attempts/$n"
     archive_done 0
 }
 
