@@ -307,8 +307,16 @@ state holds and the agent picks `rerun`, `fix` or `blocked`.
 
 Key assumptions:
 
-- shirabe#1881's exit 5 for a timed-out-plus-failed result is reconciled
-  with R7 here by the route's own gate refusing the route for that result.
+- shirabe#1881 lands its hold in the shape this design requires, or adjusts
+  to it when it lands second (the divergence below).
+
+**Divergence from shirabe#1881 as drafted.** shirabe#1881 exits 5 for a
+result whose only causes are timed-out commands *or* timed-out plus failed
+commands, and offers `rerun` there. This route requires that a failed check
+outranks a timeout: such a result exits 1 and goes to `implementation`,
+never to the exit-5 hold (R7, and the PRD's criterion for one timed-out and
+one failed check). Whichever of the two lands second conforms to that rule:
+exit 5 is reserved for results with a timed-out check and no failed one.
 
 #### Chosen: open after one local timeout, at one shared hold
 
@@ -376,9 +384,13 @@ declaration to the verification map, a hold and a recording step to
   new outcome: any `failed` exits 1; otherwise a timed-out check exits 5;
   the other exits are unchanged.
 - **`skills/work-on/scripts/verification-route.sh`** (new). `--open`
-  exits 0 when R1 holds for the current result and map, 1 when it doesn't,
-  printing the closing cause; `--record --reason <text>` writes the koto key
-  `hosted_of_record`; `--read` reads the hosted jobs (below).
+  exits 0 when R1 holds for the current result and map and the diff from
+  the merge-base touches none of the files that decide what the hosted job
+  runs (the declared workflow file, `scripts/skill-gate.sh`,
+  `scripts/check-skill.sh`, the verification map and the coverage test), 1
+  otherwise, printing the closing cause; `--record --reason <text>` writes
+  the koto key `hosted_of_record`; `--check-record` validates that key
+  against the stored result and map; `--read` reads the hosted jobs (below).
 - **`.claude/shirabe-extensions/verification-map.json`**. The
   `check-skill` row gains its `hosted` declaration.
 - **`skills/work-on/koto-templates/work-on.md`**. `verification` gains the
@@ -438,14 +450,25 @@ concluded anything else, or the pull request head is not `head`, or a
 result can't be read (names each refusing job and the commit); 75 a job is
 pending, queued or absent and fewer than 120 minutes have passed since
 `taken_at`; 3 the same past 120 minutes (names the pending jobs and the
-commit). It reads `actions/runs?head_sha=<head>` and each run's jobs, taking
-the highest `run_attempt` per job.
+commit). It reads `actions/runs?head_sha=<head>` filtered to the declared
+workflow path, the `pull_request` event, the run's own pull request number
+and the base repository, paginating; takes the newest such run and its
+highest `run_attempt`; and requires exactly one job whose name equals the
+declared one. Just before the agent runs `gh pr ready`, the state's second
+gate re-reads the pull request head and refuses if it moved.
 
-PR body line, one per recorded check:
+PR body line, one per recorded check, written by the script, never by the
+agent, with the run URL built from the numeric `run_id`:
 
 ```
-Hosted of record: check-skill:coordinate at <sha>: <job run URL>
+Hosted of record: check-skill:coordinate at <sha>: https://github.com/<owner>/<repo>/actions/runs/<run_id>
 ```
+
+The reason goes in the body as one line inside a code span, after `@`, `#`,
+link and HTML characters are neutralized, so reason text can't form a
+`Hosted of record:` line of its own; the body check matches only lines that
+start with that prefix and compares the check id, head and run id against
+the record.
 
 ### Data Flow
 
@@ -457,8 +480,10 @@ Hosted of record: check-skill:coordinate at <sha>: <job run URL>
 3. At the hold the agent submits `verification_status: hosted_of_record`
    with `detail` as the reason. The edge needs `verification_verdict` at 5
    and `verification_route` at 0, and goes to `verification_hosted`.
-4. `verification_hosted` runs `--record`; its gate checks the key exists,
-   names the current head and has a non-empty reason. Pass: on to
+4. `verification_hosted` runs `--record`; its gate runs `--check-record`,
+   which checks the key names the current head, has a non-empty reason,
+   and lists exactly the result's timed-out checks with the jobs the map
+   declares for them, so a key written any other way fails. Pass: on to
    `pass_counting`. Fail: back to `verification`.
 5. The run goes through finalization to `pr_creation`, which opens a draft
    and refuses a body without one line per recorded check.
@@ -474,12 +499,17 @@ Hosted of record: check-skill:coordinate at <sha>: <job run URL>
    `--read` refuses, and the new head enters `verification` afresh.
 
 Under `/execute`, a shared-branch child reaches `pr_status: shared` with
-its record. `plan_completion` runs `--read` for each child's record at the
-shared pull request's head before `gh pr ready`, measuring the wait from the
-later of the record's `taken_at` and the head's push, since no hosted
-result can exist before that push. Coordinated node pull requests do the
-same in `node-push.sh` before they are marked ready. A `multi-pr` plan runs
-`/work-on` and needs nothing more.
+its record, which names its checks at its own head. The shared pull request
+merges a later head, so a child's record can't be read as it stands: its
+head would refuse. When `plan_completion` finds any child record, the
+parent run takes the route for the shared pull request itself: it writes
+its own `hosted_of_record` key with the shared head, the children's
+recorded checks and reasons, and its own `taken_at`, and then runs `--read`
+over that record before `gh pr ready`. The 120-minute wait is measured from
+that record's `taken_at`, as R15 states, and a child's earlier time never
+starts it. Coordinated node pull requests do the same in `node-push.sh`
+before they are marked ready. A `multi-pr` plan runs `/work-on` and needs
+nothing more.
 
 ## Implementation Approach
 
@@ -532,8 +562,9 @@ Needs Phase 4.
 
 Deliverables:
 
-- `shared-deferral-record.sh` and `plan_completion` reading children's
-  records, `node-push.sh`'s ready step, and parity tests for `single-pr`,
+- `shared-deferral-record.sh` and `plan_completion` collecting children's
+  records into the parent's own record for the shared head, the same in
+  `node-push.sh`'s ready step, and parity tests for `single-pr`,
   `coordinated` and `multi-pr`.
 
 ## Security Considerations
@@ -541,18 +572,38 @@ Deliverables:
 The route reads hosted CI results and lets them stand in for a local run,
 so the risk is a pass counted that no run earned.
 
-- **Trust in hosted results.** `--read` takes results only for the
-  repository's own workflow file and job name, at the exact head commit,
-  from the highest attempt, and accepts only `success`. A result for another
-  commit, an older attempt, a skipped job or an unreadable response refuses.
-  A pull request from a fork can't add a job the map declares, since the
-  declaration is read from the merge-base like the rest of the map.
+- **A change that certifies itself.** A pull request's hosted run uses the
+  pull request's own workflow file and the scripts it calls, so a change to
+  them could make the declared job pass without running the suites. The
+  route is closed (`--open` exits 1) when the diff from the merge-base
+  touches the declared workflow, `scripts/skill-gate.sh`,
+  `scripts/check-skill.sh`, the verification map or the coverage test; such
+  a change verifies locally or through the entry-time hosted route, as today.
+  The declaration itself is read from the merge-base, like the rest of the
+  map.
+- **Trust in hosted results.** `--read` takes results only for the declared
+  workflow path, the `pull_request` event, the run's own pull request and the
+  base repository, at the exact head commit, from the newest run and its
+  highest attempt, with exactly one matching job name, and accepts only
+  `success`. Another commit, an older attempt, a skipped or duplicated job,
+  or an unreadable response refuses. The head is checked again just before
+  the pull request is marked ready.
+- **A forged record.** The record key is checked against the stored result
+  and the map (`--check-record`), not only for being present, so a key set by
+  hand that names other checks or jobs fails the gate.
 - **Permissions.** `--read` uses the session's existing `gh` token with read
   access to Actions; it writes only the run's own koto key. `gh pr ready` is
   the one write, the same the run's pull request steps already make.
 - **Recorded text.** The reason is agent text that reaches the PR body. It is
   passed with `jq --arg`, stripped of control characters and capped, as the
-  existing deferral reason is, and never interpolated into a shell command.
+  existing deferral reason is, never interpolated into a shell command, and
+  written into the body inside a code span with `@`, `#`, link and HTML
+  characters neutralized. The `Hosted of record:` lines are written by the
+  script from the record, with run URLs built from numeric ids, and the body
+  is passed by file, so reason text can't forge one.
+- **Residual risk.** A suite that passes on ubuntu and fails only on macOS
+  can pass the route's read; the non-draft legs run after the ready step and
+  `ci_monitor` waits for them before `ci_pass_counting`.
 - **Supply chain.** No new dependency; the scripts use `jq` and `gh`, which
   the template already requires.
 
@@ -575,9 +626,13 @@ so the risk is a pass counted that no run earned.
   legs run only once the pull request is ready.
 - A result with both a timed-out and a failed check now goes to
   `implementation` instead of `done_blocked`.
+- A change to the declared workflow, `skill-gate.sh`, `check-skill.sh`, the
+  map or the coverage test can't take the route, including suite-selection
+  work such as shirabe#1934.
 - Under `/execute` the shared pull request's head is later than a child's,
   so the read covers the child's check at the head that merges, not at the
-  child's own commit.
+  child's own commit, and the parent takes the route a second time for that
+  head.
 
 ### Mitigations
 
@@ -586,6 +641,9 @@ so the risk is a pass counted that no run earned.
   before `ci_pass_counting`.
 - The failed-plus-timed-out change is the PRD's acceptance criterion and is
   tested; a failure the agent can reproduce is better fixed than blocked.
+- A change to the route's own machinery still has the entry-time hosted CI
+  route, chosen when its run starts, and is usually small enough to fit the
+  local budget.
 - The skill-gate job runs every touched skill's full suite set at the
   shared head, which contains each child's selection; the record names the
   head that was read.
