@@ -502,8 +502,10 @@ eq "7: its import is refused template-incompatible" "2 template-incompatible" "$
 grep -q "compiled from coordinate.md at compat [^ ]* (template [0-9a-f]\{64\}); this plugin ships compat [0-9][0-9]* (template [0-9a-f]\{64\})" "$T/open.err" \
     && ok "7:   ... naming coordinate.md, both compat numbers and both hashes" || bad "7:   ... naming coordinate.md, both compat numbers and both hashes" "$(cat "$T/open.err")"
 eq "7:   ... and no run takes it over" "" "$(line outcome)$(line session)"
-eq "7:   ... the copy the only run of its scope in second" "$OTHER" \
-    "$(cd "$W2" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
+eq "7:   ... refused before koto imports it, so second holds no copy" none "$(copies "$OTHER")"
+eq "7:   ... and no migration marker beside the source" "" "$(migrated "$OTHER")"
+eq "7:   ... and the source stays the live run in work" "$OTHER" \
+    "$(cd "$W1" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
 
 # ---- 10. an import of a run opened from another plugin root -------------------------
 # The copy keeps the plugin root its source ran from, which the record writers

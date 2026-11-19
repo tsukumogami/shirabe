@@ -98,6 +98,11 @@
 #       runs from can't be read).
 #       Exit 0 when the table lists the run's fingerprint at the shipped compat
 #       number; 1 otherwise; 2 the log or the table can't be read.
+#   coord-log.sh compat --fingerprint F [--template PATH]
+#       The same line and exit status for a template structure given by its
+#       fingerprint, with no session here: the compat is the table's, `-`
+#       when it doesn't list F. An import judges a source's template this way
+#       before koto copies the run (coordinate-open.sh).
 #   coord-log.sh plugin-root --session S
 #       Prints {"root","rebind"}: the run's PLUGIN_ROOT as koto applies it now,
 #       and whether the compiled template the run runs from declares it
@@ -314,7 +319,7 @@ compat_verdict() {
 default_template() { printf '%s/skills/coordinate/koto-templates/coordinate.md' "$(cd "$HERE/../../.." && pwd -P)"; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE=
+SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE= FINGERPRINT=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -336,6 +341,7 @@ while [ $# -gt 0 ]; do
         --after-time) [ $# -ge 2 ] || usage; AFTER_TIME=$2; shift 2 ;;
         --before) [ $# -ge 2 ] || usage; BEFORE=$2; shift 2 ;;
         --template) [ $# -ge 2 ] || usage; TEMPLATE=$2; shift 2 ;;
+        --fingerprint) [ $# -ge 2 ] || usage; FINGERPRINT=$2; shift 2 ;;
         --scope-slug) [ $# -ge 2 ] || usage; SLUG=$2; shift 2 ;;
         --scope) [ $# -ge 2 ] || usage; SCOPE=$2; shift 2 ;;
         --event) [ $# -ge 2 ] || usage; EVENT=$2; shift 2 ;;
@@ -590,6 +596,19 @@ EOF
     exit 1
     ;;
 compat)
+    if [ -n "$FINGERPRINT" ]; then
+        # A fingerprint given directly: the table's verdict alone, since there
+        # is no session here whose record/meta could name its own compat.
+        [ -z "$SESSION" ] || usage
+        [[ $FINGERPRINT =~ ^[0-9a-f]{64}$ ]] || usage
+        [ -n "$TEMPLATE" ] || TEMPLATE=$(default_template)
+        TABLE=${TEMPLATE%.md}.compat.json
+        compat_verdict "$FINGERPRINT" "$TABLE"
+        RC=$?
+        [ $RC -eq 2 ] && die "the compat table $TABLE can't be read"
+        jq -r --arg f "$FINGERPRINT" '"\(.fingerprints[$f] // "-") \(.compat) \($f)"' "$TABLE"
+        exit $RC
+    fi
     need SESSION
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     FP=$(run_fingerprint "$LOG") || FP=
