@@ -647,6 +647,29 @@ driven_by_another() {
     a=$(run_address "$1") || address_unread "$1" $?
     [ -n "$a" ] && [ -n "$CALLER_NAME" ] && [ "$a" != "$CALLER_NAME" ]
 }
+# driver_stopped <run>: whether the driver of a run another session drives is
+# no longer running here, the reason in DRIVER_WHY. The driver is named as
+# driven_by_another names it: record/meta's driver when set, else the
+# coordinator row's address. The liveness probe (dc_session_live) decides,
+# and a probe that can't read the run (exit 2) counts as running. An imported
+# copy (its log holds koto's session_imported) whose driver has no Claude job
+# on this host is stopped without the probe's 10-minute window: the import
+# marked the source migrated, and koto refuses every write to a migrated
+# session, so its driver, wherever it runs, can no longer drive the run.
+driver_stopped() {
+    local d a log
+    d=$(meta_field "$1" driver) || driver_unread "$1"
+    a=$(run_address "$1") || address_unread "$1" $?
+    if ! dc_claude_job "${DC_CLAUDE_HOME:-$HOME/.claude}" "$d" "$a" > /dev/null 2>&1; then
+        log="$("$KOTO" session dir "$1" < /dev/null 2> /dev/null)/koto-$1.state.jsonl"
+        if jq -e 'select(.type == "session_imported")' "$log" > /dev/null 2>&1; then
+            DRIVER_WHY="$1 is an imported copy and no Claude job for its driver is seen here"
+            return 0
+        fi
+    fi
+    DRIVER_WHY=$(dc_session_live "$1" "$d" "$a" 2>&1)
+    [ $? -eq 1 ]
+}
 # meta_set <run> <jq filter> [jq args...]: rewrite the run's record/meta with
 # the filter applied, through the write core (core_write_meta), in a subshell
 # since the core exits on a refusal. Only the opener writes these fields,
@@ -995,9 +1018,10 @@ takeover() {
 #     taken-over; one it hasn't is this session's, as before.
 #   - a run another session drives is taken over when it could be resumed;
 #     with another live run of the scope it refuses ambiguous-scope, and on a
-#     template this plugin can't drive template-incompatible. A run carried
-#     for another reason (finished, cancelled, provenance, a directed
-#     transition) is carried as before.
+#     template this plugin can't drive template-incompatible while its driver
+#     still runs (driver_stopped); once it doesn't, the run is carried. A
+#     run carried for another reason (finished, cancelled, provenance, a
+#     directed transition) is carried as before.
 takeover_check() {
     local run=$1 action=$2 code=$3 p stopped rd rt
     fence_of "$run"
@@ -1038,7 +1062,14 @@ takeover_check() {
         resume:*) takeover "$run" ;;
         carry:several-live) refuse_takeover ambiguous-scope \
             "more than one run of $SLUG is unfinished here ($(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2> /dev/null | tr '\n' ' ')), so which to take over is ambiguous; nothing was written" ;;
-        carry:template) compat_refusal "$run" "$run's template isn't one this plugin's compat table lists at its compat number" ;;
+        carry:template)
+            # A run this plugin can't drive is carried, as a finished one is,
+            # once its driver no longer runs; while it runs, it keeps the run.
+            if driver_stopped "$run"; then
+                echo "coordinate-open: $run's template isn't one this plugin can drive, and its driver isn't running here (${DRIVER_WHY:-no reason given}), so its record is carried into a new run and $run is cancelled" >&2
+                return 0
+            fi
+            compat_refusal "$run" "$run's template isn't one this plugin's compat table lists at its compat number" ;;
     esac
 }
 T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not make a scratch file"
