@@ -223,9 +223,9 @@ a real suite run.
       opens the route the same way a limit timeout does. (R1, R4)
 - [ ] Two fixtures with the same head and different merge-bases, and the same
       green hosted jobs, both reach `pass_counting`. (R2)
-- [ ] A declared job with no attempt at head when the wait ends refuses the
-      route, naming the job and the commit; after any refusal the run still
-      accepts `blocked`. (R6, R7)
+- [ ] A declared job whose latest attempt at head concluded anything other
+      than success refuses the route, naming the job and the commit; after any
+      refusal the run still accepts `blocked`. (R6, R7)
 - [ ] While a declared job is pending, the step that marks the pull request
       ready refuses; once it concludes success, that step goes through. (R15)
 - [ ] A route taken at one head, followed by a new commit, records no pass for
@@ -249,9 +249,10 @@ a real suite run.
 - [ ] After one local timeout of a check at a head and merge-base, the next
       entry into `verification` at the same pair offers the route without
       starting that check locally. (R14)
-- [ ] A declared job pending at 119 minutes after the route was taken leaves the
-      run waiting; once more than 120 minutes have passed the run ends at `done_blocked` with a reason
-      naming the job and commit. (R15)
+- [ ] A declared job pending, or with no attempt at head, at 119 minutes after
+      the route was taken leaves the run waiting; once more than 120 minutes
+      have passed the run ends at `done_blocked` with a reason naming the job
+      and commit. (R6, R15)
 - [ ] Hosted success at a commit older than the head is refused. (R15)
 - [ ] A PR body missing the line for a check the record names is refused by the
       PR-body gate; with the line it passes. (R9)

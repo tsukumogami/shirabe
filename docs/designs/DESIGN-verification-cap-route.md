@@ -461,6 +461,13 @@ koto key `hosted_of_record`, written by `--record` and completed by
                        "run_id": null, "conclusion": null}]}]}
 ```
 
+The key counts only while its `head` is the run's head. Wherever a state
+acts on "the record exists" (`pr_creation`'s draft and body-line rule,
+`ci_monitor`'s edge to `hosted_record`), it means a key whose `head` is the
+current head. `--record` overwrites any earlier key, and `--start` at a new
+head removes a key left from an earlier one, so a stale key never changes
+what a run at the new head does.
+
 Gate exit contracts. `--check-record` (the `verification_hosted` gate): 0
 the key is valid; 1 it isn't (empty reason, wrong head, checks or jobs that
 don't match the result and map, a `taken_at` in the future or before the
@@ -536,7 +543,11 @@ the record.
    `--settled` at 0 goes on to `ci_pass_counting`. On 1 the run goes back to `verification`. On 3 it
    ends at `done_blocked` with the names and commit.
 8. A new commit changes the head. The record's head no longer matches, so
-   `--read` refuses, and the new head enters `verification` afresh.
+   `--read` refuses, and the new head enters `verification` afresh. There
+   `--start` removes a `hosted_of_record` key whose head isn't the new head
+   before the map runs, so a clean pass at the new head goes through
+   `pr_creation` and `ci_monitor` as today; if the new head times out again,
+   `--record` writes a fresh key that replaces any earlier one.
 
 Under `/execute`, a shared-branch child reaches `pr_status: shared` with
 its record, which names its checks at its own head. The shared pull request
