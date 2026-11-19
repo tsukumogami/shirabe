@@ -178,7 +178,11 @@ the rules; this is the route.
   `test-change.sh seat`, commissions it with the brief the script prints, and the
   seat accepts or declines under its minted identity; nothing waits for a person.
   A decline returns the run to implementation, and the third decline of the same
-  tests ends it at `done_blocked`. A unit that only adds tests is counted at once.
+  tests ends it at `done_blocked`. A run that finds a gap in its own tests while
+  held submits `counting_status: test_gap`, naming the gap: it returns to
+  implementation for a test-only fix, which the first panel's re-verifier reviews
+  before verification runs again, and no decline is recorded. A unit that only
+  adds tests is counted at once.
   A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` takes
   no seat: the run stops at `pass_counting`, `status` prints the exact
   `test-change.sh accept` command a person runs in a terminal, and the run is
