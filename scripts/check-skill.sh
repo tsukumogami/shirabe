@@ -94,8 +94,9 @@
 #     by `references`, and by `SKILL.md` when SKILL.md lists it. It or a
 #     caller on an `all` row, deleted, or nothing selected: every suite. See
 #     reach_suites;
-#   - any other scripts/<file>: a script on an `all` row runs it, every
-#     suite; otherwise its own <stem>_test.sh, and every unit suite
+#   - any other scripts/<file>: a script on an `all` row runs it, directly or
+#     through other scripts (callers followed all the way up), every suite;
+#     otherwise its own <stem>_test.sh, and every unit suite
 #     (not *_engine_test.sh) that names the file or one of its callers, the
 #     skill's other scripts/*.sh and *.jq files that name it, shared ones
 #     excepted. Engine suites are taken only when no unit suite names any of
@@ -500,6 +501,60 @@ name_forms() {
     case "$n" in *.jq) printf '"%s"\n' "${n%.jq}" ;; esac
 }
 
+# caller_closure <path> <names>: <path>'s callers, followed to a fixpoint.
+# <names> are the strings that name <path>, one per line. Sets CLOSURE (<path>
+# then each caller, newline-separated) and CLOSURE_NAMES (<names> plus each
+# caller's name forms). A caller is one of the skill's scripts, or a file under
+# a subdirectory of scripts/, whose code names <path> or a caller already
+# found, a comment line not counting. Each round looks for the files naming
+# what the last round found and stops when a round finds nothing new; a file
+# already found isn't followed again, which ends a cycle.
+CLOSURE=""
+CLOSURE_NAMES=""
+caller_closure() {
+    local want found c
+    CLOSURE=$1
+    CLOSURE_NAMES=$2
+    want=$2
+    while [ -n "$want" ]; do
+        found=$({
+            find "$SKILL_DIR/scripts" -mindepth 1 -maxdepth 1 -type f ! -name '*_test.sh' \
+                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
+            find "$SKILL_DIR/scripts" -mindepth 2 -type f \
+                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
+        } | sort -u)
+        want=""
+        for c in $found; do
+            in_list "$c" "$CLOSURE" && continue
+            CLOSURE="$CLOSURE
+$c"
+            want="$want
+$(name_forms "$c")"
+        done
+        want=$(printf '%s\n' "$want" | sed '/^$/d')
+        [ -z "$want" ] || CLOSURE_NAMES="$CLOSURE_NAMES
+$want"
+    done
+}
+
+# all_row_reason <path> <closure>: prints why every suite runs when <path> or
+# a file in its caller closure (one per line) is on an `all` row of
+# check-skill.tsv, a script that runs every suite; prints nothing otherwise.
+all_row_reason() {
+    local c every
+    every=$(map_rows all | cut -f1)
+    [ -n "$every" ] || return 0
+    for c in $2; do
+        in_list "${c##*/}" "$every" || continue
+        if [ "$c" = "$1" ]; then
+            echo "$1 runs every suite (an all row of check-skill.tsv)"
+        else
+            echo "$1 is reached through ${c##*/}, which runs every suite (an all row of check-skill.tsv)"
+        fi
+        return 0
+    done
+}
+
 # reach_suites <path>: the suites a change to <path> can reach
 # (shirabe#1934), for a script that several of the skill's files source and
 # for the skill's own Markdown and data files (SKILL.md, references/, koto
@@ -529,7 +584,7 @@ name_forms() {
 REACH=""
 REACH_ALL=""
 reach_suites() {
-    local p=$1 names want found closure every c s engine=""
+    local p=$1 names closure c s engine=""
     REACH="" REACH_ALL=""
     names=$(name_forms "$p")
     case "$p" in
@@ -541,42 +596,10 @@ references"
 SKILL.md"
             fi ;;
     esac
-    # The caller closure: each round looks for the files naming what the last
-    # round found (want), and stops when a round finds nothing new.
-    closure=$p
-    want=$names
-    while [ -n "$want" ]; do
-        found=$({
-            find "$SKILL_DIR/scripts" -mindepth 1 -maxdepth 1 -type f ! -name '*_test.sh' \
-                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
-            find "$SKILL_DIR/scripts" -mindepth 2 -type f \
-                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
-        } | sort -u)
-        want=""
-        for c in $found; do
-            in_list "$c" "$closure" && continue
-            closure="$closure
-$c"
-            want="$want
-$(name_forms "$c")"
-        done
-        want=$(printf '%s\n' "$want" | sed '/^$/d')
-        [ -z "$want" ] || names="$names
-$want"
-    done
-    every=$(map_rows all | cut -f1)
-    if [ -n "$every" ]; then
-        for c in $closure; do
-            if in_list "${c##*/}" "$every"; then
-                if [ "$c" = "$p" ]; then
-                    REACH_ALL="$p runs every suite (an all row of check-skill.tsv)"
-                else
-                    REACH_ALL="$p is reached through ${c##*/}, which runs every suite (an all row of check-skill.tsv)"
-                fi
-                return
-            fi
-        done
-    fi
+    caller_closure "$p" "$names"
+    closure=$CLOSURE names=$CLOSURE_NAMES
+    REACH_ALL=$(all_row_reason "$p" "$closure")
+    [ -z "$REACH_ALL" ] || return 0
     REACH=$(grep -lF -- "$names" "${suites[@]}")
     for c in $closure; do
         case "$c" in
@@ -610,7 +633,7 @@ ALL_REASON=""
 READERS=""
 READERS_DONE=""
 select_suites() {
-    local paths p name rows every sourced shared names hits units engines s c
+    local paths p name rows every sourced shared names hits units engines s
     if [ ! -f "$MAP" ]; then
         # Without the file, a change only to evals/ still selects, since the
         # rule needs none of its rows.
@@ -677,14 +700,14 @@ $READERS" ;;
 $REACH"
                     continue
                 fi
-                # A script that one on an `all` row runs: every suite.
-                for c in $every; do
-                    [ -f "$SKILL_DIR/scripts/$c" ] || continue
-                    if [ -n "$(CODE_NAMES_WANT="$(name_forms "$p")" awk "$CODE_NAMES" "$SKILL_DIR/scripts/$c")" ]; then
-                        ALL_REASON="$p is run by $c, which runs every suite (an all row of check-skill.tsv)"
-                        return
-                    fi
-                done
+                # A script that one on an `all` row runs, directly or through
+                # other scripts: every suite. Only that test follows callers
+                # all the way up; the selection below stays one level.
+                if [ -n "$every" ]; then
+                    caller_closure "$p" "$(name_forms "$p")"
+                    ALL_REASON=$(all_row_reason "$p" "$CLOSURE")
+                    [ -z "$ALL_REASON" ] || return
+                fi
                 names=$(callers_of "$name" "$shared")
                 hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
                 # The script's own suite counts whether or not it names it.

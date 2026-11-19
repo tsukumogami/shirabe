@@ -1002,21 +1002,42 @@ expect_listed "a file under scripts/ subdirectories that names a script only in 
     "$RD/noted_test.sh $RD/runs_test.sh" "selects 2 of 15 suites"
 
 # runner.sh is on an `all` row: it runs every suite. A change to it, to a
-# shared script it reaches through step.sh, or to a plain script it runs,
-# runs every suite.
+# shared script it reaches through step.sh, to a plain script it runs, or to
+# leaf.sh, a plain script only middle.sh names, which runner.sh runs, runs
+# every suite.
+# runner_tree: reach_tree plus runner.sh on an `all` row, running step.sh and
+# middle.sh; step.sh runs the shared wrapped.sh, middle.sh the plain leaf.sh.
+runner_tree() {
+    reach_tree
+    printf 'all\trunner.sh\nshared\twrapped.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+    printf 'bash "$HERE/step.sh"\nbash "$HERE/middle.sh"\nfor t in "$HERE"/*_test.sh; do bash "$t"; done\n' \
+        > "$ROOT/$RD/runner.sh"
+    printf 'bash "$HERE/wrapped.sh"\n' > "$ROOT/$RD/step.sh"
+    printf 'wrapped\n' > "$ROOT/$RD/wrapped.sh"
+    printf 'bash "$HERE/leaf.sh"\n' > "$ROOT/$RD/middle.sh"
+    printf 'leaf\n' > "$ROOT/$RD/leaf.sh"
+}
 for c in \
     "skills/demo/scripts/runner.sh|runner.sh runs every suite (an all row of check-skill.tsv)" \
     "skills/demo/scripts/wrapped.sh|wrapped.sh is reached through runner.sh, which runs every suite" \
-    "skills/demo/scripts/step.sh|step.sh is run by runner.sh, which runs every suite"; do
-    reach_tree
-    printf 'all\trunner.sh\nshared\twrapped.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
-    printf 'bash "$HERE/step.sh"\nfor t in "$HERE"/*_test.sh; do bash "$t"; done\n' > "$ROOT/$RD/runner.sh"
-    printf 'bash "$HERE/wrapped.sh"\n' > "$ROOT/$RD/step.sh"
-    printf 'wrapped\n' > "$ROOT/$RD/wrapped.sh"
+    "skills/demo/scripts/step.sh|step.sh is reached through runner.sh, which runs every suite" \
+    "skills/demo/scripts/leaf.sh|leaf.sh is reached through runner.sh, which runs every suite"; do
+    runner_tree
     run_list "${c%%|*}"
     expect_listed "a change to ${c%%|*}, with runner.sh on an all row, runs every suite" \
         "$REACH_ALL_DEMO" "${c#*|}"
 done
+
+# A plain script whose callers never reach runner.sh still selects its own
+# suite and its caller's, nothing more.
+runner_tree
+printf 'apart\n' > "$ROOT/$RD/apart.sh"
+printf 'bash "$HERE/apart.sh"\n' > "$ROOT/$RD/user.sh"
+printf 'exit 0\n' > "$ROOT/$RD/apart_test.sh"
+printf '# user.sh\nexit 0\n' > "$ROOT/$RD/user_test.sh"
+run_list skills/demo/scripts/apart.sh
+expect_listed "a plain script no all-row script reaches still selects only its own and its callers' suites" \
+    "$RD/apart_test.sh $RD/user_test.sh" "selects 2 of 14 suites"
 
 # A reach nobody can see still runs every suite.
 for c in \

@@ -83,8 +83,9 @@ default branch, the gate's own base, and classifies each changed path:
   doesn't do. A file on an `all` row of `check-skill.tsv`, or one with such a file among
   its callers, runs every suite, and so does a file nothing names, or a deleted one;
 - a script under `scripts/` that is neither shared nor deleted runs every suite when a
-  script on an `all` row names it. Otherwise it runs its own `<stem>_test.sh` and the
-  unit suites that name it or one of its direct callers, the
+  script on an `all` row reaches it, directly or through other scripts (its callers
+  followed all the way up, as for a shared script). Otherwise it runs its own
+  `<stem>_test.sh` and the unit suites that name it or one of its direct callers, the
   skill's other scripts that name it. Engine suites (`*_engine_test.sh`) run only when no
   unit suite names any of them, so a script that only an engine suite tests still gets
   tested;
@@ -113,7 +114,8 @@ default branch, the gate's own base, and classifies each changed path:
   branch with no changes.
 
 For a plain script, the one neither shared nor on an `all` row, callers are followed one
-level only. A suite that reaches it only through two scripts in a row, or an engine suite
+level only when choosing its suites; only the test for an `all` row follows them all the
+way up. A suite that reaches it only through two scripts in a row, or an engine suite
 that drives it while a unit suite names it, isn't run locally. That's the one place a
 selection can miss a suite that would fail, and CI runs every suite before merge. A
 shared script, the template, `SKILL.md` and the reference documents follow callers to the
