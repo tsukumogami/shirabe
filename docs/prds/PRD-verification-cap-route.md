@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A /work-on or /execute run whose change selects more check-skill suites than
   one local command can finish in 3,600 s, the per-row budget and the map
@@ -21,7 +21,7 @@ source_issue: 1876
 
 ## Status
 
-Accepted
+In Progress
 
 Accepted under `/scope`'s non-interactive mode after three jury rounds. Each round
 failed on precision, and each set of findings was fixed in place; the third
