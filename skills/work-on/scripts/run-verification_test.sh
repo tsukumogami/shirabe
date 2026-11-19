@@ -71,14 +71,34 @@ git config --global user.email t@example.com
 git config --global user.name t
 git config --global init.defaultBranch main
 
-# The koto stand-in: `koto context add <s> <key> --from-file <f>` copies the
-# file to $WORKDIR/kotostore/<s>/<key> and logs the call.
+# The koto stand-in, over $WORKDIR/kotostore/<s>/<key>, logging each call:
+# `koto context add <s> <key> [--from-file <f>]` writes the key, `exists`
+# exits 0 or 1 (printing nothing), `get` prints it (1 when absent), `remove`
+# deletes it. Anything else exits 9.
 cat > "$WORKDIR/bin/koto" <<'EOF'
 #!/bin/sh
-[ "$1" = context ] && [ "$2" = add ] || exit 9
-mkdir -p "$KOTO_STUB_STORE/$3"
-[ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4"
-echo "add $3 $4" >> "$KOTO_STUB_STORE/log"
+[ "$1" = context ] || exit 9
+case "${2-}" in
+    add)
+        mkdir -p "$KOTO_STUB_STORE/$3"
+        [ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4"
+        echo "add $3 $4" >> "$KOTO_STUB_STORE/log"
+        ;;
+    exists)
+        echo "exists $3 $4" >> "$KOTO_STUB_STORE/log"
+        [ -e "$KOTO_STUB_STORE/$3/$4" ] || exit 1
+        ;;
+    get)
+        echo "get $3 $4" >> "$KOTO_STUB_STORE/log"
+        [ -e "$KOTO_STUB_STORE/$3/$4" ] || exit 1
+        cat "$KOTO_STUB_STORE/$3/$4"
+        ;;
+    remove)
+        echo "remove $3 $4" >> "$KOTO_STUB_STORE/log"
+        rm -f "$KOTO_STUB_STORE/$3/$4"
+        ;;
+    *) exit 9 ;;
+esac
 EOF
 chmod +x "$WORKDIR/bin/koto"
 export KOTO_STUB_STORE="$WORKDIR/kotostore"
@@ -768,6 +788,197 @@ for f in "$START" "$VERDICT"; do
     c=$(grep -c -E '\bsetsid\b|\btimeout ' "$f")
     [ "$c" -eq 0 ] && pass "$(basename "$f") uses neither setsid nor GNU timeout" || fail "$(basename "$f"): $c matches"
 done
+
+# --- attempt folders, the archive, a re-run request ------------------------------------------
+
+echo "--- attempt folders, --archive and verification_rerun_request"
+
+# head_dir <session>: the head directory --locate names, in the current repository.
+head_dir() { dirname "$(result_of "$1")"; }
+# locate_line <session> <n>: line <n> of --locate (1 the head, 2 the merge-base).
+locate_line() { "$START" --locate --session "$1" | sed -n "$2p"; }
+# archived_count <head dir>: how many attempt folders hold a result.json.
+archived_count() { ls "$1"/attempts/*/result.json 2>/dev/null | wc -l | tr -d ' '; }
+
+# A first suite's logs: attempts/1/<index>-<id>.log, the id made safe.
+CMDS=$(jq -cn --arg f "$WORKDIR/att.rec" '{ok: {run: ["bin/rec.sh", $f, "ok"]}, "a b/c": {run: ["bin/rec.sh", $f, "abc"]}}')
+mkrepo att "$(map "$CMDS" '[]' '["ok", "a b/c"]')"
+change top.txt
+start s-att
+settle s-att
+expect_rc "two passing commands, one with an unsafe id" 0
+HD=$(head_dir s-att)
+if [ -f "$HD/attempts/1/0-ok.log" ] && [ -f "$HD/attempts/1/1-a_b_c.log" ] \
+    && [ ! -e "$HD/0-ok.log" ] && [ ! -e "$HD/1-a_b_c.log" ]; then
+    pass "a first suite writes its logs under attempts/1/ as <index>-<id>.log, the id's unsafe characters replaced by _"
+else
+    fail "the first suite's logs: $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+jq -e --arg a "$HD/attempts/1/0-ok.log" --arg b "$HD/attempts/1/1-a_b_c.log" \
+    '[.commands[].log] == [$a, $b]' "$HD/result.json" >/dev/null 2>&1 \
+    && pass "the result records each log's path under attempts/1/" \
+    || fail "the result's log paths: $(jq -c '[.commands[].log]' "$HD/result.json" 2>&1)"
+[ "$(mode_of "$HD/attempts")" = 700 ] && [ "$(mode_of "$HD/attempts/1")" = 700 ] \
+    && pass "attempts/ and attempts/1/ have mode 0700" \
+    || fail "attempts/ is $(mode_of "$HD/attempts"), attempts/1/ is $(mode_of "$HD/attempts/1")"
+BAD=""
+for f in "$HD/attempts/1/0-ok.log" "$HD/attempts/1/1-a_b_c.log"; do
+    [ "$(mode_of "$f")" = 600 ] || BAD="$BAD $f=$(mode_of "$f")"
+done
+[ -z "$BAD" ] && pass "every command log has mode 0600" || fail "logs not 0600:$BAD"
+if [ -f "$HD/result.json" ] && [ -f "$HD/run.json" ] && [ ! -e "$HD/attempts/1/result.json" ] \
+    && jq -e '.attempt == 1' "$HD/run.json" >/dev/null 2>&1; then
+    pass "result.json and run.json sit at the head directory, run.json recording attempt 1"
+else
+    fail "the head directory: $(ls "$HD" | tr '\n' ' '); run.json $(head -c 300 "$HD/run.json" 2>&1)"
+fi
+
+# expect_archive_refused <label> <session> <reason> <message>: --archive exits
+# non-zero, says <message> on stderr, leaves result.json and run.json where
+# they were, archives no result and writes no ledger.
+expect_archive_refused() {
+    local hd before rc
+    hd=$(head_dir "$2")
+    before=$(cat "$hd/result.json" 2>/dev/null)
+    "$START" --archive --session "$2" --reason "$3" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+    rc=$?
+    if [ "$rc" -ne 0 ] && grep -q -F -- "$4" "$WORKDIR/archive.err" \
+        && [ -f "$hd/result.json" ] && [ "$(cat "$hd/result.json")" = "$before" ] && [ -f "$hd/run.json" ] \
+        && [ "$(archived_count "$hd")" -eq 0 ] && [ ! -e "$KOTO_STUB_STORE/$2/verification_attempts" ]; then
+        pass "$1: --archive refuses (exit $rc) and moves and records nothing"
+    else
+        fail "$1: --archive exit $rc, stderr $(cat "$WORKDIR/archive.err"), head dir $(ls -R "$hd" 2>&1 | tr '\n' ' ')"
+    fi
+}
+
+# Refusals: an empty or blank reason, a passing result, a running suite.
+mkrepo arcfail "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-arcfail
+settle s-arcfail
+expect_rc "a failed command to archive" 1
+expect_archive_refused "an empty reason" s-arcfail "" "the reason is empty"
+expect_archive_refused "a blank reason" s-arcfail "   " "the reason is empty"
+
+cd "$WORKDIR/r-att" || exit 2
+start s-arcpass
+settle s-arcpass
+expect_rc "a passing result to archive" 0
+expect_archive_refused "a passing result" s-arcpass "flaky" "ineligible passed"
+
+mkrepo arclock "$(map '{"slow": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["slow"]')"
+change top.txt
+start s-arclock
+HD=$(head_dir s-arclock)
+n=0
+while [ ! -e "$HD/attempts/1/0-slow.log" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+SUP=$(readlink "$HD/lock" 2>/dev/null)
+SLOWPID=""
+command -v pgrep >/dev/null 2>&1 && SLOWPID=$(pgrep -f "$WORKDIR/r-arclock/bin/slow.sh" 2>/dev/null | head -n 1)
+if [ -n "$SUP" ] && kill -0 "$SUP" 2>/dev/null; then
+    # An eligible result for this head beside the live lock, so the lock is
+    # the only thing that can refuse the archive.
+    jq -cn --arg h "$(locate_line s-arclock 1)" --arg mb "$(locate_line s-arclock 2)" \
+        '{schema: "shirabe-verification-result/v1", head: $h, merge_base: $mb, status: "done", detail: "",
+          commands: [{id: "slow", argv: ["bin/slow.sh"], exit_status: 1, duration_secs: 1, timed_out: false,
+                      runaway: false, not_started: false, pgid: 1, log: null}]}' > "$HD/result.json"
+    expect_archive_refused "a running suite" s-arclock "flaky" "still running"
+    kill -TERM "$SUP" 2>/dev/null
+    n=0
+    while kill -0 "$SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+else
+    fail "a running suite: the slow suite never started (supervisor [$SUP])"
+fi
+[ -n "$SLOWPID" ] && kill -KILL -- "-$SLOWPID" 2>/dev/null
+
+# A successful archive of a failed command's result.
+cd "$WORKDIR/r-arcfail" || exit 2
+HD=$(head_dir s-arcfail)
+AH=$(locate_line s-arcfail 1)
+AMB=$(jq -r .merge_base "$HD/result.json")
+REASON='flaky "net" test'
+LEDGER="$KOTO_STUB_STORE/s-arcfail/verification_attempts"
+"$START" --archive --session s-arcfail --reason "$REASON" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "an eligible failed result archives (exit 0)" \
+    || fail "an eligible failed result: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 1 ] \
+    && head -n 1 "$LEDGER" | jq -e --arg h "$AH" --arg mb "$AMB" --arg r "$REASON" \
+        '.attempt == 1 and .folder == 1 and .head == $h and .merge_base == $mb and .reason == $r' >/dev/null 2>&1; then
+    pass "the archive writes one parseable ledger line: attempt 1, folder 1, the head, the merge-base, the reason as given"
+else
+    fail "the ledger after the archive: $(cat "$LEDGER" 2>&1)"
+fi
+if [ -f "$HD/attempts/1/result.json" ] && [ -f "$HD/attempts/1/run.json" ] \
+    && [ ! -e "$HD/result.json" ] && [ ! -e "$HD/run.json" ]; then
+    pass "the archive moves result.json and run.json into attempts/1/"
+else
+    fail "after the archive, the head directory holds: $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+# A re-run request beside a passing result: dropped, the pass reused.
+mkrepo rrpass "$(map "{\"ok\": $(rec "$WORKDIR/rrpass.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+start s-rrpass
+settle s-rrpass
+expect_rc "a passing result before a re-run request" 0
+HD=$(head_dir s-rrpass)
+cp "$HD/result.json" "$WORKDIR/rrpass.before"
+mkdir -p "$KOTO_STUB_STORE/s-rrpass"
+printf 'please run it again\n' > "$KOTO_STUB_STORE/s-rrpass/verification_rerun_request"
+"$START" --start --session s-rrpass >"$WORKDIR/rr.out" 2>"$WORKDIR/rr.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a re-run request beside a pass: --start exits 0" \
+    || fail "a re-run request beside a pass: --start exit $RC, stderr $(cat "$WORKDIR/rr.err")"
+[ ! -e "$KOTO_STUB_STORE/s-rrpass/verification_rerun_request" ] \
+    && grep -q -F 'remove s-rrpass verification_rerun_request' "$KOTO_STUB_STORE/log" \
+    && pass "a re-run request beside a pass is removed" \
+    || fail "the re-run request beside a pass is still there"
+grep -q -F 'rerun request dropped' "$WORKDIR/rr.err" \
+    && pass "a dropped re-run request says why on stderr" \
+    || fail "a dropped re-run request printed no reason: $(cat "$WORKDIR/rr.err")"
+if cmp -s "$HD/result.json" "$WORKDIR/rrpass.before" && [ ! -e "$HD/attempts/2" ] \
+    && [ ! -e "$HD/lock" ] && [ ! -e "$KOTO_STUB_STORE/s-rrpass/verification_attempts" ]; then
+    pass "the pass is reused: result.json unchanged, no attempts/2, no supervisor, no ledger"
+else
+    fail "a re-run request beside a pass changed something: $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
+# A re-run request beside an eligible failed result: archived, run again.
+mkrepo rrfail "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-rrfail
+settle s-rrfail
+expect_rc "a failed command before a re-run request" 1
+HD=$(head_dir s-rrfail)
+LEDGER="$KOTO_STUB_STORE/s-rrfail/verification_attempts"
+mkdir -p "$KOTO_STUB_STORE/s-rrfail"
+printf 'flaky once\n' > "$KOTO_STUB_STORE/s-rrfail/verification_rerun_request"
+"$START" --start --session s-rrfail >"$WORKDIR/rr.out" 2>"$WORKDIR/rr.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a re-run request beside a failure: --start exits 0" \
+    || fail "a re-run request beside a failure: --start exit $RC, stderr $(cat "$WORKDIR/rr.err")"
+[ ! -e "$KOTO_STUB_STORE/s-rrfail/verification_rerun_request" ] \
+    && pass "a re-run request beside a failure is removed" \
+    || fail "the re-run request beside a failure is still there"
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 1 ] \
+    && head -n 1 "$LEDGER" | jq -e '.attempt == 1 and .folder == 1 and .reason == "flaky once"' >/dev/null 2>&1; then
+    pass "the re-run request's archive writes one parseable ledger line: attempt 1, folder 1, the reason"
+else
+    fail "the ledger after the re-run request: $(cat "$LEDGER" 2>&1)"
+fi
+[ -f "$HD/attempts/1/result.json" ] && [ -f "$HD/attempts/1/run.json" ] \
+    && pass "the re-run request archives result.json and run.json into attempts/1/" \
+    || fail "attempts/1/ after the re-run request: $(ls "$HD/attempts/1" 2>&1 | tr '\n' ' ')"
+settle s-rrfail
+expect_rc "the re-run's failed command" 1
+if [ -f "$HD/attempts/2/0-bad.log" ] && [ -f "$HD/result.json" ] \
+    && jq -e --arg l "$HD/attempts/2/0-bad.log" '.commands[0].log == $l' "$HD/result.json" >/dev/null 2>&1 \
+    && jq -e '.attempt == 2' "$HD/run.json" >/dev/null 2>&1; then
+    pass "a new supervisor runs the suite again, its logs under attempts/2/ and its result at the head directory"
+else
+    fail "after the re-run: $(ls -R "$HD" 2>&1 | tr '\n' ' '); result $(head -c 300 "$HD/result.json" 2>&1)"
+fi
 
 # --- a real koto ---------------------------------------------------------------------------
 
