@@ -349,12 +349,12 @@ archive_attempt() {
         *[![:space:]]*) ;;
         *) archive_refuse "the reason is empty"; return 1 ;;
     esac
-    command -v koto >/dev/null 2>&1 || { archive_refuse "koto is not on PATH"; return 1; }
+    command -v koto >/dev/null || { archive_refuse "koto is not on PATH"; return 1; }
     lock_live "$HEAD_DIR/lock" && { archive_refuse "a verification run for $HEAD_SHA is still running"; return 1; }
     [ -L "$RESULT" ] && { archive_refuse "$RESULT is a symlink"; return 1; }
     [ -L "$HEAD_DIR/run.json" ] && { archive_refuse "$HEAD_DIR/run.json is a symlink"; return 1; }
     [ -f "$RESULT" ] || { archive_refuse "there is no result for $HEAD_SHA"; return 1; }
-    jq -e --arg head "$HEAD_SHA" --arg mb "$MB" '.head == $head and .merge_base == $mb' "$RESULT" >/dev/null 2>&1 \
+    jq -e --arg head "$HEAD_SHA" --arg mb "$MB" '.head == $head and .merge_base == $mb' "$RESULT" >/dev/null \
         || { archive_refuse "the result at $HEAD_SHA is not for merge-base $MB"; return 1; }
     elig=$(verification_eligibility "$RESULT")
     [ "$elig" = eligible ] || { archive_refuse "the result at $HEAD_SHA is $elig"; return 1; }
@@ -369,7 +369,7 @@ archive_attempt() {
 
     n=""
     if [ -f "$HEAD_DIR/run.json" ]; then
-        run_attempt=$(jq -r '.attempt // empty | numbers | tostring' "$HEAD_DIR/run.json" 2>/dev/null)
+        run_attempt=$(jq -r '.attempt // empty | numbers | tostring' "$HEAD_DIR/run.json")
         case "$run_attempt" in ''|*[!0-9]*) ;; *) n=$run_attempt ;; esac
     fi
     [ -n "$n" ] || n=$(next_attempt)
@@ -439,7 +439,7 @@ consume_request() {
     fi
     [ "$CTX_PRESENT" -eq 1 ] || return 0
     reason=$CTX_VALUE
-    if [ -f "$RESULT" ] && ! jq -e --arg mb "$MB" '.merge_base == $mb' "$RESULT" >/dev/null 2>&1; then
+    if [ -f "$RESULT" ] && ! jq -e --arg mb "$MB" '.merge_base == $mb' "$RESULT" >/dev/null; then
         elig="for another merge-base"
     else
         elig=$(verification_eligibility "$RESULT")
@@ -519,7 +519,7 @@ supervise() {
     # The attempt's folder holds its logs; a run.json without one (written
     # before attempt folders) keeps them in the head directory.
     logdir=$dir
-    attempt=$(jq -r '.attempt // empty | numbers | tostring' "$RUN" 2>/dev/null)
+    attempt=$(jq -r '.attempt // empty | numbers | tostring' "$RUN")
     case "$attempt" in
         ''|*[!0-9]*) ;;
         *)
