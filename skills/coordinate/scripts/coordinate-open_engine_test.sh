@@ -938,6 +938,22 @@ import_b "[\"$RM\",\"--import\",\"$CHILD\",\"--from\",\"$WS_A\"]"
 eq "a child source is refused with koto's code" "2 refused=import_source_is_child" "$? $(head -1 "$T/out")"
 eq "  ... no session on B" "" "$(host_on b koto session list 2>/dev/null | jq -r --arg s "$CHILD" '.[] | select(.id == $s) | .id')"
 
+# A run whose record/meta names a template structure the compat table doesn't
+# list is refused before koto imports anything: no `session import`, no copy
+# on B, and the source on A still takes writes. The refusal says a plain start
+# carries the record instead, and never asks for --trust-template.
+OLDER=coordinate-roadmap-plugin-system-20260109T000000Z
+sed 's/One state, then done./An older template./' "$T/hosts/a/work/plain.md" > "$T/hosts/a/work/older.md"
+host_on a koto init "$OLDER" --template older.md > /dev/null 2>"$T/err"; eq "a run from an older template opens on host A" 0 $?
+printf '{"template_compat":1,"template_fingerprint":"%064d"}' 0 | host_on a koto context add "$OLDER" record/meta > /dev/null 2>"$T/err"
+import_b "[\"$RM\",\"--import\",\"$OLDER\",\"--from\",\"$WS_A\"]"
+eq "a run on a template this plugin can't drive is refused template-incompatible before koto imports it" "2 refused=template-incompatible" "$? $(head -1 "$T/out")"
+eq "  ... with no session import" 0 "$(imported)"
+eq "  ... leaving no session on B" "" "$(host_on b koto session list 2>/dev/null | jq -r --arg s "$OLDER" '.[] | select(.id == $s) | .id')"
+grep -q 'carries its record' "$T/err" && pass "  ... and the refusal says the record can be carried" || fail "  ... and the refusal says the record can be carried" "$(cat "$T/err")"
+grep -q -- '--trust-template' "$T/err" && fail "  ... and never asks for --trust-template" "$(cat "$T/err")" || pass "  ... and never asks for --trust-template"
+printf '{"a":3}' | host_on a koto context add "$OLDER" legs/r1/deliver > "$T/out" 2>"$T/err"; eq "  ... and the source on A still takes a write" 0 $?
+
 # A run compiled from a template host B doesn't have: koto refuses it without
 # --trust-template; with it the run is imported, then refused as another
 # template than the shipped one, and stays on B.
@@ -947,6 +963,7 @@ host_on a koto init "$OTHER" --template other.md > /dev/null 2>"$T/err"; eq "a r
 import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\"]"
 eq "without --trust-template koto refuses the unknown template" "2 refused=import_template_unavailable" "$? $(head -1 "$T/out")"
 grep -q -- '--trust-template' "$T/err" && pass "  ... and the refusal names --trust-template" || fail "  ... and the refusal names --trust-template" "$(cat "$T/err")"
+grep -q 'the compat check still lies ahead' "$T/err" && pass "  ... and says the compat check still lies ahead" || fail "  ... and says the compat check still lies ahead" "$(cat "$T/err")"
 eq "  ... leaving no session on B" "" "$(host_on b koto session list 2>/dev/null | jq -r --arg s "$OTHER" '.[] | select(.id == $s) | .id')"
 import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\",\"--trust-template\"]"
 eq "with --trust-template it is imported, then refused as a template this plugin can't drive" "2 refused=template-incompatible" "$? $(cat "$T/out")"
