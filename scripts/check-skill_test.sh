@@ -1055,6 +1055,70 @@ ${c%%|*}"
     expect_listed "a change to ${c%%|*} runs every suite" "$REACH_ALL_DEMO" "${c#*|}"
 done
 
+# -- Suites that walk the tree (walk rows) ------------------------------------------
+# walk_tree: reach_tree plus scan_test.sh, a suite that names nothing and walks
+# the skill's scripts/*.sh (its suites left out) and references/, declared on
+# walk rows. A change to a file its walk covers selects it whatever else the
+# path selects: a plain script, a shared one, a reference doc.
+walk_tree() {
+    reach_tree
+    printf 'walk\tscan_test.sh\tscripts/*.sh\t*_test.sh\nwalk\tscan_test.sh\treferences/*\n' \
+        >> "$ROOT/skills/demo/check-skill.tsv"
+    printf 'find "$HERE/.." -type f\nexit 0\n' > "$ROOT/$RD/scan_test.sh"
+}
+WALK_ALL_DEMO="$RD/body_test.sh $RD/caller_test.sh $RD/flow_engine_test.sh $RD/gate_test.sh $RD/noter_test.sh $RD/one_test.sh $RD/quiet_test.sh $RD/reader_test.sh $RD/scan_test.sh $RD/table_test.sh $RD/tpl_test.sh $RD/two_test.sh $RD/uses_test.sh"
+
+walk_tree
+run_list skills/demo/scripts/one.sh
+expect_listed "a walk row selects its suite for a plain script its walk covers, beside the script's own and its caller's" \
+    "$RD/caller_test.sh $RD/one_test.sh $RD/scan_test.sh" "selects 3 of 13 suites"
+
+walk_tree
+run_list skills/demo/scripts/gate.sh
+expect_listed "a walk row selects its suite for a shared script its walk covers, beside what the script reaches" \
+    "$RD/flow_engine_test.sh $RD/gate_test.sh $RD/scan_test.sh"
+
+walk_tree
+run_list skills/demo/references/guide.md
+expect_listed "a walk row selects its suite for a document its walk covers, beside what the document reaches" \
+    "$RD/reader_test.sh $RD/scan_test.sh $RD/table_test.sh"
+
+walk_tree
+run_list skills/demo/SKILL.md
+expect_listed "a walk row doesn't select its suite for a path outside its glob" "$RD/table_test.sh"
+
+walk_tree
+run_list skills/demo/scripts/mod.jq
+expect_listed "  ... nor for a file of another kind in the walked directory" "$RD/uses_test.sh"
+
+walk_tree
+run_list skills/demo/scripts/two_test.sh
+expect_listed "  ... nor for a path its skip glob leaves out" "$RD/two_test.sh"
+
+walk_tree
+run_list docs/designs/DESIGN-demo.md
+expect_listed "  ... nor for a path outside the skill's directory" "" "selects 0 of 13 suites"
+
+walk_tree
+run_list "skills/demo/scripts/one.sh
+skills/demo/scripts/pinned.sh"
+expect_listed "a walked path that otherwise runs every suite still runs every suite" \
+    "$WALK_ALL_DEMO" "no suite names skills/demo/scripts/pinned.sh"
+
+# A walk row that can't be used would drop its suite, so it runs every suite.
+# Each row is written with \t for a tab.
+for c in \
+    'walk\tnope_test.sh\t*|names nope_test.sh, which is not one of skills/demo'"'"'s suites' \
+    'walk\tone.sh\t*|names one.sh, which is not one of skills/demo'"'"'s suites' \
+    'walk\tscan_test.sh|is a malformed walk row' \
+    'walk\tscan_test.sh\t\t*_test.sh|is a malformed walk row' \
+    'walk\tscan_test.sh\t*\t*_test.sh\textra|is a malformed walk row'; do
+    walk_tree
+    printf '%b\n' "${c%%|*}" >> "$ROOT/skills/demo/check-skill.tsv"
+    run_list skills/demo/scripts/one.sh
+    expect_listed "a walk row ${c%%|*} runs every suite" "$WALK_ALL_DEMO" "${c#*|}"
+done
+
 new_tree
 run_check_args() {
     OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" "$@" 2>&1)
@@ -1434,7 +1498,8 @@ fi
 
 # -- The coordinate skill's own selection ----------------------------------------
 # Against the real skills/coordinate: a change to anything shared selects every
-# suite, and a one-script change selects only that script's suites.
+# suite, and a one-script change selects only that script's suites and the
+# suites that walk the tree to it.
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 COORD_ALL=$(cd "$REPO_ROOT" && ls skills/coordinate/scripts/*_test.sh | sort | tr '\n' ' ' | sed 's/ $//')
 # run_coord_list <path>: --changed --list on the real coordinate skill.
@@ -1507,9 +1572,45 @@ $CS/koto-templates/coordinate.md
 $CS/references/teardown-agent.md
 $CS/scripts/state-holding_test.sh
 $CS/scripts/teardown-pass_test.sh"
-run_coord_list skills/coordinate/scripts/need-check.sh
-expect_listed "coordinate: a change to need-check.sh selects only need-check_test.sh" \
-    "skills/coordinate/scripts/need-check_test.sh" "selects 1 of"
+# A plain script selects its own suite and the three suites that walk the tree
+# to it (the walk rows), nothing more.
+CW="$CS/scripts/coordinate-template-structure_engine_test.sh"
+for s in need-check quiet-check; do
+    run_coord_list $CS/scripts/$s.sh
+    expect_listed "coordinate: a change to $s.sh selects only ${s}_test.sh and the suites that walk to it" \
+        "$CW $CS/scripts/${s}_test.sh $CS/scripts/skill-hygiene_test.sh $CS/scripts/state-structure_test.sh" \
+        "selects 4 of"
+done
+
+# The suites that walk the tree reach a file without naming it: skill-hygiene
+# greps every file git tracks under the skill but the suites, state-structure
+# every file under scripts/ and koto-templates/, and template-structure every
+# .sh and .jq file but the suites. Each is selected for every changed file its
+# walk covers, whatever kind of path that is.
+# coord_walks <name> <walking suites, space-separated> <changed paths>
+coord_walks() {
+    local miss="" w
+    run_coord_list "$3"
+    for w in $2; do
+        case " $LISTED " in *" $CS/scripts/$w "*) ;; *) miss="$miss $w" ;; esac
+    done
+    if [ "$RC" = 0 ] && [ -z "$miss" ]; then
+        pass "coordinate: $1 selects the suites that walk to it ($2)"
+    else
+        fail "coordinate: $1: exit $RC, missing:${miss:- none}"
+        printf '%s\n' "$OUT" | grep '^check-skill:' | sed 's/^/    /'
+    fi
+}
+WALK3="skill-hygiene_test.sh state-structure_test.sh coordinate-template-structure_engine_test.sh"
+coord_walks "coord-log.sh (a shared script)" "$WALK3" $CS/scripts/coord-log.sh
+coord_walks "state-schema.jq (a shared jq module)" "$WALK3" $CS/scripts/state-schema.jq
+coord_walks "quiet-check.sh (a plain script)" "$WALK3" $CS/scripts/quiet-check.sh
+coord_walks "state-holding.sh (a plain script)" "$WALK3" $CS/scripts/state-holding.sh
+coord_walks "coordinate.md (the template)" "skill-hygiene_test.sh state-structure_test.sh" \
+    $CS/koto-templates/coordinate.md
+coord_walks "references/teardown-agent.md" "skill-hygiene_test.sh" $CS/references/teardown-agent.md
+coord_walks "SKILL.md" "skill-hygiene_test.sh" $CS/SKILL.md
+coord_walks "a suite (teardown-pass_test.sh)" "state-structure_test.sh" $CS/scripts/teardown-pass_test.sh
 
 # Every coordinate suite has a cost row and every cost row names a suite, so
 # a new suite can't quietly launch last. scripts/check-cost-rows.sh holds the

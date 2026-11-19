@@ -106,6 +106,11 @@
 #     that names it, unit suites first;
 #   - anything else (other Markdown and data, check-skill.tsv itself): every
 #     suite.
+# Whatever the kind of a path under skills/<skill>/, every suite a `walk` row
+# of check-skill.tsv declares as walking it is added to the selection: a suite
+# that lists the tree with find or git ls-files and reads what it finds reaches
+# the file without naming it, so nothing above would see it. A malformed walk
+# row, or one naming no suite of the skill, runs every suite.
 #
 # Each suite's launch prints `check-skill: started bash <suite> (<n> of <m>)`,
 # and a TERM or INT first prints `check-skill: stopped with <k> of <m> suites
@@ -113,13 +118,22 @@
 # where it stood.
 #
 # check-skill.tsv sits at skills/<skill>/check-skill.tsv, tab-separated, with
-# `#` comments, and has three kinds of row:
+# `#` comments, and has four kinds of row:
 #   shared <file under scripts/>   a change to it runs what it reaches, engine
 #                                  suites included, not only its unit suites
 #   all <file under scripts/>      the file runs every suite (a test runner),
 #                                  so a change to it, or to any file it runs
 #                                  directly or through other scripts, runs
 #                                  every suite
+#   walk <suite file name> <glob> [<skip glob>]
+#                                  the suite walks the skill's tree and reads
+#                                  every file whose path under skills/<skill>/
+#                                  matches <glob> and not <skip glob> (case
+#                                  patterns, where * also matches /), so a
+#                                  change to any such file selects it,
+#                                  whatever else the path selects. A suite
+#                                  whose walk covers several globs has a row
+#                                  for each
 #   cost <suite file name> <secs>  the suite's measured CPU seconds; suites
 #                                  launch costliest first, unlisted ones last
 #                                  in glob order
@@ -626,6 +640,49 @@ $s" ;;
     fi
 }
 
+# walk_problem: prints why check-skill.tsv's walk rows can't be used, a row
+# without a suite and a glob, with more than one skip glob, or naming a file
+# that isn't one of the skill's suites; prints nothing when they can. A walk
+# row that can't be used would drop the suite it declares, so the caller runs
+# every suite instead.
+walk_problem() {
+    local line suite all
+    line=$(awk -F'\t' '$1 == "walk" && (NF < 3 || NF > 4 || $2 == "" || $3 == "") { print NR; exit }' "$MAP")
+    if [ -n "$line" ]; then
+        echo "line $line of check-skill.tsv is a malformed walk row"
+        return 0
+    fi
+    all=$(printf '%s\n' "${suites[@]}")
+    for suite in $(map_rows walk | cut -f1); do
+        if ! in_list "$SKILL_DIR/scripts/$suite" "$all"; then
+            echo "a walk row of check-skill.tsv names $suite, which is not one of $SKILL_DIR's suites"
+            return 0
+        fi
+    done
+}
+
+# walkers <path>: the suites a `walk` row of check-skill.tsv declares as reading
+# <path>, one per line: <path> is under the skill's directory, and the rest of
+# it matches the row's glob and not its skip glob. Reads WALK_ROWS.
+WALK_ROWS=""
+walkers() {
+    local rel=${1#"$SKILL_DIR"/} suite glob skip
+    [ "$rel" != "$1" ] || return 0
+    while IFS='	' read -r suite glob skip; do
+        [ -n "$suite" ] && [ -n "$glob" ] || continue
+        # Unquoted, so each is a pattern; a case pattern's * matches / too.
+        # shellcheck disable=SC2254
+        case "$rel" in $glob) ;; *) continue ;; esac
+        if [ -n "$skip" ]; then
+            # shellcheck disable=SC2254
+            case "$rel" in $skip) continue ;; esac
+        fi
+        echo "$SKILL_DIR/scripts/$suite"
+    done <<EOF
+$WALK_ROWS
+EOF
+}
+
 # select_suites: sets SELECTED (suite paths, newline-separated, possibly with
 # repeats) or ALL_REASON, which means every suite runs.
 SELECTED=""
@@ -657,6 +714,9 @@ select_suites() {
         ALL_REASON="no changed path"
         return
     fi
+    ALL_REASON=$(walk_problem)
+    [ -z "$ALL_REASON" ] || return
+    WALK_ROWS=$(map_rows walk)
     # A script on an `all` row is shared too: reach_suites sees the row and
     # runs every suite for it and for whatever it runs.
     rows=$(map_rows shared | cut -f1; map_rows all | cut -f1)
@@ -664,6 +724,10 @@ select_suites() {
     sourced=$(sourced_by_several)
     shared=$(printf '%s\n%s\n' "$rows" "$sourced" | cut -f1 | sed '/^$/d')
     while IFS= read -r p; do
+        # The suites that walk the tree to <path> (walk rows), whatever kind
+        # of path it is; the rules below add the suites that name it.
+        SELECTED="$SELECTED
+$(walkers "$p")"
         case "$p" in
             "$SKILL_DIR"/scripts/*/*)
                 ALL_REASON="$p is shared test code"; return ;;
