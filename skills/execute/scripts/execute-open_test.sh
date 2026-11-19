@@ -607,6 +607,44 @@ else
     fail "replaced: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
 fi
 
+# The old checkout kept: the run's sessions were rebound to a new clone of the
+# same coordination branch while the first checkout stayed on disk, so the
+# recorded PLAN still exists. A second stub answers `session list` with the
+# session's execution_dir from KOTO_STUB_EXEC_DIR and hands every other call to
+# the stub above.
+RRL_BIN="$WORK/reroot-list-bin"
+mkdir -p "$RRL_BIN"
+cat > "$RRL_BIN/koto" <<STUB
+#!/usr/bin/env bash
+if [ "\${1-} \${2-}" = "session list" ]; then
+    jq -cn --arg d "\${KOTO_STUB_EXEC_DIR-}" '[{id: "execute-mv", parent_workflow: null}
+        + (if \$d == "" then {} else {execution_dir: \$d} end)]'
+    exit 0
+fi
+exec "$REROOT_BIN/koto" "\$@"
+STUB
+chmod +x "$RRL_BIN/koto"
+rr_checkout "$WORK/rr-old" coord/mv https://github.com/acme/plans.git
+git clone -q "$WORK/rr-old" "$WORK/rr-new"
+git -C "$WORK/rr-new" remote set-url origin https://github.com/acme/plans.git
+RR_OLD="$(cd "$WORK/rr-old/docs/plans" && pwd -P)/PLAN-mv.md"
+RR_KEPT_NEW="$(cd "$WORK/rr-new/docs/plans" && pwd -P)/PLAN-mv.md"
+RR_ABS="$RR_OLD"
+rr_open "$WORK/rr-new" PATH="$RRL_BIN:$PATH" KOTO_STUB_EXEC_DIR="$(cd "$WORK/rr-old" && pwd -P)"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_OLD" ]; then
+    pass "an attach from a new checkout the session isn't bound to leaves a kept checkout's plan_abs unchanged"
+else
+    fail "kept, not rebound: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+rr_open "$WORK/rr-new" PATH="$RRL_BIN:$PATH" KOTO_STUB_EXEC_DIR="$(cd "$WORK/rr-new" && pwd -P)"
+if [ "$RC" -eq 0 ] && [ "$OUT" = "$RR_WANT" ] && [ "$(cat "$RR_STORE/execute-mv/plan_abs")" = "$RR_KEPT_NEW" ]; then
+    pass "a coordinated attach from the checkout the session was rebound to re-roots plan_abs though the old checkout is kept, stdout and exit unchanged"
+else
+    fail "kept, rebound: --reroot-plan refuses while the old PLAN exists: exit $RC, out [$OUT], plan_abs [$(cat "$RR_STORE/execute-mv/plan_abs")]; $ERR"
+fi
+grep -qF "re-rooted to [$RR_KEPT_NEW]" "$WORK/stderr" \
+    && pass "the kept-checkout re-root names the new path on stderr" || fail "kept attach stderr: [$ERR]"
+
 # --- engine-free: the review round on a replace -------------------------------
 # A re-invocation that replaces a finished run carries the round review-round.sh
 # recorded there (review_round.json) into the fresh session, byte for byte; an

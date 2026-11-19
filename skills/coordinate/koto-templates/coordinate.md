@@ -180,7 +180,7 @@ variables:
     pattern: '^[1-9][0-9]{0,2}$'
     default: "7"
   CAP:
-    description: The cap on active workers; parked workers, merged ones waiting for teardown and local agents don't count.
+    description: The cap on active workers; parked workers, merged ones waiting for teardown, stopped ones and local agents don't count.
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
@@ -2689,7 +2689,10 @@ and drive every worker to landed work.
   back. An active worker is one whose unit isn't merged or abandoned and that
   isn't parked. Parked workers (a verified, ready pull request waiting only on a
   merge), merged ones waiting for their teardown, and local agents don't count
-  against the cap.
+  against the cap. Neither does a holding whose `stopped` is true: its
+  worker's Claude jobs on this host have all finished, so nothing runs for it
+  while it waits on its pull request, and a worker continuing its unit takes
+  the same slot without a cap raise.
 - **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
   nothing new until the human has worked through the merge-order table
   (`hold`).
