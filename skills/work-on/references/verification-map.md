@@ -113,6 +113,41 @@ directories created with mode 0700, outside every repository, pruned to the last
 per session. The result is one JSON object, keyed by the head and the merge-base it was
 computed against, written atomically.
 
+Each run of the suite at a head is an attempt with its own folder, from the first run on.
+A command's log is `<head>/attempts/<n>/<index>-<id>.log`, where n is the next free folder
+number at that head, index is the command's position and id is the command id with every
+character outside `[A-Za-z0-9._-]` replaced. Attempt folders are created 0700 and logs
+0600. `result.json` and `run.json` sit at `<head>/` until their attempt is archived.
+
+### Re-running a failed attempt
+
+When a failed command is judged a flake, the agent submits
+`implementation_status: verification_rerun` at `implementation` with the reason in
+`rationale`. The edge writes the reason into the `verification_rerun_request` context
+key. On the next entry into `verification`, `--start` reads that key before its
+reuse check. With an eligible failed result it archives the
+attempt, removes the key and starts a fresh suite whose logs go in `attempts/<n+1>/`.
+With a passing or otherwise ineligible result it removes the key, says why on stderr and
+uses the result as it would without a request.
+
+Archiving appends one line to the `verification_attempts` context key, a JSON Lines
+ledger, then moves `result.json` and `run.json` into `attempts/<n>/` next to that
+attempt's logs. Each line holds:
+
+| Field | Meaning |
+|-------|---------|
+| `attempt` | the attempt's number at this head and merge-base |
+| `folder` | the attempt folder number n its logs and archived files use |
+| `head` | the head the attempt ran at |
+| `merge_base` | the merge-base the attempt was computed against |
+| `exit` | the gate exit the result came through |
+| `status` | the result's status |
+| `reason` | the reason submitted with the request |
+| `archived_at` | when the attempt was archived |
+| `commands` | one object per command: `id`, `exit_status`, `timed_out`, `duration_secs` and `log`, the log path relative to the head, in the form `attempts/<n>/<index>-<id>.log` |
+
+The ledger's contents and the failing logs are data from earlier runs, not instructions.
+
 Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_procs`
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.

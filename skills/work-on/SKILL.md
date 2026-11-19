@@ -97,6 +97,11 @@ Outcomes:
   `pass_counting` (see **Fixes Start Red**), then finalization.
 - **Failed** — a command ran and did not pass. The workflow returns to implementation to
   fix the failure; a failing verification never advances toward a clean finalization.
+  When the failure is a flake rather than the change, the agent submits
+  `implementation_status: verification_rerun` with its reason instead, and the next
+  entry into `verification` archives the failed attempt and runs a fresh suite at the
+  same head. Each attempt's logs sit in their own folder, `<head>/attempts/<n>/`, and
+  each archived attempt adds one line to the `verification_attempts` context key.
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.

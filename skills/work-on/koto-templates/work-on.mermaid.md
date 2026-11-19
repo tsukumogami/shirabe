@@ -61,6 +61,7 @@ stateDiagram-v2
     fix_determination --> done_blocked : gates.kind_unchanged.exit_code: 1, kind_status: blocked
     fix_determination --> done_blocked : gates.kind_unchanged.exit_code: 2, kind_status: blocked
     implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete
+    implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: verification_rerun
     implementation --> implementation : implementation_status: partial_tests_failing_retry
     implementation --> analysis : implementation_status: scope_expanded_retry
     implementation --> done_blocked : implementation_status: partial_tests_failing_escalate
