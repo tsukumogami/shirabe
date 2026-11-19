@@ -390,7 +390,7 @@ rf_test_refusals "--verdict" skills/work-on/scripts/check-verification.sh verifi
 # The same result against plugin copies with verification/command-failed at
 # each stage: its finding prints at the stage's level, and only at block does
 # it route the run back (1).
-VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh"
+VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh skills/work-on/scripts/verification-eligibility.sh"
 verdict_in_copy() { # <copy>
     cd "$WORKDIR/r-fail" && "$1/skills/work-on/scripts/check-verification.sh" --verdict --session s-fail
 }
