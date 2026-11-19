@@ -504,6 +504,20 @@ grep -q "compiled from coordinate.md at compat [^ ]* (template [0-9a-f]\{64\}); 
 eq "7:   ... and no run takes it over" "" "$(line outcome)$(line session)"
 eq "7:   ... the copy the only run of its scope in second" "$OTHER" \
     "$(cd "$W2" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
+# The refusal says a plain start carries the copy's record into a new run
+# (shirabe#1650). The copy still names A, whose session runs on the source
+# host and not here, so the plain start carries it rather than taking the
+# takeover path and refusing.
+printf '["docs/roadmaps/ROADMAP-imp2.md","--role","manager"]' > "$T/args.json"
+OUT=$(cd "$W2" && CLAUDE_CODE_SESSION_ID=$B_ID bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
+if [ "$ORC" = 0 ] && [ "$(line carried)" = "$OTHER" ]; then
+    ok "7: a plain start after the refused import carries the copy, as the refusal says"
+else
+    bad "7: a plain start after the refused import carries the copy, as the refusal says" "exit $ORC; out: $OUT; $(cat "$T/open.err")"
+fi
+eq "7:   ... cancelling the copy" "$OTHER" "$(line cancelled)"
+eq "7:   ... leaving the new run the only live run of its scope in second" "$(line session)" \
+    "$(cd "$W2" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
 
 # ---- 10. an import of a run opened from another plugin root -------------------------
 # The copy keeps the plugin root its source ran from, which the record writers

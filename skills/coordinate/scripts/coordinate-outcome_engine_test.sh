@@ -403,6 +403,22 @@ if PR=$T/pcopy PS=$T/pcopy/skills/coordinate/scripts open_run compat && [ "$(at)
             ok "5:   ... naming the run's recorded compat $PCOMPAT and hash and the shipped compat $SHIP_COMPAT and hash" ;;
         *) bad "5:   ... naming the run's recorded compat $PCOMPAT and hash and the shipped compat $SHIP_COMPAT and hash" "$(cat "$T/open.err")" ;;
     esac
+    # The same run once its driver is gone (shirabe#1650): no Claude job for A
+    # is seen here and its last koto event is past 10 minutes, so nobody
+    # drives it. The start carries its record into a new run on the shipped
+    # template and cancels it, rather than refusing.
+    mkdir -p "$T/claude-none/jobs"
+    DC_CLAUDE_HOME=$T/claude-none DC_NOW=$(( $(date +%s) + 700 )) opener compat "$T/work2"
+    if [ "$ORC" = 0 ] && [ "$(line carried)" = "$A2" ]; then
+        ok "5: a run on a template the shipped table doesn't list, whose driver is gone, is carried"
+    else
+        bad "5: a run on a template the shipped table doesn't list, whose driver is gone, is carried" "exit $ORC; out: $OUT; $(cat "$T/open.err")"
+    fi
+    eq "5:   ... into a new run of the scope, cancelling the old one" "carried=$A2|cancelled=$A2" \
+        "$(grep -E '^(carried|cancelled)=' <<< "$OUT" | tr '\n' '|' | sed 's/|$//')"
+    C5=$(line session)
+    eq "5:   ... the new run is on the shipped template" "$SHIPPED" \
+        "$( [ -n "$C5" ] && bash "$REPO_ROOT/skills/coordinate/scripts/coord-log.sh" template-hash --session "$C5" 2>/dev/null)"
 else
     bad "5: the run from the plugin copy opens and reaches reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
