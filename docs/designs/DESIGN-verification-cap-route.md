@@ -213,8 +213,10 @@ counts `skipping` as green, checks no job by name and doesn't look at
 attempts, so a path-filtered job or a failed latest attempt behind an older
 success would pass, against R3 and R6.
 
-**Check only the PR body.** Rejected: a body line proves the claim was
-written, not that the jobs passed.
+**Check only the PR body.** Accept the route once the pull request body
+carries a `Hosted of record:` line per timed-out check, with no read of the
+jobs. Rejected: a body line proves the claim was written, not that the jobs
+passed, and a reviewer would have to open each run to learn which.
 
 ### Decision 2: How a row declares and proves its hosted coverage
 
@@ -253,8 +255,10 @@ coordinate suite. Rejected for v1: the workflow doesn't trigger on
 jobs would often be absent, and there is no per-suite list to prove
 against. A second declaration can add them later.
 
-**A separate mapping file.** Rejected: one row's meaning would be split
-across two files the loader has to join.
+**A separate mapping file.** Keep the map unchanged and add a file beside
+it that maps each row id to its hosted jobs. Rejected: one row's meaning
+would be split across two files the loader has to join, and a row renamed
+in one file and not the other would leave a route that names no jobs.
 
 **Derive coverage from workflow YAML at run time.** Rejected: it parses
 YAML in a gate for a fact a test can fix once.
@@ -397,9 +401,11 @@ declaration to the verification map, a hold and a recording step to
   exits 0 when R1 holds for the current result and map and the diff from
   the merge-base touches none of the files that decide what the hosted job
   runs (anything under `.github/`, `scripts/skill-gate.sh`,
-  `scripts/check-skill.sh` and the libraries they source, the verification
-  map and the coverage test) and removes no suite from any skill's
-  `check-skill.tsv`, 1 otherwise, printing the closing cause; `--record --reason <text>` writes
+  `scripts/check-skill.sh` and the libraries they source or helpers they
+  execute, as the merge-base's copies name them, the verification map and
+  the coverage test) and makes no edit to any skill's `check-skill.tsv`
+  other than adding rows, 1 otherwise, printing the closing cause;
+  `--record --reason <text>` writes
   the koto key `hosted_of_record`; `--check-record` validates that key
   against the stored result and map; `--read` reads the hosted jobs (below).
 - **`.claude/shirabe-extensions/verification-map.json`**. The
@@ -459,10 +465,14 @@ Gate exit contracts. `--check-record` (the `verification_hosted` gate): 0
 the key is valid; 1 it isn't (empty reason, wrong head, checks or jobs that
 don't match the result and map, a `taken_at` in the future or before the
 result finished), which routes back to `verification`; 2 the key can't be
-read, which holds. `--settled` (the `ci_monitor` routing gate): 0 every job's
-`run_id` is filled for the current head; 1 not. The `hosted_record` ready
-gate: 0 the pull request is not a draft, its head is the record's and every
-body line carries its run links; 1 otherwise, which holds.
+read, which holds. `--settled` (the `ci_monitor` routing gate): 0 the key
+still passes `--check-record` and every job's `run_id` is filled for the
+current head and, re-read from the API, names the declared workflow and job
+at that head with a `success` conclusion; 1 not. The `hosted_record` ready
+gate: 0 the key passes the same checks, the pull request is not a draft,
+its head is the record's and every body line carries its run links; 1
+otherwise, which holds. A key edited by hand to fill the run ids therefore
+can't skip the read.
 
 `verification-route.sh --read` exit codes: 0 every job's latest attempt at
 `head` concluded success (fills `run_id` and `conclusion`); 1 a job
@@ -515,8 +525,8 @@ the record.
 5. The run goes through finalization to `pr_creation`, which opens a draft
    and refuses a body without one line per recorded check.
 6. `ci_monitor` waits for the draft's checks. Its passing edge goes to
-   `hosted_record` whenever the record exists and `--settled` (every job's
-   `run_id` filled at the current head) exits 1, whether or not the pull
+   `hosted_record` whenever the record exists and `--settled` (a valid
+   record whose run ids are filled and re-read at the current head) exits 1, whether or not the pull
    request is still a draft, so marking it ready by hand skips nothing.
 7. `hosted_record` polls `--read`. On 0 the script fills the record and
    rewrites the body lines with run links; the agent runs `gh pr ready`, and
@@ -608,9 +618,10 @@ so the risk is a pass counted that no run earned.
   them could make the declared job pass without running the suites. The
   route is closed (`--open` exits 1) when the diff from the merge-base
   touches anything under `.github/`, `scripts/skill-gate.sh`,
-  `scripts/check-skill.sh` or the libraries they source, the verification
-  map or the coverage test, or removes a suite from a `check-skill.tsv`;
-  such a change verifies locally or through the entry-time hosted route, as
+  `scripts/check-skill.sh` or the libraries they source and helpers they
+  execute (named from the merge-base's copies, so a change can't hide a new
+  one), the verification map or the coverage test, or makes any edit to a
+  `check-skill.tsv` other than adding rows; such a change verifies locally or through the entry-time hosted route, as
   today. Other script changes stay open: the suites they touch run at the
   same head in both places, so the local run trusts them no more than the
   hosted one does. The declaration itself is read from the merge-base, like
@@ -621,18 +632,25 @@ so the risk is a pass counted that no run earned.
   highest attempt, with exactly one matching job name, and accepts only
   `success`. Another commit, an older attempt, a skipped or duplicated job,
   or an unreadable response refuses. The head is checked again just before
-  the pull request is marked ready.
+  the pull request is marked ready. A job's `success` is taken to mean its
+  steps ran: a step skipped inside a job that still succeeds isn't seen,
+  which is why the workflow files are on the closing list above.
 - **A forged record.** The record key is checked against the stored result
   and the map (`--check-record`), not only for being present, so a key set by
-  hand that names other checks or jobs fails the gate.
-- **Permissions.** `--read` uses the session's existing `gh` token with read
-  access to Actions; it writes only the run's own koto key. `gh pr ready` is
-  the one write, the same the run's pull request steps already make.
-- **Recorded text.** The reason is agent text that reaches the PR body. It is
-  passed with `jq --arg`, stripped of control characters and capped, as the
-  existing deferral reason is, never interpolated into a shell command, and
-  written into the body inside a code span with `@`, `#`, link and HTML
-  characters neutralized. The `Hosted of record:` lines are written by the
+  hand that names other checks or jobs fails the gate. `--settled` and the
+  ready gate run the same check again and re-read each filled run id, so a
+  key whose run ids were filled by hand fails there too.
+- **Permissions.** `--read` uses the session's existing `gh` token, which
+  needs read access to Actions and write access to pull requests and nothing
+  more; it writes only the run's own koto key. `gh pr edit --body-file` and
+  `gh pr ready` are its writes, the same kinds the run's pull request steps
+  already make.
+- **Recorded text.** The reason is agent text that reaches the PR body, which
+  is public in a public repository, so it should carry nothing private. It is
+  passed with `jq --arg`, stripped of control characters and backticks and
+  capped, as the existing deferral reason is, never interpolated into a
+  shell command, and written into the body inside a code span with `@`,
+  `#`, link and HTML characters neutralized. The `Hosted of record:` lines are written by the
   script from the record, with run URLs built from numeric ids, and the body
   is passed by file, so reason text can't forge one.
 - **Residual risk.** A suite that passes on ubuntu and fails only on macOS
