@@ -80,19 +80,22 @@
 #     every suite;
 #   - scripts/<name>_test.sh: that suite;
 #   - a deleted scripts/<file>: every suite;
-#   - scripts/<file> named on a `shared` row of check-skill.tsv, or sourced by
-#     two or more of the skill's files, and the skill's SKILL.md, a file under
-#     its references/ or a koto-templates/<name>.md: what it reaches
-#     (shirabe#1934). That's the suites that name it or one of its callers
-#     (the skill's scripts whose code, not a comment, names it, and the files
-#     under scripts/ subdirectories that name it), the own <stem>_test.sh of
-#     it and of each caller, and every engine suite when it is a template or a
-#     template's front matter, where koto's gates and actions run scripts,
-#     names it or a caller. A jq module is also named by its quoted stem, the
-#     way `include` names it; a file under references/ also by `references`,
-#     and by `SKILL.md` when SKILL.md lists it. Deleted, or nothing selected:
-#     every suite. See reach_suites;
-#   - any other scripts/<file>: its own <stem>_test.sh, and every unit suite
+#   - scripts/<file> named on a `shared` or `all` row of check-skill.tsv, or
+#     sourced by two or more of the skill's files, and the skill's SKILL.md, a
+#     file under its references/ or a koto-templates/<name>.md: what it
+#     reaches (shirabe#1934). That's the suites that name it or one of its
+#     callers, the own <stem>_test.sh of it and of each caller, and every
+#     engine suite when it is a template or a template's front matter, where
+#     koto's gates and actions run scripts, names it or a caller. Its callers
+#     are the skill's scripts whose code, not a comment, names it or another
+#     caller, and the files under scripts/ subdirectories that name either,
+#     followed to the end of every chain. A jq module is also named by its
+#     quoted stem, the way `include` names it; a file under references/ also
+#     by `references`, and by `SKILL.md` when SKILL.md lists it. It or a
+#     caller on an `all` row, deleted, or nothing selected: every suite. See
+#     reach_suites;
+#   - any other scripts/<file>: a script on an `all` row runs it, every
+#     suite; otherwise its own <stem>_test.sh, and every unit suite
 #     (not *_engine_test.sh) that names the file or one of its callers, the
 #     skill's other scripts/*.sh and *.jq files that name it, shared ones
 #     excepted. Engine suites are taken only when no unit suite names any of
@@ -109,9 +112,13 @@
 # where it stood.
 #
 # check-skill.tsv sits at skills/<skill>/check-skill.tsv, tab-separated, with
-# `#` comments, and has two kinds of row:
+# `#` comments, and has three kinds of row:
 #   shared <file under scripts/>   a change to it runs what it reaches, engine
 #                                  suites included, not only its unit suites
+#   all <file under scripts/>      the file runs every suite (a test runner),
+#                                  so a change to it, or to any file it runs
+#                                  directly or through other scripts, runs
+#                                  every suite
 #   cost <suite file name> <secs>  the suite's measured CPU seconds; suites
 #                                  launch costliest first, unlisted ones last
 #                                  in glob order
@@ -397,7 +404,8 @@ sourced_by_several() {
 # excepted. One file name per line. One level only: the scripts name each
 # other so widely that following callers further reaches most of the skill
 # (45 of coordinate's 77 suites from almost any script), which selects nothing
-# worth having; CI runs every suite.
+# worth having; CI runs every suite. This is for a plain script only: a shared
+# file's callers are followed to the end of every chain (reach_suites).
 callers_of() {
     local f
     echo "$1"
@@ -502,11 +510,15 @@ name_forms() {
 #     named by `references`, since suites and scripts build those paths at run
 #     time and glob the directory, and by `SKILL.md` when SKILL.md names it,
 #     since a script can follow SKILL.md's table of reference files.
-#   - Callers, one level, as for any script: each of the skill's scripts
-#     whose code names one of them, a comment line not counting, since a
-#     comment runs and reads nothing; and each file under a subdirectory of
-#     scripts/ (test libraries, testdata) that names one anywhere, as a suite
-#     would.
+#   - Callers, followed to a fixpoint: each of the skill's scripts whose code
+#     names <path> or a caller already found, a comment line not counting,
+#     since a comment runs and reads nothing; and each file under a
+#     subdirectory of scripts/ (test libraries, testdata) that names one
+#     anywhere, as a suite would. A suite that reaches <path> only through a
+#     chain of scripts reaches it all the same, so the chain is followed to
+#     its end; a file already found isn't followed again, which ends a cycle.
+#   - <path> or any caller on an `all` row of check-skill.tsv (a script that
+#     runs every suite, such as a test runner): every suite.
 #   - The suites that name <path> or a caller (anywhere in the file, comments
 #     included, the way a suite declares a script it reaches only through a
 #     variable), and the own <stem>_test.sh of <path> and of each caller.
@@ -517,7 +529,7 @@ name_forms() {
 REACH=""
 REACH_ALL=""
 reach_suites() {
-    local p=$1 names callers c s engine=""
+    local p=$1 names want found closure every c s engine=""
     REACH="" REACH_ALL=""
     names=$(name_forms "$p")
     case "$p" in
@@ -529,17 +541,43 @@ references"
 SKILL.md"
             fi ;;
     esac
-    callers=$({
-        find "$SKILL_DIR/scripts" -mindepth 1 -maxdepth 1 -type f ! -name '*_test.sh' ! -path "$p" \
-            -exec env CODE_NAMES_WANT="$names" awk "$CODE_NAMES" {} + 2>/dev/null
-        find "$SKILL_DIR/scripts" -mindepth 2 -type f ! -path "$p" -exec grep -lF -- "$names" {} + 2>/dev/null
-    } | sort)
-    for c in $callers; do
-        names="$names
+    # The caller closure: each round looks for the files naming what the last
+    # round found (want), and stops when a round finds nothing new.
+    closure=$p
+    want=$names
+    while [ -n "$want" ]; do
+        found=$({
+            find "$SKILL_DIR/scripts" -mindepth 1 -maxdepth 1 -type f ! -name '*_test.sh' \
+                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
+            find "$SKILL_DIR/scripts" -mindepth 2 -type f -exec grep -lF -- "$want" {} + 2>/dev/null
+        } | sort -u)
+        want=""
+        for c in $found; do
+            in_list "$c" "$closure" && continue
+            closure="$closure
+$c"
+            want="$want
 $(name_forms "$c")"
+        done
+        want=$(printf '%s\n' "$want" | sed '/^$/d')
+        [ -z "$want" ] || names="$names
+$want"
     done
+    every=$(map_rows all | cut -f1)
+    if [ -n "$every" ]; then
+        for c in $closure; do
+            if in_list "${c##*/}" "$every"; then
+                if [ "$c" = "$p" ]; then
+                    REACH_ALL="$p runs every suite (an all row of check-skill.tsv)"
+                else
+                    REACH_ALL="$p is reached through ${c##*/}, which runs every suite (an all row of check-skill.tsv)"
+                fi
+                return
+            fi
+        done
+    fi
     REACH=$(grep -lF -- "$names" "${suites[@]}")
-    for c in "$p" $callers; do
+    for c in $closure; do
         case "$c" in
             "$SKILL_DIR"/scripts/*) ;;
             *) continue ;;
@@ -571,7 +609,7 @@ ALL_REASON=""
 READERS=""
 READERS_DONE=""
 select_suites() {
-    local paths p name rows sourced shared names hits units engines s
+    local paths p name rows every sourced shared names hits units engines s c
     if [ ! -f "$MAP" ]; then
         # Without the file, a change only to evals/ still selects, since the
         # rule needs none of its rows.
@@ -595,7 +633,10 @@ select_suites() {
         ALL_REASON="no changed path"
         return
     fi
-    rows=$(map_rows shared | cut -f1)
+    # A script on an `all` row is shared too: reach_suites sees the row and
+    # runs every suite for it and for whatever it runs.
+    rows=$(map_rows shared | cut -f1; map_rows all | cut -f1)
+    every=$(map_rows all | cut -f1)
     sourced=$(sourced_by_several)
     shared=$(printf '%s\n%s\n' "$rows" "$sourced" | cut -f1 | sed '/^$/d')
     while IFS= read -r p; do
@@ -635,6 +676,14 @@ $READERS" ;;
 $REACH"
                     continue
                 fi
+                # A script that one on an `all` row runs: every suite.
+                for c in $every; do
+                    [ -f "$SKILL_DIR/scripts/$c" ] || continue
+                    if [ -n "$(CODE_NAMES_WANT="$(name_forms "$p")" awk "$CODE_NAMES" "$SKILL_DIR/scripts/$c")" ]; then
+                        ALL_REASON="$p is run by $c, which runs every suite (an all row of check-skill.tsv)"
+                        return
+                    fi
+                done
                 names=$(callers_of "$name" "$shared")
                 hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
                 # The script's own suite counts whether or not it names it.

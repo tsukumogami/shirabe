@@ -1,21 +1,25 @@
 # check-skill.tsv -- how scripts/check-skill.sh orders and selects this
-# skill's suites. scripts/check-skill.sh's header defines both kinds of row;
+# skill's suites. scripts/check-skill.sh's header defines each kind of row;
 # .claude/shirabe-extensions/README.md has the rule for keeping them current.
 # Tab-separated.
 #
 # shared <file under scripts/>: a change to it runs what it reaches, engine
 # suites included (scripts/check-skill.sh's reach_suites), not only the unit
-# suites a plain script gets. A file sourced by two or more of the skill's
-# files is shared without a row; these are the ones that check can't see: the
-# template's own scripts, which every engine suite drives; the state schema,
-# which jq includes and nearly every script reads or writes through; and
-# run-tests.sh, which CI runs every suite through.
+# suites a plain script gets. What it reaches follows its callers to the end of
+# every chain. A file sourced by two or more of the skill's files is shared
+# without a row; these are the ones that check can't see: the template's own
+# scripts, which every engine suite drives; and the state schema, which jq
+# includes and nearly every script reads or writes through.
 shared	coord-verdict.sh
 shared	coord-log.sh
 shared	coordinate-open.sh
 shared	coordinate-open.wording.tsv
-shared	run-tests.sh
 shared	state-schema.jq
+
+# all <file under scripts/>: the file runs every suite, so a change to it, or
+# to any file it runs directly or through other scripts, runs every suite.
+# run-tests.sh is how CI and an author run every suite.
+all	run-tests.sh
 
 # cost <suite> <seconds>: the suite's CPU seconds (user plus system), measured
 # on main at 05d3a50 with four suites at a time on a loaded host. Suites

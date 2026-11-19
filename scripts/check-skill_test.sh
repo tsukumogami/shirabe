@@ -910,10 +910,12 @@ reach_tree() {
 }
 RD="skills/demo/scripts"
 
+# caller.sh runs one.sh, which sources lib.sh: caller_test.sh reaches lib.sh
+# two scripts away, so it runs too.
 reach_tree
 run_list skills/demo/scripts/lib.sh
-expect_listed "a script two files source selects what it and they reach, their own suites too, not every suite" \
-    "$RD/flow_engine_test.sh $RD/one_test.sh $RD/two_test.sh" "selects 3 of 12 suites"
+expect_listed "a script two files source selects what it and they reach, through every caller in the chain, their own suites too, not every suite" \
+    "$RD/caller_test.sh $RD/flow_engine_test.sh $RD/one_test.sh $RD/two_test.sh" "selects 4 of 12 suites"
 
 reach_tree
 run_list skills/demo/scripts/gate.sh
@@ -958,6 +960,49 @@ expect_listed "a template, a reference doc and a script together select what eac
     "$RD/caller_test.sh $RD/flow_engine_test.sh $RD/reader_test.sh $RD/table_test.sh $RD/tpl_test.sh"
 
 REACH_ALL_DEMO="$RD/body_test.sh $RD/caller_test.sh $RD/flow_engine_test.sh $RD/gate_test.sh $RD/noter_test.sh $RD/one_test.sh $RD/quiet_test.sh $RD/reader_test.sh $RD/table_test.sh $RD/tpl_test.sh $RD/two_test.sh $RD/uses_test.sh"
+
+# Callers are followed to the end of the chain: hops_test.sh names only
+# hop1.sh, which runs hop2.sh, which runs the changed hop3.sh. hop3.sh runs
+# hop1.sh too, a cycle the walk must end.
+reach_tree
+printf 'shared\thop3.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+printf 'bash "$HERE/hop2.sh"\n' > "$ROOT/$RD/hop1.sh"
+printf 'bash "$HERE/hop3.sh"\n' > "$ROOT/$RD/hop2.sh"
+printf 'bash "$HERE/hop1.sh"\n' > "$ROOT/$RD/hop3.sh"
+printf '# hop1.sh\nexit 0\n' > "$ROOT/$RD/hops_test.sh"
+run_list skills/demo/scripts/hop3.sh
+expect_listed "a suite that reaches a shared script two scripts away is selected, and a cycle of callers ends" \
+    "$RD/hops_test.sh" "selects 1 of 13 suites"
+
+# The template's front matter runs gate.sh, which runs mid.sh, which runs the
+# changed deep.sh: koto reaches deep.sh in an engine run, so every engine
+# suite runs, with gate.sh's own suite.
+reach_tree
+printf 'shared\tdeep.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+printf 'bash "$HERE/mid.sh"\n' > "$ROOT/$RD/gate.sh"
+printf 'bash "$HERE/deep.sh"\n' > "$ROOT/$RD/mid.sh"
+printf 'deep\n' > "$ROOT/$RD/deep.sh"
+run_list skills/demo/scripts/deep.sh
+expect_listed "a script the front matter reaches through two callers selects every engine suite" \
+    "$RD/flow_engine_test.sh $RD/gate_test.sh"
+
+# runner.sh is on an `all` row: it runs every suite. A change to it, to a
+# shared script it reaches through step.sh, or to a plain script it runs,
+# runs every suite.
+for c in \
+    "skills/demo/scripts/runner.sh|runner.sh runs every suite (an all row of check-skill.tsv)" \
+    "skills/demo/scripts/wrapped.sh|wrapped.sh is reached through runner.sh, which runs every suite" \
+    "skills/demo/scripts/step.sh|step.sh is run by runner.sh, which runs every suite"; do
+    reach_tree
+    printf 'all\trunner.sh\nshared\twrapped.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+    printf 'bash "$HERE/step.sh"\nfor t in "$HERE"/*_test.sh; do bash "$t"; done\n' > "$ROOT/$RD/runner.sh"
+    printf 'bash "$HERE/wrapped.sh"\n' > "$ROOT/$RD/step.sh"
+    printf 'wrapped\n' > "$ROOT/$RD/wrapped.sh"
+    run_list "${c%%|*}"
+    expect_listed "a change to ${c%%|*}, with runner.sh on an all row, runs every suite" \
+        "$REACH_ALL_DEMO" "${c#*|}"
+done
+
 # A reach nobody can see still runs every suite.
 for c in \
     "skills/demo/scripts/pinned.sh|no suite names skills/demo/scripts/pinned.sh" \
@@ -1374,53 +1419,41 @@ for path in \
         "$COORD_ALL" "runs every suite"
 done
 
+# run-tests.sh is on an `all` row: CI and an author run every suite through
+# it, so a change to it selects every suite.
+run_coord_list skills/coordinate/scripts/run-tests.sh
+expect_listed "coordinate: a change to run-tests.sh selects all $(printf '%s\n' "$COORD_ALL" | wc -w | tr -d ' ') suites" \
+    "$COORD_ALL" "run-tests.sh runs every suite (an all row of check-skill.tsv)"
+
 # A shared script, the template, SKILL.md and a reference doc select what they
-# reach (shirabe#1934), not every suite: fewer than all, every suite that names
-# the file among them, and every engine suite when the template runs the file
-# or is the file. Each used to select all 127.
-COORD_ENGINES=$(cd "$REPO_ROOT" && ls skills/coordinate/scripts/*_engine_test.sh)
-# coord_narrowed <name> <engines: 1 or 0> <changed paths, one per line>
-coord_narrowed() {
-    local miss="" s n
-    run_coord_list "$3"
-    n=$(printf '%s\n' "$LISTED" | wc -w | tr -d ' ')
-    for s in $(cd "$REPO_ROOT" && printf '%s\n' "$3" | while read -r f; do
-        grep -lF -- "${f##*/}" skills/coordinate/scripts/*_test.sh; done | sort -u); do
-        case " $LISTED " in *" $s "*) ;; *) miss="$miss ${s##*/}" ;; esac
-    done
-    if [ "$2" = 1 ]; then
-        for s in $COORD_ENGINES; do
-            case " $LISTED " in *" $s "*) ;; *) miss="$miss ${s##*/}" ;; esac
-        done
-    fi
-    if [ "$RC" = 0 ] && [ "$LISTED" != "$COORD_ALL" ] && [ "$n" -gt 0 ] && [ -z "$miss" ] \
-        && out_has "check-skill: --changed selects $n of "; then
-        pass "coordinate: $1 selects $n suites it reaches, not every suite"
-    else
-        fail "coordinate: $1: exit $RC, $n selected, missing:${miss:- none}"
-        printf '%s\n' "$OUT" | grep '^check-skill:' | sed 's/^/    /'
-    fi
-}
+# reach (shirabe#1934), with callers followed to the end of every chain. On
+# coordinate each chain reaches run-tests.sh, so each still selects every
+# suite.
 CS=skills/coordinate
-coord_narrowed "coord-verdict.sh (a shared row the template runs)" 1 $CS/scripts/coord-verdict.sh
-coord_narrowed "coord-log.sh (a shared row the template runs)" 1 $CS/scripts/coord-log.sh
-coord_narrowed "coordinate-open.sh (a shared row the template runs)" 1 $CS/scripts/coordinate-open.sh
-coord_narrowed "state-schema.jq (a shared row)" 0 $CS/scripts/state-schema.jq
-coord_narrowed "state-common.sh (sourced by several)" 0 $CS/scripts/state-common.sh
-coord_narrowed "dispatch-common.sh (sourced by several)" 0 $CS/scripts/dispatch-common.sh
-coord_narrowed "coordinate.md (the template)" 1 $CS/koto-templates/coordinate.md
-coord_narrowed "SKILL.md" 0 $CS/SKILL.md
-coord_narrowed "references/teardown-agent.md" 0 $CS/references/teardown-agent.md
+for path in \
+    $CS/scripts/coord-verdict.sh \
+    $CS/scripts/coord-log.sh \
+    $CS/scripts/coordinate-open.sh \
+    $CS/scripts/state-schema.jq \
+    $CS/scripts/state-common.sh \
+    $CS/scripts/dispatch-common.sh \
+    $CS/koto-templates/coordinate.md \
+    $CS/SKILL.md \
+    $CS/references/teardown-agent.md; do
+    run_coord_list "$path"
+    expect_listed "coordinate: $path reaches run-tests.sh, so it selects every suite" \
+        "$COORD_ALL" "which runs every suite"
+done
 # The diff #1934 names: two scripts, the template, a reference doc and two
-# suites. Every suite it can reach still runs, so it doesn't fit under the
-# verification cap; it selects what it reaches and no more.
-coord_narrowed "#1934's diff (state-holding.sh, teardown-pass.sh, coordinate.md, teardown-agent.md, two suites)" 1 \
-    "$CS/scripts/state-holding.sh
+# suites. What it reaches is every suite.
+run_coord_list "$CS/scripts/state-holding.sh
 $CS/scripts/teardown-pass.sh
 $CS/koto-templates/coordinate.md
 $CS/references/teardown-agent.md
 $CS/scripts/state-holding_test.sh
 $CS/scripts/teardown-pass_test.sh"
+expect_listed "coordinate: #1934's diff (state-holding.sh, teardown-pass.sh, coordinate.md, teardown-agent.md, two suites) selects every suite" \
+    "$COORD_ALL" "which runs every suite"
 run_coord_list skills/coordinate/scripts/need-check.sh
 expect_listed "coordinate: a change to need-check.sh selects only need-check_test.sh" \
     "skills/coordinate/scripts/need-check_test.sh" "selects 1 of"
