@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   A /work-on or /execute run whose map command can't finish inside the 3,600 s
   row maximum ends at done_blocked, because the verification result can't tell
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -549,9 +549,11 @@ over that record before `gh pr ready`. Its `--check-record` validates each
 child's part against that child's own stored result and map, and it runs
 `--open`'s diff check over the shared pull request's whole diff. The 120-minute wait is measured from
 that record's `taken_at`, as R15 states, and a child's earlier time never
-starts it. Coordinated node pull requests do the same in `node-push.sh`
-before they are marked ready. A `multi-pr` plan runs `/work-on` and needs
-nothing more.
+starts it. Coordinated node pull requests do the same before they are
+marked ready: `node-push.sh` writes the node's record, and the read gates
+the ready step in `coordinated-next.sh`'s `evaluate:<node>`, which is where
+a node pull request is marked ready. A `multi-pr` plan runs `/work-on` and
+needs nothing more.
 
 ## Implementation Approach
 
@@ -593,6 +595,11 @@ Deliverables:
   edges, the `verification_hosted` and `hosted_record` states, the draft
   and body-line checks in `pr_creation`, and routing tests over fixture
   results and fixture hosted responses with the clock set by the test.
+- A routing case over a fixture shaped like shirabe#1934's example diff
+  (121 of 127 coordinate suites selected, the check timed out at its limit,
+  the diff only under `skills/coordinate/`): `--open` exits 0, the verdict
+  is 5, and the recorded route reaches `verification_hosted`. It is the
+  criterion moved from shirabe#1934 to shirabe#1876.
 - With shirabe#1881: whichever of the two lands second carries the test
   that a timed-out result accepts either value first, and conforms to the
   divergence named in Decision 4.
@@ -604,8 +611,10 @@ Needs Phase 3. Removes the `/execute` refusal in `--open`.
 Deliverables:
 
 - `shared-deferral-record.sh` and `plan_completion` collecting children's
-  records into the parent's own record for the shared head, the same in
-  `node-push.sh`'s ready step, and parity tests for `single-pr`,
+  records into the parent's own record for the shared head, the same for
+  a node pull request (`node-push.sh` writes the node's record, and
+  `coordinated-next.sh`'s `evaluate:<node>` runs the read before it marks
+  the pull request ready), and parity tests for `single-pr`,
   `coordinated` and `multi-pr`.
 
 ## Security Considerations
