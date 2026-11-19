@@ -8,7 +8,7 @@ problem: |
   the same suites, and the template's hosted CI route can only be chosen when
   the run starts (shirabe#1876, shirabe#1930).
 decision: |
-  One route with two triggers and one gate. The supervisor records each
+  One route with two triggers and one hold. The supervisor records each
   check's outcome (passed, failed, timed out at its limit, timed out inside
   the command), with check-skill.sh's per-suite lists. A timed-out result with
   no failed check holds verification at a new exit 5, shared with the
@@ -186,7 +186,9 @@ Key assumptions:
 
 #### Chosen: record at verification, read in a new state after the draft opens
 
-The route is taken and recorded at `verification`, in place. The run then
+The route is chosen at `verification` and recorded by the next state,
+`verification_hosted`, in the same session, which is what R8's "in place"
+asks: no re-initialization. The run then
 follows the existing path to `pr_creation`, which opens the pull request as
 a draft when the record exists. After `ci_monitor`'s gates pass, a new
 `hosted_record` state reads each declared job's latest attempt at the
@@ -320,8 +322,13 @@ exit 5 is reserved for results with a timed-out check and no failed one.
 
 #### Chosen: open after one local timeout, at one shared hold
 
-A result with a timed-out check and no failed check exits 5, not 4. A
-second gate, `verification-route.sh --open`, exits 0 only when R1 holds.
+A result with a timed-out check and no failed check exits 5, not 4, when
+the route is open for it; otherwise it keeps exit 4 and today's
+`done_blocked` (R1, R16). A second gate, `verification-route.sh --open`,
+exits 0 only when R1 holds and the diff touches none of the files that
+decide what the hosted job runs (Security Considerations); the
+`hosted_of_record` edge needs it, so a result held at 5 for shirabe#1881's
+rerun alone can't take the route.
 At the hold the agent may submit `hosted_of_record` (which needs the route
 gate at 0 and a reason), `fix` or `blocked`; shirabe#1881 adds `rerun`, and
 neither value is a precondition for the other. Whichever lands first
@@ -346,7 +353,7 @@ tick taking the route unless the agent chose it.
 ## Decision Outcome
 
 The four decisions make one route, opened by either issue's trigger and
-closed by one gate. shirabe#1876's case (the check can't finish inside
+offered at one hold. shirabe#1876's case (the check can't finish inside
 3,600 s) and shirabe#1930's case (a check that timed out inside its own
 command) both end as a timed-out check under the new per-command outcome,
 and from there they're the same: the result holds `verification` at exit 5,
@@ -379,16 +386,20 @@ declaration to the verification map, a hold and a recording step to
   `timeout_form` fields and refuses a malformed one as `bad-map`.
 - **`scripts/check-skill.sh`**. Writes the suite summary when
   `SHIRABE_SUITE_SUMMARY` is set: after each suite ends and in its TERM
-  handler, by write-then-rename.
+  handler, by write-then-rename. It unsets the variable before starting
+  each suite, so no suite can write the summary itself.
 - **`skills/work-on/scripts/check-verification.sh`**. Ranks causes by the
-  new outcome: any `failed` exits 1; otherwise a timed-out check exits 5;
-  the other exits are unchanged.
+  new outcome: any `failed` exits 1; otherwise a timed-out check exits 5
+  when `--open` (sourced, not run as a second process) says the route is
+  open, and 4 as today when it isn't; not-started, runaway, dirty-tree and
+  attended stay 4, and the other exits are unchanged.
 - **`skills/work-on/scripts/verification-route.sh`** (new). `--open`
   exits 0 when R1 holds for the current result and map and the diff from
   the merge-base touches none of the files that decide what the hosted job
-  runs (the declared workflow file, `scripts/skill-gate.sh`,
-  `scripts/check-skill.sh`, the verification map and the coverage test), 1
-  otherwise, printing the closing cause; `--record --reason <text>` writes
+  runs (anything under `.github/`, `scripts/skill-gate.sh`,
+  `scripts/check-skill.sh` and the libraries they source, the verification
+  map and the coverage test) and removes no suite from any skill's
+  `check-skill.tsv`, 1 otherwise, printing the closing cause; `--record --reason <text>` writes
   the koto key `hosted_of_record`; `--check-record` validates that key
   against the stored result and map; `--read` reads the hosted jobs (below).
 - **`.claude/shirabe-extensions/verification-map.json`**. The
@@ -444,28 +455,44 @@ koto key `hosted_of_record`, written by `--record` and completed by
                        "run_id": null, "conclusion": null}]}]}
 ```
 
+Gate exit contracts. `--check-record` (the `verification_hosted` gate): 0
+the key is valid; 1 it isn't (empty reason, wrong head, checks or jobs that
+don't match the result and map, a `taken_at` in the future or before the
+result finished), which routes back to `verification`; 2 the key can't be
+read, which holds. `--settled` (the `ci_monitor` routing gate): 0 every job's
+`run_id` is filled for the current head; 1 not. The `hosted_record` ready
+gate: 0 the pull request is not a draft, its head is the record's and every
+body line carries its run links; 1 otherwise, which holds.
+
 `verification-route.sh --read` exit codes: 0 every job's latest attempt at
 `head` concluded success (fills `run_id` and `conclusion`); 1 a job
 concluded anything else, or the pull request head is not `head`, or a
 result can't be read (names each refusing job and the commit); 75 a job is
 pending, queued or absent and fewer than 120 minutes have passed since
 `taken_at`; 3 the same past 120 minutes (names the pending jobs and the
-commit). It reads `actions/runs?head_sha=<head>` filtered to the declared
-workflow path, the `pull_request` event, the run's own pull request number
-and the base repository, paginating; takes the newest such run and its
+commit). It takes the repository and pull request number from the pull
+request object, not from the branch, and reads `actions/runs?head_sha=<head>`
+filtered to the declared workflow path, the `pull_request` event, that pull
+request number, the base repository and a head repository equal to it,
+paginating; takes the newest such run and its
 highest `run_attempt`; and requires exactly one job whose name equals the
 declared one. Just before the agent runs `gh pr ready`, the state's second
 gate re-reads the pull request head and refuses if it moved.
 
 PR body line, one per recorded check, written by the script, never by the
-agent, with the run URL built from the numeric `run_id`:
+agent. `pr_creation` writes it with the check id, the head and the declared
+job names, and its gate refuses a body missing one (R9). Once `--read`
+has filled each `run_id`, `hosted_record` rewrites the line with the run
+URLs built from the numeric ids, by `gh pr edit --body-file`, and its ready
+gate refuses a line without them:
 
 ```
 Hosted of record: check-skill:coordinate at <sha>: https://github.com/<owner>/<repo>/actions/runs/<run_id>
 ```
 
-The reason goes in the body as one line inside a code span, after `@`, `#`,
-link and HTML characters are neutralized, so reason text can't form a
+The reason goes in the body as one line inside a code span, after
+backticks are stripped and `@`, `#`, link and HTML characters are
+neutralized, so reason text can't form a
 `Hosted of record:` line of its own; the body check matches only lines that
 start with that prefix and compares the check id, head and run id against
 the record.
@@ -487,13 +514,16 @@ the record.
    `pass_counting`. Fail: back to `verification`.
 5. The run goes through finalization to `pr_creation`, which opens a draft
    and refuses a body without one line per recorded check.
-6. `ci_monitor` waits for the draft's checks. With the record present and
-   the pull request still a draft, its passing edge goes to `hosted_record`
-   instead of `ci_pass_counting`.
-7. `hosted_record` polls `--read`. On 0 the agent runs `gh pr ready` and a
-   second gate confirms the pull request is no longer a draft; the run goes
-   back to `ci_monitor`, which now waits for the non-draft legs too, then to
-   `ci_pass_counting`. On 1 the run goes back to `verification`. On 3 it
+6. `ci_monitor` waits for the draft's checks. Its passing edge goes to
+   `hosted_record` whenever the record exists and `--settled` (every job's
+   `run_id` filled at the current head) exits 1, whether or not the pull
+   request is still a draft, so marking it ready by hand skips nothing.
+7. `hosted_record` polls `--read`. On 0 the script fills the record and
+   rewrites the body lines with run links; the agent runs `gh pr ready`, and
+   a second gate confirms the pull request is no longer a draft, its head is
+   still the record's, and the lines carry the run links. The run goes back
+   to `ci_monitor`, which now waits for the non-draft legs too, and with
+   `--settled` at 0 goes on to `ci_pass_counting`. On 1 the run goes back to `verification`. On 3 it
    ends at `done_blocked` with the names and commit.
 8. A new commit changes the head. The record's head no longer matches, so
    `--read` refuses, and the new head enters `verification` afresh.
@@ -505,7 +535,9 @@ head would refuse. When `plan_completion` finds any child record, the
 parent run takes the route for the shared pull request itself: it writes
 its own `hosted_of_record` key with the shared head, the children's
 recorded checks and reasons, and its own `taken_at`, and then runs `--read`
-over that record before `gh pr ready`. The 120-minute wait is measured from
+over that record before `gh pr ready`. Its `--check-record` validates each
+child's part against that child's own stored result and map, and it runs
+`--open`'s diff check over the shared pull request's whole diff. The 120-minute wait is measured from
 that record's `taken_at`, as R15 states, and a child's earlier time never
 starts it. Coordinated node pull requests do the same in `node-push.sh`
 before they are marked ready. A `multi-pr` plan runs `/work-on` and needs
@@ -536,29 +568,28 @@ Deliverables:
   (`skills/work-on/references/verification-map.md`), the `check-skill`
   row's declaration, and the coverage test over `skill-gate.sh`'s plan.
 
-### Phase 3: The hold, the route gate and the record
+### Phase 3: The hold, the record, the hosted read and the ready step
 
-Needs Phases 1 and 2.
-
-Deliverables:
-
-- Exit 5 in `check-verification.sh`, `verification-route.sh --open` and
-  `--record`, the `verification` edges and the `verification_hosted` state,
-  and routing tests over fixture results.
-
-### Phase 4: The hosted read and the ready step
-
-Needs Phase 3.
+Needs Phases 1 and 2. The hold and the read land together: a route that
+could be taken before the read exists would skip local verification with
+nothing in its place. Until Phase 4 lands, `--open` exits 1 for a child of
+an `/execute` run, so no shared or node pull request can carry a record
+nobody reads.
 
 Deliverables:
 
-- `verification-route.sh --read`, the draft and body-line checks in
-  `pr_creation`, the `hosted_record` state, and fixture tests over hosted
-  responses with the clock set by the test.
+- Exit 5 in `check-verification.sh`, `verification-route.sh` (`--open`,
+  `--record`, `--check-record`, `--read`, `--settled`), the `verification`
+  edges, the `verification_hosted` and `hosted_record` states, the draft
+  and body-line checks in `pr_creation`, and routing tests over fixture
+  results and fixture hosted responses with the clock set by the test.
+- With shirabe#1881: whichever of the two lands second carries the test
+  that a timed-out result accepts either value first, and conforms to the
+  divergence named in Decision 4.
 
-### Phase 5: /execute parity
+### Phase 4: /execute parity
 
-Needs Phase 4.
+Needs Phase 3. Removes the `/execute` refusal in `--open`.
 
 Deliverables:
 
@@ -576,11 +607,14 @@ so the risk is a pass counted that no run earned.
   pull request's own workflow file and the scripts it calls, so a change to
   them could make the declared job pass without running the suites. The
   route is closed (`--open` exits 1) when the diff from the merge-base
-  touches the declared workflow, `scripts/skill-gate.sh`,
-  `scripts/check-skill.sh`, the verification map or the coverage test; such
-  a change verifies locally or through the entry-time hosted route, as today.
-  The declaration itself is read from the merge-base, like the rest of the
-  map.
+  touches anything under `.github/`, `scripts/skill-gate.sh`,
+  `scripts/check-skill.sh` or the libraries they source, the verification
+  map or the coverage test, or removes a suite from a `check-skill.tsv`;
+  such a change verifies locally or through the entry-time hosted route, as
+  today. Other script changes stay open: the suites they touch run at the
+  same head in both places, so the local run trusts them no more than the
+  hosted one does. The declaration itself is read from the merge-base, like
+  the rest of the map.
 - **Trust in hosted results.** `--read` takes results only for the declared
   workflow path, the `pull_request` event, the run's own pull request and the
   base repository, at the exact head commit, from the newest run and its
@@ -602,8 +636,16 @@ so the risk is a pass counted that no run earned.
   script from the record, with run URLs built from numeric ids, and the body
   is passed by file, so reason text can't forge one.
 - **Residual risk.** A suite that passes on ubuntu and fails only on macOS
-  can pass the route's read; the non-draft legs run after the ready step and
-  `ci_monitor` waits for them before `ci_pass_counting`.
+  can pass the route's read; the pull request is marked ready before the
+  macOS legs run, and `ci_monitor` waits for them before
+  `ci_pass_counting`, so the run can't finish on ubuntu evidence alone, but
+  a reviewer can see a ready pull request whose macOS legs are still
+  pending. The latest-attempt rule (R6) also accepts a job that failed once
+  and passed on a re-run, so a flaky suite can pass the read; the record
+  names the attempt it took. A denylist of the files that decide what the
+  hosted job runs, rather than an allowlist of what a change may touch, is
+  chosen because any other script a change edits runs at the same head
+  both locally and hosted.
 - **Supply chain.** No new dependency; the scripts use `jq` and `gh`, which
   the template already requires.
 
