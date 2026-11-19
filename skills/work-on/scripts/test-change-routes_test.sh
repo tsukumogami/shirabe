@@ -32,6 +32,13 @@
 #   declines          a seat's decline and `counting_status: declined` return
 #                     the run to implementation; the third decline of the same
 #                     test ends the run at done_blocked
+#   a test gap        a full code change held on its edited test commits a
+#                     test-only fix at pass_counting and submits
+#                     `counting_status: test_gap`: the run returns to
+#                     implementation with nothing written to the acceptance
+#                     ledger, scrutiny plans a re-verifier with a fix-diff
+#                     review before verification runs again, and the edit is
+#                     held again at its new digest
 #   a level raise     a fix raised from light to standard at
 #                     review_level_check keeps UNIT_KIND at fix: fix-kind.sh
 #                     agree still exits 0, and fix_green still holds without a
@@ -106,6 +113,8 @@ TC="$PLUGIN_ROOT/skills/work-on/scripts/test-change.sh"
 FK="$PLUGIN_ROOT/skills/work-on/scripts/fix-kind.sh"
 RF="$PLUGIN_ROOT/skills/work-on/scripts/red-first.sh"
 RL="$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh"
+PS="$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh"
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 # gh: `issue view <n> ... --json ...` prints <issues>/<n>.json. The directory
 # is written into the stand-in, since koto passes a gate or action command only
@@ -145,6 +154,9 @@ esac
     && pass "a decline goes back to implementation" || fail "the declined edges are [$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "declined")]')]"
 [ "$(q '[.states.pass_counting.transitions[] | select(.when["gates.tests_counted.exit_code"] == 3) | "\(.when | keys | join("+"))>\(.target)"] | join(",")')" = "gates.tests_counted.exit_code>done_blocked" ] \
     && pass "the decline limit goes to done_blocked with no evidence" || fail "the exit-3 edges are [$(q '.states.pass_counting.transitions')]"
+[ "$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "test_gap") | "\(.when["gates.tests_counted.exit_code"])/\(.when["gates.fix_green.exit_code"] // "-")>\(.target)"] | join(",")')" = "1/->implementation,0/1>implementation" ] \
+    && pass "a test gap goes back to implementation from a held edit or a fix held on its green" \
+    || fail "the test_gap edges are [$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "test_gap")]')]"
 [ "$(q '[.states.ci_monitor.transitions[] | select(.when["gates.ci_passing.exit_code"] == 0 and .when["gates.merge_state_clean.exit_code"] == 0) | .target] | join(",")')" = ci_pass_counting ] \
     && pass "green CI on a clean pull request goes to ci_pass_counting" || fail "ci_monitor's green edges are [$(q '.states.ci_monitor.transitions')]"
 [ "$(q '.states.ci_pass_counting.gates.tests_counted.command')" = "$(q '.states.pass_counting.gates.tests_counted.command')" ] \
@@ -400,6 +412,67 @@ EOF
     RC=$?
     [ "$RC" = 1 ] && grep -q 'no green is recorded' "$WORKDIR/g.out" \
         && pass "pass_counting's fix_green still requires the green after the raise" || fail "check-green exited $RC: $(cat "$WORKDIR/g.out")"
+fi
+
+# ==============================================================================
+echo "--- a test gap found at pass_counting: back through implementation to a re-verifier"
+
+# record_round <session> <panel> <round JSON>: records a round, each entry
+# given the run its decision in <panel>_scope.json names.
+record_round() {
+    printf '%s\n' "$3" > "$WORKDIR/round.json"
+    panel_round_runs "$1" "$2" "$WORKDIR/round.json"
+    "$PS" --record "$2" "$1" "$WORKDIR/round.json" 2>"$WORKDIR/record.err" \
+        || fail "$1: panel-scope.sh --record $2 failed: $(cat "$WORKDIR/record.err")"
+}
+JUDGED='"test_edits":[{"path":"tests/greet_test.sh","judgment":"corrects"}]'
+
+S=tc_gap
+if walk "$S" 2 full; then
+    drop_mark
+    git commit -q -am "feat: drop the exclamation mark"
+    "$TC" note "$S" --file tests/greet_test.sh --reason "the issue asks for the expected value to change" >/dev/null 2>&1
+    tick "$S" '{"implementation_status":"complete"}'
+    tick "$S" '{"issue_type":"code"}'
+    expect_state "a full code change" scrutiny
+    record_round "$S" scrutiny "[{\"seat\":\"completeness\",\"findings\":[],$JUDGED},{\"seat\":\"justification\",\"findings\":[],$JUDGED},{\"seat\":\"intent\",\"findings\":[],$JUDGED}]"
+    tick "$S"
+    record_round "$S" review "[{\"seat\":\"pragmatic\",\"findings\":[],$JUDGED},{\"seat\":\"architect\",\"findings\":[],$JUDGED},{\"seat\":\"maintainer\",\"findings\":[],$JUDGED}]"
+    tick "$S"
+    record_round "$S" qa "[{\"seat\":\"tester\",\"findings\":[],$JUDGED}]"
+    tick "$S"
+    settle_verification "$S"
+    expect_state "after clean panels and a local pass, the edited test holds the unit" pass_counting
+    [ "$(visits "$S" verification)" = 1 ] && pass "verification ran once" || fail "verification was entered $(visits "$S" verification) times"
+
+    # The run finds its own test checks less than it should, before any seat
+    # ran, and commits a test-only fix.
+    printf '[ "$(./greet.sh Ada)" = "Hello, Ada" ] || { echo "expected Hello, Ada"; exit 1; }\n' >> tests/greet_test.sh
+    git commit -q -am "test: check a second name"
+    tick "$S" '{"counting_status":"test_gap","detail":"the edited test checks one name; a second name is left unchecked"}'
+    expect_state "counting_status test_gap from a held edit" implementation
+    [ "$(ledger "$S" | jq -r 'select(.event == "decline" or .event == "seat") | .event' | wc -l | tr -d ' ')" = 0 ] \
+        && pass "a test gap writes no seat or decline to the acceptance ledger" || fail "the ledger is [$(ledger "$S")]"
+    tick "$S" '{"implementation_status":"complete"}'
+    tick "$S" '{"issue_type":"code"}'
+    expect_state "the lap after the test gap" scrutiny
+    GOT=$(koto context get "$S" scrutiny_scope.json 2>/dev/null | jq -r '[.decisions[] | "\(.seat):\(.decision):\(.fix_review // "-")"] | join(",")')
+    [ "$GOT" = "completeness:keep:-,justification:keep:-,intent:keep:-,reverifier:recheck:true" ] \
+        && pass "scrutiny plans a re-verifier that reviews the fix diff" || fail "scrutiny_scope.json decisions are [$GOT]"
+    [ "$(visits "$S" verification)" = 1 ] && pass "verification has not run again before the re-verifier" \
+        || fail "verification was entered $(visits "$S" verification) times before the re-verifier"
+    record_round "$S" scrutiny '[{"seat":"reverifier","findings":[],"answers":[]}]'
+    tick "$S"
+    [ "$STATE" = review ] && tick "$S"
+    [ "$STATE" = qa_validation ] && tick "$S"
+    settle_verification "$S"
+    expect_state "after the re-verifier passed and a second local pass" pass_counting
+    [ "$(visits "$S" verification)" = 2 ] && pass "verification ran again after the re-verifier" \
+        || fail "verification was entered $(visits "$S" verification) times"
+    case "$(gate_stdout tests_counted)" in
+        *"held: unaccepted tests/greet_test.sh"*) pass "the edit is still held at its new digest" ;;
+        *) fail "tests_counted printed [$(gate_stdout tests_counted)]" ;;
+    esac
 fi
 
 # ==============================================================================

@@ -178,7 +178,11 @@ the rules; this is the route.
   `test-change.sh seat`, commissions it with the brief the script prints, and the
   seat accepts or declines under its minted identity; nothing waits for a person.
   A decline returns the run to implementation, and the third decline of the same
-  tests ends it at `done_blocked`. A unit that only adds tests is counted at once.
+  tests ends it at `done_blocked`. A run that finds a gap in its own tests while
+  held submits `counting_status: test_gap`, naming the gap: it returns to
+  implementation for a test-only fix, which the first panel's re-verifier reviews
+  before verification runs again, and no decline is recorded. A unit that only
+  adds tests is counted at once.
   A repository whose `CLAUDE.md` declares `## Test Change Acceptance: person` takes
   no seat: the run stops at `pass_counting`, `status` prints the exact
   `test-change.sh accept` command a person runs in a terminal, and the run is
@@ -469,8 +473,8 @@ below applies: the run opens as **Initialize** says, with no leg.
    the tokens and the same `--var`s. With the leg in the tokens the script's one
    `koto init` carries `--attach-live --koto-leg`: no session means a new one
    bound to the leg, and a live one (a resume) is attached and bound. On a live
-   session it also passes back the `REVIEW_LEVEL` its ledger last recorded (an
-   attach resets every rebind variable it isn't passed). `session=<WF>` means the
+   session it also passes back the `REVIEW_LEVEL` and `UNIT_KIND` its ledgers
+   last recorded (an attach resets every rebind variable it isn't passed). `session=<WF>` means the
    run is bound. Go on with the entry evidence, or, on a resume, with `koto next`.
    `error=usage` (exit 64) is a malformed or repeated `--koto-leg`, or one of the
    refusals **Initialize** names: no koto call was made, so nothing is on the leg;
@@ -482,7 +486,9 @@ below applies: the run opens as **Initialize** says, with no leg.
    stop. `failed=level_unreadable` (exit 66) is a live session whose recorded
    level couldn't be read, a session bound to another workspace among them: the
    open stopped before `koto init`, so the leg is still open and a later open can
-   bind it; report it and stop, and don't open the run another way. koto
+   bind it; report it and stop, and don't open the run another way.
+   `failed=kind_unreadable` (exit 66) is the same for the unit kind its
+   fix-kind ledger records. koto
    records a refusal only on a leg that is still open and unbound (`result_source: refused`, payload `outcome: refused`
    and a kebab-case `reason` such as `input-mismatch` or `var-mismatch:ISSUE_NUMBER`).
    On a leg already bound to this session, a re-dispatch that koto refuses (from
@@ -511,7 +517,7 @@ is koto's own. work-on.md declares no `outcome`, so a coordinator still routes o
 status and final state, and reads the pull request from `pr`.
 
 Some exits never reach the leg, which stays open and unbound: an `error=usage` or a
-`failed=level_unreadable` from `work-on-open.sh`, a failed `--mode koto-leg` preflight, and the flag given with a
+`failed=level_unreadable` or `failed=kind_unreadable` from `work-on-open.sh`, a failed `--mode koto-leg` preflight, and the flag given with a
 plan-backed or PLAN-path input. So does a worker that stops before its terminal. A
 request-leg gate waits on an open leg indefinitely, so the coordinator needs its
 own fallback for a worker that ended without a result: a check on the worker's
@@ -655,8 +661,8 @@ leg, since one leg answers one session.
   dispatcher with `koto session link` (the script's header has the retry and
   the `warning=link-failed` record). Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
-  with no koto call, 66 a live session's level read under `--koto-leg` that
-  failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
+  with no koto call, 66 a live session's level or kind read under `--koto-leg`
+  that failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
 - `scripts/fix-round.sh start --from <session>` — starts a fix round for a
   run at `done` as `<session>-fix-<n>`, a new work-on session with the run's
   variables and parent, and records it in both sessions (see **A Fix Round
