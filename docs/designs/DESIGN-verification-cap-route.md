@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A /work-on or /execute run whose map command can't finish inside the 3,600 s
   row maximum ends at done_blocked, because the verification result can't tell
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
