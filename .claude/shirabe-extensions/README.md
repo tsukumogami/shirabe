@@ -71,10 +71,10 @@ default branch, the gate's own base, and classifies each changed path:
   or one of its koto templates, runs what it reaches: the suites that name it or one of
   its callers, the own `<stem>_test.sh` of it and of each caller, and every engine suite
   when it is the template or the template's front matter names it or a caller. A caller
-  is one of the skill's scripts whose code names it or another caller (a comment line
-  doesn't count: it reads and runs nothing), or a file under a subdirectory of `scripts/`
-  that names either, and callers are followed to the end of every chain, so a suite that
-  reaches the file through any number of scripts runs. A jq module is also named by its
+  is one of the skill's scripts, or a file under a subdirectory of `scripts/`, whose code
+  names it or another caller (a comment line doesn't count: it reads and runs nothing).
+  Callers are followed all the way up, to the end of every chain, so a suite that reaches
+  the file through any number of scripts runs. A jq module is also named by its
   quoted stem, the way `include` names it. A file under `references/` is also named by
   `references`, since suites and scripts build those paths at run time, and by `SKILL.md`
   when `SKILL.md` lists it, since a script can follow that table. Engine suites come in
@@ -127,11 +127,22 @@ scripts (`coord-verdict.sh`, `coord-log.sh`, `coordinate-open.sh` and its wordin
 which every engine suite drives, and the record's schema (`state-schema.jq`). Its `all` row
 is `run-tests.sh`, which CI and an author run every suite through, so a change to it, or to
 anything it runs, runs every suite. A shared script used to run every suite; it now runs
-what it reaches (shirabe#1934). On coordinate that is still every suite: the caller chains
-from `coord-verdict.sh`, `coord-log.sh`, the wording table, `state-schema.jq`,
-`state-common.sh`, the template, `SKILL.md` and `references/teardown-agent.md` each reach
-`run-tests.sh`, so each runs all 127 suites, 6,194 CPU seconds by the `cost` rows. The
-narrowing pays off in a skill whose callers don't chain that far.
+what it reaches (shirabe#1934). Callers are followed all the way up, and on coordinate
+almost every chain reaches `scripts/testdata/test-lib.sh`, which most suites name, so most
+paths still select about 118 to 120 of the 127 suites. Measured with the `cost` rows:
+
+| Changed path | Suites | CPU seconds |
+|--------------|--------|-------------|
+| `coord-verdict.sh` | 56 | 3,051 |
+| `coordinate-open.wording.tsv` | 118 | 6,152 |
+| `SKILL.md` | 120 | 6,153 |
+| `references/teardown-agent.md` | 120 | 6,153 |
+| `koto-templates/coordinate.md` | 120 | 6,153 |
+| `state-schema.jq` | 119 | 6,158 |
+| `coord-log.sh` | 118 | 6,152 |
+| `run-tests.sh` (the `all` row) | 127 | 6,194 |
+| `state-common.sh` | 118 | 6,152 |
+| #1934's example diff (`state-holding.sh`, `teardown-pass.sh`, the template, `teardown-agent.md`, two suites) | 120 | 6,153 |
 
 `check-skill.tsv`'s `cost` rows give each suite's measured CPU seconds. With or without
 `--changed`, suites launch costliest first, so a long suite doesn't start last and set the

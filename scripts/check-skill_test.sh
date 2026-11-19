@@ -986,6 +986,21 @@ run_list skills/demo/scripts/deep.sh
 expect_listed "a script the front matter reaches through two callers selects every engine suite" \
     "$RD/flow_engine_test.sh $RD/gate_test.sh"
 
+# A file under a subdirectory of scripts/ is a caller only on a code line:
+# testdata/runs.sh runs the changed noted.sh, so runs_test.sh is selected;
+# testdata/notes.sh names noted.sh only in a comment, so notes_test.sh isn't.
+reach_tree
+printf 'shared\tnoted.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+printf 'noted\n' > "$ROOT/$RD/noted.sh"
+printf 'bash "$HERE/../noted.sh"\n' > "$ROOT/$RD/testdata/runs.sh"
+printf '# noted.sh used to be run from here\ntrue\n' > "$ROOT/$RD/testdata/notes.sh"
+printf 'exit 0\n' > "$ROOT/$RD/noted_test.sh"
+printf '# testdata/runs.sh\nexit 0\n' > "$ROOT/$RD/runs_test.sh"
+printf '# testdata/notes.sh\nexit 0\n' > "$ROOT/$RD/notes_test.sh"
+run_list skills/demo/scripts/noted.sh
+expect_listed "a file under scripts/ subdirectories that names a script only in a comment is not its caller" \
+    "$RD/noted_test.sh $RD/runs_test.sh" "selects 2 of 15 suites"
+
 # runner.sh is on an `all` row: it runs every suite. A change to it, to a
 # shared script it reaches through step.sh, or to a plain script it runs,
 # runs every suite.
@@ -1426,34 +1441,51 @@ expect_listed "coordinate: a change to run-tests.sh selects all $(printf '%s\n' 
     "$COORD_ALL" "run-tests.sh runs every suite (an all row of check-skill.tsv)"
 
 # A shared script, the template, SKILL.md and a reference doc select what they
-# reach (shirabe#1934), with callers followed to the end of every chain. On
-# coordinate each chain reaches run-tests.sh, so each still selects every
-# suite.
+# reach (shirabe#1934), with callers followed to the end of every chain: fewer
+# than all, every suite that names one of the changed files among them, and
+# every engine suite when the template runs the file or is the file.
+COORD_ENGINES=$(cd "$REPO_ROOT" && ls skills/coordinate/scripts/*_engine_test.sh)
+# coord_narrowed <name> <engines: 1 or 0> <changed paths, one per line>
+coord_narrowed() {
+    local miss="" s n
+    run_coord_list "$3"
+    n=$(printf '%s\n' "$LISTED" | wc -w | tr -d ' ')
+    for s in $(cd "$REPO_ROOT" && printf '%s\n' "$3" | while read -r f; do
+        grep -lF -- "${f##*/}" skills/coordinate/scripts/*_test.sh; done | sort -u); do
+        case " $LISTED " in *" $s "*) ;; *) miss="$miss ${s##*/}" ;; esac
+    done
+    if [ "$2" = 1 ]; then
+        for s in $COORD_ENGINES; do
+            case " $LISTED " in *" $s "*) ;; *) miss="$miss ${s##*/}" ;; esac
+        done
+    fi
+    if [ "$RC" = 0 ] && [ "$LISTED" != "$COORD_ALL" ] && [ "$n" -gt 0 ] && [ -z "$miss" ] \
+        && out_has "check-skill: --changed selects $n of "; then
+        pass "coordinate: $1 selects $n suites it reaches, not every suite"
+    else
+        fail "coordinate: $1: exit $RC, $n selected, missing:${miss:- none}"
+        printf '%s\n' "$OUT" | grep '^check-skill:' | sed 's/^/    /'
+    fi
+}
 CS=skills/coordinate
-for path in \
-    $CS/scripts/coord-verdict.sh \
-    $CS/scripts/coord-log.sh \
-    $CS/scripts/coordinate-open.sh \
-    $CS/scripts/state-schema.jq \
-    $CS/scripts/state-common.sh \
-    $CS/scripts/dispatch-common.sh \
-    $CS/koto-templates/coordinate.md \
-    $CS/SKILL.md \
-    $CS/references/teardown-agent.md; do
-    run_coord_list "$path"
-    expect_listed "coordinate: $path reaches run-tests.sh, so it selects every suite" \
-        "$COORD_ALL" "which runs every suite"
-done
+coord_narrowed "coord-verdict.sh (a shared row the template runs)" 1 $CS/scripts/coord-verdict.sh
+coord_narrowed "coord-log.sh (a shared row the template runs)" 1 $CS/scripts/coord-log.sh
+coord_narrowed "coordinate-open.sh (a shared row the template runs)" 1 $CS/scripts/coordinate-open.sh
+coord_narrowed "state-schema.jq (a shared row)" 0 $CS/scripts/state-schema.jq
+coord_narrowed "state-common.sh (sourced by several)" 0 $CS/scripts/state-common.sh
+coord_narrowed "dispatch-common.sh (sourced by several)" 0 $CS/scripts/dispatch-common.sh
+coord_narrowed "coordinate.md (the template)" 1 $CS/koto-templates/coordinate.md
+coord_narrowed "SKILL.md" 0 $CS/SKILL.md
+coord_narrowed "references/teardown-agent.md" 0 $CS/references/teardown-agent.md
 # The diff #1934 names: two scripts, the template, a reference doc and two
-# suites. What it reaches is every suite.
-run_coord_list "$CS/scripts/state-holding.sh
+# suites. It selects what it reaches, which is still most suites.
+coord_narrowed "#1934's diff (state-holding.sh, teardown-pass.sh, coordinate.md, teardown-agent.md, two suites)" 1 \
+    "$CS/scripts/state-holding.sh
 $CS/scripts/teardown-pass.sh
 $CS/koto-templates/coordinate.md
 $CS/references/teardown-agent.md
 $CS/scripts/state-holding_test.sh
 $CS/scripts/teardown-pass_test.sh"
-expect_listed "coordinate: #1934's diff (state-holding.sh, teardown-pass.sh, coordinate.md, teardown-agent.md, two suites) selects every suite" \
-    "$COORD_ALL" "which runs every suite"
 run_coord_list skills/coordinate/scripts/need-check.sh
 expect_listed "coordinate: a change to need-check.sh selects only need-check_test.sh" \
     "skills/coordinate/scripts/need-check_test.sh" "selects 1 of"

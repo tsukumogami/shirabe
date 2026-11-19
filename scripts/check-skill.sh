@@ -87,9 +87,9 @@
 #     callers, the own <stem>_test.sh of it and of each caller, and every
 #     engine suite when it is a template or a template's front matter, where
 #     koto's gates and actions run scripts, names it or a caller. Its callers
-#     are the skill's scripts whose code, not a comment, names it or another
-#     caller, and the files under scripts/ subdirectories that name either,
-#     followed to the end of every chain. A jq module is also named by its
+#     are the skill's scripts and the files under scripts/ subdirectories
+#     whose code, not a comment, names it or another caller, followed to the
+#     end of every chain. A jq module is also named by its
 #     quoted stem, the way `include` names it; a file under references/ also
 #     by `references`, and by `SKILL.md` when SKILL.md lists it. It or a
 #     caller on an `all` row, deleted, or nothing selected: every suite. See
@@ -510,13 +510,13 @@ name_forms() {
 #     named by `references`, since suites and scripts build those paths at run
 #     time and glob the directory, and by `SKILL.md` when SKILL.md names it,
 #     since a script can follow SKILL.md's table of reference files.
-#   - Callers, followed to a fixpoint: each of the skill's scripts whose code
-#     names <path> or a caller already found, a comment line not counting,
-#     since a comment runs and reads nothing; and each file under a
-#     subdirectory of scripts/ (test libraries, testdata) that names one
-#     anywhere, as a suite would. A suite that reaches <path> only through a
-#     chain of scripts reaches it all the same, so the chain is followed to
-#     its end; a file already found isn't followed again, which ends a cycle.
+#   - Callers, followed to a fixpoint: each of the skill's scripts, and each
+#     file under a subdirectory of scripts/ (test libraries, testdata), whose
+#     code names <path> or a caller already found, a comment line not
+#     counting, since a comment runs and reads nothing. A suite that reaches
+#     <path> only through a chain of scripts reaches it all the same, so the
+#     chain is followed to its end; a file already found isn't followed again,
+#     which ends a cycle.
 #   - <path> or any caller on an `all` row of check-skill.tsv (a script that
 #     runs every suite, such as a test runner): every suite.
 #   - The suites that name <path> or a caller (anywhere in the file, comments
@@ -549,7 +549,8 @@ SKILL.md"
         found=$({
             find "$SKILL_DIR/scripts" -mindepth 1 -maxdepth 1 -type f ! -name '*_test.sh' \
                 -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
-            find "$SKILL_DIR/scripts" -mindepth 2 -type f -exec grep -lF -- "$want" {} + 2>/dev/null
+            find "$SKILL_DIR/scripts" -mindepth 2 -type f \
+                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
         } | sort -u)
         want=""
         for c in $found; do
