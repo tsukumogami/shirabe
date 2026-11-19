@@ -494,9 +494,18 @@ awk '{ print } /^variables:$/ && !d { print "  COMPAT_PROBE:\n    description: A
     "$PT/coordinate.md" > "$T/p2.md" && mv "$T/p2.md" "$PT/coordinate.md"
 PFP=$(bash "$T/plugin2/skills/coordinate/scripts/template-fingerprint.sh" "$(koto template compile "$PT/coordinate.md" 2>/dev/null)")
 jq --arg f "$PFP" '.compat += 1 | .fingerprints[$f] = .compat' "$PT/coordinate.compat.json" > "$T/p2compat.json" && mv "$T/p2compat.json" "$PT/coordinate.compat.json"
-printf '["docs/roadmaps/ROADMAP-imp2.md","--role","manager"]' > "$T/args.json"
-OTHER=$(cd "$W1" && CLAUDE_CODE_SESSION_ID=$A_ID bash "$T/plugin2/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$T/plugin2" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
-[ -n "$OTHER" ] && ok "7: work opens a run from a plugin whose coordinate.md differs" || bad "7: work opens a run from a plugin whose coordinate.md differs" "$(cat "$T/open.err")"
+# The run holds a record and its find has run, as a coordinator's run does, so
+# its find records the session (coord/source.json) and a start here would
+# resume it.
+export CLAUDE_CODE_SESSION_ID=$A_ID
+seed_roadmap imp2
+seed_record imp2
+OTHER=
+if PS=$T/plugin2/skills/coordinate/scripts PR=$T/plugin2 open_run imp2 "$W1" && [ -n "$(at)" ]; then OTHER=$S; fi
+unset CLAUDE_CODE_SESSION_ID
+[ -n "$OTHER" ] && ok "7: work opens a run from a plugin whose coordinate.md differs" || bad "7: work opens a run from a plugin whose coordinate.md differs" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+eq "7:   ... its find records the session" session \
+    "$( (cd "$W1" && koto context get "$OTHER" coord/source.json 2>/dev/null) | jq -r '.source // empty')"
 importer imp2 "$OTHER"
 eq "7: its import is refused template-incompatible" "2 template-incompatible" "$ORC $(line refused)"
 grep -q "compiled from coordinate.md at compat [^ ]* (template [0-9a-f]\{64\}); this plugin ships compat [0-9][0-9]* (template [0-9a-f]\{64\})" "$T/open.err" \
