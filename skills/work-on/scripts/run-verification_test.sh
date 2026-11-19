@@ -980,6 +980,82 @@ else
     fail "after the re-run: $(ls -R "$HD" 2>&1 | tr '\n' ' '); result $(head -c 300 "$HD/result.json" 2>&1)"
 fi
 
+# A second lap at the same head: attempt 2 of this head and merge-base.
+"$START" --archive --session s-rrfail --reason "flaky twice" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a second failure at the same head archives (exit 0)" \
+    || fail "a second failure at the same head: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+FIRST_HEAD=$(head -n 1 "$LEDGER" | jq -r .head 2>/dev/null)
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 2 ] && [ -n "$FIRST_HEAD" ] \
+    && tail -n 1 "$LEDGER" | jq -e --arg h "$FIRST_HEAD" \
+        '.attempt == 2 and .folder == 2 and .head == $h' >/dev/null 2>&1; then
+    pass "the second archive at a head adds a second ledger line: attempt 2, folder 2, the same head"
+else
+    fail "the ledger after the second archive: $(cat "$LEDGER" 2>&1)"
+fi
+[ -f "$HD/attempts/2/result.json" ] \
+    && pass "the second archive moves result.json into attempts/2/" \
+    || fail "attempts/2/ after the second archive: $(ls "$HD/attempts/2" 2>&1 | tr '\n' ' ')"
+
+# Ledger lines for another head or another merge-base do not count toward
+# this head's attempt number.
+mkrepo arcother "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-arcother
+settle s-arcother
+expect_rc "a failed command beside other heads' ledger lines" 1
+HD=$(head_dir s-arcother)
+AH=$(locate_line s-arcother 1)
+AMB=$(jq -r .merge_base "$HD/result.json")
+OTHER_SHA=0123456789abcdef0123456789abcdef01234567
+LEDGER="$KOTO_STUB_STORE/s-arcother/verification_attempts"
+mkdir -p "$KOTO_STUB_STORE/s-arcother"
+{
+    jq -nc --arg h "$OTHER_SHA" --arg mb "$AMB" '{attempt: 1, folder: 1, head: $h, merge_base: $mb, reason: "another head"}'
+    jq -nc --arg h "$AH" --arg mb "$OTHER_SHA" '{attempt: 1, folder: 1, head: $h, merge_base: $mb, reason: "another merge-base"}'
+} > "$WORKDIR/arcother.seed"
+cp "$WORKDIR/arcother.seed" "$LEDGER"
+"$START" --archive --session s-arcother --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+[ "$RC" -eq 0 ] && pass "a failure beside other heads' ledger lines archives (exit 0)" \
+    || fail "a failure beside other heads' ledger lines: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err")"
+if [ -f "$LEDGER" ] && [ "$(wc -l < "$LEDGER" | tr -d ' ')" -eq 3 ] \
+    && tail -n 1 "$LEDGER" | jq -e --arg h "$AH" --arg mb "$AMB" \
+        '.attempt == 1 and .folder == 1 and .head == $h and .merge_base == $mb' >/dev/null 2>&1; then
+    pass "lines for another head or merge-base do not count: the new line is attempt 1, folder 1, this head and merge-base"
+else
+    fail "the ledger beside other heads' lines: $(cat "$LEDGER" 2>&1)"
+fi
+head -n 2 "$LEDGER" > "$WORKDIR/arcother.head2"
+cmp -s "$WORKDIR/arcother.head2" "$WORKDIR/arcother.seed" \
+    && pass "the archive keeps the earlier ledger lines byte for byte" \
+    || fail "the earlier ledger lines changed: $(cat "$LEDGER" 2>&1)"
+
+# A ledger line that will not parse refuses the archive before anything is
+# written or moved.
+mkrepo arcbad "$(map '{"bad": {"run": ["bin/fail.sh"]}}' '[]' '["bad"]')"
+change top.txt
+start s-arcbad
+settle s-arcbad
+expect_rc "a failed command beside a ledger line that will not parse" 1
+HD=$(head_dir s-arcbad)
+LEDGER="$KOTO_STUB_STORE/s-arcbad/verification_attempts"
+mkdir -p "$KOTO_STUB_STORE/s-arcbad"
+{
+    jq -nc --arg h "$OTHER_SHA" --arg mb "$OTHER_SHA" '{attempt: 1, folder: 1, head: $h, merge_base: $mb, reason: "another head"}'
+    printf 'not json\n'
+} > "$LEDGER"
+cp "$LEDGER" "$WORKDIR/arcbad.before"
+"$START" --archive --session s-arcbad --reason "flaky" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -ne 0 ] && grep -q -F 'could not count the attempts' "$WORKDIR/archive.err" \
+    && cmp -s "$LEDGER" "$WORKDIR/arcbad.before" \
+    && [ -f "$HD/result.json" ] && [ -f "$HD/run.json" ] && [ "$(archived_count "$HD")" -eq 0 ]; then
+    pass "a ledger line that will not parse: --archive refuses (exit $RC), the ledger unchanged and nothing moved"
+else
+    fail "a ledger line that will not parse: --archive exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$LEDGER" 2>&1), head dir $(ls -R "$HD" 2>&1 | tr '\n' ' ')"
+fi
+
 # --- a real koto ---------------------------------------------------------------------------
 
 echo "--- engine: the launcher as a default_action, the verdict as a poll: gate"
