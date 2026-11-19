@@ -199,7 +199,7 @@ rewrite_record() {
     dir=${rec%/*}
     [ -f "$rec" ] && [ ! -L "$rec" ] || return 1
     tmp=$(mktemp "$dir/.tmp.XXXXXX") || return 1
-    if ! jq -c --arg s "$status" --arg e "$(now_utc)" '.status = $s | .ended_at = $e' "$rec" > "$tmp" 2>/dev/null; then
+    if ! jq -c --arg s "$status" --arg e "$(now_utc)" '.status = $s | .ended_at = $e' "$rec" > "$tmp"; then
         rm -f "$tmp"
         return 1
     fi
@@ -282,7 +282,7 @@ if [ "$1" = --delete ]; then
         esac
     done
     if [ -z "$D_ROOT" ]; then
-        D_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+        D_ROOT=$(git rev-parse --show-toplevel) || exit 0
     fi
     run_deleter "$D_STAMP" "$D_ROOT" "$D_REAPED"
 fi
@@ -533,7 +533,7 @@ ondisk() {
     printf '%s\n' "$acc"
 }
 
-IGNORECASE=$(git -C "$ROOT" config --bool core.ignorecase 2>/dev/null)
+IGNORECASE=$(git -C "$ROOT" config --bool core.ignorecase)
 
 is_tracked() {
     local q out lq
@@ -543,7 +543,7 @@ is_tracked() {
     done
     if [ "$IGNORECASE" = true ]; then
         lq=$(lower "$1")
-        git -C "$ROOT" ls-files -z 2>/dev/null | tr '\0' '\n' | tr '[:upper:]' '[:lower:]' \
+        git -C "$ROOT" ls-files -z | tr '\0' '\n' | tr '[:upper:]' '[:lower:]' \
             | Q="$lq" awk 'BEGIN { q = ENVIRON["Q"]; f = 0 }
                 $0 == q || index($0, q "/") == 1 { f = 1; exit }
                 END { exit !f }' && return 0
