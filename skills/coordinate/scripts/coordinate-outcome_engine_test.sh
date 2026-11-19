@@ -406,9 +406,11 @@ if PR=$T/pcopy PS=$T/pcopy/skills/coordinate/scripts open_run compat && [ "$(at)
     # The same run once its driver is gone (shirabe#1650): no Claude job for A
     # is seen here and its last koto event is past 10 minutes, so nobody
     # drives it. The start carries its record into a new run on the shipped
-    # template and cancels it, rather than refusing.
-    mkdir -p "$T/claude-none/jobs"
-    DC_CLAUDE_HOME=$T/claude-none DC_NOW=$(( $(date +%s) + 700 )) opener compat "$T/work2"
+    # template and cancels it, rather than refusing. B's own job stays, so B
+    # still knows its name and the start still sees A's run as another's.
+    mkdir -p "$T/claude-b-only/jobs"
+    cp -R "$DC_CLAUDE_HOME/jobs/job-b" "$T/claude-b-only/jobs/"
+    DC_CLAUDE_HOME=$T/claude-b-only DC_NOW=$(( $(date +%s) + 700 )) opener compat "$T/work2"
     if [ "$ORC" = 0 ] && [ "$(line carried)" = "$A2" ]; then
         ok "5: a run on a template the shipped table doesn't list, whose driver is gone, is carried"
     else
