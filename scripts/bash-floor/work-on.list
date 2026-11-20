@@ -121,6 +121,11 @@ skills/work-on/scripts/step-detail-check_test.sh
 # files a diff touched, against git fixtures. No engine.
 scripts/lib/claude-md-header_test.sh
 scripts/lib/test-classify_test.sh
+# The build-output cleanup: clean-build-output.sh and its records library
+# against git fixtures, and the default-branch ref it checks a base against.
+# No engine, so every case runs on the floor.
+skills/work-on/scripts/clean-build-output_test.sh
+scripts/lib/default-remote-ref_test.sh
 # fix-kind.sh and red-first.sh through a koto stand-in and a gh stand-in, on
 # git fixtures, so every case runs on the floor.
 skills/work-on/scripts/fix-kind_test.sh

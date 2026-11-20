@@ -1,15 +1,21 @@
 # claude-md-header.sh -- one `## <Name>: <value>` declaration from a CLAUDE.md.
 #
-# Sourced, never run. Defines two functions:
+# Sourced, never run. Defines three functions:
 #
 #   claude_md_header <name> <file>
 #                       reads <file> from the working tree
+#   claude_md_header_named <name> <file>
+#                       reads <file> from the working tree, like
+#                       claude_md_header, and prints the heading's name as the
+#                       file writes it, a tab, then the value, so a caller that
+#                       needs the name in an exact case can check it
 #   claude_md_header_at <commit> <name> [<path>]
 #                       reads <path> (default CLAUDE.md) as it stands at
 #                       <commit>, so a unit's own diff can't change what it
 #                       reads; the caller is inside the repository
 #
-# Both print the declaration's value, trimmed, and return:
+# Each prints the declaration's value, trimmed (claude_md_header_named puts
+# the name and a tab before it), and returns:
 #
 #   0  the header is declared once; its value is printed (it may be empty)
 #   1  the file has no such header, or the file doesn't exist (at <commit>)
@@ -26,13 +32,16 @@
 # hide behind an earlier line.
 #
 # Callers: skills/work-on/scripts/fix-kind.sh reads `## Fix Labels:` with it,
-# and skills/work-on/scripts/test-change.sh `## Test Change Acceptance:`.
+# skills/work-on/scripts/test-change.sh `## Test Change Acceptance:`, and
+# skills/work-on/scripts/clean-build-output.sh `## Build Output Cleanup:`
+# through claude_md_header_named.
 #
 # Written for the bash 3.2 floor.
 
-# _claude_md_header_scan <name>: reads the file on stdin.
+# _claude_md_header_scan <name> [named]: reads the file on stdin. With a second
+# argument it prints the name as written, a tab, then the value.
 _claude_md_header_scan() {
-    awk -v want="$1" '
+    awk -v want="$1" -v named="${2-}" '
         BEGIN { want = tolower(want); n = 0; fence = "" }
         {
             line = $0
@@ -66,7 +75,7 @@ _claude_md_header_scan() {
             sub(/^[ \t]+/, "", value)
             sub(/[ \t]+$/, "", value)
             n++
-            found = value
+            found = (named != "") ? name "\t" value : value
         }
         END {
             if (n == 0) exit 1
@@ -77,13 +86,23 @@ _claude_md_header_scan() {
 }
 
 claude_md_header() {
-    local name="$1" file="$2" out rc
+    _claude_md_header_file "$1" "$2" ""
+}
+
+claude_md_header_named() {
+    _claude_md_header_file "$1" "$2" named
+}
+
+# _claude_md_header_file <name> <file> <named>: the working-tree read behind
+# claude_md_header and claude_md_header_named.
+_claude_md_header_file() {
+    local name="$1" file="$2" named="$3" out rc
     [ -e "$file" ] || return 1
     if [ ! -r "$file" ]; then
         echo "claude-md-header: $file can't be read" >&2
         return 2
     fi
-    out=$(_claude_md_header_scan "$name" < "$file")
+    out=$(_claude_md_header_scan "$name" ${named:+"$named"} < "$file")
     rc=$?
     case "$rc" in
         0) printf '%s\n' "$out"; return 0 ;;
