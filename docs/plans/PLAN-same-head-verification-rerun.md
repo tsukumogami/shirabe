@@ -79,7 +79,7 @@ validation.
 
 ### Step 2: The PR body carries a re-run line for each archived attempt
 
-**Goal**: A reviewer reading the PR sees every re-run at the same head: the PR body's Verification section has one re-run line for each attempt in the `verification_attempts` ledger, saying which command failed or timed out, the reason given and what the next attempt showed. A new `check-pr-output.sh --rerun-record --session <name>` mode reads the ledger from koto context and refuses a body that leaves a line out; with an empty ledger it asks for nothing. `pr_creation` runs it as a gate, so a real session can't open or share a PR that hides a re-run.
+**Goal**: A reviewer reading the PR sees every re-run at the same head: the PR body's Verification section has one re-run line for each attempt in the `verification_attempts` ledger, saying which command failed or timed out, the reason given and what the next attempt showed. A new `check-pr-output.sh --rerun-record --session <name>` mode reads the ledger from koto context and refuses a body that leaves a line out; with an empty ledger it asks for nothing. `pr_creation` runs it as a gate, so a real session can't open a PR that hides a re-run. A PR the plan's steps share is checked at the owning session's `pr_finalization`, beside the deferral record.
 
 **Acceptance Criteria**:
 
@@ -89,13 +89,14 @@ validation.
 - [ ] A re-run line holding an absolute path is refused, and the message says why. Ledger log paths are relative to the head directory and stay out of the PR body, which may be public.
 - [ ] A re-run line with a command id or reason outside a code span is refused, with its own message.
 - [ ] `pr_creation` in `skills/work-on/koto-templates/work-on.md` gains a gate that runs `check-pr-output.sh --rerun-record` with the session name, the way the verification gate passes its session.
+- [ ] `pr_finalization` in `skills/execute/koto-templates/execute.md` gains a re-run record gate beside `deferral_recorded`. Its collector, `skills/execute/scripts/shared-rerun-record.sh`, is modelled on `shared-deferral-record.sh`: it finds the run's children the same ways, reads each child's `verification_attempts` and runs `check-pr-output.sh --rerun-record` against the owned PR, refusing a shared PR body that lacks a child's re-run line. The state's directive tells the owning session to write each child's re-run lines, and `bash skills/execute/scripts/shared-rerun-record_test.sh` passes.
 - [ ] `skills/work-on/SKILL.md`, `references/verification-map.md`, `references/phases/phase-6-pr.md` and `docs/designs/current/DESIGN-output-gates.md` show the re-run line's format (the command id and reason in code spans, plus the next attempt's result) and say which check refuses a body without it.
 
 **Check**: Run `bash skills/work-on/scripts/check-pr-output_test.sh` from the repo root. It passes, with cases (a koto stand-in serving the ledger, as `run-verification_test.sh` does) for a missing ledger key (accepted, no line asked for), a failed ledger read (refused), one ledger attempt without and then with its re-run line (refused, then accepted), a line holding an absolute path (refused) and an id or reason outside a code span (refused), each asserting its exit code and message. End to end: `bash skills/work-on/scripts/output-gates-routing_test.sh` exits 0, and its re-run case, after it checks the one ledger line, runs `check-pr-output.sh --rerun-record` against that session with a body without the re-run line, then with it. The first is refused and names attempt 1. The second is accepted.
 
 **Dependencies**: Step 1
 
-**Files**: `skills/work-on/scripts/check-pr-output.sh`, `skills/work-on/scripts/check-pr-output_test.sh`, `skills/work-on/scripts/output-gates-routing_test.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`, `skills/work-on/references/verification-map.md`, `skills/work-on/references/phases/phase-6-pr.md`, `skills/work-on/evals/evals.json`, `docs/designs/current/DESIGN-output-gates.md`
+**Files**: `skills/work-on/scripts/check-pr-output.sh`, `skills/work-on/scripts/check-pr-output_test.sh`, `skills/work-on/scripts/output-gates-routing_test.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`, `skills/work-on/references/verification-map.md`, `skills/work-on/references/phases/phase-6-pr.md`, `skills/work-on/evals/evals.json`, `docs/designs/current/DESIGN-output-gates.md`, `skills/execute/koto-templates/execute.md`, `skills/execute/scripts/shared-rerun-record.sh`, `skills/execute/scripts/shared-rerun-record_test.sh`
 
 ### Step 3: A third re-run at the same head and merge-base is refused, and the gate says why
 
