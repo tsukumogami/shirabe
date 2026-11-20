@@ -593,9 +593,10 @@ leg, since one leg answers one session.
   exception is `ci-none-declared.sh --owned`, whose declaration read comes
   before the lookup and stays on gh's default host, the one owned-pr.sh
   searches. `scripts/pr-url_test.sh` is its harness.
-- `scripts/record-changed-paths.sh --base|--write <session-name>` — run by koto
-  itself, never by the agent: `analysis` runs `--base` on entry to record
-  `impl_base` once, and `changed_paths_record` runs `--write` to put
+- `scripts/record-changed-paths.sh --base <session-name> [--shared-branch <b>]|--write <session-name>`
+  — run by koto itself, never by the agent: `analysis` runs `--base` on entry
+  to record `impl_base` once (the merge-base with the default branch off a
+  shared branch, HEAD on one or in a fix round), and `changed_paths_record` runs `--write` to put
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
