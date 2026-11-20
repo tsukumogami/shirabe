@@ -13,7 +13,9 @@
 # --strand only on a dispatched message-path holding, and --retire of a
 # stranded one or of a merged one whose removed teardown teardown-pass.sh
 # check confirms, never of a live leg-bound holding or a merged one the check
-# doesn't confirm.
+# doesn't confirm; and --retire of a holding torn down outside the run, merged
+# or not, once the check's reason carries the removed marker, with an entry
+# saying the teardown was not the run's own (shirabe#1196).
 #
 # Usage: bash skills/coordinate/scripts/state-holding_test.sh
 set -uo pipefail
@@ -147,16 +149,20 @@ hw --strand >/dev/null 2>&1; eq "--strand without --topic is a usage error" 64 $
 echo "== retired after a removed teardown (shirabe#1593) =="
 # A stand-in for teardown-pass.sh: it logs each call and answers its check
 # with the exit code in $T/check.rc (0 confirmed, 1 not), the reason on stderr.
+# When $T/check.msg holds a line, it prints that line on stdout, the way the
+# real check prints its confirmed reason.
 CHECK="$T/teardown-pass-check.sh"
 cat >"$CHECK" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >>"$CHECK_LOG"
 rc=$(cat "$CHECK_RC")
+[ -s "$CHECK_MSG" ] && cat "$CHECK_MSG"
 [ "$rc" = 0 ] || echo "teardown-pass: teardown-incomplete: niwa still lists the instance" >&2
 exit "$rc"
 EOF
 chmod +x "$CHECK"
-export CHECK_LOG="$T/check.log" CHECK_RC="$T/check.rc"
+export CHECK_LOG="$T/check.log" CHECK_RC="$T/check.rc" CHECK_MSG="$T/check.msg"
+: >"$CHECK_MSG"
 hr() { STATE_HOLDING_TEARDOWN_PASS=$CHECK hw "$@"; }
 MERGED='{"return_path": "leg req_9:work-on", "entry_point": "/shirabe:work-on", "verified_head": "3333333333333333333333333333333333333333", "pull_request": ""}'
 seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" \
@@ -167,7 +173,11 @@ echo 0 >"$CHECK_RC"
 SNAP=$(session_snapshot "$SR")
 hr --topic beta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a live leg-bound holding" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
-eq "  ... and asks for no teardown check" "" "$(cat "$CHECK_LOG")"
+# Its check is asked (an unmerged row may be one torn down outside the run,
+# shirabe#1196), and confirms no removed teardown.
+grep -q 'confirms no removed teardown' "$T/err" && ok "  ... and names the missing removed teardown" \
+    || bad "  ... and names the missing removed teardown" "$(cat "$T/err")"
+: >"$CHECK_LOG"
 echo 1 >"$CHECK_RC"
 hr --topic gamma --retire >/dev/null 2>"$T/err"; eq "--retire refuses a merged leg-bound holding with no confirmed removed teardown" 65 $?
 grep -q 'niwa still lists the instance' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
@@ -184,6 +194,47 @@ eq "  ... and only it" "alpha beta" "$(live | jq -r '.holdings | map(.worker) | 
 [ "$(live | jq -r .written)" != "$W0" ] && ok "  ... and the retire carries a new written time" \
     || bad "  ... and the retire carries a new written time" "still $W0"
 eq "  ... the write goes to the session, nothing to GitHub" "" "$(gh_writes)"
+
+echo "== retired after a teardown outside the run (shirabe#1196) =="
+# A unit whose pull request a person merged outside the run's land path keeps
+# a dispatched row that never reads as merged. Once the check confirms its
+# removed teardown, the reason starting with the marker, the row goes and an
+# entry says the teardown was not the run's own; without the marker, or
+# unconfirmed, it stays.
+OUTSIDE_ENTRY="retired after a teardown that was not this run's own: its instance and job were removed outside the run's teardown pass, which archived only what survived and removed nothing."
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" \
+    --argjson d "$(holding delta '{"return_path": "leg req_7:work-on", "entry_point": "/shirabe:work-on", "pull_request": "[#768](https://github.com/acme/widgets/pull/768)"}')" \
+    --argjson g "$(holding gamma "$MERGED")" '.holdings = [$a, $d, $g]')"
+: >"$CHECK_LOG"
+: >"$CHECK_MSG"
+SNAP=$(session_snapshot "$SR")
+echo 1 >"$CHECK_RC"
+hr --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatched holding whose teardown check doesn't confirm" 65 $?
+grep -q 'niwa still lists the instance' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+eq "  ... the check asked of its topic in the run's session" "check --session $SR --topic delta" "$(head -1 "$CHECK_LOG")"
+echo 0 >"$CHECK_RC"
+echo "teardown-pass: teardown-confirmed: the instance and the job are gone and the archive is whole" >"$CHECK_MSG"
+hr --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatched holding whose confirmed teardown isn't a removed one" 65 $?
+grep -q 'confirms no removed teardown' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+echo "teardown-pass: teardown-confirmed: removed outside the run: the instance and the job were already gone, and the run's removed pass archived what survived; the archive is whole" >"$CHECK_MSG"
+hr --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a dispatched holding whose worker was torn down outside its own teardown pass" \
+    || bad "--retire removes a dispatched holding whose worker was torn down outside its own teardown pass" "exit $rc: $(cat "$T/err")"
+eq "  ... and only it" "alpha gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and leaves an entry saying the teardown was not the run's own" \
+    "entry|Holding delta (unit $(holding delta | jq -r .unit)) $OUTSIDE_ENTRY" \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+hr --topic gamma --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a merged holding whose removed teardown outside the run is confirmed" \
+    || bad "--retire removes a merged holding whose removed teardown outside the run is confirmed" "exit $rc: $(cat "$T/err")"
+eq "  ... and only it" "alpha" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and leaves the same entry" \
+    "entry|Holding gamma (unit $(holding gamma | jq -r .unit)) $OUTSIDE_ENTRY" \
+    "$(koto context get "$SR" record/entries/000002 | jq -r '"\(.kind)|\(.text)"')"
+eq "  ... the writes go to the session, nothing to GitHub" "" "$(gh_writes)"
+: >"$CHECK_MSG"
 
 echo "== a dispatch-failed holding retired (shirabe#1612) =="
 # A failed launch's row goes through --retire only when no worker exists for
