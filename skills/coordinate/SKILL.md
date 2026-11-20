@@ -250,7 +250,11 @@ work.
    - `template-incompatible`: the old run's compat number isn't the one this
      plugin ships, or it sits in a state the shipped template doesn't have.
      The message names the template, both compat numbers and both compiled
-     hashes.
+     hashes. It refuses only while the run's driver is still running (the
+     liveness probe, against the driver its record/meta or coordinator row
+     names). A run whose driver stopped, or an imported copy whose driver has
+     no Claude job on this host, is carried into a new run instead, and the
+     old run is cancelled, as a finished one would be.
    - `koto-too-old`: this koto lacks `koto init --supersede` and its flags;
      the fence shipped in koto 0.28.0, so a takeover runs on koto 0.28.0
      and later.
@@ -304,7 +308,10 @@ work.
    then be a run this plugin can continue; one that isn't stays here
    (`refused=template-incompatible`, `session-source` or `session-directed`,
    and on a koto older than 0.32.0 `session-provenance`), and a plain start
-   carries it, except after `session-source`: a run whose find didn't record
+   carries it. The copy still names the source's driver, which runs on the
+   source host if anywhere, and the source is marked migrated, so the start
+   carries the copy rather than taking it over. That holds except after
+   `session-source`: a run whose find didn't record
    the session as its store is no resume candidate, so a plain start opens a
    new run as it would with no session here and cancels the imported one.
    `record/host` takes the source workspace, session and template hash, on

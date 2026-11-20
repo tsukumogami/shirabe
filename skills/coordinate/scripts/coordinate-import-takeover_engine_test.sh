@@ -494,15 +494,38 @@ awk '{ print } /^variables:$/ && !d { print "  COMPAT_PROBE:\n    description: A
     "$PT/coordinate.md" > "$T/p2.md" && mv "$T/p2.md" "$PT/coordinate.md"
 PFP=$(bash "$T/plugin2/skills/coordinate/scripts/template-fingerprint.sh" "$(koto template compile "$PT/coordinate.md" 2>/dev/null)")
 jq --arg f "$PFP" '.compat += 1 | .fingerprints[$f] = .compat' "$PT/coordinate.compat.json" > "$T/p2compat.json" && mv "$T/p2compat.json" "$PT/coordinate.compat.json"
-printf '["docs/roadmaps/ROADMAP-imp2.md","--role","manager"]' > "$T/args.json"
-OTHER=$(cd "$W1" && CLAUDE_CODE_SESSION_ID=$A_ID bash "$T/plugin2/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$T/plugin2" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
-[ -n "$OTHER" ] && ok "7: work opens a run from a plugin whose coordinate.md differs" || bad "7: work opens a run from a plugin whose coordinate.md differs" "$(cat "$T/open.err")"
+# The run holds a record and its find has run, as a coordinator's run does, so
+# its find records the session (coord/source.json) and a start here would
+# resume it.
+export CLAUDE_CODE_SESSION_ID=$A_ID
+seed_roadmap imp2
+seed_record imp2
+OTHER=
+if PS=$T/plugin2/skills/coordinate/scripts PR=$T/plugin2 open_run imp2 "$W1" && [ -n "$(at)" ]; then OTHER=$S; fi
+unset CLAUDE_CODE_SESSION_ID
+[ -n "$OTHER" ] && ok "7: work opens a run from a plugin whose coordinate.md differs" || bad "7: work opens a run from a plugin whose coordinate.md differs" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+eq "7:   ... its find records the session" session \
+    "$( (cd "$W1" && koto context get "$OTHER" coord/source.json 2>/dev/null) | jq -r '.source // empty')"
 importer imp2 "$OTHER"
 eq "7: its import is refused template-incompatible" "2 template-incompatible" "$ORC $(line refused)"
 grep -q "compiled from coordinate.md at compat [^ ]* (template [0-9a-f]\{64\}); this plugin ships compat [0-9][0-9]* (template [0-9a-f]\{64\})" "$T/open.err" \
     && ok "7:   ... naming coordinate.md, both compat numbers and both hashes" || bad "7:   ... naming coordinate.md, both compat numbers and both hashes" "$(cat "$T/open.err")"
 eq "7:   ... and no run takes it over" "" "$(line outcome)$(line session)"
 eq "7:   ... the copy the only run of its scope in second" "$OTHER" \
+    "$(cd "$W2" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
+# The refusal says a plain start carries the copy's record into a new run
+# (shirabe#1650). The copy still names A, whose session runs on the source
+# host and not here, so the plain start carries it rather than taking the
+# takeover path and refusing.
+printf '["docs/roadmaps/ROADMAP-imp2.md","--role","manager"]' > "$T/args.json"
+OUT=$(cd "$W2" && CLAUDE_CODE_SESSION_ID=$B_ID bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err"); ORC=$?
+if [ "$ORC" = 0 ] && [ "$(line carried)" = "$OTHER" ]; then
+    ok "7: a plain start after the refused import carries the copy, as the refusal says"
+else
+    bad "7: a plain start after the refused import carries the copy, as the refusal says" "exit $ORC; out: $OUT; $(cat "$T/open.err")"
+fi
+eq "7:   ... cancelling the copy" "$OTHER" "$(line cancelled)"
+eq "7:   ... leaving the new run the only live run of its scope in second" "$(line session)" \
     "$(cd "$W2" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
 
 # ---- 10. an import of a run opened from another plugin root -------------------------
