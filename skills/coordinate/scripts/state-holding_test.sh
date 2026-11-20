@@ -73,6 +73,40 @@ hw --topic beta --row-file "$T/secret.json" >/dev/null 2>&1; eq "a private repos
 printf 'not json' > "$T/junk.json"
 hw --topic beta --row-file "$T/junk.json" >/dev/null 2>&1; eq "a row file that isn't JSON is refused" 65 $?
 
+echo "== a confirmed merge clears its Side effects merge row (shirabe#1824) =="
+# The write that clears a holding's Pull request cell after a confirmed merge
+# (the row reads merged: Verified head kept, cell blank) drops the Side
+# effects merge row for that pull request at that head, one a takeover
+# carried included. Every other row stays: a merge row at another head, for
+# another pull request or repository, and a row of another action.
+MERGE_ROW() { jq -nc --arg t "$1" --arg s "$2" --arg a "${3:-merge}" \
+    '{action: $a, target: $t, verified_head: $s, attempted: "2026-09-26T09:58Z", how_to_confirm: "gh pr view 12 --repo acme/widgets --json mergeCommit"}'; }
+LINKED=$(holding alpha "{\"verified_head\": \"$SHA_HEAD\"}")
+SE_ALL=$(jq -nc --argjson a "$(MERGE_ROW acme/widgets#12 "$SHA_HEAD")" \
+    --argjson u "$(MERGE_ROW 'merge of https://github.com/acme/widgets/pull/12' "$SHA_HEAD")" \
+    --argjson o "$(MERGE_ROW acme/widgets#12 "$SHA_OTHER")" \
+    --argjson p "$(MERGE_ROW acme/widgets#13 "$SHA_HEAD")" \
+    --argjson g "$(MERGE_ROW acme/gadgets#12 "$SHA_HEAD")" \
+    --argjson t "$(MERGE_ROW acme/widgets#12 "$SHA_HEAD" teardown)" '[$a, $u, $o, $p, $g, $t]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$LINKED" --argjson se "$SE_ALL" '.holdings = [$h] | .side_effects = $se')"
+holding alpha "{\"verified_head\": \"$SHA_HEAD\", \"pull_request\": \"\"}" > "$T/cleared.json"
+hw --topic alpha --row-file "$T/cleared.json" >/dev/null 2>"$T/err"; eq "clearing the cell after a confirmed merge exits 0" 0 $?
+eq "  ... the row is kept with its cell cleared" "alpha $SHA_HEAD " "$(live | jq -r '.holdings[0] | "\(.worker) \(.verified_head) \(.pull_request)"')"
+eq "  ... and the merge rows for acme/widgets#12 at that head go, by o/r#n or URL" 0 \
+    "$(live | jq --arg s "$SHA_HEAD" '[.side_effects[] | select(.action == "merge" and .verified_head == $s and (.target == "acme/widgets#12" or (.target | contains("widgets/pull/12"))))] | length')"
+eq "  ... the rows at another head, for another pull request or repository, and of another action stay" \
+    "merge acme/widgets#12 $SHA_OTHER|merge acme/widgets#13 $SHA_HEAD|merge acme/gadgets#12 $SHA_HEAD|teardown acme/widgets#12 $SHA_HEAD" \
+    "$(live | jq -r '[.side_effects[] | "\(.action) \(.target) \(.verified_head)"] | join("|")')"
+# Any other write leaves Side effects as it was: an update that keeps the
+# link, and a merged row written again (no link to clear).
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$LINKED" --argjson se "$SE_ALL" '.holdings = [$h] | .side_effects = $se')"
+holding alpha "{\"verified_head\": \"$SHA_HEAD\", \"branch\": \"feat/y\"}" > "$T/kept.json"
+hw --topic alpha --row-file "$T/kept.json" >/dev/null 2>"$T/err"; eq "an update that keeps the link exits 0" 0 $?
+eq "  ... and drops no Side effects row" 6 "$(live | jq '.side_effects | length')"
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(cat "$T/cleared.json")" --argjson se "$SE_ALL" '.holdings = [$h] | .side_effects = $se')"
+hw --topic alpha --row-file "$T/cleared.json" >/dev/null 2>"$T/err"; eq "a merged row written again exits 0" 0 $?
+eq "  ... and drops no Side effects row" 6 "$(live | jq '.side_effects | length')"
+
 echo "== deferrals and the session =="
 DEFERRALS='[{"deferral":"a","reason":"r","raised":"2026-09-25T10:00Z","disposition":"filed #40"},
             {"deferral":"b","reason":"r","raised":"2026-09-25T10:00Z","disposition":"closed: moot"},
