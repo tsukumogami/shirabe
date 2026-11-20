@@ -80,11 +80,13 @@ Each value under `commands` is an object with these fields:
 | `network` | boolean | `false` | Whether the command reaches the network. A command that does must say so. |
 | `unattended` | boolean | `true` when `network` is `false`; none when `network` is `true` | Whether the command may be started with no person present. A command marked `network: true` must set `unattended` explicitly; a map that omits it there does not parse. A command marked `unattended: false` is never started by the gate on its own; the run stops for a person instead. |
 | `max_procs` | integer | `256` | The most processes the command's process group may hold at once. A command that grows past it is killed and counts as not passed. |
+| `timeout_form` | string (regular expression) | absent | How a timeout inside the command reads, for a command that can time out inside itself (a test that gives up waiting under load) rather than at `timeout_secs`. A nonzero exit is recorded as `timed-out-inside` only when the command's log reports at least one failure line and every failure line matches this expression; otherwise it is `failed`. See [Command records](#command-records). |
 
 A map does not parse when it isn't valid JSON, when `schema` is missing or different, when a
 required field is missing or has the wrong type, when an entry or `default` names an id that
-`commands` doesn't define, when `timeout_secs` exceeds `3600`, or when a `network: true`
-command omits `unattended`.
+`commands` doesn't define, when `timeout_secs` exceeds `3600`, when a `network: true`
+command omits `unattended`, or when `timeout_form` is not a non-empty string that compiles as
+a regular expression. The refusal names the command.
 
 ### Selection rules
 
@@ -174,6 +176,42 @@ computed against, written atomically.
 Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_procs`
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.
+
+### Command records
+
+The result lists one record per command run, with its `id`, `argv`, `exit_status`,
+`duration_secs`, `log`, the `timed_out`, `runaway` and `not_started` flags, and two fields
+that say how it ended:
+
+- `outcome` — one of four values:
+
+  | `outcome` | When |
+  |-----------|------|
+  | `passed` | The command exited 0 inside its limit. |
+  | `timed-out-limit` | The supervisor stopped it at its `timeout_secs` (or at the run's budget), and its suite summary lists no finished-failed suite, or it wrote no summary. `timed_out` is `true`. |
+  | `timed-out-inside` | It exited nonzero inside its limit, its row declares `timeout_form`, its log reports at least one failure line, and every failure line matches the form. `timed_out` is `false`. |
+  | `failed` | Anything else: a nonzero exit that isn't `timed-out-inside`, a stop at the limit whose summary lists a finished-failed suite, a runaway, or a command that never started. The `runaway` and `not_started` flags still say which of the last two it was, and neither is ever a timeout. |
+
+  A failure line is one that, after optional leading space and a terminal colour code,
+  starts with `FAIL` or `not ok` followed by anything but a letter: the same lines
+  `scripts/check-skill.sh` collects from a failed suite. A log with no failure line never
+  reads as a timeout, whatever the form, so a row without `timeout_form` records every
+  nonzero exit as `failed`, even one whose log prints a line that looks like a timeout.
+
+- `suites` — the suite summary the command left, or `null` when it left none (or left
+  something that isn't one). The supervisor sets `SHIRABE_SUITE_SUMMARY` in each command's
+  environment to `<head dir>/<index>-<id>.suites.json`, removing any file already there
+  first, so a summary from an earlier run is never copied into a new record. A command that
+  writes one writes a JSON object of four arrays of suite names, `passed`, `failed`,
+  `running` and `not_started`, each suite in exactly one. `scripts/check-skill.sh` writes
+  it, by the names `--changed --list` prints, when the suite set is known, at each launch,
+  as each suite ends and when it is stopped by TERM, each time to a temporary file renamed
+  into place, so a command killed outright still leaves the last whole summary. It unsets
+  the variable before any suite runs, so a suite can't write the summary itself.
+
+No verdict reads `outcome` or `suites` yet: the exits below are decided by `timed_out`,
+`runaway`, `not_started` and `exit_status`, so a `timed-out-inside` record exits 1 and a
+command stopped at its limit exits 4 whatever its outcome.
 
 ## Verdicts
 
