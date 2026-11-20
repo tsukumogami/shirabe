@@ -304,7 +304,14 @@ work.
    again, which only marks the source and passes the live check because the live
    run is its own target; a plain start would carry a run whose source may still
    write. Compile the template here first (the opener does it);
-   `--trust-template` only when the operator passes it. The imported copy must
+   `--trust-template` only when the operator passes it. Before koto imports
+   anything, the source's template is judged where the source is: a run whose
+   template structure the compat table doesn't list at the shipped compat
+   number is refused `refused=template-incompatible` with nothing imported and
+   the source still taking writes, and a plain start carries its record. When
+   its structure can't be read there, the import goes on to koto as before,
+   and a `refused=import_template_unavailable` then says the compat check
+   still lies ahead. The imported copy must
    then be a run this plugin can continue; one that isn't stays here
    (`refused=template-incompatible`, `session-source` or `session-directed`,
    and on a koto older than 0.32.0 `session-provenance`), and a plain start

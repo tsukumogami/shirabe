@@ -1304,9 +1304,11 @@ takes_over() {
 }
 
 # The import: the session another workspace ran, from the bucket (PRD R14).
-# The name and a live run of the scope are refused before koto runs; koto's
-# own refusals are printed with its code and leave no session; then the
-# imported copy must be a run this plugin can continue, and record/host takes
+# The name, a live run of the scope, and a source whose template this plugin
+# can't drive (judged where the source is, when its structure can be read
+# there) are refused before koto runs; koto's own refusals are printed with
+# its code and leave no session; then the imported copy must be a run this
+# plugin can continue, and record/host takes
 # the source's facts, so every report up names them for the next import. On
 # koto 0.32.0 and later the copy is then taken over, the predecessor of a new
 # run as in a takeover on one host (takeover above); on an older koto it is
@@ -1395,6 +1397,54 @@ if [ -n "$IMPORT" ]; then
             role_decide "$IMPORT" "$FROM"
         fi
     fi
+    # The template, judged where the source is before koto copies anything
+    # (shirabe#1941): once koto has imported the run the source is marked
+    # migrated, so a refusal after the import leaves nothing where it was.
+    # The source's template hash comes from `koto --workspace W status`; equal
+    # to the shipped one it is driven as is. Otherwise its structure is judged
+    # by fingerprint, from the compiled copy in this host's cache when koto
+    # has that hash, else from the template_fingerprint the source's
+    # record/meta keeps (state-read.sh --meta --workspace). A fingerprint the
+    # compat table doesn't list at the shipped compat number is refused here.
+    # With no fingerprint to judge (no record/meta, a read koto refuses, the
+    # local backend) koto's import runs as before, and the check after it
+    # stays the backstop. A copy already on this host is a repeated import:
+    # koto copies nothing new, and that check judges the copy itself. The
+    # copy is known by the koto/imported-from record koto writes into it, as
+    # in the role check above, not by `koto status`, which on a host holding
+    # both workspaces finds the source itself.
+    PRE_JUDGED= PRE_COPY=
+    if KEYS=$("$KOTO" context list "$IMPORT" --prefix koto/imported-from < /dev/null 2> /dev/null) \
+        && jq -e 'index("koto/imported-from") != null' <<< "$KEYS" > /dev/null 2>&1 \
+        && [ "$("$KOTO" context get "$IMPORT" koto/imported-from < /dev/null 2> /dev/null | jq -r '.from_session // empty' 2> /dev/null)" = "$IMPORT" ]; then
+        PRE_COPY=1
+    fi
+    if [ -z "$PRE_COPY" ]; then
+        SRC_HASH=$("$KOTO" --workspace "$FROM" status "$IMPORT" < /dev/null 2> /dev/null | jq -r '.template_hash // empty' 2> /dev/null) || SRC_HASH=
+        if [[ $SRC_HASH =~ ^[0-9a-f]{64}$ ]] && [ "$SRC_HASH" = "$SHIPPED" ]; then
+            PRE_JUDGED=1
+        else
+            SRC_FP=
+            SRC_COMPILED="$(dirname -- "$COMPILED")/$SRC_HASH.json"
+            if [[ $SRC_HASH =~ ^[0-9a-f]{64}$ ]] && [ -r "$SRC_COMPILED" ]; then
+                SRC_FP=$(bash "$HERE/template-fingerprint.sh" "$SRC_COMPILED" 2> /dev/null) || SRC_FP=
+            fi
+            if [ -z "$SRC_FP" ]; then
+                SRC_FP=$(bash "$HERE/state-read.sh" --meta --workspace "$FROM" --session "$IMPORT" < /dev/null 2> /dev/null \
+                    | jq -r 'objects | .template_fingerprint // empty | strings' 2> /dev/null) || SRC_FP=
+            fi
+            if [[ $SRC_FP =~ ^[0-9a-f]{64}$ ]]; then
+                PRE_JUDGED=1
+                if ! PRE_LINE=$(bash "$HERE/coord-log.sh" compat --fingerprint "$SRC_FP" 2> /dev/null); then
+                    read -r RUN_COMPAT SHIP_COMPAT _ <<EOF
+$PRE_LINE
+EOF
+                    refuse_import template-incompatible \
+                        "$IMPORT was compiled from coordinate.md at compat ${RUN_COMPAT:--} (template ${SRC_HASH:-unknown}); this plugin ships compat ${SHIP_COMPAT:--} (template $SHIPPED), so it can't drive the run; nothing was imported and the source still takes writes, and a plain start carries its record into a new run"
+                fi
+            fi
+        fi
+    fi
     DIR=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-import.XXXXXX") || usage "could not make a scratch directory"
     set -- session import "$IMPORT" --from "$FROM"
     [ -z "$TRUST" ] || set -- "$@" --trust-template
@@ -1405,6 +1455,12 @@ if [ -n "$IMPORT" ]; then
         [[ $CODE =~ ^[a-z_]+$ ]] || CODE=import_failed
         TEXT=$(awk -F'\t' -v c="$CODE" '$1 == c { print $2; exit }' "$WORDING")
         [ -n "$TEXT" ] || TEXT=$(jq -r '.error.message // empty' "$DIR/out" 2>/dev/null | head -c 400)
+        # A template this host lacks, whose structure couldn't be judged
+        # before the import: --trust-template gets the run here, but whether
+        # this plugin can drive it is still to be judged once it is.
+        if [ "$CODE" = import_template_unavailable ] && [ -z "$PRE_JUDGED" ]; then
+            TEXT="$TEXT The source's template couldn't be judged before the import, so the compat check still lies ahead: an imported run on a template this plugin can't drive is refused then, and stays on this host."
+        fi
         echo "refused=$CODE"; echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
         rm -rf "$DIR"
         # koto's exit 1 is a read, push or marker failure worth retrying;

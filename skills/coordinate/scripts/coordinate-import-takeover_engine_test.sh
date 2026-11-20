@@ -34,10 +34,15 @@
 #      outcome=resumed and session=B, adding no takeover entry;
 #   7. a run opened in `work` from a copy of the plugin whose coordinate.md
 #      declares one more variable (another structure, at a compat the shipped
-#      table doesn't list) is imported into `second` and refused
-#      template-incompatible,
-#      the refusal naming coordinate.md and both compat numbers, with no run
-#      taking it over;
+#      table doesn't list) is refused template-incompatible before koto
+#      imports it, the refusal naming coordinate.md and both compat numbers,
+#      with no run taking it over, no copy in `second`, no migration marker
+#      and the source still the live run in `work`; with its record/meta
+#      lacking the compat pair and no compiled copy in the cache, so nothing
+#      judges it first, it is imported with --trust-template and refused
+#      after, the copy the only run of its scope in `second`, and a plain
+#      start there carries the copy, cancels it and is left the only live run
+#      of its scope (shirabe#1650);
 #   8. the run's role (docs/designs/DESIGN-coordinator-named-roles.md,
 #      Decision 1; PRD R5): an import given --role is checked on the source
 #      where it is before koto imports, so a mismatch, a dispatcher change
@@ -510,6 +515,21 @@ importer imp2 "$OTHER"
 eq "7: its import is refused template-incompatible" "2 template-incompatible" "$ORC $(line refused)"
 grep -q "compiled from coordinate.md at compat [^ ]* (template [0-9a-f]\{64\}); this plugin ships compat [0-9][0-9]* (template [0-9a-f]\{64\})" "$T/open.err" \
     && ok "7:   ... naming coordinate.md, both compat numbers and both hashes" || bad "7:   ... naming coordinate.md, both compat numbers and both hashes" "$(cat "$T/open.err")"
+eq "7:   ... and no run takes it over" "" "$(line outcome)$(line session)"
+eq "7:   ... refused before koto imports it, so second holds no copy" none "$(copies "$OTHER")"
+eq "7:   ... and no migration marker beside the source" "" "$(migrated "$OTHER")"
+eq "7:   ... and the source stays the live run in work" "$OTHER" \
+    "$(cd "$W1" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
+# The same run with nothing to judge it by before the import: its record/meta
+# without the compat pair, as a record from before the pair keeps it
+# (shirabe#1333), and no compiled copy of its template in this host's cache.
+# The import then runs, koto asked with --trust-template, and the check after
+# it refuses the copy, which stays in second.
+(cd "$W1" && koto context get "$OTHER" record/meta) | jq -c 'del(.template_compat, .template_fingerprint)' > "$T/meta7.json"
+(cd "$W1" && koto context add "$OTHER" record/meta --from-file "$T/meta7.json" >/dev/null)
+rm -f "$XDG_CACHE_HOME/koto/$( (cd "$W1" && koto status "$OTHER") | jq -r .template_hash).json"
+rimport imp2 "$OTHER" '["--trust-template"]'
+eq "7: with nothing to judge it by first, it is imported, then refused template-incompatible" "2 template-incompatible" "$ORC $(line refused)"
 eq "7:   ... and no run takes it over" "" "$(line outcome)$(line session)"
 eq "7:   ... the copy the only run of its scope in second" "$OTHER" \
     "$(cd "$W2" && bash "$PS/coord-log.sh" live-session --scope-slug roadmap-imp2 --all 2>/dev/null)"
