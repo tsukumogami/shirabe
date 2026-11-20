@@ -149,8 +149,9 @@ single wait. The told pass does nothing on a successor, because the clear
 left no rows for it to read.
 
 Observed: on a coordinator scope whose record carries 20 holdings whose
-workers are gone, each successor's classify ran 35 to 41 minutes, about 1.5
-to 2.2 minutes per holding, spread evenly across the holdings. That fits the
+workers are gone, each successor's classify ran 35 to 41 minutes, about 1.75
+to 2 minutes per holding on average (individual holdings took between about
+1.5 and 2.2), spread evenly across the holdings. That fits the
 model's per-write cost. Issue #1696 measured the same shape on another
 record: 30 writes at 4 to 5 minutes each on a cloud-synced session, about
 two hours.
@@ -236,18 +237,23 @@ gate reads has been checked by this successor's own listing, which is what
 R15's table asks for, and the check costs one local call rather than one
 write per worker.
 
-The host guard keeps the row's "on this host" claim true. A same-host carry
-and a `--continues` takeover whose predecessor's last writer is this machine
-(the opener already reads this as `ELSEWHERE`, `coordinate-open.sh:792-798`)
-keep the rows; an `--import`, or a takeover from another machine, drops them
-and pays the full classify once on the new host. `ELSEWHERE` is read before
-the fence, because a fence pushed from here makes this host the last writer,
-so a re-run of `finish_takeover` after a crash past the fence can't read it
-again and drops the rows too. A `version.json` with a machine id that can't
-be read counts as another machine; a local run, which has no `version.json`,
-is this host's. The re-check alone would
-mostly cover a host change, since the new host's listing decides, but a row
-whose text names another host's listing would sit in the record until then.
+The host guard keeps the row's "on this host" claim true, and it defaults
+to dropping the rows. The opener keeps them only when it has positive
+evidence that the predecessor's last writer is this machine. It already
+reads that fact for the watch move (`read_watch`, `coordinate-open.sh:792-798`),
+but that read is fail-open for this purpose: it leaves `ELSEWHERE` at 0 when
+`version.json` is missing or its machine id is empty, and on a re-run after a
+crash past the fence it reads after this host's own push. So the keep
+decision is its own, stricter check: not an `--import`; made before this
+run's fence and stored with the takeover's first write, so a re-run after a
+crash uses the first run's decision and drops the rows when it finds none;
+and either `version.json`
+read with a machine id equal to this host's, or a predecessor session koto
+reports as local, with no cloud sync. Any read that fails means drop. Rows
+that are dropped cost the full classify once, which is the safe direction.
+The re-check alone would mostly cover a host change, since the new host's
+listing decides, but a row whose text names another host's listing would sit
+in the record until then.
 
 #### Alternatives Considered
 
@@ -522,7 +528,7 @@ check's evidence.
 
 ### Overview
 
-The change sits in four scripts and two documents of
+The change sits in eight scripts and two documents of
 `skills/coordinate/`, and touches no template state:
 
 - `scripts/state-common.sh`: the coordinator-row filter and `lib_carrier_row`.
@@ -532,11 +538,19 @@ The change sits in four scripts and two documents of
 - `scripts/handover-classify.sh`: the re-check, list-once lookups and
   collected writes.
 - `scripts/dispatch-common.sh`: a list-once lookup beside `dc_find_session`.
-- `scripts/coordinate-open.sh`: passes the keep flag when the takeover stays
-  on this host.
-- `koto-templates/coordinate.md` details text (`:3602`), `references/state-keys.md`
-  (`:330`) and the `state-stored-set.sh` header (`:41-53`): say what a new
-  address now clears.
+- `scripts/coordinate-open.sh`: decides the keep flag (one helper, default
+  drop) for the takeover and for its carry of an earlier run (`:1752`).
+- `scripts/state-open.sh` and `scripts/state-write-core.sh`: the two carry
+  paths, which pass the keep decision and the holdings to `lib_carrier_row`.
+- `scripts/reconcile-report.sh`: the next step for a holding whose worker is
+  recorded missing (Phase 4).
+- `koto-templates/coordinate.md` details text (`:3601-3602`),
+  `references/state-keys.md` (`:330`) and the `state-stored-set.sh` header
+  (`:41-53`): say what a new address now clears, and that the classify,
+  unlike the re-brief path, re-checks a missing row against the listing.
+  These are details and comment text, which R11 counts compatible; a
+  release records the new compiled template's fingerprint in
+  `coordinate.compat.json` as it does for any text change.
 
 ### Components
 
@@ -546,17 +560,25 @@ The change sits in four scripts and two documents of
 keeps `missing` rows whose worker is in the holdings set, and drops the rest.
 The second step (Decision 2) extends the kept set to `pending` rows on the
 same terms. `lib_carrier_row` today hands the filter only the Run array
-(`{run: .}`, `state-common.sh:214`); it gains the holdings as an argument so
-the carry paths can apply the same filter.
+(`{run: .}`, `state-common.sh:214`); it gains a keep argument and a holdings
+file. Each caller has the holdings to hand: `state-stored-set.sh --run
+coordinator` reads the whole record before it writes (`:648-656`), so the
+filter runs over a state that holds `.holdings`; `state-open.sh`'s carry
+builds `next.json` with `.holdings` before it calls `lib_carrier_row`
+(`:280-294`); and `core_carry` (`state-write-core.sh:535` onwards) lists and
+reads every `record/` key of the source, `record/holdings` among them, so it
+reads that key before it rewrites `record/run`.
 
 **The keep flag.** `state-stored-set.sh --run coordinator VALUE --by WHO`
-gains `--keep-missing`. The entry text gains a clause naming how many missing
-rows were kept. `coordinate-open.sh`'s `finish_takeover` passes the flag when
-the takeover isn't an import and `read_watch` left `ELSEWHERE` at 0. The
-same-host carry in `state-open.sh` passes `$keep` true to `lib_carrier_row`;
-the carry in `state-write-core.sh` passes true only when the copy stays on
-this host. Each caller's choice is checked in implementation against how it
-is reached.
+gains `--keep-missing`, accepted only with `--run coordinator`. The entry
+text gains a clause naming how many missing rows were kept. One helper in
+`coordinate-open.sh` makes the decision Decision 1 describes, before the
+fence, and stores it with the takeover's first write after the fence (the
+driver, which `finish_takeover` writes first, `coordinate-open.sh:871-884`).
+A re-run that finds no stored decision drops the rows. `finish_takeover`
+passes the flag from that decision, and the opener's carry of an earlier run
+(`:1752`) passes the same decision to `core_carry`. `state-open.sh`'s carry
+and every other caller default to drop.
 
 **Repeated worker modes.** `--told`, `--pending` and `--missing` each accept
 the flag more than once. The writer checks each worker with today's rules
@@ -564,16 +586,29 @@ the flag more than once. The writer checks each worker with today's rules
 one, refuses the whole call with the first failing worker's reason, and
 otherwise appends every row in one `next.json`, makes one `core_write`, and
 posts one entry whose text names every worker. One worker gives exactly
-today's entry text.
+today's entry text. A call that names one worker twice is refused. Every
+call goes through the same write guard as today (`lib_write_guard`,
+`state-common.sh:143` onwards), so a write from a session that's no longer
+the record's driver is refused, which covers a classify whose run was taken
+over while it waited. When the entry text would pass the entry's length
+limit, the writer splits the workers over as many entries as it needs,
+still after one state write.
 
 **Failing closed on the listing.** A listing that can't be read or isn't a
 JSON array ends the classify with exit 2, as `dc_find_session`'s return 2
-does today; it's never read as "no instances".
+does today; it's never read as "no instances". A listing that is a valid
+empty array, while the record holds missing rows, isn't trusted on its own:
+the classify takes the second listing after the wait before it keeps those
+rows, so a kept row also needs two misses 30 seconds apart in that case. The
+listing files live in a directory made with `mktemp -d` under `umask 077`,
+removed by an EXIT, INT and TERM trap, which `handover-classify.sh` doesn't
+have today.
 
 **Dropping a row the listing finds again.** A new mode,
 `--relisted W [--relisted W]... --by WHO`, removes the missing row of each W
 and posts one entry saying niwa on this host lists an instance for W again.
-It refuses a worker with no missing row. Only the classify writes it.
+It refuses a worker with no missing row, and it goes through the same write
+guard and driver check as every other mode. Only the classify writes it.
 
 **The classify.** `handover-classify.sh` runs in this order:
 
@@ -584,11 +619,17 @@ It refuses a worker with no missing row. Only the classify writes it.
 3. `state-handover.sh`, as today. Its worker set now includes the relisted
    workers, since they have no row.
 4. First pass over that set against L0, then (Decision 2) the re-probe of
-   carried pending workers against L0.
-5. If any worker was missed, wait once and take one more listing (L1), and
-   look the missed workers up in it.
+   carried pending workers against L0. A carried pending worker L0 doesn't
+   name joins the missed workers, so it too needs two misses before it's
+   recorded missing.
+5. If any worker was missed, or L0 was empty while missing rows exist, wait
+   once and take one more listing (L1), and look the missed workers up in
+   it.
 6. One `--pending` write for every worker found pending, one `--missing`
    write for every worker missed twice, each through `set_row`'s retry.
+   Before each retry, `set_row` re-reads the stored set and drops from the
+   batch any worker that now has a row, so a worker another writer recorded
+   in the meantime can't refuse the batch on every try.
 
 The printed lines keep their shapes and order; `relisted <worker>` is added
 for the step 2 case, so the agent and the tests can see it.
@@ -633,6 +674,10 @@ results and taking one listing per pass. This comes first because it needs
 no change to what the record means, and it helps every first classify on
 its own.
 
+Phase 1 can ship on its own: by the call counts it takes a first classify
+from about 40 minutes to about three. A measured per-step split of a classify
+after it lands is the cheapest check on how much Phases 2 and 3 still save.
+
 Deliverables:
 - `skills/coordinate/scripts/state-stored-set.sh` (repeated modes)
 - `skills/coordinate/scripts/dispatch-common.sh` (list-once lookup)
@@ -650,8 +695,8 @@ Deliverables:
 - `skills/coordinate/scripts/state-stored-set.sh` (`--keep-missing`, `--relisted`)
 - `skills/coordinate/scripts/coordinate-open.sh`, `state-open.sh`, `state-write-core.sh` (callers)
 - `skills/coordinate/scripts/handover-classify.sh` (re-check)
-- `skills/coordinate/koto-templates/coordinate.md` details text, `references/state-keys.md`
-- tests: the stored-set, handover and classify suites
+- `skills/coordinate/koto-templates/coordinate.md` details text (`:3601-3602`), `references/state-keys.md`
+- tests: the stored-set, handover, opener and classify suites
 
 ### Phase 3: Carry pending rows with a per-worker re-probe
 
@@ -676,55 +721,79 @@ This design changes shell scripts under `skills/coordinate/` that already
 run with the caller's own rights. It adds no dependency, no network endpoint
 and no credential, and it makes fewer GitHub calls than the code it changes:
 the visibility GETs of one record write per mode instead of one per worker.
-Its security questions are about what the handover gate trusts.
+Its security questions are about what the handover gate trusts. The rule
+that shapes every answer below is that a kept row can only exempt a worker
+from the gate, and a re-check can only take rows away, so every failure is
+meant to land on the side of dropping a row and holding the gate.
 
 **Inputs.** The classify reads niwa's listing, worker topic names and the
-record's rows. The pass's listing is kept in a file made with `mktemp` in a
-private directory, readable only by the caller and removed when the script
-exits, and it's parsed with the same array check and tab-safe jq reads
-`dc_find_session` uses today. A listing that can't be read or isn't an array
-ends the classify with exit 2. It's never treated as an empty list, because
-an empty list would confirm every kept missing row and exempt those workers
-from the gate. Worker names pass the schema's worker check (`check_worker`
-in `state-schema.jq`) before any row, entry or printed line carries them, in
-every repeated mode and in `--relisted`, and a call that names one worker
-twice is refused. The `unknown <worker> <why>` line stays scrubbed as it is
-today. Rows in the record are unsigned data, as they are now; anyone who can
-write the record can already write a row, and this design gives nobody a new
-way to.
+record's rows. The pass's listing files sit in a private `mktemp -d`
+directory under `umask 077`, removed by an EXIT, INT and TERM trap, and are
+parsed with the array check and tab-safe jq reads `dc_find_session` uses
+today. A listing that can't be read or isn't an array ends the classify with
+exit 2; it's never treated as an empty list. A listing that is a valid empty
+array while the record holds missing rows (a wrong or empty workspace root
+would give one) isn't trusted alone: the classify waits and lists again
+before it keeps those rows. Worker names pass the schema's worker check
+(`check_worker` in `state-schema.jq`) before any row, entry or printed line
+carries them, in every repeated mode and in `--relisted`, and a call that
+names one worker twice is refused. The `unknown <worker> <why>` line stays
+scrubbed as it is today. Rows in the record are unsigned data, as they are
+now; anyone who can write the record can already write a row.
+
+**New write paths.** `--relisted`, the repeated modes and `--keep-missing`
+are new ways to change the Run section. Each one goes through the write
+guard and driver check every mode uses (`lib_write_guard`,
+`state-common.sh:143` onwards), so only the record's driver can make them.
+`--keep-missing` is accepted only with `--run coordinator`, and the address
+entry records how many rows it kept. The driver check also closes the
+stale-write window: a classify reads the coordinator address at its start
+and writes after its wait, and if a succession lands in between, the old
+classify's write comes from a session that's no longer the driver and is
+refused.
 
 **The gate.** A kept missing row exempts its worker from the handover gate,
-so the design keeps it only while it can be checked. A kept row stands only
-while this successor's own listing still doesn't name the worker. A worker
-the listing names loses its row and is classified again, so a stale or
-forged missing row for a live worker goes at the next classify, sooner than
-the next succession as before. Rows of workers with no holding are dropped,
-and `told` rows are always dropped (R14). A carried pending row (the second
+so it's kept only while it can be checked. It stands only while this
+successor's own listing still doesn't name the worker. A worker the listing
+names loses its row and is classified again, so a stale or forged missing
+row for a live worker goes at the next classify, sooner than at the next
+succession as before. Rows of workers with no holding are dropped, and
+`told` rows are always dropped (R14). A carried pending row (the second
 change) is re-probed on every classify, and one the probe can't settle loses
 its row. A row is an observation and never the reason a holding ends: a
 holding retires only on the teardown check's evidence, so a misread row
 can't remove a live worker's holding.
 
 **Hosts.** A missing row says niwa on this host listed no instance, so it's
-kept only when the record stays on the host that wrote it. An `--import`, a
-takeover from another machine, a takeover whose machine id can't be read and
-a re-run of a takeover cut short after the fence all drop the rows. If the
-guard still misreads, the listing re-check limits a wrong row to the time
-until the next classify. Two workspace roots on one machine count as one
-host to this guard; the re-check against the root the classify lists from
-covers that case the same way. `--keep-missing` is accepted only with
-`--run coordinator`, and the address entry records how many rows were kept.
+kept only on positive evidence that the record stays on the host that wrote
+it, and every read that fails means drop: an `--import`, a takeover from
+another machine, a `version.json` that can't be read or has no machine id,
+and a re-run that finds no stored keep decision all drop the rows. Two
+residual cases remain. When koto has no configured machine id, this host's
+id is a hash of its hostname, so two hosts with the same name compare
+equal. And two workspace roots on one machine are one host to this guard.
+In both, the listing re-check limits a wrong row to the time until the next
+classify, since the listing is this root's on this host.
 
 **Writes.** A batched call checks every worker against the record's current
 state, writes the Run section once, and refuses as a whole when any worker
 fails, which leaves those workers without a row and so held by the gate,
-never exempt. The retry on a changed record rebuilds the call from the fresh
-record. If a first attempt did land and the retry is refused as "already
-missing", the classify exits 2, and a re-run picks up only the workers with
-no row. If the state lands and its one entry doesn't post (exit 14), that one
-lost entry covers every worker of the call; the rows themselves are intact.
-A launch that writes the record can still race the classify's write; both
-sides retry three times and then stop with an error rather than overwrite.
+never exempt. Before each retry the classify drops any worker that now has a
+row, so one worker recorded by another writer can't refuse the batch on
+every try. If a first attempt did land and its retry is refused, the
+classify exits 2, and a re-run picks up only the workers with no row. If the
+state lands and its entry doesn't post (exit 14), that lost entry covers
+every worker of the call; the rows themselves are intact. An entry that
+would pass the length limit is split, after the one state write.
+
+**Availability and timing.** A classify that keeps failing holds the gate,
+and so every launch, as it does today; the design's failures are all of that
+kind, never a silent pass. Between the classify's listing and its write
+there's a window in which a worker's state can change: a dispatch into that
+window under a matching topic could get a row while live. The window is
+seconds now that there's one listing per pass, the told pass or the next
+classify settles it, and a launch that writes the record is held for the
+classify anyway (Decision 4).
 
 **Data.** Rows and entries name workers by topic and nothing else from
 niwa's listing; instance paths aren't recorded. One entry names every worker
@@ -754,6 +823,10 @@ already makes.
   stays missing even when niwa lists it again (`coordinate.md:3601`, said of
   the re-brief path).
 - Three documented statements of "a new address clears all three" change.
+- The host guard drops rows on any read it can't confirm, so some
+  successions that did stay on one host still pay the full classify once.
+- The opener gains a stored keep decision, one more fact a takeover writes
+  after the fence and a re-run has to find.
 
 ### Mitigations
 
@@ -765,3 +838,7 @@ already makes.
 - The re-brief path's rule stays as it is; only the classify re-checks, and
   the details text says so.
 - The text updates land in the same change as the behaviour.
+- A full classify after a dropped carry is the batched one from Decision 3:
+  about three minutes for 20 gone workers, not 35 to 41.
+- The stored decision rides on the takeover's first write, which a re-run
+  already reads to tell whether the run is its own; finding none means drop.
