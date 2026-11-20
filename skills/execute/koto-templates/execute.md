@@ -1522,14 +1522,18 @@ Exit 0 (this run's PR, or an unmarked one it adopts) or exit 4 (none yet) goes o
 
 ```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/start-commit.sh --plan-slug {{PLAN_SLUG}}
+echo "exit=$?"
+```
+
+`start-commit.sh` gives `impl/{{PLAN_SLUG}}` a commit of its own when it has none. GitHub won't open a pull request whose branch has no commit the default branch lacks, which is where the branch stands when an earlier pull request already merged the PLAN. So when the branch has nothing beyond the remote's default branch, it adds one empty commit (`chore: start the {{PLAN_SLUG}} implementation`), and otherwise changes nothing. It never pushes and never touches the index or work tree. It prints `created <sha>` or `unchanged <sha>`. Exit 0 goes on to the push and the create below. Anything else (a detached HEAD, a branch other than `impl/{{PLAN_SLUG}}`, a default branch it can't read or fetch, a commit it can't write) stops here, **before the push**: submit `status: blocked` with its message as `detail`.
+
+```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}
 {{PLUGIN_ROOT}}/skills/execute/scripts/adopt-or-create-pr.sh \
   --session {{SESSION_NAME}} --repo "$REPO" --head impl/{{PLAN_SLUG}} \
   --create --plan-slug {{PLAN_SLUG}} --plan-doc {{PLAN_DOC}}
 echo "exit=$?"
 ```
-
-`start-commit.sh` gives `impl/{{PLAN_SLUG}}` a commit of its own when it has none. GitHub won't open a pull request whose branch has no commit the default branch lacks, which is where the branch stands when an earlier pull request already merged the PLAN. So when the branch has nothing beyond the remote's default branch, it adds one empty commit (`chore: start the {{PLAN_SLUG}} implementation`), and otherwise changes nothing. It never pushes and never touches the index or work tree. It prints `created <sha>` or `unchanged <sha>`. Any non-zero exit (a detached HEAD, a branch other than `impl/{{PLAN_SLUG}}`, a default branch it can't read or fetch, a commit it can't write) stops here, before the push: submit `status: blocked` with its message as `detail`.
 
 `push-and-record.sh` pushes with an explicit `HEAD:refs/heads/<branch>` refspec and no force option, refuses the default branch and a detached HEAD, and records the pushed commit as `expected_head` only after the push succeeds. Every push this run makes goes through it (or through `run-cascade.sh --push --session`); nothing else writes `expected_head`, and you never write it yourself.
 

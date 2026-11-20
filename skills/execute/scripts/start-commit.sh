@@ -20,7 +20,9 @@
 # runs. Its subject is a Conventional Commits one with no trailer, which
 # pr_finalization's settled_commits check requires of every commit on the
 # shared branch. The script never pushes: push-and-record.sh, run next, pushes
-# the branch and records the start commit as expected_head.
+# the branch and records the start commit as expected_head. It is a script of
+# its own rather than a flag on push-and-record.sh because every fix push from
+# ci_monitor goes through that script, which stays exactly a push.
 #
 # Usage: start-commit.sh --plan-slug <slug> [--remote <remote>]
 #
