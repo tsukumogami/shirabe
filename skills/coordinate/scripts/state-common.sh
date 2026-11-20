@@ -321,16 +321,22 @@ lib_job_wait() {
     LIB_JOBS=${LIB_JOBS/ "$1:$p"/}
 }
 
-# lib_jobs_stop: stop every job not yet waited for, and wait for each to go.
-# A check ends with it, so a read past the verdict it reached, or one still
-# out when the check is killed, starts nothing more and is gone before the
-# check removes its temporary directory. Only the job itself is signalled: a
-# koto call it had already started runs to its end, writing only to the files
-# it already holds open, which the removal unlinks.
+# lib_jobs_stop: stop every background job the shell started, recorded in
+# LIB_JOBS or not, and wait for each to go. A check ends with it, so a read
+# past the verdict it reached, or one still out when the check is killed,
+# starts nothing more and is gone before the check removes its temporary
+# directory. The shell's own job table covers a job that lib_job_start forked
+# but hadn't recorded yet when a signal ran the EXIT trap (shirabe#1695). Only
+# the job itself is signalled: a koto call it had already started runs to its
+# end, writing only to the files it already holds open, which the removal
+# unlinks.
 lib_jobs_stop() {
-    local j
+    local j p
     for j in $LIB_JOBS; do kill "${j#*:}" 2> /dev/null; done
     for j in $LIB_JOBS; do wait "${j#*:}" 2> /dev/null; done
+    p=$(jobs -p)
+    [ -z "$p" ] || kill $p 2> /dev/null
+    wait 2> /dev/null
     LIB_JOBS=
 }
 

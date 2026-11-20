@@ -459,6 +459,19 @@ OUT=$(WS_MODE=fail KOTO_BIN="$T/ws/koto" bash "$RS" --run --workspace /srv/sourc
 eq "  ... a failed read exits 2 with nothing on stdout, never []" "2 " "$rc $OUT"
 bash "$RS" --workspace /srv/source-ws --session "$SU" --record >/dev/null 2>&1
 eq "  ... and --workspace goes only with --run or --predecessors" 64 $?
+# --meta --workspace: the source's record/meta where it is, which an import
+# judges the source's template by before koto copies the run (shirabe#1941).
+: > "$KOTO_STORE/ws-calls"
+OUT=$(KOTO_BIN="$T/ws/koto" bash "$RS" --meta --workspace /srv/source-ws --session "$SU" 2>"$T/err"); rc=$?
+eq "--meta --workspace prints a present record/meta as koto holds it" "0 $(koto context get "$SU" record/meta | jq -c .)" "$rc $OUT"
+eq "  ... every koto call it made naming the workspace" "" "$(grep -v '^--workspace /srv/source-ws context ' "$KOTO_STORE/ws-calls")"
+eq "  ... and writing nothing" "$WSNAP" "$(session_snapshot "$SU")"
+OUT=$(KOTO_BIN="$T/ws/koto" bash "$RS" --meta --workspace /srv/source-ws --session "$SW0" 2>"$T/err"); rc=$?
+eq "  ... {} for a source with no record/meta, exit 0" "0 {}" "$rc $OUT"
+OUT=$(WS_MODE=refuse KOTO_BIN="$T/ws/koto" bash "$RS" --meta --workspace /srv/source-ws --session "$SU" 2>"$T/err"); rc=$?
+eq "  ... a koto refusal exits 3, printing refused=<code>" "3 refused=workspace_needs_cloud" "$rc $OUT"
+OUT=$(WS_MODE=fail KOTO_BIN="$T/ws/koto" bash "$RS" --meta --workspace /srv/source-ws --session "$SU" 2>"$T/err"); rc=$?
+eq "  ... a failed read exits 2 with nothing on stdout, never {}" "2 " "$rc $OUT"
 # --predecessors: PR1 continues PR0 (koto's relation), is linked by a carry to
 # PR2 (a run of its own scope) and by a dispatcher to another scope's run; a
 # rotation names its predecessor in record/rotation.

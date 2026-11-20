@@ -152,6 +152,10 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/push-and-record_test.sh
 
+      - name: Run start-commit tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/start-commit_test.sh
+
       - name: Run record-merge-verdict tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/record-merge-verdict_test.sh

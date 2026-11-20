@@ -27,8 +27,13 @@
 #   3. Discovery: $HOME/.local/libexec/fleet/event-sink is a regular file,
 #      not a symbolic link, and executable; it and every directory above it
 #      (the physical path, up to /) are owned by this user's uid or by 0,
-#      and none is writable by group or others. Ownership and mode come from
-#      /bin/ls -ldn, which reads the same on macOS and Linux.
+#      and none is writable by others. Group write passes only when the
+#      entry's group is this user's private group: the user's primary gid,
+#      with no other member and no other account using it as its primary
+#      group, as getent reads them. A shared group, an ACL (`+`) on a
+#      group-writable entry, or a host where id or getent can't answer still
+#      refuses. Ownership and mode come from /bin/ls -ldn, which reads the
+#      same on macOS and Linux; id and getent are looked up on EE_PATH.
 #   4. With --koto-dir (an absolute path with no `..` and no leading `-`),
 #      `koto session list --execution-dir <dir>` runs under its own
 #      EE_BOUND-second deadline, and the row whose id is unit.koto_session
@@ -118,23 +123,60 @@ ee_map() {
     printf '%s' "${v:0:128}"
 }
 
+# ee_id / ee_getent: id(1) and getent(1) from EE_PATH, so the caller's PATH
+# plays no part. The test replaces both with stand-ins.
+ee_id() { PATH=$EE_PATH id "$@"; }
+ee_getent() { PATH=$EE_PATH getent "$@"; }
+
+# ee_private_group <gid>: the gid is this user's private group. It is the
+# user's primary gid, its group entry lists no member but the user, and no
+# other account has it as its primary group. Anything that can't be read
+# counts as not private. The verdict for the last gid asked is kept in
+# EE_PG_GID/EE_PG_OK, so a walk up to / asks getent once.
+EE_PG_GID=''
+EE_PG_OK=''
+ee_private_group() {
+    local me ent rows name g
+    [ -n "$1" ] || return 1
+    if [ "$EE_PG_GID" = "$1" ] && [ -n "$EE_PG_OK" ]; then
+        [ "$EE_PG_OK" = y ]
+        return
+    fi
+    EE_PG_GID=$1
+    EE_PG_OK=n
+    [ "$1" = "$(ee_id -g 2>/dev/null)" ] || return 1
+    me=$(ee_id -un 2>/dev/null) && [ -n "$me" ] || return 1
+    ent=$(ee_getent group "$1" 2>/dev/null) && [ -n "$ent" ] || return 1
+    case "${ent##*:}" in '' | "$me") ;; *) return 1 ;; esac
+    rows=$(ee_getent passwd 2>/dev/null) && [ -n "$rows" ] || return 1
+    while IFS=: read -r name _ _ g _; do
+        [ "$g" = "$1" ] && [ "$name" != "$me" ] && return 1
+    done <<EOF
+$rows
+EOF
+    EE_PG_OK=y
+}
+
 # ee_mode_ok <path> <file|dir>: the path's own entry is of that type, owned by
-# this uid or by 0, and not writable by group or others.
+# this uid or by 0, not writable by others, and writable by its group only
+# when that group is this user's private group and no ACL is on the entry.
 ee_mode_ok() {
-    local line mode uid
+    local line mode uid gid
     line=$(/bin/ls -ldn -- "$1" 2>/dev/null) || return 1
-    mode=${line%% *}
-    line=${line#"$mode"}
-    line=${line#"${line%%[! ]*}"}
-    line=${line#*[ ]}
-    line=${line#"${line%%[! ]*}"}
-    uid=${line%% *}
+    read -r mode _ uid gid _ <<EOF
+$line
+EOF
     case "$2:${mode:0:1}" in
         file:-|dir:d) ;;
         *) return 1 ;;
     esac
-    [ "${mode:5:1}" != w ] && [ "${mode:8:1}" != w ] || return 1
-    [ "$uid" = "$EUID" ] || [ "$uid" = 0 ]
+    [ "$uid" = "$EUID" ] || [ "$uid" = 0 ] || return 1
+    [ "${mode:8:1}" != w ] || return 1
+    if [ "${mode:5:1}" = w ]; then
+        [ "${mode:10:1}" != + ] || return 1
+        ee_private_group "$gid" || return 1
+    fi
+    return 0
 }
 
 # ee_discover: print the sender's physical path when every check passes.
