@@ -299,7 +299,7 @@ fi
 
 if [ -f "$SC" ]; then
     CODE=$(grep -vE '^[[:space:]]*#' "$SC")
-    if printf '%s\n' "$CODE" | grep -qE 'git[^|;&]*[[:space:]](push|commit)([[:space:]]|$)|--force'; then
+    if grep -qE 'git[^|;&]*[[:space:]](push|commit)([[:space:]]|$)|--force' <<<"$CODE"; then
         fail "start-commit.sh pushes, runs git commit, or passes a force option"
     else
         pass "start-commit.sh never pushes, never runs git commit, and passes no force option"
