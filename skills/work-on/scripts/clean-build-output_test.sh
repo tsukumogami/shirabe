@@ -569,6 +569,29 @@ cbo "$R" --base "$B"
 has_line "Target/ against a tracked target/ with core.ignorecase: tracked" "Target/ tracked" "$OUT"
 exists "a case-folded tracked path is untouched" "$R/target/f"
 
+# The case-folded listing failing: the index spells target/f, the disk spells
+# Target/, so only the full listing can match it. A git that fails that one
+# listing (and nothing else) must leave the path read tracked, and kept.
+R="$W/case-fail"
+B=$(mkrepo "$R" '["Target/"]')
+rm -rf "$R/target"
+mkdir "$R/target"
+printf 'tracked\n' > "$R/target/f"
+git -C "$R" add -f target/f
+git -C "$R" commit -q -m tracked-target
+mv "$R/target" "$R/case-tmp"
+mv "$R/case-tmp" "$R/Target"
+git -C "$R" config core.ignorecase true
+printf 'Target/\n' >> "$R/.git/info/exclude"
+mkdir "$W/gitstub"
+printf '#!/usr/bin/env bash\nif [ "$#" -eq 4 ] && [ "$3" = ls-files ] && [ "$4" = -z ]; then\n    echo "fatal: index file unreadable" >&2\n    exit 128\nfi\nexec '"'"'%s'"'"' "$@"\n' \
+    "$(command -v git)" > "$W/gitstub/git"
+chmod +x "$W/gitstub/git"
+OUT=$(cd "$R" && PATH="$W/gitstub:$PATH" bash "$SCRIPT" --base "$B" 2>"$W/stderr")
+has_line "a failed case-folded listing reads tracked" "Target/ tracked" "$OUT"
+exists "a path the failed listing couldn't clear is untouched" "$R/Target/f"
+has_line "the failed listing's error stays visible" "fatal: index file unreadable" "$(cat "$W/stderr")"
+
 # The order: a path failing two checks reports only the first.
 R="$W/order"
 B=$(mkrepo "$R" '["/abs/..", "missing/../../x", "README-link", "README"]')

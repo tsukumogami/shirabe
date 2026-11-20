@@ -543,7 +543,11 @@ is_tracked() {
     done
     if [ "$IGNORECASE" = true ]; then
         lq=$(lower "$1")
-        git -C "$ROOT" ls-files -z | tr '\0' '\n' | tr '[:upper:]' '[:lower:]' \
+        # The listing is taken on its own, before the matching pipeline, so
+        # git's exit status is the one tested: a listing that fails reads as
+        # tracked, like the per-path reads above, and nothing is removed on it.
+        git -C "$ROOT" ls-files -z > "$WORK/ls-files.out" || return 0
+        tr '\0' '\n' < "$WORK/ls-files.out" | tr '[:upper:]' '[:lower:]' \
             | Q="$lq" awk 'BEGIN { q = ENVIRON["Q"]; f = 0 }
                 $0 == q || index($0, q "/") == 1 { f = 1; exit }
                 END { exit !f }' && return 0
