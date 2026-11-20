@@ -515,10 +515,14 @@ states:
           verdict: exit
 
   setup_plan_backed:
+    # A key in skip_if that isn't a vars. key must already be in the state's
+    # evidence, so the skip keys on SHARED_BRANCH alone: a child handed the
+    # shared branch submits nothing here. The skip resolves its target through
+    # the conditional edge on the same variable; the other conditional edges
+    # carry is_set: false so every pair stays mutually exclusive.
     skip_if:
       vars.SHARED_BRANCH:
         is_set: true
-      status: override
     gates:
       on_feature_branch:
         type: command
@@ -537,15 +541,25 @@ states:
     transitions:
       - target: analysis
         when:
+          vars.SHARED_BRANCH:
+            is_set: true
+      - target: analysis
+        when:
           status: completed
           gates.on_feature_branch.exit_code: 0
           gates.baseline_exists.exists: true
+          vars.SHARED_BRANCH:
+            is_set: false
       - target: analysis
         when:
           status: override
+          vars.SHARED_BRANCH:
+            is_set: false
       - target: done_blocked
         when:
           status: blocked
+          vars.SHARED_BRANCH:
+            is_set: false
         context_assignments:
           failure_reason: "setup_plan_backed blocked: ${evidence.detail}"
       - target: analysis
@@ -3389,7 +3403,8 @@ For plan-backed tasks, use ARTIFACT_PREFIX as the baseline key.
 
 Submit `status: completed` after creating the branch and baseline, `status: override`
 if reusing an existing branch, or `status: blocked`. When `SHARED_BRANCH` is set, koto
-skips this state through `skip_if` and you submit nothing here.
+skips this state through `skip_if` on that variable alone: the response arrives at
+`analysis`, and you submit nothing here.
 
 ## staleness_check
 

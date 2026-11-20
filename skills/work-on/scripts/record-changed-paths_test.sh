@@ -793,6 +793,13 @@ tick e-plan '{"mode":"plan_backed","issue_source":"plan_outline"}'
 printf 'outline\n' | ctx add e-plan context.md
 tick e-plan '{"status":"completed","issue_source":"plan_outline"}'
 tick e-plan '{"verdict":"proceed"}'
+# With SHARED_BRANCH set, setup_plan_backed's skip_if moves the child on to
+# analysis on arrival, with nothing submitted there (#1461).
+if [ "$STATE" = analysis ]; then
+    pass "plan-backed: SHARED_BRANCH skips setup_plan_backed on arrival"
+else
+    fail "plan-backed: with SHARED_BRANCH set the child stopped at $STATE instead of analysis"
+fi
 # On a shared branch the orchestrator made the branch; setup_plan_backed takes
 # override, as its directive says.
 [ "$STATE" = setup_plan_backed ] && tick e-plan '{"status":"override"}'
