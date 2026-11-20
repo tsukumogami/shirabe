@@ -868,7 +868,7 @@ check_rerun_record() {
         [ $# -gt 0 ] || { usage; exit 2; }
         OWNED=1
     fi
-    command -v jq >/dev/null 2>&1 || undecided "jq is not on PATH"
+    command -v jq >/dev/null || undecided "jq is not on PATH"
     make_work
 
     if [ "${#RR_LINES[@]}" -gt 0 ]; then
@@ -901,7 +901,7 @@ check_rerun_record() {
 RR_TOTAL=0
 rr_expect_from_sessions() {
     local s i n total
-    command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH"
+    command -v koto >/dev/null || undecided "koto is not on PATH"
     CTX_FILE="$WORK/ctx"
 
     # The ledgers first: with none, nothing else is read.
@@ -961,7 +961,7 @@ rr_check_body() {
     local total=$1 what=$2 rc n msg
     shift 2
     # The pull request, as --deferral-record reads it.
-    command -v gh >/dev/null 2>&1 || undecided "gh is not on PATH"
+    command -v gh >/dev/null || undecided "gh is not on PATH"
     if [ "$OWNED" = 1 ]; then
         lookup "$@"
         rc=$?

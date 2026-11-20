@@ -1677,7 +1677,7 @@ run --rerun-record --session s-spaced
 rr_case "--rerun-record: the reason is matched with backticks removed and whitespace collapsed" 0 ""
 
 # No absolute path in a re-run line.
-for path_text in 'log /home/u/.local/state/x.log' 'see ~/x.log' 'log (/tmp/x.log)' 'log=/tmp/x' 'C:\logs\x.log'; do
+for path_text in 'log /var/log/x.log' 'see ~/x.log' 'log (/tmp/x.log)' 'log=/tmp/x' 'C:\logs\x.log'; do
     FAKE_GH_BRANCH_JSON=$(rr_body "Re-run attempt 1 at \`fedcba9\`: \`unit\` failed; reason \`flaky \"net\" test\`; $path_text.")
     run --rerun-record --session s-one
     rr_case "--rerun-record: a line holding an absolute path [$path_text] is refused" 1 \
