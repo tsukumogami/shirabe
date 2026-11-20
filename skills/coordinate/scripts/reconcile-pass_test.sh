@@ -94,6 +94,10 @@ ident=$(printf '%s' "${2-}" | tr -c 'A-Za-z0-9._-' '_')
 mark="$STUB_DIR/running.$$"; trap 'rm -f "$mark"' EXIT TERM; : > "$mark"
 c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
+# The same count per sub, in max.<sub>, from a marker of its own.
+smark="$STUB_DIR/sub.$sub.$$"; trap 'rm -f "$mark" "$smark"' EXIT TERM; : > "$smark"
+c=$(ls "$STUB_DIR"/sub."$sub".* 2>/dev/null | wc -l | tr -d ' ')
+m=$(cat "$STUB_DIR/max.$sub" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max.$sub"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
 # The lock is a file bash itself creates under noclobber (`set -C`), which
@@ -119,6 +123,8 @@ rm -f "$CLOCK.lock"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
 [ -f "$STUB_DIR/hang.$sub" ] && sleep 60
+# Real seconds a re-check of this sub takes, under `wait` so a stop ends it.
+[ -f "$STUB_DIR/sleep.$sub" ] && { sleep "$(cat "$STUB_DIR/sleep.$sub")" & wait $!; }
 if [ "$sub" = deferral ]; then
     rf=""; prev=""; for a in "$@"; do [ "$prev" = --row-file ] && rf=$a; prev=$a; done
     [ -n "$rf" ] && cat "$rf" >> "$STUB_DIR/rows-seen" && echo >> "$STUB_DIR/rows-seen"
@@ -423,6 +429,50 @@ pass
 elapsed=$((SECONDS - start))
 [ "$elapsed" -lt 20 ]; check "a re-check past its budget is stopped, and the pass's line doesn't wait for it" $? "${elapsed}s: $LINE"
 case "$LINE" in pending:*) ok "and the visit stays pending, to read it again" ;; *) bad "and the visit stays pending, to read it again" "$LINE" ;; esac
+
+# An inventory that never fits its budget (shirabe#1166): each launch costs 40
+# seconds of the clock and then hangs, so the pass stops it every time. Stopped
+# with its whole 20-second budget in two passes, it is stored as timed out and
+# the visit seals, instead of starting it again on every tick. The holding has
+# no branch, so the listing read is the only other re-check.
+new_case inventory-never-fits
+record "[$(hold slow "" '{"branch": ""}')]"
+echo 40 > "$CASE/cost.inventory"
+: > "$CASE/hang.inventory"
+pass
+case "$LINE" in pending:*) ok "an inventory stopped at its whole budget once is read again" ;; *) bad "an inventory stopped at its whole budget once is read again" "$LINE" ;; esac
+tick 1; pass
+case "$LINE" in "reconciled "*) ok "stopped at its whole budget in two passes, the visit seals" ;; *) bad "stopped at its whole budget in two passes, the visit seals" "$LINE: $(ctx reconcile/progress)" ;; esac
+[ "$(grep -c ' inventory ' "$CASE/checks")" = 2 ]; check "the inventory was launched twice" $? "$(cat "$CASE/checks")"
+ctx reconcile/report.md | grep -q 'inventory could not be taken (timed out: still running at the end of its 20 s budget in 2 passes)'
+check "the report says the inventory timed out and was not taken" $? "$(ctx reconcile/report.md)"
+jq -e '.not_verified | any(.what == "slow: inventory" and (.reason | startswith("timed out")))' <<<"$(ctx reconcile/report.json)" >/dev/null
+check "and lists it as not verified" $? "$(ctx reconcile/report.json)"
+
+# A stop with a clipped budget isn't a try: the record read costs 17 seconds
+# and the listing read one more, so the first launch gets 6 of the
+# inventory's 20 and the inventory is read again with its whole budget.
+new_case inventory-clipped
+record "[$(hold slow "" '{"branch": ""}')]"
+echo 17 > "$CASE/read.cost"
+echo 40 > "$CASE/cost.inventory"
+: > "$CASE/hang.inventory"
+pass; tick 1; pass
+case "$LINE" in pending:*) ok "a stop with a clipped budget doesn't count as a try" ;; *) bad "a stop with a clipped budget doesn't count as a try" "$LINE" ;; esac
+tick 1; pass
+case "$LINE" in "reconciled "*) ok "two stops at the whole budget after it seal the visit" ;; *) bad "two stops at the whole budget after it seal the visit" "$LINE" ;; esac
+[ "$(grep -c ' inventory ' "$CASE/checks")" = 3 ]; check "the inventory was launched three times" $? "$(cat "$CASE/checks")"
+
+# Four found workers (shirabe#1202): inventories hold at most two of the four
+# slots, so the other re-checks always have one, and every inventory is taken.
+new_case inventories-share
+h="["; for i in 1 2 3 4; do h="$h$(hold "w$i" "" '{"branch": ""}'),"; done; h="${h%,}]"
+record "$h" '[{"action": "close", "target": "#9"}]'
+echo 2 > "$CASE/sleep.inventory"
+n=0; while [ "$n" -lt 6 ]; do pass; case "$LINE" in pending:*) ;; *) break ;; esac; tick 1; n=$((n + 1)); done
+case "$LINE" in "reconciled "*) ok "four inventories seal the visit" ;; *) bad "four inventories seal the visit" "$LINE" ;; esac
+[ "$(cat "$CASE/max.inventory")" -le 2 ]; check "at most two inventories run at once" $? "max $(cat "$CASE/max.inventory")"
+[ "$(grep -c ' inventory ' "$CASE/checks")" = 4 ]; check "and each is taken once" $? "$(cat "$CASE/checks")"
 
 echo "== a worker not found =="
 new_case missed-twice
