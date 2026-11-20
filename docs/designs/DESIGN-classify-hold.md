@@ -392,8 +392,10 @@ makes at most one write per mode plus the rare re-check write from
 Decision 1.
 
 Before every attempt, the first included, `set_row` re-reads the stored set
-and drops from the batch any worker that now has a row; a batch left empty
-is done. `set_row`'s retry stays as it is: it repeats the call only on exits
+and drops from the batch any worker whose write is already done: for
+`--pending` and `--missing`, a worker that now has a row; for `--relisted`,
+a worker that no longer has a missing row (including one the told pass just
+turned told). A batch left empty is done. `set_row`'s retry stays as it is: it repeats the call only on exits
 11 and 12, a record that changed under it (`handover-classify.sh:87-90`).
 Any other exit, a refusal (65, `state-stored-set.sh:783`) among them, ends
 the classify with exit 2, so the gate holds and nobody is exempted.
@@ -607,8 +609,10 @@ record before it writes (`:648-656`), so the filter runs over a state that
 holds `.holdings`; `state-open.sh`'s carry builds `next.json` with
 `.holdings` before it calls `lib_carrier_row` (`:280-294`); and `core_carry`
 (`state-write-core.sh:535` onwards) lists and reads every `record/` key of
-the source, `record/holdings` among them, so it reads that key before it
-rewrites `record/run`. The address entry says how many missing rows the
+the source, `record/holdings` among them. It rewrites `record/run` inside
+that key loop (`state-write-core.sh:578-585`), where `record/holdings` may
+not have been read yet, so the change applies `lib_carrier_row` after the
+loop, once every key is in hand. The address entry says how many missing rows the
 change kept.
 
 **Repeated worker modes.** `--pending` and `--missing`, and `--told` once
@@ -671,7 +675,9 @@ guard and driver check as every other mode. Only the classify writes it.
    worker missed twice, each through `set_row`. The relisted write goes
    first because `--pending` refuses a worker that still has a missing row
    (`state-stored-set.sh:1103`). Before every attempt, the first included,
-   `set_row` drops from the batch any worker that now has a row; it retries
+   `set_row` drops from the batch any worker whose write is already done (a
+   row, for `--pending` and `--missing`; no missing row any more, for
+   `--relisted`); it retries
    only exits 11 and 12, and any refusal ends the classify with exit 2.
 
 The printed lines keep their shapes and order; `relisted <worker>` is added
@@ -830,7 +836,8 @@ own root.
 state, writes the Run section once, and refuses as a whole when any worker
 fails, which leaves those workers without a row and so held by the gate,
 never exempt. Before every attempt, the first included, the classify drops
-any worker that now has a row, so one worker recorded by another writer
+any worker whose write is already done (a row, for `--pending` and
+`--missing`; no missing row any more, for `--relisted`), so one worker recorded by another writer
 doesn't refuse the batch, and an attempt that landed before a retry leaves
 nothing to write again. `set_row` retries only a record that changed under
 it (exits 11 and 12); a refusal ends the classify with exit 2, and a re-run
@@ -889,7 +896,7 @@ already makes.
   the gate reads it, on whichever host, rows of gone holdings are dropped,
   and an empty listing is never trusted alone.
 - The classify only passes workers it took from the list of workers with no
-  row, and `set_row` drops any worker that has one before every attempt, the
+  row, and `set_row` drops any worker whose write is already done before every attempt, the
   first included. A refusal that still comes back isn't retried: `set_row`
   retries only exits 11 and 12 (`handover-classify.sh:87-90`), and a refusal
   (exit 65, `state-stored-set.sh:783`) ends the classify with exit 2, which
