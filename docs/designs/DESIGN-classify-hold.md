@@ -240,7 +240,12 @@ The host guard keeps the row's "on this host" claim true. A same-host carry
 and a `--continues` takeover whose predecessor's last writer is this machine
 (the opener already reads this as `ELSEWHERE`, `coordinate-open.sh:792-798`)
 keep the rows; an `--import`, or a takeover from another machine, drops them
-and pays the full classify once on the new host. The re-check alone would
+and pays the full classify once on the new host. `ELSEWHERE` is read before
+the fence, because a fence pushed from here makes this host the last writer,
+so a re-run of `finish_takeover` after a crash past the fence can't read it
+again and drops the rows too. A `version.json` with a machine id that can't
+be read counts as another machine; a local run, which has no `version.json`,
+is this host's. The re-check alone would
 mostly cover a host change, since the new host's listing decides, but a row
 whose text names another host's listing would sit in the record until then.
 
@@ -304,7 +309,10 @@ that's live now is printed `live W <address>` like any other, and the
 agent's `--told` replaces the pending row (`state-stored-set.sh:1094-1096`).
 A worker whose instance the listing no longer names goes into the batched
 missing write, which means `--missing` must accept a worker recorded pending
-and replace that row, where today it refuses one.
+and replace that row, where today it refuses one. A worker the probe can't
+settle (its koto log can't be read, the `unknown` line) loses its carried
+row, so the gate holds on it as R15 asks for a worker the successor couldn't
+observe.
 
 This lands after Decision 1, as its own change, because it needs a per-worker
 probe instead of one listing and changes a refusal in `--missing`. R15 holds:
@@ -558,6 +566,10 @@ otherwise appends every row in one `next.json`, makes one `core_write`, and
 posts one entry whose text names every worker. One worker gives exactly
 today's entry text.
 
+**Failing closed on the listing.** A listing that can't be read or isn't a
+JSON array ends the classify with exit 2, as `dc_find_session`'s return 2
+does today; it's never read as "no instances".
+
 **Dropping a row the listing finds again.** A new mode,
 `--relisted W [--relisted W]... --by WHO`, removes the missing row of each W
 and posts one entry saying niwa on this host lists an instance for W again.
@@ -660,7 +672,66 @@ Deliverables:
 
 ## Security Considerations
 
-To be written in Phase 5.
+This design changes shell scripts under `skills/coordinate/` that already
+run with the caller's own rights. It adds no dependency, no network endpoint
+and no credential, and it makes fewer GitHub calls than the code it changes:
+the visibility GETs of one record write per mode instead of one per worker.
+Its security questions are about what the handover gate trusts.
+
+**Inputs.** The classify reads niwa's listing, worker topic names and the
+record's rows. The pass's listing is kept in a file made with `mktemp` in a
+private directory, readable only by the caller and removed when the script
+exits, and it's parsed with the same array check and tab-safe jq reads
+`dc_find_session` uses today. A listing that can't be read or isn't an array
+ends the classify with exit 2. It's never treated as an empty list, because
+an empty list would confirm every kept missing row and exempt those workers
+from the gate. Worker names pass the schema's worker check (`check_worker`
+in `state-schema.jq`) before any row, entry or printed line carries them, in
+every repeated mode and in `--relisted`, and a call that names one worker
+twice is refused. The `unknown <worker> <why>` line stays scrubbed as it is
+today. Rows in the record are unsigned data, as they are now; anyone who can
+write the record can already write a row, and this design gives nobody a new
+way to.
+
+**The gate.** A kept missing row exempts its worker from the handover gate,
+so the design keeps it only while it can be checked. A kept row stands only
+while this successor's own listing still doesn't name the worker. A worker
+the listing names loses its row and is classified again, so a stale or
+forged missing row for a live worker goes at the next classify, sooner than
+the next succession as before. Rows of workers with no holding are dropped,
+and `told` rows are always dropped (R14). A carried pending row (the second
+change) is re-probed on every classify, and one the probe can't settle loses
+its row. A row is an observation and never the reason a holding ends: a
+holding retires only on the teardown check's evidence, so a misread row
+can't remove a live worker's holding.
+
+**Hosts.** A missing row says niwa on this host listed no instance, so it's
+kept only when the record stays on the host that wrote it. An `--import`, a
+takeover from another machine, a takeover whose machine id can't be read and
+a re-run of a takeover cut short after the fence all drop the rows. If the
+guard still misreads, the listing re-check limits a wrong row to the time
+until the next classify. Two workspace roots on one machine count as one
+host to this guard; the re-check against the root the classify lists from
+covers that case the same way. `--keep-missing` is accepted only with
+`--run coordinator`, and the address entry records how many rows were kept.
+
+**Writes.** A batched call checks every worker against the record's current
+state, writes the Run section once, and refuses as a whole when any worker
+fails, which leaves those workers without a row and so held by the gate,
+never exempt. The retry on a changed record rebuilds the call from the fresh
+record. If a first attempt did land and the retry is refused as "already
+missing", the classify exits 2, and a re-run picks up only the workers with
+no row. If the state lands and its one entry doesn't post (exit 14), that one
+lost entry covers every worker of the call; the rows themselves are intact.
+A launch that writes the record can still race the classify's write; both
+sides retry three times and then stop with an error rather than overwrite.
+
+**Data.** Rows and entries name workers by topic and nothing else from
+niwa's listing; instance paths aren't recorded. One entry names every worker
+of a batch, and it goes through the same size and public-host visibility
+checks as any other entry (`state-write-core.sh:791`, `:819`). Nothing from
+the record is sent to GitHub beyond the visibility lookups the write path
+already makes.
 
 ## Consequences
 
