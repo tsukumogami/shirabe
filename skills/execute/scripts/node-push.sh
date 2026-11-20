@@ -513,7 +513,8 @@ if [ "$MODE" = node ]; then
         echo "$PROG: could not read node $NODE's verification deferral; nothing was pushed" >&2
         exit 72
     }
-    RERUNS=$("$BASH" "$COORD_SELF_DIR/shared-rerun-record.sh" "${RERUN_ARGS[@]}" --lines </dev/null) || {
+    RERUN_GATE="$COORD_SELF_DIR/shared-rerun-record.sh"
+    RERUNS=$("$BASH" "$RERUN_GATE" "${RERUN_ARGS[@]}" --lines </dev/null) || {
         echo "$PROG: could not read node $NODE's verification re-runs; nothing was pushed" >&2
         exit 72
     }
@@ -706,7 +707,8 @@ if [ "$MODE" = node ]; then
         while IFS= read -r l; do
             [ -n "$l" ] && CHECK_ARGS+=(--recorded "$l")
         done <<<"$RERUNS"
-        "$BASH" "$COORD_SELF_DIR/shared-rerun-record.sh" "${CHECK_ARGS[@]}" -- "${OWNED_ARGS[@]}" </dev/null
+        RERUN_GATE="$COORD_SELF_DIR/shared-rerun-record.sh"
+        "$BASH" "$RERUN_GATE" "${CHECK_ARGS[@]}" -- "${OWNED_ARGS[@]}" </dev/null
         case $? in
             0) ;;
             1) echo "$PROG: node $NODE carries a verification re-run that $OWNED_NOW's body doesn't record; nothing was pushed. Add each re-run line to the ## Verification section of its body and push again" >&2

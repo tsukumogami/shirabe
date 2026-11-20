@@ -617,7 +617,7 @@ cc_deferral_record() {
 # CC_ACTION: error:execute:rerun-record when the body misses a line or has a
 # wrong one, error:execute:status-read when it can't be decided.
 cc_rerun_record() {
-    local item rc err args state recorded
+    local item rc err args state recorded rerun_gate
     args=(--session "$CC_SESSION")
     state=$(printf '%s' "$5" | jq -r \
         'if has("reruns") then "reruns" elif has("deferrals") then "old" else "none" end') \
@@ -646,7 +646,8 @@ cc_rerun_record() {
     [ -n "$COORD_RUN_ID" ] && args+=(--run-id "$COORD_RUN_ID")
     # Its stderr is shown only when it holds the node: a node with no re-run
     # prints nothing new.
-    err=$("$BASH" "$COORD_SELF_DIR/shared-rerun-record.sh" "${args[@]}" </dev/null 2>&1 >/dev/null)
+    rerun_gate="$COORD_SELF_DIR/shared-rerun-record.sh"
+    err=$("$BASH" "$rerun_gate" "${args[@]}" </dev/null 2>&1 >/dev/null)
     rc=$?
     [ "$rc" -eq 0 ] && return 0
     [ -n "$err" ] && printf '%s\n' "$err" >&2
@@ -723,8 +724,9 @@ cc_children_deferrals() {
 # child's read failed for any reason (shared-rerun-record.sh's message is on
 # stderr). A failed read is never a child that didn't re-run.
 cc_children_reruns() {
-    local listing names="$2" item child dir out
+    local listing names="$2" item child dir out rerun_read
     local -a items cargs
+    rerun_read="$COORD_SELF_DIR/shared-rerun-record.sh"
     listing=$(koto session list </dev/null) || {
         echo "$PROG: koto session list failed, so node $1's work items can't be found where they are bound" >&2
         return 1
@@ -746,7 +748,7 @@ cc_children_reruns() {
             '[.[] | select(.id == $c) | .execution_dir | strings][0] // ""') || return 1
         cargs=(--session "$CC_SESSION" --child "$child")
         [ -n "$dir" ] && [ -d "$dir" ] && cargs+=(--child-dir "$dir")
-        out=$("$BASH" "$COORD_SELF_DIR/shared-rerun-record.sh" "${cargs[@]}" --lines </dev/null) || return 1
+        out=$("$BASH" "$rerun_read" "${cargs[@]}" --lines </dev/null) || return 1
         [ -z "$out" ] || printf '%s\n' "$out"
     done
     return 0
