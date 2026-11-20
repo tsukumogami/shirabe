@@ -64,7 +64,7 @@
 # human-waiting PR, since nothing else names it. step is one of
 # execute:pr-closed, ready, ci, ci-timeout, status-read, pr-adopt, write-set,
 # dispatch, push, cascade, merge-gate, visibility, coord-loop,
-# deferral-record.
+# deferral-record, rerun-record.
 #
 # Exit codes: 0 the verdict is on stdout; 64 usage error.
 #
@@ -78,7 +78,7 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 . "$COORD_SELF_DIR/coord-common.sh"
 
 # The same step set as record-coordination-verdict.sh's RE_STEP: add a step to both.
-RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop|deferral-record)$'
+RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop|deferral-record|rerun-record)$'
 
 usage_error() {
     echo "$PROG: $*" >&2
