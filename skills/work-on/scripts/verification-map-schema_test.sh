@@ -107,11 +107,27 @@ fi
 
 # The schema reference names every field the design lists, and the merge-base
 # read.
-for field in run each timeout_secs network unattended max_procs entries default; do
+for field in run each timeout_secs network unattended max_procs entries default build_output; do
     if grep -Fq "\`$field\`" "$REF"; then
         pass "verification-map.md documents \`$field\`"
     else
         fail "verification-map.md documents \`$field\`"
+    fi
+done
+# The optional command field timeout_form, and the two fields each command
+# record carries: outcome and suites.
+for field in timeout_form outcome suites; do
+    if grep -Fq "\`$field\`" "$REF"; then
+        pass "verification-map.md documents \`$field\`"
+    else
+        fail "verification-map.md documents \`$field\`"
+    fi
+done
+for value in passed failed timed-out-limit timed-out-inside SHIRABE_SUITE_SUMMARY; do
+    if grep -Fq "\`$value\`" "$REF"; then
+        pass "verification-map.md names \`$value\`"
+    else
+        fail "verification-map.md names \`$value\`"
     fi
 done
 if grep -Fq 'git show <merge-base>:.claude/shirabe-extensions/verification-map.json' "$REF" \

@@ -235,6 +235,22 @@ for src in merge_confirm merged_facts; do
     eq "$src merged: the unit's widgets#12 row still there waits beside gadgets#12" waiting "$(confirm)"
     body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":""}')" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
     eq "$src merged: widgets#12's cell cleared confirms though gadgets#12's row stays" confirmed "$(confirm)"
+    # The confirmed merge clears the pull request's Side effects merge row at
+    # the merged head, one a takeover carried included (shirabe#1824): while
+    # it stands the record step waits. A merge row at another head, another
+    # pull request's or repository's, and a row of another action don't hold it.
+    MSE=$(jq -nc --arg s "$SHA_HEAD" '{action: "merge", target: "acme/widgets#12", verified_head: $s, attempted: "2026-09-26T09:58Z", how_to_confirm: "compare blobs"}')
+    CA=$(holding alpha '{"pull_request":""}')
+    body "$(rec | jq -c --argjson h "$CA" --argjson m "$MSE" '.holdings = [$h] | .side_effects = [$m]')"
+    eq "$src merged: the cleared cell beside the pull request's Side effects merge row waits" waiting "$(confirm)"
+    bash "$C" --session "$S" >/dev/null 2>&1
+    jq -r '.expectation' "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null | grep -q 'no Side effects merge row for acme/widgets#12' \
+        && ok "$src merged:   ... naming the row it waits on" \
+        || bad "$src merged:   ... naming the row it waits on" "$(cat "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null)"
+    body "$(rec | jq -c --argjson h "$CA" --argjson m "$MSE" '.holdings = [$h] | .side_effects = [$m | .target = "merge of https://github.com/acme/widgets/pull/12"]')"
+    eq "$src merged: the merge row naming the pull request's URL waits too" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson h "$CA" --argjson m "$MSE" --arg o "$SHA_OTHER" '.holdings = [$h] | .side_effects = [($m | .verified_head = $o), ($m | .target = "acme/widgets#13"), ($m | .target = "acme/gadgets#12"), ($m | .action = "teardown")]')"
+    eq "$src merged: a merge row at another head, another pull request's or repository's, or another action's row, doesn't hold it" confirmed "$(confirm)"
     # A holding at Phase scoping landed its unit's scoping alone: its
     # execution goes into Work as a follow-up before the merge confirms.
     SCOPED=$(holding alpha '{"pull_request":"","phase":"scoping"}')

@@ -204,6 +204,13 @@ inv_item() {
     jq -nc --arg c "$1" --arg k "$2" --arg p "$3" '{clone: $c, kind: $k, path: $p}' >> "$ITEMS"
 }
 
+# inv_files_kept -- whether the inventory's items file and its clone-search
+# answer are both still there. Nothing in the read removes either before it
+# exits, so a missing one was removed from outside the read, and what it held
+# is lost (shirabe#1970). An appended item recreates the items file, but not
+# the search's answer, so the pair is checked together.
+inv_files_kept() { [ -f "$ITEMS" ] && [ -f "$ITEMS.found" ]; }
+
 # inv_queue DIR -- add a clone's directory to the walk, once, if it is inside
 # the instance. Returns 1 for a directory outside it.
 inv_queue() {
@@ -903,6 +910,9 @@ inventory)
         124) TRUNC=true; inv_item . unchecked "the search for clones timed out; clones it hadn't reached were not read" ;;
         *) TRUNC=true; inv_item . unchecked "the search for clones failed partway" ;;
     esac
+    # Read with the search's answer gone, the inventory would list nothing and
+    # still say it was taken.
+    inv_files_kept || refuse inventory "its working files were removed during the read"
     while IFS= read -r gitpath; do
         [ -n "$gitpath" ] && inv_queue "$(dirname "$gitpath")"
     done < <(sort "$ITEMS.found")
@@ -1002,8 +1012,13 @@ inventory)
         fi
         j=$((j + 1))
     done
-    jq -sc --argjson tr "$TRUNC" --arg t "$(rd_now)" \
-        '{kind: "inventory", status: "ok", taken: true, items: ., truncated: $tr, read_at: $t}' "$ITEMS"
+    # jq prints its object even when it can't open the items file, with an
+    # empty list, so its output counts only when it exits 0.
+    inv_files_kept || refuse inventory "its working files were removed during the read"
+    FACT=$(jq -sc --argjson tr "$TRUNC" --arg t "$(rd_now)" \
+        '{kind: "inventory", status: "ok", taken: true, items: ., truncated: $tr, read_at: $t}' "$ITEMS" 2>/dev/null) \
+        || refuse inventory "its working files could not be read"
+    printf '%s\n' "$FACT"
     ;;
 
 *) usage ;;

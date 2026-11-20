@@ -17,8 +17,14 @@
 #
 # Usage:
 #   unit-removed.sh record
-#       The on-reap step. Refuses, with one line and exit 0, when its own
-#       script or a library it sources is writable by group or others;
+#       The on-reap step. Refuses, with one line naming every such file and
+#       the `chmod go-w` that fixes them, and exit 3, when its own script or
+#       a library it sources is writable by someone other than the user:
+#       others can write it, or its group can and that group isn't the
+#       user's private one (the user's primary group, with no other member
+#       or account in getent; a host without getent has none). A umask of
+#       0002 leaves every file group-writable by that private group, which
+#       passes. Refuses, with one line and exit 0, when
 #       NIWA_REAP_KEY is unset, outside ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$
 #       or equal to NIWA_SESSION_ID; NIWA_SESSION_ID isn't a session id
 #       (unit-cost.sh's pattern, its first 8 characters hex digits);
@@ -32,7 +38,8 @@
 #       starts no sweep.
 #   unit-removed.sh start
 #       Prints one line saying the automatic sweep is retired pending #1410
-#       and exits 0, starting nothing. The teardown pass runs it as it ends,
+#       and exits 0, starting nothing; refuses as record does, exit 3, when
+#       its files are writable by someone else. The teardown pass runs it as it ends,
 #       and the coordinator at each wake.
 #   unit-removed.sh sweep
 #       With no record in R it does nothing at all. Otherwise every record,
@@ -96,7 +103,9 @@
 #       Before it exits the sweep reads R again and handles any record
 #       written since it started. Exit 0.
 #
-# Exit codes: record, start and sweep always 0; 64 usage.
+# Exit codes: 0 record, start and sweep otherwise; 3 record or start refused
+# a file writable by someone else (niwa prints a warning and runs the step
+# again at a later reap); 64 usage.
 #
 # Environment: the sweep honours XDG_STATE_HOME, XDG_DATA_HOME,
 # TEARDOWN_ARCHIVE_DIR, KOTO_REQUESTS, TEARDOWN_KOTO_SESSIONS,
@@ -118,21 +127,54 @@ HERE=$(cd "$(dirname "$0")" 2>/dev/null && pwd -P) || { say "cannot find its own
 SELF="$HERE/$(basename "$0")"
 umask 077
 
-# writable_by_others <file>: 0 when the file's mode lets group or others write
-# it, or its mode can't be read.
+# private_group <gid>: 0 when the group is the user's own and no one else's:
+# the user's primary group, getent lists no member but the user, and no other
+# account getent lists has it as its primary group. That is the per-user
+# group Debian, Ubuntu and Fedora give each account, where a umask of 0002
+# leaves every file the user writes group-writable. Anything it can't read,
+# getent missing among it, is not private.
+private_group() {
+    local me ent
+    [ -n "$1" ] && [ "$1" = "$(id -g 2>/dev/null)" ] || return 1
+    me=$(id -un 2>/dev/null) && [ -n "$me" ] || return 1
+    ent=$(getent group "$1" 2>/dev/null) && [ -n "$ent" ] || return 1
+    case "${ent##*:}" in '' | "$me") ;; *) return 1 ;; esac
+    getent passwd 2>/dev/null | awk -F: -v g="$1" -v me="$me" '
+        { n++ } $4 == g && $1 != me { other = 1 } END { exit (other || !n) }'
+}
+
+# writable_by_others <file>: 0 when someone other than the user (or root) can
+# write the file through its mode: others can, or its group can and the group
+# isn't the user's private one. 0 too when its mode can't be read, or an ACL
+# (`+`) is on a group-writable file, since an ACL's mask is what the group
+# bits then show and named users may hold write.
 writable_by_others() {
-    local m
-    m=$(ls -l -- "$1" 2>/dev/null) || return 0
-    case "${m%% *}" in ?????w* | ????????w* | '') return 0 ;; esac
+    local m mode gid
+    m=$(ls -ldn -- "$1" 2>/dev/null) || return 0
+    read -r mode _ _ gid _ <<EOF
+$m
+EOF
+    case "$mode" in ????????w* | '') return 0 ;; esac
+    case "$mode" in
+        ?????w*+) return 0 ;;
+        ?????w*) private_group "$gid" || return 0 ;;
+    esac
     return 1
 }
 
 # The on-reap step runs from a hook, and start from the pass and every wake,
-# so neither reads anything it hasn't checked.
+# so neither reads anything it hasn't checked. A refusal names every file at
+# fault and exits 3, so neither niwa nor a caller takes it for a step that ran.
 if [ "$MODE" != sweep ]; then
+    names='' paths=''
     for f in "$SELF" "$HERE/archive-common.sh" "$HERE/dispatch-common.sh"; do
-        writable_by_others "$f" && { say "${f##*/} is writable by group or others; nothing recorded"; exit 0; }
+        writable_by_others "$f" && { names="$names ${f##*/}"; paths="$paths $f"; }
     done
+    if [ -n "$names" ]; then
+        [ "$MODE" = start ] && what="nothing started" || what="nothing recorded"
+        say "${names# } writable by group or others; $what; chmod go-w${paths}"
+        exit 3
+    fi
 fi
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh" && . "$HERE/archive-common.sh" || { say "cannot load its libraries; nothing done"; exit 0; }
