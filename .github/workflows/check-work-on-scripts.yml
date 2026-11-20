@@ -70,6 +70,13 @@ on:
       # extension file that points at it.
       - '.claude/shirabe-extensions/verification-map.json'
       - '.claude/shirabe-extensions/work-on.md'
+      # The hosted coverage test proves the map's hosted declaration against
+      # the gate's plan, check-skill.sh's suite lists, the gate's workflow and
+      # each skill's selection rows, so a change to any of them re-runs it.
+      - 'scripts/skill-gate.sh'
+      - 'scripts/check-skill.sh'
+      - '.github/workflows/check-skill-gate.yml'
+      - 'skills/*/check-skill.tsv'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-work-on-scripts.yml'
   # Also on main, so a change that breaks the suite shows on the push that
@@ -111,6 +118,10 @@ on:
       - 'scripts/lib/dispatch-link.sh'
       - '.claude/shirabe-extensions/verification-map.json'
       - '.claude/shirabe-extensions/work-on.md'
+      - 'scripts/skill-gate.sh'
+      - 'scripts/check-skill.sh'
+      - '.github/workflows/check-skill-gate.yml'
+      - 'skills/*/check-skill.tsv'
       - '.github/workflows/check-work-on-scripts.yml'
 
 env:
@@ -470,6 +481,17 @@ jobs:
       - name: Run verification map schema tests (Linux)
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/verification-map-schema_test.sh
+
+      # Proves the map's hosted declaration: the declared skill-gate job
+      # exists under its reported name, its pull_request paths cover what
+      # selects the row, its plan has a line for every skill the row selects
+      # over fixture diffs, and every suite the row's --changed run can select
+      # is in the skill's full list. The suite-list cases call check-skill.sh,
+      # which needs koto; the macOS leg runs the rest on the floor through the
+      # work-on suite.
+      - name: Run hosted coverage tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/verification-hosted-coverage_test.sh
 
       # Starts the verification runner against git fixtures with fixture
       # commands (passing, failing, slow, forking under a small max_procs,
