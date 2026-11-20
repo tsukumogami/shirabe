@@ -79,21 +79,23 @@ validation.
 
 ### Step 2: The PR body carries a re-run line for each archived attempt
 
-**Goal**: A reviewer reading the PR sees every re-run at the same head: the PR body's Verification section has one re-run line for each attempt in the `verification_attempts` ledger, saying which command failed or timed out, the reason given and what the next attempt showed. `check-pr-output.sh` refuses a body that leaves one out, and with an empty ledger it asks for nothing.
+**Goal**: A reviewer reading the PR sees every re-run at the same head: the PR body's Verification section has one re-run line for each attempt in the `verification_attempts` ledger, saying which command failed or timed out, the reason given and what the next attempt showed. A new `check-pr-output.sh --rerun-record --session <name>` mode reads the ledger from koto context and refuses a body that leaves a line out; with an empty ledger it asks for nothing. `pr_creation` runs it as a gate, so a real session can't open or share a PR that hides a re-run.
 
 **Acceptance Criteria**:
 
-- [ ] With no `verification_attempts` key (koto context reports it missing), the new `check-pr-output.sh` mode accepts a body whose Verification section has no re-run line, so a run that never re-ran sees no change.
-- [ ] With one ledger attempt, a body whose Verification section lacks that attempt's re-run line is refused, with a message naming the missing attempt. The same body with a line giving attempt 1's failed or timed-out command id, its reason and attempt 2's result is accepted.
+- [ ] With no `verification_attempts` key (koto context reports it missing), `--rerun-record` accepts a body whose Verification section has no re-run line, so a run that never re-ran sees no change. A failed koto read is not a missing key: the mode exits non-zero with its own message and accepts nothing.
+- [ ] With one ledger attempt, a body whose Verification section lacks that attempt's re-run line is refused, with a message naming the missing attempt by its number and head. The same body with a line giving attempt 1's failed or timed-out command id, its reason and attempt 2's result is accepted. The failed or timed-out ids are the attempt's `commands[]` entries with a non-zero `exit_status` or `timed_out: true`.
+- [ ] The next attempt's result comes from the ledger line for the following attempt at the same head and merge-base, or, for the last archived attempt, from `verification_results.json` when its head and merge-base match. When neither holds, the line needs only the command id and reason.
 - [ ] A re-run line holding an absolute path is refused, and the message says why. Ledger log paths are relative to the head directory and stay out of the PR body, which may be public.
 - [ ] A re-run line with a command id or reason outside a code span is refused, with its own message.
-- [ ] `skills/work-on/SKILL.md`, `references/verification-map.md` and `docs/designs/current/DESIGN-output-gates.md` show the re-run line's format (the command id and reason in code spans, plus the next attempt's result) and say which check refuses a body without it.
+- [ ] `pr_creation` in `skills/work-on/koto-templates/work-on.md` gains a gate that runs `check-pr-output.sh --rerun-record` with the session name, the way the verification gate passes its session.
+- [ ] `skills/work-on/SKILL.md`, `references/verification-map.md`, `references/phases/phase-6-pr.md` and `docs/designs/current/DESIGN-output-gates.md` show the re-run line's format (the command id and reason in code spans, plus the next attempt's result) and say which check refuses a body without it.
 
-**Check**: Run `bash skills/work-on/scripts/check-pr-output_test.sh` from the repo root. It passes, with cases for an empty ledger (accepted, no line asked for), one ledger attempt without and then with its re-run line (refused, then accepted), a line holding an absolute path (refused) and an id or reason outside a code span (refused), each asserting its exit code and message. End to end: take the ledger that step 1's routing case leaves with one archived attempt and run `check-pr-output.sh` in the new mode against a body without the re-run line, then against the same body with it. The first is refused and names attempt 1. The second is accepted.
+**Check**: Run `bash skills/work-on/scripts/check-pr-output_test.sh` from the repo root. It passes, with cases (a koto stand-in serving the ledger, as `run-verification_test.sh` does) for a missing ledger key (accepted, no line asked for), a failed ledger read (refused), one ledger attempt without and then with its re-run line (refused, then accepted), a line holding an absolute path (refused) and an id or reason outside a code span (refused), each asserting its exit code and message. End to end: `bash skills/work-on/scripts/output-gates-routing_test.sh` exits 0, and its re-run case, after it checks the one ledger line, runs `check-pr-output.sh --rerun-record` against that session with a body without the re-run line, then with it. The first is refused and names attempt 1. The second is accepted.
 
 **Dependencies**: Step 1
 
-**Files**: `skills/work-on/scripts/check-pr-output.sh`, `skills/work-on/scripts/check-pr-output_test.sh`, `skills/work-on/SKILL.md`, `skills/work-on/references/verification-map.md`, `docs/designs/current/DESIGN-output-gates.md`
+**Files**: `skills/work-on/scripts/check-pr-output.sh`, `skills/work-on/scripts/check-pr-output_test.sh`, `skills/work-on/scripts/output-gates-routing_test.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`, `skills/work-on/references/verification-map.md`, `skills/work-on/references/phases/phase-6-pr.md`, `skills/work-on/evals/evals.json`, `docs/designs/current/DESIGN-output-gates.md`
 
 ### Step 3: A third re-run at the same head and merge-base is refused, and the gate says why
 
