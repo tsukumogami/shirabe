@@ -213,6 +213,31 @@ case "$PATHS" in
     *) pass "SHARED_BRANCH: no sibling path anywhere in the record" ;;
 esac
 
+# --- work committed before analysis: the base is the merge-base -------------------
+#
+# A run that reaches analysis on a branch whose code is already committed ahead
+# of the default branch (a continuation, or a branch with an open pull request)
+# reviews that code too. The template passes SHARED_BRANCH, empty off a shared
+# branch, so --base takes the merge-base with origin's default branch rather
+# than HEAD, the code commit itself.
+
+fixture late
+commit_file src/early.go
+run --base s-late --shared-branch ""
+late_main=$(head_sha origin/main)
+if [ "$RC" -eq 0 ] && [ "$(stored s-late impl_base)" = "$late_main" ]; then
+    pass "--base on a branch with work committed before analysis records the merge-base with main"
+else
+    fail "impl_base would be that commit rather than the merge-base with main: rc $RC, impl_base [$(stored s-late impl_base)], merge-base $late_main, HEAD $(head_sha)"
+fi
+run --write s-late
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$PATHS" | sed -n 2p)" = "commits: 1" ] \
+    && [ "$(path_lines)" = "$(printf 'A\tsrc/early.go')" ]; then
+    pass "work committed before analysis is in changed_paths.txt"
+else
+    fail "work committed before analysis is missing from the record: rc $RC, paths [$PATHS]"
+fi
+
 # --- a merge of the default branch after impl_base -------------------------------
 
 # origin/main gains a koto-templates file after the fork, and the run merges it
