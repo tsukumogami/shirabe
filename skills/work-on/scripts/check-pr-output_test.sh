@@ -7,6 +7,8 @@
 # variables, so each case sets the exact exit status and output the script
 # must translate. The stand-ins record their arguments one file per argument,
 # which is how the title is shown to arrive as a single argument.
+# The --rerun-record cases add a koto stand-in serving the
+# verification_attempts ledger from files, as run-verification_test.sh does.
 #
 # What the stand-ins cannot cover is the shape of the real tools' output. The
 # PB messages below are copied from crates/shirabe-validate/src/pr_body.rs;
@@ -1476,6 +1478,393 @@ run --pr-body
 expect_rc "--pr-body, include: today's workflow records pass" 0
 [ "$(finding_count)" -eq 0 ] && pass "--pr-body, include: ... with no finding" || fail "--pr-body, include: $OUT"
 cd "$SUITE_PWD" || exit 2
+
+# --- --rerun-record: one re-run line per archived attempt ----------------------
+
+# The koto stand-in, over $KOTO_STUB_STORE/<s>/<key>, logging each call:
+# `koto context exists <s> <key>` exits 0 or 1 (printing nothing), `get`
+# prints the key (1 when absent). KOTO_STUB_FAIL=exists or KOTO_STUB_FAIL=get
+# makes that call fail with exit 3 and a line on stderr, the forced failure a
+# failed read is. Anything else exits 9.
+cat > "$BIN/koto" <<'EOF'
+#!/bin/sh
+[ "$1" = context ] || exit 9
+echo "${2-} ${3-} ${4-}" >> "$KOTO_STUB_STORE/log"
+case "${2-}" in
+    exists)
+        [ "${KOTO_STUB_FAIL:-}" != exists ] || { echo "koto: the session store is unreadable" >&2; exit 3; }
+        [ -e "$KOTO_STUB_STORE/$3/$4" ] || exit 1
+        ;;
+    get)
+        [ "${KOTO_STUB_FAIL:-}" != get ] || { echo "koto: the session store is unreadable" >&2; exit 3; }
+        [ -e "$KOTO_STUB_STORE/$3/$4" ] || exit 1
+        cat "$KOTO_STUB_STORE/$3/$4"
+        ;;
+    *) exit 9 ;;
+esac
+EOF
+chmod +x "$BIN/koto"
+export KOTO_STUB_STORE="$WORKDIR/kotostore"
+mkdir -p "$KOTO_STUB_STORE"
+: > "$KOTO_STUB_STORE/log"
+
+RRH=fedcba9876543210fedcba9876543210fedcba98
+RRH2=abcdef0123456789abcdef0123456789abcdef01
+RRM=1111111111111111111111111111111111111111
+RRREASON='flaky "net" test'
+# rr_ledger_line <attempt> <head> <unit exit> [<e2e timed out: true|false>]:
+# one ledger line, as run-verification.sh --archive writes it, with a failing
+# or passing `unit` and a passing or timed-out `e2e`.
+rr_ledger_line() {
+    jq -cn --argjson n "$1" --arg h "$2" --arg m "$RRM" --argjson ux "$3" --argjson to "${4:-false}" \
+        --arg r "$RRREASON" '{attempt: $n, folder: $n, head: $h, merge_base: $m, exit: 1, status: "done",
+            reason: $r, archived_at: "2026-01-01T00:00:00Z",
+            commands: [{id: "unit", exit_status: $ux, timed_out: false, duration_secs: 3, log: "attempts/\($n)/0-unit.log"},
+                       {id: "e2e", exit_status: (if $to then null else 0 end), timed_out: $to, duration_secs: 9,
+                        log: "attempts/\($n)/1-e2e.log"}]}'
+}
+# rr_store <session> <key> <value>: a context key in the stand-in's store.
+rr_store() { mkdir -p "$KOTO_STUB_STORE/$1"; printf '%s\n' "$3" > "$KOTO_STUB_STORE/$1/$2"; }
+# rr_result <session> <head> <status> <unit exit> <log folder>: a
+# verification_results.json in the stand-in's store.
+rr_result() {
+    rr_store "$1" verification_results.json "$(jq -cn --arg h "$2" --arg m "$RRM" --arg st "$3" \
+        --argjson ux "$4" --arg f "$5" '{schema: "shirabe-verification-result/v1", head: $h, merge_base: $m,
+            status: $st, detail: "", commands: [{id: "unit", exit_status: $ux, timed_out: false,
+            log: "/state/shirabe/verification/s/\($h)/attempts/\($f)/0-unit.log"}]}')"
+}
+# rr_body <line>...: a PR body whose Verification section holds the lines.
+rr_body() {
+    local l lines=""
+    for l in "$@"; do lines="$lines$l
+"; done
+    pr_json "feat: a re-run change" "A change.
+
+---
+
+## Verification
+
+Ran the verification map's commands.
+$lines
+Fixes #12"
+}
+RR_LINE1='Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky "net" test`.'
+# rr_case <label> <exit> <stderr text, or empty>: the last run's exit, and the
+# text on its stderr.
+rr_case() {
+    if [ "$RC" -eq "$2" ] && { [ -z "$3" ] || grep -qF -- "$3" "$WORKDIR/stderr"; }; then
+        pass "$1 ($RC)"
+    else
+        fail "$1: want exit $2 and [$3], got $RC; stderr [$(cat "$WORKDIR/stderr")]"
+    fi
+}
+rr_no_gh() { # <label>: no gh call since the log was cleared
+    [ ! -e "$LOG/gh/calls" ] && pass "$1: no gh call" || fail "$1: gh was called"
+}
+FAKE_GH_RC=0
+FAKE_OWNED_OUT="$URL1"
+FAKE_OWNED_RC=0
+
+# No ledger: nothing is asked for, and GitHub isn't read.
+rm -rf "$LOG/gh"
+FAKE_GH_BRANCH_JSON=$(rr_body)
+run --rerun-record --session s-none
+rr_case "--rerun-record: no verification_attempts key (koto reports it missing) passes" 0 "nothing to record"
+rr_no_gh "--rerun-record: no ledger"
+grep -qF 'exists s-none verification_attempts' "$KOTO_STUB_STORE/log" \
+    && pass "--rerun-record: the ledger is read with koto context exists" \
+    || fail "--rerun-record: koto calls [$(cat "$KOTO_STUB_STORE/log")]"
+rr_store s-empty verification_attempts ""
+run --rerun-record --session s-empty
+rr_case "--rerun-record: an empty ledger passes" 0 "nothing to record"
+
+# A failed read is not a missing key.
+rr_store s-one verification_attempts "$(rr_ledger_line 1 "$RRH" 1)"
+rm -rf "$LOG/gh"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+export KOTO_STUB_FAIL=exists
+run --rerun-record --session s-one
+rr_case "--rerun-record: a failing koto context exists can't be decided" 2 \
+    "could not read verification_attempts for session s-one from koto context; a failed read is not an empty ledger"
+rr_no_gh "--rerun-record: a failed ledger read"
+run --rerun-record --session s-none
+rr_case "--rerun-record: a failed read of a session with no ledger is still a failed read" 2 \
+    "a failed read is not an empty ledger"
+KOTO_STUB_FAIL=get
+run --rerun-record --session s-one
+rr_case "--rerun-record: a failing koto context get can't be decided" 2 \
+    "could not read verification_attempts for session s-one"
+unset KOTO_STUB_FAIL
+rr_store s-bad verification_attempts "not json"
+run --rerun-record --session s-bad
+rr_case "--rerun-record: a ledger line that doesn't parse can't be decided" 2 "is not a ledger line"
+
+# One attempt: refused without its line, accepted with it.
+FAKE_GH_BRANCH_JSON=$(rr_body)
+run --rerun-record --session s-one
+rr_case "--rerun-record: one attempt, no re-run line: refused, naming attempt 1 and its head" 1 \
+    "no re-run line for attempt 1 at fedcba987654"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+run --rerun-record --session s-one
+rr_case "--rerun-record: the same body with attempt 1's line passes" 0 "records every verification re-run"
+if [ "$(cat "$LOG/gh/arg.1" "$LOG/gh/arg.2" "$LOG/gh/arg.3" "$LOG/gh/arg.4" 2>/dev/null | tr -d '\n')" = "prview--jsonbody" ]; then
+    pass "--rerun-record: reads the checked-out branch's body with gh pr view --json body"
+else
+    fail "--rerun-record: gh was called with $(cat "$LOG/gh/argc" 2>/dev/null) argument(s)"
+fi
+FAKE_GH_BRANCH_JSON=$(rr_body "- re-run ATTEMPT 1 at \`fedcba9876543210\`: \`unit\` failed; reason \`flaky \"net\" test\`.")
+run --rerun-record --session s-one
+rr_case "--rerun-record: a list marker, any case and a longer head prefix pass" 0 ""
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `0123456`: `unit` failed; reason `flaky "net" test`.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: a line naming another head is not attempt 1's" 1 "no re-run line for attempt 1 at fedcba987654"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 12 at `fedcba9`: `unit` failed; reason `flaky "net" test`.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: attempt 12's line is not attempt 1's" 1 "no re-run line for attempt 1"
+FAKE_GH_BRANCH_JSON=$(pr_json "feat: a re-run change" "A change.
+
+---
+
+$RR_LINE1
+
+## Verification
+
+\`\`\`text
+$RR_LINE1
+\`\`\`
+
+## Notes
+
+$RR_LINE1")
+run --rerun-record --session s-one
+rr_case "--rerun-record: a line outside the Verification section or inside a fence doesn't count" 1 \
+    "no re-run line for attempt 1"
+FAKE_GH_BRANCH_JSON=$(jq -cn --arg b "$(printf 'A change.\r\n\r\n---\r\n\r\n### Verification\r\n\r\n%s\r\n' "$RR_LINE1")" '{body: $b}')
+run --rerun-record --session s-one
+rr_case "--rerun-record: a CRLF body under a ### Verification heading passes" 0 ""
+
+# The failed and timed-out ids, and the reason, in code spans.
+rr_store s-to verification_attempts "$(rr_ledger_line 1 "$RRH" 1 true)"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+run --rerun-record --session s-to
+rr_case "--rerun-record: a timed-out command's id is asked for too" 1 "names no failed command e2e"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed, `e2e` timed out; reason `flaky "net" test`.')
+run --rerun-record --session s-to
+rr_case "--rerun-record: the failed and the timed-out id each in a code span pass" 0 ""
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: unit failed; reason `flaky "net" test`.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: a command id outside a code span is refused with its own message" 1 \
+    "has command id unit outside a code span"
+grep -qF "names no failed command" "$WORKDIR/stderr" \
+    && fail "--rerun-record: an id outside a code span was also reported as missing" \
+    || pass "--rerun-record: an id outside a code span isn't reported as missing"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason flaky "net" test.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: the reason outside a code span is refused with its own message" 1 \
+    "has its reason outside a code span"
+grep -qF "carries no reason" "$WORKDIR/stderr" \
+    && fail "--rerun-record: a reason outside a code span was also reported as missing" \
+    || pass "--rerun-record: a reason outside a code span isn't reported as missing"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: a test failed; reason `flaky "net" test`.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: a line naming no failed command is refused" 1 "names no failed command unit"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: a line carrying no reason is refused" 1 "carries no reason"
+rr_store s-spaced verification_attempts "$(rr_ledger_line 1 "$RRH" 1 | jq -c '.reason = "flaky   `net`\ttest "')"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky net test`.')
+run --rerun-record --session s-spaced
+rr_case "--rerun-record: the reason is matched with backticks removed and whitespace collapsed" 0 ""
+
+# No absolute path in a re-run line.
+for path_text in 'log /home/u/.local/state/x.log' 'see ~/x.log' 'log (/tmp/x.log)' 'log=/tmp/x' 'C:\logs\x.log'; do
+    FAKE_GH_BRANCH_JSON=$(rr_body "Re-run attempt 1 at \`fedcba9\`: \`unit\` failed; reason \`flaky \"net\" test\`; $path_text.")
+    run --rerun-record --session s-one
+    rr_case "--rerun-record: a line holding an absolute path [$path_text] is refused" 1 \
+        "holds an absolute path; log paths stay out of the PR body, which may be public"
+done
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky "net" test`; logs in attempts/1/.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: a relative path is not an absolute one" 0 ""
+
+# The next attempt's result: from verification_results.json for the last
+# archived attempt, and only when its head and merge-base match.
+rr_result s-one "$RRH" done 0 2
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+run --rerun-record --session s-one
+rr_case "--rerun-record: verification_results.json at the head says attempt 2 passed, the line doesn't" 1 \
+    "does not say what attempt 2 showed; add: attempt 2 passed"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky "net" test`; attempt 2 passed.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: ... and with attempt 2 passed in the line it passes" 0 ""
+rr_result s-one "$RRH" done 1 2
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky "net" test`; attempt 2 passed.')
+run --rerun-record --session s-one
+rr_case "--rerun-record: a failing attempt 2 must be called failed" 1 "add: attempt 2 failed"
+rr_result s-one "$RRH2" done 0 2
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+run --rerun-record --session s-one
+rr_case "--rerun-record: verification_results.json for another head asks for no next result" 0 ""
+rr_result s-one "$RRH" done 1 1
+run --rerun-record --session s-one
+rr_case "--rerun-record: verification_results.json that is the archived attempt's own asks for no next result" 0 ""
+rm -f "$KOTO_STUB_STORE/s-one/verification_results.json"
+
+# From the following ledger line at the same head and merge-base.
+rr_store s-two verification_attempts "$(rr_ledger_line 1 "$RRH" 1)
+$(rr_ledger_line 2 "$RRH" 1 true)"
+rr_result s-two "$RRH" done 0 3
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky "net" test`; attempt 2 passed.' \
+    'Re-run attempt 2 at `fedcba9`: `unit` failed, `e2e` timed out; reason `flaky "net" test`; attempt 3 passed.')
+run --rerun-record --session s-two
+rr_case "--rerun-record: the next result comes from the following ledger line (attempt 2 timed out)" 1 \
+    "attempt 1 at fedcba987654 does not say what attempt 2 showed; add: attempt 2 timed out"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky "net" test`; attempt 2 timed out.' \
+    'Re-run attempt 2 at `fedcba9`: `unit` failed, `e2e` timed out; reason `flaky "net" test`; attempt 3 passed.')
+run --rerun-record --session s-two
+rr_case "--rerun-record: two attempts, each line with its next result, pass" 0 ""
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 1 at `fedcba9`: `unit` failed; reason `flaky "net" test`; attempt 2 timed out.')
+run --rerun-record --session s-two
+rr_case "--rerun-record: two attempts, attempt 2's line missing" 1 "no re-run line for attempt 2 at fedcba987654"
+
+# Two sessions checked against one body: each message names its session.
+rr_store s-other verification_attempts "$(rr_ledger_line 1 "$RRH2" 1)"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+run --rerun-record --session s-one --session s-other
+rr_case "--rerun-record: two sessions, one line missing: refused, naming that session" 1 \
+    "no re-run line for attempt 1 at abcdef012345 (session s-other)"
+grep -qF "(session s-one)" "$WORKDIR/stderr" \
+    && fail "--rerun-record: two sessions: the session whose line is there was reported" \
+    || pass "--rerun-record: two sessions: only the session whose line is missing is named"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1" 'Re-run attempt 1 at `abcdef0`: `unit` failed; reason `flaky "net" test`.')
+run --rerun-record --session s-one --session s-other
+rr_case "--rerun-record: two sessions, both lines: passes" 0 ""
+run --rerun-record --session s-none --session s-one
+rr_case "--rerun-record: a session with no ledger beside one with its line: passes" 0 ""
+
+# --owned: the owned pull request's body, as --deferral-record --owned reads it.
+FAKE_GH_OWNED_JSON=$(rr_body "$RR_LINE1")
+FAKE_GH_BRANCH_JSON=$(rr_body)
+# shellcheck disable=SC2086
+run --rerun-record --session s-one --owned $OWNED_ARGS
+if [ "$RC" -eq 0 ] && [ "$(cat "$LOG/gh/arg.3" 2>/dev/null)" = "$URL1" ] \
+    && [ "$(cat "$LOG/owned/arg.1" "$LOG/owned/arg.2" 2>/dev/null | tr -d '\n')" = "--repoacme/widgets" ]; then
+    pass "--rerun-record --owned: reads the owned PR's body, with the arguments after --owned, and passes"
+else
+    fail "--rerun-record --owned: rc $RC, gh arg 3 [$(cat "$LOG/gh/arg.3" 2>/dev/null)], stderr [$(cat "$WORKDIR/stderr")]"
+fi
+FAKE_GH_OWNED_JSON=$(rr_body)
+# shellcheck disable=SC2086
+run --rerun-record --session s-one --owned $OWNED_ARGS
+rr_case "--rerun-record --owned: the owned PR's body without the line is refused" 1 "no re-run line for attempt 1"
+FAKE_OWNED_RC=3
+# shellcheck disable=SC2086
+run --rerun-record --session s-one --owned $OWNED_ARGS
+rr_case "--rerun-record --owned: no single owned PR can't be decided" 2 "no single owned pull request"
+FAKE_OWNED_RC=0
+rm -rf "$LOG/owned" "$LOG/gh"
+# shellcheck disable=SC2086
+run --rerun-record --session s-none --owned $OWNED_ARGS
+rr_case "--rerun-record --owned: no ledger passes" 0 "nothing to record"
+[ ! -e "$LOG/owned/calls" ] && [ ! -e "$LOG/gh/calls" ] \
+    && pass "--rerun-record --owned: no ledger: no owned-PR lookup and no gh call" \
+    || fail "--rerun-record --owned: no ledger, but GitHub was read"
+
+# The workflow-content setting doesn't change the check.
+cd "$WORKDIR/omit-repo" || exit 2
+FAKE_GH_BRANCH_JSON=$(rr_body)
+run --rerun-record --session s-one
+rr_case "--rerun-record, default (omit): a body without the line is still refused" 1 "no re-run line for attempt 1"
+cd "$SUITE_PWD" || exit 2
+
+# Usage and could-not-decide.
+run --rerun-record
+rr_case "--rerun-record: no --session is a usage error" 2 ""
+run --rerun-record --session
+rr_case "--rerun-record: a --session with no value is a usage error" 2 ""
+run --rerun-record --session ../x
+rr_case "--rerun-record: a session name with a slash can't be decided" 2 "is not a session name"
+run --rerun-record --session s-one --owned
+rr_case "--rerun-record: --owned with no arguments is a usage error" 2 ""
+run --rerun-record --session s-one --because x
+rr_case "--rerun-record: an unknown flag is a usage error" 2 ""
+FAKE_GH_RC=1
+run --rerun-record --session s-one
+rr_case "--rerun-record: a failed gh read can't be decided" 2 "gh pr view failed"
+FAKE_GH_RC=0
+
+# --print: the line each archived attempt asks for, read from the ledgers with
+# no GitHub read; /execute records these for a coordinated node.
+RR_PRINT1='Re-run attempt 1 at `fedcba987654`: `unit` failed; reason `flaky "net" test`.'
+RR_PRINT2A='Re-run attempt 1 at `fedcba987654`: `unit` failed; reason `flaky "net" test`; attempt 2 timed out.'
+RR_PRINT2B='Re-run attempt 2 at `fedcba987654`: `unit` failed, `e2e` timed out; reason `flaky "net" test`; attempt 3 passed.'
+rm -rf "$LOG/gh"
+run --rerun-record --session s-one --print
+[ "$RC" -eq 0 ] && [ "$OUT" = "$RR_PRINT1" ] \
+    && pass "--rerun-record --print: one attempt's line, in phase-6-pr.md's shape" \
+    || fail "--rerun-record --print: rc $RC, printed [$OUT], stderr [$(cat "$WORKDIR/stderr")]"
+rr_no_gh "--rerun-record --print"
+run --rerun-record --session s-two --print
+[ "$RC" -eq 0 ] && [ "$OUT" = "$(printf '%s\n%s' "$RR_PRINT2A" "$RR_PRINT2B")" ] \
+    && pass "--rerun-record --print: two attempts, each with its next result" \
+    || fail "--rerun-record --print, two attempts: rc $RC, printed [$OUT]"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_PRINT2A" "$RR_PRINT2B")
+run --rerun-record --session s-two
+rr_case "--rerun-record: the lines --print wrote pass the session check" 0 "records every verification re-run"
+run --rerun-record --session s-one --session s-one --print
+[ "$RC" -eq 0 ] && [ "$OUT" = "$RR_PRINT1" ] && pass "--rerun-record --print: the same line is printed once" \
+    || fail "--rerun-record --print, a session twice: printed [$OUT]"
+rm -rf "$LOG/gh"
+run --rerun-record --session s-none --print
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "--rerun-record --print: no ledger prints nothing" \
+    || fail "--rerun-record --print, no ledger: rc $RC, printed [$OUT]"
+rr_no_gh "--rerun-record --print, no ledger"
+# shellcheck disable=SC2086
+run --rerun-record --session s-one --print --owned $OWNED_ARGS
+rr_case "--rerun-record: --print with --owned is a usage error" 2 ""
+
+# --line: the recorded lines in place of the sessions, with no koto read.
+: > "$KOTO_STUB_STORE/log"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+run --rerun-record --line "$RR_PRINT1"
+rr_case "--rerun-record --line: a body line for the recorded attempt passes" 0 "records every verification re-run (1 recorded"
+[ ! -s "$KOTO_STUB_STORE/log" ] && pass "--rerun-record --line: no koto read" \
+    || fail "--rerun-record --line: koto calls [$(cat "$KOTO_STUB_STORE/log")]"
+FAKE_GH_BRANCH_JSON=$(rr_body)
+run --rerun-record --line "$RR_PRINT1"
+rr_case "--rerun-record --line: a body without it is refused, naming the line to add" 1 \
+    "no re-run line for attempt 1 at fedcba987654; add: $RR_PRINT1"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_LINE1")
+run --rerun-record --line "$RR_PRINT2A"
+rr_case "--rerun-record --line: the recorded next result is asked for" 1 \
+    "does not say what attempt 2 showed; add: attempt 2 timed out"
+FAKE_GH_BRANCH_JSON=$(rr_body 'Re-run attempt 2 at `fedcba9`: `unit` failed; reason `flaky "net" test`; attempt 3 passed.')
+run --rerun-record --line "$RR_PRINT2B"
+rr_case "--rerun-record --line: each recorded id is asked for" 1 "names no failed command e2e"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_PRINT2A" "$RR_PRINT2B")
+run --rerun-record --line "$RR_PRINT2A" --line "$RR_PRINT2B"
+rr_case "--rerun-record --line: two recorded lines, both in the body, pass" 0 "(2 recorded"
+FAKE_GH_BRANCH_JSON=$(rr_body "$RR_PRINT2A")
+run --rerun-record --line "$RR_PRINT2A" --line "$RR_PRINT2B"
+rr_case "--rerun-record --line: two recorded lines, the second missing" 1 "no re-run line for attempt 2 at fedcba987654"
+FAKE_GH_OWNED_JSON=$(rr_body "$RR_LINE1")
+FAKE_GH_BRANCH_JSON=$(rr_body)
+# shellcheck disable=SC2086
+run --rerun-record --line "$RR_PRINT1" --owned $OWNED_ARGS
+rr_case "--rerun-record --line --owned: reads the owned PR's body" 0 "records every verification re-run"
+run --rerun-record --line 'Attempt 1 was re-run.'
+rr_case "--rerun-record --line: a line in another shape can't be decided" 2 "is not a re-run line in the shape this check reads"
+run --rerun-record --line 'Re-run attempt 1 at `fedcba987654`: `unit` failed; reason `x`; attempt 3 passed.'
+rr_case "--rerun-record --line: a next attempt other than n+1 can't be decided" 2 "as the one after attempt 1"
+run --rerun-record --line "$(printf 'Re-run attempt 1 at `fedcba9`.\nmore')"
+rr_case "--rerun-record --line: a line spanning lines can't be decided" 2 "spans more than one line"
+run --rerun-record --line ""
+rr_case "--rerun-record: an empty --line is a usage error" 2 ""
+run --rerun-record --line "$RR_PRINT1" --session s-one
+rr_case "--rerun-record: --line with --session is a usage error" 2 ""
+run --rerun-record --line "$RR_PRINT1" --print
+rr_case "--rerun-record: --line with --print is a usage error" 2 ""
+rm -f "$BIN/koto"
 
 # --- the rule registry ----------------------------------------------------------
 

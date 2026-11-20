@@ -105,6 +105,83 @@
 #       keyword, the obligation is the template's own, with no registry rule
 #       behind it, and the stderr lines say what is missing.
 #
+#   --rerun-record --session <name> [--session <name>]...
+#                  [--print | --owned <owned-pr.sh arguments>]
+#   --rerun-record --line <line> [--line <line>]...
+#                  [--owned <owned-pr.sh arguments>]
+#       For a run that re-ran a failed verification command at the same head
+#       (run-verification.sh --archive). Before anything else it reads each
+#       session's `verification_attempts` context key, the ledger: one JSON
+#       line per archived attempt, with its attempt number, head, merge_base,
+#       reason, status and commands[] (id, exit_status, timed_out). A key koto
+#       reports missing (`koto context exists` exiting 1 with nothing on
+#       stdout) is an empty ledger; any other failure, a failing get, or a line
+#       that isn't a ledger line is a failed read (2), never an empty ledger.
+#       When every session's ledger is empty it passes (0) without reading
+#       GitHub, so a run that never re-ran sees no change. Otherwise it reads
+#       each such session's `verification_results.json` (missing is fine), then
+#       the pull request body with `gh pr view --json body`, and checks the
+#       body's Verification section (a ## or ### heading named Verification,
+#       up to the next heading of the same or a higher level, outside fenced
+#       code, each CRLF or lone CR a line break) for one re-run line per
+#       archived attempt:
+#
+#         Re-run attempt <n> at `<head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`; attempt <n+1> passed.
+#
+#       A line belongs to attempt n at head H when it starts (after an
+#       optional `- ` or `* ` list marker) with `Re-run attempt <n>`, without
+#       regard to case, and holds a run of 7 or more hex characters that
+#       starts H. In it:
+#         - each command of the attempt with a numeric non-zero exit_status or
+#           timed_out true appears as a code span holding its id;
+#         - the reason, with backticks removed, runs of whitespace made one
+#           space and the ends trimmed, appears as a code span;
+#         - when the next result is known, `attempt <n+1> <word>` appears,
+#           without regard to case. The next result is the ledger line for
+#           attempt n+1 at the same head and merge-base, or, for the last
+#           archived attempt there, verification_results.json when its head
+#           and merge-base match and its logs aren't the archived attempt's
+#           own. <word> is `passed` (status done, every command exit 0, none
+#           timed out), `timed out` (one timed out) or `failed`. With neither,
+#           only the ids and the reason are asked for;
+#         - no absolute path (a token starting / or ~/ after the line's start,
+#           whitespace, a backtick, (, [, =, or a quote, or a drive-letter
+#           path): log paths stay out of the body, which may be public.
+#       An id or the reason present in the line but outside a code span is
+#       its own refusal, apart from one the line doesn't name at all. Several
+#       lines may claim one attempt; one that passes every part is enough.
+#       With more than one --session, each message names the session. The
+#       workflow-content setting doesn't change this check. Without --owned
+#       the pull request is the checked-out branch's (/work-on's
+#       pr_creation); with --owned it is the one owned-pr.sh resolves, as
+#       --deferral-record --owned reads it (/execute's shared PR, through
+#       shared-rerun-record.sh).
+#       --print, with --session and no --owned, reads the ledgers as above
+#       and prints the line each archived attempt asks for, one per line, the
+#       same line once, and exits 0 without reading GitHub (nothing printed
+#       when no ledger holds a line):
+#         Re-run attempt <n> at `<12 hex of head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`[; attempt <n+1> <word>].
+#       with each part after the colon left out when the attempt has none
+#       (no failed id, an empty reason, no next result). /execute records
+#       these lines for a coordinated node (run/node/<node>'s reruns,
+#       through shared-rerun-record.sh) and writes them into the node PR's
+#       body.
+#       --line <line>, once per line, gives the re-runs as those recorded
+#       lines in place of the sessions: no koto read at all. Each line is
+#       read back in the shape --print writes (the attempt, 7 to 40 hex of
+#       its head, and the ids, the reason and the next attempt's word it
+#       carries), and the body is checked against it as against a ledger's
+#       attempt: a body line claiming that attempt at that head, with each id
+#       and the reason in code spans and the next word when the line gives
+#       one. A line in another shape, or one spanning lines, is 2. It can't
+#       be given with --session or --print.
+#         every attempt has its line                 -> 0
+#         a line missing or wrong                    -> 1, one stderr line each
+#         a bad session name, koto or gh missing or
+#         failing, a failed ledger read, no single
+#         owned pull request, no body                -> 2
+#       It prints no ::koto-finding:: line, like --deferral-record.
+#
 # owned-pr.sh is always the execute skill's copy beside this one
 # (skills/execute/scripts/owned-pr.sh under the same plugin root), never one
 # found on PATH. A gate runs with the PATH recorded when the session was
@@ -122,8 +199,10 @@
 #      block print at their stage's level and leave the exit at 0.
 #      --deferral-record: the body does not record the deferral (stderr
 #      only, no finding)
-#   2  could not decide: a usage error, a missing tool, a read that failed, a
-#      validator that failed to run
+#      --rerun-record: the body lacks a re-run line, or one is wrong (stderr
+#      only, no finding)
+#   2  could not decide: a usage error, a missing tool, a read that failed
+#      (a koto context read included), a validator that failed to run
 #   3  --owned-pr only: the lookup answered, and the answer is not one PR
 #
 # --pr-body findings are koto's finding shape, built with jq, with the rule
@@ -162,10 +241,13 @@ usage() {
 Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --owned-pr <owned-pr.sh arguments>
        check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--public-reason <text>] [--body] [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --rerun-record --session <name> [--session <name>]... [--print | --owned <owned-pr.sh arguments>]
+       check-pr-output.sh --rerun-record --line <line> [--line <line>]... [--owned <owned-pr.sh arguments>]
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
 --deferral-record: exit 0 the body records the deferral, 1 it does not, 2 could not decide.
+--rerun-record:    exit 0 no re-run, or the body records each one, 1 it does not, 2 could not decide.
 EOF
 }
 
@@ -585,6 +667,339 @@ check_deferral_record() {
     exit 0
 }
 
+# ctx_read <session> <key>: read a koto context key, as run-verification.sh
+# reads one. Sets CTX_PRESENT (1 or 0) and writes the value to CTX_FILE
+# (empty for an absent key), and returns 0, or 1 when the read failed. An
+# absent key is `koto context exists` exiting 1 with nothing on stdout; any
+# other failure is a failed read, never an empty value.
+CTX_PRESENT=0
+CTX_FILE=""
+ctx_read() {
+    local out rc
+    CTX_PRESENT=0
+    : > "$CTX_FILE" || return 1
+    out=$(koto context exists "$1" "$2" < /dev/null)
+    rc=$?
+    if [ "$rc" -eq 1 ] && [ -z "$out" ]; then
+        return 0
+    fi
+    [ "$rc" -eq 0 ] || return 1
+    koto context get "$1" "$2" > "$CTX_FILE" < /dev/null || { : > "$CTX_FILE"; return 1; }
+    CTX_PRESENT=1
+    return 0
+}
+
+# verification_section <body-file>: the lines of the body's Verification
+# sections (a ## or ### heading named Verification, up to the next heading of
+# the same or a higher level), outside fenced code, one per line. The fence
+# rule is workflow_records'; the body's line breaks are already newlines.
+verification_section() {
+    awk '
+        /^[ \t]*```/ { fence = !fence; next }
+        fence { next }
+        {
+            line = $0
+            sub(/\r$/, "", line)
+            t = line
+            sub(/^ +/, "", t)
+            if (t ~ /^#+([ \t]|$)/) {
+                match(t, /^#+/)
+                lvl = RLENGTH
+                h = substr(t, lvl + 1)
+                sub(/^[ \t]+/, "", h)
+                sub(/[ \t]+#+[ \t]*$/, "", h)
+                sub(/[ \t]+$/, "", h)
+                if (insec && lvl <= seclvl) insec = 0
+                if (!insec && (lvl == 2 || lvl == 3) && tolower(h) == "verification") {
+                    insec = 1; seclvl = lvl; next
+                }
+            }
+            if (insec) print line
+        }' "$1"
+}
+
+# The re-run line check, in jq programs sharing RERUN_DEFS. Each archived
+# attempt becomes one expectation, {n, H, short, what, add, ids, fails,
+# reason, next}: the attempt number, its head (the full head from a ledger,
+# the hex a recorded line gives when short is true), how a message names it,
+# the line a missing one is told to add, the failed command ids, the ids with
+# their outcome, the reason, and the next result's word or null.
+# RERUN_FROM_SESSIONS builds them from the sessions' ledgers ($S, slurped:
+# [{session, entries, results}]) and RERUN_FROM_LINES from recorded re-run
+# lines ($R, slurped: an array of strings), stopping with an error on a line
+# it can't read. RERUN_CHECK checks the Verification section's lines ($LN,
+# slurped: an array of strings) against them ($X, slurped), printing one
+# message per missing or wrong part; nothing when every attempt has its line.
+# render is the line an expectation from a ledger asks for, in phase-6-pr.md's
+# shape, which RERUN_FROM_LINES reads back: --print writes it.
+RERUN_DEFS='
+def clean: tostring | gsub("`"; "") | gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "");
+def spans: [scan("`[^`]*`") | .[1:-1] | clean];
+def lead: sub("^\\s+"; "") | sub("^[-*]\\s+"; "");
+def hexes: [scan("[0-9A-Fa-f]{7,}") | ascii_downcase];
+def abspath:
+    test("(^|[\\s`(\\[=\"'"'"'])(~/|/)[^\\s]")
+    or test("(^|[\\s`(\\[=\"'"'"'])[A-Za-z]:[\\\\/]");
+def word:
+    if ((.commands // []) | any(.[]; .timed_out == true)) then "timed out"
+    elif .status == "done" and ((.commands // []) | all(.[]; .exit_status == 0 and .timed_out != true)) then "passed"
+    else "failed" end;
+def dedupe: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
+def render:
+    "Re-run attempt \(.n) at `\(.H[0:12])`"
+    + ([ (if (.fails | length) > 0 then ([.fails[] | "`\(.id)` \(.out)"] | join(", ")) else empty end),
+         (if .reason != "" then "reason `\(.reason)`" else empty end),
+         (if .next != null then "attempt \(.n + 1) \(.next)" else empty end) ]
+       | if length > 0 then ": " + join("; ") else "" end)
+    + ".";
+'
+RERUN_FROM_SESSIONS='
+$S[0] as $sessions
+| ($sessions | length > 1) as $multi
+| $sessions[] as $s
+| ($s.entries) as $E
+| $E[] as $e
+| ($e.attempt) as $n
+| ($e.head) as $H
+| ($e.merge_base) as $M
+| ([$E[] | select(.head == $H and .merge_base == $M and .attempt == $n + 1)] | .[0]) as $nx
+| ([$E[] | select(.head == $H and .merge_base == $M and .attempt > $n)] | length == 0) as $last
+| ([($e.commands // [])[] | .log | strings]) as $elogs
+| (if $nx != null then ($nx | word)
+   elif $last and ($s.results | type) == "object"
+        and $s.results.head == $H and $s.results.merge_base == $M
+        and ([($s.results.commands // [])[] | .log | strings]
+             | any(.[]; . as $l | $elogs | any(.[]; . as $r | $l | endswith("/" + $r))) | not)
+   then ($s.results | word)
+   else null end) as $next
+| ([($e.commands // [])[]
+    | select(((.exit_status | type) == "number" and .exit_status != 0) or .timed_out == true)
+    | {id: (.id | strings | clean), out: (if .timed_out == true then "timed out" else "failed" end)}
+    | select(.id != "")]
+   | reduce .[] as $f ([]; if any(.[]; .id == $f.id) then . else . + [$f] end)) as $fails
+| (($e.reason // "") | clean) as $reason
+| {n: $n, H: $H, short: false,
+   what: ("attempt \($n) at \($H[0:12])" + (if $multi then " (session \($s.session))" else "" end)),
+   add: ("Re-run attempt \($n) at `\($H[0:12])`: `<id>` failed; reason `<reason>`" + (if $next then "; attempt \($n + 1) \($next)." else "." end)),
+   ids: [$fails[] | .id], fails: $fails, reason: $reason, next: $next}
+'
+# A recorded line is read in the shape render writes: the attempt, 7 to 40
+# hex of its head, then, each optional, the failed ids with their outcome,
+# the reason, and the next attempt with its word, ending in a period.
+RERUN_FROM_LINES='
+$R[0][] as $l
+| ([$l | capture("^Re-run attempt (?<n>[1-9][0-9]*) at `(?<h>[0-9a-f]{7,40})`(?:: (?<f>`[^`]+` (?:failed|timed out)(?:, `[^`]+` (?:failed|timed out))*))?(?:(?:: |; )reason `(?<r>[^`]+)`)?(?:(?:: |; )attempt (?<nn>[1-9][0-9]*) (?<w>passed|failed|timed out))?\\.$")] | .[0]) as $c
+| if $c == null then error("the recorded line [\($l)] is not a re-run line in the shape this check reads") else . end
+| ($c.n | tonumber) as $n
+| if $c.nn != null and ($c.nn | tonumber) != $n + 1 then error("the recorded line [\($l)] gives attempt \($c.nn) as the one after attempt \($n)") else . end
+| {n: $n, H: $c.h, short: true,
+   what: "attempt \($n) at \($c.h[0:12])",
+   add: $l,
+   ids: ([($c.f // "") | scan("`([^`]+)`") | .[0] | clean] | dedupe),
+   fails: [], reason: (($c.r // "") | clean), next: $c.w}
+'
+RERUN_CHECK='
+$LN[0] as $lines
+| $X[] as $x
+| ($x.n) as $n
+| ($x.H) as $H
+| ($x.what) as $what
+| ($x.ids) as $ids
+| ($x.reason) as $reason
+| ($x.next) as $next
+| [$lines[] | select(lead | ascii_downcase | test("^re-run attempt\\s+\($n)([^0-9]|$)"))
+            | select(hexes | any(.[]; . as $y | ($H | startswith($y)) or ($x.short and ($y | startswith($H)))))] as $cands
+| if ($cands | length) == 0 then
+    "the PR body'"'"'s Verification section has no re-run line for \($what); add: \($x.add)"
+  else
+    [$cands[] as $L
+     | [ (if ($L | abspath) then "the re-run line for \($what) holds an absolute path; log paths stay out of the PR body, which may be public, so name each command by its id only" else empty end),
+         ($ids[] as $id
+          | if ($L | spans | any(.[]; . == $id)) then empty
+            elif ($L | index($id)) != null then "the re-run line for \($what) has command id \($id) outside a code span; write it in backticks"
+            else "the re-run line for \($what) names no failed command \($id); add its id in a code span" end),
+         (if $reason == "" then empty
+          elif ($L | spans | any(.[]; . == $reason)) then empty
+          elif ($L | clean | index($reason)) != null then "the re-run line for \($what) has its reason outside a code span; write it in backticks"
+          else "the re-run line for \($what) carries no reason; add the \(if $x.short then "recorded" else "ledger'"'"'s" end) reason in a code span: \($reason)" end),
+         (if $next == null then empty
+          elif ($L | ascii_downcase | index("attempt \($n + 1) \($next)")) != null then empty
+          else "the re-run line for \($what) does not say what attempt \($n + 1) showed; add: attempt \($n + 1) \($next)" end) ]] as $P
+    | if any($P[]; length == 0) then empty else $P[0][] end
+  end
+'
+
+RR_SESSIONS=()
+RR_LINES=()
+check_rerun_record() {
+    local s i n total rc msg print=0 what
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --session)
+                [ $# -ge 2 ] || { usage; exit 2; }
+                # The name run-verification.sh accepts for its session.
+                grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' <<<"$2" && [ "$2" != . ] && [ "$2" != .. ] \
+                    || undecided "--rerun-record: --session [$2] is not a session name"
+                RR_SESSIONS+=("$2")
+                shift 2
+                ;;
+            --line)
+                [ $# -ge 2 ] && [ -n "$2" ] || { usage; exit 2; }
+                case "$2" in
+                    *$'\n'*|*$'\r'*) undecided "--rerun-record: a --line spans more than one line" ;;
+                esac
+                RR_LINES+=("$2")
+                shift 2
+                ;;
+            --print) print=1; shift ;;
+            *) break ;;
+        esac
+    done
+    # One source of re-runs: the sessions' ledgers, or the recorded lines.
+    # --print renders the ledgers' lines, so it takes sessions and no PR.
+    if [ "${#RR_SESSIONS[@]}" -gt 0 ]; then
+        [ "${#RR_LINES[@]}" -eq 0 ] || { usage; exit 2; }
+    else
+        [ "${#RR_LINES[@]}" -gt 0 ] && [ "$print" = 0 ] || { usage; exit 2; }
+    fi
+    if [ $# -gt 0 ]; then
+        [ "$print" = 0 ] && [ "$1" = --owned ] || { usage; exit 2; }
+        shift
+        [ $# -gt 0 ] || { usage; exit 2; }
+        OWNED=1
+    fi
+    command -v jq >/dev/null 2>&1 || undecided "jq is not on PATH"
+    make_work
+
+    if [ "${#RR_LINES[@]}" -gt 0 ]; then
+        # The recorded lines stand in for the ledgers: no koto read.
+        printf '%s\n' "${RR_LINES[@]}" > "$WORK/recorded"
+        jq -Rn '[inputs]' "$WORK/recorded" > "$WORK/recorded.json" \
+            || undecided "could not read the recorded re-run lines"
+        jq -cn --slurpfile R "$WORK/recorded.json" "$RERUN_DEFS$RERUN_FROM_LINES" \
+            > "$WORK/expect.jsonl" 2> "$WORK/jq.err" \
+            || undecided "$(tail -n 1 "$WORK/jq.err" | sed 's/^jq: error[^:]*: //'); nothing is accepted"
+        total=${#RR_LINES[@]}
+        what="recorded re-run line(s)"
+    else
+        rr_expect_from_sessions
+        total=$RR_TOTAL
+        what="archived attempt(s)"
+        if [ "$print" = 1 ]; then
+            jq -r -s "$RERUN_DEFS"'map(render) | dedupe | .[]' "$WORK/expect.jsonl" \
+                || undecided "could not render the re-run lines"
+            exit 0
+        fi
+    fi
+    rr_check_body "$total" "$what" "$@"
+}
+
+# rr_expect_from_sessions: the sessions' ledgers, read from koto context, as
+# expectations in $WORK/expect.jsonl; RR_TOTAL is the number of archived
+# attempts. With none it exits 0 without reading anything else (with --print,
+# having printed nothing).
+RR_TOTAL=0
+rr_expect_from_sessions() {
+    local s i n total
+    command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH"
+    CTX_FILE="$WORK/ctx"
+
+    # The ledgers first: with none, nothing else is read.
+    total=0
+    i=0
+    for s in "${RR_SESSIONS[@]}"; do
+        i=$((i + 1))
+        ctx_read "$s" verification_attempts \
+            || undecided "could not read verification_attempts for session $s from koto context; a failed read is not an empty ledger, so nothing is accepted"
+        grep . "$CTX_FILE" > "$WORK/ledger.$i"
+        n=$(grep -c . "$WORK/ledger.$i")
+        total=$((total + n))
+    done
+    if [ "$total" -eq 0 ]; then
+        echo "check-pr-output: no re-run in this run's verification_attempts; nothing to record" >&2
+        exit 0
+    fi
+
+    # Each ledger line must be one, and each session with lines may have a
+    # result to say what the last attempt's re-run showed.
+    : > "$WORK/sessions.jsonl"
+    i=0
+    for s in "${RR_SESSIONS[@]}"; do
+        i=$((i + 1))
+        : > "$WORK/results.$i"
+        if [ -s "$WORK/ledger.$i" ]; then
+            jq -e -s 'all(.[]; type == "object"
+                    and (.attempt | type) == "number" and .attempt >= 1 and .attempt == (.attempt | floor)
+                    and (.head | type) == "string" and (.head | test("^[0-9a-f]{7,64}$"))
+                    and (.merge_base | type) == "string"
+                    and ((.commands // []) | type) == "array")' "$WORK/ledger.$i" >/dev/null \
+                || undecided "verification_attempts for session $s holds a line that is not a ledger line (an attempt number, a head, a merge-base and commands); nothing is accepted"
+            ctx_read "$s" verification_results.json \
+                || undecided "could not read verification_results.json for session $s from koto context"
+            if [ "$CTX_PRESENT" = 1 ] && [ -s "$CTX_FILE" ]; then
+                jq -e 'type == "object"' "$CTX_FILE" >/dev/null \
+                    || undecided "verification_results.json for session $s is not a JSON object"
+                cp "$CTX_FILE" "$WORK/results.$i"
+            fi
+        fi
+        jq -cn --arg s "$s" --slurpfile e "$WORK/ledger.$i" --slurpfile r "$WORK/results.$i" \
+            '{session: $s, entries: $e, results: ($r[0] // null)}' >> "$WORK/sessions.jsonl" \
+            || undecided "could not read the ledger of session $s"
+    done
+    jq -s . "$WORK/sessions.jsonl" > "$WORK/sessions.json" \
+        || undecided "could not gather the sessions' ledgers"
+    jq -cn --slurpfile S "$WORK/sessions.json" "$RERUN_DEFS$RERUN_FROM_SESSIONS" \
+        > "$WORK/expect.jsonl" 2> "$WORK/jq.err" \
+        || undecided "could not read the sessions' ledgers: $(tail -n 1 "$WORK/jq.err")"
+    RR_TOTAL=$total
+}
+
+# rr_check_body <count> <what> [<owned-pr.sh arguments>]: the pull request's
+# body against the expectations in $WORK/expect.jsonl, <count> <what> of
+# them, and the exit: 0 when every one has its line, 1 when one doesn't.
+rr_check_body() {
+    local total=$1 what=$2 rc n msg
+    shift 2
+    # The pull request, as --deferral-record reads it.
+    command -v gh >/dev/null 2>&1 || undecided "gh is not on PATH"
+    if [ "$OWNED" = 1 ]; then
+        lookup "$@"
+        rc=$?
+        [ "$rc" -eq 0 ] || undecided "--owned: no single owned pull request to read (lookup answered $rc)"
+        gh pr view "$URL" --json body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
+            || undecided "gh pr view $URL failed: $(tail -n 1 "$WORK/gh.err")"
+    else
+        gh pr view --json body > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
+            || undecided "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
+    fi
+    jq -e 'type == "object" and (.body | type == "string")' "$WORK/pr.json" >/dev/null \
+        || undecided "gh pr view did not return a body"
+    # Each CRLF and each lone CR is a line break, as GitHub renders it (see
+    # --deferral-record).
+    jq -j '.body | gsub("\r\n?"; "\n")' "$WORK/pr.json" > "$WORK/body.md"
+    verification_section "$WORK/body.md" > "$WORK/section" \
+        || undecided "the PR body's Verification section couldn't be read"
+
+    jq -Rn '[inputs]' "$WORK/section" > "$WORK/lines.json" \
+        || undecided "the PR body's Verification section couldn't be read"
+    jq -rn --slurpfile X "$WORK/expect.jsonl" --slurpfile LN "$WORK/lines.json" "$RERUN_DEFS$RERUN_CHECK" \
+        > "$WORK/problems" 2> "$WORK/jq.err" \
+        || undecided "could not check the re-run lines: $(tail -n 1 "$WORK/jq.err")"
+
+    if [ -s "$WORK/problems" ]; then
+        n=0
+        while IFS= read -r msg; do
+            [ -n "$msg" ] || continue
+            n=$((n + 1))
+            echo "check-pr-output: $msg" >&2
+        done < "$WORK/problems"
+        echo "check-pr-output: the PR body does not record every verification re-run ($n part(s) missing or wrong); write one re-run line per archived attempt in its Verification section, as phase-6-pr.md gives it, with gh pr edit" >&2
+        exit 1
+    fi
+    echo "check-pr-output: the PR body records every verification re-run ($total $what)" >&2
+    exit 0
+}
+
 check_owned_pr() {
     [ $# -gt 0 ] || { usage; exit 2; }
     make_work
@@ -610,6 +1025,7 @@ case "$MODE" in
         ;;
     --owned-pr) check_owned_pr "$@" ;;
     --deferral-record) check_deferral_record "$@" ;;
+    --rerun-record) check_rerun_record "$@" ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
 esac
