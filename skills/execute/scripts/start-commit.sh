@@ -94,7 +94,7 @@ if [ "$BRANCH" != "impl/$SLUG" ]; then
     exit 66
 fi
 
-DEFAULT=$(git ls-remote --symref "$REMOTE" HEAD </dev/null 2>/dev/null \
+DEFAULT=$(git ls-remote --symref "$REMOTE" HEAD </dev/null \
     | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p')
 DEFAULT=${DEFAULT%%$'\n'*}
 if [ -z "$DEFAULT" ]; then
