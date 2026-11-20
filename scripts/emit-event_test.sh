@@ -9,8 +9,12 @@
 # scratch HOME holding a fake sender that records its arguments and its
 # environment. The scratch HOME has to pass the same discovery checks a real
 # one does, so it is made under the first of $TMPDIR and this checkout's git
-# directory whose every directory up to / is owned by this user or root and
-# not writable by group or others (a sticky /tmp is writable by others).
+# directory whose every directory up to / passes the helper's own check: owned
+# by this user or root, not writable by others (a sticky /tmp is), and
+# writable by its group only when that is the user's private group, as every
+# directory is on a host whose default umask is 0002. The choice uses the
+# host's real id and getent; every case after it uses stand-ins for the two,
+# so the cases read the same on any host.
 #
 # Usage: bash scripts/emit-event_test.sh
 #        /bin/bash scripts/emit-event_test.sh     # the bash 3.2 floor
@@ -69,6 +73,41 @@ fi
 cleanup() { pkill -f 'sleep 47' 2>/dev/null; rm -rf "$T"; }
 ktg_on_exit cleanup
 
+# Stand-ins for the helper's id and getent. FG is the scratch's group, which
+# every file and directory the cases make shares. By default it is the user's
+# private group: their primary gid, with no other member and no other account
+# using it as primary. A case changes one of the PG_ variables, in a subshell,
+# to make it something else.
+FG=$(/bin/ls -ldn -- "$T") && read -r _ _ _ FG _ <<EOF
+$FG
+EOF
+ME=$(id -un)
+PG_PRIMARY=$FG
+PG_MEMBERS=""
+PG_OTHER_PRIMARY=0
+PG_NO_GETENT=0
+ee_id() {
+    case "$*" in
+        -g) echo "$PG_PRIMARY" ;;
+        -un) echo "$ME" ;;
+        *) return 1 ;;
+    esac
+}
+ee_getent() {
+    [ "$PG_NO_GETENT" = 0 ] || return 127
+    case "$1" in
+        group) [ "$2" = "$FG" ] && echo "scratch:x:$FG:$PG_MEMBERS" ;;
+        passwd)
+            echo "$ME:x:$EUID:$PG_PRIMARY::/:/bin/sh"
+            [ "$PG_OTHER_PRIMARY" = 0 ] || echo "other:x:4242:$FG::/:/bin/sh"
+            ;;
+        *) return 2 ;;
+    esac
+}
+# pg_ok <path> <file|dir>: ee_mode_ok under the current stand-ins, with no
+# verdict kept from an earlier scenario.
+pg_ok() { EE_PG_GID=''; EE_PG_OK=''; ee_mode_ok "$@"; }
+
 # Tools for the cases: jq and the helpers' needs, plus a koto stub. A run with
 # NOTIMEOUT=1 gets a PATH without `timeout`. The helper never uses timeout(1):
 # its own deadline runs either way, and the deadline cases check that a
@@ -126,6 +165,8 @@ run() {
         export HOME="$H"
         if [ "${NOTIMEOUT:-0}" = 1 ]; then PATH="$NOTO"; else PATH="$BIN"; fi
         export PATH
+        EE_PG_GID=''
+        EE_PG_OK=''
         ee_run "$now" "$@"
     )
 }
@@ -205,16 +246,40 @@ sent && bad "a sender that isn't executable is refused" || ok "a sender that isn
 new_home
 chmod 0775 "$SINK"
 run "$AFTER" "${EV[@]}"
-sent && bad "a group-writable sender is refused" || ok "a group-writable sender is refused"
+sent && ok "a sender writable by the user's private group is sent" || bad "a sender writable by the user's private group is sent"
 new_home
 chmod 0757 "$SINK"
 run "$AFTER" "${EV[@]}"
 sent && bad "an other-writable sender is refused" || ok "an other-writable sender is refused"
+# Under a shared group every group-writable directory above the sender
+# refuses too, so a run can't tell the sender's own refusal from theirs. These
+# ask ee_mode_ok about the one entry.
+new_home
+chmod 0775 "$SINK"
+( PG_MEMBERS="other"; pg_ok "$SINK" file ) && bad "a group-writable sender is refused when the group has another member" || ok "a group-writable sender is refused when the group has another member"
+( PG_MEMBERS="$ME,other"; pg_ok "$SINK" file ) && bad "a group-writable sender is refused when the group has the user and another member" || ok "a group-writable sender is refused when the group has the user and another member"
+( PG_OTHER_PRIMARY=1; pg_ok "$SINK" file ) && bad "a group-writable sender is refused when another account has the group as primary" || ok "a group-writable sender is refused when another account has the group as primary"
+( PG_PRIMARY=4242; pg_ok "$SINK" file ) && bad "a group-writable sender is refused when the group isn't the user's primary" || ok "a group-writable sender is refused when the group isn't the user's primary"
+( PG_NO_GETENT=1; pg_ok "$SINK" file ) && bad "a group-writable sender is refused when getent can't answer" || ok "a group-writable sender is refused when getent can't answer"
+( PG_MEMBERS="$ME"; pg_ok "$SINK" file ) && ok "a group listing only the user is still private" || bad "a group listing only the user is still private"
+pg_ok "$SINK" file && ok "a group-writable sender passes under the user's private group" || bad "a group-writable sender passes under the user's private group"
+chmod 0775 "$H/.local/libexec/fleet"
+( PG_MEMBERS="other"; pg_ok "$H/.local/libexec/fleet" dir ) && bad "a group-writable directory is refused under a shared group" || ok "a group-writable directory is refused under a shared group"
+new_home
+chmod 0775 "$SINK"
+if command -v setfacl >/dev/null 2>&1 && setfacl -m u:4242:rwx "$SINK" 2>/dev/null \
+    && /bin/ls -ldn -- "$SINK" | grep -q '^-.........+'; then
+    pg_ok "$SINK" file && bad "a group-writable sender with an ACL is refused" || ok "a group-writable sender with an ACL is refused"
+    run "$AFTER" "${EV[@]}"
+    sent && bad "a sender with an ACL is not sent" || ok "a sender with an ACL is not sent"
+else
+    echo "skip the ACL check: setfacl can't set one here"
+fi
 for d in .local/libexec/fleet .local/libexec .local ""; do
     new_home
     chmod 0775 "$H/$d"
     run "$AFTER" "${EV[@]}"
-    sent && bad "a group-writable directory [~/$d] above it is refused" || ok "a group-writable directory [~/$d] above it is refused"
+    sent && ok "a directory [~/$d] above it writable by the user's private group is sent" || bad "a directory [~/$d] above it writable by the user's private group is sent"
     chmod 0755 "$H/$d"
     new_home
     chmod 0757 "$H/$d"
