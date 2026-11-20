@@ -38,7 +38,7 @@ FAIL_COUNT=0
 pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/verification-map-schema-test.XXXXXX")
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/verification-map-schema-test.XXXXXX") || { echo "mktemp failed" >&2; exit 1; }
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
