@@ -30,6 +30,12 @@
 #                           afterwards an acceptance below the overruling's
 #                           authority leaves it held and one at or above it
 #                           counts again
+#   a cut brief             decide refuses partial-read for an accept whose
+#                           whole_read is false, and only for an accept; the
+#                           fold doesn't count an accept covering a file its
+#                           seat line lists as cut unless its read_whole
+#                           names it, and counts one that does, or one whose
+#                           seat cut nothing it covers
 #   relocate lines          a relocate line (test-change.sh's record of a
 #                           moved work tree) anywhere in a ledger changes no
 #                           acceptance, decline, decline-limit or overrule
@@ -221,6 +227,24 @@ same "an acceptance at the overruling's authority" counted "$W/cur" "$W/sessions
 same "a tagged person line" counted "$W/cur" "" "$W/key"
 { hdr; reloc 1; } > "$W/l"
 eq "a relocate line alone accepts nothing" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur")"
+
+echo "--- a cut brief"
+eq "an accept without a whole read of a cut diff" partial-read "$(rule agent:run/accept-1 agent reviewer accept "$A" false false true false "" false)"
+eq "an accept with the whole read" allow "$(rule agent:run/accept-1 agent reviewer accept "$A" false false true false "" true)"
+eq "a decline needs no whole read" allow "$(rule agent:run/accept-1 agent reviewer decline "$A" false false true false "" false)"
+eq "an unminted seat is refused before partial-read" unminted-seat "$(rule agent:other agent reviewer accept "$A" false false false false "" false)"
+cut_seat() { printf '{"event":"seat","identity":"%s","cut":["t.sh"]}\n' "$1"; }
+read_accept() { printf '{"event":"accept","identity":"%s","kind":"agent","authority":"reviewer","files":[{"path":"t.sh","digest":"D1"}],"read_whole":%s}\n' "$1" "$2"; }
+{ hdr; cut_seat agent:run/accept-1; judge accept agent:run/accept-1 reviewer t.sh D1; } > "$W/l"
+eq "an accept of a cut file with no read_whole never counts" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur")"
+{ hdr; cut_seat agent:run/accept-1; read_accept agent:run/accept-1 '["other.sh"]'; } > "$W/l"
+eq "a read_whole naming another file never counts" "held	unaccepted t.sh" "$(acceptance_rule_live "$W/l" "$W/cur")"
+{ hdr; cut_seat agent:run/accept-1; read_accept agent:run/accept-1 '["t.sh"]'; } > "$W/l"
+eq "an accept whose read_whole names the cut file counts" counted "$(acceptance_rule_live "$W/l" "$W/cur")"
+{ hdr; printf '{"event":"seat","identity":"agent:run/accept-1","cut":["other.sh"]}\n'; judge accept agent:run/accept-1 reviewer t.sh D1; } > "$W/l"
+eq "a seat whose cut misses the covered file counts as before" counted "$(acceptance_rule_live "$W/l" "$W/cur")"
+{ hdr; cut_seat agent:run/accept-1; seat agent:run/accept-2; judge accept agent:run/accept-2 reviewer t.sh D1; } > "$W/l"
+eq "another seat's cut doesn't bind this one" counted "$(acceptance_rule_live "$W/l" "$W/cur")"
 
 echo
 echo "acceptance-rule: $PASS passed, $FAIL failed"

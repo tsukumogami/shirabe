@@ -165,20 +165,26 @@ seed() {
 echo "== a removed unit, captured in its coordinator's session =="
 # record and start no longer launch the sweep (#1409), so the suite writes the
 # removal record and runs the sweep by hand, in the background while its
-# capture is held.
+# capture is held. The held sweep's GitHub reads get a 60 s bound instead of
+# the default 8 s (UNIT_COST_FETCH_SECS), so only the suite's release ends the
+# hold. The record lock is a file (shirabe#1846), so the wait tests -e.
 seed
 rm -rf "$R" "$T/gh.env"
 mkdir -p "$R" && chmod 700 "$R"
 newrec "$DID" "$SID" "$IP"
 mkfifo "$T/hold.gh"
-(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
+(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; UNIT_COST_FETCH_SECS=60 bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
 SW0=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -e "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
 # Read from the store directly, not through the capture's own list: the
 # capture is held at its first GitHub read, before it lists or posts anything.
-eq "a sweep run by hand holds the record's lock, nothing posted yet" "1|0" \
-    "$(count "$R/.$DID.lock")|$(count "$KOTO_STORE/context/$S/record/entries"/*)"
+# "seen": the wait ended because the lock appeared, not at its limit.
+eq "a sweep run by hand holds the record's lock, nothing posted yet" "seen|1|0" \
+    "$([ "$i" -lt 150 ] && echo seen)|$(count "$R/.$DID.lock")|$(count "$KOTO_STORE/context/$S/record/entries"/*)"
+# Released later than the capture's default bound on a GitHub read (8 s), as a
+# loaded host can: the hold has to last until the suite releases it.
+sleep 9
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
 wait "$SW0"
@@ -329,15 +335,20 @@ rm -rf "$R"
 mkdir -p "$R" && chmod 700 "$R"
 newrec "$DID" "$SID" "$IP"
 mkfifo "$T/hold.gh"
-bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
+# Only the first sweep, the one held, gets the 60 s bound, as above; the second
+# sweep has to pass over the lock, not wait on it.
+UNIT_COST_FETCH_SECS=60 bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
 SW1=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -e "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+SEEN=$([ "$i" -lt 150 ] && echo seen)
 # Written while the first sweep runs, at a path no koto session ran in.
 newrec dsp-late.1 0c0c0c0c-2222 "$WS/inst-late"
 eq "a second sweep passes over the record the first holds, and handles the one written since" \
-    "$DID: held by another sweep
-dsp-late.1: no coordinator" "$(bash "$UR" sweep)"
+    "seen|$DID: held by another sweep
+dsp-late.1: no coordinator" "$SEEN|$(bash "$UR" sweep)"
+# Released later than the capture's own bound on a GitHub read, as above.
+sleep 9
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
 wait "$SW1"
