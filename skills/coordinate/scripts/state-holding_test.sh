@@ -348,20 +348,20 @@ rawjob 5c6d7e8f "{\"name\": null, \"state\": \"stopped\", \"pid\": $$}"
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed job reads stopped but its pid is still running" 65 $?
 grep -q 'Claude job 5c6d7e8f has no readable name' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
-rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/home/someone/elsewhere"}'
+rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/srv/elsewhere"}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd is in no instance niwa lists" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/ws/tsuku+deltav2x/public/shirabe"}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd only shares a prefix with a listed instance" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
-rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/ws/tsuku+deltav2/../tsuku+delta-89abcdef"}'
+rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/ws/tsuku+deltav2/../tsuku+deltaother"}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd climbs out of a listed instance" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": 7}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd isn't a path" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 nojob 5c6d7e8f
-rawjob 31e9216f '{"name": null, "state": "stopped", "pid": null, "cwd": "/ws/tsuku+epsilon-9f8e7d6c"}'
+rawjob 31e9216f '{"name": null, "state": "stopped", "pid": null, "cwd": "/ws/tsuku+epsilon"}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
 [ "$rc" = 0 ] && ok "--retire rules out an unnamed job that is stopped with no pid (the issue's job)" \
     || bad "--retire rules out an unnamed job that is stopped with no pid (the issue's job)" "exit $rc: $(cat "$T/err")"
