@@ -686,6 +686,41 @@ expect_rc "an unmatched path" 0
 [ "$(tr '\n' ' ' < "$R2")" = "D " ] && pass "the default runs for a path no entry matches, and the each command with no matching directory does not" \
     || fail "an unmatched path ran [$(tr '\n' ' ' < "$R2")]"
 
+# build_output belongs to the build-output cleanup, and selection never reads
+# it: the same map without the field, with it, with it as a string, and with a
+# list holding a number and an empty string beside "target/" all parse and
+# select the same invocations for the same change.
+R3="$WORKDIR/selbo.rec"
+CMDS=$(jq -cn --arg f "$R3" '{A: {run: ["bin/rec.sh", $f, "A"]}, D: {run: ["bin/rec.sh", $f, "D"]}}')
+BO_BASE=$(map "$CMDS" '[{"paths": ["src/**"], "commands": ["A"]}]' '["D"]')
+# bo_case <n> <label> <build_output json | NONE>: settles a change to an
+# entry's path and an unmatched path under that map, and leaves the selected
+# invocations (id and argv, in run order) in BO_SEL.
+bo_case() {
+    local m=$BO_BASE
+    [ "$3" = NONE ] || m=$(printf '%s' "$BO_BASE" | jq -c --argjson b "$3" '.build_output = $b')
+    mkrepo "selbo$1" "$m"
+    change src/x/f.txt top.txt
+    start "s-selbo$1"
+    settle "s-selbo$1"
+    expect_rc "$2" 0
+    BO_SEL=$(jq -c '[.commands[] | {id, argv}]' "$(result_of "s-selbo$1")")
+}
+bo_case 1 "a map without build_output" NONE
+BO_NONE=$BO_SEL
+[ "$(printf '%s' "$BO_NONE" | jq -c '[.[].id]')" = '["A","D"]' ] \
+    && pass "the map without build_output selects A and the default D" \
+    || fail "the map without build_output selected $BO_NONE, expected A and D"
+bo_case 2 'build_output ["target/"]' '["target/"]'
+[ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output ["target/"] selects the same invocations as the map without it' \
+    || fail "build_output [\"target/\"] selected $BO_SEL, without it $BO_NONE"
+bo_case 3 'build_output as a string (not invalid)' '"target/"'
+[ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output as a string selects the same invocations as the map without it' \
+    || fail "build_output as a string selected $BO_SEL, without it $BO_NONE"
+bo_case 4 'build_output with a number and an empty string (not invalid)' '["target/", 1, ""]'
+[ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output holding a number and an empty string selects the same invocations as the map without it' \
+    || fail "build_output with a number and an empty string selected $BO_SEL, without it $BO_NONE"
+
 # --- the lock, the state directories ------------------------------------------------------
 
 echo "--- a stale lock"

@@ -85,6 +85,18 @@ When this pass fixes blocking findings a panel raised (a retry), commit the fix 
 
 `<panel>` is the ledger's panel name, `scrutiny`, `review`, `qa` or `light`, not the state name. The ids are in the findings the panel's `--verdict` gate printed and in `verdict_ledger.json`. A finding whose recorded location the fix touched is due anyway; marking is what makes the others due: one fixed somewhere other than where it was recorded, or one with no location. A mark is a `fixed` record by the agent: it asks for re-verification and never closes anything, and only the re-verifier's `reverified` answer does. Mark after committing, before the tick that enters the panel; a mark written after the round is planned re-plans it. `--mark-fixed` refuses (65) an id the panel doesn't hold, an advisory finding, and one already closed.
 
+### Promote a Confirmed Advisory Finding
+
+A panel round can pass with a defect recorded only as an advisory finding, for example when its seats read a review packet that was cut and a later whole read of the diff shows the defect is real. That round stands at an unchanged HEAD, and nothing about the tree or the criteria re-plans it. Promote the finding instead, by its id, with the reason it is blocking:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --promote <panel> <WF> <id> "<what the later read confirmed>"
+```
+
+Name as `<panel>` the panel the run is at now, the one whose gate has to block, not the panel that raised the finding. The finding may be that panel's own or an earlier one's in the order the panels run (`scrutiny`, then `review`, then `qa`): a run at `review` whose defect is held as a scrutiny advisory runs `--promote review <WF> <id> ...`. Promoting it as `--promote scrutiny` from `review` would block nothing, since the run doesn't pass through scrutiny again until it goes back to implementation.
+
+The finding becomes blocking with a `promoted` record carrying the reason and the panel it was promoted into. That panel's round at this HEAD no longer stands, and its `--verdict` gate blocks on the finding, so the run comes back here to fix it. Retry it from that panel as its state's directive says. The finding stays the raising panel's: commit the fix and mark it fixed as above on that panel (`--mark-fixed scrutiny <WF> <id>` in the example), and that panel's re-verifier closes it as the run walks back through, which clears the later panel too. A promotion closes nothing and passes no seat. `--promote` refuses (65) an id the ledger doesn't hold, a finding of a later panel or of `light` when promoted into another panel, a finding already blocking or closed, and an empty reason or one over 1000 bytes. Don't leave the work tree dirty to force a fresh round: that trigger is for an uncommitted fix, not a way to reopen one.
+
 ## Coverage Tracking
 
 If the project tracks coverage:

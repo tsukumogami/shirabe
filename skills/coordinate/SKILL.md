@@ -52,7 +52,7 @@ to advance it, what it never does, and how it ends.
 
 | Flag | Effect |
 |------|--------|
-| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
+| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown, stopped ones and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a merge by your reviewer before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
@@ -895,7 +895,10 @@ asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
 abandoned and that isn't parked. A parked worker has a verified, ready pull
 request waiting only on a merge; parked workers, merged ones waiting for their
-teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
+teardown and local agents don't count against the cap. Neither does a stopped
+worker: one whose Claude jobs on this host have all finished, kept until its
+pull request merges with nothing running for it, so the worker that continues
+its unit takes the same slot. A worker with no job seen on this host counts. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
 
@@ -924,8 +927,11 @@ Decisions); don't ask for anything else.
 
 **Review comes before every merge.** Work is reviewed by whoever dispatched
 its author, and a merge grant decides who merges after the review, never whether the review happens.
-Your land step is the review of your workers' pull requests: nothing a worker
-reports merges until you have checked it there. A pull request you authored
+A manager's land step is the review of its workers' pull requests: nothing a
+worker reports merges until the manager has checked it there, goal fit
+included. A director's land step, on a lane's pull request, confirms that the
+manager's checks happened and gives the director's alignment reading (Roles).
+A pull request you authored
 yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
 You can't tell whether you are bound when `niwa authority check` fails or isn't installed.
 
