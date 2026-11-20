@@ -551,8 +551,11 @@ is_tracked() {
     return 1
 }
 
-GIT_DIR_P=$(cd "$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)" 2>/dev/null && pwd -P)
-COMMON_DIR_P=$(cd "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)
+# Each guard is empty when git can't name its directory, and protected_name
+# reads an empty guard as protected. The git answer is taken first and tested,
+# because `cd ""` succeeds and would make the guard the current directory.
+GIT_DIR_P=$(d=$(git -C "$ROOT" rev-parse --absolute-git-dir) && [ -n "$d" ] && cd "$d" && pwd -P)
+COMMON_DIR_P=$(d=$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir) && [ -n "$d" ] && cd "$d" && pwd -P)
 BO_P=$(cd "$BO" && pwd -P)
 ROOT_DEV=${SHIRABE_BUILD_OUTPUT_TEST_ROOT_DEV:-$(devof "$ROOT")}
 
