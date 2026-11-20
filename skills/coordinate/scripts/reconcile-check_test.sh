@@ -44,6 +44,9 @@ cat > "$T/bin/stub" <<'STUB'
 #!/usr/bin/env bash
 name=$(basename "$0")
 printf '%s %s\n' "$name" "$*" >> "$STUB_LOG"
+# A case holding a "remove-inv-files" file has the inventory's working files,
+# kept in the case's own $STUB_DIR/tmp, removed at its next stub call (shirabe#1970).
+if [ -f "$STUB_DIR/remove-inv-files" ]; then rm -f "$STUB_DIR/remove-inv-files" "$STUB_DIR"/tmp/reconcile-inv.*; fi
 # git calls other than ls-remote go to the real git: the inventory reads a
 # real clone. rd_git puts its -c flags before the subcommand, so find it.
 if [ "$name" = git ]; then
@@ -871,6 +874,29 @@ expect "the stash is listed once" '[.items[] | select(.path | startswith("stash"
 expect "each working tree's own change is listed under it" '[.items[] | select(.kind == "change" and .path == "a.txt") | .clone] | sort == ["a-wt", "repo"]' "$out"
 [ "$(grep -c 'ls-remote' "$CASE/log")" = 1 ] && ok "the remote is read once per repository" || bad "the remote is read once per repository" "$(grep -c ls-remote "$CASE/log")"
 [ "$(grep -c 'git/trees' "$CASE/log")" = 1 ] && ok "the default tree is read once per repository" || bad "the default tree is read once per repository" "$(grep -c git/trees "$CASE/log")"
+
+echo "== inventory: its working files removed during the read =="
+# The read's own temporary files can disappear under it (shirabe#1970). An
+# inventory that can't read them says so: an empty list would read as
+# "nothing unique found". Each case keeps them in its own TMPDIR, so the
+# removal touches nothing outside the case.
+REAL_FIND=$(command -v find)
+# Removed while the clone search runs, before its answer is read.
+new_case inventory-files-removed
+mkdir -p "$CASE/tmp" "$CASE/bin"
+printf '#!/usr/bin/env bash\nrm -f "$TMPDIR"/reconcile-inv.*\nexec "%s" "$@"\n' "$REAL_FIND" > "$CASE/bin/find"
+chmod +x "$CASE/bin/find"
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M14" "$M14" > "$CASE/ls-remote.out.all"
+mktree "$R14" "$M14"
+out=$(PATH="$CASE/bin:$PATH" TMPDIR="$CASE/tmp" run inventory --path "$I14" 2>/dev/null)
+expect "working files removed during the clone search: the inventory is not taken" '.status == "not_verified" and (.reason | test("working files")) and (.taken != true)' "$out"
+# Removed at the read's first git call, after the search's answer was read.
+new_case inventory-files-removed-late
+mkdir -p "$CASE/tmp"; : > "$CASE/remove-inv-files"
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M14" "$M14" > "$CASE/ls-remote.out.all"
+mktree "$R14" "$M14"
+out=$(TMPDIR="$CASE/tmp" run inventory --path "$I14" 2>/dev/null)
+expect "working files removed while the clones are read: the inventory is not taken" '.status == "not_verified" and (.reason | test("working files")) and (.taken != true)' "$out"
 
 echo "== close =="
 new_case close-closed

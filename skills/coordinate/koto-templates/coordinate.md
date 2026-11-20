@@ -3842,7 +3842,9 @@ on the default branch.
 A merge confirmed keeps the holding until teardown and clears its Pull request
 cell: read the row with `state-holding.sh --read`, write it back with
 `pull_request` empty and nothing else changed (`--row-file`), and the record
-step waits for that. The row goes only at the teardown's destroy step. A merge
+step waits for that. That write also drops the pull request's Side effects
+merge row at the verified head, if there is one, and the record step waits
+for it to be gone. The row goes only at the teardown's destroy step. A merge
 not confirmed keeps the holding and its link and adds a Side effects row
 naming the pull request as `owner/repo#<n>` with the verified head, which a
 later reconcile settles.
@@ -3874,17 +3876,22 @@ was recorded after that read.
 
 Confirming a merge the human made. koto runs `merged-facts.sh` itself, against
 the head this run verified for the unit, or GitHub's record when there is
-none.
+none. A run that took another over also finds a head its predecessor verified,
+so a merge made across the takeover is confirmed here.
 
 <!-- details -->
 
 As after a merge you made: a merge confirmed keeps the holding until teardown
 and clears its Pull request cell (`state-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
-record step waits for; the row goes only at the teardown's destroy step. A
+record step waits for; the row goes only at the teardown's destroy step. That
+write also drops the pull request's Side effects merge row at the verified
+head, one a run this one took over carried included, and the record step
+waits for it to be gone. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
-head its verdict names. When this run never verified the pull request (an
-earlier run did, or a decision accepted it), the check reads GitHub instead,
+head its verdict names. When neither this run nor a run it took over verified
+the pull request (an earlier run did, or a decision accepted it), the check
+reads GitHub instead,
 and `coord/merged_facts.json` says why: merged is unconfirmed at the head
 GitHub merged, which gets that same Side effects row; still open is
 not-merged, so drive it through verify (a report event for its unit,
@@ -4114,6 +4121,16 @@ its place before it says done, and refuses if it can't. For any pass, removed
 or not, on `done` remove the holding row with `state-holding.sh --retire` (it
 confirms the done pass for the topic through `teardown-pass.sh check` first)
 and submit `destroyed`.
+
+A removed verdict still goes to the teardown agent's pass, even when someone
+already archived the unit as they tore it down. Run `--retire` only after that
+pass reports done: the check reads only the archive this run's own pass made,
+never one someone else left, so skipping the pass leaves the holding in Work
+and teardown_confirm surfaces. `--retire` retires a holding whose removed
+pass is confirmed whether or not its pull request merged: it reads no pull
+request state, so a row a person merged outside the run's land path, never
+marked merged, retires, and so does one whose pull request closed unmerged.
+It records an entry saying the teardown was not the run's own.
 
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or

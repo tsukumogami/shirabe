@@ -55,6 +55,10 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      # clean-build-output.sh sources the default-branch ref reader, and its
+      # test sits beside it.
+      - 'scripts/lib/default-remote-ref.sh'
+      - 'scripts/lib/default-remote-ref_test.sh'
       # test-change.sh sources the interim acceptance rule.
       - 'scripts/lib/acceptance-rule.sh'
       - 'scripts/lib/acceptance-rule_test.sh'
@@ -99,6 +103,8 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/default-remote-ref.sh'
+      - 'scripts/lib/default-remote-ref_test.sh'
       - 'scripts/lib/acceptance-rule.sh'
       - 'scripts/lib/acceptance-rule_test.sh'
       - 'scripts/lib/gh-issue-testlib.sh'
@@ -515,6 +521,18 @@ jobs:
       - name: Run test classifier tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/lib/test-classify_test.sh
+
+      # The build-output cleanup: clean-build-output.sh against git fixtures
+      # (the switch, the base, every refusal word, the trash, the record and
+      # the detached deleter), and the default-branch ref reader. No engine;
+      # the macOS leg runs both on the floor through the work-on suite.
+      - name: Run build-output cleanup tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/clean-build-output_test.sh
+
+      - name: Run default remote ref tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/default-remote-ref_test.sh
 
       # fix-kind.sh (a fix from a label, a Fixes line or a declaration, never
       # withdrawn) and red-first.sh (the red on the base, observations, the
