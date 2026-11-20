@@ -109,10 +109,10 @@ stateDiagram-v2
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
     pr_creation --> check_exit : gates.pr_body_conformant.exit_code: 1, pr_status: check_unsatisfiable
-    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 0, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, pr_status: created
-    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 4, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, pr_status: created
-    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 5, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, pr_status: created
-    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 6, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, pr_status: created
+    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 0, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, gates.verification_rerun_recorded.exit_code: 0, pr_status: created
+    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 4, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, gates.verification_rerun_recorded.exit_code: 0, pr_status: created
+    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 5, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, gates.verification_rerun_recorded.exit_code: 0, pr_status: created
+    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, gates.probe_ack.exit_code: 6, gates.probe_value_absent.exit_code: 0, gates.verification_deferral_recorded.exit_code: 0, gates.verification_rerun_recorded.exit_code: 0, pr_status: created
     pr_creation --> done_blocked : gates.closing_keyword.exit_code: 1, pr_status: created
     pr_creation --> done : pr_status: shared, vars.SHARED_BRANCH: {"is_set":true}
     pr_creation --> pr_creation : pr_status: creation_failed_retry
@@ -322,6 +322,9 @@ stateDiagram-v2
     end note
     note left of pr_creation
         gate: verification_deferral_recorded
+    end note
+    note left of pr_creation
+        gate: verification_rerun_recorded
     end note
     note left of pr_precheck
         gate: branch_docs_visibility
