@@ -751,8 +751,9 @@ against its chain shape:
    - **The start commit**, only through `scripts/start-commit.sh`, at
      `orchestrator_setup` before the shared branch's first push: one empty commit
      on `impl/<slug>`, and only when that branch has no commit the remote's
-     default branch lacks (its PLAN was merged by an earlier pull request), so
-     the draft PR can be opened. It refuses any other branch and never pushes.
+     default branch lacks (an earlier pull request already landed its PLAN
+     there), so the draft PR can be opened. It refuses any other branch and
+     never pushes.
    - **`head=` fields** on the coordination PR's index, rendered only by the
      codec (`scripts/lib/coordination-body.sh`) from the run record: a node's
      pushed head, which only `node-push.sh` records, or its merge commit, which
