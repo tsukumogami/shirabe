@@ -636,6 +636,38 @@ if [ "$RR_OK" -eq 1 ]; then
         fail "rerun: verification_attempts ($rr_n line(s)): [$(head -c 300 <<<"$RR_LEDGER")]$(rr_why)"
     fi
 
+    # The PR body's re-run record, against this real session's ledger: the
+    # real check-pr-output.sh --rerun-record reads verification_attempts
+    # through koto, and a gh stand-in serves the body, first without attempt
+    # 1's re-run line, then with it.
+    mkdir -p "$RR_DIR/bin"
+    cat > "$RR_DIR/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+jq -Rsc '{body: .}' "$RR_GH_BODY"
+EOF
+    chmod +x "$RR_DIR/bin/gh"
+    printf '%s\n' "A change." "" "---" "" "## Verification" "" "Ran the verification map's commands." \
+        "" "Fixes #7" > "$RR_DIR/body-without.md"
+    printf '%s\n' "A change." "" "---" "" "## Verification" "" "Ran the verification map's commands." \
+        "Re-run attempt 1 at \`$(printf '%s' "$RH" | cut -c1-7)\`: \`flaky\` failed; reason \`$RR_REASON\`." \
+        "" "Fixes #7" > "$RR_DIR/body-with.md"
+    (cd "$RR_REPO" && PATH="$RR_DIR/bin:$PATH" RR_GH_BODY="$RR_DIR/body-without.md" \
+        "$SCRIPT_DIR/check-pr-output.sh" --rerun-record --session "$RS") >/dev/null 2>"$RR_DIR/rerun-record.err"
+    rr_rc=$?
+    if [ "$rr_rc" -eq 1 ] && grep -qF "no re-run line for attempt 1 at $(printf '%s' "$RH" | cut -c1-12)" "$RR_DIR/rerun-record.err"; then
+        pass "rerun: check-pr-output.sh --rerun-record refuses a body without attempt 1's re-run line (1), naming attempt 1"
+    else
+        fail "rerun: --rerun-record on a body without the line: exit $rr_rc, stderr [$(cat "$RR_DIR/rerun-record.err")]"
+    fi
+    (cd "$RR_REPO" && PATH="$RR_DIR/bin:$PATH" RR_GH_BODY="$RR_DIR/body-with.md" \
+        "$SCRIPT_DIR/check-pr-output.sh" --rerun-record --session "$RS") >/dev/null 2>"$RR_DIR/rerun-record.err"
+    rr_rc=$?
+    if [ "$rr_rc" -eq 0 ]; then
+        pass "rerun: check-pr-output.sh --rerun-record accepts the body with attempt 1's re-run line (0)"
+    else
+        fail "rerun: --rerun-record on a body with the line: exit $rr_rc, stderr [$(cat "$RR_DIR/rerun-record.err")]"
+    fi
+
     if [ -f "$RR_HEADDIR/attempts/1/result.json" ] && [ -f "$RR_HEADDIR/attempts/1/run.json" ] \
             && grep -q 'first run fails' "$RR_HEADDIR/attempts/1/0-flaky.log" 2>/dev/null; then
         pass "rerun: attempt 1's result.json, run.json and log are in attempts/1/"
