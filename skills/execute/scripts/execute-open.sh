@@ -144,9 +144,11 @@
 # starts with no merge attempts and reports a recovery only when its own setup
 # made one. On `opened=attached` the run's plan_abs is checked against this
 # checkout with `record-coord-setup.sh --reroot-plan`, which re-roots it only
-# when the recorded PLAN is gone and this checkout is on the recorded
-# coord_branch with home_repo as its origin (one stderr line names both paths);
-# its stdout is dropped and it changes no line or exit code here. A
+# when this checkout is on the recorded coord_branch with home_repo as its
+# origin and the recorded PLAN is either gone or, with the old checkout kept,
+# the same file at the same commit in a checkout the session was rebound away
+# from (its execution_dir is this checkout); one stderr line names both paths.
+# Its stdout is dropped and it changes no line or exit code here. A
 # single-pr open seeds the prior run_id and mints one when the session still
 # has none.
 #
@@ -709,8 +711,10 @@ case "$OUT" in
             koto context remove "$SESSION" recovered >/dev/null \
                 || echo "$PROG: could not clear recovered in $SESSION" >&2
             # A live run attached from a checkout it moved to: plan_abs is
-            # re-rooted to the PLAN here when the recorded one is gone and
-            # this is the same coordination branch of the same repository.
+            # re-rooted to the PLAN here when this is the same coordination
+            # branch of the same repository and the recorded PLAN is gone, or
+            # is kept in the old checkout as the same file at the same commit
+            # while the session is bound here.
             # record-coord-setup.sh decides and writes, keeping the key's one
             # writer; its stdout is dropped so this script's lines don't
             # change, and its one stderr line names the move.

@@ -180,7 +180,7 @@ variables:
     pattern: '^[1-9][0-9]{0,2}$'
     default: "7"
   CAP:
-    description: The cap on active workers; parked workers, merged ones waiting for teardown and local agents don't count.
+    description: The cap on active workers; parked workers, merged ones waiting for teardown, stopped ones and local agents don't count.
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
@@ -2689,7 +2689,10 @@ and drive every worker to landed work.
   back. An active worker is one whose unit isn't merged or abandoned and that
   isn't parked. Parked workers (a verified, ready pull request waiting only on a
   merge), merged ones waiting for their teardown, and local agents don't count
-  against the cap.
+  against the cap. Neither does a holding whose `stopped` is true: its
+  worker's Claude jobs on this host have all finished, so nothing runs for it
+  while it waits on its pull request, and a worker continuing its unit takes
+  the same slot without a cap raise.
 - **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
   nothing new until the human has worked through the merge-order table
   (`hold`).
@@ -3731,18 +3734,31 @@ Never ask the human for a step the workspace already permits once its review is 
 
 ## goal_fit
 
-The pull request passed the closed checks. Judge goal fit, your one call at
-this step: read it against the unit's brief and submit `fit: fits` when it
-delivers what the unit asked, in the way intended, without stopping short,
-drifting or deciding what the lane didn't; `fit: fits_with_follow_ups` when it
-does and what it leaves is follow-up work rather than a defect; `fit: gap` when
-the worker must correct it first. Give the `rationale`: each follow-up, or for a
-gap, what to correct.
+The pull request passed the closed checks. Goal fit is your one call at this
+step, and the role your record holds says how you make it (SKILL.md, Roles).
+
+As a manager, on your worker's pull request, judge goal fit: read it against
+the unit's brief and submit `fit: fits` when it delivers what the unit asked, in
+the way intended, without stopping short, drifting or deciding what the lane
+didn't; `fit: fits_with_follow_ups` when it does and what it leaves is
+follow-up work rather than a defect; `fit: gap` when the worker must correct it
+first.
+
+As a director, on a lane's pull request, goal fit is the manager's check, made
+at its land step: confirm from the manager's report that it happened and submit
+the fit it reached, without judging it again. Your own call is the alignment
+reading: whether the work fits the other lanes and the direction of the effort.
+
+Give the `rationale`: each follow-up, or for a gap, what to correct; a director
+also gives its alignment reading there.
 
 <!-- details -->
 
 Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
-brief you dispatched. Code quality is the seats' question, already answered in
+brief you dispatched. A director also reads the manager's report on the pull
+request: that is where the goal fit it confirms, and submits, comes from; the
+changed files and the brief are for its alignment reading, not a second
+judgment. Code quality is the seats' question, already answered in
 the body; don't re-review it and don't launch reviewers. A fit pull request,
 with or without follow-ups, goes on by the land check's own verdict: to
 `land_merge` where the workspace permits the merge, and where it doesn't,
@@ -3766,7 +3782,8 @@ clause 1 first:
    Rationale: <what in the pull request decided it>
    ```
 
-   `Fit` is the judgment you submit as `fit`, written with spaces
+   `Fit` is what you submit as `fit` (a manager's judgment, or the manager's
+   fit a director confirmed), written with spaces
    (`fits_with_follow_ups` is `fits with follow-ups`). `Clauses` names each clause
    the pull request moves toward held, by its number, or `advances none`.
 2. Read the roadmap on the default branch into a file outside any
@@ -3825,7 +3842,9 @@ on the default branch.
 A merge confirmed keeps the holding until teardown and clears its Pull request
 cell: read the row with `state-holding.sh --read`, write it back with
 `pull_request` empty and nothing else changed (`--row-file`), and the record
-step waits for that. The row goes only at the teardown's destroy step. A merge
+step waits for that. That write also drops the pull request's Side effects
+merge row at the verified head, if there is one, and the record step waits
+for it to be gone. The row goes only at the teardown's destroy step. A merge
 not confirmed keeps the holding and its link and adds a Side effects row
 naming the pull request as `owner/repo#<n>` with the verified head, which a
 later reconcile settles.
@@ -3857,17 +3876,22 @@ was recorded after that read.
 
 Confirming a merge the human made. koto runs `merged-facts.sh` itself, against
 the head this run verified for the unit, or GitHub's record when there is
-none.
+none. A run that took another over also finds a head its predecessor verified,
+so a merge made across the takeover is confirmed here.
 
 <!-- details -->
 
 As after a merge you made: a merge confirmed keeps the holding until teardown
 and clears its Pull request cell (`state-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
-record step waits for; the row goes only at the teardown's destroy step. A
+record step waits for; the row goes only at the teardown's destroy step. That
+write also drops the pull request's Side effects merge row at the verified
+head, one a run this one took over carried included, and the record step
+waits for it to be gone. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
-head its verdict names. When this run never verified the pull request (an
-earlier run did, or a decision accepted it), the check reads GitHub instead,
+head its verdict names. When neither this run nor a run it took over verified
+the pull request (an earlier run did, or a decision accepted it), the check
+reads GitHub instead,
 and `coord/merged_facts.json` says why: merged is unconfirmed at the head
 GitHub merged, which gets that same Side effects row; still open is
 not-merged, so drive it through verify (a report event for its unit,
@@ -4097,6 +4121,16 @@ its place before it says done, and refuses if it can't. For any pass, removed
 or not, on `done` remove the holding row with `state-holding.sh --retire` (it
 confirms the done pass for the topic through `teardown-pass.sh check` first)
 and submit `destroyed`.
+
+A removed verdict still goes to the teardown agent's pass, even when someone
+already archived the unit as they tore it down. Run `--retire` only after that
+pass reports done: the check reads only the archive this run's own pass made,
+never one someone else left, so skipping the pass leaves the holding in Work
+and teardown_confirm surfaces. `--retire` retires a holding whose removed
+pass is confirmed whether or not its pull request merged: it reads no pull
+request state, so a row a person merged outside the run's land path, never
+marked merged, retires, and so does one whose pull request closed unmerged.
+It records an entry saying the teardown was not the run's own.
 
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or

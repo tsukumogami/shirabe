@@ -12,14 +12,19 @@
 # skills/work-on/references/red-first.md says what the rule means for a run.
 #
 #   acceptance_rule_decide <identity> <kind> <authority> <action> <author> \
-#       <person_required> <terminal> <seat_minted> <session_exists> [<target_authority>]
+#       <person_required> <terminal> <seat_minted> <session_exists> \
+#       [<target_authority> [<whole_read>]]
 #
 #     Prints `allow`, or `refuse <rule-id> <reason>`, and returns 0 either way.
 #     <kind> is agent or person, <authority> reviewer, coordinator or owner,
 #     <action> accept, decline or overrule, <author> the run's own identity
 #     (agent:<session>), and the four flags true or false. <target_authority>
-#     is the authority of the acceptance an overrule targets. The rules, checked
-#     in this order so an attempt that breaks several is refused by the first:
+#     is the authority of the acceptance an overrule targets. <whole_read> is
+#     false when an accept covers a file whose diff the seat's brief cut and
+#     the accept doesn't state it read that diff whole (test-change.sh
+#     --read-whole); anything else, or nothing, means no cut is in question.
+#     The rules, checked in this order so an attempt that breaks several is
+#     refused by the first:
 #
 #       author           the author's identity can't accept or overrule
 #       authority-kind   an agent acts only as reviewer or coordinator, a
@@ -33,6 +38,8 @@
 #       no-terminal      a person counts only from an interactive terminal
 #       not-higher       an overrule needs an authority strictly higher than
 #                        the acceptance it targets
+#       partial-read     an accept of a file whose diff the seat's brief cut
+#                        must state the seat read that diff whole
 #
 #   acceptance_rule_live <ledger-file> <current-digests-file> [<sessions-file> [<key-file>]]
 #
@@ -55,8 +62,10 @@
 #     author and person-required flag, whether a coordinator's acceptance
 #     names a session in the sessions file (a session cleaned up since stops
 #     its acceptances counting; its declines and overrules, which only hold
-#     the unit, stay in force), and whether a person line's integrity tag checks under the
-#     key (acceptance_rule_tag); a stored terminal or session_exists flag is
+#     the unit, stay in force), whether a person line's integrity tag checks under the
+#     key (acceptance_rule_tag), and whether an accept states a whole read
+#     (its `read_whole` paths) of every file it covers that its seat's line
+#     lists as cut (`cut`); a stored terminal or session_exists flag is
 #     never trusted. So a hand-written line the rule would refuse never
 #     counts. An overrule counts only when it targets an earlier accept line
 #     by id and the rule finds it strictly higher than that accept; it
@@ -121,7 +130,7 @@ acceptance_rule_tag() {
 acceptance_rule_decide() {
     local identity="$1" kind="$2" authority="$3" action="$4" author="$5"
     local person_required="$6" terminal="$7" seat_minted="$8" session_exists="$9"
-    local target="${10:-}"
+    local target="${10:-}" whole_read="${11:-}"
 
     if [ "$identity" = "$author" ] && { [ "$action" = accept ] || [ "$action" = overrule ]; }; then
         echo "refuse author the run's own identity can't $action its own test change"
@@ -152,6 +161,10 @@ acceptance_rule_decide() {
     fi
     if [ "$action" = overrule ] && [ "$(_ar_rank "$authority")" -le "$(_ar_rank "$target")" ]; then
         echo "refuse not-higher an overrule needs an authority above the acceptance's (${target:-none})"
+        return 0
+    fi
+    if [ "$action" = accept ] && [ "$whole_read" = false ]; then
+        echo "refuse partial-read the seat's brief cut the diff of a file this accept covers, and the accept doesn't state the seat read that diff whole (--read-whole)"
         return 0
     fi
     echo allow
@@ -208,8 +221,20 @@ acceptance_rule_live() {
         | map(tostring | gsub("[\t\n\r]"; " ") | if . == "" then "-" else . end) | join("\t")' \
         < "$w/lines" > "$w/rows" 2>/dev/null
 
+    # The accept lines that cover a file their seat's brief cut without
+    # stating a whole read of it, by index: the seat line is the latest one
+    # before the accept that minted the accept's identity.
+    jq -nr '[inputs] as $l | $l | to_entries[] | .key as $i | .value
+        | select(type == "object" and .event == "accept")
+        | . as $a
+        | ([$l[0:$i][] | select(type == "object" and .event == "seat" and .identity == $a.identity)] | last | (.cut // [])) as $cut
+        | ((.read_whole // []) | map(tostring)) as $rw
+        | select([(.files // [])[] | select(type == "object") | (.path // "") | tostring
+                  | select(. as $p | ($cut | index([$p])) != null and ($rw | index([$p])) == null)] | length > 0)
+        | $i' < "$w/lines" > "$w/partial" 2>/dev/null
+
     local minted="" used="" idx ev id kind auth aid target rest verdict f p d key
-    local seat sx term tauth trow rank name
+    local seat sx term tauth trow rank name whole
     : > "$w/judged"
     : > "$w/declines"
     while IFS="$tab" read -r idx ev id kind auth aid target rest; do
@@ -257,7 +282,11 @@ $id"
             tauth=$(printf '%s\n' "$trow" | cut -f 5)
             rest=$(printf '%s\n' "$trow" | cut -f 8-)
         fi
-        verdict=$(acceptance_rule_decide "$id" "$kind" "$auth" "$ev" "$author" "$person_required" "$term" "$seat" "$sx" "$tauth")
+        whole=true
+        if grep -Fxq -- "$idx" "$w/partial"; then
+            whole=false
+        fi
+        verdict=$(acceptance_rule_decide "$id" "$kind" "$auth" "$ev" "$author" "$person_required" "$term" "$seat" "$sx" "$tauth" "$whole")
         [ "$verdict" = allow ] || continue
         rank=$(_ar_rank "$auth")
         : > "$w/paths"

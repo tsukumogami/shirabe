@@ -354,9 +354,16 @@ and every coordinator wake started one too. On a busy host those sweeps
 piled up, each re-reading every kept record, until they were most of the
 host's load. #1410 replaces end-of-life capture with cost emitted as a
 session runs; until it lands, `scripts/unit-removed.sh record` and
-`unit-removed.sh start` launch nothing. Each prints one line saying the
-sweep is retired and exits 0; `record` writes no removal record and makes
-no removals directory. `unit-removed.sh sweep` is unchanged and runs only
+`unit-removed.sh start` launch nothing. Each first checks that no one but
+the user can write it or the two libraries it loads: write by others
+refuses, and so does write by a group unless the group is the user's own
+private one (the user's primary group, with no other member and no other
+account using it as primary, as `getent` reports; a file with an ACL, or a
+host without `getent`, refuses). A refusal prints one line naming every
+file at fault with the `chmod go-w` that fixes them, and exits 3. Past the
+check, each prints one line saying the sweep is retired and exits 0;
+`record` writes no removal record and makes no removals directory.
+`unit-removed.sh sweep` is unchanged and runs only
 by hand, to drain or inspect records already on a host. The rest of this
 section describes the records and the sweep as they stand.
 
@@ -434,7 +441,11 @@ seconds), `pending github`, `no coordinator`, `several coordinators` or
 **The on-reap line.** shirabe needs no on-reap step: a unit's cost and
 milestone facts are sent as it runs. A workspace whose `[session.on_reap]`
 command still names shirabe's `unit-removed.sh record` line can drop it. If
-the line stays, it does nothing: `record` prints one line and exits 0.
+the line stays, it does nothing: `record` prints one line and exits 0. On a
+host where the mode check above refuses, `record` exits 3 instead, and niwa
+counts that as a failed on-reap run: it prints a warning, keeps the
+session's mapping and runs the step again at a later reap, and drops the
+mapping with a final warning after ten failed runs.
 
 ## Evidence, not proof
 
