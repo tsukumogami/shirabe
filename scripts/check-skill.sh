@@ -154,6 +154,21 @@
 #                      TEST-ONLY. With --changed, the changed paths, one per
 #                      line, in place of the ones git reports. No extension
 #                      file or workflow sets it.
+#   SHIRABE_SUITE_SUMMARY
+#                      A file to keep the suite summary in, which the
+#                      verification gate's supervisor sets for each command it
+#                      runs and copies into the command's record. When set (and
+#                      not with --list), the script writes one JSON object,
+#                      {"passed": [...], "failed": [...], "running": [...],
+#                      "not_started": [...]}, each list the suites in that state
+#                      by the names --changed --list prints, every selected
+#                      suite in exactly one list. It is written once the
+#                      selection is known, at each launch, as each suite ends,
+#                      at the end and first thing on TERM or INT, each time to
+#                      a temporary file renamed over the last, so a KILL leaves
+#                      the last whole summary. The variable is unset before any
+#                      check runs, so no suite can write the summary itself.
+#                      Unset, nothing is written and nothing else changes.
 #   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*
 #                      Cleared before any check runs: a koto session running
 #                      this script passes its own store and session to it, and
@@ -193,6 +208,13 @@ done
 [ $# -eq 1 ] || usage
 [ "$LIST" = 0 ] || [ "$CHANGED" = 1 ] || usage
 SKILL="$1"
+
+# The suite summary's file (see the header). Taken here and unset, so nothing
+# this script starts sees it: a suite that wrote there would put its own
+# summary in place of this script's.
+SUMMARY="${SHIRABE_SUITE_SUMMARY:-}"
+unset SHIRABE_SUITE_SUMMARY
+[ "$LIST" = 0 ] || SUMMARY=""
 
 if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     || [ "$(printf '%s\n' "$SKILL" | wc -l | tr -d ' ')" != "1" ]; then
@@ -306,8 +328,55 @@ report_stopped() {
     done
     echo "check-skill: stopped with $finished of ${#suites[@]} suites done; still running: ${running:-none}"
 }
-trap 'report_stopped; stop_suites; exit 143' TERM
-trap 'report_stopped; stop_suites; exit 130' INT
+# write_summary [final]: the suite summary, when one is asked for (see the
+# header), from each suite's files under $RUNS: a status file, finished (passed
+# on 0, failed otherwise); a log and no status, running, or failed once every
+# job has ended (`final`), which report_ready reports as no exit status
+# recorded; neither, not started. Builtins only but the rename, since the TERM
+# trap runs it with the verification gate's KILL a second away. QSUITES holds
+# the suites' names already quoted for JSON, and SUMMARY_READY says they are
+# known: a TERM before that has no selection to report.
+SUMMARY_READY=0
+SUMMARY_SEEN=""
+write_summary() {
+    [ -n "$SUMMARY" ] && [ "$SUMMARY_READY" = 1 ] || return 0
+    local i=0 rc q p="" f="" r="" n="" tmp="$SUMMARY.$$.tmp"
+    while [ "$i" -lt "${#suites[@]}" ]; do
+        q=${QSUITES[$i]}
+        if [ -f "$RUNS/$i.rc" ]; then
+            rc=""
+            read -r rc < "$RUNS/$i.rc"
+            if [ "$rc" = 0 ]; then p="$p${p:+,}$q"; else f="$f${f:+,}$q"; fi
+        elif [ -f "$RUNS/$i.log" ]; then
+            if [ "${1:-}" = final ]; then f="$f${f:+,}$q"; else r="$r${r:+,}$q"; fi
+        else
+            n="$n${n:+,}$q"
+        fi
+        i=$((i + 1))
+    done
+    if printf '{"passed":[%s],"failed":[%s],"running":[%s],"not_started":[%s]}\n' \
+            "$p" "$f" "$r" "$n" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$SUMMARY" 2>/dev/null || rm -f "$tmp"
+    else
+        rm -f "$tmp" 2>/dev/null
+    fi
+    return 0
+}
+# summary_tick: write the summary when a suite launched or ended since the
+# last write, so the polling loops don't rewrite an unchanged one.
+summary_tick() {
+    [ -n "$SUMMARY" ] || return 0
+    local i=0 ended=0
+    while [ "$i" -lt "${#suites[@]}" ]; do
+        [ -f "$RUNS/$i.rc" ] && ended=$((ended + 1))
+        i=$((i + 1))
+    done
+    [ "$LAUNCHED:$ended" != "$SUMMARY_SEEN" ] || return 0
+    SUMMARY_SEEN="$LAUNCHED:$ended"
+    write_summary
+}
+trap 'write_summary; report_stopped; stop_suites; exit 143' TERM
+trap 'write_summary; report_stopped; stop_suites; exit 130' INT
 
 FAILURES=""
 fail() {
@@ -870,6 +939,16 @@ if [ "$LIST" = 1 ]; then
     exit 0
 fi
 
+# The selection is known: every suite starts as not started in the summary.
+QSUITES=()
+for t in "${suites[@]+"${suites[@]}"}"; do
+    q=${t//\\/\\\\}
+    q=${q//\"/\\\"}
+    QSUITES+=("\"$q\"")
+done
+SUMMARY_READY=1
+write_summary
+
 echo "check-skill: $SKILL_DIR"
 
 # The shirabe that validates (shirabe#860): the branch's own wherever the
@@ -982,6 +1061,7 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
     # died writes none, and counting files would wait for it forever.
     while [ "$(jobs -r | wc -l | tr -d ' ')" -ge "$JOBS" ]; do
         report_ready
+        summary_tick
         sleep 0.2
     done
     # The .rc file appears whole (written, then renamed), so a reader never
@@ -997,7 +1077,17 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
       rc=$?
       [ "$rc" = 0 ] || load1 > "$RUNS/$i.load"
       echo "$rc" > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
+    summary_tick
 done
+# With a summary asked for, the last suites are polled rather than waited on,
+# so the summary records each as it ends; without one, the plain wait as before.
+if [ -n "$SUMMARY" ]; then
+    while [ "$(jobs -r | wc -l | tr -d ' ')" -gt 0 ]; do
+        report_ready
+        summary_tick
+        sleep 0.2
+    done
+fi
 wait
 report_ready
 # A suite with no status after every job has ended (its wrapper killed before
@@ -1008,6 +1098,7 @@ while [ "$NEXT" -lt "${#suites[@]}" ]; do
     NEXT=$((NEXT + 1))
     report_ready
 done
+write_summary final
 
 # 5. The shape of the eval scenarios.
 evals_json="$SKILL_DIR/evals/evals.json"

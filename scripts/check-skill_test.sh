@@ -1769,6 +1769,165 @@ else
 fi
 rm -rf "$COPY"
 
+# -- The suite summary (SHIRABE_SUITE_SUMMARY) ----------------------------------
+# The verification gate's supervisor hands check-skill.sh a file to keep its
+# suite summary in. summary_tree <sleep>: skill demo with five suites, four of
+# which the change below selects with --changed, each by its own path. They
+# run one at a time, costliest first: pass_test.sh (which also tries to write
+# the summary itself), fail_test.sh, slow_test.sh (marks that it started,
+# records its pids, then sleeps <sleep> seconds), later_test.sh.
+# unpicked_test.sh is never selected.
+SUM_CHANGED="skills/demo/scripts/pass_test.sh
+skills/demo/scripts/fail_test.sh
+skills/demo/scripts/slow_test.sh
+skills/demo/scripts/later_test.sh"
+SUMF="$WORK/summary.json"
+summary_tree() {
+    new_tree
+    local d="$ROOT/skills/demo/scripts"
+    mkdir -p "$d"
+    rm -rf "$MARKS"; mkdir -p "$MARKS"
+    rm -f "$SUMF"
+    printf 'cost\tpass_test.sh\t40\ncost\tfail_test.sh\t30\ncost\tslow_test.sh\t20\ncost\tlater_test.sh\t10\n' \
+        > "$ROOT/skills/demo/check-skill.tsv"
+    printf 'if [ -n "${SHIRABE_SUITE_SUMMARY+x}" ]; then\n  echo seen > "$MARKS/summary.seen"\n  echo forged > "$SHIRABE_SUITE_SUMMARY"\nfi\nexit 0\n' \
+        > "$d/pass_test.sh"
+    printf 'exit 1\n' > "$d/fail_test.sh"
+    printf 'echo $$ > "$MARKS/pid.slow"\nsleep %s &\necho $! > "$MARKS/pid.slow.child"\n: > "$MARKS/slow.started"\nwait\n' "$1" \
+        > "$d/slow_test.sh"
+    printf 'exit 0\n' > "$d/later_test.sh"
+    printf 'exit 0\n' > "$d/unpicked_test.sh"
+}
+# start_summarized: the check on demo with --changed and a summary file, in the
+# background; CHECKER is its pid.
+start_summarized() {
+    cd "$WORK" || exit 1
+    CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$SUM_CHANGED" CHECK_SKILL_JOBS=1 \
+        SHIRABE_SUITE_SUMMARY="$SUMF" "$BASH_BIN" "$CHECK_SH" --changed demo >"$WORK/summary.out" 2>&1 &
+    CHECKER=$!
+    cd - >/dev/null || exit 1
+}
+wait_slow_started() {
+    local n=0
+    while [ ! -f "$MARKS/slow.started" ] && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
+    # The summary is rewritten right after each launch; give that write time.
+    sleep 0.5
+}
+# read_summary <file>: SUM_ALL (every listed suite, sorted, space-separated),
+# SUM_DUP (dup when a suite is in two lists) and SUM_LISTS (each list's suites
+# by file name, `passed=... failed=... running=... not_started=...`), or
+# SUM_ALL=unparsable when the file isn't one object of the four lists.
+read_summary() {
+    local got
+    got=$(python3 -c '
+import json, sys
+keys = ["passed", "failed", "running", "not_started"]
+d = json.load(open(sys.argv[1]))
+assert isinstance(d, dict) and sorted(d) == sorted(keys)
+assert all(isinstance(d[k], list) and all(isinstance(x, str) for x in d[k]) for k in keys)
+every = [x for k in keys for x in d[k]]
+print(" ".join(sorted(every)))
+print("dup" if len(set(every)) != len(every) else "nodup")
+print(" ".join(k + "=" + ",".join(sorted(x.rsplit("/", 1)[-1] for x in d[k])) for k in keys))
+' "$1" 2>/dev/null) || got="unparsable"
+    SUM_ALL=$(sed -n 1p <<EOF
+$got
+EOF
+)
+    SUM_DUP=$(sed -n 2p <<EOF
+$got
+EOF
+)
+    SUM_LISTS=$(sed -n 3p <<EOF
+$got
+EOF
+)
+}
+kill_slow() {
+    local f
+    for f in "$MARKS/pid.slow" "$MARKS/pid.slow.child"; do
+        [ -f "$f" ] && kill -KILL "$(cat "$f")" 2>/dev/null
+    done
+    return 0
+}
+
+# What --changed --list selects for the change: the four suites, by the names
+# the summary has to use.
+summary_tree 30
+run_list "$SUM_CHANGED"
+SUM_SELECTED=$LISTED
+if [ "$(printf '%s\n' $SUM_SELECTED | wc -l | tr -d ' ')" = 4 ]; then
+    pass "summary: --changed --list selects the four changed suites"
+else
+    fail "summary: --changed --list selected [$SUM_SELECTED]"
+fi
+
+# Stopped by TERM partway: one suite passed, one failed, one running, one not
+# started, every selected suite in exactly one list.
+start_summarized
+wait_slow_started
+kill -TERM "$CHECKER"
+wait "$CHECKER" 2>/dev/null
+RC=$?
+kill_slow
+read_summary "$SUMF"
+if [ "$RC" = 143 ] && [ "$SUM_ALL" = "$SUM_SELECTED" ] && [ "$SUM_DUP" = nodup ] \
+    && [ "$SUM_LISTS" = "passed=pass_test.sh failed=fail_test.sh running=slow_test.sh not_started=later_test.sh" ]; then
+    pass "summary: a check stopped by TERM leaves passed, failed, running and not-started suites, adding up to the --list selection"
+else
+    fail "summary: after TERM: exit $RC, all [$SUM_ALL] want [$SUM_SELECTED], $SUM_DUP, lists [$SUM_LISTS]"
+    sed 's/^/    /' "$WORK/summary.out"
+fi
+if [ ! -f "$MARKS/summary.seen" ]; then
+    pass "summary: a suite finds SHIRABE_SUITE_SUMMARY unset, and the summary left is the script's own"
+else
+    fail "summary: a suite saw SHIRABE_SUITE_SUMMARY set"
+fi
+
+# A run that finishes: nothing running or not started, the same total.
+summary_tree 1
+start_summarized
+wait "$CHECKER" 2>/dev/null
+RC=$?
+read_summary "$SUMF"
+if [ "$RC" = 1 ] && [ "$SUM_ALL" = "$SUM_SELECTED" ] && [ "$SUM_DUP" = nodup ] \
+    && [ "$SUM_LISTS" = "passed=later_test.sh,pass_test.sh,slow_test.sh failed=fail_test.sh running= not_started=" ]; then
+    pass "summary: a finished check leaves empty running and not-started lists and the same total"
+else
+    fail "summary: finished: exit $RC, all [$SUM_ALL] want [$SUM_SELECTED], $SUM_DUP, lists [$SUM_LISTS]"
+    sed 's/^/    /' "$WORK/summary.out"
+fi
+[ ! -f "$MARKS/summary.seen" ] && pass "summary: in a finished check too, no suite sees SHIRABE_SUITE_SUMMARY" \
+    || fail "summary: a suite saw SHIRABE_SUITE_SUMMARY set in a finished check"
+
+# KILLed, so no trap runs: the last summary renamed into place is still whole
+# JSON, written when slow_test.sh launched.
+summary_tree 30
+start_summarized
+wait_slow_started
+kill -KILL "$CHECKER"
+wait "$CHECKER" 2>/dev/null
+kill_slow
+read_summary "$SUMF"
+if [ "$SUM_ALL" = "$SUM_SELECTED" ] \
+    && [ "$SUM_LISTS" = "passed=pass_test.sh failed=fail_test.sh running=slow_test.sh not_started=later_test.sh" ]; then
+    pass "summary: a check killed with no chance to trap leaves the last whole summary it renamed into place"
+else
+    fail "summary: after KILL: all [$SUM_ALL], lists [$SUM_LISTS]"
+fi
+
+# Unset: the check writes no file and reports as before.
+summary_tree 1
+BEFORE=$(find "$WORK" -type f ! -path "$MARKS/*" | sort)
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$SUM_CHANGED" \
+    "$BASH_BIN" "$CHECK_SH" --changed demo 2>&1)
+RC=$?
+AFTER=$(find "$WORK" -type f ! -path "$MARKS/*" | sort)
+expect "summary unset: the check reports as before" 1 \
+    "ok: bash skills/demo/scripts/pass_test.sh" "FAIL: bash skills/demo/scripts/fail_test.sh"
+[ "$BEFORE" = "$AFTER" ] && pass "summary unset: no file is written" \
+    || fail "summary unset: files appeared: $(comm -13 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER") | tr '\n' ' ')"
+
 echo ""
 echo "check-skill_test: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]

@@ -49,7 +49,7 @@ before producing a result, or a change the map selects nothing for all fail clos
 
 ## The file
 
-The map is one JSON object with four top-level fields:
+The map is one JSON object with five top-level fields:
 
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
@@ -57,6 +57,7 @@ The map is one JSON object with four top-level fields:
 | `commands` | object | yes | Named commands, keyed by an id. Entries and `default` refer to commands by id. |
 | `entries` | array | yes (may be empty) | Each entry binds path-globs to command ids. |
 | `default` | array of ids | no | The command ids run when a changed path matches no entry. |
+| `build_output` | array of paths | no | The repository's build output, as literal repo-relative paths. Verification never reads it; see [`build_output`](#build_output). |
 
 ### `entries`
 
@@ -79,11 +80,13 @@ Each value under `commands` is an object with these fields:
 | `network` | boolean | `false` | Whether the command reaches the network. A command that does must say so. |
 | `unattended` | boolean | `true` when `network` is `false`; none when `network` is `true` | Whether the command may be started with no person present. A command marked `network: true` must set `unattended` explicitly; a map that omits it there does not parse. A command marked `unattended: false` is never started by the gate on its own; the run stops for a person instead. |
 | `max_procs` | integer | `256` | The most processes the command's process group may hold at once. A command that grows past it is killed and counts as not passed. |
+| `timeout_form` | string (regular expression) | absent | How a timeout inside the command reads, for a command that can time out inside itself (a test that gives up waiting under load) rather than at `timeout_secs`. A nonzero exit is recorded as `timed-out-inside` only when the command's log reports at least one failure line and every failure line matches this expression; otherwise it is `failed`. See [Command records](#command-records). |
 
 A map does not parse when it isn't valid JSON, when `schema` is missing or different, when a
 required field is missing or has the wrong type, when an entry or `default` names an id that
-`commands` doesn't define, when `timeout_secs` exceeds `3600`, or when a `network: true`
-command omits `unattended`.
+`commands` doesn't define, when `timeout_secs` exceeds `3600`, when a `network: true`
+command omits `unattended`, or when `timeout_form` is not a non-empty string that compiles as
+a regular expression. The refusal names the command.
 
 ### Selection rules
 
@@ -93,6 +96,63 @@ command omits `unattended`.
   all of the change's paths, in sorted order. When no changed directory matches the pattern,
   the command doesn't run, and it doesn't count as selected. A change whose only selected
   command is such an `each` command selects nothing.
+
+### `build_output`
+
+`build_output` names what the repository's builds write, such as `target/`: directories a
+run can delete once its work is done, because the next build recreates them. Like the rest
+of the map, it's read from a pinned base commit, never from the working tree.
+
+Each entry is a literal path relative to the repository root. Globs aren't expanded: `*` and
+`**` have no special meaning, so `target/*` names a path whose last component is `*`. Before
+paths are compared, a leading `./` and a trailing `/` are dropped, so `./target/`, `target/`
+and `target` are one path. Duplicates collapse to one, and a path under another declared
+path is handled with its parent: declaring `target` and `target/debug` handles `target`
+once, and `target/debug` gets no result of its own.
+
+Verification never reads the field. Selection uses `commands`, `entries` and `default`
+only, and the parse rules above don't check `build_output`, so a map whose `build_output`
+is a string, or whose list holds a number or an empty string, selects exactly what the same
+map without the field selects, and still parses. The field's own checks belong to the
+build-output cleanup that reads it.
+
+The cleanup checks each path in a fixed order and stops at the first word that refuses it:
+
+| Word | When |
+|------|------|
+| `absolute` | The path is absolute. |
+| `outside` | The path leaves the repository root, through a `..` or any other route, or is `.` itself. |
+| `gone` | The path passed the two checks above and doesn't exist. Nothing is removed and nothing more is checked. |
+| `symlink` | The path, or a directory on the way to it, is a symbolic link. |
+| `tracked` | git tracks something at or under the path. On a case-insensitive repository (`core.ignorecase` true), a path whose on-disk or case-folded spelling matches a tracked path counts too. |
+| `not-ignored` | `git check-ignore` doesn't match the path. |
+| `protected` | The path is or contains the git directory or the common git directory, holds a `.git` entry at any depth (a nested clone or worktree) or a mount, or is one of `.git`, `.claude`, `CLAUDE.md`, `CLAUDE.local.md`, `.env`, `.env.*` or the cleanup's own directory. |
+
+A path that passes every check is removed and reported `removed`. Two more words fall
+outside that order. `malformed` names a `build_output` that isn't a list, which removes
+nothing, and an entry that isn't a non-empty string or that holds a newline or other
+control character, which is skipped. `failed` names a path that passed every check but
+couldn't be removed safely: it changed between the check and the removal, it sits on
+another device, or its `protected` check ran out of time. It also names a problem with the
+cleanup's own records directory, in which case nothing is removed. A `failed` path stays in
+place.
+
+**Turning the cleanup on.** The cleanup is off unless a workspace turns it on. It runs only
+when the line `## Build Output Cleanup: on` sits in a `CLAUDE.local.md` that git doesn't
+track and that isn't a symbolic link, in the work tree the run takes its instructions from.
+The header's name is matched exactly; its value `on` in any case turns the cleanup on, and
+anything else leaves it off. A tracked or symlinked `CLAUDE.local.md`, an unreadable one, or
+one with the header twice leaves it off too, and the cleanup says which. The
+committed `CLAUDE.md` is never read for this line, so a repository can't turn the cleanup
+on for everyone who clones it. An operator adds the line to each worktree's untracked
+`CLAUDE.local.md`, or a workspace manager's config adds it to the `CLAUDE.local.md` it
+generates for every worktree it makes. Nothing in shirabe writes it.
+
+**Other readers.** An instance remover, a tool that deletes or trims whole worktrees, may
+read `build_output` to learn what in a tree is disposable. The field is a contract for those
+readers: it isn't renamed or changed in meaning without a change to the schema string,
+which stays `shirabe-verification-map/v1`. Adding the field didn't need a new string,
+because a reader that predates it ignores an unknown top-level field.
 
 ## How the commands run
 
@@ -116,6 +176,42 @@ computed against, written atomically.
 Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_procs`
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.
+
+### Command records
+
+The result lists one record per command run, with its `id`, `argv`, `exit_status`,
+`duration_secs`, `log`, the `timed_out`, `runaway` and `not_started` flags, and two fields
+that say how it ended:
+
+- `outcome` — one of four values:
+
+  | `outcome` | When |
+  |-----------|------|
+  | `passed` | The command exited 0 inside its limit. |
+  | `timed-out-limit` | The supervisor stopped it at its `timeout_secs` (or at the run's budget), and its suite summary lists no finished-failed suite, or it wrote no summary. `timed_out` is `true`. |
+  | `timed-out-inside` | It exited nonzero inside its limit, its row declares `timeout_form`, its log reports at least one failure line, and every failure line matches the form. `timed_out` is `false`. |
+  | `failed` | Anything else: a nonzero exit that isn't `timed-out-inside`, a stop at the limit whose summary lists a finished-failed suite, a runaway, or a command that never started. The `runaway` and `not_started` flags still say which of the last two it was, and neither is ever a timeout. |
+
+  A failure line is one that, after optional leading space and a terminal colour code,
+  starts with `FAIL` or `not ok` followed by anything but a letter: the same lines
+  `scripts/check-skill.sh` collects from a failed suite. A log with no failure line never
+  reads as a timeout, whatever the form, so a row without `timeout_form` records every
+  nonzero exit as `failed`, even one whose log prints a line that looks like a timeout.
+
+- `suites` — the suite summary the command left, or `null` when it left none (or left
+  something that isn't one). The supervisor sets `SHIRABE_SUITE_SUMMARY` in each command's
+  environment to `<head dir>/<index>-<id>.suites.json`, removing any file already there
+  first, so a summary from an earlier run is never copied into a new record. A command that
+  writes one writes a JSON object of four arrays of suite names, `passed`, `failed`,
+  `running` and `not_started`, each suite in exactly one. `scripts/check-skill.sh` writes
+  it, by the names `--changed --list` prints, when the suite set is known, at each launch,
+  as each suite ends and when it is stopped by TERM, each time to a temporary file renamed
+  into place, so a command killed outright still leaves the last whole summary. It unsets
+  the variable before any suite runs, so a suite can't write the summary itself.
+
+No verdict reads `outcome` or `suites` yet: the exits below are decided by `timed_out`,
+`runaway`, `not_started` and `exit_status`, so a `timed-out-inside` record exits 1 and a
+command stopped at its limit exits 4 whatever its outcome.
 
 ## Verdicts
 
@@ -174,7 +270,8 @@ The map below is illustrative only. Real commands live in a project's own map fi
     {"paths": ["src/**"], "commands": ["unit", "integration"]},
     {"paths": ["packages/**"], "commands": ["lint-pkg", "unit"]}
   ],
-  "default": ["unit"]
+  "default": ["unit"],
+  "build_output": ["target/"]
 }
 ```
 
@@ -183,4 +280,6 @@ and requires both to pass.
 When it changes files under `packages/foo/` and `packages/bar/`, it runs
 `scripts/lint-package.sh foo`, `scripts/lint-package.sh bar` and `make test`. When it changes
 only files no entry matches (say, a top-level config file), it runs the `default` list. The
-`integration` command reaches the network, so it states `unattended` explicitly.
+`integration` command reaches the network, so it states `unattended` explicitly. The
+`build_output` list changes none of that; it tells the build-output cleanup that `target/`
+is build output.
