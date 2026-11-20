@@ -180,7 +180,7 @@ variables:
     pattern: '^[1-9][0-9]{0,2}$'
     default: "7"
   CAP:
-    description: The cap on active workers; parked workers, merged ones waiting for teardown and local agents don't count.
+    description: The cap on active workers; parked workers, merged ones waiting for teardown, stopped ones and local agents don't count.
     pattern: '^[1-9][0-9]?$'
     default: "5"
   PARKED_BOUND:
@@ -2543,8 +2543,9 @@ fills `no-reports-to` with
 never a bare name. A new
 address leaves every live worker untold: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/handover-classify.sh" --session {{SESSION_NAME}}`,
-which records a worker whose session isn't live as pending and a pending
-worker whose report reached you as told, then send each worker it prints as
+which records a worker whose session isn't live as pending, one niwa lists
+no instance for as missing, and a pending or missing worker whose report
+reached you as told, then send each worker it prints as
 `live` a line naming the address and record it with `--told`. The workflow
 stays here until the check passes.
 
@@ -2688,7 +2689,10 @@ and drive every worker to landed work.
   back. An active worker is one whose unit isn't merged or abandoned and that
   isn't parked. Parked workers (a verified, ready pull request waiting only on a
   merge), merged ones waiting for their teardown, and local agents don't count
-  against the cap.
+  against the cap. Neither does a holding whose `stopped` is true: its
+  worker's Claude jobs on this host have all finished, so nothing runs for it
+  while it waits on its pull request, and a worker continuing its unit takes
+  the same slot without a cap raise.
 - **The parked bound.** When {{PARKED_BOUND}} or more workers are parked, dispatch
   nothing new until the human has worked through the merge-order table
   (`hold`).
@@ -3542,7 +3546,7 @@ Update the brief input with what was learned (`koto context add
 "{{SESSION_NAME}}" --rebrief`, send the worker a message pointing at the brief
 it printed, and submit `sent: sent`; submit `sent: refused` when the message
 was refused, and `sent: worker_gone` when the worker's session no longer
-exists. Don't run `state-stored-set.sh --told` or `--pending` yourself: the
+exists. Don't run `state-stored-set.sh --told`, `--pending` or `--missing` yourself: the
 next step records what the outcome means.
 
 Arriving here from `land` or `land_merge` on `paused`, there is nothing to fix:
@@ -3591,9 +3595,11 @@ instance for it, and nothing when it doesn't, and goes back through pick.
 
 A pending worker is one that can't be told the address yet: its session is
 gone, but its instance is still there to be started again. The handover gate
-(`state-handover.sh --check`) doesn't hold on a pending worker, as it does on a
-live one that is neither told nor pending, and a later `--told` for it turns
-the pending row into a told one. A new coordinator address clears both.
+(`state-handover.sh --check`) doesn't hold on a pending worker, or on one
+reconcile recorded missing, as it does on a live one with no told, pending or
+missing row, and a later `--told` for it turns the pending or missing row into a
+told one. A worker already recorded missing is left missing here, even when niwa
+lists an instance for it again. A new coordinator address clears all three.
 
 ## verify
 
@@ -3728,18 +3734,31 @@ Never ask the human for a step the workspace already permits once its review is 
 
 ## goal_fit
 
-The pull request passed the closed checks. Judge goal fit, your one call at
-this step: read it against the unit's brief and submit `fit: fits` when it
-delivers what the unit asked, in the way intended, without stopping short,
-drifting or deciding what the lane didn't; `fit: fits_with_follow_ups` when it
-does and what it leaves is follow-up work rather than a defect; `fit: gap` when
-the worker must correct it first. Give the `rationale`: each follow-up, or for a
-gap, what to correct.
+The pull request passed the closed checks. Goal fit is your one call at this
+step, and the role your record holds says how you make it (SKILL.md, Roles).
+
+As a manager, on your worker's pull request, judge goal fit: read it against
+the unit's brief and submit `fit: fits` when it delivers what the unit asked, in
+the way intended, without stopping short, drifting or deciding what the lane
+didn't; `fit: fits_with_follow_ups` when it does and what it leaves is
+follow-up work rather than a defect; `fit: gap` when the worker must correct it
+first.
+
+As a director, on a lane's pull request, goal fit is the manager's check, made
+at its land step: confirm from the manager's report that it happened and submit
+the fit it reached, without judging it again. Your own call is the alignment
+reading: whether the work fits the other lanes and the direction of the effort.
+
+Give the `rationale`: each follow-up, or for a gap, what to correct; a director
+also gives its alignment reading there.
 
 <!-- details -->
 
 Read the changed files, Part 1 and the evidence from `coord/land.json`, and the
-brief you dispatched. Code quality is the seats' question, already answered in
+brief you dispatched. A director also reads the manager's report on the pull
+request: that is where the goal fit it confirms, and submits, comes from; the
+changed files and the brief are for its alignment reading, not a second
+judgment. Code quality is the seats' question, already answered in
 the body; don't re-review it and don't launch reviewers. A fit pull request,
 with or without follow-ups, goes on by the land check's own verdict: to
 `land_merge` where the workspace permits the merge, and where it doesn't,
@@ -3763,7 +3782,8 @@ clause 1 first:
    Rationale: <what in the pull request decided it>
    ```
 
-   `Fit` is the judgment you submit as `fit`, written with spaces
+   `Fit` is what you submit as `fit` (a manager's judgment, or the manager's
+   fit a director confirmed), written with spaces
    (`fits_with_follow_ups` is `fits with follow-ups`). `Clauses` names each clause
    the pull request moves toward held, by its number, or `advances none`.
 2. Read the roadmap on the default branch into a file outside any
@@ -4060,10 +4080,10 @@ Hand the teardown to your teardown agent. Read the verdict with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-handoff.sh" read
 --session "{{SESSION_NAME}}"` and send its whole output, the `keyseal` line
 included, to the agent as one pass. When the agent reports `done`, remove the
-worker's holding from the record, then submit `destroyed: destroyed`. For a
-verdict that says `removed yes`, remove it with
+worker's holding from the record with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-holding.sh" --session
-"{{SESSION_NAME}}" --topic <topic> --retire`. Submit
+"{{SESSION_NAME}}" --topic <topic> --retire`, whether or not the verdict says
+`removed yes`, then submit `destroyed: destroyed`. Submit
 `refused` when the reader or the pass refused (nothing was removed),
 `incomplete` when the pass stopped after its destroy began, and `handed_over`
 when the posture reserves the teardown for a person.
@@ -4090,10 +4110,10 @@ unit, archives the surviving transcript and koto sessions, records the cost
 entry, and runs no `niwa destroy` and no `claude rm`. With `job -` there is
 nothing to archive and its last line still says done. A verdict that says
 `handoff none` has no comment to check; the pass appends a record entry in
-its place before it says done, and refuses if it can't. Either way, on
-`done` remove the holding row with `state-holding.sh --retire` (it confirms
-the removed verdict through `teardown-pass.sh check` first) and submit
-`destroyed`.
+its place before it says done, and refuses if it can't. For any pass, removed
+or not, on `done` remove the holding row with `state-holding.sh --retire` (it
+confirms the done pass for the topic through `teardown-pass.sh check` first)
+and submit `destroyed`.
 
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or

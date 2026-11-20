@@ -8,11 +8,20 @@
 # re-checks (reconcile-check.sh), at most four at once, launching none after
 # 20 seconds and giving each a deadline clipped to the time left before the
 # 24-second mark, which leaves the report and its seal the rest of koto's
-# 30-second cap. When every re-check is done it builds the report
-# (reconcile-report.sh), writes it to context, and prints the sealed line.
+# 30-second cap. Inventories hold at most two of the four slots at once. A
+# re-check still running at the end of its budget is stopped and read again in
+# a later pass; one stopped with its whole budget, not a clipped one, in two
+# passes is stored as timed out, not verified, so a re-check that never fits
+# can't hold the visit pending forever. The record read gets the same window: the time left before
+# the 24-second mark, at least 2 s. A read that ends at or past the 20-second
+# cutoff ends the pass pending, with nothing left to re-check if need be, and
+# the next pass seals without reading the record again. When every re-check
+# is done it builds the report (reconcile-report.sh), writes it to context,
+# and prints the sealed line.
 #
 # Output, one line on stdout (every child's stdout goes to stderr):
-#   pending:<seq>:<n>:<sha256 of the work file>   n re-checks left; tick again
+#   pending:<seq>:<n>:<sha256 of the work file>   n re-checks left (0 after a
+#                                                 late record read); tick again
 #   blocked:<case>                                 none | unreadable
 #   reconciled <sha256 of report.json> sealed:<seq>:<sha256>
 # The last is sealed with the record feature's coord-log.sh for this state's
@@ -81,6 +90,11 @@ STATE=reconcile_pass
 CUTOFF=20
 READS_END=24
 PARALLEL=4
+# Of the PARALLEL slots, inventories hold at most this many at once.
+INV_PARALLEL=2
+# A re-check stopped at its whole budget in this many passes is stored as
+# timed out, not verified.
+TRIES=2
 
 SESSION="" SDIR=""
 while [ $# -gt 0 ]; do
@@ -226,10 +240,19 @@ else
     discard
 fi
 
-# The record, once per visit.
+# The record, once per visit. The read gets the time left before the
+# 24-second mark, at least 2 s, measured on the pass's own clock; its
+# per-read deadlines get the same budget. A read that ends at or past the
+# 20-second cutoff ends the pass pending (READ_LATE), so the report and its
+# seal happen on the next tick, inside that tick's own 30 seconds.
+READ_LATE=0
 if [ -z "$WJ" ]; then
     rm -f "$W/reasoning.md"
-    REC=$(rd_deadline 12 "${RUNBASH[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2>/dev/null 3>&-)
+    tr=$(now) || exit 1
+    RB=$((READS_END - (tr - T0)))
+    [ "$RB" -lt 2 ] && RB=2
+    echo "reconcile-pass: record read with ${RB}s" >&2
+    REC=$(rd_deadline "$RB" env RECONCILE_READ_DEADLINE="$RB" "${RUNBASH[@]}" "$HERE/reconcile-read.sh" --session "$SESSION" --reasoning-out "$W/reasoning.md" 2> "$T/read.err" 3>&-)
     RC=$?
     if [ "$RC" -ne 0 ]; then
         case "$RC" in
@@ -237,7 +260,13 @@ if [ -z "$WJ" ]; then
             *) CASE=unreadable ;;
         esac
         REASON=$(printf '%s' "$REC" | jq -r '.reason // empty' 2>/dev/null)
-        [ "$RC" = 124 ] && REASON="reading the record timed out"
+        if [ "$RC" = 124 ]; then
+            # The reader names each part before it reads it; the last one
+            # named is where the time ran out.
+            PART=$(sed -n 's/^reconcile-read: reading \(.*\)$/\1/p' "$T/read.err" | tail -n 1 | tr -d '\000-\037' | cut -c1-80)
+            REASON="reading the record timed out after ${RB} s"
+            [ -n "$PART" ] && REASON="$REASON, while reading $PART"
+        fi
         [ -n "$REASON" ] || REASON="the record could not be read"
         printf 'case: %s\nreason: %s\n' "$CASE" "$REASON" > "$T/refusal"
         ctx_put reconcile/refusal "$T/refusal"
@@ -258,6 +287,8 @@ if [ -z "$WJ" ]; then
         '{visit: $v, record: $rec, run_start: $rs, chain_start: $cs, plugin_root: $place, facts: {}, done: false}') \
         || die "the record could not be stored"
     save "$NEW"
+    te=$(now) || exit 1
+    [ $((te - T0)) -ge "$CUTOFF" ] && READ_LATE=1
 fi
 
 # plan NOW -- the re-checks not yet done, one JSON object per line:
@@ -339,12 +370,37 @@ plan() {
         | map(select($f[.id] == null) | .due = (.due // 0))[]'
 }
 
-# The launch loop.
-RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=()
+# The launch loop. Per running read: its id, pid, the time it is stopped at,
+# whether its budget was clipped below its natural one, its sub and budget.
+RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=() RUN_SUB=() RUN_BUDGET=()
+
+# stopped I -- the pass stopped running read I at its budget. A read stopped
+# with its budget clipped is read again in a later pass, which may give it its
+# whole budget. One stopped with its whole budget counts a try in the work
+# file; at the TRIES-th it is stored as not verified, so a read that never
+# fits its budget can't hold the visit pending forever (shirabe#1166).
+stopped() {
+    local i=$1 id=${RUN_IDS[$1]} n t new
+    [ "${RUN_CLIPPED[$i]}" = 1 ] && return 0
+    n=$(wj -r --arg id "$id" '(.tries[$id] // 0) + 1') || die "the tries for $id could not be read"
+    if [ "$n" -lt "$TRIES" ]; then
+        new=$(wj -c --arg id "$id" --argjson n "$n" '.tries[$id] = $n') || die "the tries for $id could not be written"
+    else
+        t=$(now) || exit 1
+        new=$(wj -c --arg id "$id" --arg sub "${RUN_SUB[$i]}" --arg b "${RUN_BUDGET[$i]}" --argjson n "$n" --argjson t "$t" '
+            .tries[$id] = $n
+            | .facts[$id] = ({kind: $sub, status: "not_verified",
+                              reason: ("timed out: still running at the end of its " + $b + " s budget in " + ($n | tostring) + " passes"),
+                              t: $t}
+                             + (if $sub == "inventory" then {taken: false} else {} end))') \
+            || die "the fact for $id could not be written"
+    fi
+    save "$new"
+}
 
 # collect -- fold every finished read into the work file.
 collect() {
-    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t new why
+    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() keep_sub=() keep_budget=() fact clipped t new why
     i=0
     while [ "$i" -lt "${#RUN_IDS[@]}" ]; do
         id=${RUN_IDS[$i]}
@@ -376,19 +432,24 @@ collect() {
             rm -f "$R/$id".*
         elif [ "$t" -ge "${RUN_END[$i]}" ]; then
             # Past its budget and still running: stop it; it is read again
-            # in a later pass.
+            # in a later pass, or stored as timed out (stopped).
             pkill -TERM -P "${RUN_PIDS[$i]}" 2>/dev/null; kill -TERM "${RUN_PIDS[$i]}" 2>/dev/null
             rm -f "$R/$id".*
+            stopped "$i"
         else
             keep_ids+=("$id"); keep_pids+=("${RUN_PIDS[$i]}"); keep_end+=("${RUN_END[$i]}"); keep_clip+=("${RUN_CLIPPED[$i]}")
+            keep_sub+=("${RUN_SUB[$i]}"); keep_budget+=("${RUN_BUDGET[$i]}")
         fi
         i=$((i + 1))
     done
     RUN_IDS=(${keep_ids[@]+"${keep_ids[@]}"}); RUN_PIDS=(${keep_pids[@]+"${keep_pids[@]}"})
     RUN_END=(${keep_end[@]+"${keep_end[@]}"}); RUN_CLIPPED=(${keep_clip[@]+"${keep_clip[@]}"})
+    RUN_SUB=(${keep_sub[@]+"${keep_sub[@]}"}); RUN_BUDGET=(${keep_budget[@]+"${keep_budget[@]}"})
 }
 
 running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
+# inventories: how many inventories are running.
+inventories() { local x n=0; for x in ${RUN_SUB[@]+"${RUN_SUB[@]}"}; do [ "$x" = inventory ] && n=$((n + 1)); done; echo "$n"; }
 # writing: a settle or a legs classification, one of the pass's writes, is running.
 writing() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do case "$x" in *.settle | *.legs) return 0 ;; esac; done; return 1; }
 
@@ -430,6 +491,7 @@ launch() {
     pid=$!
     tl=$(now) || exit 1
     RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($((tl + budget + 2))); RUN_CLIPPED+=("$clipped")
+    RUN_SUB+=("$sub"); RUN_BUDGET+=("$budget")
 }
 
 while :; do
@@ -455,11 +517,16 @@ while :; do
         # start only when their whole budget fits, else in a later pass,
         # which starts with them. And one write runs at a time: two would
         # each rewrite the record, and the second would find it changed.
+        # Inventories hold at most INV_PARALLEL of the slots, so the reads of
+        # GitHub and the other re-checks always have one (shirabe#1202).
         whole=1
         case "$(printf '%s' "$spec" | jq -r .sub)" in
             settle | legs)
                 [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
                 writing && whole=0
+                ;;
+            inventory)
+                [ "$(inventories)" -ge "$INV_PARALLEL" ] && whole=0
                 ;;
         esac
         if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ] && [ "$whole" = 1 ]; then
@@ -478,13 +545,19 @@ while :; do
 done
 
 # Anything left is read in a later pass. A plan that can't be read must not
-# count as nothing left, or the pass would seal with re-checks unread.
+# count as nothing left, or the pass would seal with re-checks unread. A
+# record read that ended late leaves the report to the next pass even with
+# nothing left to re-check.
 t=$(now) || exit 1
 plan "$t" > "$T/plan" || die "the plan could not be read"
 LEFT=$(grep -c . "$T/plan" || true)
-if [ "$LEFT" -gt 0 ]; then
+if [ "$LEFT" -gt 0 ] || [ "$READ_LATE" = 1 ]; then
     H=$(printf '%s\n' "$WJ" | rd_sha256)
-    printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    if [ "$LEFT" -gt 0 ]; then
+        printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    else
+        printf 'The record was read late in this pass; the report is built on the next tick. Tick again with no evidence.\n' > "$T/progress"
+    fi
     ctx_put reconcile/progress "$T/progress"
     say "pending:$VISIT:$LEFT:$H"
 fi

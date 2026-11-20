@@ -107,7 +107,7 @@ fi
 
 # The schema reference names every field the design lists, and the merge-base
 # read.
-for field in run each timeout_secs network unattended max_procs entries default; do
+for field in run each timeout_secs network unattended max_procs entries default build_output; do
     if grep -Fq "\`$field\`" "$REF"; then
         pass "verification-map.md documents \`$field\`"
     else

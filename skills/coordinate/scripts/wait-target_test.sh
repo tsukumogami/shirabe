@@ -17,10 +17,37 @@
 # and refused for a leg-bound one watched here or an unknown topic, and
 # malformed inputs.
 #
-# Usage: bash skills/coordinate/scripts/wait-target_test.sh
-# Exit codes: 0 all pass; 1 a failure. Needs jq. bash 3.2.
+# Each section names the hand-offs it walks: `deliver`, `execute`, `scope` or
+# `work-on`. wait-target.sh and report-source.sh never read an entry point: a
+# leg is a request and a leg name read off the holding, and every leg-bound
+# worker's result comes back through the same select, leg and source check
+# (coordinate.md's wait_leg reads the templated {{WAIT_LEG}}). So the sections
+# on that return path walk all four on purpose, whichever leg names their
+# fixtures use. The usage refusals and the koto-call count, which walk no
+# hand-off, run only with HANDOFF_ROUTE unset. HANDOFF_ROUTE=<route> runs only
+# the sections on the hand-off to that entry point; with it unset every
+# section runs. scripts/check-handoff.sh sets it for its routes check.
+#
+# Usage: [HANDOFF_ROUTE=deliver|execute|scope|work-on] bash skills/coordinate/scripts/wait-target_test.sh
+# Exit codes: 0 all pass; 1 a failure, or a HANDOFF_ROUTE this suite has no
+# sections for. Needs jq. bash 3.2.
 set -uo pipefail
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+
+ROUTE=${HANDOFF_ROUTE:-}
+case "$ROUTE" in
+    ''|deliver|execute|scope|work-on) ;;
+    *) echo "FAIL HANDOFF_ROUTE=$ROUTE: this suite's routes are deliver, execute, scope and work-on"; exit 1 ;;
+esac
+# section <routes> <title>: print the section's header and succeed when it
+# runs under HANDOFF_ROUTE, or fail so the caller skips it. An empty <routes>
+# runs only with HANDOFF_ROUTE unset.
+section() {
+    if [ -n "$ROUTE" ]; then
+        case " $1 " in *" $ROUTE "*) ;; *) return 1 ;; esac
+    fi
+    echo "== $2 =="
+}
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 S="$HERE/wait-target.sh"
@@ -111,6 +138,7 @@ ROWS='[
 
 # --- select --------------------------------------------------------------------------------
 
+if section "deliver execute scope work-on" "select"; then
 reset "$ROWS"
 req req_a scope open; req req_g execute resolved; req req_d scope resolved
 eq  "select: a resolved leg over an older open one" req_g "$(sel)"
@@ -163,8 +191,7 @@ eq  "taken: reading an open leg doesn't mark it" "req_g:execute" "$(cat "$ST/ctx
 # it resolved and marks it, so it's never read twice.
 req req_a scope resolved
 bash "$S" leg --session coord >/dev/null
-eq  "taken: a leg that resolved after select is marked on the tick that takes it" "req_a:scope
-req_g:execute" "$(cat "$ST/ctx/taken_legs")"
+eq  "taken: a leg that resolved after select is marked on the tick that takes it" "$(printf 'req_a:scope\nreq_g:execute')" "$(cat "$ST/ctx/taken_legs")"
 eq  "taken: and isn't picked again" none "$(sel)"
 
 reset "$ROWS"
@@ -201,12 +228,16 @@ eq  "select: under a pause on all no leg is picked" none "$(sel)"
 eq  "select: and both topics are named passed over" '["alpha","gamma"]' "$(target '.passed_over | tojson')"
 rm -f "$ST/state.json"
 eq  "select: after the resume the resolved leg is offered first" req_g "$(sel)"
+fi
 
+if section "" "usage"; then
 bash "$S" select --session coord --watch-secs 5 >/dev/null 2>&1; eq "usage: an unknown flag is 64" 64 "$?"
 bash "$S" nope --session coord >/dev/null 2>&1; eq "usage: an unknown mode is 64" 64 "$?"
+fi
 
 # --- leg ---------------------------------------------------------------------------------------------
 
+if section "deliver execute scope work-on" "leg"; then
 reset "$ROWS"
 req req_g execute resolved
 sel >/dev/null
@@ -216,9 +247,11 @@ printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
 bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: no leg is exit 1" 1 "$?"
 printf '{"path":"leg","topic":"gamma","request":"req_g","leg":"bad leg"}\n' >"$ST/ctx/wait_target"
 bash "$S" leg --session coord >/dev/null 2>&1; eq "leg: a malformed leg is exit 2" 2 "$?"
+fi
 
 # --- the leg keys (PRD R13) ------------------------------------------------------------------------------
 
+if section "deliver execute scope work-on" "the leg keys"; then
 key() { cat "$ST/ctx/legs/$1/$2" 2>/dev/null; }
 mkkey() { mkdir -p "$ST/ctx/legs/$1"; jq -nc --arg r "$1" --arg l "$2" --arg t "$3" '{request: $r, leg: $l, topic: $t, state: "open", templates: ["scope.md"], inputs: {TOPIC: "x"}}' >"$ST/ctx/legs/$1/$2"; }
 reset "$ROWS"
@@ -259,9 +292,11 @@ eq  "spent: a leg with no key gets one naming its worker" "gamma spent" "$(key r
 mkdir -p "$ST/ctx/legs/req_g"; jq -c '.state = "taken"' "$ST/ctx/legs/req_g/execute" >"$ST/x" && mv "$ST/x" "$ST/ctx/legs/req_g/execute"
 bash "$S" leg --session coord >/dev/null
 eq  "  ... and a key already marked keeps its state" taken "$(key req_g execute | jq -r .state)"
+fi
 
 # --- report-source.sh ----------------------------------------------------------------------------------
 
+if section "deliver execute scope work-on" "report-source.sh"; then
 src() { printf '%s' "$1" >"$ST/ctx/report_topic"; printf '%s' "$2" >"$ST/ctx/report_source"; bash "$R" --session coord >/dev/null 2>&1; echo $?; }
 reset "$ROWS"
 # req_g's execute leg, resolved with a result gamma's own session promoted, and
@@ -328,10 +363,11 @@ eq  "source: a refused record read is 2" 2 "$(src beta message)"
 unset RECORD_MODE
 rm -f "$ST/ctx/report_source"
 bash "$R" --session coord >/dev/null 2>&1; eq "source: no report_source is 2" 2 "$?"
+fi
 
 # --- select: the koto calls don't grow with the entries (shirabe#1315) ---------------------------------
 
-echo "== select: the koto calls don't grow with the entries (shirabe#1315) =="
+if section "" "select: the koto calls don't grow with the entries (shirabe#1315)"; then
 # select's holdings and Standing pauses come from one read of their sections,
 # each got directly, and never from a listing of record/, which names every
 # entry: the same select on a record with 3 entries and with 300 makes the
@@ -372,6 +408,7 @@ eq  "select: the same request and koto calls with 3 entries and with 300 (${2:-?
 eq  "  ... the paused holding's resolved leg passed over for alpha's open one" req_a "${1:-}"
 eq  "  ... reading no entry and never listing record/" "0 0" "${3:-} ${4:-}"
 eq  "  ... one read of the sections the two listers print, each got once" holdings,run,standing,work "${5:-}"
+fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

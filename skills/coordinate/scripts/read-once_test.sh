@@ -16,8 +16,9 @@
 # And a session record of about 60,000 bytes (the size the old record budget
 # stopped at; nothing limits it now), with every koto call
 # held to a real one's 0.1 s: reconcile-read.sh reads it in one assembly of a
-# bounded few calls, inside its own 8-second deadline and the pass's 12; the
-# pass's three reads of it make one assembly, where they made three; a read
+# bounded few calls, inside its own 8-second deadline and well inside the
+# pass's 20-second cutoff; the pass's three reads of it make one assembly,
+# where they made three; a read
 # past its deadline is still named as the record read that timed out; and
 # report-facts.sh on it with a moved head writes only the holding's pushed
 # head, the other keys and the written time untouched, well inside its limit.
@@ -164,7 +165,7 @@ T0=$(now)
 bash "$RR" --session "$SB" > "$T/rb.json" 2> "$T/rb.err"; RC=$?
 EL=$(( $(now) - T0 ))
 eq "reconcile-read.sh reads it, inside its own 8 s deadline on the read" "0 found" "$RC $(jq -r .status "$T/rb.json")"
-[ "$EL" -lt 12 ] && ok "  ... and the whole read inside the pass's 12 s (${EL}s)" || bad "  ... and the whole read inside the pass's 12 s" "${EL}s"
+[ "$EL" -lt 12 ] && ok "  ... and the whole read well inside the pass's 20-second cutoff (${EL}s)" || bad "  ... and the whole read well inside the pass's 20-second cutoff" "${EL}s"
 KC=$(grep -c '^context ' "$KOTO_STORE/calls")
 [ "$KC" -le 16 ] && ok "  ... in one assembly of a bounded few koto calls ($KC)" || bad "  ... in one assembly of a bounded few koto calls" "$KC calls"
 zero
@@ -173,7 +174,7 @@ pass_reads "$SB"
 EL=$(( $(now) - T0 ))
 eq "the pass's three reads of it, the record and two holdings, make one assembly (they made three)" "0 found 0 0 1" \
     "$RR_RC $(jq -r .status "$T/rr.json") $H3 $H9 $(assemblies "$SB")"
-[ "$EL" -lt 12 ] && ok "  ... all three inside the pass's 12 s (${EL}s)" || bad "  ... all three inside the pass's 12 s" "${EL}s"
+[ "$EL" -lt 12 ] && ok "  ... all three well inside the pass's 20-second cutoff (${EL}s)" || bad "  ... all three well inside the pass's 20-second cutoff" "${EL}s"
 # An assembly makes at least three koto calls; at 0.5 s a call it takes over
 # a second however fast the host, so a 1-second deadline always fires.
 KOTO_CALL_DELAY=0.5 RECONCILE_READ_DEADLINE=1 bash "$RR" --session "$SB" > "$T/rt.json" 2>/dev/null; RC=$?

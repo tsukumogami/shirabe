@@ -1,54 +1,53 @@
 #!/usr/bin/env bash
-# run-evals.sh - Run skill evals using /skill-creator
+# run-evals.sh - Run skill evals: the script-graded cases only
+#
+# The harness runs script-graded cases only. Every case with
+# `"grader": "script"` runs through scripts/lib/script-cases.py, which has no
+# code path to `claude` or any model; every other case (model-graded, one with
+# no `grader`, or one whose grader the runner doesn't know) is listed as
+# refused, because graded cases don't run. No flag or environment variable
+# changes that: not ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN,
+# ANTHROPIC_BASE_URL, CLAUDE_CODE_USE_BEDROCK, CLAUDE_CODE_USE_VERTEX or
+# EVAL_MODEL. The selection is handed over before the koto probe and the
+# claude prerequisite below, so a run needs python3, git (script-cases.py
+# checks a case's script is tracked) and whatever its cases' scripts need
+# (koto, for the hand-off checks), and it runs on macOS /bin/bash 3.2.
 #
 # Usage:
-#   scripts/run-evals.sh                     Run evals for the skills changed since the last v* tag
-#   scripts/run-evals.sh <skill-name>        Run evals for one skill
-#   scripts/run-evals.sh --all               Run evals for all skills
+#   scripts/run-evals.sh                     Run every skill's script cases (as --all)
+#   scripts/run-evals.sh <skill-name>        Run one skill's script cases
+#   scripts/run-evals.sh --all               Run every skill's script cases
 #   scripts/run-evals.sh --list              List skills with evals
 #   scripts/run-evals.sh --list-changed      Print the skills changed since the last v* tag, one per line
-#   scripts/run-evals.sh --validate <skill>  Re-validate existing results
-#   scripts/run-evals.sh --prep-only <skill>      Prepare workspace only (for /skill-creator)
+#   scripts/run-evals.sh --validate <skill>  Re-validate an existing iteration; runs nothing
+#   scripts/run-evals.sh --prep-only <skill> Refused with exit 3: it prepares a graded run
 #
 # Options (combine with a selection):
-#   --scenario <a,b,...>  Run only the named evals from that skill's suite
-#   --release-subset      Run the release subset: every tier-1 eval, and the
-#                         tier-2 evals marked "release": true (one per
-#                         behaviour; see scripts/lib/check-evals-shape.py)
-#   --no-baseline         Spawn and grade only the with-skill agent: no no-skill
-#                         baseline agent, no without_skill/ directory. The
-#                         summary and its pass rate read the with-skill side
-#                         either way; the baseline only says what a skill adds
-#   --runs <N>            Run the selection N times and report a pass rate
-#   --summary-out <file>  Write a machine-readable summary of the skills run
+#   --scenario <a,b,...>  Run only the named cases from that skill's suite
+#   --summary-out <file>  Write a script-cases-summary/v1 JSON summary (see
+#                         scripts/lib/script-cases.py)
+#   --runs <N>, --release-subset, --no-baseline
+#                         Accepted and ignored: a script case runs once
 #
-# Environment:
-#   EVAL_MODEL  When set: the model the nested session (the grader) runs on,
-#               and the default for every scenario that names none. Unset: the
-#               session keeps the CLI default, tier-1 scenarios run on sonnet,
-#               and the rest inherit the session's model. See "Models" below.
+# Each skill's evals live at skills/<name>/evals/evals.json. A script case
+# names the command it runs in `run`; script-cases.py checks that command
+# against its containment rules, runs it in a closed environment, and its
+# header gives both.
 #
-# Each skill's evals live at skills/<name>/evals/evals.json.
-# Results go to skills/<name>/evals/workspace/iteration-<N>/.
+# Exit codes (a selection's are script-cases.py's):
+#   0  Every script case passed (0 of 0 included)
+#   1  A script case failed or was refused, or a usage error in the arguments
+#      this script reads
+#   2  A usage error script-cases.py caught, or a file it could not read or
+#      write; --list-changed and --validate exit 2 as described below
+#   3  A missing prerequisite (python3, git), or
+#      --prep-only
 #
-# Exit codes:
-#   0  All assertions passed
-#   1  One or more assertions failed, or a usage error in the arguments
-#   2  No results produced, or a scenario graded zero assertions
-#      (infrastructure failure -- see "Grading nothing is a failure" below).
-#      Under --runs N, any run returning 2 makes the invocation exit 2, ahead of
-#      runs that only failed assertions. Also: git could not answer the
-#      changed-since-tag selection, the --summary-out file could not be
-#      written, the run's own koto store could not be set up, or the run left
-#      files naming its scratch root in $HOME/.koto (see setup_eval_koto). A
-#      run that also classified as 4 below exits 4.
-#   3  Missing prerequisites, or a model or suite the harness refuses (an
-#      EVAL_MODEL or scenario model off the pattern, a suite with no evals)
-#   4  The nested claude session stopped in plan mode or ran no command and
-#      wrote no file, so no scenario ran (runner or host failure -- see "Nested
-#      session permission mode" below)
+# The rest of this header describes the graded path below the hand-over. No
+# selection reaches it; --list, --list-changed and --validate still use the
+# parts of it they name.
 #
-# Prerequisites: claude CLI, python3, skill-creator plugin installed
+# Prerequisites of the graded path: claude CLI, python3, skill-creator plugin installed
 #
 # Nested session permission mode
 #   The runner starts one nested `claude -p` session per run, and that session
@@ -126,14 +125,14 @@
 #   have different fixes.
 #
 # Changed-since-tag selection
-#   With no skill name, the harness runs the skills that have evals/evals.json
-#   and have any added, modified, renamed or deleted file under skills/<name>/
-#   between the last v* tag (git describe --tags --abbrev=0 --match 'v*') and
-#   HEAD, through the same loop --all uses. The diff runs with -z --no-renames,
-#   so a rename counts against both the old and the new skill, and every name is
-#   checked against ^[a-z0-9][a-z0-9-]*$ before it is used. With no v* tag every
-#   skill with evals is selected. --list-changed prints the selection and runs
-#   nothing; it is what the release eval check reads.
+#   --list-changed prints the skills that have evals/evals.json and have any
+#   added, modified, renamed or deleted file under skills/<name>/ between the
+#   last v* tag (git describe --tags --abbrev=0 --match 'v*') and HEAD. The diff
+#   runs with -z --no-renames, so a rename counts against both the old and the
+#   new skill, and every name is checked against ^[a-z0-9][a-z0-9-]*$ before it
+#   is used. With no v* tag every skill with evals is selected. It runs
+#   nothing; it is what the release eval check reads. A run with no skill name
+#   runs every skill's script cases instead.
 #
 # Models
 #   The nested session, which also grades every scenario, gets --model only
@@ -234,6 +233,99 @@ for arg in "$@"; do
   esac
 done
 
+# ---------------------------------------------------------------------------
+# Script cases only
+#
+# A run selects a skill, --all, or nothing (which means --all), and every one
+# of them goes to scripts/lib/script-cases.py here, before the koto probe, the
+# claude prerequisite and anything below that needs bash 4 or a model. That
+# runner runs the `"grader": "script"` cases and refuses every other case,
+# whatever the environment holds: no flag, variable, ANTHROPIC_* or
+# CLAUDE_CODE_USE_* setting reaches the graded path below. --summary-out goes
+# through, --scenario filters the skill's cases by name, and --runs,
+# --release-subset and --no-baseline are accepted and ignored: a script case
+# runs once. --prep-only prepares a graded run, so it is refused with 3.
+# --list, --list-changed, --validate and --help fall through to their own
+# handling further down.
+# ---------------------------------------------------------------------------
+sc_target=""
+sc_extra=""
+sc_scenario=""
+sc_summary=""
+sc_have_scenario=0
+sc_have_summary=0
+sc_orig=("$@")
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --scenario|--runs|--summary-out)
+      [ $# -ge 2 ] && [ -n "$2" ] || { echo "Error: $1 needs a value"; exit 1; }
+      case "$1" in
+        --scenario) sc_scenario="$2"; sc_have_scenario=1 ;;
+        --summary-out) sc_summary="$2"; sc_have_summary=1 ;;
+      esac
+      shift 2
+      continue
+      ;;
+    --scenario=*) sc_scenario="${1#--scenario=}"; sc_have_scenario=1 ;;
+    --summary-out=*)
+      sc_summary="${1#--summary-out=}"
+      [ -n "$sc_summary" ] || { echo "Error: --summary-out needs a file"; exit 1; }
+      sc_have_summary=1
+      ;;
+    --runs=*|--release-subset|--no-baseline) ;;
+    *)
+      if [ -z "$sc_target" ]; then
+        sc_target="$1"
+      else
+        sc_extra="$1"
+      fi
+      ;;
+  esac
+  shift
+done
+# The arguments again, for the paths that fall through: only --list,
+# --list-changed, --validate and --help do, and they read their own words.
+set -- ${sc_orig[@]+"${sc_orig[@]}"}
+sc_fallthrough=0
+case "$sc_target" in
+  --list|--list-changed|--validate|--help|-h)
+    sc_fallthrough=1
+    ;;
+  --prep-only)
+    echo "Error: --prep-only prepares a model-graded run, and graded cases don't run;"
+    echo "       scripts/run-evals.sh <skill> runs the skill's script cases"
+    exit 3
+    ;;
+  -*)
+    if [ "$sc_target" != "--all" ]; then
+      echo "Error: unknown option '$sc_target'"
+      echo "Usage: $0 [--scenario <a,b,...>] [--summary-out <file>] [<skill-name> | --all]"
+      echo "       $0 --list | --list-changed | --validate <skill>"
+      exit 1
+    fi
+    ;;
+esac
+if [ "$sc_fallthrough" -eq 0 ]; then
+  if [ -n "$sc_extra" ]; then
+    echo "Error: name one skill, or --all; got an extra argument '$sc_extra'"
+    exit 1
+  fi
+  [ -n "$sc_target" ] || sc_target="--all"
+  if [ "$sc_target" = "--all" ] && [ "$sc_have_scenario" -eq 1 ]; then
+    echo "Error: --scenario names cases in one suite; use it with a skill name, not --all"
+    exit 1
+  fi
+  command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
+  sc_cmd=(python3 "$SCRIPT_DIR/lib/script-cases.py" "$sc_target")
+  if [ "$sc_have_scenario" -eq 1 ]; then
+    sc_cmd+=(--scenario "$sc_scenario")
+  fi
+  if [ "$sc_have_summary" -eq 1 ]; then
+    sc_cmd+=(--summary-out "$sc_summary")
+  fi
+  exec "${sc_cmd[@]}"
+fi
+
 # The permission mode every nested claude session runs under. See "Nested
 # session permission mode" in the header for why it is this and nothing wider.
 # The mode is kept separately because the not-executed report compares it with
@@ -314,28 +406,23 @@ command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
 
 usage() {
-  echo "Usage: $0 [--scenario <a,b,...>] [--release-subset] [--no-baseline] [--runs <N>] [--summary-out <file>] [<skill-name>]"
+  echo "Usage: $0 [--scenario <a,b,...>] [--summary-out <file>] [<skill-name> | --all]"
   echo "       $0 --withhold <rule key> [--case <file>] [--runs <N>] <skill-name>   (ablation mode)"
-  echo "       $0 --all | --list | --list-changed | --validate <skill> | --prep-only <skill>"
+  echo "       $0 --list | --list-changed | --validate <skill>"
   echo ""
-  echo "  (no skill name)    Run evals for the skills changed since the last v* tag"
-  echo "  <skill-name>       Run evals for a specific skill (prep + execute + validate)"
-  echo "  --all              Run evals for all skills that have evals/"
+  echo "  The harness runs script-graded cases only; graded cases are refused."
+  echo ""
+  echo "  (no skill name)    Run every skill's script cases (as --all)"
+  echo "  <skill-name>       Run one skill's script cases"
+  echo "  --all              Run every skill's script cases"
   echo "  --list             List skills that have evals"
   echo "  --list-changed     Print the skills changed since the last v* tag and run nothing"
   echo "  --validate <skill> Re-validate the latest iteration without re-running"
-  echo "  --prep-only <skill>     Prepare workspace only (use with /skill-creator in Claude Code)"
+  echo "  --prep-only <skill>  Refused (exit 3): it prepares a graded run"
   echo ""
-  echo "  --scenario <a,b,...>  Restrict the run to the named evals, by 'name' in evals.json"
-  echo "  --release-subset      Run every tier-1 eval and the tier-2 evals marked \"release\": true"
-  echo "  --no-baseline         Run and grade only the with-skill agent, no no-skill baseline"
-  echo "  --runs <N>            Repeat the run N times and report a pass rate across them"
-  echo "  --summary-out <file>  Write a run-evals-summary/v1 JSON summary of the skills run"
-  echo ""
-  echo "  EVAL_MODEL=<model>    Grader and scenario model; unset, tier-1 scenarios run on sonnet and the rest inherit"
-  echo ""
-  echo "  Running one scenario N times:"
-  echo "    $0 --scenario baseline-malformed-state --runs 5 scope"
+  echo "  --scenario <a,b,...>  Restrict the run to the named cases, by 'name' in evals.json"
+  echo "  --summary-out <file>  Write a script-cases-summary/v1 JSON summary of the skills run"
+  echo "  --runs, --release-subset, --no-baseline  Accepted and ignored: a script case runs once"
   exit 1
 }
 

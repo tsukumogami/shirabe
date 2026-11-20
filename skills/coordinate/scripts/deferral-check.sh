@@ -81,8 +81,11 @@
 # A row is parked when it has a Verified head and its pull request is open and
 # not a draft; a row with a Verified head and a cleared Pull request cell, or
 # one whose linked pull request GitHub reads merged and that state-common.sh
-# lib_link_merge_frees allows, is merged and counts as neither; every
-# other Holdings row is active. CAP and PARKED_BOUND are the
+# lib_link_merge_frees allows, is merged and counts as neither; one whose
+# worker's Claude jobs on this host are all finished (dispatch-common.sh
+# dc_topic_stopped) is stopped and leaves the active count, whatever its
+# pull request's state, though a stopped row that is also parked still
+# counts as parked (shirabe#1419); every other Holdings row is active. CAP and PARKED_BOUND are the
 # session's variables. The detail goes to context key coord/dispatch_check.json.
 #
 # Row mode judges one Deferrals row (a JSON object with deferral, reason,
@@ -482,7 +485,7 @@ fi
 # The cap and the parked bound.
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
 PARKED=$(jq '[.[] | select(.parked)] | length' "$T/counted.json")
-ACTIVE=$(jq '[.[] | select((.parked | not) and (.merged | not))] | length' "$T/counted.json")
+ACTIVE=$(jq '[.[] | select((.parked | not) and (.merged | not) and (.stopped | not))] | length' "$T/counted.json")
 ATCAP=0
 # send_execution moves a worker already counted only when the unit really is
 # a scoping-ahead holding; otherwise it would start a worker, and is judged as

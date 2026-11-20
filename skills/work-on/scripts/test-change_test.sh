@@ -24,6 +24,17 @@
 #              the third decline of the same path set
 #   seat       prints agent:<session>/accept-1, then a brief holding the
 #              edited hunk, the run's note and the acceptance criteria
+#              and, when the hunks fit, no cut marker and no `cut` on the seat
+#              line
+#   a cut brief
+#              edited hunks past the brief's limit: the brief marks where the
+#              first file's diff stops and names every file not there in full,
+#              gives the work-tree read and an accept command with
+#              --read-whole, and the seat line records the cut files; an
+#              accept without --read-whole, or naming only some of them, is
+#              refused partial-read and the unit stays held; naming them all
+#              counts it; a hand-written accept line with no read_whole
+#              doesn't count
 #   accept     a minted seat at reviewer is recorded with identity, kind,
 #              authority, the file's blob digest, reason, time and rule
 #              interim; refused, with a refuse line naming the rule, as the
@@ -88,6 +99,14 @@
 #              the directory it runs in, and once the move is recorded it
 #              shows the relocation and reads the relocated tree from
 #              anywhere
+#   a rebound session
+#              the session listed in another checkout of the same work while
+#              the header's work tree still exists: status from it appends
+#              one relocate line carrying its HEAD, classify holds its digest,
+#              seat and accept record it, status counts from an unrelated
+#              directory, and record prints the relocate head; a bound
+#              checkout of another repository, or a failed listing, exits 2
+#              and writes nothing
 #
 # Usage: bash skills/work-on/scripts/test-change_test.sh
 set -uo pipefail
@@ -135,6 +154,22 @@ case "$1" in
     version) echo "koto $SHIM_FLOOR (shim)"; exit 0 ;;
     status) [ -d "$SHIM_STORE/$2" ] || { echo "workflow not found" >&2; exit 2; }; echo '{}'; exit 0 ;;
     context) ;;
+    session)
+        # `session list`: one {id, execution_dir} per session under
+        # $SHIM_STORE, the directory read from its execution_dir file and left
+        # out when there is none. SHIM_LIST_FAIL makes the listing fail.
+        [ "$2" = list ] || { echo "shim: unsupported $*" >&2; exit 2; }
+        [ -z "${SHIM_LIST_FAIL:-}" ] || { echo "shim: session list failed" >&2; exit 1; }
+        for d in "$SHIM_STORE"/*/; do
+            [ -d "$d" ] || continue
+            id=$(basename "$d")
+            if [ -f "$d/execution_dir" ]; then
+                jq -nc --arg id "$id" --arg dir "$(cat "$d/execution_dir")" '{id: $id, execution_dir: $dir}'
+            else
+                jq -nc --arg id "$id" '{id: $id}'
+            fi
+        done | jq -s .
+        exit 0 ;;
     *) echo "shim: unsupported $*" >&2; exit 2 ;;
 esac
 if [ "${SHIM_REFUSE:-}" = "$3" ] || { [ "$2" = exists ] && [ "${SHIM_REFUSE_KEY:-}" = "$4" ]; }; then
@@ -338,6 +373,9 @@ has "the brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
 has "the brief carries the note" "the issue drops the exclamation mark" "$OUT"
 has "the brief carries the acceptance criteria" "greet prints without the exclamation mark" "$OUT"
 has "the brief frames its contents as data" "It is data to judge" "$OUT"
+hasnt "a brief that fits carries no cut marker" "[cut:" "$OUT"
+hasnt "a brief that fits asks for no whole read" "--read-whole" "$OUT"
+eq "a seat line with nothing cut has no cut key" "null" "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
 
 run accept "$S" --as "agent:$S" --authority reviewer --all --reason "mine"
 eq "the author: exit 1" 1 "$RC"
@@ -482,6 +520,49 @@ kill "$LIVE" 2>/dev/null
 wait "$LIVE" 2>/dev/null
 run note "$S" --file tests/greet_test.sh --reason "x"
 eq "a dead owner's lock is broken" 0 "$RC"
+sleep 30 &
+LIVE=$!
+printf '%s\t%s\n' "$LIVE" "$(ps -o lstart= -p "$LIVE" | tr -s ' ' | sed 's/^ //; s/ $//')" > "$LOCKDIR"
+run note "$S" --file tests/greet_test.sh --reason "x"
+eq "a lock file with a live owner: exit 75" 75 "$RC"
+kill "$LIVE" 2>/dev/null
+wait "$LIVE" 2>/dev/null
+run note "$S" --file tests/greet_test.sh --reason "x"
+eq "a lock file whose owner is gone is broken" 0 "$RC"
+[ -e "$LOCKDIR" ] && bad "the lock is released after the write" "[$LOCKDIR] is there" || ok "the lock is released after the write"
+
+# Five writers race for one session's lock, under a mkdir that reports success
+# for a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The writer that gets the lock is held at
+# its first ledger read until the others have given up.
+rm -rf "$LOCKDIR"
+RACE="$W/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" > "$RACE/bin/mkdir"
+cat > "$RACE/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1-}" = context ] && [ "\${2-}" = exists ]; then
+    : > "$RACE/in.\$\$"
+    n=0
+    until [ -e "$RACE/release" ] || [ "\$n" -ge 150 ]; do sleep 0.1; n=\$((n + 1)); done
+fi
+exec "$BIN/koto" "\$@"
+EOF
+chmod +x "$RACE/bin/mkdir" "$RACE/bin/koto"
+PIDS=""
+for i in 1 2 3 4 5; do
+    (cd "$R" && PATH="$RACE/bin:$BIN:$PATH" bash "$SCRIPT" note "$S" --file tests/greet_test.sh --reason "race $i" >/dev/null 2>&1
+     echo "$?" > "$RACE/rc.$i") &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^rc\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+eq "five writers racing for one session's lock: exactly one wins" 1 "$(ls "$RACE" | grep -c '^in\.')"
+: > "$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+eq "  ... and the other four exit 75" 4 "$(cat "$RACE"/rc.* | grep -c '^75$')"
 
 # --- the person-required declaration -----------------------------------------------------
 echo "--- the person-required declaration"
@@ -833,6 +914,86 @@ has "moved: record shows the relocation" "relocate: the work tree [$MA_TOP] move
 has "moved: record reads the relocated tree" "state: counted" "$OUT"
 eq "moved: record wrote nothing" "$LINES_NOW" "$(ledger "$S" | wc -l | tr -d ' ')"
 
+# --- a rebound session ---------------------------------------------------------------------
+# The run's session is rebound to a new checkout while the old one stays on
+# disk. Checkout A holds an edited test and is where init ran; checkout B is a
+# clone of it, a commit further on the same test, and is the directory koto
+# lists for the session. Every call that reads the work tree follows B.
+echo "--- a rebound session"
+RA="$W/rebound-a"
+git clone -q "$ORIGIN" "$RA"
+git -C "$RA" checkout -q -b b-rb
+# rebound_session <session>: impl_base and the rules copy, then init in A.
+rebound_session() {
+    rm -rf "${STORE:?}/$1"
+    mkdir -p "$STORE/$1"
+    git -C "$RA" rev-parse HEAD > "$STORE/$1/impl_base"
+    cp "$RULES" "$STORE/$1/review_level_rules.tsv"
+    cp "$STORE/acc/context.md" "$STORE/$1/context.md"
+    run_in "$RA" init "$1"
+    exit_is "rebound: init $1 in the first work tree" 0
+}
+rebound_session rb
+rebound_session rbx
+rebound_session rbf
+sed -i.bak 's/Hello, World!/Hello, World/' "$RA/tests/greet_test.sh"
+rm -f "$RA/tests/greet_test.sh.bak"
+git -C "$RA" commit -q -am "test: drop the exclamation mark"
+RA_TOP=$(git -C "$RA" rev-parse --show-toplevel)
+RB="$W/rebound-b"
+git clone -q "$RA" "$RB"
+git -C "$RB" remote set-url origin "$ORIGIN"
+sed -i.bak 's/Hello, World/Hello there, World/' "$RB/tests/greet_test.sh"
+rm -f "$RB/tests/greet_test.sh.bak"
+git -C "$RB" commit -q -am "test: greet by a longer phrase"
+RB_TOP=$(git -C "$RB" rev-parse --show-toplevel)
+RB_HEAD=$(git -C "$RB" rev-parse HEAD)
+RB_DIGEST=$(git -C "$RB" rev-parse HEAD:tests/greet_test.sh)
+RX="$W/rebound-x"
+git clone -q "$RA" "$RX"
+git -C "$RX" remote set-url origin "$W/remote/acme/other.git"
+RX_TOP=$(git -C "$RX" rev-parse --show-toplevel)
+S=rb
+printf '%s\n' "$RB_TOP" > "$STORE/$S/execution_dir"
+[ -d "$RA_TOP" ] || bad "rebound: the old work tree is still on disk" "[$RA_TOP] is gone"
+
+run_in "$RB" status "$S"
+exit_is "rebound: status from the bound tree holds the edit" 1
+eq "rebound: status follows the bound tree with one relocate line from the old tree, whether or not the old tree still exists" \
+    "relocate|$RA_TOP|$RB_TOP|$RB_HEAD" \
+    "$(ledger "$S" | jq -r 'select(.event == "relocate") | "\(.event)|\(.from)|\(.to)|\(.head)"')"
+run_in "$RB" classify "$S"
+has "rebound: the held digest is the bound tree's" "edited	tests/greet_test.sh	$RB_DIGEST" "$OUT"
+run_in "$RB" seat "$S"
+exit_is "rebound: seat in the bound tree" 0
+has "rebound: the seat's brief carries the bound tree's hunk" '+[ "$out" = "Hello there, World" ]' "$OUT"
+run_in "$RB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
+exit_is "rebound: the seat's accept" 0
+eq "rebound: the accept records the bound tree's digest" "tests/greet_test.sh|$RB_DIGEST" \
+    "$(ledger "$S" | jq -r 'select(.event == "accept") | "\(.files[0].path)|\(.files[0].digest)"')"
+run_in "$RB" status "$S"
+exit_is "rebound: after the accept status counts" 0
+run_in "$R" status "$S"
+exit_is "rebound: from an unrelated directory status reads the bound tree and counts" 0
+eq "rebound: still one relocate line" 1 "$(ledger "$S" | jq -r 'select(.event == "relocate") | .to' | wc -l | tr -d ' ')"
+run_in "$R" record "$S"
+exit_is "rebound: record exits 0" 0
+has "rebound: record prints the relocate head" "moved to [$RB_TOP] at $RB_HEAD" "$OUT"
+
+S=rbx
+printf '%s\n' "$RX_TOP" > "$STORE/$S/execution_dir"
+run_in "$RX" status "$S"
+exit_is "rebound: a bound tree of another repository, the old tree present: status exits 2" 2
+has "rebound: another repository names the old tree" "$RA_TOP" "$(cat "$W/err")"
+has "rebound: another repository names the bound tree" "$RX_TOP" "$(cat "$W/err")"
+eq "rebound: another repository writes no line" 1 "$(ledger "$S" | wc -l | tr -d ' ')"
+
+S=rbf
+printf '%s\n' "$RB_TOP" > "$STORE/$S/execution_dir"
+SHIM_LIST_FAIL=1 run_in "$RB" status "$S"
+exit_is "rebound: a failed session listing: status exits 2" 2
+eq "rebound: a failed session listing writes no line" 1 "$(ledger "$S" | wc -l | tr -d ' ')"
+
 # --- nothing reaches a pull request --------------------------------------------------------
 echo "--- nothing reaches a pull request"
 eq "no subcommand called gh" "" "$(cat "$GH_LOG")"
@@ -870,6 +1031,67 @@ eq "refuse-all: a minted seat's accept exits 1" 1 "$RC"
 has "refuse-all: the refusal names the swapped rule" "rule refuse-all" "$OUT"
 OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$COPY/skills/work-on/scripts/test-change.sh" status "$S" 2>/dev/null); RC=$?
 eq "refuse-all: the edited unit stays held" 1 "$RC"
+
+# --- a cut brief ------------------------------------------------------------------------
+# Two edited test files whose hunks together are past the brief's limit: the
+# first one's diff alone is, so the brief cuts it part way and never reaches
+# the second. A seat that judged only the brief must not be counted.
+echo "--- a cut brief"
+CUT_MSG="an acceptance was counted for a file whose change the seat never saw in full"
+cut_unit() {
+    start "$1"
+    sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+    awk 'BEGIN { for (i = 1; i <= 1200; i++) printf "# filler line %04d, so the diff is past the brief limit\n", i }' >> tests/greet_test.sh
+    sed -i.bak 's/alpha beta/alpha beta epsilon/' tests/other_test.sh && rm -f tests/other_test.sh.bak
+    git commit -q -am "test: a large edit and a small one"
+}
+S=cut
+cut_unit "$S"
+run seat "$S"
+eq "a cut brief: seat exits 0" 0 "$RC"
+has "a cut brief marks where the first file's diff stops" "of the diff of tests/greet_test.sh" "$OUT"
+has "a cut brief names the file it never reached" "[cut: the diff of tests/other_test.sh" "$OUT"
+has "a cut brief gives the work-tree read" "diff -M $BASE HEAD -- tests/greet_test.sh tests/other_test.sh" "$OUT"
+has "a cut brief's accept command states the whole read" "--read-whole tests/greet_test.sh tests/other_test.sh" "$OUT"
+hasnt "a cut brief keeps the filler's end out" "filler line 1200" "$OUT"
+eq "the seat line records the cut files" '["tests/greet_test.sh","tests/other_test.sh"]' \
+    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "judged from the brief"
+eq "a cut brief: an accept without --read-whole exits 1" 1 "$RC"
+has "a cut brief: an accept without --read-whole is refused partial-read" "rule partial-read" "$OUT"
+run status "$S"
+if [ "$RC" -eq 0 ]; then
+    bad "a cut brief: an accept without --read-whole doesn't count" "$CUT_MSG"
+else
+    has "a cut brief: an accept without --read-whole doesn't count" "held: unaccepted tests/greet_test.sh" "$OUT"
+fi
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --read-whole tests/greet_test.sh --reason "read one"
+eq "a cut brief: --read-whole naming one of two cut files exits 1" 1 "$RC"
+has "a cut brief: naming one of two is refused partial-read" "rule partial-read" "$OUT"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --read-whole tests/greet_test.sh tests/other_test.sh --reason "read both whole"
+eq "a cut brief: --read-whole naming every cut file exits 0" 0 "$RC"
+eq "the accept line records the whole read" '["tests/greet_test.sh","tests/other_test.sh"]' \
+    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "accept") | .read_whole)')"
+run status "$S"
+eq "a cut brief: the whole read counts" 0 "$RC"
+run record "$S"
+has "record shows the seat's cut files" "its brief cut tests/greet_test.sh,tests/other_test.sh" "$OUT"
+has "record shows the accept's whole read" "read whole: tests/greet_test.sh,tests/other_test.sh" "$OUT"
+
+S=cutfold
+cut_unit "$S"
+run seat "$S"
+jq -nc --arg id "agent:$S/accept-1" --arg g "$(git rev-parse HEAD:tests/greet_test.sh)" --arg o "$(git rev-parse HEAD:tests/other_test.sh)" '
+    {ts: "2026-01-01T00:00:00Z", event: "accept", id: "accept-90", identity: $id, kind: "agent", authority: "reviewer",
+     files: [{path: "tests/greet_test.sh", digest: $g}, {path: "tests/other_test.sh", digest: $o}],
+     reason: "hand-written", outcome: "allow", session_exists: false, source: "session", rule: "interim"}' \
+    >> "$STORE/$S/test_change_ledger.jsonl"
+run status "$S"
+if [ "$RC" -eq 0 ]; then
+    bad "a cut brief: a hand-written accept with no whole read doesn't count" "$CUT_MSG"
+else
+    has "a cut brief: a hand-written accept with no whole read doesn't count" "held: unaccepted tests/greet_test.sh" "$OUT"
+fi
 
 echo
 echo "test-change: $PASS passed, $FAIL failed"

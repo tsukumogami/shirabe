@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Planned
 problem: |
   A resumed /scope session can't leave resume_route. Its ladder gate runs a
   probe that waits on seven koto lookups with koto's default 30 s and no
@@ -36,7 +36,7 @@ user_visible_surface: true
 
 ## Status
 
-Proposed
+Planned
 
 ## Context and Problem Statement
 
@@ -124,7 +124,7 @@ Key assumptions:
 
 By default a never-opened name's refusal is unsettled, never absent. A fresh topic on a large undeclared bucket stops with the probe's exit 3. The finding says another tick won't clear it and names two ways through:
 
-- **Re-run with `--local-topic`.** The operator runs `/scope <topic> --local-topic` when they know the topic has no session elsewhere. Anything held elsewhere is given up: a second session of the same name opens here, and a handoff held elsewhere isn't read.
+- **Re-run with `--local-topic=stated`.** The operator runs `/scope <topic> --local-topic=stated` when they know the topic has no session elsewhere. Anything held elsewhere is given up: a second session of the same name opens here, and a handoff held elsewhere isn't read.
 - **Declare the bucket's name index.** This clears the stop for every topic.
 
 The flag sets a rebind template variable that both resume gates pass to the probe, so it covers only the invocation that typed it and koto's events record it. The agent never adds it, and `scope-open.sh` refuses it under `--auto` and in a run another session dispatched, so the statement can only come from an operator at an interactive session.
@@ -152,7 +152,7 @@ Key assumptions:
 - koto's changelog statement describes v0.37.0: before koto#670, a bucket that couldn't be reached at all made a name read as absent.
 - The resumed session's copy on this host stays current within a tick, so own-session `context exists` never takes the remote-manifest fallback, where a failed fetch reads as absent. This is the same premise as Decision 1's first assumption.
 - koto keeps building `session_lookup_failed` only for a name with no host copy. `parent_state` relies on this, and its tests pin the reply shape.
-- At v0.37.0 a lookup that couldn't settle never carries the no-copy text `parent_state` matches. The contract test checks this against real v0.37.0.
+- At v0.37.0 a lookup that couldn't settle carries the no-copy text `parent_state` matches when the name has no copy on this host. The contract test found this against real v0.37.0, which the design first assumed it never did, so v0.37.0 reads as "not a parent here" in the case where v0.37.1 and v0.37.2 answer `session_lookup_failed`.
 
 #### Chosen: Both releases side by side, read in-band, depend only on shipped behaviour
 
@@ -276,7 +276,7 @@ The resume ladder stays one read-only probe behind one gate per resume state. Wh
   - `skill-session_test.sh` gains the shape-table and `parent_state` cases.
   - `scope-template_test.sh` pins exit 3 as unrouted, the `timed_out` arms, and the gate argument.
   - `scope-open_test.sh` pins the flag, its value check, and its refusal under `--auto` and in a dispatched run.
-  - A contract test runs `skill-session.sh`'s reply table and `parent_state` against real koto at v0.37.0 and v0.37.1, not only against the stub.
+  - A contract test runs `skill-session.sh`'s reply table and `parent_state` against real koto at v0.37.0, v0.37.1 and v0.37.2, not only against the stub.
 
 ### Key Interfaces
 
@@ -389,9 +389,9 @@ The statement gives up integrity, not secrecy. A same-named session or handoff h
 
 **Process handling.** The descendant kill signals only process ids taken from a snapshot of the probe's own jobs and their children, and only for jobs that are still live and have written no marker. It never matches by name, so a reused id can't redirect it. The gate's process-group kill at 30 s covers any straggler. A SIGKILL skips the probe's exit trap and can leave its private (0700) temp directory, which holds reply text, under `TMPDIR`. The deadline override is honored only in tests and is clamped below the gate's bound.
 
-**The parent lookup.** "Not a parent here" covers exactly two replies: exit 3 with `session_lookup_failed`, and v0.37.0's exit-2 no-copy reply. It changes `adopt` from failing closed to failing open on those two replies: where an unreadable parent lookup used to stop `adopt`, a parent with no copy on this host is now skipped. It rests on two things koto's docs describe but don't promise as a contract. koto builds that refusal only for a name with no copy on this host. And at v0.37.0, a lookup that couldn't settle never carries the no-copy text. The stubbed `parent_state` tests pin the reply shapes shirabe reads, but they can't notice koto changing what it sends. That is the contract test's job: it runs `parent_state` against real koto at v0.37.0 and v0.37.1.
+**The parent lookup.** "Not a parent here" covers exactly two replies: exit 3 with `session_lookup_failed`, and v0.37.0's exit-2 no-copy reply. It changes `adopt` from failing closed to failing open on those two replies: where an unreadable parent lookup used to stop `adopt`, a parent with no copy on this host is now skipped. It rests on two things koto's docs describe but don't promise as a contract. koto builds that refusal only for a name with no copy on this host. At v0.37.0, a lookup that couldn't settle carries the no-copy text for a parent with no copy here, so `adopt` fails open there just as on v0.37.1 and v0.37.2; the contract test found this against real v0.37.0. The stubbed `parent_state` tests pin the reply shapes shirabe reads, but they can't notice koto changing what it sends. That is the contract test's job: it runs `parent_state` against real koto at v0.37.0, v0.37.1 and v0.37.2.
 
-The contract test's evidence includes a session written by a koto release from before the bucket's name index, held two ways. Held on this host, the lookup answers from the host's copy, and `parent_state` answers live or finished. Held only under another directory's prefix, with no copy here, it answers live when the sweep finds the session and "not a parent here" when the sweep can't finish. In neither case does it answer absent. On a bucket whose name index is declared, a lookup answers from the index, which the declaration's audit fills for every session present. A session missing from an unaudited index is the declaration's own trade-off, named in Decision 2. It doesn't come from this path. "Not a parent here" is never absent: only the dispatch match reads it, as a parent on another branch, and nothing records it.
+The contract test's evidence includes a session written by a koto release from before the bucket's name index, held two ways. Held on this host, the lookup answers from the host's copy, and `parent_state` answers live or finished. Held only under another directory's prefix, with no copy here, it answers "not a parent here" when the sweep can't finish. When the sweep finishes and finds the session, every release so far still refuses before reading it (`session_unlocated`, koto#695): `status` can't settle and prints no state, and `adopt` skips the parent as "not a parent here". The design wants `live` or `finished` there, and that answer waits on koto#695. The contract test prints this as a known gap rather than failing it. In neither case does it answer absent. On a bucket whose name index is declared, a lookup answers from the index, which the declaration's audit fills for every session present. A session missing from an unaudited index is the declaration's own trade-off, named in Decision 2. It doesn't come from this path. "Not a parent here" is never absent: only the dispatch match reads it, as a parent on another branch, and nothing records it.
 
 A parent that ran on another host and left no copy here isn't seen by `adopt`. That matches what `adopt` could already see, since a parent dispatches from its own checkout.
 
@@ -427,5 +427,5 @@ A parent that ran on another host and left no copy here isn't seen by `adopt`. T
 - The flag covers one invocation and is recorded in koto's variable events. `scope-open.sh` refuses it under `--auto` and in a dispatched run, so an unattended agent reports the stop instead.
 - The deadline override and short stub delays keep the timing tests fast and deterministic. The descendant kill keeps every process in the gate's group, so koto's backstop still covers them.
 - The koto asks in Decision 3 would bound the flush and the lookup from koto's side. v0.37.1 already bounds the parent lookup and closes the unreachable-bucket hole.
-- The stubbed `parent_state` tests pin the reply shapes shirabe reads; they catch a change on shirabe's side, not koto's. The contract test runs against real koto at v0.37.0 and v0.37.1, including a session written by a release from before the name index, so a koto change to the replies surfaces when that test runs against the new release. The asks include a structured field for "no copy on this host", which would replace the reply shape the design relies on.
+- The stubbed `parent_state` tests pin the reply shapes shirabe reads; they catch a change on shirabe's side, not koto's. The contract test runs against real koto at v0.37.0, v0.37.1 and v0.37.2, including a session written by a release from before the name index, so a koto change to the replies surfaces when that test runs against the new release. The asks include a structured field for "no copy on this host", which would replace the reply shape the design relies on.
 - The directive tells the agent never to paste `koto=` text into a pull request, issue or commit.

@@ -319,10 +319,12 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_s
     EVSEQ=$(printf '%s' "$EV" | jq -r .seq)
     # The steps whose directives write the record before the closing
     # evidence are compared with the moment they became due (step_start);
-    # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
-    # capture (below), and teardown and destroy, which write after it, keep
-    # the evidence's own time.
-    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status|milestone_verdict|milestone_reopen) step_start "$SOURCE" "$EVSEQ" ;; esac
+    # this case pattern is the list. destroy is one: its directive removes
+    # the holding row (or, handed over, adds the Side effects row) and then
+    # submits its evidence (shirabe#1148). dispatch keeps its DISPATCH_CHECK
+    # capture (below), and teardown, which writes after it, keeps the
+    # evidence's own time.
+    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status|milestone_verdict|milestone_reopen|destroy) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)

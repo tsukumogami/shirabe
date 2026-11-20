@@ -112,7 +112,9 @@
 #      "none yet". A run that stops between steps 4 and 5, this write failing
 #      or refused included, releases the leg it opened: the request is
 #      abandoned, its leg key marked `spent`, and stderr names both, so a
-#      re-run of the topic starts with no leg left open (shirabe#1756).
+#      re-run of the topic starts with no leg left open (shirabe#1756). Once
+#      the row is written, the topic's earlier leg keys still reading `open`
+#      whose request is no longer open are marked `replaced` (shirabe#1759).
 #   6. Launch: `niwa dispatch "<prompt>" --name <topic> --detach` from the
 #      workspace root, under a deadline (DISPATCH_DEADLINE_SECS, default 300),
 #      plus `--brief <brief> --skill shirabe:<entry point>` when the installed
@@ -211,7 +213,11 @@
 # execution sent) is marked `replaced`, and a failed launch's leg `spent`. A
 # leg opened by a run that exits before any holding names it (a dispatch, a
 # --releg or a sent execution whose row write fails) has its request
-# abandoned and its key marked `spent` too, whatever the exit code.
+# abandoned and its key marked `spent` too, whatever the exit code. A plain
+# dispatch, once its row names the new return path, marks the topic's earlier
+# keys still reading `open` `replaced` when their request is no longer open
+# (the one it abandoned, or one an earlier re-dispatch left), as --releg does
+# (replace_left_legs; shirabe#1759).
 #
 # --releg-imported <topic> re-attaches a worker that moved here with the
 # coordinator's session (`koto session import`) to a new request on this host,
@@ -576,26 +582,27 @@ mkdir -p "$BRIEFS" || die 2 "cannot create $BRIEFS"
 
 # --- the per-topic lock --------------------------------------------------------------
 #
-# mkdir is atomic on every filesystem these run on, and flock isn't on macOS.
-# A lock whose owner is gone (its pid no longer runs) is taken over.
-
+# The lock is a file holding its owner's pid, created with bash's noclobber,
+# which is one open(O_CREAT|O_EXCL) bash makes itself. Not mkdir: the uutils
+# mkdir Ubuntu 26.04 ships reports success when it loses a race to create the
+# directory, so two runs could both take a mkdir lock. flock isn't on macOS.
+# A lock whose owner is gone (its pid no longer runs) is taken over. A lock
+# directory an earlier version left, its pid in `pid` inside, is read the same.
 #
-# A lock with no pid file is one whose owner died between mkdir and writing
-# its pid, a window of microseconds: once the directory is over a minute old
-# it's taken over too. Two runs that find the same dead owner at the same
-# moment can both take over; the second's rm then removes the first's lock.
-# That race needs two coordinators dispatching one topic at once, which the
-# record's one-holding-per-topic already rules out, so it is left as is.
+# A lock with no pid is one whose owner died between creating it and writing
+# its pid, a window of microseconds: once it is over a minute old it's taken
+# over too. Two runs that find the same dead owner at the same moment can both
+# take over; the second's rm then removes the first's lock. That race needs two
+# coordinators dispatching one topic at once, which the record's
+# one-holding-per-topic already rules out, so it is left as is.
 LOCK_OWNER=""
 take_lock() {
     local l="$BRIEFS/.$TOPIC.lock"
-    if mkdir "$l" >/dev/null 2>&1; then
-        printf '%s\n' "$$" >"$l/pid"
+    if (set -C && printf '%s\n' "$$" >"$l") 2>/dev/null; then
         LOCK="$l"
         return 0
     fi
-    LOCK_OWNER=""
-    [ -f "$l/pid" ] && LOCK_OWNER=$(cat "$l/pid")
+    LOCK_OWNER=$(cat "$l" 2>/dev/null) || LOCK_OWNER=$(cat "$l/pid" 2>/dev/null) || LOCK_OWNER=""
     case "$LOCK_OWNER" in
         '')
             [ -n "$(find "$l" -maxdepth 0 -mmin +1)" ] || return 1
@@ -608,8 +615,7 @@ take_lock() {
             ;;
     esac
     rm -rf "$l"
-    mkdir "$l" >/dev/null 2>&1 || return 1
-    printf '%s\n' "$$" >"$l/pid"
+    (set -C && printf '%s\n' "$$" >"$l") 2>/dev/null || return 1
     LOCK="$l"
 }
 take_lock || die 7 "another run holds the lock for $TOPIC (pid ${LOCK_OWNER:-not yet written}; the lock is $BRIEFS/.$TOPIC.lock)"
@@ -784,6 +790,64 @@ release_unclaimed() {
         1) printf '%s: %s has no leg key: none was written\n' "$PROG" "$rp" >&2 ;;
         *) printf '%s: could not read the leg key for %s: it may still read open\n' "$PROG" "$rp" >&2 ;;
     esac
+}
+
+# replace_left_legs: once a holding names this dispatch's return path, end
+# the topic's earlier legs that still read open (shirabe#1759). open_leg
+# abandons every request still open under the topic's coordinator, and an
+# earlier re-dispatch may have abandoned one without marking its key, so a
+# leg key of this topic can read open with nothing left to answer it. Each
+# such key whose request is no longer open is marked `replaced`, the end
+# --releg gives the leg it replaces. It reads only this session's leg keys
+# and this host's requests: a key of another topic or in any other state is
+# never touched; one whose request is still open, or that this host's store
+# doesn't hold (an imported leg, which reconcile-legs.sh ends), is left as it
+# is. Every failure is reported on stderr and never fatal, as in mark_leg.
+replace_left_legs() {
+    local keys k req leg key
+    keys=$("$KOTO" context list "$SESSION" --prefix legs/ </dev/null) &&
+        keys=$(jq -r '.[]? | strings | select(test("^legs/[^/]+/[^/]+$"))' <<<"$keys") || {
+        printf '%s: could not list the leg keys: an earlier leg of %s may still read open\n' "$PROG" "$TOPIC" >&2
+        return 0
+    }
+    while IFS= read -r k; do
+        [ -n "$k" ] || continue
+        req=${k#legs/}
+        leg=${req#*/}
+        req=${req%%/*}
+        [ "$req:$leg" = "$RETURN_PATH" ] && continue
+        grep -Eq "$RE_REQ" <<<"$req" && grep -Eq "$DC_RE_LEG" <<<"$leg" || continue
+        if ! key=$(dc_leg_get "$SESSION" "$req" "$leg"); then
+            printf '%s: could not read the leg key for %s:%s\n' "$PROG" "$req" "$leg" >&2
+            continue
+        fi
+        jq -e --arg t "$TOPIC" '.topic == $t and .state == "open"' <<<"$key" >/dev/null || continue
+        request_view "$req"
+        case "$?" in
+            0) ;;
+            1)
+                printf '%s: the leg key for %s:%s reads open, but this host'"'"'s store doesn'"'"'t hold request %s: left for reconcile-legs.sh\n' \
+                    "$PROG" "$req" "$leg" "$req" >&2
+                continue
+                ;;
+            *)
+                printf '%s: could not read request %s: the leg key for %s:%s may still read open\n' "$PROG" "$req" "$req" "$leg" >&2
+                continue
+                ;;
+        esac
+        if jq -e --arg l "$leg" '(.request // .) as $r
+            | ($r.request_state // "open") == "open" and ($r.legs[$l].disposition // "") == "open"' <<<"$VIEW" >/dev/null; then
+            printf '%s: the leg key for %s:%s reads open and its request is still open: left as it is\n' "$PROG" "$req" "$leg" >&2
+            continue
+        fi
+        if dc_leg_put "$SESSION" "$req" "$leg" "$(jq -c '.state = "replaced"' <<<"$key")"; then
+            printf '%s: the leg key for %s:%s, left open by an earlier dispatch of %s, is marked replaced\n' "$PROG" "$req" "$leg" "$TOPIC" >&2
+        else
+            printf '%s: could not mark the leg key for %s:%s replaced: it still reads open\n' "$PROG" "$req" "$leg" >&2
+        fi
+    done <<EOF
+$keys
+EOF
 }
 
 # leg_state <request> <leg>: how koto holds a worker's leg, one word: open
@@ -1465,6 +1529,10 @@ if [ "$STATUS" != dispatching ]; then
           dispatched: $today, pull_request: ""}')
     write_row "$ROW"
 fi
+
+# The holding names this dispatch's return path now (or did already, on a
+# resumed run): end the topic's earlier legs left open (shirabe#1759).
+replace_left_legs
 
 # The worker's lineage: the brief it runs and the skill it's asked to run, so
 # niwa can put both on the worker's telemetry. niwa takes --brief and --skill

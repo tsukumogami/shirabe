@@ -544,5 +544,280 @@ class ToleranceTest(Case):
                 self.assertEqual(rc, 2, out)
 
 
+def script_summary_entry(cases, scenario_set=SET_A):
+    """A script-cases.py summary entry, runner-only fields included; cases is
+    [(name, verdict)]."""
+    run = len(cases)
+    passed = sum(1 for _, verdict in cases if verdict == "pass")
+    items = []
+    for index, (name, verdict) in enumerate(cases):
+        item = {"id": index + 1, "name": name, "verdict": verdict}
+        if verdict == "fail":
+            item["reason"] = "exit 1\nFAIL something"
+        items.append(item)
+    return {"cases_run": run, "cases_passed": passed,
+            "pass_rate": passed / run if run else None,
+            "assertions": {"passed": passed, "graded": run},
+            "scenario_set": scenario_set, "cases": items,
+            "refused": [{"id": 99, "name": "graded-one"}]}
+
+
+def script_record_entry(cases, scenario_set=SET_A, measured_at="0.40.0"):
+    """A record entry a script run wrote; cases is [(name, verdict)]."""
+    run = len(cases)
+    passed = sum(1 for _, verdict in cases if verdict == "pass")
+    out = {"runs": 1, "runs_passed": 1 if passed == run else 0,
+           "assertions_passed": passed, "assertions_graded": run, "models": ["script"],
+           "scenario_set": scenario_set,
+           "cases": [{"name": n, "verdict": v} for n, v in cases],
+           "measured_at": measured_at}
+    if run:
+        out["pass_rate"] = round(passed / run, 4)
+    return out
+
+
+class ScriptRunTest(Case):
+    """A run whose summaries are script-cases-summary/v1."""
+
+    THIS_RUN = [("a", "fail"), ("b", "pass")]
+
+    def script_summary(self, skills):
+        return self.write({"schema": "script-cases-summary/v1", "skills": skills})
+
+    def deliver_run(self, previous, confirmed="", tolerance=None):
+        summ = self.script_summary({"deliver": script_summary_entry(self.THIS_RUN)})
+        return self.merge(previous, [summ], ["deliver"], confirmed=confirmed,
+                          tolerance=tolerance, last_tag="v0.40.0", version="0.41.0")
+
+    def baseline(self, cases, **kwargs):
+        return self.write(record({"deliver": script_record_entry(cases, **kwargs)},
+                                 version="0.40.0", last_tag="v0.39.0"))
+
+    def test_record_built_from_this_run_alone(self):
+        summ = self.script_summary({
+            "deliver": script_summary_entry([("handoff-execute-contract", "pass"),
+                                             ("handoff-scope-contract", "pass")]),
+            "brief": script_summary_entry([])})
+        prev = self.write(record({"scope": script_record_entry([("x", "pass")]),
+                                  "deliver": script_record_entry([("y", "pass")])},
+                                 version="0.40.0", last_tag="v0.39.0"))
+        rc, out = self.merge(prev, [summ], ["deliver", "brief"], last_tag="v0.40.0",
+                             version="0.41.0")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("case ", out)
+        data = self.result()
+        self.assertEqual(sorted(data["skills"]), ["brief", "deliver"])
+        self.assertEqual(data["skills"]["deliver"], {
+            "runs": 1, "runs_passed": 1, "assertions_passed": 2, "assertions_graded": 2,
+            "pass_rate": 1.0, "models": ["script"], "scenario_set": SET_A,
+            "cases": [{"name": "handoff-execute-contract", "verdict": "pass"},
+                      {"name": "handoff-scope-contract", "verdict": "pass"}],
+            "measured_at": "0.41.0"})
+        self.assertEqual(data["skills"]["brief"], {
+            "runs": 1, "runs_passed": 1, "assertions_passed": 0, "assertions_graded": 0,
+            "models": ["script"], "scenario_set": SET_A, "cases": [],
+            "measured_at": "0.41.0"})
+
+    def test_rate_is_rounded_and_failing_run_has_runs_passed_0(self):
+        summ = self.script_summary({"deliver": script_summary_entry(
+            [("a", "pass"), ("b", "pass"), ("c", "fail")])})
+        rc, out = self.merge("-", [summ], ["deliver"], version="0.41.0")
+        self.assertEqual(rc, 5, out)
+        entry = self.result()["skills"]["deliver"]
+        self.assertEqual(entry["pass_rate"], 0.6667)
+        self.assertEqual(entry["runs_passed"], 0)
+
+    def test_labels(self):
+        cases = [
+            ("a pass b pass", [("a", "pass"), ("b", "pass")], {}, "regressed"),
+            ("a fail b pass", [("a", "fail"), ("b", "pass")], {}, "still failing"),
+            ("a fail b fail", [("a", "fail"), ("b", "fail")], {}, "still failing"),
+            ("higher rate", [("a", "fail"), ("b", "pass"), ("c", "pass")], {}, "regressed"),
+            ("no a, equal rate", [("b", "pass"), ("c", "fail")], {}, "failing, no baseline"),
+            ("no a, higher rate", [("b", "pass")], {}, "regressed"),
+            ("other scenario set", [("a", "pass")], {"scenario_set": SET_B}, "regressed"),
+        ]
+        for label, base, kwargs, expected in cases:
+            with self.subTest(label=label):
+                rc, out = self.deliver_run(self.baseline(base, **kwargs))
+                self.assertIn("case deliver/a: %s\n" % expected, out)
+                self.assertNotIn("case deliver/b", out)
+        with self.subTest(label="no previous record"):
+            rc, out = self.deliver_run("-")
+            self.assertIn("case deliver/a: failing, no baseline\n", out)
+        with self.subTest(label="graded entry only"):
+            prev = self.write(record({"deliver": entry(10, 10)}))
+            rc, out = self.deliver_run(prev)
+            self.assertIn("case deliver/a: failing, no baseline\n", out)
+
+    def test_label_uses_newest_script_entry(self):
+        newest = self.write(record({"deliver": entry(10, 10, measured_at="0.40.0")},
+                                   version="0.40.0", last_tag="v0.39.0"))
+        middle = self.baseline([("a", "fail"), ("b", "pass")], measured_at="0.39.0")
+        oldest = self.baseline([("a", "pass"), ("b", "pass")], measured_at="0.38.0")
+        rc, out = self.deliver_run([newest, middle, oldest])
+        self.assertIn("case deliver/a: still failing\n", out)
+        self.assertRegex(out, r"deliver\s+0\.5000\s+0\.5000\s+0\.39\.0")
+
+    def test_exit_never_depends_on_baseline(self):
+        failed = script_record_entry([])
+        failed["exit_code"] = 2
+        bad = script_record_entry([("a", "pass")])
+        bad["cases"][0]["name"] = "a b"
+        baselines = {
+            "no previous record": "-",
+            "a passed": self.baseline([("a", "pass"), ("b", "pass")]),
+            "a failed": self.baseline([("a", "fail"), ("b", "pass")]),
+            "no a": self.baseline([("b", "pass")]),
+            "exit_code 2": self.write(record({"deliver": failed})),
+            "unusable": self.write(record({"deliver": bad})),
+            "other scenario set": self.baseline([("a", "pass")], scenario_set=SET_B),
+            "graded models": self.write(record({"deliver": entry(10, 10)})),
+        }
+        for label, prev in baselines.items():
+            with self.subTest(label=label):
+                rc, out = self.deliver_run(prev)
+                self.assertEqual(rc, 5, out)
+                self.assertEqual(out.strip().splitlines()[-1],
+                                 "confirm: RELEASE_CONFIRMED_DROPS=deliver")
+
+    def test_confirmation_names_skills(self):
+        summ = self.script_summary({"deliver": script_summary_entry(self.THIS_RUN),
+                                    "scope": script_summary_entry([("s", "fail")]),
+                                    "brief": script_summary_entry([("k", "pass")])})
+        selected = ["scope", "deliver", "brief"]
+        rc, out = self.merge("-", [summ], selected)
+        self.assertEqual(rc, 5, out)
+        self.assertEqual(out.strip().splitlines()[-1],
+                         "confirm: RELEASE_CONFIRMED_DROPS=deliver,scope")
+        rc, out = self.merge("-", [summ], selected, confirmed="deliver")
+        self.assertEqual(rc, 5, out)
+        self.assertEqual(out.strip().splitlines()[-1],
+                         "confirm: RELEASE_CONFIRMED_DROPS=deliver,scope")
+        rc, out = self.merge("-", [summ], selected, confirmed="deliver,scope")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("confirmed: deliver\n", out)
+        self.assertIn("confirmed: scope\n", out)
+        self.assertNotIn("confirm: RELEASE", out)
+        clean = self.script_summary({"brief": script_summary_entry([("k", "pass")])})
+        rc, out = self.merge("-", [clean], ["brief"], confirmed="brief")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("confirmed:", out)
+
+    def test_missing_summary_is_infrastructure_failure(self):
+        summ = self.script_summary({"deliver": script_summary_entry(self.THIS_RUN)})
+        rc, out = self.merge("-", [summ], ["deliver", "brief"])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("infrastructure failure: brief (no summary, recorded as exit 2)", out)
+        self.assertNotIn("confirm:", out)
+        brief = self.result()["skills"]["brief"]
+        self.assertEqual(brief["exit_code"], 2)
+        self.assertNotIn("pass_rate", brief)
+
+    def test_tolerance_changes_nothing(self):
+        prev = self.baseline([("a", "pass"), ("b", "pass")])
+        rc, out = self.deliver_run(prev)
+        rc1, out1 = self.deliver_run(prev, tolerance="1")
+        self.assertEqual((rc, rc1), (5, 5), out1)
+        self.assertIn("case deliver/a: regressed\n", out1)
+        self.assertEqual(out1.strip().splitlines()[-1],
+                         "confirm: RELEASE_CONFIRMED_DROPS=deliver")
+
+    def bad_cases(self):
+        secret = "SECRETVALUE"
+        good = script_record_entry([("a", "pass")])
+
+        def with_cases(cases):
+            out = copy.deepcopy(good)
+            out["cases"] = cases
+            return out
+        return secret, [
+            ("space", with_cases([{"name": secret + " b", "verdict": "pass"}])),
+            ("slash", with_cases([{"name": secret + "/b", "verdict": "pass"}])),
+            ("newline", with_cases([{"name": secret + "\n", "verdict": "pass"}])),
+            ("escape", with_cases([{"name": secret + "\x1b[31m", "verdict": "pass"}])),
+            ("empty", with_cases([{"name": "", "verdict": "pass"}])),
+            ("non-string", with_cases([{"name": 7, "verdict": "pass"}])),
+            ("verdict", with_cases([{"name": "a", "verdict": secret}])),
+            ("non-object item", with_cases([secret])),
+            ("not a list", with_cases(secret)),
+        ]
+
+    def test_case_names_in_records(self):
+        secret, cases = self.bad_cases()
+        for label, bad in cases:
+            with self.subTest(label=label, alone=True):
+                prev = self.write(record({"deliver": bad}))
+                rc, out = self.deliver_run(prev)
+                self.assertEqual(rc, 5, out)
+                self.assertIn("warning: no baseline: skills.deliver.cases ", out)
+                self.assertIn("case deliver/a: failing, no baseline\n", out)
+                self.assertNotIn(secret, out)
+            with self.subTest(label=label, alone=False):
+                prev = self.write(record({"deliver": bad}))
+                older = self.baseline([("a", "fail"), ("b", "pass")], measured_at="0.39.0")
+                rc, out = self.deliver_run([prev, older])
+                self.assertIn("warning: previous record 1 ignored: skills.deliver.cases ", out)
+                self.assertIn("case deliver/a: still failing\n", out)
+                self.assertNotIn(secret, out)
+
+    def test_stamp_checks_and_keeps_cases(self):
+        secret, cases = self.bad_cases()
+        for label, bad in cases:
+            with self.subTest(label=label):
+                path = self.write(record({"deliver": bad}))
+                with open(path) as fh:
+                    before = fh.read()
+                rc, out = self.run_tool("stamp", "--record", path, "--version", "0.41.0")
+                self.assertEqual(rc, 1, out)
+                self.assertNotIn(secret, out)
+                with open(path) as fh:
+                    self.assertEqual(fh.read(), before)
+        kept = {"deliver": script_record_entry([("a", "pass"), ("b", "fail")]),
+                "scope": script_record_entry([("s", "pass")])}
+        path = self.write(record(copy.deepcopy(kept)))
+        rc, out = self.run_tool("stamp", "--record", path, "--version", "0.41.0",
+                                "--measured", "deliver")
+        self.assertEqual(rc, 0, out)
+        with open(path) as fh:
+            data = json.load(fh)
+        for name in kept:
+            self.assertEqual(data["skills"][name]["cases"], kept[name]["cases"])
+
+    def test_carried_entry_keeps_cases_in_a_graded_run(self):
+        scripted = script_record_entry([("a", "pass")])
+        prev = self.write(record({"deliver": scripted}))
+        rc, out = self.merge(prev, [], [])
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.result()["skills"]["deliver"], scripted)
+
+    def test_bad_script_summary_is_ignored(self):
+        secret = "SECRETVALUE"
+
+        def summary_with(mutate):
+            data = script_summary_entry(self.THIS_RUN)
+            mutate(data)
+            return data
+        cases = [
+            ("case name", lambda d: d["cases"][0].__setitem__("name", secret + " x")),
+            ("verdict", lambda d: d["cases"][0].__setitem__("verdict", secret)),
+            ("passed over run", lambda d: d.__setitem__("cases_passed", 3)),
+            ("cases_run disagrees", lambda d: d.__setitem__("cases_run", 3)),
+            ("cases_passed disagrees", lambda d: d.__setitem__("cases_passed", 0)),
+            ("cases missing", lambda d: d.pop("cases")),
+            ("bad count", lambda d: d.__setitem__("cases_run", "2")),
+            ("bad scenario_set", lambda d: d.__setitem__("scenario_set", secret)),
+        ]
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                summ = self.script_summary({"deliver": summary_with(mutate)})
+                rc, out = self.merge("-", [summ], ["deliver"])
+                self.assertEqual(rc, 1, out)
+                self.assertIn("warning: summary 1 ignored: skills.deliver.", out)
+                self.assertIn("infrastructure failure: deliver (no summary, recorded as exit 2)",
+                              out)
+                self.assertNotIn(secret, out)
+
+
 if __name__ == "__main__":
     unittest.main()

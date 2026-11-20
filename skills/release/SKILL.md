@@ -302,19 +302,35 @@ All must pass before proceeding:
       printing `local check: run on the grant of dispatch <id>` before it.
 
    c. **Run it from the repository root** (`git rev-parse --show-toplevel`),
-      exactly as written, with these variables set for the command:
+      exactly as written, with these variables set for the command. Before
+      the first check, list every confirmation variable the environment
+      already holds:
+
+      ```bash
+      env | grep -o '^RELEASE_CONFIRMED_[A-Za-z0-9_]*='
+      ```
+
+      Each `NAME=` it prints goes on every check's command line beside
+      `RELEASE_CONFIRMED_DROPS=`, so no confirmation set in advance reaches a
+      check.
 
       | Variable | Value |
       |----------|-------|
       | `RELEASE_VERSION` | the version Phase 1 recommends, or the one given, as bare `X.Y.Z` (strip a leading `v`). Phase 3 may still change it; the `## Release assets` step in Phase 4 gets the confirmed one |
       | `RELEASE_LAST_TAG` | the last release tag: `RANGE` above without its `..HEAD`, empty when `RANGE` is `HEAD` (a first release) |
       | `RELEASE_DRY_RUN` | `1` under `--dry-run`, `0` otherwise |
-      | `RELEASE_CONFIRMED_DROPS` | the empty string, so a value inherited from the environment can't pre-confirm anything |
+      | `RELEASE_CONFIRMED_DROPS` and every `RELEASE_CONFIRMED_*` name the listing printed | the empty string, each, so a value inherited from the environment can't pre-confirm anything |
 
       For example, with the check `scripts/example-check.sh --flag`:
 
       ```bash
       RELEASE_VERSION=0.3.0 RELEASE_LAST_TAG=v0.2.0 RELEASE_DRY_RUN=0 RELEASE_CONFIRMED_DROPS= scripts/example-check.sh --flag
+      ```
+
+      And when the listing printed `RELEASE_CONFIRMED_SKIPS=`:
+
+      ```bash
+      RELEASE_VERSION=0.3.0 RELEASE_LAST_TAG=v0.2.0 RELEASE_DRY_RUN=0 RELEASE_CONFIRMED_DROPS= RELEASE_CONFIRMED_SKIPS= scripts/example-check.sh --flag
       ```
 
       A check can run for a long time. Give it the longest timeout the

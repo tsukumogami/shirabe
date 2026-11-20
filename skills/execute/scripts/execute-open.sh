@@ -114,8 +114,9 @@
 #
 # A coordinated PLAN, before `koto init`:
 #
-#   the lock      `<carry root>/<session>.lock`, a directory holding the
-#                 holder's pid, taken with mkdir (retried every 0.2 s, 25
+#   the lock      `<carry root>/<session>.lock`, a file holding the
+#                 holder's pid, created with bash's noclobber rather than
+#                 mkdir (retried every 0.2 s, 25
 #                 times; a lock whose pid is gone is removed), released on
 #                 exit. Still held: `error=session-busy`, exit 64. The carry
 #                 root is $SHIRABE_STATE_DIR/execute-carry, else
@@ -143,9 +144,11 @@
 # starts with no merge attempts and reports a recovery only when its own setup
 # made one. On `opened=attached` the run's plan_abs is checked against this
 # checkout with `record-coord-setup.sh --reroot-plan`, which re-roots it only
-# when the recorded PLAN is gone and this checkout is on the recorded
-# coord_branch with home_repo as its origin (one stderr line names both paths);
-# its stdout is dropped and it changes no line or exit code here. A
+# when this checkout is on the recorded coord_branch with home_repo as its
+# origin and the recorded PLAN is either gone or, with the old checkout kept,
+# the same file at the same commit in a checkout the session was rebound away
+# from (its execution_dir is this checkout); one stderr line names both paths.
+# Its stdout is dropped and it changes no line or exit code here. A
 # single-pr open seeds the prior run_id and mints one when the session still
 # has none.
 #
@@ -385,7 +388,10 @@ esac
 
 # The coordinated run's lock, before the session is read: one opener at a time
 # reads, replaces, and carries a session's record. (The mode fallback above
-# only reads.)
+# only reads.) The lock is a file holding the opener's pid, created with
+# bash's noclobber (one open with O_EXCL), not a directory made with mkdir:
+# the uutils mkdir on Ubuntu 26.04 can report success to two racing callers.
+# A lock directory an earlier version left, its pid in `pid`, is read the same.
 LOCK=""
 release_lock() { [ -n "$LOCK" ] && rm -rf -- "$LOCK"; return 0; }
 if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
@@ -396,13 +402,13 @@ if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
     }
     tries=0
     while :; do
-        if mkdir "$CR/$SESSION.lock" 2>/dev/null; then
-            printf '%s\n' "$$" > "$CR/$SESSION.lock/pid"
+        if (set -C && printf '%s\n' "$$" > "$CR/$SESSION.lock") 2>/dev/null; then
             LOCK="$CR/$SESSION.lock"
             trap release_lock EXIT
             break
         fi
-        holder=$(cat -- "$CR/$SESSION.lock/pid" 2>/dev/null) || holder=""
+        holder=$(cat -- "$CR/$SESSION.lock" 2>/dev/null) ||
+            holder=$(cat -- "$CR/$SESSION.lock/pid" 2>/dev/null) || holder=""
         # A holder that is gone left its lock behind: take it over. A lock
         # with no pid yet is a holder that just took it, unless it stays so
         # for the whole wait.
@@ -705,8 +711,10 @@ case "$OUT" in
             koto context remove "$SESSION" recovered >/dev/null \
                 || echo "$PROG: could not clear recovered in $SESSION" >&2
             # A live run attached from a checkout it moved to: plan_abs is
-            # re-rooted to the PLAN here when the recorded one is gone and
-            # this is the same coordination branch of the same repository.
+            # re-rooted to the PLAN here when this is the same coordination
+            # branch of the same repository and the recorded PLAN is gone, or
+            # is kept in the old checkout as the same file at the same commit
+            # while the session is bound here.
             # record-coord-setup.sh decides and writes, keeping the key's one
             # writer; its stdout is dropped so this script's lines don't
             # change, and its one stderr line names the move.

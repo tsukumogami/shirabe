@@ -174,10 +174,15 @@ grep -q 'niwa still lists the instance' "$T/err" && ok "  ... and says why" || b
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 eq "  ... the check asked of its topic in the run's session" "check --session $SR --topic gamma" "$(head -1 "$CHECK_LOG")"
 echo 0 >"$CHECK_RC"
+W0=$(live | jq -r .written)
 hr --topic gamma --retire >/dev/null 2>"$T/err"; rc=$?
-[ "$rc" = 0 ] && ok "--retire removes a merged leg-bound holding whose removed teardown is confirmed" \
-    || bad "--retire removes a merged leg-bound holding whose removed teardown is confirmed" "exit $rc: $(cat "$T/err")"
+[ "$rc" = 0 ] && ok "--retire removes a merged leg-bound holding whose teardown is confirmed" \
+    || bad "--retire removes a merged leg-bound holding whose teardown is confirmed" "exit $rc: $(cat "$T/err")"
 eq "  ... and only it" "alpha beta" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+# The record step after destroy waits for a newer written time (shirabe#1148):
+# the retire's own write must carry one.
+[ "$(live | jq -r .written)" != "$W0" ] && ok "  ... and the retire carries a new written time" \
+    || bad "  ... and the retire carries a new written time" "still $W0"
 eq "  ... the write goes to the session, nothing to GitHub" "" "$(gh_writes)"
 
 echo "== a dispatch-failed holding retired (shirabe#1612) =="

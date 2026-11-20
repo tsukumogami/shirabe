@@ -1639,6 +1639,13 @@
         "The printed exit lines include `outcome=merged`",
         "The final report names the failed check, test (macos-latest)"
       ]
+    },
+    {
+      "id": 86,
+      "name": "handoff-work-on-contract",
+      "grader": "script",
+      "handoff": "work-on",
+      "run": "scripts/check-handoff.sh execute work-on"
     }
   ]
 }

@@ -29,8 +29,9 @@
 # that long first, as a real koto call does (about 0.1 s each, measured), so a
 # suite can show what a read costs in calls rather than on a stand-in that
 # answers at once. KOTO_ADD_DELAY=<key>:<seconds> delays only the `context add`
-# of that one key, writing the delay's pid to $KOTO_STORE/add-delay.pid, and
-# KOTO_FAIL_ADD (1, or a key's name) fails every add or only that key's.
+# of that one key, writing the delay's pid to $KOTO_STORE/add-delay.pid,
+# KOTO_ADD_UNTIL=<key>:<epoch> holds that key's add until the wall clock
+# reaches that second, and KOTO_FAIL_ADD (1, or a key's name) fails every add or only that key's.
 # KOTO_BOUND_ELSEWHERE=<session> refuses every `context` read
 # and `status` of that session as koto's cloud backend refuses a run bound to
 # another directory (session_bound_elsewhere, its JSON on stdout, exit 2), and
@@ -87,6 +88,12 @@ case "${1:-} ${2:-}" in
             sleep "${KOTO_ADD_DELAY##*:}" &
             echo "$!" > "$KOTO_STORE/add-delay.pid"
             wait "$!"
+        fi
+        # KOTO_ADD_UNTIL=<key>:<epoch> makes that key's add wait until the
+        # wall clock reaches that whole second, so a test can place the add's
+        # end on a caller's whole-second clock whatever the time before it.
+        if [ -n "${KOTO_ADD_UNTIL:-}" ] && [ "${KOTO_ADD_UNTIL%:*}" = "${4:-}" ]; then
+            while [ "$(date +%s)" -lt "${KOTO_ADD_UNTIL##*:}" ]; do sleep 0.05; done
         fi
         d="$KOTO_STORE/context/${3:-none}"
         mkdir -p "$(dirname "$d/$4")"

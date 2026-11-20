@@ -21,6 +21,8 @@
 # read (2); the sealed token and its detail; every token in koto's capture
 # alphabet; verdict-owed for a topic whose holding covers a milestone with a
 # verdict-owed row, or that the row names as its Who, and ok for another topic.
+# A holding whose worker's Claude jobs here are all finished holds no slot at
+# the cap, draft or not, while a live one does.
 # The record read once per check (one assembly, record/meta got and never
 # listed), with decision-next judging that read and not a later one. The
 # check's koto calls the same with 3 entries and with 300, no entry read and
@@ -34,6 +36,12 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 . "$HERE/testdata/test-lib.sh"
+# deferral-check.sh reads Claude jobs under DC_CLAUDE_HOME (default $HOME/.claude)
+# to mark a stopped worker. Point it at an empty fixture home so no block reads
+# the host's real jobs; the stopped-worker block swaps in its own jobs.
+EMPTY_CLAUDE_HOME="$T/claude-empty"
+mkdir -p "$EMPTY_CLAUDE_HOME/jobs"
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
 DC="$HERE/deferral-check.sh"
 CL="$HERE/coord-log.sh"
 tok_shape() {
@@ -447,6 +455,30 @@ seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(a
 for n in 21 22 23 24; do pr $n OPEN true; done; pr 44 MERGED false
 session "$(roadmap_vars plugin-system)"
 eq "a row send_execution moved on keeps its slot after its scoping pull request merged" "at-cap 5/5 0/3" "$(check)"
+# A holding whose worker's Claude job on this host is finished holds no slot,
+# draft pull request or not, so a same-slot continuation dispatches at the
+# cap (shirabe#1419). A live job still holds its slot.
+export DC_CLAUDE_HOME="$T/claude-1419"
+job() { # job <id> <session name> <state>
+    mkdir -p "$DC_CLAUDE_HOME/jobs/$1"
+    jq -nc --arg n "$2" --arg s "$3" '{name: $n, state: $s}' > "$DC_CLAUDE_HOME/jobs/$1/state.json"
+}
+job d1d1d1d1 l1-0000ddd1 working
+job d2d2d2d2 l2-0000ddd2 working
+job e1e1e1e1 s1-0000eee1 done
+job e2e2e2e2 s2-0000eee2 done
+job e3e3e3e3 s3-0000eee3 stopped
+seed "$(with_holdings "$(workon l1 61)" "$(workon l2 62)" "$(workon s1 63)" "$(workon s2 64)" "$(workon s3 65)")"
+for n in 61 62 63 64; do pr $n OPEN true; done; pr 65 OPEN false
+session "$(roadmap_vars plugin-system)"
+eq "a full cap of draft holdings, three of them stopped, lets a dispatch through" "ok beta" "$(check)"
+eq "  ... the dispatch check no longer counts the stopped holding as active" "2 0" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+job e1e1e1e1 s1-0000eee1 working
+job e2e2e2e2 s2-0000eee2 working
+job e3e3e3e3 s3-0000eee3 working
+session "$(roadmap_vars plugin-system)"
+eq "the same holdings with live workers are at-cap" "at-cap 5/5 0/3" "$(check)"
+export DC_CLAUDE_HOME="$EMPTY_CLAUDE_HOME"
 
 echo "== check mode: a discipline rotation =="
 # A rotation's predecessor's deferrals are rows of its own record from its

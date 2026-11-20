@@ -135,6 +135,13 @@ jq -e '(.states.teardown.directive + .states.teardown.details | contains("`remov
        and (.states.destroy.details | contains("removed yes"))' "$J" >/dev/null \
     && pass "the teardown, inventory, handoff and destroy directives explain removed" \
     || fail "the teardown, inventory, handoff and destroy directives explain removed"
+# destroy removes the holding with --retire after any done pass, not only a
+# removed one (shirabe#1148): the directive names the call for both, and the
+# details say it holds for an ordinary pass too.
+jq -e '(.states.destroy.directive | test("state-holding\\.sh\" --session\\s+\"\\{\\{SESSION_NAME\\}\\}\" --topic <topic> --retire`, whether or not the verdict says\\s+`removed yes`"))
+       and (.states.destroy.details | test("For any pass, removed\\s+or not, on `done` remove the holding row with `state-holding\\.sh --retire`"))' "$J" >/dev/null \
+    && pass "destroy names state-holding.sh --retire for every done pass, removed or not" \
+    || fail "destroy names state-holding.sh --retire for every done pass, removed or not"
 
 # The design's decision states and changed edges, as from>to pairs.
 EDGES='decision_next>decision_carry decision_next>decision_open decision_next>decision_answer

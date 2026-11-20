@@ -175,11 +175,11 @@ lib_write_guard() {
 RE_CLAUDE_ID='^[0-9a-f][0-9a-f-]{7,63}$'
 
 # LIB_COORD_ROW_JQ: the Run section with its coordinator row set to $v, set
-# by $b at $t, and every `told` and `pending` row gone, since nobody has been
-# told the new address. The one filter a `--run coordinator` write
+# by $b at $t, and every `told`, `pending` and `missing` row gone, since
+# nobody has been told the new address. The one filter a `--run coordinator` write
 # (state-stored-set.sh) and a carry's in-copy row (core_carry, state-open.sh
 # --carry) apply.
-LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
+LIB_COORD_ROW_JQ='.run = ([(.run // [])[] | select(.key != "coordinator" and .key != "told" and .key != "pending" and .key != "missing")] + [{key: "coordinator", value: $v, set_by: $b, set: $t}])'
 
 # lib_caller: the Claude session running this script. LIB_CALLER_ID is
 # CLAUDE_CODE_SESSION_ID when it has a session id's shape, else empty;
@@ -737,10 +737,21 @@ lib_link_merge_frees() {
 # made before a handover, by a person or while no coordinator ran takes no
 # slot either, though the usual path still confirms it and retires the unit.
 # The pull request is read only for a row with a Verified head or one
-# lib_link_merge_frees allows. Every other row is active. Local agents never
-# have a row, so they are never counted. Returns 2 on a failed read.
+# lib_link_merge_frees allows. A row is also marked `stopped` when its
+# worker's Claude jobs on this host are all finished (dispatch-common.sh
+# dc_topic_stopped, under DC_CLAUDE_HOME, default $HOME/.claude): a worker
+# stopped past its handoff, say, is kept until its pull request merges, but
+# nothing runs for it, so it takes no slot under the cap whatever its pull
+# request's state (shirabe#1419). With no job seen here the row isn't
+# stopped. The stopped mark is set beside parked and merged, not in place of
+# them: it takes a row out of the active count only, and a row that is both
+# stopped and parked still counts as parked. A row that is neither parked,
+# merged nor stopped is active. Local
+# agents never have a row, so they are never counted. Returns 2 on a failed
+# read.
 lib_parked() {
-    local n i row vh pr st mg
+    local n i row vh pr st mg sp
+    declare -F dc_topic_stopped > /dev/null || . "$HERE/dispatch-common.sh" || return 2
     n=$(jq length "$1") || return 2
     : > "$2.rows"
     i=0
@@ -757,7 +768,9 @@ lib_parked() {
                 mg=true
             fi
         fi
-        printf '%s' "$row" | jq -c --argjson p "$st" --argjson m "$mg" '. + {parked: $p, merged: $m}' >> "$2.rows"
+        sp=false
+        dc_topic_stopped "${DC_CLAUDE_HOME:-$HOME/.claude}" "$(printf '%s' "$row" | jq -r '.worker // ""')" && sp=true
+        printf '%s' "$row" | jq -c --argjson p "$st" --argjson m "$mg" --argjson s "$sp" '. + {parked: $p, merged: $m, stopped: $s}' >> "$2.rows"
         i=$((i + 1))
     done
     jq -s -c '.' "$2.rows" > "$2" || return 2

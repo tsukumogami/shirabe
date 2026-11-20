@@ -185,6 +185,20 @@
       ],
       "files": [],
       "fixture_dir": null
+    },
+    {
+      "id": 14,
+      "name": "repository-extension-rule-applied",
+      "prompt": "/review-plan my-feature (the repository's .claude/shirabe-extensions/review-plan.md says: \"In this repository every issue's acceptance criteria include a criterion naming how the change is rolled back. An issue without one is a critical Category C finding.\" No review-plan.local.md exists.)",
+      "expected_output": "The fixture plan is the clean one from clean-proceed-path, whose three issues pass every built-in check. The repository's review-plan extension adds a rule: each issue needs a rollback criterion, and its absence is critical under Category C. None of the three issues has one, so Category C reports a critical finding for each of issues 1, 2 and 3, citing the repository's rule. The verdict is loop-back with loop_target: 4, written to work/review_loopback.md in session plan-my-feature, not work/review.md.",
+      "assertions": [
+        "Category C reports a critical finding for each of issues 1, 2 and 3 for the missing rollback criterion",
+        "The findings attribute the rule to the repository's review-plan extension, not to a built-in category check",
+        "The verdict is loop-back with loop_target: 4, not proceed",
+        "work/review_loopback.md is written, not work/review.md"
+      ],
+      "fixture_dir": "fixtures/clean-proceed-path",
+      "files": []
     }
   ]
 }

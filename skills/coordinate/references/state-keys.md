@@ -131,10 +131,10 @@ its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again
 after it went quiet is `stranded` (`state-holding.sh --strand`); its row
 goes once the unit's new worker is dispatched (`--retire`, which
-dispatch-worker.sh runs). A merged row whose worker was torn down outside
-the pass also goes with `--retire`, at destroy, once the removed pass is
-done, including one closed with no handoff comment, where the pass's entry
-stands in for the link. A `dispatch-failed` row, a launch that never
+dispatch-worker.sh runs). A merged row also goes with `--retire`, at
+destroy, once its teardown pass is done: one the pass tore down itself, or
+one torn down outside the pass (a removed pass), including one closed with no
+handoff comment, where the pass's entry stands in for the link. A `dispatch-failed` row, a launch that never
 started, goes through `--retire` too once no worker exists for its topic
 (niwa lists no session and no unfinished Claude job carries it); its removal
 is told as an `entry` entry.
@@ -298,7 +298,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, pending, rules, briefs, friction, reports-to or role>",
+{"run": [{"key": "<arguments, cap, coordinator, told, pending, missing, rules, briefs, friction, reports-to or role>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer, assignment or rule>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -321,8 +321,10 @@ may hold `_`, or a dispatch topic; never a session id, a path or an instance
 name), one `told` row per party
 that has been sent that address, and one `pending` row per worker that can't
 be sent it yet: its session is gone, but its instance is still there to be
-started again. A worker is never both told and pending (the record is refused
-if it is). A new address clears the `told` and `pending` rows. It also
+started again. A `missing` row is a worker niwa on this host listed no
+instance for, so it can't be sent the address at all. A worker is never both
+told and pending, nor missing and told or pending (the record is refused if
+it is). A new address clears the `told`, `pending` and `missing` rows. It also
 holds the crash set: `rules` and `briefs` rows (`<label> sha256:<64 hex>`, the
 digest of a file this coordinator ran with, one row per label, a second write
 replacing the first), a `friction` label, and `reports-to` (`<name>` or `<name>
@@ -341,7 +343,11 @@ entry names each label added, changed or removed. A failed write prints
 label is yours, through `--run rules`. A `briefs` row is the brief intake's:
 you record the brief's path with `--host briefs:<label> <path>`, and
 `--intake <label>` writes the row once it has taken the brief's lines (Rule
-rows, below). A session opened before the
+rows, below). Beside it, a `briefs-read` row (`<label> sha256:<64 hex>
+<c>/<n>`, one per label, with 0 < c < n) says how far a capped intake of that
+digest got: n is the brief's candidate count and c the first candidate it
+couldn't take. Only `--intake` writes and removes it; `--run briefs-read` is
+refused, exit 64. A session opened before the
 GitHub record was removed may also hold a `store session` row; it is kept as it
 is, and nothing writes a new `store` row (`state-stored-set.sh --run store` is
 refused, exit 65: `store` is no Run key it writes). Run also holds the run's
@@ -406,6 +412,7 @@ state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>
 state-stored-set.sh --session S --pending <topic> --by <who>
+state-stored-set.sh --session S --missing <topic> --by <who>
 state-stored-set.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 state-stored-set.sh --session S --standing rule --what <text> --source <form>
 state-stored-set.sh --session S --end <s<n>> --by <who>
@@ -441,9 +448,12 @@ A re-brief records its worker by itself: the template's `rebrief_record` step
 reads what you submitted at `rebrief` and writes `--told` when the worker was
 messaged its new brief (which names your address), `--pending` when its
 session is gone while niwa still lists its instance, and nothing when the
-message was refused or no instance is left. `--told` for a pending worker
-turns its `pending` row into a `told` one; `--pending` refuses a worker already
-told or already pending.
+message was refused or no instance is left. `--told` for a pending or missing
+worker turns its row into a `told` one; `--pending` and `--missing` each
+refuse a worker already told, pending or missing.
+At `reconcile`, `handover-classify.sh` writes `--missing` for a live holding's
+worker when niwa lists no instance for it, as it does after a teardown made
+outside the run.
 
 **Rule rows.** A Standing row of kind `rule` is a rule that binds the
 coordinator until `--end` ends it. It has no On and no Until, a blank Owner
@@ -518,8 +528,12 @@ file once, never edits it and never prints its path. When a Run `briefs` row
 already reads `<label> sha256:<its digest>` it writes nothing and exits 0.
 Otherwise its candidates are the brief's sentences, less heading lines and
 the renderer's Goal, Checkpoints, Read first, Acceptance criteria, Reporting
-and Keep-alive sections. Each row whose Source is `inferred brief <label>`
-with another digest, and whose What no candidate states, ends; each candidate
+and Keep-alive sections, unless a line of the brief is exactly
+`## Standing rules`: that brief is read in the opt-in mode, where only the
+sentences under it, `## Decisions already made`, `## Out of scope` and
+`## Workspace rules` are candidates. Each row whose Source is `inferred
+brief <label>` with another digest, and whose What no candidate states,
+ends; each candidate
 no remaining row (of any kind or Source) holds under the normalized match is
 written as a rule row, Source `inferred brief <label> sha256:<digest>`. A line
 that fails a What check (over 400 bytes, a home-directory path, a
@@ -527,22 +541,32 @@ token-shaped string, or on a public host a repository that isn't public) is
 left out and named on stderr. When every line is taken it also writes the
 `briefs` row, Set by `<who>`; when a cap stops it, it writes the rows up to
 the cap and no `briefs` row, and exits 1 naming how many lines it couldn't
-take, so a person says which rows to confirm or end. A read that fails exits
-2 with nothing written. The rows, the ended rows and the `briefs` row go in
-one write, then their entries: one rule entry per row, one end entry per
-ended row, and `Run briefs <label> sha256:<digest> set by <who>.`
+take, so the brief can be rewritten or a person can say which rows to confirm
+or end. A capped write also leaves the label's `briefs-read` row at the first
+line it couldn't take, c (none when that is the brief's first line). The
+next intake of the same digest and the same candidate count starts at c, so
+a row a person ended doesn't come back; the intake that completes drops the
+`briefs-read` row in the same write that writes `briefs`. A read that fails
+exits 2 with nothing written. The rows, the ended rows and the `briefs` or
+`briefs-read` row go in one write, then their entries: one rule entry per
+row, one end entry per ended row, and `Run briefs <label> sha256:<digest> set
+by <who>.` or `Run briefs-read <label> sha256:<digest> c/n set by <who>.`
 
 `scripts/state-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and
 not merged and waiting for its teardown) with no Work row, or whose worker
-has been neither told the current address nor recorded pending; a brief
+has been neither told the current address nor recorded pending or missing; a brief
 `record/host` names as `briefs:<label>` whose digest no Run `briefs` row
-carries (`brief-unread <label>`, its fix the intake, naming how many lines
-the caps would leave out; a key whose file can't be read raises none). The
+carries (`brief-unread <label>`, its fix the intake; when the caps would
+leave lines out, the fix counts them from the same start the intake uses,
+names the `## Standing rules` rewrite first and asking a person which rows to
+confirm or end second; a key whose file can't be read raises none). The
 step's gate runs it at every start, so a replacement that writes its own
-address can't go on until each live worker is told or pending. A pending
-worker doesn't hold the gate; it is told when it can be. A record with no
-`pending` row reads, checks and hands over as it did before the row existed.
+address can't go on until each live worker is told, pending or missing. A
+pending or missing worker doesn't hold the gate; it is told when it can be,
+and a missing one's report reaching the run turns it told. A record with no
+`pending` or `missing` row reads, checks and hands over as it did before the
+row existed.
 A record written before these sections existed
 has every gap at its first start under this version; fill them once. A
 rotation's carry copies the three sections into the next rotation as they
@@ -827,7 +851,11 @@ inputs, the bound session's name once one attaches, and its result once read.
 `dispatch-worker.sh` writes it at dispatch (`open`) and when a new leg
 replaces it (`replaced`) or a launch fails (`spent`), and marks it `spent`
 when the run stops before the holding naming it is written, abandoning its
-request; `wait-target.sh` adds
+request. A plain dispatch of a topic, once its holding names the new leg,
+marks the topic's earlier keys still reading `open` `replaced` when their
+request is no longer open, so a re-dispatch leaves no open leg without a
+worker; a key whose request is still open, or that this host's store doesn't
+hold, is left as it is. `wait-target.sh` adds
 the child and the end (`taken` with the result, or `spent`). After an import,
 a leg whose request this host's store doesn't hold gets its end from
 `reconcile-legs.sh`: re-legged by `dispatch-worker.sh --releg-imported`, which

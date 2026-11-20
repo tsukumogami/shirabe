@@ -11,8 +11,8 @@
 #   state-holding.sh --session S --list                    print every row
 #   state-holding.sh --session S --topic T --strand        mark it stranded
 #   state-holding.sh --session S --topic T --retire        remove a stranded row,
-#                                                           a merged one torn
-#                                                           down outside the pass,
+#                                                           a merged one whose
+#                                                           teardown is confirmed,
 #                                                           or a dispatch-failed
 #                                                           one with no worker
 #   ... [--scope roadmap|discipline --name N --repo O/R
@@ -55,13 +55,14 @@
 # --retire removes the stranded row once the new worker is dispatched. A report
 # that later arrives from the retired topic matches no holding and is refused.
 #
-# --retire also removes a merged holding (lib_row_merged) whose worker was torn
-# down outside the pass, at destroy, once `teardown-pass.sh check --session S
-# --topic T` confirms the run's removed verdict for T (shirabe#1593): a
-# leg-bound holding can never be stranded, so without it the row would stay.
-# The check is read-only; STATE_HOLDING_TEARDOWN_PASS names a stand-in for it
-# (tests). --retire refuses (65) a row that is neither stranded nor merged, and
-# a merged one the check doesn't confirm, with the check's reason.
+# --retire also removes a merged holding (lib_row_merged) at destroy, once
+# `teardown-pass.sh check --session S --topic T` confirms the run's done
+# teardown pass for T: one the pass tore down itself (shirabe#1148) or one torn
+# down outside it, `removed yes` (shirabe#1593). A leg-bound holding can never
+# be stranded, so without it the row would stay. The check is read-only;
+# STATE_HOLDING_TEARDOWN_PASS names a stand-in for it (tests). --retire refuses
+# (65) a row that is neither stranded nor merged, and a merged one the check
+# doesn't confirm, with the check's reason.
 #
 # --retire also removes a `dispatch-failed` holding (shirabe#1612): a launch
 # that failed leaves its row, and once the run has moved past the dispatch state
@@ -212,16 +213,16 @@ strand|retire)
             jq -r '"Holding \(.worker) (unit \(.unit)) retired: its dispatch failed, and no niwa session or unfinished Claude job exists for it."' \
                 <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
         elif [ "$ST" != stranded ]; then
-            # A merged holding whose worker was torn down outside the pass
-            # goes once teardown-pass.sh check confirms its removed verdict
-            # (shirabe#1593); a live one never does.
+            # A merged holding goes once teardown-pass.sh check confirms its
+            # done teardown pass, removed or not (shirabe#1593, shirabe#1148);
+            # a live one never does.
             lib_row_merged "$ROW" \
-                || { echo "$PROG: refused: only a stranded holding, a merged one whose removed teardown is confirmed, or a dispatch-failed one with no worker, is retired; $TOPIC is $ST" >&2; exit 65; }
+                || { echo "$PROG: refused: only a stranded holding, a merged one whose teardown is confirmed, or a dispatch-failed one with no worker, is retired; $TOPIC is $ST" >&2; exit 65; }
             CHECK_OUT=$(bash "${STATE_HOLDING_TEARDOWN_PASS:-$HERE/teardown-pass.sh}" check \
                 --session "${RS_SESSION:-${SESSION:-}}" --topic "$TOPIC" 2>&1)
             case $? in
                 0) ;;
-                1) echo "$PROG: refused: $TOPIC's removed teardown is not confirmed: $CHECK_OUT" >&2; exit 65 ;;
+                1) echo "$PROG: refused: $TOPIC's teardown is not confirmed: $CHECK_OUT" >&2; exit 65 ;;
                 *) lib_die2 "the teardown check could not run: $(printf '%s\n' "$CHECK_OUT" | tail -1)" ;;
             esac
         fi

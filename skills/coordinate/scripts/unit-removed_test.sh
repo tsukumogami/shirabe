@@ -165,20 +165,26 @@ seed() {
 echo "== a removed unit, captured in its coordinator's session =="
 # record and start no longer launch the sweep (#1409), so the suite writes the
 # removal record and runs the sweep by hand, in the background while its
-# capture is held.
+# capture is held. The held sweep's GitHub reads get a 60 s bound instead of
+# the default 8 s (UNIT_COST_FETCH_SECS), so only the suite's release ends the
+# hold. The record lock is a file (shirabe#1846), so the wait tests -e.
 seed
 rm -rf "$R" "$T/gh.env"
 mkdir -p "$R" && chmod 700 "$R"
 newrec "$DID" "$SID" "$IP"
 mkfifo "$T/hold.gh"
-(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
+(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; UNIT_COST_FETCH_SECS=60 bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
 SW0=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -e "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
 # Read from the store directly, not through the capture's own list: the
 # capture is held at its first GitHub read, before it lists or posts anything.
-eq "a sweep run by hand holds the record's lock, nothing posted yet" "1|0" \
-    "$(count "$R/.$DID.lock")|$(count "$KOTO_STORE/context/$S/record/entries"/*)"
+# "seen": the wait ended because the lock appeared, not at its limit.
+eq "a sweep run by hand holds the record's lock, nothing posted yet" "seen|1|0" \
+    "$([ "$i" -lt 150 ] && echo seen)|$(count "$R/.$DID.lock")|$(count "$KOTO_STORE/context/$S/record/entries"/*)"
+# Released later than the capture's default bound on a GitHub read (8 s), as a
+# loaded host can: the hold has to last until the suite releases it.
+sleep 9
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
 wait "$SW0"
@@ -329,15 +335,20 @@ rm -rf "$R"
 mkdir -p "$R" && chmod 700 "$R"
 newrec "$DID" "$SID" "$IP"
 mkfifo "$T/hold.gh"
-bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
+# Only the first sweep, the one held, gets the 60 s bound, as above; the second
+# sweep has to pass over the lock, not wait on it.
+UNIT_COST_FETCH_SECS=60 bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
 SW1=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -e "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+SEEN=$([ "$i" -lt 150 ] && echo seen)
 # Written while the first sweep runs, at a path no koto session ran in.
 newrec dsp-late.1 0c0c0c0c-2222 "$WS/inst-late"
 eq "a second sweep passes over the record the first holds, and handles the one written since" \
-    "$DID: held by another sweep
-dsp-late.1: no coordinator" "$(bash "$UR" sweep)"
+    "seen|$DID: held by another sweep
+dsp-late.1: no coordinator" "$SEEN|$(bash "$UR" sweep)"
+# Released later than the capture's own bound on a GitHub read, as above.
+sleep 9
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
 wait "$SW1"
@@ -360,6 +371,51 @@ mkdir "$R/.$DID.lock"
 printf '%s %s\n' "$GONE" "$(date +%s)" >"$R/.$DID.lock/owner"
 eq "a record lock whose holder's pid is gone is taken over and the capture runs" "$DID: captured|1" \
     "$(bash "$UR" sweep)|$(costs "$S" | jq length)"
+seed
+rm -rf "$R"
+mkdir -p "$R" && chmod 700 "$R"
+newrec "$DID" "$SID" "$IP"
+sleep 30 &
+LIVE=$!
+printf '%s %s\n' "$LIVE" "$(date +%s)" >"$R/.$DID.lock"
+eq "a record lock file a live sweep holds: passed over" "$DID: held by another sweep|0" \
+    "$(bash "$UR" sweep)|$(costs "$S" | jq length)"
+kill "$LIVE" 2>/dev/null
+wait "$LIVE" 2>/dev/null
+eq "  ... and once its holder is gone, taken over and the capture runs" "$DID: captured|1" \
+    "$(bash "$UR" sweep)|$(costs "$S" | jq length)"
+
+echo "== ac_lock: racing takers =="
+# Five processes take one lock at once, under a mkdir that reports success for
+# a directory that already exists, the way uutils mkdir (Ubuntu 26.04) did
+# when it lost the race to create one. The one that gets the lock holds it
+# until the others have given up.
+RACE="$T/race"
+rm -rf "$RACE"
+mkdir -p "$RACE/bin"
+printf '#!/bin/sh\nexec %s -p "$@"\n' "$(command -v mkdir)" >"$RACE/bin/mkdir"
+chmod +x "$RACE/bin/mkdir"
+PIDS=""
+for i in 1 2 3 4 5; do
+    PATH="$RACE/bin:$PATH" bash -c '
+        . "$1/archive-common.sh"
+        if ac_lock "$2/lock" 60 0; then
+            : >"$2/in.$$"
+            n=0
+            until [ -e "$2/release" ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+            ac_unlock "$2/lock"
+        else
+            : >"$2/out.$$"
+        fi' _ "$HERE" "$RACE" &
+    PIDS="$PIDS $!"
+done
+n=0
+until [ "$(ls "$RACE" | grep -c '^out\.')" -ge 4 ] || [ "$n" -ge 150 ]; do sleep 0.1; n=$((n + 1)); done
+eq "five takers racing for one ac_lock: exactly one wins" 1 "$(ls "$RACE" | grep -c '^in\.')"
+: >"$RACE/release"
+# shellcheck disable=SC2086
+wait $PIDS
+eq "  ... and the lock is gone once it lets go" 0 "$(count "$RACE/lock")"
 
 echo "== a sweep with no record does nothing =="
 rm -rf "$R" "$T/gh.env" "$T/koto.env"

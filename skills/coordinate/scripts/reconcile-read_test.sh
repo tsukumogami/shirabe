@@ -62,6 +62,10 @@ expect "a roadmap record is read from the run's session, each row sourced to the
 eq "  ... the rows as the record holds them" "$(jq -nc --argjson h "$HOLD" --argjson d "$DEF" --argjson s "$SIDE" '[$h, $d, $s]')" \
     "$(printf '%s' "$OUT" | jq -c '[.holdings[0].row, .deferrals[0].row, .side_effects[0].row]')"
 eq "  ... and nothing read on GitHub" "" "$(calls)"
+eq "  ... naming each part on stderr before it reads it" \
+    "reconcile-read: reading the run's facts|reconcile-read: reading the record's sections|reconcile-read: reading the record's host facts" \
+    "$(grep '^reconcile-read: reading ' "$T/err" | tr '\n' '|' | sed 's/|$//')"
+eq "  ... while stdout stays one JSON object" 1 "$(printf '%s\n' "$OUT" | jq -c . 2>/dev/null | wc -l | tr -d ' ')"
 FOUND=$S
 
 S="coordinate-roadmap-plugin-system-20260926T130000Z"
@@ -124,6 +128,9 @@ read_rec --session "$S" --reasoning-out "$T/reasoning.txt"
 expect "a discipline record is read with the predecessor's reasoning present" \
     '.status == "found" and .scope.kind == "discipline" and .reasoning == "present" and (.holdings | length) == 1'
 eq "  ... written verbatim to --reasoning-out" "The flaky job is timing." "$(cat "$T/reasoning.txt" 2>/dev/null)"
+eq "  ... naming the rotation and the predecessor's reasoning as its fourth part" \
+    "reconcile-read: reading the run's facts|reconcile-read: reading the record's sections|reconcile-read: reading the record's host facts|reconcile-read: reading the rotation and the predecessor's reasoning" \
+    "$(grep '^reconcile-read: reading ' "$T/err" | tr '\n' '|' | sed 's/|$//')"
 printf '"  "' | koto context add "$PRED" record/reasoning
 read_rec --session "$S" --reasoning-out "$T/reasoning.txt"
 expect "an empty reasoning is not recorded" '.reasoning == "not_recorded"'

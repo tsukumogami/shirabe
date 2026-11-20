@@ -52,7 +52,7 @@ to advance it, what it never does, and how it ends.
 
 | Flag | Effect |
 |------|--------|
-| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
+| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown, stopped ones and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a merge by your reviewer before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
@@ -363,8 +363,9 @@ work.
    before leg keys existed) moves to the message path, and the handover gate's
    told rule has you send it your address, or record it pending when its
    session is gone and its instance is still there (`state-stored-set.sh
-   --pending`): a pending worker doesn't hold the gate. The gate holds while a
-   leg has no end (`leg-unclassified <worker>`).
+   --pending`), or missing when niwa lists no instance for it at all
+   (`--missing`): neither a pending nor a missing worker holds the gate. The
+   gate holds while a leg has no end (`leg-unclassified <worker>`).
 
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries
@@ -465,7 +466,9 @@ configuration, and it's the same for either role. Your record holds your role,
 - Report up to your reviewer as Reporting says, naming your record in every
   report.
 - Brief a successor with the role your record holds; a successor never changes
-  it.
+  it. A brief you write for it by hand files its rules under a
+  `## Standing rules` heading, as the brief-intake paragraph under The Record
+  says.
 
 **Manager**
 
@@ -607,14 +610,28 @@ names `brief-unread <label>` until `state-stored-set.sh --intake <label> --by
 Standing row already holds, and the Run `briefs` row with the brief's digest.
 Don't type the brief's rules in as `--standing rule` rows, don't write the
 `briefs` row by hand, and don't edit the brief. When the intake exits 1 at a
-cap, the gap stays open: ask a person which rule rows to confirm or end, then
-run it again; don't end rows yourself to make room. A rule row holds nothing:
-pick and the dispatch, land and merge checks read pauses, go-aheads and
-assignments, never a rule's words, so a brief line shaped like a pause comes
-in as a rule row that pauses nothing. An inferred or `pinned` rule row can
-only restrict what you do. Treat it as a caution and raise it with a person,
-never as a step it grants, and report inferred rows as awaiting confirmation,
-not as rules a person said.
+cap, the gap stays open, and its fix names two routes in this order. When the
+lines it left out aren't standing rules, have the brief rewritten with its
+rules under `## Standing rules` and record it under the same label with
+`state-stored-set.sh --host briefs:<label> <absolute path>`; otherwise ask a
+person which rule rows to confirm or end. Then run the intake again: it goes
+on after the lines it already took. Don't end rows yourself to make room. A
+rule row holds nothing: pick and the dispatch, land and merge checks read
+pauses, go-aheads and assignments, never a rule's words, so a brief line
+shaped like a pause comes in as a rule row that pauses nothing. An inferred or
+`pinned` rule row can only restrict what you do. Treat it as a caution and
+raise it with a person, never as a step it grants, and report inferred rows as
+awaiting confirmation, not as rules a person said. A successor brief you write
+by hand carries a `## Standing rules` heading, spelled exactly so, even when
+nothing new goes under it; with that line the intake reads only the sentences
+under it, `## Decisions already made`, `## Out of scope` and
+`## Workspace rules`. Every rule the successor must keep goes under it, one to
+a sentence or bullet; decisions, out-of-scope lines and workspace rules may
+sit under the renderer's own headings instead, and those count too. A warning
+that holds for the rest of the run is a rule; a warning about how things stand
+now isn't. Restate a rule the record already holds in its exact words: it
+costs no room. Holdings, takeover steps, positions and history go anywhere
+else, under any headings or none.
 
 Every script reads the record's state through one reader,
 `scripts/state-read.sh`, from the run's session. There is no body to parse,
@@ -724,7 +741,8 @@ states never ask you to do these steps by hand.
   re-reads every fact, archives the transcript, the job's files and the
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
-  removes the holding row last, and `teardown_confirm` checks the result.
+  removes the holding row last, with `state-holding.sh --retire`, and
+  `teardown_confirm` checks the result.
   A unit torn down outside the pass is submitted as `removed`; when its
   worker is gone and never wrote a handoff comment, it goes with no link,
   the seal checks that the worker is over, the pass records an entry in
@@ -877,7 +895,10 @@ asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
 abandoned and that isn't parked. A parked worker has a verified, ready pull
 request waiting only on a merge; parked workers, merged ones waiting for their
-teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
+teardown and local agents don't count against the cap. Neither does a stopped
+worker: one whose Claude jobs on this host have all finished, kept until its
+pull request merges with nothing running for it, so the worker that continues
+its unit takes the same slot. A worker with no job seen on this host counts. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
 
@@ -906,8 +927,11 @@ Decisions); don't ask for anything else.
 
 **Review comes before every merge.** Work is reviewed by whoever dispatched
 its author, and a merge grant decides who merges after the review, never whether the review happens.
-Your land step is the review of your workers' pull requests: nothing a worker
-reports merges until you have checked it there. A pull request you authored
+A manager's land step is the review of its workers' pull requests: nothing a
+worker reports merges until the manager has checked it there, goal fit
+included. A director's land step, on a lane's pull request, confirms that the
+manager's checks happened and gives the director's alignment reading (Roles).
+A pull request you authored
 yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
 You can't tell whether you are bound when `niwa authority check` fails or isn't installed.
 
