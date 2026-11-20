@@ -213,11 +213,25 @@ lib_facts
 # 30-second action limit (shirabe#1406). A job's stderr is replayed where its
 # answer is taken. A temporary directory that can't be made is still refused
 # where it was, after the log check; no job starts without one.
+#
+# The EXIT trap is set before the directory is made, so a signal can't land
+# between the two and leave the directory behind (shirabe#1695). While mktemp
+# runs, a signal is only recorded: an `exit` from the trap then would run
+# before T is assigned, and the EXIT trap would have nothing to remove. Once
+# T is set the signal traps exit, and a signal recorded during mktemp exits
+# here. The EXIT trap ignores further signals first, so a second one can't
+# cut the cleanup short.
+T=
+trap 'trap "" HUP INT TERM; lib_jobs_stop; [ -z "$T" ] || rm -rf "$T"' EXIT
+SIG=
+trap 'SIG=129' HUP
+trap 'SIG=130' INT
+trap 'SIG=143' TERM
 T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX") || T=
-trap 'lib_jobs_stop; [ -z "$T" ] || rm -rf "$T"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+[ -z "$SIG" ] || exit "$SIG"
 CL="$HERE/coord-log.sh"
 if [ -n "$T" ]; then
     lib_job_start "$T" count bash "$CL" count --session "$SESSION"

@@ -184,6 +184,15 @@ if [ -n "$LOOK" ] && [ -n "$PUSH" ] && [ "$LOOK" -lt "$PUSH" ]; then
 else
     fail "orchestrator_setup: lookup at [$LOOK], push at [$PUSH]"
 fi
+# The start commit comes after that lookup, so a branch whose PR another run
+# opened is never committed on, and before the push, so the push records it as
+# expected_head.
+START=$(awk '/\*\*2\. The shared branch/{f=1} f && /start-commit\.sh --plan-slug \{\{PLAN_SLUG\}\}/{print NR; exit}' "$E")
+if [ -n "$LOOK" ] && [ -n "$START" ] && [ -n "$PUSH" ] && [ "$LOOK" -lt "$START" ] && [ "$START" -lt "$PUSH" ]; then
+    pass "orchestrator_setup makes the start commit after the lookup and before the push"
+else
+    fail "orchestrator_setup: lookup at [$LOOK], start commit at [$START], push at [$PUSH]"
+fi
 NP=skills/execute/scripts/node-push.sh
 OWN=$(grep -n '^    OWNED_NOW=$(coord_owned "$REPO" "$BRANCH" open)' "$NP" | head -1 | cut -d: -f1)
 GP=$(grep -n '^[[:space:]]*if ! git -C "$GIT_WT" push' "$NP" | head -1 | cut -d: -f1)

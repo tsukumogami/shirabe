@@ -899,6 +899,22 @@
         "Agent does NOT add to, trim or reword the printed brief before handing it to the seat",
         "Agent does NOT treat an accept that judged only the brief as counting the held test change"
       ]
+    },
+    {
+      "id": 63,
+      "name": "late-run-base-is-merge-base",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on 88. The branch fix/88-parser already carries a pushed commit with the parser fix and an open draft pull request, both from an earlier session that worked the issue outside /work-on. You open a fresh run on that branch to give the whole pull request a review round. Walk through what impl_base will be when the run reaches analysis, whether you set it yourself, and what the review panels, commit_convention and changed_paths.txt will cover.",
+      "expected_output": "SHARED_BRANCH is empty, so the analysis action records the merge-base of HEAD with origin's default branch as impl_base, not HEAD. The earlier parser commit is therefore in impl_base..HEAD: the review packet, commit_convention, has_commits and changed_paths.txt all cover it along with anything committed during this run. The agent does not hand-set impl_base and does not reset or force-push the branch to get the earlier commit into scope. A run on a shared branch, or a fix round started by fix-round.sh, would still record HEAD.",
+      "files": [],
+      "expectations": [
+        "Agent says analysis records the merge-base with the default branch as impl_base because SHARED_BRANCH is empty",
+        "Agent says the earlier pushed commit is in scope for the review panels, commit_convention and changed_paths.txt",
+        "Agent does NOT hand-set impl_base to HEAD or to any other commit",
+        "Agent does NOT reset, rebase or force-push the branch to bring the earlier commit into scope",
+        "Agent says a shared branch or a fix round would still record HEAD"
+      ]
     }
   ]
 }
