@@ -60,6 +60,14 @@ Q_NETWORK='[.commands[] | select(.network == true) | has("unattended")] | all'
 # Every id an entry or the default names is defined.
 Q_IDS='. as $m | [($m.entries[].commands[]), ($m.default // [])[]]
     | all(. as $id | $m.commands | has($id))'
+# The check-skill row declares exactly the one hosted job that runs its
+# suites in full, the Linux leg of skill-gate, while the row itself still runs
+# only the changed suites.
+Q_HOSTED='.commands["check-skill"]
+    | .hosted == [{"workflow": ".github/workflows/check-skill-gate.yml",
+                   "job": "skill-gate (ubuntu-latest)",
+                   "runs": "check-skill {skill}"}]
+      and (.run | index("--changed")) != null'
 
 # holds <file> <query>: exit 0 when the query is true on the file.
 holds() { jq -e "$2" "$1" >/dev/null 2>&1; }
@@ -73,6 +81,7 @@ check "the default list names the three Markdown default commands" "$Q_DEFAULT"
 check "the skills/** entry runs scripts/check-skill.sh --changed with each: skills/*" "$Q_SKILLS"
 check "every network: true command sets unattended explicitly" "$Q_NETWORK"
 check "every command id an entry or the default names is defined" "$Q_IDS"
+check "the check-skill row declares skill-gate (ubuntu-latest) running check-skill {skill}, and still runs --changed" "$Q_HOSTED"
 
 # Negative cases: altered copies of the map must fail the same queries.
 neg() { # neg <label> <query> <jq edit>
@@ -95,6 +104,14 @@ neg "a networked command without unattended is refused" "$Q_NETWORK" \
     '.commands["net"] = {"run": ["true"], "network": true}'
 neg "an entry naming an undefined id is refused" "$Q_IDS" \
     '.entries += [{"paths": ["x/**"], "commands": ["nope"]}]'
+neg "a check-skill row without its hosted entry is refused" "$Q_HOSTED" \
+    '.commands["check-skill"] |= del(.hosted)'
+neg "a hosted job of skill-gate (macos-latest) is refused" "$Q_HOSTED" \
+    '.commands["check-skill"].hosted[0].job = "skill-gate (macos-latest)"'
+neg "a hosted runs carrying --changed is refused" "$Q_HOSTED" \
+    '.commands["check-skill"].hosted[0].runs = "check-skill --changed {skill}"'
+neg "a check-skill row that stops running --changed is refused" "$Q_HOSTED" \
+    '.commands["check-skill"].run = ["scripts/check-skill.sh"]'
 
 # The positive twin of the network case: setting unattended either way passes.
 copy="$WORKDIR/net.json"
@@ -130,6 +147,34 @@ for value in passed failed timed-out-limit timed-out-inside SHIRABE_SUITE_SUMMAR
         fail "verification-map.md names \`$value\`"
     fi
 done
+# hosted is a row of the Command fields table, not only a word the reference
+# uses: the field loops above grep for any mention, which prose or an example
+# would satisfy. The check runs on a copy with the row removed too, and must
+# fail there.
+# hosted_row <file>: the file's `### Command fields` section has a table row
+# whose first cell is `hosted`.
+hosted_row() {
+    awk '/^### / { in_cf = ($0 == "### Command fields") }
+         in_cf && /^\| `hosted` \|/ { found = 1 }
+         END { exit !found }' "$1"
+}
+if hosted_row "$REF"; then
+    pass "verification-map.md's Command fields table has a \`hosted\` row"
+else
+    fail "verification-map.md's Command fields table has a \`hosted\` row"
+fi
+grep -v '^| `hosted` |' "$REF" > "$WORKDIR/ref-no-hosted.md"
+if hosted_row "$WORKDIR/ref-no-hosted.md"; then
+    fail "a copy of the reference without the \`hosted\` row still passes the row check"
+else
+    pass "a copy of the reference without the \`hosted\` row fails the row check"
+fi
+if grep -Fq 'or when `hosted` is malformed' "$REF"; then
+    pass "verification-map.md says a malformed \`hosted\` does not parse"
+else
+    fail "verification-map.md says a malformed \`hosted\` does not parse"
+fi
+
 if grep -Fq 'git show <merge-base>:.claude/shirabe-extensions/verification-map.json' "$REF" \
         && grep -Fq 'merge-base' "$REF"; then
     pass "verification-map.md documents the read at the merge-base"
