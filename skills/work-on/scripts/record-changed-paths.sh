@@ -155,9 +155,9 @@ git rev-parse --git-dir >/dev/null || die 64 "not inside a git repository"
 # ---------------------------------------------------------------- --base ------
 
 # default_merge_base: prints the merge-base of HEAD with origin's default
-# branch, as default-remote-ref.sh names it. Returns 1, printing nothing, when
-# the library doesn't load, origin has no such ref, or HEAD shares no history
-# with it.
+# branch, as default-remote-ref.sh names it. Returns 1 with nothing on stdout
+# when the library doesn't load, origin has no such ref, or HEAD shares no
+# history with it; git's own diagnostics stay on stderr.
 default_merge_base() {
     local lib ref
     lib="$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/default-remote-ref.sh"
@@ -167,7 +167,7 @@ default_merge_base() {
         return 1
     }
     ref=$(default_remote_ref .) || return 1
-    git merge-base HEAD "$ref" 2>/dev/null
+    git merge-base HEAD "$ref"
 }
 
 if [ "$MODE" = "--base" ]; then
