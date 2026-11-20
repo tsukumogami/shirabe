@@ -104,9 +104,12 @@ push_node
     || fail "rerun-adopt hold: rc=$RC; $(tail -3 "$CASE/stderr")"
 [ "$(remote_head)" = "$FIRST" ] && pass "the held push leaves the remote branch at the first head" \
     || fail "rerun-adopt remote moved: rc=$RC remote=[$(remote_head)]; $(tail -3 "$CASE/stderr")"
-ct_calls | grep -Eq '^pr (create|edit|ready|merge)' \
-    && fail "the held push wrote to a PR: rc=$RC; $(ct_calls | grep -E '^pr (create|edit|ready|merge)' | head -1); $(tail -3 "$CASE/stderr")" \
-    || pass "the held push creates, edits, readies and merges no PR"
+CALLS=$(ct_calls)
+case $'\n'"$CALLS" in
+    *$'\n''pr create'*|*$'\n''pr edit'*|*$'\n''pr ready'*|*$'\n''pr merge'*)
+        fail "the held push wrote to a PR: rc=$RC; $(grep -m1 -E '^pr (create|edit|ready|merge)' <<<"$CALLS"); $(tail -3 "$CASE/stderr")" ;;
+    *) pass "the held push creates, edits, readies and merges no PR" ;;
+esac
 [ "$(rec_node "$CT_CORE" | jq -c '[.head,.reruns]')" = "$(jq -cn --arg h "$FIRST" '[$h,[]]')" ] \
     && pass "run/node/<node> keeps the first head with no reruns" \
     || fail "rerun-adopt record: rc=$RC record=[$(rec_node "$CT_CORE")]; $(tail -3 "$CASE/stderr")"
@@ -132,8 +135,11 @@ push_node
 [ "$(rec_node "$CT_CORE" | jq -c '.reruns')" = "$(jq -cn --arg l "$RR_LINE" '[$l]')" ] \
     && pass "run/node/<node> records the re-run line as reruns" \
     || fail "rerun-adopt control record: rc=$RC record=[$(rec_node "$CT_CORE")]; $(tail -3 "$CASE/stderr")"
-ct_calls | grep -q '^pr create' && fail "the control push created a PR: $(ct_calls | grep -m1 '^pr create')" \
-    || pass "the control push adopts PR #50 and creates none"
+CALLS=$(ct_calls)
+case $'\n'"$CALLS" in
+    *$'\n''pr create'*) fail "the control push created a PR: $(grep -m1 '^pr create' <<<"$CALLS")" ;;
+    *) pass "the control push adopts PR #50 and creates none" ;;
+esac
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
