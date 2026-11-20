@@ -179,7 +179,7 @@ poll() {
 # the background and is waited on, so the TERM poll sends when the time is up
 # ends a hung call too.
 collect_children() {
-    local child rc kpid=""
+    local child rc first kpid=""
     trap '[ -z "$kpid" ] || kill "$kpid" 2>/dev/null; exit 143' TERM
     # koto_call <out> <koto arguments>...: one koto call, its stdout to <out>
     # and its stderr to koto.err, run in --child-dir when one was given (only
@@ -220,7 +220,8 @@ collect_children() {
         rc=$?
         case "$rc" in
             0) ;;
-            1) [ ! -s "$WORK/exists" ] || undecided "koto context exists $child verification_attempts answered 1 with output: $(head -n 1 "$WORK/exists")"
+            1) first=$(head -n 1 "$WORK/exists")
+               [ ! -s "$WORK/exists" ] || undecided "koto context exists $child verification_attempts answered 1 with output: $first"
                continue ;;
             *) undecided "koto context exists $child verification_attempts failed (exit $rc): $(koto_err)" ;;
         esac
