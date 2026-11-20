@@ -13,6 +13,9 @@
 #   state-holding.sh --session S --topic T --retire        remove a stranded row,
 #                                                           a merged one whose
 #                                                           teardown is confirmed,
+#                                                           one torn down outside
+#                                                           the run whose removed
+#                                                           teardown is confirmed,
 #                                                           or a dispatch-failed
 #                                                           one with no worker
 #   ... [--scope roadmap|discipline --name N --repo O/R
@@ -65,9 +68,20 @@
 # teardown pass for T: one the pass tore down itself (shirabe#1148) or one torn
 # down outside it, `removed yes` (shirabe#1593). A leg-bound holding can never
 # be stranded, so without it the row would stay. The check is read-only;
-# STATE_HOLDING_TEARDOWN_PASS names a stand-in for it (tests). --retire refuses
-# (65) a row that is neither stranded nor merged, and a merged one the check
-# doesn't confirm, with the check's reason.
+# STATE_HOLDING_TEARDOWN_PASS names a stand-in for it (tests).
+#
+# A unit torn down outside the run's land path keeps a row that may never read
+# as merged: a person who merged its pull request by hand left the row
+# `dispatched`, with no Verified head (shirabe#1196). So --retire asks the
+# check of every row that isn't stranded or dispatch-failed, merged or not, and
+# when it confirms a removed teardown (its reason starts `removed outside the
+# run: `, the marker teardown-pass.sh check prints only for a `removed yes`
+# verdict) the row goes whatever its cells say. The record keeps no history of
+# a removed row, and nothing else says the teardown wasn't the run's own, so
+# that retirement is also told as an `entry` entry naming the topic. Without
+# the marker only a merged row goes. --retire refuses (65) a row the check
+# doesn't confirm, and an unmerged one whose confirmed teardown isn't a
+# removed one, with the check's reason.
 #
 # --retire also removes a `dispatch-failed` holding (shirabe#1612): a launch
 # that failed leaves its row, and once the run has moved past the dispatch state
@@ -84,7 +98,8 @@
 # is in, and the jobs under DC_CLAUDE_HOME. NIWA names a stand-in for niwa
 # (tests).
 # Its removal is also told as an `entry` entry naming the topic; when the row
-# was removed but the entry wasn't written, it exits 14 with the entry's text.
+# was removed but the entry wasn't written, it exits 14 with the entry's text,
+# as it does for a holding torn down outside the run.
 #
 # Exit codes: 0 written (prints the session holding the record) or printed; 1
 # no row for the topic (--read only); 2 a read failed, --retire's teardown
@@ -92,8 +107,9 @@
 # record, the session holds no record of this scope, provenance, a directed
 # transition, or a writing session that isn't the record's driver); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
-# the write failed; 14 a dispatch-failed row was removed but its entry wasn't
-# written; 64 usage; 65 the row was refused (the reason on stderr).
+# the write failed; 14 a dispatch-failed row, or one torn down outside the run,
+# was removed but its entry wasn't written; 64 usage; 65 the row was refused
+# (the reason on stderr).
 #
 # The record is read through state-read.sh; writes happen only in
 # state-write.sh.
@@ -219,15 +235,40 @@ strand|retire)
                 <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
         elif [ "$ST" != stranded ]; then
             # A merged holding goes once teardown-pass.sh check confirms its
-            # done teardown pass, removed or not (shirabe#1593, shirabe#1148);
-            # a live one never does.
-            lib_row_merged "$ROW" \
-                || { echo "$PROG: refused: only a stranded holding, a merged one whose teardown is confirmed, or a dispatch-failed one with no worker, is retired; $TOPIC is $ST" >&2; exit 65; }
+            # done teardown pass, removed or not (shirabe#1593, shirabe#1148).
+            # One torn down outside the run goes once the check confirms its
+            # removed pass, merged-shaped or not: its pull request may have
+            # merged outside the run's land path, which never marks the row
+            # merged (shirabe#1196). The check is asked of an unmerged row too,
+            # since only its marker tells the two apart; a live one is never
+            # confirmed, so it never goes.
+            MERGED=0
+            lib_row_merged "$ROW" && MERGED=1
+            NOT_RETIRED="$PROG: refused: only a stranded holding, a merged one whose teardown is confirmed, a dispatch-failed one with no worker, or one torn down outside the run whose removed teardown is confirmed, is retired"
             CHECK_OUT=$(bash "${STATE_HOLDING_TEARDOWN_PASS:-$HERE/teardown-pass.sh}" check \
                 --session "${RS_SESSION:-${SESSION:-}}" --topic "$TOPIC" 2>&1)
             case $? in
-                0) ;;
-                1) echo "$PROG: refused: $TOPIC's teardown is not confirmed: $CHECK_OUT" >&2; exit 65 ;;
+                0)
+                    case "$CHECK_OUT" in
+                        *"teardown-confirmed: removed outside the run: "*)
+                            # Nothing else in the record says the teardown
+                            # wasn't the run's own, so the retirement says it.
+                            jq -r '"Holding \(.worker) (unit \(.unit)) retired after a teardown that was not this run'"'"'s own: its instance and job were removed outside the run'"'"'s teardown pass, which archived only what survived and removed nothing."' \
+                                <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
+                            ;;
+                        *)
+                            [ "$MERGED" = 1 ] \
+                                || { echo "$NOT_RETIRED; $TOPIC is $ST and its teardown check confirms no removed teardown" >&2; exit 65; }
+                            ;;
+                    esac
+                    ;;
+                1)
+                    if [ "$MERGED" = 1 ]; then
+                        echo "$PROG: refused: $TOPIC's teardown is not confirmed: $CHECK_OUT" >&2
+                    else
+                        echo "$NOT_RETIRED; $TOPIC is $ST: $CHECK_OUT" >&2
+                    fi
+                    exit 65 ;;
                 *) lib_die2 "the teardown check could not run: $(printf '%s\n' "$CHECK_OUT" | tail -1)" ;;
             esac
         fi
@@ -283,7 +324,8 @@ fi
 bash "$HERE/state-write.sh" "$@"
 RC=$?
 # The record keeps no history of a removed row, so a dispatch-failed holding's
-# retirement is also told as an entry in the account (shirabe#1612).
+# retirement (shirabe#1612), and one torn down outside the run (shirabe#1196),
+# is also told as an entry in the account.
 [ "$RC" = 0 ] && [ -s "$T/retire-entry" ] || exit "$RC"
 if [ "$OVERRIDE" = 1 ]; then
     ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")
