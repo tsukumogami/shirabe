@@ -102,6 +102,11 @@ Outcomes:
   entry into `verification` archives the failed attempt and runs a fresh suite at the
   same head. Each attempt's logs sit in their own folder, `<head>/attempts/<n>/`, and
   each archived attempt adds one line to the `verification_attempts` context key.
+  The PR body's Verification section then carries one re-run line per archived
+  attempt, ``Re-run attempt <n> at `<head>`: `<id>` failed; reason `<reason>`; attempt <n+1> passed.``,
+  and `pr_creation`'s `verification_rerun_recorded` gate
+  (`check-pr-output.sh --rerun-record`) refuses a body without it (see **Pull
+  Request Text**).
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.
@@ -228,6 +233,23 @@ or `CLAUDE.md`; `${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh` prints
 uses. Under `omit`, `pr_creation`'s `pr_body_conformant` gate holds on the records it
 can see (`pr-body/workflow-content`). `references/phases/phase-6-pr.md` says what goes
 where under each setting.
+
+A run that re-ran verification at the same head says so under either setting. Its
+Verification section has one re-run line for each attempt in `verification_attempts`:
+
+```text
+Re-run attempt <n> at `<head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`; attempt <n+1> passed.
+```
+
+The head is 7 or more of its hex characters; each failed or timed-out command id and
+the reason sit in code spans; the line ends with what the next attempt showed
+(`passed`, `failed` or `timed out`), and holds no path and no log excerpt.
+`pr_creation`'s `verification_rerun_recorded` gate runs
+`check-pr-output.sh --rerun-record --session <session>` and refuses a body that
+leaves a line out, puts an id or the reason outside a code span, or holds an absolute
+path; with an empty ledger it asks for nothing. On a plan's shared branch the child
+opens no PR, and the shared PR is checked at the owning session's `pr_finalization`
+by its `rerun_recorded` gate.
 
 A coordinator that dispatched this run reads its review round from this run's session,
 not from the body. When the brief asks for the round, record it once the seats at the
