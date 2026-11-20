@@ -758,12 +758,18 @@ run_check --session s --topic w5
 [ "$KRC" = 0 ] && ok "a removed verdict, the unit gone, the archive whole: confirmed" \
     || bad "a removed verdict, the unit gone, the archive whole: confirmed" "exit $KRC: $KOUT"
 wrote_nothing "  ... storing nothing and sealing nothing"
+# A confirmed removed verdict's reason starts with the marker state-holding.sh
+# --retire reads (shirabe#1196).
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
 setup_check 'job -'
 rm -rf "$T/carchive"
 run_check --session s --topic w5
 [ "$KRC" = 0 ] && ok "a removed verdict with job -, no archive: confirmed" \
     || bad "a removed verdict with job -, no archive: confirmed" "exit $KRC: $KOUT"
 wrote_nothing "  ... storing nothing and sealing nothing"
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
 setup_check
 run_check --session s --topic w6
 [ "$KRC" = 1 ] && ok "another topic's check: not confirmed" || bad "another topic's check: not confirmed" "exit $KRC: $KOUT"
@@ -777,6 +783,8 @@ run_check --session s --topic w5
 [ "$KRC" = 0 ] && ok "an ordinary verdict, the unit gone, the archive whole: confirmed" \
     || bad "an ordinary verdict, the unit gone, the archive whole: confirmed" "exit $KRC: $KOUT"
 wrote_nothing "  ... storing nothing and sealing nothing"
+case "$KOUT" in *"removed outside the run"*) bad "  ... its reason carries no removed marker" "$KOUT" ;;
+    *) ok "  ... its reason carries no removed marker" ;; esac
 setup_confirm
 echo '[{"name":"tsuku+w5","path":"/elsewhere"}]' >"$C3/niwa.json"
 unconfirmed "an ordinary verdict whose instance niwa still lists by name" "niwa still lists tsuku+w5"
@@ -797,6 +805,8 @@ setup_check
 rm -rf "$T/carchive"
 unconfirmed "a surviving session with no archive" "no single archive for w5"
 wrote_nothing "  ... storing nothing and sealing nothing"
+case "$KOUT" in *"an archive left by a teardown outside the run is not"*) ok "  ... and says an archive left outside the run is not read" ;;
+    *) bad "  ... and says an archive left outside the run is not read" "$KOUT" ;; esac
 setup_check
 run_check --session s
 eq_ "check without --topic is a usage error" 64 "$KRC"
