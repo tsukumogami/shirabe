@@ -37,8 +37,13 @@
 # outside the directory record runs in, the workspace root itself with or
 # without a trailing /, a path with a trailing / or a newline, a session id
 # that isn't one, a removals directory that is a
-# symbolic link or not mode 0700, the script writable by group or others):
-# one line, no record, exit 0. A second removal of the same dispatch id, at
+# symbolic link or not mode 0700): one line, no record, exit 0. The script or
+# a library it sources writable by someone other than the user (others, or a
+# group that isn't the user's private one: another member, another account's
+# primary group, not the user's primary group, or no getent to say): record
+# and start refuse with one line naming every such file and the chmod that
+# fixes them, and exit 3; group-writable by the user's private group, as a
+# umask of 0002 leaves every file, the step runs. A second removal of the same dispatch id, at
 # the same path or another, leaves the record already there as it is.
 #
 # Usage: bash skills/coordinate/scripts/unit-removed_test.sh
@@ -307,12 +312,80 @@ mkdir -p "$R"
 chmod 755 "$R"
 refused "a removals directory not mode 0700" "$DID" "$SID" "$IP"
 chmod 700 "$R"
-mkdir -p "$T/copy"
+
+echo "== a file writable by someone else: refused, exit 3; the user's private group is not someone else =="
+# A copy of the script and its libraries, and stand-ins for id and getent, so
+# each case reads the same on any host whatever its umask and its groups. The
+# copy's group is whatever the host gave it (FG); the stand-ins say whether
+# FG is the user's primary group and who else is in it.
+mkdir -p "$T/copy" "$T/ids"
 cp "$UR" "$HERE/archive-common.sh" "$HERE/dispatch-common.sh" "$T/copy/"
-chmod 775 "$T/copy/unit-removed.sh"
-refused "the script writable by group" "$DID" "$SID" "$IP" "$T/copy/unit-removed.sh"
-chmod 757 "$T/copy/unit-removed.sh"
-refused "the script writable by others" "$DID" "$SID" "$IP" "$T/copy/unit-removed.sh"
+CU="$T/copy/unit-removed.sh"
+FG=$(ls -ldn -- "$CU" | awk '{ print $4 }')
+REAL_ID=$(command -v id)
+# ids <primary gid> <group's members> <another account with FG as primary, or ''> [nogetent]
+ids() {
+    cat >"$T/ids/id" <<EOF
+#!/bin/sh
+case "\$*" in -g) echo '$1' ;; -un) echo me ;; *) exec '$REAL_ID' "\$@" ;; esac
+EOF
+    if [ "${4:-}" = nogetent ]; then
+        printf '#!/bin/sh\nexit 127\n' >"$T/ids/getent"
+    else
+        cat >"$T/ids/getent" <<EOF
+#!/bin/sh
+case "\$1" in
+group) [ "\$2" = '$FG' ] && echo 'me:x:$FG:$2' ;;
+passwd) echo 'me:x:4242:$FG::/home/me:/bin/sh'; [ -n '$3' ] && echo '$3' ;;
+*) exit 2 ;;
+esac
+EOF
+    fi
+    chmod +x "$T/ids/id" "$T/ids/getent"
+}
+# modes <label> <script mode> <libraries' mode>: record from the copy, with the stand-ins.
+modes() {
+    chmod "$2" "$CU"
+    chmod "$3" "$T/copy/archive-common.sh" "$T/copy/dispatch-common.sh"
+    OUT=$(PATH="$T/ids:$PATH"; rec "$DID" "$SID" "$IP" "$CU")
+    RC=$?
+}
+# mode_refused <label>: the last modes run refused: exit 3, one line, no record.
+mode_refused() {
+    eq "$1: exit 3, one line, no record" "3|1|0" "$RC|$(printf '%s\n' "$OUT" | grep -c .)|$(nrecords)"
+}
+ids "$FG" "" ""
+modes "every file go-w" 755 644
+eq "every file go-w: the step runs" "0|unit-removed: the automatic sweep is retired pending #1410; nothing recorded" "$RC|$OUT"
+modes "the script group-writable, its group the user's private group" 775 644
+eq "the script group-writable, its group the user's private one: the step runs" "0|unit-removed: the automatic sweep is retired pending #1410; nothing recorded" "$RC|$OUT"
+modes "every file group-writable, the user's private group" 775 664
+eq "every file group-writable, the user's private group: the step runs" "0|unit-removed: the automatic sweep is retired pending #1410; nothing recorded" "$RC|$OUT"
+modes "the script writable by others" 757 644
+mode_refused "the script writable by others, its group the user's private one"
+ids "$FG" "other" ""
+modes "group with another member" 775 644
+mode_refused "the script group-writable, its group holding another member"
+ids "$FG" "me,other" ""
+modes "group with the user and another member" 775 644
+mode_refused "the script group-writable, its group holding the user and another member"
+ids "$FG" "" "other:x:4343:$FG::/home/other:/bin/sh"
+modes "another account's primary group" 775 644
+mode_refused "the script group-writable, its group another account's primary group too"
+ids "$((FG + 1))" "" ""
+modes "not the user's primary group" 775 644
+mode_refused "the script group-writable, its group not the user's primary group"
+ids "$FG" "" "" nogetent
+modes "no getent" 775 644
+mode_refused "the script group-writable, the group unreadable (no getent)"
+ids "$FG" "other" ""
+modes "every file group-writable by a shared group" 775 664
+mode_refused "every file group-writable by a shared group"
+eq "  ... the one line names all three files and the remedy" \
+    "unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing recorded; chmod go-w $CU $T/copy/archive-common.sh $T/copy/dispatch-common.sh" "$OUT"
+OUT=$(PATH="$T/ids:$PATH"; bash "$CU" start)
+eq "start refuses the same files: exit 3, the same line" \
+    "3|unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing started; chmod go-w $CU $T/copy/archive-common.sh $T/copy/dispatch-common.sh" "$?|$OUT"
 
 echo "== a second removal of the same dispatch id =="
 # record used to rewrite the record here, keeping removed_at at the same
