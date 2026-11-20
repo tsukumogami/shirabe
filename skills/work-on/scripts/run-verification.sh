@@ -78,7 +78,27 @@
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
 #    timed-out|supervisor-error", "detail": "...", "commands": [{"id", "argv",
 #    "exit_status", "duration_secs", "timed_out", "runaway", "not_started",
-#    "pgid", "log"}]}
+#    "pgid", "log", "outcome", "suites"}]}
+#
+# Each command's `outcome` says how it ended, as one of four values:
+#   passed            exit 0 inside its limit;
+#   timed-out-limit   stopped at its timeout_secs (or the run's budget), unless
+#                     its suite summary lists a finished-failed suite;
+#   timed-out-inside  a nonzero exit from a row that declares `timeout_form`,
+#                     where the log reports at least one failure line and every
+#                     failure line matches the form;
+#   failed            anything else: a nonzero exit, a stop at the limit with
+#                     a finished-failed suite, a runaway, a command that never
+#                     started (whose flags still say which).
+# A failure line is one check-skill.sh's own report counts as one: optional
+# leading space and a colour code, then FAIL or `not ok` (FAILURE_LINE_RE).
+# `suites` is the summary the command left at $SHIRABE_SUITE_SUMMARY, which the
+# supervisor sets to <head dir>/<index>-<id>.suites.json for each command and
+# clears before it starts, so a file an earlier run left is never read: an
+# object of four string arrays, passed, failed, running and not_started, or
+# null when the command wrote none (or wrote something else).
+# check-verification.sh reads timed_out, runaway, not_started and exit_status,
+# not outcome, so no verdict exit depends on it yet.
 #
 # The bound on each command: its own process group and its own deadline
 # (timeout_secs; TERM to the group, then KILL), and a watchdog that counts the
@@ -118,6 +138,10 @@ MAP_PATH=.claude/shirabe-extensions/verification-map.json
 KEEP_HEADS=10
 RESULT_SCHEMA=shirabe-verification-result/v1
 BUDGET_SECS=7200
+# The failure lines a timeout_form is matched against: the pattern
+# check-skill.sh's show_suite_failure uses to pick a failed suite's FAIL lines,
+# in jq's regex syntax (passed with --arg, so read as written).
+FAILURE_LINE_RE='^[[:space:]]*(\x1b\[[0-9;]*m)?(FAIL|not ok)([^A-Za-z]|$)'
 
 usage() {
     cat >&2 <<'EOF'
@@ -158,8 +182,13 @@ def command_ok($id):
   | need((has("unattended") | not) or (.unattended | type) == "boolean"; "command \($id): unattended is not a boolean")
   | need((.network != true) or has("unattended"); "command \($id): network is true and unattended is not set")
   | need((has("max_procs") | not) or ((.max_procs | is_int) and .max_procs >= 1); "command \($id): max_procs is not a positive integer")
+  | need((has("timeout_form") | not)
+         or ((.timeout_form | type) == "string" and .timeout_form != ""
+             and (.timeout_form as $f | try ("" | test($f) | true) catch false));
+         "command \($id): timeout_form is not a non-empty string that compiles as a regular expression")
   | {id: $id, run: .run, each: (.each // null), timeout_secs: (.timeout_secs // 1800),
-     max_procs: (.max_procs // 256), unattended: (if has("unattended") then .unattended else true end)};
+     max_procs: (.max_procs // 256), unattended: (if has("unattended") then .unattended else true end),
+     timeout_form: (.timeout_form // null)};
 def ids_ok($where; $defined):
   need(type == "array" and all(type == "string"); "\($where) is not an array of command ids")
   | (map(select(. as $i | $defined | index([$i]) | not))) as $bad
@@ -188,10 +217,12 @@ try (
   | ($cmds | map({key: .id, value: .}) | from_entries) as $byid
   | [$changed[] | split("/") as $parts | range(1; $parts | length) | $parts[0:.] | join("/")] | unique as $dirs
   | [$ids[] | $byid[.] as $c
-     | if $c.each == null then {id: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+     | if $c.each == null then {id: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
+                                timeout_form: $c.timeout_form}
        else ($c.each | glob_re) as $er
          | $dirs[] | select(test($er))
-         | {id: $c.id, argv: ($c.run + [split("/") | last]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+         | {id: $c.id, argv: ($c.run + [split("/") | last]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
+            timeout_form: $c.timeout_form}
        end] as $inv
   | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe)}
 ) catch {error: (if type == "string" then . else tostring end)}
@@ -478,6 +509,44 @@ kill_group() {
     kill "-$1" -- "-$2" 2>/dev/null
 }
 
+# suites_of <file>: the suite summary a command left at <file>, compact, when
+# it is one object of the four string arrays; null otherwise (no file, a file
+# that doesn't parse, or one of another shape).
+suites_of() {
+    local s
+    [ -f "$1" ] || { echo null; return 0; }
+    s=$(jq -cs 'if length == 1 and (.[0] | type) == "object"
+                   and ([.[0] as $o | ("passed", "failed", "running", "not_started") as $k
+                         | ($o[$k] | type) == "array" and all($o[$k][]; type == "string")] | all)
+                then .[0] | {passed, failed, running, not_started} else null end' "$1" 2>/dev/null)
+    printf '%s\n' "${s:-null}"
+}
+
+# outcome_of <exit status> <timed_out> <runaway> <suites json> <timeout_form> <log>:
+# the record's outcome (see the header). A stop at the limit with a
+# finished-failed suite is failed: the change broke a check before the clock
+# ran out. A nonzero exit counts as timed-out-inside only when the row
+# declares a form and the log has at least one failure line, all of which
+# match it; an empty set of failures never reads as a timeout.
+outcome_of() {
+    if [ "$3" = true ]; then
+        echo failed
+    elif [ "$2" = true ]; then
+        if printf '%s' "$4" | jq -e '. != null and (.failed | length) > 0' >/dev/null; then
+            echo failed
+        else
+            echo timed-out-limit
+        fi
+    elif [ "$1" -eq 0 ]; then
+        echo passed
+    elif [ -n "$5" ] && [ -f "$6" ] && jq -Rne --arg re "$FAILURE_LINE_RE" --arg form "$5" \
+            '[inputs | select(test($re))] as $l | ($l | length) > 0 and all($l[]; test($form))' "$6" >/dev/null 2>&1; then
+        echo timed-out-inside
+    else
+        echo failed
+    fi
+}
+
 supervise() {
     local dir=$1
     RUN="$dir/run.json"
@@ -523,7 +592,7 @@ supervise() {
     fi
 
     local n i id safe limit maxp prog log start now pid status timed_out runaway count
-    local budget sup_start left capped=0 over=0 stopped="" attempt logdir
+    local budget sup_start left capped=0 over=0 stopped="" sumf form suites outcome attempt logdir
     # The attempt's folder holds its logs; a run.json without one (written
     # before attempt folders) keeps them in the head directory.
     logdir=$dir
@@ -563,6 +632,11 @@ supervise() {
         # umask for the command itself would change what it creates.
         (umask 077 && : > "$log") 2>/dev/null
         chmod 600 "$log" 2>/dev/null
+        # The command's suite summary. Removed first, so a file a run before
+        # this one left at the path is never read as this command's.
+        sumf="$dir/$i-$safe.suites.json"
+        rm -f "$sumf"
+        form=$(jq -r --argjson i "$i" '.invocations[$i].timeout_form // empty' "$RUN")
         prog=${argv[0]}
         case "$prog" in
             /*) ;;
@@ -572,7 +646,8 @@ supervise() {
         if [ -z "$prog" ] || [ ! -f "$prog" ] || [ ! -x "$prog" ]; then
             jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --arg log "$log" \
                 '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: null, duration_secs: 0,
-                  timed_out: false, runaway: false, not_started: true, pgid: null, log: $log}' >> "$SUP_ENTRIES"
+                  timed_out: false, runaway: false, not_started: true, pgid: null, log: $log,
+                  outcome: "failed", suites: null}' >> "$SUP_ENTRIES"
             echo "not started: [${argv[0]}] is not an executable program" > "$log"
             i=$((i + 1)); continue
         fi
@@ -582,9 +657,9 @@ supervise() {
         timed_out=false; runaway=false
         set -m
         if [ "$scope" -eq 1 ]; then
-            systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
+            SHIRABE_SUITE_SUMMARY=$sumf systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
         else
-            "${argv[@]}" </dev/null >"$log" 2>&1 &
+            SHIRABE_SUITE_SUMMARY=$sumf "${argv[@]}" </dev/null >"$log" 2>&1 &
         fi
         pid=$!
         SUP_PGID=$pid
@@ -611,11 +686,14 @@ supervise() {
         kill_group KILL "$pid"
         SUP_PGID=""
         now=$(date +%s)
+        suites=$(suites_of "$sumf")
+        outcome=$(outcome_of "$status" "$timed_out" "$runaway" "$suites" "$form" "$log")
         jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --argjson status "$status" \
             --argjson dur $((now - start)) --argjson to "$timed_out" --argjson ra "$runaway" \
-            --argjson pgid "$pid" --arg log "$log" \
+            --argjson pgid "$pid" --arg log "$log" --arg outcome "$outcome" --argjson suites "$suites" \
             '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: $status, duration_secs: $dur,
-              timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log}' >> "$SUP_ENTRIES"
+              timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log,
+              outcome: $outcome, suites: $suites}' >> "$SUP_ENTRIES"
         i=$((i + 1))
         if [ "$timed_out" = true ] && [ "$capped" -eq 1 ]; then
             over=1; stopped=$id; break
@@ -748,7 +826,7 @@ if [ -n "$ATTENDED" ]; then
     settle attended "commands marked unattended: false need a person: $ATTENDED" \
         "$(printf '%s' "$SELECTION" | jq -c '[.invocations[] | select(.unattended == false)
             | {id, argv, exit_status: null, duration_secs: 0, timed_out: false, runaway: false,
-               not_started: true, pgid: null, log: null}]')"
+               not_started: true, pgid: null, log: null, outcome: "failed", suites: null}]')"
 fi
 
 # 5. One supervisor per head. The lock is a symlink whose target is a pid:

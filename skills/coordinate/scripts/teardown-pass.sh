@@ -140,13 +140,19 @@
 #       timing out.
 #   teardown-pass.sh check --session <s> --topic <topic>
 #       confirm's reads for one topic's verdict, asked by state-holding.sh
-#       --retire before it drops a merged holding once its teardown pass is
+#       --retire before it drops a holding once its teardown pass is
 #       done: one the pass tore down itself (shirabe#1148) or one torn down
 #       outside it, `removed yes` (shirabe#1593). The verdict must name
 #       <topic>; then the same listings and archive checks as confirm. It stores no context key and seals nothing, so it can be
 #       asked at destroy, before teardown_confirm runs. Prints one line,
 #       `teardown-pass: teardown-confirmed: <why>` or `teardown-pass:
-#       teardown-incomplete: <why>`.
+#       teardown-incomplete: <why>`. A confirmed removed verdict's <why>
+#       starts `removed outside the run: `, which state-holding.sh --retire
+#       reads to retire a holding whose row was never marked merged and to
+#       record that the teardown was not the run's own (shirabe#1196). Only
+#       this run's own pass archive is read: an archive someone else left
+#       when they tore the unit down is not, so a removed verdict still needs
+#       the pass.
 #
 # Output (run): progress lines, then one last line `teardown-pass: done
 # <archive>`, `teardown-pass: refused: <why>` or `teardown-pass: incomplete at
@@ -341,11 +347,12 @@ if [ "$MODE" = confirm ] || [ "$MODE" = check ]; then
     if [ "$REMOVED" = 1 ]; then
         printf '%s' "$AG" | jq -e --arg p "$IPATH" 'any(.[]; .cwd == $p) | not' >/dev/null \
             || verdict teardown-incomplete "claude agents lists a job in $IPATH"
-        # No session survived the removal: there was nothing to archive.
-        [ "$NOJOB" = 1 ] && verdict teardown-confirmed "the unit was removed outside the pass and no session of it survived to archive"
+        # No session survived the removal: there was nothing to archive. The
+        # reason's prefix is the marker state-holding.sh --retire reads.
+        [ "$NOJOB" = 1 ] && verdict teardown-confirmed "removed outside the run: the unit was removed outside the pass and no session of it survived to archive"
     fi
     ls -d "$ARCHIVE_ROOT"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-"$TOPIC-$JOB" >"$T/arch" 2>/dev/null
-    [ "$(wc -l <"$T/arch" | tr -d ' ')" = 1 ] || verdict teardown-incomplete "no single archive for $TOPIC and job $JOB under $ARCHIVE_ROOT"
+    [ "$(wc -l <"$T/arch" | tr -d ' ')" = 1 ] || verdict teardown-incomplete "no single archive for $TOPIC and job $JOB under $ARCHIVE_ROOT; only this run's own teardown pass archive is read, an archive left by a teardown outside the run is not, and a removed verdict still needs the pass"
     ARCH=$(cat "$T/arch")
     case "$(head -1 "$ARCH/RESULT" 2>/dev/null)" in done*) ;; *) verdict teardown-incomplete "the archive's RESULT doesn't say done" ;; esac
     [ -s "$ARCH/MANIFEST" ] || verdict teardown-incomplete "the archive has no MANIFEST"
@@ -367,6 +374,9 @@ if [ "$MODE" = confirm ] || [ "$MODE" = check ]; then
         2) verdict teardown-incomplete "the archive's files could not be listed${err:+: $err}" ;;
         *) verdict teardown-incomplete "the archive's sizes could not be checked (status $rc)${err:+: $err}" ;;
     esac
+    # A removed verdict's reason carries the marker state-holding.sh --retire
+    # reads, and keeps the words the ordinary one ends with.
+    [ "$REMOVED" = 1 ] && verdict teardown-confirmed "removed outside the run: the instance and the job were already gone, and the run's removed pass archived what survived; the archive is whole"
     verdict teardown-confirmed "the instance and the job are gone and the archive is whole"
 fi
 
