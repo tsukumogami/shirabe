@@ -833,9 +833,11 @@ cmd_init() {
     # Where the unit started: impl_base must be one of these, so neither a
     # later nor an older base narrows the test class. HEAD counts because
     # this runs at fix_determination, before implementation: analysis
-    # recorded impl_base as HEAD, so the two still agree unless the base was
-    # rewritten by hand. The merge-base and the shared branch's remote tip
-    # cover a commit made between the two states.
+    # recorded impl_base as HEAD on a shared branch or in a fix round, so the
+    # two still agree unless the base was rewritten by hand. Off a shared
+    # branch analysis recorded the merge-base with the default branch, which
+    # is a candidate here too; with the shared branch's remote tip it also
+    # covers a commit made between the two states.
     git merge-base --is-ancestor "$base" "$head" 2>>"$ERRLOG" \
         || refuse "impl_base $base is not an ancestor of HEAD; it is not where this unit started"
     local cands="$head" ref mb

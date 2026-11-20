@@ -11,17 +11,46 @@
 # The template runs it twice, as two `default_action`s:
 #
 #   --base  <session>   on `analysis`: records `impl_base`, the commit the work
-#                       starts from. Written once. Every later entry (a
-#                       scope_changed_retry lap, a scope_expanded_retry return)
-#                       leaves the stored SHA alone, so commits made during
-#                       implementation never move the base.
+#                       starts from (see "Where the work starts" below).
+#                       Written once. Every later entry (a scope_changed_retry
+#                       lap, a scope_expanded_retry return) leaves the stored
+#                       SHA alone, so commits made during implementation never
+#                       move the base.
 #
 #   --write <session>   on `changed_paths_record`: writes `changed_paths.txt`,
 #                       the paths changed between the base and HEAD. That
 #                       state's `changed_paths_recorded` gate reads the key.
 #
-# Usage: record-changed-paths.sh --base  <koto-session-name>
+# Usage: record-changed-paths.sh --base  <koto-session-name> [--shared-branch <branch>]
 #        record-changed-paths.sh --write <koto-session-name>
+#
+# ## Where the work starts
+#
+# The template passes `--shared-branch "{{SHARED_BRANCH}}"`, so the flag is
+# present with an empty value on every run that isn't one of `/execute`'s
+# children on a shared branch. For such a run `--base` records the merge-base
+# of HEAD with origin's default branch, the ref scripts/lib/default-remote-ref.sh
+# names (origin/HEAD's target, else origin/main). A run that reaches `analysis`
+# on a branch whose code was already committed ahead of the default branch (a
+# continuation, or a branch with an open pull request) keeps that code in
+# impl_base..HEAD, so the review packet, commit_convention and has_commits see
+# it. A branch with no commits ahead has HEAD as its merge-base, so nothing
+# changes there.
+#
+# Every other case records HEAD:
+#   - the flag is absent (a caller that predates it);
+#   - the flag names a branch: on a shared branch the earlier commits are a
+#     sibling's (below);
+#   - the session holds `fix_round.json`, which fix-round.sh stores before a
+#     round reaches `analysis`: a fix round reviews only its fix;
+#   - origin has no default-branch ref, or HEAD shares no history with it.
+#     Unlike `--write`'s fallback below, `--base` never falls back to a local
+#     branch, which the branch's own commits could have moved.
+#
+# The merge-base widens the scope on two kinds of branch: one stacked on
+# another unmerged feature branch brings the parent's commits in (review-level.sh
+# measures the same floor), and a reused branch has commit_convention check
+# earlier sessions' commits too.
 #
 # ## The base
 #
@@ -75,7 +104,8 @@
 #         by an earlier lap, so the gate reads the key as absent rather than
 #         passing on paths from a previous round.
 #   66 -- a `koto context add` failed; koto's own stderr says why
-#   67 -- the mode or the session argument is missing or unrecognised
+#   67 -- the mode or the session argument is missing or unrecognised, or
+#         `--base` got an unknown argument or `--shared-branch` with no value
 #
 # On 64 or 67 no changed_paths.txt is written.
 #
@@ -101,9 +131,44 @@ case "$MODE" in
 esac
 [ -n "$SESSION" ] || die 67 "missing session argument for $MODE"
 
+# --shared-branch is --base's only option. Present with an empty value means the
+# run is not on a shared branch; absent means a caller that doesn't say.
+SHARED_FLAG=0
+SHARED_BRANCH=""
+if [ "$MODE" = "--base" ]; then
+    shift 2
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --shared-branch)
+                [ "$#" -ge 2 ] || die 67 "--shared-branch needs a value; pass \"\" off a shared branch"
+                SHARED_FLAG=1
+                SHARED_BRANCH="$2"
+                shift 2
+                ;;
+            *) die 67 "unrecognised argument [$1] for --base: expected --shared-branch <branch>" ;;
+        esac
+    done
+fi
+
 git rev-parse --git-dir >/dev/null || die 64 "not inside a git repository"
 
 # ---------------------------------------------------------------- --base ------
+
+# default_merge_base: prints the merge-base of HEAD with origin's default
+# branch, as default-remote-ref.sh names it. Returns 1, printing nothing, when
+# the library doesn't load, origin has no such ref, or HEAD shares no history
+# with it.
+default_merge_base() {
+    local lib ref
+    lib="$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/default-remote-ref.sh"
+    # shellcheck source=../../../scripts/lib/default-remote-ref.sh
+    . "$lib" 2>/dev/null || {
+        echo "record-changed-paths: $lib failed to load; recording HEAD as impl_base" >&2
+        return 1
+    }
+    ref=$(default_remote_ref .) || return 1
+    git merge-base HEAD "$ref" 2>/dev/null
+}
 
 if [ "$MODE" = "--base" ]; then
     # An existing value is never rewritten: the base is where the work started,
@@ -114,7 +179,16 @@ if [ "$MODE" = "--base" ]; then
     fi
     head=$(git rev-parse --verify -q "HEAD^{commit}") \
         || die 64 "HEAD does not name a commit; nothing to record as impl_base"
-    printf '%s\n' "$head" | koto context add "$SESSION" impl_base >/dev/null \
+    base="$head"
+    # Off a shared branch and outside a fix round, the work starts where the
+    # branch left the default branch, so commits made before analysis count.
+    if [ "$SHARED_FLAG" -eq 1 ] && [ -z "$SHARED_BRANCH" ] \
+        && ! koto context exists "$SESSION" fix_round.json; then
+        if merge_base=$(default_merge_base) && [ -n "$merge_base" ]; then
+            base="$merge_base"
+        fi
+    fi
+    printf '%s\n' "$base" | koto context add "$SESSION" impl_base >/dev/null \
         || die 66 "koto context add failed for impl_base on session [$SESSION]"
     exit 0
 fi
