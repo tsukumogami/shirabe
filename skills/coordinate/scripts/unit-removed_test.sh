@@ -320,7 +320,11 @@ echo "== a file writable by someone else: refused, exit 3; the user's private gr
 # FG is the user's primary group and who else is in it.
 mkdir -p "$T/copy" "$T/ids"
 cp "$UR" "$HERE/archive-common.sh" "$HERE/dispatch-common.sh" "$T/copy/"
-CU="$T/copy/unit-removed.sh"
+# The copy's directory as the script names it, resolved with pwd -P: on macOS
+# TMPDIR is a symlink into /private/var and ends in /, so a path built from $T
+# differs from the one the refusal prints.
+CP=$(cd -P "$T/copy" && pwd -P) || exit 1
+CU="$CP/unit-removed.sh"
 FG=$(ls -ldn -- "$CU" | awk '{ print $4 }')
 REAL_ID=$(command -v id)
 # ids <primary gid> <group's members> <another account with FG as primary, or ''> [nogetent]
@@ -346,7 +350,7 @@ EOF
 # modes <label> <script mode> <libraries' mode>: record from the copy, with the stand-ins.
 modes() {
     chmod "$2" "$CU"
-    chmod "$3" "$T/copy/archive-common.sh" "$T/copy/dispatch-common.sh"
+    chmod "$3" "$CP/archive-common.sh" "$CP/dispatch-common.sh"
     OUT=$(PATH="$T/ids:$PATH"; rec "$DID" "$SID" "$IP" "$CU")
     RC=$?
 }
@@ -382,10 +386,10 @@ ids "$FG" "other" ""
 modes "every file group-writable by a shared group" 775 664
 mode_refused "every file group-writable by a shared group"
 eq "  ... the one line names all three files and the remedy" \
-    "unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing recorded; chmod go-w $CU $T/copy/archive-common.sh $T/copy/dispatch-common.sh" "$OUT"
+    "unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing recorded; chmod go-w $CU $CP/archive-common.sh $CP/dispatch-common.sh" "$OUT"
 OUT=$(PATH="$T/ids:$PATH"; bash "$CU" start)
 eq "start refuses the same files: exit 3, the same line" \
-    "3|unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing started; chmod go-w $CU $T/copy/archive-common.sh $T/copy/dispatch-common.sh" "$?|$OUT"
+    "3|unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing started; chmod go-w $CU $CP/archive-common.sh $CP/dispatch-common.sh" "$?|$OUT"
 
 echo "== a second removal of the same dispatch id =="
 # record used to rewrite the record here, keeping removed_at at the same
