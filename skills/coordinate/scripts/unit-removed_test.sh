@@ -336,7 +336,7 @@ EOF
 #!/bin/sh
 case "\$1" in
 group) [ "\$2" = '$FG' ] && echo 'me:x:$FG:$2' ;;
-passwd) echo 'me:x:4242:$FG::/home/me:/bin/sh'; [ -n '$3' ] && echo '$3' ;;
+passwd) echo 'me:x:4242:$FG::/home/me:/bin/sh'; if [ -n '$3' ]; then echo '$3'; fi ;;
 *) exit 2 ;;
 esac
 EOF
