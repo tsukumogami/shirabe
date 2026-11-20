@@ -269,6 +269,9 @@ eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/ws/tsuku+deltav2x/public/shirabe"}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd only shares a prefix with a listed instance" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/ws/tsuku+deltav2/../tsuku+delta-89abcdef"}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd climbs out of a listed instance" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": 7}'
 hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd isn't a path" 65 $?
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"

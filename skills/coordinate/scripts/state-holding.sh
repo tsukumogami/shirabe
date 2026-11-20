@@ -71,10 +71,14 @@
 # for its topic: niwa lists no session for it (dc_find_session, the test
 # dispatch-worker.sh made before it wrote the row dispatch-failed), and no
 # Claude job under DC_CLAUDE_HOME (default $HOME/.claude) whose name is the
-# topic's session name is unfinished (dc_job_finished). A job state file whose
-# name can't be read refuses too, since it can't be ruled out. Either one found
-# refuses the retire (65) with what was found; a listing that can't be read, or
-# no workspace root to read it from, exits 2 with nothing written. Both checks
+# topic's session name is unfinished (dc_job_finished). A job state file with
+# no string name is ruled out only by what it carries itself (shirabe#1937):
+# it has finished (dc_job_finished, with the file's own pid checked), or its
+# cwd lies in an instance niwa lists for a session other than the topic's. One
+# that isn't JSON, or that neither fact places, refuses too, since it can't be
+# ruled out. Either one found refuses the retire (65) with what was found; a
+# listing that can't be read, or no workspace root to read it from, exits 2
+# with nothing written. Both checks
 # see only this host: the niwa listing of the workspace the current directory
 # is in, and the jobs under DC_CLAUDE_HOME. NIWA names a stand-in for niwa
 # (tests).
@@ -100,6 +104,44 @@ SESSION= SCOPE= NAME= REPO= TOPIC= ROWFILE= MODE= PUSHED=
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+
+# sh_strip_path <path>: the path without trailing slashes, when it is
+# absolute, isn't the root, and has no . or .. component; else it fails.
+sh_strip_path() {
+    local p=$1
+    p=${p%"${p##*[!/]}"}
+    case "$p" in /?*) ;; *) return 1 ;; esac
+    case "$p/" in */./* | */../*) return 1 ;; esac
+    printf '%s\n' "$p"
+}
+
+# sh_other_roots <ws-root> <topic>: the root path of every instance niwa lists
+# whose session name is a string that isn't the topic's, one per line. An
+# instance with no session name could be the topic's half-built one, so it
+# isn't listed. Fails when the listing can't be read.
+sh_other_roots() {
+    local list name path
+    list=$(cd "$1" && "${NIWA:-niwa}" list --json) || return 1
+    printf '%s' "$list" | jq -e 'type == "array"' > /dev/null 2>&1 || return 1
+    printf '%s' "$list" | jq -r '.[] | select(type == "object" and (.session_name | type) == "string" and (.path | type) == "string") | [.session_name, .path] | @tsv' |
+        while IFS='	' read -r name path; do
+            dc_session_matches "$2" "$name" && continue
+            sh_strip_path "$path" || true
+        done
+}
+
+# sh_in_roots <cwd> <roots>: the cwd is one of the roots, or lies below one.
+sh_in_roots() {
+    local cwd root
+    cwd=$(sh_strip_path "$1") || return 1
+    while IFS= read -r root; do
+        [ -n "$root" ] || continue
+        [ "$cwd" = "$root" ] && return 0
+        case "$cwd" in "$root"/*) return 0 ;; esac
+    done <<< "$2"
+    return 1
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
@@ -195,13 +237,29 @@ strand|retire)
                 *) lib_die2 "niwa's listing can't be read, so $TOPIC's worker can't be ruled out" ;;
             esac
             JOBS_HOME=${DC_CLAUDE_HOME:-$HOME/.claude}
+            OTHER_ROOTS=
             for JF in "$JOBS_HOME"/jobs/*/state.json; do
                 [ -f "$JF" ] || continue
                 JOB=${JF%/state.json} JOB=${JOB##*/}
-                # Fail closed: a state file that isn't JSON, or has no string
-                # name, could be this topic's worker, so it refuses the retire.
                 if ! JNAME=$(jq -er '.name | strings' "$JF" 2>/dev/null); then
-                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) has no readable name in its state file, so it can't be ruled out as $TOPIC's worker; a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    # No name to match on (shirabe#1937). A job that finished
+                    # by its own state and pid isn't anyone's live worker, and
+                    # one whose cwd is in another session's listed instance is
+                    # that session's: niwa lists none for this topic. Any
+                    # other could be this topic's worker, so it refuses.
+                    if JROW=$(jq -ce 'select(type == "object") | {pid}' "$JF" 2>/dev/null) \
+                        && dc_job_finished "$JOBS_HOME" "$JOB" "$JROW" > /dev/null; then
+                        continue
+                    fi
+                    if JCWD=$(jq -er 'select(type == "object") | .cwd | strings' "$JF" 2>/dev/null); then
+                        if [ -z "$OTHER_ROOTS" ]; then
+                            OTHER_ROOTS=$(sh_other_roots "$WS_ROOT" "$TOPIC") \
+                                || lib_die2 "niwa's listing can't be read, so Claude job $(printf '%s' "$JOB" | lib_scrub) can't be ruled out as $TOPIC's worker"
+                            OTHER_ROOTS=$'\n'$OTHER_ROOTS
+                        fi
+                        sh_in_roots "$JCWD" "$OTHER_ROOTS" && continue
+                    fi
+                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) has no readable name in its state file, isn't finished by its own state and pid, and has no cwd in an instance niwa lists for another session, so it can't be ruled out as $TOPIC's worker; a dispatch-failed holding is retired only when no worker exists for it" >&2
                     exit 65
                 fi
                 dc_session_matches "$TOPIC" "$JNAME" || continue
