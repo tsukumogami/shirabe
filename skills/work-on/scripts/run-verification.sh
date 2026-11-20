@@ -299,7 +299,7 @@ outcome_of() {
     if [ "$3" = true ]; then
         echo failed
     elif [ "$2" = true ]; then
-        if printf '%s' "$4" | jq -e '. != null and (.failed | length) > 0' >/dev/null 2>&1; then
+        if printf '%s' "$4" | jq -e '. != null and (.failed | length) > 0' >/dev/null; then
             echo failed
         else
             echo timed-out-limit
