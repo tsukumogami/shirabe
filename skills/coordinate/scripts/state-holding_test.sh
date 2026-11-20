@@ -252,6 +252,45 @@ hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 nojob 5c6d7e8f
 
+echo "== an unnamed job is ruled out by its own state, pid and cwd (shirabe#1937) =="
+# niwa lists only deltav2's instance, at /ws/tsuku+deltav2. An unnamed job
+# goes once its state file says it finished and its pid is gone, or once its
+# cwd lies in an instance niwa lists for another session; any other refuses.
+retire_seed() { seed "$(record_json roadmap plugin-system | jq -c --argjson d "$(holding delta '{"dispatch_status": "dispatch-failed"}')" '.holdings = [$d]')"; }
+retire_seed
+SNAP=$(session_snapshot "$SR")
+rawjob 5c6d7e8f "{\"name\": null, \"state\": \"stopped\", \"pid\": $$}"
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed job reads stopped but its pid is still running" 65 $?
+grep -q 'Claude job 5c6d7e8f has no readable name' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/home/someone/elsewhere"}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd is in no instance niwa lists" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": "/ws/tsuku+deltav2x/public/shirabe"}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd only shares a prefix with a listed instance" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+rawjob 5c6d7e8f '{"name": null, "state": "working", "pid": null, "cwd": 7}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses while an unnamed working job's cwd isn't a path" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+nojob 5c6d7e8f
+rawjob 31e9216f '{"name": null, "state": "stopped", "pid": null, "cwd": "/ws/tsuku+epsilon-9f8e7d6c"}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire rules out an unnamed job that is stopped with no pid (the issue's job)" \
+    || bad "--retire rules out an unnamed job that is stopped with no pid (the issue's job)" "exit $rc: $(cat "$T/err")"
+eq "  ... and the holding is gone" "" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+nojob 31e9216f
+retire_seed
+rawjob 5c6d7e8f '{"state": "working", "cwd": "/ws/tsuku+deltav2/public/shirabe"}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire rules out an unnamed working job whose cwd is in another session's listed instance" \
+    || bad "--retire rules out an unnamed working job whose cwd is in another session's listed instance" "exit $rc: $(cat "$T/err")"
+retire_seed
+rawjob 5c6d7e8f '{"state": "working", "cwd": "/ws/tsuku+deltav2"}'
+hf --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "  ... and one whose cwd is that instance's root" \
+    || bad "  ... and one whose cwd is that instance's root" "exit $rc: $(cat "$T/err")"
+nojob 5c6d7e8f
+
 echo "== a dispatch-failed holding retired through the session (shirabe#1612) =="
 # Its own roadmap, so no other live run of the same record is in the way.
 SF=coordinate-roadmap-retire-path-20260927T070000Z
