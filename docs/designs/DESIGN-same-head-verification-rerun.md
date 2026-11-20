@@ -341,9 +341,58 @@ the cap, and both scripts source it, the way `check-verification.sh` already sou
   process boundary and a second argument parser between the two callers of one
   rule, and couples the gate to the launcher's CLI.
 
+### Decision 6: Where the re-run record is checked for a shared pull request
+
+`check-pr-output.sh --rerun-record` refuses a PR body whose Verification section
+lacks a re-run line for an archived attempt. A session that opens its own PR can
+run it at `pr_creation`. In a plan run whose steps share one branch and one PR,
+though, each step's child session submits `pr_status: shared` at `pr_creation` and
+opens nothing: the owning session owns the PR and checks it at `pr_finalization`.
+That edit replaces the whole PR body, keeping only the run marker, and its gates
+check the rewritten body once. A child also has no variable naming the owned PR,
+and in the node push path the PR is opened only after the children finish. The
+verification deferral record already has this shape: `pr_creation` gates it on the
+`created` edges only, and `pr_finalization`'s `deferral_recorded` gate collects
+every child's `verification_deferral` and checks the owned PR. The requirement is
+that no re-run is hidden in any PR, owned or shared.
+
+#### Chosen: The owning session checks the shared PR at pr_finalization
+
+`pr_finalization` gains a re-run record gate beside `deferral_recorded`. Its
+collector, modelled on `shared-deferral-record.sh`, finds the run's children the
+same ways (the children listing, or `--child` with `--child-dir`), reads each
+child's `verification_attempts` as JSON Lines, and runs `check-pr-output.sh
+--rerun-record` against the owned PR after the finalization edit, so it checks the
+body a reviewer reads. In the node push path the ledger lines reach the run record
+at push time, the way deferrals do, and the check runs where that path checks
+deferrals. The gate is overridable only by a person, like the other output gates,
+and it doesn't pass under `omit`: re-run lines are required whatever the
+workflow-content setting. The finalization directive tells the owning session to
+write each child's re-run lines into the body.
+
+Each child's `pr_creation` runs its re-run record gate on the `created` edges only,
+where the child opens its own PR. The `shared` edge stays ungated, as it is for
+every other output gate. So the owned and shared cases each get one check, on the
+body that lands. This was assumed under `--auto`. It assumes a child's session and
+its `verification_attempts` key stay readable through `pr_finalization`, since
+every tick carries `--no-cleanup`; if not, the ledger needs a run-record copy, as
+deferrals already have for the node push path.
+
+#### Alternatives Considered
+
+- **A sharing child checks the owning PR's body at pr_creation**: rejected because
+  the owning session's finalization edit replaces the body afterwards and nothing
+  checks it again, the PR may not exist yet in the node push path, and the child
+  has no variable naming the owned PR. A re-run could still be hidden.
+- **Both checks, the child's as an early signal**: rejected because it meets the
+  requirement only through the owning session's check, while the child's half adds
+  PR-naming plumbing and a hold on a body that is about to be replaced.
+- **Leave the shared case unchecked and say so**: rejected because it hides re-runs
+  in shared PRs by design.
+
 ## Decision Outcome
 
-The five decisions fit together as one route and one record. Decision 1 names the
+The six decisions fit together as one route and one record. Decision 1 names the
 route: a failed command still goes to `implementation`, where the agent can answer
 `verification_rerun` with a reason, and an eligible timeout holds at the new exit
 5, where the agent picks `rerun`, `fix` or `blocked`. Either rerun value writes
@@ -357,7 +406,10 @@ gate and `--archive` share one eligibility function (decision 5) and one count,
 taken from the ledger, so the two-per-head cap a reviewer sees in the announcement
 and the PR body is the one that was enforced. A moved merge-base writes no ledger
 line (decision 3), exit 2 keeps its route (decision 4), and a pass, a running suite
-and a dirty-tree result are never archived.
+and a dirty-tree result are never archived. The PR body carries a re-run line per
+archived attempt: a session that opens its own PR checks it at `pr_creation`, and a
+PR that a plan's steps share is checked by the owning session at `pr_finalization`
+(decision 6).
 
 High-priority assumption: this design adds no guard on `implementation_status:
 complete`. Over the cap the gate routes exit 1 to `implementation` as today and
@@ -579,6 +631,11 @@ from Phase 1 on; the check then asks for that line too.
 
 Deliverables:
 - `skills/work-on/scripts/check-pr-output.sh` and `check-pr-output_test.sh`
+- `skills/work-on/koto-templates/work-on.md` (the re-run record gate on
+  `pr_creation`'s `created` edges)
+- `skills/execute/koto-templates/execute.md` (the re-run record gate on
+  `pr_finalization`, beside `deferral_recorded`, and the finalization directive), a
+  collector script modelled on `shared-deferral-record.sh`, and its test
 - `skills/work-on/SKILL.md`, `skills/work-on/references/verification-map.md`,
   `docs/designs/current/DESIGN-output-gates.md`
 
