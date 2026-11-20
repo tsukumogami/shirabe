@@ -326,7 +326,7 @@ in `## What Was Implemented`; the format behind the rule is the report rule in
 
 Skip staleness checks in plan-backed mode.
 
-When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. koto skips `setup_plan_backed` (its `skip_if` records `status: override`), so the response arrives with `advanced: true`: submit nothing for that state, call `koto next` again, and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
+When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. koto skips `setup_plan_backed` on the variable alone and moves the child on to `analysis`, so the response arrives with `advanced: true` at `analysis`: submit nothing for `setup_plan_backed`, and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
 
 **PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete. A child that deferred verification records its reason as `verification_deferral`, as a standalone run does, but its `shared` edge skips `verification_deferral_recorded`: `pr_finalization` reads each child's reason and holds until the shared PR's body records it.
 
@@ -593,9 +593,10 @@ leg, since one leg answers one session.
   exception is `ci-none-declared.sh --owned`, whose declaration read comes
   before the lookup and stays on gh's default host, the one owned-pr.sh
   searches. `scripts/pr-url_test.sh` is its harness.
-- `scripts/record-changed-paths.sh --base|--write <session-name>` — run by koto
-  itself, never by the agent: `analysis` runs `--base` on entry to record
-  `impl_base` once, and `changed_paths_record` runs `--write` to put
+- `scripts/record-changed-paths.sh --base <session-name> [--shared-branch <b>]|--write <session-name>`
+  — run by koto itself, never by the agent: `analysis` runs `--base` on entry
+  to record `impl_base` once (the merge-base with the default branch off a
+  shared branch, HEAD on one or in a fix round), and `changed_paths_record` runs `--write` to put
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.

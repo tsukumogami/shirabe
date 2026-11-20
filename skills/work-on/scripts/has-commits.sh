@@ -7,8 +7,9 @@
 # point (record-changed-paths.sh --base). That is exactly the gate's question,
 # and it doesn't depend on branch names: a clone with no local `main`, a clone
 # whose default branch is called something else, and a linked worktree all
-# answer the same way. It also leaves out commits the run didn't make, such as
-# a sibling's on a shared branch or whatever the branch started from.
+# answer the same way. It also leaves out what the branch started from and a
+# sibling's commits on a shared branch; off one, commits already on the branch
+# when the run reached analysis count, since the base is the merge-base there.
 #
 # A missing `impl_base` fails the gate rather than guessing a base. The gate
 # guards routes that must not be taken without commits, so "don't know" is a

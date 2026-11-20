@@ -515,10 +515,14 @@ states:
           verdict: exit
 
   setup_plan_backed:
+    # A key in skip_if that isn't a vars. key must already be in the state's
+    # evidence, so the skip keys on SHARED_BRANCH alone: a child handed the
+    # shared branch submits nothing here. The skip resolves its target through
+    # the conditional edge on the same variable; the other conditional edges
+    # carry is_set: false so every pair stays mutually exclusive.
     skip_if:
       vars.SHARED_BRANCH:
         is_set: true
-      status: override
     gates:
       on_feature_branch:
         type: command
@@ -537,15 +541,25 @@ states:
     transitions:
       - target: analysis
         when:
+          vars.SHARED_BRANCH:
+            is_set: true
+      - target: analysis
+        when:
           status: completed
           gates.on_feature_branch.exit_code: 0
           gates.baseline_exists.exists: true
+          vars.SHARED_BRANCH:
+            is_set: false
       - target: analysis
         when:
           status: override
+          vars.SHARED_BRANCH:
+            is_set: false
       - target: done_blocked
         when:
           status: blocked
+          vars.SHARED_BRANCH:
+            is_set: false
         context_assignments:
           failure_reason: "setup_plan_backed blocked: ${evidence.detail}"
       - target: analysis
@@ -653,6 +667,17 @@ states:
     # earlier commits from the record. On a SHARED_BRANCH, the base is also what
     # keeps the commits siblings made before this run out of it.
     #
+    # Which commit is the base: off a shared branch the script records the
+    # merge-base of HEAD with origin's default branch, so code committed on
+    # the branch before the run reached analysis (a continuation, or a run
+    # opened on a branch with an open pull request) stays in impl_base..HEAD
+    # for the review packet, commit_convention and has_commits. On a branch
+    # with no commits ahead the merge-base is HEAD. On a SHARED_BRANCH, and in
+    # a fix round (the session holds fix_round.json), it records HEAD: the
+    # earlier commits are a sibling's, or the round reviews only its fix.
+    # SHARED_BRANCH is passed even when empty, which is what tells the script
+    # the run is not on a shared branch.
+    #
     # The action's failure stops the tick with the fallback below. The run can
     # go on once impl_base is recorded, by a re-run or by the agent; without it
     # changed_paths_record falls back to a merge-base, but has_commits fails
@@ -664,7 +689,7 @@ states:
     # variable carries the session's name. koto substitutes it inside a
     # default_action command.
     default_action:
-      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}"'
+      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"'
       fallback: >-
         koto could not record impl_base, the commit this issue's work starts
         from. Read the command's own output above: the script exits 64 when
@@ -673,8 +698,10 @@ states:
         the plugin. Fix the cause and tick again -- the action re-runs on entry
         and never overwrites a base it already recorded. If it can't be fixed,
         record the base yourself before committing anything:
-        `git rev-parse HEAD | koto context add <session> impl_base`, with
-        this workflow's session name for <session>.
+        `git merge-base HEAD origin/main | koto context add <session> impl_base`
+        (origin's default branch in place of origin/main when it has another
+        name), or `git rev-parse HEAD` in its place on a shared branch or in a
+        fix round, with this workflow's session name for <session>.
         Then do the analysis and submit `plan_outcome` as usual, which skips
         the action. Don't go on without impl_base: the has_commits gate on the
         docs and scrutiny routes fails until it is recorded.
@@ -3376,7 +3403,8 @@ For plan-backed tasks, use ARTIFACT_PREFIX as the baseline key.
 
 Submit `status: completed` after creating the branch and baseline, `status: override`
 if reusing an existing branch, or `status: blocked`. When `SHARED_BRANCH` is set, koto
-skips this state through `skip_if` and you submit nothing here.
+skips this state through `skip_if` on that variable alone: the response arrives at
+`analysis`, and you submit nothing here.
 
 ## staleness_check
 
@@ -3434,7 +3462,9 @@ submit `plan_outcome: already_complete` — no implementation needed. Routes to
 `done_already_complete` (a non-failure terminal).
 
 koto records `impl_base`, the commit this work starts from, as it enters this
-state. You don't submit it, and you don't classify the issue's type here: that
+state. Off a shared branch that's the merge-base with the default branch, so
+commits already on the branch when the run got here are part of the work and
+its review; you don't set it by hand. You don't submit it, and you don't classify the issue's type here: that
 question is asked once, at `issue_type_routing`, after implementation.
 
 Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
