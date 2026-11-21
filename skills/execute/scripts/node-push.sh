@@ -242,6 +242,19 @@
 #   80  node mode: the node carries a verification deferral, and the owned PR
 #       on its branch doesn't record it in its body (stderr names each part
 #       missing); nothing was pushed or edited (execute:deferral-record)
+#   81  node mode: a work item took the hosted-of-record route, and the
+#       node's record was refused: the node branch's whole diff touches a
+#       path that decides what the hosted job runs, or a child's record
+#       doesn't validate against its result and map (stderr names each
+#       cause); no record was written and nothing was pushed (execute:ci)
+#
+# The hosted-of-record route (node mode, step 3c). A work item that took it
+# holds `hosted_of_record` in its own session. Before the push, the node's own
+# record is written as `run/hosted/<node>` in the run's session for the head
+# about to be pushed (work-on's verification-route.sh --collect, with the
+# node worktree for its git reads and its children's koto reads). The loop
+# reads that record before it evaluates or merges the node PR
+# (coord-common.sh).
 #
 # A deferral that can't be read (a koto read that failed, hosted-ci with no
 # reason) or checked (a GitHub read for the body) is a 72, like a failed
@@ -661,6 +674,34 @@ if [ "$MODE" = node ]; then
                exit 72 ;;
         esac
     fi
+fi
+
+# 3c. The hosted-of-record route (node mode). A work item whose verification
+# timed out with no check failed may have recorded hosted_of_record in its own
+# session; the node PR is where its hosted jobs run, so the node gets its own
+# record, `run/hosted/<node>` in this run's session, for the head about to be
+# pushed: verification-route.sh --collect validates each child's record
+# against that child's stored result and map, and runs the diff checks
+# /work-on's --open makes over the node branch's whole diff from its
+# merge-base with the default branch. A closing path anywhere in that diff is
+# 81: no record is written and nothing is pushed. With no child on the route
+# nothing is written. The record carries the worktree, so a later read from
+# this checkout runs its git reads there.
+if [ "$MODE" = node ]; then
+    HOSTED_ARGS=(--collect --session "$SESSION" --key "run/hosted/$NODE"
+        --head "$(git -C "$GIT_WT" rev-parse HEAD)" --work-tree "$GIT_WT" --child-dir "$GIT_WT")
+    [ -n "$DEFAULT" ] && HOSTED_ARGS+=(--base "refs/remotes/$REMOTE/$DEFAULT")
+    for a in "${DEFERRAL_ARGS[@]}"; do
+        case "$a" in work-on-"$SLUG"-"$NODE"-*) HOSTED_ARGS+=(--child "$a") ;; esac
+    done
+    "$BASH" "$COORD_SELF_DIR/../../work-on/scripts/verification-route.sh" "${HOSTED_ARGS[@]}" </dev/null >&2
+    case $? in
+        0|4) ;;
+        1) echo "$PROG: node $NODE's hosted-of-record route is refused (the causes are above); no record was written and nothing was pushed" >&2
+           exit 81 ;;
+        *) echo "$PROG: could not read or record node $NODE's hosted-of-record route; nothing was pushed" >&2
+           exit 72 ;;
+    esac
 fi
 
 # 4. The push: the explicit refspec, never a force option. The order mode

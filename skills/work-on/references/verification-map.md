@@ -287,7 +287,7 @@ left commands unstarted; a diff from the merge-base that touches a path under `.
 `scripts/skill-gate.sh`, `scripts/check-skill.sh`, a library either of them sources or a
 helper either runs (read from the merge-base's copies, so a helper the diff adds and edits
 still closes it), this map, or `skills/work-on/scripts/verification-hosted-coverage_test.sh`;
-a `check-skill.tsv` edited other than by added rows; and a run that is a child of `/execute`.
+and a `check-skill.tsv` edited other than by added rows.
 
 Taking the route writes the koto key `hosted_of_record` (`--record`): the head, `taken_at`,
 the reason (stripped of control characters and backticks, capped in length, never put on a
@@ -302,6 +302,19 @@ refuses and the new head is verified afresh.
 
 The hosted wait is measured from `taken_at` and lasts up to 120 minutes. It isn't charged to
 the run's two-hour budget, which only bounds the local commands.
+
+A child of `/execute` takes the route like any run, and still ends with `pr_status: shared`:
+the pull request it would have read is `/execute`'s. `/execute` writes its own record for the
+pull request it owns (`--collect`), at that pull request's head, from the children's records:
+the union of their checks, each part naming its child, one reason built from theirs, and its
+own `taken_at`, so its wait starts when it took the route. Each child's part is validated
+against that child's stored result and map, and the pull request's whole diff from its
+merge-base goes through the same diff checks `--open` makes, so another child's commit on the
+shared branch that touches `.github/` closes the route for all of them. A `single-pr` run keeps
+its record as `hosted_of_record` in its own session and reads it at `plan_completion` before it
+marks the shared pull request ready; a coordinated run keeps one record per node,
+`run/hosted/<node>`, written by `node-push.sh` for the node's pushed head and read before the
+node pull request is readied or merged.
 
 ## Illustrative example (not a real project's map)
 

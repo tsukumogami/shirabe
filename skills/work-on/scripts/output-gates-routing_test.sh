@@ -936,6 +936,21 @@ for rc in 75 2; do
     expect "fix at verdict $rc is refused" verification
 done
 
+# A child of /execute (SHARED_BRANCH set: a single-pr shared-branch child, or
+# a coordinated work item on its node branch) takes the route the same way:
+# the hold at 5, hosted_of_record with a reason on to verification_hosted and
+# pass_counting, an empty reason refused. /execute reads the record for the
+# PR it owns.
+for shared in impl/plan-x impl/plan-x-node-a; do
+    reset_rc; set_rc check-verification.sh--verdict 5
+    drive verification "$shared" ""
+    holds "SHARED_BRANCH=$shared, verdict 5, no evidence" verification verification_verdict
+    CHAIN=verification_hosted drive verification "$shared" "$TAKE"
+    expect "SHARED_BRANCH=$shared takes the route as a standalone run does" pass_counting
+    drive verification "$shared" '{"verification_status":"hosted_of_record","detail":"  "}'
+    expect "SHARED_BRANCH=$shared, hosted_of_record with an empty reason is refused" verification
+done
+
 # One session, started with the default VERIFICATION=local, takes the route
 # and goes on: no re-init between verification and pass_counting.
 reset_rc; set_rc check-verification.sh--verdict 5

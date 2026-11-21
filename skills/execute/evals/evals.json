@@ -1646,6 +1646,22 @@
       "grader": "script",
       "handoff": "work-on",
       "run": "scripts/check-handoff.sh execute work-on"
+    },
+    {
+      "id": 87,
+      "name": "hosted-route-child-and-parent-read",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md --auto -- one child's verification timed out on check-skill:coordinate with no check failed, and it took the hosted-of-record route. What does that child submit, and what does plan_completion do before the shared PR is marked ready?",
+      "expected_output": "The child takes the route as a standalone run would: verification holds at exit 5, it submits verification_status: hosted_of_record with a reason, records hosted_of_record for its own head, and still submits pr_status: shared at pr_creation, opening no PR. At plan_completion, once the cascade's verdict is recorded, the shared_hosted_read gate runs verification-route.sh --parent-read: it writes the run session's own hosted_of_record for the shared PR's head (the union of the children's checks, each part naming its child's session and result head, one reason built from the children's, and its own taken_at), after running the diff checks --open makes over the PR's whole diff from its merge-base, then reads each declared job's latest attempt at that head and writes the run links into the body. The agent makes step 2's ready call through verification-route.sh --mark-ready --absent-ok, which runs gh pr ready itself when no child took the route and otherwise marks nothing ready until the read settles. A pending job holds plan_completion; a refused job, or one still pending 120 minutes after the parent's taken_at, ends the run at done_blocked with step execute:ci; the run reaches ci_monitor only once shared_hosted_ready passes.",
+      "files": [],
+      "expectations": [
+        "The child still ends with pr_status: shared; it opens no PR and does no hosted read of its own",
+        "The parent's record is at the shared PR's head, not at a child's, and its wait is measured from the parent's own taken_at",
+        "A closing path anywhere in the shared PR's diff, another child's commit included, refuses the route and nothing is marked ready",
+        "The agent never runs gh pr ready directly while a child's route is unsettled, and never fills the record's run ids by hand",
+        "A run whose children took no route marks the PR ready and reaches ci_monitor exactly as before"
+      ]
     }
   ]
 }
