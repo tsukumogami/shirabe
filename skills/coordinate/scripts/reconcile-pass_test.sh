@@ -512,6 +512,13 @@ pass
 elapsed=$((SECONDS - start))
 [ "$elapsed" -lt 20 ]; check "a re-check past its budget is stopped, and the pass's line doesn't wait for it" $? "${elapsed}s: $LINE"
 case "$LINE" in pending:*) ok "and the visit stays pending, to read it again" ;; *) bad "and the visit stays pending, to read it again" "$LINE" ;; esac
+# shirabe#1548: the stop is on stderr as it happens, so a tick koto kills
+# later still shows which re-check was slow, and the pending exit names what
+# is left to read.
+grep -Eq '^reconcile-pass: stopped h0\.appeared \(appeared\) at its [0-9]+s budget(, clipped: read again in a later pass|: try 1 of 2)$' "$CASE/stderr"
+check "stderr names the re-check still running when the pass gives up, as it stops it" $? "$(cat "$CASE/stderr")"
+grep -Eq '^reconcile-pass: pending with [0-9]+ re-checks left: (.*, )?h0\.appeared \(appeared\)(, .*)?$' "$CASE/stderr"
+check "the pending exit names the re-check still running when the pass gave up, among those left" $? "$(cat "$CASE/stderr")"
 
 # An inventory that never fits its budget (shirabe#1166): each launch costs 40
 # seconds of the clock and then hangs, so the pass stops it every time. Stopped
@@ -524,8 +531,13 @@ echo 40 > "$CASE/cost.inventory"
 : > "$CASE/hang.inventory"
 pass
 case "$LINE" in pending:*) ok "an inventory stopped at its whole budget once is read again" ;; *) bad "an inventory stopped at its whole budget once is read again" "$LINE" ;; esac
+grep -qx 'reconcile-pass: stopped h0.inv (inventory) at its 20s budget: try 1 of 2' "$CASE/stderr"
+check "stderr names the re-check still running at its whole budget, as try 1 of 2" $? "$(cat "$CASE/stderr")"
 tick 1; pass
 case "$LINE" in "reconciled "*) ok "stopped at its whole budget in two passes, the visit seals" ;; *) bad "stopped at its whole budget in two passes, the visit seals" "$LINE: $(ctx reconcile/progress)" ;; esac
+grep -qx 'reconcile-pass: stopped h0.inv (inventory) at its 20s budget: try 2 of 2, stored as timed out' "$CASE/stderr"
+check "stderr names the re-check still running at its last try, stored as timed out" $? "$(cat "$CASE/stderr")"
+grep -q '^reconcile-pass: pending with ' "$CASE/stderr" && bad "a pass that seals writes no pending line" "$(cat "$CASE/stderr")" || ok "a pass that seals writes no pending line"
 [ "$(grep -c ' inventory ' "$CASE/checks")" = 2 ]; check "the inventory was launched twice" $? "$(cat "$CASE/checks")"
 ctx reconcile/report.md | grep -q 'inventory could not be taken (timed out: still running at the end of its 20 s budget in 2 passes)'
 check "the report says the inventory timed out and was not taken" $? "$(ctx reconcile/report.md)"
@@ -540,7 +552,10 @@ record "[$(hold slow "" '{"branch": ""}')]"
 echo 17 > "$CASE/read.cost"
 echo 40 > "$CASE/cost.inventory"
 : > "$CASE/hang.inventory"
-pass; tick 1; pass
+pass
+grep -Eq '^reconcile-pass: stopped h0\.inv \(inventory\) at its [0-9]+s budget, clipped: read again in a later pass$' "$CASE/stderr"
+check "stderr names the re-check still running at a clipped budget, to be read again" $? "$(cat "$CASE/stderr")"
+tick 1; pass
 case "$LINE" in pending:*) ok "a stop with a clipped budget doesn't count as a try" ;; *) bad "a stop with a clipped budget doesn't count as a try" "$LINE" ;; esac
 tick 1; pass
 case "$LINE" in "reconciled "*) ok "two stops at the whole budget after it seal the visit" ;; *) bad "two stops at the whole budget after it seal the visit" "$LINE" ;; esac
