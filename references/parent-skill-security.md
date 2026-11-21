@@ -21,8 +21,10 @@ The companion references fill in the details this document points at:
 
 The topic-slug regex `^[a-z0-9-]+$` is the pattern-level constraint
 sourced from `parent-skill-state-schema.md` (Topic-Slug Regex
-section). Every parent validates `$ARGUMENTS` AS PROVIDED at Phase 0
-against this regex.
+section). Every parent validates its topic slug AS PROVIDED at Phase 0
+against this regex: the slug the author gave, or the one the agent
+derived under `topic-derivation.md`, with nothing reshaping it between
+the choice and the check.
 
 On resume — when the parent's resume ladder recovers a slug from an
 on-disk artifact path (a Slot 5 file-glob match against
