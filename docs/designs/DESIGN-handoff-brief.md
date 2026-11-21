@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A session at its context line is replaced by a freshly dispatched one, and a
   session that stops leaves no readable reasoning and no record of which files
@@ -41,7 +41,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
