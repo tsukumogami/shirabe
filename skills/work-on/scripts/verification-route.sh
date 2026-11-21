@@ -823,7 +823,7 @@ vr_key_read() {
     # A node's record names the worktree its git reads ran in; it is used
     # when this call names none and the directory is still there.
     if [ -z "$VR_WT" ]; then
-        wt=$(jq -r 'if type == "object" and (.work_tree | type) == "string" then .work_tree else "" end' <<<"$VR_REC" 2>/dev/null) || wt=""
+        wt=$(jq -r 'if type == "object" and (.work_tree | type) == "string" then .work_tree else "" end' <<<"$VR_REC") || wt=""
         [ -n "$wt" ] && [ -d "$wt" ] && VR_WT=$wt
     fi
     return 0
@@ -1270,7 +1270,7 @@ vr_cmd_lines() {
 # vr_default_base <root>: origin's default branch as a ref, origin/main when
 # refs/remotes/origin/HEAD is absent.
 vr_default_base() {
-    git -C "$1" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main
+    git -C "$1" symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main
 }
 
 # vr_child_names: the children --collect reads, one per line: the --child
@@ -1305,7 +1305,7 @@ vr_cmd_collect() {
         esac
         rec=$(vr_child_koto context get "$child" hosted_of_record </dev/null) \
             || { vr_say "could not read $child's hosted_of_record"; return 2; }
-        ch=$(jq -r 'if type == "object" and (.head | type) == "string" then .head else "" end' <<<"$rec" 2>/dev/null) || ch=""
+        ch=$(jq -r 'if type == "object" and (.head | type) == "string" then .head else "" end' <<<"$rec") || ch=""
         if ! grep -Eq "$VR_SHA_RE" <<<"$ch"; then
             vr_say "$child's hosted_of_record names no head"
             refused=1

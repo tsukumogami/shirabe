@@ -1092,7 +1092,7 @@ states:
       shared_hosted_read:
         type: command
         timeout: 180
-        command: 'koto context get "{{SESSION_NAME}}" cascade_result.json 2>/dev/null | grep -Eq "^\{\"cascade_status\":\"(completed|skipped)\"," || exit 75; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --parent-read --session "{{SESSION_NAME}}" --base "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)" --pr "$("{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh" --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})")"'
+        command: 'koto context get "{{SESSION_NAME}}" cascade_result.json | grep -Eq "^\{\"cascade_status\":\"(completed|skipped)\"," || exit 75; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --parent-read --session "{{SESSION_NAME}}" --base "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)" --pr "$("{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh" --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})")"'
       shared_hosted_ready:
         type: command
         timeout: 120
