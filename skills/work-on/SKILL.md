@@ -103,8 +103,14 @@ Outcomes:
 
 The verdict's exit status carries the outcome: 0 passed, 1 failed, 3 no map (or a map
 that does not parse, or selects nothing) and 4 a command that needs a person, timed
-out, grew past its process bound, could not start, or a dirty tree — both of the last
-two cannot-verify, ending at `done_blocked`. Each violation names its rule
+out with the hosted-of-record route closed, grew past its process bound, could not
+start, or a dirty tree — both of the last two cannot-verify, ending at `done_blocked`.
+Exit 5 is the timed-out hold: a check timed out, none failed, and the route is open, so
+the run may settle the timed-out checks on the hosted jobs their map rows declare
+(`hosted_of_record`, with a public reason), return to fix them, or stop. The route
+records itself in `verification_hosted`, opens the pull request as a draft, and is
+settled by `hosted_record`'s read before the pull request is marked ready
+(`references/verification-map.md`). Each violation names its rule
 (`verification/...`) in a koto finding, and the result is recorded in context as
 `verification_results.json`.
 

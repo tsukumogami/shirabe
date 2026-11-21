@@ -33,7 +33,7 @@ The five gate scripts (`check-pr-output.sh`, `check-branch-output.sh`,
 block-stage findings alone; their could-not-decide exit (2) is unchanged.
 Three details:
 
-- `check-verification.sh --verdict` picks its route (1, 3 or 4) from the
+- `check-verification.sh --verdict` picks its route (1, 3, 4 or 5) from the
   causes that printed at `block` only, and exits 0 when none did.
 - `check-pr-output.sh --pr-body` adds its `pr-body/conformance` fallback only
   when the validator listed no finding, and releases the text of

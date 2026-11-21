@@ -918,6 +918,56 @@
     },
     {
       "id": 64,
+      "name": "timed-out-verification-hold",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on 91. The change touches only skills/coordinate scripts, a template and their tests. At verification the check-skill:coordinate command was stopped at its limit with 121 of the skill's 127 suites reached and none failed, nothing else failed, and the map row declares a hosted job. The verdict exits 5. Walk through what the run does next, what you may submit, and what you write in detail.",
+      "expected_output": "Exit 5 is the timed-out hold: the run stays in verification and no tick moves it until a value is submitted. Three values are offered, and fix and hosted_of_record only here: hosted_of_record with a reason in detail takes the hosted-of-record route to verification_hosted, but only while the verification_route gate (verification-route.sh --open) exits 0 and the reason isn't empty or all space; fix goes back to implementation; blocked stops at done_blocked. The reason is public text that reaches the pull request body, so it is one plain sentence a reviewer can read, with no session names or local paths. A failed check beside the timeout would have been exit 1, not 5. The agent does not tick through the hold with nothing submitted and does not move the result aside to rerun hoping it fits.",
+      "files": [],
+      "expectations": [
+        "Agent says exit 5 holds the run at verification until a value is submitted",
+        "Agent names the three values: hosted_of_record with a reason in detail, fix and blocked",
+        "Agent says hosted_of_record is taken only while the route gate is open and the reason is not empty",
+        "Agent says the reason is public text that reaches the pull request body and writes it plainly",
+        "Agent does NOT tick on expecting the run to move with nothing submitted",
+        "Agent does NOT treat a failed check beside a timeout as a hold at 5"
+      ]
+    },
+    {
+      "id": 65,
+      "name": "hosted-route-record-draft",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on 91. You submitted verification_status: hosted_of_record with a reason at the timed-out hold. Walk through verification_hosted and how you open the pull request at pr_creation.",
+      "expected_output": "verification_hosted records the route itself: its action runs verification-route.sh --record, writing hosted_of_record with this head, taken_at, the cleaned reason and the timed-out checks with their declared hosted jobs and null run ids, and hosted_record_valid (--check-record) sends the run to pass_counting on 0, back to verification on 1, and holds on 2. The agent commits nothing afterwards, since any later commit voids the route. At pr_creation it opens the pull request as a draft with gh pr create --draft --body-file, and puts the lines verification-route.sh --lines prints into the body verbatim: one Hosted of record: line per recorded check and the reason line. The hosted_record_line gate holds pr_status: created until the pull request is a draft with every line. The agent never types or edits those lines and does not mark the pull request ready.",
+      "files": [],
+      "expectations": [
+        "Agent says verification_hosted records the route with --record and checks it with --check-record",
+        "Agent says a commit after the route is taken voids it",
+        "Agent opens the pull request as a draft and passes the body with --body-file",
+        "Agent puts the lines --lines prints into the body verbatim",
+        "Agent does NOT type or hand-edit a Hosted of record: line",
+        "Agent does NOT mark the pull request ready at pr_creation"
+      ]
+    },
+    {
+      "id": 66,
+      "name": "hosted-record-read-ready",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on 91. CI is green on the draft pull request that carries the Hosted of record: line, and the run is at hosted_record. Walk through each exit of the hosted read and when the pull request becomes ready.",
+      "expected_output": "hosted_record's hosted_read gate runs verification-route.sh --read. On 75 a recorded job is pending, queued or absent and the agent ticks again with nothing submitted; the wait is measured from taken_at and isn't charged to the verification budget. On 0 every declared job's latest attempt at the record's head concluded success, the script filled the run ids and rewrote the body lines with run links, and only then does the agent run verification-route.sh --mark-ready, which re-reads the head and runs gh pr ready when it is still the record's; the ready gate passes and the run returns to ci_monitor, which waits for the ready-only checks. On 1 (a job concluded anything else, an unreadable response, or the head moved) the run returns to verification, where the reused result holds at 5 again. On 3, a job still pending past 120 minutes, the run ends at done_blocked with failure_reason naming the jobs and the commit. The agent never marks the pull request ready by hand or fills the record's run ids to skip the read.",
+      "files": [],
+      "expectations": [
+        "Agent waits on exit 75 by ticking again with nothing submitted",
+        "Agent runs --mark-ready only after a read that exited 0",
+        "Agent says exit 1 returns the run to verification, where the result holds at 5 again",
+        "Agent says exit 3 ends at done_blocked with failure_reason naming the pending jobs and the commit",
+        "Agent does NOT run gh pr ready by hand or fill run ids itself to skip the read"
+      ]
+    },
+    {
+      "id": 67,
       "name": "partial-delivery-declared-split",
       "tier": 1,
       "mode": "plan_only",
@@ -935,7 +985,7 @@
       ]
     },
     {
-      "id": 65,
+      "id": 68,
       "name": "partial-delivery-approved-deferral",
       "tier": 1,
       "mode": "plan_only",
