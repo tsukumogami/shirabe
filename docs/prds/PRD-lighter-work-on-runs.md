@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A /work-on run spends most of its time in review panels, fixed stops,
   verification and test accounting, and a small share writing code. The
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-lighter-work-on-runs.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
