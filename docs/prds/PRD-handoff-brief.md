@@ -46,7 +46,8 @@ wait on the conditions in R19 and R23.
   is the context filled before any work (near 58K-61K tokens on the workspace
   cited here). The post-compaction size is the context right after a
   compaction, once the session has re-read what it needs: 72K-80K for the
-  workers measured, 110K-170K for coordinators.
+  workers measured, 110K-170K for coordinators. A hard stop is a size above
+  the window at which a session stops and hands over whatever else holds.
 - **Compaction note.** A short koto key the session keeps current for itself:
   where it stands and what it is about to do. It names no files and hands
   nothing forward.
@@ -248,21 +249,38 @@ states them.
   compaction, is the first task the plan schedules. No role's default is
   switched on until that read shows the id unchanged and the session live.
   Serves: E2.
-- **R13. One window for v1, with a stated margin.** v1 uses one window for
-  every role in an instance, set by the workspace, not per role. The margin
-  rule: the largest role's post-compaction size leaves at least 100K tokens
-  before the window, and is no more than 60% of it. With coordinators at up to
-  170K this gives about 285K; v1's window is 300K. The design restates the
-  value against the measured figures and says what happens if a role's
-  post-compaction size grows past the rule. v1 needs no per-role niwa change;
-  per-role windows are later work. Serves: E2.
-- **R14. How a workspace turns compaction on.** A workspace turns compaction
-  on by setting the window and installing the two hooks (R15, R16) in its
-  configuration, carried into each instance's settings when niwa applies it,
-  with no niwa change for sessions in an instance. shirabe documents the
-  setting and ships the hooks; it sets nothing on in a workspace by itself.
-  Sessions launched at the workspace root get no instance settings today, so
-  they stay without a window until niwa carries it there. Serves: E2.
+- **R13. A window per role, at the size the role hands over at today.** Each
+  role has its own window, set for that role, so switching one role on never
+  sets a window for another. A role's window takes the value of the context
+  line it stops at today: about 280K for workers, 300K for coordinators, and
+  the supervising sessions' line once their post-compaction size is measured.
+  Each value must meet the margin rule: the role's post-compaction size leaves
+  at least 100K tokens before its window and is no more than 60% of it.
+  Workers (72K-80K) and coordinators (up to 170K) meet it at those values. The
+  design restates each value against the measured figures and says what
+  happens if a role's post-compaction size grows past the rule. Switching a
+  role on also moves the rule that makes it stop at its context line: the
+  role no longer stops at the line, which becomes its window, and stops only
+  at a hard stop above the window (for workers, the stop near 350K that
+  applies today only near a unit's end). The hard stop acts only as a
+  fallback for a compaction that didn't fire, and leads to today's successor
+  route (R20). So a switched-on role compacts at the size where it stops
+  today, and costs no more per turn than it does now. Serves: E2.
+- **R14. How a workspace turns compaction on for a role.** A workspace turns
+  compaction on for a role by setting that role's window and installing the
+  two hooks (R15, R16) in its configuration. niwa carries both into each
+  instance's settings when it applies the configuration. The hooks go in as
+  workspace instance hooks with no niwa change. A window for one role, rather
+  than the whole workspace, needs a niwa change: niwa today carries such a
+  setting only workspace-wide or per repository, its dispatch-time
+  environment passthrough refuses names that start with `CLAUDE_`, and its
+  launch settings never set them. That change is part of v1, as a separate
+  niwa pull request. A switch-on reaches an instance only when niwa next
+  applies to it; whether a session already running there picks it up without
+  a restart is an owned unknown. shirabe documents the setting and ships the
+  hooks; it sets nothing on in a workspace by itself. Sessions launched at the
+  workspace root get no instance settings today, so they stay without a
+  window until niwa carries it there. Serves: E2.
 - **R15. The summary carries the way back.** A PreCompact hook's output asks
   the summary to name the koto session, branch, pull request and the note's
   key, and to keep verbatim any owner words, ids and hashes still in play.
@@ -288,7 +306,10 @@ states them.
 - **R18. A context reader that reads right after a compaction.** shirabe ships
   a reader any session can call that reports its own current context size from
   its transcript, correct on the first read after a compaction, from any
-  instance and from the workspace root. Serves: E2.
+  instance and from the workspace root. It also reports how many compaction
+  boundaries the transcript holds and the assistant turn at which each fell,
+  so a supervisor on another host learns them from the session itself
+  (R20). Serves: E2.
 
 ### Supervising sessions
 
@@ -297,8 +318,9 @@ states them.
   record when it arrives. After a compaction it re-reads its record, its
   decisions and its standing instructions, re-arms each watch from a command
   its record holds, and rescans what arrived during the compaction, before it
-  acts. A message or wake that lands while a compaction runs is not lost,
-  because the rescan reads it from where it waits. A supervising session with
+  acts. Whether a message or wake that lands while a compaction runs still
+  waits somewhere the rescan reads is an owned unknown; the R19 criterion
+  settles it. A supervising session with
   no workflow run re-anchors to its own log. Coordinators switch on only once
   their workflow does all of this; supervising sessions above coordinators
   switch on last. Serves: E2.
@@ -310,7 +332,9 @@ states them.
   so compactions come with little progress between them: the session's
   transcript shows three compaction boundaries within 30 assistant turns of
   each other (v1's values; the design may tune them and must say why),
-  detected by a script the supervisor runs. Its instance is lost or it must
+  detected by the supervisor from the boundary count and turns the session's
+  own reader reports (R18), so no transcript is read across hosts. It passes
+  its hard stop because no compaction fired (R13). Its instance is lost or it must
   move host: detected by the supervisor at reconcile. It is blocked on
   something it can't resolve: the session's own judgment, by parking as
   today. What it is allowed to do no longer covers the work: the session's
@@ -439,17 +463,25 @@ unique string the test plants.
   the compaction, found by the rescan, with no second send. A supervising
   session with no workflow run, compacted once, re-reads its own log before
   its next action. (R19)
-- [ ] The design states the window, the margin rule and the measured
-  post-compaction sizes it was checked against; the configured window minus
-  the largest role's post-compaction size is at least 100K, and that size is
-  no more than 60% of the window. In the test instance's settings the window
-  reads 300000, and no per-role window is configured anywhere in v1. (R13)
-- [ ] A workspace configuration that sets the window and the two hooks,
-  applied by niwa with no niwa change, yields an instance whose settings carry
-  the window and both hooks, and niwa's existing compact-matched hooks are
-  still present. A fresh workspace that sets none of them has no window and no
-  hook from this work. A session launched at the workspace root is documented
-  as having no window. (R14)
+- [ ] The design states each role's window, the margin rule and the measured
+  post-compaction sizes it was checked against. For each switched-on role,
+  the window in its test instance's settings minus that role's largest
+  measured post-compaction size is at least 100K, and that size is no more
+  than 60% of the window. A worker with compaction on, in a test instance,
+  passes its old context line without writing a brief or being replaced,
+  compacts at its window, and is handed over only past its hard stop; with
+  the window removed from its settings, it reaches the hard stop and takes
+  today's successor route. (R13)
+- [ ] A workspace configuration that sets the worker window and the two
+  hooks, applied by niwa with its per-role change, yields a worker instance
+  whose settings carry the window and both hooks, and niwa's existing
+  compact-matched hooks are still present. A coordinator instance applied
+  from that same configuration carries no window from it and does not
+  compact before the superseding decision of R23 is recorded. A fresh
+  workspace that sets none of them has no window and no hook from this work.
+  An instance applied before the configuration changed has no window until
+  niwa applies to it again. A session launched at the workspace root is
+  documented as having no window. (R14, R23)
 - [ ] After a compaction in a test instance, the transcript's
   post-compaction context contains the PreCompact output naming the koto
   session, branch, pull request and note key, and the SessionStart line naming
@@ -463,11 +495,15 @@ unique string the test plants.
   exits 0 and the compaction runs. (R17)
 - [ ] The reader's figure matches the transcript's last usage record within
   1K tokens on the first read after a compaction and after five more turns, run
-  from an instance and from the workspace root. With an empty or missing
-  transcript the reader exits non-zero naming it and prints no figure. (R18)
-- [ ] A script given a transcript with three compactions inside the design's
-  turn count reports the session as unable to continue, and one with the same
-  three compactions spread past it doesn't. With a worker's instance removed
+  from an instance and from the workspace root. On a transcript with two
+  compactions it reports two boundaries and the assistant turn of each. With
+  an empty or missing transcript the reader exits non-zero naming it and
+  prints no figure. (R18)
+- [ ] Given a session's reported boundaries with three compactions inside the
+  design's turn count, the supervisor's check reports the session as unable
+  to continue, and with the same three compactions spread past it doesn't;
+  the check reads only what the session reported, never its transcript. With
+  a worker's instance removed
   in a test, the coordinator's reconcile reports that worker as unable to
   continue. A session handing over for R21 writes a brief before the
   successor is dispatched. The coordinate workflow's documentation names each
@@ -491,8 +527,8 @@ unique string the test plants.
 - The remover, the kept set, the move of named files into it at a reap, and
   the command that says a unit is over. Build cleanup; how long transcripts
   live.
-- Per-role windows, and carrying the window to sessions at the workspace root
-  (a niwa change after v1).
+- Carrying the window to sessions at the workspace root (a niwa change after
+  v1).
 - Writing the decision that supersedes the earlier coordinator position.
 
 ## Decisions and Trade-offs
@@ -507,17 +543,31 @@ opens (R1); a file in the instance can't move hosts. Whether that koto
 session ever ends is left to the design.
 
 **How the window and hooks reach an instance.** Through the workspace
-configuration niwa already writes into instance settings (R14). A
-dispatch-time environment passthrough was rejected: niwa refuses names that
-start with `CLAUDE_` there. Per-role windows were deferred: one window meets
-the margin rule for every measured role (R13), and the only gap, sessions at
-the workspace root, is the last role in the order anyway.
+configuration niwa writes into instance settings (R14), with a per-role
+window as v1's one niwa change. A dispatch-time environment passthrough was
+rejected: niwa refuses names that start with `CLAUDE_` there. One window for
+the whole workspace was rejected: coordinators also run in their own
+instances, so setting it for workers would switch coordinators on with them,
+before the decision R23 waits on. Most coordinators today end near or past
+280K, so many would compact before handing over.
 
-**One window at 300K.** A lower window leaves a coordinator's 110K-170K
-post-compaction size too close to it: a 100K window over a floor near 58K
-thrashed and blocked a session. A worker pays for the shared value with about
-a third more input per turn than at a window near 240K, and needs about two
-compactions in a 600K-token unit. Accepted for v1 over a niwa change.
+**A window per role, at the line each stops at today.** A window has to clear
+the role's post-compaction size by the margin rule: a 100K window over a
+floor near 58K thrashed and blocked a session. Workers need about 180K at
+least and coordinators about 285K, so a single value would make workers carry
+the coordinators' size. With a window per role, each takes the line the role
+stops at today, so a switched-on role compacts where it stops now and costs
+no more per turn. A 300K worker window was considered: it saves about one
+compaction in ten and costs about 6% more input per turn. Rejected, since its
+only reason was one window shared with coordinators. These values keep
+today's per-role cost and aren't yet confirmed by whoever set today's lines;
+treat them as assumed until they are. Changing one later is a change to that
+role's cost per turn.
+
+**Moving the line, not removing it.** A switched-on role that still stopped
+at its line would hand over before compaction fired. Retiring the line was
+rejected: it leaves nothing to stop a session whose compaction silently
+didn't fire. So the line moves to a hard stop above the window (R13).
 
 **Warn, don't block, on a stale note.** A PreCompact block was considered, to
 make the session refresh its note first. Rejected as the default: the block
@@ -547,7 +597,11 @@ first tasks, not left open:
   manual compaction in a headless one; not yet seen at a configured window or
   at a boundary inside a tool call.
 - Whether a window set in instance settings reaches an already-running
-  background session without a restart.
+  background session without a restart. A switch-on reaches an instance only
+  at niwa's next apply there (R14); the design says whether running sessions
+  then need a restart.
+- Whether a message or wake that lands while a supervising session compacts
+  waits where its rescan reads it (R19).
 - Whether R20's thrash values (three boundaries within 30 turns) separate
   thrashing from a long, healthy unit; the design checks them against
   transcripts on hand.
@@ -566,6 +620,7 @@ first tasks, not left open:
 - Reasoning is lost across a compaction too: what survives is the summary,
   the note and the record. A session that didn't keep its note current
   resumes from a summary that says so (R17), not from what it knew.
-- One window means a worker compacts later than it could, and a session set
-  this way can't change its own window.
+- A session whose window is set this way can't change its own window.
+- A running session gets a newly set window only after niwa applies to its
+  instance again, and maybe only after a restart.
 - Sessions at the workspace root have no window in v1.
