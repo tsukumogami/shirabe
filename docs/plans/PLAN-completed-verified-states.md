@@ -100,9 +100,12 @@ see the five rows and two new classes as listed.
 ### Step 2: the coordinate scripts read status properties from the same table
 
 **Goal**: `lib_status` in `state-common.sh` loads
-`milestone-statuses.json` from the scripts' own directory, picks the schema
-family from the roadmap's `schema:` line, and `lib_roadmap_features` emits the
-four properties for each milestone; `pick-facts.sh` and `closeout-read.sh`
+`milestone-statuses.json` from the scripts' own directory
+(`$HERE/../../roadmap/references/`), picks the schema family from the
+roadmap's `schema:` line (`v4` for `roadmap/v4`, `v1-v3` otherwise), maps a
+status to its entry through each entry's `spellings` (the table's `open`
+entry lists Not started and In progress; any other value falls to `open`), and
+`lib_roadmap_features` emits the four properties for each milestone; `pick-facts.sh` and `closeout-read.sh`
 read those properties instead of comparing words. On v1 to v3 roadmaps the
 picker's and closeout's output does not change.
 
