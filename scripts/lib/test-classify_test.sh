@@ -13,6 +13,9 @@
 # rows with no record, and with a red's record labels a reproducing test or
 # harness file changed since the red edited, even one that only gained lines;
 # a record that doesn't parse is exit 2.
+# After a merge of main, the unit's rows leave out main's tests, also when the
+# base is a commit only on the branch; a test both sides edited and a revert to
+# main's content stay.
 #
 # Usage: bash scripts/lib/test-classify_test.sh
 set -uo pipefail
@@ -171,6 +174,58 @@ eq "test_classify_base with no default branch: the base itself" "$M_BASE" "$(tes
 cd "$R" || exit 1
 # A head on the default branch itself keeps the base: nothing would be left.
 eq "test_classify_base for a head on main: the base itself" "$BASE" "$(test_classify_base "$BASE" "$HEAD_SHA")"
+
+# A merge of the default branch onto a base that is only on the branch (#1603):
+# a shared branch edits a test before the unit starts, so impl_base isn't an
+# ancestor of the merge-base with main. The unit edits its own test, a test
+# main also edits, and reverts the shared branch's edit to main's content; main
+# edits a test and adds one; the branch merges main in. The unit's three edits
+# are its own; main's two tests are not.
+SB="$W/shared-base"
+mkdir -p "$SB/tests"
+cd "$SB" || exit 1
+git init -q -b main .
+git config user.email t@example.com
+git config user.name t
+printf 'o1\no2\n' > tests/own_test.sh
+printf 'x1\nx2\n' > tests/main_test.sh
+printf 'b1\nb2\nb3\nb4\nb5\nb6\nb7\nb8\n' > tests/both_test.sh
+printf 'r1\nr2\n' > tests/revert_test.sh
+git add -A
+git commit -q -m base
+git checkout -q -b shared
+printf 'r1\nr2\nr3\n' > tests/revert_test.sh
+git commit -q -am shared-edit
+SB_BASE=$(git rev-parse HEAD)
+printf 'o1\n' > tests/own_test.sh
+printf 'b1\nb2\nb3\nb4\nb5\nb6\nb7\n' > tests/both_test.sh
+printf 'r1\nr2\n' > tests/revert_test.sh
+git commit -q -am unit
+git checkout -q main
+printf 'x1\n' > tests/main_test.sh
+printf 'b2\nb3\nb4\nb5\nb6\nb7\nb8\n' > tests/both_test.sh
+printf 'n1\n' > tests/main_new_test.sh
+git add -A
+git commit -q -m main-moves
+git update-ref refs/remotes/origin/main "$(git rev-parse main)"
+git checkout -q shared
+git merge -q --no-edit main >/dev/null
+SB_HEAD=$(git rev-parse HEAD)
+eq "test_classify_base for a branch-only base after a merge of main: still the base" "$SB_BASE" "$(test_classify_base "$SB_BASE" "$SB_HEAD")"
+SU=$(test_classify_unit "$SB_BASE" "$SB_HEAD" "$RULES")
+case "$SU" in
+    *tests/main_test.sh*) bad "a merge of main onto a branch-only base: main's test edit doesn't count as the unit's own" "main's edit is in the unit's rows: [$SU]" ;;
+    *) ok "a merge of main onto a branch-only base: main's test edit doesn't count as the unit's own" ;;
+esac
+case "$SU" in
+    *tests/main_new_test.sh*) bad "a merge of main onto a branch-only base: main's new test isn't listed" "main's new test is in the unit's rows: [$SU]" ;;
+    *) ok "a merge of main onto a branch-only base: main's new test isn't listed" ;;
+esac
+SB_WANT=$(printf 'edited\ttests/both_test.sh\t%s\nedited\ttests/own_test.sh\t%s\nedited\ttests/revert_test.sh\t%s' \
+    "$(git rev-parse "$SB_HEAD:tests/both_test.sh")" "$(git rev-parse "$SB_HEAD:tests/own_test.sh")" \
+    "$(git rev-parse "$SB_HEAD:tests/revert_test.sh")")
+eq "a merge of main onto a branch-only base: the unit's own edit, a test both sides edited and a revert to main's content stay" "$SB_WANT" "$SU"
+cd "$R" || exit 1
 
 echo
 echo "test-classify: $PASS passed, $FAIL failed"
