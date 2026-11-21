@@ -103,6 +103,11 @@ skills/work-on/scripts/probe-routes_test.sh
 # Reads the committed verification map with jq and the files that
 # document it; no engine.
 skills/work-on/scripts/verification-map-schema_test.sh
+# The map's hosted declaration against the workflow, skill-gate.sh's plan
+# and the loader's selection over git fixtures: needs git and jq. Its
+# suite-list cases call check-skill.sh, which needs koto and python3 even
+# for --list, and skip cleanly without them.
+skills/work-on/scripts/verification-hosted-coverage_test.sh
 # The verification runner and verdict against git fixtures and a
 # koto stand-in; its real-koto case skips without koto.
 skills/work-on/scripts/run-verification_test.sh

@@ -125,7 +125,12 @@ die() {
 #
 # Input: the map. $changed: the changed paths. Output: {"error": "..."} or
 # {"invocations": [...], "attended": [ids]}. Globs: `**` matches across path
-# components, `*` within one; every other character is literal.
+# components, `*` within one; every other character is literal. Each
+# invocation carries its row's validated `timeout_form` (null when the row has
+# none) and `hosted` ([] when the row declares none), so a later reader takes
+# them from run.json rather than parsing the map again. `hosted` names nothing
+# that runs here: it is the row's declaration of the hosted jobs that run its
+# suites, for the hosted-of-record route to read.
 SELECT_JQ='
 def glob_re:
   "^" + (split("**")
@@ -148,9 +153,19 @@ def command_ok($id):
          or ((.timeout_form | type) == "string" and .timeout_form != ""
              and (.timeout_form as $f | try ("" | test($f) | true) catch false));
          "command \($id): timeout_form is not a non-empty string that compiles as a regular expression")
+  | need((has("hosted") | not) or ((.hosted | type) == "array" and (.hosted | length) > 0);
+         "command \($id): hosted is not a non-empty array")
+  | need((has("hosted") | not)
+         or (.hosted | all(type == "object"
+                           and all(.workflow, .job, .runs; type == "string" and . != "")));
+         "command \($id): hosted has an entry that is not an object with non-empty string workflow, job and runs")
+  | need((has("hosted") | not)
+         or (.hosted | all(.workflow | startswith(".github/workflows/")
+                                       and (split("/") | all(. != ".." and . != "." and . != ""))));
+         "command \($id): hosted names a workflow outside .github/workflows/")
   | {id: $id, run: .run, each: (.each // null), timeout_secs: (.timeout_secs // 1800),
      max_procs: (.max_procs // 256), unattended: (if has("unattended") then .unattended else true end),
-     timeout_form: (.timeout_form // null)};
+     timeout_form: (.timeout_form // null), hosted: (.hosted // [])};
 def ids_ok($where; $defined):
   need(type == "array" and all(type == "string"); "\($where) is not an array of command ids")
   | (map(select(. as $i | $defined | index([$i]) | not))) as $bad
@@ -180,11 +195,11 @@ try (
   | [$changed[] | split("/") as $parts | range(1; $parts | length) | $parts[0:.] | join("/")] | unique as $dirs
   | [$ids[] | $byid[.] as $c
      | if $c.each == null then {id: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
-                                timeout_form: $c.timeout_form}
+                                timeout_form: $c.timeout_form, hosted: $c.hosted}
        else ($c.each | glob_re) as $er
          | $dirs[] | select(test($er))
          | {id: $c.id, argv: ($c.run + [split("/") | last]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
-            timeout_form: $c.timeout_form}
+            timeout_form: $c.timeout_form, hosted: $c.hosted}
        end] as $inv
   | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe)}
 ) catch {error: (if type == "string" then . else tostring end)}

@@ -1124,8 +1124,21 @@ run_check_args() {
     OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" "$@" 2>&1)
     RC=$?
 }
+# --list without --changed prints every suite the plain check launches, one
+# repo-relative line each and no --changed header, and runs nothing. select_tree
+# also holds a scripts/testdata/ directory and plain scripts, neither a suite.
+select_tree
 run_check_args --list demo
-expect "--list without --changed is a usage error" 2 "usage:"
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+ON_DISK=$(cd "$ROOT" && ls skills/demo/scripts/*_test.sh | sort | tr '\n' ' ' | sed 's/ $//')
+expect_listed "--list without --changed lists the suites on disk" "$ON_DISK"
+if out_has 'check-skill: --changed'; then
+    fail "  ... but prints a --changed header"
+elif [ -s "$SHIRABE_LOG" ]; then
+    fail "  ... but ran shirabe validate"
+else
+    pass "  ... with no --changed header, running no check"
+fi
 run_check_args --bogus demo
 expect "an unknown option is a usage error" 2 "usage:"
 
