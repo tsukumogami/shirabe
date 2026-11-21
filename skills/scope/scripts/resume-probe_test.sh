@@ -616,7 +616,7 @@ FRESH_DELAY="explore-t:30 plan-t:30 design-t:30 prd-t:30 brief-t:30"
 
 # #1737: a fresh topic whose lookups run long holds at the probe's own
 # deadline, naming each lookup still out, instead of outlasting the gate.
-L="Deadline on a fresh topic (#1737, the v0.37.0 shape)"
+L="a resumed session whose lookups miss holds at the probe's deadline (#1737, the v0.37.0 shape)"
 repo; : >"$STUB_LOG"; : >"$STUB_PIDS"
 STUB_DELAY="$FRESH_DELAY" SCOPE_PROBE_DEADLINE=2 KOTO_BIN="$STUB" TMPDIR="$PT" \
     expect_within "$L" 3 5 t none
