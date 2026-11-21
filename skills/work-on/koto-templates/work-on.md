@@ -1934,7 +1934,7 @@ states:
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --open --session "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"'
       route_reason_given:
         type: command
-        command: 'jq -e -s ''(map(select((.type == "transitioned" or .type == "rewound") and (.payload.to // "") == "verification") | .seq) | max // -1) as $e | [.[] | select(.type == "evidence_submitted" and (.payload.state // "") == "verification" and .seq > $e) | .payload.fields] | add // {} | (.detail // "") | type == "string" and test("\\S")'' "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" >/dev/null'
+        command: 'jq -e -s ''.[(map((.type == "transitioned" or .type == "rewound") and (.payload.to // "") == "verification") | rindex(true) // -1) + 1:] | [.[] | select(.type == "evidence_submitted" and (.payload.state // "") == "verification") | .payload.fields] | add // {} | (.detail // "") | type == "string" and test("\\S")'' "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" >/dev/null'
     accepts:
       verification_status:
         type: enum
