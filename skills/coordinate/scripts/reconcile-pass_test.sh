@@ -14,7 +14,11 @@
 # clock file: a stand-in re-check adds its cost to the clock, and a wait adds
 # to it instead of sleeping, so the 20-second cutoff and the 30-second re-read
 # are tested without waiting. After each pass the test plays the engine: the
-# printed line becomes the latest RECONCILE_SEAL capture.
+# printed line becomes the latest RECONCILE_SEAL capture. Cases holding an
+# action-limit file run the pass under a stand-in for koto's 30-second action
+# limit, which kills a tick whose clock passes it: a long chain walk, a
+# re-check past its budget and a late record read each have to end pending
+# before it.
 #
 # Usage: bash skills/coordinate/scripts/reconcile-pass_test.sh
 # Exit codes: 0 all pass; 1 a failure.
@@ -894,6 +898,39 @@ eq "  ... the walk bounded by it to three hops" 3 "$(wc -l < "$CASE/hops" | tr -
 grep -q -- '--chain-start 2026-09-26T21:00:00Z' "$CASE/checks"; check "  ... the carry judged against the start of the run it stopped at" $? "$(cat "$CASE/checks")"
 eq "  ... and the sealed report keeping that start and the minute it holds for" \
     '{"start":"2026-09-26T21:00:00Z","back_to":"2026-09-26T21:30"}' "$(ctx reconcile/report.json | jq -c .chain)"
+
+echo "== a slow re-check or record read, under koto's 30-second limit (shirabe#1548) =="
+# The issue's other causes, run under the same stand-in limit: a re-check that
+# runs past its budget and then hangs, and a record read that ends late. Each
+# tick has to end pending before the limit, keeping what it read, so the next
+# tick resumes the visit instead of starting it over.
+
+new_case limit-overrun
+record "[$(hold slow "")]"; : > "$CASE/action-limit"
+# The appeared read takes 20 seconds of the clock, past its 8-second budget
+# but short of the limit, and then hangs for real.
+echo 20 > "$CASE/cost.appeared"
+: > "$CASE/hang.appeared"
+pass
+eq "a re-check past its budget, under the limit, doesn't get the tick killed" 0 "$KILLED"
+case "$LINE" in pending:*) ok "  ... the tick ends pending" ;; *) bad "  ... the tick ends pending" "$LINE $(tail -3 "$CASE/stderr")" ;; esac
+has_ctx reconcile/progress; check "  ... leaving reconcile/progress for the next tick" $? "$(ls "$CASE/ctx")"
+grep -Eq '^reconcile-pass: stopped h0\.appeared \(appeared\) at its [0-9]+s budget' "$CASE/stderr"
+check "  ... and naming the re-check it stopped on stderr" $? "$(cat "$CASE/stderr")"
+
+new_case limit-late-read
+record "[$(hold no-pr "")]"; : > "$CASE/action-limit"
+# A record read of 23 seconds, as seen on a loaded host: 7 seconds are left
+# under the limit for everything after it.
+echo 23 > "$CASE/read.cost"
+pass
+eq "a 23-second record read, under the limit, doesn't get the tick killed" 0 "$KILLED"
+[[ $LINE =~ ^pending:7:([1-9][0-9]*):[0-9a-f]{64}$ ]]; check "  ... the tick ends pending with the holding's re-checks left" $? "$LINE $(tail -3 "$CASE/stderr")"
+ctx reconcile/progress | grep -q 're-checks left'; check "  ... leaving reconcile/progress that counts them" $? "$(ctx reconcile/progress)"
+[ "${LINE##*:}" = "$(sha < "$SDIR/coordinate-reconcile/visit.json")" ]; check "  ... and naming the saved work file" $?
+rm -f "$CASE/read.cost"
+tick 1; pass
+[ "$(grep -c '^read ' "$CASE/log")" = 1 ]; check "  ... the next tick trusts the work file and doesn't read the record again" $? "$(grep '^read ' "$CASE/log")"
 
 echo "== the report reader =="
 new_case getter
