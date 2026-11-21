@@ -9,7 +9,8 @@
 #   --verdict --session <s> [--base-ref <ref>] [--shared-branch <value>]
 #
 # --shared-branch carries the template's SHARED_BRANCH (empty for a run not
-# under /execute), which the hosted-of-record route reads.
+# under /execute). It is accepted and passed on; the hosted-of-record route no
+# longer reads it, since /execute collects a child's record.
 #
 # The result file's location, the head and the merge-base come from
 # `run-verification.sh --locate`, so the two scripts can't disagree on them.

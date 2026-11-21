@@ -65,7 +65,7 @@ echo "$*" >> "$KOTO_STUB_STORE/calls"
 [ -n "${KOTO_STUB_FAIL-}" ] && [ "${2-}" = "$KOTO_STUB_FAIL" ] && exit 7
 case "$1 ${2-}" in
     "context add")
-        mkdir -p "$KOTO_STUB_STORE/$3"
+        mkdir -p "$(dirname "$KOTO_STUB_STORE/$3/$4")"
         [ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4" ;;
     "context exists") [ -f "$KOTO_STUB_STORE/$3/$4" ] ;;
     "context get") [ -f "$KOTO_STUB_STORE/$3/$4" ] || exit 1; cat "$KOTO_STUB_STORE/$3/$4" ;;
@@ -367,24 +367,30 @@ put_result s-badmap "[$COORD_TO]"
 closed "a bad map at the merge-base" s-badmap "missing or bad map"
 cd "$MAIN_REPO" || exit 2
 
-echo "--- --open: a child of /execute"
+echo "--- --open: a child of /execute takes the route"
 put_result s-shared "[$COORD_TO]"
 route --open --session s-shared --shared-branch docs/x
-expect "--open --shared-branch docs/x: closed (1), naming /execute" 1 "child of /execute"
+expect "--open --shared-branch docs/x, a single-pr shared-branch child: open (0)" 0
 put_result s-child "[$COORD_TO]"
 child_session s-child
 route --open --session s-child
-expect "--open for a child session /execute started: closed (1), naming /execute" 1 "child of /execute"
+expect "--open for a child session /execute started: open (0)" 0
 route --open --session s-open --shared-branch ""
 expect "--open with an empty --shared-branch, a root session: open (0)" 0
-# The refusal lives in one function, the one place SHARED_BRANCH or
-# session-role.sh is consulted, so /execute parity removes it alone.
+# The one /execute refusal is gone: nothing in the script consults
+# SHARED_BRANCH or session-role.sh to close the route.
 SR=$(grep -v '^[[:space:]]*#' "$ROUTE" | grep -c 'session-role.sh')
-SR_IN=$(awk '/^vr_refuse_execute_child\(\)/ {f = 1} f && /session-role.sh/ && !/^[[:space:]]*#/ {c++} f && /^}/ {f = 0} END {print c + 0}' "$ROUTE")
-CALLS=$(grep -v '^[[:space:]]*#' "$ROUTE" | grep -c 'vr_refuse_execute_child "')
-[ "$SR" -eq 1 ] && [ "$SR_IN" -eq 1 ] && [ "$CALLS" -eq 1 ] \
-    && pass "vr_refuse_execute_child is the one place session-role.sh is consulted, and it is called once" \
-    || fail "session-role.sh named $SR time(s), $SR_IN inside vr_refuse_execute_child; the refusal is called $CALLS time(s)"
+CALLS=$(grep -c 'vr_refuse_execute_child' "$ROUTE")
+[ "$SR" -eq 0 ] && [ "$CALLS" -eq 0 ] \
+    && pass "the /execute refusal is gone: no session-role.sh read and no vr_refuse_execute_child" \
+    || fail "session-role.sh named $SR time(s); vr_refuse_execute_child named $CALLS time(s)"
+route --record --session s-shared --reason "$REASON"
+SHARED_KEY=$(key_of s-shared)
+route --record --session s-open --reason "$REASON"
+[ "$(jq -cS 'del(.taken_at)' <<<"$SHARED_KEY")" = "$(key_of s-open | jq -cS 'del(.taken_at)')" ] \
+    && [ "$(jq -r 'keys | join(",")' <<<"$SHARED_KEY")" = "checks,head,reason,taken_at" ] \
+    && pass "--record for a shared-branch child writes the same fields, and per check the same jobs, as a root run's" \
+    || fail "--record parity: child $SHARED_KEY, root $(key_of s-open)"
 
 # --- --record and --check-record ---------------------------------------------------------
 
@@ -827,6 +833,234 @@ expect "--read --head: the shared pull request's head, over the children's parts
 run_file "$(RUN_HEAD=$HS run_obj 540 9 1 completed success)"
 route --settled --session p-shared --head "$HS"
 expect "--settled --head: the shared head's filled record (0)" 0
+
+# --- --collect and --parent-read: /execute's own record ------------------------------------
+
+echo "--- --collect"
+# child_key <session> <head> <reason> <taken epoch>: the child's own
+# hosted_of_record, as its --record wrote it: every check its stored result at
+# <head> timed out, with the map's job.
+child_key() {
+    local res="$XDG_STATE_HOME/shirabe/verification/$1/$2/result.json"
+    jq -c --arg h "$2" --arg r "$3" --arg t "$(iso "$4")" --arg wf "$WF" --arg job "$JOB" '
+        {head: $h, taken_at: $t, reason: $r,
+         checks: [.commands[] | select(.outcome == "timed-out-limit" or .outcome == "timed-out-inside")
+                  | {id: .check, jobs: [{workflow: $wf, job: $job, run_id: null, conclusion: null, attempt: null}]}]}' "$res" \
+        > "$WORKDIR/ck" && set_key "$1" "$(cat "$WORKDIR/ck")"
+}
+pkey() { cat "$KOTO_STUB_STORE/$1/${2:-hosted_of_record}" 2>/dev/null; }
+child_key c-a "$HA" "reason a" $((T0 - 300))
+child_key c-b "$HB" "reason b" $((T0 - 200))
+rm -f "$KOTO_STUB_STORE/p-col/hosted_of_record"
+route --collect --session p-col --head "$HS" --base main --child c-a --child c-b
+if [ "$RC" -eq 0 ] && [ "$(pkey p-col | jq -c --arg t "$(iso $T0)" '[.head, .reason, .taken_at == $t,
+        [.checks[] | [.id, .session, .result_head, (.jobs | map(.job))]]]')" \
+        = "[\"$HS\",\"reason a; reason b\",true,[[\"check-skill:coordinate\",\"c-a\",\"$HA\",[\"$JOB\"]],[\"check-skill:plan\",\"c-b\",\"$HB\",[\"$JOB\"]]]]" ]; then
+    pass "--collect: the parent's key is at the shared head, the union of the children's checks naming each child, one reason from both in order, its own taken_at"
+else
+    fail "--collect over two children: rc $RC, $(pkey p-col); $(cat "$ERR")"
+fi
+[ "$(pkey p-col | jq -r '.taken_at | fromdateiso8601')" -gt $((T0 - 200)) ] \
+    && pass "--collect: the parent's taken_at is later than both children's" || fail "--collect: taken_at $(pkey p-col | jq -r .taken_at)"
+route --check-record --session p-col --head "$HS"
+expect "--check-record on the parent's key: each part validates against its child's result and map (0)" 0
+SHIRABE_ROUTE_NOW=$((T0 + 600)) route --collect --session p-col --head "$HS" --base main --child c-a --child c-b
+[ "$RC" -eq 0 ] && [ "$(pkey p-col | jq -r .taken_at)" = "$(iso $T0)" ] \
+    && pass "--collect again at the same head keeps the key and its taken_at, so the wait is not restarted" \
+    || fail "--collect again: rc $RC, taken_at $(pkey p-col | jq -r .taken_at)"
+child_key c-b "$HB" "reason a" $((T0 - 200))
+rm -f "$KOTO_STUB_STORE/p-same/hosted_of_record"
+route --collect --session p-same --head "$HS" --base main --child c-a --child c-b
+[ "$RC" -eq 0 ] && [ "$(pkey p-same | jq -r .reason)" = "reason a" ] \
+    && pass "--collect: a reason two children share is given once" || fail "--collect same reason: rc $RC, $(pkey p-same)"
+child_key c-b "$HB" "reason b" $((T0 - 200))
+
+rm -rf "$KOTO_STUB_STORE/c-none" "$KOTO_STUB_STORE/p-none"
+route --collect --session p-none --head "$HS" --base main --child c-none
+[ "$RC" -eq 4 ] && [ -z "$(pkey p-none)" ] \
+    && pass "--collect: no child took the route (4), and no parent key is written" || fail "--collect with no child record: rc $RC, $(pkey p-none)"
+printf '[{"name": "c-a"}, {"name": "c-b"}]\n' > "$WORKDIR/children.json"
+rm -f "$KOTO_STUB_STORE/p-list/hosted_of_record"
+cp "$WORKDIR/bin/koto" "$WORKDIR/koto.orig"
+cat > "$WORKDIR/bin/koto" <<EOF
+#!/bin/sh
+if [ "\$1 \${2-}" = "workflows --children" ]; then cat "$WORKDIR/children.json"; exit 0; fi
+exec "$WORKDIR/koto.orig" "\$@"
+EOF
+chmod +x "$WORKDIR/bin/koto"
+route --collect --session p-list --head "$HS" --base main
+[ "$RC" -eq 0 ] && [ "$(pkey p-list | jq -c '[.checks[].session]')" = '["c-a","c-b"]' ] \
+    && pass "--collect without --child reads the children koto workflows --children lists" \
+    || fail "--collect from the listing: rc $RC, $(pkey p-list); $(cat "$ERR")"
+
+# refused_collect <label> <head> <fragment> [<child>...]: --collect exits 1,
+# names the cause and writes nothing.
+refused_collect() {
+    local label=$1 h=$2 frag=$3
+    shift 3
+    rm -f "$KOTO_STUB_STORE/p-ref/hosted_of_record"
+    set -- $(for c in "$@"; do printf -- '--child %s ' "$c"; done)
+    route --collect --session p-ref --head "$h" --base main "$@"
+    if [ "$RC" -eq 1 ] && [ -z "$(pkey p-ref)" ] && grep -qF -- "$frag" "$ERR"; then
+        pass "--collect: $label: refused (1), naming the cause, nothing written"
+    else
+        fail "--collect: $label: rc $RC, key [$(pkey p-ref)], stderr $(head -c 800 "$ERR")"
+    fi
+}
+git checkout -q -B shared-gh shared && mkdir -p .github && echo x >> .github/x && git add -A && git commit -q -m gh
+HSG=$(git rev-parse HEAD)
+refused_collect "another child's commit on the shared branch touches .github/" "$HSG" "touches .github/x" c-a c-b
+git checkout -q -B shared-cs shared && echo x >> scripts/check-skill.sh && git commit -q -am cs
+refused_collect "the shared branch touches scripts/check-skill.sh" "$(git rev-parse HEAD)" "touches scripts/check-skill.sh" c-a c-b
+git checkout -q -B shared-tsv shared && sed 's/a_test.sh/z_test.sh/' skills/coordinate/check-skill.tsv > "$WORKDIR/tsv" \
+    && cat "$WORKDIR/tsv" > skills/coordinate/check-skill.tsv && git commit -q -am tsv
+refused_collect "the shared branch edits a check-skill.tsv row" "$(git rev-parse HEAD)" "edits or deletes rows" c-a c-b
+git checkout -q shared
+git checkout -q -B child-f work && echo f >> top.txt && git commit -q -am f && HF=$(git rev-parse HEAD)
+git checkout -q shared
+put_result_at c-f "$HF" "$MB" "[$COORD_TO, $(cmd_rec check-skill:plan failed)]"
+child_key c-f "$HF" "reason f" $((T0 - 100))
+refused_collect "a child whose stored result has a failed check" "$HS" "check check-skill:plan failed" c-a c-f
+put_result_at c-j "$HF" "$MB" "[$COORD_TO]"
+child_key c-j "$HF" "reason j" $((T0 - 100))
+set_key c-j "$(key_of c-j | jq -c '.checks[0].jobs[0].job = "skill-gate (macos-latest)"')"
+refused_collect "a child's record naming a job the map doesn't declare for its check" "$HS" "the map declares" c-a c-j
+put_result_at c-n "$HF" "$MB" "[$PLAN_OK, $COORD_TO]"
+child_key c-n "$HF" "reason n" $((T0 - 100))
+set_key c-n "$(key_of c-n | jq -c '.checks += [{id: "check-skill:plan", jobs: .checks[0].jobs}]')"
+refused_collect "a child's record naming a check that didn't time out in its result" "$HS" "did not time out" c-n
+
+echo "--- the parent's key, checked part by part"
+GOODP=$(pkey p-col)
+set_key p-col "$(jq -c '.checks[1].jobs[0].job = "lint"' <<<"$GOODP")"
+route --check-record --session p-col --head "$HS"
+expect "--check-record: a parent part naming a job the map doesn't declare (1)" 1 "the map declares"
+set_key p-col "$(jq -c '.checks[0].session = "c-f" | .checks[0].result_head = "'"$HF"'"' <<<"$GOODP")"
+route --check-record --session p-col --head "$HS"
+expect "--check-record: a parent part from a child whose stored result has a failed check (1)" 1 "check check-skill:plan failed"
+set_key p-col "$GOODP"
+
+echo "--- --parent-read"
+SURL='https://github.com/acme/widgets/pull/12'
+# parent_pr <head>: the shared pull request, a draft at <head>.
+parent_pr() {
+    rm -rf "$FAKE_GH"
+    mkdir -p "$FAKE_GH/api"
+    jq -cn --arg url "$SURL" --arg h "$1" '{number: 12, url: $url, headRefOid: $h, isDraft: true,
+        isCrossRepository: false, body: "Shared change.\n\n---\n\nPart two."}' > "$FAKE_GH/pr.json"
+}
+rm -f "$KOTO_STUB_STORE/p-run/hosted_of_record" "$KOTO_STUB_STORE/p-run/failure_reason"
+parent_pr "$HS"
+runs_page "$HS" 1 "[$(RUN_HEAD=$HS run_obj 550 9 1 completed success)]"
+jobs_at 550 1 "[$(job_obj completed success)]"
+route --parent-read --session p-run --pr "$SURL" --base main --child c-a --child c-b
+if [ "$RC" -eq 0 ] && [ "$(pkey p-run | jq -c '[.head, [.checks[].jobs[].run_id]]')" = "[\"$HS\",[550,550]]" ] \
+    && grep -qxF "Hosted of record: check-skill:coordinate at $HS: $JOB https://github.com/acme/widgets/actions/runs/550" "$FAKE_GH/edited-body" \
+    && grep -qxF "Hosted of record: check-skill:plan at $HS: $JOB https://github.com/acme/widgets/actions/runs/550" "$FAKE_GH/edited-body" \
+    && grep -q "^pr view $SURL " "$FAKE_GH/calls"; then
+    pass "--parent-read: every declared job concluded success at the shared head: run ids filled, one body line per check with its run link"
+else
+    fail "--parent-read: rc $RC, $(pkey p-run); body $(cat "$FAKE_GH/edited-body" 2>&1); $(cat "$ERR")"
+fi
+run_file "$(RUN_HEAD=$HS run_obj 550 9 1 completed success)"
+route --mark-ready --session p-run --pr "$SURL" --head "$HS"
+[ "$RC" -eq 0 ] && grep -q "^pr ready $SURL" "$FAKE_GH/calls" && pass "--mark-ready --pr: marks the settled shared pull request ready" \
+    || fail "--mark-ready --pr: rc $RC; $(cat "$ERR")"
+route --ready --session p-run --pr "$SURL" --head "$HS"
+expect "--ready --pr: out of draft, settled, every line linked (0)" 0
+
+rm -f "$KOTO_STUB_STORE/p-run/hosted_of_record"
+parent_pr "$HS"
+runs_page "$HS" 1 "[$(RUN_HEAD=$HA run_obj 551 9 1 completed success)]"
+jobs_at 551 1 "[$(job_obj completed success)]"
+route --parent-read --session p-run --pr "$SURL" --base main --child c-a --child c-b
+expect "--parent-read: success at a child's head only, none at the shared head: no pass (75)" 75
+route --mark-ready --session p-run --pr "$SURL" --head "$HS"
+[ "$RC" -eq 1 ] && ! grep -q '^pr ready' "$FAKE_GH/calls" && grep -qF "have not been read at $HS: check-skill:coordinate/$JOB" "$ERR" \
+    && pass "--mark-ready: refuses an unread parent record, naming the job and the shared head, and marks nothing ready" \
+    || fail "--mark-ready on an unread record: rc $RC; $(cat "$ERR")"
+
+for c in cancelled failure skipped; do
+    rm -f "$KOTO_STUB_STORE/p-run/hosted_of_record"
+    parent_pr "$HS"
+    runs_page "$HS" 1 "[$(RUN_HEAD=$HS run_obj 552 9 1 completed "$c")]"
+    jobs_at 552 1 "[$(job_obj completed "$c")]"
+    route --parent-read --session p-run --pr "$SURL" --base main --child c-a --child c-b
+    expect "--parent-read: a declared job concluded $c at the shared head is refused, naming both jobs and the commit (1)" 1 \
+        "check check-skill:coordinate, job $JOB, commit $HS" "check check-skill:plan, job $JOB, commit $HS" "concluded $c"
+done
+
+echo "--- --parent-read: the wait is the parent's"
+rm -f "$KOTO_STUB_STORE/p-wait/hosted_of_record" "$KOTO_STUB_STORE/p-wait/failure_reason"
+child_key c-a "$HA" "reason a" $((T0 - 300))
+parent_pr "$HS"
+runs_page "$HS" 1 "[]"
+SHIRABE_ROUTE_NOW=$((T0 + 10 * 60)) route --parent-read --session p-wait --pr "$SURL" --base main --child c-a
+expect "--parent-read: pending, parent taken_at 0 minutes old: waits (75)" 75
+PT=$(pkey p-wait | jq -r '.taken_at | fromdateiso8601')
+child_key c-a "$HA" "reason a" $((PT - 130 * 60))
+put_result_at c-a "$HA" "$MB" "[$COORD_TO, $PLAN_OK]"
+jq --arg f "$(iso $((PT - 140 * 60)))" '.finished_at = $f' "$XDG_STATE_HOME/shirabe/verification/c-a/$HA/result.json" > "$WORKDIR/r" \
+    && mv "$WORKDIR/r" "$XDG_STATE_HOME/shirabe/verification/c-a/$HA/result.json"
+rm -f "$KOTO_STUB_STORE/p-wait/hosted_of_record"
+SHIRABE_ROUTE_NOW=$PT route --collect --session p-wait --head "$HS" --base main --child c-a
+SHIRABE_ROUTE_NOW=$((PT + 10 * 60)) route --parent-read --session p-wait --pr "$SURL" --base main --child c-a
+expect "--parent-read: a child taken_at 130 minutes old, the parent's 10: still waits (75)" 75
+SHIRABE_ROUTE_NOW=$((PT + 119 * 60)) route --parent-read --session p-wait --pr "$SURL" --base main --child c-a
+expect "--parent-read: the parent's taken_at 119 minutes old: waits (75)" 75
+SHIRABE_ROUTE_NOW=$((PT + 121 * 60)) route --parent-read --session p-wait --pr "$SURL" --base main --child c-a
+expect "--parent-read: past 120 minutes from the parent's taken_at (3)" 3
+grep -qF "check-skill:coordinate/$JOB at $HS" "$KOTO_STUB_STORE/p-wait/failure_reason" 2>/dev/null \
+    && pass "--parent-read: its failure_reason names the pending job and the shared head" \
+    || fail "--parent-read: failure_reason [$(cat "$KOTO_STUB_STORE/p-wait/failure_reason" 2>&1)]"
+put_result_at c-a "$HA" "$MB" "[$COORD_TO, $PLAN_OK]"
+child_key c-a "$HA" "reason a" $((T0 - 300))
+
+echo "--- --parent-read with no child record, and --ready --absent-ok"
+rm -rf "$KOTO_STUB_STORE/p-quiet"
+parent_pr "$HS"
+route --parent-read --session p-quiet --pr "$SURL" --base main --child c-none
+[ "$RC" -eq 0 ] && [ -z "$(pkey p-quiet)" ] && ! grep -q '^api ' "$FAKE_GH/calls" \
+    && pass "--parent-read: no child took the route: 0, no key, no hosted job read" \
+    || fail "--parent-read with no child record: rc $RC, $(cat "$FAKE_GH/calls" 2>&1)"
+route --ready --session p-quiet --pr "$SURL" --absent-ok
+expect "--ready --absent-ok: no key (0)" 0
+route --ready --session p-quiet --pr "$SURL"
+expect "--ready without --absent-ok: no key is still 1" 1
+parent_pr "$HS"
+route --mark-ready --session p-quiet --pr "$SURL" --absent-ok --child c-a
+[ "$RC" -eq 1 ] && ! grep -q '^pr ready' "$FAKE_GH/calls" 2>/dev/null \
+    && pass "--mark-ready --absent-ok: a child took the route and no parent key yet: refused (1), nothing marked ready" \
+    || fail "--mark-ready --absent-ok with a child record: rc $RC; $(cat "$ERR")"
+route --mark-ready --session p-quiet --pr "$SURL" --absent-ok --child c-none
+[ "$RC" -eq 0 ] && grep -q "^pr ready $SURL" "$FAKE_GH/calls" \
+    && pass "--mark-ready --absent-ok: no child took the route: the plain gh pr ready" \
+    || fail "--mark-ready --absent-ok with no child record: rc $RC; $(cat "$ERR")"
+
+echo "--- a node's key, its work tree, and --read --dry-run"
+rm -f "$KOTO_STUB_STORE/p-node/run/hosted/n1"
+route --collect --session p-node --key run/hosted/n1 --head "$HS" --base main --work-tree "$PWD" --child c-a --child c-b
+[ "$RC" -eq 0 ] && [ "$(pkey p-node run/hosted/n1 | jq -r .work_tree)" = "$PWD" ] && [ -z "$(pkey p-node)" ] \
+    && pass "--collect --key run/hosted/n1: the node's own key, carrying its work tree; hosted_of_record untouched" \
+    || fail "--collect for a node: rc $RC, $(pkey p-node run/hosted/n1); $(cat "$ERR")"
+NODE_BEFORE=$(pkey p-node run/hosted/n1)
+parent_pr "$HS"
+runs_page "$HS" 1 "[$(RUN_HEAD=$HS run_obj 560 9 1 completed success)]"
+jobs_at 560 1 "[$(job_obj completed success)]"
+(cd "$WORKDIR" && "$ROUTE" --read --dry-run --session p-node --key run/hosted/n1 --pr "$SURL" --head "$HS" 2>"$ERR")
+RC=$?
+[ "$RC" -eq 0 ] && [ "$(pkey p-node run/hosted/n1)" = "$NODE_BEFORE" ] && [ ! -e "$FAKE_GH/edited-body" ] \
+    && pass "--read --dry-run on a node's key, run outside the work tree it records: 0, and nothing written" \
+    || fail "--read --dry-run: rc $RC; $(cat "$ERR")"
+runs_page "$HS" 1 "[]"
+SHIRABE_ROUTE_NOW=$((T0 + 121 * 60)) route --read --dry-run --session p-node --key run/hosted/n1 --pr "$SURL" --head "$HS"
+[ "$RC" -eq 3 ] && [ ! -e "$KOTO_STUB_STORE/p-node/failure_reason" ] \
+    && pass "--read --dry-run past 120 minutes: 3, and no failure_reason written" || fail "--read --dry-run at 121 minutes: rc $RC"
+route --read --session p-node --key bad/key --pr "$SURL"
+expect "--key outside hosted_of_record and run/hosted/<node> is a usage error (2)" 2
+route --read --session p-node --pr "not-a-url"
+expect "--pr that is no pull request URL is a usage error (2)" 2
+cp "$WORKDIR/koto.orig" "$WORKDIR/bin/koto"
 git checkout -q work
 
 echo

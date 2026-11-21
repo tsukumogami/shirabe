@@ -131,19 +131,21 @@ argument only; the `--upstream` value is never an input to it.
 
 1. If the positional argument is an upstream path, take the basename, strip
    the `ROADMAP-` prefix and `.md` suffix, and use the remainder.
-2. If the positional argument is a freeform topic string, lowercase it,
-   replace whitespace and underscores with `-`, and strip any character
-   outside `[a-z0-9-]`.
-3. If the positional argument is empty, ask the user to name the feature and
-   re-derive from their answer -- even when `--upstream` supplied a ROADMAP.
+2. If the positional argument is a freeform topic, take the slug from it
+   as `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says: a slug given as-is is
+   used verbatim; a description of the feature becomes a short kebab-case
+   slug the agent picks to name it, named on the first line of output.
+3. If the positional argument is empty, derive the slug from the
+   conversation when it already describes the feature; otherwise ask the
+   user to name the feature and derive from their answer -- even when `--upstream` supplied a ROADMAP.
    A roadmap's filename names the initiative, not the feature inside it, and
    naming the brief after it is exactly the conflation the flag exists to
    undo.
 
 After derivation, test the slug against `^[a-z0-9-]+$`. If the slug is empty,
 contains characters outside the allowed set after derivation, or starts/ends with
-`-`, reject the invocation and ask the user for a clean slug. Do not fall through
-to a "best effort" slug — silent normalization hides input the user did not intend.
+`-`, pick a conforming one before going on; a slug is never reshaped without
+being named on the first line of output, so nothing is normalized silently.
 
 ## 0.3 Canonicalize the Grounding Path
 

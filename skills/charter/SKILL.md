@@ -72,21 +72,27 @@ From `$ARGUMENTS`:
 Flags are parsed and removed first (see Execution-Mode Flags and
 Upstream Flag below); the input modes classify what remains.
 
-1. **Empty** — surface a cold-start prompt asking the author what
-   strategic conversation they want to have. The cold-start prompt
-   says what reaches this entry point, in the terms CLAUDE.md uses —
-   a question bigger than one feature, with nothing above it written
-   down — and asks the author to re-invoke
-   `/charter <topic-slug>` with a slug that matches the topic-slug
-   regex. Phase 0 then stops; there is no auto-retry loop.
-2. **Non-empty `$ARGUMENTS`** — treated as a freeform topic string
-   that MUST already conform to the topic-slug regex. Phase 0
-   validates `$ARGUMENTS` AS PROVIDED (byte-for-byte against the
-   regex); on match, the value becomes the topic slug verbatim; on
-   mismatch, Phase 0 rejects with a clear error naming the violated
-   pattern and stops. No normalization, no derivation, no "best
-   effort" massaging — the slug the author typed IS the slug Phase 0
-   validates and records.
+The topic slug comes from
+`${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md`: the agent
+derives it, and the author never has to type one.
+
+1. **Empty, and nothing in the conversation describes the work** —
+   surface a cold-start prompt asking the author what strategic
+   conversation they want to have. The cold-start prompt says what
+   reaches this entry point, in the terms CLAUDE.md uses — a question
+   bigger than one feature, with nothing above it written down — and
+   asks what the work is. Phase 0 then stops; there is no auto-retry
+   loop. When the conversation does describe the work, derive the
+   slug from it instead.
+2. **A slug given as the first token** — the value becomes the topic
+   slug verbatim. Words after it are the author's description.
+3. **A description of the work** — derive a short kebab-case slug
+   naming the work from it, and name it on the first line of output.
+
+Phase 0 validates the slug it ends up with AS PROVIDED (byte-for-byte
+against the topic-slug regex); on mismatch, Phase 0 rejects with a
+clear error naming the violated pattern and stops. Nothing reshapes
+a slug between choosing it and validating it.
 
 `/charter` MUST NOT accept paths to durable artifacts as an input
 mode. A `$ARGUMENTS` value that looks like a path fails the regex
@@ -307,6 +313,7 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 | File | When to load |
 |------|-------------|
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | All phases — contract surface, invariants, exit paths, Gate Vocabulary (Mandatory-with-auto-skip plus thesis-shift override on `/vision`; ALWAYS on `/strategy` and `/roadmap`), substitution surfaces |
+| `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` | Phase 0 (how the topic slug is obtained: given as-is or derived from the prompt) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | Phase 0 (slug regex), Phase 2 (state writes), Phase N (R9 check) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume Logic — meta-ladder rows 1-4 and 9-10 |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |

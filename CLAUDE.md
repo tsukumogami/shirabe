@@ -157,7 +157,9 @@ nobody has said why the work matters lands here too — sequencing
 on its own produces an order with no bet behind it.
 
 Direct invocation is `/charter <topic-slug>` (the topic slug
-matches the pattern `^[a-z0-9-]+$`). The child skills `/vision`,
+matches the pattern `^[a-z0-9-]+$`), or `/charter` followed by a
+description of the work, from which the agent derives the slug
+(`references/topic-derivation.md`). The child skills `/vision`,
 `/strategy`, and `/roadmap` remain directly invocable for an author
 who wants only the thesis, only the bet, or only the sequence — but
 reaching for one of them because a conversation sounds strategic
@@ -180,7 +182,9 @@ which documents survive. Deciding a feature by starting to code it
 is the failure this entry point exists to prevent.
 
 Direct invocation is `/scope <topic-slug>` (the topic slug
-matches the pattern `^[a-z0-9-]+$`). The child skills `/brief`,
+matches the pattern `^[a-z0-9-]+$`), or `/scope` followed by a
+description of the work, from which the agent derives the slug
+(`references/topic-derivation.md`). The child skills `/brief`,
 `/prd`, `/design`, and `/plan` remain directly invocable on their
 own for authors who already know which altitude they want.
 

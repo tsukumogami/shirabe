@@ -15,14 +15,18 @@ Establish the runtime context for `/charter`:
 
 - Parse the execution-mode flags and `--upstream <path>` out of
   `$ARGUMENTS` FIRST, before anything reads the positional slug.
-- If what remains is empty, surface the cold-start prompt and stop
-  Phase 0 until the author re-invokes with a conforming slug.
-- If what remains is non-empty, validate it AS PROVIDED against the
-  pattern-level regex `^[a-z0-9-]+$`. No normalization, no
-  derivation, no "best effort" massaging.
-- Reject non-conforming input with a clear error message naming the
-  offending value and the violated pattern. Phase 0 stops; the
-  author re-invokes `/charter <conforming-slug>`.
+- If what remains is empty and the conversation describes no work,
+  surface the cold-start prompt and stop Phase 0 until the author
+  says what the work is.
+- Otherwise obtain the slug (step 0.2a): a slug given as-is, or one
+  derived from the author's description of the work and named on
+  the first line of output.
+- Validate the slug AS PROVIDED against the pattern-level regex
+  `^[a-z0-9-]+$`. Nothing reshapes it between step 0.2a and the
+  check.
+- Reject a non-conforming slug, or a path in the positional slot,
+  with a clear error message naming the offending value and the
+  violated pattern. Phase 0 stops.
 - Canonicalize, bounds-check, and type-check any `--upstream`
   value, then run the three ordered checks in step 0.4.
 - Open `/charter`'s session, `charter-<topic>`, and remove any stale
@@ -37,8 +41,8 @@ Establish the runtime context for `/charter`:
   step 0.4.
 
 By the end of Phase 0, downstream phases can assume the slug
-recorded in state is byte-identical to the validated positional
-argument and that `work/state.md` exists with the expected initial
+recorded in state is byte-identical to the slug step 0.3 validated
+and that `work/state.md` exists with the expected initial
 fields.
 
 ## 0.1 Parse Flags Before the Positional Slug Is Read
@@ -53,8 +57,8 @@ positional slug.
 **The residue rule.** Each flag — and, for `--upstream`, the token
 that follows it — is removed from `$ARGUMENTS` before step 0.3
 reads the positional argument. What remains after the removal IS
-the positional argument, and step 0.3 validates it unchanged,
-byte for byte.
+the positional argument: step 0.2a takes the slug from it, and step
+0.3 validates that slug unchanged, byte for byte.
 
 The rule is what keeps the positional contract intact. The token
 following `--upstream` is consumed as that flag's argument and is
@@ -85,43 +89,54 @@ last occurrence would hide which upstream the chain consumed.
 ## 0.2 Handle Empty `$ARGUMENTS`
 
 If `$ARGUMENTS` is empty or whitespace-only after step 0.1's flag
-removal, surface the cold-start prompt:
+removal and the conversation describes no work to charter, surface
+the cold-start prompt. When the conversation does describe the work,
+skip the prompt and derive the slug from it in step 0.2a.
 
 > *"What strategic conversation do you want to have? This entry point
 > is for a question bigger than one feature with nothing above it
 > written down — whether a body of work is worth doing at all, which
-> candidates come first, or what the bet behind them is. Re-invoke
-> `/charter <topic-slug>` where the slug matches `^[a-z0-9-]+$` — for
-> example, `/charter pricing-model-rebuild` or
-> `/charter ingest-pipeline`."*
+> candidates come first, or what the bet behind them is. Tell me what
+> the work is and I'll name the topic, or re-invoke `/charter` with a
+> slug such as `/charter pricing-model-rebuild`."*
 
-Phase 0 then stops. The author re-invokes `/charter
-<conforming-slug>` after composing the slug; the cold-start path
-does not auto-retry, does not loop, and does not derive a slug from
-the author's response. Re-invocation goes through step 0.3.
+Phase 0 then stops; the cold-start path does not auto-retry or loop.
+The author's answer, or a re-invocation, goes through step 0.2a.
 
-A run whose only content was `--upstream <path>` lands here: the
-flag is not a topic, and the cold-start prompt fires rather than a
-slug being derived from the upstream's filename.
+A run whose only content was `--upstream <path>` and whose
+conversation describes nothing lands here: the flag is not a topic,
+and a slug is never derived from the upstream's filename.
+
+## 0.2a Obtain the Slug
+
+Follow `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md`. A
+residue that is a single token matching `^[a-z0-9-]+$`, or a
+hyphenated first token matching it, is the slug as typed. A residue
+that describes the work in words is not an error: derive a short
+kebab-case slug naming the work from it (and from the conversation
+when it points back there). Name the slug on the first line of
+output. A residue that is a path to an artifact is not a
+description; it goes to step 0.3 unchanged and is rejected there.
+Under `--koto-leg` or a parent's invocation the caller's slug is
+used as given.
 
 ## 0.3 Validate the Positional Argument Against `^[a-z0-9-]+$`
 
-When the post-flag-removal residue is non-empty, test it AS
-PROVIDED against the regex `^[a-z0-9-]+$`. The regex is the
+Test the slug from step 0.2a AS PROVIDED against the regex `^[a-z0-9-]+$`. The regex is the
 pattern-level constraint
 cited from
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
 (Topic-Slug Regex section).
 
-There is NO normalization step before validation. The residue is
-checked byte-for-byte against the regex. Phase 0 does not lowercase,
-does not replace whitespace, does not strip punctuation, does not
-collapse repeated hyphens, does not trim leading or trailing
-characters. The slug the author typed IS the slug Phase 0 validates.
-Flag removal is not normalization: it deletes tokens the author
-marked as flags and leaves everything else exactly as typed.
+There is NO normalization step between step 0.2a and validation.
+The slug is checked byte-for-byte against the regex. A slug the
+author typed is validated exactly as typed; a derived slug was named
+on the first line of output before it got here, so nothing is
+reshaped silently. Flag removal is not normalization: it deletes
+tokens the author marked as flags and leaves everything else exactly
+as typed.
 
-On match: the topic slug is the residue verbatim; proceed to step
+On match: the topic slug is the value verbatim; proceed to step
 0.4 (upstream validation), step 0.4a (session open) and then step
 0.5 (the state-key write).
 
@@ -146,9 +161,12 @@ author must explicitly re-invoke with the corrected slug.
 
 ### Concrete Rejection Examples
 
-The following non-empty residues are REJECTED by step 0.3 because
-they violate `^[a-z0-9-]+$`. Phase 0 stops in each case; no state
-file is created.
+The following values are REJECTED when they reach step 0.3 as the
+slug, because they violate `^[a-z0-9-]+$`. Phase 0 stops in each
+case; no state file is created. From an author, only the path row
+reaches the check unchanged: step 0.2a turns a description such as
+`Hello World` into a derived slug first. The other rows are what the
+check does with a malformed slug a caller hands in.
 
 | Positional residue (as provided) | Violation | Rejection message |
 |---|---|---|

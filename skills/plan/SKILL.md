@@ -220,12 +220,15 @@ feature) rather than code-level issues, and are planned under plan version `v1`.
 
 From `$ARGUMENTS` (after stripping flags):
 
-1. **Empty** -- ask the user what to plan (document path or topic)
+1. **Empty** -- when the conversation already names the document or the
+   work, use it; otherwise ask the user what to plan (document path or topic)
 2. **Path matching a known pattern** -- use it as the source document:
    - `docs/designs/DESIGN-*.md` -- design doc (input_type: design)
    - `docs/prds/PRD-*.md` -- PRD (input_type: prd)
    - `docs/roadmaps/ROADMAP-*.md` -- roadmap (input_type: roadmap)
-3. **Anything else** -- treat as a direct topic (input_type: topic). No upstream
+3. **Anything else** -- treat as a direct topic (input_type: topic): the author's topic: a slug used as given, or a
+   description of the work the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. No upstream
    document is required. Use when /explore produced a clear scope with no open
    decisions, or when planning a well-understood list of capabilities directly.
 

@@ -70,14 +70,19 @@ Use an explore workflow when you don't know what artifact type you need yet.
 ### Input Modes
 
 From `$ARGUMENTS`:
-1. **Empty** -- ask the user what feature or capability they want to specify
+1. **Empty** -- when the conversation already describes the feature, derive
+   the topic from it; otherwise ask the user what feature or capability they
+   want to specify
 2. **Path to BRIEF document** (matches `docs/briefs/BRIEF-*.md`) -- brief
    input mode. The brief is treated as the upstream framing and its path is
    stored for Phase 0 (setup) and Phase 3 (draft). When the brief's status
    is `Draft`, Phase 0 transitions it to `Accepted` so the chain handoff
    matches /design (which bumps PRD `Accepted -> In Progress`) and /plan
    (which bumps DESIGN `Accepted -> Planned`). See "Execution" below.
-3. **Anything else** -- use as the starting topic for Phase 1 scoping
+3. **Anything else** -- the author's topic: a slug used as given, or a
+   description of the feature the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. The description is the starting
+   point for Phase 1 scoping.
 
 Modes 1 and 3 may carry `--upstream <path>`, naming the BRIEF, STRATEGY or
 VISION the PRD is written from; Phase 3 validates it before writing it to

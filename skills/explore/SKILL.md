@@ -143,10 +143,13 @@ until ready, then decide what artifact type to produce.
 
 From `$ARGUMENTS`:
 
-1. **Empty** -- ask the user what they want to explore
+1. **Empty** -- when the conversation already describes what to explore,
+   derive the topic from it; otherwise ask the user what they want to explore
 2. **Issue number** (matches `#?\d+` or `org/repo#\d+`) -- read the issue, check
    for `needs-triage` label, and derive topic from the issue title
-3. **Anything else** -- use as the topic string, proceed to scope
+3. **Anything else** -- the author's topic: a slug used as given, or a
+   description of the work the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. Proceed to scope.
 
 For cross-repo issues (e.g., `owner/repo#42`), use `gh` commands:
 ```bash

@@ -4,16 +4,16 @@
   "evals": [
     {
       "id": 1,
-      "name": "baseline-slug-rejection",
-      "prompt": "/scope MyTopic",
-      "expected_output": "Phase 0 validates the topic slug 'MyTopic' against the pattern-level regex ^[a-z0-9-]+$ and rejects it because of the uppercase letters, surfacing a clear error message that names the violated pattern. No scope-<topic> session is opened and no state key is written. Other invocations such as /scope my_topic (underscore), /scope my.topic (dot), and /scope \"Hello World\" (whitespace and uppercase) are rejected the same way. Phase 0 validates $ARGUMENTS as provided byte-for-byte against the regex; there is no normalization, no derivation, and no \"best effort\" massaging.",
+      "name": "baseline-slug-derivation",
+      "prompt": "/scope the plugin cache invalidation work",
+      "expected_output": "Phase 0 treats the words as the author's description of the work, not as a malformed slug. The agent derives a short kebab-case slug naming the work (for example plugin-cache-invalidation), names it on the first line of output so the author can correct it, and validates that slug against the pattern-level regex ^[a-z0-9-]+$ as provided. A single token that already matches, such as /scope plugin-cache, is used verbatim. A path in the positional slot, such as /scope docs/prds/PRD-foo.md, is still rejected with an error naming the violated pattern. The run asks the author what the work is only when the arguments are empty and the conversation describes nothing.",
       "files": [],
       "expectations": [
-        "Plan validates the topic slug 'MyTopic' against the regex ^[a-z0-9-]+$ at Phase 0 and rejects it with a clear error naming the violated pattern",
-        "Plan rejects /scope my_topic at Phase 0 for the underscore violation, /scope my.topic for the dot violation, and /scope \"Hello World\" for the whitespace and uppercase violation",
-        "Plan applies validation byte-for-byte against $ARGUMENTS with no normalization, no derivation, no auto-substitution into a conforming slug",
-        "Plan opens no scope-<topic> session and writes no state key on rejection; Phase 0 stops at the regex check",
-        "Plan names the violation category in the rejection error message (uppercase, underscore, dot, whitespace) so the author knows what to fix before re-invoking /scope"
+        "Plan treats 'the plugin cache invalidation work' as a description and derives a short kebab-case slug from it instead of rejecting the invocation or asking for a slug",
+        "Plan names the derived slug on the first line of output",
+        "Plan validates the derived slug against ^[a-z0-9-]+$ at Phase 0 before any scope-<topic> session is opened",
+        "Plan uses a given slug such as plugin-cache verbatim, with no rewording",
+        "Plan still rejects a path in the positional slot with an error naming the violated pattern, and opens no scope-<topic> session on that rejection"
       ]
     },
     {

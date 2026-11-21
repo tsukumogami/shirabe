@@ -23,10 +23,11 @@
 #       unstarted; no timed-out check; a timed-out check whose row in the
 #       merge-base's map declares no hosted jobs; a missing or bad map at the
 #       merge-base; a dirty tree; a diff from the merge-base touching a path
-#       that decides what the hosted job runs (vr_closing_paths); a
-#       check-skill.tsv edited other than by added rows; a run that is a child
-#       of /execute (vr_refuse_execute_child, the one check /execute parity
-#       removes).
+#       that decides what the hosted job runs (vr_closing_paths), or a
+#       check-skill.tsv edited other than by added rows (both vr_diff_check).
+#       A child of /execute is not refused: /execute collects its record for
+#       the shared or node pull request (--collect). --shared-branch is
+#       accepted and no longer read.
 #   --record [--reason <text>] [--head <sha> --child <session>@<head>]...
 #       Writes the koto key hosted_of_record, replacing any earlier one. The
 #       reason is --reason, else the context key hosted_route_reason, cleaned
@@ -73,6 +74,39 @@
 #       Prints one `Hosted of record:` line per recorded check and the reason
 #       line, for a key at the current head; 1 when there is none. The agent
 #       puts them in the body verbatim; it never types them.
+#   --collect --head <sha> [--base <ref>] [--child <session>]...
+#       /execute's record for a shared or node pull request at <sha>, built
+#       from the children's own hosted_of_record keys (the children named, or
+#       every child `koto workflows --children <s>` lists). Each child's key
+#       must validate against that child's stored result and map, and the
+#       whole diff from the merge-base of <ref> (default origin's default
+#       branch) and <sha> must pass vr_diff_check. The key gets the union of
+#       the children's checks (each part naming its child), one reason built
+#       from the children's (each distinct one once, in the children's
+#       order), and taken_at from this clock. A key that already validates at
+#       <sha> is kept, so its taken_at goes on measuring the wait. 0 recorded
+#       or kept; 4 no child took the route (nothing written); 1 refused
+#       (causes on stderr; nothing written); 2 can't read or write.
+#   --parent-read --pr <url> [--base <ref>] [--child <session>]...
+#       --collect at the pull request's head, then --read over that key. No
+#       child took the route: 0, nothing read. Otherwise --collect's 1 or 2,
+#       or --read's exit.
+#
+# Options for every mode but --open: --key <k> names the key
+# (hosted_of_record, or run/hosted/<node> for a coordinated node's record);
+# --pr <url> names the pull request, in place of context's pr_url or the
+# checked-out branch; --work-tree <dir> runs the git reads there (a node's
+# worktree; --collect stores it in the key as work_tree, and a later read of
+# the key uses it when no --work-tree is given); --child-dir <dir> runs the
+# children's koto reads there (a coordinated node's worktree, where its work
+# items' sessions were opened). --read --dry-run decides as --read does and
+# writes nothing (no key, no body edit, no failure_reason). --ready
+# --absent-ok answers 0 when there is no key. --mark-ready --absent-ok --pr
+# <url>, with no key, runs `gh pr ready <url>` when no child (as --collect
+# finds them) holds hosted_of_record, and refuses (1) while one does: it is a
+# parent's ready call, the plain one when nobody took the route. Without them
+# every mode behaves as it did before they existed. --parent-read with no
+# child record reads nothing from GitHub.
 #
 # The key hosted_of_record:
 #   {"head", "taken_at", "reason",
@@ -85,9 +119,9 @@
 #
 # Functions (the contract for check-verification.sh, check-pr-output.sh and
 # /execute parity): vr_now, vr_locate, vr_map_at, vr_timed_out_checks,
-# vr_refuse_execute_child, vr_closing_paths, vr_open_check,
-# vr_sanitize_reason, vr_validate_record, vr_body_line, vr_reason_line,
-# vr_body_check, vr_pr_object, vr_runs, vr_job. Each sets VR_* globals
+# vr_closing_paths, vr_diff_check, vr_open_check, vr_sanitize_reason,
+# vr_validate_record, vr_body_line, vr_reason_line, vr_body_check,
+# vr_pr_object, vr_runs, vr_job, vr_child_checks. Each sets VR_* globals
 # rather than printing where a caller needs more than one value; VR_CAUSES is
 # a newline list of causes.
 #
@@ -122,8 +156,36 @@ scripts/check-skill.sh
 skills/work-on/scripts/verification-hosted-coverage_test.sh'
 VR_SESSION_RE='^[A-Za-z0-9._][A-Za-z0-9._-]*$'
 VR_SHA_RE='^[0-9a-f]{40}$'
+VR_KEY_RE='^(hosted_of_record|run/hosted/[a-z][a-z0-9-]*)$'
 VR_CAUSES=""
 VR_TMP=""
+# --work-tree, --child-dir and --pr; empty is the current directory, and the
+# pull request pr_url or the branch names.
+VR_WT=""
+VR_CHILD_DIR=""
+VR_PR_OPT=""
+VR_BASE_OPT=""
+VR_DRY=0
+VR_ABSENT_OK=0
+
+# vr_root: the top of the work tree the git reads run in.
+vr_root() {
+    if [ -n "$VR_WT" ]; then
+        git -C "$VR_WT" rev-parse --show-toplevel
+    else
+        git rev-parse --show-toplevel
+    fi
+}
+
+# vr_child_koto <koto arguments>...: a koto call for a child's session, run
+# in --child-dir when one was given.
+vr_child_koto() {
+    if [ -n "$VR_CHILD_DIR" ]; then
+        (CDPATH='' cd -- "$VR_CHILD_DIR" && exec koto "$@")
+    else
+        koto "$@"
+    fi
+}
 
 vr_say() {
     echo "verification-route: $*" >&2
@@ -240,22 +302,6 @@ vr_timed_out_checks() {
          | {id: .check, row: .id, jobs: (($map.commands[.id].hosted // []) | map({workflow, job}))}]' "$1"
 }
 
-# vr_refuse_execute_child <session> <shared-branch>: the ONE /execute refusal.
-# Returns 0 and adds the cause when the run is a child of /execute (a
-# SHARED_BRANCH run, or a session session-role.sh doesn't answer `root`
-# for), 1 otherwise. Until /execute collects children's records, a child's
-# record would sit on a pull request nobody reads it for; /execute parity
-# removes this function's call, and only it.
-vr_refuse_execute_child() {
-    local role
-    if [ -z "$2" ]; then
-        role=$("$VR_HERE/session-role.sh" "$1") || role=""
-        [ "$role" = root ] && return 1
-    fi
-    vr_cause "the run is a child of /execute (SHARED_BRANCH set, or a child session): the route waits for /execute parity"
-    return 0
-}
-
 # vr_closing_paths <root> <mb>: one path per line (a trailing `/` is a
 # prefix): VR_CLOSING_FIXED plus every library or helper the merge-base's
 # skill-gate.sh and check-skill.sh name, as a path under scripts/ that exists
@@ -292,13 +338,14 @@ EOF
     git -C "$1" ls-tree --name-only "$2" -- "${cands[@]}" || return 1
 }
 
-# vr_open_check <session> <head> <mb> <result> <shared-branch>: sets
+# vr_open_check <session> <head> <mb> <result> [<shared-branch>]: sets
 # VR_CAUSES; 0 the route is open, 1 it is closed. Every cause is collected.
+# The shared branch is no longer read: a child of /execute takes the route
+# like any run, and /execute collects its record.
 vr_open_check() {
-    local session=$1 head=$2 mb=$3 result=$4 shared=$5 root="" inv=null runf facts checks dirty
-    local changed closing hits tsv c st p add del
+    local head=$2 mb=$3 result=$4 root="" inv=null runf facts checks dirty c
     VR_CAUSES=""
-    root=$(git rev-parse --show-toplevel) || { vr_cause "not inside a git working tree"; root=""; }
+    root=$(vr_root) || { vr_cause "not inside a git working tree"; root=""; }
 
     if [ ! -f "$result" ]; then
         vr_cause "no verification result for $head (looked for $result)"
@@ -357,55 +404,65 @@ EOF
             vr_cause "tracked files have uncommitted changes"
         fi
 
-        # Paths only, never renames: a moved file is a deletion and an addition.
-        if changed=$(git -C "$root" diff --name-only --no-renames -z "$mb" "$head" \
-                | jq -Rsc 'split("\u0000") | map(select(length > 0))'
-                s=("${PIPESTATUS[@]}"); [ "${s[0]}" = 0 ] && [ "${s[1]}" = 0 ]) \
-            && closing=$(vr_closing_paths "$root" "$mb" | jq -Rsc 'split("\n") | map(select(length > 0))'
-                s=("${PIPESTATUS[@]}"); [ "${s[0]}" = 0 ] && [ "${s[1]}" = 0 ]); then
-            hits=$(jq -rn --argjson changed "$changed" --argjson closing "$closing" '
-                $changed[] | . as $p
-                | select(any($closing[]; . as $c | if $c | endswith("/") then $p | startswith($c) else $p == $c end))
-                | "the diff from the merge-base touches \($p), which decides what the hosted job runs"')
-            while IFS= read -r c; do
-                [ -n "$c" ] && vr_cause "$c"
-            done <<EOF
-$hits
-EOF
-        else
-            vr_cause "could not read the diff from the merge-base $mb, or the paths that close the route"
-        fi
-
-        # A check-skill.tsv may only gain rows: an edited or deleted row could
-        # change which suites the hosted job runs for the change.
-        if tsv=$(git -C "$root" diff --name-status --no-renames "$mb" "$head" -- ':(glob)skills/*/check-skill.tsv'); then
-            while IFS="$(printf '\t')" read -r st p; do
-                [ -n "$st" ] || continue
-                case "$st" in
-                    A|M) ;;
-                    *) vr_cause "the diff changes $p (status $st); only added rows keep the route open" ;;
-                esac
-            done <<EOF
-$tsv
-EOF
-        else
-            vr_cause "could not read the check-skill.tsv changes"
-        fi
-        if tsv=$(git -C "$root" diff --numstat --no-renames "$mb" "$head" -- ':(glob)skills/*/check-skill.tsv'); then
-            while IFS="$(printf '\t')" read -r add del p; do
-                [ -n "$add" ] || continue
-                [ "$del" = 0 ] || vr_cause "the diff edits or deletes rows of $p; only added rows keep the route open"
-            done <<EOF
-$tsv
-EOF
-        else
-            vr_cause "could not read the check-skill.tsv changes"
-        fi
+        vr_diff_check "$root" "$mb" "$head"
     fi
 
-    vr_refuse_execute_child "$session" "$shared"
-
     [ -z "$VR_CAUSES" ]
+}
+
+# vr_diff_check <root> <mb> <head>: the diff checks every route runs, a
+# /work-on run's over its own diff (vr_open_check) and /execute's over a
+# shared or node pull request's whole diff (--collect): a path that decides
+# what the hosted job runs (vr_closing_paths), and a check-skill.tsv edited
+# other than by added rows. Adds one cause per finding to VR_CAUSES (it does
+# not clear it); 0 when it added none.
+vr_diff_check() {
+    local root=$1 mb=$2 head=$3 before=$VR_CAUSES changed closing hits tsv c st p add del
+    # Paths only, never renames: a moved file is a deletion and an addition.
+    if changed=$(git -C "$root" diff --name-only --no-renames -z "$mb" "$head" \
+            | jq -Rsc 'split("\u0000") | map(select(length > 0))'
+            s=("${PIPESTATUS[@]}"); [ "${s[0]}" = 0 ] && [ "${s[1]}" = 0 ]) \
+        && closing=$(vr_closing_paths "$root" "$mb" | jq -Rsc 'split("\n") | map(select(length > 0))'
+            s=("${PIPESTATUS[@]}"); [ "${s[0]}" = 0 ] && [ "${s[1]}" = 0 ]); then
+        hits=$(jq -rn --argjson changed "$changed" --argjson closing "$closing" '
+            $changed[] | . as $p
+            | select(any($closing[]; . as $c | if $c | endswith("/") then $p | startswith($c) else $p == $c end))
+            | "the diff from the merge-base touches \($p), which decides what the hosted job runs"')
+        while IFS= read -r c; do
+            [ -n "$c" ] && vr_cause "$c"
+        done <<EOF
+$hits
+EOF
+    else
+        vr_cause "could not read the diff from the merge-base $mb, or the paths that close the route"
+    fi
+
+    # A check-skill.tsv may only gain rows: an edited or deleted row could
+    # change which suites the hosted job runs for the change.
+    if tsv=$(git -C "$root" diff --name-status --no-renames "$mb" "$head" -- ':(glob)skills/*/check-skill.tsv'); then
+        while IFS="$(printf '\t')" read -r st p; do
+            [ -n "$st" ] || continue
+            case "$st" in
+                A|M) ;;
+                *) vr_cause "the diff changes $p (status $st); only added rows keep the route open" ;;
+            esac
+        done <<EOF
+$tsv
+EOF
+    else
+        vr_cause "could not read the check-skill.tsv changes"
+    fi
+    if tsv=$(git -C "$root" diff --numstat --no-renames "$mb" "$head" -- ':(glob)skills/*/check-skill.tsv'); then
+        while IFS="$(printf '\t')" read -r add del p; do
+            [ -n "$add" ] || continue
+            [ "$del" = 0 ] || vr_cause "the diff edits or deletes rows of $p; only added rows keep the route open"
+        done <<EOF
+$tsv
+EOF
+    else
+        vr_cause "could not read the check-skill.tsv changes"
+    fi
+    [ "$VR_CAUSES" = "$before" ]
 }
 
 # --- the record ---------------------------------------------------------------------------
@@ -481,7 +538,7 @@ EOF
         vr_cause "the record's taken_at is in the future"
     fi
 
-    root=$(git rev-parse --show-toplevel) || { vr_cause "not inside a git working tree"; return 1; }
+    root=$(vr_root) || { vr_cause "not inside a git working tree"; return 1; }
     # One group per stored result the record's parts come from: the run's own
     # at <head>, and each child's.
     groups=$(jq -r --arg s "$session" --arg h "$head" \
@@ -507,6 +564,22 @@ EOF
             vr_cause "the stored result for session $gs at $gh has no finished_at"
         elif [ -n "$taken" ] && [ "$taken" -lt "$fin" ]; then
             vr_cause "the record's taken_at is before the result for session $gs at $gh finished"
+        fi
+        # A child's result stands only as /work-on's --open would have let it
+        # stand: no check failed, none failed to start or ran away. The run's
+        # own result passed --open before it was recorded.
+        if [ "$gs" != "$session" ] || [ "$gh" != "$head" ]; then
+            out=$(jq -r '.commands[]
+                | if .not_started == true then "command \(.check // .id) did not start"
+                  elif .runaway == true then "command \(.check // .id) grew past its max_procs"
+                  elif .outcome == "failed" then "check \(.check // .id) failed"
+                  else empty end' "$res") \
+                || { vr_cause "the stored result for session $gs at $gh could not be read"; continue; }
+            while IFS= read -r c; do
+                [ -n "$c" ] && vr_cause "the result for session $gs at $gh: $c"
+            done <<EOF
+$out
+EOF
         fi
         mb=$(jq -r '.merge_base // ""' "$res")
         if ! vr_map_at "$root" "$mb"; then
@@ -631,9 +704,17 @@ vr_pr_object() {
     local url="" out rc num
     VR_PR=""; VR_PR_URL=""; VR_HOST=""; VR_REPO=""; VR_PR_NUMBER=""; VR_PR_ERR=""
     vr_pr_url_lib || { VR_PR_ERR="pr-url.sh is missing"; return 1; }
-    koto context exists "$1" pr_url
-    rc=$?
+    # --pr names it: a parent run's shared or node pull request, which
+    # neither pr_url nor the checked-out branch names.
+    if [ -n "$VR_PR_OPT" ]; then
+        rc=given
+        url=$VR_PR_OPT
+    else
+        koto context exists "$1" pr_url
+        rc=$?
+    fi
     case "$rc" in
+        given) ;;
         0) url=$(koto context get "$1" pr_url) || { VR_PR_ERR="could not read pr_url from koto context"; return 1; } ;;
         1) out=$(gh pr view --json url) || { VR_PR_ERR="gh pr view could not find the branch's pull request"; return 1; }
            url=$(jq -r '.url // ""' <<<"$out") || { VR_PR_ERR="gh pr view did not return a URL"; return 1; } ;;
@@ -729,7 +810,7 @@ vr_job() {
 
 # vr_key_read <session>: sets VR_REC; 0 read, 1 absent, 2 koto failed.
 vr_key_read() {
-    local rc
+    local rc wt
     VR_REC=""
     koto context exists "$1" "$VR_KEY"
     rc=$?
@@ -739,11 +820,21 @@ vr_key_read() {
         *) vr_say "koto context exists $1 $VR_KEY exited $rc"; return 2 ;;
     esac
     VR_REC=$(koto context get "$1" "$VR_KEY") || { vr_say "could not read the $VR_KEY key of $1"; VR_REC=""; return 2; }
+    # A node's record names the worktree its git reads ran in; it is used
+    # when this call names none and the directory is still there.
+    if [ -z "$VR_WT" ]; then
+        wt=$(jq -r 'if type == "object" and (.work_tree | type) == "string" then .work_tree else "" end' <<<"$VR_REC") || wt=""
+        [ -n "$wt" ] && [ -d "$wt" ] && VR_WT=$wt
+    fi
     return 0
 }
 
 vr_head() {
-    git rev-parse --verify -q "HEAD^{commit}"
+    if [ -n "$VR_WT" ]; then
+        git -C "$VR_WT" rev-parse --verify -q "HEAD^{commit}"
+    else
+        git rev-parse --verify -q "HEAD^{commit}"
+    fi
 }
 
 vr_cmd_open() {
@@ -756,8 +847,42 @@ vr_cmd_open() {
     return 1
 }
 
+# vr_child_checks <children>: sets VR_CHECKS to the record's parts for the
+# children, one `<session>@<head>` per line, each part carrying the child's
+# session and result head, from that child's stored result and the map at its
+# merge-base. 1 (said on stderr) when a child has no stored result, no map,
+# no timed-out check or one whose row declares no hosted jobs; 2 for a
+# malformed child or a read that failed.
+vr_child_checks() {
+    local root child cs ch res mb timed
+    VR_CHECKS="[]"
+    root=$(vr_root) || return 2
+    while IFS= read -r child; do
+        [ -n "$child" ] || continue
+        cs=${child%@*}; ch=${child##*@}
+        if [ "$cs" = "$child" ] || ! vr_locate "$cs" "$ch"; then
+            vr_say "--child [$child] is not <session>@<head>"
+            return 2
+        fi
+        res=$VR_LOC_RESULT
+        [ -f "$res" ] || { vr_say "no stored verification result for $cs at $ch"; return 1; }
+        mb=$(jq -r '.merge_base // ""' "$res") || return 2
+        vr_map_at "$root" "$mb" || { vr_say "$cs at $ch: $VR_MAP_ERR"; return 1; }
+        timed=$(vr_timed_out_checks "$res" "$VR_MAP") || return 2
+        if jq -e 'length == 0 or any(.[]; (.jobs | length) == 0)' <<<"$timed" >/dev/null; then
+            vr_say "$cs at $ch: no timed-out check, or one whose row declares no hosted jobs"
+            return 1
+        fi
+        VR_CHECKS=$(jq -c --argjson c "$VR_CHECKS" --arg s "$cs" --arg h "$ch" \
+            '$c + map({id, session: $s, result_head: $h, jobs: (.jobs | map(. + {run_id: null, conclusion: null, attempt: null}))})' <<<"$timed") || return 2
+    done <<EOF
+$1
+EOF
+    return 0
+}
+
 vr_cmd_record() {
-    local reason clean rc checks="[]" head root res mb timed child cs ch taken rec
+    local reason clean rc checks="[]" head root res mb timed taken rec
     if [ "$VR_REASON_SET" -eq 1 ]; then
         reason=$VR_REASON
     else
@@ -782,34 +907,16 @@ vr_cmd_record() {
             vr_print_causes "the route is closed, so nothing is recorded: "
             return 1
         fi
-        root=$(git rev-parse --show-toplevel) || return 2
+        root=$(vr_root) || return 2
         vr_map_at "$root" "$mb" || { vr_say "$VR_MAP_ERR"; return 2; }
         timed=$(vr_timed_out_checks "$res" "$VR_MAP") || return 2
         checks=$(jq -c 'map({id, jobs: (.jobs | map(. + {run_id: null, conclusion: null, attempt: null}))})' <<<"$timed") || return 2
     else
         head=$VR_HEAD_OPT
-        root=$(git rev-parse --show-toplevel) || return 2
-        while IFS= read -r child; do
-            [ -n "$child" ] || continue
-            cs=${child%@*}; ch=${child##*@}
-            if [ "$cs" = "$child" ] || ! vr_locate "$cs" "$ch"; then
-                vr_say "--child [$child] is not <session>@<head>"
-                return 2
-            fi
-            res=$VR_LOC_RESULT
-            [ -f "$res" ] || { vr_say "no stored verification result for $cs at $ch"; return 1; }
-            mb=$(jq -r '.merge_base // ""' "$res") || return 2
-            vr_map_at "$root" "$mb" || { vr_say "$cs at $ch: $VR_MAP_ERR"; return 1; }
-            timed=$(vr_timed_out_checks "$res" "$VR_MAP") || return 2
-            if jq -e 'length == 0 or any(.[]; (.jobs | length) == 0)' <<<"$timed" >/dev/null; then
-                vr_say "$cs at $ch: no timed-out check, or one whose row declares no hosted jobs"
-                return 1
-            fi
-            checks=$(jq -c --argjson c "$checks" --arg s "$cs" --arg h "$ch" \
-                '$c + map({id, session: $s, result_head: $h, jobs: (.jobs | map(. + {run_id: null, conclusion: null, attempt: null}))})' <<<"$timed") || return 2
-        done <<EOF
-$VR_CHILDREN
-EOF
+        vr_child_checks "$VR_CHILDREN"
+        rc=$?
+        [ "$rc" -eq 0 ] || return "$rc"
+        checks=$VR_CHECKS
     fi
     taken=$(vr_iso "$(vr_now)") || return 2
     rec=$(jq -cn --arg head "$head" --arg taken "$taken" --arg reason "$clean" --argjson checks "$checks" \
@@ -935,9 +1042,14 @@ vr_cmd_read() {
         taken=$(jq -r '.taken_at | fromdateiso8601' <<<"$VR_REC") || return 2
         now=$(vr_now)
         if [ $((now - taken)) -gt "$VR_WAIT_SECS" ]; then
-            printf 'hosted_record: still pending %s minutes after the route was taken: %s at %s\n' \
-                "$((VR_WAIT_SECS / 60))" "$pending" "$rhead" | koto context add "$VR_S" failure_reason \
-                || { vr_say "could not write failure_reason"; return 2; }
+            # failure_reason is the session's own: written for its own key
+            # (a /work-on run's, or a single-pr parent's), never on a dry run
+            # or for a node's key, whose caller reports it as an error line.
+            if [ "$VR_DRY" -eq 0 ] && [ "$VR_KEY" = hosted_of_record ]; then
+                printf 'hosted_record: still pending %s minutes after the route was taken: %s at %s\n' \
+                    "$((VR_WAIT_SECS / 60))" "$pending" "$rhead" | koto context add "$VR_S" failure_reason \
+                    || { vr_say "could not write failure_reason"; return 2; }
+            fi
             vr_say "hosted_record: still pending $((VR_WAIT_SECS / 60)) minutes after the route was taken: $pending at $rhead"
             return 3
         fi
@@ -945,6 +1057,10 @@ vr_cmd_read() {
         return 75
     fi
 
+    if [ "$VR_DRY" -eq 1 ]; then
+        vr_say "hosted_record: every hosted job of record concluded success at $rhead (a dry run: nothing written)"
+        return 0
+    fi
     new=$(jq -c --argjson f "$fills" \
         'reduce $f[] as $x (.; .checks[$x.i].jobs[$x.j] |= (.run_id = $x.run_id | .conclusion = "success" | .attempt = $x.attempt))' \
         <<<"$VR_REC") || return 2
@@ -989,7 +1105,7 @@ vr_settled_core() {
         return 1
     fi
     if jq -e 'any(.checks[].jobs[]; .run_id == null)' <<<"$VR_REC" >/dev/null; then
-        vr_say "not settled: the hosted jobs of record have not been read at $rhead"
+        vr_say "not settled: the hosted jobs of record have not been read at $rhead: $(jq -r '[.checks[] | .id as $c | .jobs[] | select(.run_id == null) | "\($c)/\(.job)"] | join(", ")' <<<"$VR_REC")"
         return 1
     fi
     vr_pr_object "$VR_S" || { vr_say "$VR_PR_ERR"; return 2; }
@@ -1065,7 +1181,11 @@ vr_cmd_ready() {
     rc=$?
     case "$rc" in
         0) ;;
-        1) vr_say "no $VR_KEY key: there is no record to be ready on"; return 1 ;;
+        1) if [ "$VR_ABSENT_OK" -eq 1 ]; then
+               vr_say "no $VR_KEY key: no hosted route to be ready on"
+               return 0
+           fi
+           vr_say "no $VR_KEY key: there is no record to be ready on"; return 1 ;;
         *) return 2 ;;
     esac
     vr_settled_core "$head"
@@ -1092,7 +1212,21 @@ vr_cmd_mark_ready() {
     rc=$?
     case "$rc" in
         0) ;;
-        1) vr_say "no $VR_KEY key: nothing to mark ready on"; return 1 ;;
+        1) if [ "$VR_ABSENT_OK" -eq 1 ]; then
+               # A parent's ready call: with no child on the route it is the
+               # plain gh pr ready; with one, the read settles first.
+               vr_any_child_record
+               rc=$?
+               case "$rc" in
+                   0) vr_say "--mark-ready refused: a child took the hosted-of-record route and $VR_KEY is not recorded yet; tick, and mark ready once the hosted read settles"
+                      return 1 ;;
+                   1) [ -n "$VR_PR_OPT" ] || { vr_say "--mark-ready --absent-ok needs --pr"; return 2; }
+                      gh pr ready "$VR_PR_OPT" || { vr_say "gh pr ready $VR_PR_OPT failed"; return 2; }
+                      return 0 ;;
+                   *) return 2 ;;
+               esac
+           fi
+           vr_say "no $VR_KEY key: nothing to mark ready on"; return 1 ;;
         *) return 2 ;;
     esac
     # vr_settled_core re-reads the pull request, so its head is checked just
@@ -1131,12 +1265,176 @@ vr_cmd_lines() {
     vr_reason_line "$VR_REC" || return 2
 }
 
+# --- /execute's records: a shared or node pull request's -------------------------------------
+
+# vr_default_base <root>: origin's default branch as a ref, origin/main when
+# refs/remotes/origin/HEAD is absent.
+vr_default_base() {
+    git -C "$1" symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main
+}
+
+# vr_child_names: the children --collect reads, one per line: the --child
+# names, else the ones `koto workflows --children <session>` lists.
+vr_child_names() {
+    local out
+    if [ -n "$VR_CHILDREN" ]; then
+        printf '%s' "$VR_CHILDREN"
+        return 0
+    fi
+    out=$(koto workflows --children "$VR_S" </dev/null) || { vr_say "koto workflows --children $VR_S failed"; return 2; }
+    jq -r 'if type == "array" and all(.[]; (.name | type) == "string") then .[].name else error("not a list") end' <<<"$out" \
+        || { vr_say "koto workflows --children $VR_S did not answer a list of sessions"; return 2; }
+}
+
+# vr_cmd_collect <head>: see --collect in the header.
+vr_cmd_collect() {
+    local head=$1 names child rc rec ch reason parts="" reasons="[]" refused=0 root base mb clean taken new
+    names=$(vr_child_names) || return 2
+    while IFS= read -r child; do
+        [ -n "$child" ] || continue
+        if ! grep -Eq "$VR_SESSION_RE" <<<"$child" || [ "$child" = . ] || [ "$child" = .. ]; then
+            vr_say "--child [$child] is not a session name"
+            return 2
+        fi
+        vr_child_koto context exists "$child" hosted_of_record </dev/null >/dev/null
+        rc=$?
+        case "$rc" in
+            0) ;;
+            1) continue ;;
+            *) vr_say "koto context exists $child hosted_of_record exited $rc"; return 2 ;;
+        esac
+        rec=$(vr_child_koto context get "$child" hosted_of_record </dev/null) \
+            || { vr_say "could not read $child's hosted_of_record"; return 2; }
+        ch=$(jq -r 'if type == "object" and (.head | type) == "string" then .head else "" end' <<<"$rec") || ch=""
+        if ! grep -Eq "$VR_SHA_RE" <<<"$ch"; then
+            vr_say "$child's hosted_of_record names no head"
+            refused=1
+            continue
+        fi
+        # The child's own record, against its own stored result and map.
+        if ! vr_validate_record "$rec" "$ch" "$child"; then
+            vr_print_causes "$child's hosted_of_record is not valid: "
+            refused=1
+            continue
+        fi
+        reason=$(jq -r '.reason' <<<"$rec")
+        reasons=$(jq -c --argjson r "$reasons" --arg x "$reason" -n 'if ($r | index([$x])) then $r else $r + [$x] end') || return 2
+        parts="$parts$child@$ch
+"
+    done <<EOF
+$names
+EOF
+    if [ -z "$parts" ] && [ "$refused" -eq 0 ]; then
+        vr_say "no child took the hosted-of-record route; nothing recorded"
+        return 4
+    fi
+    [ "$refused" -eq 0 ] || { vr_say "the hosted-of-record route is refused for $head, so nothing is recorded"; return 1; }
+
+    # The children's diffs each passed --open; the pull request's whole diff
+    # is what its hosted jobs run on, so it is checked again here.
+    root=$(vr_root) || { vr_say "not inside a git working tree"; return 2; }
+    base=${VR_BASE_OPT:-$(vr_default_base "$root")}
+    mb=$(git -C "$root" merge-base "$base" "$head") || { vr_say "no merge-base of $base and $head"; return 2; }
+    VR_CAUSES=""
+    if ! vr_diff_check "$root" "$mb" "$head"; then
+        vr_print_causes "the hosted-of-record route is closed for $head: "
+        return 1
+    fi
+
+    vr_child_checks "$parts"
+    rc=$?
+    [ "$rc" -eq 0 ] || return "$rc"
+    clean=$(vr_sanitize_reason "$(jq -r 'join("; ")' <<<"$reasons")") || return 2
+    [ -n "$clean" ] || { vr_say "the children's reasons are empty"; return 1; }
+
+    # A key already valid at this head, for the same checks and reason, is
+    # kept: its taken_at is when the wait started.
+    vr_key_read "$VR_S"
+    rc=$?
+    case "$rc" in
+        0) if jq -e --arg h "$head" --arg r "$clean" --argjson c "$VR_CHECKS" '
+                   type == "object" and .head == $h and .reason == $r
+                   and ((.checks // []) | map({id, session, result_head, jobs: (.jobs | map({workflow, job}))}))
+                       == ($c | map({id, session, result_head, jobs: (.jobs | map({workflow, job}))}))' <<<"$VR_REC" >/dev/null 2>&1 \
+               && vr_validate_record "$VR_REC" "$head" "$VR_S"; then
+               vr_say "the $VR_KEY key already records the route for $head; kept"
+               return 0
+           fi ;;
+        1) ;;
+        *) return 2 ;;
+    esac
+    taken=$(vr_iso "$(vr_now)") || return 2
+    new=$(jq -cn --arg head "$head" --arg taken "$taken" --arg reason "$clean" --argjson checks "$VR_CHECKS" --arg wt "$VR_WT" \
+        '{head: $head, taken_at: $taken, reason: $reason, checks: $checks}
+         + (if $wt == "" then {} else {work_tree: $wt} end)') || return 2
+    # The parent's record is checked as its readers will check it, part by
+    # part against each child's stored result and map, before it is written.
+    if ! vr_validate_record "$new" "$head" "$VR_S"; then
+        vr_print_causes "the hosted-of-record route is refused for $head: "
+        return 1
+    fi
+    printf '%s\n' "$new" | koto context add "$VR_S" "$VR_KEY" \
+        || { vr_say "could not write the $VR_KEY key"; return 2; }
+    vr_say "recorded the hosted-of-record route for $head as $VR_KEY: $(jq -r '[.checks[] | "\(.id) (\(.session))"] | join(", ")' <<<"$new")"
+    return 0
+}
+
+# vr_any_child_record: 0 when one of the children holds hosted_of_record, 1
+# when none does, 2 when a read failed.
+vr_any_child_record() {
+    local names child rc
+    names=$(vr_child_names) || return 2
+    while IFS= read -r child; do
+        [ -n "$child" ] || continue
+        vr_child_koto context exists "$child" hosted_of_record </dev/null >/dev/null
+        rc=$?
+        case "$rc" in
+            0) return 0 ;;
+            1) ;;
+            *) vr_say "koto context exists $child hosted_of_record exited $rc"; return 2 ;;
+        esac
+    done <<EOF
+$names
+EOF
+    return 1
+}
+
+# vr_cmd_parent_read: see --parent-read in the header.
+vr_cmd_parent_read() {
+    local head rc
+    # No child took the route: nothing is read from GitHub at all.
+    vr_any_child_record
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) vr_say "no child took the hosted-of-record route; nothing to read"; return 0 ;;
+        *) return 2 ;;
+    esac
+    vr_pr_object "$VR_S" || { vr_say "$VR_PR_ERR"; return 2; }
+    head=$(jq -r .headRefOid <<<"$VR_PR")
+    grep -Eq "$VR_SHA_RE" <<<"$head" || { vr_say "the pull request's head [$head] is not a commit id"; return 2; }
+    vr_cmd_collect "$head"
+    rc=$?
+    case "$rc" in
+        0) ;;
+        4) return 0 ;;
+        *) return "$rc" ;;
+    esac
+    VR_HEAD_OPT=$head
+    vr_cmd_read
+}
+
 vr_usage() {
     cat >&2 <<'EOF'
 Usage: verification-route.sh --open --session <s> [--shared-branch <v>]
        verification-route.sh --record --session <s> [--reason <text>] [--head <sha> --child <session>@<head>]...
        verification-route.sh --check-record|--read|--settled|--ready|--mark-ready --session <s> [--head <sha>]
        verification-route.sh --lines --session <s>
+       verification-route.sh --collect --session <s> --head <sha> [--base <ref>] [--child <session>]...
+       verification-route.sh --parent-read --session <s> --pr <url> [--base <ref>] [--child <session>]...
+  every mode but --open also takes [--key <k>] [--pr <url>] [--work-tree <dir>] [--child-dir <dir>];
+  --read takes [--dry-run], --ready and --mark-ready take [--absent-ok],
+  --mark-ready --absent-ok takes [--child <session>]...
 EOF
 }
 
@@ -1146,11 +1444,12 @@ vr_main() {
     mode=$1
     shift
     case "$mode" in
-        --open|--record|--check-record|--read|--settled|--ready|--mark-ready|--lines) ;;
+        --open|--record|--check-record|--read|--settled|--ready|--mark-ready|--lines|--collect|--parent-read) ;;
         -h|--help) vr_usage; return 0 ;;
         *) vr_usage; return 2 ;;
     esac
     VR_S=""; VR_SHARED=""; VR_REASON=""; VR_REASON_SET=0; VR_HEAD_OPT=""; VR_CHILDREN=""
+    VR_KEY=hosted_of_record; VR_PR_OPT=""; VR_WT=""; VR_CHILD_DIR=""; VR_BASE_OPT=""; VR_DRY=0; VR_ABSENT_OK=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --session)
@@ -1163,30 +1462,64 @@ vr_main() {
                 [ "$mode" = --record ] && [ $# -ge 2 ] || { vr_usage; return 2; }
                 VR_REASON=$2; VR_REASON_SET=1; shift 2 ;;
             --child)
-                [ "$mode" = --record ] && [ $# -ge 2 ] || { vr_usage; return 2; }
+                case "$mode" in --record|--collect|--parent-read|--mark-ready) ;; *) vr_usage; return 2 ;; esac
+                [ $# -ge 2 ] && [ -n "$2" ] || { vr_usage; return 2; }
                 VR_CHILDREN="$VR_CHILDREN$2
 "
                 shift 2 ;;
             --head)
-                [ "$mode" != --open ] && [ "$mode" != --lines ] && [ $# -ge 2 ] || { vr_usage; return 2; }
+                case "$mode" in --open|--lines|--parent-read) vr_usage; return 2 ;; esac
+                [ $# -ge 2 ] || { vr_usage; return 2; }
                 grep -Eq "$VR_SHA_RE" <<<"$2" || { vr_say "--head [$2] is not a commit id"; return 2; }
                 VR_HEAD_OPT=$2; shift 2 ;;
+            --key)
+                [ "$mode" != --open ] && [ $# -ge 2 ] || { vr_usage; return 2; }
+                grep -Eq "$VR_KEY_RE" <<<"$2" || { vr_say "--key [$2] is not hosted_of_record or run/hosted/<node>"; return 2; }
+                VR_KEY=$2; shift 2 ;;
+            --pr)
+                [ "$mode" != --open ] && [ $# -ge 2 ] && [ -n "$2" ] || { vr_usage; return 2; }
+                vr_pr_url_lib || return 2
+                pr_url_parse "$2" || { vr_say "--pr [$2] is not a pull request URL"; return 2; }
+                VR_PR_OPT=$2; shift 2 ;;
+            --work-tree)
+                [ "$mode" != --open ] && [ $# -ge 2 ] && [ -d "${2:-}" ] || { vr_say "--work-tree needs a directory"; return 2; }
+                VR_WT=$2; shift 2 ;;
+            --child-dir)
+                [ "$mode" != --open ] && [ $# -ge 2 ] && [ -d "${2:-}" ] || { vr_say "--child-dir needs a directory"; return 2; }
+                VR_CHILD_DIR=$2; shift 2 ;;
+            --base)
+                case "$mode" in --collect|--parent-read) ;; *) vr_usage; return 2 ;; esac
+                [ $# -ge 2 ] && [ -n "$2" ] || { vr_usage; return 2; }
+                case "$2" in -*) vr_say "--base [$2] is not a ref"; return 2 ;; esac
+                VR_BASE_OPT=$2; shift 2 ;;
+            --dry-run)
+                [ "$mode" = --read ] || { vr_usage; return 2; }
+                VR_DRY=1; shift ;;
+            --absent-ok)
+                case "$mode" in --ready|--mark-ready) ;; *) vr_usage; return 2 ;; esac
+                VR_ABSENT_OK=1; shift ;;
             *) vr_usage; return 2 ;;
         esac
     done
     [ -n "$VR_S" ] || { vr_usage; return 2; }
     grep -Eq "$VR_SESSION_RE" <<<"$VR_S" && [ "$VR_S" != . ] && [ "$VR_S" != .. ] \
         || { vr_say "--session [$VR_S] is not a session name"; return 2; }
-    if [ -n "$VR_CHILDREN" ] && [ -z "$VR_HEAD_OPT" ]; then
+    if [ "$mode" = --record ] && [ -n "$VR_CHILDREN" ] && [ -z "$VR_HEAD_OPT" ]; then
         vr_say "--child needs --head, the shared or node pull request's head"
         return 2
     fi
-    # --open needs no koto of its own: session-role.sh answers child without
-    # it, which closes the route.
+    if [ "$mode" = --collect ] && [ -z "$VR_HEAD_OPT" ]; then
+        vr_say "--collect needs --head, the shared or node pull request's head"
+        return 2
+    fi
+    if [ "$mode" = --parent-read ] && [ -z "$VR_PR_OPT" ]; then
+        vr_say "--parent-read needs --pr, the shared or node pull request"
+        return 2
+    fi
     tools="git jq"
     [ "$mode" = --open ] || tools="$tools koto"
     case "$mode" in
-        --read|--settled|--ready|--mark-ready) tools="$tools gh" ;;
+        --read|--settled|--ready|--mark-ready|--parent-read) tools="$tools gh" ;;
     esac
     for tool in $tools; do
         command -v "$tool" >/dev/null 2>&1 || { vr_say "$tool is not on PATH"; return 2; }
@@ -1200,6 +1533,8 @@ vr_main() {
         --ready) vr_cmd_ready ;;
         --mark-ready) vr_cmd_mark_ready ;;
         --lines) vr_cmd_lines ;;
+        --collect) vr_cmd_collect "$VR_HEAD_OPT" ;;
+        --parent-read) vr_cmd_parent_read ;;
     esac
     rc=$?
     return "$rc"

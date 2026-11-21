@@ -151,20 +151,22 @@ POSITIONAL argument only; the `--upstream` value is never an input to it.
    `VISION-` or `PRD-` prefix and `.md` suffix, and use the remainder. Both
    path modes derive the slug the same way -- the slug names the strategy's
    topic, and says nothing about what ends up in `upstream:`.
-2. If the positional argument is a freeform topic string, lowercase it,
-   replace whitespace and underscores with `-`, and strip any character
-   outside `[a-z0-9-]`.
-3. If the positional argument is empty, ask the user to name the strategy and
-   re-derive from their answer -- even when `--upstream` supplied a VISION.
+2. If the positional argument is a freeform topic, take the slug from it
+   as `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says: a slug given as-is is
+   used verbatim; a description of the bet becomes a short kebab-case
+   slug the agent picks to name it, named on the first line of output.
+3. If the positional argument is empty, derive the slug from the
+   conversation when it already describes the strategy; otherwise ask the
+   user to name the strategy and derive from their answer -- even when `--upstream` supplied a VISION.
    A VISION's filename names the vision, not the bet operationalizing it, and
    naming the strategy after it is exactly the conflation the flag exists to
    undo.
 
 After derivation, test the slug against `^[a-z0-9-]+$`. If the slug is empty,
 contains characters outside the allowed set after derivation, or starts/ends
-with `-`, reject the invocation and ask the user for a clean slug. Do not fall
-through to a "best effort" slug — silent normalization hides input the user did
-not intend.
+with `-`, pick a conforming one before going on; a slug is never reshaped
+without being named on the first line of output, so nothing is normalized
+silently.
 
 ## 0.3 Canonicalize the Path Argument
 

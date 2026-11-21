@@ -88,11 +88,16 @@ type you need yet.
 
 From `$ARGUMENTS`:
 
-1. **Empty** -- ask the user what project or org they want to define a vision for
+1. **Empty** -- when the conversation already describes the project or org,
+   derive the topic from it; otherwise ask the user what project or org they
+   want to define a vision for
 2. **Path to existing VISION** with lifecycle verb (`accept`, `activate`,
    `sunset`) -- execute the lifecycle transition via `shirabe transition
    <vision-path> <status>` (Sunset optionally takes `--superseded-by <path>`)
-3. **Anything else** -- use as the starting topic for Phase 1 scoping
+3. **Anything else** -- the author's topic: a slug used as given, or a
+   description of the project the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. The description is the starting
+   point for Phase 1 scoping.
 
 ### Standalone Entry
 

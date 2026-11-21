@@ -155,9 +155,12 @@ catch conflicts. Phases 4-6 synthesize architecture, run security review, and fi
 ### Input Modes
 
 From `$ARGUMENTS`:
-1. **Empty** -- ask the user what they want to design
+1. **Empty** -- when the conversation already describes what to design,
+   derive the topic from it; otherwise ask the user what they want to design
 2. **Path to accepted PRD** (matches `docs/prds/PRD-*.md` with status "Accepted") -- PRD mode
-3. **Anything else** -- freeform topic
+3. **Anything else** -- freeform topic: the author's topic: a slug used as given, or a
+   description of the design the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says.
 
 ### Session and Keys
 
