@@ -31,8 +31,8 @@ Draft
 that doesn't track the size or risk of the change.
 
 The work-on koto template went from 28 states and 21 gates (shirabe 0.19.1)
-to 52 states and 78 gates on main. The state count isn't what costs: on a
-large sample of completed runs, median working time stayed between one hour
+to 52 states and 78 gates on main. The state count isn't what costs: on 567
+completed runs recorded between 2026-10-09 and 2026-11-21, median working time stayed between one hour
 and an hour and a half while the template grew from 36 to 45 states, then
 roughly doubled from the end of October and doubled again in the second week
 of November. Transitions and gate evaluations per run grew about 15% over
@@ -83,11 +83,12 @@ yet compared runs normalized by size.
 ## Goals
 
 The agent running `/work-on`, and the person waiting on its pull request,
-see the run's cost track the change (the BRIEF's User Outcome). A small
-change outside the risky path classes gets one reviewer, one authoritative
-test run and no constant-answer stops. A fix round costs what the fix costs.
-A large change, or one that touches CI, security, workflow templates or gate
-scripts, keeps the full panel. Independent plan steps run together. Each
+see the run's cost track the change (the BRIEF's User Outcome). A change
+within the light cap and outside the risky path classes gets one reviewer,
+one authoritative test run and no constant-answer stops. A change in the
+middle band keeps the six-seat `standard` panel. A change over the full
+floor, or one that touches CI, security, workflow templates or gate
+scripts, keeps the full panel. A fix round costs what the fix costs. Independent plan steps run together. Each
 trim lands with a before and after figure normalized by diff size, and each
 check that remains has a written reason.
 
@@ -95,12 +96,12 @@ check that remains has a written reason.
 
 - As an agent running `/work-on` on a 12-line change to one script and its
   existing test, I want the run to route itself, review at `light` and run
-  the suites once, so that a small fix reaches its pull request in a fraction
-  of today's time.
+  the suites once, so that a small fix gets one reviewer seat instead of seven and
+  one suite run instead of two.
 - As an agent working a 300-line change to a koto template and two gate
   scripts, I want the full panel to stay while constant-answer stops and
-  experiment detours go away, so that the run's time goes to the review that
-  matters.
+  experiment detours go away, so that it keeps all seven seats and loses only the
+  stops whose answer never varied.
 - As an agent taking a fix round after `done` on a one-line fix, I want the
   round to review only the fix diff and verify only the suites it reaches,
   so that one reviewer's finding doesn't cost a second full run.
@@ -117,169 +118,244 @@ check that remains has a written reason.
 
 ## Requirements
 
+The numbers these requirements use, in one place:
+
+| Term | Value |
+|------|-------|
+| light cap | at most 200 changed lines and at most 5 changed files |
+| full floor (unchanged) | more than 400 lines, more than 12 files, or a ci, security, template or engine path |
+| middle band | above the light cap and at or below the full floor, outside the full classes: floors at `standard`, as today |
+| fix-round full-round size | more than 200 lines in the fix diff (the retry-lap threshold `panel-scope.sh` already uses) |
+| light audit | sessions whose name hashes (SHA-256) to 0 mod 10 |
+| audit bound | more than 3 misses in the 30 most recent audited light runs |
+| step concurrency | default 2, from 1 (today's serial order) to 6 |
+
+A **gather** is one evaluation of the review-level facts at a head. A
+command's **hosted twin** is a `hosted` entry for that command in the
+verification map, naming a workflow and job. A **trim** is one requirement
+below that removes or skips work.
+
 ### Measurement
 
-- **R1.** A run keeps the size facts of every gather (lines, files, classes,
-  tests edited, the floor and the rules that fired), not only the latest, so
-  the size at each review visit can be recovered after the run.
-- **R2.** A report built from retained run records gives, per template
-  version and per size band (lines changed, files changed, path classes),
-  the median time per visit of each review, verification, pass-counting and
-  CI state, seats spawned, and sessions per run. It joins a run's fix rounds
-  to the run.
-- **R3.** Each trim below names the report figure it expects to move and by
-  how much, and the plan orders the trims by expected minutes saved per run
-  over the risk accepted.
+- **R1.** A run keeps the size facts of every gather, not only the latest:
+  lines, files, classes, tests changed, tests edited, criteria changed,
+  unclassified, floor, the rules that fired, and the head.
+- **R2.** A report built from retained run records prints, per template
+  version and per size band (light cap, middle band, over the full floor),
+  the median minutes per visit of `scrutiny`, `review`, `qa_validation`,
+  `light_review`, `verification`, `pass_counting` and `ci_monitor`, seats
+  spawned per run, and sessions per run, with each fix round joined to its
+  parent run. A run with missing records is counted and listed as skipped,
+  not dropped silently.
+- **R3.** The report's first output, committed with the change that adds it,
+  states how much of the rise after 2026-10-28 and after 2026-11-09 is
+  explained by a shift toward larger size bands and how much remains within
+  a band.
+- **R4.** Each trim's PLAN issue names one R2 figure it expects to move and
+  the expected saving in minutes per run, with the observation it comes
+  from. After the trim ships and at least 10 runs have used it, the report
+  can print that figure before and after the trim's ship date.
 
 ### Repeated work
 
-- **R4.** A fix round after `done` inherits the parent run's panel verdicts
-  and reviews only the fix diff, the way a retry lap inside one run already
-  does, unless the fix diff alone crosses the size that plans a full round.
-- **R5.** A fix round's verification selects suites from the paths the round
-  changed, and reuses the parent's per-command results for suites whose
-  inputs are unchanged at the new head.
-- **R6.** Edited-test acceptance is judged once per head. Later states check
-  that the head the acceptance covered is still the head, instead of
-  re-deciding it.
-- **R7.** For each verification command, the run records whether hosted CI
-  runs the same check at the same head. When hosted CI covers every selected
-  command, the run treats hosted CI as the build of record by default,
-  without a hand-written reason, and a hosted failure routes back to
-  implementation the way a local failure does. Local verification stays the
-  default when any selected command has no hosted twin, and for changes in
-  the template and engine classes.
-- **R8.** `ci_monitor` waits on the checks relevant to the changed paths:
-  the hosted twins of the selected verification commands plus the checks a
-  repository marks as always required. A check outside that set that fails
-  is reported on the pull request and doesn't hold the run.
+- **R5.** A fix round after `done` inherits the parent run's panel verdicts
+  and reviews only the fix diff, the same way a retry lap inside one run
+  does. A fix diff over the fix-round full-round size plans a full round.
+- **R6.** A fix round's verification selects commands from the paths the
+  round changed since its own base. A command the parent ran that no path
+  changed in the round selects reports the parent's result instead of
+  running.
+- **R7.** Edited-test acceptance is judged once per head. `pr_precheck` and
+  `ci_pass_counting` check that the acceptance's head is still the head and
+  spawn no acceptance seat when it is; a new commit after the acceptance
+  holds as it does today.
+- **R8.** When every command the map selects has a hosted twin and no
+  changed path is in the template or engine class, the run uses hosted CI
+  as its build of record by default, with no typed reason, and the pull
+  request body records that choice. A failing hosted twin routes the run
+  back to `implementation`. Otherwise local verification runs as today.
+- **R9.** `ci_monitor` waits on the hosted twins of the selected commands
+  plus the checks the verification map lists as always required. A check
+  outside that set doesn't hold the run; when it fails, the run names it in
+  a pull request comment.
 
 ### Review sized to the change
 
-- **R9.** A change of at most 200 changed lines and 5 files, outside the ci,
-  security, template and engine classes, with no acceptance criteria
-  changed and no unclassified path, floors at `light`, even when it touches
-  test, executable or instruction paths.
-- **R10.** An edited test no longer floors the run at `full` on its own.
-  It still floors at `full` when the edited test is a fix's reproducing test
-  changed after its red was recorded.
-- **R11.** A koto template's compatibility file stops counting as a template
-  path only once every script its gate digest covers is itself in the engine
-  class, enforced by a test, so a gate-library change keeps its `full` floor.
-- **R12.** The light seat can escalate. An escalation raises the level and
-  sends the run back through the level check, so the larger panel runs on
-  the same head.
-- **R13.** A fixed fraction of light runs, about one in ten, chosen
-  deterministically from the session name, also runs the full panel. The
-  run records whether the full panel blocked where the light seat passed.
-  If that miss rate goes over the bound the design sets, the size caps in
-  R9 go back down.
-- **R14.** The run chooses its review level from the facts. The up-front
-  agent choice and its stop are removed; a coordinator's bound still applies
-  and still logs a breach.
+- **R10.** A change within the light cap, with no ci, security, template or
+  engine path, no acceptance criteria changed and no unclassified path,
+  floors at `light`, even when it touches test, executable or instruction
+  paths. The middle band floors at `standard`.
+- **R11.** An edited test no longer floors the run at `full` on its own. It
+  still does when the edited test is a fix's reproducing test whose content
+  changed after the revision its red was recorded at.
+- **R12.** A koto template's compatibility file leaves the template class
+  only together with a test that fails when any script the template's gate
+  digest covers is missing from the engine class. With both in place, a
+  change to such a script floors at `full` whether or not the
+  compatibility file is in the diff.
+- **R13.** The light seat's verdict can be `escalate`. An escalation raises
+  the level to `standard` and sends the run back through the level check,
+  so the next panel at that head is the larger one.
+- **R14.** A light run in the light audit also runs the full panel at the
+  same head, and records whether the full panel blocked where the light seat
+  passed. When the audit bound is crossed, the report prints a line saying
+  so, and the light cap returns to 40 lines and 3 files by a change to the
+  rules file.
+- **R15.** The run chooses its review level from the facts. The up-front
+  agent choice and its stop are removed. A coordinator's bound still applies:
+  a facts floor above the ceiling still raises the level and still logs a
+  breach.
 
 ### Constant-answer stops
 
-- **R15.** `issue_type_routing` advances without an agent answer when the
-  type is `code`, through the decider it already declares. `docs` and `task`
-  keep their agent answer.
-- **R16.** `pre_pr_evidence`'s checks fold into `finalization`, which
-  already runs them. The state is removed, or reduced to a pass-through with
-  no agent stop.
-- **R17.** A fresh fix determination routes in the tick that made it. If
-  that needs koto to route on a value written during the same tick, the
-  requirement is filed against koto and listed as a dependency, and the
-  shirabe side waits for it.
+- **R16.** `issue_type_routing` advances with no agent submission when the
+  decider answers `code`. `docs` and `task` keep their agent answer.
+- **R17.** `pre_pr_evidence` is removed. `finalization` already runs its
+  four gates, and its two evidence fields move to `finalization`.
+- **R18.** `fix_determination` routes to `implementation` or `reproduce` in
+  the tick that made a fresh determination, using a gate the state's
+  default action has already satisfied. The agent's chance to declare a fix
+  moves to `analysis`, which already allows it on a return.
 
 ### Experiments off the default path
 
-- **R18.** The offload canary and the rule-distance probe are off by
-  default. A run without an opt-in neither enters their states nor runs
-  their gates, and a host or run that opts in gets today's behaviour.
-- **R19.** Shadow grading of document criteria runs only when opted in. A
-  run without the opt-in makes no grading call and waits on nothing.
+- **R19.** The offload canary and the rule-distance probe default to off. A
+  run enters their states and runs their gates only when its host opts in
+  with the existing opt-in file (`shirabe/offload-canary` or
+  `shirabe/probe` under the user config directory, first line `on`).
+- **R20.** Shadow grading of document criteria runs only when the host opts
+  in with `shirabe/doc-criteria` under the user config directory, first line
+  `on`. Without it the grading step makes no call and returns at once.
 
 ### Plan steps
 
-- **R20.** `/execute` starts every plan step whose `waits_on` steps have
-  landed, up to a concurrency limit the run states, instead of strictly in
-  PLAN order.
-- **R21.** The agent that finishes a step details the next outlined step
-  that waits on it, so the owning session no longer rewrites each step
-  before it can start. The owner still reviews the detail before that step
-  starts.
+- **R21.** `/execute` starts every plan step whose `waits_on` steps have all
+  landed, up to the step concurrency limit, set with a flag on `/execute`.
+  A step whose `waits_on` hasn't landed doesn't start.
+- **R22.** The agent that finishes a step drafts the PLAN entry of each
+  outlined step that waits only on it. The owning session reviews the draft
+  and records it as that step's existing step-refine record before the step
+  starts, editing it if needed; a step with no recorded review doesn't
+  start.
 
 ### Keep or cut
 
-- **R22.** Every work-on state added since 0.19.1 carries a keep, trim or
-  cut verdict in the design, with the evidence used and, for a keep, the
-  defect class it catches.
+- **R23.** The design has one row per work-on state added since 0.19.1,
+  with a keep, trim or cut verdict and its evidence: a pull request or issue
+  where the state caught a defect, or "no recorded catch".
 
 ### Non-functional
 
-- **R23.** No change in this PRD lowers the review floor for a path in the
-  ci, security, template or engine class, or for a change over 400 lines or
-  12 files.
-- **R24.** Every trim keeps a way to get today's behaviour back for one run
-  (a flag or a variable) until its report figure has been read after it
-  ships.
+- **R24.** No change here lowers the floor for a path in the ci, security,
+  template or engine class, or for a change over the full floor's size.
+- **R25.** Each trim has an opt-out that restores today's behaviour for one
+  run, named in its PLAN issue, until its R4 after-figure has been read. The
+  removals in R15 and R17 are exempt: they remove an agent turn whose answer
+  never changed the route, and reverting the change restores them.
 
 ## Acceptance Criteria
 
-- [ ] A completed run's records hold the size facts of each gather, and a
-      run with two gathers at different heads shows both (R1).
-- [ ] The report prints, for at least two template versions, per size band,
-      median minutes per visit of `scrutiny`, `review`, `qa_validation`,
-      `verification`, `pass_counting` and `ci_monitor`, seats spawned and
-      sessions per run, with fix rounds joined to their run (R2).
-- [ ] Each issue in the PLAN names the report figure it expects to move and
-      its expected saving in minutes per run (R3).
-- [ ] A fix round whose fix diff is under the full-round size spawns only the
-      re-verifiers the fix diff needs, not a full first round (R4).
+### Measurement
+
+- [ ] A run with two gathers at different heads holds both gathers' facts,
+      each with every field R1 lists (R1).
+- [ ] The report prints, for at least two template versions and each of the
+      three size bands, the medians and counts R2 lists; a fix round appears
+      under its parent; a run with no retained facts appears in a skipped
+      list with its session name (R2).
+- [ ] The first report in the repository has a section on the 2026-10-28
+      and 2026-11-09 steps with a within-band and a band-shift figure for
+      each (R3).
+- [ ] Each trim's PLAN issue names an R2 figure and a saving in minutes per
+      run; given a ship date, the report prints that figure before and after
+      it (R4).
+
+### Repeated work
+
+- [ ] A fix round with a 30-line fix diff, whose parent passed every panel,
+      spawns only re-verifiers for findings the fix diff touches and no
+      first-round seat; with a 250-line fix diff it plans a full round (R5).
 - [ ] A fix round that changes one file in one skill runs only that skill's
-      selected suites, and a suite whose inputs are unchanged reports the
-      parent's result instead of running (R5).
-- [ ] With no commit after acceptance, `pr_precheck` and `ci_pass_counting`
-      pass without spawning an acceptance seat; with a commit after it, they
-      hold (R6).
-- [ ] A run whose selected commands all have hosted twins opens its pull
-      request without running them locally and without a typed reason; a
-      failing hosted twin sends it back to `implementation` (R7).
-- [ ] A run whose changed paths reach no coordinate suite reaches its green
-      edge while a coordinate-only check is still pending or failing, and
-      the pull request body names that check (R8).
-- [ ] A 37-line change to one script and its existing test lands at `light`;
-      the same change plus a koto template edit lands at `full` (R9, R23).
-- [ ] An edited test alone in a small diff doesn't raise the floor to
-      `full`; an edit to a fix's reproducing test after its red does (R10).
-- [ ] A change to a gate-library script that a template's gate digest
-      covers floors at `full` with or without the compatibility file in the
-      diff (R11).
-- [ ] A light seat that escalates sends the run to the level check, and the
-      next panel at that head is the larger one (R12).
-- [ ] For a fixed set of session names, the audited one-in-ten light runs are
-      the same on every evaluation, and each records whether the full panel
-      blocked (R13).
-- [ ] A run with no coordinator bound reaches its first panel without an
-      agent stop at a review-level choice (R14).
-- [ ] A code-typed run passes `issue_type_routing` with no agent submission;
-      a docs-typed run still stops there (R15).
-- [ ] A run with clean finalization output reaches `pr_precheck` with no
-      agent stop between them (R16).
-- [ ] A run whose fix kind is decided on entry routes to `implementation` or
-      `reproduce` in that same tick, or the PLAN lists the koto issue this
-      waits on (R17).
-- [ ] On a host with no opt-in, a run enters none of the canary or probe
-      states; with the opt-in file present, it does (R18).
-- [ ] A jury round with no opt-in makes no grading call; with it, the
-      grading runs as today (R19).
-- [ ] On a plan with steps 2 and 3 both waiting only on step 1, both start
-      before either finishes (R20).
-- [ ] When step 1 finishes, step 2's PLAN entry is detailed by step 1's agent
-      and the owner's review is recorded before step 2 starts (R21).
-- [ ] The design has a row for each state added since 0.19.1 with a verdict
-      and its evidence (R22).
-- [ ] Each trim's opt-out restores today's behaviour for one run (R24).
+      selected command; the parent's result is reported for every other
+      command the parent ran; a fix round that changes a second skill runs
+      that skill's command too (R6).
+- [ ] With no new revision after acceptance, `pr_precheck` and
+      `ci_pass_counting` pass without spawning an acceptance seat; with one,
+      both hold (R7).
+- [ ] A change whose selected commands all have hosted twins opens its pull
+      request without running them locally and without a typed reason, and
+      the body records hosted CI as the build of record; a failing twin sends
+      it to `implementation`; a change with one selected command lacking a
+      twin, or with a template path, runs local verification (R8).
+- [ ] A run whose changed paths select no coordinate command reaches its
+      green edge while a coordinate-only check is still pending; a failing
+      check outside the set produces a pull request comment naming it; a
+      check the map lists as always required holds the run until it passes
+      (R9).
+
+### Review sized to the change
+
+- [ ] Floors for fixtures: 37 lines in one script and its edited test
+      gives `light`; 200 lines in 5 files gives `light`; 201 lines gives
+      `standard`; 6 files within 200 lines gives `standard`; 37 lines plus
+      changed acceptance criteria gives `standard`; 37 lines with an
+      unclassified path gives `standard`; 37 lines plus a koto template, a
+      ci path, a security path or an engine path each give `full`; 401
+      lines gives `full`; 13 files gives `full` (R10, R24).
+- [ ] An edited existing test in a 37-line change floors at `light`; the
+      same edit to a fix's reproducing test, made after the revision its red
+      was recorded at, floors at `full` (R11).
+- [ ] The digest-coverage test fails when a script the gate digest covers
+      is removed from the engine class; a change to that script without the
+      compatibility file floors at `full` (R12).
+- [ ] A light seat that returns `escalate` sends the run to the level check,
+      and the next panel at that head is `standard` (R13).
+- [ ] Over 1,000 generated session names, between 8% and 12% are in the
+      light audit, and the same names are chosen on every evaluation; an
+      audited light run spawns the full panel and records a miss or not; a
+      fixture of 30 audited runs with 4 misses makes the report print the
+      over-bound line (R14).
+- [ ] A run with no coordinator bound reaches its first panel with no agent
+      stop for a review-level choice; with a ceiling of `standard` and facts
+      at `full`, the run reviews at `full` and logs a breach (R15).
+
+### Constant-answer stops
+
+- [ ] A code run passes `issue_type_routing` with no agent submission; a
+      docs run still stops there for an answer (R16).
+- [ ] The template has no `pre_pr_evidence` state; a run whose
+      finalization gates all pass reaches `pr_precheck` with no agent stop in
+      between; a run whose summary fails `summary_shape` still holds at
+      `finalization` (R17).
+- [ ] A run whose fix kind is decided on entry leaves `fix_determination`
+      in that same tick, to `implementation` for a change and `reproduce`
+      for a fix (R18).
+
+### Experiments off the default path
+
+- [ ] On a host with no opt-in file, a run enters no canary or probe state
+      and runs no probe gate; with the opt-in file, it does (R19).
+- [ ] A jury round on a host with no doc-criteria opt-in makes no grading
+      call; with the opt-in, the grading runs as today (R20).
+
+### Plan steps
+
+- [ ] On a plan where steps 2 and 3 wait only on step 1, both steps' start
+      events come after step 1's landing and before either's completion;
+      with the limit at 1 they run in PLAN order; a step 4 waiting on step 2
+      doesn't start before step 2 lands; with three ready steps and the
+      limit at 2, two start (R21).
+- [ ] When step 1 finishes, step 2's PLAN entry holds a draft by step 1's
+      agent, and step 2 starts only after its step-refine record exists; with
+      no record, step 2 doesn't start (R22).
+
+### Keep or cut and opt-outs
+
+- [ ] The design has a row for each of the 24 states added since 0.19.1,
+      each with a verdict and either a link or "no recorded catch" (R23).
+- [ ] Each trim's PLAN issue names its opt-out, and a run with the opt-out
+      set behaves as it does today for the behaviour that trim changed
+      (R25).
 
 ## Out of Scope
 
@@ -287,31 +363,34 @@ check that remains has a written reason.
   and session succession (the BRIEF's out-list). They add their own waiting,
   but they live outside these two skills.
 - When a roadmap milestone counts as Done.
-- CI workflow definitions and suite duration. R8 changes what a run waits
+- CI workflow definitions and suite duration. R9 changes what a run waits
   for, not which jobs exist or how long they take.
 - The coordinator skill and its workflows.
 - The rest of the planning skills' review wiring (review events, document
-  checks). R19 takes only shadow grading off the default path.
+  checks). R20 takes only shadow grading off the default path.
 - Coarse suite selection inside `check-skill.sh --changed`, which PRs #1875
   and #1940 already narrowed.
 - The hosted-of-record route for a timed-out local check (the
-  verification-cap-route work in flight). R7 builds on the same map
+  verification-cap-route work in flight). R8 builds on the same map
   declaration and must not conflict with it.
+- A koto engine change. Every requirement here can be met in shirabe with
+  what koto 0.37 already offers; the design names the one engine change
+  that would simplify R18 as optional follow-up work.
 
 ## Known Limitations
 
 - The light seat doesn't run code. A small change whose defect only shows
   at runtime and isn't covered by its tests can pass `light` where the QA
-  seat would have caught it. R13's audit measures how often that happens;
+  seat would have caught it. R14's audit measures how often that happens;
   it doesn't prevent it.
 - Size caps are a proxy for risk. A 150-line change to an instruction file
   can change agent behaviour widely. Keeping instruction paths eligible for
-  `light` is the most debatable part of R9.
+  `light` is the most debatable part of R10.
 - Deferring to hosted CI moves defect discovery after the pull request
   opens. A hosted failure costs a CI round where a local failure cost a
   local run.
 - Concurrent plan steps share a branch in a `single-pr` plan, so two steps
-  that touch the same files conflict. R20 helps only where steps really are
+  that touch the same files conflict. R21 helps only where steps really are
   independent.
 - The report in R2 can only read runs whose records were retained.
 
@@ -319,7 +398,7 @@ check that remains has a written reason.
 
 - **Repetition before rules.** The research found that a fix round re-runs a
   full panel and the branch's whole suite set, and that this matches the
-  rise in sessions per run better than any template change. R4 to R6 come
+  rise in sessions per run better than any template change. R5 to R7 come
   before the review-level rules because they remove work without lowering
   any check. Alternative: lead with the review level, which frees about a
   quarter of runs but lowers review for them.
@@ -327,7 +406,7 @@ check that remains has a written reason.
   per review round. The step at that date is more plausibly the koto floor
   bump it carried, the hosted skill-gate run added days later, and the
   operating-model changes of the same week, or a measurement break in the
-  review telemetry it introduced. Reverting it would recover nothing; R2
+  review telemetry it introduced. Reverting it would recover nothing; R3
   is how to confirm.
 - **200 lines and 5 files for `light`.** The thresholds 40, 400 and 12 were
   chosen from reading and never tuned. 200 lines is the size under which a
@@ -342,14 +421,30 @@ check that remains has a written reason.
 - **Audit by sampling, not by blocking.** A one-in-ten full panel on light
   runs costs about a tenth of the saving and gives a miss rate. This closes
   the BRIEF's open question about whether one seat is enough: the answer is
-  measured after shipping, with a bound that reverses R9.
+  measured after shipping, with a bound (more than 3 misses in 30) that
+  sends the cap back to 40 lines and 3 files.
 - **Hosted as build of record only where twins exist.** The verification
   map already declares hosted twins for some commands. Requiring a twin for
   every selected command keeps local verification wherever hosted CI
-  wouldn't run the same check.
+  wouldn't run the same check, and template and engine changes keep local
+  verification because a broken gate script can stall the run before CI
+  ever reports.
 - **Remove the up-front review-level choice.** Every recent choice that
   differed from the facts floor was overruled by it, so the stop adds an
   agent turn and decides nothing.
+- **Remove `pre_pr_evidence` rather than keep a pass-through.** Its gates
+  are byte-identical copies of `finalization`'s, kept as a backstop after
+  the copy onto `finalization` was made. A pass-through would keep a state
+  whose only effect is a second evaluation of the same scripts.
+- **No koto dependency.** `fix_determination`'s second tick exists because
+  routes read the variable value the tick started with. A command gate runs
+  after the state's default action in the same tick, so routing on that gate
+  needs no engine change. Making same-tick rebinds visible to routes would
+  be cleaner and is listed as optional follow-up.
+- **Step concurrency defaults to 2.** One is today's behaviour. Two captures
+  most of the gain on plans with a fork after step 1 while keeping branch
+  conflicts and host load bounded; six matches the most workers a host has
+  been seen to run.
 - **Experiments default off, not removed.** Their designs may still want
   data. Off by default keeps the code and moves the cost to runs that opt
   in.
