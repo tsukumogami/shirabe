@@ -550,9 +550,13 @@ states:
           gates.baseline_exists.exists: true
           vars.SHARED_BRANCH:
             is_set: false
+      # Reusing a branch still needs baseline.md: off a shared branch, every
+      # edge to analysis requires baseline_exists, and there is no fallback
+      # edge, so a child with no baseline stays here or submits blocked.
       - target: analysis
         when:
           status: override
+          gates.baseline_exists.exists: true
           vars.SHARED_BRANCH:
             is_set: false
       - target: done_blocked
@@ -562,7 +566,6 @@ states:
             is_set: false
         context_assignments:
           failure_reason: "setup_plan_backed blocked: ${evidence.detail}"
-      - target: analysis
 
   staleness_check:
     gates:
@@ -3699,10 +3702,13 @@ Evidence schema:
 ## setup_plan_backed
 
 Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
-For plan-backed tasks, use ARTIFACT_PREFIX as the baseline key.
+Record the baseline in koto context under the key `baseline.md`: that is the key the
+`baseline_exists` gate checks.
 
-Submit `status: completed` after creating the branch and baseline, `status: override`
-if reusing an existing branch, or `status: blocked`. When `SHARED_BRANCH` is set, koto
+Submit `status: completed` after creating the branch and baseline, or `status: override`
+if reusing an existing branch. Both need `baseline.md` recorded first: without it koto
+keeps the run here. If no baseline can be recorded, submit `status: blocked` with the
+reason in `detail`. When `SHARED_BRANCH` is set, koto
 skips this state through `skip_if` on that variable alone: the response arrives at
 `analysis`, and you submit nothing here.
 
