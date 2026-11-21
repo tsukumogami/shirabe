@@ -104,7 +104,7 @@ static SKILL_NAME_RE: LazyLock<Regex> =
 static SKILL_ARG_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._/=:@+,-]{1,200}$").unwrap());
 static SKILL_PATH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^/[A-Za-z0-9._/+@-]{1,500}/SKILL\.md$").unwrap());
+    LazyLock::new(|| Regex::new(r"^/[A-Za-z0-9._/+@-]+/SKILL\.md$").unwrap());
 
 fn valid_sid(sid: &str) -> bool {
     SID_RE.is_match(sid)
@@ -115,7 +115,7 @@ fn valid_branch(b: &str) -> bool {
 }
 
 fn valid_skill_path(p: &str) -> bool {
-    SKILL_PATH_RE.is_match(p) && !p.split('/').any(|seg| seg == "..")
+    p.len() <= 512 && SKILL_PATH_RE.is_match(p) && !p.split('/').any(|seg| seg == "..")
 }
 
 // --- the ledger entry ----------------------------------------------------------
@@ -446,6 +446,15 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
         assert!(parse_entry(&format!("{GOOD}branch: other\n")).is_none());
         assert!(parse_entry(&format!("{GOOD}extra: x\n")).is_none());
         assert!(parse_entry("koto_session: a\n").is_none());
+    }
+
+    #[test]
+    fn skill_path_length_is_capped_at_512() {
+        let at = format!("/{}/SKILL.md", "p".repeat(512 - 10));
+        assert_eq!(at.len(), 512);
+        assert!(valid_skill_path(&at));
+        let over = format!("/{}/SKILL.md", "p".repeat(512 - 9));
+        assert!(!valid_skill_path(&over));
     }
 
     #[test]

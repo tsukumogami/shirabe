@@ -78,7 +78,10 @@ valid_skill_arg() {
     [[ "$1" =~ ^[A-Za-z0-9._/=:@+,-]{1,200}$ ]]
 }
 valid_skill_path() {
-    [[ "$1" =~ ^/[A-Za-z0-9._/+@-]{1,500}/SKILL\.md$ ]] || return 1
+    # The length is checked apart from the pattern: bash's regex (POSIX ERE)
+    # refuses an interval above 255.
+    [ "${#1}" -le 512 ] || return 1
+    [[ "$1" =~ ^/[A-Za-z0-9._/+@-]+/SKILL\.md$ ]] || return 1
     case "/$1/" in */../*) return 1 ;; esac
     return 0
 }
