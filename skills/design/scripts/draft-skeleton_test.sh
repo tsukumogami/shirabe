@@ -57,6 +57,7 @@
 # Exit codes: 0 all pass, 1 any failed, 2 the harness could not run.
 
 set -u
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd -P)
 ROOT_DIR=$(cd "$SCRIPT_DIR/../../.." && pwd -P)
@@ -88,7 +89,7 @@ done
 WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/draft-skeleton-test.XXXXXX") || exit 2
 WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 2
 cleanup() { case "${WORKDIR:-}" in */draft-skeleton-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
-trap cleanup EXIT
+ktg_on_exit cleanup
 
 # Read before the testlib puts its stub shirabe first on PATH.
 REAL_SHIRABE=$(command -v shirabe 2>/dev/null || true)
@@ -324,10 +325,9 @@ PHASE4="$PHASES_DIR/phase-4-architecture.md"
 PHASE5="$PHASES_DIR/phase-5-security.md"
 PHASE6="$PHASES_DIR/phase-6-final-review.md"
 DOC_T='docs/designs/DESIGN-<topic>.md'
-# The session-store calls the phase files name, as text to find. This suite
-# runs no session-store command, so it holds no copy of the tool's name.
-LIST_JURY='context list design-<topic> --prefix research/phase6_'
-REMOVE_KEY='context remove design-<topic>'
+# The koto context calls the phase files name, as text to find.
+LIST_JURY='koto context list design-<topic> --prefix research/phase6_'
+REMOVE_KEY='koto context remove design-<topic>'
 
 # region <file> <start> <end>: the lines from the first one holding <start> up
 # to, not including, the next one holding <end> (to the end of the file when
