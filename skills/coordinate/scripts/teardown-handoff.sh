@@ -22,7 +22,9 @@
 #   transcript <path>              <claude home>/projects/*/<session id>.jsonl
 #   pr <owner/repo>#<n> <sha>      each pull request GitHub lists as merged
 #                                  from the holding's branch, with its merge
-#                                  commit; one line per pull request
+#                                  commit; one line per pull request. A
+#                                  stopped unit with none is refused; see
+#                                  Removed mode for `pr none`
 #   handoff <url>                  the comment link submitted with `teardown:
 #                                  stopped` (or `removed`; see Removed mode)
 #                                  at the latest visit to teardown,
@@ -57,7 +59,14 @@
 #                                  latest; the job id is its first eight hex
 #                                  digits. `job -` when there is none
 #   transcript <path>              that transcript, when there is one
-#   pr                             as for a stopped unit
+#   pr ... | pr none               as for a stopped unit, or the one line `pr
+#                                  none` when no pull request from the branch
+#                                  merged and the verdict is `handoff none`:
+#                                  the worker was torn down outside the run
+#                                  before anything of it landed
+#                                  (shirabe#1833). With a link and no merged
+#                                  pull request it refuses, as a stopped
+#                                  unit does
 #   handoff <url>|none             as for a stopped unit, or `none` when the
 #                                  evidence carried no link: the worker is
 #                                  gone and never wrote a handoff comment
@@ -420,7 +429,8 @@ removed_mode() {
 
 # no_handoff_checks: a removed unit submitted with no handoff link, because
 # its worker is gone and never wrote one (shirabe#1529). The instance, the
-# job by cwd and the merged pull request are checked before this; it adds
+# job by cwd and the merged pull requests (or that none merged, for `pr
+# none`) are read before this; it adds
 # that the worker itself is over: Claude Code lists no job for the worker's
 # session id, that session's job, when its state file is still there, reads
 # finished as dc_job_finished reads it, and no koto session that ran in the
@@ -505,6 +515,21 @@ dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$PR_REPO" --head "$BRANCH" 
 jq -r --arg o "${PR_REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "" | ascii_downcase) == ($o | ascii_downcase))
     | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" \
     || die2 "the merged pull requests are not readable JSON"
+# The handoff: the link submitted at the latest visit to teardown.
+URL=$(printf '%s' "$EV" | jq -r '.fields.handoff // ""')
+# A unit removed outside the pass before any pull request of it merged, with
+# no link, is a worker torn down and gone with nothing landed (shirabe#1833).
+# Once its sessions are shown to be over, the verdict says `pr none` beside
+# `handoff none`, so the pass can confirm it and the holding can end. A stopped
+# unit, or a removed one whose evidence carries a link, is still refused.
+if [ ! -s "$T/merged" ] && [ -z "$URL" ] && [ "$REMOVED" = 1 ]; then
+    no_handoff_checks
+    line "pr none"
+    line "handoff none"
+    line "dispatch $DISPATCH"
+    line "inventory $INV_TOKEN"
+    emit ready
+fi
 [ -s "$T/merged" ] || refuse "no pull request from $BRANCH in $PR_REPO is merged"
 # A handoff comment may be on one of NUMS in PR_REPO, or on one of INUMS in
 # REPO; with one repository, NUMS holds both.
@@ -520,8 +545,6 @@ case "$UNIT" in
 esac
 [ "$PR_REPO" = "$REPO" ] && { NUMS="$NUMS$INUMS"; INUMS=""; }
 
-# The handoff: the link submitted at the latest visit to teardown.
-URL=$(printf '%s' "$EV" | jq -r '.fields.handoff // ""')
 # A unit removed outside the pass may come with no link: its worker is gone
 # and can't write one. The verdict says `handoff none`, once the worker's
 # own sessions are shown to be over; the pass then records an entry in place
