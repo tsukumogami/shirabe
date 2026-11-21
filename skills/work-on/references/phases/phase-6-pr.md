@@ -139,6 +139,46 @@ build-of-record line or a longer reason's line, doesn't count, nor does a
 didn't defer passes the gate without the section. On a deferred run, don't
 re-run tests locally after merging main either: the push is what CI checks.
 
+### Verification settled on hosted CI (the hosted-of-record route)
+
+A run whose local verification timed out, with no check failed, may have taken
+the hosted-of-record route at `verification`'s timed-out hold. It then has the
+koto key `hosted_of_record` for this head, and the pull request follows a
+different rule from the first push:
+
+- Open it as a draft, with the body passed by file:
+  `gh pr create --draft --body-file <file>`. Never pass the body inline.
+- Put the lines
+  `"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/verification-route.sh" --lines --session <session>`
+  prints into the body file verbatim, in the Verification part of Part 2. They
+  are one `Hosted of record: <check> at <head>: <job> (pending)` line per
+  recorded check and a `Reason for the hosted route:` line with the reason in a
+  code span, its `@`, `#`, `<`, `>`, `[` and `]` turned into `_`. Never type
+  or edit them: the script writes them from the record, so a reason can't forge
+  one. `--lines` exits 1 when there is no key at the current head; the
+  pull request then follows the ordinary rule.
+- `pr_creation`'s `hosted_record_line` gate (`check-pr-output.sh
+  --hosted-record`) holds `pr_status: created` until the pull request is a
+  draft and every recorded check has exactly one line naming its check id, the
+  record's head and its declared jobs.
+
+The reason is public: it reaches the body exactly as it was recorded. A key
+left from an earlier head is no record: `run-verification.sh --start` removes
+it at the new head, and the pull request then opens as usual.
+
+The pull request stays a draft until `hosted_record` settles the record. That
+state's read (`verification-route.sh --read`) fills each job's run once its
+latest attempt at the head concluded success, and rewrites the body's lines
+with the run links itself (`gh pr edit --body-file`). Only then mark it ready,
+with
+`"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/verification-route.sh" --mark-ready --session <session>`,
+which re-reads
+the pull request's head and runs `gh pr ready` only when it is still the
+record's. Don't run `gh pr ready` by hand, and don't fill the record yourself:
+`ci_monitor`'s `hosted_settled` gate re-reads every run and sends a record it
+can't confirm back to the read. Any commit after the route was taken voids it,
+and the run verifies the new head afresh.
+
 ### A repository with no hosted CI
 
 A pull request with no checks never passes `ci_passing` on its own: zero checks
@@ -190,6 +230,14 @@ check green.
 A check you cannot fix, or one still red when `ci_monitor`'s retry cap is
 spent, ends the run as `failing_unresolvable`; the state's directive carries
 the cap. An unattended run never asks the user instead.
+
+On the hosted-of-record route, green CI on the draft goes to `hosted_record`
+before `ci_pass_counting`. There the read waits while a recorded job is pending
+(for a bounded time from when the route was taken; the state's directive
+carries the limit), refuses a job that concluded
+anything but success, and the ready step follows a read that passed. Back at
+`ci_monitor` after the pull request is ready, the checks that run only on a
+ready pull request (the macOS legs, for example) are waited for like any other.
 
 ## Evidence (pr_creation)
 
