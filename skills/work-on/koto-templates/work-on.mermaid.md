@@ -181,9 +181,8 @@ stateDiagram-v2
     setup_issue_backed --> staleness_check
     setup_plan_backed --> analysis : vars.SHARED_BRANCH: {"is_set":true}
     setup_plan_backed --> analysis : gates.baseline_exists.exists: true, gates.on_feature_branch.exit_code: 0, status: completed, vars.SHARED_BRANCH: {"is_set":false}
-    setup_plan_backed --> analysis : status: override, vars.SHARED_BRANCH: {"is_set":false}
+    setup_plan_backed --> analysis : gates.baseline_exists.exists: true, status: override, vars.SHARED_BRANCH: {"is_set":false}
     setup_plan_backed --> done_blocked : status: blocked, vars.SHARED_BRANCH: {"is_set":false}
-    setup_plan_backed --> analysis
     staleness_check --> analysis : gates.staleness_fresh.exit_code: 0
     staleness_check --> introspection : gates.staleness_fresh.exit_code: 1
     staleness_check --> analysis : gates.staleness_fresh.exit_code: 3
