@@ -976,16 +976,16 @@ expect_rc "re-entering verification at the same head and merge-base holds at 5 a
     || fail "re-entry started the check again: $(grep -c '^start$' "$HOLD_REC" 2>/dev/null) starts"
 OUT=$("$VERDICT" --verdict --session s-hold --shared-branch docs/x 2>"$WORKDIR/verdict.err")
 RC=$?
-expect_rc "the same result for a SHARED_BRANCH run of /execute" 4
-grep -qF 'the hosted-of-record route is closed: the run is a child of /execute' "$WORKDIR/verdict.err" \
-    && pass "a SHARED_BRANCH run's verdict names /execute as the closing cause" \
-    || fail "the SHARED_BRANCH verdict's stderr: $(cat "$WORKDIR/verdict.err")"
+expect_rc "the same result for a SHARED_BRANCH run of /execute: the hold, as for any run" 5
+grep -q 'child of /execute' "$WORKDIR/verdict.err" \
+    && fail "a SHARED_BRANCH run's verdict still names /execute as a closing cause: $(cat "$WORKDIR/verdict.err")" \
+    || pass "a SHARED_BRANCH run's verdict names no /execute refusal"
 OUT=$("$VERDICT" --verdict --session s-hold --shared-branch "" 2>"$WORKDIR/verdict.err")
 RC=$?
 expect_rc "an empty --shared-branch, as a run not under /execute passes it" 5
 root_sessions s-holdbare
 verdict s-hold
-expect_rc "the same result when the session is not listed as a root" 4
+expect_rc "the same result when the session is not listed as a root (a child /execute started): the hold" 5
 
 CMDS=$(jq -cn --arg f "$WORKDIR/holdbare.rec" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1}}')
 mkrepo holdbare "$(map "$CMDS" '[]' '["chk"]')"

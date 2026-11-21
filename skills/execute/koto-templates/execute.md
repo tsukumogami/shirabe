@@ -1067,6 +1067,36 @@ states:
         type: command
         overridable: false
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
+      # The hosted-of-record route for the shared PR. A child that took it
+      # recorded hosted_of_record and submitted pr_status: shared, so this run
+      # does the read for the PR it owns: verification-route.sh --parent-read
+      # writes this session's own hosted_of_record for the shared PR's head
+      # (the union of the children's checks, each part validated against its
+      # child's result and map, after the diff checks --open makes, run over
+      # the PR's whole diff), then reads each declared job's latest attempt
+      # there and writes the run links into the body.
+      #   0   no child took the route (nothing read), or every job concluded
+      #       success
+      #   1   refused: a job concluded anything else, a closing path in the
+      #       PR's diff, a child part that doesn't validate  done_blocked
+      #   3   a job still pending 120 minutes after this run's own taken_at;
+      #       the script wrote failure_reason                 done_blocked
+      #   75  pending, and before the cascade's verdict (the head the read
+      #       is for is the cascade's), so nothing is read    holds
+      #   2   could not read or write                         holds
+      # shared_hosted_ready is --ready --absent-ok: 0 with no record, or a
+      # settled record on a PR out of draft whose lines carry their run
+      # links. The ci_monitor edges need both at 0, so the PR is never
+      # readied, and the run never reaches ci_monitor, while a job is pending.
+      #   test: skills/execute/scripts/execute-output-gates-routing_test.sh
+      shared_hosted_read:
+        type: command
+        timeout: 180
+        command: 'koto context get "{{SESSION_NAME}}" cascade_result.json 2>/dev/null | grep -Eq "^\{\"cascade_status\":\"(completed|skipped)\"," || exit 75; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --parent-read --session "{{SESSION_NAME}}" --base "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)" --pr "$("{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh" --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})")"'
+      shared_hosted_ready:
+        type: command
+        timeout: 120
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --ready --absent-ok --session "{{SESSION_NAME}}" --pr "$("{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh" --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})")"'
     accepts:
       cascade_detail:
         type: string
@@ -1084,6 +1114,8 @@ states:
           gates.cascade_skipped.matches: false
           gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: true
+          gates.shared_hosted_read.exit_code: 0
+          gates.shared_hosted_ready.exit_code: 0
       - target: ci_monitor
         when:
           gates.ready_owned_pr.exit_code: 0
@@ -1091,6 +1123,8 @@ states:
           gates.cascade_skipped.matches: false
           gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: false
+          gates.shared_hosted_read.exit_code: 0
+          gates.shared_hosted_ready.exit_code: 0
       - target: ci_monitor
         when:
           gates.ready_owned_pr.exit_code: 0
@@ -1098,6 +1132,8 @@ states:
           gates.cascade_skipped.matches: true
           gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: true
+          gates.shared_hosted_read.exit_code: 0
+          gates.shared_hosted_ready.exit_code: 0
       - target: ci_monitor
         when:
           gates.ready_owned_pr.exit_code: 0
@@ -1105,6 +1141,8 @@ states:
           gates.cascade_skipped.matches: true
           gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: false
+          gates.shared_hosted_read.exit_code: 0
+          gates.shared_hosted_ready.exit_code: 0
       # The owned-PR lookup in front of gh pr ready.
       - target: done_blocked
         when:
@@ -1120,6 +1158,25 @@ states:
           outcome: error
           step: "execute:status-read"
           failure_reason: "plan_completion: the PR lookup read failed"
+      # The hosted route's read refused, or waited past its 120 minutes. Both
+      # need the lookup at 0, which keeps them exclusive of the lookup's own
+      # edges. On 3 the script wrote failure_reason itself, so the edge
+      # assigns none (koto's W5 warning there is expected).
+      - target: done_blocked
+        when:
+          gates.ready_owned_pr.exit_code: 0
+          gates.shared_hosted_read.exit_code: 1
+        context_assignments:
+          outcome: error
+          step: "execute:ci"
+          failure_reason: "plan_completion: the hosted read refused the shared PR's hosted route; the shared_hosted_read gate's output names each job and the head"
+      - target: done_blocked
+        when:
+          gates.ready_owned_pr.exit_code: 0
+          gates.shared_hosted_read.exit_code: 3
+        context_assignments:
+          outcome: error
+          step: "execute:ci"
 
   merge_readiness:
     # The verdict, recorded by koto, not by the agent. record-merge-verdict.sh
@@ -1869,6 +1926,15 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
 ```
 
 The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain. If `gh pr ready` fails, carry on and tick: the PR stays a draft, and `merge_readiness`'s verdict ends the run at `step=execute:ready` without merging.
+
+**A child that took the hosted-of-record route.** A child whose verification timed out with no check failed may have settled it by the hosted jobs its map row declares: it recorded `hosted_of_record` and ended with `pr_status: shared`, so the read is this run's, for the shared PR. Make the ready call in step 2 through the route script instead of `gh pr ready`: `[ -n "$PR" ] && "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --mark-ready --absent-ok --session {{SESSION_NAME}} --pr "$PR"`. With no child on the route it runs `gh pr ready "$PR"` itself, so the run goes on exactly as before. With one, it marks nothing ready until the hosted read has settled, and says so. koto does the read: once the cascade's verdict is recorded, the `shared_hosted_read` gate (`verification-route.sh --parent-read`) writes this session's own `hosted_of_record` for the shared PR's head (every child's recorded checks, each part naming its child; one reason built from the children's; its own `taken_at`), after checking the PR's whole diff from its merge-base the way `--open` checks a child's (a closing path in another child's commit refuses the route for all of them), and then reads each declared job's latest attempt at that head:
+
+- **exit 0**: every job concluded success, and the body's `Hosted of record:` lines now carry the run links. Run the `--mark-ready` line above again and tick: `shared_hosted_ready` passes once the PR is out of draft at the record's head with every line linked, and the run goes on to `ci_monitor`.
+- **exit 75**: a job is pending, or the cascade's verdict isn't recorded yet. Tick again with nothing submitted; the wait is measured from this run's `taken_at`, not the children's.
+- **exit 1**: refused. A job concluded anything but success at the shared head, a child's part doesn't validate against that child's result and map, or the PR's diff touches a path that decides what the hosted job runs. The gate's stderr names each job and the head; the run ends at `done_blocked` with `step=execute:ci`.
+- **exit 3**: a job was still pending 120 minutes after this run took the route. The run ends at `done_blocked`; `failure_reason` names the jobs and the head.
+
+Never mark the PR ready by hand while a child's route is unsettled, and never edit the record's run ids: the ready gate re-reads every run it names.
 
 **Step 3: Tick.** Run step 2 before you tick, since the tick is what moves the run on. On a `completed` or `skipped` verdict, submit a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade verification outcome); it is the only thing you submit here. koto reads the verdict from `cascade_result.json` through `cascade_completed`, `cascade_skipped` and `cascade_partial`, and the owned PR through `ready_owned_pr`:
 

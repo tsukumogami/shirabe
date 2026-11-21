@@ -793,6 +793,86 @@ out=$(run_next "$PLANDIR" --merge true)
 expect "a carried head the readiness check passes, with --merge true" "merge:$CT_CORE" "$out"
 wrote_nothing "the merge case"
 
+# The hosted-of-record route: node-push.sh wrote run/hosted/<node> for a node
+# whose work items took it. The node is evaluated, never merged, until work-on's
+# verification-route.sh says the record is settled at the node's head; a
+# refused job, or one pending past 120 minutes, is error:execute:ci. The route
+# script is a stand-in (COORD_VERIFICATION_ROUTE) answering --read with
+# $CASE/vr.read and --ready with $CASE/vr.ready, logging its arguments.
+VR_STUB="$CT_WORK/vr-stub.sh"
+cat > "$VR_STUB" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$KOTO_STORE/vr.calls"
+case "$1" in
+    --read) rc=$(cat "$KOTO_STORE/vr.read" 2>/dev/null || echo 0) ;;
+    --ready) rc=$(cat "$KOTO_STORE/vr.ready" 2>/dev/null || echo 0) ;;
+    *) rc=2 ;;
+esac
+[ "$rc" = 1 ] && echo "verification-route: hosted_record: check check-skill:coordinate, job skill-gate (ubuntu-latest), commit $CT_HEAD_FOR_STUB: refused, run 9 attempt 1 concluded failure" >&2
+[ "$rc" = 3 ] && echo "verification-route: hosted_record: still pending 120 minutes after the route was taken: check-skill:coordinate/skill-gate (ubuntu-latest) at $CT_HEAD_FOR_STUB" >&2
+exit "$rc"
+EOF
+chmod +x "$VR_STUB"
+export CT_HEAD_FOR_STUB=$CT_HEAD
+# hosted_case <name> <draft true|false> <read rc> [<ready rc>]: the core node
+# open at CT_HEAD with a hosted record, its checks passing.
+hosted_case() {
+    ct_case "$1"
+    ct_record_setup
+    ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+    mkdir -p "$CASE/ctx/$S/run/hosted"
+    jq -cn --arg h "$CT_HEAD" '{head: $h, taken_at: "2026-11-20T00:00:00Z", reason: "r", checks: []}' \
+        > "$CASE/ctx/$S/run/hosted/$CT_CORE"
+    if [ "$2" = true ]; then ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'; else ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"; fi
+    ct_write_db
+    printf '%s' "$3" > "$CASE/vr.read"
+    printf '%s' "${4:-0}" > "$CASE/vr.ready"
+    : > "$CASE/vr.calls"
+}
+hosted_next() { COORD_VERIFICATION_ROUTE="$VR_STUB" run_next "$PLANDIR" --merge true; }
+
+hosted_case hosted-draft-settled true 0
+out=$(hosted_next)
+expect "a draft node PR whose hosted read concludes success: evaluated (readied through the route script)" "evaluate:$CT_CORE" "$out"
+grep -qxF -- "--read --dry-run --session $S --key run/hosted/$CT_CORE --pr https://github.com/$CT_REPO/pull/11 --head $CT_HEAD" "$CASE/vr.calls" \
+    && pass "the hosted read is a dry run over the node's own key, its PR and its recorded head" \
+    || fail "the route script's calls: [$(cat "$CASE/vr.calls")]"
+wrote_nothing "the hosted read"
+for rc in 75; do
+    hosted_case "hosted-pending-$rc" false "$rc"
+    out=$(hosted_next)
+    expect "a ready node PR, mergeable, whose hosted job is still pending: evaluated, not merged" "evaluate:$CT_CORE" "$out"
+done
+hosted_case hosted-unlinked false 0 1
+out=$(hosted_next)
+expect "a ready node PR whose hosted record isn't settled or whose body lacks the run links: evaluated, not merged" "evaluate:$CT_CORE" "$out"
+hosted_case hosted-settled false 0 0
+out=$(hosted_next)
+expect "a ready node PR whose hosted record is settled and linked: merged as before" "merge:$CT_CORE" "$out"
+hosted_case hosted-refused true 1
+out=$(hosted_next)
+expect "a node whose hosted job of record refused" "error:execute:ci" "$out"
+grep -qF "job skill-gate (ubuntu-latest), commit $CT_HEAD" "$CASE/stderr" \
+    && pass "the refusal names the job and the node head" || fail "the refusal's stderr: [$(cat "$CASE/stderr")]"
+hosted_case hosted-timeout false 3
+out=$(hosted_next)
+expect "a node whose hosted job stayed pending past 120 minutes" "error:execute:ci" "$out"
+grep -qF "skill-gate (ubuntu-latest) at $CT_HEAD" "$CASE/stderr" \
+    && pass "the timeout names the pending job and the commit" || fail "the timeout's stderr: [$(cat "$CASE/stderr")]"
+hosted_case hosted-unreadable true 2
+out=$(hosted_next)
+expect "a hosted read that can't decide" "error:execute:status-read" "$out"
+ct_case hosted-none
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+: > "$CASE/vr.calls"
+out=$(hosted_next)
+expect "a node with no hosted record: merged as before" "merge:$CT_CORE" "$out"
+[ ! -s "$CASE/vr.calls" ] && pass "a node with no hosted record runs no hosted read" \
+    || fail "a node with no hosted record ran the route script: [$(cat "$CASE/vr.calls")]"
+
 ct_case body-head-edited
 ct_record_setup
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
