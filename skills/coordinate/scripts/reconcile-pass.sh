@@ -448,14 +448,22 @@ RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=() RUN_SUB=() RUN_BUDGET=()
 # with its budget clipped is read again in a later pass, which may give it its
 # whole budget. One stopped with its whole budget counts a try in the work
 # file; at the TRIES-th it is stored as not verified, so a read that never
-# fits its budget can't hold the visit pending forever (shirabe#1166).
+# fits its budget can't hold the visit pending forever (shirabe#1166). Each
+# stop is named on stderr as it happens, so a tick that koto kills later still
+# shows which re-check was slow (shirabe#1548).
 stopped() {
     local i=$1 id=${RUN_IDS[$1]} n t new
-    [ "${RUN_CLIPPED[$i]}" = 1 ] && return 0
+    local what="reconcile-pass: stopped $id (${RUN_SUB[$i]}) at its ${RUN_BUDGET[$i]}s budget"
+    if [ "${RUN_CLIPPED[$i]}" = 1 ]; then
+        echo "$what, clipped: read again in a later pass" >&2
+        return 0
+    fi
     n=$(wj -r --arg id "$id" '(.tries[$id] // 0) + 1') || die "the tries for $id could not be read"
     if [ "$n" -lt "$TRIES" ]; then
+        echo "$what: try $n of $TRIES" >&2
         new=$(wj -c --arg id "$id" --argjson n "$n" '.tries[$id] = $n') || die "the tries for $id could not be written"
     else
+        echo "$what: try $n of $TRIES, stored as timed out" >&2
         t=$(now) || exit 1
         new=$(wj -c --arg id "$id" --arg sub "${RUN_SUB[$i]}" --arg b "${RUN_BUDGET[$i]}" --argjson n "$n" --argjson t "$t" '
             .tries[$id] = $n
@@ -635,6 +643,14 @@ if [ "$LEFT" -gt 0 ] || [ "$READ_LATE" = 1 ]; then
         printf 'The record was read late in this pass; the report is built on the next tick. Tick again with no evidence.\n' > "$T/progress"
     fi
     ctx_put reconcile/progress "$T/progress"
+    # Name what is left, so a reader of the tick's stderr sees which re-checks
+    # the next pass picks up. Nothing is running here: the loop ends only with
+    # every launched read collected or stopped.
+    if [ "$LEFT" -gt 0 ]; then
+        echo "reconcile-pass: pending with $LEFT re-checks left: $(jq -rs 'map("\(.id) (\(.sub))") | join(", ")' "$T/plan")" >&2
+    else
+        echo "reconcile-pass: pending with 0 re-checks left: the record was read late" >&2
+    fi
     say "pending:$VISIT:$LEFT:$H"
 fi
 
