@@ -11,18 +11,23 @@ Phase 1.
 
 ## Tokenizing and the Residue Rule
 
-`/scope` splits `$ARGUMENTS` into tokens as typed: the positional
-topic, the execution-mode flags (`--auto`, `--interactive`,
+`/scope` first works out the topic slug, as
+`${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says: a slug
+given as the first token as typed, otherwise one the agent derives
+from the author's description of the work and names on the first
+line of output. Free text describing the work is not a token. It then
+splits the rest of `$ARGUMENTS` into tokens as typed: the
+execution-mode flags (`--auto`, `--interactive`,
 `--max-rounds=N`), the coordination flags (`--coordinated`,
 `--no-coordinated`), `--intent=continue|stop`, `--upstream <path>`, and
-`--koto-leg=<request-id>:<leg>`. It does not judge any token. It
-writes them, in order, to an args file and lets `scope-open.sh` map
-them.
+`--koto-leg=<request-id>:<leg>`. It does not judge any flag token.
+It writes the slug and then the flags, in order, to an args file and
+lets `scope-open.sh` map them.
 
 **The residue rule.** Each flag — and, for `--upstream`, the token
-that follows it — is set aside before the topic slug is read. What
-remains IS the positional argument, and it reaches koto unchanged,
-byte for byte, as `TOPIC`. `scope-open.sh` applies the rule itself:
+that follows it — is set aside before the topic slug is read. The
+positional token written to the args file IS the slug, and it reaches
+koto unchanged, byte for byte, as `TOPIC`. `scope-open.sh` applies the rule itself:
 the token following `--upstream` is consumed as that flag's value and
 is NEVER read as the topic, so
 `/scope <topic-slug> --upstream docs/roadmaps/ROADMAP-<name>.md`
@@ -32,8 +37,10 @@ path-rejection rule is untouched by the flag's existence:
 positional slot, is refused by koto's topic pattern exactly as it
 was refused by prose. Setting flags aside is not normalization — it
 removes tokens the author marked as flags and leaves everything else
-as typed. Two leftover words, or an unknown flag, are joined into
-one topic value and fail the pattern.
+as typed. The script still joins two leftover positional tokens, or
+an unknown flag, into one topic value that fails the pattern; the
+agent keeps descriptive words out of the args file so they never
+reach it.
 
 **The args file.** A JSON array of the raw tokens, positional
 included, written outside the work tree: to a private directory from
@@ -47,17 +54,18 @@ before any koto call.
 
 ## Cold-Start Path
 
-When `$ARGUMENTS` holds no positional token once the flags are set
-aside, Phase 0 surfaces a cold-start prompt saying what reaches this
-entry point, in the terms CLAUDE.md uses — a feature to be built,
-added, or redesigned whose requirements are not already written down
-— and asks the author to re-invoke `/scope <topic-slug>` with a slug
-that matches the topic-slug regex. Phase 0 then stops, before any
-args file is written and before `koto init`; there is no
-auto-derivation of a slug from prior context and no looping retry. A
-run whose only content was `--upstream <path>` lands here: the flag
-is not a topic, and the cold-start prompt fires rather than a slug
-being derived from the upstream's filename.
+When `$ARGUMENTS` holds no positional input once the flags are set
+aside and the conversation describes no work either, Phase 0
+surfaces a cold-start prompt saying what reaches this entry point,
+in the terms CLAUDE.md uses — a feature to be built, added, or
+redesigned whose requirements are not already written down — and
+asks the author what the work is. Phase 0 then stops, before any
+args file is written and before `koto init`; there is no looping
+retry. When the conversation does describe the work, the slug is
+derived from it and the run goes on. A run whose only content was
+`--upstream <path>` and whose conversation describes nothing lands
+here: the flag is not a topic, and a slug is never derived from the
+upstream's filename.
 
 The cold-start prompt is a standalone run's affordance. Under
 `--koto-leg` the caller built the invocation and named a topic.
@@ -168,9 +176,11 @@ The topic-slug regex `^[a-z0-9-]+$` is cited from
 (Topic-Slug Regex section). koto applies it, as `TOPIC`'s pattern
 `^[a-z0-9][a-z0-9-]*$` — the same regex with no leading `-`, so a
 slug can never be read as an option — to the positional token AS
-PROVIDED, byte for byte, with no normalization step before it. A slug
-that fails is refused at `koto init`; `/scope` never proceeds with an
-invalid slug and never normalizes the input into a conforming one.
+PROVIDED, byte for byte, with no normalization step between the args
+file and koto. A slug that fails is refused at `koto init`; `/scope`
+never proceeds with an invalid slug. Derivation happens before the
+args file is written, and the slug it produces is named on the first
+line of output, so nothing is reshaped silently.
 
 The refusal reads, for example:
 

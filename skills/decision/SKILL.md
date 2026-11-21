@@ -83,11 +83,13 @@ and `<key_dir>/examination.md`, then `<report_key>`.
 parent owns it: `/decision` opens, adopts and closes nothing, and writes only
 under the `key_dir` and `report_key` it was given.
 
-**Run directly.** Phase 0 derives `<topic>` from the question (lowercase,
-whitespace and underscores to `-`, every character outside `[a-z0-9-]`
-dropped, at most 60 characters, never starting or ending with `-`; ask for one
-when nothing is left), then opens the session and records that no parent
-dispatched it:
+**Run directly.** Phase 0 derives `<topic>` from the question as
+`${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says: a short kebab-case slug
+naming the choice (`queue-backend`, not the question word for word), at most
+60 characters, never starting or ending with `-`, named on the first line of
+output. It asks what needs deciding only when neither the arguments nor the
+conversation describe a choice. It then opens the session and records that no
+parent dispatched it:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open decision <topic>
