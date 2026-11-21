@@ -442,7 +442,7 @@ note from ever being read as part of a brief.
 back from the session id Claude Code hands it:
 
 - **Where.** `$XDG_STATE_HOME/shirabe/compaction/<session-id>` (or under
-  `~/.local/state`), in a 0700 directory, as a 0600 file opened without
+  `$HOME/.local/state`), in a 0700 directory, as a 0600 file opened without
   following links. The runtime directory `shirabe work-summary` prefers is
   wiped at a reboot or logout, which a long session can outlive, so this
   ledger doesn't use it.
