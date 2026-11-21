@@ -431,9 +431,18 @@ fn exit_for_parse_error(err: clap::Error) -> ExitCode {
     // `exit` does -- the exit code is the contract.
     let _ = err.print();
     match err.kind() {
-        clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {
+        clap::error::ErrorKind::DisplayVersion => {
+            // The milestone status table this binary embeds, so a host can
+            // see which statuses its binary reads. On stderr: stdout stays
+            // the single `shirabe <version>` line that the release check and
+            // the version tests compare exactly.
+            eprintln!(
+                "milestone statuses table version {}",
+                shirabe_validate::statuses::table_version()
+            );
             ExitCode::SUCCESS
         }
+        clap::error::ErrorKind::DisplayHelp => ExitCode::SUCCESS,
         _ => ExitCode::from(ValidateOutcome::ToolError.exit_code()),
     }
 }

@@ -967,7 +967,6 @@ pub fn check_roadmap_reserved_sections(doc: &Doc, spec: &FormatSpec) -> Vec<Vali
 }
 
 /// The four Status values a milestone may carry.
-const MILESTONE_STATUSES: [&str; 4] = ["Not started", "In progress", "Done", "Dropped"];
 
 /// A cross-repo issue reference, `<owner>/<repo>#<n>`, the one Dependencies
 /// entry FC21 accepts that names no milestone of the roadmap.
@@ -1001,7 +1000,12 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
     if spec.id != FormatId::Roadmap || !version.is_milestone() {
         return Vec::new();
     }
-    let v3 = version == RoadmapVersion::V3;
+    // v4 shares v3's layout, so it takes v3's word checks too; the messages
+    // name the document's own schema.
+    let v3 = version.uses_milestone_words();
+    let schema = doc.schema.as_str();
+    let family = crate::statuses::StatusFamily::of(schema);
+    let statuses = crate::statuses::table();
     let finding = |line: usize, message: String| ValidationError {
         file: doc.path.clone(),
         line,
@@ -1014,7 +1018,7 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
         if let Some(line) = section_line(doc, RoadmapVersion::V2.items_section()) {
             errs.push(finding(
                 line,
-                "section '## Features' is the roadmap/v2 items section; a roadmap/v3 roadmap lists its milestones under '## Milestones', and nothing under '## Features' is read as a milestone -- see skills/roadmap/references/roadmap-format.md".to_string(),
+                format!("section '## Features' is the roadmap/v2 items section; a {schema} roadmap lists its milestones under '## Milestones', and nothing under '## Features' is read as a milestone -- see skills/roadmap/references/roadmap-format.md"),
             ));
         }
     }
@@ -1032,7 +1036,7 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
             .flatten();
         let message = match number {
             Some(n) => format!(
-                "heading '{text}' uses the roadmap/v2 word; on a roadmap/v3 roadmap '### Feature {n}:' is written '### Milestone {n}:' -- see skills/roadmap/references/roadmap-format.md"
+                "heading '{text}' uses the roadmap/v2 word; on a {schema} roadmap '### Feature {n}:' is written '### Milestone {n}:' -- see skills/roadmap/references/roadmap-format.md"
             ),
             None => format!(
                 "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like '{classic} 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
@@ -1102,7 +1106,7 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
                         .filter(|want| features.iter().any(|g| g.id != f.id && g.tag == *want));
                     let message = match renamed {
                         Some(want) => format!(
-                            "{name} names '{entry}' in Dependencies; on a roadmap/v3 roadmap an entry names the milestone's tag, '{want}'"
+                            "{name} names '{entry}' in Dependencies; on a {schema} roadmap an entry names the milestone's tag, '{want}'"
                         ),
                         None => format!(
                             "{name} names '{entry}' in Dependencies, which is no other milestone"
@@ -1115,10 +1119,17 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
         let status = f.status.trim();
         if status.is_empty() {
             errs.push(finding(at, format!("{name} has no Status")));
-        } else if !MILESTONE_STATUSES.contains(&status) {
+        } else if !statuses.is_allowed(family, status) {
+            // The words come from the status table for the document's
+            // family: on v1 to v3 the four canonical words (Shipped and
+            // Closed are accepted as spellings of Done but not named), on v4
+            // the five.
             errs.push(finding(
                 at,
-                format!("{name} has Status '{status}', not one of Not started, In progress, Done, Dropped"),
+                format!(
+                    "{name} has Status '{status}', not one of {}",
+                    statuses.canonical_words(family).join(", ")
+                ),
             ));
         }
         if let Some(first) = features.iter().find(|g| g.tag == f.tag && g.id < f.id) {
@@ -2517,7 +2528,10 @@ fn expected_class(
         };
         match dep_row {
             Some(r) => {
-                if r.terminal {
+                // A dependency is met when its row satisfies one (the status
+                // table's `satisfies`), which is `terminal` everywhere but a
+                // `roadmap/v4` Completed or Dropped row.
+                if r.satisfies {
                     // dep is closed
                 } else {
                     has_open_dep = true;

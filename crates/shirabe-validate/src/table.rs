@@ -32,8 +32,8 @@ pub enum RowKind {
 /// `Status` indicates the roadmap profile; any other shape (including the
 /// canonical 3-column plan shape) indicates the plan profile. FC07 uses
 /// the profile to select the terminality rule: strikethrough-on-done for
-/// the plan profile, Status-cell value (`Done`/`Closed`) for the roadmap
-/// profile.
+/// the plan profile, the Status-cell value read through the milestone
+/// status table (`crate::statuses`) for the roadmap profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Profile {
     Plan,
@@ -65,10 +65,17 @@ pub struct Row {
     ///
     /// For plan-profile rows: true when the original (pre-strip) first
     /// cell is wrapped in `~~...~~` strikethrough. For roadmap-profile
-    /// rows: true when the Status cell value is `Done` or `Closed`
-    /// (case-insensitive, trimmed). Description and Child rows are never
-    /// terminal.
+    /// rows: true when the status table renders the Status cell's value
+    /// struck (`renders.struck`: Done, Shipped or Closed on v1 to v3,
+    /// Verified or Dropped on v4; trimmed, case-insensitive). Description
+    /// and Child rows are never terminal.
     pub terminal: bool,
+    /// True when a row depending on this one may start: for plan-profile
+    /// rows the same as `terminal`; for roadmap-profile rows the status
+    /// table's `satisfies` (a v4 Completed milestone satisfies a dependency
+    /// without being struck, and a v4 Dropped one is struck without
+    /// satisfying it). FC07 reads it to decide `ready` against `blocked`.
+    pub satisfies: bool,
     /// The raw Status cell value for roadmap-profile entity rows;
     /// `None` for plan-profile rows and for non-entity rows. FC07 echoes
     /// the value verbatim in the four-field class-versus-Status notice.
@@ -178,7 +185,7 @@ pub fn parse_issues_table(doc: &Doc) -> Option<Table> {
             break;
         }
         let cells = split_row(raw);
-        let mut row = classify_row(&cells, dep_col, profile, status_col);
+        let mut row = classify_row(&cells, dep_col, profile, status_col, &doc.schema);
         // Absolute line = header_line offset by (i - hdr_idx).
         row.line = header_line + (i - hdr_idx);
         row.raw = doc.body[i].clone();
@@ -304,12 +311,14 @@ pub(crate) fn split_row(raw: &str) -> Vec<String> {
 /// key, dependency targets, and terminality populated. `dep_col` is the
 /// index of the Dependencies column (`None` if absent). `profile` selects
 /// the terminality rule. `status_col` is the index of the Status column
-/// for the roadmap profile (`None` otherwise).
+/// for the roadmap profile (`None` otherwise). `schema` is the document's
+/// frontmatter schema, which picks the status table's family.
 fn classify_row(
     cells: &[String],
     dep_col: Option<usize>,
     profile: Profile,
     status_col: Option<usize>,
+    schema: &str,
 ) -> Row {
     let blank = |kind| Row {
         kind,
@@ -318,6 +327,7 @@ fn classify_row(
         line: 0,
         raw: String::new(),
         terminal: false,
+        satisfies: false,
         status: None,
     };
 
@@ -353,13 +363,16 @@ fn classify_row(
             // `~~...~~`. We inspect the raw cell rather than the stripped
             // form so a struck-through cell is observable here.
             row.terminal = is_strikethrough_wrapped(raw_first);
+            row.satisfies = row.terminal;
         }
         Profile::Roadmap => {
             if let Some(sc) = status_col {
                 if sc < cells.len() {
                     let raw_status = strip_strikethrough(&cells[sc]);
                     let trimmed = raw_status.trim().to_string();
-                    row.terminal = is_terminal_roadmap_status(&trimmed);
+                    let props = crate::statuses::props_for(schema, &trimmed);
+                    row.terminal = props.struck;
+                    row.satisfies = props.satisfies;
                     if !trimmed.is_empty() {
                         row.status = Some(trimmed);
                     }
@@ -376,15 +389,6 @@ fn classify_row(
 fn is_strikethrough_wrapped(raw: &str) -> bool {
     let t = raw.trim();
     t.starts_with("~~") && t.ends_with("~~") && t.len() >= 4
-}
-
-/// Roadmap-profile terminality rule: `Done` and `Closed` are terminal
-/// (case-insensitive, trimmed). Every other Status value (including
-/// `In Progress`, `Not Started`, and `needs-*` annotations) is open. The
-/// rule mirrors `references/issues-table.md` for the Status column.
-fn is_terminal_roadmap_status(status: &str) -> bool {
-    let t = status.trim();
-    t.eq_ignore_ascii_case("Done") || t.eq_ignore_ascii_case("Closed")
 }
 
 /// Parse a Dependencies cell value into a list of targets. `None`
@@ -1782,6 +1786,37 @@ mod tests {
         let table = parse_issues_table(&doc).expect("table parses");
         assert!(!table.rows[0].terminal);
         assert_eq!(table.rows[0].status.as_deref(), Some("needs-design"));
+    }
+
+    fn roadmap_status_row(schema: &str, status: &str) -> Row {
+        let doc = doc_from_markdown(&format!(
+            "---\nschema: {schema}\nstatus: Active\n---\n\n## Implementation Issues\n\n| Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n| Feature 1: alpha | [#10](https://example.com/10) | None | {status} |\n| _Alpha._ | | | |\n"
+        ));
+        parse_issues_table(&doc).expect("table parses").rows[0].clone()
+    }
+
+    #[test]
+    fn roadmap_profile_reads_statuses_through_the_status_table() {
+        // v1 to v3: Done, Shipped and Closed are struck and satisfy a
+        // dependency; Dropped does neither, as before.
+        for schema in ["roadmap/v1", "roadmap/v3"] {
+            for status in ["Done", "Shipped", "Closed"] {
+                let row = roadmap_status_row(schema, status);
+                assert!(row.terminal && row.satisfies, "{schema} {status}");
+            }
+            let row = roadmap_status_row(schema, "Dropped");
+            assert!(!row.terminal && !row.satisfies, "{schema} Dropped");
+        }
+        // v4: Completed satisfies without being struck; Verified is both;
+        // Dropped is struck without satisfying; Done is no v4 status.
+        let row = roadmap_status_row("roadmap/v4", "Completed");
+        assert!(!row.terminal && row.satisfies);
+        let row = roadmap_status_row("roadmap/v4", "Verified");
+        assert!(row.terminal && row.satisfies);
+        let row = roadmap_status_row("roadmap/v4", "Dropped");
+        assert!(row.terminal && !row.satisfies);
+        let row = roadmap_status_row("roadmap/v4", "Done");
+        assert!(!row.terminal && !row.satisfies);
     }
 
     #[test]
