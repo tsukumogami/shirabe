@@ -50,7 +50,22 @@
 # in, and reported under "Changed since then".
 # A deferral's carry is judged against the chain start (coord-log.sh
 # chain-start), so a restart or a takeover doesn't re-decide what the run it
-# replaced carried.
+# replaced carried. The walk to it reads every run before this one, and at
+# the end of a long chain it alone took longer than koto's 30 seconds, so a
+# pass killed in it never recorded anything (shirabe#1548). So the record
+# read doesn't walk. A carry dated at or after the run start is never before
+# the chain start, so when no deferral carries a time before the run start
+# the run start is stored as the chain start and nothing is walked. Otherwise
+# the work file keeps the earliest such carry's minute as the walk's bound
+# and a null chain start, and each pass then takes one step of the walk in
+# the time left before the 24-second mark (coord-log.sh's --back-to,
+# --deadline and --from), saving its cursor or, once it ends, the start it
+# reached. No deferral re-check starts before then, and the visit stays
+# pending until they are done. The sealed report keeps what the walk found,
+# chain: {start, back_to}, back_to the minute the start holds for, or null
+# when the start is the run start and nothing was walked, so dispatch_check,
+# which a run reaches only after this state seals, can take the start from
+# the report instead of walking again (deferral-check.sh).
 #
 # The work file, <session-dir>/coordinate-reconcile/visit.json, is trusted
 # only when its sha256 is the one this state's last engine-logged output
@@ -274,8 +289,15 @@ if [ -z "$WJ" ]; then
         say "blocked:$CASE"
     fi
     RUN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
-    # A deferral carried by a run this one restarted counts as disposed.
-    CHAIN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" chain-start --session "$SESSION") || die "the run's chain start can't be read"
+    # A deferral carried by a run this one restarted counts as disposed, so
+    # a carry is judged against the chain start. Only a carry dated before
+    # the run start can be before it; with none, the run start serves for
+    # every row of this record and nothing is walked. Otherwise the chain
+    # start is left null, and the walk below finds it, bounded by the
+    # earliest such carry's minute (state-read.sh's rs_carry_bound, the bound
+    # deferral-check.sh puts on its own walk).
+    BOUND=$(printf '%s' "$REC" | jq -c '[(.deferrals // [])[] | .row]' | rs_carry_bound "${RUN_START:0:16}") \
+        || die "the record's deferrals can't be read"
     # Where the scripts sit relative to the repository being worked on.
     PR_ROOT=$(cd "$HERE/../../.." && pwd -P)
     TOP=$(rd_git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd "$TOP" && pwd -P) || TOP=""
@@ -283,12 +305,60 @@ if [ -z "$WJ" ]; then
     if [ -n "$TOP" ]; then
         case "$PR_ROOT/" in "$TOP"/*) PLACE='"inside"' ;; *) PLACE='"outside"' ;; esac
     fi
-    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --arg cs "$CHAIN_START" --argjson place "$PLACE" \
-        '{visit: $v, record: $rec, run_start: $rs, chain_start: $cs, plugin_root: $place, facts: {}, done: false}') \
+    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --arg b "$BOUND" --argjson place "$PLACE" \
+        '{visit: $v, record: $rec, run_start: $rs, chain_start: (if $b == "" then $rs else null end),
+          plugin_root: $place, facts: {}, done: false}
+         + (if $b == "" then {} else {chain_back_to: $b, chain_cursor: null} end)') \
         || die "the record could not be stored"
     save "$NEW"
     te=$(now) || exit 1
     [ $((te - T0)) -ge "$CUTOFF" ] && READ_LATE=1
+fi
+
+# The chain start, while it is unknown: one step of the walk per pass, in the
+# time left before the 24-second mark, with coord-log.sh's own deadline a few
+# seconds under that so the step ends on its own and leaves a cursor the
+# next pass resumes from. The walk goes back no further than the bound the
+# record read set (--back-to). Under coord-log.sh's precondition for that
+# bound, that no run in the chain started before the run it continues, for
+# every carry in this record, all dated at or after the bound, being before
+# the start the walk prints is being before the chain start. A step cut at
+# the hard deadline changes nothing, and the next pass takes the same step
+# again; the record read stays saved either way.
+CHAIN_KNOWN=1
+if [ "$(wj -r '.chain_start == null')" = true ]; then
+    CHAIN_KNOWN=0
+    tw=$(now) || exit 1
+    CB=$((READS_END - (tw - T0)))
+    if [ "$CB" -ge 2 ]; then
+        SOFT=$((CB - 3)); [ "$SOFT" -lt 0 ] && SOFT=0
+        # The record read set the bound beside the null start, in the work
+        # file whose hash this pass checked.
+        BACK=$(wj -r '.chain_back_to // empty')
+        CURSOR=$(wj -r '.chain_cursor // empty')
+        WALK=(chain-start --session "$SESSION" --back-to "${BACK}Z" --deadline "$SOFT")
+        [ -n "$CURSOR" ] && WALK+=(--from "$CURSOR")
+        echo "reconcile-pass: chain walk to $BACK with ${CB}s${CURSOR:+, resumed}" >&2
+        OUT=$(rd_deadline "$CB" "${RUNBASH[@]}" "$RD_COORD_LOG" "${WALK[@]}" 3>&-)
+        WRC=$?
+        case "$WRC" in
+            0)
+                case "$OUT" in '' | *$'\n'*) die "the run's chain start can't be read" ;; esac
+                NEW=$(wj -c --arg cs "$OUT" '.chain_start = $cs | .chain_cursor = null') || die "the chain start could not be stored"
+                save "$NEW"
+                CHAIN_KNOWN=1
+                ;;
+            3)
+                # The cursor is kept as printed; coord-log.sh checks it when
+                # the next step hands it back.
+                case "$OUT" in "partial "?*) ;; *) die "the chain walk stopped without a cursor" ;; esac
+                NEW=$(wj -c --arg c "${OUT#partial }" '.chain_cursor = $c') || die "the chain walk's cursor could not be stored"
+                save "$NEW"
+                ;;
+            124) ;;
+            *) die "the run's chain start can't be read" ;;
+        esac
+    fi
 fi
 
 # plan NOW -- the re-checks not yet done, one JSON object per line:
@@ -378,14 +448,22 @@ RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=() RUN_SUB=() RUN_BUDGET=()
 # with its budget clipped is read again in a later pass, which may give it its
 # whole budget. One stopped with its whole budget counts a try in the work
 # file; at the TRIES-th it is stored as not verified, so a read that never
-# fits its budget can't hold the visit pending forever (shirabe#1166).
+# fits its budget can't hold the visit pending forever (shirabe#1166). Each
+# stop is named on stderr as it happens, so a tick that koto kills later still
+# shows which re-check was slow (shirabe#1548).
 stopped() {
     local i=$1 id=${RUN_IDS[$1]} n t new
-    [ "${RUN_CLIPPED[$i]}" = 1 ] && return 0
+    local what="reconcile-pass: stopped $id (${RUN_SUB[$i]}) at its ${RUN_BUDGET[$i]}s budget"
+    if [ "${RUN_CLIPPED[$i]}" = 1 ]; then
+        echo "$what, clipped: read again in a later pass" >&2
+        return 0
+    fi
     n=$(wj -r --arg id "$id" '(.tries[$id] // 0) + 1') || die "the tries for $id could not be read"
     if [ "$n" -lt "$TRIES" ]; then
+        echo "$what: try $n of $TRIES" >&2
         new=$(wj -c --arg id "$id" --argjson n "$n" '.tries[$id] = $n') || die "the tries for $id could not be written"
     else
+        echo "$what: try $n of $TRIES, stored as timed out" >&2
         t=$(now) || exit 1
         new=$(wj -c --arg id "$id" --arg sub "${RUN_SUB[$i]}" --arg b "${RUN_BUDGET[$i]}" --argjson n "$n" --argjson t "$t" '
             .tries[$id] = $n
@@ -504,6 +582,10 @@ while :; do
         [ -n "$spec" ] || continue
         id=$(printf '%s' "$spec" | jq -r .id)
         running "$id" && continue
+        # A deferral is judged against the chain start, so none starts while
+        # the walk is unfinished. It stays in the plan, which keeps the visit
+        # pending, and so never sealed without it.
+        case "$id" in d[0-9]*) [ "$CHAIN_KNOWN" = 1 ] || continue ;; esac
         due=$(printf '%s' "$spec" | jq -r .due)
         if [ "$due" -gt "$t" ]; then
             { [ "$wait_until" = 0 ] || [ "$due" -lt "$wait_until" ]; } && wait_until=$due
@@ -553,12 +635,22 @@ plan "$t" > "$T/plan" || die "the plan could not be read"
 LEFT=$(grep -c . "$T/plan" || true)
 if [ "$LEFT" -gt 0 ] || [ "$READ_LATE" = 1 ]; then
     H=$(printf '%s\n' "$WJ" | rd_sha256)
-    if [ "$LEFT" -gt 0 ]; then
+    if [ "$CHAIN_KNOWN" != 1 ]; then
+        printf 'The chain start, which the deferrals are judged against, is still being read; %s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
+    elif [ "$LEFT" -gt 0 ]; then
         printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
     else
         printf 'The record was read late in this pass; the report is built on the next tick. Tick again with no evidence.\n' > "$T/progress"
     fi
     ctx_put reconcile/progress "$T/progress"
+    # Name what is left, so a reader of the tick's stderr sees which re-checks
+    # the next pass picks up. Nothing is running here: the loop ends only with
+    # every launched read collected or stopped.
+    if [ "$LEFT" -gt 0 ]; then
+        echo "reconcile-pass: pending with $LEFT re-checks left: $(jq -rs 'map("\(.id) (\(.sub))") | join(", ")' "$T/plan")" >&2
+    else
+        echo "reconcile-pass: pending with 0 re-checks left: the record was read late" >&2
+    fi
     say "pending:$VISIT:$LEFT:$H"
 fi
 
@@ -569,6 +661,7 @@ jq -c --arg at "$(iso)" '
       def get($id): if $f[$id] == null then empty else $f[$id] | strip end;
     {schema: "coordinate-reconcile-facts/v1",
      scope: $rec.scope, record: $rec.record, reconciled_at: $at, plugin_root: .plugin_root,
+     chain: {start: .chain_start, back_to: (.chain_back_to // null)},
      decisions: ($rec.decisions // []),
      holdings: [$rec.holdings | to_entries[] | .key as $i | "h\($i)" as $p
        | (if $f["\($p).host2"] != null then ($f["\($p).host2"] | strip | .reads = 2)

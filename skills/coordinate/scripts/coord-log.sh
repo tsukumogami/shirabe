@@ -50,7 +50,8 @@
 #       --supersede named and the Claude session that ran it ("" when the
 #       environment gave none). Exit 0 fenced; 1 not fenced; 2 read failure.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
-#   coord-log.sh chain-start --session S
+#   coord-log.sh chain-start --session S [--back-to TIME] [--deadline SECS]
+#                            [--from CURSOR]
 #       Prints the created_at of the earliest run in S's chain: the runs that
 #       led to S, as koto's links give them, whatever the runs are named. The
 #       walk goes back from S one member at a time. A member's continues
@@ -75,6 +76,37 @@
 #       which only makes the chain shorter; a run met twice ends it too, and the
 #       walk stops after 1024 runs. Exit 0; 2 S's own log or a member's
 #       links can't be read.
+#       The walk reads every member's links, so a long chain can take longer
+#       than a caller has (shirabe#1548). Three flags bound it; with none of
+#       them the walk and its output are as above.
+#       --back-to TIME (YYYY-MM-DDTHH:MM[:SS[.fff]]Z) stops the walk, before
+#       each hop, once the earliest start it has met is at or before TIME's
+#       minute, so S's own start can end it with no hop, and prints that
+#       earliest start. The bound rests on one precondition: no run in the
+#       chain started before the run it continues or carried, as runs opened
+#       one after another on one clock do. Under it the time printed is good
+#       only for comparing a time at or after TIME's minute with the chain
+#       start: such a time is before the printed start exactly when it is
+#       before the chain start. Holding the earliest start met, not the last,
+#       means a clock that ran back between two members can't make the walk
+#       stop on, or print, a start later than one it has already passed.
+#       --deadline SECS (a whole number) stops the walk once SECS seconds have
+#       passed since the call began, and prints `partial CURSOR`, exit 3. It
+#       is checked before each hop after the call's first, before the walk
+#       looks for a run before the member, so a call can stop with no hop
+#       left; the resume then makes none and prints the start. A call always
+#       makes one hop when one is left, so --deadline 0 makes exactly one hop
+#       per call.
+#       --from CURSOR resumes the walk a partial line stopped: CURSOR is the
+#       rest of that line, "<hops> <start> <earliest> <member> <seen...>":
+#       the hops made, the member's own start, the earliest start met so far,
+#       the member reached and the members seen from S on, space-separated.
+#       The cycle and 1024-run rules count across resumes. A cursor that isn't
+#       one this walk could have printed for S (its seen list not starting at
+#       S, a hop count over 1024 or not its length, a member that isn't the
+#       last seen, a start that isn't the member's own created_at, an
+#       earliest start after it, or with no hop made other than it) is a
+#       usage error.
 #   coord-log.sh predecessor --session S
 #       Prints the run S took over: the one its continues relation names,
 #       read as chain-start reads it. A restart's dispatched-by link is not
@@ -365,7 +397,7 @@ compat_verdict() {
 default_template() { printf '%s/skills/coordinate/koto-templates/coordinate.md' "$(cd "$HERE/../../.." && pwd -P)"; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE= FINGERPRINT=
+SCOPE= EVENT= HAS= AFTER_TIME= STATES= UNIT= LINE= BACK_TO= DEADLINE= FINGERPRINT=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -394,6 +426,8 @@ while [ $# -gt 0 ]; do
         --has) [ $# -ge 2 ] || usage; HAS=$2; shift 2 ;;
         --unit) [ $# -ge 2 ] || usage; UNIT=$2; shift 2 ;;
         --line) [ $# -ge 2 ] || usage; LINE=$2; shift 2 ;;
+        --back-to) [ $# -ge 2 ] || usage; BACK_TO=$2; shift 2 ;;
+        --deadline) [ $# -ge 2 ] || usage; DEADLINE=$2; shift 2 ;;
         --where) [ $# -ge 2 ] || usage
             case "$2" in ?*=*) ;; *) usage ;; esac
             WHERE=$(jq -nc --argjson w "$WHERE" --arg f "${2%%=*}" --arg v "${2#*=}" '$w + [[$f, $v]]') || usage
@@ -512,10 +546,60 @@ run-start)
     ;;
 chain-start)
     need SESSION
-    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
-    START=$(head -1 "$LOG" | jq -er '.created_at') || die "no created_at in the header"
-    CUR=$SESSION CUR_LOG=$LOG SEEN=" $SESSION " HOPS=0
+    # A koto session name, as koto's session-ID rule takes one: a letter,
+    # then letters, digits, `.`, `_`, `~` or `-` (`~` is koto's own, for the
+    # epoch branches a rewind makes). So no member the walk can reach makes a
+    # cursor its own resume refuses.
+    RE_NAME='[A-Za-z][A-Za-z0-9._~-]*'
+    RE_TIME='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,9})?)?Z'
+    RE_CURSOR="^(0|[1-9][0-9]{0,3}) ($RE_TIME) ($RE_TIME) ($RE_NAME)(( $RE_NAME)+)\$"
+    RE_SECS='^(0|[1-9][0-9]{0,5})$'
+    RE_TIME_ONLY="^$RE_TIME\$"
+    [ -z "$BACK_TO" ] || [[ $BACK_TO =~ $RE_TIME_ONLY ]] || usage
+    [ -z "$DEADLINE" ] || [[ $DEADLINE =~ $RE_SECS ]] || usage
+    if [ -n "$FROM" ]; then
+        # A cursor is taken only in the shape a partial line prints it, for
+        # this S: the seen list starts at S and holds hops + 1 distinct
+        # names, the last of them the member, so a resume can't skip the
+        # cycle or 1024-run rules, or walk another session's chain. Its
+        # start is checked against the member's own header below, so the
+        # check doesn't rest on whoever kept the cursor; its earliest start
+        # is one the walk met, so never after that start, and with no hop
+        # made, that start itself.
+        [[ $FROM =~ $RE_CURSOR ]] || usage
+        HOPS=${BASH_REMATCH[1]} START=${BASH_REMATCH[2]} LEAST=${BASH_REMATCH[5]}
+        CUR=${BASH_REMATCH[8]} LIST=${BASH_REMATCH[9]}
+        [ "$HOPS" -le 1024 ] || usage
+        ! [[ ${LEAST:0:16} > ${START:0:16} ]] || usage
+        [ "$HOPS" -gt 0 ] || [ "$LEAST" = "$START" ] || usage
+        SEEN=" " n=0 last=
+        for id in $LIST; do
+            case "$SEEN" in *" $id "*) usage ;; esac
+            [ "$n" -gt 0 ] || [ "$id" = "$SESSION" ] || usage
+            SEEN="$SEEN$id " n=$((n + 1)) last=$id
+        done
+        [ "$n" = $((HOPS + 1)) ] && [ "$last" = "$CUR" ] || usage
+        CUR_LOG=$(session_log "$CUR") || die "no readable log for $CUR"
+        AT=$(head -1 "$CUR_LOG" | jq -er '.created_at') || die "no created_at in $CUR's header"
+        [ "$AT" = "$START" ] || usage
+    else
+        LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+        START=$(head -1 "$LOG" | jq -er '.created_at') || die "no created_at in the header"
+        CUR=$SESSION CUR_LOG=$LOG SEEN=" $SESSION " HOPS=0 LEAST=$START
+    fi
+    BEGAN=$SECONDS MOVED=0
     while [ "$HOPS" -lt 1024 ]; do
+        # Minutes compare as strings: every time here is the same fixed
+        # width up to its minute.
+        if [ -n "$BACK_TO" ] && ! [[ ${LEAST:0:16} > ${BACK_TO:0:16} ]]; then break; fi
+        if [ -n "$DEADLINE" ] && [ "$MOVED" = 1 ] && [ $((SECONDS - BEGAN)) -ge "$DEADLINE" ]; then
+            # A start that isn't a time would make a cursor no resume takes.
+            [[ $START =~ $RE_TIME_ONLY ]] || die "$CUR's created_at is not a time"
+            [[ $LEAST =~ $RE_TIME_ONLY ]] || die "a created_at the walk met is not a time"
+            LIST=${SEEN# }
+            printf 'partial %s %s %s %s %s\n' "$HOPS" "$START" "$LEAST" "$CUR" "${LIST% }"
+            exit 3
+        fi
         PREV=$(continues_of "$CUR" "$CUR_LOG")
         case $? in
             0) ;;
@@ -541,9 +625,11 @@ chain-start)
         fi
         case "$SEEN" in *" $PREV "*) break ;; esac
         START=$(head -1 "$PREV_LOG" | jq -er '.created_at') || die "no created_at in $PREV's header"
-        CUR=$PREV CUR_LOG=$PREV_LOG SEEN="$SEEN$PREV " HOPS=$((HOPS + 1))
+        CUR=$PREV CUR_LOG=$PREV_LOG SEEN="$SEEN$PREV " HOPS=$((HOPS + 1)) MOVED=1
+        if [[ ${START:0:16} < ${LEAST:0:16} ]]; then LEAST=$START; fi
     done
-    printf '%s\n' "$START"
+    # With no bound the start printed is the last member's, as it always was.
+    if [ -n "$BACK_TO" ]; then printf '%s\n' "$LEAST"; else printf '%s\n' "$START"; fi
     ;;
 predecessor)
     need SESSION
