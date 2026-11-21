@@ -26,6 +26,16 @@ successor is kept only for a session that can't continue. And this feature no
 longer waits on, or fits itself to, a new continuation route: the successor
 route that exists today stays as it is.
 
+Amended after acceptance, on 2026-11-21, following a review that arrived once
+the brief was already accepted. Two changes, neither of which moves the
+problem or the outcome. The In list now names the cases where a deliberate
+succession is still needed because compaction can't replace it: a long-lived
+session never picks up a new shirabe release (#1556), and what a session is
+allowed to do is fixed when it is dispatched. Without them, "compacts and
+carries on" read as indefinite. And the sessions above coordinators are now
+called that, not "the two top-level supervising sessions", so the brief
+doesn't fix how many there are.
+
 Framing details left to the downstream PRD, which records a decision on each
 or names it as an unknown it owns: how large a file can be and still travel
 inside the brief, and how much one brief may name in all; where the brief of a
@@ -84,10 +94,10 @@ A worker that reaches its context line compacts in place and finishes its unit
 under the session id it was launched with, in the same instance, with no
 successor dispatched. Right after the compaction it is pointed back at its
 workflow run, its own note and the run's status, so it carries on from its
-record and not only from a summary. A coordinator and, after it, the two
-top-level supervising sessions do the same, with a window sized for their
-larger standing context and a re-read of their record before they act on
-anything.
+record and not only from a summary. A coordinator and, after it, the
+supervising sessions above coordinators do the same, with a window sized for
+their larger standing context and a re-read of their record before they act
+on anything.
 
 A session that does stop, at the end of a run, at a park, or because it can't
 continue, writes one handoff brief. Whoever picks the work up, on the same
@@ -149,15 +159,21 @@ the reasoning and the files named.
 **In:**
 
 - Compaction in place as the default at the context line for every role:
-  workers first, then coordinators on a workflow run, then the two top-level
-  supervising sessions. That covers the size each role compacts at and how
-  far it clears the context the harness fills before any work, how a
+  workers first, then coordinators on a workflow run, then the supervising
+  sessions above coordinators. That covers the size each role compacts at and
+  how far it clears the context the harness fills before any work, how a
   workspace turns compaction on for a role, what the session keeps current for
   itself and what the summary must carry, and sending the session back to its
   run, its note and its record once the compaction is done.
 - What a supervising session needs before it may compact: what it writes to
   its record as it goes, what it re-reads afterwards, and what happens to a
   message or wake that arrives while a compaction runs.
+- The cases where a session that could compact is still deliberately
+  replaced by a dispatched successor, because compaction can't carry the
+  change: picking up a new shirabe release, which a running session never
+  does (#1556), and a change to what the session is allowed to do, which is
+  fixed when it is dispatched. The successor is dispatched the way it is
+  today; this feature says when to do it, not how.
 - The check that a session keeps its identity through a compaction as niwa
   sees it, read before any role's default is switched on.
 - A session being able to tell its own context size, correctly right after a
