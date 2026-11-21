@@ -6,7 +6,11 @@
 # the map's commands; this reads the result they leave on disk and exits with
 # the verdict, or with koto's pending code while there is none yet.
 #
-#   --verdict --session <s> [--base-ref <ref>]
+#   --verdict --session <s> [--base-ref <ref>] [--shared-branch <value>]
+#
+# --shared-branch carries the template's SHARED_BRANCH (empty for a run not
+# under /execute). It is accepted and passed on; the hosted-of-record route no
+# longer reads it, since /execute collects a child's record.
 #
 # The result file's location, the head and the merge-base come from
 # `run-verification.sh --locate`, so the two scripts can't disagree on them.
@@ -17,15 +21,23 @@
 #   75  no result for this head yet; the gate waits
 #   0   every selected command ran and passed, or every cause found is of a
 #       rule below the `block` stage
-#   1   a command ran and failed               verification/command-failed
+#   1   a check failed (outcome failed,        verification/command-failed
+#       including a stop at its limit with a
+#       finished-failed suite)
 #   3   no map, or a map that selects nothing  verification/no-map
 #       a map that does not parse              verification/bad-map
 #   4   a command needs a person               verification/needs-person
-#       a command timed out, or the run        verification/timed-out
-#       passed its total budget
+#       a check timed out, or the run passed   verification/timed-out
+#       its total budget, and the
+#       hosted-of-record route is closed
 #       a command grew past max_procs          verification/runaway
 #       a command could not start              verification/not-started
 #       tracked files were dirty               verification/dirty-tree
+#   5   a check timed out, none failed, and    verification/timed-out
+#       the hosted-of-record route is open:
+#       the hold, where the run may take the
+#       route (hosted_of_record with a
+#       reason), go back to fix, or stop
 #   2   the result could not be read, or recorded in koto context, or the
 #       supervisor stopped before every command ran; the gate holds. No
 #       finding; the reason goes to stderr.
@@ -39,16 +51,24 @@
 # submit `verification_status: blocked` to stop. The launcher keeps the result
 # on disk until then, so a held tick never starts a new suite by itself.
 #
-# Exit 4 outranks exit 1: when one result holds a failed command and one that
-# timed out, the run stops for a person rather than going back to
-# implementation, since the change was never fully verified.
+# The ranking reads each record's `outcome` (run-verification.sh's header).
+# A not-started command, a runaway, a command that needs a person and a dirty
+# tree outrank everything (4); then no map or a bad one (3); then a failed
+# check (1), so a failed check beside a timed-out one goes back to
+# implementation, since the change broke something the clock didn't decide;
+# and only then a timeout, which is 5 when the hosted-of-record route is open
+# and 4 when it isn't, with each closing cause on stderr. A record without
+# `outcome` (a result written before outcomes existed) ranks by its flags as
+# before, its timed-out records ranked as timeouts, and the route stays closed.
+# Whether the route is open is verification-route.sh's vr_open_check, sourced
+# here and run in this process, never as a second one.
 #
 # Only a cause whose rule is at the `block` stage takes part in that ranking.
 # Every cause prints its finding at its rule's stage (error at block, warning
 # at warn, info at shadow, nothing at retired); the route is the highest exit
 # among the causes printed at block, and 0 when there is none. So a timed-out
 # command whose rule is at warn, beside a failed command whose rule is at
-# block, routes to 1, not 4. A non-zero route also prints a line on stderr
+# block, routes to 1. A non-zero route also prints a line on stderr
 # saying how to dispute a finding.
 #
 # Each violation prints one koto finding per cause:
@@ -72,7 +92,7 @@ RULE_IDS="verification/command-failed verification/no-map verification/bad-map v
 RESULT_SCHEMA=shirabe-verification-result/v1
 
 usage() {
-    echo "Usage: check-verification.sh --verdict --session <s> [--base-ref <ref>]" >&2
+    echo "Usage: check-verification.sh --verdict --session <s> [--base-ref <ref>] [--shared-branch <value>]" >&2
 }
 
 undecided() {
@@ -82,16 +102,23 @@ undecided() {
 
 # shellcheck source=../../../scripts/lib/rule-findings.sh
 . "$HERE/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
+# The route's open check, run in this process (see the ranking above).
+# shellcheck source=verification-route.sh
+. "$HERE/verification-route.sh" || undecided "cannot load verification-route.sh"
 
 [ $# -ge 1 ] && [ "$1" = --verdict ] || { usage; exit 2; }
 shift
 SESSION=""
 BASE_REF=""
+SHARED_BRANCH=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session)
             [ $# -ge 2 ] && [ -z "$SESSION" ] || { usage; exit 2; }
             SESSION=$2; shift 2 ;;
+        --shared-branch)
+            [ $# -ge 2 ] || { usage; exit 2; }
+            SHARED_BRANCH=$2; shift 2 ;;
         --base-ref)
             [ $# -ge 2 ] && [ -z "$BASE_REF" ] || { usage; exit 2; }
             BASE_REF=$2; shift 2 ;;
@@ -135,19 +162,30 @@ JQ_ERR=$(mktemp "${TMPDIR:-/tmp}/check-verification.XXXXXX") || undecided "could
 trap 'rm -f "$JQ_ERR"' EXIT
 
 # The findings and the verdict, both from the result, in one jq program. Each
-# line is `<exit>\t<rule>\t<message>`; the verdict is the highest-ranked exit
-# among the lines whose finding printed at block.
+# line is `<code>\t<rule>\t<message>`, the code 4, 3, 1 or T (a timeout,
+# whose exit the route decides); the verdict is ranked over the lines whose
+# finding printed at block.
 LINES=$(jq -r '
     def argv: (.argv // []) | join(" ");
     def logpart: if .log then " (log: \(.log))" else "" end;
+    def stopped: "command \(.id) [\(argv)] ran past its timeout_secs or the total run budget and was killed\(logpart)";
     if .status == "done" or .status == "timed-out" then
         (.commands[]
          | if .not_started then "4\tnot-started\tcommand \(.id) did not start: [\(.argv[0])] is not an executable program\(logpart)"
            elif .runaway then "4\trunaway\tcommand \(.id) [\(argv)] grew past its max_procs and was killed\(logpart)"
-           elif .timed_out then "4\ttimed-out\tcommand \(.id) [\(argv)] ran past its timeout_secs or the total run budget and was killed\(logpart)"
-           elif .exit_status != 0 then "1\tcommand-failed\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)"
+           elif (has("outcome") | not) then
+               (if .timed_out then "T\ttimed-out\t\(stopped)"
+                elif .exit_status != 0 then "1\tcommand-failed\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)"
+                else empty end)
+           elif .outcome == "failed" then
+               (if .timed_out
+                then "1\tcommand-failed\tcommand \(.id) [\(argv)] was stopped at its limit after suites finished failed: \((.suites.failed // []) | join(", "))\(logpart)"
+                else "1\tcommand-failed\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)" end)
+           elif .outcome == "timed-out-limit" then "T\ttimed-out\t\(stopped)"
+           elif .outcome == "timed-out-inside"
+           then "T\ttimed-out\tcommand \(.id) [\(argv)] exited \(.exit_status) and every failure line matches its timeout_form\(logpart)"
            else empty end),
-        (if .status == "timed-out" then "4\ttimed-out\t\(.detail)" else empty end)
+        (if .status == "timed-out" then "T\ttimed-out\t\(.detail)" else empty end)
     elif .status == "no-map" then "3\tno-map\t\(.detail)"
     elif .status == "bad-map" then "3\tbad-map\tthe verification map does not parse: \(.detail)"
     elif .status == "attended" then "4\tneeds-person\t\(.detail)"
@@ -173,7 +211,7 @@ koto context add "$SESSION" verification_results.json --from-file "$RESULT" >/de
 # Print every finding, and rank the route over the ones that printed at block:
 # rf_finding sets RF_COUNTED to 1 for exactly those, so a cause whose rule is
 # below block reports without choosing the route.
-VERDICT=0
+HELD=0 MAPPED=0 FAILED=0 TIMED=0
 while IFS= read -r line; do
     [ -n "$line" ] || continue
     code=${line%%"$TAB"*}
@@ -183,13 +221,38 @@ while IFS= read -r line; do
     rf_finding "$rule" "$msg"
     [ "$RF_COUNTED" -eq 1 ] || continue
     case "$code" in
-        4) VERDICT=4 ;;
-        3) [ "$VERDICT" -eq 4 ] || VERDICT=3 ;;
-        1) [ "$VERDICT" -ge 3 ] || VERDICT=1 ;;
+        4) HELD=1 ;;
+        3) MAPPED=1 ;;
+        1) FAILED=1 ;;
+        T) TIMED=1 ;;
     esac
 done <<EOF
 $LINES
 EOF
+
+VERDICT=0
+if [ "$HELD" -eq 1 ]; then
+    VERDICT=4
+elif [ "$MAPPED" -eq 1 ]; then
+    VERDICT=3
+elif [ "$FAILED" -eq 1 ]; then
+    VERDICT=1
+elif [ "$TIMED" -eq 1 ]; then
+    if vr_open_check "$SESSION" "$HEAD_SHA" "$MB" "$RESULT" "$SHARED_BRANCH"; then
+        VERDICT=5
+        echo "check-verification: a check timed out, none failed, and the hosted-of-record route is open, so the run" \
+            "holds here. Submit verification_status: hosted_of_record with the reason in detail (public text: it" \
+            "reaches the pull request body) to settle the timed-out checks on their hosted jobs; fix to go back to" \
+            "implementation; or blocked with the reason in detail to stop." >&2
+    else
+        VERDICT=4
+        while IFS= read -r cause; do
+            [ -n "$cause" ] && echo "check-verification: the hosted-of-record route is closed: $cause" >&2
+        done <<EOF
+$VR_CAUSES
+EOF
+    fi
+fi
 
 [ "$VERDICT" -eq 0 ] || rf_dispute_hint
 # The escalation ladder (scripts/lib/rule-findings.sh): nothing without the

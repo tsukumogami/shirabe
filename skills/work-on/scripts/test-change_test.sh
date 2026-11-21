@@ -632,6 +632,34 @@ eq "person at the remote default branch's tip: true" true "$(hdr_of dtip .person
 has "the tip is named in the source" "CLAUDE.md at the remote default branch: person" "$(hdr_of dtip .person_required_source)"
 git update-ref -d refs/remotes/origin/main
 
+# --- a merge of main onto a branch-only base (#1603) ----------------------------------------
+# impl_base is a commit only on the branch, so it isn't an ancestor of the
+# merge-base with main. The default branch here is b-1603-main, read through
+# origin/main, so main itself stays where the other sections expect it.
+echo "--- a merge of main onto a branch-only base"
+git checkout -q -B b-1603-main "$BASE"
+git checkout -q -B b-1603 "$BASE"
+printf '#!/bin/sh\n[ 2 -eq 2 ]\n' > tests/shared_test.sh
+git add -A && git commit -q -m "test: shared work before the unit"
+S=mob
+start_here "$S"
+printf '#!/bin/sh\n' > tests/other_test.sh
+git commit -q -am "test: the unit's own edit"
+git checkout -q b-1603-main
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: main edits a test"
+git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+git checkout -q b-1603
+git merge -q --no-edit b-1603-main >/dev/null
+run status "$S"
+eq "a merge of main onto a branch-only base: status holds on the unit's own edit" 1 "$RC"
+has "a merge of main onto a branch-only base: the unit's own edit is held" "held: unaccepted tests/other_test.sh" "$OUT"
+case "$OUT" in
+    *"held: unaccepted tests/greet_test.sh"*) bad "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" "[$OUT]" ;;
+    *) ok "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" ;;
+esac
+git update-ref -d refs/remotes/origin/main
+
 
 # --- a person-required repository ----------------------------------------------------------
 echo "--- a person-required repository"

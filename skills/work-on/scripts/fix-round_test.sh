@@ -9,8 +9,9 @@
 #   - fix-round.sh refuses a child that isn't at done, and one whose shared
 #     branch isn't the branch HEAD is on;
 #   - from done it starts <child>-fix-1 from the shipped work-on.md, under the
-#     same parent and with the child's variables (not its review level), and
-#     records the round in both sessions;
+#     same parent and with the child's variables (not its review level, and
+#     with a declared partial delivery), and records the round in both
+#     sessions;
 #   - the round's impl_base is the head the child left, so its changed paths
 #     cover the fix commit only;
 #   - review-round.sh records a round at the fix head both in the child at done
@@ -119,6 +120,10 @@ variables:
     required: true
   REVIEW_LEVEL:
     required: false
+  DELIVERY:
+    required: false
+  DELIVERY_REASON:
+    required: false
 states:
   pr_creation:
     accepts:
@@ -151,7 +156,8 @@ tick() { printf '%s\n' "$2" > "$W/ev.json"; koto next "$1" --with-data @"$W/ev.j
 koto init par --template "$W/parent.md" >/dev/null || { fail "could not init the parent"; exit 1; }
 koto init par.kid --parent par --template "$W/child.md" \
     --var ISSUE_NUMBER=1322 --var ARTIFACT_PREFIX=issue_1322 --var SHARED_BRANCH=feature \
-    --var PLUGIN_ROOT=/nowhere --var REVIEW_LEVEL=full >/dev/null \
+    --var PLUGIN_ROOT=/nowhere --var REVIEW_LEVEL=full \
+    --var DELIVERY=partial --var "DELIVERY_REASON=step 1 of 2" >/dev/null \
     || { fail "could not init the child"; exit 1; }
 
 # --- not at done ---------------------------------------------------------------
@@ -209,6 +215,14 @@ if jq -e --arg root "$REPO_ROOT" '.ISSUE_NUMBER == "1322" and .ARTIFACT_PREFIX =
     pass "the round carries the child's variables, this plugin's root, and no review level"
 else
     fail "the round's variables are $VARS"
+fi
+
+# A partial delivery (#1736) is the child's to declare at init, and a round
+# keeps it: the shipped template takes both variables.
+if jq -e '.DELIVERY == "partial" and .DELIVERY_REASON == "step 1 of 2"' <<<"$VARS" >/dev/null; then
+    pass "the round carries the child's DELIVERY and DELIVERY_REASON"
+else
+    fail "the round's delivery variables are $VARS"
 fi
 
 # The log keeps the template's file name; the stand-in child has no entry state.
