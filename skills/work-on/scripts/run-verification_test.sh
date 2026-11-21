@@ -72,13 +72,27 @@ git config --global user.name t
 git config --global init.defaultBranch main
 
 # The koto stand-in: `koto context add <s> <key> --from-file <f>` copies the
-# file to $WORKDIR/kotostore/<s>/<key> and logs the call.
+# file to $WORKDIR/kotostore/<s>/<key> and logs the call; `context exists`,
+# `get` and `remove` test, print and delete that file (get exits 1 when it is
+# absent), and `session list` prints $KOTO_STUB_STORE/sessions.json, or exits
+# 9 when there is none (session-role.sh then answers child). Every call is
+# logged to $KOTO_STUB_STORE/calls. KOTO_STUB_FAIL=<subcommand> makes that
+# subcommand exit 7.
 cat > "$WORKDIR/bin/koto" <<'EOF'
 #!/bin/sh
-[ "$1" = context ] && [ "$2" = add ] || exit 9
-mkdir -p "$KOTO_STUB_STORE/$3"
-[ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4"
-echo "add $3 $4" >> "$KOTO_STUB_STORE/log"
+echo "$*" >> "$KOTO_STUB_STORE/calls"
+[ -n "${KOTO_STUB_FAIL-}" ] && [ "${2-}" = "$KOTO_STUB_FAIL" ] && exit 7
+case "$1 ${2-}" in
+    "context add")
+        mkdir -p "$KOTO_STUB_STORE/$3"
+        [ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4"
+        echo "add $3 $4" >> "$KOTO_STUB_STORE/log" ;;
+    "context exists") [ -f "$KOTO_STUB_STORE/$3/$4" ] ;;
+    "context get") [ -f "$KOTO_STUB_STORE/$3/$4" ] || exit 1; cat "$KOTO_STUB_STORE/$3/$4" ;;
+    "context remove") rm -f "$KOTO_STUB_STORE/$3/$4"; echo "remove $3 $4" >> "$KOTO_STUB_STORE/log" ;;
+    "session list") [ -f "$KOTO_STUB_STORE/sessions.json" ] || exit 9; cat "$KOTO_STUB_STORE/sessions.json" ;;
+    *) exit 9 ;;
+esac
 EOF
 chmod +x "$WORKDIR/bin/koto"
 export KOTO_STUB_STORE="$WORKDIR/kotostore"
@@ -203,6 +217,8 @@ reference_work() {
     printf '%s' "$json" | jq '.entries // [] | length' >/dev/null 2>&1
     printf '%s' "$json" | jq -r '.default // [] | join(", ")' >/dev/null 2>&1
     jq -cn --arg mb "$mb" --argjson sel "$json" '{merge_base: $mb, sel: $sel}' >/dev/null 2>&1
+    # --start's stale-record step asks koto whether the session holds one.
+    koto context exists "$1" hosted_of_record >/dev/null 2>&1
     return 0
 }
 
@@ -916,6 +932,68 @@ expect_rc "an uncompilable timeout_form beside a well-formed hosted" 3
 jq -e '.status == "bad-map" and (.detail | test("command hrow: timeout_form"))' "$(result_of s-hostedform)" >/dev/null 2>&1 \
     && pass "hosted: timeout_form still validates on a row that declares hosted" \
     || fail "hosted: an uncompilable timeout_form with hosted: $(head -c 400 "$(result_of s-hostedform)" 2>&1)"
+
+# --- the check id, finished_at and a stale hosted_of_record key -----------------------
+
+echo "--- the check id and finished_at"
+# result_of reads the repository the shell is in, so each lookup runs in its own.
+HRES=$(cd "$WORKDIR/r-hosted" && result_of s-hosted)
+NRES=$(cd "$WORKDIR/r-nomap" && result_of s-nomap)
+jq -e '[.commands[] | select(.id == "chk")] | length == 1 and all(.check == "chk:a")' "$HRES" >/dev/null 2>&1 \
+    && pass "check: an each row's record names its check <row>:<last argv> (chk:a)" \
+    || fail "check: the each row's record: $(jq -c '[.commands[] | {id, check}]' "$HRES" 2>&1 | head -c 400)"
+jq -e '[.commands[] | select(.id == "plain")] | length == 1 and all(.check == "plain")' "$HRES" >/dev/null 2>&1 \
+    && pass "check: a plain row's record names its check by the row id" \
+    || fail "check: the plain row's record: $(jq -c '[.commands[] | {id, check}]' "$HRES" 2>&1 | head -c 400)"
+jq -e '[.invocations[] | {id, check}] == [{id: "chk", check: "chk:a"}, {id: "plain", check: "plain"}]' "$HOSTED_RUN" >/dev/null 2>&1 \
+    && pass "check: run.json's invocations carry the check id" \
+    || fail "check: run.json's invocations: $(jq -c '[.invocations[] | {id, check}]' "$HOSTED_RUN" 2>&1 | head -c 400)"
+jq -e '.finished_at | fromdateiso8601 | . > 0' "$HRES" >/dev/null 2>&1 \
+    && pass "finished_at: a supervised result records when it was written" \
+    || fail "finished_at: the supervised result has none: $(head -c 400 "$HRES" 2>&1)"
+jq -e '.status == "no-map" and (.finished_at | fromdateiso8601 | . > 0)' "$NRES" >/dev/null 2>&1 \
+    && pass "finished_at: a result that needs no run records it too" \
+    || fail "finished_at: the no-map result: $(head -c 400 "$NRES" 2>&1)"
+
+echo "--- a hosted_of_record key from another head"
+mkrepo stalekey "$(map "{\"ok\": $(rec "$WORKDIR/stalekey.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+SK="$KOTO_STUB_STORE/s-stalekey/hosted_of_record"
+OLD_HEAD=$(git rev-parse HEAD~1)
+# seed_key <head>: a hosted_of_record key for <head> in the stand-in's store.
+seed_key() {
+    mkdir -p "$(dirname "$SK")"
+    jq -cn --arg h "$1" '{head: $h, taken_at: "2026-01-01T00:00:00Z", reason: "x", checks: []}' > "$SK"
+}
+seed_key "$OLD_HEAD"
+start s-stalekey
+[ ! -e "$SK" ] && grep -qx "remove s-stalekey hosted_of_record" "$KOTO_STUB_STORE/log" \
+    && pass "stale key: --start removes a hosted_of_record key recorded for another head" \
+    || fail "stale key: the key for $OLD_HEAD is still there: $(cat "$SK" 2>&1)"
+settle s-stalekey
+expect_rc "stale key: the run at the new head" 0
+# The result now stands, so this --start returns at the reuse step; the key
+# goes all the same, since the step comes first.
+seed_key "$OLD_HEAD"
+start s-stalekey
+[ ! -e "$SK" ] && pass "stale key: removed before a stored result is reused" \
+    || fail "stale key: a reused result kept the key for $OLD_HEAD"
+seed_key "$(git rev-parse HEAD)"
+start s-stalekey
+[ -e "$SK" ] && pass "stale key: a key at the current head is kept" || fail "stale key: the current head's key was removed"
+mkdir -p "$(dirname "$SK")" && printf 'not json\n' > "$SK"
+start s-stalekey
+[ ! -e "$SK" ] && pass "stale key: a key that doesn't parse names no head and is removed" \
+    || fail "stale key: an unparsable key was kept"
+seed_key "$OLD_HEAD"
+KOTO_STUB_FAIL=exists "$START" --start --session s-stalekey >"$WORKDIR/start.out" 2>&1
+RC=$?
+[ "$RC" -eq 2 ] && pass "stale key: koto failing to answer exists is exit 2" \
+    || fail "stale key: koto failing on exists: --start exited $RC: $(cat "$WORKDIR/start.out")"
+KOTO_STUB_FAIL=remove "$START" --start --session s-stalekey >"$WORKDIR/start.out" 2>&1
+RC=$?
+[ "$RC" -eq 2 ] && pass "stale key: koto failing to remove the key is exit 2" \
+    || fail "stale key: koto failing on remove: --start exited $RC: $(cat "$WORKDIR/start.out")"
 
 # --- selection --------------------------------------------------------------------------
 
