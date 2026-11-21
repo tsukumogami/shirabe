@@ -13,7 +13,8 @@ goals: |
   recorded by the coordinator in the same pass it learns of it. Dependents start on Completed, Verified keeps Done's strictness,
   every tool reads status through one shared definition, and existing roadmaps
   move over with a tool that shows what changes.
-upstream: docs/briefs/BRIEF-completed-verified-states.md
+absorbed:
+  - docs/briefs/BRIEF-completed-verified-states.md
 ---
 
 # PRD: Completed and Verified milestone states
@@ -21,6 +22,25 @@ upstream: docs/briefs/BRIEF-completed-verified-states.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-completed-verified-states](docs/briefs/BRIEF-completed-verified-states.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because one status word has to say two things on a
+milestone roadmap: that a milestone's work landed and that someone who didn't
+build it checked it. The check can trail the merge by days, and until it lands
+the roadmap shows finished work as unfinished while the coordinator holds
+dependents, and even its own successor, behind it.
+
+The outcome wanted is a reader who sees Completed and Verified apart, a
+coordinator that starts dependents on Completed and treats a pending verdict as
+work rather than a gate, a Verified that means what Done means today, and one
+status definition every tool reads, leaving room for a configurable workflow
+later without building it. The brief's four journeys (a reader checking
+progress, a coordinator landing a milestone, a checker recording a verdict, an
+author migrating a roadmap) are the User Stories below, and its boundary is the
+Out of Scope list.
 
 ## Problem Statement
 
