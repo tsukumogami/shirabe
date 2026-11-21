@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   A /work-on run repeats work it already did and stops where nothing is
   decided: a fix round after done restarts review and branch-wide
@@ -46,7 +46,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 Amended on 2026-11-21, before execution: measurement reads koto's public
 workflow signals instead of a shirabe report (Q1), the audit records its
