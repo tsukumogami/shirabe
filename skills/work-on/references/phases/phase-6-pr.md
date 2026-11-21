@@ -233,7 +233,8 @@ the cap. An unattended run never asks the user instead.
 
 On the hosted-of-record route, green CI on the draft goes to `hosted_record`
 before `ci_pass_counting`. There the read waits while a recorded job is pending
-(up to 120 minutes from when the route was taken), refuses a job that concluded
+(for a bounded time from when the route was taken; the state's directive
+carries the limit), refuses a job that concluded
 anything but success, and the ready step follows a read that passed. Back at
 `ci_monitor` after the pull request is ready, the checks that run only on a
 ready pull request (the macOS legs, for example) are waited for like any other.
