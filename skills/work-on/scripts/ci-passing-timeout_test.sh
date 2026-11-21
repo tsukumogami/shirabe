@@ -198,6 +198,8 @@ states:
 $STUBBED
   ci_pass_counting:
     terminal: true
+  hosted_record:
+    terminal: true
   done_blocked:
     terminal: true
     failure: true
@@ -214,6 +216,9 @@ Green CI routes on the gates.
 
 ## ci_pass_counting
 Stand-in terminal: green CI reached it.
+
+## hosted_record
+Stand-in terminal for the hosted-of-record read; a run with no record never reaches it.
 
 ## done_blocked
 Blocked.
