@@ -73,7 +73,10 @@
 #           the red's `red_first.json` for a fix; a classification that fails
 #           counts every changed test as edited), writes `review_facts.json`
 #           (`base_source` names the base that won, `shared_branch` the
-#           branch or ""), and appends a `check` line when the head, level or
+#           branch or ""), appends the same object as one line to
+#           `review_facts.jsonl` (every gather, so the size at each visit
+#           survives the run; nothing reads it back), and appends a `check`
+#           line when the head, level or
 #           floor differs from the last one, or an `unset` line when the level
 #           is empty.
 #   check   the level-check gate. Read-only.
@@ -154,6 +157,7 @@ BOUND_KEY=review_level_bound.json
 CRITERIA_KEY=review_level_criteria.txt
 RULES_KEY=review_level_rules.tsv
 FACTS_KEY=review_facts.json
+FACTS_HISTORY_KEY=review_facts.jsonl
 RED_KEY=red_first.json
 REASON_MAX=200
 
@@ -882,6 +886,16 @@ cmd_facts() {
                  merged_default: (if $merged_default == "" then null else $merged_default end)}}
     ' > "$WORK/facts.json" || die 66 "could not build $FACTS_KEY"
     ctx_put "$s" "$FACTS_KEY" "$WORK/facts.json" || die 66 "could not write $FACTS_KEY"
+
+    # Every gather also lands as one line of the history, so the size of the
+    # change at each visit can be read after the run; review_facts.json keeps
+    # only the latest. Nothing in the workflow reads the history.
+    ctx_get "$s" "$FACTS_HISTORY_KEY" "$WORK/facts_history" \
+        || die 66 "could not read $FACTS_HISTORY_KEY"
+    jq -c . "$WORK/facts.json" >> "$WORK/facts_history" \
+        || die 66 "could not build $FACTS_HISTORY_KEY"
+    ctx_put "$s" "$FACTS_HISTORY_KEY" "$WORK/facts_history" \
+        || die 66 "could not write $FACTS_HISTORY_KEY"
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
     local last
