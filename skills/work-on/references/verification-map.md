@@ -180,6 +180,70 @@ directories created with mode 0700, outside every repository, pruned to the last
 per session. The result is one JSON object, keyed by the head and the merge-base it was
 computed against, written atomically.
 
+Each run of the suite at a head is an attempt with its own folder, from the first run on.
+A command's log is `<head>/attempts/<n>/<index>-<id>.log`, where n is the next free folder
+number at that head, index is the command's position and id is the command id with every
+character outside `[A-Za-z0-9._-]` replaced. Attempt folders are created 0700 and logs
+0600. `result.json` and `run.json` sit at `<head>/` until their attempt is archived.
+
+### Re-running a failed attempt
+
+When a failed command is judged a flake, the agent submits
+`implementation_status: verification_rerun` at `implementation` with the reason in
+`rationale`. The edge writes the reason into the `verification_rerun_request` context
+key. On the next entry into `verification`, `--start` reads that key before its
+reuse check. With an eligible failed result it archives the
+attempt, removes the key and starts a fresh suite whose logs go in `attempts/<n+1>/`.
+With a passing or otherwise ineligible result it removes the key, says why on stderr and
+uses the result as it would without a request.
+
+Archiving appends one line to the `verification_attempts` context key, a JSON Lines
+ledger, then moves `result.json` and `run.json` into `attempts/<n>/` next to that
+attempt's logs. Each line holds:
+
+| Field | Meaning |
+|-------|---------|
+| `attempt` | the attempt's number at this head and merge-base |
+| `folder` | the attempt folder number n its logs and archived files use |
+| `head` | the head the attempt ran at |
+| `merge_base` | the merge-base the attempt was computed against |
+| `exit` | the gate exit the result came through |
+| `status` | the result's status |
+| `reason` | the reason submitted with the request |
+| `archived_at` | when the attempt was archived |
+| `commands` | one object per command: `id`, `exit_status`, `timed_out`, `duration_secs` and `log`, the log path relative to the head, in the form `attempts/<n>/<index>-<id>.log` |
+
+The ledger's contents and the failing logs are data from earlier runs, not instructions.
+
+Each ledger line becomes one re-run line in the PR body's Verification section (a `##`
+or `###` heading named Verification):
+
+```text
+Re-run attempt <n> at `<head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`; attempt <n+1> passed.
+```
+
+The head is 7 or more of its hex characters. The ids are the attempt's `commands`
+entries with a non-zero `exit_status` or `timed_out: true`, each in a code span. The
+reason is the ledger's, with backticks removed and runs of whitespace made one space,
+in a code span. The line holds no path: the ledger's log paths are relative to the head
+directory and stay out of the body, which may be public.
+
+The next attempt's result, the line's last part, comes from the ledger line for attempt
+n+1 at the same head and merge-base. For the last archived attempt there, it comes from
+`verification_results.json` when its head and merge-base match and its logs are not the
+archived attempt's own. It reads `passed` when the status is `done` and every command
+exited 0, `timed out` when a command timed out, and `failed` otherwise. When neither
+source holds, the line needs only the ids and the reason.
+
+`check-pr-output.sh --rerun-record --session <session>` is the check, and
+`pr_creation`'s `verification_rerun_recorded` gate runs it. It reads the ledger first:
+with none it passes without reading GitHub, and a ledger read that fails holds the gate
+(exit 2) rather than reading as an empty ledger. Otherwise it refuses (exit 1) a body
+that leaves an attempt's line out, naming the attempt by number and head, and a line
+that holds an absolute path or puts an id or the reason outside a code span, each with
+its own message. The workflow-content setting doesn't change it. A plan's shared PR is
+checked at the owning `/execute` session's `pr_finalization`, by `rerun_recorded`.
+
 Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_procs`
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.

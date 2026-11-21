@@ -492,6 +492,7 @@ cc_pr_node() {
     esac
     all_merged=0
     cc_deferral_record "$name" "$issues" "$n_repo" "$node_branch" "$node_rec" || return 1
+    cc_rerun_record "$name" "$issues" "$n_repo" "$node_branch" "$node_rec" || return 1
     if [ "$draft" = "true" ]; then
         # A check that failed, was cancelled, or is `unreadable` (a required
         # check nothing the token can read answers) stops the run, as in
@@ -593,6 +594,72 @@ cc_deferral_record() {
     return 1
 }
 
+# cc_rerun_record <node> <items> <repo> <branch> <node record> -- an open node
+# PR whose work items re-ran a failed verification command at the same head
+# is evaluated (and so readied) or merged only once its body carries each
+# re-run line: cc_deferral_record's counterpart for re-runs.
+#
+# The lines come from the node's run record: node-push.sh writes `reruns`
+# into run/node/<node> at every push, read from the node's children in the
+# node worktree (shared-rerun-record.sh --lines). With `reruns` recorded no
+# child session is read: an empty list holds nothing and reads nothing, and a
+# non-empty one has shared-rerun-record.sh check the PR's body against it
+# (--recorded), the only GitHub read. A record with `deferrals` but no
+# `reruns` was pushed by a node-push.sh older than the verification_attempts
+# ledger, so its children have no attempts to read and nothing is asked for:
+# no child is read and GitHub isn't asked. Only a record with neither key (for
+# example one rebuilt by record-coord-setup.sh's recover) has the node's
+# children read for their lines (cc_children_reruns), and the body is checked
+# against those as against recorded ones. The lines are required whatever the
+# repository's PR Workflow Content setting.
+#
+# Called from cc_pr_node, in coord_compute's scope. Returns 1 once it has set
+# CC_ACTION: error:execute:rerun-record when the body misses a line or has a
+# wrong one, error:execute:status-read when it can't be decided.
+cc_rerun_record() {
+    local item rc err args state recorded rerun_gate
+    args=(--session "$CC_SESSION")
+    state=$(printf '%s' "$5" | jq -r \
+        'if has("reruns") then "reruns" elif has("deferrals") then "old" else "none" end') \
+        || state=""
+    case "$state" in
+        reruns)
+            # run-record.sh holds each line to one non-empty line.
+            recorded=$(printf '%s' "$5" | jq -r '.reruns[]') \
+                || { CC_ACTION="error:execute:status-read"; return 1; }
+            ;;
+        old)
+            # Pushed before the verification_attempts ledger: no re-run.
+            return 0
+            ;;
+        none)
+            recorded=$(cc_children_reruns "$1" "$2") \
+                || { CC_ACTION="error:execute:status-read"; return 1; }
+            ;;
+        *) CC_ACTION="error:execute:status-read"; return 1 ;;
+    esac
+    [ -n "$recorded" ] || return 0
+    while IFS= read -r item; do
+        args+=(--recorded "$item")
+    done <<< "$recorded"
+    args+=(-- --repo "$3" --head "$4" --state open)
+    [ -n "$COORD_RUN_ID" ] && args+=(--run-id "$COORD_RUN_ID")
+    # Its stderr is shown only when it holds the node: a node with no re-run
+    # prints nothing new.
+    rerun_gate="$COORD_SELF_DIR/shared-rerun-record.sh"
+    err=$("$BASH" "$rerun_gate" "${args[@]}" </dev/null 2>&1 >/dev/null)
+    rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    [ -n "$err" ] && printf '%s\n' "$err" >&2
+    if [ "$rc" -eq 1 ]; then
+        echo "$PROG: node $1's PR carries a verification re-run its body doesn't record" >&2
+        CC_ACTION="error:execute:rerun-record"
+    else
+        CC_ACTION="error:execute:status-read"
+    fi
+    return 1
+}
+
 # cc_children_deferrals <node> <items> -- the verification deferral reasons
 # of a node's work items, read from their sessions, one per line.
 #
@@ -639,6 +706,49 @@ cc_children_deferrals() {
         cargs=(--session "$CC_SESSION" --verification "" --child "$child")
         [ -n "$dir" ] && [ -d "$dir" ] && cargs+=(--child-dir "$dir")
         out=$("$BASH" "$COORD_SELF_DIR/shared-deferral-record.sh" "${cargs[@]}" --list </dev/null) || return 1
+        [ -z "$out" ] || printf '%s\n' "$out"
+    done
+    return 0
+}
+
+# cc_children_reruns <node> <items> -- the re-run lines of a node's work
+# items, read from their sessions, one per line: cc_children_deferrals'
+# counterpart, for a record with neither `reruns` nor `deferrals`. Each child
+# is found and read where it is bound in the same way, with
+# shared-rerun-record.sh --child [--child-dir] --lines, the read node-push.sh
+# makes at push time; with no items (the PLAN gone) the children are the
+# sessions `koto session list` names `work-on-<slug>-<node>-<number>`. None
+# listed is no re-run.
+#
+# Returns 1 when it can't decide: the listing failed or isn't a list, or a
+# child's read failed for any reason (shared-rerun-record.sh's message is on
+# stderr). A failed read is never a child that didn't re-run.
+cc_children_reruns() {
+    local listing names="$2" item child dir out rerun_read
+    local -a items cargs
+    rerun_read="$COORD_SELF_DIR/shared-rerun-record.sh"
+    listing=$(koto session list </dev/null) || {
+        echo "$PROG: koto session list failed, so node $1's work items can't be found where they are bound" >&2
+        return 1
+    }
+    printf '%s' "$listing" | jq -e 'type == "array"' >/dev/null || {
+        echo "$PROG: koto session list did not answer a list of sessions" >&2
+        return 1
+    }
+    if [ -z "$names" ]; then
+        names=$(printf '%s' "$listing" | jq -r --arg p "work-on-$CC_SLUG-$1-" \
+            '[.[] | .id | select(type == "string" and startswith($p)) | ltrimstr($p)
+              | select(test("^[1-9][0-9]*$"))] | join(",")') || return 1
+        [ -n "$names" ] || return 0
+    fi
+    IFS=, read -r -a items <<< "$names"
+    for item in "${items[@]}"; do
+        child="work-on-$CC_SLUG-$1-$item"
+        dir=$(printf '%s' "$listing" | jq -r --arg c "$child" \
+            '[.[] | select(.id == $c) | .execution_dir | strings][0] // ""') || return 1
+        cargs=(--session "$CC_SESSION" --child "$child")
+        [ -n "$dir" ] && [ -d "$dir" ] && cargs+=(--child-dir "$dir")
+        out=$("$BASH" "$rerun_read" "${cargs[@]}" --lines </dev/null) || return 1
         [ -z "$out" ] || printf '%s\n' "$out"
     done
     return 0
