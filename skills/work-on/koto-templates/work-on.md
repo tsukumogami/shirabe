@@ -4611,8 +4611,8 @@ hosted CI is the build of record for this change.
 A run that took the hosted-of-record route (`hosted_of_record` is in context for
 this head) opens its pull request as a draft: `gh pr create --draft --body-file
 <file>`. Print the lines with
-`"{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --lines --session {{SESSION_NAME}}`
-and put them in the body file verbatim, in the Verification part: one
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --lines --session <session>`,
+`<session>` being this run's koto session, and put them in the body file verbatim, in the Verification part: one
 `Hosted of record:` line per recorded check, naming the check, the head and its
 hosted jobs (`(pending)` until the read fills the run links), and a
 `Reason for the hosted route:` line with the reason in a code span. Never type or
