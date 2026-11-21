@@ -172,6 +172,11 @@ test-change.sh accept  <session> --as agent:<session>/accept-<n> --authority rev
 test-change.sh decline <session> --as agent:<session>/accept-<n> --authority reviewer --all --reason '<why>'
 ```
 
+The brief names the run's work tree and the commit its hunks end at, and says
+what the seat may run there: read-only commands, one per shell call, with no
+test, suite, script, build or koto command, and no command substitution in any
+argument.
+
 An acceptance covers the items at the digests they have at the run's head (a
 blob id, `deleted`, or an observation's digest). A commit that changes an
 accepted file ends that acceptance: the unit is held again, `changed since
@@ -180,6 +185,17 @@ back to implementation (`counting_status: declined`); the third decline of the
 same set of paths ends the run at `done_blocked`. While implementing, record
 why a test changed with `test-change.sh note <session> --file <path> --reason
 '<why>'`; the brief carries each note to the seat.
+
+The brief carries the edited hunks whole when they fit in its limit (32768
+bytes). When they don't, it never passes part of a diff off as all of it: each
+file's diff goes in whole while it fits, a `[cut: ...]` line marks where the
+file crossing the limit stops and names every file not shown, and the brief
+gives the `git diff` that reads the cut files whole from the run's work tree.
+The seat line records the cut files, and the brief's accept command carries
+`--read-whole <cut files>`, which the seat gives only once it has read each of
+them in full. An accept covering a cut file that `--read-whole` doesn't name is
+refused `partial-read`; the seat may read the rest and run accept again, since
+a refusal doesn't use the seat.
 
 ### The interim rule
 
@@ -195,6 +211,7 @@ every refused attempt is recorded with the rule that refused it:
 | `unknown-session` | An agent at `coordinator` naming no existing koto session other than the run's. |
 | `no-terminal` | A person's attempt without an interactive terminal. |
 | `not-higher` | An overrule at an authority no higher than the acceptance's. |
+| `partial-read` | An accept covering a file whose diff its seat's brief cut, without stating a whole read of it (`--read-whole`). |
 
 Identities are recorded claims, not authentication: the run itself can mint a
 seat and accept as it. The seat makes an accidental self-acceptance visible in

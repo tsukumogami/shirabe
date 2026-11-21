@@ -644,7 +644,7 @@ printf '%s\n' 'koto context get "$S" record/run > "$T/r"' >> "$T/roler-two/scrip
 eq_fx "  ... as does one outside any function, even for a listed reader" \
     "scripts/two-path.sh	-	record-run
 scripts/two-path.sh	grant_path_role	role-key" \
-    "$(role_readers "$T/roler-two" "scripts/two-path.sh:brief_path" "scripts/two-path.sh" | cut -f1,2,3 | sort)"
+    "$(role_readers "$T/roler-two" "scripts/two-path.sh:brief_path" "scripts/two-path.sh" | cut -f1,2,3 | LC_ALL=C sort)"
 
 # No script passes --role to niwa dispatch, whose own --role grants
 # authorities: not on the dispatch command, not in an array that command

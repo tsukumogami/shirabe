@@ -81,8 +81,11 @@
 # A row is parked when it has a Verified head and its pull request is open and
 # not a draft; a row with a Verified head and a cleared Pull request cell, or
 # one whose linked pull request GitHub reads merged and that state-common.sh
-# lib_link_merge_frees allows, is merged and counts as neither; every
-# other Holdings row is active. CAP and PARKED_BOUND are the
+# lib_link_merge_frees allows, is merged and counts as neither; one whose
+# worker's Claude jobs on this host are all finished (dispatch-common.sh
+# dc_topic_stopped) is stopped and leaves the active count, whatever its
+# pull request's state, though a stopped row that is also parked still
+# counts as parked (shirabe#1419); every other Holdings row is active. CAP and PARKED_BOUND are the
 # session's variables. The detail goes to context key coord/dispatch_check.json.
 #
 # Row mode judges one Deferrals row (a JSON object with deferral, reason,
@@ -210,11 +213,25 @@ lib_facts
 # 30-second action limit (shirabe#1406). A job's stderr is replayed where its
 # answer is taken. A temporary directory that can't be made is still refused
 # where it was, after the log check; no job starts without one.
+#
+# The EXIT trap is set before the directory is made, so a signal can't land
+# between the two and leave the directory behind (shirabe#1695). While mktemp
+# runs, a signal is only recorded: an `exit` from the trap then would run
+# before T is assigned, and the EXIT trap would have nothing to remove. Once
+# T is set the signal traps exit, and a signal recorded during mktemp exits
+# here. The EXIT trap ignores further signals first, so a second one can't
+# cut the cleanup short.
+T=
+trap 'trap "" HUP INT TERM; lib_jobs_stop; [ -z "$T" ] || rm -rf "$T"' EXIT
+SIG=
+trap 'SIG=129' HUP
+trap 'SIG=130' INT
+trap 'SIG=143' TERM
 T=$(mktemp -d "${TMPDIR:-/tmp}/deferral-check.XXXXXX") || T=
-trap 'lib_jobs_stop; [ -z "$T" ] || rm -rf "$T"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+[ -z "$SIG" ] || exit "$SIG"
 CL="$HERE/coord-log.sh"
 if [ -n "$T" ]; then
     lib_job_start "$T" count bash "$CL" count --session "$SESSION"
@@ -468,7 +485,7 @@ fi
 # The cap and the parked bound.
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
 PARKED=$(jq '[.[] | select(.parked)] | length' "$T/counted.json")
-ACTIVE=$(jq '[.[] | select((.parked | not) and (.merged | not))] | length' "$T/counted.json")
+ACTIVE=$(jq '[.[] | select((.parked | not) and (.merged | not) and (.stopped | not))] | length' "$T/counted.json")
 ATCAP=0
 # send_execution moves a worker already counted only when the unit really is
 # a scoping-ahead holding; otherwise it would start a worker, and is judged as

@@ -180,6 +180,13 @@
 # says why on stderr and exits 66, so nothing reaches the leg and a later open
 # can still bind it.
 #
+# UNIT_KIND is carried the same way, for the same reason: under --koto-leg it
+# is added when the session's fix_kind.jsonl ledger records a kind
+# (`fix-kind.sh kind`, `fix` or `change`), and nothing is added with no
+# session or no ledger. A kind read that fails, or prints anything but one
+# kind, stops the open before koto init with `failed=kind_unreadable` and exit
+# 66, as a failed level read does.
+#
 # The other values handed to koto can't carry a failed read. The tokens file
 # is read once, and a failed read is a usage refusal. PLUGIN_ROOT is the
 # environment's CLAUDE_PLUGIN_ROOT or this script's own plugin directory,
@@ -190,12 +197,12 @@
 # Output: koto-open.sh's lines (opened=..., rebound=..., leg=..., refused=...,
 # failed=...), then `session=<name>` when a session was opened or attached,
 # then, under --dispatched-by, `warning=link-failed dispatched_by=<dispatcher>`
-# when the link could not be recorded; or `failed=level_unreadable` alone.
-# koto's refusal wording goes to stderr.
+# when the link could not be recorded; or `failed=level_unreadable` or
+# `failed=kind_unreadable` alone. koto's refusal wording goes to stderr.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
 # own code otherwise), 64 for this script's own usage refusals, or 66 for a
-# failed review-level read under --koto-leg, with no koto init.
+# failed review-level or unit-kind read under --koto-leg, with no koto init.
 #
 # A bare `--koto-leg` followed by another flag takes that flag as its value, so
 # the value fails the leg pattern and exits 64. deliver-open.sh records an empty
@@ -412,8 +419,31 @@ if [ -n "$LEG" ]; then
     rm -f -- "$DIR/level.err"
 fi
 
+# Under --koto-leg, the kind the live session's fix-kind ledger last recorded,
+# or nothing, read and checked the way the level is above. Without it the
+# attach would reset UNIT_KIND to empty while the ledger still records the
+# kind.
+KIND=""
+if [ -n "$LEG" ]; then
+    KIND_RC=0
+    KIND=$(bash "$SELF_DIR/fix-kind.sh" kind "$WORKFLOW" 2>"$DIR/kind.err") || KIND_RC=$?
+    case "$KIND_RC:$KIND" in
+        0:|0:fix|0:change) ;;
+        *)
+            KIND_ERR=$( { printf '%s ' "$KIND"; cat -- "$DIR/kind.err"; } 2>/dev/null | tr '\n' ' ')
+            KIND_ERR=${KIND_ERR:0:300}
+            rm -f -- "$DIR/kind.err"
+            remove_tokens
+            printf 'failed=kind_unreadable\n'
+            echo "$PROG: could not read $WORKFLOW's unit kind (exit $KIND_RC), so the open stops with no koto init and the leg stays open: $KIND_ERR" >&2
+            exit 66
+            ;;
+    esac
+    rm -f -- "$DIR/kind.err"
+fi
+
 PAIRS_FILE="$DIR/work-on-vars.json"
-jq -nc --arg root "$ROOT" --arg level "$LEVEL" --argjson tokens "$TOKENS" '
+jq -nc --arg root "$ROOT" --arg level "$LEVEL" --arg kind "$KIND" --argjson tokens "$TOKENS" '
     def bound($t; $flag; $var):
         if $t == $flag then [[$var, $t]]
         elif ($t | startswith($flag + "=")) then [[$var, ($t | ltrimstr($flag + "="))]]
@@ -426,7 +456,8 @@ jq -nc --arg root "$ROOT" --arg level "$LEVEL" --argjson tokens "$TOKENS" '
     + [ $tokens[] | bound(.; "--delivery"; "DELIVERY")[] ]
     + [ $tokens[] | bound(.; "--delivery-reason"; "DELIVERY_REASON")[] ]
     + [["PLUGIN_ROOT", $root]]
-    + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
+    + (if $level == "" then [] else [["REVIEW_LEVEL", $level]] end)
+    + (if $kind == "" then [] else [["UNIT_KIND", $kind]] end)' --args ${VARS[@]+"${VARS[@]}"} > "$PAIRS_FILE" \
     || { rm -f -- "$PAIRS_FILE"; own_refusal "could not write the variables file"; }
 
 set -- "$WORKFLOW" "$TEMPLATE" "$PAIRS_FILE"

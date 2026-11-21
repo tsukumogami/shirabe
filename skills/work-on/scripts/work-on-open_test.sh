@@ -36,6 +36,11 @@
 #     exiting non-zero) stops the open: exit 66, failed=level_unreadable, no
 #     koto init; without --koto-leg the level is never read and the plain
 #     open goes ahead
+#     the unit kind: under --koto-leg a fix_kind.jsonl ledger recording fix
+#     adds UNIT_KIND=fix, no ledger adds nothing, and without --koto-leg the
+#     kind is never read; a kind read that fails or prints a kind other than
+#     fix or change stops the open: exit 66, failed=kind_unreadable, no koto
+#     init
 #     koto-open.sh is handed --event-field unit.mode=issue_backed when an
 #     ISSUE_NUMBER --var is given and unit.mode=free_form otherwise, with and
 #     without --koto-leg (a copy of the script beside a stand-in koto-open.sh)
@@ -69,6 +74,9 @@
 #     a plain open with --delivery=partial and a reason records both
 #       variables; a DELIVERY outside its values, or a reason that does not
 #       start with a letter or digit, is koto's invalid_var
+#     a session made a fix with fix-kind.sh declare keeps UNIT_KIND=fix
+#       through a resume by this script, where a bare attach empties it while
+#       the ledger still records fix, and fix-kind.sh agree passes after it
 #     the reason check's class, read out of scripts/lib/verification-deferral.sh
 #       (which work-on-open.sh and execute-open.sh source), agrees with
 #       koto's value allowlist: a value of every character it allows is
@@ -476,12 +484,14 @@ eq "the plain open: a malformed --dispatched-by is still refused" "64|error=usag
 #
 # A copy of the script runs in a tree beside a stand-in scripts/koto-open.sh
 # that logs the session and every argument after the args file, one per line,
-# and opens. A stand-in review-level.sh reads no level.
+# and opens. A stand-in review-level.sh reads no level, and a stand-in
+# fix-kind.sh no kind.
 MODE_TREE="$WORK/mode-tree"
 mkdir -p "$MODE_TREE/skills/work-on/scripts" "$MODE_TREE/skills/work-on/koto-templates" "$MODE_TREE/scripts/lib"
 cp "$OPEN" "$MODE_TREE/skills/work-on/scripts/work-on-open.sh"
 cp "$REPO_ROOT/scripts/lib/verification-deferral.sh" "$REPO_ROOT/scripts/lib/dispatch-link.sh" "$MODE_TREE/scripts/lib/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$MODE_TREE/skills/work-on/scripts/review-level.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$MODE_TREE/skills/work-on/scripts/fix-kind.sh"
 cat > "$MODE_TREE/scripts/koto-open.sh" <<'STUB'
 #!/usr/bin/env bash
 session="$1" args="$3"
@@ -540,9 +550,17 @@ case "${1:-} ${2:-}" in
                 printf '{"error":{"code":"session_bound_elsewhere","message":"session %s is bound to another workspace"}}\n' "${3:-}"
                 exit 1 ;;
             unreadable) exit 0 ;;
+            kind-*) [ "${4:-}" = fix_kind.jsonl ] && exit 0 ;;
         esac
         exit 1 ;;
-    "context get") exit 1 ;;
+    "context get")
+        case "${LEVEL_FAIL:-}:${4:-}" in
+            kind-fix:fix_kind.jsonl)
+                printf '{"ts":"t","event":"determine","kind":"fix","source":"label:bug"}\n'; exit 0 ;;
+            kind-odd:fix_kind.jsonl)
+                printf '{"ts":"t","event":"determine","kind":"odd","source":"label:bug"}\n'; exit 0 ;;
+        esac
+        exit 1 ;;
 esac
 prev=""
 for a in "$@"; do
@@ -586,6 +604,40 @@ session=issue_7" ] && [ -z "$(grep -v '^init ' "$WORK/stub.log")" ] && [ -n "$IN
     else
         fail "a failing level read ($mode) without --koto-leg: exit $RC, out [$OUT], koto calls [$(cat "$WORK/stub.log")]"
     fi
+done
+
+# --- the unit kind on an attach (#1912) -----------------------------------------
+#
+# The same stub, with a fix_kind.jsonl ledger and no review-level ledger:
+#   kind-fix         the ledger records fix
+#   kind-odd         the ledger's kind is neither fix nor change
+#   kind-unreadable  the ledger exists but `context get` fails
+level_fail_open kind-fix '["7","--koto-leg=r1:work-on"]'
+eq "a fix ledger under --koto-leg: exit 0" 0 "$RC"
+eq "a fix ledger under --koto-leg: UNIT_KIND=fix is passed" fix \
+    "$(jq -r '(map(select(.[0] == "UNIT_KIND") | .[1]) | first) // "<none>"' "$WORK/vars.json" 2>/dev/null)"
+eq "a fix ledger under --koto-leg: no REVIEW_LEVEL with no level ledger" "<none>" \
+    "$(jq -r '(map(select(.[0] == "REVIEW_LEVEL") | .[1]) | first) // "<none>"' "$WORK/vars.json" 2>/dev/null)"
+level_fail_open kind-fix '["7"]'
+eq "a fix ledger without --koto-leg: exit 0" 0 "$RC"
+eq "a fix ledger without --koto-leg: the kind is never read" "" "$(grep -v '^init ' "$WORK/stub.log")"
+eq "a fix ledger without --koto-leg: no UNIT_KIND" "<none>" \
+    "$(jq -r '(map(select(.[0] == "UNIT_KIND") | .[1]) | first) // "<none>"' "$WORK/vars.json" 2>/dev/null)"
+level_fail_open unset '["7","--koto-leg=r1:work-on"]'
+eq "no fix-kind ledger under --koto-leg: no UNIT_KIND" "<none>" \
+    "$(jq -r '(map(select(.[0] == "UNIT_KIND") | .[1]) | first) // "<none>"' "$WORK/vars.json" 2>/dev/null)"
+for mode in kind-odd kind-unreadable; do
+    level_fail_open "$mode" '["7","--koto-leg=r1:work-on"]'
+    if [ "$RC" -eq 66 ] && [ "$OUT" = "failed=kind_unreadable" ] && [ -z "$INITS" ] \
+        && [ ! -e "$WORK/vars.json" ] && [ ! -e "$(dirname "$TOKENS")" ]; then
+        pass "a failed kind read ($mode) under --koto-leg: exit 66, failed=kind_unreadable, no koto init, tokens directory removed"
+    else
+        fail "a failed kind read ($mode) under --koto-leg: exit $RC, out [$OUT], init calls [$INITS], pairs [$(cat "$WORK/vars.json" 2>/dev/null)]"
+    fi
+    case "$ERR" in
+        *"issue_7's unit kind"*"no koto init"*) pass "a failed kind read ($mode): the message names the session and says koto init was not run" ;;
+        *) fail "a failed kind read ($mode): stderr [$ERR]" ;;
+    esac
 done
 
 # --- --dispatched-by: the link after the open ----------------------------------
@@ -946,11 +998,11 @@ eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
 
 # The shipped template takes both variables at init, and koto refuses a
 # DELIVERY outside its two values.
-run_open issue_44 '["44","--delivery=partial","--delivery-reason=step 1 of 2: validator side"]' \
-    --var ISSUE_NUMBER=44 --var ARTIFACT_PREFIX=issue_44
+run_open issue_47 '["47","--delivery=partial","--delivery-reason=step 1 of 2: validator side"]' \
+    --var ISSUE_NUMBER=47 --var ARTIFACT_PREFIX=issue_47
 eq "--delivery=partial with a reason: exit 0" 0 "$RC"
-eq "the session's DELIVERY" partial "$(session_var issue_44 DELIVERY)"
-eq "the session's DELIVERY_REASON" "step 1 of 2: validator side" "$(session_var issue_44 DELIVERY_REASON)"
+eq "the session's DELIVERY" partial "$(session_var issue_47 DELIVERY)"
+eq "the session's DELIVERY_REASON" "step 1 of 2: validator side" "$(session_var issue_47 DELIVERY_REASON)"
 run_open issue_45 '["45","--delivery=whole","--delivery-reason=step 1 of 2"]' \
     --var ISSUE_NUMBER=45 --var ARTIFACT_PREFIX=issue_45
 eq "--delivery=whole: exit 2" 2 "$RC"
@@ -959,6 +1011,30 @@ eq "--delivery=whole: no session is left behind" none "$(state_of issue_45)"
 run_open issue_46 '["46","--delivery=partial","--delivery-reason=-x"]' \
     --var ISSUE_NUMBER=46 --var ARTIFACT_PREFIX=issue_46
 eq "a reason that does not start with a letter or digit: koto's refusal code" "2|refused=invalid_var" "$RC|$OUT"
+
+# A resume through this script keeps the unit kind too (#1912). A session is
+# opened the plain way and made a fix with fix-kind.sh declare, which rebinds
+# UNIT_KIND and records it in the fix_kind.jsonl ledger; a bare attach shows
+# the reset the script guards against, and the resume puts the ledger's kind
+# back on the variable.
+FK="$REAL_ROOT/skills/work-on/scripts/fix-kind.sh"
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_44 '["44"]' --var ISSUE_NUMBER=44 --var ARTIFACT_PREFIX=issue_44
+eq "the plain open of issue_44: exit 0" 0 "$RC"
+to_choice issue_44
+(cd "$FIXREPO" && "$FK" declare issue_44 --reason "the report says the behaviour is wrong" >/dev/null 2>&1)
+eq "fix-kind.sh declare makes the unit a fix" 0 "$?"
+eq "UNIT_KIND is fix" fix "$(session_var issue_44 UNIT_KIND)"
+k init issue_44 --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" >/dev/null 2>&1
+eq "control: a bare attach empties UNIT_KIND" "" "$(session_var issue_44 UNIT_KIND)"
+eq "while the ledger still records fix" fix "$(cd "$FIXREPO" && "$FK" kind issue_44 2>/dev/null)"
+REQ=$(new_request '{"ISSUE_NUMBER":"44"}')
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_44 "[\"44\",\"--koto-leg=$REQ:work-on\"]" \
+    --var ISSUE_NUMBER=44 --var ARTIFACT_PREFIX=issue_44
+eq "a resume of a fix through work-on-open.sh: exit 0" 0 "$RC"
+case "$OUT" in *opened=attached*) pass "the live fix session is attached" ;; *) fail "resume output: [$OUT] [$ERR]" ;; esac
+eq "the resume keeps UNIT_KIND at the ledger's kind" fix "$(session_var issue_44 UNIT_KIND)"
+eq "fix-kind.sh agree passes on the resumed session" 0 \
+    "$(cd "$FIXREPO" && "$FK" agree issue_44 "$(session_var issue_44 UNIT_KIND)" >/dev/null 2>&1; echo $?)"
 
 # --- the reason check against koto's value allowlist (#1040) --------------------
 
