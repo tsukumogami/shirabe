@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Accepted
+status: Done
 problem: |
   A /work-on or /execute run whose change reaches most coordinate suites can't
   get through local verification: the check-skill row's 3,600 s budget is also
@@ -21,7 +21,7 @@ motivating_context: |
 
 ## Status
 
-Accepted
+Done
 
 The brief frames the gap shared by shirabe#1876 and shirabe#1930 as one feature,
 because neither half alone gives a run a way through. How the two routes relate
