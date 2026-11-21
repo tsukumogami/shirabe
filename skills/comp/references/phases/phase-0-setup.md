@@ -9,13 +9,17 @@ reaches the author before anything is created.
 
 Parse `$ARGUMENTS`:
 
-- **Empty** — ask the user which competitive question to survey, then
-  derive a topic slug from their answer.
+- **Empty** — when the conversation already describes the competitive
+  question, derive the topic slug from it; otherwise ask the user which
+  competitive question to survey, then derive a topic slug from their answer.
 - **Existing COMP path + lifecycle verb** (`accept`, `done`) — this is a
   transition invocation; run `shirabe transition <path>
   Accepted|Done` and exit. No new authoring.
 - **`--upstream <path>`** — record the upstream artifact path for Phase 1.
-- **Anything else** — treat the first token as the topic slug.
+- **Anything else** — take the topic slug as `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md`
+  says: a slug given as the first token is used verbatim; a description of
+  the question becomes a short kebab-case slug the agent picks, named on the
+  first line of output.
 
 ## 0.2 Visibility Check (Private Only) — Warning
 
@@ -83,7 +87,9 @@ stops at the validator rather than landing a COMP in a public repo.
 The `<topic>` slug must match `^[a-z0-9][a-z0-9-]*$` (lowercase alphanumeric
 and hyphens only, starting with a letter or digit). Reject any topic
 containing `.`, `/`, `_`, whitespace or other characters, or starting with
-`-`, and ask the user for a conforming slug. This constraint is
+`-`. A slug the agent derived is chosen to pass; one the author typed that
+fails is treated as a description and a conforming slug derived from it,
+named on the first line of output. This constraint is
 load-bearing: `<topic>` is placed in the session name `comp-<topic>` and on
 `skill-session.sh` command lines, so a topic like `-x` must never get as far
 as being read as a flag.
