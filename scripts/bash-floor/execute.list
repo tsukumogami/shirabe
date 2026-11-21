@@ -26,6 +26,7 @@ skills/execute/scripts/owned-pr-callers_test.sh
 # fallback, through gh and koto stubs and real git: every case runs on 3.2.
 skills/execute/scripts/owned-ci-cancel_test.sh
 skills/execute/scripts/push-and-record_test.sh
+skills/execute/scripts/start-commit_test.sh
 skills/execute/scripts/record-merge-verdict_test.sh
 skills/execute/scripts/adopt-or-create-pr_test.sh
 skills/execute/scripts/print-exit_test.sh
