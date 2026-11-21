@@ -87,8 +87,8 @@ see the run's cost track the change (the BRIEF's User Outcome). A change
 within the light cap and outside the risky path classes gets one reviewer,
 one authoritative test run and no constant-answer stops. A change in the
 middle band keeps the six-seat `standard` panel. A change over the full
-floor, or one that touches CI, security, workflow templates or gate
-scripts, keeps the full panel. A fix round costs what the fix costs. Independent plan steps run together. Each
+floor, or one with a path in the ci, security, template or engine class,
+keeps the full panel. A fix round costs what the fix costs. Independent plan steps run together. Each
 trim lands with a before and after figure normalized by diff size, and each
 check that remains has a written reason.
 
@@ -130,10 +130,21 @@ The numbers these requirements use, in one place:
 | audit bound | more than 3 misses in the 30 most recent audited light runs |
 | step concurrency | default 2, from 1 (today's serial order) to 6 |
 
-A **gather** is one evaluation of the review-level facts at a head. A
-command's **hosted twin** is a `hosted` entry for that command in the
-verification map, naming a workflow and job. A **trim** is one requirement
-below that removes or skips work.
+Terms:
+
+- A **gather** is one evaluation of the review-level facts at a head.
+- A command's **hosted twin** is a `hosted` entry for that command in the
+  verification map, naming a workflow and job.
+- The **engine class** is the rules file's class for gate scripts and the
+  scripts that open a workflow session; "gate scripts" in this PRD means
+  that class.
+- A template's **compatibility file** is the `<template>.compat.json` beside
+  it, whose gate digest is a hash over the scripts the template's gates
+  call.
+- A **fix-round base** is the head of the parent run when it reached `done`.
+- A **miss** is an audited light run whose full panel blocked at a head the
+  light seat passed.
+- A **trim** is one requirement below that removes or skips work.
 
 ### Measurement
 
@@ -148,13 +159,15 @@ below that removes or skips work.
   parent run. A run with missing records is counted and listed as skipped,
   not dropped silently.
 - **R3.** The report's first output, committed with the change that adds it,
-  states how much of the rise after 2026-10-28 and after 2026-11-09 is
-  explained by a shift toward larger size bands and how much remains within
-  a band.
+  states, in minutes per run, how much of the rise after 2026-10-28 and
+  after 2026-11-09 comes from a shift toward larger size bands (the median
+  with the earlier period's band mix held fixed) and how much remains
+  within a band. The two figures sum to the observed rise.
 - **R4.** Each trim's PLAN issue names one R2 figure it expects to move and
   the expected saving in minutes per run, with the observation it comes
   from. After the trim ships and at least 10 runs have used it, the report
-  can print that figure before and after the trim's ship date.
+  prints that figure before and after the trim's ship date; with fewer, it
+  prints "insufficient data".
 
 ### Repeated work
 
@@ -162,9 +175,10 @@ below that removes or skips work.
   and reviews only the fix diff, the same way a retry lap inside one run
   does. A fix diff over the fix-round full-round size plans a full round.
 - **R6.** A fix round's verification selects commands from the paths the
-  round changed since its own base. A command the parent ran that no path
+  round changed since the fix-round base. A command the parent ran and
+  passed that no path
   changed in the round selects reports the parent's result instead of
-  running.
+  running. A command the parent failed or never finished runs again.
 - **R7.** Edited-test acceptance is judged once per head. `pr_precheck` and
   `ci_pass_counting` check that the acceptance's head is still the head and
   spawn no acceptance seat when it is; a new commit after the acceptance
@@ -177,7 +191,8 @@ below that removes or skips work.
 - **R9.** `ci_monitor` waits on the hosted twins of the selected commands
   plus the checks the verification map lists as always required. A check
   outside that set doesn't hold the run; when it fails, the run names it in
-  a pull request comment.
+  a pull request comment. The always-required list is a new key in the
+  verification map, empty unless a repository fills it.
 
 ### Review sized to the change
 
@@ -197,10 +212,13 @@ below that removes or skips work.
   the level to `standard` and sends the run back through the level check,
   so the next panel at that head is the larger one.
 - **R14.** A light run in the light audit also runs the full panel at the
-  same head, and records whether the full panel blocked where the light seat
-  passed. When the audit bound is crossed, the report prints a line saying
-  so, and the light cap returns to 40 lines and 3 files by a change to the
-  rules file.
+  same head and records whether it was a miss. On a miss the run follows the
+  full panel's verdict and takes its fix lap. The report counts misses over
+  the 30 most recent audited light runs and, when the audit bound is crossed,
+  prints a line naming the rules-file change that returns the light cap to
+  40 lines and 3 files. A maintainer makes that change by pull request; the
+  report doesn't edit the rules file. With fewer than 30 audited runs the
+  report prints the count and no verdict.
 - **R15.** The run chooses its review level from the facts. The up-front
   agent choice and its stop are removed. A coordinator's bound still applies:
   a facts floor above the ceiling still raises the level and still logs a
@@ -212,10 +230,11 @@ below that removes or skips work.
   decider answers `code`. `docs` and `task` keep their agent answer.
 - **R17.** `pre_pr_evidence` is removed. `finalization` already runs its
   four gates, and its two evidence fields move to `finalization`.
-- **R18.** `fix_determination` routes to `implementation` or `reproduce` in
-  the tick that made a fresh determination, using a gate the state's
-  default action has already satisfied. The agent's chance to declare a fix
-  moves to `analysis`, which already allows it on a return.
+- **R18.** When a run enters `fix_determination` with no recorded kind and
+  the entry action records one, the same `koto next` call that entered the
+  state leaves it: to `reproduce` for a fix, `implementation` for a change.
+  The agent's chance to declare a fix moves to `analysis`, which already
+  allows it on a return.
 
 ### Experiments off the default path
 
@@ -241,15 +260,19 @@ below that removes or skips work.
 ### Keep or cut
 
 - **R23.** The design has one row per work-on state added since 0.19.1,
-  with a keep, trim or cut verdict and its evidence: a pull request or issue
-  where the state caught a defect, or "no recorded catch".
+  with a verdict of keep, trim or cut and its evidence: a pull request or
+  issue where the state caught a defect, or "no recorded catch". The list of
+  states is the difference between the state names in the 0.19.1 template
+  and the current one.
 
 ### Non-functional
 
 - **R24.** No change here lowers the floor for a path in the ci, security,
   template or engine class, or for a change over the full floor's size.
 - **R25.** Each trim has an opt-out that restores today's behaviour for one
-  run, named in its PLAN issue, until its R4 after-figure has been read. The
+  run, named in its PLAN issue. The opt-out is removed by a later pull
+  request once the report has printed the trim's after-figure and the PLAN
+  issue records it. The
   removals in R15 and R17 are exempt: they remove an agent turn whose answer
   never changed the route, and reverting the change restores them.
 
@@ -268,17 +291,20 @@ below that removes or skips work.
       each (R3).
 - [ ] Each trim's PLAN issue names an R2 figure and a saving in minutes per
       run; given a ship date, the report prints that figure before and after
-      it (R4).
+      it, and with 9 runs after the date it prints "insufficient data"
+      (R4).
 
 ### Repeated work
 
 - [ ] A fix round with a 30-line fix diff, whose parent passed every panel,
       spawns only re-verifiers for findings the fix diff touches and no
-      first-round seat; with a 250-line fix diff it plans a full round (R5).
+      first-round seat; a 200-line fix diff still takes re-verifiers only;
+      a 201-line fix diff plans a full round (R5).
 - [ ] A fix round that changes one file in one skill runs only that skill's
       selected command; the parent's result is reported for every other
       command the parent ran; a fix round that changes a second skill runs
-      that skill's command too (R6).
+      that skill's command too; a command the parent failed runs again
+      (R6).
 - [ ] With no new revision after acceptance, `pr_precheck` and
       `ci_pass_counting` pass without spawning an acceptance seat; with one,
       both hold (R7).
@@ -287,8 +313,10 @@ below that removes or skips work.
       the body records hosted CI as the build of record; a failing twin sends
       it to `implementation`; a change with one selected command lacking a
       twin, or with a template path, runs local verification (R8).
-- [ ] A run whose changed paths select no coordinate command reaches its
-      green edge while a coordinate-only check is still pending; a failing
+- [ ] A run whose changed paths select no command for the coordinate skill
+      reaches its green edge while a check that only coordinate's paths
+      trigger is still pending; a selected command's pending hosted twin
+      holds the run; a failing
       check outside the set produces a pull request comment naming it; a
       check the map lists as always required holds the run until it passes
       (R9).
@@ -312,12 +340,14 @@ below that removes or skips work.
       and the next panel at that head is `standard` (R13).
 - [ ] Over 1,000 generated session names, between 8% and 12% are in the
       light audit, and the same names are chosen on every evaluation; an
-      audited light run spawns the full panel and records a miss or not; a
-      fixture of 30 audited runs with 4 misses makes the report print the
-      over-bound line (R14).
+      audited light run spawns the full panel and records a miss or not; on
+      a miss the run takes a fix lap; fixtures of 30 audited runs print the
+      over-bound line with 4 misses and not with 3; 29 audited runs print
+      the count and no verdict (R14).
 - [ ] A run with no coordinator bound reaches its first panel with no agent
       stop for a review-level choice; with a ceiling of `standard` and facts
-      at `full`, the run reviews at `full` and logs a breach (R15).
+      at `full`, the run reviews at `full` and logs a breach; with facts at
+      or below the ceiling, no breach is logged (R15).
 
 ### Constant-answer stops
 
@@ -334,7 +364,8 @@ below that removes or skips work.
 ### Experiments off the default path
 
 - [ ] On a host with no opt-in file, a run enters no canary or probe state
-      and runs no probe gate; with the opt-in file, it does (R19).
+      and runs no probe gate; with the opt-in file's first line `on`, it
+      does; with `off`, `On` or an empty file, it doesn't (R19).
 - [ ] A jury round on a host with no doc-criteria opt-in makes no grading
       call; with the opt-in, the grading runs as today (R20).
 
@@ -347,15 +378,17 @@ below that removes or skips work.
       limit at 2, two start (R21).
 - [ ] When step 1 finishes, step 2's PLAN entry holds a draft by step 1's
       agent, and step 2 starts only after its step-refine record exists; with
-      no record, step 2 doesn't start (R22).
+      no record, step 2 doesn't start; an owner edit to the draft before
+      recording is what step 2 runs against (R22).
 
 ### Keep or cut and opt-outs
 
 - [ ] The design has a row for each of the 24 states added since 0.19.1,
       each with a verdict and either a link or "no recorded catch" (R23).
-- [ ] Each trim's PLAN issue names its opt-out, and a run with the opt-out
-      set behaves as it does today for the behaviour that trim changed
-      (R25).
+- [ ] Each trim's PLAN issue names its opt-out and a fixture where a run
+      with the opt-out set spawns the same seats, runs the same commands and
+      enters the same states as the pre-change template for that trim's
+      behaviour (R25).
 
 ## Out of Scope
 
