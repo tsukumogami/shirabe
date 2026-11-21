@@ -493,6 +493,15 @@ jobs:
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/verification-hosted-coverage_test.sh
 
+      # The hosted-of-record route script: when the route opens, the record it
+      # writes and validates, the body lines, the hosted read over fixture
+      # Actions responses with the clock set by the test, and the settled,
+      # ready and mark-ready checks. Needs git and jq, with koto and gh
+      # stubbed; the macOS leg runs it on the floor through the work-on suite.
+      - name: Run verification route tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/verification-route_test.sh
+
       # Starts the verification runner against git fixtures with fixture
       # commands (passing, failing, slow, forking under a small max_procs,
       # missing) and checks the verdict exit and finding for each, then drives
