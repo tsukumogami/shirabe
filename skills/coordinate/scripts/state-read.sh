@@ -50,6 +50,11 @@
 #       go-ahead rows pause-read.sh reads. It adds pushed_head when the holding
 #       keeps one. Returns 0 printed; 1 no holding has that topic; 2 the record
 #       couldn't be read.
+#   rs_carry_bound <run-start-minute>
+#       Prints, of the Deferrals rows in the JSON array on stdin, the earliest
+#       minute of a carry dated before the run start, the bound the
+#       chain-start walk needs; nothing when no carry is. Returns 1 when the
+#       rows can't be read.
 #   rs_once_begin <dir> [<fields>]
 #       One record read per step (shirabe#1094, #1095). Creates <dir> and
 #       exports RS_ONCE=<dir> and RS_ONCE_FIELDS=<fields>. From then on
@@ -740,6 +745,36 @@ rs_facts() {
     local rc=$?
     rm -rf "$d"
     [ $rc -eq 0 ] || return 2
+}
+
+# RS_RE_CARRIED: a carry's Disposition, `carried <time>: <reason>` or
+# `carried <time> until <time>: <reason>`, as deferral-check.sh's judge_row
+# reads it.
+RS_RE_CARRIED='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z)( until ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z))?: (.+)$'
+
+# rs_carry_bound <run-start-minute>: of the Deferrals rows in the JSON array
+# on stdin, the earliest minute (YYYY-MM-DDTHH:MM) of a carry dated before the
+# run start's minute, or nothing when there is none. Returns 1 when the rows
+# can't be read. The one bound reconcile-pass.sh and deferral-check.sh put on
+# the chain-start walk (shirabe#1548): judge_row compares a carry's minute
+# with the chain start, which is no later than the run start, so a carry at or
+# after the run start is never before it, and only an earlier one needs the
+# walk. Each Disposition is read as judge_row reads it: trailing newlines
+# dropped, as its command substitution drops them, and any other newline made
+# a character the pattern's `.` still matches. A carry time judge_row finds
+# malformed is judged without the chain start; taking it here only makes the
+# walk longer.
+rs_carry_bound() {
+    local lines d m b=
+    lines=$(jq -r 'def chomp: if endswith("\n") then .[:-1] | chomp else . end;
+        .[] | (if type == "object" then .disposition // "" else "" end) | tostring | chomp | gsub("\n"; "\u0001")') || return 1
+    while IFS= read -r d; do
+        [[ $d =~ $RS_RE_CARRIED ]] || continue
+        m=${BASH_REMATCH[1]:0:16}
+        [[ $m < $1 ]] || continue
+        if [ -z "$b" ] || [[ $m < $b ]]; then b=$m; fi
+    done <<< "$lines"
+    printf '%s' "$b"
 }
 
 # ---- run as a script --------------------------------------------------------
