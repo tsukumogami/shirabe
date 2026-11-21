@@ -14,13 +14,19 @@
 # (`### Milestone N: title` on v3) or `### <PREFIX><N>[a-z]: title`, the
 # `**Status:**` value, and the dependencies
 # its `**Dependencies:**` paragraph names, soft mentions and parenthesised
-# text aside. A dependency is satisfied only when the feature it names is
-# finished (its Status opens Done or Shipped); a Dropped one never satisfies
-# it. A unit that is done (finished, or Dropped) is never blocked; any other
+# text aside. Every Status is read through the milestone status table
+# (state-common.sh lib_status), never compared as a word here. A dependency
+# is satisfied only when the feature it names satisfies (Done, Shipped or
+# Closed on v1 to v3; Completed or Verified on roadmap/v4); a Dropped one
+# never satisfies it. A unit is done when its status takes no work (those,
+# and Dropped): it is never blocked, and never offered. Any other unit
 # is blocked while a dependency is unsatisfied, and blocked_by lists those
 # features' positions (1-based, in heading order, which differ from the N of
 # `Feature N` only when headings are out of order), ascending. blocker_landed is true when it has dependencies
-# and none is unsatisfied.
+# and none is unsatisfied. On a roadmap/v4 roadmap each roadmap unit also
+# carries takes_work, so a Completed milestone, done for the pick but owing
+# its verdict, reads as one that takes no work; on v1 to v3 the field is
+# absent, which leaves their facts as they were.
 # Discipline scope: the host's open issues labelled with the discipline's name
 # (gh issue list --label, never a search), in issue-number order, none blocked.
 # A roadmap unit carries `landed`, the pull request link of its pending
@@ -102,15 +108,17 @@
 #                    waiting for a verdict (a held entry and an escalation that
 #                    owes nothing never count). It comes first, so owed work
 #                    is done before a close is attempted. Needs the session
-#   scope-complete   roadmap: the roadmap lists features and every one is
-#                    done (its Status opens Done, Shipped or Dropped)
+#   scope-complete   roadmap: the roadmap lists features and every one's
+#                    status closes (Done, Shipped, Closed or Dropped on v1
+#                    to v3; Verified or Dropped on roadmap/v4, so a
+#                    Completed milestone keeps the scope open)
 #   rotation-over    discipline: today UTC is after the rotation's end date
 #                    (record/rotation's), or the rotation's reasoning is written
 #   pick             anything else
 # The facts go to context key coord/pick.json as data (what the agent reads at
 # pick):
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
-#    units: [{unit, number, title, status, done, blocked,
+#    units: [{unit, number, title, status, done, takes_work (roadmap/v4 only), blocked,
 #    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
 #    follow_up, verdict_owed, rework, assigned?}], holdings: [{worker, unit, phase,
 #    dispatch_status, parked, merged, stopped, pull_request, paused}], decisions: [{decision, question,
@@ -162,6 +170,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 . "$HERE/state-common.sh"
+lib_status
 ROADMAP=$ARG_ROADMAP
 lib_facts
 [ -z "$ARG_ROADMAP" ] || [ "$OVERRIDE" = 1 ] || usage
@@ -216,19 +225,23 @@ if [ "$SCOPE" = roadmap ]; then
     # the roadmap says so.
     # covers($id; $title): a Unit cell naming the item, as its tag or as
     # `<tag>: <title>`, the tag compared by key.
-    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" "$JQ_TAG_KEY"'
+    # takes_work and satisfies are the status table's (lib_roadmap_features);
+    # the unit carries takes_work on roadmap/v4 only.
+    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" --argjson v4 "$([ "$(lib_status_family "$RM_SCHEMA")" = v4 ] && echo true || echo false)" "$JQ_TAG_KEY"'
         def covers($id; $title): (tag_key == ($id | tag_key))
             or (index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($id | tag_key) and .[$i + 2:] == $title);
         . as $f | map(. as $u
-        | (if $u.done then [] else [$u.dependencies[] as $d | select(([$f[] | select(.number == $d and .finished)] | length) == 0) | $d] end) as $by
-        | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $u.done,
-           blocked: (($by | length) > 0), blocked_by: $by,
+        | ($u.takes_work | not) as $done
+        | (if $done then [] else [$u.dependencies[] as $d | select(([$f[] | select(.number == $d and .satisfies)] | length) == 0) | $d] end) as $by
+        | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $done}
+        + (if $v4 then {takes_work: $u.takes_work} else {} end)
+        + {blocked: (($by | length) > 0), blocked_by: $by,
            blocker_landed: ((($u.dependencies | length) > 0) and (($by | length) == 0)),
            holding: ([$h[0][] | select(.unit | covers($u.id; $u.title))][0]
                      | if . == null then null else {worker, phase} end),
            landed: ([$l[0][] | select((.unit | tag_key) == ($u.id | tag_key)) | .pull_request][0] // null)})' "$T/features.json" > "$T/units.json" \
         || lib_die2 "jq failed"
-    if [ "$(jq length "$T/units.json")" -gt 0 ] && jq -e 'all(.done)' "$T/units.json" > /dev/null; then
+    if [ "$(jq length "$T/features.json")" -gt 0 ] && jq -e 'all(.closes)' "$T/features.json" > /dev/null; then
         VERDICT=scope-complete
     fi
 else
