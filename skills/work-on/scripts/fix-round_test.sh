@@ -291,6 +291,13 @@ if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-2\nround=2' ]]; then
 else
     fail "a round from a round did not start par.kid-fix-2 (rc=$RC, out=[$OUT])"
 fi
+# The round's record names the run it continues: the original, never the
+# round it was started from.
+if koto context get par.kid-fix-2 fix_round.json 2>/dev/null | jq -e '.from == "par.kid" and .round == 2' >/dev/null; then
+    pass "a round started from a round records the original run it continues"
+else
+    fail "par.kid-fix-2's fix_round.json does not name par.kid: $(koto context get par.kid-fix-2 fix_round.json 2>&1)"
+fi
 
 tick par.kid-fix-2 '{"mode":"skipped"}'
 in_repo bash "$FIX_ROUND" start --from par.kid >/dev/null
