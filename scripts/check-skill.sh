@@ -43,7 +43,7 @@
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
 #
-# Usage: scripts/check-skill.sh [--changed [--list]] <skill>
+# Usage: scripts/check-skill.sh [--changed] [--list] <skill>
 #   Run from anywhere; paths resolve against the repository root.
 #   <skill> is the directory name under skills/, matching ^[a-z0-9][a-z0-9-]*$.
 #   --changed  Run only the suites the branch's changes touch (step 4); every
@@ -51,10 +51,17 @@
 #              whatever changed: a branch that changes only an evals/ selects
 #              few suites or none, and its cases still run. Used by the
 #              verification map, never by CI. See "Selecting suites" below.
-#   --list     With --changed: print the selected suites, costliest first, and
-#              the reason for the selection, then the script cases step 6
-#              would run, one `script case: <skill> <id> <name>` line each,
-#              then exit 0 without running any check.
+#   --list     Print the suites step 4 would launch, costliest first, one
+#              repository-relative skills/<skill>/scripts/<name>_test.sh line
+#              each, then the script cases step 6 would run, one
+#              `script case: <skill> <id> <name>` line each, then exit 0
+#              without running any check. With --changed the suites are the
+#              selected ones, after a `check-skill: --changed ...` line giving
+#              the reason for the selection; without it they are every suite
+#              `check-skill.sh <skill>` runs, with no such line. The second
+#              form is the full set a CI job running the plain command
+#              covers, which the verification map's hosted declaration is
+#              tested against.
 #
 # Selecting suites (--changed). The changed paths are `git diff --name-only
 # --no-renames <merge-base>` plus untracked files, where the merge-base is
@@ -191,7 +198,7 @@ CASE_RUNNER="scripts/lib/script-cases.py"
 ROOT="${CHECK_SKILL_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
-    echo "usage: scripts/check-skill.sh [--changed [--list]] <skill>" >&2
+    echo "usage: scripts/check-skill.sh [--changed] [--list] <skill>" >&2
     exit 2
 }
 
@@ -206,7 +213,6 @@ while [ $# -gt 1 ]; do
     shift
 done
 [ $# -eq 1 ] || usage
-[ "$LIST" = 0 ] || [ "$CHANGED" = 1 ] || usage
 SKILL="$1"
 
 # The suite summary's file (see the header). Taken here and unset, so nothing

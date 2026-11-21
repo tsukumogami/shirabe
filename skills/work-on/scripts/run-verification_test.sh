@@ -818,6 +818,126 @@ jq -e '.status == "bad-map" and (.detail | test("command inside: timeout_form"))
     && pass "an uncompilable timeout_form's bad-map names the command" \
     || fail "an uncompilable timeout_form's result: $(head -c 400 "$(result_of s-badre)" 2>&1)"
 
+# --- the hosted declaration ---------------------------------------------------------------
+#
+# A row may declare the hosted jobs that run its suites. A well-formed
+# declaration changes nothing about what runs: the same map with and without it
+# selects the same invocations (once their hosted key is set aside), exits the
+# same and settles the same status. Each invocation carries the row's hosted,
+# [] where the row declares none.
+
+echo "--- hosted: a well-formed declaration runs the row as the map without it does"
+HOSTED='[{"workflow": ".github/workflows/check-skill-gate.yml", "job": "skill-gate (ubuntu-latest)", "runs": "check-skill {skill}"}]'
+HR="$WORKDIR/hosted.rec"
+CMDS=$(jq -cn --arg f "$HR" --arg form "$FORM" '{
+    chk: {run: ["bin/rec.sh", $f, "chk"], each: "skills/*", timeout_secs: 600, timeout_form: $form},
+    plain: {run: ["bin/rec.sh", $f, "plain"]}}')
+ENTRIES='[{"paths": ["skills/**"], "commands": ["chk"]}]'
+mkrepo nohosted "$(map "$CMDS" "$ENTRIES" '["plain"]')"
+change skills/a/f.txt top.txt
+start s-nohosted
+settle s-nohosted
+NOHOSTED_RC=$RC
+NOHOSTED_RUN="$(dirname "$(result_of s-nohosted)")/run.json"
+NOHOSTED_STATUS=$(jq -r .status "$(result_of s-nohosted)" 2>/dev/null)
+CMDS_H=$(printf '%s' "$CMDS" | jq -c --argjson h "$HOSTED" '.chk.hosted = $h')
+mkrepo hosted "$(map "$CMDS_H" "$ENTRIES" '["plain"]')"
+change skills/a/f.txt top.txt
+start s-hosted
+settle s-hosted
+expect_rc "a row declaring hosted" 0
+HOSTED_RUN="$(dirname "$(result_of s-hosted)")/run.json"
+[ "$RC" -eq "$NOHOSTED_RC" ] && pass "hosted: the same verdict exit with and without the declaration ($RC)" \
+    || fail "hosted: verdict exit $RC with the declaration, $NOHOSTED_RC without"
+HOSTED_STATUS=$(jq -r .status "$(result_of s-hosted)" 2>/dev/null)
+[ "$HOSTED_STATUS" = "$NOHOSTED_STATUS" ] && [ "$HOSTED_STATUS" = done ] \
+    && pass "hosted: the same result status with and without the declaration ($HOSTED_STATUS)" \
+    || fail "hosted: result status [$HOSTED_STATUS] with the declaration, [$NOHOSTED_STATUS] without"
+if [ -n "$(jq -c '.invocations' "$HOSTED_RUN" 2>/dev/null)" ] \
+    && [ "$(jq -c '[.invocations[] | del(.hosted)]' "$HOSTED_RUN" 2>/dev/null)" \
+        = "$(jq -c '[.invocations[] | del(.hosted)]' "$NOHOSTED_RUN" 2>/dev/null)" ]; then
+    pass "hosted: the same invocations (id, argv, limits, timeout_form) once hosted is set aside"
+else
+    fail "hosted: the invocations differ: [$(jq -c '.invocations' "$HOSTED_RUN" 2>&1 | head -c 600)] vs [$(jq -c '.invocations' "$NOHOSTED_RUN" 2>&1 | head -c 600)]"
+fi
+jq -e --argjson h "$HOSTED" --arg form "$FORM" '
+    ([.invocations[] | select(.id == "chk")] | length == 1 and all(.hosted == $h and .timeout_form == $form and .argv[-1] == "a"))
+    and ([.invocations[] | select(.id == "plain")] | length == 1 and all(.hosted == [] and .timeout_form == null))' \
+    "$HOSTED_RUN" >/dev/null 2>&1 \
+    && pass "hosted: each invocation carries its row's hosted, [] where the row declares none, beside timeout_form" \
+    || fail "hosted: run.json's invocations don't carry hosted: $(head -c 600 "$HOSTED_RUN" 2>&1)"
+jq -e '[.invocations[].hosted] == [[], []]' "$NOHOSTED_RUN" >/dev/null 2>&1 \
+    && pass "hosted: a map with no declaration carries [] on every invocation" \
+    || fail "hosted: a map with no declaration: $(head -c 600 "$NOHOSTED_RUN" 2>&1)"
+
+# bad_hosted <n> <label> <hosted json> <detail fragment>: a row whose hosted is
+# malformed settles bad-map (verdict exit 3, verification/bad-map), starts no
+# command, and the detail begins `command hrow:` and holds the fragment.
+bad_hosted() {
+    local rec="$WORKDIR/badhosted$1.rec" cmds
+    cmds=$(jq -cn --arg f "$rec" --argjson h "$3" '{hrow: {run: ["bin/rec.sh", $f, "hrow"], hosted: $h}}')
+    mkrepo "badhosted$1" "$(map "$cmds" '[]' '["hrow"]')"
+    change top.txt
+    start "s-badhosted$1"
+    settle "s-badhosted$1"
+    expect_rc "hosted: $2" 3
+    expect_rule "hosted: $2" verification/bad-map
+    if jq -e --arg frag "$4" '.status == "bad-map" and (.detail | startswith("command hrow:")) and (.detail | contains($frag))' \
+            "$(result_of "s-badhosted$1")" >/dev/null 2>&1; then
+        pass "hosted: $2: the bad-map detail begins with the command and says what is wrong"
+    else
+        fail "hosted: $2: result $(head -c 400 "$(result_of "s-badhosted$1")" 2>&1)"
+    fi
+    [ ! -e "$rec" ] && pass "hosted: $2: no command started" || fail "hosted: $2: a command started"
+}
+
+echo "--- hosted: a malformed declaration is a bad map"
+NOT_ARRAY='hosted is not a non-empty array'
+BAD_ENTRY='hosted has an entry that is not an object'
+OUTSIDE='hosted names a workflow outside .github/workflows/'
+W='.github/workflows/check-skill-gate.yml'
+n=0
+while IFS='|' read -r label h frag; do
+    [ -n "$label" ] || continue
+    n=$((n + 1))
+    bad_hosted "$n" "$label" "$h" "$frag"
+done <<EOF
+hosted that is not an array|{"workflow": "$W", "job": "j", "runs": "r"}|$NOT_ARRAY
+an empty hosted array|[]|$NOT_ARRAY
+an entry that is not an object|["$W"]|$BAD_ENTRY
+an entry missing workflow|[{"job": "j", "runs": "r"}]|$BAD_ENTRY
+an entry missing job|[{"workflow": "$W", "runs": "r"}]|$BAD_ENTRY
+an entry missing runs|[{"workflow": "$W", "job": "j"}]|$BAD_ENTRY
+an empty workflow|[{"workflow": "", "job": "j", "runs": "r"}]|$BAD_ENTRY
+an empty job|[{"workflow": "$W", "job": "", "runs": "r"}]|$BAD_ENTRY
+an empty runs|[{"workflow": "$W", "job": "j", "runs": ""}]|$BAD_ENTRY
+a workflow that is not a string|[{"workflow": 5, "job": "j", "runs": "r"}]|$BAD_ENTRY
+a job that is not a string|[{"workflow": "$W", "job": ["j"], "runs": "r"}]|$BAD_ENTRY
+a runs that is not a string|[{"workflow": "$W", "job": "j", "runs": null}]|$BAD_ENTRY
+a workflow outside .github/workflows/|[{"workflow": "ci/check.yml", "job": "j", "runs": "r"}]|$OUTSIDE
+a workflow that climbs out of .github/workflows/|[{"workflow": ".github/workflows/../x.yml", "job": "j", "runs": "r"}]|$OUTSIDE
+EOF
+
+echo "--- hosted: the other row checks still hold beside it"
+CMDS=$(jq -cn --argjson h "$HOSTED" '{hrow: {run: ["bin/fail.sh"], timeout_secs: 3601, hosted: $h}}')
+mkrepo hostedcap "$(map "$CMDS" '[]' '["hrow"]')"
+change top.txt
+start s-hostedcap
+settle s-hostedcap
+expect_rc "a timeout_secs above 3600 beside a well-formed hosted" 3
+jq -e '.status == "bad-map" and (.detail | test("command hrow: timeout_secs"))' "$(result_of s-hostedcap)" >/dev/null 2>&1 \
+    && pass "hosted: a timeout_secs above 3600 is still refused on a row that declares hosted" \
+    || fail "hosted: a timeout_secs above 3600 with hosted: $(head -c 400 "$(result_of s-hostedcap)" 2>&1)"
+CMDS=$(jq -cn --argjson h "$HOSTED" '{hrow: {run: ["bin/fail.sh"], timeout_form: "timed out (", hosted: $h}}')
+mkrepo hostedform "$(map "$CMDS" '[]' '["hrow"]')"
+change top.txt
+start s-hostedform
+settle s-hostedform
+expect_rc "an uncompilable timeout_form beside a well-formed hosted" 3
+jq -e '.status == "bad-map" and (.detail | test("command hrow: timeout_form"))' "$(result_of s-hostedform)" >/dev/null 2>&1 \
+    && pass "hosted: timeout_form still validates on a row that declares hosted" \
+    || fail "hosted: an uncompilable timeout_form with hosted: $(head -c 400 "$(result_of s-hostedform)" 2>&1)"
+
 # --- selection --------------------------------------------------------------------------
 
 echo "--- selection"

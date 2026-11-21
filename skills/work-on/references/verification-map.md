@@ -81,12 +81,19 @@ Each value under `commands` is an object with these fields:
 | `unattended` | boolean | `true` when `network` is `false`; none when `network` is `true` | Whether the command may be started with no person present. A command marked `network: true` must set `unattended` explicitly; a map that omits it there does not parse. A command marked `unattended: false` is never started by the gate on its own; the run stops for a person instead. |
 | `max_procs` | integer | `256` | The most processes the command's process group may hold at once. A command that grows past it is killed and counts as not passed. |
 | `timeout_form` | string (regular expression) | absent | How a timeout inside the command reads, for a command that can time out inside itself (a test that gives up waiting under load) rather than at `timeout_secs`. A nonzero exit is recorded as `timed-out-inside` only when the command's log reports at least one failure line and every failure line matches this expression; otherwise it is `failed`. See [Command records](#command-records). |
+| `hosted` | array of objects | absent | The hosted CI jobs that run this command's suites, for a command whose run can be settled by hosted CI instead. Each entry has three non-empty strings: `workflow`, the workflow file, a path under `.github/workflows/`; `job`, the job's name as GitHub reports it, matrix leg included (`skill-gate (ubuntu-latest)`, not `skill-gate`); and `runs`, the line of the job's plan that runs this command, with `{skill}` standing for the last component of the `each` directory the invocation runs for. Nothing here runs a hosted job: each invocation carries the row's validated `hosted` (`[]` when the row declares none) for a later reader. |
 
 A map does not parse when it isn't valid JSON, when `schema` is missing or different, when a
 required field is missing or has the wrong type, when an entry or `default` names an id that
 `commands` doesn't define, when `timeout_secs` exceeds `3600`, when a `network: true`
-command omits `unattended`, or when `timeout_form` is not a non-empty string that compiles as
-a regular expression. The refusal names the command.
+command omits `unattended`, when `timeout_form` is not a non-empty string that compiles as
+a regular expression, or when `hosted` is malformed: not an array, an empty array, an entry
+that isn't an object, an entry whose `workflow`, `job` or `runs` is missing, empty or not a
+string, or a `workflow` outside `.github/workflows/`. The refusal names the command.
+
+A declaration is a claim that the job runs every suite the command can select, and a claim
+the map alone can't prove. A project that declares `hosted` keeps a test that proves it
+against the workflow file and the job's own plan, over the diffs that select the command.
 
 ### Selection rules
 
