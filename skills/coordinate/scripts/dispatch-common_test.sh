@@ -103,6 +103,11 @@ no  "flag: --koto-leg never listed" dc_flag_allowed scope --koto-leg=r:scope
 no  "flag: --upstream never listed" dc_flag_allowed scope --upstream
 no  "flag: coordinate allows none"  dc_flag_allowed coordinate --auto
 no  "flag: with whitespace"         dc_flag_allowed deliver '--auto x'
+yes "flag: work-on takes a partial delivery" dc_flag_allowed work-on --delivery=partial
+yes "flag: work-on takes a one-token reason" dc_flag_allowed work-on --delivery-reason=step-1-of-2:validator-side
+no  "flag: work-on takes no other delivery"  dc_flag_allowed work-on --delivery=closes
+no  "flag: a reason needs a value"           dc_flag_allowed work-on --delivery-reason=
+no  "flag: a reason holding whitespace"      dc_flag_allowed work-on '--delivery-reason=step 1 of 2'
 
 # The target visibility an entry point requires, from a stand-in table: a
 # row without the field reads as any, and a value outside the three is an
