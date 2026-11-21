@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A /work-on run now spends most of its time in review panels, fixed stops
   and test accounting, and little of it writing code. The review level meant
@@ -22,9 +22,11 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
-Framed under /scope as the first hop of the chain for this topic.
+Framed under /scope as the first hop of the chain for this topic. Whether
+a single reviewer is enough on small diffs, given that at least one small
+change took a blocking retry from the full panel, passes to the PRD.
 
 ## Problem Statement
 
@@ -176,10 +178,3 @@ from old pull requests or asking whoever added the state.
 - The rest of the planning skills' review wiring (review events, document
   checks), which affects scoping runs rather than work-on and execute.
 - Implementing any of it; this chain plans.
-
-## Open Questions
-
-- Would a single light seat have caught what the full panel caught on the
-  small runs observed so far? At least one small change (37 lines) took a
-  blocking retry from the full panel. The PRD should state what evidence
-  the light threshold rests on.
