@@ -731,8 +731,9 @@ expect_rc "a timeout-looking failure with no timeout_form" 1
 expect_record "a timeout-looking failure with no timeout_form" s-faillike bad \
     '.outcome == "failed" and .timed_out == false and .suites == null'
 
+# A limit of 3, not 1: the supervisor's clock reads whole seconds, so a limit of 1 can stop the fixture before it writes its summary.
 echo "--- outcome: stopped at the limit, with a suite summary"
-mkrepo sumclean "$(map '{"chk": {"run": ["bin/sumslow.sh", "clean"], "timeout_secs": 1}}' '[]' '["chk"]')"
+mkrepo sumclean "$(map '{"chk": {"run": ["bin/sumslow.sh", "clean"], "timeout_secs": 3}}' '[]' '["chk"]')"
 add_outcome_fixtures
 change top.txt
 start s-sumclean
@@ -743,7 +744,7 @@ expect_record "stopped at the limit, no failed suite" s-sumclean chk \
     '.timed_out == true and .outcome == "timed-out-limit"
      and .suites == {"passed": ["s/a_test.sh"], "failed": [], "running": ["s/b_test.sh"], "not_started": ["s/c_test.sh"]}'
 
-mkrepo sumfailed "$(map '{"chk": {"run": ["bin/sumslow.sh", "failed"], "timeout_secs": 1}}' '[]' '["chk"]')"
+mkrepo sumfailed "$(map '{"chk": {"run": ["bin/sumslow.sh", "failed"], "timeout_secs": 3}}' '[]' '["chk"]')"
 add_outcome_fixtures
 change top.txt
 start s-sumfailed
