@@ -1229,6 +1229,156 @@ for f in "$START" "$VERDICT"; do
     [ "$c" -eq 0 ] && pass "$(basename "$f") uses neither setsid nor GNU timeout" || fail "$(basename "$f"): $c matches"
 done
 
+# --- the host suite lock -------------------------------------------------------------------
+#
+# Every verification run on a host takes scripts/lib/suite-lock.sh's lock
+# before its first command. HOME is under $WORKDIR, so the lock here is this
+# suite's own (its directory is $HOME/.local/state/shirabe/suite-lock), and
+# the cases below run against it alone.
+
+LOCK_LIB="$SCRIPT_DIR/../../../scripts/lib/suite-lock.sh"
+export SL_POLL_SECS=0.25
+
+# hold_lock <label>: a background process that takes the lock and holds it
+# until killed. Sets HOLDER. Its command line carries the marker, so the leak
+# check sees it.
+hold_lock() {
+    bash -c '. "$1"; sl_acquire "$2" 5 || exit 1; echo held > "$3"; while :; do sleep 1; done' \
+        "$MARK-holder" "$LOCK_LIB" "$1" "$WORKDIR/holder.ready" &
+    HOLDER=$!
+    local n=0
+    while [ ! -f "$WORKDIR/holder.ready" ] && [ "$n" -lt 80 ]; do sleep 0.25; n=$((n + 1)); done
+    rm -f "$WORKDIR/holder.ready"
+}
+
+# wait_for <file> <pattern>: until <file> holds <pattern>, at most 20s.
+wait_for() {
+    local n=0
+    while [ "$n" -lt 80 ]; do
+        grep -q "$2" "$1" 2>/dev/null && return 0
+        sleep 0.25; n=$((n + 1))
+    done
+    return 1
+}
+
+# A command that records when it started and ended, a second apart, in one
+# file shared by every repository: two runs that overlapped show it there.
+add_span() {
+    cat > bin/span.sh <<'EOF'
+#!/bin/sh
+echo "start $1 $(date +%s)" >> "$2"
+sleep 2
+echo "end $1 $(date +%s)" >> "$2"
+EOF
+    chmod +x bin/span.sh
+    git add -A && git commit -q -m span
+}
+
+echo "--- the host suite lock: two sessions reach verification at once"
+SPANS="$WORKDIR/spans.log"
+: > "$SPANS"
+mkrepo lockA "$(map "{\"span\": {\"run\": [\"bin/span.sh\", \"A\", \"$SPANS\"]}}" '[]' '["span"]')"
+git checkout -q main && add_span && git checkout -q work && git rebase -q main
+change top.txt
+REPO_A=$PWD
+mkrepo lockB "$(map "{\"span\": {\"run\": [\"bin/span.sh\", \"B\", \"$SPANS\"]}}" '[]' '["span"]')"
+git checkout -q main && add_span && git checkout -q work && git rebase -q main
+change top.txt
+REPO_B=$PWD
+(cd "$REPO_A" && "$START" --start --session s-lockA) || fail "lock: session A's --start failed"
+(cd "$REPO_B" && "$START" --start --session s-lockB) || fail "lock: session B's --start failed"
+# One of them holds the lock and the other waits; the waiter's verdict names
+# the holder.
+QUEUED=""
+n=0
+while [ "$n" -lt 40 ] && [ -z "$QUEUED" ]; do
+    for r in "$REPO_A:s-lockA" "$REPO_B:s-lockB"; do
+        (cd "${r%%:*}" && "$VERDICT" --verdict --session "${r##*:}" >/dev/null 2>"$WORKDIR/q.err")
+        grep -q 'queued: waiting since .* for the host suite lock held by work-on verification of session s-lock' "$WORKDIR/q.err" \
+            && QUEUED=$(cat "$WORKDIR/q.err")
+    done
+    sleep 0.25; n=$((n + 1))
+done
+[ -n "$QUEUED" ] && pass "lock: the second session's verdict says it is queued and names the holder" \
+    || fail "lock: no verdict said it was queued behind the other session"
+cd "$REPO_A" && settle s-lockA
+expect_rc "lock: session A, run in its turn" 0
+cd "$REPO_B" && settle s-lockB
+expect_rc "lock: session B, run in its turn" 0
+# The spans must not overlap: each start follows the other run's end.
+if awk '
+    $1 == "start" { if (open != "") bad = 1; open = $2 }
+    $1 == "end"   { if (open != $2) bad = 1; open = "" }
+    END { exit (bad || NR != 4) }' "$SPANS"; then
+    pass "lock: the two suites ran one after the other, never at once"
+else
+    fail "lock: the suites overlapped or did not both run: $(tr '\n' ';' < "$SPANS")"
+fi
+
+echo "--- the host suite lock: a holder that dies"
+mkrepo lockdie "$(map "{\"ok\": $(rec "$WORKDIR/lockdie.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+hold_lock "a holder that will be killed"
+"$START" --start --session s-lockdie || fail "lock: --start behind a holder failed"
+verdict s-lockdie
+expect_rc "lock: a run queued behind a live holder is pending" 75
+grep -q 'held by a holder that will be killed' "$WORKDIR/verdict.err" \
+    && pass "lock: the pending verdict names the live holder" \
+    || fail "lock: the pending verdict does not name the holder: $(cat "$WORKDIR/verdict.err")"
+[ -e "$WORKDIR/lockdie.rec" ] && fail "lock: the command ran while another suite held the lock" \
+    || pass "lock: nothing ran while another suite held the lock"
+kill -KILL "$HOLDER" 2>/dev/null
+wait "$HOLDER" 2>/dev/null
+settle s-lockdie
+expect_rc "lock: once the holder is killed, the waiting run takes the lock and passes" 0
+[ -e "$WORKDIR/lockdie.rec" ] && pass "lock: the waiter's command ran after the holder died" \
+    || fail "lock: the waiter's command never ran"
+
+echo "--- the host suite lock: a wait past its bound"
+mkrepo lockwait "$(map "{\"ok\": $(rec "$WORKDIR/lockwait.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+hold_lock "a holder that outlasts the wait"
+SHIRABE_SUITE_LOCK_WAIT_SECS=1 "$START" --start --session s-lockwait || fail "lock: --start with a short wait failed"
+RES=$(result_of s-lockwait)
+wait_for "$RES" '"lock-wait"' \
+    && pass "lock: a wait past its bound writes a lock-wait result" \
+    || fail "lock: no lock-wait result: $(cat "$RES" 2>/dev/null)"
+verdict s-lockwait
+expect_rc "lock: a lock-wait result reads as still pending, never a failure" 75
+expect_no_finding "lock: a lock-wait result"
+grep -q 'the next tick queues the run again' "$WORKDIR/verdict.err" \
+    && pass "lock: the lock-wait verdict says the next tick queues the run again" \
+    || fail "lock: the lock-wait verdict does not say how it resumes: $(cat "$WORKDIR/verdict.err")"
+grep -q 'held by a holder that outlasts the wait' "$RES" \
+    && pass "lock: the lock-wait result names who held the lock" \
+    || fail "lock: the lock-wait result does not name the holder: $(cat "$RES")"
+[ -e "$WORKDIR/lockwait.rec" ] && fail "lock: a run whose wait passed its bound ran its command" \
+    || pass "lock: a run whose wait passed its bound ran nothing"
+kill -KILL "$HOLDER" 2>/dev/null
+wait "$HOLDER" 2>/dev/null
+# The next tick: the launcher replaces the lock-wait result and queues again.
+"$START" --start --session s-lockwait || fail "lock: the resumed --start failed"
+settle s-lockwait
+expect_rc "lock: the next --start after a lock-wait runs the suite" 0
+[ -e "$WORKDIR/lockwait.rec" ] && pass "lock: the resumed run ran its command" \
+    || fail "lock: the resumed run never ran its command"
+
+echo "--- the host suite lock: a suite run under the lock does not wait for it"
+mkrepo locknest "$(map '{"inner": {"run": ["bin/inner.sh"]}}' '[]' '["inner"]')"
+git checkout -q main
+cat > bin/inner.sh <<EOF
+#!/usr/bin/env bash
+. "$LOCK_LIB" || exit 9
+sl_acquire inner 1 || exit 8
+[ "\$SL_INHERITED" = 1 ] || exit 7
+EOF
+chmod +x bin/inner.sh
+git add -A && git commit -q -m inner && git checkout -q work && git rebase -q main
+change top.txt
+"$START" --start --session s-locknest || fail "lock: --start of the nested case failed"
+settle s-locknest
+expect_rc "lock: a command that takes the lock again under the supervisor runs at once" 0
+
 # --- a real koto ---------------------------------------------------------------------------
 
 echo "--- engine: the launcher as a default_action, the verdict as a poll: gate"
@@ -1299,6 +1449,98 @@ EOF
         koto context get "$S" verification_results.json 2>/dev/null | jq -e '.status == "done"' >/dev/null \
             && pass "engine: the verdict recorded verification_results.json in the session" \
             || fail "engine: no verification_results.json in the session"
+    fi
+
+    # The chained case: one tick from an earlier state whose gate passes
+    # carries the run into verification while another suite holds the host
+    # lock. Which tick reaches a suite depends on which gates pass, so the
+    # wait must be the launcher's, wherever the tick started: the run queues,
+    # nothing runs beside the other suite, and a later tick finishes it.
+    echo "--- engine: a tick that chains into verification while another suite holds the lock"
+    mkrepo chain "$(map "{\"ok\": $(rec "$WORKDIR/chain.rec" ok)}" '[]' '["ok"]')"
+    change top.txt
+    CTPL="$WORKDIR/rv-chain.md"
+    cat > "$CTPL" <<EOF
+---
+name: rv-chain
+version: "1.0"
+description: an earlier state whose gate passes, chaining into verification
+initial_state: scrutiny
+states:
+  scrutiny:
+    gates:
+      carried:
+        type: command
+        command: 'true'
+    transitions:
+      - target: verification
+        when:
+          gates.carried.exit_code: 0
+  verification:
+    default_action:
+      command: '"$START" --start --session "{{SESSION_NAME}}"'
+    gates:
+      verdict:
+        type: command
+        command: '"$VERDICT" --verdict --session "{{SESSION_NAME}}"'
+        poll:
+          interval_secs: 1
+          timeout_secs: 120
+          hold_secs: 2
+    transitions:
+      - target: passed
+        when:
+          gates.verdict.exit_code: 0
+      - target: implementation
+        when:
+          gates.verdict.exit_code: 1
+  passed:
+    terminal: true
+  implementation:
+    terminal: true
+---
+
+## scrutiny
+
+Scrutinize.
+
+## verification
+
+Verify.
+
+## passed
+
+Passed.
+
+## implementation
+
+Fix.
+EOF
+    S=rv-chain
+    if ! koto init "$S" --template "$CTPL" >"$WORKDIR/init.out" 2>&1; then
+        fail "engine chain: koto init failed: $(cat "$WORKDIR/init.out")"
+    else
+        hold_lock "another session's suite"
+        koto next "$S" --no-cleanup >"$WORKDIR/next.out" 2>&1
+        STATE=$(koto status "$S" 2>/dev/null | jq -r '.current_state // empty')
+        [ "$STATE" = verification ] && pass "engine chain: one tick from scrutiny carried the run into verification" \
+            || fail "engine chain: the tick left the session at [$STATE]: $(head -c 600 "$WORKDIR/next.out")"
+        [ -e "$WORKDIR/chain.rec" ] && fail "engine chain: the chained tick started a suite beside the one holding the lock" \
+            || pass "engine chain: the chained tick queued instead of starting a second suite"
+        kill -KILL "$HOLDER" 2>/dev/null
+        wait "$HOLDER" 2>/dev/null
+        n=0
+        while [ "$n" -lt 10 ]; do
+            koto next "$S" --no-cleanup >"$WORKDIR/next.out" 2>&1
+            STATE=$(koto status "$S" 2>/dev/null | jq -r '.current_state // empty')
+            [ "$STATE" = verification ] || break
+            n=$((n + 1))
+        done
+        [ "$STATE" = passed ] && pass "engine chain: once the lock was free a later tick finished the run at [passed]" \
+            || fail "engine chain: the session is at [$STATE]: $(head -c 600 "$WORKDIR/next.out")"
+        [ "$(wc -l < "$WORKDIR/chain.rec" 2>/dev/null | tr -d ' ')" = 1 ] \
+            && pass "engine chain: the suite ran exactly once" \
+            || fail "engine chain: the suite ran [$(wc -l < "$WORKDIR/chain.rec" 2>/dev/null)] times"
     fi
     export PATH="$STUB_PATH"
 fi

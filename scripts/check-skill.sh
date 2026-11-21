@@ -176,6 +176,18 @@
 #                      the last whole summary. The variable is unset before any
 #                      check runs, so no suite can write the summary itself.
 #                      Unset, nothing is written and nothing else changes.
+#   SHIRABE_SUITE_LOCK_DIR, SHIRABE_SUITE_LOCK_SLOTS,
+#   SHIRABE_SUITE_LOCK_WAIT_SECS, SHIRABE_SUITE_LOCK
+#                      The host suite lock (scripts/lib/suite-lock.sh). Once
+#                      the selection is known, and before anything heavy runs
+#                      (the shirabe build, the suites), the run takes the lock,
+#                      so two check-skill runs on one host, or one beside a
+#                      verification run, never run their suites at once: the
+#                      second prints who holds the lock and waits, up to
+#                      SHIRABE_SUITE_LOCK_WAIT_SECS (default 3600). A run
+#                      under a holder (the verification supervisor, which sets
+#                      SHIRABE_SUITE_LOCK_HELD) takes nothing. --list takes
+#                      nothing either.
 #   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*
 #                      Cleared before any check runs: a koto session running
 #                      this script passes its own store and session to it, and
@@ -186,6 +198,7 @@
 #   1 - at least one check failed; each is listed
 #   2 - usage error, an unknown skill, a required tool is missing, or the
 #       repository root or a temporary file can't be set up
+#   75 - the wait for the host suite lock passed its bound; nothing ran
 #   130, 143 - stopped by INT or TERM; the suites it had started are stopped
 #              too
 
@@ -193,6 +206,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHAPE_CHECK="$SCRIPT_DIR/lib/check-evals-shape.py"
+# shellcheck source=lib/suite-lock.sh
+. "$SCRIPT_DIR/lib/suite-lock.sh" || { echo "check-skill: cannot load scripts/lib/suite-lock.sh" >&2; exit 2; }
 # The tree's own script-case runner, relative to the root (step 6).
 CASE_RUNNER="scripts/lib/script-cases.py"
 ROOT="${CHECK_SKILL_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -265,7 +280,7 @@ fi
 
 LOG="$(mktemp)" || { echo "check-skill: cannot create a temporary file" >&2; exit 2; }
 RUNS="$(mktemp -d)" || { rm -f "$LOG"; echo "check-skill: cannot create a temporary directory" >&2; exit 2; }
-trap 'rm -rf "$LOG" "$RUNS"' EXIT
+trap 'rm -rf "$LOG" "$RUNS"; sl_release' EXIT
 # A stopped check stops the suites it started too: verification's timeout
 # signals the whole process group, but a person's ^C or a plain kill of this
 # script must not leave them running. Signalling each job and the two levels
@@ -956,6 +971,18 @@ SUMMARY_READY=1
 write_summary
 
 echo "check-skill: $SKILL_DIR"
+
+# One heavy suite at a time on this host (see SHIRABE_SUITE_LOCK_* above).
+# Taken here, after the selection and before the shirabe build, so a run that
+# would only list or refuse never queues. The wait's lines go to stdout with
+# the rest of the run's report.
+if [ "$CHANGED" = 1 ]; then SL_LABEL="check-skill --changed $SKILL in $ROOT"; else SL_LABEL="check-skill $SKILL in $ROOT"; fi
+sl_acquire "$SL_LABEL" 2>&1
+case $? in
+    0) ;;
+    1) echo "check-skill: nothing ran: the host suite lock was still held by $SL_HOLDER"; exit 75 ;;
+    *) echo "check-skill: the host suite lock could not be set up; running without it" ;;
+esac
 
 # The shirabe that validates (shirabe#860): the branch's own wherever the
 # tree can give one, so a format newer than the installed release (a PLAN

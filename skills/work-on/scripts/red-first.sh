@@ -291,14 +291,30 @@ RUN_EXIT=0
 RUN_TIMED_OUT=false
 RUN_SECS=0
 run_bounded() {
-    local limit="$1" out="$2" pid start now
+    local limit="$1" out="$2" pid start now held
     shift 2
+    # The command may be a whole suite: it runs under the host suite lock
+    # (scripts/lib/suite-lock.sh), waiting its turn behind any other suite on
+    # this host, and the wait doesn't count against its --timeout.
+    # shellcheck source=../../../scripts/lib/suite-lock.sh
+    . "$PLUGIN_ROOT_SELF/scripts/lib/suite-lock.sh" || undecided "cannot load scripts/lib/suite-lock.sh"
+    sl_acquire "red-first in $WT: $*"
+    case $? in
+        0) ;;
+        1) undecided "nothing ran: the host suite lock was held for the whole wait by $SL_HOLDER; run it again" ;;
+        *) echo "red-first: the host suite lock could not be set up; running without it" >&2 ;;
+    esac
+    # env -i below clears the environment, so the lock's marker is passed on
+    # by name: a check-skill.sh the command runs must not wait for this run.
+    held=()
+    [ -n "${SHIRABE_SUITE_LOCK_HELD:-}" ] && held=("SHIRABE_SUITE_LOCK_HELD=$SHIRABE_SUITE_LOCK_HELD")
+    [ "${SHIRABE_SUITE_LOCK:-}" = off ] && held+=("SHIRABE_SUITE_LOCK=off")
     start=$(date +%s)
     RUN_TIMED_OUT=false
     set -m
     (
         cd "$WT" || exit 127
-        exec env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C}" TMPDIR="${TMPDIR:-/tmp}" "$@"
+        exec env -i PATH="$PATH" HOME="$HOME" LANG="${LANG:-C}" TMPDIR="${TMPDIR:-/tmp}" ${held[@]+"${held[@]}"} "$@"
     ) </dev/null >"$out" 2>&1 &
     pid=$!
     set +m
@@ -317,6 +333,7 @@ run_bounded() {
     RUN_EXIT=$?
     kill -KILL -- "-$pid" 2>/dev/null
     RUN_SECS=$(( $(date +%s) - start ))
+    sl_release
 }
 
 parse_timeout() {

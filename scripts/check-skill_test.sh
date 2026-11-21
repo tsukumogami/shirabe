@@ -21,6 +21,11 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+
+# The host suite lock is off for every check-skill.sh this suite runs: its
+# nested runs must never queue behind the real suites of the host running it.
+# suite-lock_test.sh tests the lock itself.
+export SHIRABE_SUITE_LOCK=off
 . "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 # check-skill validates with SHIRABE_BIN when it is set (CI sets it for some
 # suites); these fixtures exercise the stubs, so it is cleared here and set
@@ -193,6 +198,46 @@ if [ "$(grep -c '^call' "$SHIRABE_LOG")" = 1 ]; then
 else
     fail "shirabe validate ran $(grep -c '^call' "$SHIRABE_LOG") times, want 1"
 fi
+
+# The host suite lock, on for these cases only, in a directory of their own.
+# A run behind a holder waits, naming it, and past its bound exits 75 with
+# nothing run; a run under a holder (the verification supervisor, which
+# exports SHIRABE_SUITE_LOCK_HELD) takes nothing and runs at once.
+LOCK_DIR="$WORK/suite-lock"
+LOCK_LIB="$SCRIPT_DIR/lib/suite-lock.sh"
+SHIRABE_SUITE_LOCK= SHIRABE_SUITE_LOCK_DIR="$LOCK_DIR" \
+    bash -c '. "$1"; sl_acquire "another suite" 5 || exit 1; : > "$2"; while :; do sleep 1; done' \
+    lock-holder "$LOCK_LIB" "$WORK/holder.ready" &
+LOCK_HOLDER=$!
+n=0
+while [ ! -f "$WORK/holder.ready" ] && [ "$n" -lt 80 ]; do sleep 0.25; n=$((n + 1)); done
+new_tree
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" SHIRABE_SUITE_LOCK= \
+    SHIRABE_SUITE_LOCK_DIR="$LOCK_DIR" SHIRABE_SUITE_LOCK_WAIT_SECS=1 SL_POLL_SECS=0.25 \
+    "$BASH_BIN" "$CHECK_SH" demo 2>&1)
+RC=$?
+expect "a run behind another suite waits for the host suite lock, then exits 75 with nothing run" 75 \
+    "suite-lock: waiting for the host suite lock held by another suite" \
+    "check-skill: nothing ran: the host suite lock was still held by another suite"
+if [ "$(grep -c '^call' "$SHIRABE_LOG")" = 0 ]; then
+    pass "a run that never got the host suite lock validated nothing"
+else
+    fail "a run that never got the host suite lock ran shirabe validate"
+fi
+new_tree
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" SHIRABE_SUITE_LOCK= \
+    SHIRABE_SUITE_LOCK_DIR="$LOCK_DIR" SHIRABE_SUITE_LOCK_HELD="$LOCK_DIR" SHIRABE_SUITE_LOCK_WAIT_SECS=1 \
+    "$BASH_BIN" "$CHECK_SH" demo 2>&1)
+RC=$?
+expect "a run under a holder of the host suite lock runs at once" 0 "check-skill: demo passed"
+kill -KILL "$LOCK_HOLDER" 2>/dev/null
+wait "$LOCK_HOLDER" 2>/dev/null
+new_tree
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" SHIRABE_SUITE_LOCK= \
+    SHIRABE_SUITE_LOCK_DIR="$LOCK_DIR" SHIRABE_SUITE_LOCK_WAIT_SECS=5 SL_POLL_SECS=0.25 \
+    "$BASH_BIN" "$CHECK_SH" demo 2>&1)
+RC=$?
+expect "once the holder is gone, a run takes the host suite lock and runs" 0 "check-skill: demo passed"
 
 new_tree
 write_evals '{"evals": [ {"name": "x"'

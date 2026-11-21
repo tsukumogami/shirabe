@@ -32,6 +32,17 @@
 #          new-session command, which the macOS floor lacks), standard input from
 #          /dev/null, both outputs to its log, koto's tick marker
 #          (KOTO_TICK_SESSION) removed from its environment, and exit 0.
+#       The supervisor takes the host suite lock (scripts/lib/suite-lock.sh)
+#       before it runs a command, so two verification runs on one host, from
+#       any session, instance or worktree, never run their suites at once:
+#       the second waits its turn, keeping `queued.txt` in its head directory
+#       (who holds the lock, since when), which the verdict prints while it
+#       waits. The wait is bounded by SHIRABE_SUITE_LOCK_WAIT_SECS (default
+#       3600) and the run's budget starts once the lock is taken, so time
+#       spent queued never cuts a suite. A wait past its bound writes a
+#       `lock-wait` result, which the verdict reads as still pending and
+#       step 1 of the next --start replaces, so the run queues again on the
+#       next tick (koto runs this launcher on every tick in the state).
 #   --locate --session <s> [--base-ref <ref>]
 #       Print three lines: the head, the merge-base, and the result file's
 #       path. check-verification.sh calls this so the path rules live here.
@@ -50,7 +61,7 @@
 #
 #   {"schema": "shirabe-verification-result/v1", "head": "...",
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
-#    timed-out|supervisor-error", "detail": "...", "finished_at": "<UTC
+#    timed-out|supervisor-error|lock-wait", "detail": "...", "finished_at": "<UTC
 #    ISO-8601>", "commands": [{"id", "check", "argv", "exit_status",
 #    "duration_secs", "timed_out", "runaway", "not_started", "pgid", "log",
 #    "outcome", "suites"}]}
@@ -115,6 +126,8 @@ set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SELF="$HERE/$(basename "$0")"
+# shellcheck source=../../../scripts/lib/suite-lock.sh
+. "$HERE/../../../scripts/lib/suite-lock.sh" || { echo "run-verification: cannot load scripts/lib/suite-lock.sh" >&2; exit 2; }
 MAP_PATH=.claude/shirabe-extensions/verification-map.json
 KEEP_HEADS=10
 RESULT_SCHEMA=shirabe-verification-result/v1
@@ -373,7 +386,8 @@ supervise() {
         write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" --arg fin "$(now_iso)" \
             '{schema: $schema, head: $head, merge_base: $mb, status: "supervisor-error",
               detail: "the supervisor stopped before every command ran", finished_at: $fin, commands: .}' "$SUP_ENTRIES")"
-        rm -f "$SUP_LOCK" "$SUP_ENTRIES"
+        rm -f "$SUP_LOCK" "$SUP_ENTRIES" "$dir/queued.txt"
+        sl_release
     }
     # A signal that stops the supervisor stops the running command too. The
     # command has its own process group, so nothing sent to the supervisor
@@ -400,6 +414,25 @@ supervise() {
     local budget sup_start left capped=0 over=0 stopped="" sumf form suites outcome
     budget=$(jq -r ".budget_secs // $BUDGET_SECS" "$RUN")
     case "$budget" in ''|*[!0-9]*|0) budget=$BUDGET_SECS ;; esac
+
+    # One suite at a time on this host (see the header). The commands inherit
+    # SHIRABE_SUITE_LOCK_HELD, so a check-skill.sh they run doesn't wait for
+    # this supervisor.
+    local label rc
+    label="work-on verification of session $(jq -r '.session // "?"' "$RUN") at ${HEAD_SHA:0:12} in $ROOT"
+    SL_QUEUE_FILE="$dir/queued.txt" sl_acquire "$label"
+    rc=$?
+    if [ "$rc" -eq 1 ]; then
+        write_result "$RESULT" "$(jq -cn --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" --arg fin "$(now_iso)" \
+            --arg detail "no command ran: the wait for the host suite lock passed its bound; it was held by $SL_HOLDER" \
+            '{schema: $schema, head: $head, merge_base: $mb, status: "lock-wait", detail: $detail, finished_at: $fin, commands: []}')" \
+            && SUP_WRITTEN=1
+        rm -f "$SUP_LOCK" "$SUP_ENTRIES" "$dir/queued.txt"
+        exit 0
+    elif [ "$rc" -ne 0 ]; then
+        echo "run-verification: the host suite lock could not be set up; running without it" >&2
+    fi
+    rm -f "$dir/queued.txt"
     sup_start=$(date +%s)
     n=$(jq '.invocations | length' "$RUN")
     i=0
@@ -501,6 +534,7 @@ supervise() {
           commands: .}' "$SUP_ENTRIES")" \
         && SUP_WRITTEN=1
     rm -f "$SUP_LOCK" "$SUP_ENTRIES"
+    sl_release
     exit 0
 }
 
@@ -579,9 +613,10 @@ touch "$HEAD_DIR"
 prune
 
 # 1. A result for this head and merge-base stands, except a dirty-tree one,
-#    which the next start re-checks once the tree is clean.
+#    which the next start re-checks once the tree is clean, and a lock-wait
+#    one, which ran nothing and queues again.
 if [ -f "$RESULT" ]; then
-    if jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree"' "$RESULT" >/dev/null; then
+    if jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree" and .status != "lock-wait"' "$RESULT" >/dev/null; then
         exit 0
     fi
     lock_live "$HEAD_DIR/lock" && exit 0
@@ -637,8 +672,8 @@ fi
 
 BUDGET=${SHIRABE_VERIFICATION_BUDGET_SECS:-$BUDGET_SECS}
 case "$BUDGET" in ''|*[!0-9]*|0) BUDGET=$BUDGET_SECS ;; esac
-jq -cn --arg root "$ROOT" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson sel "$SELECTION" --argjson budget "$BUDGET" \
-    '{root: $root, head: $head, merge_base: $mb, budget_secs: $budget, invocations: $sel.invocations}' > "$HEAD_DIR/run.json" \
+jq -cn --arg root "$ROOT" --arg session "$SESSION" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson sel "$SELECTION" --argjson budget "$BUDGET" \
+    '{root: $root, session: $session, head: $head, merge_base: $mb, budget_secs: $budget, invocations: $sel.invocations}' > "$HEAD_DIR/run.json" \
     || { rm -f "$LOCK"; die "could not write run.json"; }
 
 # 6. Detach. `set -m` gives the background job its own process group, so the

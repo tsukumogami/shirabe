@@ -16,7 +16,7 @@
 #       0 the route is open for this head's stored result; 1 it is closed,
 #       one stderr line per cause (all of them, not the first); 2 usage or a
 #       missing tool. A routing gate: no finding. Closed by: no result, or one
-#       for another head or merge-base; a supervisor-error, dirty-tree, no-map,
+#       for another head or merge-base; a supervisor-error, lock-wait, dirty-tree, no-map,
 #       bad-map or attended result; a result that predates the route (no
 #       finished_at, or a record without outcome or check); a not-started or
 #       runaway command; a failed check; a budget stop that left commands
@@ -315,7 +315,7 @@ vr_open_check() {
                 (if .head != $head then "the result is for head \(.head), not \($head)" else empty end),
                 (if .merge_base != $mb then "the result is for merge-base \(.merge_base), not \($mb)" else empty end),
                 (.status as $s
-                 | if any("supervisor-error", "dirty-tree", "no-map", "bad-map", "attended"; . == $s)
+                 | if any("supervisor-error", "lock-wait", "dirty-tree", "no-map", "bad-map", "attended"; . == $s)
                    then "the result status is \($s): \(.detail // "")" else empty end),
                 (if (.finished_at | type) != "string"
                     or any(.commands[]; (.outcome | type) != "string" or (.check | type) != "string")

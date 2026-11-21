@@ -17,7 +17,10 @@
 # the next --start replaces it.
 #
 # Exit status:
-#   75  no result for this head yet; the gate waits
+#   75  no result for this head yet, including a run still queued behind
+#       another suite for the host suite lock, or one whose wait for it passed
+#       its bound (a `lock-wait` result, which the next --start replaces); the
+#       gate waits, and a queued wait names the lock's holder on stderr
 #   0   every selected command ran and passed, or every cause found is of a
 #       rule below the `block` stage
 #   1   a check failed (outcome failed,        verification/command-failed
@@ -142,12 +145,29 @@ HEAD_SHA=$(printf '%s\n' "$LOC" | sed -n 1p)
 MB=$(printf '%s\n' "$LOC" | sed -n 2p)
 RESULT=$(printf '%s\n' "$LOC" | sed -n 3p)
 
-[ -e "$RESULT" ] || exit 75
+# No result yet. A supervisor queued behind another suite on this host (the
+# host suite lock, scripts/lib/suite-lock.sh) says so in queued.txt beside the
+# result, and the wait names who holds the lock.
+pending() {
+    local q
+    q="$(dirname "$RESULT")/queued.txt"
+    [ -f "$q" ] && echo "check-verification: queued: $(head -n 1 "$q")" >&2
+    exit 75
+}
+[ -e "$RESULT" ] || pending
 [ -r "$RESULT" ] || undecided "the result $RESULT is not readable"
 jq -e --arg schema "$RESULT_SCHEMA" '.schema == $schema and (.commands | type) == "array"' "$RESULT" >/dev/null \
     || undecided "the result $RESULT is not a $RESULT_SCHEMA object"
 [ "$(jq -r .head "$RESULT")" = "$HEAD_SHA" ] || undecided "the result $RESULT is for another head"
 [ "$(jq -r .merge_base "$RESULT")" = "$MB" ] || exit 75
+
+# A run that waited past its bound for the host suite lock ran nothing: it is
+# still pending, and the next --start (koto runs the launcher on every tick in
+# this state) queues it again.
+if [ "$(jq -r .status "$RESULT")" = lock-wait ]; then
+    echo "check-verification: queued: $(jq -r .detail "$RESULT"); the next tick queues the run again" >&2
+    exit 75
+fi
 
 # A stopped supervisor is no verdict (see the header): hold, record nothing.
 if [ "$(jq -r .status "$RESULT")" = supervisor-error ]; then
