@@ -549,6 +549,29 @@ repo
 STUB_KEYS="explore-t:handoff/scope.md" STUB_BROKEN=design-t KOTO_BIN="$STUB" TMPDIR="$PT" \
     expect "a child koto cannot report (has-work exit 4) is cannot-tell, ahead of a present handoff" 2 t none
 tmp_gone "a has-work exit 4"
+
+# shape <label> -- every finding line has the header's shape: lookup=,
+# outcome= and next=, the remedy field on a stop-and-act line, and koto= last.
+# Nothing the probe printed names --local-topic.
+shape() {
+    local l wrong=""
+    while IFS= read -r l; do
+        case "$l" in ::koto-finding::*) ;; *) continue ;; esac
+        grep -qE '^::koto-finding:: lookup=[a-z0-9-]+( [a-z0-9/._-]+)? outcome=(deadline|refused) next=(tick-again|stop-and-act)( remedy=declare-the-bucket-name-index)? koto=[^=]*$' <<<"$l" ||
+            wrong="$wrong [$l]"
+        case "$l" in
+            *" next=stop-and-act remedy=declare-the-bucket-name-index koto="*|*" next=tick-again koto="*) ;;
+            *) wrong="$wrong [$l]" ;;
+        esac
+    done <"$T/out"
+    if [ -z "$wrong" ]; then ok "$1: finding lines have their shape"; else bad "$1: finding lines have their shape" "$wrong"; fi
+    if grep -q -e '--local-topic' "$T/out" "$T/err"; then
+        bad "$1: no output names --local-topic" "$(cat "$T/out" "$T/err")"
+    else
+        ok "$1: no output names --local-topic"
+    fi
+}
+
 # A child koto refuses (has-work exit 7) is unsettled: the run holds at
 # resume_route instead of ending (#1792), and the handoff still can't fire
 # past it, since row 12 needs every child settled.
@@ -565,6 +588,7 @@ if [ "$(tail -n 1 "$T/out")" = "row=3 unsettled" ]; then
 else
     bad "a refused child ends with row=3 unsettled" "$(cat "$T/out")"
 fi
+shape "a has-work exit 7"
 stubs_gone "a has-work exit 7"
 tmp_gone "a has-work exit 7"
 repo; doc docs/plans/PLAN-t.md Active
@@ -634,30 +658,10 @@ if [ "$(tail -n 1 "$T/out")" = "row=3 unsettled" ]; then
 else
     bad "$L: ends with row=3 unsettled" "$(cat "$T/out")"
 fi
+shape "$L"
 stubs_gone "$L"
 tmp_gone "$L"
 
-# shape <label> -- every finding line has the header's shape: lookup=,
-# outcome= and next=, the remedy field on a stop-and-act line, and koto= last.
-# Nothing the probe printed names --local-topic.
-shape() {
-    local l wrong=""
-    while IFS= read -r l; do
-        case "$l" in ::koto-finding::*) ;; *) continue ;; esac
-        grep -qE '^::koto-finding:: lookup=[a-z0-9-]+( [a-z0-9/._-]+)? outcome=(deadline|refused) next=(tick-again|stop-and-act)( remedy=declare-the-bucket-name-index)? koto=[^=]*$' <<<"$l" ||
-            wrong="$wrong [$l]"
-        case "$l" in
-            *" next=stop-and-act remedy=declare-the-bucket-name-index koto="*|*" next=tick-again koto="*) ;;
-            *) wrong="$wrong [$l]" ;;
-        esac
-    done <"$T/out"
-    if [ -z "$wrong" ]; then ok "$1: finding lines have their shape"; else bad "$1: finding lines have their shape" "$wrong"; fi
-    if grep -q -e '--local-topic' "$T/out" "$T/err"; then
-        bad "$1: no output names --local-topic" "$(cat "$T/out" "$T/err")"
-    else
-        ok "$1: no output names --local-topic"
-    fi
-}
 # nofind <label> -- no finding line.
 nofind() {
     if grep -q '::koto-finding::' "$T/out"; then bad "$1: no finding line" "$(cat "$T/out")"; else ok "$1: no finding line"; fi
@@ -753,7 +757,7 @@ repo; STUB_REFUSED=scope-t STUB_BROKEN=design-t KOTO_BIN="$STUB" TMPDIR="$PT" ex
 after "$L"
 L="a cannot-tell state key ahead of a refused child"
 repo; STUB_BROKEN=scope-t STUB_REFUSED=design-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 2 t none
-stubs_gone "$L"; tmp_gone "$L"
+after "$L"
 
 L="a refused handoff on an empty topic is never absent"
 repo; STUB_REFUSED=explore-t KOTO_BIN="$STUB" TMPDIR="$PT" expect "$L" 3 t none
