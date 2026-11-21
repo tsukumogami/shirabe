@@ -67,7 +67,7 @@ The machinery in question, as it stands on main:
   twin (the `skill-gate` job). `VERIFICATION=hosted-ci` exists but is an
   init-time exception that needs a typed reason. `ci_monitor`'s
   `ci_passing` gate requires every reported check to pass, through
-  `scripts/pr-checks.sh`.
+  `skills/work-on/scripts/pr-checks.sh`.
 - `skills/work-on/references/review-level-rules.tsv` raises the floor on any
   matching rule and never lowers it. `class:test` floors at `standard` and
   `tests_edited` at `full`; `light` is reachable only for documentation.
@@ -107,7 +107,9 @@ The machinery in question, as it stands on main:
 ### Q1. How is per-visit time measured and normalized by size?
 
 Resolved inline. **Chosen: a report script over retained session records,
-plus an append-only gather history.** `review-level.sh facts` appends each
+plus an append-only gather history.** The committed output holds aggregate
+figures only (counts, medians, size bands), never session names, issue
+titles or paths from other repositories. `review-level.sh facts` appends each
 gather to a new `review_facts.jsonl` key beside the existing
 `review_facts.json`, and a new `skills/work-on/scripts/run-report.sh` reads
 retained sessions (state logs, `review_facts.jsonl`, `verdict_ledger.json`,
@@ -129,6 +131,11 @@ Resolved inline. **Chosen: `fix-round.sh start` copies the parent's
 `panel-scope.sh` then treats the round like a retry lap: seats with a passed
 verdict stay passed, and the fix diff's findings go to re-verifiers. Its
 existing 200-line threshold plans a full round when the fix diff is larger.
+The round's review floor is the higher of the parent's last floor and the
+round's own, so a round after a `full` parent never drops to `light`. The
+carried ledger is used only when the parent's head is an ancestor of the
+fix-round base and the merge-base with the default branch is unchanged;
+otherwise the round starts with an empty ledger, as today.
 
 Alternative: let a fix round reopen the parent session. Rejected for the
 reasons `fix-round.sh`'s header gives: `done` must stay terminal for
@@ -144,6 +151,10 @@ since the fix-round base, and copies the parent's passed per-command results
 for every other command the parent ran.** `run-verification.sh` gains a
 `--base <rev>` selection input, and the round's `verification_results.json`
 starts from the parent's file with each carried entry marked `carried`.
+Selection from the round's paths includes the map's `default` commands when
+a round path matches no entry, exactly as a full selection would. The same
+ancestry and merge-base condition as Q2 applies; when it fails, nothing is
+carried.
 
 Alternative: rerun everything at the new head. Rejected: it is today's
 behaviour and the cost the PRD targets. Alternative: carry results without
@@ -166,8 +177,12 @@ Alternative: remove the later two gates. Rejected: a commit between
 Resolved inline. **Chosen: a new `VERIFICATION` value `auto`, made the
 default.** At `verification` entry, `run-verification.sh plan` resolves
 `auto` to `hosted-ci` when every selected command has a `hosted` twin in the
-map and no changed path is in the template or engine class, and to `local`
-otherwise. A hosted resolution writes the deferral reason itself
+map and no changed path is in the ci, security, template or engine class,
+and to `local` otherwise. The map is the merge-base copy, as
+`skills/work-on/references/verification-map.md` already specifies, and
+`ci_monitor` re-reads the twins from the current default branch's map before
+its green edge: a twin that no longer exists sends the run to local
+verification. A hosted resolution writes the deferral reason itself
 (`hosted twins cover every selected command`), so the existing
 `verification_deferred` route and its pull request body record apply
 unchanged. `local` and `hosted-ci` keep their meaning when passed
@@ -180,13 +195,16 @@ verification across two places with no single build of record.
 
 ### Q6. How does `ci_monitor` wait only on relevant checks?
 
-Resolved inline. **Chosen: `pr-checks.sh` gains a `--relevant <file>`
-filter.** The run writes `relevant_checks.txt` from the selected commands'
-hosted twins plus a new `always_required` array in the verification map,
-and `ci_passing` reads only those checks. A failing check outside the set
-is posted as one pull request comment by `ci_monitor`'s directive script.
-An empty relevant set falls back to all checks, so a repository with no
-twins behaves as today.
+Resolved inline. **Chosen: `skills/work-on/scripts/pr-checks.sh` gains a
+`--relevant <file>` filter.** The run writes `relevant_checks.txt` from the
+selected commands' hosted twins plus a new `always_required` array in the
+verification map, and `ci_passing` reads only those checks. shirabe's map
+ships `always_required` seeded with its security and lint checks. A failing
+check outside the set is posted as one pull request comment, and it still
+blocks merging: `/execute`'s merge readiness and any `--merge` path keep
+requiring every check green. An empty relevant set falls back to all
+checks, so a repository with no twins behaves as today. A skipped twin
+counts as not passed, as `pr-checks.sh` already treats it.
 
 Alternative: read GitHub's required-check settings. Rejected: almost no
 check in these repositories is marked required, so the set would be empty.
@@ -197,7 +215,8 @@ Resolved inline. **Chosen: a new rule kind, `cap`, in
 `review-level-rules.tsv`, evaluated after the floor rules.** The row `cap
 light lines<=200 files<=5` lowers a `standard` floor to `light` when no
 `full` rule fired and neither `criteria_changed` nor `unclassified` fired.
-It can never lower `full`. The rules file stays the one source the decider
+It can never lower `full`, and a `manifest` path keeps `standard`, so a
+dependency change never takes one seat. The rules file stays the one source the decider
 prompt is built from, so the decider fixtures are regenerated in the same
 change.
 
@@ -222,8 +241,9 @@ is where weakening is most likely.
 Resolved inline. **Chosen: first add the engine-class coverage test, then
 take `*.compat.json` out of the template class.** A new
 `skills/work-on/scripts/review-level-rules_engine_test.sh` reads each
-template's `gate_scripts` digest inputs and fails when any is not matched by
-an `engine` row. Engine rows are added for the scripts it finds missing (for
+template's `gate_scripts` digest inputs, follows every library those
+scripts source, and fails when any of them is not matched by an `engine`
+row. Engine rows are added for the scripts it finds missing (for
 coordinate today: `state-holding.sh`, `state-write-core.sh`,
 `state-common.sh`, `reconcile-check.sh`, `coord-log.sh`). Only then does the
 compatibility file move to the `manifest` class.
@@ -239,10 +259,14 @@ light seat's prompt (`skills/work-on/references/phases/phase-4d-light.md`)
 and `review-round.sh` accept `escalate`, which raises `REVIEW_LEVEL` to
 `standard` through `review-level.sh raise --reason escalate` and routes back
 to `review_level_check`. `review-level.sh audit <session>` returns 0 when
-`sha256(session name) mod 10 == 0`; an audited run's `light_review` passed
+`sha256(session name) mod 10 == 0` (work-on derives the session name from
+the issue reference, so a run can't pick its way out of the audit without
+picking a different issue); an audited run's `light_review` passed
 edge goes to `scrutiny` instead of `verification`, and the run records
 `audit_miss` in `review_level.jsonl` when the full panel blocks.
-`run-report.sh` counts misses over the last 30 audited runs.
+`run-report.sh` counts misses over the last 30 audited runs. When more
+than 3 are misses it prints the rules-file change that returns the cap to
+40 lines and 3 files; a maintainer makes that change by pull request.
 
 Alternative: a random draw per run. Rejected: R14 needs the same names
 chosen on every evaluation. Alternative: audit by a second light seat.
@@ -306,7 +330,9 @@ and still gates the step. Second, `/execute` gains
 every step whose `waits_on` have all landed, up to N. In `single-pr` mode
 each concurrent step works in its own worktree on a step branch and lands
 on the shared branch by rebase in PLAN order; a rebase conflict stops that
-step at `validation_exit` for the owner, and other steps go on.
+step at `validation_exit` for the owner, and other steps go on. A step whose
+rebase changed any of its files re-runs its verification and its review
+level check at the rebased head before it counts as landed.
 
 Alternative for plan steps: return to plan/v1 as the default. Rejected: v2's
 just-in-time detailing exists so later steps see what earlier ones landed,
@@ -458,9 +484,10 @@ Components and their changes:
   `verdict_ledger.json` and passed `verification_results.json` entries.
 - `skills/work-on/scripts/run-verification.sh`, `check-verification.sh`:
   `--base` selection, carried results, `auto` resolution, written reason.
-- `scripts/pr-checks.sh`: `--relevant <file>`.
+- `skills/work-on/scripts/pr-checks.sh`: `--relevant <file>`.
 - `.claude/shirabe-extensions/verification-map.json` and
-  `references/verification-map.md`: `always_required` array.
+  `skills/work-on/references/verification-map.md`: `always_required` array,
+  seeded for shirabe.
 - `skills/work-on/scripts/test-change.sh`: `status --confirm`.
 - `skills/work-on/scripts/fix-kind.sh`: `kind --exit`.
 - `scripts/decider-declarations.tsv`: `issue_type=code` live.
@@ -496,31 +523,42 @@ opt-out in its pull request.
 
 ## Security Considerations
 
-- **Review lowered on small diffs.** The light cap can let a harmful small
-  change through with one reviewer. Mitigations: the cap never lowers
-  `full`, so ci, security, template and engine paths keep seven seats; the
-  rules file itself is in the security class, so changing the cap needs a
-  full review; the audit measures misses and the report names the reversal.
-- **Hosted build of record.** A run that skips local suites trusts the
-  hosted twin's result. The twin is matched by workflow and job name from
-  the default branch's copy of the map, which the run's own branch cannot
-  change (the map is read at the merge-base, as today). A pull request
-  that edits a workflow file is in the ci class and keeps local
-  verification and the full panel.
-- **Relevant-check filter.** A branch could try to shrink its relevant set
-  by editing the map. The map is read from the default branch, and the
-  always-required list holds regardless of changed paths. An empty relevant
-  set falls back to every check.
-- **Carried results in a fix round.** Results are carried only from the
-  parent run of the same branch, for commands no changed path in the round
-  selects, and only when they passed. A failed or unfinished command runs
-  again.
-- **Concurrent steps.** Each step's worktree is created by the run under
-  the repository's worktree directory; steps share no working tree, and
-  landing is a rebase in PLAN order, so no step can overwrite another's
-  commits without a conflict stopping it.
+The design downloads nothing new and needs no new permissions: every change
+is a script or template edit that runs with the agent's existing access to
+the repository, `gh` and koto. Its risk is that several trims lower a check,
+and a branch could try to steer that.
+
+- **Review lowered on small diffs.** The light cap lets a small change
+  through with one reviewer. It never lowers `full`, so ci, security,
+  template and engine paths keep seven seats; manifests keep `standard`; the
+  rules file is in the security class, so changing the cap takes a full
+  review; and the audit measures misses with a named reversal. Accepted
+  residual risk: an edited ordinary test or an instruction file can be
+  reviewed at `light`. The light seat must judge every edited test as
+  correcting or weakening, the acceptance seat at `pass_counting` judges it
+  again, and audited runs measure what that misses.
+- **Fix rounds.** A round's floor is the higher of the parent's and its own,
+  and verdicts and results are carried only when the parent's head is an
+  ancestor of the round base and the merge-base is unchanged. Only passed
+  results carry; a failed or unfinished command runs again.
+- **Hosted build of record.** `auto` resolves to `local` for any ci,
+  security, template or engine path. The twins come from the map's
+  merge-base copy, which the branch itself can't edit, and are re-read from
+  the current default branch before `ci_monitor`'s green edge.
+- **Relevant-check filter.** The always-required list holds whatever paths
+  changed, shirabe seeds it with its security and lint checks, an empty
+  relevant set falls back to every check, a skipped check counts as not
+  passed, and a failing out-of-set check still blocks any merge.
+- **Audit draw.** The draw hashes the session name, which work-on derives
+  from the issue reference; dodging it means working a different issue.
+- **Concurrent steps.** Each step has its own worktree under the
+  repository's worktree directory and lands by rebase in PLAN order; a
+  conflict stops the step, and a rebase that changed its files re-runs its
+  verification and level check at the new head.
+- **Report contents.** The committed report is aggregate only, so it can't
+  carry session names, issue titles or another repository's paths.
 - **Opt-in files.** The experiment and grading opt-ins are files in the
-  user's own config directory, read as data; only the exact first line `on`
+  user's own config directory, read as data; only an exact first line `on`
   enables them.
 
 ## Consequences
