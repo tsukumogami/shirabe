@@ -72,13 +72,27 @@ git config --global user.name t
 git config --global init.defaultBranch main
 
 # The koto stand-in: `koto context add <s> <key> --from-file <f>` copies the
-# file to $WORKDIR/kotostore/<s>/<key> and logs the call.
+# file to $WORKDIR/kotostore/<s>/<key> and logs the call; `context exists`,
+# `get` and `remove` test, print and delete that file (get exits 1 when it is
+# absent), and `session list` prints $KOTO_STUB_STORE/sessions.json, or exits
+# 9 when there is none (session-role.sh then answers child). Every call is
+# logged to $KOTO_STUB_STORE/calls. KOTO_STUB_FAIL=<subcommand> makes that
+# subcommand exit 7.
 cat > "$WORKDIR/bin/koto" <<'EOF'
 #!/bin/sh
-[ "$1" = context ] && [ "$2" = add ] || exit 9
-mkdir -p "$KOTO_STUB_STORE/$3"
-[ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4"
-echo "add $3 $4" >> "$KOTO_STUB_STORE/log"
+echo "$*" >> "$KOTO_STUB_STORE/calls"
+[ -n "${KOTO_STUB_FAIL-}" ] && [ "${2-}" = "$KOTO_STUB_FAIL" ] && exit 7
+case "$1 ${2-}" in
+    "context add")
+        mkdir -p "$KOTO_STUB_STORE/$3"
+        [ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4"
+        echo "add $3 $4" >> "$KOTO_STUB_STORE/log" ;;
+    "context exists") [ -f "$KOTO_STUB_STORE/$3/$4" ] ;;
+    "context get") [ -f "$KOTO_STUB_STORE/$3/$4" ] || exit 1; cat "$KOTO_STUB_STORE/$3/$4" ;;
+    "context remove") rm -f "$KOTO_STUB_STORE/$3/$4"; echo "remove $3 $4" >> "$KOTO_STUB_STORE/log" ;;
+    "session list") [ -f "$KOTO_STUB_STORE/sessions.json" ] || exit 9; cat "$KOTO_STUB_STORE/sessions.json" ;;
+    *) exit 9 ;;
+esac
 EOF
 chmod +x "$WORKDIR/bin/koto"
 export KOTO_STUB_STORE="$WORKDIR/kotostore"
@@ -203,6 +217,8 @@ reference_work() {
     printf '%s' "$json" | jq '.entries // [] | length' >/dev/null 2>&1
     printf '%s' "$json" | jq -r '.default // [] | join(", ")' >/dev/null 2>&1
     jq -cn --arg mb "$mb" --argjson sel "$json" '{merge_base: $mb, sel: $sel}' >/dev/null 2>&1
+    # --start's stale-record step asks koto whether the session holds one.
+    koto context exists "$1" hosted_of_record >/dev/null 2>&1
     return 0
 }
 
@@ -311,6 +327,18 @@ $("$START" --locate --session "$1")
 EOF
 }
 
+# expect_record <label> <session> <command id> <jq condition>: the result's
+# record for <command id> (the first, for an each command) meets <condition>.
+expect_record() {
+    local res
+    res=$(result_of "$2")
+    if jq -e --arg id "$3" "[.commands[] | select(.id == \$id)][0] | $4" "$res" >/dev/null 2>&1; then
+        pass "$1: the $3 record has $4"
+    else
+        fail "$1: the $3 record fails $4: $(jq -c --arg id "$3" '[.commands[] | select(.id == $id)][0]' "$res" 2>&1 | head -c 600)"
+    fi
+}
+
 group_alive() {
     ps -A -o pgid= 2>/dev/null | awk -v g="$1" '$1 == g { c++ } END { print c + 0 }'
 }
@@ -326,6 +354,7 @@ start s-pass
 settle s-pass
 expect_rc "every command passes" 0
 expect_no_finding "a pass"
+expect_record "a pass" s-pass ok '.outcome == "passed" and .suites == null'
 same_laddered_verdict "a pass, laddered" s-pass
 [ -f "$KOTO_STUB_STORE/s-pass/verification_results.json" ] \
     && pass "a settled verdict records verification_results.json in koto context" \
@@ -370,7 +399,9 @@ rf_test_refusals "--verdict" skills/work-on/scripts/check-verification.sh verifi
 # The same result against plugin copies with verification/command-failed at
 # each stage: its finding prints at the stage's level, and only at block does
 # it route the run back (1).
-VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh"
+# check-verification.sh sources verification-route.sh, which runs
+# session-role.sh, so a stage copy carries both.
+VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh skills/work-on/scripts/verification-route.sh skills/work-on/scripts/session-role.sh"
 verdict_in_copy() { # <copy>
     cd "$WORKDIR/r-fail" && "$1/skills/work-on/scripts/check-verification.sh" --verdict --session s-fail
 }
@@ -384,6 +415,7 @@ start s-fork
 settle s-fork
 expect_rc "forking past max_procs" 4
 expect_rule "forking past max_procs" verification/runaway
+expect_record "a runaway" s-fork forker '.runaway == true and .outcome == "failed"'
 PGID=$(jq -r '.commands[0].pgid' "$(result_of s-fork)")
 case "$PGID" in
     ''|null) fail "the runaway result records no process group" ;;
@@ -398,6 +430,8 @@ start s-slow
 settle s-slow
 expect_rc "past timeout_secs" 4
 expect_rule "past timeout_secs" verification/timed-out
+expect_record "stopped at its limit with no summary" s-slow slow \
+    '.timed_out == true and .outcome == "timed-out-limit" and .suites == null'
 PGID=$(jq -r '.commands[0].pgid' "$(result_of s-slow)")
 [ "$(group_alive "$PGID")" -eq 0 ] && pass "no process of the timed-out group is alive" \
     || fail "the timed-out group $PGID is still alive"
@@ -522,6 +556,8 @@ start s-nostart
 settle s-nostart
 expect_rc "run[0] does not exist" 4
 expect_rule "run[0] does not exist" verification/not-started
+expect_record "a command that never started" s-nostart gone \
+    '.not_started == true and .outcome == "failed" and .suites == null'
 
 echo "--- no map, a bad map, a map that selects nothing"
 mkrepo nomap NONE
@@ -580,6 +616,7 @@ settle s-attended
 expect_rc "an unattended: false command" 4
 expect_rule "an unattended: false command" verification/needs-person
 [ ! -e "$WORKDIR/attended.rec" ] && pass "the attended command was never started" || fail "the attended command ran"
+expect_record "an unattended: false command" s-attended a '.not_started == true and .outcome == "failed" and .suites == null'
 
 echo "--- the route ranks only the causes at block"
 # verdict_at_warn <session> <rule at warn> <label> <exit> <levels>: the verdict
@@ -611,14 +648,15 @@ verdict_at_warn() {
     rf_test_verify_copy "$3" "$STAGE_COPY" "$STAGE_LOG"
 }
 
-# needs-person can't share a result with a failed command (an attended result
-# lists no commands), so the mixed result is a failed command beside one past
-# its timeout, which ranks 4 like needs-person does.
+# The mixed result is a failed command beside one past its timeout. A failed
+# check outranks a timeout, so both at block route back to implementation (1);
+# with the failure at warn, the timeout chooses, and the failed record keeps
+# the hosted-of-record route closed (4).
 mkrepo mixed "$(map '{"bad": {"run": ["bin/fail.sh"]}, "slow": {"run": ["bin/slow.sh"], "timeout_secs": 1}}' '[]' '["bad", "slow"]')"
 change top.txt
 start s-mixed
 settle s-mixed
-expect_rc "a failed command beside a timed-out one, both at block" 4
+expect_rc "a failed command beside a timed-out one, both at block" 1
 verdict_at_warn s-mixed verification/timed-out "timed-out at warn beside command-failed at block" 1 \
     "verification/command-failed=error verification/timed-out=warning "
 verdict_at_warn s-mixed verification/command-failed "command-failed at warn beside timed-out at block" 4 \
@@ -643,6 +681,393 @@ echo '{"schema": "shirabe-verification-result/v1", "head": ' > "$RES"
 verdict s-unread
 expect_rc "a result file that does not parse" 2
 same_laddered_verdict "a result file that does not parse (undecided), laddered" s-unread
+
+# --- outcomes and suite summaries ---------------------------------------------------------
+#
+# Each record's outcome: passed, failed, timed-out-limit or timed-out-inside.
+# The fixtures:
+#   faillike.sh        prints a FAIL line about a timeout and exits 1;
+#   sumslow.sh <kind>  writes a suite summary to $SHIRABE_SUITE_SUMMARY, with
+#                      no failed suite (clean) or one (failed), then sleeps
+#                      past its limit;
+#   inner.sh <kind>    exits 1 after printing failure lines that all read as
+#                      a timeout (match), the same plus an assertion failure
+#                      (mixed), or no failure line at all (none).
+FORM='timed out after [0-9]+s'
+add_outcome_fixtures() {
+    printf '#!/bin/sh\necho "ok 1 - setup"\necho "FAIL: case b: timed out waiting for the lock"\nexit 1\n' > bin/faillike.sh
+    cat > bin/sumslow.sh <<'EOF'
+#!/bin/sh
+case "$1" in
+    clean) printf '{"passed":["s/a_test.sh"],"failed":[],"running":["s/b_test.sh"],"not_started":["s/c_test.sh"]}\n' ;;
+    failed) printf '{"passed":["s/a_test.sh"],"failed":["s/x_test.sh"],"running":["s/b_test.sh"],"not_started":[]}\n' ;;
+esac > "$SHIRABE_SUITE_SUMMARY"
+sleep 30
+EOF
+    cat > bin/inner.sh <<'EOF'
+#!/bin/sh
+echo "ok 1 - setup"
+case "$1" in
+    match|mixed)
+        echo "FAIL: case b: timed out after 30s"
+        echo "    waited for the koto lock"
+        printf '\033[31mFAIL\033[0m: case c: timed out after 45s\n' ;;
+    none) echo "something went wrong" ;;
+esac
+[ "$1" = mixed ] && echo "FAIL: case d: expected 3, got 4"
+exit 1
+EOF
+    chmod +x bin/faillike.sh bin/sumslow.sh bin/inner.sh
+}
+
+echo "--- outcome: a failure that prints a timeout, from a row with no timeout_form"
+mkrepo faillike "$(map '{"bad": {"run": ["bin/faillike.sh"]}}' '[]' '["bad"]')"
+add_outcome_fixtures
+change top.txt
+start s-faillike
+settle s-faillike
+expect_rc "a timeout-looking failure with no timeout_form" 1
+expect_record "a timeout-looking failure with no timeout_form" s-faillike bad \
+    '.outcome == "failed" and .timed_out == false and .suites == null'
+
+echo "--- outcome: stopped at the limit, with a suite summary"
+mkrepo sumclean "$(map '{"chk": {"run": ["bin/sumslow.sh", "clean"], "timeout_secs": 1}}' '[]' '["chk"]')"
+add_outcome_fixtures
+change top.txt
+start s-sumclean
+settle s-sumclean
+expect_rc "stopped at the limit, no failed suite" 4
+expect_rule "stopped at the limit, no failed suite" verification/timed-out
+expect_record "stopped at the limit, no failed suite" s-sumclean chk \
+    '.timed_out == true and .outcome == "timed-out-limit"
+     and .suites == {"passed": ["s/a_test.sh"], "failed": [], "running": ["s/b_test.sh"], "not_started": ["s/c_test.sh"]}'
+
+mkrepo sumfailed "$(map '{"chk": {"run": ["bin/sumslow.sh", "failed"], "timeout_secs": 1}}' '[]' '["chk"]')"
+add_outcome_fixtures
+change top.txt
+start s-sumfailed
+settle s-sumfailed
+expect_rc "stopped at the limit with a finished-failed suite" 1
+expect_rule "stopped at the limit with a finished-failed suite" verification/command-failed
+expect_record "stopped at the limit with a finished-failed suite" s-sumfailed chk \
+    '.timed_out == true and .outcome == "failed" and .suites.failed == ["s/x_test.sh"]'
+
+echo "--- outcome: timeout_form"
+CMDS=$(jq -cn --arg form "$FORM" '{
+    inside: {run: ["bin/inner.sh", "match"], timeout_form: $form},
+    mixed: {run: ["bin/inner.sh", "mixed"], timeout_form: $form},
+    noform: {run: ["bin/inner.sh", "match"]},
+    nolines: {run: ["bin/inner.sh", "none"], timeout_form: $form}}')
+mkrepo forms "$(map "$CMDS" '[]' '["inside", "mixed", "noform", "nolines"]')"
+add_outcome_fixtures
+change top.txt
+start s-forms
+settle s-forms
+expect_rc "four timeout_form cases in one result" 1
+expect_record "every failure line matches the form" s-forms inside \
+    '.outcome == "timed-out-inside" and .timed_out == false and .exit_status == 1'
+expect_record "one failure line doesn't match the form" s-forms mixed '.outcome == "failed"'
+expect_record "the same log from a row with no timeout_form" s-forms noform '.outcome == "failed"'
+expect_record "a form, a nonzero exit and no failure line" s-forms nolines '.outcome == "failed"'
+RUNJSON="$(dirname "$(result_of s-forms)")/run.json"
+jq -e --arg form "$FORM" '[.invocations[] | select(.id == "inside")][0].timeout_form == $form
+                          and ([.invocations[] | select(.id == "noform")][0].timeout_form == null)' "$RUNJSON" >/dev/null 2>&1 \
+    && pass "the loader carries a row's timeout_form on its invocations, null where the row has none" \
+    || fail "run.json's invocations don't carry timeout_form: $(head -c 600 "$RUNJSON" 2>&1)"
+
+CMDS=$(jq -cn --arg form "$FORM" '{inside: {run: ["bin/inner.sh", "match"], timeout_form: $form}}')
+mkrepo inside "$(map "$CMDS" '[]' '["inside"]')"
+add_outcome_fixtures
+change top.txt
+start s-inside
+settle s-inside
+expect_rc "a timed-out-inside record alone, its row declaring no hosted jobs" 4
+expect_rule "a timed-out-inside record alone" verification/timed-out
+expect_record "a timed-out-inside record alone" s-inside inside '.outcome == "timed-out-inside"'
+
+echo "--- a summary left by an earlier run"
+mkrepo stalesum "$(map "{\"ok\": $(rec "$WORKDIR/stalesum.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+STALE_DIR=$(dirname "$(result_of s-stalesum)")
+mkdir -p "$STALE_DIR"
+printf '{"passed":["old_test.sh"],"failed":[],"running":[],"not_started":[]}\n' > "$STALE_DIR/0-ok.suites.json"
+start s-stalesum
+settle s-stalesum
+expect_rc "a command that writes no summary" 0
+expect_record "a summary file an earlier run left at the path" s-stalesum ok '.outcome == "passed" and .suites == null'
+
+echo "--- a bad timeout_form"
+mkrepo badform "$(map '{"inside": {"run": ["bin/fail.sh"], "timeout_form": 5}}' '[]' '["inside"]')"
+change top.txt
+start s-badform
+settle s-badform
+expect_rc "a timeout_form that is not a string" 3
+expect_rule "a timeout_form that is not a string" verification/bad-map
+jq -e '.status == "bad-map" and (.detail | test("command inside: timeout_form"))' "$(result_of s-badform)" >/dev/null 2>&1 \
+    && pass "a non-string timeout_form's bad-map names the command" \
+    || fail "a non-string timeout_form's result: $(head -c 400 "$(result_of s-badform)" 2>&1)"
+
+mkrepo badre "$(map '{"inside": {"run": ["bin/fail.sh"], "timeout_form": "timed out ("}}' '[]' '["inside"]')"
+change top.txt
+start s-badre
+settle s-badre
+expect_rc "a timeout_form that does not compile" 3
+expect_rule "a timeout_form that does not compile" verification/bad-map
+jq -e '.status == "bad-map" and (.detail | test("command inside: timeout_form"))' "$(result_of s-badre)" >/dev/null 2>&1 \
+    && pass "an uncompilable timeout_form's bad-map names the command" \
+    || fail "an uncompilable timeout_form's result: $(head -c 400 "$(result_of s-badre)" 2>&1)"
+
+# --- the hosted declaration ---------------------------------------------------------------
+#
+# A row may declare the hosted jobs that run its suites. A well-formed
+# declaration changes nothing about what runs: the same map with and without it
+# selects the same invocations (once their hosted key is set aside), exits the
+# same and settles the same status. Each invocation carries the row's hosted,
+# [] where the row declares none.
+
+echo "--- hosted: a well-formed declaration runs the row as the map without it does"
+HOSTED='[{"workflow": ".github/workflows/check-skill-gate.yml", "job": "skill-gate (ubuntu-latest)", "runs": "check-skill {skill}"}]'
+HR="$WORKDIR/hosted.rec"
+CMDS=$(jq -cn --arg f "$HR" --arg form "$FORM" '{
+    chk: {run: ["bin/rec.sh", $f, "chk"], each: "skills/*", timeout_secs: 600, timeout_form: $form},
+    plain: {run: ["bin/rec.sh", $f, "plain"]}}')
+ENTRIES='[{"paths": ["skills/**"], "commands": ["chk"]}]'
+mkrepo nohosted "$(map "$CMDS" "$ENTRIES" '["plain"]')"
+change skills/a/f.txt top.txt
+start s-nohosted
+settle s-nohosted
+NOHOSTED_RC=$RC
+NOHOSTED_RUN="$(dirname "$(result_of s-nohosted)")/run.json"
+NOHOSTED_STATUS=$(jq -r .status "$(result_of s-nohosted)" 2>/dev/null)
+CMDS_H=$(printf '%s' "$CMDS" | jq -c --argjson h "$HOSTED" '.chk.hosted = $h')
+mkrepo hosted "$(map "$CMDS_H" "$ENTRIES" '["plain"]')"
+change skills/a/f.txt top.txt
+start s-hosted
+settle s-hosted
+expect_rc "a row declaring hosted" 0
+HOSTED_RUN="$(dirname "$(result_of s-hosted)")/run.json"
+[ "$RC" -eq "$NOHOSTED_RC" ] && pass "hosted: the same verdict exit with and without the declaration ($RC)" \
+    || fail "hosted: verdict exit $RC with the declaration, $NOHOSTED_RC without"
+HOSTED_STATUS=$(jq -r .status "$(result_of s-hosted)" 2>/dev/null)
+[ "$HOSTED_STATUS" = "$NOHOSTED_STATUS" ] && [ "$HOSTED_STATUS" = done ] \
+    && pass "hosted: the same result status with and without the declaration ($HOSTED_STATUS)" \
+    || fail "hosted: result status [$HOSTED_STATUS] with the declaration, [$NOHOSTED_STATUS] without"
+if [ -n "$(jq -c '.invocations' "$HOSTED_RUN" 2>/dev/null)" ] \
+    && [ "$(jq -c '[.invocations[] | del(.hosted)]' "$HOSTED_RUN" 2>/dev/null)" \
+        = "$(jq -c '[.invocations[] | del(.hosted)]' "$NOHOSTED_RUN" 2>/dev/null)" ]; then
+    pass "hosted: the same invocations (id, argv, limits, timeout_form) once hosted is set aside"
+else
+    fail "hosted: the invocations differ: [$(jq -c '.invocations' "$HOSTED_RUN" 2>&1 | head -c 600)] vs [$(jq -c '.invocations' "$NOHOSTED_RUN" 2>&1 | head -c 600)]"
+fi
+jq -e --argjson h "$HOSTED" --arg form "$FORM" '
+    ([.invocations[] | select(.id == "chk")] | length == 1 and all(.hosted == $h and .timeout_form == $form and .argv[-1] == "a"))
+    and ([.invocations[] | select(.id == "plain")] | length == 1 and all(.hosted == [] and .timeout_form == null))' \
+    "$HOSTED_RUN" >/dev/null 2>&1 \
+    && pass "hosted: each invocation carries its row's hosted, [] where the row declares none, beside timeout_form" \
+    || fail "hosted: run.json's invocations don't carry hosted: $(head -c 600 "$HOSTED_RUN" 2>&1)"
+jq -e '[.invocations[].hosted] == [[], []]' "$NOHOSTED_RUN" >/dev/null 2>&1 \
+    && pass "hosted: a map with no declaration carries [] on every invocation" \
+    || fail "hosted: a map with no declaration: $(head -c 600 "$NOHOSTED_RUN" 2>&1)"
+
+# bad_hosted <n> <label> <hosted json> <detail fragment>: a row whose hosted is
+# malformed settles bad-map (verdict exit 3, verification/bad-map), starts no
+# command, and the detail begins `command hrow:` and holds the fragment.
+bad_hosted() {
+    local rec="$WORKDIR/badhosted$1.rec" cmds
+    cmds=$(jq -cn --arg f "$rec" --argjson h "$3" '{hrow: {run: ["bin/rec.sh", $f, "hrow"], hosted: $h}}')
+    mkrepo "badhosted$1" "$(map "$cmds" '[]' '["hrow"]')"
+    change top.txt
+    start "s-badhosted$1"
+    settle "s-badhosted$1"
+    expect_rc "hosted: $2" 3
+    expect_rule "hosted: $2" verification/bad-map
+    if jq -e --arg frag "$4" '.status == "bad-map" and (.detail | startswith("command hrow:")) and (.detail | contains($frag))' \
+            "$(result_of "s-badhosted$1")" >/dev/null 2>&1; then
+        pass "hosted: $2: the bad-map detail begins with the command and says what is wrong"
+    else
+        fail "hosted: $2: result $(head -c 400 "$(result_of "s-badhosted$1")" 2>&1)"
+    fi
+    [ ! -e "$rec" ] && pass "hosted: $2: no command started" || fail "hosted: $2: a command started"
+}
+
+echo "--- hosted: a malformed declaration is a bad map"
+NOT_ARRAY='hosted is not a non-empty array'
+BAD_ENTRY='hosted has an entry that is not an object'
+OUTSIDE='hosted names a workflow outside .github/workflows/'
+W='.github/workflows/check-skill-gate.yml'
+n=0
+while IFS='|' read -r label h frag; do
+    [ -n "$label" ] || continue
+    n=$((n + 1))
+    bad_hosted "$n" "$label" "$h" "$frag"
+done <<EOF
+hosted that is not an array|{"workflow": "$W", "job": "j", "runs": "r"}|$NOT_ARRAY
+an empty hosted array|[]|$NOT_ARRAY
+an entry that is not an object|["$W"]|$BAD_ENTRY
+an entry missing workflow|[{"job": "j", "runs": "r"}]|$BAD_ENTRY
+an entry missing job|[{"workflow": "$W", "runs": "r"}]|$BAD_ENTRY
+an entry missing runs|[{"workflow": "$W", "job": "j"}]|$BAD_ENTRY
+an empty workflow|[{"workflow": "", "job": "j", "runs": "r"}]|$BAD_ENTRY
+an empty job|[{"workflow": "$W", "job": "", "runs": "r"}]|$BAD_ENTRY
+an empty runs|[{"workflow": "$W", "job": "j", "runs": ""}]|$BAD_ENTRY
+a workflow that is not a string|[{"workflow": 5, "job": "j", "runs": "r"}]|$BAD_ENTRY
+a job that is not a string|[{"workflow": "$W", "job": ["j"], "runs": "r"}]|$BAD_ENTRY
+a runs that is not a string|[{"workflow": "$W", "job": "j", "runs": null}]|$BAD_ENTRY
+a workflow outside .github/workflows/|[{"workflow": "ci/check.yml", "job": "j", "runs": "r"}]|$OUTSIDE
+a workflow that climbs out of .github/workflows/|[{"workflow": ".github/workflows/../x.yml", "job": "j", "runs": "r"}]|$OUTSIDE
+EOF
+
+echo "--- hosted: the other row checks still hold beside it"
+CMDS=$(jq -cn --argjson h "$HOSTED" '{hrow: {run: ["bin/fail.sh"], timeout_secs: 3601, hosted: $h}}')
+mkrepo hostedcap "$(map "$CMDS" '[]' '["hrow"]')"
+change top.txt
+start s-hostedcap
+settle s-hostedcap
+expect_rc "a timeout_secs above 3600 beside a well-formed hosted" 3
+jq -e '.status == "bad-map" and (.detail | test("command hrow: timeout_secs"))' "$(result_of s-hostedcap)" >/dev/null 2>&1 \
+    && pass "hosted: a timeout_secs above 3600 is still refused on a row that declares hosted" \
+    || fail "hosted: a timeout_secs above 3600 with hosted: $(head -c 400 "$(result_of s-hostedcap)" 2>&1)"
+CMDS=$(jq -cn --argjson h "$HOSTED" '{hrow: {run: ["bin/fail.sh"], timeout_form: "timed out (", hosted: $h}}')
+mkrepo hostedform "$(map "$CMDS" '[]' '["hrow"]')"
+change top.txt
+start s-hostedform
+settle s-hostedform
+expect_rc "an uncompilable timeout_form beside a well-formed hosted" 3
+jq -e '.status == "bad-map" and (.detail | test("command hrow: timeout_form"))' "$(result_of s-hostedform)" >/dev/null 2>&1 \
+    && pass "hosted: timeout_form still validates on a row that declares hosted" \
+    || fail "hosted: an uncompilable timeout_form with hosted: $(head -c 400 "$(result_of s-hostedform)" 2>&1)"
+
+# --- the hold at 5 ---------------------------------------------------------------------
+#
+# A timed-out check with no failed one exits 5 when the hosted-of-record route
+# is open, which takes a root session (session-role.sh asks the stand-in's
+# session list) and a row that declares hosted jobs; 4 otherwise.
+
+echo "--- the hold: a timed-out check whose row declares hosted jobs"
+# root_sessions <s>...: the stand-in's session list names each as a root.
+root_sessions() {
+    jq -cn '$ARGS.positional | map({id: .})' --args "$@" > "$KOTO_STUB_STORE/sessions.json"
+}
+add_recslow() {
+    printf '#!/bin/sh\nprintf "start\\n" >> "$1"\nexec "$(dirname "$0")/sumslow.sh" clean\n' > bin/recslow.sh
+    chmod +x bin/recslow.sh
+}
+HOLD_REC="$WORKDIR/hold.rec"
+CMDS=$(jq -cn --arg f "$HOLD_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1, hosted: $h}}')
+mkrepo hold "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+root_sessions s-hold s-holdbare
+start s-hold
+settle s-hold
+expect_rc "a timed-out check, none failed, the route open" 5
+expect_rule "a timed-out check, none failed, the route open" verification/timed-out
+grep -qF 'verification_status: hosted_of_record' "$WORKDIR/verdict.err" \
+    && pass "the hold says what it offers: hosted_of_record with a reason, fix, blocked" \
+    || fail "the hold's stderr: $(cat "$WORKDIR/verdict.err")"
+[ "$(grep -c '^start$' "$HOLD_REC" 2>/dev/null)" = 1 ] && pass "the hold: the check started once" \
+    || fail "the hold: the check started $(grep -c '^start$' "$HOLD_REC" 2>/dev/null) times"
+start s-hold
+verdict s-hold
+expect_rc "re-entering verification at the same head and merge-base holds at 5 again" 5
+[ "$(grep -c '^start$' "$HOLD_REC" 2>/dev/null)" = 1 ] \
+    && pass "re-entry reuses the stored timed-out result and starts no check" \
+    || fail "re-entry started the check again: $(grep -c '^start$' "$HOLD_REC" 2>/dev/null) starts"
+OUT=$("$VERDICT" --verdict --session s-hold --shared-branch docs/x 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "the same result for a SHARED_BRANCH run of /execute: the hold, as for any run" 5
+grep -q 'child of /execute' "$WORKDIR/verdict.err" \
+    && fail "a SHARED_BRANCH run's verdict still names /execute as a closing cause: $(cat "$WORKDIR/verdict.err")" \
+    || pass "a SHARED_BRANCH run's verdict names no /execute refusal"
+OUT=$("$VERDICT" --verdict --session s-hold --shared-branch "" 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "an empty --shared-branch, as a run not under /execute passes it" 5
+root_sessions s-holdbare
+verdict s-hold
+expect_rc "the same result when the session is not listed as a root (a child /execute started): the hold" 5
+
+CMDS=$(jq -cn --arg f "$WORKDIR/holdbare.rec" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1}}')
+mkrepo holdbare "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+start s-holdbare
+settle s-holdbare
+expect_rc "a timed-out check whose row declares no hosted jobs, the route closed" 4
+grep -qF 'declares no hosted jobs' "$WORKDIR/verdict.err" \
+    && pass "the closed route's cause is on stderr" || fail "the closed verdict's stderr: $(cat "$WORKDIR/verdict.err")"
+rm -f "$KOTO_STUB_STORE/sessions.json"
+
+echo "--- the route's check runs in this process"
+if grep -q '^\. "\$HERE/verification-route.sh" ||' "$VERDICT" \
+    && ! grep -v '^[[:space:]]*#' "$VERDICT" | grep -q '"\$HERE/verification-route.sh" -'; then
+    pass "check-verification.sh sources verification-route.sh and never runs it as a second process"
+else
+    fail "check-verification.sh does not source verification-route.sh, or runs it"
+fi
+
+# --- the check id, finished_at and a stale hosted_of_record key -----------------------
+
+echo "--- the check id and finished_at"
+# result_of reads the repository the shell is in, so each lookup runs in its own.
+HRES=$(cd "$WORKDIR/r-hosted" && result_of s-hosted)
+NRES=$(cd "$WORKDIR/r-nomap" && result_of s-nomap)
+jq -e '[.commands[] | select(.id == "chk")] | length == 1 and all(.check == "chk:a")' "$HRES" >/dev/null 2>&1 \
+    && pass "check: an each row's record names its check <row>:<last argv> (chk:a)" \
+    || fail "check: the each row's record: $(jq -c '[.commands[] | {id, check}]' "$HRES" 2>&1 | head -c 400)"
+jq -e '[.commands[] | select(.id == "plain")] | length == 1 and all(.check == "plain")' "$HRES" >/dev/null 2>&1 \
+    && pass "check: a plain row's record names its check by the row id" \
+    || fail "check: the plain row's record: $(jq -c '[.commands[] | {id, check}]' "$HRES" 2>&1 | head -c 400)"
+jq -e '[.invocations[] | {id, check}] == [{id: "chk", check: "chk:a"}, {id: "plain", check: "plain"}]' "$HOSTED_RUN" >/dev/null 2>&1 \
+    && pass "check: run.json's invocations carry the check id" \
+    || fail "check: run.json's invocations: $(jq -c '[.invocations[] | {id, check}]' "$HOSTED_RUN" 2>&1 | head -c 400)"
+jq -e '.finished_at | fromdateiso8601 | . > 0' "$HRES" >/dev/null 2>&1 \
+    && pass "finished_at: a supervised result records when it was written" \
+    || fail "finished_at: the supervised result has none: $(head -c 400 "$HRES" 2>&1)"
+jq -e '.status == "no-map" and (.finished_at | fromdateiso8601 | . > 0)' "$NRES" >/dev/null 2>&1 \
+    && pass "finished_at: a result that needs no run records it too" \
+    || fail "finished_at: the no-map result: $(head -c 400 "$NRES" 2>&1)"
+
+echo "--- a hosted_of_record key from another head"
+mkrepo stalekey "$(map "{\"ok\": $(rec "$WORKDIR/stalekey.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+SK="$KOTO_STUB_STORE/s-stalekey/hosted_of_record"
+OLD_HEAD=$(git rev-parse HEAD~1)
+# seed_key <head>: a hosted_of_record key for <head> in the stand-in's store.
+seed_key() {
+    mkdir -p "$(dirname "$SK")"
+    jq -cn --arg h "$1" '{head: $h, taken_at: "2026-01-01T00:00:00Z", reason: "x", checks: []}' > "$SK"
+}
+seed_key "$OLD_HEAD"
+start s-stalekey
+[ ! -e "$SK" ] && grep -qx "remove s-stalekey hosted_of_record" "$KOTO_STUB_STORE/log" \
+    && pass "stale key: --start removes a hosted_of_record key recorded for another head" \
+    || fail "stale key: the key for $OLD_HEAD is still there: $(cat "$SK" 2>&1)"
+settle s-stalekey
+expect_rc "stale key: the run at the new head" 0
+# The result now stands, so this --start returns at the reuse step; the key
+# goes all the same, since the step comes first.
+seed_key "$OLD_HEAD"
+start s-stalekey
+[ ! -e "$SK" ] && pass "stale key: removed before a stored result is reused" \
+    || fail "stale key: a reused result kept the key for $OLD_HEAD"
+seed_key "$(git rev-parse HEAD)"
+start s-stalekey
+[ -e "$SK" ] && pass "stale key: a key at the current head is kept" || fail "stale key: the current head's key was removed"
+mkdir -p "$(dirname "$SK")" && printf 'not json\n' > "$SK"
+start s-stalekey
+[ ! -e "$SK" ] && pass "stale key: a key that doesn't parse names no head and is removed" \
+    || fail "stale key: an unparsable key was kept"
+seed_key "$OLD_HEAD"
+KOTO_STUB_FAIL=exists "$START" --start --session s-stalekey >"$WORKDIR/start.out" 2>&1
+RC=$?
+[ "$RC" -eq 2 ] && pass "stale key: koto failing to answer exists is exit 2" \
+    || fail "stale key: koto failing on exists: --start exited $RC: $(cat "$WORKDIR/start.out")"
+KOTO_STUB_FAIL=remove "$START" --start --session s-stalekey >"$WORKDIR/start.out" 2>&1
+RC=$?
+[ "$RC" -eq 2 ] && pass "stale key: koto failing to remove the key is exit 2" \
+    || fail "stale key: koto failing on remove: --start exited $RC: $(cat "$WORKDIR/start.out")"
 
 # --- selection --------------------------------------------------------------------------
 
@@ -685,6 +1110,41 @@ settle s-seld
 expect_rc "an unmatched path" 0
 [ "$(tr '\n' ' ' < "$R2")" = "D " ] && pass "the default runs for a path no entry matches, and the each command with no matching directory does not" \
     || fail "an unmatched path ran [$(tr '\n' ' ' < "$R2")]"
+
+# build_output belongs to the build-output cleanup, and selection never reads
+# it: the same map without the field, with it, with it as a string, and with a
+# list holding a number and an empty string beside "target/" all parse and
+# select the same invocations for the same change.
+R3="$WORKDIR/selbo.rec"
+CMDS=$(jq -cn --arg f "$R3" '{A: {run: ["bin/rec.sh", $f, "A"]}, D: {run: ["bin/rec.sh", $f, "D"]}}')
+BO_BASE=$(map "$CMDS" '[{"paths": ["src/**"], "commands": ["A"]}]' '["D"]')
+# bo_case <n> <label> <build_output json | NONE>: settles a change to an
+# entry's path and an unmatched path under that map, and leaves the selected
+# invocations (id and argv, in run order) in BO_SEL.
+bo_case() {
+    local m=$BO_BASE
+    [ "$3" = NONE ] || m=$(printf '%s' "$BO_BASE" | jq -c --argjson b "$3" '.build_output = $b')
+    mkrepo "selbo$1" "$m"
+    change src/x/f.txt top.txt
+    start "s-selbo$1"
+    settle "s-selbo$1"
+    expect_rc "$2" 0
+    BO_SEL=$(jq -c '[.commands[] | {id, argv}]' "$(result_of "s-selbo$1")")
+}
+bo_case 1 "a map without build_output" NONE
+BO_NONE=$BO_SEL
+[ "$(printf '%s' "$BO_NONE" | jq -c '[.[].id]')" = '["A","D"]' ] \
+    && pass "the map without build_output selects A and the default D" \
+    || fail "the map without build_output selected $BO_NONE, expected A and D"
+bo_case 2 'build_output ["target/"]' '["target/"]'
+[ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output ["target/"] selects the same invocations as the map without it' \
+    || fail "build_output [\"target/\"] selected $BO_SEL, without it $BO_NONE"
+bo_case 3 'build_output as a string (not invalid)' '"target/"'
+[ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output as a string selects the same invocations as the map without it' \
+    || fail "build_output as a string selected $BO_SEL, without it $BO_NONE"
+bo_case 4 'build_output with a number and an empty string (not invalid)' '["target/", 1, ""]'
+[ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output holding a number and an empty string selects the same invocations as the map without it' \
+    || fail "build_output with a number and an empty string selected $BO_SEL, without it $BO_NONE"
 
 # --- the lock, the state directories ------------------------------------------------------
 

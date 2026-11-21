@@ -15,6 +15,11 @@
 #   scrutiny, review, qa_validation, light_review
 #                    <panel>_verdict        the panel's pass, from the ledger
 #   ci_pass_counting is_root                decides root or child, no evidence
+#   verification     verification_route, route_reason_given
+#                    the timed-out hold (exit 5) and the hosted-of-record
+#                    route through verification_hosted, pr_creation's
+#                    hosted_record_line, ci_monitor's hosted_settled and
+#                    hosted_record
 #
 # This file checks four things:
 #
@@ -225,12 +230,22 @@ render() {
     c=${c//\{\{SESSION_NAME\}\}/no-such-session-$$}
     c=${c//\{\{ISSUE_NUMBER\}\}/7}
     c=${c//\{\{ISSUE_REPO\}\}/}
+    c=${c//\{\{SHARED_BRANCH\}\}/}
     printf '%s' "$c"
 }
 
 IS_ROOT_CMD=$(gate_command ci_pass_counting is_root)
 STALE_CMD=$(gate_command staleness_check staleness_fresh)
-[ -n "$IS_ROOT_CMD" ] && [ -n "$STALE_CMD" ] || { echo "could not extract the routing gates' commands" >&2; exit 2; }
+ROUTE_CMD=$(gate_command verification verification_route)
+[ -n "$IS_ROOT_CMD" ] && [ -n "$STALE_CMD" ] && [ -n "$ROUTE_CMD" ] || { echo "could not extract the routing gates' commands" >&2; exit 2; }
+
+OUT=$(cd "$WORKDIR/repo" && sh -c "$(render "$ROUTE_CMD")" 2>/dev/null)
+RC=$?
+if [ "$RC" -ne 0 ] && ! grep -q '::koto-finding::' <<<"$OUT"; then
+    pass "verification_route closed (exit $RC, no stored result) prints no finding"
+else
+    fail "verification_route: exit $RC, stdout [$OUT]"
+fi
 
 OUT=$(cd "$WORKDIR/repo" && sh -c "$(render "$IS_ROOT_CMD")" 2>/dev/null)
 RC=$?
@@ -274,10 +289,11 @@ REPO="$WORKDIR/repo"
 # gate's timeout, for koto's -1.
 FAKE_ROOT="$WORKDIR/plugin"
 RC_DIR="$WORKDIR/rc"
+FAKE_PENDING_REASON="hosted_record: check-skill:coordinate skill-gate (ubuntu-latest) still pending 120 minutes after the route was taken at 0123456789abcdef0123456789abcdef01234567"
 mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 for s in check-staleness.sh run-verification.sh check-verification.sh check-branch-output.sh \
          check-pr-output.sh check-pre-pr-referents.sh panel-scope.sh has-commits.sh review-level.sh \
-         test-change.sh red-first.sh; do
+         test-change.sh red-first.sh verification-route.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 f="$RC_DIR/$s\$1"
@@ -287,6 +303,21 @@ rc=0
 exit "\$rc"
 EOF
 done
+# verification-route.sh answers like the others, and its --read fake also
+# writes failure_reason through koto when its answer is 3, as the real script
+# does before it exits 3 (--session is its second argument, the session its
+# third).
+cat > "$FAKE_ROOT/skills/work-on/scripts/verification-route.sh" <<EOF
+#!/usr/bin/env bash
+f="$RC_DIR/verification-route.sh\$1"
+rc=0
+[ -f "\$f" ] && rc=\$(cat "\$f")
+[ "\$rc" = sleep ] && { sleep 5; exit 0; }
+if [ "\$1" = --read ] && [ "\$rc" = 3 ]; then
+    printf '%s' "$FAKE_PENDING_REASON" | koto context add "\$3" failure_reason || exit 2
+fi
+exit "\$rc"
+EOF
 cat > "$FAKE_ROOT/skills/work-on/scripts/session-role.sh" <<EOF
 #!/usr/bin/env bash
 if [ -f "$RC_DIR/role" ]; then cat "$RC_DIR/role"; else echo root; fi
@@ -313,6 +344,8 @@ stub_block() {
             if (gate == "probe_ack" || gate == "probe_value_absent") { print "        command: \"exit 0\""; next }
             if (st != "" && gate == st) { print; print "        timeout: 1"; next }
         }
+        # The gate given the one-second timeout drops its own.
+        /^        timeout:/ { if (st != "" && gate == st) next }
         /^          interval_secs:/ { print "          interval_secs: 1"; next }
         /^          timeout_secs:/  { print "          timeout_secs: 60"; next }
         /^          hold_secs:/     { print "          hold_secs: 1"; next }
@@ -323,9 +356,23 @@ stub_block() {
 # shipped <state>, every target it names a stub terminal.
 build() {
     local dir="$1" state="$2"; shift 2
-    local block targets t
-    block=$(stub_block "$(extract_state "$state")" "$@")
+    build_chain "$dir" "$state" "$@"
+}
+
+# build_chain <dir> "<first> [<state>...]" <gate=exit>...: the same with
+# several shipped states, so one session can walk from <first> through the
+# others (verification -> verification_hosted, hosted_record -> ci_monitor,
+# and so on); every target that none of them is becomes a stub terminal. The
+# stubs apply to every block, by gate name.
+build_chain() {
+    local dir="$1" states="$2"; shift 2
+    local state block targets t st
+    state=${states%% *}
+    block=$(for st in $states; do stub_block "$(extract_state "$st")" "$@"; done)
     targets=$(printf '%s\n' "$block" | awk '/^      - target:/ { print $3 }' | sort -u)
+    for st in $states; do
+        targets=$(printf '%s\n' "$targets" | grep -vx "$st")
+    done
     {
         printf '%s\n' '---' 'name: output-gates-routing-fixture' 'version: "1.0"' \
             'description: Fixture driving one shipped work-on state.' 'initial_state: start' \
@@ -342,15 +389,16 @@ build() {
             'states:' '  start:' '    transitions:' "      - target: $state"
         printf '%s\n' "$block"
         for t in $targets; do
-            [ "$t" = "$state" ] && continue
             printf '%s\n' "  $t:" '    terminal: true'
             if [ "$t" = done_blocked ]; then
                 printf '%s\n' '    failure: true' '    accepts:' '      failure_reason:' '        type: string'
             fi
         done
-        printf '%s\n' '---' '' '## start' '' 'Start.' '' "## $state" '' 'The state under test.'
+        printf '%s\n' '---' '' '## start' '' 'Start.'
+        for st in $states; do
+            printf '%s\n' '' "## $st" '' 'The state under test.'
+        done
         for t in $targets; do
-            [ "$t" = "$state" ] && continue
             printf '%s\n' '' "## $t" '' 'Stub.'
         done
     } > "$dir/fixture.md"
@@ -359,22 +407,38 @@ build() {
 # drive <state> <shared-branch> <evidence-or-empty> <gate=exit>... : builds,
 # inits and ticks the fixture; sets STATE (the state the response reports) and
 # RESP. With evidence, it is submitted on a second tick.
+#
+# CHAIN="<state>..." adds shipped states after <state> (build_chain);
+# DRIVE_VARS="NAME=value ..." adds --var pairs to the init (for example
+# VERIFICATION=hosted-ci); SEED_RECORD=<json> stores the hosted_of_record key
+# before the first tick.
 N=0
 drive() {
     local state="$1" shared="$2" data="$3"; shift 3
     N=$((N + 1))
-    local dir="$WORKDIR/f$N" s="og-$N"
+    local dir="$WORKDIR/f$N" s="og-$N" v
+    local vars="--var PLUGIN_ROOT=$FAKE_ROOT --var ISSUE_NUMBER=7"
     mkdir -p "$dir"
-    build "$dir" "$state" "$@"
-    if [ -n "$shared" ]; then
-        (cd "$REPO" && koto init "$s" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" \
-            --var ISSUE_NUMBER=7 --var SHARED_BRANCH="$shared") >"$dir/init.out" 2>&1
+    if [ -n "${CHAIN:-}" ]; then
+        build_chain "$dir" "$state $CHAIN" "$@"
     else
-        (cd "$REPO" && koto init "$s" --template "$dir/fixture.md" --var PLUGIN_ROOT="$FAKE_ROOT" \
-            --var ISSUE_NUMBER=7) >"$dir/init.out" 2>&1
+        build "$dir" "$state" "$@"
+    fi
+    for v in ${DRIVE_VARS:-}; do vars="$vars --var $v"; done
+    if [ -n "$shared" ]; then
+        # shellcheck disable=SC2086 # $vars is --var pairs; no value holds a space
+        (cd "$REPO" && koto init "$s" --template "$dir/fixture.md" $vars \
+            --var SHARED_BRANCH="$shared") >"$dir/init.out" 2>&1
+    else
+        # shellcheck disable=SC2086 # as above
+        (cd "$REPO" && koto init "$s" --template "$dir/fixture.md" $vars) >"$dir/init.out" 2>&1
     fi || { STATE="init-failed: $(head -c 300 "$dir/init.out")"; RESP=""; return; }
     if [ -n "${SEED_SUMMARY:-}" ]; then
         printf '# Summary\n\n## Changes Made\n- x\n' | (cd "$REPO" && koto context add "$s" summary.md) >/dev/null 2>&1
+    fi
+    if [ -n "${SEED_RECORD:-}" ]; then
+        printf '%s' "$SEED_RECORD" | (cd "$REPO" && koto context add "$s" hosted_of_record) >"$dir/seed.out" 2>&1 \
+            || { STATE="seed-failed: $(head -c 300 "$dir/seed.out")"; RESP=""; return; }
     fi
     RESP=$(cd "$REPO" && koto next "$s" --no-cleanup 2>/dev/null)
     # MID_RC=<script><arg>=<value> changes one fake answer between the two
@@ -801,6 +865,231 @@ holds "scrutiny: verdict 0 with has_commits failing" scrutiny has_commits
 reset_rc; set_rc panel-scope.sh--carried 1
 drive_has_commits light_review
 holds "light_review: verdict 0 with has_commits failing" light_review has_commits
+
+# The hosted-of-record route: verification's timed-out hold (exit 5),
+# verification_hosted, pr_creation's draft gate, ci_monitor's settled gate and
+# hosted_record. verification-route.sh and check-pr-output.sh are fakes that
+# answer from $RC_DIR; the gates that test for the hosted_of_record key run
+# the real `koto context exists` against the case's own session.
+ROUTE_HEAD=0123456789abcdef0123456789abcdef01234567
+ROUTE_REC='{"head":"'$ROUTE_HEAD'","taken_at":"2026-11-20T10:00:00Z","reason":"the host was loaded","checks":[{"id":"check-skill:coordinate","jobs":[{"workflow":".github/workflows/check-skill-gate.yml","job":"skill-gate (ubuntu-latest)","run_id":null,"conclusion":null,"attempt":null}]}]}'
+ROUTE_FILLED='{"head":"'$ROUTE_HEAD'","taken_at":"2026-11-20T10:00:00Z","reason":"the host was loaded","checks":[{"id":"check-skill:coordinate","jobs":[{"workflow":".github/workflows/check-skill-gate.yml","job":"skill-gate (ubuntu-latest)","run_id":4242,"conclusion":"success","attempt":1}]}]}'
+
+# ctx <key>: the key in the session the last drive made.
+ctx() { (cd "$REPO" && koto context get "og-$N" "$1" 2>/dev/null); }
+# walked: the states the last drive's session entered, in order.
+walked() {
+    local log
+    log="$(cd "$REPO" && koto session dir "og-$N")/koto-og-$N.state.jsonl"
+    jq -r 'select(.type == "transitioned") | .payload.to' "$log" | tr '\n' ' '
+}
+# tick_more <evidence-or-empty>: one more tick of the last drive's session.
+tick_more() {
+    if [ -n "$1" ]; then
+        RESP=$(cd "$REPO" && koto next "og-$N" --with-data "$1" --no-cleanup 2>/dev/null)
+    else
+        RESP=$(cd "$REPO" && koto next "og-$N" --no-cleanup 2>/dev/null)
+    fi
+    STATE=$(printf '%s' "$RESP" | jq -r '.state // "none"' 2>/dev/null)
+}
+TAKE='{"verification_status":"hosted_of_record","detail":"x"}'
+
+echo "--- the hosted-of-record route"
+
+# The hold. With the verdict at 5 nothing moves the run without a value.
+reset_rc; set_rc check-verification.sh--verdict 5
+drive verification "" ""
+holds "verdict 5 (a check timed out, none failed), no evidence" verification verification_verdict
+# The check-skill:coordinate shape (timed-out-limit, 121 of 127 suites
+# reached, nothing failed, the diff inside skills/coordinate): the verdict
+# is 5 and the route gate 0, so the reason takes the route.
+drive verification "" "$TAKE"
+expect "verdict 5, route 0, hosted_of_record with a reason" verification_hosted
+[ "$(ctx hosted_route_reason)" = x ] && pass "hosted_of_record writes its reason to hosted_route_reason" \
+    || fail "hosted_route_reason is [$(ctx hosted_route_reason)], want [x]"
+for d in '""' '"   "' '"\t \n "'; do
+    drive verification "" "{\"verification_status\":\"hosted_of_record\",\"detail\":$d}"
+    expect "hosted_of_record with detail $d is refused" verification
+done
+drive verification "" '{"verification_status":"hosted_of_record"}'
+expect "hosted_of_record with no detail is refused" verification
+set_rc verification-route.sh--open 1
+drive verification "" "$TAKE"
+expect "hosted_of_record with the route gate at 1 is refused" verification
+set_rc verification-route.sh--open 2
+drive verification "" "$TAKE"
+expect "hosted_of_record with the route gate at 2 is refused" verification
+reset_rc; set_rc check-verification.sh--verdict 5
+drive verification "" '{"verification_status":"fix"}'
+expect "fix at the hold" implementation
+drive verification "" '{"verification_status":"blocked","detail":"no time for the hosted run"}'
+expect "blocked at the hold" done_blocked
+[ "$(ctx failure_reason)" = "verification blocked at the timed-out hold: no time for the hosted run" ] \
+    && pass "blocked at the hold names the hold in failure_reason" || fail "failure_reason [$(ctx failure_reason)]"
+# fix and hosted_of_record belong to the hold: refused while the verdict
+# waits (75) or holds (2).
+for rc in 75 2; do
+    reset_rc; set_rc check-verification.sh--verdict "$rc"
+    drive verification "" "$TAKE"
+    expect "hosted_of_record at verdict $rc is refused" verification
+    drive verification "" '{"verification_status":"fix"}'
+    expect "fix at verdict $rc is refused" verification
+done
+
+# A child of /execute (SHARED_BRANCH set: a single-pr shared-branch child, or
+# a coordinated work item on its node branch) takes the route the same way:
+# the hold at 5, hosted_of_record with a reason on to verification_hosted and
+# pass_counting, an empty reason refused. /execute reads the record for the
+# PR it owns.
+for shared in impl/plan-x impl/plan-x-node-a; do
+    reset_rc; set_rc check-verification.sh--verdict 5
+    drive verification "$shared" ""
+    holds "SHARED_BRANCH=$shared, verdict 5, no evidence" verification verification_verdict
+    CHAIN=verification_hosted drive verification "$shared" "$TAKE"
+    expect "SHARED_BRANCH=$shared takes the route as a standalone run does" pass_counting
+    drive verification "$shared" '{"verification_status":"hosted_of_record","detail":"  "}'
+    expect "SHARED_BRANCH=$shared, hosted_of_record with an empty reason is refused" verification
+done
+
+# One session, started with the default VERIFICATION=local, takes the route
+# and goes on: no re-init between verification and pass_counting.
+reset_rc; set_rc check-verification.sh--verdict 5
+CHAIN=verification_hosted drive verification "" "$TAKE"
+expect "a local session takes the route with no re-init" pass_counting
+case "$(walked)" in
+    *"verification verification_hosted pass_counting"*) pass "the session walked verification, verification_hosted, pass_counting" ;;
+    *) fail "the session walked [$(walked)]" ;;
+esac
+# A record the check refuses returns the run to the hold, which offers the
+# route again, and a reason from the earlier visit doesn't carry over.
+set_rc verification-route.sh--check-record 1
+CHAIN=verification_hosted drive verification "" "$TAKE"
+holds "check-record 1 returns to verification, at 5 again," verification verification_verdict
+tick_more '{"verification_status":"hosted_of_record","detail":" "}'
+expect "back at the hold, an all-space reason is refused (the earlier visit's reason doesn't count)" verification
+set_rc verification-route.sh--check-record 0
+tick_more '{"verification_status":"hosted_of_record","detail":"y"}'
+expect "back at the hold, the route is offered again" pass_counting
+
+# verification_hosted on its own: 0 on, 1 back, 2 holds.
+reset_rc
+drive verification_hosted "" ""
+expect "hosted_record_valid exit 0" pass_counting
+set_rc verification-route.sh--check-record 1
+drive verification_hosted "" ""
+expect "hosted_record_valid exit 1" verification
+set_rc verification-route.sh--check-record 2
+drive verification_hosted "" ""
+holds "hosted_record_valid exit 2" verification_hosted hosted_record_valid
+drive verification_hosted "" '{"hosted_status":"blocked","detail":"koto cannot read the key"}'
+expect "hosted_status: blocked on exit 2" done_blocked
+reset_rc; set_rc verification-route.sh--record 1; set_rc verification-route.sh--check-record 2
+drive verification_hosted "" ""
+holds "a record the action refuses" verification_hosted __action__
+drive verification_hosted "" '{"hosted_status":"blocked","detail":"the route closed"}'
+expect "hosted_status: blocked after the action refused" done_blocked
+
+# A hosted-ci session never enters verification: the edges back go to
+# verification_deferred.
+reset_rc; set_rc verification-route.sh--check-record 1
+DRIVE_VARS=VERIFICATION=hosted-ci drive verification_hosted "" ""
+expect "hosted-ci: hosted_record_valid exit 1" verification_deferred
+reset_rc; set_rc verification-route.sh--read 1
+DRIVE_VARS=VERIFICATION=hosted-ci drive hosted_record "" ""
+expect "hosted-ci: hosted_read exit 1" verification_deferred
+
+# pr_creation: with a record, the created edge needs the draft and its lines.
+CREATED='{"pr_status":"created","pr_url":"https://github.com/o/r/pull/1"}'
+for rc in 1 2; do
+    reset_rc; set_rc check-pr-output.sh--hosted-record "$rc"
+    SEED_RECORD=$ROUTE_REC drive pr_creation "" "$CREATED" closing_keyword=0
+    holds "a record, hosted_record_line exit $rc" pr_creation hosted_record_line
+done
+reset_rc
+SEED_RECORD=$ROUTE_REC drive pr_creation "" "$CREATED" closing_keyword=0
+expect "a record, hosted_record_line exit 0" ci_monitor
+# No record: the gate never starts the script, so its answer doesn't matter.
+set_rc check-pr-output.sh--hosted-record 1
+drive pr_creation "" "$CREATED" closing_keyword=0
+expect "no record: pr_creation passes as before (the script's 1 never read)" ci_monitor
+
+# ci_monitor: green CI with a record that isn't settled goes to the read.
+for rec in "$ROUTE_REC" "$ROUTE_FILLED"; do
+    reset_rc; set_rc verification-route.sh--settled 1
+    SEED_RECORD=$rec drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
+    expect "green CI, a record ($(printf '%s' "$rec" | jq -r '.checks[0].jobs[0].run_id // "unread"')), hosted_settled exit 1" hosted_record
+done
+reset_rc
+SEED_RECORD=$ROUTE_FILLED drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
+expect "green CI, a settled record" ci_pass_counting
+set_rc verification-route.sh--settled 1
+drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
+expect "green CI, no record (the script's 1 never read)" ci_pass_counting
+set_rc verification-route.sh--settled 2
+SEED_RECORD=$ROUTE_REC drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
+holds "green CI, a record that can't be read" ci_monitor hosted_settled
+reset_rc; set_rc verification-route.sh--settled 1
+SEED_RECORD=$ROUTE_REC drive ci_monitor "" "" ci_passing=0 merge_state_clean=1
+expect "a DIRTY pull request with a record still stops" done_blocked
+
+# hosted_record, walked on to ci_monitor and ci_pass_counting.
+reset_rc; set_rc verification-route.sh--ready 1
+SEED_RECORD=$ROUTE_REC CHAIN=ci_monitor drive hosted_record "" "" ci_passing=0 merge_state_clean=0
+holds "read 0, ready 1 (still a draft)" hosted_record hosted_ready
+reset_rc
+SEED_RECORD=$ROUTE_FILLED CHAIN=ci_monitor drive hosted_record "" "" ci_passing=0 merge_state_clean=0
+expect "read 0, ready 0, then settled 0 at ci_monitor" ci_pass_counting
+case "$(walked)" in
+    *"hosted_record ci_monitor ci_pass_counting"*) pass "the read returned to ci_monitor before ci_pass_counting" ;;
+    *) fail "the session walked [$(walked)]" ;;
+esac
+reset_rc; set_rc verification-route.sh--read 75
+SEED_RECORD=$ROUTE_REC CHAIN=ci_monitor drive hosted_record "" "" ci_passing=0 merge_state_clean=0
+if [ "$STATE" = hosted_record ] && printf '%s' "$RESP" | jq -e '[.blocking_conditions[]? | select(.name == "hosted_read" and .status == "pending")] | length > 0' >/dev/null 2>&1; then
+    pass "read 75 waits at hosted_record (pending)"
+else
+    fail "read 75: want a pending wait at hosted_record, got $STATE ($(head -c 300 <<<"$RESP"))"
+fi
+tick_more ""
+case "$STATE" in
+    hosted_record) pass "read 75 again still waits, short of ci_pass_counting and done" ;;
+    *) fail "read 75 reached $STATE" ;;
+esac
+tick_more '{"hosted_status":"blocked","detail":"the hosted run never started"}'
+expect "hosted_status: blocked while the read waits" done_blocked
+reset_rc; set_rc verification-route.sh--read 3
+SEED_RECORD=$ROUTE_REC drive hosted_record "" ""
+expect "read 3 (pending past 120 minutes)" done_blocked
+[ "$(ctx failure_reason)" = "$FAKE_PENDING_REASON" ] \
+    && pass "read 3 keeps the script's failure_reason" || fail "failure_reason [$(ctx failure_reason)]"
+for rc in 2 -1; do
+    reset_rc
+    if [ "$rc" = -1 ]; then set_rc verification-route.sh--read sleep; else set_rc verification-route.sh--read "$rc"; fi
+    SEED_RECORD=$ROUTE_REC TIMEOUT_GATE=hosted_read drive hosted_record "" ""
+    holds "read $rc" hosted_record hosted_read
+    SEED_RECORD=$ROUTE_REC TIMEOUT_GATE=hosted_read drive hosted_record "" '{"hosted_status":"blocked","detail":"cannot read"}'
+    expect "hosted_status: blocked on read $rc" done_blocked
+done
+# A refused read returns to verification, where the reused result holds at
+# 5 again, offers the route again and still takes blocked.
+reset_rc; set_rc verification-route.sh--read 1; set_rc check-verification.sh--verdict 5
+SEED_RECORD=$ROUTE_REC CHAIN=verification drive hosted_record "" ""
+holds "read 1 returns to verification, at 5," verification verification_verdict
+SEED_RECORD=$ROUTE_REC CHAIN=verification drive hosted_record "" "$TAKE"
+expect "back at the hold after read 1, hosted_of_record" verification_hosted
+SEED_RECORD=$ROUTE_REC CHAIN=verification drive hosted_record "" '{"verification_status":"blocked","detail":"giving up"}'
+expect "back at the hold after read 1, blocked" done_blocked
+# A commit after the route: settled 1, then the read refuses on the head,
+# and the new head enters verification afresh (its verdict still pending).
+reset_rc; set_rc verification-route.sh--settled 1; set_rc verification-route.sh--read 1
+set_rc check-verification.sh--verdict 75
+SEED_RECORD=$ROUTE_REC CHAIN="hosted_record verification" drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
+expect "a moved head (settled 1, read 1)" verification
+case "$(walked)" in
+    *"ci_monitor hosted_record verification"*) pass "the moved head went through the read to verification" ;;
+    *) fail "the session walked [$(walked)]" ;;
+esac
+reset_rc
 
 echo
 echo "output-gates-routing_test: $PASS_COUNT passed, $FAIL_COUNT failed"

@@ -60,6 +60,15 @@
 # resolves, and when <head> is itself on the default branch (the merge-base
 # is <head>, so nothing would be left to classify). Always returns 0.
 #
+# When the base stays <base> because it isn't an ancestor of that merge-base,
+# a merge of main still brings main's tests into the diff, so
+# test_classify_unit drops each row whose file <head> holds exactly as the
+# merge-base does and that main changed after the branch left it (its blob at
+# the merge-base differs from the one at the merge-base of <base> and the
+# merge-base). A test the branch also changed keeps its row, and so does a
+# unit's revert of an earlier edit to main's content, since main didn't
+# change that file. A unit edit identical to main's own is dropped with it.
+#
 # Callers: skills/work-on/scripts/red-first.sh, for the tests a red copies onto
 # the base; skills/work-on/scripts/test-change.sh (the hold),
 # skills/work-on/scripts/review-level.sh (the `tests_edited` floor),
@@ -195,8 +204,10 @@ test_classify() {
     return 0
 }
 
-test_classify_base() {
-    local base="$1" head="$2" ref="" mb
+# _tc_default_ref prints the default branch's ref: origin's HEAD, else
+# origin/main, else a local main; nothing when none resolves.
+_tc_default_ref() {
+    local ref
     ref=$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null) || ref=""
     if [ -z "$ref" ]; then
         if git rev-parse -q --verify refs/remotes/origin/main >/dev/null 2>&1; then
@@ -205,6 +216,50 @@ test_classify_base() {
             ref=refs/heads/main
         fi
     fi
+    [ -z "$ref" ] || printf '%s\n' "$ref"
+}
+
+# _tc_blob <commit> <path> prints the path's blob id at the commit, or
+# `absent` when the commit doesn't have it.
+_tc_blob() {
+    git rev-parse -q --verify "$1:$2" 2>/dev/null || printf 'absent\n'
+}
+
+# _tc_main_only <base> <head> <rows> drops, from the rows file, every row
+# whose test the default branch brought in through a merge after a base that
+# isn't on the default branch: the path's blob at <head> equals its blob at
+# the merge-base of <head> and the default branch, and that differs from its
+# blob at the merge-base of <base> and that merge-base. Changes nothing when
+# the default branch doesn't resolve, <head> is on it, <base> is an ancestor
+# of the merge-base (test_classify_base moved the base already), or <base>
+# and the merge-base share no history.
+_tc_main_only() {
+    local base="$1" head="$2" rows="$3" ref mb fork tab line p
+    tab=$(printf '\t')
+    ref=$(_tc_default_ref)
+    [ -n "$ref" ] || return 0
+    head=$(git rev-parse -q --verify "$head^{commit}" 2>/dev/null) || return 0
+    mb=$(git merge-base "$head" "$ref" 2>/dev/null) || return 0
+    [ -n "$mb" ] && [ "$mb" != "$head" ] || return 0
+    ! git merge-base --is-ancestor "$base" "$mb" 2>/dev/null || return 0
+    fork=$(git merge-base "$base" "$mb" 2>/dev/null) || return 0
+    [ -n "$fork" ] || return 0
+    : > "$rows.kept"
+    while IFS= read -r line; do
+        p=${line#*"$tab"}
+        p=${p%%"$tab"*}
+        if [ "$(_tc_blob "$head" "$p")" = "$(_tc_blob "$mb" "$p")" ] \
+            && [ "$(_tc_blob "$mb" "$p")" != "$(_tc_blob "$fork" "$p")" ]; then
+            continue
+        fi
+        printf '%s\n' "$line" >> "$rows.kept"
+    done < "$rows"
+    mv "$rows.kept" "$rows"
+}
+
+test_classify_base() {
+    local base="$1" head="$2" ref mb
+    ref=$(_tc_default_ref)
     head=$(git rev-parse -q --verify "$head^{commit}" 2>/dev/null) || head=""
     if [ -n "$ref" ] && [ -n "$head" ] && mb=$(git merge-base "$head" "$ref" 2>/dev/null) && [ -n "$mb" ] \
         && [ "$mb" != "$head" ] && git merge-base --is-ancestor "$base" "$mb" 2>/dev/null; then
@@ -226,6 +281,7 @@ test_classify_unit() {
         rm -rf "$w"
         return "$rc"
     fi
+    _tc_main_only "$base" "$head" "$w/rows"
     if [ -n "$record" ] && [ -s "$record" ]; then
         if ! jq -r 'if type != "object" then error("not an object") else . end
                     | (.red // {}) | ((.tests // []) + (.harness // []))[] | "\(.path)\t\(.blob)"' \

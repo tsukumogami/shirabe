@@ -13,6 +13,9 @@
 #   state-holding.sh --session S --topic T --retire        remove a stranded row,
 #                                                           a merged one whose
 #                                                           teardown is confirmed,
+#                                                           one torn down outside
+#                                                           the run whose removed
+#                                                           teardown is confirmed,
 #                                                           or a dispatch-failed
 #                                                           one with no worker
 #   ... [--scope roadmap|discipline --name N --repo O/R
@@ -36,6 +39,11 @@
 # A row with a Verified head and a blank Pull request cell reads as merged and
 # waiting for teardown (state-common.sh lib_row_merged): only the cleared
 # cell after a confirmed merge writes that pair, so no other write may.
+# That write, the one that turns a row linking o/r#n merged, also drops the
+# Side effects merge row for o/r#n at the row's Verified head (a merge not
+# confirmed added it, here or in a run this one took over), since the merge
+# it waited on is now confirmed (shirabe#1824). Any other write leaves Side
+# effects as it was.
 #
 # A holding also keeps its last pushed head, the pull request's head as a
 # report or a link last read it (PRD R17): 40 hex, never in the row.
@@ -60,9 +68,20 @@
 # teardown pass for T: one the pass tore down itself (shirabe#1148) or one torn
 # down outside it, `removed yes` (shirabe#1593). A leg-bound holding can never
 # be stranded, so without it the row would stay. The check is read-only;
-# STATE_HOLDING_TEARDOWN_PASS names a stand-in for it (tests). --retire refuses
-# (65) a row that is neither stranded nor merged, and a merged one the check
-# doesn't confirm, with the check's reason.
+# STATE_HOLDING_TEARDOWN_PASS names a stand-in for it (tests).
+#
+# A unit torn down outside the run's land path keeps a row that may never read
+# as merged: a person who merged its pull request by hand left the row
+# `dispatched`, with no Verified head (shirabe#1196). So --retire asks the
+# check of every row that isn't stranded or dispatch-failed, merged or not, and
+# when it confirms a removed teardown (its reason starts `removed outside the
+# run: `, the marker teardown-pass.sh check prints only for a `removed yes`
+# verdict) the row goes whatever its cells say. The record keeps no history of
+# a removed row, and nothing else says the teardown wasn't the run's own, so
+# that retirement is also told as an `entry` entry naming the topic. Without
+# the marker only a merged row goes. --retire refuses (65) a row the check
+# doesn't confirm, and an unmerged one whose confirmed teardown isn't a
+# removed one, with the check's reason.
 #
 # --retire also removes a `dispatch-failed` holding (shirabe#1612): a launch
 # that failed leaves its row, and once the run has moved past the dispatch state
@@ -71,15 +90,20 @@
 # for its topic: niwa lists no session for it (dc_find_session, the test
 # dispatch-worker.sh made before it wrote the row dispatch-failed), and no
 # Claude job under DC_CLAUDE_HOME (default $HOME/.claude) whose name is the
-# topic's session name is unfinished (dc_job_finished). A job state file whose
-# name can't be read refuses too, since it can't be ruled out. Either one found
-# refuses the retire (65) with what was found; a listing that can't be read, or
-# no workspace root to read it from, exits 2 with nothing written. Both checks
+# topic's session name is unfinished (dc_job_finished). A job state file with
+# no string name is ruled out only by what it carries itself (shirabe#1937):
+# it has finished (dc_job_finished, with the file's own pid checked), or its
+# cwd lies in an instance niwa lists for a session other than the topic's. One
+# that isn't JSON, or that neither fact places, refuses too, since it can't be
+# ruled out. Either one found refuses the retire (65) with what was found; a
+# listing that can't be read, or no workspace root to read it from, exits 2
+# with nothing written. Both checks
 # see only this host: the niwa listing of the workspace the current directory
 # is in, and the jobs under DC_CLAUDE_HOME. NIWA names a stand-in for niwa
 # (tests).
 # Its removal is also told as an `entry` entry naming the topic; when the row
-# was removed but the entry wasn't written, it exits 14 with the entry's text.
+# was removed but the entry wasn't written, it exits 14 with the entry's text,
+# as it does for a holding torn down outside the run.
 #
 # Exit codes: 0 written (prints the session holding the record) or printed; 1
 # no row for the topic (--read only); 2 a read failed, --retire's teardown
@@ -87,8 +111,9 @@
 # record, the session holds no record of this scope, provenance, a directed
 # transition, or a writing session that isn't the record's driver); 12 the record changed
 # between this script's read and its write (record-changed: run it again); 11
-# the write failed; 14 a dispatch-failed row was removed but its entry wasn't
-# written; 64 usage; 65 the row was refused (the reason on stderr).
+# the write failed; 14 a dispatch-failed row, or one torn down outside the run,
+# was removed but its entry wasn't written; 64 usage; 65 the row was refused
+# (the reason on stderr).
 #
 # The record is read through state-read.sh; writes happen only in
 # state-write.sh.
@@ -100,6 +125,44 @@ SESSION= SCOPE= NAME= REPO= TOPIC= ROWFILE= MODE= PUSHED=
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+
+# sh_strip_path <path>: the path without trailing slashes, when it is
+# absolute, isn't the root, and has no . or .. component; else it fails.
+sh_strip_path() {
+    local p=$1
+    p=${p%"${p##*[!/]}"}
+    case "$p" in /?*) ;; *) return 1 ;; esac
+    case "$p/" in */./* | */../*) return 1 ;; esac
+    printf '%s\n' "$p"
+}
+
+# sh_other_roots <ws-root> <topic>: the root path of every instance niwa lists
+# whose session name is a string that isn't the topic's, one per line. An
+# instance with no session name could be the topic's half-built one, so it
+# isn't listed. Fails when the listing can't be read.
+sh_other_roots() {
+    local list name path
+    list=$(cd "$1" && "${NIWA:-niwa}" list --json) || return 1
+    printf '%s' "$list" | jq -e 'type == "array"' > /dev/null 2>&1 || return 1
+    printf '%s' "$list" | jq -r '.[] | select(type == "object" and (.session_name | type) == "string" and (.path | type) == "string") | [.session_name, .path] | @tsv' |
+        while IFS='	' read -r name path; do
+            dc_session_matches "$2" "$name" && continue
+            sh_strip_path "$path" || true
+        done
+}
+
+# sh_in_roots <cwd> <roots>: the cwd is one of the roots, or lies below one.
+sh_in_roots() {
+    local cwd root
+    cwd=$(sh_strip_path "$1") || return 1
+    while IFS= read -r root; do
+        [ -n "$root" ] || continue
+        [ "$cwd" = "$root" ] && return 0
+        case "$cwd" in "$root"/*) return 0 ;; esac
+    done <<< "$2"
+    return 1
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
@@ -195,13 +258,29 @@ strand|retire)
                 *) lib_die2 "niwa's listing can't be read, so $TOPIC's worker can't be ruled out" ;;
             esac
             JOBS_HOME=${DC_CLAUDE_HOME:-$HOME/.claude}
+            OTHER_ROOTS=
             for JF in "$JOBS_HOME"/jobs/*/state.json; do
                 [ -f "$JF" ] || continue
                 JOB=${JF%/state.json} JOB=${JOB##*/}
-                # Fail closed: a state file that isn't JSON, or has no string
-                # name, could be this topic's worker, so it refuses the retire.
                 if ! JNAME=$(jq -er '.name | strings' "$JF" 2>/dev/null); then
-                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) has no readable name in its state file, so it can't be ruled out as $TOPIC's worker; a dispatch-failed holding is retired only when no worker exists for it" >&2
+                    # No name to match on (shirabe#1937). A job that finished
+                    # by its own state and pid isn't anyone's live worker, and
+                    # one whose cwd is in another session's listed instance is
+                    # that session's: niwa lists none for this topic. Any
+                    # other could be this topic's worker, so it refuses.
+                    if JROW=$(jq -ce 'select(type == "object") | {pid}' "$JF" 2>/dev/null) \
+                        && dc_job_finished "$JOBS_HOME" "$JOB" "$JROW" > /dev/null; then
+                        continue
+                    fi
+                    if JCWD=$(jq -er 'select(type == "object") | .cwd | strings' "$JF" 2>/dev/null); then
+                        if [ -z "$OTHER_ROOTS" ]; then
+                            OTHER_ROOTS=$(sh_other_roots "$WS_ROOT" "$TOPIC") \
+                                || lib_die2 "niwa's listing can't be read, so Claude job $(printf '%s' "$JOB" | lib_scrub) can't be ruled out as $TOPIC's worker"
+                            OTHER_ROOTS=$'\n'$OTHER_ROOTS
+                        fi
+                        sh_in_roots "$JCWD" "$OTHER_ROOTS" && continue
+                    fi
+                    echo "$PROG: refused: Claude job $(printf '%s' "$JOB" | lib_scrub) has no readable name in its state file, isn't finished by its own state and pid, and has no cwd in an instance niwa lists for another session, so it can't be ruled out as $TOPIC's worker; a dispatch-failed holding is retired only when no worker exists for it" >&2
                     exit 65
                 fi
                 dc_session_matches "$TOPIC" "$JNAME" || continue
@@ -214,15 +293,40 @@ strand|retire)
                 <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
         elif [ "$ST" != stranded ]; then
             # A merged holding goes once teardown-pass.sh check confirms its
-            # done teardown pass, removed or not (shirabe#1593, shirabe#1148);
-            # a live one never does.
-            lib_row_merged "$ROW" \
-                || { echo "$PROG: refused: only a stranded holding, a merged one whose teardown is confirmed, or a dispatch-failed one with no worker, is retired; $TOPIC is $ST" >&2; exit 65; }
+            # done teardown pass, removed or not (shirabe#1593, shirabe#1148).
+            # One torn down outside the run goes once the check confirms its
+            # removed pass, merged-shaped or not: its pull request may have
+            # merged outside the run's land path, which never marks the row
+            # merged (shirabe#1196). The check is asked of an unmerged row too,
+            # since only its marker tells the two apart; a live one is never
+            # confirmed, so it never goes.
+            MERGED=0
+            lib_row_merged "$ROW" && MERGED=1
+            NOT_RETIRED="$PROG: refused: only a stranded holding, a merged one whose teardown is confirmed, a dispatch-failed one with no worker, or one torn down outside the run whose removed teardown is confirmed, is retired"
             CHECK_OUT=$(bash "${STATE_HOLDING_TEARDOWN_PASS:-$HERE/teardown-pass.sh}" check \
                 --session "${RS_SESSION:-${SESSION:-}}" --topic "$TOPIC" 2>&1)
             case $? in
-                0) ;;
-                1) echo "$PROG: refused: $TOPIC's teardown is not confirmed: $CHECK_OUT" >&2; exit 65 ;;
+                0)
+                    case "$CHECK_OUT" in
+                        *"teardown-confirmed: removed outside the run: "*)
+                            # Nothing else in the record says the teardown
+                            # wasn't the run's own, so the retirement says it.
+                            jq -r '"Holding \(.worker) (unit \(.unit)) retired after a teardown that was not this run'"'"'s own: its instance and job were removed outside the run'"'"'s teardown pass, which archived only what survived and removed nothing."' \
+                                <<< "$ROW" > "$T/retire-entry" || lib_die2 "jq failed"
+                            ;;
+                        *)
+                            [ "$MERGED" = 1 ] \
+                                || { echo "$NOT_RETIRED; $TOPIC is $ST and its teardown check confirms no removed teardown" >&2; exit 65; }
+                            ;;
+                    esac
+                    ;;
+                1)
+                    if [ "$MERGED" = 1 ]; then
+                        echo "$PROG: refused: $TOPIC's teardown is not confirmed: $CHECK_OUT" >&2
+                    else
+                        echo "$NOT_RETIRED; $TOPIC is $ST: $CHECK_OUT" >&2
+                    fi
+                    exit 65 ;;
                 *) lib_die2 "the teardown check could not run: $(printf '%s\n' "$CHECK_OUT" | tail -1)" ;;
             esac
         fi
@@ -242,6 +346,20 @@ write)
         | if any(.holdings[]; .worker == $t)
         then .holdings |= map(if .worker == $t then $r else . end)
         else .holdings += [$r] end' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    # The cleared cell after a confirmed merge settles the merge's Side
+    # effects row at that head, one a takeover carried included: the same
+    # write drops it (shirabe#1824). Only the write that turns a linked row
+    # merged does; every other row stays.
+    OLD=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json") || lib_die2 "jq failed"
+    NEW=$(jq -c 'del(.pushed_head)' "$ROWFILE") || lib_die2 "jq failed"
+    if [ -n "$OLD" ] && lib_row_merged "$NEW" \
+        && lib_pr_link "$(printf '%s' "$OLD" | jq -r '.pull_request // ""')"; then
+        jq --arg re "$(lib_re_repo "$LINK_REPO")" --arg pr "$LINK_NUM" \
+            --arg sha "$(printf '%s' "$NEW" | jq -r '.verified_head')" \
+            "$LIB_MERGE_ROW_JQ"' .side_effects |= map(select(merge_row($re; $pr; $sha) | not))' \
+            "$T/next.json" > "$T/settled.json" || lib_die2 "jq failed"
+        mv "$T/settled.json" "$T/next.json"
+    fi
     ;;
 esac
 if lib_dispatched; then
@@ -264,7 +382,8 @@ fi
 bash "$HERE/state-write.sh" "$@"
 RC=$?
 # The record keeps no history of a removed row, so a dispatch-failed holding's
-# retirement is also told as an entry in the account (shirabe#1612).
+# retirement (shirabe#1612), and one torn down outside the run (shirabe#1196),
+# is also told as an entry in the account.
 [ "$RC" = 0 ] && [ -s "$T/retire-entry" ] || exit "$RC"
 if [ "$OVERRIDE" = 1 ]; then
     ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO")

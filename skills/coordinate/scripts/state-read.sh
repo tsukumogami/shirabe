@@ -50,6 +50,11 @@
 #       go-ahead rows pause-read.sh reads. It adds pushed_head when the holding
 #       keeps one. Returns 0 printed; 1 no holding has that topic; 2 the record
 #       couldn't be read.
+#   rs_carry_bound <run-start-minute>
+#       Prints, of the Deferrals rows in the JSON array on stdin, the earliest
+#       minute of a carry dated before the run start, the bound the
+#       chain-start walk needs; nothing when no carry is. Returns 1 when the
+#       rows can't be read.
 #   rs_once_begin <dir> [<fields>]
 #       One record read per step (shirabe#1094, #1095). Creates <dir> and
 #       exports RS_ONCE=<dir> and RS_ONCE_FIELDS=<fields>. From then on
@@ -88,6 +93,7 @@
 #   state-read.sh --session S --meta
 #   state-read.sh --session S --run
 #   state-read.sh --run --workspace W --session S
+#   state-read.sh --meta --workspace W --session S
 #   state-read.sh --predecessors [--workspace W] --session S
 #   state-read.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
@@ -115,6 +121,9 @@
 # and `context get`), writing nothing: an import's source before `koto
 # session import` (coordinate-open.sh). Presence comes from the listing, since
 # `context get` exits the same for a missing key and an unreadable bucket.
+# --meta --workspace W reads record/meta there the same way, printing {} when
+# the source holds none: the import judges the source's template by the
+# fingerprint record/meta names before koto copies anything.
 #
 # --predecessors prints the runs S continues, one name a line, nothing for
 # none: koto's continues relation (the names under S's koto/links/continues/
@@ -738,6 +747,36 @@ rs_facts() {
     [ $rc -eq 0 ] || return 2
 }
 
+# RS_RE_CARRIED: a carry's Disposition, `carried <time>: <reason>` or
+# `carried <time> until <time>: <reason>`, as deferral-check.sh's judge_row
+# reads it.
+RS_RE_CARRIED='^carried ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z)( until ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z))?: (.+)$'
+
+# rs_carry_bound <run-start-minute>: of the Deferrals rows in the JSON array
+# on stdin, the earliest minute (YYYY-MM-DDTHH:MM) of a carry dated before the
+# run start's minute, or nothing when there is none. Returns 1 when the rows
+# can't be read. The one bound reconcile-pass.sh and deferral-check.sh put on
+# the chain-start walk (shirabe#1548): judge_row compares a carry's minute
+# with the chain start, which is no later than the run start, so a carry at or
+# after the run start is never before it, and only an earlier one needs the
+# walk. Each Disposition is read as judge_row reads it: trailing newlines
+# dropped, as its command substitution drops them, and any other newline made
+# a character the pattern's `.` still matches. A carry time judge_row finds
+# malformed is judged without the chain start; taking it here only makes the
+# walk longer.
+rs_carry_bound() {
+    local lines d m b=
+    lines=$(jq -r 'def chomp: if endswith("\n") then .[:-1] | chomp else . end;
+        .[] | (if type == "object" then .disposition // "" else "" end) | tostring | chomp | gsub("\n"; "\u0001")') || return 1
+    while IFS= read -r d; do
+        [[ $d =~ $RS_RE_CARRIED ]] || continue
+        m=${BASH_REMATCH[1]:0:16}
+        [[ $m < $1 ]] || continue
+        if [ -z "$b" ] || [[ $m < $b ]]; then b=$m; fi
+    done <<< "$lines"
+    printf '%s' "$b"
+}
+
 # ---- run as a script --------------------------------------------------------
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
@@ -778,7 +817,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     # The reads that name the session alone, here or (--workspace) where it
     # is in another workspace's part of the bucket: they read no log of it,
     # so they need none on this host.
-    [ -z "$WORKSPACE" ] || [ "$ACTION" = run ] || [ "$ACTION" = predecessors ] || rs_usage
+    [ -z "$WORKSPACE" ] || [ "$ACTION" = run ] || [ "$ACTION" = meta ] || [ "$ACTION" = predecessors ] || rs_usage
     if [ -n "$WORKSPACE" ] || [ "$ACTION" = predecessors ]; then
         [ -n "$SESSION" ] && [ -z "$SCOPE$NAME$REPO" ] || rs_usage
         [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "$PROG: --session is not a koto session name" >&2; exit 64; }
@@ -826,6 +865,17 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                     jq -c . "$RS_T/run" || exit 2
                 else
                     echo '[]'
+                fi
+                exit 0 ;;
+            meta)
+                # Only with --workspace: the local --meta below reads through
+                # rs_key, which needs no listing.
+                sr_list "$RS_T/keys" record/meta
+                if sr_has "$RS_T/keys" record/meta; then
+                    sr_call "$RS_T/meta" context get "$SESSION" record/meta || sr_fail "the read of $SESSION's record/meta"
+                    jq -c . "$RS_T/meta" 2> /dev/null || { echo "$PROG: record/meta isn't JSON" >&2; exit 2; }
+                else
+                    echo '{}'
                 fi
                 exit 0 ;;
             predecessors)

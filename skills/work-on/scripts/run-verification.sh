@@ -10,6 +10,12 @@
 # the state's `poll:` gate waits on it.
 #
 #   --start --session <s> [--base-ref <ref>]
+#       0. A koto key `hosted_of_record` (the hosted-of-record route's record,
+#          written by verification-route.sh --record) whose head is not this
+#          HEAD is removed (`koto context remove`), so a record left from an
+#          earlier head never changes what a run at this head does. A key at
+#          this head is kept. koto failing is exit 2; koto not on PATH skips
+#          the step, since no key can exist without koto to hold it.
 #       1. Resolve HEAD and the merge-base of HEAD and the default branch. A
 #          result for this head and merge-base already on disk: exit 0.
 #       2. Tracked files with uncommitted changes: write a `dirty-tree` result.
@@ -30,7 +36,8 @@
 #       Print three lines: the head, the merge-base, and the result file's
 #       path. check-verification.sh calls this so the path rules live here.
 #   --supervise <dir>
-#       Internal: the supervisor. Never calls koto.
+#       Internal: the supervisor. Never calls koto (only --start's step 0
+#       does).
 #
 # --base-ref names the default branch. Without it: the ref origin/HEAD points
 # at, else origin/main, else main.
@@ -43,9 +50,37 @@
 #
 #   {"schema": "shirabe-verification-result/v1", "head": "...",
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
-#    timed-out|supervisor-error", "detail": "...", "commands": [{"id", "argv",
-#    "exit_status", "duration_secs", "timed_out", "runaway", "not_started",
-#    "pgid", "log"}]}
+#    timed-out|supervisor-error", "detail": "...", "finished_at": "<UTC
+#    ISO-8601>", "commands": [{"id", "check", "argv", "exit_status",
+#    "duration_secs", "timed_out", "runaway", "not_started", "pgid", "log",
+#    "outcome", "suites"}]}
+#
+# `id` is the map row's id; `check` names the check the record is: the row id
+# for a plain row, `<row id>:<last argv>` for an `each` row (check-skill's
+# `check-skill:coordinate`), so two runs of one row are told apart.
+# `finished_at` is when the result was written; the hosted-of-record record's
+# taken_at may not be earlier.
+#
+# Each command's `outcome` says how it ended, as one of four values:
+#   passed            exit 0 inside its limit;
+#   timed-out-limit   stopped at its timeout_secs (or the run's budget), unless
+#                     its suite summary lists a finished-failed suite;
+#   timed-out-inside  a nonzero exit from a row that declares `timeout_form`,
+#                     where the log reports at least one failure line and every
+#                     failure line matches the form;
+#   failed            anything else: a nonzero exit, a stop at the limit with
+#                     a finished-failed suite, a runaway, a command that never
+#                     started (whose flags still say which).
+# A failure line is one check-skill.sh's own report counts as one: optional
+# leading space and a colour code, then FAIL or `not ok` (FAILURE_LINE_RE).
+# `suites` is the summary the command left at $SHIRABE_SUITE_SUMMARY, which the
+# supervisor sets to <head dir>/<index>-<id>.suites.json for each command and
+# clears before it starts, so a file an earlier run left is never read: an
+# object of four string arrays, passed, failed, running and not_started, or
+# null when the command wrote none (or wrote something else).
+# check-verification.sh ranks the verdict on outcome (its header has the
+# order): a failed record exits 1, a timed-out one exits 5 when the
+# hosted-of-record route is open and 4 when it isn't.
 #
 # The bound on each command: its own process group and its own deadline
 # (timeout_secs; TERM to the group, then KILL), and a watchdog that counts the
@@ -84,6 +119,10 @@ MAP_PATH=.claude/shirabe-extensions/verification-map.json
 KEEP_HEADS=10
 RESULT_SCHEMA=shirabe-verification-result/v1
 BUDGET_SECS=7200
+# The failure lines a timeout_form is matched against: the pattern
+# check-skill.sh's show_suite_failure uses to pick a failed suite's FAIL lines,
+# in jq's regex syntax (passed with --arg, so read as written).
+FAILURE_LINE_RE='^[[:space:]]*(\x1b\[[0-9;]*m)?(FAIL|not ok)([^A-Za-z]|$)'
 
 usage() {
     cat >&2 <<'EOF'
@@ -101,7 +140,13 @@ die() {
 #
 # Input: the map. $changed: the changed paths. Output: {"error": "..."} or
 # {"invocations": [...], "attended": [ids]}. Globs: `**` matches across path
-# components, `*` within one; every other character is literal.
+# components, `*` within one; every other character is literal. Each
+# invocation carries its row's validated `timeout_form` (null when the row has
+# none) and `hosted` ([] when the row declares none), so a later reader takes
+# them from run.json rather than parsing the map again. `hosted` names nothing
+# that runs here: it is the row's declaration of the hosted jobs that run its
+# suites, for the hosted-of-record route to read. `check` is the record's
+# check id (see the header).
 SELECT_JQ='
 def glob_re:
   "^" + (split("**")
@@ -120,8 +165,23 @@ def command_ok($id):
   | need((has("unattended") | not) or (.unattended | type) == "boolean"; "command \($id): unattended is not a boolean")
   | need((.network != true) or has("unattended"); "command \($id): network is true and unattended is not set")
   | need((has("max_procs") | not) or ((.max_procs | is_int) and .max_procs >= 1); "command \($id): max_procs is not a positive integer")
+  | need((has("timeout_form") | not)
+         or ((.timeout_form | type) == "string" and .timeout_form != ""
+             and (.timeout_form as $f | try ("" | test($f) | true) catch false));
+         "command \($id): timeout_form is not a non-empty string that compiles as a regular expression")
+  | need((has("hosted") | not) or ((.hosted | type) == "array" and (.hosted | length) > 0);
+         "command \($id): hosted is not a non-empty array")
+  | need((has("hosted") | not)
+         or (.hosted | all(type == "object"
+                           and all(.workflow, .job, .runs; type == "string" and . != "")));
+         "command \($id): hosted has an entry that is not an object with non-empty string workflow, job and runs")
+  | need((has("hosted") | not)
+         or (.hosted | all(.workflow | startswith(".github/workflows/")
+                                       and (split("/") | all(. != ".." and . != "." and . != ""))));
+         "command \($id): hosted names a workflow outside .github/workflows/")
   | {id: $id, run: .run, each: (.each // null), timeout_secs: (.timeout_secs // 1800),
-     max_procs: (.max_procs // 256), unattended: (if has("unattended") then .unattended else true end)};
+     max_procs: (.max_procs // 256), unattended: (if has("unattended") then .unattended else true end),
+     timeout_form: (.timeout_form // null), hosted: (.hosted // [])};
 def ids_ok($where; $defined):
   need(type == "array" and all(type == "string"); "\($where) is not an array of command ids")
   | (map(select(. as $i | $defined | index([$i]) | not))) as $bad
@@ -150,10 +210,13 @@ try (
   | ($cmds | map({key: .id, value: .}) | from_entries) as $byid
   | [$changed[] | split("/") as $parts | range(1; $parts | length) | $parts[0:.] | join("/")] | unique as $dirs
   | [$ids[] | $byid[.] as $c
-     | if $c.each == null then {id: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+     | if $c.each == null then {id: $c.id, check: $c.id, argv: $c.run, timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
+                                timeout_form: $c.timeout_form, hosted: $c.hosted}
        else ($c.each | glob_re) as $er
          | $dirs[] | select(test($er))
-         | {id: $c.id, argv: ($c.run + [split("/") | last]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended}
+         | (split("/") | last) as $leaf
+         | {id: $c.id, check: "\($c.id):\($leaf)", argv: ($c.run + [$leaf]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
+            timeout_form: $c.timeout_form, hosted: $c.hosted}
        end] as $inv
   | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe)}
 ) catch {error: (if type == "string" then . else tostring end)}
@@ -199,11 +262,17 @@ write_result() {
     printf '%s\n' "$2" > "$tmp" && mv -f "$tmp" "$1"
 }
 
+# now_iso: the current UTC time, as a result's finished_at.
+now_iso() {
+    date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
 # settle <status> <detail> [<commands json>]: write a result that needs no run.
 settle() {
     write_result "$RESULT" "$(jq -cn --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
-        --arg status "$1" --arg detail "$2" --argjson commands "${3:-[]}" \
-        '{schema: $schema, head: $head, merge_base: $mb, status: $status, detail: $detail, commands: $commands}')" \
+        --arg status "$1" --arg detail "$2" --argjson commands "${3:-[]}" --arg fin "$(now_iso)" \
+        '{schema: $schema, head: $head, merge_base: $mb, status: $status, detail: $detail, finished_at: $fin,
+          commands: $commands}')" \
         || die "could not write $RESULT"
     exit 0
 }
@@ -245,6 +314,44 @@ kill_group() {
     kill "-$1" -- "-$2" 2>/dev/null
 }
 
+# suites_of <file>: the suite summary a command left at <file>, compact, when
+# it is one object of the four string arrays; null otherwise (no file, a file
+# that doesn't parse, or one of another shape).
+suites_of() {
+    local s
+    [ -f "$1" ] || { echo null; return 0; }
+    s=$(jq -cs 'if length == 1 and (.[0] | type) == "object"
+                   and ([.[0] as $o | ("passed", "failed", "running", "not_started") as $k
+                         | ($o[$k] | type) == "array" and all($o[$k][]; type == "string")] | all)
+                then .[0] | {passed, failed, running, not_started} else null end' "$1" 2>/dev/null)
+    printf '%s\n' "${s:-null}"
+}
+
+# outcome_of <exit status> <timed_out> <runaway> <suites json> <timeout_form> <log>:
+# the record's outcome (see the header). A stop at the limit with a
+# finished-failed suite is failed: the change broke a check before the clock
+# ran out. A nonzero exit counts as timed-out-inside only when the row
+# declares a form and the log has at least one failure line, all of which
+# match it; an empty set of failures never reads as a timeout.
+outcome_of() {
+    if [ "$3" = true ]; then
+        echo failed
+    elif [ "$2" = true ]; then
+        if printf '%s' "$4" | jq -e '. != null and (.failed | length) > 0' >/dev/null; then
+            echo failed
+        else
+            echo timed-out-limit
+        fi
+    elif [ "$1" -eq 0 ]; then
+        echo passed
+    elif [ -n "$5" ] && [ -f "$6" ] && jq -Rne --arg re "$FAILURE_LINE_RE" --arg form "$5" \
+            '[inputs | select(test($re))] as $l | ($l | length) > 0 and all($l[]; test($form))' "$6" >/dev/null 2>&1; then
+        echo timed-out-inside
+    else
+        echo failed
+    fi
+}
+
 supervise() {
     local dir=$1
     RUN="$dir/run.json"
@@ -263,9 +370,9 @@ supervise() {
     # never waits on a supervisor that is gone.
     finish() {
         [ "$SUP_WRITTEN" -eq 1 ] && return 0
-        write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
+        write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" --arg fin "$(now_iso)" \
             '{schema: $schema, head: $head, merge_base: $mb, status: "supervisor-error",
-              detail: "the supervisor stopped before every command ran", commands: .}' "$SUP_ENTRIES")"
+              detail: "the supervisor stopped before every command ran", finished_at: $fin, commands: .}' "$SUP_ENTRIES")"
         rm -f "$SUP_LOCK" "$SUP_ENTRIES"
     }
     # A signal that stops the supervisor stops the running command too. The
@@ -290,7 +397,7 @@ supervise() {
     fi
 
     local n i id safe limit maxp prog log start now pid status timed_out runaway count
-    local budget sup_start left capped=0 over=0 stopped=""
+    local budget sup_start left capped=0 over=0 stopped="" sumf form suites outcome
     budget=$(jq -r ".budget_secs // $BUDGET_SECS" "$RUN")
     case "$budget" in ''|*[!0-9]*|0) budget=$BUDGET_SECS ;; esac
     sup_start=$(date +%s)
@@ -313,6 +420,11 @@ supervise() {
         while IFS= read -r -d '' a; do argv+=("$a"); done < <(jq -j --argjson i "$i" '.invocations[$i].argv[] | (., "\u0000")' "$RUN")
         safe=$(printf '%s' "$id" | tr -c 'A-Za-z0-9._-' '_')
         log="$dir/$i-$safe.log"
+        # The command's suite summary. Removed first, so a file a run before
+        # this one left at the path is never read as this command's.
+        sumf="$dir/$i-$safe.suites.json"
+        rm -f "$sumf"
+        form=$(jq -r --argjson i "$i" '.invocations[$i].timeout_form // empty' "$RUN")
         prog=${argv[0]}
         case "$prog" in
             /*) ;;
@@ -321,8 +433,9 @@ supervise() {
         esac
         if [ -z "$prog" ] || [ ! -f "$prog" ] || [ ! -x "$prog" ]; then
             jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --arg log "$log" \
-                '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: null, duration_secs: 0,
-                  timed_out: false, runaway: false, not_started: true, pgid: null, log: $log}' >> "$SUP_ENTRIES"
+                '{id: $id, check: $run[0].invocations[$i].check, argv: $run[0].invocations[$i].argv, exit_status: null, duration_secs: 0,
+                  timed_out: false, runaway: false, not_started: true, pgid: null, log: $log,
+                  outcome: "failed", suites: null}' >> "$SUP_ENTRIES"
             echo "not started: [${argv[0]}] is not an executable program" > "$log"
             i=$((i + 1)); continue
         fi
@@ -332,9 +445,9 @@ supervise() {
         timed_out=false; runaway=false
         set -m
         if [ "$scope" -eq 1 ]; then
-            systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
+            SHIRABE_SUITE_SUMMARY=$sumf systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
         else
-            "${argv[@]}" </dev/null >"$log" 2>&1 &
+            SHIRABE_SUITE_SUMMARY=$sumf "${argv[@]}" </dev/null >"$log" 2>&1 &
         fi
         pid=$!
         SUP_PGID=$pid
@@ -361,11 +474,14 @@ supervise() {
         kill_group KILL "$pid"
         SUP_PGID=""
         now=$(date +%s)
+        suites=$(suites_of "$sumf")
+        outcome=$(outcome_of "$status" "$timed_out" "$runaway" "$suites" "$form" "$log")
         jq -cn --arg id "$id" --argjson i "$i" --slurpfile run "$RUN" --argjson status "$status" \
             --argjson dur $((now - start)) --argjson to "$timed_out" --argjson ra "$runaway" \
-            --argjson pgid "$pid" --arg log "$log" \
-            '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: $status, duration_secs: $dur,
-              timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log}' >> "$SUP_ENTRIES"
+            --argjson pgid "$pid" --arg log "$log" --arg outcome "$outcome" --argjson suites "$suites" \
+            '{id: $id, check: $run[0].invocations[$i].check, argv: $run[0].invocations[$i].argv, exit_status: $status, duration_secs: $dur,
+              timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log,
+              outcome: $outcome, suites: $suites}' >> "$SUP_ENTRIES"
         i=$((i + 1))
         if [ "$timed_out" = true ] && [ "$capped" -eq 1 ]; then
             over=1; stopped=$id; break
@@ -380,8 +496,9 @@ supervise() {
         [ "$i" -lt "$n" ] && detail="$detail; $((n - i)) later command(s) were not started: $(jq -r --argjson i "$i" '[.invocations[$i:][].id] | join(", ")' "$RUN")"
     fi
     write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
-        --arg status "$final" --arg detail "$detail" \
-        '{schema: $schema, head: $head, merge_base: $mb, status: $status, detail: $detail, commands: .}' "$SUP_ENTRIES")" \
+        --arg status "$final" --arg detail "$detail" --arg fin "$(now_iso)" \
+        '{schema: $schema, head: $head, merge_base: $mb, status: $status, detail: $detail, finished_at: $fin,
+          commands: .}' "$SUP_ENTRIES")" \
         && SUP_WRITTEN=1
     rm -f "$SUP_LOCK" "$SUP_ENTRIES"
     exit 0
@@ -432,6 +549,31 @@ fi
 
 # --- --start -----------------------------------------------------------------------------
 
+# 0. A hosted-of-record key from another head is no record for this one.
+#    Removed before anything else, so a result reused below, or one that then
+#    passes, never meets a record the head it is for didn't take.
+drop_stale_record() {
+    local rc key head
+    command -v koto >/dev/null 2>&1 || return 0
+    koto context exists "$SESSION" hosted_of_record
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) die "koto context exists $SESSION hosted_of_record exited $rc" ;;
+    esac
+    key=$(koto context get "$SESSION" hosted_of_record) \
+        || die "could not read the hosted_of_record key of $SESSION"
+    # A key that doesn't parse names no head, so it is stale too; jq's
+    # message stays on stderr.
+    head=$(printf '%s' "$key" | jq -r 'if type == "object" and (.head | type) == "string" then .head else "" end') || head=""
+    [ "$head" = "$HEAD_SHA" ] && return 0
+    koto context remove "$SESSION" hosted_of_record \
+        || die "could not remove the hosted_of_record key of $SESSION, recorded for [$head], not $HEAD_SHA"
+    echo "run-verification: removed the hosted_of_record key recorded for [$head]; this head is $HEAD_SHA" >&2
+}
+drop_stale_record
+
 (umask 077 && mkdir -p "$HEAD_DIR") || die "could not create $HEAD_DIR"
 touch "$HEAD_DIR"
 prune
@@ -480,8 +622,8 @@ ATTENDED=$(printf '%s' "$SELECTION" | jq -r '.attended | join(", ")')
 if [ -n "$ATTENDED" ]; then
     settle attended "commands marked unattended: false need a person: $ATTENDED" \
         "$(printf '%s' "$SELECTION" | jq -c '[.invocations[] | select(.unattended == false)
-            | {id, argv, exit_status: null, duration_secs: 0, timed_out: false, runaway: false,
-               not_started: true, pgid: null, log: null}]')"
+            | {id, check, argv, exit_status: null, duration_secs: 0, timed_out: false, runaway: false,
+               not_started: true, pgid: null, log: null, outcome: "failed", suites: null}]')"
 fi
 
 # 5. One supervisor per head. The lock is a symlink whose target is a pid:

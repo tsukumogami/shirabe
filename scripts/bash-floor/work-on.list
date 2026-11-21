@@ -103,6 +103,15 @@ skills/work-on/scripts/probe-routes_test.sh
 # Reads the committed verification map with jq and the files that
 # document it; no engine.
 skills/work-on/scripts/verification-map-schema_test.sh
+# The map's hosted declaration against the workflow, skill-gate.sh's plan
+# and the loader's selection over git fixtures: needs git and jq. Its
+# suite-list cases call check-skill.sh, which needs koto and python3 even
+# for --list, and skip cleanly without them.
+skills/work-on/scripts/verification-hosted-coverage_test.sh
+# The hosted-of-record route script against git fixtures: needs git and
+# jq, stubs koto and gh, and runs no engine, so every case runs on the
+# floor.
+skills/work-on/scripts/verification-route_test.sh
 # The verification runner and verdict against git fixtures and a
 # koto stand-in; its real-koto case skips without koto.
 skills/work-on/scripts/run-verification_test.sh
@@ -121,6 +130,11 @@ skills/work-on/scripts/step-detail-check_test.sh
 # files a diff touched, against git fixtures. No engine.
 scripts/lib/claude-md-header_test.sh
 scripts/lib/test-classify_test.sh
+# The build-output cleanup: clean-build-output.sh and its records library
+# against git fixtures, and the default-branch ref it checks a base against.
+# No engine, so every case runs on the floor.
+skills/work-on/scripts/clean-build-output_test.sh
+scripts/lib/default-remote-ref_test.sh
 # fix-kind.sh and red-first.sh through a koto stand-in and a gh stand-in, on
 # git fixtures, so every case runs on the floor.
 skills/work-on/scripts/fix-kind_test.sh
@@ -138,6 +152,9 @@ skills/work-on/scripts/test-change-routes_test.sh
 # A fix round after done, through a real koto; the usage case runs on the
 # floor and the rest skips cleanly without the engine.
 skills/work-on/scripts/fix-round_test.sh
+# setup_plan_backed and baseline.md, through a real koto; skips cleanly
+# without the engine.
+skills/work-on/scripts/setup-plan-backed-baseline_test.sh
 # session-role.sh is deliberately NOT listed. Every entry here is
 # run with no arguments and a nonzero status is a failure, and the
 # discriminator exits 2 on a missing session name by design. It

@@ -26,7 +26,11 @@
 # never the caller's. ws_make then checks what the workspace resolves before
 # any session is written, and exits the suite when it isn't the fake server.
 #
-#   s3_start            start the server; sets S3_ENDPOINT and S3_PID
+#   s3_start            start the server; sets S3_ENDPOINT and S3_PID. It waits
+#                       up to CLOUD_HOSTS_S3_WAIT seconds (default 60, a whole
+#                       number) for the server's port file, and fails at once
+#                       if the server exits first. The wait is in seconds, not
+#                       polls, so a slow host doesn't shorten it.
 #   s3_stop             stop it (only the server this suite started)
 #   host_make <label>   lay a host out, with its workspace `work`; prints nothing
 #   host_ws <label>     the host's workspace, canonical (the path --from takes)
@@ -66,15 +70,20 @@ S3_ENDPOINT=
 S3_PID=
 
 s3_start() {
-    local i port
+    local port start limit=${CLOUD_HOSTS_S3_WAIT:-60}
+    case "$limit" in
+        ''|*[!0-9]*|0*) echo "cloud-hosts: CLOUD_HOSTS_S3_WAIT must be a whole number of seconds above 0, not [$limit]" >&2; return 1 ;;
+    esac
     mkdir -p "$T/s3"
     python3 -I "${CLOUD_HOSTS_S3:-$HERE/testdata/fake-s3.py}" "$S3_BUCKET" "$T/s3/port" > "$T/s3/log" 2>&1 &
     S3_PID=$!
-    i=0
+    # A deadline in seconds rather than a count of polls: on a loaded host
+    # each poll takes longer, and the server longer to start (shirabe#1817).
+    # An exit is checked first, so a server that dies is reported as one.
+    start=$SECONDS
     while [ ! -s "$T/s3/port" ]; do
-        i=$((i + 1))
-        [ "$i" -le 100 ] || { echo "cloud-hosts: the fake S3 server didn't start: $(cat "$T/s3/log")" >&2; return 1; }
         kill -0 "$S3_PID" 2>/dev/null || { echo "cloud-hosts: the fake S3 server exited: $(cat "$T/s3/log")" >&2; return 1; }
+        [ $((SECONDS - start)) -lt "$limit" ] || { echo "cloud-hosts: the fake S3 server didn't start within ${limit}s: $(cat "$T/s3/log")" >&2; return 1; }
         sleep 0.1
     done
     port=$(cat "$T/s3/port")

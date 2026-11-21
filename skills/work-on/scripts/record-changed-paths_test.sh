@@ -213,6 +213,92 @@ case "$PATHS" in
     *) pass "SHARED_BRANCH: no sibling path anywhere in the record" ;;
 esac
 
+# --- work committed before analysis: the base is the merge-base -------------------
+#
+# A run that reaches analysis on a branch whose code is already committed ahead
+# of the default branch (a continuation, or a branch with an open pull request)
+# reviews that code too. The template passes SHARED_BRANCH, empty off a shared
+# branch, so --base takes the merge-base with origin's default branch rather
+# than HEAD, the code commit itself.
+
+fixture late
+commit_file src/early.go
+run --base s-late --shared-branch ""
+late_main=$(head_sha origin/main)
+if [ "$RC" -eq 0 ] && [ "$(stored s-late impl_base)" = "$late_main" ]; then
+    pass "--base on a branch with work committed before analysis records the merge-base with main"
+else
+    fail "impl_base would be that commit rather than the merge-base with main: rc $RC, impl_base [$(stored s-late impl_base)], merge-base $late_main, HEAD $(head_sha)"
+fi
+run --write s-late
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$PATHS" | sed -n 2p)" = "commits: 1" ] \
+    && [ "$(path_lines)" = "$(printf 'A\tsrc/early.go')" ]; then
+    pass "work committed before analysis is in changed_paths.txt"
+else
+    fail "work committed before analysis is missing from the record: rc $RC, paths [$PATHS]"
+fi
+
+# Every other case keeps HEAD.
+fixture late-none
+run --base s-late-none --shared-branch ""
+if [ "$RC" -eq 0 ] && [ "$(stored s-late-none impl_base)" = "$(head_sha)" ]; then
+    pass "--base with no commits ahead of main records HEAD, which is the merge-base"
+else
+    fail "--base with no commits ahead: rc $RC, impl_base [$(stored s-late-none impl_base)], HEAD $(head_sha)"
+fi
+
+fixture late-shared
+commit_file sibling/one.md "sibling one"
+run --base s-late-shared --shared-branch impl/late-shared
+if [ "$RC" -eq 0 ] && [ "$(stored s-late-shared impl_base)" = "$(head_sha)" ]; then
+    pass "--base --shared-branch <branch> with commits ahead records HEAD, keeping siblings out"
+else
+    fail "--base on a shared branch: rc $RC, impl_base [$(stored s-late-shared impl_base)], HEAD $(head_sha)"
+fi
+
+fixture late-round
+commit_file src/child.go
+mkdir -p "$SHIM_STORE/s-late-round"
+printf '{}\n' > "$SHIM_STORE/s-late-round/fix_round.json"
+run --base s-late-round --shared-branch ""
+if [ "$RC" -eq 0 ] && [ "$(stored s-late-round impl_base)" = "$(head_sha)" ]; then
+    pass "--base in a fix round (fix_round.json present) records HEAD, so the round reviews only its fix"
+else
+    fail "--base in a fix round: rc $RC, impl_base [$(stored s-late-round impl_base)], HEAD $(head_sha)"
+fi
+
+fixture late-noflag
+commit_file src/early.go
+run --base s-late-noflag
+if [ "$RC" -eq 0 ] && [ "$(stored s-late-noflag impl_base)" = "$(head_sha)" ]; then
+    pass "--base with no --shared-branch flag records HEAD, as before"
+else
+    fail "--base with no flag: rc $RC, impl_base [$(stored s-late-noflag impl_base)], HEAD $(head_sha)"
+fi
+
+local_fixture late-local
+commit_file src/early.go
+run --base s-late-local --shared-branch ""
+if [ "$RC" -eq 0 ] && [ "$(stored s-late-local impl_base)" = "$(head_sha)" ]; then
+    pass "--base with no origin default-branch ref records HEAD, never a local branch's merge-base"
+else
+    fail "--base with no origin: rc $RC, impl_base [$(stored s-late-local impl_base)], HEAD $(head_sha)"
+fi
+
+fixture late-usage
+run --base s-late-usage --shared-branch
+if [ "$RC" -eq 67 ] && [ ! -e "$SHIM_STORE/s-late-usage/impl_base" ]; then
+    pass "--base --shared-branch with no value exits 67 and records nothing"
+else
+    fail "--shared-branch with no value: rc $RC, impl_base [$(stored s-late-usage impl_base)]"
+fi
+run --base s-late-usage --bogus
+if [ "$RC" -eq 67 ] && [ ! -e "$SHIM_STORE/s-late-usage/impl_base" ]; then
+    pass "--base with an unknown argument exits 67 and records nothing"
+else
+    fail "--base with an unknown argument: rc $RC, impl_base [$(stored s-late-usage impl_base)]"
+fi
+
 # --- a merge of the default branch after impl_base -------------------------------
 
 # origin/main gains a koto-templates file after the fork, and the run merges it
@@ -602,6 +688,25 @@ else
     fail "docs with commits reached [$STATE]"
 fi
 
+# A run that reaches analysis with its code already committed on the branch:
+# the shipped template passes the empty SHARED_BRANCH, so impl_base is the
+# merge-base with origin/main and the earlier commit is in the record.
+fixture e-late
+commit_file src/early.go
+to_implementation e-late
+base=$(ctx get e-late impl_base | tr -d '[:space:]')
+if [ "$STATE" = implementation ] && [ "$base" = "$(head_sha origin/main)" ] && [ "$base" != "$(head_sha)" ]; then
+    pass "analysis records the merge-base with origin/main when code was committed before it"
+else
+    fail "late run: state [$STATE], impl_base [$base], origin/main $(head_sha origin/main), HEAD $(head_sha)"
+fi
+tick e-late '{"implementation_status":"complete"}'
+if [ "$STATE" = issue_type_routing ] && ctx get e-late changed_paths.txt | grep -q '^A	src/early.go$'; then
+    pass "the commit made before analysis is in changed_paths.txt"
+else
+    fail "late run changed_paths.txt: state [$STATE], [$(ctx get e-late changed_paths.txt)]"
+fi
+
 # code with no commits since impl_base still reaches scrutiny; scrutiny then holds
 # passed until a commit exists.
 fixture e-code
@@ -688,6 +793,13 @@ tick e-plan '{"mode":"plan_backed","issue_source":"plan_outline"}'
 printf 'outline\n' | ctx add e-plan context.md
 tick e-plan '{"status":"completed","issue_source":"plan_outline"}'
 tick e-plan '{"verdict":"proceed"}'
+# With SHARED_BRANCH set, setup_plan_backed's skip_if moves the child on to
+# analysis on arrival, with nothing submitted there (#1461).
+if [ "$STATE" = analysis ]; then
+    pass "plan-backed: SHARED_BRANCH skips setup_plan_backed on arrival"
+else
+    fail "plan-backed: with SHARED_BRANCH set the child stopped at $STATE instead of analysis"
+fi
 # On a shared branch the orchestrator made the branch; setup_plan_backed takes
 # override, as its directive says.
 [ "$STATE" = setup_plan_backed ] && tick e-plan '{"status":"override"}'

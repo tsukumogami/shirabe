@@ -21,7 +21,10 @@
 #      `vars.VERIFICATION: local` and has a twin into verification_deferred,
 #      from the same state, on the same conditions with `hosted-ci`; the two
 #      variables are not rebindable; verification_deferred has no action and
-#      no gates; and pr_creation's created edge needs the record gate.
+#      no gates; and pr_creation's created edge needs the record gate. The
+#      partial delivery's DELIVERY (closes or partial, default closes) and
+#      DELIVERY_REASON (the deferral reason's pattern) are declared the same
+#      way, optional and not rebindable (#1736).
 #   2. The record gate's shipped command, no engine: a local run never starts
 #      the script; a hosted-ci run passes the reason to
 #      check-pr-output.sh --deferral-record and routes on its exit.
@@ -194,6 +197,34 @@ for b in "$V_BLOCK" "$R_BLOCK"; do
         pass "$(head -n 1 <<<"$b" | tr -d ' :') is fixed at init (no rebind)"
     fi
 done
+
+# A partial delivery (#1736) is declared at init the same way: DELIVERY and
+# its reason, neither rebindable, the reason under the deferral reason's
+# pattern.
+D_BLOCK=$(extract_var DELIVERY)
+DR_BLOCK=$(extract_var DELIVERY_REASON)
+[ -n "$D_BLOCK" ] && pass "DELIVERY is declared" || fail "DELIVERY is not declared"
+[ -n "$DR_BLOCK" ] && pass "DELIVERY_REASON is declared" || fail "DELIVERY_REASON is not declared"
+grep -q '^    default: closes$' <<<"$D_BLOCK" && pass "DELIVERY defaults to closes" \
+    || fail "DELIVERY does not default to closes: [$D_BLOCK]"
+grep -q '^    values: \[closes, partial\]$' <<<"$D_BLOCK" && pass "DELIVERY takes closes or partial" \
+    || fail "DELIVERY's values are not [closes, partial]: [$D_BLOCK]"
+for b in "$D_BLOCK" "$DR_BLOCK"; do
+    grep -q '^    required: false$' <<<"$b" && pass "$(head -n 1 <<<"$b" | tr -d ' :') is not required" \
+        || fail "a delivery variable is required: [$(head -n 1 <<<"$b")]"
+    if grep -q 'rebind:' <<<"$b"; then
+        fail "a delivery variable is rebindable: [$(head -n 1 <<<"$b")]"
+    else
+        pass "$(head -n 1 <<<"$b" | tr -d ' :') is fixed at init (no rebind)"
+    fi
+done
+R_PATTERN=$(grep '^    pattern: ' <<<"$R_BLOCK")
+DR_PATTERN=$(grep '^    pattern: ' <<<"$DR_BLOCK")
+if [ -n "$DR_PATTERN" ] && [ "$DR_PATTERN" = "$R_PATTERN" ]; then
+    pass "DELIVERY_REASON has VERIFICATION_DEFERRAL_REASON's pattern ($DR_PATTERN)"
+else
+    fail "DELIVERY_REASON's pattern [$DR_PATTERN] is not VERIFICATION_DEFERRAL_REASON's [$R_PATTERN]"
+fi
 
 DEFERRED=$(extract_state verification_deferred)
 [ -n "$DEFERRED" ] || { echo "verification_deferred not found in $TEMPLATE" >&2; exit 2; }

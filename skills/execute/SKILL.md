@@ -748,6 +748,12 @@ against its chain shape:
      commit), and `scripts/node-push.sh` (each `impl/<slug>-<node-id>` branch, and
      the coordination branch after its cascade). None force-pushes, and none pushes
      the default branch.
+   - **The start commit**, only through `scripts/start-commit.sh`, at
+     `orchestrator_setup` before the shared branch's first push: one empty commit
+     on `impl/<slug>`, and only when that branch has no commit the remote's
+     default branch lacks (an earlier pull request already landed its PLAN
+     there), so the draft PR can be opened. It refuses any other branch and
+     never pushes.
    - **`head=` fields** on the coordination PR's index, rendered only by the
      codec (`scripts/lib/coordination-body.sh`) from the run record: a node's
      pushed head, which only `node-push.sh` records, or its merge commit, which
@@ -789,8 +795,10 @@ against its chain shape:
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
      `coord_branch`, `plan_abs` (fixed at setup, except that the opener
-     re-roots it on a moved attach: when the recorded PLAN is gone and this
-     checkout is on `coord_branch` with `home_repo` as its origin, it becomes
+     re-roots it on a moved attach: when this checkout is on `coord_branch`
+     with `home_repo` as its origin and the recorded PLAN is gone, or the old
+     checkout was kept and the session was rebound here (`koto session
+     rebind`) with the old PLAN the same file at the same commit, it becomes
      the PLAN here, through `record-coord-setup.sh --reroot-plan`),
      `merge_attempts` (`<id>:<result>` entries,
      the id a node, a follow-up's `<node>/follow-up-<n>` or `coordination`:

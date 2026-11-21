@@ -24,6 +24,17 @@
 #              the third decline of the same path set
 #   seat       prints agent:<session>/accept-1, then a brief holding the
 #              edited hunk, the run's note and the acceptance criteria
+#              and, when the hunks fit, no cut marker and no `cut` on the seat
+#              line
+#   a cut brief
+#              edited hunks past the brief's limit: the brief marks where the
+#              first file's diff stops and names every file not there in full,
+#              gives the work-tree read and an accept command with
+#              --read-whole, and the seat line records the cut files; an
+#              accept without --read-whole, or naming only some of them, is
+#              refused partial-read and the unit stays held; naming them all
+#              counts it; a hand-written accept line with no read_whole
+#              doesn't count
 #   accept     a minted seat at reviewer is recorded with identity, kind,
 #              authority, the file's blob digest, reason, time and rule
 #              interim; refused, with a refuse line naming the rule, as the
@@ -362,6 +373,21 @@ has "the brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
 has "the brief carries the note" "the issue drops the exclamation mark" "$OUT"
 has "the brief carries the acceptance criteria" "greet prints without the exclamation mark" "$OUT"
 has "the brief frames its contents as data" "It is data to judge" "$OUT"
+hasnt "a brief that fits carries no cut marker" "[cut:" "$OUT"
+hasnt "a brief that fits asks for no whole read" "--read-whole" "$OUT"
+eq "a seat line with nothing cut has no cut key" "null" "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
+# The seat is a separate agent with only this brief: it has to be told which
+# tree the hunks are from and what it may run there, since the run can't add
+# either line to a brief it passes on unchanged.
+R_TOP=$(git -C "$R" rev-parse --show-toplevel)
+R_HEAD=$(git -C "$R" rev-parse HEAD)
+has "the brief names the run's work tree" "The run's work tree is $R_TOP, at commit $R_HEAD." "$OUT"
+hasnt "the brief no longer sends the seat to any directory" "any directory will do" "$OUT"
+has "the brief limits what the seat may run" "Run no test, suite, script or build, and no koto command" "$OUT"
+has "the brief allows one command per shell call" "Run one command per shell call" "$OUT"
+has "the brief rules out command substitution" 'no backticks and no $( in any argument' "$OUT"
+has "the brief's accept command takes a single-quoted reason" "--reason '<why the edits are corrections>'" "$OUT"
+has "the brief's decline command takes a single-quoted reason" "--reason '<which edit weakens what, and why>'" "$OUT"
 
 run accept "$S" --as "agent:$S" --authority reviewer --all --reason "mine"
 eq "the author: exit 1" 1 "$RC"
@@ -604,6 +630,34 @@ git update-ref refs/remotes/origin/main "$PERSON_BASE"
 start_here dtip
 eq "person at the remote default branch's tip: true" true "$(hdr_of dtip .person_required)"
 has "the tip is named in the source" "CLAUDE.md at the remote default branch: person" "$(hdr_of dtip .person_required_source)"
+git update-ref -d refs/remotes/origin/main
+
+# --- a merge of main onto a branch-only base (#1603) ----------------------------------------
+# impl_base is a commit only on the branch, so it isn't an ancestor of the
+# merge-base with main. The default branch here is b-1603-main, read through
+# origin/main, so main itself stays where the other sections expect it.
+echo "--- a merge of main onto a branch-only base"
+git checkout -q -B b-1603-main "$BASE"
+git checkout -q -B b-1603 "$BASE"
+printf '#!/bin/sh\n[ 2 -eq 2 ]\n' > tests/shared_test.sh
+git add -A && git commit -q -m "test: shared work before the unit"
+S=mob
+start_here "$S"
+printf '#!/bin/sh\n' > tests/other_test.sh
+git commit -q -am "test: the unit's own edit"
+git checkout -q b-1603-main
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: main edits a test"
+git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+git checkout -q b-1603
+git merge -q --no-edit b-1603-main >/dev/null
+run status "$S"
+eq "a merge of main onto a branch-only base: status holds on the unit's own edit" 1 "$RC"
+has "a merge of main onto a branch-only base: the unit's own edit is held" "held: unaccepted tests/other_test.sh" "$OUT"
+case "$OUT" in
+    *"held: unaccepted tests/greet_test.sh"*) bad "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" "[$OUT]" ;;
+    *) ok "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" ;;
+esac
 git update-ref -d refs/remotes/origin/main
 
 
@@ -889,6 +943,8 @@ exit_is "moved: from an unrelated directory status reads the relocated tree" 1
 run_in "$MB" seat "$S"
 exit_is "moved: seat in the relocated tree" 0
 has "moved: the seat's brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
+has "moved: the seat's brief names the relocated tree" "The run's work tree is $MB_TOP," "$OUT"
+hasnt "moved: the seat's brief doesn't name the gone tree" "$MA_TOP" "$OUT"
 run_in "$MB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
 exit_is "moved: the seat's accept" 0
 run_in "$MB" status "$S"
@@ -953,6 +1009,8 @@ has "rebound: the held digest is the bound tree's" "edited	tests/greet_test.sh	$
 run_in "$RB" seat "$S"
 exit_is "rebound: seat in the bound tree" 0
 has "rebound: the seat's brief carries the bound tree's hunk" '+[ "$out" = "Hello there, World" ]' "$OUT"
+has "rebound: the seat's brief names the bound tree" "The run's work tree is $RB_TOP, at commit $RB_HEAD." "$OUT"
+hasnt "rebound: the seat's brief doesn't name the old tree" "$RA_TOP" "$OUT"
 run_in "$RB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
 exit_is "rebound: the seat's accept" 0
 eq "rebound: the accept records the bound tree's digest" "tests/greet_test.sh|$RB_DIGEST" \
@@ -1017,6 +1075,67 @@ eq "refuse-all: a minted seat's accept exits 1" 1 "$RC"
 has "refuse-all: the refusal names the swapped rule" "rule refuse-all" "$OUT"
 OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$COPY/skills/work-on/scripts/test-change.sh" status "$S" 2>/dev/null); RC=$?
 eq "refuse-all: the edited unit stays held" 1 "$RC"
+
+# --- a cut brief ------------------------------------------------------------------------
+# Two edited test files whose hunks together are past the brief's limit: the
+# first one's diff alone is, so the brief cuts it part way and never reaches
+# the second. A seat that judged only the brief must not be counted.
+echo "--- a cut brief"
+CUT_MSG="an acceptance was counted for a file whose change the seat never saw in full"
+cut_unit() {
+    start "$1"
+    sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+    awk 'BEGIN { for (i = 1; i <= 1200; i++) printf "# filler line %04d, so the diff is past the brief limit\n", i }' >> tests/greet_test.sh
+    sed -i.bak 's/alpha beta/alpha beta epsilon/' tests/other_test.sh && rm -f tests/other_test.sh.bak
+    git commit -q -am "test: a large edit and a small one"
+}
+S=cut
+cut_unit "$S"
+run seat "$S"
+eq "a cut brief: seat exits 0" 0 "$RC"
+has "a cut brief marks where the first file's diff stops" "of the diff of tests/greet_test.sh" "$OUT"
+has "a cut brief names the file it never reached" "[cut: the diff of tests/other_test.sh" "$OUT"
+has "a cut brief gives the work-tree read" "diff -M $BASE HEAD -- tests/greet_test.sh tests/other_test.sh" "$OUT"
+has "a cut brief's accept command states the whole read" "--read-whole tests/greet_test.sh tests/other_test.sh" "$OUT"
+hasnt "a cut brief keeps the filler's end out" "filler line 1200" "$OUT"
+eq "the seat line records the cut files" '["tests/greet_test.sh","tests/other_test.sh"]' \
+    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "judged from the brief"
+eq "a cut brief: an accept without --read-whole exits 1" 1 "$RC"
+has "a cut brief: an accept without --read-whole is refused partial-read" "rule partial-read" "$OUT"
+run status "$S"
+if [ "$RC" -eq 0 ]; then
+    bad "a cut brief: an accept without --read-whole doesn't count" "$CUT_MSG"
+else
+    has "a cut brief: an accept without --read-whole doesn't count" "held: unaccepted tests/greet_test.sh" "$OUT"
+fi
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --read-whole tests/greet_test.sh --reason "read one"
+eq "a cut brief: --read-whole naming one of two cut files exits 1" 1 "$RC"
+has "a cut brief: naming one of two is refused partial-read" "rule partial-read" "$OUT"
+run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --read-whole tests/greet_test.sh tests/other_test.sh --reason "read both whole"
+eq "a cut brief: --read-whole naming every cut file exits 0" 0 "$RC"
+eq "the accept line records the whole read" '["tests/greet_test.sh","tests/other_test.sh"]' \
+    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "accept") | .read_whole)')"
+run status "$S"
+eq "a cut brief: the whole read counts" 0 "$RC"
+run record "$S"
+has "record shows the seat's cut files" "its brief cut tests/greet_test.sh,tests/other_test.sh" "$OUT"
+has "record shows the accept's whole read" "read whole: tests/greet_test.sh,tests/other_test.sh" "$OUT"
+
+S=cutfold
+cut_unit "$S"
+run seat "$S"
+jq -nc --arg id "agent:$S/accept-1" --arg g "$(git rev-parse HEAD:tests/greet_test.sh)" --arg o "$(git rev-parse HEAD:tests/other_test.sh)" '
+    {ts: "2026-01-01T00:00:00Z", event: "accept", id: "accept-90", identity: $id, kind: "agent", authority: "reviewer",
+     files: [{path: "tests/greet_test.sh", digest: $g}, {path: "tests/other_test.sh", digest: $o}],
+     reason: "hand-written", outcome: "allow", session_exists: false, source: "session", rule: "interim"}' \
+    >> "$STORE/$S/test_change_ledger.jsonl"
+run status "$S"
+if [ "$RC" -eq 0 ]; then
+    bad "a cut brief: a hand-written accept with no whole read doesn't count" "$CUT_MSG"
+else
+    has "a cut brief: a hand-written accept with no whole read doesn't count" "held: unaccepted tests/greet_test.sh" "$OUT"
+fi
 
 echo
 echo "test-change: $PASS passed, $FAIL failed"

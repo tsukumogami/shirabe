@@ -109,6 +109,12 @@
 #                                  branch, another repository, or no PLAN
 #                                  here: kept, nothing written; another flag
 #                                  beside it exits 64
+#   --reroot-plan, old checkout    the session rebound to a clone at the same
+#   kept                           commit, the old PLAN still there and the
+#                                  same file: plan_abs re-rooted, both paths on
+#                                  stderr; not rebound here, a failed session
+#                                  listing, another commit, or an edited old
+#                                  PLAN: kept, nothing written
 #   usage                          exit 64
 #
 # Usage: record-coord-setup_test.sh
@@ -905,6 +911,72 @@ else
 fi
 (cd "$MOVED" && bash "$SETUP" --reroot-plan --session "$S" --plan docs/plans/PLAN-t.md --store github >/dev/null 2>&1); rc=$?
 [ "$rc" -eq 64 ] && pass "--reroot-plan with another flag exits 64" || fail "reroot usage: rc=$rc"
+
+# --reroot-plan with the old checkout kept: the run's sessions were rebound
+# (koto session rebind) to a new clone of the same coordination branch while
+# the first checkout stayed on disk, so the recorded PLAN still exists.
+# plan_abs moves only when the session's execution_dir is the new checkout and
+# the old PLAN is the same file at the same commit; every other case keeps it.
+setup_case reroot-kept
+run_setup
+OLD_ABS=$(val plan_abs)
+KEPT_NEW="$CT_WORK/reroot-kept-new"
+KEPT_AHEAD="$CT_WORK/reroot-kept-ahead"
+moved_clone "$KEPT_NEW"
+moved_clone "$KEPT_AHEAD"
+git -C "$KEPT_AHEAD" commit -q --allow-empty -m later
+KEPT_NEW_ABS="$(cd "$KEPT_NEW/docs/plans" && pwd -P)/PLAN-t.md"
+SUM=$(store_sum)
+run_reroot "$KEPT_NEW"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(store_sum)" = "$SUM" ]; then
+    pass "--reroot-plan with the old PLAN kept and the session not rebound here keeps plan_abs, nothing written"
+else
+    fail "kept, unbound: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+ct_bind "$S" "$KEPT_AHEAD"
+run_reroot "$KEPT_AHEAD"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(store_sum)" = "$SUM" ]; then
+    pass "--reroot-plan rebound to a checkout at another commit keeps plan_abs, nothing written"
+else
+    fail "kept, other commit: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+grep -qF "[$OLD_ABS] still exists" "$CASE/stderr" \
+    && pass "keeping a still-existing plan_abs in a rebound checkout says why on stderr" \
+    || fail "kept, other commit stderr: [$(cat "$CASE/stderr")]"
+ct_bind "$S" "$KEPT_NEW"
+export KOTO_FAIL_SESSION_LIST=1
+run_reroot "$KEPT_NEW"
+unset KOTO_FAIL_SESSION_LIST
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(store_sum)" = "$SUM" ]; then
+    pass "--reroot-plan keeps plan_abs when the session listing fails, nothing written"
+else
+    fail "kept, listing failed: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+cp "$REPO/docs/plans/PLAN-t.md" "$CT_WORK/reroot-kept-plan"
+printf '\nedited in the old checkout\n' >> "$REPO/docs/plans/PLAN-t.md"
+run_reroot "$KEPT_NEW"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=kept ] && [ "$(store_sum)" = "$SUM" ]; then
+    pass "--reroot-plan keeps plan_abs when the old PLAN differs from the one here, nothing written"
+else
+    fail "kept, edited: rc=$RC out=[$OUT] abs=[$(val plan_abs)]"
+fi
+cp "$CT_WORK/reroot-kept-plan" "$REPO/docs/plans/PLAN-t.md"
+run_reroot "$KEPT_NEW"
+if [ "$RC" -eq 0 ] && [ "$OUT" = plan_abs=rerooted ] && [ "$(val plan_abs)" = "$KEPT_NEW_ABS" ]; then
+    pass "--reroot-plan in the checkout the session was rebound to re-roots plan_abs though the old checkout is kept"
+else
+    fail "kept, rebound: --reroot-plan refuses while the old PLAN exists: rc=$RC out=[$OUT] abs=[$(val plan_abs)] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+grep -qF "[$OLD_ABS]" "$CASE/stderr" && grep -qF "re-rooted to [$KEPT_NEW_ABS]" "$CASE/stderr" \
+    && pass "the kept-checkout re-root names both paths on stderr" || fail "kept re-root stderr: [$(cat "$CASE/stderr")]"
+[ -f "$OLD_ABS" ] && pass "the re-root leaves the old checkout's PLAN in place" || fail "the old PLAN was touched"
+REPO="$KEPT_NEW"
+run_setup
+if [ "$RC" -eq 0 ] && grep -qx "record=existing" <<<"$OUT" && grep -qx "plan_abs=$KEPT_NEW_ABS" <<<"$OUT"; then
+    pass "setup in the rebound checkout accepts the re-rooted plan_abs"
+else
+    fail "setup after kept re-root: rc=$RC out=[$OUT] stderr=[$(tail -1 "$CASE/stderr")]"
+fi
 
 setup_case usage
 (cd "$REPO" && bash "$SETUP" --session "$S" >/dev/null 2>&1); rc=$?

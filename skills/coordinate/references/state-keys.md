@@ -125,7 +125,10 @@ core refuses one. Phase says whether a worker is scoping a unit whose
 scoping is the whole unit (`scoping`), scoping one whose
 execution waits on another feature landing (`scoping-ahead`), executing it, or
 holding a verified pull request whose merge a hold in the record stops (`held`).
-A row leaves Side effects once confirmed. Reversals only grow.
+A row leaves Side effects once confirmed. A merge row goes in the write that
+clears its holding's Pull request cell after the merge is confirmed at the
+row's head (`state-holding.sh`), and the record step checks it is gone.
+Reversals only grow.
 A Holdings row outlives its pull request's merge: a confirmed merge empties
 its `pull_request` and keeps its `verified_head`, and the row goes when the
 worker is torn down. A message-path worker whose unit you dispatch again

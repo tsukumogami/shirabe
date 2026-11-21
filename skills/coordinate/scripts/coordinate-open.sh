@@ -647,6 +647,29 @@ driven_by_another() {
     a=$(run_address "$1") || address_unread "$1" $?
     [ -n "$a" ] && [ -n "$CALLER_NAME" ] && [ "$a" != "$CALLER_NAME" ]
 }
+# driver_stopped <run>: whether the driver of a run another session drives is
+# no longer running here, the reason in DRIVER_WHY. The driver is named as
+# driven_by_another names it: record/meta's driver when set, else the
+# coordinator row's address. The liveness probe (dc_session_live) decides,
+# and a probe that can't read the run (exit 2) counts as running. An imported
+# copy (its log holds koto's session_imported) whose driver has no Claude job
+# on this host is stopped without the probe's 10-minute window: the import
+# marked the source migrated, and koto refuses every write to a migrated
+# session, so its driver, wherever it runs, can no longer drive the run.
+driver_stopped() {
+    local d a log
+    d=$(meta_field "$1" driver) || driver_unread "$1"
+    a=$(run_address "$1") || address_unread "$1" $?
+    if ! dc_claude_job "${DC_CLAUDE_HOME:-$HOME/.claude}" "$d" "$a" > /dev/null 2>&1; then
+        log="$("$KOTO" session dir "$1" < /dev/null 2> /dev/null)/koto-$1.state.jsonl"
+        if jq -e 'select(.type == "session_imported")' "$log" > /dev/null 2>&1; then
+            DRIVER_WHY="$1 is an imported copy and no Claude job for its driver is seen here"
+            return 0
+        fi
+    fi
+    DRIVER_WHY=$(dc_session_live "$1" "$d" "$a" 2>&1)
+    [ $? -eq 1 ]
+}
 # meta_set <run> <jq filter> [jq args...]: rewrite the run's record/meta with
 # the filter applied, through the write core (core_write_meta), in a subshell
 # since the core exits on a refusal. Only the opener writes these fields,
@@ -995,9 +1018,10 @@ takeover() {
 #     taken-over; one it hasn't is this session's, as before.
 #   - a run another session drives is taken over when it could be resumed;
 #     with another live run of the scope it refuses ambiguous-scope, and on a
-#     template this plugin can't drive template-incompatible. A run carried
-#     for another reason (finished, cancelled, provenance, a directed
-#     transition) is carried as before.
+#     template this plugin can't drive template-incompatible while its driver
+#     still runs (driver_stopped); once it doesn't, the run is carried. A
+#     run carried for another reason (finished, cancelled, provenance, a
+#     directed transition) is carried as before.
 takeover_check() {
     local run=$1 action=$2 code=$3 p stopped rd rt
     fence_of "$run"
@@ -1038,7 +1062,14 @@ takeover_check() {
         resume:*) takeover "$run" ;;
         carry:several-live) refuse_takeover ambiguous-scope \
             "more than one run of $SLUG is unfinished here ($(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2> /dev/null | tr '\n' ' ')), so which to take over is ambiguous; nothing was written" ;;
-        carry:template) compat_refusal "$run" "$run's template isn't one this plugin's compat table lists at its compat number" ;;
+        carry:template)
+            # A run this plugin can't drive is carried, as a finished one is,
+            # once its driver no longer runs; while it runs, it keeps the run.
+            if driver_stopped "$run"; then
+                echo "coordinate-open: $run's template isn't one this plugin can drive, and its driver isn't running here (${DRIVER_WHY:-no reason given}), so its record is carried into a new run and $run is cancelled" >&2
+                return 0
+            fi
+            compat_refusal "$run" "$run's template isn't one this plugin's compat table lists at its compat number" ;;
     esac
 }
 T_ERR=$(mktemp "${TMPDIR:-/tmp}/coordinate-open-err.XXXXXX") || usage "could not make a scratch file"
@@ -1273,9 +1304,11 @@ takes_over() {
 }
 
 # The import: the session another workspace ran, from the bucket (PRD R14).
-# The name and a live run of the scope are refused before koto runs; koto's
-# own refusals are printed with its code and leave no session; then the
-# imported copy must be a run this plugin can continue, and record/host takes
+# The name, a live run of the scope, and a source whose template this plugin
+# can't drive (judged where the source is, when its structure can be read
+# there) are refused before koto runs; koto's own refusals are printed with
+# its code and leave no session; then the imported copy must be a run this
+# plugin can continue, and record/host takes
 # the source's facts, so every report up names them for the next import. On
 # koto 0.32.0 and later the copy is then taken over, the predecessor of a new
 # run as in a takeover on one host (takeover above); on an older koto it is
@@ -1364,6 +1397,54 @@ if [ -n "$IMPORT" ]; then
             role_decide "$IMPORT" "$FROM"
         fi
     fi
+    # The template, judged where the source is before koto copies anything
+    # (shirabe#1941): once koto has imported the run the source is marked
+    # migrated, so a refusal after the import leaves nothing where it was.
+    # The source's template hash comes from `koto --workspace W status`; equal
+    # to the shipped one it is driven as is. Otherwise its structure is judged
+    # by fingerprint, from the compiled copy in this host's cache when koto
+    # has that hash, else from the template_fingerprint the source's
+    # record/meta keeps (state-read.sh --meta --workspace). A fingerprint the
+    # compat table doesn't list at the shipped compat number is refused here.
+    # With no fingerprint to judge (no record/meta, a read koto refuses, the
+    # local backend) koto's import runs as before, and the check after it
+    # stays the backstop. A copy already on this host is a repeated import:
+    # koto copies nothing new, and that check judges the copy itself. The
+    # copy is known by the koto/imported-from record koto writes into it, as
+    # in the role check above, not by `koto status`, which on a host holding
+    # both workspaces finds the source itself.
+    PRE_JUDGED= PRE_COPY=
+    if KEYS=$("$KOTO" context list "$IMPORT" --prefix koto/imported-from < /dev/null 2> /dev/null) \
+        && jq -e 'index("koto/imported-from") != null' <<< "$KEYS" > /dev/null 2>&1 \
+        && [ "$("$KOTO" context get "$IMPORT" koto/imported-from < /dev/null 2> /dev/null | jq -r '.from_session // empty' 2> /dev/null)" = "$IMPORT" ]; then
+        PRE_COPY=1
+    fi
+    if [ -z "$PRE_COPY" ]; then
+        SRC_HASH=$("$KOTO" --workspace "$FROM" status "$IMPORT" < /dev/null 2> /dev/null | jq -r '.template_hash // empty' 2> /dev/null) || SRC_HASH=
+        if [[ $SRC_HASH =~ ^[0-9a-f]{64}$ ]] && [ "$SRC_HASH" = "$SHIPPED" ]; then
+            PRE_JUDGED=1
+        else
+            SRC_FP=
+            SRC_COMPILED="$(dirname -- "$COMPILED")/$SRC_HASH.json"
+            if [[ $SRC_HASH =~ ^[0-9a-f]{64}$ ]] && [ -r "$SRC_COMPILED" ]; then
+                SRC_FP=$(bash "$HERE/template-fingerprint.sh" "$SRC_COMPILED" 2> /dev/null) || SRC_FP=
+            fi
+            if [ -z "$SRC_FP" ]; then
+                SRC_FP=$(bash "$HERE/state-read.sh" --meta --workspace "$FROM" --session "$IMPORT" < /dev/null 2> /dev/null \
+                    | jq -r 'objects | .template_fingerprint // empty | strings' 2> /dev/null) || SRC_FP=
+            fi
+            if [[ $SRC_FP =~ ^[0-9a-f]{64}$ ]]; then
+                PRE_JUDGED=1
+                if ! PRE_LINE=$(bash "$HERE/coord-log.sh" compat --fingerprint "$SRC_FP" 2> /dev/null); then
+                    read -r RUN_COMPAT SHIP_COMPAT _ <<EOF
+$PRE_LINE
+EOF
+                    refuse_import template-incompatible \
+                        "$IMPORT was compiled from coordinate.md at compat ${RUN_COMPAT:--} (template ${SRC_HASH:-unknown}); this plugin ships compat ${SHIP_COMPAT:--} (template $SHIPPED), so it can't drive the run; nothing was imported and the source still takes writes, and a plain start carries its record into a new run"
+                fi
+            fi
+        fi
+    fi
     DIR=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-import.XXXXXX") || usage "could not make a scratch directory"
     set -- session import "$IMPORT" --from "$FROM"
     [ -z "$TRUST" ] || set -- "$@" --trust-template
@@ -1374,6 +1455,12 @@ if [ -n "$IMPORT" ]; then
         [[ $CODE =~ ^[a-z_]+$ ]] || CODE=import_failed
         TEXT=$(awk -F'\t' -v c="$CODE" '$1 == c { print $2; exit }' "$WORDING")
         [ -n "$TEXT" ] || TEXT=$(jq -r '.error.message // empty' "$DIR/out" 2>/dev/null | head -c 400)
+        # A template this host lacks, whose structure couldn't be judged
+        # before the import: --trust-template gets the run here, but whether
+        # this plugin can drive it is still to be judged once it is.
+        if [ "$CODE" = import_template_unavailable ] && [ -z "$PRE_JUDGED" ]; then
+            TEXT="$TEXT The source's template couldn't be judged before the import, so the compat check still lies ahead: an imported run on a template this plugin can't drive is refused then, and stays on this host."
+        fi
         echo "refused=$CODE"; echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
         rm -rf "$DIR"
         # koto's exit 1 is a read, push or marker failure worth retrying;

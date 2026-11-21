@@ -49,7 +49,7 @@ before producing a result, or a change the map selects nothing for all fail clos
 
 ## The file
 
-The map is one JSON object with four top-level fields:
+The map is one JSON object with five top-level fields:
 
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
@@ -57,6 +57,7 @@ The map is one JSON object with four top-level fields:
 | `commands` | object | yes | Named commands, keyed by an id. Entries and `default` refer to commands by id. |
 | `entries` | array | yes (may be empty) | Each entry binds path-globs to command ids. |
 | `default` | array of ids | no | The command ids run when a changed path matches no entry. |
+| `build_output` | array of paths | no | The repository's build output, as literal repo-relative paths. Verification never reads it; see [`build_output`](#build_output). |
 
 ### `entries`
 
@@ -79,11 +80,20 @@ Each value under `commands` is an object with these fields:
 | `network` | boolean | `false` | Whether the command reaches the network. A command that does must say so. |
 | `unattended` | boolean | `true` when `network` is `false`; none when `network` is `true` | Whether the command may be started with no person present. A command marked `network: true` must set `unattended` explicitly; a map that omits it there does not parse. A command marked `unattended: false` is never started by the gate on its own; the run stops for a person instead. |
 | `max_procs` | integer | `256` | The most processes the command's process group may hold at once. A command that grows past it is killed and counts as not passed. |
+| `timeout_form` | string (regular expression) | absent | How a timeout inside the command reads, for a command that can time out inside itself (a test that gives up waiting under load) rather than at `timeout_secs`. A nonzero exit is recorded as `timed-out-inside` only when the command's log reports at least one failure line and every failure line matches this expression; otherwise it is `failed`. See [Command records](#command-records). |
+| `hosted` | array of objects | absent | The hosted CI jobs that run this command's suites, for a command whose run can be settled by hosted CI instead. Each entry has three non-empty strings: `workflow`, the workflow file, a path under `.github/workflows/`; `job`, the job's name as GitHub reports it, matrix leg included (`skill-gate (ubuntu-latest)`, not `skill-gate`); and `runs`, the line of the job's plan that runs this command, with `{skill}` standing for the last component of the `each` directory the invocation runs for. Each invocation carries the row's validated `hosted` (`[]` when the row declares none). The hosted-of-record route reads it: when this row's check times out, `verification-route.sh` reads the declaration from the merge-base's map and settles the check on these jobs (see [The hosted-of-record route](#the-hosted-of-record-route)). A row without `hosted` keeps the route closed for its check. |
 
 A map does not parse when it isn't valid JSON, when `schema` is missing or different, when a
 required field is missing or has the wrong type, when an entry or `default` names an id that
-`commands` doesn't define, when `timeout_secs` exceeds `3600`, or when a `network: true`
-command omits `unattended`.
+`commands` doesn't define, when `timeout_secs` exceeds `3600`, when a `network: true`
+command omits `unattended`, when `timeout_form` is not a non-empty string that compiles as
+a regular expression, or when `hosted` is malformed: not an array, an empty array, an entry
+that isn't an object, an entry whose `workflow`, `job` or `runs` is missing, empty or not a
+string, or a `workflow` outside `.github/workflows/`. The refusal names the command.
+
+A declaration is a claim that the job runs every suite the command can select, and a claim
+the map alone can't prove. A project that declares `hosted` keeps a test that proves it
+against the workflow file and the job's own plan, over the diffs that select the command.
 
 ### Selection rules
 
@@ -93,6 +103,63 @@ command omits `unattended`.
   all of the change's paths, in sorted order. When no changed directory matches the pattern,
   the command doesn't run, and it doesn't count as selected. A change whose only selected
   command is such an `each` command selects nothing.
+
+### `build_output`
+
+`build_output` names what the repository's builds write, such as `target/`: directories a
+run can delete once its work is done, because the next build recreates them. Like the rest
+of the map, it's read from a pinned base commit, never from the working tree.
+
+Each entry is a literal path relative to the repository root. Globs aren't expanded: `*` and
+`**` have no special meaning, so `target/*` names a path whose last component is `*`. Before
+paths are compared, a leading `./` and a trailing `/` are dropped, so `./target/`, `target/`
+and `target` are one path. Duplicates collapse to one, and a path under another declared
+path is handled with its parent: declaring `target` and `target/debug` handles `target`
+once, and `target/debug` gets no result of its own.
+
+Verification never reads the field. Selection uses `commands`, `entries` and `default`
+only, and the parse rules above don't check `build_output`, so a map whose `build_output`
+is a string, or whose list holds a number or an empty string, selects exactly what the same
+map without the field selects, and still parses. The field's own checks belong to the
+build-output cleanup that reads it.
+
+The cleanup checks each path in a fixed order and stops at the first word that refuses it:
+
+| Word | When |
+|------|------|
+| `absolute` | The path is absolute. |
+| `outside` | The path leaves the repository root, through a `..` or any other route, or is `.` itself. |
+| `gone` | The path passed the two checks above and doesn't exist. Nothing is removed and nothing more is checked. |
+| `symlink` | The path, or a directory on the way to it, is a symbolic link. |
+| `tracked` | git tracks something at or under the path. On a case-insensitive repository (`core.ignorecase` true), a path whose on-disk or case-folded spelling matches a tracked path counts too. |
+| `not-ignored` | `git check-ignore` doesn't match the path. |
+| `protected` | The path is or contains the git directory or the common git directory, holds a `.git` entry at any depth (a nested clone or worktree) or a mount, or is one of `.git`, `.claude`, `CLAUDE.md`, `CLAUDE.local.md`, `.env`, `.env.*` or the cleanup's own directory. |
+
+A path that passes every check is removed and reported `removed`. Two more words fall
+outside that order. `malformed` names a `build_output` that isn't a list, which removes
+nothing, and an entry that isn't a non-empty string or that holds a newline or other
+control character, which is skipped. `failed` names a path that passed every check but
+couldn't be removed safely: it changed between the check and the removal, it sits on
+another device, or its `protected` check ran out of time. It also names a problem with the
+cleanup's own records directory, in which case nothing is removed. A `failed` path stays in
+place.
+
+**Turning the cleanup on.** The cleanup is off unless a workspace turns it on. It runs only
+when the line `## Build Output Cleanup: on` sits in a `CLAUDE.local.md` that git doesn't
+track and that isn't a symbolic link, in the work tree the run takes its instructions from.
+The header's name is matched exactly; its value `on` in any case turns the cleanup on, and
+anything else leaves it off. A tracked or symlinked `CLAUDE.local.md`, an unreadable one, or
+one with the header twice leaves it off too, and the cleanup says which. The
+committed `CLAUDE.md` is never read for this line, so a repository can't turn the cleanup
+on for everyone who clones it. An operator adds the line to each worktree's untracked
+`CLAUDE.local.md`, or a workspace manager's config adds it to the `CLAUDE.local.md` it
+generates for every worktree it makes. Nothing in shirabe writes it.
+
+**Other readers.** An instance remover, a tool that deletes or trims whole worktrees, may
+read `build_output` to learn what in a tree is disposable. The field is a contract for those
+readers: it isn't renamed or changed in meaning without a change to the schema string,
+which stays `shirabe-verification-map/v1`. Adding the field didn't need a new string,
+because a reader that predates it ignores an unknown top-level field.
 
 ## How the commands run
 
@@ -117,6 +184,48 @@ Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.
 
+### Command records
+
+The result lists one record per command run, with its `id` (the map row's id), its
+`check`, `argv`, `exit_status`, `duration_secs`, `log`, the `timed_out`, `runaway` and
+`not_started` flags, and two fields that say how it ended. `check` names the check the
+record is: the row id for a plain row, and `<row id>:<last argv>` for an `each` row
+(`check-skill:coordinate`), so two runs of one row are told apart. The result itself carries
+`finished_at`, the UTC time it was written; a hosted-of-record record can't be taken
+before it.
+
+- `outcome` — one of four values:
+
+  | `outcome` | When |
+  |-----------|------|
+  | `passed` | The command exited 0 inside its limit. |
+  | `timed-out-limit` | The supervisor stopped it at its `timeout_secs` (or at the run's budget), and its suite summary lists no finished-failed suite, or it wrote no summary. `timed_out` is `true`. |
+  | `timed-out-inside` | It exited nonzero inside its limit, its row declares `timeout_form`, its log reports at least one failure line, and every failure line matches the form. `timed_out` is `false`. |
+  | `failed` | Anything else: a nonzero exit that isn't `timed-out-inside`, a stop at the limit whose summary lists a finished-failed suite, a runaway, or a command that never started. The `runaway` and `not_started` flags still say which of the last two it was, and neither is ever a timeout. |
+
+  A failure line is one that, after optional leading space and a terminal colour code,
+  starts with `FAIL` or `not ok` followed by anything but a letter: the same lines
+  `scripts/check-skill.sh` collects from a failed suite. A log with no failure line never
+  reads as a timeout, whatever the form, so a row without `timeout_form` records every
+  nonzero exit as `failed`, even one whose log prints a line that looks like a timeout.
+
+- `suites` — the suite summary the command left, or `null` when it left none (or left
+  something that isn't one). The supervisor sets `SHIRABE_SUITE_SUMMARY` in each command's
+  environment to `<head dir>/<index>-<id>.suites.json`, removing any file already there
+  first, so a summary from an earlier run is never copied into a new record. A command that
+  writes one writes a JSON object of four arrays of suite names, `passed`, `failed`,
+  `running` and `not_started`, each suite in exactly one. `scripts/check-skill.sh` writes
+  it, by the names `--changed --list` prints, when the suite set is known, at each launch,
+  as each suite ends and when it is stopped by TERM, each time to a temporary file renamed
+  into place, so a command killed outright still leaves the last whole summary. It unsets
+  the variable before any suite runs, so a suite can't write the summary itself.
+
+The verdict reads `outcome`. A `failed` record exits 1, a stop at the limit with a
+finished-failed suite included, since that suite says the change broke something. A
+`timed-out-limit` or `timed-out-inside` record exits 5 when the hosted-of-record route is
+open and 4 when it isn't. A record without `outcome` (a result written before outcomes
+existed) ranks by its flags, and the route stays closed for it.
+
 ## Verdicts
 
 `skills/work-on/scripts/check-verification.sh --verdict --session <s>` reads the result
@@ -128,21 +237,25 @@ for the current head. A settled result is also recorded in koto context as
 |------|---------|-----------|
 | 75 | no result for this head yet; the gate waits | none |
 | 0 | every selected command ran and passed | none |
-| 1 | a command ran and failed | `verification/command-failed` |
+| 1 | a check failed (`outcome: failed`), including a stop at its limit with a finished-failed suite | `verification/command-failed` |
 | 3 | no map at the merge-base, or a map that selects nothing | `verification/no-map` |
 | 3 | a map that does not parse | `verification/bad-map` |
 | 4 | a selected command is `unattended: false`; nothing was started | `verification/needs-person` |
-| 4 | a command ran past its `timeout_secs` and was killed | `verification/timed-out` |
+| 4 | a command ran past its `timeout_secs` and was killed, or timed out inside itself, and the hosted-of-record route is closed | `verification/timed-out` |
 | 4 | a command's process group grew past `max_procs` and was killed | `verification/runaway` |
 | 4 | a command's `run[0]` is not an executable program | `verification/not-started` |
 | 4 | tracked files had uncommitted changes | `verification/dirty-tree` |
+| 5 | a check timed out, no check failed, and the hosted-of-record route is open: the timed-out hold | `verification/timed-out` (as at exit 4) |
 | 2 | the result could not be read | none; the gate holds |
 | 2 | the supervisor stopped before every command ran | none; the gate holds |
 
-A timeout, a runaway kill, a command that could not start and a command that needs a person
-exit 4, never 1: none of them says the change is wrong, so none sends the run back to
-implementation; they stop the run for a person. When one result holds both a failed command
-and a command that exits 4, the verdict is 4.
+A runaway kill, a command that could not start and a command that needs a person exit 4,
+never 1: none of them says the change is wrong, so none sends the run back to
+implementation; they stop the run for a person. A timeout doesn't say the change is wrong
+either, so it exits 5 or 4, never 1. The order between them: a not-started command, a
+runaway, a command that needs a person and a dirty tree outrank everything (4); then no map
+or a bad one (3); then a failed check (1), so a failed check beside a timed-out one goes back
+to implementation; and only then a timeout (5 with the route open, 4 with it closed).
 
 A supervisor that stopped before every command ran is not a verdict at all. A memory guard
 or a person may have killed it, or it could not run, and either way the result says nothing
@@ -156,6 +269,52 @@ moving the stopped result aside does.
 The whole run has a budget too: two hours, the length of the gate's wait. A command still
 running when the budget runs out is killed and reported as `verification/timed-out`, and the
 commands after it are not started.
+
+## The hosted-of-record route
+
+A check that timed out locally, with no check failed, may be settled by the hosted jobs its
+row declares in `hosted`, run at the same head on the pull request. At exit 5 the work-on
+run holds in `verification` and may take the route (`verification_status:
+hosted_of_record`, with a reason in `detail`), go back to implementation (`fix`), or stop
+(`blocked`). `skills/work-on/scripts/verification-route.sh` makes every decision the route
+needs.
+
+`--open` decides whether the route is open, for the stored result at this head and
+merge-base. It is closed, with each cause on stderr, by any of: a timed-out check whose row in
+the merge-base's map declares no `hosted`; a failed check; a not-started or runaway command;
+a supervisor error, a dirty tree, an attended result, a missing or bad map; a budget stop that
+left commands unstarted; a diff from the merge-base that touches a path under `.github/`,
+`scripts/skill-gate.sh`, `scripts/check-skill.sh`, a library either of them sources or a
+helper either runs (read from the merge-base's copies, so a helper the diff adds and edits
+still closes it), this map, or `skills/work-on/scripts/verification-hosted-coverage_test.sh`;
+and a `check-skill.tsv` edited other than by added rows.
+
+Taking the route writes the koto key `hosted_of_record` (`--record`): the head, `taken_at`,
+the reason (stripped of control characters and backticks, capped in length, never put on a
+command line) and one part per timed-out check with the jobs its row declares and no run ids
+yet. The pull request opens as a draft carrying one `Hosted of record:` line per recorded
+check, written by `--lines` from the record. `--read` then reads each job's latest attempt at
+the record's head and fills the run ids when every one concluded success; the pull request is
+marked ready only after that read, and `--settled` re-reads every filled run before the run
+goes on. A key from an earlier head is removed by `run-verification.sh --start`, and any
+commit after the route was taken voids it: the record's head no longer matches, the read
+refuses and the new head is verified afresh.
+
+The hosted wait is measured from `taken_at` and lasts up to 120 minutes. It isn't charged to
+the run's two-hour budget, which only bounds the local commands.
+
+A child of `/execute` takes the route like any run, and still ends with `pr_status: shared`:
+the pull request it would have read is `/execute`'s. `/execute` writes its own record for the
+pull request it owns (`--collect`), at that pull request's head, from the children's records:
+the union of their checks, each part naming its child, one reason built from theirs, and its
+own `taken_at`, so its wait starts when it took the route. Each child's part is validated
+against that child's stored result and map, and the pull request's whole diff from its
+merge-base goes through the same diff checks `--open` makes, so another child's commit on the
+shared branch that touches `.github/` closes the route for all of them. A `single-pr` run keeps
+its record as `hosted_of_record` in its own session and reads it at `plan_completion` before it
+marks the shared pull request ready; a coordinated run keeps one record per node,
+`run/hosted/<node>`, written by `node-push.sh` for the node's pushed head and read before the
+node pull request is readied or merged.
 
 ## Illustrative example (not a real project's map)
 
@@ -174,7 +333,8 @@ The map below is illustrative only. Real commands live in a project's own map fi
     {"paths": ["src/**"], "commands": ["unit", "integration"]},
     {"paths": ["packages/**"], "commands": ["lint-pkg", "unit"]}
   ],
-  "default": ["unit"]
+  "default": ["unit"],
+  "build_output": ["target/"]
 }
 ```
 
@@ -183,4 +343,6 @@ and requires both to pass.
 When it changes files under `packages/foo/` and `packages/bar/`, it runs
 `scripts/lint-package.sh foo`, `scripts/lint-package.sh bar` and `make test`. When it changes
 only files no entry matches (say, a top-level config file), it runs the `default` list. The
-`integration` command reaches the network, so it states `unattended` explicitly.
+`integration` command reaches the network, so it states `unattended` explicitly. The
+`build_output` list changes none of that; it tells the build-output cleanup that `target/`
+is build output.
