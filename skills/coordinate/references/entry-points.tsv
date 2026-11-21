@@ -64,7 +64,7 @@
 scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*	any	-
 execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge,--review-floor=*,--review-ceiling=*	any	-
 deliver	deliver	deliver.md	TOPIC=arg	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*,--review-floor=*,--review-ceiling=*	any	-
-work-on	work-on	work-on.md	-	--auto,--interactive,--review-floor=*,--review-ceiling=*	any	-
+work-on	work-on	work-on.md	-	--auto,--interactive,--review-floor=*,--review-ceiling=*,--delivery=partial,--delivery-reason=*	any	-
 explore	-	-	-	--auto,--interactive	any	-
 decision	-	-	-	--auto	any	-
 coordinate	-	-	-	-	any	-
