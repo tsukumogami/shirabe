@@ -86,6 +86,15 @@ hosts that aren't enrolled and feed work other lanes own. The DESIGN's
 keep-or-cut table has the verdict and evidence for each of the 24 states
 added since 0.19.1.
 
+**Overlapping work.** Open shirabe pull requests touch the same files:
+#1881 (same-head verification rerun) touches `work-on.md`,
+`run-verification.sh`, the work-on `SKILL.md`, `review-level-rules.tsv`,
+`verification-map.md` and the execute `SKILL.md` and `execute.md`; #2013
+touches `run-verification.sh`, `check-verification.sh` and `check-skill.sh`;
+#1184 (plan-run-record) touches the execute files and `work-on.md`. Each
+implementation PR here rebases on whichever of them lands first, and issue 9
+checks the state of #1184 and #1881 before its first change.
+
 **koto dependencies.** The workflow changes need none; every issue builds on
 koto 0.37. Issue 1 files one proposal in `tsukumogami/koto` for the signal
 contract: change-size attributes on the run and a lineage attribute naming

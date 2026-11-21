@@ -50,8 +50,8 @@ check stays.
 
 Five journeys frame it: a small fix, a risky template change, a fix round
 after done, a plan with independent steps, and a maintainer deciding
-whether a check stays (the User Stories below). The boundary keeps the
-multi-session operating model, the milestone Done rule, CI workflow
+whether a check stays (the User Stories below). The boundary keeps
+multi-session coordination, the milestone Done rule, CI workflow
 definitions and the coordinator skill outside, and plans rather than
 implements (Out of Scope below).
 
@@ -143,7 +143,7 @@ check that remains has a written reason.
   since 0.19.1 to carry a recorded keep-or-cut verdict and its evidence, so
   that I can answer from the record instead of reconstructing old pull
   requests.
-- As the owner judging whether the trims worked, I want per-visit time
+- As a maintainer judging whether the trims worked, I want per-visit time
   normalized by diff size before and after each change, so that a faster
   median isn't just smaller issues.
 
@@ -414,13 +414,12 @@ whatever backend the team sends the signals to.
 
 ## Out of Scope
 
-- The multi-session operating model: coordinators, merge seats, grant rules
-  and session succession (see Absorbed Brief). They add their own waiting,
-  but they live outside these two skills.
+- How several sessions coordinate one effort, including the coordinator
+  skill's own workflows. It adds its own waiting, but it lives outside these
+  two skills.
 - When a roadmap milestone counts as Done.
 - CI workflow definitions and suite duration. R9 changes what a run waits
   for, not which jobs exist or how long they take.
-- The coordinator skill and its workflows.
 - The rest of the planning skills' review wiring (review events, document
   checks), and the defaults of the offload canary, the rule-distance probe
   and shadow grading of document criteria (R19 and R20 withdrawn).
@@ -465,9 +464,8 @@ whatever backend the team sends the signals to.
   quarter of runs but lowers review for them.
 - **The 11-09 template change is not a cause.** It adds one telemetry call
   per review round. The step at that date is more plausibly the koto floor
-  bump it carried, the hosted skill-gate run added days later, and the
-  operating-model changes of the same week, or a measurement break in the
-  review telemetry it introduced. Reverting it would recover nothing; R3
+  bump it carried and the hosted skill-gate run added days later, or a
+  break in the review records it started sending. Reverting it would recover nothing; R3
   is how to confirm.
 - **200 lines and 5 files for `light`.** The thresholds 40, 400 and 12 were
   chosen from reading and never tuned. 200 lines is the size under which a
