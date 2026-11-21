@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   On a milestone roadmap one status, Done, has to say both that a milestone's
   work landed and that a non-delivering checker verified it, so landed work
@@ -33,7 +33,7 @@ upstream: docs/prds/PRD-completed-verified-states.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
