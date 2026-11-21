@@ -84,7 +84,7 @@ Not written yet: a later /design phase replaces this line.
 Not written yet: a later /design phase replaces this line.
 EOF
 
-shirabe validate "$doc" >/dev/null 2>&1
+out=$(shirabe validate "$doc" 2>&1)
 rc=$?
 case "$rc" in
     0)
@@ -93,10 +93,12 @@ case "$rc" in
         ;;
     2)
         echo "design: the shirabe on PATH refuses a design at status Draft. /design needs shirabe $NEED or later; install it and run /design again." >&2
+        printf '%s\n' "$out" >&2
         exit 1
         ;;
     *)
         echo "design: could not run the probe: shirabe validate exited $rc on a minimal Draft design" >&2
+        printf '%s\n' "$out" >&2
         exit 2
         ;;
 esac
