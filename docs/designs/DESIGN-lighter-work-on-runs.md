@@ -115,7 +115,9 @@ than 5 runs, and a test fails it on any field other than a number or a
 fixed label. Besides the R2 table it prints a seat analysis: for past runs
 within the light cap, which seat raised each blocking finding. `review-level.sh facts` appends each
 gather to a new `review_facts.jsonl` key beside the existing
-`review_facts.json`, and a new `skills/work-on/scripts/run-report.sh` reads
+`review_facts.json`, each line holding every R1 field (lines, files,
+classes, the test and criteria flags, floor, rules fired and head), and a
+new `skills/work-on/scripts/run-report.sh` reads
 retained sessions (state logs, `review_facts.jsonl`, `verdict_ledger.json`,
 `verification_results.json`, `fix_rounds.jsonl`) and prints the R2 table per
 template version and size band. Its first committed output answers R3.
@@ -190,7 +192,10 @@ and to `local` otherwise. The map is the merge-base copy, as
 `skills/work-on/references/verification-map.md` already specifies, and
 `ci_monitor` re-reads the twins from the current default branch's map before
 its green edge: a twin that no longer exists sends the run to local
-verification. A hosted resolution writes the deferral reason itself
+verification. A failing twin routes the run back to `implementation`, as a
+failing local command does. Resolving ci and security paths to `local`
+too is stricter than R8 asks, on purpose: those paths can change what CI
+itself runs. A hosted resolution writes the deferral reason itself
 (`hosted twins cover every selected command`), so the existing
 `verification_deferred` route and its pull request body record apply
 unchanged. `local` and `hosted-ci` keep their meaning when passed
@@ -305,7 +310,10 @@ derived from recorded verdicts.** The light seat's prompt
 (`skills/work-on/references/phases/phase-4d-light.md`) and `review-round.sh`
 accept `escalate`, which raises `REVIEW_LEVEL` to `standard` through
 `review-level.sh raise --reason escalate` and routes back to
-`review_level_check`.
+`review_level_check`. A raise is persisted in `review_level.jsonl`;
+`set-from-facts` takes the maximum of the facts floor and every recorded
+raise, and the cap lowers only the facts floor, so an escalated run stays at
+`standard` or above.
 
 `review-level.sh audit <session>` returns 0 when `sha256(session name) mod
 10 == 0`. work-on derives the session name from the issue reference, or for
@@ -319,7 +327,9 @@ doesn't report it: `run-report.sh` derives it from the panels' verdict
 ledger. The report trips the bound on more than 3 misses in the last 30
 audited runs, and at once on any miss whose finding is in the security or
 correctness category. Either trip prints the rules-file change that lowers
-the cap to 40 lines and 3 files; a maintainer makes it by pull request.
+the cap to 40 lines and 3 files; a maintainer makes it by pull request. The
+fast trip applies whatever the audited count, so it fires even before 30
+audited runs exist; the bound count waits for 30.
 
 The audit is a slow net: at about a tenth of light runs, 30 audited runs
 take a few hundred light runs. That is why the wide cap waits for the
@@ -378,7 +388,11 @@ default to `off`. `entry`'s and the canary's exits route on the variable's
 value (koto value routing), so an `off` run goes from `analysis` straight
 on and never enters a canary or probe state; the probe's
 `probe_value_absent` gates move behind a `vars.PROBE: on` condition. The
-existing opt-in files still decide enrolment when the variable is `on`.
+existing opt-in files turn the variables on: `work-on-open.sh` reads
+`shirabe/offload-canary` and `shirabe/probe` under the user config directory
+and binds `OFFLOAD_CANARY=on` or `PROBE=on` at `koto init` when the file's
+first line is exactly `on`, so an opted-in host enters the states with no
+other action, and the draw scripts then assign the arm as today.
 `doc-criteria.sh grade` returns at once unless
 `${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/doc-criteria` exists with first
 line `on`.
@@ -432,7 +446,7 @@ designs found one such record.
 | `reproduce` | keep | no recorded catch | proves a fix's test fails without the fix; the report counts its holds so the next review has data |
 | `changed_paths_record` | keep | no recorded catch | no agent stop; feeds the facts |
 | `issue_type_routing` | trim | no recorded catch | auto-routes code; Q12 |
-| `review_level_check` | keep | raises the agent's level on most runs | the facts floor is the check that keeps risky paths at `full` |
+| `review_level_check` | keep | no recorded catch; its facts floor raised the agent's chosen level on most recent runs | the facts floor is the check that keeps risky paths at `full` |
 | `light_review` | keep | no recorded catch | becomes reachable; Q7, Q10 |
 | `verification_deferred` | keep | no recorded catch | carries the hosted build of record; Q5 |
 | `verification_hosted` | keep | no recorded catch | hosted-of-record route for timeouts (work in flight) |
@@ -553,6 +567,8 @@ Components and their changes:
 - `skills/work-on/references/review-level-rules.tsv`: the `cap` row, first
   `classes=docs,test`, later widened; `rule full red_test_edited` replaces `rule full tests_edited`;
   engine rows for digest-covered scripts; `*.compat.json` to `manifest`.
+- `skills/work-on/scripts/work-on-open.sh`: bind `OFFLOAD_CANARY` and
+  `PROBE` from the opt-in files.
 - `skills/work-on/scripts/fix-round.sh`: copy the parent's
   `verdict_ledger.json` and passed `verification_results.json` entries.
 - `skills/work-on/scripts/run-verification.sh`, `check-verification.sh`:
@@ -576,8 +592,9 @@ Components and their changes:
 
 Data written per run (all koto context keys in the work-on session):
 `review_facts.jsonl` (new, one JSON object per gather),
-`relevant_checks.txt` (new), `review_level.jsonl` (gains `audit` and
-`audit_miss` lines), `verdict_ledger.json` and `verification_results.json`
+`relevant_checks.txt` (new), `review_level.jsonl` (gains an `audit` line
+recording that the run was drawn; misses are not written by the run, the
+report derives them from the verdict ledger), `verdict_ledger.json` and `verification_results.json`
 (gain a `carried_from` field in a fix round).
 
 ## Implementation Approach
