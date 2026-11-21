@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A session that stops leaves its reasoning unreadable and its files unclaimed,
   so the next session, its supervisor and the instance cleanup can't tell what
@@ -22,7 +22,7 @@ upstream: docs/briefs/BRIEF-handoff-brief.md
 
 ## Status
 
-Accepted
+In Progress
 
 Written from the accepted BRIEF-handoff-brief, as amended after acceptance.
 Two halves with different risk: the handoff brief has no pending decision and
