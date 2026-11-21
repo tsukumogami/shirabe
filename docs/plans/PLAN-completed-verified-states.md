@@ -2,6 +2,7 @@
 schema: plan/v2
 status: Active
 execution_mode: single-pr
+split_mode_source: none
 tracking_level: none
 upstream: docs/designs/DESIGN-completed-verified-states.md
 milestone: "Completed and Verified milestone states"
