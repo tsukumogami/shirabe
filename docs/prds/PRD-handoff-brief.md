@@ -262,7 +262,8 @@ states them.
   role on also moves the rule that makes it stop at its context line: the
   role no longer stops at the line, which becomes its window, and stops only
   at a hard stop above the window (for workers, the stop near 350K that
-  applies today only near a unit's end). The hard stop acts only as a
+  applies today only near a unit's end; the design sets it for each later
+  role). The hard stop acts only as a
   fallback for a compaction that didn't fire, and leads to today's successor
   route (R20). So a switched-on role compacts at the size where it stops
   today, and costs no more per turn than it does now. Serves: E2.
@@ -275,7 +276,9 @@ states them.
   setting only workspace-wide or per repository, its dispatch-time
   environment passthrough refuses names that start with `CLAUDE_`, and its
   launch settings never set them. That change is part of v1, as a separate
-  niwa pull request. A switch-on reaches an instance only when niwa next
+  niwa pull request. A session's role is fixed when it is dispatched, so the
+  window follows the role a session is dispatched with; the design picks what
+  carries it. A switch-on reaches an instance only when niwa next
   applies to it; whether a session already running there picks it up without
   a restart is an owned unknown. shirabe documents the setting and ships the
   hooks; it sets nothing on in a workspace by itself. Sessions launched at the
@@ -607,8 +610,11 @@ first tasks, not left open:
   transcripts on hand.
 - Where the brief keys sit in the koto session (a key prefix, or none); the
   earlier reason for a `handover/` prefix no longer holds.
-- Supervising sessions' post-compaction size, which nobody has measured; if
-  it exceeds 170K, R13's value is checked again before they switch on.
+- Coordinators' and supervising sessions' post-compaction size as measured
+  at their own windows: the coordinator figures come from compactions near
+  the model's maximum, and supervising sessions have none. If a role's first
+  measured size breaks the margin rule (for coordinators at 300K, anything
+  above 180K), that role's window is set again before it switches on.
 
 ## Known Limitations
 
