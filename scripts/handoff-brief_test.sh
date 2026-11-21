@@ -18,11 +18,12 @@
 #   (put a built shirabe on PATH to run the hook cases, e.g.
 #    PATH="$PWD/target/release:$PATH" bash scripts/handoff-brief_test.sh)
 set -uo pipefail
+. "$(dirname "$0")/../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$HERE/handoff-brief.sh"
 T=$(mktemp -d "${TMPDIR:-/tmp}/handoff-brief-test.XXXXXX") || exit 1
-trap 'case "$T" in */handoff-brief-test.*) rm -rf "$T" ;; esac' EXIT
+ktg_on_exit 'case "$T" in */handoff-brief-test.*) rm -rf "$T" ;; esac'
 PASS=0 FAIL=0
 ok() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
@@ -68,7 +69,8 @@ check "exit 0" '[ "$rc" -eq 0 ]'
 check "koto got compaction/note.md in the koto session" 'grep -q "^context add probe-run compaction/note.md --from-file " "$T/koto.log"'
 check "koto got the reasoning text" 'grep -q "halfway through step 3" "$T/koto.log.content"'
 check "entry exists" '[ -f "$ENTRY" ]'
-mode_of() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+# GNU stat first: there, -f means the file system and still exits 0.
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 check "entry is 0600" '[ "$(mode_of "$ENTRY")" = 600 ]'
 check "directory is 0700" '[ "$(mode_of "$T/state/shirabe/compaction")" = 700 ]'
 check "entry lines in order" '[ "$(cat "$ENTRY")" = "koto_session: probe-run
@@ -77,7 +79,7 @@ branch: session/test1
 pr: https://github.com/acme/widgets/pull/42
 skill: shirabe:deliver handoff-brief --no-merge $DELIVER
 skill: shirabe:scope handoff-brief $SCOPE" ]'
-check "prints the ledger path" 'printf "%s" "$OUT" | grep -q "^ledger=$ENTRY$"'
+check "prints the ledger path" 'grep -q "^ledger=$ENTRY$" <<<"$OUT"'
 check "no stray temporary files" '[ "$(ls -A "$T/state/shirabe/compaction" | wc -l | tr -d " ")" = 1 ]'
 
 echo "== --koto-session wins, --pr defaults to none =="
@@ -124,18 +126,18 @@ if command -v shirabe >/dev/null 2>&1 && shirabe compaction --help >/dev/null 2>
     PC=$(hook pre-compact "$IN"); rc=$?
     check "pre-compact exit 0" '[ "$rc" -eq 0 ]'
     for want in probe-run session/test1 https://github.com/acme/widgets/pull/42 compaction/note.md "$DELIVER"; do
-        check "pre-compact names $want" 'printf "%s" "$PC" | grep -qF "$want"'
+        check "pre-compact names $want" 'grep -qF "$want" <<<"$PC"'
     done
     RA=$(hook re-anchor "$IN"); rc=$?
     check "re-anchor exit 0" '[ "$rc" -eq 0 ]'
     CTX=$(printf '%s' "$RA" | jq -r '.hookSpecificOutput.additionalContext')
     check "re-anchor is a SessionStart hook JSON" '[ "$(printf "%s" "$RA" | jq -r .hookSpecificOutput.hookEventName)" = SessionStart ]'
     check "re-anchor under 10,000 characters" '[ "$(printf "%s" "$RA" | wc -c | tr -d " ")" -lt 10000 ]'
-    check "re-anchor inlines no note text" '! printf "%s" "$RA" | grep -q "halfway through"'
+    check "re-anchor inlines no note text" '! grep -q "halfway through" <<<"$RA"'
     check "re-anchor order: SKILL.md, koto status, note" '
-        a=$(printf "%s\n" "$CTX" | grep -n -F "$DELIVER" | head -1 | cut -d: -f1)
-        b=$(printf "%s\n" "$CTX" | grep -n "koto status probe-run" | head -1 | cut -d: -f1)
-        c=$(printf "%s\n" "$CTX" | grep -n "koto context get probe-run compaction/note.md" | head -1 | cut -d: -f1)
+        a=$(grep -n -m 1 -F "$DELIVER" <<<"$CTX" | cut -d: -f1)
+        b=$(grep -n -m 1 "koto status probe-run" <<<"$CTX" | cut -d: -f1)
+        c=$(grep -n -m 1 "koto context get probe-run compaction/note.md" <<<"$CTX" | cut -d: -f1)
         [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ]'
     for sub in pre-compact re-anchor; do
         OUT=$(HOOK_KS=someone-else hook "$sub" "$IN"); rc=$?
