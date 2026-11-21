@@ -154,7 +154,7 @@ case "${1:-} ${2:-}" in
     "request abandon-request")
         # Served for --retire's release of a gone worker's leg (shirabe#1833):
         # the call is logged above, and KOTO_ABANDON_FAIL fails it.
-        [ -n "${KOTO_ABANDON_FAIL:-}" ] && { echo "koto stub: abandon failed ${3:-}" >&2; exit 1; }
+        if [ -n "${KOTO_ABANDON_FAIL:-}" ]; then echo "koto stub: abandon failed ${3:-}" >&2; exit 1; fi
         ;;
     "template compile")
         [ -z "${KOTO_COMPILE_FAIL:-}" ] || { echo "koto stub: compile failed" >&2; exit 1; }
