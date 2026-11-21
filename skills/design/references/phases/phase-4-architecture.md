@@ -14,9 +14,19 @@ information, go back to Phase 3 rather than doing inline research here.
 
 ## Resume Check
 
-If the design doc has a "Solution Architecture" section, skip to Phase 5.
+If the design doc has a "Solution Architecture" section whose body is
+something other than the stub marker line, skip to Phase 5. A section whose
+whole body is the marker
+(`skills/design/references/design-format.md`, The stub marker) counts as
+absent, so a run stopped with Solution Architecture still stubbed runs this
+phase.
 
 ## Steps
+
+Solution Architecture, Implementation Approach and Consequences each hold the
+stub marker line from Phase 0. Each step below replaces that line with the
+section it writes; it doesn't add below it, and it leaves no copy of the
+marker behind. The frontmatter stays at `status: Draft`.
 
 ### 4.1 Read Investigation Findings
 
@@ -25,6 +35,8 @@ Read the Considered Options and Decision Outcome sections already in the design 
 design-<topic> work/summary.md`) for additional context.
 
 ### 4.2 Write Solution Architecture
+
+Replace the section's stub marker line with:
 
 ```markdown
 ## Solution Architecture
@@ -52,7 +64,8 @@ able to start implementing from this section.
 
 ### 4.3 Write Implementation Approach
 
-Break the implementation into sequential phases with dependencies:
+Break the implementation into sequential phases with dependencies, replacing
+the section's stub marker line:
 
 ```markdown
 ## Implementation Approach
@@ -97,6 +110,8 @@ readers understand that a choice was made and why.
 
 ### 4.5 Write Consequences
 
+Replace the section's stub marker line with:
+
 ```markdown
 ## Consequences
 
@@ -124,9 +139,11 @@ Before proceeding:
 
 After this phase, the design doc has:
 - All previous sections (Context, Drivers, Options, Outcome)
-- Solution Architecture section (new)
-- Implementation Approach section (new)
-- Consequences section (new)
+- Solution Architecture section (written over its stub marker)
+- Implementation Approach section (written over its stub marker)
+- Consequences section (written over its stub marker)
+- Security Considerations still holding the stub marker, and the frontmatter
+  still at `status: Draft`
 
 ## Next Phase
 

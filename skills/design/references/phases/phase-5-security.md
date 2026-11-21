@@ -31,20 +31,23 @@ recommended outcome. Skip to Phase 6.
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the security researcher runs on `model: "sonnet"` with a 12-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md --scratch <scratch>`. `<scratch>` is a directory from `skill-session.sh scratch` that holds only the packet and is removed once the round is aggregated.
 
 Before launching the researcher, commit the draft as Phases 3 and 4 left it
-(`docs(design): draft design for <topic>`) and record the sections it wrote,
-then run the document check on it
-(`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` has the whole loop):
+(`docs(design): draft design for <topic>`) under the commit rule in
+`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` (Committing a partial
+document): the draft is still `status: Draft`, so the hook takes it, and when
+`git status --porcelain -- docs/designs/DESIGN-<topic>.md` prints nothing
+there's nothing new and no commit. Either way, record the sections it wrote,
+then run the document check on it (that reference has the whole loop):
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/designs/DESIGN-<topic>.md --format design --skill design
 "${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/designs/DESIGN-<topic>.md --format design --moment pre_jury --phase 5 --topic <topic> --skill design
 ```
 
-Security Considerations is not written yet at this phase, so the check counts
-it as not ready rather than missing. Exit 0 goes on. Exit 1 means a
-block-stage rule failed: fix what its findings name, commit, and run the fix
-loop in that reference with `--answers check_fail` until the post-fix check
-exits 0. A `doc-check: unresolved after 3 cycles` line is a significant issue:
+Security Considerations still holds the stub marker line at this phase, so the
+check reads the section as present and its required-sections rule passes.
+Exit 0 goes on. Exit 1 means a block-stage rule failed: fix what its findings
+name, commit under the commit rule, and run the fix loop in that reference
+with `--answers check_fail` until the post-fix check exits 0. A `doc-check: unresolved after 3 cycles` line is a significant issue:
 present the findings to the user before going on, or under `--auto` stop the
 run and report them.
 
@@ -154,26 +157,29 @@ Based on the security researcher's recommendation:
 
 **Option 2 -- Document considerations:**
 - Write the "Security Considerations" section in the design doc using the
-  researcher's draft
+  researcher's draft, replacing the section's stub marker line (don't add
+  below it)
 - Include: applicable dimensions, risks, mitigations, residual risk
 
 **Option 3 -- N/A with justification:**
 - Write a brief "Security Considerations" section with the self-contained
-  justification from the researcher
+  justification from the researcher, replacing the section's stub marker line
 - The justification must make sense on its own -- the full report is a session
   key, not part of the repository, so future readers won't have access to it
 
 Once the outcome is applied (Option 2 or 3), commit the section
-(`docs(design): add security considerations for <topic>`), record it and check
-the draft again:
+(`docs(design): add security considerations for <topic>`) under the commit
+rule in `${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`, record it and
+check the draft again:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" sections --doc docs/designs/DESIGN-<topic>.md --format design --skill design
 "${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/designs/DESIGN-<topic>.md --format design --moment post_fix --phase 5 --topic <topic> --skill design
 ```
 
-While it exits 1, fix what it names, commit, and run the fix loop in
-`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` with `--answers check_fail`.
+While it exits 1, fix what it names, commit under the commit rule, and run
+the fix loop in `${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` with
+`--answers check_fail`.
 
 ### 5.3 Update the Summary Key
 
@@ -189,7 +195,9 @@ Get key `work/summary.md`, add the section below, and add the key back:
 **Last Updated:** <date>
 ```
 
-Commit: `docs(design): complete security review for <topic>`
+Step 5.3 changes only the session, not the design file, so it makes no
+commit: under the commit rule, a step with nothing new to stage commits
+nothing.
 
 ## Quality Checklist
 
@@ -202,7 +210,9 @@ Before proceeding:
 
 After this phase, the design doc has:
 - All previous sections
-- Security Considerations section (content varies by outcome)
+- Security Considerations section written over its stub marker (content
+  varies by outcome)
+- Frontmatter and body Status still `Draft`
 
 ## Next Phase
 

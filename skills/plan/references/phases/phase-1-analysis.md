@@ -124,6 +124,7 @@ guidance shown when that gate stops, not a second copy of the rule:
 
 | Status | Error Message |
 |--------|--------------|
+| Draft | "This design has status 'Draft'. It is still a draft: finish it with /design and have it reviewed and Accepted before creating issues." |
 | Proposed | "This design has status 'Proposed'. It must be reviewed and changed to 'Accepted' before creating issues. Submit a PR for review." |
 | Planned | "This design has status 'Planned'. Issues have already been created. Use `gh issue list --search 'Design: <path>'` to find them." |
 | Current | "This design has status 'Current'. Implementation is complete. No new issues needed." |

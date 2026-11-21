@@ -1,0 +1,85 @@
+name: Check design scripts
+
+# skills/design/scripts/draft-skeleton_test.sh reads the DESIGN skeleton from
+# /design's Phase 0 files and asks the real validator whether it commits under
+# the hook `shirabe install-hooks` writes, and whether the Phase 4 draft passes
+# scripts/doc-check.sh at Phase 5. draft-probe_test.sh checks the Phase 0
+# probe, draft-probe.sh, against a stand-in validator and the real one. Their
+# real-validator cases skip without a
+# shirabe that accepts a design at status Draft, so this job builds one from
+# the checkout and sets DESIGN_REQUIRE_SHIRABE=1: a skip there is a failure,
+# not a green run that asserted nothing.
+
+on:
+  # The two paths lists below must match; edit both together.
+  pull_request:
+    paths:
+      - 'skills/design/**'
+      # The commit rule and the phase map doc-check.sh reads.
+      - 'references/doc-check-steps.md'
+      - 'references/doc-check-phases.json'
+      - 'scripts/doc-check.sh'
+      - 'scripts/lib/doc-validate.sh'
+      - 'scripts/lib/doc-session.sh'
+      - 'scripts/lib/doc-check-testlib.sh'
+      # The validator the suite builds and runs.
+      - 'crates/shirabe-validate/src/**'
+      - 'crates/shirabe/src/main.rs'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/design.list'
+      - '.github/workflows/check-design-scripts.yml'
+  push:
+    branches: [main]
+    # Must match the pull_request paths list above.
+    paths:
+      - 'skills/design/**'
+      - 'references/doc-check-steps.md'
+      - 'references/doc-check-phases.json'
+      - 'scripts/doc-check.sh'
+      - 'scripts/lib/doc-validate.sh'
+      - 'scripts/lib/doc-session.sh'
+      - 'scripts/lib/doc-check-testlib.sh'
+      - 'crates/shirabe-validate/src/**'
+      - 'crates/shirabe/src/main.rs'
+      - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/design.list'
+      - '.github/workflows/check-design-scripts.yml'
+
+jobs:
+  test-design-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache Cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build and install shirabe
+        run: |
+          cargo build --release --bin shirabe
+          mkdir -p "$HOME/.design-bin"
+          install -m 0755 target/release/shirabe "$HOME/.design-bin/shirabe"
+          echo "$HOME/.design-bin" >> "$GITHUB_PATH"
+
+      - name: Assert the validator is on PATH
+        run: command -v shirabe
+
+      # The suites scripts/bash-floor/design.list names.
+      - name: Run design script tests
+        env:
+          DESIGN_REQUIRE_SHIRABE: "1"
+        run: |
+          bash skills/design/scripts/draft-skeleton_test.sh
+          bash skills/design/scripts/draft-probe_test.sh

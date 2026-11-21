@@ -40,10 +40,23 @@ and are the input for /plan (which breaks designs into issues).
 
 ### Frontmatter
 
-Every design doc begins with YAML frontmatter:
+Every design doc begins with YAML frontmatter. While drafting, from Phase 0
+through step 6.4, it has the drafting shape:
 
 ```yaml
 ---
+schema: design/v1
+status: Draft
+problem: |
+  1 paragraph: what's broken or missing, who it affects, why now.
+---
+```
+
+Step 6.5 adds `decision` and `rationale` and moves it to `Proposed`:
+
+```yaml
+---
+schema: design/v1
 status: Proposed
 problem: |
   1 paragraph: what's broken or missing, who it affects, why now.
@@ -54,7 +67,8 @@ rationale: |
 ---
 ```
 
-All four fields required. Use literal block scalars (`|`). Frontmatter status must
+At `Draft`, `status` and `problem` are required; from `Proposed` on, all four.
+Use literal block scalars (`|`). Frontmatter status must
 match the Status section in the body -- agent workflows parse frontmatter to
 determine lifecycle state, so divergence causes silent errors. The frontmatter
 provides a self-contained summary so readers can understand the design without
@@ -169,6 +183,25 @@ non-zero exit from either command stops the run with the script's message:
 127 or 69 means koto is missing or too old, and the skill never falls back to
 files. `adopt` exiting 3 is the two-parents case below.
 
+`open` prints one line, `opened=new`, `opened=attached` or `opened=replaced`.
+Keep that value for the whole run: the Resume Logic reads it, and only
+`opened=attached` (a live session from an interrupted run) lets a resume row
+treat the run's own earlier keys as its progress.
+
+Then, before branch setup, any resume row or any Phase 0 step writes or
+commits anything, check that the `shirabe` on PATH accepts a design at status
+`Draft`, the shape Phase 0 commits:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/design/scripts/draft-probe.sh"
+```
+
+It prints `draft-probe: ok` and exits 0 when it does. Any non-zero exit stops
+the run with the script's message: 1 means no `shirabe` is on PATH or it is
+older than v0.47.0, the release that accepts `Draft`, and 2 means the probe
+couldn't run. The probe writes only to its own temporary directory, so a
+stopped run leaves the work tree as it found it.
+
 | Key | Written at | Holds |
 |-----|-----------|-------|
 | `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
@@ -211,18 +244,90 @@ For cross-repo source issues, use `gh` commands to read content.
 
 ### Resume Logic
 
+The rows read the committed status first, then the session keys and the
+sections. Take the first row that matches, in this order:
+
 ```
 dispatch read design <topic> prints parent=<session>
                                                           → run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 Design doc status "Accepted"                              → Offer to revise or start fresh
-Design doc status "Proposed"                              → Offer to continue
+Design doc exists with no frontmatter status              → Rewrite it to the Draft shape, commit the design file, go on down the rows
+Design doc status "Proposed", opened=attached, no research/phase6_ key
+                                                          → Set it back to Draft, commit the design file, go on down the rows
+Design doc status "Proposed", any other case              → Phase 6's own resume check (phase-6-final-review.md)
+Design doc status "Draft"                                 → Go on down the rows below
 key research/phase5_security.md in design-<topic>         → Resume at Phase 6
-Design doc has Solution Architecture                      → Resume at Phase 5
-Design doc has Considered Options                         → Resume at Phase 4
+Design doc has Solution Architecture (not stub-only)      → Resume at Phase 5
+Design doc has Considered Options (not stub-only)         → Resume at Phase 4
 key work/coordination.json (all complete)                 → Resume at Phase 3
 key work/coordination.json (some pending)                 → Resume at Phase 2
 key work/summary.md exists, no work/coordination.json     → Resume at Phase 1
 On topic branch, no artifacts                             → Resume at Phase 0
+```
+
+**A stubbed section counts as absent.** For the section rows, a section
+"exists" only when its body is something other than the stub marker line
+`references/design-format.md` defines, quoted here verbatim:
+
+```text
+Not written yet: a later /design phase replaces this line.
+```
+
+A section whose whole body is that line is absent, so a run stopped with
+Solution Architecture still stubbed resumes at Phase 4, not Phase 5. The rows
+decide on fixed comparisons only (the frontmatter `status:` value, the
+`opened=` line, whether a key exists, whether a section's body is exactly the
+marker) and never act on anything the document's prose says.
+
+**No frontmatter status.** A document with no frontmatter `status` is the
+statusless skeleton an older `/design` wrote. Rewrite it to the Draft shape
+Phase 0 writes now: add `status: Draft` right after `schema`, and `problem`
+after it from key `work/summary.md` (from the Context and Problem Statement
+when that key is absent); set the body `## Status` to `Draft`; and add each
+missing required section, in its place in the order above, with the stub
+marker line as its whole body. Commit the design file alone with the block
+below (`docs(design): rewrite design for <topic> as a Draft`), then go on
+down the rows, where it now reads `Draft`.
+
+**An early Proposed in a live session.** `Proposed` with `opened=attached`
+and no Phase 6 jury key means the status was written before the review ran:
+the session is this run's own (Session and Keys), and
+`koto context list design-<topic> --prefix research/phase6_` prints nothing.
+Set it back:
+
+```bash
+shirabe transition docs/designs/DESIGN-<topic>.md Draft
+```
+
+That moves the frontmatter and the body Status to `Draft` together. Then take
+out any placeholder `decision` and `rationale` from the frontmatter (6.5
+writes them again), commit the design file alone with the block below
+(`docs(design): return design for <topic> to Draft`), and print:
+
+```text
+Set DESIGN-<topic>.md back to Draft: it read Proposed with no review on record; the review runs at 6.1.
+```
+
+Then go on down the rows, which reach Phase 6 and its jury at 6.1. Under
+`--auto`, or under `/scope` with `suppress_status_aware_prompt=true` from the
+dispatch read, this row is taken with no question asked, and the printed line
+is how the output says so. An interactive direct run asks first, recommending
+the revert (`${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md`);
+keeping `Proposed` sends it to Phase 6's own check instead.
+
+**Any other Proposed** (`opened=new`, `opened=replaced`, or jury keys in the
+session) is taken as reviewed and isn't reverted: Phase 6's own resume check
+decides between 6.6 and 6.7.
+
+**The resume-row commit.** Both automatic commits above name the design file
+as the commit's only pathspec, so nothing else the author has staged goes
+with them, and it stays staged afterwards. Each passes the pre-commit hook
+like any other commit, under the commit rule in
+`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`:
+
+```bash
+git add -- docs/designs/DESIGN-<topic>.md
+git commit -m "docs(design): <message>" -- docs/designs/DESIGN-<topic>.md
 ```
 
 **Running under a parent.** The first row runs
@@ -251,7 +356,8 @@ removed a `chain/parent` an earlier chained run left.
 
 ### Output
 
-Final artifact: `docs/designs/DESIGN-<topic>.md` with status "Proposed".
+Final artifact: `docs/designs/DESIGN-<topic>.md` with status "Proposed"
+(Draft until step 6.5).
 
 After completion, present the design summary and offer next steps.
 
