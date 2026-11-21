@@ -1,6 +1,7 @@
 # Phase 6: Final Review + Finalize
 
-Validate the complete design doc, add frontmatter, commit, and route to next step.
+Validate the complete design doc, write decision and rationale, move it from
+`Draft` to `Proposed`, commit, and route to next step.
 
 ## Goal
 
@@ -8,8 +9,16 @@ Ensure the design doc is complete and ready for approval:
 - Launch review agents (architecture + security)
 - Validate all required sections
 - Check that rejected alternatives have genuine depth (strawman check)
-- Add frontmatter, commit, create PR (under `/scope`: commit only)
+- Write decision and rationale and move Draft to Proposed (step 6.5, the only
+  step that writes `Proposed`)
+- Commit, create PR (under `/scope`: commit only)
 - Route to next step based on complexity (not under `/scope`)
+
+Every commit in this phase follows the commit rule in
+`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` (Committing a partial
+document): before 6.5 the document is `status: Draft`, and when
+`git status --porcelain -- docs/designs/DESIGN-<topic>.md` prints nothing
+there's no commit.
 
 ## Resume Check
 
@@ -37,7 +46,7 @@ Before the round starts, run the document check on the draft
 ```
 
 Exit 0 goes on to the jury. Exit 1 means a block-stage rule failed: fix what
-its findings name, commit, and run the fix loop in that reference with
+its findings name, commit under the commit rule, and run the fix loop in that reference with
 `--answers check_fail` until the post-fix check exits 0, before spawning. A
 `doc-check: unresolved after 3 cycles` line is a significant issue: present the findings to the user before launching,
 or under `--auto` stop the run and report them.
@@ -128,9 +137,10 @@ Questions covering the four named items:
    Architecture, Implementation Approach, Security Considerations,
    Consequences)?
 2. Frontmatter field order: does `schema: design/v1` come first, then
-   the four required fields (status, problem, decision, rationale) in
-   the canonical order with the documented YAML literal block scalar
-   shape? Do optional fields (upstream, spawned_from,
+   `status: Draft` and `problem` in the canonical order with the
+   documented YAML literal block scalar shape? (`decision` and
+   `rationale` are written at step 6.5, after this review, so their
+   absence passes.) Do optional fields (upstream, spawned_from,
    motivating_context, user_visible_surface, decision_provenance)
    follow in the format reference's order?
 3. Section-altitude conformance: does each section contain the
@@ -165,6 +175,21 @@ every design; the reviewer's checks are mechanically applicable
 against the format reference and surface drift the discretionary
 reviewers do not catch.
 
+**Serial self-review fallback.** When the harness can't spawn subagents, run
+the three seats yourself, one after another, with the same prompts. The round
+still records `round-started` above, with `--fallback`. Each seat writes the
+same file a parallel reviewer writes, in the same `<reviews-dir>`, ending
+with the same review-verdicts block:
+`<reviews-dir>/phase6_architecture-review.md`,
+`<reviews-dir>/phase6_security-review.md` and
+`<reviews-dir>/phase6_structural-format-review.md`. Step 6.2 then runs the
+same verdicts, agreement and ingest calls on that directory, so the round's
+`research/phase6_architecture-review.md`, `research/phase6_security-review.md`
+and `research/phase6_structural-format-review.md` keys exist exactly as after
+a parallel round. A resume after this round's 6.5 finds them, so SKILL.md's
+Resume Logic takes the `Proposed` as reviewed and doesn't run the jury a
+second time.
+
 ### 6.2 Process Review Feedback
 
 After all three agents complete, record their verdict blocks as telemetry, then
@@ -188,8 +213,8 @@ Then consolidate feedback:
 Apply changes to the design doc. If a review finding requires significant rework,
 discuss with the user before making changes.
 
-Commit the fixes (`docs(design): apply review feedback for <topic>`), then record what they answered and check
-the draft again:
+Commit the fixes (`docs(design): apply review feedback for <topic>`) under the
+commit rule, then record what they answered and check the draft again:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/doc-events.sh" fix --doc docs/designs/DESIGN-<topic>.md --format design --answers jury_fail --skill design
@@ -197,7 +222,8 @@ the draft again:
 "${CLAUDE_PLUGIN_ROOT}/scripts/doc-check.sh" --doc docs/designs/DESIGN-<topic>.md --format design --moment post_fix --phase 6 --topic <topic> --skill design
 ```
 
-While the post-fix check exits 1, fix what it names, commit, and repeat the
+While the post-fix check exits 1, fix what it names, commit under the commit
+rule, and repeat the
 three calls with `--answers check_fail`; on `doc-check: unresolved after 3
 cycles`, discuss the findings with the user as significant rework (under `--auto`, stop and report).
 
@@ -209,6 +235,27 @@ when the design goes no further.
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-events.sh" decision --skill design --topic <topic> --doc docs/designs/DESIGN-<topic>.md --decision <decision>
 ```
+
+**On `loop_back` or `rerun`, reset before going back.** The next pass through
+Phase 6 has to run the jury again, so take away both signals that say it ran:
+
+1. Set the document back to `Draft` in its frontmatter and body Status. While
+   it's still `Draft` this is a no-op success:
+
+   ```bash
+   shirabe transition docs/designs/DESIGN-<topic>.md Draft
+   ```
+
+2. Remove the Phase 6 jury keys. List them with
+   `koto context list design-<topic> --prefix research/phase6_` and remove
+   each key it prints with `koto context remove design-<topic> <key>`, for
+   example `koto context remove design-<topic> research/phase6_architecture-review.md`.
+3. Commit the design file under the commit rule
+   (`docs(design): return design for <topic> to Draft`); when the transition
+   changed nothing, there's nothing to commit.
+
+Then go back: to the phase the rework belongs in for `loop_back`, or to 6.1
+for `rerun`.
 
 ### 6.3 Strawman Check
 
@@ -227,7 +274,8 @@ Considered Options already written in Phase 3.
 Check all required sections are present and well-formed:
 
 **Required Sections:**
-- [ ] Status (must be "Proposed")
+- [ ] Status (must be "Draft" in the frontmatter and the body; 6.5 moves it
+  to "Proposed")
 - [ ] Context and Problem Statement
 - [ ] Decision Drivers
 - [ ] Considered Options (at least 1 alternative per decision)
@@ -236,6 +284,18 @@ Check all required sections are present and well-formed:
 - [ ] Implementation Approach
 - [ ] Security Considerations (content per Phase 5 outcome)
 - [ ] Consequences (positive, negative, mitigations)
+
+**No section left stubbed.** A section that still holds the stub marker line
+(`skills/design/references/design-format.md`, The stub marker) passes FC04
+and the document check, so this grep is the only check that catches one. Run
+it from the repo root; it must print nothing:
+
+```bash
+grep -nxF -- 'Not written yet: a later /design phase replaces this line.' docs/designs/DESIGN-<topic>.md || true
+```
+
+- [ ] No line of the document is the stub marker. A line it prints names a
+  section the run never wrote: go back to the phase that writes it.
 
 **Reference Hygiene Checks:**
 
@@ -260,14 +320,15 @@ git grep -nE 'wip/' -- docs/designs/DESIGN-<topic>.md || true
 
 ### 6.5 Write Frontmatter
 
-Replace the skeleton's frontmatter with the full block, using the summary key
-(`work/summary.md`). Each summary field is 1 paragraph, using YAML literal block
-scalars (`|`):
+This is the only step that writes `Proposed`. Using the summary key
+(`work/summary.md`), refresh `problem` and add `decision` and `rationale`
+right after it, leaving `status: Draft` as it is. Each summary field is 1
+paragraph, using YAML literal block scalars (`|`):
 
 ```markdown
 ---
 schema: design/v1
-status: Proposed
+status: Draft
 problem: |
   <1 paragraph: what technical problem this solves>
 decision: |
@@ -286,13 +347,34 @@ its place in that list, and `shirabe validate` reports a key out of place as
 FC24. The frontmatter must be the first content in the file, before the
 `# DESIGN:` heading.
 
+Then move the design to `Proposed`. `shirabe transition` rewrites the
+frontmatter `status:` and the body `## Status` together, so the two never
+disagree (FC03):
+
+```bash
+shirabe transition docs/designs/DESIGN-<topic>.md Proposed
+```
+
+Then validate the result; it must exit 0, and a finding it reports is fixed
+in the document before 6.6:
+
+```bash
+shirabe validate docs/designs/DESIGN-<topic>.md
+```
+
 ### 6.6 Commit and PR
 
 Under `/scope`'s dispatch key (SKILL.md, Output, "Under `/scope`"),
 run step 1 only: commit, with no push and no pull request.
 
-1. Commit: `docs(design): add design for <topic>`
-2. Push and create PR
+1. Commit under the commit rule in
+   `${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md`:
+   `docs(design): add design for <topic>`
+2. Push and create PR. When the branch already has an open pull request (an
+   earlier 6.6 opened it before a loop-back at 6.2 or a Continue-revising at
+   6.7), push to that branch and open no second one: `gh pr view --json
+   number,state` on the branch prints the open pull request to reuse. Its
+   title and body stay as they are unless what the design decides changed.
    - If spawned from an issue: use `Ref #<N>` in PR body (not `Fixes`)
    - Title: `docs(design): design for <topic>`
    - Body: what the design decides and why, from the frontmatter's `problem`,
@@ -351,9 +433,9 @@ Options (mark the recommended one "(Recommended)"):
   in-chain (`/scope` reads it from `git log`) and out-of-chain (author
   re-reads the same commit) contexts per AC30c.
 - **Continue-revising**: The design needs more work. Specify what needs to
-  change; the workflow loops back to the relevant phase and re-runs Phase 6
-  when changes are complete. (This is the existing "Needs iteration"
-  behavior, renamed.)
+  change; the workflow sets the design back to `Draft`, loops back to the
+  relevant phase and re-runs Phase 6, jury included, when changes are
+  complete. (This is the existing "Needs iteration" behavior, renamed.)
 
 Under `/scope`'s dispatch key, the verdict is still this step's: an
 interactive run asks the author as above, and an unattended run (`--auto`)
@@ -414,8 +496,19 @@ finished). The keys stay readable after the close.
 
 **If continue-revising:**
 - Discuss what needs changes with user
+- Reset the design the way 6.2 does on `loop_back`: run
+  `shirabe transition docs/designs/DESIGN-<topic>.md Draft`, remove every
+  key `koto context list design-<topic> --prefix research/phase6_` prints
+  with `koto context remove design-<topic> <key>`, and commit the design
+  file under the commit rule (`docs(design): return design for <topic> to Draft`)
 - Return to the relevant phase
-- Re-run Phase 6 when changes are complete
+- Re-run Phase 6 when changes are complete; with the jury keys gone and the
+  document at `Draft`, it runs the jury again from 6.1 and 6.5 moves it to
+  `Proposed` again
+- After 6.6 has opened the pull request, the revision commits and the next
+  6.6 push go to the same branch and pull request, and no second one is
+  opened. While the design reads `Draft`, the lifecycle check (L11) reports
+  it on that pull request, so it can't merge an unfinished design.
 
 **If reject:**
 
@@ -503,6 +596,9 @@ Before declaring the phase complete:
 ## Artifact State
 
 Final design document at `docs/designs/DESIGN-<topic>.md` with:
-- YAML frontmatter (status, problem, decision, rationale)
-- All required sections complete
-- Status: Proposed (or Accepted after approval)
+- YAML frontmatter: status and problem until 6.5; status, problem, decision
+  and rationale from 6.5 on
+- All required sections complete, none holding the stub marker
+- Status: Draft until 6.5, then Proposed (frontmatter and body together),
+  Accepted after approval; back to Draft after a loop-back at 6.2 or a
+  Continue-revising at 6.7
