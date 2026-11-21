@@ -93,14 +93,16 @@ pub fn run(command: &CompactionCommands) -> ExitCode {
 static SID_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9-]{1,64}$").unwrap());
 static KOTO_SESSION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$").unwrap());
-static BRANCH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._/-]{1,200}$").unwrap());
+static BRANCH_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._/-]{1,200}$").unwrap());
 static PR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://github\.com/[A-Za-z0-9][A-Za-z0-9._-]{0,99}/[A-Za-z0-9._-]{1,100}/pull/[0-9]{1,10}$")
         .unwrap()
 });
 static SKILL_NAME_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-z0-9][a-z0-9-]{0,63}(:[a-z0-9][a-z0-9-]{0,63})?$").unwrap());
-static SKILL_ARG_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._/=:@+,-]{1,200}$").unwrap());
+static SKILL_ARG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9._/=:@+,-]{1,200}$").unwrap());
 static SKILL_PATH_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^/[A-Za-z0-9._/+@-]{1,500}/SKILL\.md$").unwrap());
 
@@ -398,7 +400,10 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     fn parses_a_good_entry() {
         let e = parse_entry(GOOD).expect("parses");
         assert_eq!(e.koto_session, "probe-run");
-        assert_eq!(e.pr.as_deref(), Some("https://github.com/acme/widgets/pull/42"));
+        assert_eq!(
+            e.pr.as_deref(),
+            Some("https://github.com/acme/widgets/pull/42")
+        );
         assert_eq!(e.skills.len(), 2);
         assert_eq!(e.skills[0].name, "shirabe:deliver");
         assert_eq!(e.skills[0].args, vec!["handoff-brief", "--no-merge"]);
@@ -417,9 +422,18 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
             ("koto_session: probe-run", "koto_session: ../x"),
             ("note_key: compaction/note.md", "note_key: brief/x.md"),
             ("branch: session/abc123", "branch: a..b"),
-            ("pr: https://github.com/acme/widgets/pull/42", "pr: http://evil/pull/1"),
-            ("/opt/plugins/shirabe/0.50.0/skills/scope/SKILL.md", "/opt/../etc/SKILL.md"),
-            ("/opt/plugins/shirabe/0.50.0/skills/scope/SKILL.md", "relative/SKILL.md"),
+            (
+                "pr: https://github.com/acme/widgets/pull/42",
+                "pr: http://evil/pull/1",
+            ),
+            (
+                "/opt/plugins/shirabe/0.50.0/skills/scope/SKILL.md",
+                "/opt/../etc/SKILL.md",
+            ),
+            (
+                "/opt/plugins/shirabe/0.50.0/skills/scope/SKILL.md",
+                "relative/SKILL.md",
+            ),
             ("shirabe:scope handoff-brief", "shirabe:scope $(id)"),
         ] {
             let t = GOOD.replace(from, to);
@@ -465,7 +479,9 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
         let deliver = t.find("skills/deliver/SKILL.md").unwrap();
         let scope = t.find("skills/scope/SKILL.md").unwrap();
         let status = t.find("koto status probe-run").unwrap();
-        let note = t.find("koto context get probe-run compaction/note.md").unwrap();
+        let note = t
+            .find("koto context get probe-run compaction/note.md")
+            .unwrap();
         assert!(deliver < scope && scope < status && status < note);
         assert!(t.chars().count() < CONTEXT_CAP);
     }
@@ -473,7 +489,8 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
     fn entry_with(skills: usize, arg_len: usize, args: usize) -> Entry {
         let path = format!("/{}/SKILL.md", "p".repeat(480));
         let argv = vec!["a".repeat(arg_len); args].join(" ");
-        let mut t = String::from("koto_session: k\nnote_key: compaction/note.md\nbranch: b\npr: none\n");
+        let mut t =
+            String::from("koto_session: k\nnote_key: compaction/note.md\nbranch: b\npr: none\n");
         for _ in 0..skills {
             t.push_str(&format!("skill: n {argv} {path}\n"));
         }
@@ -504,7 +521,8 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
 
     #[test]
     fn more_than_max_skills_is_refused() {
-        let mut t = String::from("koto_session: k\nnote_key: compaction/note.md\nbranch: b\npr: none\n");
+        let mut t =
+            String::from("koto_session: k\nnote_key: compaction/note.md\nbranch: b\npr: none\n");
         for _ in 0..=MAX_SKILLS {
             t.push_str("skill: n /a/SKILL.md\n");
         }
@@ -516,6 +534,9 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
         assert!(hook_sid("not json").is_none());
         assert!(hook_sid(r#"{"session_id":"../../etc"}"#).is_none());
         assert!(hook_sid(r#"{"session_id":"a\nb"}"#).is_none());
-        assert_eq!(hook_sid(r#"{"session_id":"abc-1"}"#).as_deref(), Some("abc-1"));
+        assert_eq!(
+            hook_sid(r#"{"session_id":"abc-1"}"#).as_deref(),
+            Some("abc-1")
+        );
     }
 }
