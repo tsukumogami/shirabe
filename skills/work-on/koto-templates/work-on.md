@@ -1841,8 +1841,11 @@ states:
     #   1  a command failed                       implementation
     #   3  no map, a map that does not parse, or one that selects nothing
     #                                             done_blocked (fail closed)
-    #   4  a command needs a person, timed out, grew past max_procs, could
-    #      not start, or the tree was dirty       done_blocked
+    #   4  a command needs a person, grew past max_procs, could not start,
+    #      or the tree was dirty; or a check timed out and the
+    #      hosted-of-record route is closed       done_blocked
+    #   5  a check timed out, none failed, and the route is open
+    #                                             holds (the timed-out hold)
     #   75 no result yet                          waits
     #   2  the result could not be read, or the supervisor stopped before
     #      every command ran                      holds
@@ -1854,11 +1857,39 @@ states:
     # Each violation exit prints `::koto-finding::` lines whose rule_id is a
     # verification/ rule from references/rule-registry.json, so the event log names the cause.
     #
-    # The one evidence left is `verification_status: blocked`, for a run that
-    # can't settle: a launcher that can't start (the wait is then pending and,
-    # past its deadline, timed out, both exit 75), a result that can't be
-    # read (2), or a gate run koto killed or could not start (-1). Each edge names the gate value, which is what lets koto prove
+    # The one evidence left on a settled path is `verification_status:
+    # blocked`, for a run that can't settle: a launcher that can't start (the
+    # wait is then pending and, past its deadline, timed out, both exit 75), a
+    # result that can't be read (2), or a gate run koto killed or could not
+    # start (-1). Each edge names the gate value, which is what lets koto prove
     # it exclusive of the routed ones.
+    #
+    # Exit 5 is the timed-out hold, and the only place `fix` and
+    # `hosted_of_record` are accepted: no edge on 5 is gate-only, so the state
+    # holds until the agent submits one of three values.
+    #   hosted_of_record  the hosted-of-record route (verification-route.sh):
+    #                     settle the timed-out checks on the hosted jobs their
+    #                     map rows declare, run at this head on the pull
+    #                     request. Taken only while verification_route (--open)
+    #                     exits 0 and route_reason_given finds a reason in
+    #                     detail; the reason goes to context as
+    #                     hosted_route_reason and verification_hosted records
+    #                     it. The reason is public text: it reaches the pull
+    #                     request body.
+    #   fix               back to implementation, as on exit 1
+    #   blocked           stop at done_blocked
+    # The route gate can be 1 at exit 5 (the result held at 5 while something
+    # else closed the route, such as a commit to a closing path since the
+    # verdict read), and then hosted_of_record is refused. A refused route,
+    # and a record or read that fails later, returns the run here: the
+    # launcher reuses the stored result for this head and merge-base, so the
+    # verdict holds at 5 again and nothing re-runs.
+    #
+    # route_reason_given exists because koto has no pattern on an accepted
+    # string field: it reads this visit's submissions from the session log,
+    # merged as koto merges them, and exits 0 only when `detail` holds a
+    # character other than white space. An empty or all-space reason is
+    # refused here, before anything is recorded.
     #
     # How koto 0.15.0 reports the gate when it is not one of the exits above:
     #   - Still pending at the poll deadline (timeout_secs): the gate's outcome
@@ -1893,23 +1924,38 @@ states:
     gates:
       verification_verdict:
         type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=verification_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" --verdict --session "{{SESSION_NAME}}"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=verification_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" --verdict --session "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"'
         poll:
           interval_secs: 15
           timeout_secs: 7200
           hold_secs: 480
+      # A routing gate: 0 the hosted-of-record route is open for this head's
+      # stored result, 1 it is closed (each cause on stderr), 2 usage or a
+      # missing tool. It prints no finding; only the exit-5 hold reads it.
+      verification_route:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --open --session "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"'
+      route_reason_given:
+        type: command
+        command: 'jq -e -s ''.[(map((.type == "transitioned" or .type == "rewound") and (.payload.to // "") == "verification") | rindex(true) // -1) + 1:] | [.[] | select(.type == "evidence_submitted" and (.payload.state // "") == "verification") | .payload.fields] | add // {} | (.detail // "") | type == "string" and test("\\S")'' "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" >/dev/null'
     accepts:
       verification_status:
         type: enum
-        values: [blocked]
+        values: [blocked, fix, hosted_of_record]
         description: >-
           Absent on every settled path: koto routes on the verdict. Submit
           `blocked` only when the run can't settle -- the launcher can't
           start, the wait timed out, the result can't be read, or koto
-          could not run the check (exit -1).
+          could not run the check (exit -1) -- or at the timed-out hold
+          (exit 5). `fix` and `hosted_of_record` are accepted only at that
+          hold: `fix` returns to implementation, and `hosted_of_record`
+          takes the hosted-of-record route with the reason in `detail`.
       detail:
         type: string
-        description: Why verification could not run or be read.
+        description: >-
+          Why verification could not run or be read; with hosted_of_record,
+          the reason for the route, which is public text: it reaches the
+          pull request body. An empty or all-space reason is refused.
     transitions:
       - target: pass_counting
         when:
@@ -1926,7 +1972,27 @@ states:
         when:
           gates.verification_verdict.exit_code: 4
         context_assignments:
-          failure_reason: "verification: a command needs a person, timed out, grew past max_procs, could not start, or the tree had uncommitted changes to tracked files (fail closed). The finding names which; the result is in context as verification_results.json."
+          failure_reason: "verification: a command needs a person, timed out with the hosted-of-record route closed, grew past max_procs, could not start, or the tree had uncommitted changes to tracked files (fail closed). The finding names which; the result is in context as verification_results.json."
+      # The timed-out hold (exit 5). No edge here is gate-only, so with no
+      # value submitted the state holds.
+      - target: verification_hosted
+        when:
+          gates.verification_verdict.exit_code: 5
+          gates.verification_route.exit_code: 0
+          gates.route_reason_given.exit_code: 0
+          verification_status: hosted_of_record
+        context_assignments:
+          hosted_route_reason: "${evidence.detail}"
+      - target: implementation
+        when:
+          gates.verification_verdict.exit_code: 5
+          verification_status: fix
+      - target: done_blocked
+        when:
+          gates.verification_verdict.exit_code: 5
+          verification_status: blocked
+        context_assignments:
+          failure_reason: "verification blocked at the timed-out hold: ${evidence.detail}"
       - target: done_blocked
         when:
           gates.verification_verdict.exit_code: 75
@@ -1992,9 +2058,98 @@ states:
         context_assignments:
           failure_reason: "verification_deferred: VERIFICATION=hosted-ci was chosen without VERIFICATION_DEFERRAL_REASON. A deferral to hosted CI needs a stated reason, and the variable is fixed at init: start the run again with both, or without the deferral."
 
+  verification_hosted:
+    # The recording step of the hosted-of-record route, entered only from
+    # verification's timed-out hold (exit 5) with the route open and a reason
+    # in context as hosted_route_reason. The session is the same one, started
+    # with VERIFICATION=local; nothing is re-initialized.
+    #
+    #   default_action  verification-route.sh --record. Writes the koto key
+    #                   hosted_of_record: this head, taken_at, the reason
+    #                   (cleaned of control characters and backticks, capped
+    #                   in length, never put on a command line) and one part
+    #                   per timed-out check, listing the hosted jobs the
+    #                   merge-base's map declares for its row, with their run
+    #                   ids null. It replaces any earlier key. It exits 1 when
+    #                   the reason is empty or the route has closed since the
+    #                   hold, 2 when koto fails; either stops the tick with the
+    #                   fallback.
+    #   hosted_record_valid  verification-route.sh --check-record. 0 the key
+    #                   is valid for HEAD (its checks are exactly the result's
+    #                   timed-out set, its jobs the map's declaration, its
+    #                   taken_at after the result finished and not in the
+    #                   future); 1 it isn't; 2 it can't be read.
+    #
+    # On 0 the run goes on to pass_counting, then finalization and
+    # pr_creation, which opens the pull request as a draft carrying one
+    # `Hosted of record:` line per check; hosted_record settles the record
+    # before the pull request is marked ready. Any commit after this state
+    # moves HEAD off the record's head and voids the route: pr_creation then
+    # treats the key as no record, ci_monitor's hosted_settled exits 1, and
+    # hosted_record's read refuses, which sends the run back to verification
+    # at the new head.
+    #
+    # On 1 the record is wrong for this head and the run returns to
+    # verification, where the reused result holds at 5 again. That edge has
+    # its twin into verification_deferred, as every edge into verification
+    # does; a hosted-ci run never reaches this state, so the twin never fires.
+    # On 2 the state holds; `hosted_status: blocked` stops the run.
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --record --session "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not record the hosted-of-record route. Read the command's
+        own output above: verification-route.sh --record exits 1 when the
+        reason in hosted_route_reason is empty once cleaned, or the route
+        closed after the hold (each cause is on stderr), and 2 when koto
+        could not write the key or a tool it needs (git, jq, koto) is
+        missing; the test -x guard exits 2 when PLUGIN_ROOT does not reach
+        the plugin. Fix the cause and tick again. If it can't be fixed,
+        submit `hosted_status: blocked` with the reason in `detail`.
+    gates:
+      hosted_record_valid:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --check-record --session "{{SESSION_NAME}}"'
+    accepts:
+      hosted_status:
+        type: enum
+        values: [blocked]
+        description: >-
+          Absent on every settled path: koto routes on the record check.
+          Submit `blocked` only when the record can't be written or read
+          (exit 2, or a check koto could not run).
+      detail:
+        type: string
+        description: Why the record could not be written or read.
+    transitions:
+      - target: pass_counting
+        when:
+          gates.hosted_record_valid.exit_code: 0
+      - target: verification
+        when:
+          gates.hosted_record_valid.exit_code: 1
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.hosted_record_valid.exit_code: 1
+          vars.VERIFICATION: hosted-ci
+      - target: done_blocked
+        when:
+          gates.hosted_record_valid.exit_code: 2
+          hosted_status: blocked
+        context_assignments:
+          failure_reason: "verification_hosted blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.hosted_record_valid.exit_code: -1
+          hosted_status: blocked
+        context_assignments:
+          failure_reason: "verification_hosted blocked: ${evidence.detail}"
+
   pass_counting:
-    # Entered only after a check passed: verification's exit 0, or a
-    # deferral to hosted CI. A pass is counted here before the run finalizes
+    # Entered only after a check passed: verification's exit 0, a recorded
+    # hosted-of-record route (verification_hosted, whose timed-out checks are
+    # settled later by hosted_record), or a deferral to hosted CI. A pass is
+    # counted here before the run finalizes
     # (../references/red-first.md), and only when both gates pass:
     #
     #   fix_green      red-first.sh check-green. Passes for a unit that isn't a
@@ -2622,6 +2777,20 @@ states:
       probe_value_absent:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 0; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" leak-pr "{{SESSION_DIR}}" "$(koto context get "{{SESSION_NAME}}" impl_base 2>/dev/null)" "{{ISSUE_NUMBER}}" "{{ISSUE_REPO}}"; case $? in 0) exit 0 ;; 1) exit 1 ;; esac; exit 2'
+      # A run that took the hosted-of-record route (verification_hosted wrote
+      # hosted_of_record) opens its pull request as a draft whose body carries
+      # one `Hosted of record:` line per recorded check, the lines
+      # verification-route.sh --lines prints from the record.
+      # check-pr-output.sh --hosted-record reads the pull request from GitHub:
+      # 0 a draft with every line, naming the check id, the record's head and
+      # the declared job names (and 0 for a key at another head, which is no
+      # record); 1 not a draft, or a line missing or wrong; 2 it could not
+      # decide. A run with no key never starts the script: `koto context
+      # exists` short-circuits to 0, and a koto failure there is 2. It gates
+      # the created edges only, so 1 and 2 hold here.
+      hosted_record_line:
+        type: command
+        command: 'koto context exists "{{SESSION_NAME}}" hosted_of_record; case $? in 0) ;; 1) exit 0 ;; *) exit 2 ;; esac; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --hosted-record --session "{{SESSION_NAME}}"'
     accepts:
       pr_status:
         type: enum
@@ -2664,6 +2833,7 @@ states:
           gates.verification_deferral_recorded.exit_code: 0
           gates.probe_ack.exit_code: 0
           gates.probe_value_absent.exit_code: 0
+          gates.hosted_record_line.exit_code: 0
         context_assignments:
           pr_url: "${evidence.pr_url}"
       - target: ci_monitor
@@ -2674,6 +2844,7 @@ states:
           gates.verification_deferral_recorded.exit_code: 0
           gates.probe_ack.exit_code: 4
           gates.probe_value_absent.exit_code: 0
+          gates.hosted_record_line.exit_code: 0
         context_assignments:
           pr_url: "${evidence.pr_url}"
       - target: ci_monitor
@@ -2684,6 +2855,7 @@ states:
           gates.verification_deferral_recorded.exit_code: 0
           gates.probe_ack.exit_code: 5
           gates.probe_value_absent.exit_code: 0
+          gates.hosted_record_line.exit_code: 0
         context_assignments:
           pr_url: "${evidence.pr_url}"
       - target: ci_monitor
@@ -2694,6 +2866,7 @@ states:
           gates.verification_deferral_recorded.exit_code: 0
           gates.probe_ack.exit_code: 6
           gates.probe_value_absent.exit_code: 0
+          gates.hosted_record_line.exit_code: 0
         context_assignments:
           pr_url: "${evidence.pr_url}"
       # A body without the keyword stops here. Fail-closed: the gate also exits
@@ -2819,6 +2992,21 @@ states:
       probe_value_absent:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" || exit 0; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" "{{PLUGIN_ROOT}}/skills/work-on/scripts/probe.sh" leak-pr "{{SESSION_DIR}}" "$(koto context get "{{SESSION_NAME}}" impl_base 2>/dev/null)" "{{ISSUE_NUMBER}}" "{{ISSUE_REPO}}"; case $? in 0) exit 0 ;; 1) exit 1 ;; esac; exit 2'
+      # Whether a hosted-of-record record is settled. With no hosted_of_record
+      # key it is 0 without starting the script (`koto context exists`
+      # short-circuits; a koto failure is 2). Otherwise
+      # verification-route.sh --settled re-checks the record against HEAD and
+      # re-reads every filled run id from the Actions API: 0 each one is the
+      # declared workflow's pull_request run at the record's head, for this
+      # pull request, at the recorded attempt, with the declared job
+      # concluded success; 1 anything else (an unread record, a hand-filled
+      # one, a head that moved), whether or not the pull request is still a
+      # draft, which sends a green run to hosted_record for the read; 2 the
+      # key or the pull request can't be read, and the green path holds.
+      hosted_settled:
+        type: command
+        command: 'koto context exists "{{SESSION_NAME}}" hosted_of_record; case $? in 0) ;; 1) exit 0 ;; *) exit 2 ;; esac; test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --settled --session "{{SESSION_NAME}}"'
+        timeout: 120
     accepts:
       ci_outcome:
         type: enum
@@ -2839,6 +3027,16 @@ states:
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
           gates.probe_value_absent.exit_code: 0
+          gates.hosted_settled.exit_code: 0
+      # Green CI with a hosted-of-record record that isn't settled goes to the
+      # read. It returns here once the pull request is ready, so the legs that
+      # run only on a ready pull request are waited for like any other check.
+      - target: hosted_record
+        when:
+          gates.ci_passing.exit_code: 0
+          gates.merge_state_clean.exit_code: 0
+          gates.probe_value_absent.exit_code: 0
+          gates.hosted_settled.exit_code: 1
       # A DIRTY pull request stops, and stops explicitly, with a reason that
       # names the merge conflicts, whatever the CI gate reads: GitHub runs no
       # checks on one, so ci_passing can read green on an earlier head's
@@ -2876,6 +3074,108 @@ states:
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
+
+  hosted_record:
+    # The hosted read of the hosted-of-record route, entered from ci_monitor's
+    # green edge while the record isn't settled. It settles each recorded
+    # check on its declared jobs' latest attempt at the record's head, then
+    # holds until the pull request is marked ready.
+    #
+    #   hosted_read   verification-route.sh --read, a poll: gate.
+    #                 0  every declared job's latest attempt at the record's
+    #                    head concluded success: the key gets run_id,
+    #                    conclusion and attempt, and the body's lines are
+    #                    rewritten with run links (gh pr edit --body-file)
+    #                 1  a refusal: a job concluded anything else, zero or two
+    #                    jobs of the declared name, an unreadable response,
+    #                    the pull request's head isn't the record's (a later
+    #                    commit voids the route), a cross-repository pull
+    #                    request, or an invalid record; one stderr line per
+    #                    refusing job          verification
+    #                 3  a job still pending 120 minutes after taken_at:
+    #                    the script wrote failure_reason itself
+    #                                          done_blocked
+    #                 75 a job is pending, queued or absent  waits
+    #                 2  the key can't be read or a write failed  holds
+    #   hosted_ready  verification-route.sh --ready. 0 the record is settled,
+    #                 the pull request is no longer a draft, and every body
+    #                 line carries its run links; 1 otherwise; 2 can't read.
+    #
+    # The wait is measured from taken_at, not charged to verification's
+    # 7,200 s run budget. The poll covers it: 60 s between reads, 480 s
+    # inside one tick, and a deadline past the script's own 120 minutes, so
+    # the script's exit 3 decides the timeout. On read 0 the agent runs
+    # verification-route.sh --mark-ready, which re-reads the pull request's
+    # head and runs `gh pr ready` only when it is still the record's and the
+    # record is settled; with ready at 1 the state holds. There is no way past
+    # a pending job: no edge leaves on 75 but blocked.
+    #
+    # Read 1 returns to verification, where the reused result holds at 5
+    # again (or, at a new head, the run verifies afresh). Its twin into
+    # verification_deferred keeps every edge into verification split on
+    # VERIFICATION; a hosted-ci run never records a route, so it never
+    # fires. failure_reason is set by the script on exit 3, so koto's W5
+    # warning that the 3 edge writes none is expected (as at check_exit): an
+    # assignment there would overwrite it.
+    gates:
+      hosted_read:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --read --session "{{SESSION_NAME}}"'
+        timeout: 180
+        poll:
+          interval_secs: 60
+          timeout_secs: 7800
+          hold_secs: 480
+      hosted_ready:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --ready --session "{{SESSION_NAME}}"'
+        timeout: 120
+    accepts:
+      hosted_status:
+        type: enum
+        values: [blocked]
+        description: >-
+          Absent on every settled path: koto routes on the read. Submit
+          `blocked` only when the read can't settle: the wait passed its
+          deadline (exit 75), the key can't be read or written (2), or koto
+          could not run the read (-1).
+      detail:
+        type: string
+        description: Why the hosted read could not settle.
+    transitions:
+      - target: ci_monitor
+        when:
+          gates.hosted_read.exit_code: 0
+          gates.hosted_ready.exit_code: 0
+      - target: verification
+        when:
+          gates.hosted_read.exit_code: 1
+          vars.VERIFICATION: local
+      - target: verification_deferred
+        when:
+          gates.hosted_read.exit_code: 1
+          vars.VERIFICATION: hosted-ci
+      - target: done_blocked
+        when:
+          gates.hosted_read.exit_code: 3
+      - target: done_blocked
+        when:
+          gates.hosted_read.exit_code: 75
+          hosted_status: blocked
+        context_assignments:
+          failure_reason: "hosted_record blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.hosted_read.exit_code: 2
+          hosted_status: blocked
+        context_assignments:
+          failure_reason: "hosted_record blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.hosted_read.exit_code: -1
+          hosted_status: blocked
+        context_assignments:
+          failure_reason: "hosted_record blocked: ${evidence.detail}"
 
   ci_pass_counting:
     # Entered only when CI passed on the open pull request (ci_monitor's
@@ -3840,9 +4140,14 @@ on the result and koto routes on it, with no evidence from you:
   enters there, so the panels judge the fixed code.
 - **exit 3**: no verification map at the merge-base, a map that does not parse, or
   a map that selects nothing for this change. Fails closed at `done_blocked`.
-- **exit 4**: a command needs a person (`unattended: false`), timed out, grew past
-  its `max_procs`, could not start, or tracked files had uncommitted changes.
-  Fails closed at `done_blocked`.
+- **exit 4**: a command needs a person (`unattended: false`), grew past its
+  `max_procs`, could not start, or tracked files had uncommitted changes; or a
+  check timed out and the hosted-of-record route is closed (stderr names each
+  cause). Fails closed at `done_blocked`.
+- **exit 5**: a check timed out, no check failed, and the hosted-of-record route is
+  open. This is the timed-out hold: no tick moves the run until you submit one of
+  three values, described below. A failed check beside a timed-out one is exit 1,
+  never 5.
 - **exit 75**: no result for this head yet. The gate is pending: koto re-checks it
   every 15 seconds for up to eight minutes of one tick, and the response says when
   to tick again (`poll.retry_after_secs`). Tick again with
@@ -3877,9 +4182,76 @@ If koto could not start the run (the action's fallback is shown above), the wait
 timed out, or the gate holds on exit 2 or -1 and the cause can't be fixed, submit `verification_status: blocked`
 with the reason in `detail`. The run stops at `done_blocked`.
 
-Evidence schema (only when the run can't settle):
-- `verification_status`: `blocked`
-- `detail`: why verification could not run or be read
+### The timed-out hold (exit 5)
+
+A check that ran out of time locally, with nothing failed, may be settled by the
+hosted job its map row declares, run at this head on the pull request: the
+hosted-of-record route. `fix` and `hosted_of_record` are accepted only here, at
+exit 5:
+
+- `verification_status: hosted_of_record` with the reason in `detail` takes the
+  route. It goes on to `verification_hosted` only while the `verification_route`
+  gate (`verification-route.sh --open`) exits 0, and only with a reason that isn't
+  empty or all white space (`route_reason_given`). With the route gate at 1 the
+  submission is refused and the state holds; its stderr names each closing cause,
+  such as a commit since the verdict that touched a file deciding what the hosted
+  job runs.
+- `verification_status: fix` returns to `implementation`, as exit 1 does, when you
+  would rather make the check fit its time.
+- `verification_status: blocked` with the reason in `detail` stops at
+  `done_blocked`.
+
+The reason is public text. It reaches the pull request body, inside a code span,
+so write it plainly for a reviewer of this repository: one sentence on why the
+check could not finish locally (for example, the host was loaded and the suites
+it reached all passed). Leave out session names, paths on this machine and
+anything you wouldn't post.
+
+A refused route, or a record or a hosted read that fails later, brings the run
+back here. At the same head and merge-base the launcher reuses the stored result
+and starts nothing, so the verdict holds at 5 again and the same three values are
+offered. Any commit after the route is taken voids it: the new head verifies
+afresh.
+
+Evidence schema (only when the run can't settle, or at the timed-out hold):
+- `verification_status`: `blocked`, or at exit 5 `fix` or `hosted_of_record`
+- `detail`: why verification could not run or be read; with `hosted_of_record`,
+  the reason for the route (public, non-empty)
+
+## verification_hosted
+
+koto runs this state itself; submit nothing on the settled path. The run took the
+hosted-of-record route at `verification`'s timed-out hold, and this is where the
+route is recorded.
+
+On entry koto runs `verification-route.sh --record`, which writes the koto key
+`hosted_of_record`: this head, when the route was taken, the reason from
+`hosted_route_reason` (cleaned of control characters and backticks and capped in
+length), and one part per timed-out check naming the hosted jobs the merge-base's
+verification map declares for its row, with no run ids yet. A check that passed
+locally stays local and isn't in the record. The `hosted_record_valid` gate then
+runs `verification-route.sh --check-record`:
+
+- **exit 0**: the record is valid for this head. The run goes on to `pass_counting`
+  and `finalization`, and `pr_creation` opens the pull request as a draft.
+- **exit 1**: the record doesn't match this head's result or map. The run returns
+  to `verification`, where the reused result holds at 5 again.
+- **exit 2**: the record can't be read. The state holds; tick again, and if it
+  keeps happening submit `hosted_status: blocked` with the reason in `detail`.
+
+If the action's fallback shows instead (the reason was empty once cleaned, the
+route closed since the hold, or koto could not write the key), fix the cause and
+tick again, or submit `hosted_status: blocked`.
+
+Any later commit voids the route. The record names this head, so a commit made
+after this state (a cleanup in `finalization` included) leaves a record for an
+older head: `pr_creation` treats it as no record, `ci_monitor` sends the run to
+`hosted_record`, whose read refuses, and the run verifies the new head afresh.
+Commit nothing between here and the pull request unless you mean to verify again.
+
+Evidence schema (only when the record can't be written or read):
+- `hosted_status`: `blocked`
+- `detail`: why the record could not be written or read
 
 ## verification_deferred
 
@@ -4242,6 +4614,21 @@ deferral in Part 2, under a `Verification` heading, with the three lines
 `Reason: ` followed by the `verification_deferral` value verbatim, and that
 hosted CI is the build of record for this change.
 
+A run that took the hosted-of-record route (`hosted_of_record` is in context for
+this head) opens its pull request as a draft: `gh pr create --draft --body-file
+<file>`. Print the lines with
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --lines --session <session>`,
+`<session>` being this run's koto session, and put them in the body file verbatim, in the Verification part: one
+`Hosted of record:` line per recorded check, naming the check, the head and its
+hosted jobs (`(pending)` until the read fills the run links), and a
+`Reason for the hosted route:` line with the reason in a code span. Never type or
+edit those lines yourself. The `hosted_record_line` gate runs
+`check-pr-output.sh --hosted-record`, which holds `pr_status: created` until the
+pull request is a draft and every recorded check has its line with the right
+check id, head and job names. The pull request stays a draft until
+`hosted_record` settles the record; don't mark it ready by hand. A run with no
+record passes the gate without running anything.
+
 `pr_status: created` also needs the `verification_deferral_recorded` gate to
 pass. It runs `check-pr-output.sh --deferral-record --reason <reason>`. Under
 `omit` it passes without reading GitHub. Under `include` it reads the body from
@@ -4344,6 +4731,65 @@ Retry cap: 3 fix pushes. When CI is still failing after the third, submit
 `done_blocked`. In an unattended run, don't ask the user instead: nobody is
 there to answer. The cap lives here until koto enforces it from its attempt counts, with
 the same number.
+
+A run that took the hosted-of-record route has one more gate on its green edge,
+`hosted_settled` (`verification-route.sh --settled`). With green CI it goes to
+`ci_pass_counting` only once the record is settled: every recorded job's run,
+re-read from the Actions API, is the declared workflow's run at the record's head
+for this pull request, concluded success. Until then green CI goes to
+`hosted_record`, draft or not, so a pull request marked ready by hand still gets
+the read. A record whose run ids were filled by hand fails this gate the same
+way. When the record can't be read (exit 2) the green path holds; tick again. A
+run with no record passes the gate without running anything.
+
+## hosted_record
+
+koto runs the hosted read itself. The run took the hosted-of-record route, CI is
+green on the draft pull request, and each recorded check is now settled on its
+hosted jobs. The `hosted_read` gate runs `verification-route.sh --read`, which
+reads each declared job's latest attempt at the record's head from the Actions
+API, for this pull request's own runs only:
+
+- **exit 0**: every declared job's latest attempt concluded success. The script
+  filled the record's run ids and rewrote each `Hosted of record:` line in the
+  body with its run links (`gh pr edit --body-file`). Now mark the pull request
+  ready with
+  `"{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --mark-ready --session {{SESSION_NAME}}`,
+  which re-reads the pull request's head and runs `gh pr ready` only when it is
+  still the record's head and the record is settled, then tick with
+  `koto next {{SESSION_NAME}} --no-cleanup`. The `hosted_ready` gate passes once
+  the pull request is no longer a draft and every line carries its run links,
+  and the run returns to `ci_monitor`, which waits for the checks that run only
+  on a ready pull request (the macOS legs, for example) before it goes on.
+- **exit 75**: a job is pending, queued or not started yet. The gate re-reads every
+  minute for up to eight minutes of one tick; tick again with nothing submitted.
+  The wait is measured from when the route was taken and isn't charged to the
+  verification run budget.
+- **exit 3**: a job was still pending 120 minutes after the route was taken. The
+  run ends at `done_blocked`; `failure_reason` names the pending jobs and the
+  commit.
+- **exit 1**: the read refused: a job concluded anything but success (cancelled,
+  failure, skipped, timed out, neutral, action required, stale), the response was
+  unreadable, the job name matched zero or two jobs, the pull request's head is no
+  longer the record's (a commit after the route voids it), or the record is
+  invalid. stderr names each refusing job and the commit. The run returns to
+  `verification`: at the same head the reused result holds at 5 again, and at a
+  new head the run verifies afresh.
+- **exit 2**: the record can't be read or written. The state holds; tick again.
+
+Only `--mark-ready` after a read that exited 0 marks the pull request ready. Don't
+run `gh pr ready` yourself, don't fill the record's run ids by hand, and don't
+skip a pending job: a hand-filled record fails `--settled` and the ready gate, and
+no edge leaves this state on a pending read except `blocked`. While any job is
+pending the run can't reach `ci_pass_counting` or `done`.
+
+If the wait passes its deadline, the record can't be read, or koto could not run
+the read (exit -1) and the cause can't be fixed, submit `hosted_status: blocked`
+with the reason in `detail`. The run stops at `done_blocked`.
+
+Evidence schema (only when the read can't settle):
+- `hosted_status`: `blocked`
+- `detail`: why the hosted read could not settle
 
 ## ci_pass_counting
 

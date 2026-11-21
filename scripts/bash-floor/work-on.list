@@ -108,6 +108,10 @@ skills/work-on/scripts/verification-map-schema_test.sh
 # suite-list cases call check-skill.sh, which needs koto and python3 even
 # for --list, and skip cleanly without them.
 skills/work-on/scripts/verification-hosted-coverage_test.sh
+# The hosted-of-record route script against git fixtures: needs git and
+# jq, stubs koto and gh, and runs no engine, so every case runs on the
+# floor.
+skills/work-on/scripts/verification-route_test.sh
 # The verification runner and verdict against git fixtures and a
 # koto stand-in; its real-koto case skips without koto.
 skills/work-on/scripts/run-verification_test.sh
