@@ -13,7 +13,7 @@ problem: |
 decision: |
   shirabe ships a brief script that stores the brief at `brief/brief.md` in the
   session's koto session, with each small named file at `brief/files/<sha256>`
-  and two named limits (256 KiB inline, 2 MiB per record); a closing-step
+  and two named limits (256 KiB inline, 2 MiB per brief); a closing-step
   script; a compaction note at `compaction/note.md`; two hook commands in the
   shirabe binary, `shirabe compaction pre-compact` and `shirabe compaction
   re-anchor`, that a workspace installs as instance hooks; a context reader
@@ -72,9 +72,9 @@ The technical work falls in four places.
 **The brief and its record (R1-R9).** shirabe needs a script any session can
 call. It refuses empty reasoning and any named path that isn't a readable
 regular file. It hashes each named file from disk, stores a small file inside
-the brief and names a larger one by reference, enforces two named limits, and
-writes the keep record's file list once, at `<instance>/.niwa/keep.json`, with
-a hold computed from the event. A park holds the instance until a resume mark
+the brief and names a larger one by reference, enforces two named limits, and,
+where a workspace gives it a record path, writes the keep record's file list
+once, with a hold computed from the event. A park holds the instance until a resume mark
 voids the hold; a file named by reference holds it until the kept set exists.
 A closing step runs before the brief at a run's end and blocks on a stray file
 or an unpushed commit.
@@ -153,8 +153,9 @@ the rule, and Decision 4 says what happens then.
 - **Nothing lost silently.** The brief script refuses rather than drops: a bad
   path, a limit exceeded or empty reasoning writes nothing, and an existing
   keep record stays byte-identical (R2-R4).
-- **One list of files.** The keep record holds the file list; the brief renders
-  its list from it (R5).
+- **One list of files.** Where a keep record is written it holds the file
+  list and the brief renders its list from it; with no record, the brief's
+  own list is the only one (R5).
 - **Data, not instructions.** A brief read by a successor or a supervising
   session is a predecessor's claim, never instructions in force.
 - **Bounded hooks.** The hooks never block a compaction and stay under the
@@ -186,7 +187,7 @@ readable.
 The brief is `brief/brief.md`. Each named file at or below the inline size of
 262,144 bytes (256 KiB) is stored at `brief/files/<sha256>`, holding its exact
 bytes; a larger file is named by reference only. The record cap is 2,097,152
-bytes (2 MiB) over every file one record names, by reference included. The
+bytes (2 MiB) over every file one brief names, by reference included. The
 resume mark is `brief/resumed`, holding the UTC time the session started
 working again after a park.
 
@@ -210,19 +211,40 @@ to `handoff-<session-id>`, from the Claude session id. A closed koto session
 still answers `koto context get`, so the keys stay readable after the close.
 The id makes the name unique, so no later open replaces it.
 
-The keep record is written as the earlier design had it. `handoff-brief.sh`
-reads any existing record and replaces only its own fields (`unit`,
-`written_by`, `written_at`, `brief`, `files`, `protects`, `resumed_at`). It
-writes the result to a temporary file in `.niwa/` under `umask 077` and
-renames it over `keep.json`, guarded by a `mkdir` lock (macOS has no `flock`),
-which a later writer treats as stale after ten minutes. `protects` is
+The keep record is optional and has no fixed place. The script writes one
+only when it is given a record path, by `--keep-record <path>` or by the
+`HANDOFF_KEEP_RECORD` environment value, with the argument winning. A
+relative path resolves against `--instance`, so a workspace that wants the
+record sets the value once in its own configuration (for example to the file
+its instance cleanup reads) and every session in it writes there. With no
+path, the script writes the brief and its file keys only, the brief's Files
+section is the one list, and a park holds nothing outside koto. shirabe's
+code names no directory that belongs to another tool. The record is a plain
+JSON file the reference documents, which removal work may read wherever the
+workspace points it.
+
+The instance is recognized without asking any tool. `--instance <root>` is
+optional; when given, it must be an existing directory that the current
+directory resolves inside, and must not itself sit inside a git worktree
+(`git -C <root> rev-parse --is-inside-work-tree` fails), so it is the
+directory above the session's repositories. Scratch is the job's scratch
+directory plus, when `--instance` is given, loose files at that root outside
+any repository. A relative record path with no `--instance` is refused.
+
+Where a path is given, the record is written as the earlier design had it.
+`handoff-brief.sh` reads any existing record at that path and replaces only
+its own fields (`unit`, `written_by`, `written_at`, `brief`, `files`,
+`protects`, `resumed_at`). It writes the result to a temporary file in the
+record's own directory under `umask 077` and renames it over the record,
+guarded by a `mkdir` lock beside it (macOS has no `flock`), which a later
+writer treats as stale after ten minutes. `protects` is
 computed, never passed in: `["instance", "files", "transcript"]` for a park,
 or whenever a named file is by reference; `["files", "transcript"]` for a
 run's end or a stop that names only inline files. `written_at` is taken before
 any file is hashed, so a file changed during the write reads as newer than
-the brief. `handoff-brief.sh resume` writes `brief/resumed`, sets `resumed_at`,
-drops `instance` from `protects` unless a named file is by reference, and
-leaves `files` as written (R7).
+the brief. `handoff-brief.sh resume` writes `brief/resumed`; where a record
+path is given it also sets `resumed_at`, drops `instance` from `protects`
+unless a named file is by reference, and leaves `files` as written (R7).
 
 #### Alternatives Considered
 
@@ -240,6 +262,15 @@ leaves `files` as written (R7).
   hosts.
 - **Voiding a park's hold by deleting the record.** Rejected: it would drop
   the named files, which stay named after resumed work (R7).
+- **A fixed record path inside the workspace manager's directory.** The
+  earlier design's choice. Rejected: the script would read and write a file
+  in another tool's directory, in a format that tool owns, which ties the two
+  together. A workspace that wants the record there names that path in its
+  own configuration.
+- **Recognizing the instance by a workspace manager's marker directory.**
+  Rejected for the same reason; the caller names the root, and the script
+  checks only that it encloses the current directory and sits above the
+  repositories.
 
 ### Decision 2: What carries each role's window
 
@@ -591,7 +622,8 @@ Key assumption: placement inside a work-on run stays held while the design for
 --porcelain --untracked-files=all` shows an untracked file that `git
 check-ignore` doesn't match, or when the branch has no upstream or `git
 rev-list @{u}..HEAD` is non-empty. On a pass it prints the instance root for
-the caller to move to, never deletes the worktree, and checks that the
+the caller to move to (the `--instance` it was given, or else the directory
+that holds the worktree's repository), never deletes the worktree, and checks that the
 caller's working directory is outside it before it reports done. Every git call
 runs with `-c core.fsmonitor=false` and `-c core.hooksPath=/dev/null`.
 
@@ -612,8 +644,9 @@ Reasoning of a brief through the same script, then supervising sessions.
 
 The five decisions make one path for each event. At a run's end the closing
 step passes, `handoff-brief.sh write` hashes the named files, refuses on any
-limit or bad path, stores the brief and small files under `brief/`, and
-writes the keep record's one file list with the hold computed from the event.
+limit or bad path, stores the brief and small files under `brief/`, and,
+where the workspace gave a record path, writes the keep record's one file
+list with the hold computed from the event.
 A park writes a hold, and `resume` writes `brief/resumed` and voids it. A
 session at its window has already kept `compaction/note.md` current. The
 PreCompact hook shapes the summary and flags a stale note, and the
@@ -637,7 +670,7 @@ today's successor route.
 | Thrash check | shirabe `scripts/thrash-check.sh` | can't continue, from the reader's report |
 | Compaction hooks | shirabe binary `shirabe compaction pre-compact`, `shirabe compaction re-anchor` | summary instruction and stale flag; re-anchor line |
 | Window value | niwa `[session.dispatch_profiles.<name>] auto_compact_window`, `[session] default_dispatch_profile` | the window in a dispatched session's launch settings |
-| Reference | shirabe `references/handoff-brief.md` | limits, format, the window setting, installing the hooks, setting the window without niwa |
+| Reference | shirabe `references/handoff-brief.md` | limits, format, the keep record's format and how a workspace opts into it, the window setting, installing the hooks, setting the window without niwa |
 
 shirabe's code names no niwa command or file, and niwa's change names no
 shirabe concept. koto's code doesn't change, though koto's sync and retention
@@ -646,8 +679,9 @@ now carry named file bytes (Security Considerations).
 ### Components
 
 **`handoff-brief.sh write`** takes `--reasoning <file>`, repeated `--file
-<path>`, `--event end|park|stop`, `--instance <root>`, and optional
-`--watch "<label>=<re-arm command>"` and `--standing-rules <file>`. Pointers
+<path>`, `--event end|park|stop`, and optional `--instance <root>`,
+`--keep-record <path>` (or `HANDOFF_KEEP_RECORD`), `--watch "<label>=<re-arm
+command>"` and `--standing-rules <file>`. Pointers
 are read, not passed:
 
 - the koto session: `KOTO_SESSION` when set, otherwise a new plain session
@@ -668,11 +702,14 @@ configuration, which the reference says.
 It refuses, writing nothing:
 
 - empty reasoning once whitespace is trimmed;
-- an `--instance` that isn't the instance enclosing the current directory;
+- an `--instance` that doesn't exist, doesn't enclose the current directory,
+  or sits inside a git worktree (Decision 1);
+- a relative record path with no `--instance`, or a record path whose
+  directory doesn't exist or is a symlink;
 - a named path that isn't a regular file, has a symlink in it, has a link
   count above 1, or is missing or unreadable;
-- a path outside scratch, which leaves out every repo worktree, `.git/`,
-  `.niwa/` and `.claude/`;
+- a path outside scratch, which leaves out every repo worktree and any
+  dot-directory at the instance root (`.git/`, `.claude/` and the like);
 - a basename matching a credential pattern (`.env*`, `*.pem`, `*.key`,
   `*.p12`, `id_*`, `.netrc`, `.npmrc`, `.git-credentials`, `credentials*`,
   `settings*.json`, `*secret*`, `*token*`, among others the reference lists);
@@ -695,11 +732,12 @@ The record lock is a `mkdir` directory holding the owner's pid and host; a
 later writer takes over a lock older than ten minutes only when that pid is
 gone on that host. Each file is copied once into a private 0700
 directory, and size, hash and stored bytes come from that copy. The script
-stores the file keys, then `brief/brief.md`, then the record, so a record never
+stores the file keys, then `brief/brief.md`, then the record where a path is
+given, so a record never
 points at a brief that isn't there. If a later store fails, it removes the
 keys this call stored.
 
-**`resume --instance <root>`** is Decision 1's mark. **`read [--session
+**`resume [--instance <root>] [--keep-record <path>]`** is Decision 1's mark. **`read [--session
 <name>]`** prints a brief with its Files section after the free text,
 verifies each inline key's hash, marks control and format characters, and
 prints watch commands as data without running them. It fences the reasoning
@@ -765,7 +803,7 @@ None stated.
 The brief's keys: `brief/brief.md`, `brief/files/<sha256>`, `brief/resumed`.
 The note: `compaction/note.md`.
 
-The keep record fields the script writes:
+The keep record fields the script writes, where a record path is given:
 
 ```json
 {
@@ -798,7 +836,8 @@ and nothing written, 2 environment fault (koto, git or gh unavailable).
    `write --event stop` where it still can, and the supervisor dispatches a
    successor the way it does today. That successor reads `brief/brief.md` and
    its file keys, on any host the koto session reaches.
-5. **Removal (other work).** The remover reads `protects`, `files` and
+5. **Removal (other work).** Where the workspace has pointed the record at
+   the path its remover reads, the remover reads `protects`, `files` and
    `written_at`.
 
 ## Implementation Approach
@@ -925,7 +964,10 @@ named file bytes and owns removing old sessions.
 The remover reads the keep record as untrusted data. It treats each
 `files[].path` as a name to compare, never as a path to open or delete, and
 treats a record it can't read or parse as a reason to keep the unit. `resume`
-weakens a hold only for a session that can already write the instance.
+weakens a hold only for a session that can already write the instance. The
+record path comes from the caller or from the workspace's own configuration,
+never from a brief or a hook's input, and the script refuses a record whose
+directory is a symlink, so a planted value can't redirect the write.
 
 The hooks read only the session id from their input, print fixed text plus
 names and a stale flag, and exit 0 on every path, so a malformed input can't

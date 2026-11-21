@@ -30,6 +30,12 @@ can be built at once; compaction as the default for every role waits first on
 one read of a session's identity across a compaction (R12), and coordinators
 wait on the conditions in R19 and R23.
 
+Amended while In Progress, during the design. The keep record no longer has a
+fixed place inside the workspace manager's own directory. The brief script
+writes one only to a path a workspace opts into, and otherwise writes only
+the brief, so the script reads and writes no file that belongs to another
+tool. The Terms entry, R5 and their criteria say so.
+
 ## Terms
 
 - **Session, koto session, unit.** A session is one Claude Code agent session;
@@ -60,9 +66,11 @@ wait on the conditions in R19 and R23.
   files at the instance root outside any repo. A stray file is an untracked,
   not-ignored file inside a repo's worktree; scratch is never stray.
 - **Remover, reap, keep record, kept set.** The remover is the niwa component
-  (other work) that deletes finished instances. The keep record,
-  `<instance>/.niwa/keep.json`, is what it reads; the removal work defines its
-  fields and the brief script is one of their writers. A hold is a record
+  (other work) that deletes finished instances. The keep record is a plain,
+  documented JSON file at a path the workspace chooses; the removal work may
+  read it where the workspace points it, and defines its own fields. The
+  brief script writes the record only when given that path, and never
+  assumes where any tool keeps its files. A hold is a record
   whose `protects` includes `instance`; a preserve instruction protects
   `files` and not `instance`. The kept set is where the remover will move a
   record and its named files at a reap. The record's `review_by` date is set
@@ -79,7 +87,7 @@ wait on the conditions in R19 and R23.
   travels inside the brief: its content is stored as its own koto key next to
   the brief's key. A larger file is named by reference (path and hash only)
   and stays on its host. The record cap bounds the total bytes of every file
-  one keep record names.
+  one brief names, whether or not a keep record is written.
 - **Closing step.** The step before the brief at a run's end: it confirms
   everything is pushed, has stray files committed or cleared, and leaves the
   worktree while keeping it on disk.
@@ -198,12 +206,17 @@ states them.
   travels inside the brief; a larger one is named by reference and stays on
   the host. When the named files' total bytes exceed the record cap the script
   refuses and writes nothing, so the unit stays kept. Serves: E1.
-- **R5. One copy of the file list, and what a brief's record protects.** When
-  a brief has files to name or the unit is parked, the script writes the keep
+- **R5. One copy of the file list, and what a brief's record protects.** The
+  keep record is optional: the script writes one only when given a record
+  path, by argument or by an environment value a workspace sets, and with
+  none it writes only the brief, whose own Files section is then the one
+  list. When a record path is given and a brief has files to name or the
+  unit is parked, the script writes the keep
   record's `files` (path, sha256, bytes), `brief` (koto session and key of the
   brief just written), `unit`, `written_by`, `written_at` and `protects`; the
   brief renders its list from the record and holds none of its own, and other
-  writers' fields stay intact. A park writes a hold; a resume mark voids that
+  writers' fields stay intact. The rest of this requirement applies where a
+  record path is given. A park writes a hold; a resume mark voids that
   hold but not the named files (R7). A brief at a
   run's end, or from a session that stops because it can't continue or is
   deliberately replaced, writes a preserve instruction when it names files.
@@ -419,6 +432,11 @@ unique string the test plants.
   record and leaves an existing one byte-identical; a park naming no files
   writes `brief`, `unit`, `written_by`, `written_at`, empty `files` and
   `protects` with `instance`. (R5)
+- [ ] With no record path given by argument or environment, a run's end and a
+  park naming one file each write the brief, whose Files section lists that
+  file with its sha256 and bytes, and create or change no file outside the
+  koto session. The script's source names no path inside another tool's
+  directory. (R5)
 - [ ] A run's-end brief naming only files that travel inside the brief writes
   `protects` naming `files` and not `instance`; one naming a file over the
   inline size records it by path, sha256 and bytes with `protects` including
