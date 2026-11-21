@@ -5,17 +5,17 @@ execution_mode: multi-pr
 split_mode_source: intent
 split_rationale: |
   Incremental Value. Each issue removes one kind of per-run weight and is
-  useful alone: the report measures runs, fix rounds stop repeating review
-  and verification, the fixed stops go, acceptance runs once per head,
-  experiments leave the default path, hosted CI becomes the build of record
-  where it already runs the same check, the CI wait narrows, small diffs
-  reach one reviewer, and plan steps stop queueing. Each ships with its own
-  opt-out and its own before and after figure, so landing them separately
-  is what lets a regression be traced to one change.
+  useful alone: the size facts let runs be read by size, fix rounds stop
+  repeating review and verification, the fixed stops go, acceptance runs
+  once per head, hosted CI becomes the build of record where it already runs
+  the same check, the CI wait narrows, small diffs reach one reviewer, and
+  plan steps stop queueing. Each ships with its own opt-out, which doubles
+  as the control arm its figure is compared against, so landing them
+  separately is what lets a regression be traced to one change.
 tracking_level: none
 upstream: docs/designs/DESIGN-lighter-work-on-runs.md
 milestone: "Lighter work-on runs"
-issue_count: 11
+issue_count: 10
 ---
 
 # PLAN: Lighter work-on runs
@@ -24,101 +24,111 @@ issue_count: 11
 
 Active
 
+Amended on 2026-11-21, before execution, with the PRD and DESIGN: the
+measurement reads koto's public workflow signals rather than a shirabe
+report, and the experiments issue is withdrawn.
+
 ## Scope Summary
 
 Cut the time a unit of work spends in `/work-on` and `/execute` without
-losing a check that has caught a real defect: measure per-visit time by
-diff size, stop fix rounds from repeating review and verification, remove
-the stops whose answer never varies, take experiments off the default path,
-let hosted CI be the build of record where it runs the same check, size
-review to the change, and let independent plan steps run together. The
-DESIGN is `docs/designs/DESIGN-lighter-work-on-runs.md`; the requirements
-(R1 to R25) are in `docs/prds/PRD-lighter-work-on-runs.md`.
+losing a check that has caught a real defect: record the change-size and
+fix-round facts koto's workflow signals lack, stop fix rounds from repeating
+review and verification, remove the stops whose answer never varies, let
+hosted CI be the build of record where it runs the same check, size review
+to the change, and let independent plan steps run together. The DESIGN is
+`docs/designs/DESIGN-lighter-work-on-runs.md`; the requirements (R1 to R25,
+R19 and R20 withdrawn) are in `docs/prds/PRD-lighter-work-on-runs.md`.
 
 ## Decomposition Strategy
 
 **Horizontal, one issue per trim.** The trims touch different states and
 scripts and share no runtime interface beyond the work-on template, so each
 is its own pull request with its own opt-out, ordered by expected minutes
-saved per run over the risk it accepts. Issue 1 comes first because every
-later issue names the report figure it expects to move. Issues 2 to 5 lower
-no review decision; issue 2 narrows what a fix round re-reviews and
-re-verifies, the same way a retry lap already does. Issue 6 is a test that must exist
-before issue 9 moves the compatibility file. Issues 7 and 8 change what a
-run verifies and waits for. Issue 9 lowers review for small diffs and
-carries the most risk among the work-on changes. Issues 10 and 11 touch
-only `/execute`.
+saved per run over the risk it accepts. Issue 1 comes first because it
+records the size facts every later figure is read by. Issues 2 to 4 lower no
+review decision for a normal run; issue 2 narrows what a fix round
+re-reviews and re-verifies, the same way a retry lap already does. Issue 5
+is a test that must exist before issue 8 moves the compatibility file.
+Issues 6 and 7 change what a run verifies and waits for. Issue 8 lowers
+review for small diffs and carries the most risk among the work-on changes.
+Issues 9 and 10 touch only `/execute`.
+
+**How each trim is judged.** Every number comes from koto's public workflow
+signals, which already carry each visit's state and duration, each run's
+result and its configuration version; issue 1 adds change size and
+fix-round lineage. Each trim's pull request names the signal figure it
+expects to move and carries a recorded before-and-after decision that
+compares runs with and without its opt-out over the same weeks, since a
+single before-and-after comparison of a template change has failed to
+reproduce here.
 
 Expected savings are minutes per completed work-on run at the median,
 estimated from observed per-state dwell on recent runs (review panels about
 58 active minutes per run, verification and pass counting about 27,
 `issue_type_routing` about 8, `review_level_choice` about 5,
 `pre_pr_evidence` about 4, `ci_pass_counting` about 4) and from runs now
-spanning two or three sessions where one used to do. Issue 1's report
-replaces each estimate with a measured figure.
+spanning two or three sessions where one used to do.
 
 **Not trimmed, and why.** The scrutiny, review and QA panels stay at `full`
 for ci, security, template and engine paths and for changes over 400 lines
-or 12 files; nothing argues for moving those floors, and issue 1's report
-will say if something later does. `review_level_check` and its facts floor
-stay, since the floor is what keeps risky paths at `full`. `reproduce` and
-the red-first rule stay: no recorded catch, but no other state checks that
-a fix's test fails without the fix, and issue 1 counts its holds so a later
-pass can judge it on data. Acceptance seats still mint at `pass_counting`.
-Local verification stays for ci, security, template and engine changes and
-wherever a command has no hosted twin. `ci_monitor` still waits for every
-relevant check and the always-required list, and no red check reaches a
-merge. The DESIGN's keep-or-cut table has the verdict and evidence for each
-of the 24 states added since 0.19.1.
+or 12 files; nothing argues for moving those floors, and the signals will
+say if something later does. `review_level_check` and its facts floor stay,
+since the floor is what keeps risky paths at `full`. `reproduce` and the
+red-first rule stay: no recorded catch, but no other state checks that a
+fix's test fails without the fix, and its holds show in the signals so a
+later pass can judge it on data. Acceptance seats still mint at
+`pass_counting`. Local verification stays for ci, security, template and
+engine changes and wherever a command has no hosted twin. `ci_monitor`
+still waits for every relevant check and the always-required list, and no
+red check reaches a merge. The offload canary, the rule-distance probe and
+shadow grading of document criteria stay as they are: they cost seconds on
+hosts that aren't enrolled and feed work other lanes own. The DESIGN's
+keep-or-cut table has the verdict and evidence for each of the 24 states
+added since 0.19.1.
 
-**koto dependencies.** None. Every issue is buildable on koto 0.37.
-One optional follow-up for `tsukumogami/koto`, not filed by this PLAN and
-not blocking anything: let a tick's routes see a variable rebound by the
-same state's `default_action`. With it, issue 3's `kind_route` gate could go
-and `fix_determination` could route on `UNIT_KIND` again.
+**koto dependencies.** The workflow changes need none; every issue builds on
+koto 0.37. Issue 1 files one proposal in `tsukumogami/koto` for the signal
+contract: change-size attributes on the run and a lineage attribute naming
+the run a session continues. Nothing waits on it, because the same facts
+stay readable in the session until koto carries them. One optional
+follow-up, not filed by this PLAN: let a tick's routes see a variable
+rebound by the same state's `default_action`, so issue 3's `kind_route` gate
+could go.
 
 ## Issue Outlines
 
-### Issue 1: feat(work-on): record gather history and add a size-normalized run report
+### Issue 1: feat(work-on): keep each run's size facts and fix-round lineage, and propose them to koto's signals
 
-**Goal**: Keep every review-level gather and print per-visit time by
-template version and size band, so each later issue has a measured before
-and after figure (R1 to R4).
+**Goal**: Record the two facts koto's public workflow signals lack, change
+size per gather and the run a fix round continues, by script and in the
+session, and propose both to the signal contract (R1, R2).
 
 **Acceptance Criteria**:
 - [ ] `review-level.sh facts` appends one JSON line per gather to a
       `review_facts.jsonl` key with lines, files, classes, tests changed,
       tests edited, criteria changed, unclassified, floor, rules fired and
-      head; a run with two gathers at different heads holds both.
-- [ ] `run-report.sh` prints, per template version and size band (light
-      cap, middle band, over the full floor), the median minutes per visit
-      of `scrutiny`, `review`, `qa_validation`, `light_review`,
-      `verification`, `pass_counting` and `ci_monitor`, seats spawned per
-      run and sessions per run, with fix rounds joined to their parent.
-- [ ] A run with no retained facts is listed as skipped by session count,
-      not dropped.
-- [ ] It reads only sessions of the repository it runs in, suppresses cells
-      under 5 runs, and a test fails on any output field other than a number
-      or a fixed label.
-- [ ] It prints a seat analysis: for past runs within 200 lines and 5
-      files, which seat raised each blocking finding.
-- [ ] The first committed report splits the rise after 2026-10-28 and after
-      2026-11-09 into a band-shift figure and a within-band figure, in
-      minutes per run, summing to the observed rise.
-- [ ] Given a ship date, it prints a named figure before and after; with
-      fewer than 10 runs after, it prints "insufficient data".
+      head; a run with two gathers at different heads holds both, and
+      `review_facts.json` still holds the latest.
+- [ ] `fix-round.sh start` records the session the round continues in the
+      round's `fix_round.json`; a second round records the original run, not
+      the first round.
+- [ ] Neither fact is written by an agent: both come from the scripts, and a
+      test drives each script against a fixture session.
+- [ ] A `tsukumogami/koto` issue proposes change-size attributes (lines,
+      files, path classes) on the run and a lineage attribute naming the run
+      a session continues, citing the signal contract's name rules.
 
 **Dependencies**: None
 
 **Type**: code
-**Files**: `skills/work-on/scripts/review-level.sh`, `skills/work-on/scripts/run-report.sh`, `skills/work-on/scripts/run-report_test.sh`
+**Files**: `skills/work-on/scripts/review-level.sh`, `skills/work-on/scripts/fix-round.sh`
 
 **States and scripts touched**: `review_level_check`'s default action
-(`review-level.sh facts`); new `run-report.sh`.
-**Expected saving**: none directly; it is the measuring stick for issues 2
-to 11.
+(`review-level.sh facts`); `fix-round.sh start`.
+**Expected saving**: none directly; it lets every later issue's figure be
+read by size band from the signals.
 **Check removed or kept**: none removed.
-**Opt-out**: not needed; it only adds a key and a read-only script.
+**Opt-out**: not needed; it only adds session keys.
 
 ### Issue 2: feat(work-on): let a fix round inherit the parent run's verdicts and verification
 
@@ -158,7 +168,7 @@ only the commands its paths reach, the way a retry lap does (R5, R6).
 `panel-scope.sh`, `run-verification.sh`, `check-skill.sh`.
 **Expected saving**: 30 to 50 minutes per run that takes a fix round (one
 full panel round and one branch-wide verification), about 20 to 35
-averaged over runs. Report figure: sessions per run and panel minutes per
+averaged over runs. Signal figure: sessions per run and panel minutes per
 fix round.
 **Check removed or kept**: narrowed for fix rounds. Every panel still
 reviews the fix diff, but seats that passed the parent's head aren't
@@ -205,7 +215,7 @@ the route (R15 to R18).
 `fix_determination`, `analysis`; `review-level.sh`, `fix-kind.sh`.
 **Expected saving**: 10 to 19 minutes per run (`issue_type_routing` 3 to 8,
 `review_level_choice` 2 to 5, `pre_pr_evidence` 4, the second tick at
-`fix_determination` 1 to 2). Report figure: agent stops per run and
+`fix_determination` 1 to 2). Signal figure: agent stops per run and
 pre-implementation minutes.
 **Check removed or kept**: `pre_pr_evidence`'s four gates removed as exact
 copies of `finalization`'s; the facts floor and `kind_unchanged` kept.
@@ -242,43 +252,7 @@ later commit still holds.
 **Opt-out**: `TEST_ACCEPTANCE_RECHECK=full` restores the full re-check at
 both states.
 
-### Issue 5: feat(work-on): take the experiments and shadow grading off the default path
-
-**Goal**: A run joins the offload canary, the rule-distance probe or
-document-criteria grading only when its host opts in (R19, R20).
-
-**Acceptance Criteria**:
-- [ ] `OFFLOAD_CANARY` and `PROBE` default to `off`; `work-on-open.sh` binds
-      either to `on` when `shirabe/offload-canary` or `shirabe/probe` under
-      the user config directory has first line exactly `on`.
-- [ ] With no opt-in file, a run enters none of the eight canary and probe
-      states and runs no `probe_value_absent` gate; with the file at `on` it
-      does; with `off`, `On` or an empty file it doesn't.
-- [ ] `doc-criteria.sh grade` returns at once with no call unless
-      `shirabe/doc-criteria` has first line `on`; with it, grading runs as
-      today.
-- [ ] `docs/guides/offload-live-canary.md`, `docs/guides/probe.md` and
-      `docs/guides/review-shadow.md` say the default is off and show the
-      opt-in file.
-
-**Dependencies**: Blocked by <<ISSUE:1>>
-
-**Type**: code
-**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/scripts/work-on-open.sh`, `scripts/doc-criteria.sh`, `docs/guides/offload-live-canary.md`, `docs/guides/probe.md`, `docs/guides/review-shadow.md`
-
-**States and scripts touched**: `offload_canary`, `offload_arm_withheld`,
-`offload_arm_preloaded`, `probe_draw`, `probe_arm_near`, `probe_arm_far`,
-`probe_arm_far_redeliver`, `probe_near`, and the `probe_value_absent` gates
-on `pr_precheck`, `pr_creation` and `ci_monitor`; `work-on-open.sh`,
-`doc-criteria.sh`.
-**Expected saving**: seconds per work-on run on hosts not enrolled (state
-passes and gate forks); up to 3 minutes per jury round in `/brief`, `/prd`,
-`/design`, `/strategy` and `/roadmap`. Report figure: transitions per run.
-**Check removed or kept**: no defect check removed; telemetry and
-experiment arms now need an opt-in.
-**Opt-out**: the opt-in files themselves.
-
-### Issue 6: test(work-on): require every gate-digest script to be in the engine class
+### Issue 5: test(work-on): require every gate-digest script to be in the engine class
 
 **Goal**: A test that fails when any script a template's gate digest
 covers, or a library it sources or a script it runs, is missing from the
@@ -302,12 +276,12 @@ engine class (R12, first half).
 
 **States and scripts touched**: none at run time; the rules file and a new
 test.
-**Expected saving**: none; prerequisite for issue 9.
+**Expected saving**: none; prerequisite for issue 8.
 **Check removed or kept**: adds a check. Gate-library changes that only the
 compatibility file kept at `full` now floor at `full` on their own.
 **Opt-out**: not needed; it raises floors only.
 
-### Issue 7: feat(work-on): use hosted CI as the build of record where every command has a twin
+### Issue 6: feat(work-on): use hosted CI as the build of record where every command has a twin
 
 **Goal**: Run verification once per round: hosted CI when it runs every
 selected command, local otherwise (R8).
@@ -345,12 +319,12 @@ selected command, local otherwise (R8).
 `pr_creation`'s deferral gate, `ci_monitor`; `run-verification.sh`,
 `check-verification.sh`.
 **Expected saving**: 15 to 25 minutes per qualifying run (the local
-verification visit). Report figure: `verification` minutes per run.
+verification visit). Signal figure: `verification` minutes per run.
 **Check removed or kept**: kept as one run instead of two; local stays for
 risky classes and untwinned commands.
 **Opt-out**: `--verification=local`.
 
-### Issue 8: feat(work-on): wait only on the checks the change can reach
+### Issue 7: feat(work-on): wait only on the checks the change can reach
 
 **Goal**: `ci_monitor` waits on the selected commands' hosted twins and an
 always-required list, not on every check (R9).
@@ -374,20 +348,20 @@ always-required list, not on every check (R9).
 - [ ] `skills/work-on/references/verification-map.md` documents
       `always_required` and `CI_WAIT=all`.
 
-**Dependencies**: Blocked by <<ISSUE:7>>
+**Dependencies**: Blocked by <<ISSUE:6>>
 
 **Type**: code
 **Files**: `skills/work-on/scripts/pr-checks.sh`, `skills/work-on/koto-templates/work-on.md`, `.claude/shirabe-extensions/verification-map.json`, `skills/work-on/references/verification-map.md`
 
 **States and scripts touched**: `ci_monitor` (`ci_passing`); `pr-checks.sh`.
 **Expected saving**: 10 to 25 minutes on runs whose paths don't reach a
-slow suite (the coordinate suites take about 40 minutes). Report figure:
+slow suite (the coordinate suites take about 40 minutes). Signal figure:
 `ci_monitor` minutes per run.
 **Check removed or kept**: kept for merging; an unrelated check stops
 holding the run's own green edge.
 **Opt-out**: `CI_WAIT=all`.
 
-### Issue 9: feat(work-on): let small diffs reach the light review level
+### Issue 8: feat(work-on): let small diffs reach the light review level
 
 **Goal**: A small change outside the risky classes takes one reviewer, with
 an escalate verdict and an audit that can reverse the cap (R10, R11, R12
@@ -400,8 +374,9 @@ second half, R13, R14).
       `manifest` path keeps `standard`.
 - [ ] First step: `cap light lines<=200 files<=5 classes=docs,test`. Second
       step: the classes widen to `docs,test,executable,instruction` only
-      after issue 1's seat analysis shows under 10% of blocking findings
-      within the cap came from seats the light panel lacks.
+      after a seat analysis of the review records `review-round.sh` sends to
+      koto shows under 10% of blocking findings within the cap came from
+      seats the light panel lacks.
 - [ ] After the second step: 37 lines in one script and its edited test
       gives `light`; 200 lines and 5 files gives `light`; 201 lines or 6
       files gives `standard`; changed criteria or an unclassified path gives
@@ -416,7 +391,7 @@ second half, R13, R14).
       44-line change to three coordinate gate-library scripts plus the
       compatibility file floors at `full` through the engine class, and a
       change to the compatibility file alone floors at `standard`. A
-      compatibility-file change in issue 7's class test resolves to `local`
+      compatibility-file change in issue 6's class test resolves to `local`
       whenever the scripts it hashes changed, since those are engine paths.
 - [ ] The light seat can return `escalate`, which records a raise and sends
       the run back to `review_level_check`; the next panel is `standard`.
@@ -424,9 +399,15 @@ second half, R13, R14).
       10 (8% to 12% of 1,000 generated names, the same on every
       evaluation); an audited run goes on to `scrutiny`, `review` and
       `qa_validation`.
-- [ ] `run-report.sh` derives misses from the verdict ledger, prints the
-      over-bound line at 4 misses in 30 audited runs and not at 3, and
-      trips at once on any security or correctness miss.
+- [ ] When an audited run's full-panel verdicts are recorded,
+      `review-round.sh` records a koto decision (kind `verdict`, outcome
+      `miss` or `no-miss`, the finding's category as a subject); a fixture
+      with a blocking full-panel finding at a head the light seat passed
+      records `miss`, one with none records `no-miss`.
+- [ ] `skills/work-on/references/review-levels.md` states the reversal rule:
+      more than 3 misses in the last 30 audited runs, or one security or
+      correctness miss, and the cap drops to 40 lines and 3 files by a
+      maintainer's pull request.
 - [ ] A branch that edits `review-level-rules.tsv` to widen the cap is
       classified by the merge-base copy and floors at `full`; the regenerated
       decider fixtures classify the fixture diffs above as stated.
@@ -434,10 +415,10 @@ second half, R13, R14).
       two steps, `escalate`, the audit and its reversal, and
       `REVIEW_FLOOR=standard` as the opt-out.
 
-**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:3>>, <<ISSUE:6>>
+**Dependencies**: Blocked by <<ISSUE:1>>, <<ISSUE:3>>, <<ISSUE:5>>
 
 **Type**: code
-**Files**: `skills/work-on/references/review-level-rules.tsv`, `skills/work-on/scripts/review-level.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/references/phases/phase-4d-light.md`, `skills/coordinate/scripts/review-round.sh`, `skills/work-on/scripts/run-report.sh`, `skills/work-on/references/review-levels.md`
+**Files**: `skills/work-on/references/review-level-rules.tsv`, `skills/work-on/scripts/review-level.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/references/phases/phase-4d-light.md`, `skills/coordinate/scripts/review-round.sh`, `skills/work-on/references/review-levels.md`
 
 **States and scripts touched**: `review_level_check`, `light_review`,
 `scrutiny` (audited entry); `review-level.sh`, `review-round.sh`, the light
@@ -451,7 +432,7 @@ classes; adds an escalate path, an audit and a narrower red-test rule.
 **Opt-out**: `REVIEW_FLOOR=standard` on `/work-on`, `/execute` or
 `/deliver` (the existing floor flag).
 
-### Issue 10: feat(execute): let the step agent draft the next step
+### Issue 9: feat(execute): let the step agent draft the next step
 
 **Goal**: The agent finishing a step drafts the next outlined step that
 waits only on it, so the owner reviews a draft instead of writing from
@@ -485,12 +466,12 @@ scratch (R22).
 **States and scripts touched**: `/execute`'s step handoff and
 `plan_validation`'s `step_detail` gate path.
 **Expected saving**: the owner's rewrite turn per later step, minutes per
-step; nothing per work-on run. Report figure: gap between a step's landing
+step; nothing per work-on run. Signal figure: gap between a step's landing
 and the next step's start.
 **Check removed or kept**: kept; the owner's review still gates every step.
 **Opt-out**: `--step-drafts=off` on `/execute`.
 
-### Issue 11: feat(execute): start ready plan steps concurrently
+### Issue 10: feat(execute): start ready plan steps concurrently
 
 **Goal**: `/execute` starts every step whose `waits_on` have all landed, up
 to a limit (R21).
@@ -512,7 +493,7 @@ to a limit (R21).
 - [ ] `skills/execute/SKILL.md` ("The lead shape") documents
       `--max-concurrent-steps` and the per-step worktrees.
 
-**Dependencies**: Blocked by <<ISSUE:10>>
+**Dependencies**: Blocked by <<ISSUE:9>>
 
 **Type**: code
 **Files**: `skills/execute/SKILL.md`, `skills/execute/koto-templates/execute.md`, `skills/execute/references/step-agent-handoff.md`
@@ -520,7 +501,7 @@ to a limit (R21).
 **States and scripts touched**: `/execute`'s `spawn_and_await` and the
 lead shape's step loop.
 **Expected saving**: up to one step's duration per independent pair of
-steps; nothing per work-on run. Report figure: gap between child
+steps; nothing per work-on run. Signal figure: gap between child
 completions per plan.
 **Check removed or kept**: kept; each step still runs its own `/work-on`.
 **Opt-out**: `--max-concurrent-steps=1`.
@@ -529,43 +510,41 @@ completions per plan.
 
 ```mermaid
 graph TD
-    I1["#1: run report"]
+    I1["#1: size facts and lineage"]
     I2["#2: fix-round inheritance"]
     I3["#3: constant-answer stops"]
     I4["#4: acceptance once per head"]
-    I5["#5: experiments opt-in"]
-    I6["#6: engine-class test"]
-    I7["#7: hosted build of record"]
-    I8["#8: relevant CI wait"]
-    I9["#9: light cap"]
-    I10["#10: step drafts"]
-    I11["#11: concurrent steps"]
+    I5["#5: engine-class test"]
+    I6["#6: hosted build of record"]
+    I7["#7: relevant CI wait"]
+    I8["#8: light cap"]
+    I9["#9: step drafts"]
+    I10["#10: concurrent steps"]
     I1 --> I2
     I1 --> I3
     I1 --> I4
-    I1 --> I5
-    I1 --> I7
-    I2 --> I7
-    I7 --> I8
-    I3 --> I9
-    I1 --> I9
-    I6 --> I9
-    I10 --> I11
+    I1 --> I6
+    I2 --> I6
+    I6 --> I7
+    I1 --> I8
+    I3 --> I8
+    I5 --> I8
+    I9 --> I10
 ```
 
 ## Implementation Sequence
 
-**Critical path:** issue 1, then issue 9 (after issue 6), then issue 9's
-second step once the report's seat analysis clears its bar.
+**Critical path:** issue 1, then issue 8 (after issues 3 and 5), then issue
+8's second step once the seat analysis clears its bar.
 
-**Order by saving over risk:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11. Issues 2
-to 5 carry the least risk and deliver an estimated 35 to 60 minutes per run
+**Order by saving over risk:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10. Issues 2 to 4
+carry the least risk and deliver an estimated 35 to 60 minutes per run
 between them, so most of the saving lands before review on small diffs is
-lowered. Issues 4 and 5 save less than 7 and 8 but come first because they
-accept no risk at all; 7 and 8 move defect discovery later.
+lowered. Issue 4 saves less than 6 and 7 but comes first because it accepts
+no risk; 6 and 7 move defect discovery later.
 
-**Parallel work:** issues 6 and 10 depend on nothing and can start at once,
-alongside issue 1. After issue 1, issues 2, 3, 4 and 5 can run in
-parallel; issues 3, 4, 5, 7, 8 and 9 all edit `work-on.md`, so they land one
-at a time and rebase on each other. Issue 7 follows 1 and 2, issue 8 follows
-7, issue 9 follows 1, 3 and 6, and issue 11 follows 10.
+**Parallel work:** issues 5 and 9 depend on nothing and can start at once,
+alongside issue 1. After issue 1, issues 2, 3 and 4 can run in parallel;
+issues 3, 4, 6, 7 and 8 all edit `work-on.md`, so they land one at a time
+and rebase on each other. Issue 6 follows 1 and 2, issue 7 follows 6, issue
+8 follows 1, 3 and 5, and issue 10 follows 9.

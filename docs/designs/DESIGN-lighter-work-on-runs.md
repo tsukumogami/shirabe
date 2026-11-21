@@ -11,24 +11,29 @@ problem: |
   a time. Nothing records size per visit, so process cost can't be told from
   bigger issues.
 decision: |
-  Build eleven shirabe changes, each behind an opt-out, ordered by minutes
-  saved over risk accepted. First a run report and per-gather size history.
-  Then the zero-risk trims: fix rounds that inherit the parent's verdicts and
+  Build ten shirabe changes, each behind an opt-out, ordered by minutes
+  saved over risk accepted, measured through koto's public workflow signals
+  rather than a shirabe report. First the size and fix-round facts those
+  signals lack, kept in the session and proposed to the signal contract.
+  Then the low-risk trims: fix rounds that inherit the parent's verdicts and
   verification results, the constant-answer stops removed or routed in one
-  tick, acceptance judged once per head, and experiments behind their existing
-  host opt-in files. Then hosted CI as the build of record where every
+  tick, and acceptance judged once per head. Then hosted CI as the build of record where every
   selected command has a hosted twin, and a CI wait scoped to those twins.
   Then a light cap in the review rules, first for docs and tests and later
   for scripts and instructions once past verdicts support it, with an
   escalate verdict and a hashed one-in-ten full-panel audit. Last, step agents that draft the next step and
-  concurrent ready steps in /execute. No koto engine change is required.
+  concurrent ready steps in /execute. The workflow needs no koto engine
+  change; the signal contract gains two proposed facts.
 rationale: |
   The largest measured growth is repetition, not new states: a fix round now
   runs as a fresh session with an empty verdict ledger and branch-wide suite
   selection, which fits the rise from one to three sessions per run. Removing
   repeated work lowers no check, so it goes first. Lowering review on small
   diffs saves a lot per qualifying run but accepts real risk, so it ships
-  after the report exists and with an audit that can reverse it.
+  after the size facts exist and with an audit that can reverse it. Each
+  trim is judged against concurrent runs that set its opt-out, because a
+  single before-and-after comparison of a template change has failed to
+  reproduce here.
   Concurrency in /execute saves the most wall time per plan but touches a
   shared branch, so it goes last behind a limit whose value 1 is today's
   behaviour.
@@ -42,6 +47,10 @@ decision_provenance: inline-resolved
 ## Status
 
 Accepted
+
+Amended on 2026-11-21, before execution: measurement reads koto's public
+workflow signals instead of a shirabe report (Q1), the audit records its
+misses as koto decisions (Q10), and the experiments stay as they are (Q13).
 
 ## Context and Problem Statement
 
@@ -92,13 +101,13 @@ The machinery in question, as it stands on main:
    R10 to R14).
 2. **Never lower review or verification for ci, security, template or
    engine paths, or for changes over 400 lines or 12 files** (R24).
-3. **Every trim ships with an opt-out for one run** and a named report
-   figure (R4, R25).
+3. **Every trim ships with an opt-out for one run** and a named signal
+   figure, judged against concurrent opt-out runs (R4, R25).
 4. **Build in shirabe with koto 0.37**; an engine change may simplify a
    trim but must not gate it.
 5. **Reuse what exists**: the retry-lap scoping in `panel-scope.sh`, the
-   `hosted` declaration in the verification map, the existing opt-in files,
-   the step-refine record in `/execute`.
+   `hosted` declaration in the verification map, the step-refine record in
+   `/execute`, and koto's public workflow signals for every number.
 6. **Fit the verification-cap-route work in flight** (the hosted-of-record
    route for a timed-out check) rather than racing it.
 7. **Order by expected minutes saved per run over risk accepted.**
@@ -107,28 +116,39 @@ The machinery in question, as it stands on main:
 
 ### Q1. How is per-visit time measured and normalized by size?
 
-Resolved inline. **Chosen: a report script over retained session records,
-plus an append-only gather history.** The report reads only sessions whose
-repository is the one it runs in. The committed output holds aggregate
-figures only (counts, medians, size bands), suppresses any cell with fewer
-than 5 runs, and a test fails it on any field other than a number or a
-fixed label. Besides the R2 table it prints a seat analysis: for past runs
-within the light cap, which seat raised each blocking finding. `review-level.sh facts` appends each
-gather to a new `review_facts.jsonl` key beside the existing
-`review_facts.json`, each line holding every R1 field (lines, files,
-classes, the test and criteria flags, floor, rules fired and head), and a
-new `skills/work-on/scripts/run-report.sh` reads
-retained sessions (state logs, `review_facts.jsonl`, `verdict_ledger.json`,
-`verification_results.json`, `fix_rounds.jsonl`) and prints the R2 table per
-template version and size band. Its first committed output answers R3.
+Resolved inline. **Chosen: read koto's public workflow signals, and add the
+two facts they lack.** koto's signal contract already emits each visit's
+state and duration (`koto.state_entered` / `koto.state_exited` with
+`koto.visit.duration_ms`), each run's result, its configuration version
+(`koto.template.hash`, `koto.config.id`) and the change it opened
+(`koto.change_linked`). That answers time per state per template version
+with no shirabe code. Two facts are missing: the size of the run's change,
+and, for a fix round, the run it continues (a fix round is a fresh root
+session, so `koto.run.id` doesn't join it to its parent).
 
-Alternative: a one-off analysis outside the repo. Rejected because R4 needs
-the same figures again after every trim ships, and a script in the repo is
-the only way the after-figure is computed the same way as the before one.
+- **In shirabe:** `review-level.sh facts` appends each gather to a
+  `review_facts.jsonl` key beside `review_facts.json`, every R2 field on each
+  line, and `fix-round.sh start` records the run it continues in the round's
+  `fix_round.json`, as it already records its base. Scripts write both; no
+  agent types them.
+- **In koto:** a proposal to the signal contract for change-size attributes
+  (lines, files, path classes) on the run and a lineage attribute naming the
+  run a session continues. How koto reads them (from a declared context key,
+  from the linked change, or from an argument at `koto init`) is the
+  contract owner's call.
 
-Alternative: send per-visit sizes to koto's run journal. Rejected for now:
-it needs an engine change for a figure shirabe can already compute from its
-own keys.
+Reading is a measurement reading in the team's own backend: visit durations
+by size band and configuration version answer R3, and each trim's figure is
+compared between runs with and without its opt-out over the same weeks.
+
+Alternative: a shirabe report script and a committed report (this design's
+first draft). Rejected: koto's signal contract is the one home for workflow
+telemetry, and a second channel would hide data from the team's backend and
+duplicate the reading the toolkit already plans.
+
+Alternative: a before-and-after comparison per trim. Rejected as the only
+evidence: a hand-run comparison of an earlier work-on template change didn't
+reproduce. Concurrent opt-out runs give a control arm in the same weeks.
 
 ### Q2. How does a fix round stop repeating review?
 
@@ -247,8 +267,9 @@ seat. A binary file, a rename, a mode change or a submodule bump counts as
 - **First step:** `cap light lines<=200 files<=5 classes=docs,test`. Small
   changes to documentation and tests take one seat.
 - **Second step:** the row widens to `classes=docs,test,executable,
-  instruction`, which is the PRD's R10 in full. It lands only after the run
-  report's seat analysis of past runs within the cap (Q1) shows that fewer
+  instruction`, which is the PRD's R10 in full. It lands only after a seat
+  analysis of past runs within the cap, read from the review records
+  `review-round.sh` already sends to koto, shows that fewer
   than 10% of their blocking findings came from seats the light panel lacks
   (completeness, justification, intent, pragmatic, architect, tester). This
   is the evidence the PRD asks for, read from verdicts already recorded
@@ -297,7 +318,7 @@ files a gate reads are outside what a static scan can follow; the test's
 header says so, and a gate script that reads one keeps it listed by hand. Engine rows are added for the scripts it finds missing (for
 coordinate today: `state-holding.sh`, `state-write-core.sh`,
 `state-common.sh`, `reconcile-check.sh`, `coord-log.sh`). The compatibility file moves to the `manifest` class in the light-cap
-change (Decision Outcome item 9), never before the test is on main.
+change (Decision Outcome item 8), never before the test is on main.
 
 Alternative: leave the compatibility file in `template`. Rejected: it is
 the sole `full` cause on small coordinate changes. Alternative: move it
@@ -322,14 +343,14 @@ An audited run's `light_review` passed edge goes to `scrutiny`, then
 `review` and `qa_validation` as a `full` run would, then `verification`.
 
 A **miss** is an audited run whose full panel recorded at least one finding
-at blocking severity at a head the light seat passed. The audited session
-doesn't report it: `run-report.sh` derives it from the panels' verdict
-ledger. The report trips the bound on more than 3 misses in the last 30
-audited runs, and at once on any miss whose finding is in the security or
-correctness category. Either trip prints the rules-file change that lowers
-the cap to 40 lines and 3 files; a maintainer makes it by pull request. The
-fast trip applies whatever the audited count, so it fires even before 30
-audited runs exist; the bound count waits for 30.
+at blocking severity at a head the light seat passed. The agent doesn't
+report it: when the full panel's verdicts are recorded on an audited run,
+`review-round.sh` records a koto decision (kind `verdict`, outcome `miss` or
+`no-miss`, with the finding's category as a subject), which reaches the
+signals as `koto.decision_recorded`. The bound is more than 3 misses in the
+last 30 audited runs, or any one miss in the security or correctness
+category, read from those decisions; either lowers the cap to 40 lines and
+3 files through a maintainer's pull request to the rules file.
 
 The audit is a slow net: at about a tenth of light runs, 30 audited runs
 take a few hundred light runs. That is why the wide cap waits for the
@@ -381,21 +402,14 @@ rebound by the same tick's default action. Not chosen as the path, because
 it would gate a shirabe trim on an engine release; listed under
 Consequences as optional koto follow-up.
 
-### Q13. How do experiments leave the default path, and how do plan steps run together?
+### Q13. What happens to the experiments, and how do plan steps run together?
 
-Resolved inline. **Chosen for experiments:** `OFFLOAD_CANARY` and `PROBE`
-default to `off`. `entry`'s and the canary's exits route on the variable's
-value (koto value routing), so an `off` run goes from `analysis` straight
-on and never enters a canary or probe state; the probe's
-`probe_value_absent` gates move behind a `vars.PROBE: on` condition. The
-existing opt-in files turn the variables on: `work-on-open.sh` reads
-`shirabe/offload-canary` and `shirabe/probe` under the user config directory
-and binds `OFFLOAD_CANARY=on` or `PROBE=on` at `koto init` when the file's
-first line is exactly `on`, so an opted-in host enters the states with no
-other action, and the draw scripts then assign the arm as today.
-`doc-criteria.sh grade` returns at once unless
-`${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/doc-criteria` exists with first
-line `on`.
+Resolved inline. **Experiments: left as they are.** The offload canary and
+the rule-distance probe already do nothing on hosts that aren't enrolled,
+apart from passing their states, and shadow grading of document criteria
+exists to feed measurement. Changing their defaults would save seconds per
+run and take data from the work that owns them, so the PRD withdrew R19 and
+R20.
 
 **Chosen for plan steps, in two parts.** First, the agent finishing a step
 drafts the PLAN entry of each outlined step that waits only on it, as
@@ -433,17 +447,17 @@ designs found one such record.
 
 | State | Verdict | Evidence | Why |
 |-------|---------|----------|-----|
-| `offload_canary` | trim (opt-in) | no recorded catch | experiment; Q13 |
-| `offload_arm_withheld` | trim (opt-in) | no recorded catch | experiment arm marker |
-| `offload_arm_preloaded` | trim (opt-in) | no recorded catch | experiment arm marker |
-| `probe_draw` | trim (opt-in) | no recorded catch | experiment; Q13 |
-| `probe_arm_near` | trim (opt-in) | no recorded catch | experiment arm marker |
-| `probe_arm_far` | trim (opt-in) | no recorded catch | experiment arm marker |
-| `probe_arm_far_redeliver` | trim (opt-in) | no recorded catch | experiment arm marker |
-| `probe_near` | trim (opt-in) | no recorded catch | experiment |
+| `offload_canary` | keep | no recorded catch | experiment; left to its owners (Q13) |
+| `offload_arm_withheld` | keep | no recorded catch | experiment arm marker |
+| `offload_arm_preloaded` | keep | no recorded catch | experiment arm marker |
+| `probe_draw` | keep | no recorded catch | experiment; left to its owners (Q13) |
+| `probe_arm_near` | keep | no recorded catch | experiment arm marker |
+| `probe_arm_far` | keep | no recorded catch | experiment arm marker |
+| `probe_arm_far_redeliver` | keep | no recorded catch | experiment arm marker |
+| `probe_near` | keep | no recorded catch | experiment |
 | `review_level_choice` | cut | no recorded catch | facts overrule it; Q11 |
 | `fix_determination` | trim | no recorded catch | keeps red-first routing, loses its second tick; Q12 |
-| `reproduce` | keep | no recorded catch | proves a fix's test fails without the fix; the report counts its holds so the next review has data |
+| `reproduce` | keep | no recorded catch | proves a fix's test fails without the fix; its holds are visible in the signals so the next review has data |
 | `changed_paths_record` | keep | no recorded catch | no agent stop; feeds the facts |
 | `issue_type_routing` | trim | no recorded catch | auto-routes code; Q12 |
 | `review_level_check` | keep | no recorded catch; its facts floor raised the agent's chosen level on most recent runs | the facts floor is the check that keeps risky paths at `full` |
@@ -460,16 +474,17 @@ designs found one such record.
 
 A keep with "no recorded catch" is a keep on purpose, not on evidence: the
 state either costs no agent stop, carries a route other work depends on, or
-(for `reproduce`) guards a failure mode no other state checks. The report
-in Q1 counts `reproduce`'s red-first holds so a later pass can judge it on
+(for `reproduce`) guards a failure mode no other state checks. Its holds
+show in the signals as visits to `reproduce`, so a later pass can judge it on
 data.
 
 ## Decision Outcome
 
-Eleven phases, each with an opt-out, in this order:
+Ten phases, each with an opt-out, in this order:
 
-1. **Run report and gather history** (R1 to R4). No saving by itself; every
-   later issue names its figure from it.
+1. **Size and fix-round facts** (R1, R2). No saving by itself: the gather
+   history and fix-round lineage in the session, and the proposal to koto's
+   signal contract. Every later phase names its figure in those signals.
 2. **Fix rounds inherit verdicts and verification** (R5, R6). Expected
    saving 30 to 50 minutes per run that takes a fix round, about 20 to 35
    averaged over runs, from one full panel round (seven seats) and one
@@ -482,29 +497,26 @@ Eleven phases, each with an opt-out, in this order:
    facts still set the floor.
 4. **Acceptance once per head** (R7). Expected 3 to 5 minutes per run that
    edits a test. Risk: none at an unchanged head.
-5. **Experiments and shadow grading opt-in** (R19, R20). Seconds per work-on
-   run, up to 3 minutes per planning-skill jury round. Risk: experiments
-   collect data only from opted-in hosts.
-6. **Engine-class coverage test** (R12). No saving; prerequisite for 9,
+5. **Engine-class coverage test** (R12). No saving; prerequisite for 8,
    which moves the compatibility file out of the template class.
-7. **Hosted CI as build of record where twins exist** (R8). Expected 15 to
+6. **Hosted CI as build of record where twins exist** (R8). Expected 15 to
    25 minutes per qualifying run (the local verification visit). Risk: a
    defect surfaces after the pull request opens, costing a CI round.
-8. **CI wait scoped to relevant checks** (R9). Expected up to 10 to 25
+7. **CI wait scoped to relevant checks** (R9). Expected up to 10 to 25
    minutes on runs whose changed paths don't reach a slow suite (the
    coordinate suites take about 40 minutes). Risk: an unrelated failing
    check is reported instead of holding the run.
-9. **Light cap, red-test rule, compatibility-file move, escalate and
+8. **Light cap, red-test rule, compatibility-file move, escalate and
    audit** (R10 to R14), in two steps (Q7). Expected about 45 minutes per
    qualifying run (one seat instead of seven). The first step (docs and
    tests) qualifies few runs here; the second (scripts and instruction
    files) brings it to roughly a quarter of runs, 10 to 12 minutes
    averaged, less the audited tenth. Risk: runtime defects the tests miss
    and the light seat can't see, in files shirabe ships to other agents.
-10. **Step agents draft the next step** (R22). Saves the owner's rewrite
-    turn per later step, minutes per step. Risk: a draft written by the
-    agent that just finished; the owner still reviews it.
-11. **Concurrent ready steps** (R21). Saves up to a whole step's duration
+9. **Step agents draft the next step** (R22). Saves the owner's rewrite
+   turn per later step, minutes per step. Risk: a draft written by the
+   agent that just finished; the owner still reviews it.
+10. **Concurrent ready steps** (R21). Saves up to a whole step's duration
     per independent pair; nothing per run. Risk: rebase conflicts on a
     shared branch, bounded by the limit.
 
@@ -516,10 +528,14 @@ stay. `reproduce` and red-first stay. Acceptance seats still mint at
 and wherever a command has no hosted twin. `ci_monitor` still waits for every
 relevant check and for the always-required list. The 400-line and 12-file
 floors are not changed, because no data argues for moving them, and the
-report will say whether a later change should.
+signals will say whether a later change should. The offload canary, the
+rule-distance probe and shadow grading stay as they are (Q13).
 
-**koto dependencies.** None required. One optional follow-up for
-`tsukumogami/koto`: let a tick's routes see a variable rebound by that
+**koto dependencies.** The workflow changes need none. Phase 1 proposes
+two attributes to koto's signal contract (change size on the run, and the
+run a fix round continues); until koto carries them they stay readable in
+the session, so nothing here blocks on the proposal. One optional follow-up
+for `tsukumogami/koto`: let a tick's routes see a variable rebound by that
 state's own `default_action`. It would let `fix_determination` route on
 `UNIT_KIND` again and remove the `kind_route` gate, but nothing here waits
 on it.
@@ -528,8 +544,6 @@ on it.
 
 ```
             analysis (records bound + rules copy; agent may declare a fix)
-                |
-   [OFFLOAD_CANARY/PROBE = off] -- skip canary/probe states
                 |
         fix_determination --kind_route gate--> implementation | reproduce
                 |                                   (same tick)
@@ -557,9 +571,8 @@ Components and their changes:
 
 - `skills/work-on/koto-templates/work-on.md`: remove `review_level_choice`
   and `pre_pr_evidence`; add `kind_route` on `fix_determination`; value-route
-  around canary and probe states; route the audited `light_review` edge;
-  `VERIFICATION` gains `auto` (default); defaults of `OFFLOAD_CANARY` and
-  `PROBE` become `off`; decider `code` mode live. The template's
+  route the audited `light_review` edge; `VERIFICATION` gains `auto`
+  (default); decider `code` mode live. The template's
   compatibility file is regenerated.
 - `skills/work-on/scripts/review-level.sh`: `facts` appends to
   `review_facts.jsonl`; new `set-from-facts`, `audit`, and `raise --reason
@@ -567,10 +580,9 @@ Components and their changes:
 - `skills/work-on/references/review-level-rules.tsv`: the `cap` row, first
   `classes=docs,test`, later widened; `rule full red_test_edited` replaces `rule full tests_edited`;
   engine rows for digest-covered scripts; `*.compat.json` to `manifest`.
-- `skills/work-on/scripts/work-on-open.sh`: bind `OFFLOAD_CANARY` and
-  `PROBE` from the opt-in files.
 - `skills/work-on/scripts/fix-round.sh`: copy the parent's
-  `verdict_ledger.json` and passed `verification_results.json` entries.
+  `verdict_ledger.json` and passed `verification_results.json` entries, and
+  record the run the round continues.
 - `skills/work-on/scripts/run-verification.sh`, `check-verification.sh`:
   `--base` selection, carried results, `auto` resolution, written reason.
 - `scripts/check-skill.sh`: diff against `SHIRABE_VERIFY_BASE` when set.
@@ -581,10 +593,11 @@ Components and their changes:
 - `skills/work-on/scripts/test-change.sh`: `status --confirm`.
 - `skills/work-on/scripts/fix-kind.sh`: `kind --exit`.
 - `scripts/decider-declarations.tsv`: `issue_type=code` live.
-- `scripts/doc-criteria.sh`: opt-in file check.
 - `skills/work-on/references/phases/phase-4d-light.md`,
-  `skills/coordinate/scripts/review-round.sh`: `escalate` verdict.
-- `skills/work-on/scripts/run-report.sh` (new): the R2 report.
+  `skills/coordinate/scripts/review-round.sh`: `escalate` verdict, and the
+  audit's miss or no-miss decision.
+- koto (proposal, not shirabe code): change-size and lineage attributes in
+  the signal contract.
 - `skills/execute/SKILL.md`, `skills/execute/koto-templates/execute.md`,
   `skills/execute/references/step-agent-handoff.md`: step drafts,
   `--max-concurrent-steps`, per-step worktrees for `single-pr`.
@@ -593,21 +606,24 @@ Components and their changes:
 Data written per run (all koto context keys in the work-on session):
 `review_facts.jsonl` (new, one JSON object per gather),
 `relevant_checks.txt` (new), `review_level.jsonl` (gains an `audit` line
-recording that the run was drawn; misses are not written by the run, the
-report derives them from the verdict ledger), `verdict_ledger.json` and `verification_results.json`
-(gain a `carried_from` field in a fix round).
+recording that the run was drawn; the miss itself is a koto decision
+`review-round.sh` records from the panels' verdicts), `verdict_ledger.json` and `verification_results.json`
+(gain a `carried_from` field in a fix round), `fix_round.json` (gains the
+run the round continues).
 
 ## Implementation Approach
 
-The order is the Decision Outcome's. Item 1 lands first. Items 2 to 5
-change no review or verification decision; they can land in any order after
-item 1 and are listed by saving. Item 6 must land before item 9. Items 7 and
-8 both touch verification and `ci_monitor` and land in that order. Item 9's
-first step lands after item 1's report has printed a before-figure for
-light-eligible runs; its second step lands only after the report's seat
-analysis clears the bar in Q7. Items 10 and 11 touch only `/execute`; 10
-before 11, because concurrent steps need the step agent's drafts to start
-without the owner's rewrite.
+The order is the Decision Outcome's. Item 1 lands first. Items 2 to 4
+change no review decision for a normal run; issue 2 narrows what a fix round
+re-reviews and re-verifies, as a retry lap already does. They can land in
+any order after item 1 and are listed by saving. Item 5 must land before
+item 8. Items 6 and 7 both touch verification and `ci_monitor` and land in
+that order. Item 8's first step lands once the size facts give a
+before-figure for light-eligible runs; its second step lands only after the
+seat analysis clears the bar in Q7. Items 9 and 10 touch only `/execute`; 9
+before 10, because concurrent steps need the step agent's drafts to start
+without the owner's rewrite. Every item's pull request carries a recorded
+before-and-after decision comparing runs with and without its opt-out.
 
 Each item updates the eval scenarios and test suites its scripts already
 have (`*_test.sh` beside each script, `skills/work-on/evals/`), regenerates
@@ -638,8 +654,8 @@ check that a branch could try to steer.
   seat that does not run code. The light seat judges every edited test, the
   acceptance seat judges it again, and the audit with its fast trip on any
   security or correctness miss measures what slips through.
-- **Audit integrity.** Misses are derived by the report from recorded panel
-  verdicts, not reported by the audited run. The draw hashes the session
+- **Audit integrity.** Misses are recorded by `review-round.sh` from the
+  panels' recorded verdicts, not reported by the audited run. The draw hashes the session
   name, which work-on derives from the issue or the task text; dodging it
   means discarding issues, a threat from inside the maintainer group that
   this design accepts.
@@ -671,12 +687,10 @@ check that a branch could try to steer.
   own change, a rebase that changed a step's files re-runs its verification
   and level check, and the combined diff of a concurrent group gets its own
   level check.
-- **Report contents.** The report reads only this repository's sessions,
-  suppresses cells under 5 runs, and a test rejects any non-numeric field
-  other than fixed labels.
-- **Opt-in files.** The experiment and grading opt-ins are files in the
-  user's own config directory, read as data; only an exact first line `on`
-  enables them.
+- **Measurement data.** Nothing is sent anywhere by this design: the new
+  facts are session keys and, once the contract carries them, koto signals,
+  which koto sends only when a team turns its signals on. The size facts are
+  counts and path classes, not file contents.
 
 ## Consequences
 
@@ -691,26 +705,26 @@ check that a branch could try to steer.
   check, and the CI wait stops holding on suites the change can't reach.
 - Independent plan steps progress together, and later steps no longer wait
   for the owner to rewrite them.
-- Every trim has a before and after figure from the same report.
+- Every trim is judged on the same public signals a team reads in its own
+  backend, against concurrent runs that set its opt-out.
 
 ### Negative
 
 - More configuration surface: `VERIFICATION=auto`, `always_required`,
-  `--max-concurrent-steps`, three opt-in files.
+  `--max-concurrent-steps`, `--step-drafts`.
 - The light seat doesn't run code; some runtime defects will surface later.
 - The audit is slow: a moderate miss rate takes a few hundred light runs to
   show, which the fast trip only partly offsets.
 - Defects found by hosted CI cost a CI round instead of a local run.
 - Per-step worktrees add disk use and a rebase step in `single-pr` plans.
-- Experiments lose data from hosts that don't opt in.
 
 ### Mitigations
 
-- Each trim's opt-out restores today's behaviour for a run until its
-  after-figure is read.
+- Each trim's opt-out restores today's behaviour for a run and doubles as
+  the control arm for its comparison.
 - The audit bound, or one security or correctness miss, lowers the light cap
   to 40 lines and 3 files by a reviewed rules-file change.
 - The wider light cap waits for evidence from recorded verdicts.
 - The step concurrency limit's value 1 is today's serial order.
-- Items 1 to 5 land first and lower no check, so most of the expected
+- Items 1 to 4 land first and lower no check for a normal run, so most of the expected
   saving arrives before any risk is taken.

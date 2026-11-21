@@ -27,6 +27,11 @@ In Progress
 
 Absorbed [BRIEF-lighter-work-on-runs](docs/briefs/BRIEF-lighter-work-on-runs.md); carried in Absorbed Brief.
 
+Amended on 2026-11-21, before execution: measurement now rides on koto's
+public workflow signals rather than a shirabe report (R1 to R4), each trim is
+judged against concurrent opt-out runs, and the experiment defaults (R19,
+R20) are withdrawn.
+
 ## Absorbed Brief
 
 The feature exists because a /work-on run's cost no longer tracks the
@@ -174,26 +179,30 @@ Terms:
 
 ### Measurement
 
-- **R1.** A run keeps the size facts of every gather, not only the latest:
-  lines, files, classes, tests changed, tests edited, criteria changed,
-  unclassified, floor, the rules that fired, and the head.
-- **R2.** A report built from retained run records prints, per template
-  version and per size band (light cap, middle band, over the full floor),
-  the median minutes per visit of `scrutiny`, `review`, `qa_validation`,
-  `light_review`, `verification`, `pass_counting` and `ci_monitor`, seats
-  spawned per run, and sessions per run, with each fix round joined to its
-  parent run. A run with missing records is counted and listed as skipped,
-  not dropped silently.
-- **R3.** The report's first output, committed with the change that adds it,
-  states, in minutes per run, how much of the rise after 2026-10-28 and
-  after 2026-11-09 comes from a shift toward larger size bands (the median
-  with the earlier period's band mix held fixed) and how much remains
-  within a band. The two figures sum to the observed rise.
-- **R4.** Each trim's PLAN issue names one R2 figure it expects to move and
-  the expected saving in minutes per run, with the observation it comes
-  from. After the trim ships and at least 10 runs have used it, the report
-  prints that figure before and after the trim's ship date; with fewer, it
-  prints "insufficient data".
+Measurement rides on koto's public workflow signal contract
+(`docs/reference/signal-contract.md` in koto), which already carries each
+visit's state and duration, each run's result, its configuration version
+(template name and hash) and the change it opened. This feature adds no
+shirabe-side store, report or dashboard; the numbers are read through
+whatever backend the team sends the signals to.
+
+- **R1.** Each run's change size (lines, files and path classes at its last
+  review-level gather) and, for a fix round, the run it continues reach the
+  workflow signals, recorded by a script or by koto and never typed by an
+  agent. Both are additions to the signal contract, proposed to koto, which
+  owns it.
+- **R2.** Until the contract carries them, the same facts stay readable in
+  the session: `review_facts.json` keeps every gather instead of the last
+  (lines, files, classes, tests changed, tests edited, criteria changed,
+  unclassified, floor, rules fired, head), and a fix round records the run
+  it continues.
+- **R3.** Whether the late-October and mid-November rise is process or
+  larger issues is answered by reading visit durations by size band and
+  configuration version from the signals, as a measurement reading, not as a
+  document this feature commits.
+- **R4.** Each trim is judged against concurrent runs that set its opt-out,
+  not only against an earlier period, and its pull request carries a
+  recorded before-and-after decision on the figure its PLAN issue names.
 
 ### Repeated work
 
@@ -239,12 +248,12 @@ Terms:
   so the next panel at that head is the larger one.
 - **R14.** A light run in the light audit also runs the full panel at the
   same head and records whether it was a miss. On a miss the run follows the
-  full panel's verdict and takes its fix lap. The report counts misses over
-  the 30 most recent audited light runs and, when the audit bound is crossed,
-  prints a line naming the rules-file change that returns the light cap to
-  40 lines and 3 files. A maintainer makes that change by pull request; the
-  report doesn't edit the rules file. With fewer than 30 audited runs the
-  report prints the count and no verdict.
+  full panel's verdict and takes its fix lap. Whether the run was a miss is
+  recorded by `review-round.sh` from the panels' recorded verdicts, as a
+  koto decision, so it reaches the signals without the agent reporting it.
+  When more than 3 of the 30 most recent audited light runs are misses, or
+  any one miss is a security or correctness finding, a maintainer lowers the
+  light cap to 40 lines and 3 files by a pull request to the rules file.
 - **R15.** The run chooses its review level from the facts. The up-front
   agent choice and its stop are removed. A coordinator's bound still applies:
   a facts floor above the ceiling still raises the level and still logs a
@@ -262,15 +271,13 @@ Terms:
   The agent's chance to declare a fix moves to `analysis`, which already
   allows it on a return.
 
-### Experiments off the default path
+### Experiments (unchanged)
 
-- **R19.** The offload canary and the rule-distance probe default to off. A
-  run enters their states and runs their gates only when its host opts in
-  with the existing opt-in file (`shirabe/offload-canary` or
-  `shirabe/probe` under the user config directory, first line `on`).
-- **R20.** Shadow grading of document criteria runs only when the host opts
-  in with `shirabe/doc-criteria` under the user config directory, first line
-  `on`. Without it the grading step makes no call and returns at once.
+- **R19.** Withdrawn. The offload canary and the rule-distance probe already
+  do nothing on hosts that aren't enrolled; their defaults belong to the
+  work that runs them.
+- **R20.** Withdrawn. Shadow grading of document criteria exists to feed
+  measurement, so whether it runs by default is the measurement work's call.
 
 ### Plan steps
 
@@ -297,8 +304,7 @@ Terms:
   template or engine class, or for a change over the full floor's size.
 - **R25.** Each trim has an opt-out that restores today's behaviour for one
   run, named in its PLAN issue. The opt-out is removed by a later pull
-  request once the report has printed the trim's after-figure and the PLAN
-  issue records it. The
+  request once the trim's recorded before-and-after decision (R4) exists. The
   removals in R15 and R17 are exempt: they remove an agent turn whose answer
   never changed the route, and reverting the change restores them.
 
@@ -306,19 +312,17 @@ Terms:
 
 ### Measurement
 
-- [ ] A run with two gathers at different heads holds both gathers' facts,
-      each with every field R1 lists (R1).
-- [ ] The report prints, for at least two template versions and each of the
-      three size bands, the medians and counts R2 lists; a fix round appears
-      under its parent; a run with no retained facts appears in a skipped
-      list with its session name (R2).
-- [ ] The first report in the repository has a section on the 2026-10-28
-      and 2026-11-09 steps with a within-band and a band-shift figure for
-      each (R3).
-- [ ] Each trim's PLAN issue names an R2 figure and a saving in minutes per
-      run; given a ship date, the report prints that figure before and after
-      it, and with 9 runs after the date it prints "insufficient data"
-      (R4).
+- [ ] A koto issue proposes the change-size and fix-round lineage
+      attributes to the signal contract, and the PLAN lists it as a koto
+      dependency (R1).
+- [ ] A run with two gathers at different heads holds both gathers' facts
+      in the session, each with every field R2 lists; a fix round's session
+      names the run it continues (R2).
+- [ ] Every trim's PLAN issue names the signal figure it expects to move
+      (visit duration of named states, seats or sessions per run) and a
+      saving in minutes per run (R3, R4).
+- [ ] Every trim's pull request carries a recorded before-and-after decision
+      comparing runs with and without its opt-out (R4).
 
 ### Repeated work
 
@@ -367,9 +371,9 @@ Terms:
 - [ ] Over 1,000 generated session names, between 8% and 12% are in the
       light audit, and the same names are chosen on every evaluation; an
       audited light run spawns the full panel and records a miss or not; on
-      a miss the run takes a fix lap; fixtures of 30 audited runs print the
-      over-bound line with 4 misses and not with 3; 29 audited runs print
-      the count and no verdict (R14).
+      a miss the run takes a fix lap and `review-round.sh` records a miss
+      decision; a run whose full panel passed records a no-miss decision
+      (R14).
 - [ ] A run with no coordinator bound reaches its first panel with no agent
       stop for a review-level choice; with a ceiling of `standard` and facts
       at `full`, the run reviews at `full` and logs a breach; with facts at
@@ -386,14 +390,6 @@ Terms:
 - [ ] A run whose fix kind is decided on entry leaves `fix_determination`
       in that same tick, to `implementation` for a change and `reproduce`
       for a fix (R18).
-
-### Experiments off the default path
-
-- [ ] On a host with no opt-in file, a run enters no canary or probe state
-      and runs no probe gate; with the opt-in file's first line `on`, it
-      does; with `off`, `On` or an empty file, it doesn't (R19).
-- [ ] A jury round on a host with no doc-criteria opt-in makes no grading
-      call; with the opt-in, the grading runs as today (R20).
 
 ### Plan steps
 
@@ -426,15 +422,18 @@ Terms:
   for, not which jobs exist or how long they take.
 - The coordinator skill and its workflows.
 - The rest of the planning skills' review wiring (review events, document
-  checks). R20 takes only shadow grading off the default path.
+  checks), and the defaults of the offload canary, the rule-distance probe
+  and shadow grading of document criteria (R19 and R20 withdrawn).
+- A shirabe-side measurement store, report or dashboard. The numbers come
+  from koto's public signals, read in the team's own backend.
 - Coarse suite selection inside `check-skill.sh --changed`, which PRs #1875
   and #1940 already narrowed.
 - The hosted-of-record route for a timed-out local check (the
   verification-cap-route work in flight). R8 builds on the same map
   declaration and must not conflict with it.
-- A koto engine change. Every requirement here can be met in shirabe with
-  what koto 0.37 already offers; the design names the one engine change
-  that would simplify R18 as optional follow-up work.
+- A koto engine change for the workflow itself. Every trim can be built in
+  shirabe on koto 0.37; the only koto work is R1's proposal to the signal
+  contract, and one optional engine change the design names for R18.
 
 ## Known Limitations
 
@@ -451,7 +450,10 @@ Terms:
 - Concurrent plan steps share a branch in a `single-pr` plan, so two steps
   that touch the same files conflict. R21 helps only where steps really are
   independent.
-- The report in R2 can only read runs whose records were retained.
+- Before-and-after comparisons on one change are noisy at the fleet's
+  volume; an earlier hand-run comparison of a template change didn't
+  reproduce. Comparing against concurrent opt-out runs narrows that but
+  doesn't remove it.
 
 ## Decisions and Trade-offs
 
@@ -504,6 +506,15 @@ Terms:
   most of the gain on plans with a fork after step 1 while keeping branch
   conflicts and host load bounded; six matches the most workers a host has
   been seen to run.
-- **Experiments default off, not removed.** Their designs may still want
-  data. Off by default keeps the code and moves the cost to runs that opt
-  in.
+- **Measure through the public signals, not a shirabe report.** The first
+  draft added a shirabe report script and a committed report. koto's signal
+  contract is the one home for workflow telemetry and already carries visit
+  durations and configuration versions; a second channel would hide data
+  from the team's own backend. The trims therefore propose the two missing
+  facts to the contract and keep them in the session meanwhile.
+- **Concurrent comparison over before-and-after.** A single before-and-after
+  comparison of a template change has failed to reproduce here. Each trim's
+  opt-out gives a control arm running in the same weeks.
+- **Experiments left alone.** Turning the canary, the probe and shadow
+  grading off by default saves seconds per run and takes data from the work
+  that owns them, so R19 and R20 are withdrawn.
