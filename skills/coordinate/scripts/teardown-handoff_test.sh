@@ -618,7 +618,40 @@ has "removed, no handoff comment, a worker session log that can't be read: says 
 nfixture
 printf '{"teardown":"removed","handoff":"not a link"}' >"$ST/teardown-ev"
 refused "removed with a malformed handoff link" "the handoff link is not a GitHub comment link"
+
+# A worker torn down outside the pass before any pull request of it merged
+# (shirabe#1833): removed, no link, nothing merged from the branch. Once the
+# worker is shown to be over, the verdict says `pr none` beside `handoff none`.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+cseal
+eq  "removed, no handoff comment, nothing merged: exit 0" 0 "$RC"
+case "$OUT" in "handoff-ready keyseal:7:"*) ok "removed, no handoff comment, nothing merged: prints handoff-ready" ;; *) bad "removed, no handoff comment, nothing merged: prints handoff-ready" "$OUT $(cat "$T/seal.err")" ;; esac
+eq  "removed, no handoff comment, nothing merged: the verdict says pr none and handoff none" \
+    "ready|topic w5|removed yes|instance - $RINST|job $RJOB $RSID|transcript $RPD/$RSID.jsonl|pr none|handoff none|dispatch -|inventory sealed:6:$(printf '%064d' 0)" \
+    "$(verdict | tr '\n' '|' | sed 's/|$//')"
+eq  "removed, no handoff comment, nothing merged: nothing else ran" "" "$(cat "$ST/calls")"
+# The same with the worker's koto session moved a minute ago: live, refused.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+export DC_NOW=$((NOW_EPOCH + 60))
+refused "removed, no handoff comment, nothing merged, the worker's koto session moved a minute ago" "the worker's koto session wk-rm is still live: its last event is 60s old"
+unset DC_NOW
+# A removed unit whose evidence carries a link, with nothing merged, refuses
+# as before.
+nfixture
+printf '[]\n' >"$ST/merged.json"
+printf '{"teardown":"removed","handoff":"%s"}' "$URL" >"$ST/teardown-ev"
+refused "removed with a handoff link, nothing merged" "no pull request from feat/w5 in acme/widgets is merged"
 rm -rf "$RPD"
+# A stopped unit with nothing merged refuses as before, link or none.
+fixture
+printf '[]\n' >"$ST/merged.json"
+refused "stopped, nothing merged" "no pull request from feat/w5 in acme/widgets is merged"
+fixture
+printf '[]\n' >"$ST/merged.json"
+printf '{"teardown":"stopped"}' >"$ST/teardown-ev"
+refused "stopped, no handoff link, nothing merged" "no pull request from feat/w5 in acme/widgets is merged"
 
 # --- ready: the holding read doesn't grow with the entries (shirabe#1315) ---------------------
 #

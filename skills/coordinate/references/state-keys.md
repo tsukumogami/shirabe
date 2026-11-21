@@ -137,7 +137,10 @@ goes once the unit's new worker is dispatched (`--retire`, which
 dispatch-worker.sh runs). A merged row also goes with `--retire`, at
 destroy, once its teardown pass is done: one the pass tore down itself, or
 one torn down outside the pass (a removed pass), including one closed with no
-handoff comment, where the pass's entry stands in for the link. A `dispatch-failed` row, a launch that never
+handoff comment, where the pass's entry stands in for the link. A
+leg-bound row whose worker was removed outside the run before anything
+merged goes the same way (its verdict says `pr none`); `--retire` then
+abandons the leg's request and its entry says so. A `dispatch-failed` row, a launch that never
 started, goes through `--retire` too once no worker exists for its topic
 (niwa lists no session and no unfinished Claude job carries it); its removal
 is told as an `entry` entry.

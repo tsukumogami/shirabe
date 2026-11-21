@@ -176,8 +176,10 @@ hw --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire refuses a holding 
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 hw --topic alpha --strand >/dev/null 2>"$T/err"; eq "--strand marks a message-path holding" 0 $?
 eq "  ... stranded, the rest of the row as it was" "stranded message feat/x" "$(live | jq -r '.holdings[0] | "\(.dispatch_status) \(.return_path) \(.branch)"')"
+: >"$KOTO_STORE/calls"
 hw --topic alpha --retire >/dev/null 2>"$T/err"; eq "--retire removes a stranded row" 0 $?
 eq "  ... and only it" "beta gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and abandons no request (shirabe#1833)" "" "$(grep 'request abandon-request' "$KOTO_STORE/calls")"
 hw --strand >/dev/null 2>&1; eq "--strand without --topic is a usage error" 64 $?
 
 echo "== retired after a removed teardown (shirabe#1593) =="
@@ -253,21 +255,44 @@ hr --topic delta --retire >/dev/null 2>"$T/err"; eq "--retire refuses a dispatch
 grep -q 'confirms no removed teardown' "$T/err" && ok "  ... and says why" || bad "  ... and says why" "$(cat "$T/err")"
 eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
 echo "teardown-pass: teardown-confirmed: removed outside the run: the instance and the job were already gone, and the run's removed pass archived what survived; the archive is whole" >"$CHECK_MSG"
+: >"$KOTO_STORE/calls"
 hr --topic delta --retire >/dev/null 2>"$T/err"; rc=$?
 [ "$rc" = 0 ] && ok "--retire removes a dispatched holding whose worker was torn down outside its own teardown pass" \
     || bad "--retire removes a dispatched holding whose worker was torn down outside its own teardown pass" "exit $rc: $(cat "$T/err")"
 eq "  ... and only it" "alpha gamma" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+# A leg-bound row's request is abandoned, and the entry says the leg was
+# released (shirabe#1833). It says nothing about a merge: this check's reason
+# doesn't say nothing merged, and a row never marked merged may have merged
+# outside the land path.
+grep -q '^request abandon-request req_7 ' "$KOTO_STORE/calls" && ok "  ... and abandons its leg's request req_7" \
+    || bad "  ... and abandons its leg's request req_7" "$(grep request "$KOTO_STORE/calls")"
 eq "  ... and leaves an entry saying the teardown was not the run's own" \
-    "entry|Holding delta (unit $(holding delta | jq -r .unit)) $OUTSIDE_ENTRY" \
+    "entry|Holding delta (unit $(holding delta | jq -r .unit)) $OUTSIDE_ENTRY The retirement released its leg req_7:work-on." \
     "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
 hr --topic gamma --retire >/dev/null 2>"$T/err"; rc=$?
 [ "$rc" = 0 ] && ok "--retire removes a merged holding whose removed teardown outside the run is confirmed" \
     || bad "--retire removes a merged holding whose removed teardown outside the run is confirmed" "exit $rc: $(cat "$T/err")"
 eq "  ... and only it" "alpha" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
-eq "  ... and leaves the same entry" \
-    "entry|Holding gamma (unit $(holding gamma | jq -r .unit)) $OUTSIDE_ENTRY" \
+grep -q '^request abandon-request req_9 ' "$KOTO_STORE/calls" && ok "  ... and abandons its leg's request req_9" \
+    || bad "  ... and abandons its leg's request req_9" "$(grep request "$KOTO_STORE/calls")"
+eq "  ... and leaves the same entry, with the leg released and no unmerged clause" \
+    "entry|Holding gamma (unit $(holding gamma | jq -r .unit)) $OUTSIDE_ENTRY The retirement released its leg req_9:work-on." \
     "$(koto context get "$SR" record/entries/000002 | jq -r '"\(.kind)|\(.text)"')"
 eq "  ... the writes go to the session, nothing to GitHub" "" "$(gh_writes)"
+# An abandon that fails doesn't undo the retirement: the row still goes, the
+# exit is 0, and stderr and the entry say how to release the leg by hand.
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" \
+    --argjson e "$(holding epsilon '{"return_path": "leg req_5:work-on", "entry_point": "/shirabe:work-on"}')" '.holdings = [$a, $e]')"
+: >"$KOTO_STORE/calls"
+KOTO_ABANDON_FAIL=1 hr --topic epsilon --retire >/dev/null 2>"$T/err"; rc=$?
+eq "--retire whose leg's abandon fails still exits 0" 0 "$rc"
+eq "  ... and the row is gone" "alpha" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+grep -q '^request abandon-request req_5 ' "$KOTO_STORE/calls" && ok "  ... and the abandon was asked" \
+    || bad "  ... and the abandon was asked" "$(grep request "$KOTO_STORE/calls")"
+grep -q '^state-holding: .*req_5' "$T/err" && ok "  ... and stderr names the request" || bad "  ... and stderr names the request" "$(cat "$T/err")"
+eq "  ... and the entry says the release failed and how to finish it" \
+    "entry|Holding epsilon (unit $(holding epsilon | jq -r .unit)) $OUTSIDE_ENTRY The release of its leg req_5:work-on failed; abandon it with koto request abandon-request req_5." \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
 : >"$CHECK_MSG"
 
 echo "== a dispatch-failed holding retired (shirabe#1612) =="
