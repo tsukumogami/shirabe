@@ -22,8 +22,22 @@ there's no commit.
 
 ## Resume Check
 
-If the design doc has YAML frontmatter with status "Proposed", skip to step 6.7
-(present for approval).
+Read the design doc's frontmatter `status:` and take the first row that
+matches:
+
+- `Draft`: run from 6.1, the document check and then the jury.
+- `Proposed`, the session reported `opened=attached`, and
+  `koto context list design-<topic> --prefix research/phase6_` prints
+  nothing: the status was written before the review. Set it back to `Draft`
+  as SKILL.md's Resume Logic does for that row (transition, placeholder
+  `decision` and `rationale` out, a design-file-only commit, the printed
+  line), then run from 6.1.
+- `Proposed` but not committed yet: `git diff --quiet HEAD -- docs/designs/DESIGN-<topic>.md`
+  exits non-zero, or the frontmatter `status:` in
+  `git show HEAD:docs/designs/DESIGN-<topic>.md` isn't `Proposed`. Resume at
+  6.6, so the commit and, on a direct run, the push and pull request happen.
+- `Proposed` and committed: skip to step 6.7 (present for approval), with no
+  second jury and no second pull request.
 
 ## Steps
 
