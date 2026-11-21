@@ -1,5 +1,7 @@
 workflow: .github/workflows/check-design-scripts.yml
-# /design's Phase 0 skeleton against the real validator. The extraction
-# cases need only bash, git and awk and run on the floor; the cases that
-# run shirabe skip where it is absent and run on the Linux job that builds it.
+# /design's Phase 0 skeleton and its validator probe. The extraction, pin
+# and stand-in-validator cases need only bash, git and awk and run on the
+# floor; the cases that run the real shirabe skip where it is absent and run
+# on the Linux job that builds it.
 skills/design/scripts/draft-skeleton_test.sh
+skills/design/scripts/draft-probe_test.sh

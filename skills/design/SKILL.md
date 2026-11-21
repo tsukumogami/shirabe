@@ -40,10 +40,23 @@ and are the input for /plan (which breaks designs into issues).
 
 ### Frontmatter
 
-Every design doc begins with YAML frontmatter:
+Every design doc begins with YAML frontmatter. While drafting, from Phase 0
+through step 6.4, it has the drafting shape:
 
 ```yaml
 ---
+schema: design/v1
+status: Draft
+problem: |
+  1 paragraph: what's broken or missing, who it affects, why now.
+---
+```
+
+Step 6.5 adds `decision` and `rationale` and moves it to `Proposed`:
+
+```yaml
+---
+schema: design/v1
 status: Proposed
 problem: |
   1 paragraph: what's broken or missing, who it affects, why now.
@@ -54,7 +67,8 @@ rationale: |
 ---
 ```
 
-All four fields required. Use literal block scalars (`|`). Frontmatter status must
+At `Draft`, `status` and `problem` are required; from `Proposed` on, all four.
+Use literal block scalars (`|`). Frontmatter status must
 match the Status section in the body -- agent workflows parse frontmatter to
 determine lifecycle state, so divergence causes silent errors. The frontmatter
 provides a self-contained summary so readers can understand the design without
@@ -166,6 +180,25 @@ non-zero exit from either command stops the run with the script's message:
 127 or 69 means koto is missing or too old, and the skill never falls back to
 files. `adopt` exiting 3 is the two-parents case below.
 
+`open` prints one line, `opened=new`, `opened=attached` or `opened=replaced`.
+Keep that value for the whole run: the Resume Logic reads it, and only
+`opened=attached` (a live session from an interrupted run) lets a resume row
+treat the run's own earlier keys as its progress.
+
+Then, before branch setup, any resume row or any Phase 0 step writes or
+commits anything, check that the `shirabe` on PATH accepts a design at status
+`Draft`, the shape Phase 0 commits:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/design/scripts/draft-probe.sh"
+```
+
+It prints `draft-probe: ok` and exits 0 when it does. Any non-zero exit stops
+the run with the script's message: 1 means no `shirabe` is on PATH or it is
+older than v0.47.0, the release that accepts `Draft`, and 2 means the probe
+couldn't run. The probe writes only to its own temporary directory, so a
+stopped run leaves the work tree as it found it.
+
 | Key | Written at | Holds |
 |-----|-----------|-------|
 | `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
@@ -248,7 +281,8 @@ removed a `chain/parent` an earlier chained run left.
 
 ### Output
 
-Final artifact: `docs/designs/DESIGN-<topic>.md` with status "Proposed".
+Final artifact: `docs/designs/DESIGN-<topic>.md` with status "Proposed"
+(Draft until step 6.5).
 
 After completion, present the design summary and offer next steps.
 

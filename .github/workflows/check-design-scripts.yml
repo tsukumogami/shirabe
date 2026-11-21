@@ -3,7 +3,9 @@ name: Check design scripts
 # skills/design/scripts/draft-skeleton_test.sh reads the DESIGN skeleton from
 # /design's Phase 0 files and asks the real validator whether it commits under
 # the hook `shirabe install-hooks` writes, and whether the Phase 4 draft passes
-# scripts/doc-check.sh at Phase 5. Its real-validator cases skip without a
+# scripts/doc-check.sh at Phase 5. draft-probe_test.sh checks the Phase 0
+# probe, draft-probe.sh, against a stand-in validator and the real one. Their
+# real-validator cases skip without a
 # shirabe that accepts a design at status Draft, so this job builds one from
 # the checkout and sets DESIGN_REQUIRE_SHIRABE=1: a skip there is a failure,
 # not a green run that asserted nothing.
@@ -80,4 +82,6 @@ jobs:
       - name: Run design script tests
         env:
           DESIGN_REQUIRE_SHIRABE: "1"
-        run: bash skills/design/scripts/draft-skeleton_test.sh
+        run: |
+          bash skills/design/scripts/draft-skeleton_test.sh
+          bash skills/design/scripts/draft-probe_test.sh
