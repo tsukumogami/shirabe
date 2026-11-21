@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A /work-on run repeats work it already did and stops where nothing is
   decided: a fix round after done restarts review and branch-wide
@@ -41,7 +41,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
