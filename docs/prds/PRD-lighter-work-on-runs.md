@@ -15,7 +15,8 @@ goals: |
   steps progress together. Large and risky changes keep every check that has
   caught a real defect, and each trim is measured against a size-normalized
   baseline so process cost can be told apart from bigger issues.
-upstream: docs/briefs/BRIEF-lighter-work-on-runs.md
+absorbed:
+  - docs/briefs/BRIEF-lighter-work-on-runs.md
 ---
 
 # PRD: Lighter work-on runs
@@ -23,6 +24,31 @@ upstream: docs/briefs/BRIEF-lighter-work-on-runs.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-lighter-work-on-runs](docs/briefs/BRIEF-lighter-work-on-runs.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a /work-on run's cost no longer tracks the
+change it carries. Writing the code is a small share of a run; review
+panels, fixed stops, repeated verification and test accounting take most
+of it, and they cost the same for a two-line test fix as for a
+thousand-line step. Plan steps under /execute queue behind each other even
+when nothing links them.
+
+The outcome is that the agent running /work-on, and the person waiting on
+its pull request, see a small contained change finish with review and
+verification sized to it, a fix round cost what the fix costs, and a risky
+change keep every check that has caught a real defect. Independent plan
+steps progress together, and a maintainer can read why each remaining
+check stays.
+
+Five journeys frame it: a small fix, a risky template change, a fix round
+after done, a plan with independent steps, and a maintainer deciding
+whether a check stays (the User Stories below). The boundary keeps the
+multi-session operating model, the milestone Done rule, CI workflow
+definitions and the coordinator skill outside, and plans rather than
+implements (Out of Scope below).
 
 ## Problem Statement
 
@@ -83,7 +109,7 @@ yet compared runs normalized by size.
 ## Goals
 
 The agent running `/work-on`, and the person waiting on its pull request,
-see the run's cost track the change (the BRIEF's User Outcome). A change
+see the run's cost track the change (the outcome in Absorbed Brief). A change
 within the light cap and outside the risky path classes gets one reviewer,
 one authoritative test run and no constant-answer stops. A change in the
 middle band keeps the six-seat `standard` panel. A change over the full
@@ -393,7 +419,7 @@ Terms:
 ## Out of Scope
 
 - The multi-session operating model: coordinators, merge seats, grant rules
-  and session succession (the BRIEF's out-list). They add their own waiting,
+  and session succession (see Absorbed Brief). They add their own waiting,
   but they live outside these two skills.
 - When a roadmap milestone counts as Done.
 - CI workflow definitions and suite duration. R9 changes what a run waits
@@ -453,7 +479,7 @@ Terms:
   the case where weakening is most likely, so it keeps the full floor.
 - **Audit by sampling, not by blocking.** A one-in-ten full panel on light
   runs costs about a tenth of the saving and gives a miss rate. This closes
-  the BRIEF's open question about whether one seat is enough: the answer is
+  the framing's open question about whether one seat is enough: the answer is
   measured after shipping, with a bound (more than 3 misses in 30) that
   sends the cap back to 40 lines and 3 files.
 - **Hosted as build of record only where twins exist.** The verification
