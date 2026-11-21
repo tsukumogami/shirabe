@@ -99,7 +99,7 @@ draft, accepted/active, in-progress, completed.
 | Strategy | Draft -> Accepted -> Active -> Sunset | Sunset |
 | Roadmap | Draft -> Active -> Done | Done |
 | PRD | Draft -> Accepted -> In Progress -> Done | Done |
-| Design Doc | Proposed -> Accepted -> Planned -> Current (or Superseded) | Current |
+| Design Doc | Draft -> Proposed -> Accepted -> Planned -> Current (or Superseded) | Current |
 | Plan | Draft -> Active -> Done | Done |
 | Spike Report | Draft -> Complete | Complete |
 | Decision Record | Draft -> Accepted | Accepted |

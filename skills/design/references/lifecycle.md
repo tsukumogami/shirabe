@@ -6,14 +6,15 @@ design documents.
 ## Lifecycle
 
 ```
-Proposed --> Accepted --> Planned --> Current
-                                      |
-                              (or) Superseded
+Draft --> Proposed --> Accepted --> Planned --> Current
+                                               |
+                                       (or) Superseded
 ```
 
 | Status | Directory | Transition |
 |--------|-----------|------------|
-| Proposed | `docs/designs/` | Created by /design or /explore |
+| Draft | `docs/designs/` | Created by /design Phase 0; drafting is under way and the design isn't reviewable yet |
+| Proposed | `docs/designs/` | Step 6.5 of /design, after the jury review (or created by /explore) |
 | Accepted | `docs/designs/` | Human approval |
 | Planned | `docs/designs/` | /plan creates issues |
 | Current | `docs/designs/current/` | All issues closed |
@@ -27,6 +28,8 @@ shirabe transition <path> <target> [--superseded-by <superseding-doc>]
 
 Handles status update, file movement (`git mv`), and supersession links.
 The `--superseded-by` flag is required when transitioning to `Superseded`.
+A design moves back to `Draft` only from `Proposed` (a loop-back during
+review); the command refuses `Draft` from any other status.
 
 ### Label Lifecycle
 
