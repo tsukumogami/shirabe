@@ -65,13 +65,16 @@ Write the initial design doc to `docs/designs/DESIGN-<topic>.md`:
 ```markdown
 ---
 schema: design/v1
+status: Draft
+problem: |
+  <The problem from 0.3, 2-3 sentences>
 ---
 
 # DESIGN: <Topic>
 
 ## Status
 
-Proposed
+Draft
 
 ## Context and Problem Statement
 
@@ -80,12 +83,45 @@ Proposed
 ## Decision Drivers
 
 <From scoping conversation>
+
+## Considered Options
+
+Not written yet: a later /design phase replaces this line.
+
+## Decision Outcome
+
+Not written yet: a later /design phase replaces this line.
+
+## Solution Architecture
+
+Not written yet: a later /design phase replaces this line.
+
+## Implementation Approach
+
+Not written yet: a later /design phase replaces this line.
+
+## Security Considerations
+
+Not written yet: a later /design phase replaces this line.
+
+## Consequences
+
+Not written yet: a later /design phase replaces this line.
 ```
 
-The skeleton's frontmatter holds `schema: design/v1` and nothing the
-design hasn't settled yet. It has no `status:` on purpose: Phase 6's
-resume check reads a frontmatter `status: Proposed` as a finished
-design, and step 6.5 writes the full block in its place.
+The skeleton is a complete Draft design that `shirabe validate` accepts, so
+a validating pre-commit hook takes it. The six sections the run hasn't
+reached hold only the stub marker defined in
+`${CLAUDE_PLUGIN_ROOT}/skills/design/references/design-format.md` (The stub
+marker); copy the line exactly. Each later phase replaces a section's marker
+line with what it writes, never adds below it. Only step 6.5 writes
+`decision` and `rationale` and moves the design to `Proposed`.
+
+Commit the skeleton under the commit rule in
+`${CLAUDE_PLUGIN_ROOT}/references/doc-check-steps.md` (Committing a partial
+document): `docs(design): initialize design for <topic>`. The commit comes
+before 0.5 writes the summary key, so a run whose summary key exists has
+committed its skeleton.
 
 ### 0.5 Write the Summary Key
 
@@ -105,8 +141,6 @@ design-<topic> work/summary.md`, the content on stdin):
 **Last Updated:** <date>
 ```
 
-Commit: `docs(design): initialize design for <topic>`
-
 ## Quality Checklist
 
 Before proceeding:
@@ -117,7 +151,9 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Design doc exists with: Status, Context and Problem Statement, Decision Drivers
+- Design doc committed at `status: Draft` with `problem` set and all nine
+  sections: Context and Problem Statement and Decision Drivers written, the
+  six later ones holding the stub marker
 - Key `work/summary.md` in `design-<topic>`
 
 ## Next Phase

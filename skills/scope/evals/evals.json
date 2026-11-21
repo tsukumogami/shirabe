@@ -1140,6 +1140,19 @@
         "Plan routes the run through check_exit to exit_abandonment, treating the PRD hop as the triggering child and leaving every committed document on disk",
         "Plan never invokes /design or /plan after taking the exit"
       ]
+    },
+    {
+      "id": 68,
+      "name": "resume-on-draft-design-routes-to-the-design-hop",
+      "prompt": "/scope cache-layer  (there is no key work/state.md in session scope-cache-layer; docs/prds/PRD-cache-layer.md is at Accepted, and docs/designs/DESIGN-cache-layer.md is at Draft in both its frontmatter and body Status, with Security Considerations and Consequences still holding only the stub marker line)",
+      "expected_output": "With no state key, the resume ladder reads the artifact tree. resume-probe.sh finds the Draft DESIGN before it reaches the PRD and reports row 46, design-draft, the same row a Proposed DESIGN takes, so the run goes to resume_draft and not to the settled-PRD boundary. /scope offers the Continue / Discard / Bail prompt against the Draft DESIGN. hop-complete.sh --hop design exits 1 for it, printing that the design is still at Draft, so the design hop isn't credited and /scope doesn't move on to /plan. On Continue, /scope hands back to /design for the topic, which picks the design up where it stopped.",
+      "files": [],
+      "expectations": [
+        "Plan routes the Draft DESIGN to row 46 (resume_draft) and does not offer the PRD boundary's Re-evaluate / Revise / Bail prompt",
+        "Plan offers Continue / Discard / Bail against the Draft DESIGN",
+        "Plan does not count the design hop as complete while the DESIGN is at Draft, and does not invoke /plan",
+        "Plan does not change the DESIGN's status itself; on Continue it hands back to /design"
+      ]
     }
   ],
   "substrate_scenarios": {

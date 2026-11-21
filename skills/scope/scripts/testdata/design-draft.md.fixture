@@ -1,0 +1,47 @@
+---
+schema: design/v1
+status: Draft
+problem: |
+  A scope run needs to tell a design that is still being written from one
+  that has been reviewed, so a hop is never credited on a draft.
+---
+
+# DESIGN: Demo
+
+## Status
+
+Draft
+
+## Context and Problem Statement
+
+The design hop is decided from the artifact tree alone. A design file on
+disk used to mean the design was finished, and now it can be a draft.
+
+## Decision Drivers
+
+- A draft must never credit the hop.
+- A reviewed design must still credit it.
+
+## Considered Options
+
+Not written yet: a later /design phase replaces this line.
+
+## Decision Outcome
+
+Not written yet: a later /design phase replaces this line.
+
+## Solution Architecture
+
+Not written yet: a later /design phase replaces this line.
+
+## Implementation Approach
+
+Not written yet: a later /design phase replaces this line.
+
+## Security Considerations
+
+Not written yet: a later /design phase replaces this line.
+
+## Consequences
+
+Not written yet: a later /design phase replaces this line.

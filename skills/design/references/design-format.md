@@ -45,7 +45,25 @@ decision_provenance: inline-resolved        # optional
 ---
 ```
 
-Required fields: `schema`, `status`, `problem`, `decision`,
+That is the finished shape, from `Proposed` on. **While drafting**, a
+design reads `status: Draft` and holds only the fields it has settled:
+
+```yaml
+---
+schema: design/v1
+status: Draft
+problem: |
+  1 paragraph: what technical problem this solves.
+upstream: docs/prds/PRD-<name>.md           # optional
+---
+```
+
+`/design` writes this shape at Phase 0 and keeps it through step 6.4.
+Step 6.5 adds `decision` and `rationale` and moves the design to
+`Proposed`.
+
+Required fields: `schema`, `status` and `problem` at `Draft`; from
+`Proposed` on, `schema`, `status`, `problem`, `decision` and
 `rationale`. Optional: `upstream`, `spawned_from`,
 `motivating_context`, `user_visible_surface`, `decision_provenance`.
 
@@ -53,8 +71,8 @@ Required fields: `schema`, `status`, `problem`, `decision`,
   without `schema: design/v1` as its first key is skipped by every
   structural check (see "The declared schema" in
   `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`).
-- **status** -- lifecycle state (`Proposed`, `Accepted`, `Planned`,
-  `Current`, `Superseded`).
+- **status** -- lifecycle state (`Draft`, `Proposed`, `Accepted`,
+  `Planned`, `Current`, `Superseded`).
 - **problem** -- the technical problem the design addresses, as 1
   paragraph using a YAML literal block scalar (`|`). The Context
   and Problem Statement body section elaborates the same content.
@@ -154,6 +172,29 @@ Every DESIGN has these nine sections in order:
    and mitigations. Forces the design to be honest about its
    trade-offs.
 
+### The stub marker
+
+A Draft design carries all nine sections from its first commit. A
+section the run hasn't reached yet holds this one line as its whole
+body, and nothing else:
+
+```text
+Not written yet: a later /design phase replaces this line.
+```
+
+This is the only definition of the marker. Every other copy (the
+Phase 0 skeletons, `/design`'s resume rows, the Phase 0 probe) is
+checked against it by `skills/design/scripts/draft-skeleton_test.sh`.
+
+- A section whose whole body is the marker counts as absent for every
+  resume row and section check that reads sections. The marker
+  anywhere else (pasted into a written section, say) means nothing.
+- The phase that writes a section replaces the marker line; it never
+  writes below it.
+- `shirabe validate` reads a stubbed section as present, so FC04 and
+  the document checks pass on it. Step 6.4 greps for the marker, and a
+  design reaches 6.5 only once no section holds it.
+
 ## Context-Aware Sections
 
 Some sections are conditionally required based on the design's
@@ -236,7 +277,8 @@ rule-statement prose.
 
 | State | Meaning |
 |-------|---------|
-| Proposed | Under development. Decision Outcome may be tentative. |
+| Draft | Drafting is under way and the design isn't reviewable yet. Sections the run hasn't reached hold the stub marker; `decision` and `rationale` aren't written. |
+| Proposed | Step 6.5 ran: the jury reviewed it and `decision` and `rationale` are written. Awaiting approval. |
 | Accepted | Approved by the author. Ready for PLAN authoring. |
 | Planned | A PLAN has been authored against this DESIGN. |
 | Current | The PLAN has shipped. The DESIGN documents the current architecture. |
@@ -251,6 +293,8 @@ Current` transition moves the file to `docs/designs/current/`, and
 
 | Transition | Preconditions | Directory Movement |
 |-----------|---------------|-------------------|
+| Draft -> Proposed | Step 6.5 of `/design`: the jury passed, `decision` and `rationale` are written, and no section holds the stub marker | None |
+| Proposed -> Draft | A loop-back at 6.2 or 6.7, or a resume that finds a `Proposed` written before the review ran. `shirabe transition` refuses `Draft` from any status other than `Proposed` | None |
 | Proposed -> Accepted | Phase 6 jury all-PASS + human approval | None |
 | Accepted -> Planned | A PLAN names this DESIGN as `upstream:` | None |
 | Planned -> Current | The PLAN has shipped (all issues done) | Move to `docs/designs/current/` |
@@ -267,9 +311,10 @@ designs that document the current architecture. A reader scanning
 match and runs FC01-FC04 plus the Phase 6 jury's discretionary
 checks. The `design/v1` FormatSpec declares:
 
-- **Required fields:** `status`, `problem`, `decision`, `rationale`.
-- **Valid statuses:** `Proposed`, `Accepted`, `Planned`, `Current`,
-  `Superseded`.
+- **Required fields:** `status` and `problem` at `Draft`; `status`,
+  `problem`, `decision` and `rationale` at any other status.
+- **Valid statuses:** `Draft`, `Proposed`, `Accepted`, `Planned`,
+  `Current`, `Superseded`.
 - **Required sections:** Status, Context and Problem Statement,
   Decision Drivers, Considered Options, Decision Outcome, Solution
   Architecture, Implementation Approach, Security Considerations,
@@ -279,7 +324,7 @@ checks. The `design/v1` FormatSpec declares:
 
 The validator-side contracts:
 
-- **FC01** -- required fields present.
+- **FC01** -- required fields present, for the document's status.
 - **FC02** -- status is in the valid enum.
 - **FC03** -- frontmatter status matches body `## Status` first
   line.
@@ -290,6 +335,10 @@ The validator-side contracts:
 - **FC25** (notice) -- with `decision_provenance` set, each Considered
   Options entry opens with its provenance, as
   [Frontmatter](#frontmatter) describes.
+- **L11** -- the design is still at `Draft`. Reported by the lifecycle
+  modes (`--lifecycle`, `--lifecycle-chain`), not by a plain
+  `shirabe validate`: a notice while the pull request is a draft, an
+  error once it is ready, by which point the design must be `Proposed`.
 
 Phase 6 jury reviewers add discretionary rubric coverage:
 

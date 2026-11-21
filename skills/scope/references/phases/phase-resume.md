@@ -109,7 +109,7 @@ shortcuts; they fire only when the run's effective intent is
   `boundary: design`. This row MUST NOT contain a "Continue /
   Start fresh" prompt — that vocabulary belongs to a child's own
   resume ladder, not to `/scope`'s boundary re-evaluation.
-- **5.5 DESIGN-Proposed detected [46].** A Proposed DESIGN exists.
+- **5.5 DESIGN-Proposed detected [46].** A Draft or Proposed DESIGN exists.
   `/scope` offers the Continue / Discard / Bail prompt against the
   draft.
 - **5.6 PRD-Accepted detected [47].** `docs/prds/PRD-<topic>.md`
