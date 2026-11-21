@@ -46,6 +46,7 @@ ENTRIES=420 POSTED=12 LEGS=40
 carry() { # carry <from> <to>
     ( PROG=carry SCOPE=roadmap NAME=plugin-system
       . "$HERE/state-common.sh"; . "$HERE/state-read.sh"; . "$HERE/state-write-core.sh"; RS_RETRY_PAUSE=0
+      CORE_FLUSH_PAUSES="0 0 0"
       core_carry "$1" "$2" )
 }
 # A koto with the write window, in front of the stand-in: each call is logged
@@ -54,6 +55,9 @@ carry() { # carry <from> <to>
 # (logging them to calls as the stand-in logs its own), the flush failing
 # with a koto-like message when WK_FAIL_FLUSH is set; without it they go to
 # the stand-in, which has no such command.
+# WK_FAIL_FLUSH_TIMES=<n> fails only the first <n> flushes, as a bucket PUT that fails and then clears does
+# (shirabe#1955), counting them in $KOTO_STORE/flush-fails, and
+# WK_CONFLICT_FLUSH fails every flush with koto's session conflict.
 mkdir -p "$T/wkoto"
 cat > "$T/wkoto/koto" <<EOF
 #!/usr/bin/env bash
@@ -62,6 +66,14 @@ if [ -n "\${WK_FLUSH:-}" ] && [ "\${1:-} \${2:-}" = "session flush" ]; then
     printf '%s\n' "\$*" >> "\$KOTO_STORE/calls"
     [ "\${3:-}" = --help ] && { echo "Usage: koto session flush <NAME>"; exit 0; }
     [ -z "\${WK_FAIL_FLUSH:-}" ] || { printf '{"error": "flush of session %s failed: the bucket could not be reached"}\n' "\$3"; exit 1; }
+    [ -z "\${WK_CONFLICT_FLUSH:-}" ] || { printf 'session conflict: local version 3 (machine a), remote version 4 (machine b)\n'; exit 1; }
+    if [ -n "\${WK_FAIL_FLUSH_TIMES:-}" ]; then
+        c=\$(cat "\$KOTO_STORE/flush-fails" 2>/dev/null || echo 0)
+        if [ "\$c" -lt "\$WK_FAIL_FLUSH_TIMES" ]; then
+            echo \$((c + 1)) > "\$KOTO_STORE/flush-fails"
+            printf 'S3 PUT failed for key: prefix/%s/ctx/record/entries/000116\n' "\$3"; exit 1
+        fi
+    fi
     printf '{"name": "%s", "flushed": true}\n' "\$3"; exit 0
 fi
 exec "$HERE/testdata/koto" "\$@"
@@ -244,6 +256,33 @@ grep -q "failed closing its write window: .*flush of session $DST failed: the bu
 eq "  ... writing no record/meta after it" 0 "$(grep -c "context add $DST record/meta " "$KOTO_STORE/wcalls")"
 eq "  ... so the new run holds no record and the next start carries again" 1 \
     "$([ ! -e "$KOTO_STORE/context/$DST/record/meta" ] && echo 1)"
+# A failed push leaves koto's batch open and the adds in the new run's local
+# copy, so the flush alone is tried again, a bounded number of times
+# (shirabe#1955): four tries in all, the first and three retries.
+eq "  ... after four tries of the flush, the first and three retries" 4 \
+    "$(grep -c "^W=- session flush $DST\$" "$KOTO_STORE/wcalls")"
+eq "  ... and not one add again" "$N" "$(grep -c "^W=$DST context add $DST " "$KOTO_STORE/wcalls")"
+big_record
+: > "$KOTO_STORE/wcalls"; rm -f "$KOTO_STORE/flush-fails"
+WK_FLUSH=1 WK_FAIL_FLUSH_TIMES=2 wcarry "$SRC" "$DST" > /dev/null 2>"$T/err"
+RC=$?
+[ "$RC" -eq 0 ] && ok "a flush whose push fails twice on the bucket and then clears lands the carry" \
+    || bad "a flush whose push fails twice on the bucket and then clears lands the carry" "exit $RC: $(cat "$T/err")"
+eq "  ... flushing the new run three times" 3 "$(grep -c "^W=- session flush $DST\$" "$KOTO_STORE/wcalls")"
+eq "  ... adding each key once" "$N" "$(grep -c "^W=$DST context add $DST " "$KOTO_STORE/wcalls")"
+eq "  ... every key copied" "" "$(same_bytes)"
+eq "  ... and record/meta written after it, with the source's written time" \
+    "$(jq -r .written "$KOTO_STORE/context/$SRC/record/meta")" \
+    "$(jq -r .written "$KOTO_STORE/context/$DST/record/meta" 2>/dev/null)"
+big_record
+: > "$KOTO_STORE/wcalls"; rm -f "$KOTO_STORE/flush-fails"
+WK_FLUSH=1 WK_CONFLICT_FLUSH=1 wcarry "$SRC" "$DST" > /dev/null 2>"$T/err"
+eq "a flush refused as a session conflict stops the carry (11)" 11 $?
+grep -q "failed closing its write window: session conflict:" "$T/err" \
+    && ok "  ... with koto's message" || bad "  ... with koto's message" "$(cat "$T/err")"
+eq "  ... trying the flush once: a conflict needs koto session resolve, not a retry" 1 \
+    "$(grep -c "^W=- session flush $DST\$" "$KOTO_STORE/wcalls")"
+eq "  ... and leaving the new run without record/meta" 1 "$([ ! -e "$KOTO_STORE/context/$DST/record/meta" ] && echo 1)"
 
 echo "== a role change written before the find, right after a carry lands =="
 # The opener's carry: core_carry copies the record into a new run whose find

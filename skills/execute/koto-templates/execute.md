@@ -1518,7 +1518,14 @@ git checkout impl/{{PLAN_SLUG}} 2>/dev/null || git checkout -b impl/{{PLAN_SLUG}
 echo "exit=$?"
 ```
 
-Exit 0 (this run's PR, or an unmarked one it adopts) or exit 4 (none yet) goes on to the push and the create below. Anything else stops here, **before the push**, so this run never pushes onto a branch whose PR another run opened: exit 6 is **Another run's PR** below (after a takeover that exits 0, go on to the push); exit 3 and exit 2 submit `status: completed`, and koto routes the lookup's answer.
+Exit 0 (this run's PR, or an unmarked one it adopts) or exit 4 (none yet) goes on to the start commit, the push and the create below. Anything else stops here, **before the push**, so this run never pushes onto a branch whose PR another run opened: exit 6 is **Another run's PR** below (after a takeover that exits 0, go on to the push); exit 3 and exit 2 submit `status: completed`, and koto routes the lookup's answer.
+
+```bash
+{{PLUGIN_ROOT}}/skills/execute/scripts/start-commit.sh --plan-slug {{PLAN_SLUG}}
+echo "exit=$?"
+```
+
+`start-commit.sh` gives `impl/{{PLAN_SLUG}}` a commit of its own when it has none. GitHub won't open a pull request whose branch has no commit the default branch lacks, which is where the branch stands when an earlier pull request already merged the PLAN. So when the branch has nothing beyond the remote's default branch, it adds one empty commit (`chore: start the {{PLAN_SLUG}} implementation`), and otherwise changes nothing. It never pushes and never touches the index or work tree. It prints `created <sha>` or `unchanged <sha>`. Exit 0 goes on to the push and the create below. Anything else (a detached HEAD, a branch other than `impl/{{PLAN_SLUG}}`, a default branch it can't read or fetch, a commit it can't write) stops here, **before the push**: submit `status: blocked` with its message as `detail`.
 
 ```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}

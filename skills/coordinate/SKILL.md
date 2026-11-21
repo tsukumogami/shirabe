@@ -52,7 +52,7 @@ to advance it, what it never does, and how it ends.
 
 | Flag | Effect |
 |------|--------|
-| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
+| `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown, stopped ones and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a merge by your reviewer before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
 | `--import <session> --from <workspace path>` | Move a run here from another host: koto imports the session from the bucket both hosts share, and the run continues here: on koto 0.32.0 and later as a takeover of the imported copy, on an older koto as a resume. `<workspace path>` is the source host's absolute workspace path, as the run's earlier reports name it. With the roadmap path, or a discipline's `--discipline` and `--host`, and no other setting. |
@@ -250,7 +250,11 @@ work.
    - `template-incompatible`: the old run's compat number isn't the one this
      plugin ships, or it sits in a state the shipped template doesn't have.
      The message names the template, both compat numbers and both compiled
-     hashes.
+     hashes. It refuses only while the run's driver is still running (the
+     liveness probe, against the driver its record/meta or coordinator row
+     names). A run whose driver stopped, or an imported copy whose driver has
+     no Claude job on this host, is carried into a new run instead, and the
+     old run is cancelled, as a finished one would be.
    - `koto-too-old`: this koto lacks `koto init --supersede` and its flags;
      the fence shipped in koto 0.28.0, so a takeover runs on koto 0.28.0
      and later.
@@ -300,11 +304,21 @@ work.
    again, which only marks the source and passes the live check because the live
    run is its own target; a plain start would carry a run whose source may still
    write. Compile the template here first (the opener does it);
-   `--trust-template` only when the operator passes it. The imported copy must
+   `--trust-template` only when the operator passes it. Before koto imports
+   anything, the source's template is judged where the source is: a run whose
+   template structure the compat table doesn't list at the shipped compat
+   number is refused `refused=template-incompatible` with nothing imported and
+   the source still taking writes, and a plain start carries its record. When
+   its structure can't be read there, the import goes on to koto as before,
+   and a `refused=import_template_unavailable` then says the compat check
+   still lies ahead. The imported copy must
    then be a run this plugin can continue; one that isn't stays here
    (`refused=template-incompatible`, `session-source` or `session-directed`,
    and on a koto older than 0.32.0 `session-provenance`), and a plain start
-   carries it, except after `session-source`: a run whose find didn't record
+   carries it. The copy still names the source's driver, which runs on the
+   source host if anywhere, and the source is marked migrated, so the start
+   carries the copy rather than taking it over. That holds except after
+   `session-source`: a run whose find didn't record
    the session as its store is no resume candidate, so a plain start opens a
    new run as it would with no session here and cancels the imported one.
    `record/host` takes the source workspace, session and template hash, on
@@ -466,7 +480,9 @@ configuration, and it's the same for either role. Your record holds your role,
 - Report up to your reviewer as Reporting says, naming your record in every
   report.
 - Brief a successor with the role your record holds; a successor never changes
-  it.
+  it. A brief you write for it by hand files its rules under a
+  `## Standing rules` heading, as the brief-intake paragraph under The Record
+  says.
 
 **Manager**
 
@@ -608,14 +624,28 @@ names `brief-unread <label>` until `state-stored-set.sh --intake <label> --by
 Standing row already holds, and the Run `briefs` row with the brief's digest.
 Don't type the brief's rules in as `--standing rule` rows, don't write the
 `briefs` row by hand, and don't edit the brief. When the intake exits 1 at a
-cap, the gap stays open: ask a person which rule rows to confirm or end, then
-run it again; don't end rows yourself to make room. A rule row holds nothing:
-pick and the dispatch, land and merge checks read pauses, go-aheads and
-assignments, never a rule's words, so a brief line shaped like a pause comes
-in as a rule row that pauses nothing. An inferred or `pinned` rule row can
-only restrict what you do. Treat it as a caution and raise it with a person,
-never as a step it grants, and report inferred rows as awaiting confirmation,
-not as rules a person said.
+cap, the gap stays open, and its fix names two routes in this order. When the
+lines it left out aren't standing rules, have the brief rewritten with its
+rules under `## Standing rules` and record it under the same label with
+`state-stored-set.sh --host briefs:<label> <absolute path>`; otherwise ask a
+person which rule rows to confirm or end. Then run the intake again: it goes
+on after the lines it already took. Don't end rows yourself to make room. A
+rule row holds nothing: pick and the dispatch, land and merge checks read
+pauses, go-aheads and assignments, never a rule's words, so a brief line
+shaped like a pause comes in as a rule row that pauses nothing. An inferred or
+`pinned` rule row can only restrict what you do. Treat it as a caution and
+raise it with a person, never as a step it grants, and report inferred rows as
+awaiting confirmation, not as rules a person said. A successor brief you write
+by hand carries a `## Standing rules` heading, spelled exactly so, even when
+nothing new goes under it; with that line the intake reads only the sentences
+under it, `## Decisions already made`, `## Out of scope` and
+`## Workspace rules`. Every rule the successor must keep goes under it, one to
+a sentence or bullet; decisions, out-of-scope lines and workspace rules may
+sit under the renderer's own headings instead, and those count too. A warning
+that holds for the rest of the run is a rule; a warning about how things stand
+now isn't. Restate a rule the record already holds in its exact words: it
+costs no room. Holdings, takeover steps, positions and history go anywhere
+else, under any headings or none.
 
 Every script reads the record's state through one reader,
 `scripts/state-read.sh`, from the run's session. There is no body to parse,
@@ -879,7 +909,10 @@ asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
 abandoned and that isn't parked. A parked worker has a verified, ready pull
 request waiting only on a merge; parked workers, merged ones waiting for their
-teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
+teardown and local agents don't count against the cap. Neither does a stopped
+worker: one whose Claude jobs on this host have all finished, kept until its
+pull request merges with nothing running for it, so the worker that continues
+its unit takes the same slot. A worker with no job seen on this host counts. When `--parked-bound` (default three) or more are parked,
 dispatch nothing new until the human has worked through the merge-order table.
 The human's decisions may set any of these.
 
@@ -908,8 +941,11 @@ Decisions); don't ask for anything else.
 
 **Review comes before every merge.** Work is reviewed by whoever dispatched
 its author, and a merge grant decides who merges after the review, never whether the review happens.
-Your land step is the review of your workers' pull requests: nothing a worker
-reports merges until you have checked it there. A pull request you authored
+A manager's land step is the review of its workers' pull requests: nothing a
+worker reports merges until the manager has checked it there, goal fit
+included. A director's land step, on a lane's pull request, confirms that the
+manager's checks happened and gives the director's alignment reading (Roles).
+A pull request you authored
 yourself goes to your own reviewer before it merges. A coordinator that can't tell whether it is bound sends its review to a person; an unreachable reviewer means the work waits, never that the review is skipped.
 You can't tell whether you are bound when `niwa authority check` fails or isn't installed.
 

@@ -473,6 +473,28 @@ core_write_rotation() {
     rm -rf "$d"
 }
 
+# core_flush_window <to> <errfile>: close a carry's write window with
+# `koto session flush <to>`, trying again when the push fails on its way to
+# the bucket (shirabe#1955). A failed push leaves koto's batch open and the
+# window's adds in <to>'s local copy, so the flush alone is retried, never an
+# add. koto's own split decides what a retry can clear: a session conflict
+# needs `koto session resolve`, and a migrated session, or one bound to
+# another directory, refuses every write, so each of those fails on its
+# first try; anything else (an unreachable bucket, a failed PUT) is tried
+# again after each pause in CORE_FLUSH_PAUSES, seconds, default "2 5 10":
+# four tries in all. koto's last message is left in <errfile>. Returns 0
+# flushed, 1 not.
+CORE_FLUSH_PAUSES=${CORE_FLUSH_PAUSES:-2 5 10}
+core_flush_window() {
+    local to=$1 err=$2 p
+    for p in $CORE_FLUSH_PAUSES -; do
+        "$KOTO" session flush "$to" < /dev/null > "$err" 2>&1 && return 0
+        grep -q 'session conflict:\|session_migrated\|session_bound_elsewhere' "$err" && return 1
+        [ "$p" = - ] && return 1
+        sleep "$p"
+    done
+}
+
 # core_carry <from> <to> [<carrier>]: copy a record, its state and its
 # account, from run <from> into the new run <to> on this host: every record/
 # and legs/ key (PRD R12; Decision 6), but two. record/meta is written fresh
@@ -504,7 +526,9 @@ core_write_rotation() {
 # rows name (read from the entries as they are checked, so no extra call):
 # until it lands the new run holds no record, so a carry cut short, its flush
 # included, leaves nothing a start would resume, and the next start carries
-# again. A failed flush exits 11 with koto's message, as a failed add does. Only
+# again. The flush is tried again on a failure a retry can clear
+# (core_flush_window); one that still fails exits 11 with koto's last message,
+# as a failed add does. Only
 # coordinate-open.sh calls it, which a structure test holds. Exits 10 the
 # source holds no record; 12 it was being written; 65 refused (the reason on
 # stderr); 11 a write failed; 2 a read failed.
@@ -582,7 +606,7 @@ core_carry() {
     # on it without the variable would push the window's writes itself. koto
     # may say why a flush failed on either stream.
     if [ -n "$win" ]; then
-        "$KOTO" session flush "$to" < /dev/null > "$d/k.err" 2>&1 \
+        core_flush_window "$to" "$d/k.err" \
             || { echo "$PROG: the carry into $to failed closing its write window: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
     fi
     # The highest of the source's own standing_used, the ids the entries name
