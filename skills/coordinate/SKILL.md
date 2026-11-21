@@ -761,6 +761,9 @@ states never ask you to do these steps by hand.
   worker is gone and never wrote a handoff comment, it goes with no link,
   the seal checks that the worker is over, the pass records an entry in
   place of the link, and the row goes with `state-holding.sh --retire`.
+  When no pull request of it merged either, the verdict says `pr none`
+  beside `handoff none`, and `--retire` also releases a leg-bound row's
+  leg by abandoning its request.
   Before the destroy the pass writes the unit's `cost` entry into the record,
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a
