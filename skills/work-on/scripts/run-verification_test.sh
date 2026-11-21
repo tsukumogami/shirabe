@@ -399,7 +399,9 @@ rf_test_refusals "--verdict" skills/work-on/scripts/check-verification.sh verifi
 # The same result against plugin copies with verification/command-failed at
 # each stage: its finding prints at the stage's level, and only at block does
 # it route the run back (1).
-VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh"
+# check-verification.sh sources verification-route.sh, which runs
+# session-role.sh, so a stage copy carries both.
+VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh skills/work-on/scripts/verification-route.sh skills/work-on/scripts/session-role.sh"
 verdict_in_copy() { # <copy>
     cd "$WORKDIR/r-fail" && "$1/skills/work-on/scripts/check-verification.sh" --verdict --session s-fail
 }
@@ -646,14 +648,15 @@ verdict_at_warn() {
     rf_test_verify_copy "$3" "$STAGE_COPY" "$STAGE_LOG"
 }
 
-# needs-person can't share a result with a failed command (an attended result
-# lists no commands), so the mixed result is a failed command beside one past
-# its timeout, which ranks 4 like needs-person does.
+# The mixed result is a failed command beside one past its timeout. A failed
+# check outranks a timeout, so both at block route back to implementation (1);
+# with the failure at warn, the timeout chooses, and the failed record keeps
+# the hosted-of-record route closed (4).
 mkrepo mixed "$(map '{"bad": {"run": ["bin/fail.sh"]}, "slow": {"run": ["bin/slow.sh"], "timeout_secs": 1}}' '[]' '["bad", "slow"]')"
 change top.txt
 start s-mixed
 settle s-mixed
-expect_rc "a failed command beside a timed-out one, both at block" 4
+expect_rc "a failed command beside a timed-out one, both at block" 1
 verdict_at_warn s-mixed verification/timed-out "timed-out at warn beside command-failed at block" 1 \
     "verification/command-failed=error verification/timed-out=warning "
 verdict_at_warn s-mixed verification/command-failed "command-failed at warn beside timed-out at block" 4 \
@@ -744,7 +747,8 @@ add_outcome_fixtures
 change top.txt
 start s-sumfailed
 settle s-sumfailed
-expect_rc "stopped at the limit with a finished-failed suite (the exit is unchanged)" 4
+expect_rc "stopped at the limit with a finished-failed suite" 1
+expect_rule "stopped at the limit with a finished-failed suite" verification/command-failed
 expect_record "stopped at the limit with a finished-failed suite" s-sumfailed chk \
     '.timed_out == true and .outcome == "failed" and .suites.failed == ["s/x_test.sh"]'
 
@@ -777,8 +781,8 @@ add_outcome_fixtures
 change top.txt
 start s-inside
 settle s-inside
-expect_rc "a timed-out-inside record alone (the exit is unchanged)" 1
-expect_rule "a timed-out-inside record alone" verification/command-failed
+expect_rc "a timed-out-inside record alone, its row declaring no hosted jobs" 4
+expect_rule "a timed-out-inside record alone" verification/timed-out
 expect_record "a timed-out-inside record alone" s-inside inside '.outcome == "timed-out-inside"'
 
 echo "--- a summary left by an earlier run"
@@ -932,6 +936,76 @@ expect_rc "an uncompilable timeout_form beside a well-formed hosted" 3
 jq -e '.status == "bad-map" and (.detail | test("command hrow: timeout_form"))' "$(result_of s-hostedform)" >/dev/null 2>&1 \
     && pass "hosted: timeout_form still validates on a row that declares hosted" \
     || fail "hosted: an uncompilable timeout_form with hosted: $(head -c 400 "$(result_of s-hostedform)" 2>&1)"
+
+# --- the hold at 5 ---------------------------------------------------------------------
+#
+# A timed-out check with no failed one exits 5 when the hosted-of-record route
+# is open, which takes a root session (session-role.sh asks the stand-in's
+# session list) and a row that declares hosted jobs; 4 otherwise.
+
+echo "--- the hold: a timed-out check whose row declares hosted jobs"
+# root_sessions <s>...: the stand-in's session list names each as a root.
+root_sessions() {
+    jq -cn '$ARGS.positional | map({id: .})' --args "$@" > "$KOTO_STUB_STORE/sessions.json"
+}
+add_recslow() {
+    printf '#!/bin/sh\nprintf "start\\n" >> "$1"\nexec "$(dirname "$0")/sumslow.sh" clean\n' > bin/recslow.sh
+    chmod +x bin/recslow.sh
+}
+HOLD_REC="$WORKDIR/hold.rec"
+CMDS=$(jq -cn --arg f "$HOLD_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1, hosted: $h}}')
+mkrepo hold "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+root_sessions s-hold s-holdbare
+start s-hold
+settle s-hold
+expect_rc "a timed-out check, none failed, the route open" 5
+expect_rule "a timed-out check, none failed, the route open" verification/timed-out
+grep -qF 'verification_status: hosted_of_record' "$WORKDIR/verdict.err" \
+    && pass "the hold says what it offers: hosted_of_record with a reason, fix, blocked" \
+    || fail "the hold's stderr: $(cat "$WORKDIR/verdict.err")"
+[ "$(grep -c '^start$' "$HOLD_REC" 2>/dev/null)" = 1 ] && pass "the hold: the check started once" \
+    || fail "the hold: the check started $(grep -c '^start$' "$HOLD_REC" 2>/dev/null) times"
+start s-hold
+verdict s-hold
+expect_rc "re-entering verification at the same head and merge-base holds at 5 again" 5
+[ "$(grep -c '^start$' "$HOLD_REC" 2>/dev/null)" = 1 ] \
+    && pass "re-entry reuses the stored timed-out result and starts no check" \
+    || fail "re-entry started the check again: $(grep -c '^start$' "$HOLD_REC" 2>/dev/null) starts"
+OUT=$("$VERDICT" --verdict --session s-hold --shared-branch docs/x 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "the same result for a SHARED_BRANCH run of /execute" 4
+grep -qF 'the hosted-of-record route is closed: the run is a child of /execute' "$WORKDIR/verdict.err" \
+    && pass "a SHARED_BRANCH run's verdict names /execute as the closing cause" \
+    || fail "the SHARED_BRANCH verdict's stderr: $(cat "$WORKDIR/verdict.err")"
+OUT=$("$VERDICT" --verdict --session s-hold --shared-branch "" 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "an empty --shared-branch, as a run not under /execute passes it" 5
+root_sessions s-holdbare
+verdict s-hold
+expect_rc "the same result when the session is not listed as a root" 4
+
+CMDS=$(jq -cn --arg f "$WORKDIR/holdbare.rec" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1}}')
+mkrepo holdbare "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+start s-holdbare
+settle s-holdbare
+expect_rc "a timed-out check whose row declares no hosted jobs, the route closed" 4
+grep -qF 'declares no hosted jobs' "$WORKDIR/verdict.err" \
+    && pass "the closed route's cause is on stderr" || fail "the closed verdict's stderr: $(cat "$WORKDIR/verdict.err")"
+rm -f "$KOTO_STUB_STORE/sessions.json"
+
+echo "--- the route's check runs in this process"
+if grep -q '^\. "\$HERE/verification-route.sh" ||' "$VERDICT" \
+    && ! grep -v '^[[:space:]]*#' "$VERDICT" | grep -q '"\$HERE/verification-route.sh" -'; then
+    pass "check-verification.sh sources verification-route.sh and never runs it as a second process"
+else
+    fail "check-verification.sh does not source verification-route.sh, or runs it"
+fi
 
 # --- the check id, finished_at and a stale hosted_of_record key -----------------------
 
