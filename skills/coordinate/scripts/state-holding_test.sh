@@ -391,4 +391,140 @@ eq "  ... and the session holds the entry" \
     "entry|Holding delta (unit $(holding delta | jq -r .unit)) retired: its dispatch failed, and no niwa session or unfinished Claude job exists for it." \
     "$(koto context get "$SF" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
 
+echo "== six leg-bound holdings whose workers were removed outside the run, nothing merged (shirabe#1833) =="
+# A takeover carries six dispatched, leg-bound holdings whose workers were
+# torn down outside the run before any pull request of theirs merged: no niwa
+# instance, no Claude job, and the worker's koto session long idle. Two are
+# scope legs, three work-on legs and one a review-fix worker whose unit was
+# reassigned. Each goes through the route the run has: the teardown hand-off
+# seals its verdict (the real teardown-handoff.sh --seal, removed mode, no
+# handoff link), then --retire asks the real teardown-pass.sh check. Each
+# holding retires, its leg's request is abandoned, and its entry says the
+# pull request had not merged and the leg was released. --strand of such a
+# row still refuses. The plugin tree holds the real hand-off, pass and
+# libraries; the hand-off's `read`, which needs the engine's capture and
+# seals, is a stand-in that prints the verdict the seal stored, as read does
+# for a ready one, and refuses as read does for a refused one.
+TT="$(cd -P "$T" && pwd -P)/gone-workers"
+TS="$TT/plugin/skills/coordinate/scripts"
+TB="$TT/bin"
+TW="$TT/ws"
+mkdir -p "$TS" "$TB" "$TW/.niwa" "$TT/home" "$TT/claude" "$TT/koto-sessions"
+: >"$TW/.niwa/workspace.toml"
+: >"$TW/.niwa/instance.json"
+cp "$HERE/teardown-pass.sh" "$HERE/dispatch-common.sh" "$HERE/archive-common.sh" "$TS/"
+cp "$HERE/teardown-handoff.sh" "$TS/teardown-handoff.real.sh"
+cat >"$TS/teardown-handoff.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1-}" = read ]; then
+    [ "$(sed -n 1p "$TH_ST/ctx/teardown_handoff" 2>/dev/null)" = ready ] \
+        || { echo "teardown-handoff: the teardown verdict is a refusal" >&2; exit 1; }
+    sed 1d "$TH_ST/ctx/teardown_handoff"
+    printf 'keyseal keyseal:7:%064d\n' 0
+    exit 0
+fi
+exec bash "$(dirname "$0")/teardown-handoff.real.sh" "$@"
+EOF
+# The inventory answers absent (5): niwa lists no instance for the topic.
+cat >"$TS/teardown-verdict.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = read ] || exit 64
+printf 'absent\ntopic %s\n' "$(cat "$TH_ST/topic")"
+exit 5
+EOF
+# coord-log.sh: a file seal stores the file under ctx/<key>; a token seal is
+# printed back sealed; the latest entry into teardown and its evidence,
+# `teardown: removed` with no handoff link.
+cat >"$TS/coord-log.sh" <<'EOF'
+#!/usr/bin/env bash
+cmd="$1"; shift
+A_file="" A_key="" A_token=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --session|--name|--where|--state|--after) shift 2 ;;
+        --key) A_key=$2; shift 2 ;;
+        --file) A_file=$2; shift 2 ;;
+        --token) A_token=$2; shift 2 ;;
+        *) exit 64 ;;
+    esac
+done
+case "$cmd" in
+    seal)
+        if [ -n "$A_file" ]; then
+            cp "$A_file" "$TH_ST/ctx/$A_key"
+            printf 'sealed:7:%064d\n' 0
+        else
+            printf '%s sealed:8:%064d\n' "$A_token" 0
+        fi ;;
+    capture) printf 'sealed:6:%064d\n' 0 ;;
+    entry) echo "4 wait" ;;
+    evidence) printf '{"seq":5,"timestamp":"t","fields":{"teardown":"removed"}}\n' ;;
+    *) exit 64 ;;
+esac
+EOF
+# The hand-off's record read: the holding's row.
+cat >"$TS/state-holding.sh" <<'EOF'
+#!/usr/bin/env bash
+cat "$TH_ST/row.json"
+EOF
+# niwa and Claude Code list nothing, and GitHub lists no merged pull request
+# from any of the branches.
+printf '#!/usr/bin/env bash\n[ "$1" = list ] && { echo "[]"; exit 0; }\nexit 64\n' >"$TB/niwa"
+printf '#!/usr/bin/env bash\n[ "$1" = agents ] && { echo "[]"; exit 0; }\nexit 64\n' >"$TB/claude"
+printf '#!/usr/bin/env bash\n[ "$1 $2" = "pr list" ] && { echo "[]"; exit 0; }\nexit 64\n' >"$TB/gh"
+chmod +x "$TS"/*.sh "$TB"/*
+export TH_ST="$TT/state"
+mkdir -p "$TH_ST/ctx"
+gone_env() { export NIWA="$TB/niwa" CLAUDE_CLI="$TB/claude" GH="$TB/gh" HOME="$TT/home" \
+    TEARDOWN_CLAUDE_HOME="$TT/claude" TEARDOWN_KOTO_SESSIONS="$TT/koto-sessions" TH_ST; }
+# gone <topic> <request> <leg> <entry point> <unit> <pull request cell>: one
+# dispatched leg-bound holding, its worker's instance path recorded by its
+# koto session, which last moved long ago.
+GONE_ROWS="[]"
+gone() {
+    local inst="$TW/tsuku+$1-1a2b3c4d" row
+    row=$(holding "$1" "$(jq -nc --arg rp "leg $2:$3" --arg ep "$4" --arg u "$5" --arg pr "$6" --arg b "feat/$1" \
+        '{return_path: $rp, entry_point: $ep, unit: $u, pull_request: $pr, branch: $b}')")
+    GONE_ROWS=$(jq -c --argjson r "$row" '. + [$r]' <<<"$GONE_ROWS")
+    mkdir -p "$TT/koto-sessions/wk-$1"
+    printf '{"schema_version":1,"workflow":"wk-%s","execution_dir":"%s/public/shirabe"}\n{"seq":1}\n{"seq":2,"timestamp":"2026-09-20T09:00:00.000Z","type":"transitioned"}\n' \
+        "$1" "$inst" >"$TT/koto-sessions/wk-$1/koto-wk-$1.state.jsonl"
+}
+gone scopeauth req_21 scope /shirabe:scope "Feature 4" ""
+gone scopecache req_22 scope /shirabe:scope "Feature 5" ""
+gone workdocs req_23 work-on /shirabe:work-on "Feature 6" "[#801](https://github.com/acme/widgets/pull/801)"
+gone workindex req_24 work-on /shirabe:work-on "Feature 7" "[#802](https://github.com/acme/widgets/pull/802)"
+gone worksearch req_25 work-on /shirabe:work-on "Feature 8" ""
+gone reviewfix req_26 work-on /shirabe:work-on "Feature 9" "[#803](https://github.com/acme/widgets/pull/803)"
+seed "$(record_json roadmap plugin-system | jq -c --argjson g "$GONE_ROWS" '.holdings = $g')"
+: >"$KOTO_STORE/calls"
+(cd "$TW" && gone_env && hw --topic scopeauth --strand) >/dev/null 2>"$T/err"
+eq "--strand still refuses a leg-bound holding whose worker is gone" 65 $?
+N=0
+for topic in scopeauth scopecache workdocs workindex worksearch reviewfix; do
+    N=$((N + 1))
+    REQ=$(jq -r --arg t "$topic" '.[] | select(.worker == $t) | .return_path' <<<"$GONE_ROWS")
+    REQ=${REQ#leg }
+    printf '%s' "$topic" >"$TH_ST/topic"
+    jq -c --arg t "$topic" '.[] | select(.worker == $t)' <<<"$GONE_ROWS" >"$TH_ST/row.json"
+    rm -f "$TH_ST/ctx/teardown_handoff"
+    printf '%s' "$topic" | koto context add "$SR" teardown_topic
+    SEAL=$(cd "$TW" && gone_env && bash "$TS/teardown-handoff.sh" --seal --session "$SR" 2>"$T/seal.err")
+    case "$SEAL" in "handoff-ready keyseal:"*) ok "$topic: the hand-off seals a ready verdict" ;;
+        *) bad "$topic: the hand-off seals a ready verdict" "$SEAL $(sed -n 2p "$TH_ST/ctx/teardown_handoff" 2>/dev/null) $(cat "$T/seal.err")" ;; esac
+    (cd "$TW" && gone_env && STATE_HOLDING_TEARDOWN_PASS="$TS/teardown-pass.sh" hw --topic "$topic" --retire) >/dev/null 2>"$T/err"
+    rc=$?
+    [ "$rc" = 0 ] && ok "$topic: --retire ends the holding of a worker removed outside the run, nothing merged" \
+        || bad "$topic: --retire ends the holding of a worker removed outside the run, nothing merged" "exit $rc: $(cat "$T/err")"
+    live | jq -e --arg t "$topic" '.holdings | any(.worker == $t) | not' >/dev/null \
+        && ok "  ... and its row is gone" || bad "  ... and its row is gone" "$(live | jq -c '.holdings | map(.worker)')"
+    grep -q "^request abandon-request ${REQ%%:*} " "$KOTO_STORE/calls" && ok "  ... and its leg's request ${REQ%%:*} is abandoned" \
+        || bad "  ... and its leg's request ${REQ%%:*} is abandoned" "$(grep request "$KOTO_STORE/calls")"
+    ENTRY=$(koto context get "$SR" "record/entries/$(printf '%06d' "$N")" 2>/dev/null | jq -r '.text // ""')
+    case "$ENTRY" in *"Holding $topic "*"had not merged"*"released its leg $REQ"*) ok "  ... and its entry says what was found and that the leg was released" ;;
+        *) bad "  ... and its entry says what was found and that the leg was released" "[$ENTRY]" ;; esac
+done
+eq "  ... every one of the six is gone" "" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and nothing is written on GitHub" "" "$(gh_writes)"
+
 done_tests state-holding
