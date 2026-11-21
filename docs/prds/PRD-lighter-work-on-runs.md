@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A /work-on run spends most of its time in review panels, fixed stops,
   verification and test accounting, and a small share writing code. The
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-lighter-work-on-runs](docs/briefs/BRIEF-lighter-work-on-runs.md); carried in Absorbed Brief.
 
