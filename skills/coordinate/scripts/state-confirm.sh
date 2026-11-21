@@ -515,6 +515,16 @@ merge_confirm|merged_facts)
         if [ -z "$ROW" ]; then OKX=0
         elif [ -n "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" ]; then OKX=0
         fi
+        # The confirmed merge settles the Side effects merge row a merge not
+        # confirmed added for #$PR at $SHA, one a takeover carried included:
+        # the write that clears the cell drops it (state-holding.sh), so the
+        # step waits while it stands (shirabe#1824).
+        if [ -n "$ROW" ]; then
+            MREPO=$(printf '%s' "$ROW" | jq -r '.repo // ""')
+            EXPECT="$EXPECT; no Side effects merge row for $MREPO#$PR at $SHA left"
+            holds "$LIB_MERGE_ROW_JQ"' all(.side_effects[]; merge_row($re; $pr; $sha) | not)' \
+                --arg re "$(lib_re_repo "$MREPO")" --arg pr "$PR" --arg sha "$SHA" || OKX=0
+        fi
         # A holding at phase scoping landed its unit's scoping alone: its
         # execution is recorded as a follow-up Work row for the unit, not
         # written back to the roadmap as Done.

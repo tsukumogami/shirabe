@@ -321,16 +321,22 @@ lib_job_wait() {
     LIB_JOBS=${LIB_JOBS/ "$1:$p"/}
 }
 
-# lib_jobs_stop: stop every job not yet waited for, and wait for each to go.
-# A check ends with it, so a read past the verdict it reached, or one still
-# out when the check is killed, starts nothing more and is gone before the
-# check removes its temporary directory. Only the job itself is signalled: a
-# koto call it had already started runs to its end, writing only to the files
-# it already holds open, which the removal unlinks.
+# lib_jobs_stop: stop every background job the shell started, recorded in
+# LIB_JOBS or not, and wait for each to go. A check ends with it, so a read
+# past the verdict it reached, or one still out when the check is killed,
+# starts nothing more and is gone before the check removes its temporary
+# directory. The shell's own job table covers a job that lib_job_start forked
+# but hadn't recorded yet when a signal ran the EXIT trap (shirabe#1695). Only
+# the job itself is signalled: a koto call it had already started runs to its
+# end, writing only to the files it already holds open, which the removal
+# unlinks.
 lib_jobs_stop() {
-    local j
+    local j p
     for j in $LIB_JOBS; do kill "${j#*:}" 2> /dev/null; done
     for j in $LIB_JOBS; do wait "${j#*:}" 2> /dev/null; done
+    p=$(jobs -p)
+    [ -z "$p" ] || kill $p 2> /dev/null
+    wait 2> /dev/null
     LIB_JOBS=
 }
 
@@ -703,6 +709,20 @@ lib_pr_held() {
 lib_row_merged() {
     printf '%s' "$1" | jq -e '((.verified_head // "") != "") and ((.pull_request // "") == "")' > /dev/null
 }
+
+# LIB_MERGE_ROW_JQ: a jq def, merge_row($re; $pr; $sha), true for the Side
+# effects row a merge not confirmed adds: Action `merge`, Verified head $sha,
+# and a Target naming pull request $pr of the repository $re (its name with
+# dots escaped, lib_re_repo) as `o/r#n` or by its URL. A confirmed merge of
+# that head settles it: state-holding.sh's write that clears the Pull request
+# cell drops it, a row a takeover carried included, and state-confirm.sh's
+# record step waits while one stands (shirabe#1824).
+LIB_MERGE_ROW_JQ='def merge_row($re; $pr; $sha): .action == "merge" and .verified_head == $sha
+    and (.target | tostring | test("(^|[^A-Za-z0-9_./-])" + $re + "#" + $pr + "([^0-9]|$)"; "i")
+        or test("github\\.com/" + $re + "/(pull|issues)/" + $pr + "([^0-9]|$)"; "i"));'
+
+# lib_re_repo <o/r>: the repository name with its dots escaped, for a regex.
+lib_re_repo() { printf '%s' "$1" | sed 's/\./\\./g'; }
 
 # lib_link_merge_frees <row-json>: may the row's linked pull request, read
 # MERGED on GitHub, free its cap slot before the record confirms the merge?

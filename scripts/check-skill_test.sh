@@ -810,11 +810,10 @@ expect_listed "an evals change selects the suites that name evals, walk the tree
 
 # Every way to reach every suite. Each case's reason must be printed too.
 for c in \
-    "skills/demo/scripts/lib.sh|is sourced by 2 files" \
-    "skills/demo/scripts/pinned.sh|is shared (check-skill.tsv)" \
+    "skills/demo/scripts/pinned.sh|no suite names skills/demo/scripts/pinned.sh" \
     "skills/demo/scripts/testdata/lib.sh|is shared test code" \
     "skills/demo/check-skill.tsv|is not one of skills/demo's scripts" \
-    "skills/demo/SKILL.md|is not one of skills/demo's scripts" \
+    "skills/demo/SKILL.md|no suite names skills/demo/SKILL.md" \
     "scripts/check-skill.sh|is not one of skills/demo's scripts" \
     "skills/other/x.sh|is not one of skills/demo's scripts" \
     "skills/other/scripts/evals/x.sh|is not one of skills/demo's scripts" \
@@ -865,13 +864,281 @@ run_list skills/demo/koto-templates/demo.compat.json
 expect_listed "a compat.json change selects the unit suites of the scripts that read it" \
     "skills/demo/scripts/fingerprint_test.sh"
 
+# -- What a shared script or one of the skill's documents reaches (shirabe#1934) --
+# reach_tree: select_tree plus
+#   koto-templates/demo.md   front matter runs gate.sh; a comment there names
+#                            quiet.sh; the body names body.sh
+#   gate.sh, quiet.sh        on shared rows; own suites gate_test.sh and
+#                            quiet_test.sh, which name nothing
+#   body.sh                  on a shared row, named by body_test.sh only
+#   mod.jq                   on a shared row; uses.sh includes it as "mod"
+#   references/guide.md      read by reader.sh by path; SKILL.md lists it,
+#                            and table.sh reads SKILL.md
+#   noter.sh                 names guide.md and gate.sh in comments only
+#   references/stray.md      named by nothing, and not listed in SKILL.md
+# and suites reader_test.sh, table_test.sh, noter_test.sh, uses_test.sh and
+# tpl_test.sh (names demo.md), each naming its script in a comment.
+reach_tree() {
+    select_tree
+    local s="$ROOT/skills/demo" d="$ROOT/skills/demo/scripts"
+    mkdir -p "$s/koto-templates" "$s/references"
+    printf 'shared\tgate.sh\nshared\tquiet.sh\nshared\tbody.sh\nshared\tmod.jq\nshared\tpinned.sh\n' \
+        > "$s/check-skill.tsv"
+    printf '%s\n' '---' 'states:' '  check:' '    gates:' '      ok:' \
+        '        # quiet.sh used to run here' \
+        "        command: 'bash \"{{PLUGIN_ROOT}}/skills/demo/scripts/gate.sh\"'" '---' '' \
+        '## check' '' 'Run body.sh yourself.' > "$s/koto-templates/demo.md"
+    printf 'guide\n' > "$s/references/guide.md"
+    printf 'stray\n' > "$s/references/stray.md"
+    printf '| `references/guide.md` | always |\n' > "$s/SKILL.md"
+    printf 'gate\n' > "$d/gate.sh"
+    printf 'quiet\n' > "$d/quiet.sh"
+    printf 'body\n' > "$d/body.sh"
+    printf 'def m: 1;\n' > "$d/mod.jq"
+    printf 'jq -L "$HERE" '"'"'include "mod"; m'"'"'\n' > "$d/uses.sh"
+    printf 'cat "$HERE/../references/guide.md"\n' > "$d/reader.sh"
+    printf 'awk 1 "$HERE/../SKILL.md"\n' > "$d/table.sh"
+    printf '# guide.md says when gate.sh runs\ntrue\n' > "$d/noter.sh"
+    printf 'exit 0\n' > "$d/gate_test.sh"
+    printf 'exit 0\n' > "$d/quiet_test.sh"
+    printf '# body.sh\nexit 0\n' > "$d/body_test.sh"
+    printf '# reader.sh\nexit 0\n' > "$d/reader_test.sh"
+    printf '# table.sh\nexit 0\n' > "$d/table_test.sh"
+    printf '# noter.sh\nexit 0\n' > "$d/noter_test.sh"
+    printf '# uses.sh\nexit 0\n' > "$d/uses_test.sh"
+    printf '# demo.md\nexit 0\n' > "$d/tpl_test.sh"
+}
+RD="skills/demo/scripts"
+
+# caller.sh runs one.sh, which sources lib.sh: caller_test.sh reaches lib.sh
+# two scripts away, so it runs too.
+reach_tree
+run_list skills/demo/scripts/lib.sh
+expect_listed "a script two files source selects what it and they reach, through every caller in the chain, their own suites too, not every suite" \
+    "$RD/caller_test.sh $RD/flow_engine_test.sh $RD/one_test.sh $RD/two_test.sh" "selects 4 of 12 suites"
+
+reach_tree
+run_list skills/demo/scripts/gate.sh
+expect_listed "a shared script the template's front matter runs selects its own suite and every engine suite" \
+    "$RD/flow_engine_test.sh $RD/gate_test.sh"
+
+reach_tree
+run_list skills/demo/scripts/quiet.sh
+expect_listed "  ... but one only a front-matter comment names selects no engine suite" \
+    "$RD/quiet_test.sh"
+
+reach_tree
+run_list skills/demo/scripts/body.sh
+expect_listed "  ... nor one only the template's body names, which koto doesn't run" \
+    "$RD/body_test.sh"
+
+reach_tree
+run_list skills/demo/scripts/mod.jq
+expect_listed "a shared jq module reaches the scripts that include it by its stem" \
+    "$RD/uses_test.sh"
+
+reach_tree
+run_list skills/demo/koto-templates/demo.md
+expect_listed "a template change selects the suites that name it and every engine suite" \
+    "$RD/flow_engine_test.sh $RD/tpl_test.sh"
+
+reach_tree
+run_list skills/demo/references/guide.md
+expect_listed "a reference doc selects the suites of the scripts that read it, by path or through SKILL.md's table, not a comment's" \
+    "$RD/reader_test.sh $RD/table_test.sh"
+
+reach_tree
+run_list skills/demo/SKILL.md
+expect_listed "SKILL.md selects the suites of the scripts that read it" \
+    "$RD/table_test.sh"
+
+reach_tree
+run_list "skills/demo/references/guide.md
+skills/demo/koto-templates/demo.md
+skills/demo/scripts/caller.sh"
+expect_listed "a template, a reference doc and a script together select what each reaches" \
+    "$RD/caller_test.sh $RD/flow_engine_test.sh $RD/reader_test.sh $RD/table_test.sh $RD/tpl_test.sh"
+
+REACH_ALL_DEMO="$RD/body_test.sh $RD/caller_test.sh $RD/flow_engine_test.sh $RD/gate_test.sh $RD/noter_test.sh $RD/one_test.sh $RD/quiet_test.sh $RD/reader_test.sh $RD/table_test.sh $RD/tpl_test.sh $RD/two_test.sh $RD/uses_test.sh"
+
+# Callers are followed to the end of the chain: hops_test.sh names only
+# hop1.sh, which runs hop2.sh, which runs the changed hop3.sh. hop3.sh runs
+# hop1.sh too, a cycle the walk must end.
+reach_tree
+printf 'shared\thop3.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+printf 'bash "$HERE/hop2.sh"\n' > "$ROOT/$RD/hop1.sh"
+printf 'bash "$HERE/hop3.sh"\n' > "$ROOT/$RD/hop2.sh"
+printf 'bash "$HERE/hop1.sh"\n' > "$ROOT/$RD/hop3.sh"
+printf '# hop1.sh\nexit 0\n' > "$ROOT/$RD/hops_test.sh"
+run_list skills/demo/scripts/hop3.sh
+expect_listed "a suite that reaches a shared script two scripts away is selected, and a cycle of callers ends" \
+    "$RD/hops_test.sh" "selects 1 of 13 suites"
+
+# The template's front matter runs gate.sh, which runs mid.sh, which runs the
+# changed deep.sh: koto reaches deep.sh in an engine run, so every engine
+# suite runs, with gate.sh's own suite.
+reach_tree
+printf 'shared\tdeep.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+printf 'bash "$HERE/mid.sh"\n' > "$ROOT/$RD/gate.sh"
+printf 'bash "$HERE/deep.sh"\n' > "$ROOT/$RD/mid.sh"
+printf 'deep\n' > "$ROOT/$RD/deep.sh"
+run_list skills/demo/scripts/deep.sh
+expect_listed "a script the front matter reaches through two callers selects every engine suite" \
+    "$RD/flow_engine_test.sh $RD/gate_test.sh"
+
+# A file under a subdirectory of scripts/ is a caller only on a code line:
+# testdata/runs.sh runs the changed noted.sh, so runs_test.sh is selected;
+# testdata/notes.sh names noted.sh only in a comment, so notes_test.sh isn't.
+reach_tree
+printf 'shared\tnoted.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+printf 'noted\n' > "$ROOT/$RD/noted.sh"
+printf 'bash "$HERE/../noted.sh"\n' > "$ROOT/$RD/testdata/runs.sh"
+printf '# noted.sh used to be run from here\ntrue\n' > "$ROOT/$RD/testdata/notes.sh"
+printf 'exit 0\n' > "$ROOT/$RD/noted_test.sh"
+printf '# testdata/runs.sh\nexit 0\n' > "$ROOT/$RD/runs_test.sh"
+printf '# testdata/notes.sh\nexit 0\n' > "$ROOT/$RD/notes_test.sh"
+run_list skills/demo/scripts/noted.sh
+expect_listed "a file under scripts/ subdirectories that names a script only in a comment is not its caller" \
+    "$RD/noted_test.sh $RD/runs_test.sh" "selects 2 of 15 suites"
+
+# runner.sh is on an `all` row: it runs every suite. A change to it, to a
+# shared script it reaches through step.sh, to a plain script it runs, or to
+# leaf.sh, a plain script only middle.sh names, which runner.sh runs, runs
+# every suite.
+# runner_tree: reach_tree plus runner.sh on an `all` row, running step.sh and
+# middle.sh; step.sh runs the shared wrapped.sh, middle.sh the plain leaf.sh.
+runner_tree() {
+    reach_tree
+    printf 'all\trunner.sh\nshared\twrapped.sh\n' >> "$ROOT/skills/demo/check-skill.tsv"
+    printf 'bash "$HERE/step.sh"\nbash "$HERE/middle.sh"\nfor t in "$HERE"/*_test.sh; do bash "$t"; done\n' \
+        > "$ROOT/$RD/runner.sh"
+    printf 'bash "$HERE/wrapped.sh"\n' > "$ROOT/$RD/step.sh"
+    printf 'wrapped\n' > "$ROOT/$RD/wrapped.sh"
+    printf 'bash "$HERE/leaf.sh"\n' > "$ROOT/$RD/middle.sh"
+    printf 'leaf\n' > "$ROOT/$RD/leaf.sh"
+}
+for c in \
+    "skills/demo/scripts/runner.sh|runner.sh runs every suite (an all row of check-skill.tsv)" \
+    "skills/demo/scripts/wrapped.sh|wrapped.sh is reached through runner.sh, which runs every suite" \
+    "skills/demo/scripts/step.sh|step.sh is reached through runner.sh, which runs every suite" \
+    "skills/demo/scripts/leaf.sh|leaf.sh is reached through runner.sh, which runs every suite"; do
+    runner_tree
+    run_list "${c%%|*}"
+    expect_listed "a change to ${c%%|*}, with runner.sh on an all row, runs every suite" \
+        "$REACH_ALL_DEMO" "${c#*|}"
+done
+
+# A plain script whose callers never reach runner.sh still selects its own
+# suite and its caller's, nothing more.
+runner_tree
+printf 'apart\n' > "$ROOT/$RD/apart.sh"
+printf 'bash "$HERE/apart.sh"\n' > "$ROOT/$RD/user.sh"
+printf 'exit 0\n' > "$ROOT/$RD/apart_test.sh"
+printf '# user.sh\nexit 0\n' > "$ROOT/$RD/user_test.sh"
+run_list skills/demo/scripts/apart.sh
+expect_listed "a plain script no all-row script reaches still selects only its own and its callers' suites" \
+    "$RD/apart_test.sh $RD/user_test.sh" "selects 2 of 14 suites"
+
+# A reach nobody can see still runs every suite.
+for c in \
+    "skills/demo/scripts/pinned.sh|no suite names skills/demo/scripts/pinned.sh" \
+    "skills/demo/references/gone.md|is deleted" \
+    "skills/demo/koto-templates/gone.md|is deleted" \
+    "skills/demo/references/stray.md|no suite names skills/demo/references/stray.md"; do
+    reach_tree
+    # stray.md sits beside guide.md, which reader.sh reads by path, so the
+    # `references` name form reaches reader.sh: drop it to leave stray.md
+    # named by nothing.
+    case "$c" in *stray.md*) printf 'true\n' > "$ROOT/$RD/reader.sh" ;; esac
+    run_list "skills/demo/scripts/one.sh
+${c%%|*}"
+    expect_listed "a change to ${c%%|*} runs every suite" "$REACH_ALL_DEMO" "${c#*|}"
+done
+
+# -- Suites that walk the tree (walk rows) ------------------------------------------
+# walk_tree: reach_tree plus scan_test.sh, a suite that names nothing and walks
+# the skill's scripts/*.sh (its suites left out) and references/, declared on
+# walk rows. A change to a file its walk covers selects it whatever else the
+# path selects: a plain script, a shared one, a reference doc.
+walk_tree() {
+    reach_tree
+    printf 'walk\tscan_test.sh\tscripts/*.sh\t*_test.sh\nwalk\tscan_test.sh\treferences/*\n' \
+        >> "$ROOT/skills/demo/check-skill.tsv"
+    printf 'find "$HERE/.." -type f\nexit 0\n' > "$ROOT/$RD/scan_test.sh"
+}
+WALK_ALL_DEMO="$RD/body_test.sh $RD/caller_test.sh $RD/flow_engine_test.sh $RD/gate_test.sh $RD/noter_test.sh $RD/one_test.sh $RD/quiet_test.sh $RD/reader_test.sh $RD/scan_test.sh $RD/table_test.sh $RD/tpl_test.sh $RD/two_test.sh $RD/uses_test.sh"
+
+walk_tree
+run_list skills/demo/scripts/one.sh
+expect_listed "a walk row selects its suite for a plain script its walk covers, beside the script's own and its caller's" \
+    "$RD/caller_test.sh $RD/one_test.sh $RD/scan_test.sh" "selects 3 of 13 suites"
+
+walk_tree
+run_list skills/demo/scripts/gate.sh
+expect_listed "a walk row selects its suite for a shared script its walk covers, beside what the script reaches" \
+    "$RD/flow_engine_test.sh $RD/gate_test.sh $RD/scan_test.sh"
+
+walk_tree
+run_list skills/demo/references/guide.md
+expect_listed "a walk row selects its suite for a document its walk covers, beside what the document reaches" \
+    "$RD/reader_test.sh $RD/scan_test.sh $RD/table_test.sh"
+
+walk_tree
+run_list skills/demo/SKILL.md
+expect_listed "a walk row doesn't select its suite for a path outside its glob" "$RD/table_test.sh"
+
+walk_tree
+run_list skills/demo/scripts/mod.jq
+expect_listed "  ... nor for a file of another kind in the walked directory" "$RD/uses_test.sh"
+
+walk_tree
+run_list skills/demo/scripts/two_test.sh
+expect_listed "  ... nor for a path its skip glob leaves out" "$RD/two_test.sh"
+
+walk_tree
+run_list docs/designs/DESIGN-demo.md
+expect_listed "  ... nor for a path outside the skill's directory" "" "selects 0 of 13 suites"
+
+walk_tree
+run_list "skills/demo/scripts/one.sh
+skills/demo/scripts/pinned.sh"
+expect_listed "a walked path that otherwise runs every suite still runs every suite" \
+    "$WALK_ALL_DEMO" "no suite names skills/demo/scripts/pinned.sh"
+
+# A walk row that can't be used would drop its suite, so it runs every suite.
+# Each row is written with \t for a tab.
+for c in \
+    'walk\tnope_test.sh\t*|names nope_test.sh, which is not one of skills/demo'"'"'s suites' \
+    'walk\tone.sh\t*|names one.sh, which is not one of skills/demo'"'"'s suites' \
+    'walk\tscan_test.sh|is a malformed walk row' \
+    'walk\tscan_test.sh\t\t*_test.sh|is a malformed walk row' \
+    'walk\tscan_test.sh\t*\t*_test.sh\textra|is a malformed walk row'; do
+    walk_tree
+    printf '%b\n' "${c%%|*}" >> "$ROOT/skills/demo/check-skill.tsv"
+    run_list skills/demo/scripts/one.sh
+    expect_listed "a walk row ${c%%|*} runs every suite" "$WALK_ALL_DEMO" "${c#*|}"
+done
+
 new_tree
 run_check_args() {
     OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" "$@" 2>&1)
     RC=$?
 }
+# --list without --changed prints every suite the plain check launches, one
+# repo-relative line each and no --changed header, and runs nothing. select_tree
+# also holds a scripts/testdata/ directory and plain scripts, neither a suite.
+select_tree
 run_check_args --list demo
-expect "--list without --changed is a usage error" 2 "usage:"
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+ON_DISK=$(cd "$ROOT" && ls skills/demo/scripts/*_test.sh | sort | tr '\n' ' ' | sed 's/ $//')
+expect_listed "--list without --changed lists the suites on disk" "$ON_DISK"
+if out_has 'check-skill: --changed'; then
+    fail "  ... but prints a --changed header"
+elif [ -s "$SHIRABE_LOG" ]; then
+    fail "  ... but ran shirabe validate"
+else
+    pass "  ... with no --changed header, running no check"
+fi
 run_check_args --bogus demo
 expect "an unknown option is a usage error" 2 "usage:"
 
@@ -1244,7 +1511,8 @@ fi
 
 # -- The coordinate skill's own selection ----------------------------------------
 # Against the real skills/coordinate: a change to anything shared selects every
-# suite, and a one-script change selects only that script's suites.
+# suite, and a one-script change selects only that script's suites and the
+# suites that walk the tree to it.
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 COORD_ALL=$(cd "$REPO_ROOT" && ls skills/coordinate/scripts/*_test.sh | sort | tr '\n' ' ' | sed 's/ $//')
 # run_coord_list <path>: --changed --list on the real coordinate skill.
@@ -1255,26 +1523,159 @@ run_coord_list() {
     LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
 }
 for path in \
-    skills/coordinate/scripts/dispatch-common.sh \
-    skills/coordinate/scripts/state-common.sh \
-    skills/coordinate/scripts/coord-log.sh \
-    skills/coordinate/scripts/coord-verdict.sh \
-    skills/coordinate/scripts/coordinate-open.sh \
-    skills/coordinate/scripts/state-schema.jq \
     skills/coordinate/scripts/testdata/test-lib.sh \
     skills/coordinate/scripts/testdata/coordinate-engine-lib.sh \
-    skills/coordinate/koto-templates/coordinate.md \
     skills/coordinate/check-skill.tsv \
-    skills/coordinate/SKILL.md \
     scripts/check-skill.sh \
     scripts/lib/koto-legacy-env.sh; do
     run_coord_list "$path"
     expect_listed "coordinate: a change to shared $path selects all $(printf '%s\n' "$COORD_ALL" | wc -w | tr -d ' ') suites" \
         "$COORD_ALL" "runs every suite"
 done
-run_coord_list skills/coordinate/scripts/need-check.sh
-expect_listed "coordinate: a change to need-check.sh selects only need-check_test.sh" \
-    "skills/coordinate/scripts/need-check_test.sh" "selects 1 of"
+
+# run-tests.sh is on an `all` row: CI and an author run every suite through
+# it, so a change to it selects every suite.
+run_coord_list skills/coordinate/scripts/run-tests.sh
+expect_listed "coordinate: a change to run-tests.sh selects all $(printf '%s\n' "$COORD_ALL" | wc -w | tr -d ' ') suites" \
+    "$COORD_ALL" "run-tests.sh runs every suite (an all row of check-skill.tsv)"
+
+# A shared script, the template, SKILL.md and a reference doc select what they
+# reach (shirabe#1934), with callers followed to the end of every chain: fewer
+# than all, every suite that names one of the changed files among them, and
+# every engine suite when the template runs the file or is the file.
+COORD_ENGINES=$(cd "$REPO_ROOT" && ls skills/coordinate/scripts/*_engine_test.sh)
+# coord_narrowed <name> <engines: 1 or 0> <changed paths, one per line>
+coord_narrowed() {
+    local miss="" s n
+    run_coord_list "$3"
+    n=$(printf '%s\n' "$LISTED" | wc -w | tr -d ' ')
+    for s in $(cd "$REPO_ROOT" && printf '%s\n' "$3" | while read -r f; do
+        grep -lF -- "${f##*/}" skills/coordinate/scripts/*_test.sh; done | sort -u); do
+        case " $LISTED " in *" $s "*) ;; *) miss="$miss ${s##*/}" ;; esac
+    done
+    if [ "$2" = 1 ]; then
+        for s in $COORD_ENGINES; do
+            case " $LISTED " in *" $s "*) ;; *) miss="$miss ${s##*/}" ;; esac
+        done
+    fi
+    if [ "$RC" = 0 ] && [ "$LISTED" != "$COORD_ALL" ] && [ "$n" -gt 0 ] && [ -z "$miss" ] \
+        && out_has "check-skill: --changed selects $n of "; then
+        pass "coordinate: $1 selects $n suites it reaches, not every suite"
+    else
+        fail "coordinate: $1: exit $RC, $n selected, missing:${miss:- none}"
+        printf '%s\n' "$OUT" | grep '^check-skill:' | sed 's/^/    /'
+    fi
+}
+CS=skills/coordinate
+coord_narrowed "coord-verdict.sh (a shared row the template runs)" 1 $CS/scripts/coord-verdict.sh
+coord_narrowed "coord-log.sh (a shared row the template runs)" 1 $CS/scripts/coord-log.sh
+coord_narrowed "coordinate-open.sh (a shared row the template runs)" 1 $CS/scripts/coordinate-open.sh
+coord_narrowed "state-schema.jq (a shared row)" 0 $CS/scripts/state-schema.jq
+coord_narrowed "state-common.sh (sourced by several)" 0 $CS/scripts/state-common.sh
+coord_narrowed "dispatch-common.sh (sourced by several)" 0 $CS/scripts/dispatch-common.sh
+coord_narrowed "coordinate.md (the template)" 1 $CS/koto-templates/coordinate.md
+coord_narrowed "SKILL.md" 0 $CS/SKILL.md
+coord_narrowed "references/teardown-agent.md" 0 $CS/references/teardown-agent.md
+# The diff #1934 names: two scripts, the template, a reference doc and two
+# suites. It selects what it reaches, which is still most suites.
+coord_narrowed "#1934's diff (state-holding.sh, teardown-pass.sh, coordinate.md, teardown-agent.md, two suites)" 1 \
+    "$CS/scripts/state-holding.sh
+$CS/scripts/teardown-pass.sh
+$CS/koto-templates/coordinate.md
+$CS/references/teardown-agent.md
+$CS/scripts/state-holding_test.sh
+$CS/scripts/teardown-pass_test.sh"
+# A plain script selects its own suite and the three suites that walk the tree
+# to it (the walk rows), nothing more.
+CW="$CS/scripts/coordinate-template-structure_engine_test.sh"
+for s in need-check quiet-check; do
+    run_coord_list $CS/scripts/$s.sh
+    expect_listed "coordinate: a change to $s.sh selects only ${s}_test.sh and the suites that walk to it" \
+        "$CW $CS/scripts/${s}_test.sh $CS/scripts/skill-hygiene_test.sh $CS/scripts/state-structure_test.sh" \
+        "selects 4 of"
+done
+
+# The suites that walk the tree reach a file without naming it: skill-hygiene
+# greps every file git tracks under the skill but the suites, state-structure
+# every file under scripts/ and koto-templates/, and template-structure every
+# .sh and .jq file but the suites. Each is selected for every changed file its
+# walk covers, whatever kind of path that is.
+# coord_walks <name> <walking suites, space-separated> <changed paths>
+coord_walks() {
+    local miss="" w
+    run_coord_list "$3"
+    for w in $2; do
+        case " $LISTED " in *" $CS/scripts/$w "*) ;; *) miss="$miss $w" ;; esac
+    done
+    if [ "$RC" = 0 ] && [ -z "$miss" ]; then
+        pass "coordinate: $1 selects the suites that walk to it ($2)"
+    else
+        fail "coordinate: $1: exit $RC, missing:${miss:- none}"
+        printf '%s\n' "$OUT" | grep '^check-skill:' | sed 's/^/    /'
+    fi
+}
+WALK3="skill-hygiene_test.sh state-structure_test.sh coordinate-template-structure_engine_test.sh"
+coord_walks "coord-log.sh (a shared script)" "$WALK3" $CS/scripts/coord-log.sh
+coord_walks "state-schema.jq (a shared jq module)" "$WALK3" $CS/scripts/state-schema.jq
+coord_walks "quiet-check.sh (a plain script)" "$WALK3" $CS/scripts/quiet-check.sh
+coord_walks "state-holding.sh (a plain script)" "$WALK3" $CS/scripts/state-holding.sh
+coord_walks "coordinate.md (the template)" "skill-hygiene_test.sh state-structure_test.sh" \
+    $CS/koto-templates/coordinate.md
+coord_walks "references/teardown-agent.md" "skill-hygiene_test.sh" $CS/references/teardown-agent.md
+coord_walks "SKILL.md" "skill-hygiene_test.sh" $CS/SKILL.md
+coord_walks "a suite (teardown-pass_test.sh)" "state-structure_test.sh" $CS/scripts/teardown-pass_test.sh
+
+# The walk rows alone, not the walkers' text. The three walking suites name
+# `references`, `SKILL.md` and many scripts, and template-structure is an
+# engine suite, which a document or the template selects anyway, so a walk row
+# that misses a path they read passes the cases above unnoticed. On a copy of
+# the real skill, the walking suites name nothing and template-structure runs
+# under a unit suite's name, its rows renamed with it: there only a walk row
+# can select them, and each must still be selected for every changed file its
+# walk reads.
+WALK_COPY="$WORK/walk-copy"
+rm -rf "$WALK_COPY"
+if mkdir -p "$WALK_COPY/scripts/lib" \
+    && cp "$SCRIPT_DIR/lib/script-cases.py" "$WALK_COPY/scripts/lib/" \
+    && (cd "$REPO_ROOT" && git ls-files -co --exclude-standard -z -- "$CS" | tar -cf - --null -T -) \
+        | tar -xf - -C "$WALK_COPY"; then
+    for w in $WALK3; do
+        printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$WALK_COPY/$CS/scripts/$w"
+    done
+    TS=template-walk_test.sh
+    mv "$WALK_COPY/$CS/scripts/coordinate-template-structure_engine_test.sh" "$WALK_COPY/$CS/scripts/$TS"
+    sed "s/coordinate-template-structure_engine_test\.sh/$TS/" "$WALK_COPY/$CS/check-skill.tsv" > "$WALK_COPY/tsv" \
+        && mv "$WALK_COPY/tsv" "$WALK_COPY/$CS/check-skill.tsv"
+    WALKED="skill-hygiene_test.sh state-structure_test.sh $TS"
+    # copy_walks <name> <walking suites, space-separated> <changed path>
+    copy_walks() {
+        local miss="" w
+        OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$WALK_COPY" PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$3" \
+            "$BASH_BIN" "$CHECK_SH" --changed --list coordinate 2>&1)
+        RC=$?
+        LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+        for w in $2; do
+            case " $LISTED " in *" $CS/scripts/$w "*) ;; *) miss="$miss $w" ;; esac
+        done
+        if [ "$RC" = 0 ] && [ -z "$miss" ] && out_has "check-skill: --changed selects "; then
+            pass "coordinate, walkers naming nothing: $1 selects the suites whose walk rows cover it ($2)"
+        else
+            fail "coordinate, walkers naming nothing: $1: exit $RC, missing:${miss:- none}"
+            printf '%s\n' "$OUT" | grep '^check-skill:' | sed 's/^/    /'
+        fi
+    }
+    copy_walks "SKILL.md" "skill-hygiene_test.sh $TS" $CS/SKILL.md
+    copy_walks "references/state-keys.md" "skill-hygiene_test.sh $TS" $CS/references/state-keys.md
+    copy_walks "references/teardown-agent.md" "skill-hygiene_test.sh $TS" $CS/references/teardown-agent.md
+    copy_walks "koto-templates/coordinate.md" "$WALKED" $CS/koto-templates/coordinate.md
+    copy_walks "coord-log.sh (a shared script)" "$WALKED" $CS/scripts/coord-log.sh
+    copy_walks "state-schema.jq (a shared jq module)" "$WALKED" $CS/scripts/state-schema.jq
+    copy_walks "quiet-check.sh (a plain script)" "$WALKED" $CS/scripts/quiet-check.sh
+    copy_walks "a suite (teardown-pass_test.sh)" "state-structure_test.sh" $CS/scripts/teardown-pass_test.sh
+else
+    fail "coordinate, walkers naming nothing: could not copy the skill"
+fi
+rm -rf "$WALK_COPY"
 
 # Every coordinate suite has a cost row and every cost row names a suite, so
 # a new suite can't quietly launch last. scripts/check-cost-rows.sh holds the
@@ -1380,6 +1781,165 @@ else
     fi
 fi
 rm -rf "$COPY"
+
+# -- The suite summary (SHIRABE_SUITE_SUMMARY) ----------------------------------
+# The verification gate's supervisor hands check-skill.sh a file to keep its
+# suite summary in. summary_tree <sleep>: skill demo with five suites, four of
+# which the change below selects with --changed, each by its own path. They
+# run one at a time, costliest first: pass_test.sh (which also tries to write
+# the summary itself), fail_test.sh, slow_test.sh (marks that it started,
+# records its pids, then sleeps <sleep> seconds), later_test.sh.
+# unpicked_test.sh is never selected.
+SUM_CHANGED="skills/demo/scripts/pass_test.sh
+skills/demo/scripts/fail_test.sh
+skills/demo/scripts/slow_test.sh
+skills/demo/scripts/later_test.sh"
+SUMF="$WORK/summary.json"
+summary_tree() {
+    new_tree
+    local d="$ROOT/skills/demo/scripts"
+    mkdir -p "$d"
+    rm -rf "$MARKS"; mkdir -p "$MARKS"
+    rm -f "$SUMF"
+    printf 'cost\tpass_test.sh\t40\ncost\tfail_test.sh\t30\ncost\tslow_test.sh\t20\ncost\tlater_test.sh\t10\n' \
+        > "$ROOT/skills/demo/check-skill.tsv"
+    printf 'if [ -n "${SHIRABE_SUITE_SUMMARY+x}" ]; then\n  echo seen > "$MARKS/summary.seen"\n  echo forged > "$SHIRABE_SUITE_SUMMARY"\nfi\nexit 0\n' \
+        > "$d/pass_test.sh"
+    printf 'exit 1\n' > "$d/fail_test.sh"
+    printf 'echo $$ > "$MARKS/pid.slow"\nsleep %s &\necho $! > "$MARKS/pid.slow.child"\n: > "$MARKS/slow.started"\nwait\n' "$1" \
+        > "$d/slow_test.sh"
+    printf 'exit 0\n' > "$d/later_test.sh"
+    printf 'exit 0\n' > "$d/unpicked_test.sh"
+}
+# start_summarized: the check on demo with --changed and a summary file, in the
+# background; CHECKER is its pid.
+start_summarized() {
+    cd "$WORK" || exit 1
+    CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$SUM_CHANGED" CHECK_SKILL_JOBS=1 \
+        SHIRABE_SUITE_SUMMARY="$SUMF" "$BASH_BIN" "$CHECK_SH" --changed demo >"$WORK/summary.out" 2>&1 &
+    CHECKER=$!
+    cd - >/dev/null || exit 1
+}
+wait_slow_started() {
+    local n=0
+    while [ ! -f "$MARKS/slow.started" ] && [ "$n" -lt 150 ]; do sleep 0.1; n=$((n + 1)); done
+    # The summary is rewritten right after each launch; give that write time.
+    sleep 0.5
+}
+# read_summary <file>: SUM_ALL (every listed suite, sorted, space-separated),
+# SUM_DUP (dup when a suite is in two lists) and SUM_LISTS (each list's suites
+# by file name, `passed=... failed=... running=... not_started=...`), or
+# SUM_ALL=unparsable when the file isn't one object of the four lists.
+read_summary() {
+    local got
+    got=$(python3 -c '
+import json, sys
+keys = ["passed", "failed", "running", "not_started"]
+d = json.load(open(sys.argv[1]))
+assert isinstance(d, dict) and sorted(d) == sorted(keys)
+assert all(isinstance(d[k], list) and all(isinstance(x, str) for x in d[k]) for k in keys)
+every = [x for k in keys for x in d[k]]
+print(" ".join(sorted(every)))
+print("dup" if len(set(every)) != len(every) else "nodup")
+print(" ".join(k + "=" + ",".join(sorted(x.rsplit("/", 1)[-1] for x in d[k])) for k in keys))
+' "$1" 2>/dev/null) || got="unparsable"
+    SUM_ALL=$(sed -n 1p <<EOF
+$got
+EOF
+)
+    SUM_DUP=$(sed -n 2p <<EOF
+$got
+EOF
+)
+    SUM_LISTS=$(sed -n 3p <<EOF
+$got
+EOF
+)
+}
+kill_slow() {
+    local f
+    for f in "$MARKS/pid.slow" "$MARKS/pid.slow.child"; do
+        [ -f "$f" ] && kill -KILL "$(cat "$f")" 2>/dev/null
+    done
+    return 0
+}
+
+# What --changed --list selects for the change: the four suites, by the names
+# the summary has to use.
+summary_tree 30
+run_list "$SUM_CHANGED"
+SUM_SELECTED=$LISTED
+if [ "$(printf '%s\n' $SUM_SELECTED | wc -l | tr -d ' ')" = 4 ]; then
+    pass "summary: --changed --list selects the four changed suites"
+else
+    fail "summary: --changed --list selected [$SUM_SELECTED]"
+fi
+
+# Stopped by TERM partway: one suite passed, one failed, one running, one not
+# started, every selected suite in exactly one list.
+start_summarized
+wait_slow_started
+kill -TERM "$CHECKER"
+wait "$CHECKER" 2>/dev/null
+RC=$?
+kill_slow
+read_summary "$SUMF"
+if [ "$RC" = 143 ] && [ "$SUM_ALL" = "$SUM_SELECTED" ] && [ "$SUM_DUP" = nodup ] \
+    && [ "$SUM_LISTS" = "passed=pass_test.sh failed=fail_test.sh running=slow_test.sh not_started=later_test.sh" ]; then
+    pass "summary: a check stopped by TERM leaves passed, failed, running and not-started suites, adding up to the --list selection"
+else
+    fail "summary: after TERM: exit $RC, all [$SUM_ALL] want [$SUM_SELECTED], $SUM_DUP, lists [$SUM_LISTS]"
+    sed 's/^/    /' "$WORK/summary.out"
+fi
+if [ ! -f "$MARKS/summary.seen" ]; then
+    pass "summary: a suite finds SHIRABE_SUITE_SUMMARY unset, and the summary left is the script's own"
+else
+    fail "summary: a suite saw SHIRABE_SUITE_SUMMARY set"
+fi
+
+# A run that finishes: nothing running or not started, the same total.
+summary_tree 1
+start_summarized
+wait "$CHECKER" 2>/dev/null
+RC=$?
+read_summary "$SUMF"
+if [ "$RC" = 1 ] && [ "$SUM_ALL" = "$SUM_SELECTED" ] && [ "$SUM_DUP" = nodup ] \
+    && [ "$SUM_LISTS" = "passed=later_test.sh,pass_test.sh,slow_test.sh failed=fail_test.sh running= not_started=" ]; then
+    pass "summary: a finished check leaves empty running and not-started lists and the same total"
+else
+    fail "summary: finished: exit $RC, all [$SUM_ALL] want [$SUM_SELECTED], $SUM_DUP, lists [$SUM_LISTS]"
+    sed 's/^/    /' "$WORK/summary.out"
+fi
+[ ! -f "$MARKS/summary.seen" ] && pass "summary: in a finished check too, no suite sees SHIRABE_SUITE_SUMMARY" \
+    || fail "summary: a suite saw SHIRABE_SUITE_SUMMARY set in a finished check"
+
+# KILLed, so no trap runs: the last summary renamed into place is still whole
+# JSON, written when slow_test.sh launched.
+summary_tree 30
+start_summarized
+wait_slow_started
+kill -KILL "$CHECKER"
+wait "$CHECKER" 2>/dev/null
+kill_slow
+read_summary "$SUMF"
+if [ "$SUM_ALL" = "$SUM_SELECTED" ] \
+    && [ "$SUM_LISTS" = "passed=pass_test.sh failed=fail_test.sh running=slow_test.sh not_started=later_test.sh" ]; then
+    pass "summary: a check killed with no chance to trap leaves the last whole summary it renamed into place"
+else
+    fail "summary: after KILL: all [$SUM_ALL], lists [$SUM_LISTS]"
+fi
+
+# Unset: the check writes no file and reports as before.
+summary_tree 1
+BEFORE=$(find "$WORK" -type f ! -path "$MARKS/*" | sort)
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$SUM_CHANGED" \
+    "$BASH_BIN" "$CHECK_SH" --changed demo 2>&1)
+RC=$?
+AFTER=$(find "$WORK" -type f ! -path "$MARKS/*" | sort)
+expect "summary unset: the check reports as before" 1 \
+    "ok: bash skills/demo/scripts/pass_test.sh" "FAIL: bash skills/demo/scripts/fail_test.sh"
+[ "$BEFORE" = "$AFTER" ] && pass "summary unset: no file is written" \
+    || fail "summary unset: files appeared: $(comm -13 <(printf '%s\n' "$BEFORE") <(printf '%s\n' "$AFTER") | tr '\n' ' ')"
 
 echo ""
 echo "check-skill_test: $PASS_COUNT passed, $FAIL_COUNT failed"

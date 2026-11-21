@@ -95,11 +95,22 @@ SCOPE= NAME= REPO=
 . "$HERE/state-common.sh"
 lib_facts
 lib_run_stamp
-T=$(mktemp -d "${TMPDIR:-/tmp}/decision-next.XXXXXX") || lib_die2 "cannot make a temporary directory"
-trap 'lib_jobs_stop; rm -rf "$T"' EXIT
+# The EXIT trap is set before the directory is made, and a signal that lands
+# while mktemp runs is only recorded, then exits once T is assigned, so the
+# EXIT trap always knows what to remove (shirabe#1695). A recorded signal wins
+# over the refusal below.
+T=
+trap 'trap "" HUP INT TERM; lib_jobs_stop; [ -z "$T" ] || rm -rf "$T"' EXIT
+SIG=
+trap 'SIG=129' HUP
+trap 'SIG=130' INT
+trap 'SIG=143' TERM
+T=$(mktemp -d "${TMPDIR:-/tmp}/decision-next.XXXXXX") || T=
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+[ -z "$SIG" ] || exit "$SIG"
+[ -n "$T" ] || lib_die2 "cannot make a temporary directory"
 # One record read for the step: the Decisions section, and the Work rows a
 # park is judged on, come from one read of the sections they print
 # (shirabe#1315).

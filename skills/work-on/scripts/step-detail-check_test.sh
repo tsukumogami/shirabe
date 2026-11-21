@@ -396,6 +396,16 @@ else
         *) fail "plan/v1 task reached [$STATE]" ;;
     esac
 
+    # With SHARED_BRANCH set, setup_plan_backed's skip_if passes the child
+    # straight on to analysis after proceed, with nothing submitted (#1461).
+    to_validation s-shared o-feat-shared-branch docs/plans/PLAN-v1.md
+    tick s-shared '{"verdict":"proceed"}'
+    if [ "$STATE" = analysis ]; then
+        pass "a child on a shared branch skips setup_plan_backed after proceed"
+    else
+        fail "with SHARED_BRANCH set the child stopped at $STATE instead of analysis"
+    fi
+
     echo "--- a child built from /execute's spawn"
 
     # The cases above hand the child its PLAN_DOC. /execute's children get only

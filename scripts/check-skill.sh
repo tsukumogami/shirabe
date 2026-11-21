@@ -43,7 +43,7 @@
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
 #
-# Usage: scripts/check-skill.sh [--changed [--list]] <skill>
+# Usage: scripts/check-skill.sh [--changed] [--list] <skill>
 #   Run from anywhere; paths resolve against the repository root.
 #   <skill> is the directory name under skills/, matching ^[a-z0-9][a-z0-9-]*$.
 #   --changed  Run only the suites the branch's changes touch (step 4); every
@@ -51,10 +51,17 @@
 #              whatever changed: a branch that changes only an evals/ selects
 #              few suites or none, and its cases still run. Used by the
 #              verification map, never by CI. See "Selecting suites" below.
-#   --list     With --changed: print the selected suites, costliest first, and
-#              the reason for the selection, then the script cases step 6
-#              would run, one `script case: <skill> <id> <name>` line each,
-#              then exit 0 without running any check.
+#   --list     Print the suites step 4 would launch, costliest first, one
+#              repository-relative skills/<skill>/scripts/<name>_test.sh line
+#              each, then the script cases step 6 would run, one
+#              `script case: <skill> <id> <name>` line each, then exit 0
+#              without running any check. With --changed the suites are the
+#              selected ones, after a `check-skill: --changed ...` line giving
+#              the reason for the selection; without it they are every suite
+#              `check-skill.sh <skill>` runs, with no such line. The second
+#              form is the full set a CI job running the plain command
+#              covers, which the verification map's hosted declaration is
+#              tested against.
 #
 # Selecting suites (--changed). The changed paths are `git diff --name-only
 # --no-renames <merge-base>` plus untracked files, where the merge-base is
@@ -79,9 +86,24 @@
 #   - a path under a subdirectory of scripts/ (testdata, test libraries):
 #     every suite;
 #   - scripts/<name>_test.sh: that suite;
-#   - scripts/<file> named on a `shared` row of check-skill.tsv, sourced by
-#     two or more of the skill's files, or deleted: every suite;
-#   - any other scripts/<file>: its own <stem>_test.sh, and every unit suite
+#   - a deleted scripts/<file>: every suite;
+#   - scripts/<file> named on a `shared` or `all` row of check-skill.tsv, or
+#     sourced by two or more of the skill's files, and the skill's SKILL.md, a
+#     file under its references/ or a koto-templates/<name>.md: what it
+#     reaches (shirabe#1934). That's the suites that name it or one of its
+#     callers, the own <stem>_test.sh of it and of each caller, and every
+#     engine suite when it is a template or a template's front matter, where
+#     koto's gates and actions run scripts, names it or a caller. Its callers
+#     are the skill's scripts and the files under scripts/ subdirectories
+#     whose code, not a comment, names it or another caller, followed to the
+#     end of every chain. A jq module is also named by its
+#     quoted stem, the way `include` names it; a file under references/ also
+#     by `references`, and by `SKILL.md` when SKILL.md lists it. It or a
+#     caller on an `all` row, deleted, or nothing selected: every suite. See
+#     reach_suites;
+#   - any other scripts/<file>: a script on an `all` row runs it, directly or
+#     through other scripts (callers followed all the way up), every suite;
+#     otherwise its own <stem>_test.sh, and every unit suite
 #     (not *_engine_test.sh) that names the file or one of its callers, the
 #     skill's other scripts/*.sh and *.jq files that name it, shared ones
 #     excepted. Engine suites are taken only when no unit suite names any of
@@ -89,8 +111,13 @@
 #   - koto-templates/<name>.compat.json: as a scripts/ file would, since the
 #     skill's scripts are what read it: the suites that name it or a script
 #     that names it, unit suites first;
-#   - anything else (Markdown, templates, check-skill.tsv itself): every
+#   - anything else (other Markdown and data, check-skill.tsv itself): every
 #     suite.
+# Whatever the kind of a path under skills/<skill>/, every suite a `walk` row
+# of check-skill.tsv declares as walking it is added to the selection: a suite
+# that lists the tree with find or git ls-files and reads what it finds reaches
+# the file without naming it, so nothing above would see it. A malformed walk
+# row, or one naming no suite of the skill, runs every suite.
 #
 # Each suite's launch prints `check-skill: started bash <suite> (<n> of <m>)`,
 # and a TERM or INT first prints `check-skill: stopped with <k> of <m> suites
@@ -98,8 +125,22 @@
 # where it stood.
 #
 # check-skill.tsv sits at skills/<skill>/check-skill.tsv, tab-separated, with
-# `#` comments, and has two kinds of row:
-#   shared <file under scripts/>   a change to it runs every suite
+# `#` comments, and has four kinds of row:
+#   shared <file under scripts/>   a change to it runs what it reaches, engine
+#                                  suites included, not only its unit suites
+#   all <file under scripts/>      the file runs every suite (a test runner),
+#                                  so a change to it, or to any file it runs
+#                                  directly or through other scripts, runs
+#                                  every suite
+#   walk <suite file name> <glob> [<skip glob>]
+#                                  the suite walks the skill's tree and reads
+#                                  every file whose path under skills/<skill>/
+#                                  matches <glob> and not <skip glob> (case
+#                                  patterns, where * also matches /), so a
+#                                  change to any such file selects it,
+#                                  whatever else the path selects. A suite
+#                                  whose walk covers several globs has a row
+#                                  for each
 #   cost <suite file name> <secs>  the suite's measured CPU seconds; suites
 #                                  launch costliest first, unlisted ones last
 #                                  in glob order
@@ -120,6 +161,21 @@
 #                      TEST-ONLY. With --changed, the changed paths, one per
 #                      line, in place of the ones git reports. No extension
 #                      file or workflow sets it.
+#   SHIRABE_SUITE_SUMMARY
+#                      A file to keep the suite summary in, which the
+#                      verification gate's supervisor sets for each command it
+#                      runs and copies into the command's record. When set (and
+#                      not with --list), the script writes one JSON object,
+#                      {"passed": [...], "failed": [...], "running": [...],
+#                      "not_started": [...]}, each list the suites in that state
+#                      by the names --changed --list prints, every selected
+#                      suite in exactly one list. It is written once the
+#                      selection is known, at each launch, as each suite ends,
+#                      at the end and first thing on TERM or INT, each time to
+#                      a temporary file renamed over the last, so a KILL leaves
+#                      the last whole summary. The variable is unset before any
+#                      check runs, so no suite can write the summary itself.
+#                      Unset, nothing is written and nothing else changes.
 #   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*
 #                      Cleared before any check runs: a koto session running
 #                      this script passes its own store and session to it, and
@@ -142,7 +198,7 @@ CASE_RUNNER="scripts/lib/script-cases.py"
 ROOT="${CHECK_SKILL_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 usage() {
-    echo "usage: scripts/check-skill.sh [--changed [--list]] <skill>" >&2
+    echo "usage: scripts/check-skill.sh [--changed] [--list] <skill>" >&2
     exit 2
 }
 
@@ -157,8 +213,14 @@ while [ $# -gt 1 ]; do
     shift
 done
 [ $# -eq 1 ] || usage
-[ "$LIST" = 0 ] || [ "$CHANGED" = 1 ] || usage
 SKILL="$1"
+
+# The suite summary's file (see the header). Taken here and unset, so nothing
+# this script starts sees it: a suite that wrote there would put its own
+# summary in place of this script's.
+SUMMARY="${SHIRABE_SUITE_SUMMARY:-}"
+unset SHIRABE_SUITE_SUMMARY
+[ "$LIST" = 0 ] || SUMMARY=""
 
 if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     || [ "$(printf '%s\n' "$SKILL" | wc -l | tr -d ' ')" != "1" ]; then
@@ -272,8 +334,55 @@ report_stopped() {
     done
     echo "check-skill: stopped with $finished of ${#suites[@]} suites done; still running: ${running:-none}"
 }
-trap 'report_stopped; stop_suites; exit 143' TERM
-trap 'report_stopped; stop_suites; exit 130' INT
+# write_summary [final]: the suite summary, when one is asked for (see the
+# header), from each suite's files under $RUNS: a status file, finished (passed
+# on 0, failed otherwise); a log and no status, running, or failed once every
+# job has ended (`final`), which report_ready reports as no exit status
+# recorded; neither, not started. Builtins only but the rename, since the TERM
+# trap runs it with the verification gate's KILL a second away. QSUITES holds
+# the suites' names already quoted for JSON, and SUMMARY_READY says they are
+# known: a TERM before that has no selection to report.
+SUMMARY_READY=0
+SUMMARY_SEEN=""
+write_summary() {
+    [ -n "$SUMMARY" ] && [ "$SUMMARY_READY" = 1 ] || return 0
+    local i=0 rc q p="" f="" r="" n="" tmp="$SUMMARY.$$.tmp"
+    while [ "$i" -lt "${#suites[@]}" ]; do
+        q=${QSUITES[$i]}
+        if [ -f "$RUNS/$i.rc" ]; then
+            rc=""
+            read -r rc < "$RUNS/$i.rc"
+            if [ "$rc" = 0 ]; then p="$p${p:+,}$q"; else f="$f${f:+,}$q"; fi
+        elif [ -f "$RUNS/$i.log" ]; then
+            if [ "${1:-}" = final ]; then f="$f${f:+,}$q"; else r="$r${r:+,}$q"; fi
+        else
+            n="$n${n:+,}$q"
+        fi
+        i=$((i + 1))
+    done
+    if printf '{"passed":[%s],"failed":[%s],"running":[%s],"not_started":[%s]}\n' \
+            "$p" "$f" "$r" "$n" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$SUMMARY" 2>/dev/null || rm -f "$tmp"
+    else
+        rm -f "$tmp" 2>/dev/null
+    fi
+    return 0
+}
+# summary_tick: write the summary when a suite launched or ended since the
+# last write, so the polling loops don't rewrite an unchanged one.
+summary_tick() {
+    [ -n "$SUMMARY" ] || return 0
+    local i=0 ended=0
+    while [ "$i" -lt "${#suites[@]}" ]; do
+        [ -f "$RUNS/$i.rc" ] && ended=$((ended + 1))
+        i=$((i + 1))
+    done
+    [ "$LAUNCHED:$ended" != "$SUMMARY_SEEN" ] || return 0
+    SUMMARY_SEEN="$LAUNCHED:$ended"
+    write_summary
+}
+trap 'write_summary; report_stopped; stop_suites; exit 143' TERM
+trap 'write_summary; report_stopped; stop_suites; exit 130' INT
 
 FAILURES=""
 fail() {
@@ -385,7 +494,8 @@ sourced_by_several() {
 # excepted. One file name per line. One level only: the scripts name each
 # other so widely that following callers further reaches most of the skill
 # (45 of coordinate's 77 suites from almost any script), which selects nothing
-# worth having; CI runs every suite.
+# worth having; CI runs every suite. This is for a plain script only: a shared
+# file's callers are followed to the end of every chain (reach_suites).
 callers_of() {
     local f
     echo "$1"
@@ -438,6 +548,216 @@ $hits"
     fi
 }
 
+# is_template <path>: whether <path> is one of the skill's koto templates,
+# koto-templates/<name>.md and not a .mermaid.md diagram.
+is_template() {
+    case "$1" in
+        "$SKILL_DIR"/koto-templates/*.mermaid.md) return 1 ;;
+        "$SKILL_DIR"/koto-templates/*/*) return 1 ;;
+        "$SKILL_DIR"/koto-templates/*.md) return 0 ;;
+    esac
+    return 1
+}
+
+# template_heads: the front matter of each of the skill's koto templates, where
+# the gates and default actions name the scripts koto itself runs. The body's
+# directives only tell the agent what to run, which an engine suite doesn't.
+template_heads() {
+    local t
+    for t in "$SKILL_DIR"/koto-templates/*.md; do
+        [ -f "$t" ] && is_template "$t" || continue
+        awk 'NR == 1 && /^---[[:space:]]*$/ { on = 1; next }
+             on && /^---[[:space:]]*$/ { exit }
+             on' "$t"
+    done
+}
+
+# CODE_NAMES: an awk program that, given CODE_NAMES_WANT=<strings, one per
+# line> in its environment (macOS awk refuses a newline in -v), prints each
+# input file with a line naming one of the strings, a comment line (first
+# non-blank character #) not counting. Standard input prints as "-".
+CODE_NAMES='BEGIN { n = split(ENVIRON["CODE_NAMES_WANT"], want, "\n") }
+FNR == 1 { done = 0 }
+done || /^[[:space:]]*#/ { next }
+{ for (i = 1; i <= n; i++) if (want[i] != "" && index($0, want[i])) { print (FILENAME == "" ? "-" : FILENAME); done = 1; next } }'
+
+# name_forms <file>: the strings that name <file> in code, one per line: its
+# file name, and for a jq module also its quoted stem, which is how jq's
+# `include` and `import` name it.
+name_forms() {
+    local n=${1##*/}
+    echo "$n"
+    case "$n" in *.jq) printf '"%s"\n' "${n%.jq}" ;; esac
+}
+
+# caller_closure <path> <names>: <path>'s callers, followed to a fixpoint.
+# <names> are the strings that name <path>, one per line. Sets CLOSURE (<path>
+# then each caller, newline-separated) and CLOSURE_NAMES (<names> plus each
+# caller's name forms). A caller is one of the skill's scripts, or a file under
+# a subdirectory of scripts/, whose code names <path> or a caller already
+# found, a comment line not counting. Each round looks for the files naming
+# what the last round found and stops when a round finds nothing new; a file
+# already found isn't followed again, which ends a cycle.
+CLOSURE=""
+CLOSURE_NAMES=""
+caller_closure() {
+    local want found c
+    CLOSURE=$1
+    CLOSURE_NAMES=$2
+    want=$2
+    while [ -n "$want" ]; do
+        found=$({
+            find "$SKILL_DIR/scripts" -mindepth 1 -maxdepth 1 -type f ! -name '*_test.sh' \
+                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
+            find "$SKILL_DIR/scripts" -mindepth 2 -type f \
+                -exec env CODE_NAMES_WANT="$want" awk "$CODE_NAMES" {} + 2>/dev/null
+        } | sort -u)
+        want=""
+        for c in $found; do
+            in_list "$c" "$CLOSURE" && continue
+            CLOSURE="$CLOSURE
+$c"
+            want="$want
+$(name_forms "$c")"
+        done
+        want=$(printf '%s\n' "$want" | sed '/^$/d')
+        [ -z "$want" ] || CLOSURE_NAMES="$CLOSURE_NAMES
+$want"
+    done
+}
+
+# all_row_reason <path> <closure>: prints why every suite runs when <path> or
+# a file in its caller closure (one per line) is on an `all` row of
+# check-skill.tsv, a script that runs every suite; prints nothing otherwise.
+all_row_reason() {
+    local c every
+    every=$(map_rows all | cut -f1)
+    [ -n "$every" ] || return 0
+    for c in $2; do
+        in_list "${c##*/}" "$every" || continue
+        if [ "$c" = "$1" ]; then
+            echo "$1 runs every suite (an all row of check-skill.tsv)"
+        else
+            echo "$1 is reached through ${c##*/}, which runs every suite (an all row of check-skill.tsv)"
+        fi
+        return 0
+    done
+}
+
+# reach_suites <path>: the suites a change to <path> can reach
+# (shirabe#1934), for a script that several of the skill's files source and
+# for the skill's own Markdown and data files (SKILL.md, references/, koto
+# templates), which all used to select every suite, and for a script on a
+# shared row of check-skill.tsv. Sets REACH (suite paths, newline-separated)
+# or REACH_ALL (why every suite runs).
+#   - Names: <path>'s name forms. A file under references/ also counts as
+#     named by `references`, since suites and scripts build those paths at run
+#     time and glob the directory, and by `SKILL.md` when SKILL.md names it,
+#     since a script can follow SKILL.md's table of reference files.
+#   - Callers, followed to a fixpoint: each of the skill's scripts, and each
+#     file under a subdirectory of scripts/ (test libraries, testdata), whose
+#     code names <path> or a caller already found, a comment line not
+#     counting, since a comment runs and reads nothing. A suite that reaches
+#     <path> only through a chain of scripts reaches it all the same, so the
+#     chain is followed to its end; a file already found isn't followed again,
+#     which ends a cycle.
+#   - <path> or any caller on an `all` row of check-skill.tsv (a script that
+#     runs every suite, such as a test runner): every suite.
+#   - The suites that name <path> or a caller (anywhere in the file, comments
+#     included, the way a suite declares a script it reaches only through a
+#     variable), and the own <stem>_test.sh of <path> and of each caller.
+#   - Every engine suite (*_engine_test.sh) when <path> is a koto template, or
+#     when a template's front matter names <path> or a caller: koto runs
+#     those scripts in any engine run that reaches the state.
+#   - Nothing selected: every suite, since nothing says where it reaches.
+REACH=""
+REACH_ALL=""
+reach_suites() {
+    local p=$1 names closure c s engine=""
+    REACH="" REACH_ALL=""
+    names=$(name_forms "$p")
+    case "$p" in
+        "$SKILL_DIR"/references/*)
+            names="$names
+references"
+            if [ -f "$SKILL_DIR/SKILL.md" ] && grep -qF -- "${p##*/}" "$SKILL_DIR/SKILL.md"; then
+                names="$names
+SKILL.md"
+            fi ;;
+    esac
+    caller_closure "$p" "$names"
+    closure=$CLOSURE names=$CLOSURE_NAMES
+    REACH_ALL=$(all_row_reason "$p" "$closure")
+    [ -z "$REACH_ALL" ] || return 0
+    REACH=$(grep -lF -- "$names" "${suites[@]}")
+    for c in $closure; do
+        case "$c" in
+            "$SKILL_DIR"/scripts/*) ;;
+            *) continue ;;
+        esac
+        c=${c##*/}
+        s="$SKILL_DIR/scripts/${c%.*}_test.sh"
+        [ -f "$s" ] && REACH="$REACH
+$s"
+    done
+    if is_template "$p" || [ -n "$(template_heads | CODE_NAMES_WANT="$names" awk "$CODE_NAMES")" ]; then
+        engine=1
+        for s in "${suites[@]}"; do
+            case "$s" in
+                *_engine_test.sh) REACH="$REACH
+$s" ;;
+            esac
+        done
+    fi
+    REACH=$(printf '%s\n' "$REACH" | sed '/^$/d')
+    if [ -z "$REACH" ]; then
+        REACH_ALL="no suite names $p${engine:+ and the skill has no engine suite}"
+    fi
+}
+
+# walk_problem: prints why check-skill.tsv's walk rows can't be used, a row
+# without a suite and a glob, with more than one skip glob, or naming a file
+# that isn't one of the skill's suites; prints nothing when they can. A walk
+# row that can't be used would drop the suite it declares, so the caller runs
+# every suite instead.
+walk_problem() {
+    local line suite all
+    line=$(awk -F'\t' '$1 == "walk" && (NF < 3 || NF > 4 || $2 == "" || $3 == "") { print NR; exit }' "$MAP")
+    if [ -n "$line" ]; then
+        echo "line $line of check-skill.tsv is a malformed walk row"
+        return 0
+    fi
+    all=$(printf '%s\n' "${suites[@]}")
+    for suite in $(map_rows walk | cut -f1); do
+        if ! in_list "$SKILL_DIR/scripts/$suite" "$all"; then
+            echo "a walk row of check-skill.tsv names $suite, which is not one of $SKILL_DIR's suites"
+            return 0
+        fi
+    done
+}
+
+# walkers <path>: the suites a `walk` row of check-skill.tsv declares as reading
+# <path>, one per line: <path> is under the skill's directory, and the rest of
+# it matches the row's glob and not its skip glob. Reads WALK_ROWS.
+WALK_ROWS=""
+walkers() {
+    local rel=${1#"$SKILL_DIR"/} suite glob skip
+    [ "$rel" != "$1" ] || return 0
+    while IFS='	' read -r suite glob skip; do
+        [ -n "$suite" ] && [ -n "$glob" ] || continue
+        # Unquoted, so each is a pattern; a case pattern's * matches / too.
+        # shellcheck disable=SC2254
+        case "$rel" in $glob) ;; *) continue ;; esac
+        if [ -n "$skip" ]; then
+            # shellcheck disable=SC2254
+            case "$rel" in $skip) continue ;; esac
+        fi
+        echo "$SKILL_DIR/scripts/$suite"
+    done <<EOF
+$WALK_ROWS
+EOF
+}
+
 # select_suites: sets SELECTED (suite paths, newline-separated, possibly with
 # repeats) or ALL_REASON, which means every suite runs.
 SELECTED=""
@@ -445,7 +765,7 @@ ALL_REASON=""
 READERS=""
 READERS_DONE=""
 select_suites() {
-    local paths p name rows sourced shared names hits units engines s
+    local paths p name rows every sourced shared names hits units engines s
     if [ ! -f "$MAP" ]; then
         # Without the file, a change only to evals/ still selects, since the
         # rule needs none of its rows.
@@ -469,10 +789,20 @@ select_suites() {
         ALL_REASON="no changed path"
         return
     fi
-    rows=$(map_rows shared | cut -f1)
+    ALL_REASON=$(walk_problem)
+    [ -z "$ALL_REASON" ] || return
+    WALK_ROWS=$(map_rows walk)
+    # A script on an `all` row is shared too: reach_suites sees the row and
+    # runs every suite for it and for whatever it runs.
+    rows=$(map_rows shared | cut -f1; map_rows all | cut -f1)
+    every=$(map_rows all | cut -f1)
     sourced=$(sourced_by_several)
     shared=$(printf '%s\n%s\n' "$rows" "$sourced" | cut -f1 | sed '/^$/d')
     while IFS= read -r p; do
+        # The suites that walk the tree to <path> (walk rows), whatever kind
+        # of path it is; the rules below add the suites that name it.
+        SELECTED="$SELECTED
+$(walkers "$p")"
         case "$p" in
             "$SKILL_DIR"/scripts/*/*)
                 ALL_REASON="$p is shared test code"; return ;;
@@ -498,12 +828,24 @@ $READERS" ;;
                 if [ ! -f "$p" ]; then
                     ALL_REASON="$p is deleted"; return
                 fi
-                if in_list "$name" "$rows"; then
-                    ALL_REASON="$p is shared (check-skill.tsv)"; return
-                fi
                 if in_list "$name" "$shared"; then
-                    ALL_REASON="$p is sourced by $(printf '%s\n' "$sourced" | awk -F'\t' -v n="$name" '$1 == n { print $2 }') files"
-                    return
+                    # On a shared row or sourced by several: everything it
+                    # and its callers reach, engine suites included.
+                    reach_suites "$p"
+                    if [ -n "$REACH_ALL" ]; then
+                        ALL_REASON=$REACH_ALL; return
+                    fi
+                    SELECTED="$SELECTED
+$REACH"
+                    continue
+                fi
+                # A script that one on an `all` row runs, directly or through
+                # other scripts: every suite. Only that test follows callers
+                # all the way up; the selection below stays one level.
+                if [ -n "$every" ]; then
+                    caller_closure "$p" "$(name_forms "$p")"
+                    ALL_REASON=$(all_row_reason "$p" "$CLOSURE")
+                    [ -z "$ALL_REASON" ] || return
                 fi
                 names=$(callers_of "$name" "$shared")
                 hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
@@ -522,6 +864,18 @@ $engines"
                 else
                     ALL_REASON="no suite names $p"; return
                 fi ;;
+            "$SKILL_DIR"/SKILL.md|"$SKILL_DIR"/references/*|"$SKILL_DIR"/koto-templates/*.md)
+                # The skill's own documents and the template: the suites
+                # they can reach (reach_suites).
+                if [ ! -f "$p" ]; then
+                    ALL_REASON="$p is deleted"; return
+                fi
+                reach_suites "$p"
+                if [ -n "$REACH_ALL" ]; then
+                    ALL_REASON=$REACH_ALL; return
+                fi
+                SELECTED="$SELECTED
+$REACH" ;;
             docs/*.md|.github/workflows/*)
                 naming_suites "$p" ;;
             *.md)
@@ -590,6 +944,16 @@ if [ "$LIST" = 1 ]; then
     sed -e '/^$/d' -e 's/^/script case: /' "$LOG"
     exit 0
 fi
+
+# The selection is known: every suite starts as not started in the summary.
+QSUITES=()
+for t in "${suites[@]+"${suites[@]}"}"; do
+    q=${t//\\/\\\\}
+    q=${q//\"/\\\"}
+    QSUITES+=("\"$q\"")
+done
+SUMMARY_READY=1
+write_summary
 
 echo "check-skill: $SKILL_DIR"
 
@@ -703,6 +1067,7 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
     # died writes none, and counting files would wait for it forever.
     while [ "$(jobs -r | wc -l | tr -d ' ')" -ge "$JOBS" ]; do
         report_ready
+        summary_tick
         sleep 0.2
     done
     # The .rc file appears whole (written, then renamed), so a reader never
@@ -718,7 +1083,17 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
       rc=$?
       [ "$rc" = 0 ] || load1 > "$RUNS/$i.load"
       echo "$rc" > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
+    summary_tick
 done
+# With a summary asked for, the last suites are polled rather than waited on,
+# so the summary records each as it ends; without one, the plain wait as before.
+if [ -n "$SUMMARY" ]; then
+    while [ "$(jobs -r | wc -l | tr -d ' ')" -gt 0 ]; do
+        report_ready
+        summary_tick
+        sleep 0.2
+    done
+fi
 wait
 report_ready
 # A suite with no status after every job has ended (its wrapper killed before
@@ -729,6 +1104,7 @@ while [ "$NEXT" -lt "${#suites[@]}" ]; do
     NEXT=$((NEXT + 1))
     report_ready
 done
+write_summary final
 
 # 5. The shape of the eval scenarios.
 evals_json="$SKILL_DIR/evals/evals.json"

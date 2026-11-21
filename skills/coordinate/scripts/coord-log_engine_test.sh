@@ -268,6 +268,21 @@ compat; eq "a record/meta pair for another structure is ignored for the table's"
 meta "$(jq -nc --arg f "$FP" '{scope: {kind: "roadmap", name: "compat"}, store: "session", written: "", pending: false, template_compat: "3", template_fingerprint: $f}')"
 compat; eq "a recorded compat that isn't a whole number is ignored" "1 - 4 $FP" "$RC $OUT"
 
+echo "== compat --fingerprint: the table's verdict with no session =="
+# An import judges a source's template by its fingerprint before koto copies
+# the run (shirabe#1941): the table's compat alone, as no session here holds
+# a record/meta for it.
+fpc() { OUT=$(bash "$CL" compat --fingerprint "$1" --template "$T/ct/coordinate.md" 2>/dev/null); RC=$?; }
+table 4 "$(jq -nc --arg f "$OTHER" '{($f): 4}')"
+fpc "$OTHER"; eq "a fingerprint listed at the shipped compat: exit 0" "0 4 4 $OTHER" "$RC $OUT"
+fpc "$FP"; eq "a fingerprint the table doesn't list reads compat -, exit 1" "1 - 4 $FP" "$RC $OUT"
+table 4 "$(jq -nc --arg f "$OTHER" '{($f): 3}')"
+fpc "$OTHER"; eq "a fingerprint listed at another compat: that compat, exit 1" "1 3 4 $OTHER" "$RC $OUT"
+printf 'not json' > "$T/ct/coordinate.compat.json"
+fpc "$OTHER"; eq "an unreadable table exits 2 with nothing on stdout" "2 " "$RC $OUT"
+fpc nothex; eq "a fingerprint that isn't one is a usage error" 64 "$RC"
+OUT=$(bash "$CL" compat --fingerprint "$OTHER" --session "$S6" 2>/dev/null); eq "  ... and so is --fingerprint with --session" 64 $?
+
 echo
 echo "coord-log engine: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

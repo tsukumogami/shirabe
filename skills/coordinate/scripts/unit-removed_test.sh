@@ -37,8 +37,13 @@
 # outside the directory record runs in, the workspace root itself with or
 # without a trailing /, a path with a trailing / or a newline, a session id
 # that isn't one, a removals directory that is a
-# symbolic link or not mode 0700, the script writable by group or others):
-# one line, no record, exit 0. A second removal of the same dispatch id, at
+# symbolic link or not mode 0700): one line, no record, exit 0. The script or
+# a library it sources writable by someone other than the user (others, or a
+# group that isn't the user's private one: another member, another account's
+# primary group, not the user's primary group, or no getent to say): record
+# and start refuse with one line naming every such file and the chmod that
+# fixes them, and exit 3; group-writable by the user's private group, as a
+# umask of 0002 leaves every file, the step runs. A second removal of the same dispatch id, at
 # the same path or another, leaves the record already there as it is.
 #
 # Usage: bash skills/coordinate/scripts/unit-removed_test.sh
@@ -165,20 +170,26 @@ seed() {
 echo "== a removed unit, captured in its coordinator's session =="
 # record and start no longer launch the sweep (#1409), so the suite writes the
 # removal record and runs the sweep by hand, in the background while its
-# capture is held.
+# capture is held. The held sweep's GitHub reads get a 60 s bound instead of
+# the default 8 s (UNIT_COST_FETCH_SECS), so only the suite's release ends the
+# hold. The record lock is a file (shirabe#1846), so the wait tests -e.
 seed
 rm -rf "$R" "$T/gh.env"
 mkdir -p "$R" && chmod 700 "$R"
 newrec "$DID" "$SID" "$IP"
 mkfifo "$T/hold.gh"
-(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
+(export GITHUB_TOKEN=stub-token-2 GH_HOST=github.com; UNIT_COST_FETCH_SECS=60 bash "$UR" sweep >"$T/sweep0.out" 2>&1) &
 SW0=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -e "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
 # Read from the store directly, not through the capture's own list: the
 # capture is held at its first GitHub read, before it lists or posts anything.
-eq "a sweep run by hand holds the record's lock, nothing posted yet" "1|0" \
-    "$(count "$R/.$DID.lock")|$(count "$KOTO_STORE/context/$S/record/entries"/*)"
+# "seen": the wait ended because the lock appeared, not at its limit.
+eq "a sweep run by hand holds the record's lock, nothing posted yet" "seen|1|0" \
+    "$([ "$i" -lt 150 ] && echo seen)|$(count "$R/.$DID.lock")|$(count "$KOTO_STORE/context/$S/record/entries"/*)"
+# Released later than the capture's default bound on a GitHub read (8 s), as a
+# loaded host can: the hold has to last until the suite releases it.
+sleep 9
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
 wait "$SW0"
@@ -301,12 +312,84 @@ mkdir -p "$R"
 chmod 755 "$R"
 refused "a removals directory not mode 0700" "$DID" "$SID" "$IP"
 chmod 700 "$R"
-mkdir -p "$T/copy"
+
+echo "== a file writable by someone else: refused, exit 3; the user's private group is not someone else =="
+# A copy of the script and its libraries, and stand-ins for id and getent, so
+# each case reads the same on any host whatever its umask and its groups. The
+# copy's group is whatever the host gave it (FG); the stand-ins say whether
+# FG is the user's primary group and who else is in it.
+mkdir -p "$T/copy" "$T/ids"
 cp "$UR" "$HERE/archive-common.sh" "$HERE/dispatch-common.sh" "$T/copy/"
-chmod 775 "$T/copy/unit-removed.sh"
-refused "the script writable by group" "$DID" "$SID" "$IP" "$T/copy/unit-removed.sh"
-chmod 757 "$T/copy/unit-removed.sh"
-refused "the script writable by others" "$DID" "$SID" "$IP" "$T/copy/unit-removed.sh"
+# The copy's directory as the script names it, resolved with pwd -P: on macOS
+# TMPDIR is a symlink into /private/var and ends in /, so a path built from $T
+# differs from the one the refusal prints.
+CP=$(cd -P "$T/copy" && pwd -P) || exit 1
+CU="$CP/unit-removed.sh"
+FG=$(ls -ldn -- "$CU" | awk '{ print $4 }')
+REAL_ID=$(command -v id)
+# ids <primary gid> <group's members> <another account with FG as primary, or ''> [nogetent]
+ids() {
+    cat >"$T/ids/id" <<EOF
+#!/bin/sh
+case "\$*" in -g) echo '$1' ;; -un) echo me ;; *) exec '$REAL_ID' "\$@" ;; esac
+EOF
+    if [ "${4:-}" = nogetent ]; then
+        printf '#!/bin/sh\nexit 127\n' >"$T/ids/getent"
+    else
+        cat >"$T/ids/getent" <<EOF
+#!/bin/sh
+case "\$1" in
+group) [ "\$2" = '$FG' ] && echo 'me:x:$FG:$2' ;;
+passwd) echo 'me:x:4242:$FG::/home/me:/bin/sh'; if [ -n '$3' ]; then echo '$3'; fi ;;
+*) exit 2 ;;
+esac
+EOF
+    fi
+    chmod +x "$T/ids/id" "$T/ids/getent"
+}
+# modes <label> <script mode> <libraries' mode>: record from the copy, with the stand-ins.
+modes() {
+    chmod "$2" "$CU"
+    chmod "$3" "$CP/archive-common.sh" "$CP/dispatch-common.sh"
+    OUT=$(PATH="$T/ids:$PATH"; rec "$DID" "$SID" "$IP" "$CU")
+    RC=$?
+}
+# mode_refused <label>: the last modes run refused: exit 3, one line, no record.
+mode_refused() {
+    eq "$1: exit 3, one line, no record" "3|1|0" "$RC|$(printf '%s\n' "$OUT" | grep -c .)|$(nrecords)"
+}
+ids "$FG" "" ""
+modes "every file go-w" 755 644
+eq "every file go-w: the step runs" "0|unit-removed: the automatic sweep is retired pending #1410; nothing recorded" "$RC|$OUT"
+modes "the script group-writable, its group the user's private group" 775 644
+eq "the script group-writable, its group the user's private one: the step runs" "0|unit-removed: the automatic sweep is retired pending #1410; nothing recorded" "$RC|$OUT"
+modes "every file group-writable, the user's private group" 775 664
+eq "every file group-writable, the user's private group: the step runs" "0|unit-removed: the automatic sweep is retired pending #1410; nothing recorded" "$RC|$OUT"
+modes "the script writable by others" 757 644
+mode_refused "the script writable by others, its group the user's private one"
+ids "$FG" "other" ""
+modes "group with another member" 775 644
+mode_refused "the script group-writable, its group holding another member"
+ids "$FG" "me,other" ""
+modes "group with the user and another member" 775 644
+mode_refused "the script group-writable, its group holding the user and another member"
+ids "$FG" "" "other:x:4343:$FG::/home/other:/bin/sh"
+modes "another account's primary group" 775 644
+mode_refused "the script group-writable, its group another account's primary group too"
+ids "$((FG + 1))" "" ""
+modes "not the user's primary group" 775 644
+mode_refused "the script group-writable, its group not the user's primary group"
+ids "$FG" "" "" nogetent
+modes "no getent" 775 644
+mode_refused "the script group-writable, the group unreadable (no getent)"
+ids "$FG" "other" ""
+modes "every file group-writable by a shared group" 775 664
+mode_refused "every file group-writable by a shared group"
+eq "  ... the one line names all three files and the remedy" \
+    "unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing recorded; chmod go-w $CU $CP/archive-common.sh $CP/dispatch-common.sh" "$OUT"
+OUT=$(PATH="$T/ids:$PATH"; bash "$CU" start)
+eq "start refuses the same files: exit 3, the same line" \
+    "3|unit-removed: unit-removed.sh archive-common.sh dispatch-common.sh writable by group or others; nothing started; chmod go-w $CU $CP/archive-common.sh $CP/dispatch-common.sh" "$?|$OUT"
 
 echo "== a second removal of the same dispatch id =="
 # record used to rewrite the record here, keeping removed_at at the same
@@ -329,15 +412,20 @@ rm -rf "$R"
 mkdir -p "$R" && chmod 700 "$R"
 newrec "$DID" "$SID" "$IP"
 mkfifo "$T/hold.gh"
-bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
+# Only the first sweep, the one held, gets the 60 s bound, as above; the second
+# sweep has to pass over the lock, not wait on it.
+UNIT_COST_FETCH_SECS=60 bash "$UR" sweep >"$T/sweep1.out" 2>&1 &
 SW1=$!
 i=0
-until [ -d "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+until [ -e "$R/.$DID.lock" ] || [ "$i" -ge 150 ]; do sleep 0.2; i=$((i + 1)); done
+SEEN=$([ "$i" -lt 150 ] && echo seen)
 # Written while the first sweep runs, at a path no koto session ran in.
 newrec dsp-late.1 0c0c0c0c-2222 "$WS/inst-late"
 eq "a second sweep passes over the record the first holds, and handles the one written since" \
-    "$DID: held by another sweep
-dsp-late.1: no coordinator" "$(bash "$UR" sweep)"
+    "seen|$DID: held by another sweep
+dsp-late.1: no coordinator" "$SEEN|$(bash "$UR" sweep)"
+# Released later than the capture's own bound on a GitHub read, as above.
+sleep 9
 (printf 'go\n' >"$T/hold.gh") 2>/dev/null &
 WP=$!
 wait "$SW1"

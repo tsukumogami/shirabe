@@ -55,6 +55,10 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      # clean-build-output.sh sources the default-branch ref reader, and its
+      # test sits beside it.
+      - 'scripts/lib/default-remote-ref.sh'
+      - 'scripts/lib/default-remote-ref_test.sh'
       # test-change.sh sources the interim acceptance rule.
       - 'scripts/lib/acceptance-rule.sh'
       - 'scripts/lib/acceptance-rule_test.sh'
@@ -66,6 +70,13 @@ on:
       # extension file that points at it.
       - '.claude/shirabe-extensions/verification-map.json'
       - '.claude/shirabe-extensions/work-on.md'
+      # The hosted coverage test proves the map's hosted declaration against
+      # the gate's plan, check-skill.sh's suite lists, the gate's workflow and
+      # each skill's selection rows, so a change to any of them re-runs it.
+      - 'scripts/skill-gate.sh'
+      - 'scripts/check-skill.sh'
+      - '.github/workflows/check-skill-gate.yml'
+      - 'skills/*/check-skill.tsv'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-work-on-scripts.yml'
   # Also on main, so a change that breaks the suite shows on the push that
@@ -99,12 +110,18 @@ on:
       - 'scripts/lib/claude-md-header_test.sh'
       - 'scripts/lib/test-classify.sh'
       - 'scripts/lib/test-classify_test.sh'
+      - 'scripts/lib/default-remote-ref.sh'
+      - 'scripts/lib/default-remote-ref_test.sh'
       - 'scripts/lib/acceptance-rule.sh'
       - 'scripts/lib/acceptance-rule_test.sh'
       - 'scripts/lib/gh-issue-testlib.sh'
       - 'scripts/lib/dispatch-link.sh'
       - '.claude/shirabe-extensions/verification-map.json'
       - '.claude/shirabe-extensions/work-on.md'
+      - 'scripts/skill-gate.sh'
+      - 'scripts/check-skill.sh'
+      - '.github/workflows/check-skill-gate.yml'
+      - 'skills/*/check-skill.tsv'
       - '.github/workflows/check-work-on-scripts.yml'
 
 env:
@@ -465,6 +482,17 @@ jobs:
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/verification-map-schema_test.sh
 
+      # Proves the map's hosted declaration: the declared skill-gate job
+      # exists under its reported name, its pull_request paths cover what
+      # selects the row, its plan has a line for every skill the row selects
+      # over fixture diffs, and every suite the row's --changed run can select
+      # is in the skill's full list. The suite-list cases call check-skill.sh,
+      # which needs koto; the macOS leg runs the rest on the floor through the
+      # work-on suite.
+      - name: Run hosted coverage tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/verification-hosted-coverage_test.sh
+
       # Starts the verification runner against git fixtures with fixture
       # commands (passing, failing, slow, forking under a small max_procs,
       # missing) and checks the verdict exit and finding for each, then drives
@@ -515,6 +543,18 @@ jobs:
       - name: Run test classifier tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/lib/test-classify_test.sh
+
+      # The build-output cleanup: clean-build-output.sh against git fixtures
+      # (the switch, the base, every refusal word, the trash, the record and
+      # the detached deleter), and the default-branch ref reader. No engine;
+      # the macOS leg runs both on the floor through the work-on suite.
+      - name: Run build-output cleanup tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/clean-build-output_test.sh
+
+      - name: Run default remote ref tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/default-remote-ref_test.sh
 
       # fix-kind.sh (a fix from a label, a Fixes line or a declaration, never
       # withdrawn) and red-first.sh (the red on the base, observations, the

@@ -93,6 +93,7 @@
 #   state-read.sh --session S --meta
 #   state-read.sh --session S --run
 #   state-read.sh --run --workspace W --session S
+#   state-read.sh --meta --workspace W --session S
 #   state-read.sh --predecessors [--workspace W] --session S
 #   state-read.sh --candidate --scope roadmap|discipline --name N --hash H [--today YYYY-MM-DD]
 #                    (the opener, before any session of its own: rs_resume_candidate)
@@ -120,6 +121,9 @@
 # and `context get`), writing nothing: an import's source before `koto
 # session import` (coordinate-open.sh). Presence comes from the listing, since
 # `context get` exits the same for a missing key and an unreadable bucket.
+# --meta --workspace W reads record/meta there the same way, printing {} when
+# the source holds none: the import judges the source's template by the
+# fingerprint record/meta names before koto copies anything.
 #
 # --predecessors prints the runs S continues, one name a line, nothing for
 # none: koto's continues relation (the names under S's koto/links/continues/
@@ -813,7 +817,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     # The reads that name the session alone, here or (--workspace) where it
     # is in another workspace's part of the bucket: they read no log of it,
     # so they need none on this host.
-    [ -z "$WORKSPACE" ] || [ "$ACTION" = run ] || [ "$ACTION" = predecessors ] || rs_usage
+    [ -z "$WORKSPACE" ] || [ "$ACTION" = run ] || [ "$ACTION" = meta ] || [ "$ACTION" = predecessors ] || rs_usage
     if [ -n "$WORKSPACE" ] || [ "$ACTION" = predecessors ]; then
         [ -n "$SESSION" ] && [ -z "$SCOPE$NAME$REPO" ] || rs_usage
         [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || { echo "$PROG: --session is not a koto session name" >&2; exit 64; }
@@ -861,6 +865,17 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
                     jq -c . "$RS_T/run" || exit 2
                 else
                     echo '[]'
+                fi
+                exit 0 ;;
+            meta)
+                # Only with --workspace: the local --meta below reads through
+                # rs_key, which needs no listing.
+                sr_list "$RS_T/keys" record/meta
+                if sr_has "$RS_T/keys" record/meta; then
+                    sr_call "$RS_T/meta" context get "$SESSION" record/meta || sr_fail "the read of $SESSION's record/meta"
+                    jq -c . "$RS_T/meta" 2> /dev/null || { echo "$PROG: record/meta isn't JSON" >&2; exit 2; }
+                else
+                    echo '{}'
                 fi
                 exit 0 ;;
             predecessors)
