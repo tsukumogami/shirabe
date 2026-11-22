@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A /work-on run's koto session is meant to be its own ledger, written by the
   run alone. Test-change acceptance lets a minted seat, a person at a terminal
@@ -22,7 +22,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -142,20 +142,6 @@ only writer of its ledger.
   owners update them once this lands.
 - `/work-on`'s states and edges. They stay as they are unless the design finds
   a reason to change them.
-
-## Open Questions
-
-- Repositories that declare `## Test Change Acceptance: person`: is the
-  person path dropped, kept as a person decision the run records, or replaced
-  by a forge-side approval such as a required review from a second account?
-- The coordinator overrule: dropped, or kept as a koto reversal in the
-  coordinator's own session?
-- Are panel verdicts also recorded as typed koto decisions, attributed per
-  seat, alongside the verdict ledger the gate reads?
-- Does a re-verifier `weakens` on a late test edit count against the panel
-  retry budget, or keep its own per-path limit?
-
-None of these block the brief; each is a requirements decision for the PRD.
 
 ## References
 
