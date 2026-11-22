@@ -9,9 +9,10 @@ tells the session to re-read the skill and check koto before it does anything
 else.
 
 This reference covers the pieces that exist today: the note writer, the
-ledger entry, the two hooks, how to install them, the window setting, and the
-results of one live compaction read against them. Later work adds the brief a
-run hands forward at its end and the checks around it.
+ledger entry, the two hooks, how to install them, the window setting, the
+results of one live compaction read against them, and the brief a run hands
+forward at its end with the closing step before it. Later work adds the
+brief's two size limits, the opt-in keep record, park and resume.
 
 ## The note writer
 
@@ -30,8 +31,9 @@ through a temporary file and a rename, and a link at either path is refused.
 The entry holds one line each for `koto_session`, `note_key`, `branch` and
 `pr` (a URL or `none`), then one `skill:` line per `--skill`, outermost first.
 
-Exit 0 means both writes landed, 1 that a write failed, and 2 that an argument
-was refused and nothing was written.
+Exit 0 means both writes landed, 1 that an argument was refused and nothing
+was written, and 2 that koto or git is missing or a write failed. These are
+the codes every `handoff-brief.sh` subcommand uses.
 
 ## The hooks
 
@@ -169,6 +171,186 @@ session's id:
 | Session id holding `/` | exit 0, no output | exit 0, no output |
 | Session id `..` | exit 0, no output | exit 0, no output |
 | Session id holding a newline | exit 0, no output | exit 0, no output |
+
+## The closing step
+
+```
+scripts/closing-step.sh <worktree> [--instance <root>]
+```
+
+A session runs this before it writes its brief at a run's end. It blocks on
+an untracked file that `git check-ignore` doesn't match, a detached HEAD, a
+branch with no upstream, and any commit in `git rev-list @{u}..HEAD`. It
+prints `closing=blocked` and one line per cause (`stray: <path>`,
+`detached: ...`, `no-upstream: <branch>`, `unpushed: <sha> <subject>`), then
+exits 1. The upstream is the local remote-tracking ref, and nothing is
+fetched.
+
+On a pass it prints `closing=pass` and `instance=<root>` and exits 0. The root
+is `--instance` when given, else the directory that holds the worktree's
+repository (the parent of its main checkout). It never deletes the worktree.
+It prints `done=yes` only when the caller's working directory is outside the
+worktree, and `done=no`, with the directory to move to on stderr, when it is
+inside. Exit 2 means git is missing or the argument isn't a directory inside
+a git work tree. Every git call turns off `core.fsmonitor` and
+`core.hooksPath`, so a repository's own configuration runs nothing.
+
+## The brief at a run's end
+
+```
+scripts/handoff-brief.sh write --reasoning <file> --event end|stop \
+    [--file <path>]... [--watch "<label>=<re-arm command>"]... \
+    [--standing-rules <file>] [--instance <root>]
+scripts/handoff-brief.sh read [--session <name>]
+```
+
+`write` stores one brief as `brief/brief.md` in the session's koto session,
+and each named file's exact bytes at `brief/files/<sha256>`. The brief has a
+fixed layout:
+
+```markdown
+# Handoff brief
+written_at: 2026-11-22T15:30:00Z
+event: end
+## Reasoning
+<what was concluded, what was ruled out and why, the next step>
+## Pointers
+koto_session: <name>
+branch: <name>   pull_request: <number|none>   pushed_head: <sha|none>
+watch: <label> = <re-arm command>
+## Files
+scratch:<path under the job's scratch directory><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
+instance:<path under --instance><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
+## Standing rules
+None stated.
+```
+
+Pointers are read, not passed. The branch is `git branch --show-current`
+(`none` outside a repository or on a detached HEAD). The pull request is the
+first number from `gh pr list --head <branch> --state open`, or `none` when
+gh runs and finds none. The pushed head is the commit `git ls-remote` reports
+for the branch's upstream, looked up by remote name and never by URL. When
+local HEAD is ahead of it, the brief still shows the remote's commit. The
+Files section reads `None named.` with no `--file`, and Standing rules reads
+`None stated.` with no `--standing-rules`. `written_at` is taken before any
+file is hashed, so a file changed during the write reads as newer than the
+brief.
+
+The koto session is `$KOTO_SESSION` when set. With no koto run, `write`
+opens a plain koto session from `koto-templates/skill-session.md`, named
+`handoff-<job-id>` (the base name of `$CLAUDE_JOB_DIR`). With no job it's
+`handoff-<session-id>`, from the job's `state.json` or
+`CLAUDE_CODE_SESSION_ID`. `write` stores the brief there and closes the
+session `done`. A closed session's keys stay readable with `koto context get`,
+and a later `write` from the same job stores into the same session rather
+than replacing it. With no koto run, no job and no session id, `write`
+refuses and opens nothing. It prints `session=<name>`, `key=brief/brief.md`
+and `files=<n>`.
+
+The store order is the file keys, then `brief/brief.md`, so a brief never
+names a key that isn't there. If a later store fails, the keys this call
+added are removed again. No keep record is written yet.
+
+### Where a named file may come from
+
+A named file, and the `--reasoning` and `--standing-rules` files, must sit in
+scratch:
+
+- the job's scratch directory, `$CLAUDE_JOB_DIR/tmp`;
+- with `--instance <root>`, loose files at that root, outside every repository
+  worktree and every dot-directory there (`.git/`, `.claude/` and the like);
+- for the reasoning and rules files only, the job directory itself.
+
+`--instance` must be an existing directory that encloses the working
+directory and doesn't itself sit inside a git worktree.
+
+Each path must be a regular file with a link count of 1, readable, with no
+symlink in any component under its scratch root, and no `.` or `..`
+component. A `*.jsonl` name, or a first line that parses as a transcript
+record, is refused: a transcript is never named. A path holding a tab, a
+control character or a Unicode format character is refused. Each file is
+copied once into a private 0700 directory under `$TMPDIR`, and its size,
+hash and stored bytes come from that copy. The source is hashed again after
+the copy, and a file that changed in between is refused. The private
+directory is removed when the script exits.
+
+### What is refused
+
+Each of these exits 1, names the cause, and writes no key:
+
+- reasoning that is empty once whitespace is trimmed;
+- a line beginning `## ` in the reasoning or the standing rules, or a watch
+  value holding a newline, since either could open a forged section;
+- a watch that isn't `<label>=<command>`, whose label is outside
+  `[A-Za-z0-9._-]{1,64}`, whose command is empty, or that holds a shell
+  operator (`;`, `&`, `|`, `<`, `>`, `$`, a backtick, a backslash or a
+  parenthesis), a tab, a control character or a format character. A watch is
+  one plain command;
+- a basename matching a credential pattern, case ignored: `.env`, `.env.*`,
+  `*.env`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`,
+  `*.kdbx`, `*.ppk`, `*.gpg`, `*.asc`, `*.ovpn`, `*.tfvars`, `*.tfstate`,
+  `id_*`, `.netrc`, `_netrc`, `.npmrc`, `.pypirc`, `.pgpass`,
+  `.git-credentials`, `.htpasswd`, `.dockercfg`, `kubeconfig`,
+  `credentials*`, `settings*.json`, `*secret*`, `*token*`, `*password*`,
+  `*passwd*`;
+- content in a named file, the reasoning, the standing rules or a watch
+  matching a secret shape: GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`,
+  `ghr_`, `github_pat_`), an Anthropic key (`sk-ant-`), OpenAI project,
+  service-account and admin keys, AWS access key ids (`AKIA`, `ASIA`), Slack
+  tokens (`xoxa-`, `xoxb-`, `xoxp-`, `xoxr-`, `xoxs-`), GitLab tokens
+  (`glpat-`), npm tokens (`npm_`), Google API keys (`AIza`), Stripe live keys,
+  any PEM or OpenSSH private key block, a JWT-shaped string, a bearer or
+  authorization header, a URL carrying `user:secret@`, cloud key JSON
+  (`"private_key"`, `"client_secret"`, `"aws_secret_access_key"` and the
+  like), an AWS secret key setting, and three or more `KEY=VALUE` lines in a
+  row where one key names a secret (`KEY`, `TOKEN`, `SECRET`, `PASS`, `PWD`,
+  `CREDENTIAL`, `AUTH`);
+- `--event park`, which comes with resume.
+
+A 40-hex git commit id or a 64-hex sha256 is not a secret shape and is never
+refused.
+
+The scan has holes. It catches token-shaped secrets, not every secret: a
+password in prose, a credential in a format it doesn't list, or a pasted
+transcript passes it. If a brief carried a credential the scan missed,
+rotate the credential first and remove the key second, since a removal
+doesn't undo a koto sync.
+
+### Reading a brief
+
+`read` takes `--session <name>`, else `$KOTO_SESSION`, and prints the brief
+as data from an earlier session. It shows the header and Pointers first, with
+each watch printed as text and never run. Then come the reasoning and the
+standing rules, each between two lines holding a delimiter made fresh for
+this call (`@@brief-<32 hex>@@`). A reasoning line that copies an earlier
+call's delimiter stays inside the fence. Last is the Files section, after the
+free text. For each inline file, `read` hashes the stored bytes and reports
+`hash: verified` or `hash: MISMATCH`, then prints the bytes between fresh
+delimiters. The last line is `verified=all` or `verified=mismatch`.
+
+Control and format characters are shown as `<U+XXXX>`, newlines aside. A
+line inside the free text or a file that looks like a heading or a brief
+field (`#...`, `written_at:`, `event:`, `koto_session:`, `branch:`,
+`watch:`) is prefixed `[flag]`, as is any line outside its section. `read`
+writes no file bytes to disk and sets no executable bit. A matching hash
+proves a file is unchanged since the write, not that it is safe to run, and
+the Standing rules section is the earlier session's claim until someone
+checks it against each rule's source.
+
+### Who can read a brief
+
+Read access follows the koto backend. Anyone who can read a session's backend
+can read its brief and its inline files, and a name like `handoff-<job-id>`
+is not a secret. A named file travels once named: a workspace that syncs
+koto already chose whether anything leaves the host. The hashes catch a file
+that changed after the brief was written, but they don't stop someone who
+can write the backend, who could plant a brief and file keys whose hashes
+agree. Backend write access is trusted, which holds for a koto backend one
+principal owns; a backend shared between principals is out of scope. A
+closed `handoff-` session stays on the backend until koto's retention removes
+it, and whoever operates the backend can read its file bytes and owns
+removing old sessions. Every argument, `--watch` included, shows in a process
+listing while the script runs, so a watch carries no secret.
 
 ## Switching roles on
 
