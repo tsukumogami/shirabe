@@ -32,6 +32,7 @@ rationale: |
   concern in the engine. The journaled, all-or-nothing move with an explicit
   trigger keeps each step reversible and keeps a move from ever happening
   silently.
+upstream: docs/briefs/BRIEF-execute-live-run-plugin-upgrade.md
 ---
 
 # DESIGN: Moving a live execute run onto a newer installed plugin version
