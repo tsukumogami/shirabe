@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A live coordinated /shirabe:execute run keeps the plugin version it was
   opened under, so a fix in a newer installed release never reaches it. A node
@@ -20,7 +20,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
