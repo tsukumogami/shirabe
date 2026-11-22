@@ -830,7 +830,8 @@ lock_refused() {
     local label="$1" opid="$2" ohost="$3"
     OUT=$(WR_REC="$LREC" WR_KS=run-lock wr --event end --reasoning "$SCR/reasoning.md" 2>&1); rc=$?
     if [ "$rc" -eq 1 ] && grep -qF "[$LK]" <<<"$OUT" && grep -qF "pid $opid on host $ohost" <<<"$OUT" \
-        && no_brief_keys run-lock && cmp -s "$LREC" "$B/locked.before" && [ -f "$LK/owner" ]; then
+        && no_brief_keys run-lock && cmp -s "$LREC" "$B/locked.before" && [ -f "$LK/owner" ] \
+        && [ -z "$(ls -d "$LK".new.* 2>/dev/null)" ]; then
         ok "$label"
     else
         bad "$label" "rc=$rc $OUT"
@@ -896,6 +897,37 @@ OUT=$(WR_PATH="$B/bin-steal:$(bpath)" WR_REC="$LREC" WR_KS=run-steal wr --event 
 check "at exit a writer doesn't remove a lock whose owner line is no longer its own" \
     '[ -d "$LK" ] && [ "$(cat "$LK/owner")" = "$$ thief.invalid" ]'
 rm -rf "$LK"
+# The lock is put in place with its owner line already written, so a failed
+# owner write leaves no lock at all: a mkdir stand-in makes the temporary
+# lock's owner path a directory, so the write into it fails.
+REAL_MKDIR=$(command -v mkdir)
+mkdir -p "$B/bin-noowner"
+cat >"$B/bin-noowner/mkdir" <<EOF
+#!/bin/sh
+"$REAL_MKDIR" "\$@" || exit
+for a in "\$@"; do
+    case "\$a" in "$LK".new.*) "$REAL_MKDIR" "\$a/owner" ;; esac
+done
+EOF
+chmod +x "$B/bin-noowner/mkdir"
+cp "$LREC" "$B/noowner.before"
+mk_session run-noowner || exit 1
+OUT=$(WR_PATH="$B/bin-noowner:$(bpath)" WR_REC="$LREC" WR_KS=run-noowner wr --event end --reasoning "$SCR/reasoning.md" 2>&1); rc=$?
+check "a failed owner write exits 2 and leaves no lock and no temporary lock behind" \
+    '[ "$rc" -eq 2 ] && grep -q "cannot write the record lock'"'"'s owner" <<<"$OUT" && [ ! -e "$LK" ] && [ -z "$(ls -d "$LK".new.* 2>/dev/null)" ]'
+check "  and nothing is written" 'no_brief_keys run-noowner && cmp -s "$LREC" "$B/noowner.before"'
+OUT=$(WR_REC="$LREC" WR_KS=run-noowner wr --event end --reasoning "$SCR/reasoning.md" 2>&1); rc=$?
+check "  and the next call takes the lock and writes the record" '[ "$rc" -eq 0 ] && [ ! -e "$LK" ]'
+cp "$LREC" "$B/locked.before"
+# perl puts the lock in place; without it a call with a record exits 2.
+mkdir -p "$B/tools-noperl"
+for t in "$B"/tools/*; do
+    [ "${t##*/}" = perl ] || ln -s "$(readlink "$t")" "$B/tools-noperl/${t##*/}"
+done
+mk_session run-noperl || exit 1
+OUT=$(WR_PATH="$B/bin-kg:$B/tools-noperl" WR_REC="$LREC" WR_KS=run-noperl wr --event end --reasoning "$SCR/reasoning.md" 2>&1); rc=$?
+check "perl absent with a record path: exit 2, no lock, nothing written" \
+    '[ "$rc" -eq 2 ] && grep -q "perl is not on PATH" <<<"$OUT" && [ ! -e "$LK" ] && no_brief_keys run-noperl && cmp -s "$LREC" "$B/locked.before"'
 plant_lock "$$" "$HOST" new
 OUT=$(WR_REC="$LREC" WR_KS=run-park rs 2>&1); rc=$?
 check "resume under a held lock exits 1 naming it, and writes nothing" \

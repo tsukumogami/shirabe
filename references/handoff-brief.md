@@ -425,13 +425,19 @@ fields, keeping every other field another tool put there. It writes the
 result with jq to a temporary file in the record's own directory under
 `umask 077`, sets it to mode 0600 and renames it over the record, so a reader
 sees the old record or the new one and never a part. An existing record that
-isn't one JSON object is refused and left byte for byte as it was. jq is
-needed only when a record path is given; without it on `PATH` that call
-exits 2.
+isn't one JSON object is refused and left byte for byte as it was. jq and
+perl are needed only when a record path is given; without either on `PATH`
+that call exits 2.
 
 The record lock is a directory, `<record>.lock`, made with `mkdir` beside the
 record (macOS has no `flock`). It holds one line, `<pid> <host>`, for the
-call that holds it, and is removed when that `write` or `resume` ends. A call
+call that holds it, and is removed when that `write` or `resume` ends. The
+lock never exists without that line: the call makes `<record>.lock.new.<pid>`
+under `umask 077`, writes the owner line into it, then renames it onto
+`<record>.lock` with perl's `rename`, which fails when a lock is already
+there (a BSD `mv` would move the directory inside the existing one instead).
+A failed rename means the lock is held, and the temporary directory is
+removed. A call
 that finds the lock held never waits and never retries. A lock older than ten
 minutes whose pid is gone on this host is stale: the call renames it aside,
 checks that its owner line is still the one it judged stale, then removes it,
@@ -441,8 +447,8 @@ with exit 1. Any other lock (one younger than ten minutes, one whose
 pid is still alive here, or one from another host, whose pid can't be checked
 from here) refuses the call with exit 1, naming the lock's path, its pid and
 its host. No `brief/` key is written and the record is unchanged. A lock
-with no owner line can't be shown stale, so it is left for someone to remove
-by hand.
+with no owner line (one this script didn't make, since it makes none) can't
+be shown stale, so it is left for someone to remove by hand.
 
 ### Park and resume
 

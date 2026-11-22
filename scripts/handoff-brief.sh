@@ -497,6 +497,8 @@ record_path() {
     fi
     # A presence probe: command -v has no diagnostic worth keeping, and the fault names the tool.
     command -v jq >/dev/null 2>&1 || fault "jq is not on PATH; the keep record is JSON"
+    # A presence probe: perl's rename(2) puts the record lock in place, failing when one exists.
+    command -v perl >/dev/null 2>&1 || fault "perl is not on PATH; the record lock is put in place with its rename"
     RECORD="$rec"
     LOCK="$rec.lock"
 }
@@ -511,10 +513,35 @@ mtime_of() {
 # than LOCK_STALE_SECS and its pid is gone on this host; any other held lock
 # refuses the call at once, with no wait and no retry. cleanup removes it.
 LOCKED=0 LOCK_OWNER=""
+
+# make_lock -- put the lock in place with its owner line already in it, so no
+# lock ever exists without an owner: a mkdir directory $LOCK.new.<pid> made
+# under umask 077, its owner line written, then renamed onto LOCK by perl's
+# rename(2), which fails when LOCK exists (BSD mv would move the directory
+# inside an existing one instead of failing). Returns 1 when the rename
+# fails, the held path; the temporary directory is removed either way.
+LOCK_TMP=""
+make_lock() {
+    local tmp="$LOCK.new.$$"
+    (umask 077 && mkdir "$tmp") 2>"$PRIV/lock.err" \
+        || fault "cannot create the record lock [$tmp]: $(shown "$(cat "$PRIV/lock.err")")"
+    LOCK_TMP="$tmp"
+    if ! printf '%s\n' "$LOCK_OWNER" >"$tmp/owner"; then
+        rm -rf "$tmp" && LOCK_TMP=""
+        fault "cannot write the record lock's owner"
+    fi
+    if ! perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$tmp" "$LOCK" 2>"$PRIV/lock.err"; then
+        rm -rf "$tmp" && LOCK_TMP=""
+        return 1
+    fi
+    LOCK_TMP=""
+}
+
 take_lock() {
     local host owner="" opid ohost mt age took=0
     host=$(uname -n) || fault "cannot read this host's name"
-    if ! (umask 077 && mkdir "$LOCK") 2>"$PRIV/lock.err"; then
+    LOCK_OWNER="$$ $host"
+    if ! make_lock; then
         [ -L "$LOCK" ] && refuse "the record lock [$LOCK] is a symlink, not a lock directory; nothing was written"
         [ -d "$LOCK" ] || fault "cannot create the record lock [$LOCK]: $(shown "$(cat "$PRIV/lock.err")")"
         [ -f "$LOCK/owner" ] && IFS= read -r owner <"$LOCK/owner"
@@ -532,18 +559,17 @@ take_lock() {
                 # and removing would delete that writer's fresh lock. Only a lock
                 # whose owner line is still the stale one judged is discarded; any
                 # other is put back and this call refuses. Remaining edge: while a
-                # fresh lock sits aside for that check, a third writer's mkdir can
+                # fresh lock sits aside for that check, a third writer's lock can
                 # slip in, and the lock can't be put back.
                 local aside="$LOCK.stale.$$" moved=""
                 mv "$LOCK" "$aside" 2>"$PRIV/lock.err" \
                     || refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
                 [ -f "$aside/owner" ] && IFS= read -r moved <"$aside/owner"
                 if [ -z "$moved" ]; then
-                    # A lock with no owner line yet is another writer's, caught
-                    # between its mkdir and its owner write. Putting it back would
-                    # leave an ownerless lock nothing can take over, so drop it:
-                    # that writer's owner write then fails and it exits 2 before
-                    # storing anything.
+                    # make_lock never puts a lock in place without its owner
+                    # line, so one without came from elsewhere (an older version
+                    # of this script, or by hand). Putting it back would leave an
+                    # ownerless lock nothing can take over, so drop it.
                     rm -rf "$aside" || fault "cannot remove the moved record lock [$aside]"
                     refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
                 fi
@@ -554,7 +580,7 @@ take_lock() {
                     refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
                 fi
                 rm -rf "$aside" || fault "cannot remove the stale record lock [$aside]"
-                (umask 077 && mkdir "$LOCK") 2>"$PRIV/lock.err" \
+                make_lock \
                     || refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
                 took=1
             fi
@@ -563,8 +589,6 @@ take_lock() {
             || refuse "the keep record is locked: [$LOCK] is held by pid $(shown "${opid:-unknown}") on host $(shown "${ohost:-unknown}"), ${age}s old. A lock is taken over only when it is over ten minutes old and its pid is gone on this host; nothing was written"
     fi
     LOCKED=1
-    LOCK_OWNER="$$ $host"
-    printf '%s\n' "$LOCK_OWNER" >"$LOCK/owner" || fault "cannot write the record lock's owner"
 }
 
 # record_base -- the record at RECORD, or {} when there is none, copied to
@@ -615,6 +639,9 @@ cleanup() {
             rmdir "$LOCK" || printf '%s: could not remove the record lock [%s]\n' "$PROG" "$LOCK" >&2
         fi
     fi
+    # A temporary lock this call made but never renamed into place (it was
+    # interrupted in between) is only this call's, and is no lock at all.
+    [ -z "$LOCK_TMP" ] || rm -rf "$LOCK_TMP"
     [ -z "$PRIV" ] || rm -rf "$PRIV"
 }
 
