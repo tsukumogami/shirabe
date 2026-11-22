@@ -207,7 +207,9 @@ stateDiagram-v2
     verification --> verification_hosted : gates.route_reason_given.exit_code: 0, gates.verification_route.exit_code: 0, gates.verification_verdict.exit_code: 5, verification_status: hosted_of_record
     verification --> implementation : gates.verification_verdict.exit_code: 5, verification_status: fix
     verification --> done_blocked : gates.verification_verdict.exit_code: 5, verification_status: blocked
+    verification --> verification : gates.route_reason_given.exit_code: 0, gates.verification_verdict.exit_code: 5, verification_status: rerun
     verification --> done_blocked : gates.verification_verdict.exit_code: 75, verification_status: blocked
+    verification --> verification : gates.route_reason_given.exit_code: 0, gates.verification_verdict.exit_code: 75, verification_status: rerun
     verification --> done_blocked : gates.verification_verdict.exit_code: 2, verification_status: blocked
     verification --> done_blocked : gates.verification_verdict.exit_code: -1, verification_status: blocked
     verification_deferred --> pass_counting : vars.VERIFICATION_DEFERRAL_REASON: {"is_set":true}

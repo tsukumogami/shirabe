@@ -80,11 +80,17 @@
 #       second line. A ledger line:
 #
 #         {"attempt": <ledger lines at the pair + 1>, "folder": n, "head",
-#          "merge_base", "exit": 1, "status", "reason" (cleaned),
+#          "merge_base", "exit", "status", "reason" (cleaned),
 #          "archived_at": "<UTC ISO 8601>", "commands": [{"id" (cleaned),
 #          "exit_status", "timed_out", "duration_secs",
 #          "log": "attempts/<n>/<index>-<name>.log", or null for any other
 #          path}]}
+#
+#       `exit` is the gate exit the result came through, worked out from its
+#       records the way check-verification.sh ranks them
+#       (verification-eligibility.sh's verification_gate_exit): 1 when a
+#       command failed, beside a timed-out one or not, and 5 for a timeout
+#       with nothing failed, held at the timed-out hold.
 #   --locate --session <s> [--base-ref <ref>]
 #       Print three lines: the head, the merge-base, and the result file's
 #       path. check-verification.sh calls this so the path rules live here.
@@ -560,7 +566,7 @@ archive_refuse() {
 # --start that follows can take it; inside consume_request's hold it takes
 # nothing and releases nothing.
 archive_attempt() {
-    local reason elig n adir at disk mode prior last k status line back back_count back_last lcount
+    local reason elig n adir at disk mode prior last k status gexit line back back_count back_last lcount
     reason=$(verification_clean "$1") || reason=""
     [ -n "$reason" ] || { archive_refuse "the reason is empty after cleaning"; return 1; }
     command -v koto >/dev/null || { archive_refuse "koto is not on PATH"; return 1; }
@@ -661,15 +667,19 @@ archive_attempt() {
     if [ "$mode" = normal ]; then
         k=$((at + 1))
         status=$(jq -r .status "$RESULT")
+        # The gate exit the result came through: 1 beside any failed command, 5
+        # for a timed-out check with nothing failed, held at the timed-out hold.
+        gexit=$(verification_gate_exit "$RESULT") \
+            || { archive_refuse "could not build the ledger line"; return 1; }
         # Command ids get the reason's cleaning. A log path is kept only in the
         # shape this script writes, attempts/<n>/<index>-<safe id>.log, relative
         # to the head directory; anything else is stored as null.
-        line=$(jq -nc --argjson attempt "$k" --argjson folder "$n" \
+        line=$(jq -nc --argjson attempt "$k" --argjson folder "$n" --argjson exit "$gexit" \
             --arg head "$HEAD_SHA" --arg mb "$MB" --arg status "$status" --arg reason "$reason" \
             --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hd "$HEAD_DIR/" --slurpfile result "$RESULT" "$VE_CLEAN_JQ"'
             def rel: if (type == "string") and startswith($hd) then .[($hd | length):] else null end
                      | if (type == "string") and test("^attempts/[0-9]+/[0-9]+-[A-Za-z0-9._-]+\\.log$") then . else null end;
-            {attempt: $attempt, folder: $folder, head: $head, merge_base: $mb, exit: 1, status: $status,
+            {attempt: $attempt, folder: $folder, head: $head, merge_base: $mb, exit: $exit, status: $status,
              reason: $reason, archived_at: $at,
              commands: [$result[0].commands[] | {id: (.id | if type == "string" then clean else null end),
                                                  exit_status, timed_out, duration_secs, log: (.log | rel)}]}') \

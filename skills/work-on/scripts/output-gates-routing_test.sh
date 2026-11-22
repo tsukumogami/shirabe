@@ -757,6 +757,114 @@ EOF
 fi
 rr_reap
 
+# A re-run at the timed-out hold, end to end with the real launcher and
+# verdict scripts: the same fixture, a repository whose one command sleeps past
+# its five-second limit on every run, in a row that declares a hosted job, so
+# the verdict holds at 5 with the route open. A verification_status: rerun
+# there is a self-loop; this case shows its request key reaches the default
+# action in the same tick, as the implementation edge's does above.
+echo "--- rerun: a timed-out check re-runs from the hold (real launcher)"
+R5_REPO="$WORKDIR/rr5-repo"
+R5_MARK="$WORKDIR/rr5-marker"
+mkdir -p "$R5_REPO/bin" "$R5_REPO/src" "$R5_REPO/.claude/shirabe-extensions"
+cat > "$R5_REPO/bin/slow.sh" <<'EOF'
+#!/bin/sh
+# Every run records its pid and sleeps past the row's timeout.
+echo $$ > "$1.pid"
+exec sleep 30
+EOF
+chmod +x "$R5_REPO/bin/slow.sh"
+jq -cn --arg m "$R5_MARK" '{schema: "shirabe-verification-map/v1",
+    commands: {slow: {run: ["bin/slow.sh", $m], timeout_secs: 5, max_procs: 16,
+                      hosted: [{workflow: ".github/workflows/ci.yml", job: "test", runs: "slow"}]}},
+    entries: [{paths: ["src/**"], commands: ["slow"]}], default: ["slow"]}' \
+    > "$R5_REPO/.claude/shirabe-extensions/verification-map.json"
+echo base > "$R5_REPO/src/a.txt"
+R5_OK=1
+(cd "$R5_REPO" && git init -q -b main . && git config user.email t@example.com && git config user.name t \
+    && git add -A && git commit -q -m "chore: init" && git checkout -q -b feature/rr5 \
+    && echo change >> src/a.txt && git commit -q -am "feat: change a") >/dev/null 2>&1 \
+    || { R5_OK=0; fail "rerun at the hold: could not build the repository"; }
+R5H=$(git -C "$R5_REPO" rev-parse HEAD 2>/dev/null)
+R5M=$(git -C "$R5_REPO" merge-base HEAD main 2>/dev/null)
+R5S="og-rerun5-$$"
+# The exit hook's rr_reap reaps this case from here on.
+RR_HEADDIR="$HOME/.local/state/shirabe/verification/$R5S/$R5H"
+RR_MARK=$R5_MARK
+RR_SUP=""
+
+if [ "$R5_OK" -eq 1 ]; then
+    (cd "$R5_REPO" && koto init "$R5S" --template "$RR_DIR/fixture.md" --var PLUGIN_ROOT="$RR_ROOT" \
+        --var ISSUE_NUMBER=7) >"$RR_DIR/init5.out" 2>&1 \
+        || { R5_OK=0; fail "rerun at the hold: koto init failed: $(head -c 300 "$RR_DIR/init5.out")"; }
+fi
+
+# Tick until the verdict is recorded: the first attempt times out and the gate
+# holds at 5.
+if [ "$R5_OK" -eq 1 ]; then
+    r5_i=0
+    while [ "$r5_i" -lt 20 ]; do
+        R5_RESP=$(cd "$R5_REPO" && koto next "$R5S" --no-cleanup 2>/dev/null)
+        r5_i=$((r5_i + 1))
+        (cd "$R5_REPO" && koto context exists "$R5S" verification_results.json) >/dev/null 2>&1 && break
+    done
+    R5_STATE=$(jq -r '.state // "none"' <<<"$R5_RESP")
+    if [ "$R5_STATE" = verification ] \
+            && jq -e '.status == "done" and .commands[0].outcome == "timed-out-limit"' "$RR_HEADDIR/result.json" >/dev/null \
+            && (cd "$R5_REPO" && koto context exists "$R5S" verification_results.json) >/dev/null 2>&1; then
+        pass "rerun at the hold: the timed-out first attempt holds at verification (after $r5_i ticks)"
+    else
+        R5_OK=0
+        fail "rerun at the hold: the first attempt never held: state $R5_STATE ($(head -c 300 <<<"$R5_RESP"))"
+    fi
+fi
+
+if [ "$R5_OK" -eq 1 ]; then
+    R5_REASON='the host was loaded'
+    R5_DATA=$(jq -cn --arg r "$R5_REASON" '{verification_status: "rerun", detail: $r}')
+    R5_RESP=$(cd "$R5_REPO" && koto next "$R5S" --with-data "$R5_DATA" --no-cleanup 2>/dev/null)
+
+    # Attempt 2's supervisor first, while its command is inside its limit: the
+    # lock names it once --start returns, and its log follows.
+    r5_n=0
+    while [ "$r5_n" -lt 50 ]; do
+        RR_SUP=$(readlink "$RR_HEADDIR/lock" 2>/dev/null)
+        [ -n "$RR_SUP" ] && [ -e "$RR_HEADDIR/attempts/2/0-slow.log" ] && break
+        sleep 0.1; r5_n=$((r5_n + 1))
+    done
+    if [ -n "$RR_SUP" ] && kill -0 "$RR_SUP" 2>/dev/null && [ -e "$RR_HEADDIR/attempts/2/0-slow.log" ]; then
+        pass "rerun at the hold: a supervisor for attempt 2 is running (pid $RR_SUP) and logging to attempts/2/"
+    else
+        fail "rerun at the hold: no live supervisor for attempt 2 (lock [$RR_SUP], attempts/2/ holds [$(ls "$RR_HEADDIR/attempts/2" 2>/dev/null | tr '\n' ' ')])"
+    fi
+
+    R5_CUR=$(cd "$R5_REPO" && koto status "$R5S" 2>/dev/null | jq -r '.current_state // empty')
+    [ "$R5_CUR" = verification ] \
+        && pass "rerun at the hold: the self-loop leaves the session at verification" \
+        || fail "rerun at the hold: current_state is [$R5_CUR], want verification ($(head -c 300 <<<"$R5_RESP"))"
+
+    if (cd "$R5_REPO" && koto context exists "$R5S" verification_rerun_request) >/dev/null 2>&1; then
+        fail "rerun at the hold: verification_rerun_request is still in context: the self-loop's assignment did not reach verification's default action in the same tick"
+    else
+        pass "rerun at the hold: --start consumed verification_rerun_request (the key is gone)"
+    fi
+
+    R5_LEDGER=$(cd "$R5_REPO" && koto context get "$R5S" verification_attempts 2>/dev/null)
+    r5_n=$(printf '%s\n' "$R5_LEDGER" | grep -c .)
+    if [ "$r5_n" = 1 ] && jq -e --arg h "$R5H" --arg m "$R5M" --arg r "$R5_REASON" \
+            '.attempt == 1 and .folder == 1 and .exit == 5 and .head == $h and .merge_base == $m and .reason == $r' \
+            <<<"$R5_LEDGER" >/dev/null; then
+        pass "rerun at the hold: verification_attempts holds one line for attempt 1 (exit 5, head, merge-base, the reason)"
+    else
+        fail "rerun at the hold: verification_attempts ($r5_n line(s)): [$(head -c 300 <<<"$R5_LEDGER")]"
+    fi
+
+    [ -f "$RR_HEADDIR/attempts/1/result.json" ] && [ -f "$RR_HEADDIR/attempts/1/run.json" ] \
+        && pass "rerun at the hold: attempt 1's result.json and run.json are in attempts/1/" \
+        || fail "rerun at the hold: attempts/1/ holds [$(ls "$RR_HEADDIR/attempts/1" 2>/dev/null | tr '\n' ' ')]"
+fi
+rr_reap
+
 # ci_monitor: green CI goes on to ci_pass_counting, which counts the pass and
 # routes on is_root; the two failing values route on red CI.
 reset_rc
@@ -1177,6 +1285,59 @@ for rc in 75 2; do
     drive verification "" '{"verification_status":"fix"}'
     expect "fix at verdict $rc is refused" verification
 done
+
+# rerun at the hold: a self-loop that writes verification_rerun_request from
+# detail, with a non-blank reason and without the route gate. The launcher
+# here is a fake, so the key stays for the case to read. 75 + rerun takes the
+# same lap (the order where --archive ran first); 2 has no rerun edge.
+# rerun_looped <label>: the last drive walked verification twice and holds
+# the request key; rerun_refused <label>: it entered verification once and
+# wrote no key.
+rerun_looped() {
+    case "$(walked)" in
+        *"verification verification"*)
+            if [ "$STATE" = verification ] && [ "$(ctx verification_rerun_request)" = "$2" ]; then
+                pass "$1: back to verification, verification_rerun_request [$2]"
+            else
+                fail "$1: state $STATE, verification_rerun_request [$(ctx verification_rerun_request)]"
+            fi ;;
+        *) fail "$1: walked [$(walked)], want a verification self-loop ($(head -c 300 <<<"$RESP"))" ;;
+    esac
+}
+# The key's absence is `koto context exists` exiting nonzero: `context get` on
+# a missing key prints an error object on standard output, not nothing.
+rerun_refused() {
+    case "$(walked)" in
+        *"verification verification"*) fail "$1: walked [$(walked)], want no self-loop" ;;
+        *)
+            if [ "$STATE" = verification ] \
+                    && ! (cd "$REPO" && koto context exists "og-$N" verification_rerun_request) >/dev/null 2>&1; then
+                pass "$1 is refused: no self-loop and no verification_rerun_request"
+            else
+                fail "$1: state $STATE, verification_rerun_request [$(ctx verification_rerun_request)]"
+            fi ;;
+    esac
+}
+reset_rc; set_rc check-verification.sh--verdict 5
+drive verification "" '{"verification_status":"rerun","detail":"the host was loaded"}'
+rerun_looped "rerun with a reason at the hold" "the host was loaded"
+for d in '""' '"   "'; do
+    drive verification "" "{\"verification_status\":\"rerun\",\"detail\":$d}"
+    rerun_refused "rerun with detail $d at the hold"
+done
+drive verification "" '{"verification_status":"rerun"}'
+rerun_refused "rerun with no detail at the hold"
+set_rc verification-route.sh--open 1
+drive verification "" '{"verification_status":"rerun","detail":"flaky"}'
+rerun_looped "rerun at the hold with the route gate at 1 (a rerun never needs the route)" flaky
+reset_rc; set_rc check-verification.sh--verdict 75
+drive verification "" '{"verification_status":"rerun","detail":"archived by hand"}'
+rerun_looped "rerun at verdict 75, after --archive at the hold" "archived by hand"
+drive verification "" '{"verification_status":"rerun","detail":"  "}'
+rerun_refused "rerun with an all-space reason at verdict 75"
+reset_rc; set_rc check-verification.sh--verdict 2
+drive verification "" '{"verification_status":"rerun","detail":"flaky"}'
+rerun_refused "rerun at verdict 2"
 
 # A child of /execute (SHARED_BRANCH set: a single-pr shared-branch child, or
 # a coordinated work item on its node branch) takes the route the same way:

@@ -1517,10 +1517,11 @@ mkdir -p "$VE_DIR"
 VE_H=1111111111111111111111111111111111111111
 VE_M=2222222222222222222222222222222222222222
 VE_O=3333333333333333333333333333333333333333
-# ve_result <file> <commands json>: a done result at VE_H and VE_M.
+# ve_result <file> <commands json> [<status>]: a result at VE_H and VE_M,
+# `done` unless a status is given.
 ve_result() {
-    jq -cn --arg h "$VE_H" --arg mb "$VE_M" --argjson c "$2" \
-        '{schema: "shirabe-verification-result/v1", head: $h, merge_base: $mb, status: "done", detail: "", commands: $c}' > "$1"
+    jq -cn --arg h "$VE_H" --arg mb "$VE_M" --argjson c "$2" --arg st "${3:-done}" \
+        '{schema: "shirabe-verification-result/v1", head: $h, merge_base: $mb, status: $st, detail: "", commands: $c}' > "$1"
 }
 ve_result "$VE_DIR/fail.json" '[{"id": "bad", "exit_status": 3, "timed_out": false, "runaway": false, "not_started": false}]'
 ve_result "$VE_DIR/pass.json" '[{"id": "ok", "exit_status": 0, "timed_out": false, "runaway": false, "not_started": false}]'
@@ -1565,7 +1566,56 @@ ve_case "a ledger line that does not parse" "$VE_DIR/fail.json" "$VE_DIR/bad.led
 ve_case "no ledger file" "$VE_DIR/fail.json" "$VE_DIR/none.ledger" "ineligible unreadable"
 ve_case "a passing result beside two lines at the pair" "$VE_DIR/pass.json" "$VE_DIR/two.ledger" "ineligible passed"
 ve_case "a failed and a timed-out command beside two lines at the pair" "$VE_DIR/mixed.json" "$VE_DIR/two.ledger" \
-    "ineligible timed-out"
+    over-cap
+ve_case "a failed and a timed-out command and an empty ledger" "$VE_DIR/mixed.json" "$VE_DIR/empty.ledger" eligible
+
+# Every result the gate holds at exit 5 is eligible under the cap and over-cap
+# at two lines: a command stopped at its timeout, one that timed out inside
+# itself, and a stop at the total budget that left nothing unstarted (its
+# run.json lists as many invocations as the result has records). A budget
+# stop that left a command unstarted, and a runaway beside a timeout, are not.
+ve_result "$VE_DIR/limit.json" '[{"id": "slow", "exit_status": 143, "timed_out": true, "runaway": false,
+    "not_started": false, "outcome": "timed-out-limit"}]'
+ve_result "$VE_DIR/inside.json" '[{"id": "form", "exit_status": 1, "timed_out": false, "runaway": false,
+    "not_started": false, "outcome": "timed-out-inside"}]'
+mkdir -p "$VE_DIR/budget" "$VE_DIR/budget-unstarted"
+VE_BUDGET_CMDS='[{"id": "ok", "exit_status": 0, "timed_out": false, "runaway": false, "not_started": false, "outcome": "passed"},
+    {"id": "slow", "exit_status": 143, "timed_out": true, "runaway": false, "not_started": false, "outcome": "timed-out-limit"}]'
+ve_result "$VE_DIR/budget/result.json" "$VE_BUDGET_CMDS" timed-out
+jq -cn '{invocations: [{id: "ok"}, {id: "slow"}]}' > "$VE_DIR/budget/run.json"
+ve_result "$VE_DIR/budget-unstarted/result.json" "$VE_BUDGET_CMDS" timed-out
+jq -cn '{invocations: [{id: "ok"}, {id: "slow"}, {id: "later"}]}' > "$VE_DIR/budget-unstarted/run.json"
+ve_result "$VE_DIR/runaway-timeout.json" '[{"id": "slow", "exit_status": 143, "timed_out": true, "runaway": false,
+    "not_started": false}, {"id": "storm", "exit_status": 137, "timed_out": false, "runaway": true, "not_started": false}]'
+ve_case "a command stopped at its timeout and an empty ledger" "$VE_DIR/limit.json" "$VE_DIR/empty.ledger" eligible
+ve_case "a command stopped at its timeout beside two lines at the pair" "$VE_DIR/limit.json" "$VE_DIR/two.ledger" over-cap
+ve_case "a command that timed out inside itself and an empty ledger" "$VE_DIR/inside.json" "$VE_DIR/empty.ledger" eligible
+ve_case "a command that timed out inside itself beside two lines at the pair" "$VE_DIR/inside.json" "$VE_DIR/two.ledger" \
+    over-cap
+ve_case "a whole-budget stop with nothing unstarted and an empty ledger" "$VE_DIR/budget/result.json" \
+    "$VE_DIR/empty.ledger" eligible
+ve_case "a whole-budget stop with nothing unstarted beside two lines at the pair" "$VE_DIR/budget/result.json" \
+    "$VE_DIR/two.ledger" over-cap
+ve_case "a whole-budget stop that left a command unstarted" "$VE_DIR/budget-unstarted/result.json" \
+    "$VE_DIR/empty.ledger" "ineligible not-started"
+ve_case "a runaway beside a timed-out command" "$VE_DIR/runaway-timeout.json" "$VE_DIR/empty.ledger" \
+    "ineligible runaway"
+
+# verification_gate_exit: the exit an eligible result came through.
+ve_exit_case() {
+    local got
+    got=$(. "$SCRIPT_DIR/verification-eligibility.sh" && verification_gate_exit "$2")
+    if [ "$got" = "$3" ]; then
+        pass "verification_gate_exit: $1: $3"
+    else
+        fail "verification_gate_exit: $1: [$got], want [$3]"
+    fi
+}
+ve_exit_case "a failed command" "$VE_DIR/fail.json" 1
+ve_exit_case "a failed and a timed-out command" "$VE_DIR/mixed.json" 1
+ve_exit_case "a command stopped at its timeout" "$VE_DIR/limit.json" 5
+ve_exit_case "a command that timed out inside itself" "$VE_DIR/inside.json" 5
+ve_exit_case "a whole-budget stop" "$VE_DIR/budget/result.json" 5
 
 # lock_pids <keys>: the distinct lock targets lockcalls logged for the context
 # calls on the keys <keys> names (an extended regular expression), one per
@@ -1717,9 +1767,9 @@ fi
 cp "$WORKDIR/cap.ledger" "$CAP_LEDGER"
 
 echo "--- the gate's message for a failed command beside a timed-out one"
-# The mixed result exits 1 and is not eligible for a re-run, so it gets the
-# listing of earlier attempts and no ways-out line, however many there are.
-# The lines are seeded newest first; the message sorts them.
+# The mixed result exits 1 and is eligible for a re-run as a plain failure is,
+# so with two lines at the pair it gets the listing of earlier attempts and the
+# ways-out line. The lines are seeded newest first; the message sorts them.
 cd "$WORKDIR/r-mixed" || exit 2
 MX_H=$(locate_line s-mixed 1)
 MX_M=$(locate_line s-mixed 2)
@@ -1736,11 +1786,196 @@ MX_L1=$(grep -n -F 'attempt 1: bad failed, slow timed out; reason [seeded one]' 
 MX_L2=$(grep -n -F 'attempt 2: bad failed, slow timed out; reason [seeded two]' "$WORKDIR/verdict.err" | head -n 1 | cut -d: -f1)
 if grep -q -F 'this is attempt 3 at head' "$WORKDIR/verdict.err" \
     && [ -n "$MX_L1" ] && [ -n "$MX_L2" ] && [ "$MX_L1" -lt "$MX_L2" ] \
-    && ! grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err"; then
-    pass "mixed: the message lists both attempts oldest first, failed and timed-out ids named, with no ways-out line"
+    && grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err" \
+    && grep -q -F 'a new head' "$WORKDIR/verdict.err" \
+    && grep -q -F 'implementation_status: blocked' "$WORKDIR/verdict.err"; then
+    pass "mixed: the message lists both attempts oldest first, failed and timed-out ids named, and names the ways out"
 else
     fail "mixed: the message: $(cat "$WORKDIR/verdict.err")"
 fi
+# Under the cap the mixed result archives as a failure: one line, exit 1.
+rm -f "$KOTO_STUB_STORE/s-mixed/verification_attempts"
+MX_HD=$(head_dir s-mixed)
+"$START" --archive --session s-mixed --reason "flaky beside a slow check" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(grep -c . "$KOTO_STUB_STORE/s-mixed/verification_attempts" 2>/dev/null)" = 1 ] \
+    && jq -e '.attempt == 1 and .exit == 1 and .status == "done"
+              and ([.commands[] | select(.timed_out == true)] | length) == 1' \
+        "$KOTO_STUB_STORE/s-mixed/verification_attempts" >/dev/null \
+    && [ -f "$MX_HD/attempts/1/result.json" ]; then
+    pass "mixed: --archive archives a failed command beside a timed-out one, its ledger line at exit 1"
+else
+    fail "mixed: --archive: exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$KOTO_STUB_STORE/s-mixed/verification_attempts" 2>&1)"
+fi
+
+echo "--- the hold: a re-run at exit 5"
+# A timed-out check with nothing failed holds at 5 with the route open. A
+# rerun there is a self-loop whose request --start reads; the cases below run
+# that half of the lap, the order where --archive runs first (the gate then
+# reads 75), a request beside a running suite, and the cap, which the hold
+# shares with the failed route.
+HR_REC="$WORKDIR/holdrr.rec"
+CMDS=$(jq -cn --arg f "$HR_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 3, hosted: $h}}')
+mkrepo holdrr "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+start s-holdrr
+settle s-holdrr
+expect_rc "holdrr: a timed-out check, none failed, the route open" 5
+HR_HD=$(head_dir s-holdrr)
+HR_STORE="$KOTO_STUB_STORE/s-holdrr"
+HR_LEDGER="$HR_STORE/verification_attempts"
+HR_REQ="$HR_STORE/verification_rerun_request"
+mkdir -p "$HR_STORE"
+if grep -q -F 'verification_status: rerun with the reason in detail' "$WORKDIR/verdict.err" \
+    && grep -q -F 'verification_status: hosted_of_record' "$WORKDIR/verdict.err" \
+    && ! grep -q -F 'this is attempt' "$WORKDIR/verdict.err"; then
+    pass "holdrr: with no verification_attempts key the hold offers rerun beside hosted_of_record, fix and blocked, and lists no attempt"
+else
+    fail "holdrr: the hold's message with no ledger key: $(cat "$WORKDIR/verdict.err")"
+fi
+
+# A failed ledger read at the hold holds the gate, records nothing, and leaves
+# no temporary file behind.
+rm -f "$HR_STORE/verification_results.json"
+mkdir -p "$WORKDIR/cvtmp-fail"
+OUT=$(TMPDIR="$WORKDIR/cvtmp-fail" KOTO_STUB_FAIL_KEY=verification_attempts "$VERDICT" --verdict --session s-holdrr \
+    2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "holdrr: a failed read of verification_attempts at the hold holds the gate" 2
+if grep -q -F 'could not read verification_attempts' "$WORKDIR/verdict.err" \
+    && [ ! -e "$HR_STORE/verification_results.json" ] && [ -z "$(ls -A "$WORKDIR/cvtmp-fail")" ]; then
+    pass "holdrr: a failed ledger read at exit 5 says so, records no verification_results.json and leaves no temporary file"
+else
+    fail "holdrr: a failed ledger read at exit 5: stderr $(cat "$WORKDIR/verdict.err"); results $(ls "$HR_STORE" | tr '\n' ' '); tmp $(ls -A "$WORKDIR/cvtmp-fail" | tr '\n' ' ')"
+fi
+
+# The rerun lap's launcher half: --start archives the timed-out attempt, its
+# ledger line at exit 5, and starts attempt 2.
+printf 'the host was loaded\n' > "$HR_REQ"
+"$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && [ -f "$HR_HD/attempts/1/result.json" ] \
+    && [ "$(grep -c . "$HR_LEDGER" 2>/dev/null)" = 1 ] \
+    && jq -e '.attempt == 1 and .folder == 1 and .exit == 5 and .status == "done" and .reason == "the host was loaded"
+              and .commands[0].id == "chk" and .commands[0].timed_out == true' "$HR_LEDGER" >/dev/null; then
+    pass "holdrr: a request at the hold archives the timed-out attempt with exit 5 in its ledger line and removes the key"
+else
+    fail "holdrr: a request at the hold: exit $RC, stderr $(cat "$WORKDIR/hr.err"), ledger $(cat "$HR_LEDGER" 2>&1)"
+fi
+
+# One earlier attempt: the hold lists it and still offers rerun. This gate
+# run reads the ledger and leaves none of its temporary files behind.
+settle s-holdrr
+mkdir -p "$WORKDIR/cvtmp"
+OUT=$(TMPDIR="$WORKDIR/cvtmp" "$VERDICT" --verdict --session s-holdrr 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "holdrr: attempt 2 times out too: the hold again" 5
+if grep -q -F 'this is attempt 2 at head' "$WORKDIR/verdict.err" \
+    && grep -q -F 'attempt 1: chk timed out; reason [the host was loaded]' "$WORKDIR/verdict.err" \
+    && grep -q -F 'data recorded by earlier runs' "$WORKDIR/verdict.err" \
+    && grep -q -F "$HR_HD/attempts/2/" "$WORKDIR/verdict.err" \
+    && grep -q -F 'verification_status: rerun with the reason in detail' "$WORKDIR/verdict.err" \
+    && ! grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err"; then
+    pass "holdrr: the exit-5 message gives attempt 2, attempt 1's timed-out id and reason as data, and offers rerun"
+else
+    fail "holdrr: the exit-5 message after one earlier attempt: $(cat "$WORKDIR/verdict.err")"
+fi
+[ -z "$(ls -A "$WORKDIR/cvtmp")" ] \
+    && pass "holdrr: a gate run that reads the ledger leaves none of its temporary files behind" \
+    || fail "holdrr: the gate run left $(ls -A "$WORKDIR/cvtmp" | tr '\n' ' ')"
+n=$(grep -c '^[[:space:]]*trap ' "$VERDICT")
+[ "$n" -eq 1 ] && pass "check-verification.sh sets one EXIT trap" \
+    || fail "check-verification.sh sets $n traps"
+
+# The archive-first order: --archive at the hold, the gate reads 75, and the
+# request that follows starts the next attempt with one ledger line for the
+# archived attempt.
+"$START" --archive --session s-holdrr --reason "the host was loaded again" >"$WORKDIR/archive.out" 2>"$WORKDIR/archive.err"
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(grep -c . "$HR_LEDGER" 2>/dev/null)" = 2 ] \
+    && tail -n 1 "$HR_LEDGER" | jq -e '.attempt == 2 and .folder == 2 and .exit == 5' >/dev/null \
+    && [ -f "$HR_HD/attempts/2/result.json" ]; then
+    pass "holdrr: --archive at the hold archives attempt 2, its ledger line at exit 5"
+else
+    fail "holdrr: --archive at the hold: exit $RC, stderr $(cat "$WORKDIR/archive.err"), ledger $(cat "$HR_LEDGER" 2>&1)"
+fi
+verdict s-holdrr
+expect_rc "holdrr: after --archive at the hold the gate waits" 75
+cp "$HR_LEDGER" "$WORKDIR/holdrr.ledger"
+printf 'the host was loaded again\n' > "$HR_REQ"
+"$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+RC=$?
+HR_SUP=$(readlink "$HR_HD/lock" 2>/dev/null)
+if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && grep -q -F 'rerun request dropped' "$WORKDIR/hr.err" \
+    && cmp -s "$HR_LEDGER" "$WORKDIR/holdrr.ledger" && [ -n "$HR_SUP" ]; then
+    pass "holdrr: a request at 75 after --archive starts the next attempt, the ledger still one line per archived attempt"
+else
+    fail "holdrr: a request at 75: exit $RC, stderr $(cat "$WORKDIR/hr.err"), lock [$HR_SUP], ledger $(cat "$HR_LEDGER" 2>&1)"
+fi
+# Attempt 3 logs to attempts/3/. Its supervisor creates that log as it starts
+# the command, so the wait below is for that file, and the snapshots that
+# follow are of what an archive changes: the archived results and the attempt
+# folders, not the running attempt's log.
+n=0
+while [ ! -e "$HR_HD/attempts/3/0-chk.log" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+[ -e "$HR_HD/attempts/3/0-chk.log" ] && pass "holdrr: attempt 3 logs to attempts/3/" \
+    || fail "holdrr: attempts/3/ holds [$(ls "$HR_HD/attempts/3" 2>/dev/null | tr '\n' ' ')]"
+# Attempt 3 is still running: another request is dropped and archives nothing.
+if [ -n "$HR_SUP" ] && kill -0 "$HR_SUP" 2>/dev/null; then
+    ls "$HR_HD/attempts" > "$WORKDIR/holdrr.before" 2>&1
+    HR_ARCHIVED=$(archived_count "$HR_HD")
+    printf 'while running\n' > "$HR_REQ"
+    "$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+    RC=$?
+    ls "$HR_HD/attempts" > "$WORKDIR/holdrr.after" 2>&1
+    if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && grep -q -F 'no longer current' "$WORKDIR/hr.err" \
+        && cmp -s "$HR_LEDGER" "$WORKDIR/holdrr.ledger" && cmp -s "$WORKDIR/holdrr.before" "$WORKDIR/holdrr.after" \
+        && [ "$(archived_count "$HR_HD")" = "$HR_ARCHIVED" ] && [ ! -e "$HR_HD/attempts/3/result.json" ]; then
+        pass "holdrr: a request at 75 beside a running suite is removed and archives nothing"
+    else
+        fail "holdrr: a request beside the running attempt 3: exit $RC, stderr $(cat "$WORKDIR/hr.err"), ledger $(cat "$HR_LEDGER" 2>&1), attempts $(tr '\n' ' ' < "$WORKDIR/holdrr.before") then $(tr '\n' ' ' < "$WORKDIR/holdrr.after")"
+    fi
+else
+    fail "holdrr: attempt 3's supervisor [$HR_SUP] was not running after the request at 75"
+fi
+
+# Two earlier attempts: the cap is spent, and the hold says so and offers only
+# the other three values.
+settle s-holdrr
+expect_rc "holdrr: attempt 3 times out: the hold again" 5
+HR_L1=$(grep -n -m 1 -F 'attempt 1: chk timed out; reason [the host was loaded]' "$WORKDIR/verdict.err" | cut -d: -f1)
+HR_L2=$(grep -n -m 1 -F 'attempt 2: chk timed out; reason [the host was loaded again]' "$WORKDIR/verdict.err" | cut -d: -f1)
+if grep -q -F 'this is attempt 3 at head' "$WORKDIR/verdict.err" \
+    && [ -n "$HR_L1" ] && [ -n "$HR_L2" ] && [ "$HR_L1" -lt "$HR_L2" ] \
+    && grep -q -F 're-run cap is spent' "$WORKDIR/verdict.err" \
+    && grep -q -F 'verification_status: hosted_of_record' "$WORKDIR/verdict.err" \
+    && ! grep -q -F 'verification_status: rerun' "$WORKDIR/verdict.err"; then
+    pass "holdrr: over the cap the exit-5 message lists attempts 1 and 2 oldest first, says the cap is spent and offers no rerun"
+else
+    fail "holdrr: the exit-5 message after two earlier attempts: $(cat "$WORKDIR/verdict.err")"
+fi
+
+# A rerun over the cap: the key goes, the ledger and the attempt folders stay
+# as they were, nothing starts, and the gate holds at 5 again.
+cp "$HR_LEDGER" "$WORKDIR/holdrr.ledger"
+cp "$HR_HD/result.json" "$WORKDIR/holdrr.result"
+ls -R "$HR_HD/attempts" > "$WORKDIR/holdrr.before" 2>&1
+printf 'a third time\n' > "$HR_REQ"
+"$START" --start --session s-holdrr >"$WORKDIR/hr.out" 2>"$WORKDIR/hr.err"
+RC=$?
+ls -R "$HR_HD/attempts" > "$WORKDIR/holdrr.after" 2>&1
+if [ "$RC" -eq 0 ] && [ ! -e "$HR_REQ" ] && grep -q -F 'cap is spent' "$WORKDIR/hr.err" \
+    && cmp -s "$HR_LEDGER" "$WORKDIR/holdrr.ledger" && cmp -s "$HR_HD/result.json" "$WORKDIR/holdrr.result" \
+    && cmp -s "$WORKDIR/holdrr.before" "$WORKDIR/holdrr.after" && [ ! -e "$HR_HD/attempts/4" ] \
+    && [ ! -e "$HR_HD/lock" ]; then
+    pass "holdrr: a rerun over the cap removes the key, says the cap is spent, and leaves the ledger and attempt folders unchanged"
+else
+    fail "holdrr: a rerun over the cap: exit $RC, stderr $(cat "$WORKDIR/hr.err"), head dir $(ls -R "$HR_HD" 2>&1 | tr '\n' ' ')"
+fi
+verdict s-holdrr
+expect_rc "holdrr: after a rerun over the cap the gate holds at 5 again" 5
 
 echo "--- a re-run request while a suite is running"
 mkrepo rrlive "$(map '{"slow": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["slow"]')"

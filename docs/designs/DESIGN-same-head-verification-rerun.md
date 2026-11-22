@@ -7,16 +7,21 @@ problem: |
   nothing. That is right for a pass and for a suite still running, but wrong for a
   result that settles nothing about the change: a command that failed on a flake
   (exit 1) sends the run back to `implementation` with the same failure on every
-  lap, and a suite that ran past its limits with no failed command (exit 4) ends at
-  `done_blocked` and re-reads the same result after a rewind. A user has no
+  lap, and a check that timed out with no failed one holds at the timed-out hold
+  (exit 5, with the hosted-of-record route open), where re-entering re-reads the
+  same timed-out result. A user has no
   supported way to get a fresh suite at the same commit short of a throwaway
   commit, a merge of the default branch, a restart or a hand edit of the
   verification state.
 decision: |
   A re-run at the same head becomes a value the agent submits with a reason:
-  `verification_rerun` at `implementation` after a failed command, and `rerun` at
-  a new exit-5 hold in `verification` after an eligible timeout, beside `fix` and
-  `blocked`. Either value writes `verification_rerun_request`. On the next entry
+  `verification_rerun` at `implementation` after a failed command (a failed
+  command beside a timed-out one included), and `rerun` at the existing exit-5
+  hold in `verification` (a timed-out check, none failed, the hosted-of-record
+  route open), beside `hosted_of_record`, `fix` and `blocked`. The feature adds
+  only that value and the `5 + rerun` and `75 + rerun` edges to the hold; a
+  timeout with the route closed stays exit 4. Either value writes
+  `verification_rerun_request`. On the next entry
   into `verification` the launcher runs `--archive --reason`, which appends the
   outgoing attempt to an append-only `verification_attempts` ledger, moves
   `result.json` and `run.json` into that attempt's folder, and starts a fresh suite
@@ -30,10 +35,10 @@ rationale: |
   An automatic re-run would run every genuine failure twice before anyone saw it
   and record a retry nobody decided, so the re-run is a choice the agent names
   with a reason. Exit 1 keeps its cheap lap through `implementation` rather than a
-  hold in front of every failure, while a timeout gets a hold because its failure
-  terminal reports to the parent in a way a later rewind can't take back. A
-  launcher verb with no new edges would leave timeouts at that terminal and
-  inherit a spent poll window, and a shortcut edge from `implementation` straight
+  hold in front of every failure, while a timeout already stands at a hold, so the
+  re-run joins the values that hold accepts. A launcher verb with no new edges
+  would offer nothing at that hold and inherit a spent poll window, and a shortcut
+  edge from `implementation` straight
   to `verification` would add a gate on a hot state to save a few ticks. For the
   record, a disk-only archive leaves the earlier attempt on one host with nothing
   making a reviewer see it, and per-attempt keys or koto's own trail leave a
@@ -66,9 +71,11 @@ needs fixing, so the head doesn't change, and the next entry into
 verification finds the same failing result, runs nothing, and routes back
 again. In the second case a suite runs past its limits with no command failing
 (#1855): one command is stopped at its timeout, the total budget runs out, and
-the commands after it never start. The gate reads exit 4 and ends the run at
-`done_blocked`; walking it back with `koto rewind` at the same head re-reads
-the same timed-out result.
+the commands after it never start. With the hosted-of-record route closed the
+gate reads exit 4 and ends the run at `done_blocked`. With the route open it
+holds at the timed-out hold (exit 5), whose values are the hosted route, `fix`
+and `blocked`; re-entering at the same head, or walking a closed run back with
+`koto rewind`, re-reads the same timed-out result.
 
 In both cases a user of `/work-on` has no supported way to get a fresh suite at
 the same commit. What's left costs more than a re-run: a commit that changes
@@ -102,11 +109,12 @@ through `check-verification.sh`. koto takes the gate-only edges for exits 0, 1, 
 and 4 in the same tick it reads them, so on those exits the agent never stands in
 `verification` and nothing can be offered there. A flaky failure routes exit 1 to
 `implementation`; nothing needs fixing, the head doesn't move, and the next entry
-reads the same failed result. A suite that runs past its limits with no failed
-command routes exit 4 to `done_blocked`, a failure terminal, which reports the run
-as failed to its parent in the same tick; a `koto rewind` re-reads the same result.
-Only `supervisor-error` has a held route today: exit 2 holds, and its message says
-to move the file aside and tick.
+reads the same failed result. A failed check beside a timed-out one is exit 1 too:
+a failed check outranks a timeout. A check that timed out with none failed holds at
+exit 5 when the hosted-of-record route is open, where the run can take the route, go
+back to `fix` or stop, but nothing starts a fresh suite; with the route closed it
+routes exit 4 to `done_blocked`, a failure terminal. Exit 2 holds too, for a
+`supervisor-error` result, and its message says to move the file aside and tick.
 
 Two koto facts shaped the answer. A gate's poll window opens at its first
 evaluation after the latest entry into the state, and only a transition
@@ -158,21 +166,25 @@ work on the next entry into `verification`.
    Re-entering `verification` opens a fresh poll window. Nothing skips review, and
    if a commit moved the head the launcher drops the key and the new head is
    verified as usual.
-3. **Eligible timeouts hold at `verification`.** `check-verification.sh` exits a
-   new code, 5, for a settled result whose block-stage causes are only timed-out
-   commands, or timed-out and failed commands together, while the cap isn't spent.
-   Exit 5 has no gate-only edge, so the state holds, as it does for exit 2.
-   `verification_status` gains `rerun` and `fix`, with edges `5 + rerun ->
-   verification` (a self-loop), `5 + fix -> implementation`, `5 + blocked ->
-   done_blocked`, and `75 + rerun -> verification`. Exit 75 is the gate's existing
-   "no result for this head yet; the gate waits", so a `rerun` submitted after its
-   result was already archived still matches an edge.
-4. **Eligibility.** One function, used by the gate's choice of exit 5 and by
-   `--archive`'s refusals, decides. Eligible: a failed command, a per-command
-   timeout, a whole-budget timeout and mixed fail+timeout, with fewer than two
-   attempts archived for the head. Never eligible: any `runaway` or `not_started`
-   command, `attended`, `dirty-tree` (stays exit 4), `no-map`, `bad-map` and
-   `supervisor-error`. Over the cap, an eligible result routes as today.
+3. **The timed-out hold gains `rerun`.** Exit 5 already exists: a timed-out check,
+   none failed, and the hosted-of-record route open. It has no gate-only edge, so
+   the state holds until `hosted_of_record`, `fix` or `blocked` is submitted.
+   This feature adds only `rerun` to those values, with two edges:
+   `5 + rerun -> verification` (a self-loop, which needs a non-blank reason in
+   `detail` through `route_reason_given` and never the route gate) and
+   `75 + rerun -> verification`. Exit 75 is the gate's existing "no result for this
+   head yet; the gate waits", so a `rerun` submitted after its result was already
+   archived still matches an edge. Exit codes don't move: a failed check beside a
+   timed-out one exits 1 and is re-run from `implementation`, and a timeout with the
+   route closed stays exit 4, with no re-run.
+4. **Eligibility.** One function, used by the gate's messages and by `--archive`'s
+   refusals, decides. Eligible: a failed command, a per-command timeout, a
+   whole-budget timeout that left no command unstarted and mixed fail+timeout, with
+   fewer than two attempts archived for the head. Never eligible: any `runaway` or
+   `not_started` command, a budget stop that left commands unstarted, `attended`,
+   `dirty-tree` (stays exit 4), `no-map`, `bad-map` and `supervisor-error`. Over the
+   cap, the gate's exits don't change: exit 1 still routes to `implementation`, and
+   the hold at 5 offers only its other three values.
 
 This meets the first driver by naming the route in the two places koto lets an
 agent stand: `implementation` for a failure and a hold for a timeout, which keeps a
@@ -193,10 +205,9 @@ give the re-run its own poll window, which the archive-then-tick shape doesn't g
   1 because it hands koto's exit-1 routing to the agent and puts a fork in front of
   every failure, when the lap through `implementation` costs little at an
   unchanged head. Its timeout half is adopted.
-- **Launcher verb only, no new edges or code**: rejected because an eligible
-  timeout still lands at the failure terminal and reports a failure to the parent
-  that a later rewind can't take back, and its evidence-free variant inherits the
-  spent poll window.
+- **Launcher verb only, no new edges or code**: rejected because the timed-out
+  hold would still offer no value that starts a fresh suite, and its evidence-free
+  variant inherits the spent poll window.
 - **Split by verdict with an implementation shortcut** (an edge from
   `implementation` straight to `verification`): rejected because at an unchanged
   head the panels carry anyway, so the shortcut saves a few ticks at the cost of a
@@ -324,7 +335,7 @@ put out of scope. This was assumed under `--auto`.
 
 ### Decision 5: Where the shared eligibility check lives
 
-Decision 1 requires one eligibility function for the gate's choice of exit 5 and for
+Decision 1 requires one eligibility function for the gate's re-run offers and for
 `--archive`'s refusals. The gate is `check-verification.sh` and `--archive` lives in
 `run-verification.sh`.
 
@@ -394,8 +405,10 @@ deferrals already have for the node push path.
 
 The six decisions fit together as one route and one record. Decision 1 names the
 route: a failed command still goes to `implementation`, where the agent can answer
-`verification_rerun` with a reason, and an eligible timeout holds at the new exit
-5, where the agent picks `rerun`, `fix` or `blocked`. Either rerun value writes
+`verification_rerun` with a reason (a failed command beside a timed-out one
+included), and a timeout with no failure holds at the existing exit 5, which now
+accepts `rerun` beside `hosted_of_record`, `fix` and `blocked`. Either
+rerun value writes
 `verification_rerun_request`, and on the next entry into `verification` the
 launcher runs `--archive --reason`. Decision 2 keeps the record: `--archive`
 appends the outgoing attempt to the `verification_attempts` ledger before it moves
@@ -427,13 +440,13 @@ change to decision 2's record.
 
 A re-run at the same head becomes a value the agent submits, with a reason, at one
 of the two places koto lets it stand after a non-settling result: `implementation`
-after a failed command, and a new hold at `verification` after an eligible timeout.
+after a failed command, and the existing timed-out hold at `verification` (exit 5).
 The value writes a request key. On the next entry into `verification` the launcher
 reads the key, archives the live result into an attempt folder and the attempts
 ledger, and starts a fresh suite in a fresh poll window. A pass, a running suite
 and a dirty-tree result are never archived, so their reuse at an unchanged head is
 unchanged. Two re-runs per head and merge-base are allowed; after that the run
-routes as it does today.
+routes as it does today, and the hold at 5 offers only its other three values.
 
 ### Components
 
@@ -445,10 +458,12 @@ All paths are under `skills/work-on/`.
   a file first. A key that `koto context exists` reports missing is an empty
   ledger; any other failed read is not, and the caller refuses rather than count
   it as empty. Eligible: status `done` or
-  `timed-out` whose block-stage causes are only failed or timed-out commands, with
-  fewer than two ledger lines at this head and merge-base. Ineligible: any
-  `runaway` or `not_started` command, `attended`, `dirty-tree`, `no-map`, `bad-map`
-  and `supervisor-error`. The ledger's line count at the head and merge-base is the
+  `timed-out` whose commands that didn't pass are only failed or timed-out ones (a
+  failed command beside a timed-out one included), with no command left unstarted
+  by a budget stop and fewer than two ledger lines at this head and merge-base.
+  Ineligible: any `runaway` or `not_started` command, a budget stop that left
+  commands unstarted, `attended`, `dirty-tree`, `no-map`, `bad-map` and
+  `supervisor-error`. The ledger's line count at the head and merge-base is the
   one counter: it sets the cap and the "attempt k" every message shows.
 - **`scripts/run-verification.sh`.**
   - The supervisor writes each command's log into `<head>/attempts/<n>/`, where n is
@@ -482,20 +497,23 @@ All paths are under `skills/work-on/`.
   context get`, through the same koto access and `--session` it already uses to
   write `verification_results.json`. A missing key counts as no attempts; a failed
   read holds the gate at exit 2, as a failed write does today, so a read failure
-  never grants a re-run. Gains exit 5 for an eligible settled result that is a
-  timeout or a timeout with failures; a result that only failed keeps exit 1. The
-  gate picks between the two itself, from the result's causes: once the shared
-  check says `eligible`, any timed-out command makes it exit 5. On
-  exits 1 and 5 its message gives the attempt number, each earlier attempt's failed
-  or timed-out commands and reason, and the current attempt's log folder; at exit 5
-  it names `rerun`, `fix` and `blocked`, and for a whole-budget timeout says a
-  re-run can take up to two more hours. Over the cap, its exit-1 message says the
-  ways out are a real fix or `implementation_status: blocked`. Every other exit is
-  unchanged.
-- **`koto-templates/work-on.md`.** `verification_status` becomes
-  `[blocked, rerun, fix]` and four edges are added on `verification`:
-  `5 + rerun -> verification`, `5 + fix -> implementation`,
-  `5 + blocked -> done_blocked` and `75 + rerun -> verification`.
+  never grants a re-run. Its exits don't change: a failed check beside a timed-out
+  one stays exit 1, a timeout with no failure and the route open stays exit 5, and
+  one with the route closed stays exit 4. It reads the ledger only for a result that
+  can reach 1 or 5, deciding whether the route is open before anything is recorded,
+  so exits 3 and 4 never read it. On exits 1 and 5 its message gives the attempt
+  number, each earlier attempt's failed or timed-out commands and reason, and the
+  current attempt's log folder; at exit 5 it offers `rerun` beside
+  `hosted_of_record`, `fix` and `blocked` while the result is eligible, and for a
+  whole-budget timeout says a re-run can take up to two more hours. Over the cap,
+  its exit-1 message says the ways out are a real fix or
+  `implementation_status: blocked`, and its exit-5 message says the cap is spent and
+  offers only the other three values. Every other exit is unchanged.
+- **`koto-templates/work-on.md`.** `verification_status` already holds `blocked`,
+  `fix` and `hosted_of_record` for the hold; it gains `rerun`, and two edges are
+  added on `verification`: `5 + rerun -> verification` and
+  `75 + rerun -> verification`, both needing a non-blank reason through
+  `route_reason_given` and neither the route gate.
   `implementation_status` gains `verification_rerun`, whose edge goes to
   `changed_paths_record` like `complete`. Every rerun edge writes
   `verification_rerun_request` through `context_assignments`. Directives are static
@@ -509,16 +527,17 @@ All paths are under `skills/work-on/`.
   absolute path, carries a command id or reason outside a code span, or carries
   an id holding a character the ledger's cleaning strips.
 - **Docs.** `SKILL.md`'s Definition of Done, `references/verification-map.md` and
-  the verdict table in `docs/designs/current/DESIGN-output-gates.md` learn exit 5
-  and the rerun values.
+  the verdict table in `docs/designs/current/DESIGN-output-gates.md` learn the
+  rerun values, `rerun` at exit 5 included.
 
 ### Key Interfaces
 
-- **Exit 5 of `check-verification.sh`.** A settled, eligible result that is a
-  timeout, or a timeout with failures, under the cap. It has no gate-only edge, so
-  the state holds and the agent must answer.
-- **Evidence values.** `verification_status: rerun | fix | blocked`, with the reason
-  in `detail`; `implementation_status: verification_rerun`, with the reason in
+- **Exit 5 of `check-verification.sh`.** The existing timed-out hold: a check timed
+  out, none failed, and the hosted-of-record route is open. It has no gate-only edge,
+  so the state holds until a value is submitted. This feature only adds `rerun` to
+  the values it accepts.
+- **Evidence values.** `verification_status: rerun`, beside the hold's
+  `hosted_of_record`, `fix` and `blocked`, with the reason in `detail`; `implementation_status: verification_rerun`, with the reason in
   `rationale`.
 - **`verification_rerun_request`.** A context key holding the reason text. Rerun
   edges write it, and only `--start` reads and removes it. A key left behind when
@@ -576,15 +595,21 @@ A flaky failure:
 
 A timeout with no failure:
 
-1. The suite runs past its budget. The gate exits 5, and the state holds.
+1. A check runs past its limit, none fails, and the hosted-of-record route is open.
+   The gate exits 5, and the state holds.
 2. The agent submits `verification_status: rerun` with a reason. The self-loop writes
    the request key and re-enters `verification`, which opens a fresh poll window.
 3. Steps 4 and 5 above follow. If the cause is the change, `fix` goes to
-   `implementation`; if the run can't go on, `blocked` goes to `done_blocked`.
+   `implementation`; if the run can't go on, `blocked` goes to `done_blocked`; the
+   hosted route stays open as before.
+
+A failed check beside a timed-out one exits 1 and takes the flaky-failure path. A
+timeout with the route closed exits 4 and isn't re-run.
 
 Over the cap, the gate's routing and the launcher's refusal leave a new head or
 `blocked` as the only ways out: `implementation_status: blocked` after a failure,
-and after a timeout exit 4 as today. Steps 2 and 4 rely on decision 1's assumption
+and after a timeout the hold's other three values (`hosted_of_record`, `fix` and
+`blocked`). Steps 2 and 4 rely on decision 1's assumption
 that a rerun edge's `context_assignments` are readable by the target state's default
 action in the same tick. If that turns out to be wrong, the agent runs `--archive`
 itself before submitting the value, and the `75 + rerun` edge already covers that
@@ -639,16 +664,21 @@ Deliverables:
 - `skills/work-on/SKILL.md`, `skills/work-on/references/verification-map.md`,
   `docs/designs/current/DESIGN-output-gates.md`
 
-### Phase 4: Exit 5, the ledger read and the new edges
+### Phase 4: `rerun` at the timed-out hold
 
-The gate's ledger read, its exit 5 and messages, and the template's values, edges
-and directives land in one commit. Exit 5 without its edges would hold with no
-value that matches an edge, the edges without exit 5 would never fire, and one
-commit owns the directive text for both the values and the announcement.
+The gate's ledger read and messages at exit 5, the eligibility of timeouts and of a
+failed check beside a timed-out one, and the template's `rerun` value, its two edges
+and the directives land in one commit. An offer of `rerun` without its edges would
+hold with no edge to take, the edges without the offer would never be chosen, and
+one commit owns the directive text for both the value and the announcement.
 
 Deliverables:
-- `skills/work-on/scripts/check-verification.sh` (ledger read, exit 5, messages)
-- `skills/work-on/koto-templates/work-on.md` (enums, five edges, directives)
+- `skills/work-on/scripts/verification-eligibility.sh` (timeouts, whole-budget
+  stops and the mixed result eligible) and `run-verification.sh` (the ledger line's
+  `exit`, 1 or 5)
+- `skills/work-on/scripts/check-verification.sh` (ledger read at exit 5, messages)
+- `skills/work-on/koto-templates/work-on.md` (the `rerun` value, two edges,
+  directives)
 - `skills/work-on/koto-templates/work-on.mermaid.md` (regenerated)
 - `skills/work-on/scripts/output-gates-routing_test.sh`, covering the exit-5 hold,
   each new edge and one self-loop lap against real koto, and exercising the
@@ -744,8 +774,8 @@ accepted.
 - A flaky failure or a load-caused timeout gets one more suite at the same commit
   with one submitted value and a reason: no throwaway commit, no merge of the
   default branch, no restart and no hand edit.
-- A timeout no longer ends the run at a failure terminal or reports a failure to a
-  parent; it holds and asks.
+- A timeout at the hold can get a fresh suite, not only the hosted route, a fix or a
+  stop.
 - The flake is readable on the record. The ledger and the PR body put attempt 1's
   failure, the reason for the re-run and attempt 2's result side by side, and the
   ledger lives in koto, so it outlives the host and the head's prune.
@@ -757,11 +787,11 @@ accepted.
 
 ### Negative
 
-- For eligible timeouts the choice between `rerun`, `fix` and `blocked` sits with the
-  agent, and a careless `rerun` costs a suite, up to two hours for a whole-budget
-  timeout.
-- The template and the gate gain surface that has to stay in agreement: a new exit,
-  three new values and five new edges.
+- For eligible timeouts the choice between `rerun`, `hosted_of_record`, `fix` and
+  `blocked` sits with the agent, and a careless `rerun` costs a suite, up to two
+  hours for a whole-budget timeout.
+- The template and the gate gain surface that has to stay in agreement: a value at
+  the timed-out hold, a value at `implementation` and three new edges.
 - The launcher now reads and writes koto keys, ending its old contract that it never
   calls koto, and it depends on the session name.
 - One more context key whose integrity a script has to guard, and one more checked

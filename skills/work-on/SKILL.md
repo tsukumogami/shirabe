@@ -102,9 +102,10 @@ Outcomes:
   entry into `verification` archives the failed attempt and runs a fresh suite at the
   same head. Each attempt's logs sit in their own folder, `<head>/attempts/<n>/`, and
   each archived attempt adds one line to the `verification_attempts` context key.
-  Two re-runs are allowed per head and merge-base; a third request is refused, and
-  verification's message names the ways out: a real fix (a new head) or
-  `implementation_status: blocked`.
+  A failed check beside a timed-out one is a failure too, and is eligible the same
+  way. Two re-runs are allowed per head and merge-base, counted together with the
+  timed-out hold's `rerun`; a third request is refused, and verification's message
+  names the ways out: a real fix (a new head) or `implementation_status: blocked`.
   The PR body's Verification section then carries one re-run line per archived
   attempt, ``Re-run attempt <n> at `<head>`: `<id>` failed; reason `<reason>`; attempt <n+1> passed.``,
   and `pr_creation`'s `verification_rerun_recorded` gate
@@ -119,8 +120,12 @@ that does not parse, or selects nothing) and 4 a command that needs a person, ti
 out with the hosted-of-record route closed, grew past its process bound, could not
 start, or a dirty tree — both of the last two cannot-verify, ending at `done_blocked`.
 Exit 5 is the timed-out hold: a check timed out, none failed, and the route is open, so
-the run may settle the timed-out checks on the hosted jobs their map rows declare
-(`hosted_of_record`, with a public reason), return to fix them, or stop. The route
+the run may run the suite again at the same head (`rerun`, with a reason), settle the
+timed-out checks on the hosted jobs their map rows declare (`hosted_of_record`, with a
+public reason), return to fix them, or stop. A `rerun` archives the timed-out attempt
+into `verification_attempts` and starts a fresh suite, under the same cap of two
+archived attempts per head and merge-base as the failed route's re-run; over the cap
+the hold comes back and offers only the other three. The route
 records itself in `verification_hosted`, opens the pull request as a draft, and is
 settled by `hosted_record`'s read before the pull request is marked ready
 (`references/verification-map.md`). Each violation names its rule

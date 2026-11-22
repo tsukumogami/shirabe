@@ -26,43 +26,65 @@
 #                 `merge_base`
 #   verification_eligibility <result-file> <ledger-file>
 #                 prints exactly one line, below
+#   verification_gate_exit <result-file>
+#                 prints the gate exit an eligible result came through: 1 when
+#                 any command failed, 5 when every command that did not pass
+#                 timed out (the timed-out hold). Returns 1, printing nothing,
+#                 when jq can't read the file
+#
+# A command record is one of three kinds, read the way check-verification.sh
+# ranks it. A record with `outcome` timed out when the outcome is
+# timed-out-limit or timed-out-inside; one without timed out when timed_out
+# is true. A failure is any other record that did not pass, did not grow past
+# max_procs, did start, and has a numeric exit_status (a stop at the limit
+# whose suite summary lists a finished-failed suite is `outcome: failed`, so a
+# failure). A pass exits 0 with every flag false.
 #
 # verification_eligibility's line:
 #
-#   eligible             the result's status is `done`, at least one command
-#                        failed, every command that did not pass is a plain
-#                        failure (a non-null, non-zero exit_status, with
-#                        timed_out, runaway and not_started all false), and
-#                        fewer than VE_CAP ledger lines are at the result's
-#                        head and merge-base
+#   eligible             the result's status is `done` or `timed-out` (a stop at
+#                        the run's total budget), at least one command did not
+#                        pass (or the status is `timed-out`), every command
+#                        that did not pass is a failure or a timeout, no
+#                        command grew past max_procs or failed to start, a
+#                        budget stop left no command unstarted, and fewer than
+#                        VE_CAP ledger lines are at the result's head and
+#                        merge-base. A failed command beside a timed-out one is
+#                        eligible too
 #   over-cap             the same result, with VE_CAP or more ledger lines at
 #                        its head and merge-base
 #   ineligible <cause>   anything else. <cause> is:
 #                          no-result    there is no result file (a suite still
 #                                       running, or none started)
 #                          passed       every command passed
-#                          <status>     the status of a result that is not
-#                                       `done`: timed-out, attended,
+#                          <status>     the status of a result that is neither
+#                                       `done` nor `timed-out`: attended,
 #                                       dirty-tree, no-map, bad-map,
 #                                       supervisor-error
 #                          runaway      a command grew past its max_procs
-#                          not-started  a command could not start
-#                          timed-out    a command ran past its deadline
+#                          not-started  a command could not start, or a budget
+#                                       stop left commands unstarted: fewer
+#                                       records than the invocations in the
+#                                       run.json beside the result
 #                          unreadable   the result is not one result object jq
-#                                       can read, or the ledger is missing or
-#                                       doesn't parse
+#                                       can read, the run.json beside a budget
+#                                       stop doesn't parse, or the ledger is
+#                                       missing or doesn't parse
 #
 # The result's own causes are decided first, and the ledger is read only for a
 # result that would otherwise be eligible: over-cap applies to nothing else,
 # and a passing result stays `ineligible passed` whatever the ledger holds. A
 # missing ledger file (or no second argument) is `ineligible unreadable`, never
-# an empty ledger: a caller that found no ledger key passes an empty file.
+# an empty ledger: a caller that found no ledger key passes an empty file. A
+# missing run.json is no unstarted command, as verification-route.sh's open
+# check reads it.
 #
-# A runaway, a command that never started and a timeout say something other
-# than "this command failed once", so none of them is eligible here. Every input
-# is read only through jq, and fetching the ledger from koto is the caller's
-# job; a parse error reads as `unreadable`. verification_eligibility always
-# returns 0: the answer is the line, not the status.
+# A runaway and a command that never started say something other than "this
+# command failed once" or "this command ran out of time", so neither is
+# eligible here. Every input is read only through jq, and fetching the ledger
+# from koto is the caller's job; a parse error reads as `unreadable`.
+# verification_eligibility always returns 0: the answer is the line, not the
+# status.
 #
 # Written for the bash 3.2 floor, without `set -e`. jq decodes its input to
 # Unicode code points whatever the locale, so the cleaning matches U+202E or
@@ -94,6 +116,19 @@ def clean: tostring
   | sub("^\\s+"; "") | sub("\\s+$"; "") | .[0:500] | sub("\\s+$"; "");
 '
 
+# The record kinds (see the header), shared by verification_eligibility and
+# verification_gate_exit.
+VE_RECORD_JQ='
+def flag($k): .[$k] == true;
+def passed: (.exit_status == 0) and (flag("timed_out") | not)
+            and (flag("runaway") | not) and (flag("not_started") | not);
+def timed_out_rec: if has("outcome")
+                   then (.outcome == "timed-out-limit" or .outcome == "timed-out-inside")
+                   else flag("timed_out") end;
+def failed_rec: (passed | not) and (flag("runaway") | not) and (flag("not_started") | not)
+                and (timed_out_rec | not) and ((.exit_status | type) == "number");
+'
+
 verification_clean() {
     jq -rn --arg r "${1-}" "$VE_CLEAN_JQ"' $r | clean'
 }
@@ -113,31 +148,35 @@ verification_attempts_at() {
 }
 
 verification_eligibility() {
-    local file=${1-} ledger=${2-} out rh rmb at
+    local file=${1-} ledger=${2-} out rh rmb at runf inv=""
     if [ ! -e "$file" ]; then
         echo "ineligible no-result"
         return 0
     fi
-    out=$(jq -rs '
-        def flag($k): .[$k] == true;
-        def passed: (.exit_status == 0) and (flag("timed_out") | not)
-                    and (flag("runaway") | not) and (flag("not_started") | not);
-        def plain_failure: (.exit_status | type) == "number" and .exit_status != 0
-                           and (flag("timed_out") | not) and (flag("runaway") | not)
-                           and (flag("not_started") | not);
+    # The invocations a budget stop was given, from the run.json beside the
+    # result: empty when there is none, `bad` when it doesn't parse.
+    runf="$(dirname "$file")/run.json"
+    if [ -e "$runf" ]; then
+        inv=$(jq -r 'if type == "object" and (.invocations | type) == "array"
+                     then (.invocations | length) else "bad" end' "$runf") || inv=bad
+        case "$inv" in ''|*[!0-9]*) inv=bad ;; esac
+    fi
+    out=$(jq -rs --arg inv "$inv" "$VE_RECORD_JQ"'
         if length != 1 or (.[0] | type) != "object" then "ineligible unreadable"
         else .[0]
         | if (.status | type) != "string" then "ineligible unreadable"
           elif (.status | test("^[a-z][a-z-]*$") | not) then "ineligible unreadable"
-          elif .status != "done" then "ineligible \(.status)"
+          elif .status != "done" and .status != "timed-out" then "ineligible \(.status)"
           elif (.commands | type) != "array" then "ineligible unreadable"
           elif (.commands | all(type == "object") | not) then "ineligible unreadable"
           else [.commands[] | select(passed | not)] as $bad
-          | if ($bad | length) == 0 then "ineligible passed"
-            elif any($bad[]; flag("runaway")) then "ineligible runaway"
+          | if any($bad[]; flag("runaway")) then "ineligible runaway"
             elif any($bad[]; flag("not_started")) then "ineligible not-started"
-            elif any($bad[]; flag("timed_out")) then "ineligible timed-out"
-            elif all($bad[]; plain_failure) then "eligible"
+            elif .status == "timed-out" and $inv == "bad" then "ineligible unreadable"
+            elif .status == "timed-out" and $inv != "" and (.commands | length) < ($inv | tonumber)
+            then "ineligible not-started"
+            elif ($bad | length) == 0 and .status == "done" then "ineligible passed"
+            elif all($bad[]; failed_rec or timed_out_rec) then "eligible"
             else "ineligible unreadable" end
           end
         end
@@ -162,4 +201,14 @@ verification_eligibility() {
     fi
     printf '%s\n' "$out"
     return 0
+}
+
+verification_gate_exit() {
+    local out
+    out=$(jq -r "$VE_RECORD_JQ"'
+        if any((.commands // [])[]; type == "object" and failed_rec) then 1 else 5 end' "${1-}") || return 1
+    case "$out" in
+        1|5) printf '%s\n' "$out" ;;
+        *) return 1 ;;
+    esac
 }
