@@ -94,7 +94,11 @@
 # a `verdict-owed` row names it (a milestone whose work the coordinator
 # judged finished and whose verdict's roadmap edit isn't confirmed yet,
 # roadmap-status.sh), with or without its holding: such a unit is never
-# dispatched (docs/designs/DESIGN-milestone-verdicts.md, Decision 1). And
+# dispatched (docs/designs/DESIGN-milestone-verdicts.md, Decision 1). On a
+# roadmap/v4 roadmap the row also satisfies the milestone's dependents,
+# whatever its Status reads, and the milestone itself reads done with
+# takes_work false; on v1 to v3 it blocks them until the roadmap reads the
+# milestone Done. And
 # each carries `rework`, the Next step of a `rework` row that names it (the
 # not-held clauses and Changes needed line a confirmed changes-needed verdict
 # left, or the failed clause and what was seen a confirmed reopen left,
@@ -227,10 +231,22 @@ if [ "$SCOPE" = roadmap ]; then
     # `<tag>: <title>`, the tag compared by key.
     # takes_work and satisfies are the status table's (lib_roadmap_features);
     # the unit carries takes_work on roadmap/v4 only.
-    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" --argjson v4 "$([ "$(lib_status_family "$RM_SCHEMA")" = v4 ] && echo true || echo false)" "$JQ_TAG_KEY"'
+    # On roadmap/v4 a milestone a verdict-owed Work row names (its work
+    # finished, its verdict owed) satisfies its dependents whatever its Status
+    # reads, so they are offered in the pass its work finished rather than
+    # once its roadmap edit lands; it takes no work itself (takes_work false,
+    # done), and pick offers its verdict instead
+    # (docs/designs/DESIGN-completed-verified-states.md, Decision 3). The row
+    # matches by tag key, as the verdict_owed mark below does. On v1 to v3 the
+    # row changes neither.
+    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" --slurpfile st "$T/state.json" \
+        --argjson v4 "$([ "$(lib_status_family "$RM_SCHEMA")" = v4 ] && echo true || echo false)" "$JQ_TAG_KEY"'
         def covers($id; $title): (tag_key == ($id | tag_key))
             or (index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($id | tag_key) and .[$i + 2:] == $title);
-        . as $f | map(. as $u
+        (if $v4 then [($st[0].work // [])[] | select(.kind == "verdict-owed") | .item | tag_key] else [] end) as $owed
+        | map(. + (if $v4 and ((.id | tag_key) as $k | $owed | any(. == $k))
+                   then {satisfies: true, takes_work: false} else {} end))
+        | . as $f | map(. as $u
         | ($u.takes_work | not) as $done
         | (if $done then [] else [$u.dependencies[] as $d | select(([$f[] | select(.number == $d and .satisfies)] | length) == 0) | $d] end) as $by
         | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $done}

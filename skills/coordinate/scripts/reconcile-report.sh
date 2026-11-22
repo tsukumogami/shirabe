@@ -123,6 +123,13 @@
 #                   not_verified with the reason, and in neither list
 #   reasoning      present|absent|not_recorded, or null at roadmap scope
 #   unparseable[]  {raw, reason}: rows the reader couldn't parse
+#   owe            optional, at roadmap scope: {kind: "owe", status:
+#                  ok|not_verified, owed: [<tag>...], reason, read_at}, the
+#                  pass's third write (reconcile-owe.sh): each milestone a
+#                  roadmap/v4 roadmap reads Completed that the record owed no
+#                  verdict for, now owed one, is reported under changes, a
+#                  failed write under not_verified; absent, nothing is
+#                  reported
 #
 # Output: coordinate-reconcile-report/v1
 #
@@ -423,7 +430,9 @@ def changes_of($written):
                         else null end),
              repo: ($in.scope.repo // null),
              plugin_root: (if ($in.plugin_root == "inside" or $in.plugin_root == "outside") then $in.plugin_root else null end)},
-    changes: [$in.holdings[]? | select(.refused == null) | changes_of($w)[]],
+    changes: ([$in.holdings[]? | select(.refused == null) | changes_of($w)[]]
+      + [($in.owe // null) | select(ok(.)) | (.owed // [])[] | strings
+         | {topic: ., what: "verdict owed", recorded: "Completed, no verdict owed", live: "verdict owed", written: $w, grade: "measured"}]),
     holdings: [$in.holdings[]? | phase_of as $ph | {
         topic: topic, unit: (.row.unit // ""), phase: $ph,
         pull_request: ((.row.pull_request // "") as $p
@@ -504,7 +513,9 @@ def changes_of($written):
       + [$in.deferrals[]? | select((.status // "ok") != "ok")
           | {what: ("deferral " + (.row.deferral // "")), reason: (.reason // "disposal check failed"), raw: null}]
       + [$in.side_effects[]? | select((.fact.status // "ok") != "ok")
-          | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}])
+          | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}]
+      + [($in.owe // null) | select(. != null and (ok(.) | not))
+          | {what: "the verdicts owed for Completed milestones", reason: (.reason // "the write failed"), raw: null}])
   }
   # The chain facts the deferrals were judged against, carried for the later
   # readers of the seal; a facts document without them gets no key, so its
@@ -602,6 +613,7 @@ section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
        elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
+       elif .what == "verdict owed" then "verdict owed: the roadmap reads it Completed and the record owed no verdict for it, so the record now owes its verdict and pick offers it"
        elif .what == "leg relegged" then "re-legged: its session came here with the import, so the record now says \(.live | code) in place of \(.recorded | code)"
        elif .what == "leg unwatchable" then "reports by message: its leg \(.recorded | code) cannot be watched from this host, so the record now says message; re-brief the worker (dispatch-worker.sh --rebrief) so its brief gives this coordinator'"'"'s address and names this run as the dispatcher it records"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"

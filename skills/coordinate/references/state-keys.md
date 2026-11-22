@@ -943,6 +943,15 @@ reads the milestone `verdict_owed` while it stands and lists it as a verdict
 to give, and the dispatch check (`verdict-owed <tag>`, code 49),
 `dispatch-worker.sh` (exit 10) and close-out refuse it.
 
+On a `roadmap/v4` roadmap the row also satisfies the milestone's dependents,
+whatever its Status reads, so pick offers them in the pass the milestone's
+work finished; the milestone itself reads done with `takes_work` false, and
+the refusals above stay its own, never a dependent's. The reconcile pass,
+once per visit, runs `roadmap-status.sh --owe-completed`, which writes the
+same row for every milestone a `roadmap/v4` roadmap reads Completed that has
+none (a roadmap the record took up after its milestones were finished), and
+nothing on v1 to v3; the report lists each one under "Changed since then".
+
 ### The verdict entry
 
 Written with `state-entry.sh --kind milestone-verdict --on none`, at most 16

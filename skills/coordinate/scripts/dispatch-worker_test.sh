@@ -851,6 +851,21 @@ nothing_written "verdict owed, unit"
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "verdict owed: another unit's owed verdict doesn't hold this one" 0 "$?"
+# On roadmap/v4 pick-facts.sh frees Milestone 2, which depends on Milestone 1,
+# while Milestone 1's verdict is owed (it reads done, takes_work false); the
+# refusal stays Milestone 1's own.
+PICK_V4='{"scope":"roadmap","name":"plugin-system","host":"acme/widgets","units":[
+  {"unit":"Milestone 1","number":1,"title":"Loader","status":"In progress","done":true,"takes_work":false,"blocked":false,"blocked_by":[],"verdict_owed":true},
+  {"unit":"Milestone 2","number":2,"title":"Registry","status":"Not started","done":false,"takes_work":true,"blocked":false,"blocked_by":[],"blocker_landed":true,"verdict_owed":false}]}'
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 2: Registry"')"
+printf '%s' "$PICK_V4" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "verdict owed: on v4, a dispatch of Milestone 2 over Milestone 1's owed verdict goes through" 0 "$?"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Milestone 1"')"
+printf '%s' "$PICK_V4" >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "verdict owed: on v4, a dispatch of Milestone 1 itself exits 10" 10 "$RC"
+has "verdict owed: ... naming the owed verdict" "$ERR" "a verdict is owed on this milestone"
+nothing_written "verdict owed, v4 unit"
 fi
 
 if section "deliver" "the brief's reporting address"; then

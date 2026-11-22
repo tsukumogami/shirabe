@@ -15,6 +15,7 @@
 #   roadmap-status.sh --session S --confirm TAG
 #   roadmap-status.sh --session S --drop TAG --reason TEXT
 #   roadmap-status.sh --session S --list
+#   roadmap-status.sh --session S --owe-completed
 #   ... [--scope roadmap --name N --repo O/R [--roadmap PATH]
 #        --skip-session-checks]                                   (tests)
 #
@@ -217,6 +218,19 @@
 # this edit's, so main hasn't shown it yet (1); a hash the entry doesn't match
 # is refused (65). The rework row's Who is then `verdict N` or `failure N`,
 # the entry's number.
+# --owe-completed is the reconcile pass's write (reconcile-owe.sh): it reads
+# the roadmap at the default branch's head and, on a roadmap/v4 roadmap,
+# writes a verdict-owed Work row, Who and Next as --unit writes them, for
+# every milestone that reads Completed (the status table's satisfies without
+# closes) and has none, all in one record write, printing `verdict-owed
+# <tag>` for each. A coordinator taking up a v4 roadmap whose milestones were
+# Completed before this record knew of them (a new record, a migration) so
+# owes their verdicts, and pick offers each one
+# (docs/designs/DESIGN-completed-verified-states.md, Decision 3). A row
+# that is there already matches by tag key and gets no second one. On v1 to
+# v3, at discipline scope, or with nothing to add, it writes nothing, prints
+# nothing and exits 0.
+#
 # --list prints the pending rows as a JSON array of {unit, pull_request,
 # attempted, action}, state-schema.jq pending_list, the projection pick-facts.sh
 # also takes from its own parse to mark landed units.
@@ -287,6 +301,7 @@ while [ $# -gt 0 ]; do
         --confirm) [ $# -ge 2 ] || usage; setmode confirm; TAG=$2; shift 2 ;;
         --drop) [ $# -ge 2 ] || usage; setmode drop; TAG=$2; shift 2 ;;
         --list) setmode list; shift ;;
+        --owe-completed) setmode owe; shift ;;
         --outcome) [ $# -ge 2 ] || usage; OUTCOME=$2; OUTCOME_SET=1; shift 2 ;;
         --reason) [ $# -ge 2 ] || usage; REASON=$2; shift 2 ;;
         --entry) [ $# -ge 2 ] || usage; ENTRY_N=$2; shift 2 ;;
@@ -304,12 +319,15 @@ case "$MODE" in
     verdict) entry_given && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON" ] || usage ;;
     reopen) entry_given && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS" ] || usage ;;
     drop) [ -n "$REASON" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$FOLLOW_UPS$ENTRY_N" ] || usage ;;
-    confirm|list) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS$ENTRY_N" ] || usage ;;
+    confirm|list|owe) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$FOLLOW_UPS$ENTRY_N" ] || usage ;;
     *) usage ;;
 esac
 . "$HERE/state-common.sh"
 lib_facts
 [ -z "$ARG_ROADMAP" ] || { [ "$OVERRIDE" = 1 ] || usage; ROADMAP=$ARG_ROADMAP; }
+# --owe-completed runs at every reconcile, whatever the scope: a rotation has
+# no milestones, so it owes nothing.
+[ "$SCOPE" = roadmap ] || [ "$MODE" != owe ] || exit 0
 [ "$SCOPE" = roadmap ] || { echo "$PROG: a feature's status is a roadmap's; this run's scope is $SCOPE" >&2; exit 64; }
 lib_roadmap_path
 lib_run_found || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
@@ -326,7 +344,7 @@ if [ -n "$ENTRY_N" ]; then
 fi
 RE_HEADING_TAG='^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
 case "$MODE" in
-    list) ;;
+    list|owe) ;;
     verdict|reopen) [[ $TAG =~ $RE_HEADING_TAG ]] && [ "${#TAG}" -le 40 ] \
                  || { echo "$PROG: refused: $TAG is not a milestone's heading tag (Feature 7, Milestone 7, ED1, AB10b)" >&2; exit 65; } ;;
     *) [[ $TAG =~ $RE_HEADING_TAG ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, Milestone 7, ED1, AB10b)" >&2; exit 64; } ;;
@@ -1405,6 +1423,33 @@ if [ "$MODE" = reopen ]; then
     progress_commit "docs(roadmap): name the failure entry on $HEAD_TAG in Progress"
     printf '%s\n' "$PR_URL"
     [ -z "$HELD" ] || printf '%s\n' "$HELD"
+    exit 0
+fi
+
+# ---- --owe-completed ---------------------------------------------------------
+if [ "$MODE" = owe ]; then
+    head_read
+    lib_roadmap_features "$WD/roadmap.md" > "$WD/features.json" 2> "$WD/f.err" \
+        || lib_die2 "cannot read the features of $ROADMAP: $(lib_scrub < "$WD/f.err")"
+    [ "$(lib_status_family "$RM_SCHEMA")" = v4 ] || exit 0
+    # Completed is the one v4 status that satisfies its dependents without
+    # closing the roadmap (skills/roadmap/references/milestone-statuses.json).
+    TODAY=$(date -u +%Y-%m-%d)
+    jq -c --slurpfile f "$WD/features.json" --arg n "verdict owed since $TODAY" --arg u "$(date -u +%Y-%m-%dT%H:%MZ)" "$JQ_TAG_KEY"'
+        . as $r
+        | [(.work // [])[] | select(.kind == "verdict-owed") | .item | tag_key] as $owed
+        | [$f[0][] | select(.satisfies and (.closes | not)) | .id
+           | (tag_key) as $k | select($owed | any(. == $k) | not)
+           | . as $t
+           | {item: $t, kind: "verdict-owed",
+              who: ([$r.holdings[] | select((.unit | tag_key) == $k
+                     or (.unit | index(": ") as $i | $i != null and (.[0:$i] | tag_key) == $k)) | .worker][0] // "none"),
+              next: $n, wakes: "0", updated: $u}]' "$WD/parsed.json" > "$WD/owe.json" || lib_die2 "jq failed"
+    [ "$(jq length "$WD/owe.json")" -gt 0 ] || exit 0
+    jq --slurpfile o "$WD/owe.json" 'del(.written) | .work = ((.work // []) + $o[0])' "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
+    TAGS=$(jq -r 'map(.item) | join(", ")' "$WD/owe.json")
+    write_record "$WD/next.json" "$ROADMAP reads $TAGS Completed on $DEFAULT_BRANCH with no verdict owed in the record; a verdict-owed row now stands for each, so pick offers its verdict and gives it no worker until that verdict's roadmap edit is confirmed."
+    jq -r '.[] | "verdict-owed \(.item)"' "$WD/owe.json"
     exit 0
 fi
 
