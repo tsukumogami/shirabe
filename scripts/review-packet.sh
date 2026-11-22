@@ -40,7 +40,14 @@
 #           copy (`review_level_rules.tsv`, else the shipped
 #           review-level-rules.tsv) and, for a fix, the red's record
 #           (`red_first.json`): added tests by path, edited tests by path,
-#           then each edited test's hunks. "none" when the change touches no
+#           then each edited test's block: the run's note on the edit (its
+#           `test-change.sh note` lines, capped at 2 KiB, fenced with a fence
+#           longer than any backtick run inside and labelled as the run's
+#           claim) and its hunks. The hunks are counted against
+#           TEST_HUNKS_CAP (scripts/lib/test-classify.sh's test_hunks_cut,
+#           which panel-scope.sh --record asks too); a test whose hunks don't
+#           fit is listed as cut, and a seat's judgment of it counts only
+#           when the seat cites its path. "none" when the change touches no
 #           test file. Every seat judges each edited test in its verdict's
 #           `test_edits`, and panel-scope.sh --record refuses a round that
 #           doesn't
@@ -67,6 +74,11 @@
 #         - findings to re-verify: the decision's `findings`, every field
 #           kept (id, summary, location, raiser, status, why it is due),
 #           pretty-printed by jq
+#         - when the decision lists `due_items`, test changes (`## Test
+#           changes`): the edited tests due for the panel, each with the run's
+#           note and its hunks from the code packet's base, built as the code
+#           packet builds its edited-test blocks. The re-verifier judges each
+#           one in its verdict's `test_edits`, and no other
 #         - with a fix-diff review, every panel's blocking criteria: the
 #           scrutiny and review seats' questions and the QA tester's steps,
 #           read from the shipped phase files, since this one review stands
@@ -142,7 +154,10 @@ AC_CAP=16384
 DESIGN_CAP=24576
 PATHS_CAP=16384
 DIFF_CAP=98304
-TESTS_CAP=49152
+# The test section's hunks are capped inside it (TEST_HUNKS_CAP, by whole
+# file, so the packet names what it cut) and each note at NOTE_CAP; this outer
+# cap sits well past their sum, so it never cuts an item silently.
+TESTS_CAP=262144
 FINDINGS_CAP=16384
 DOC_CAP=65536
 FORMAT_CAP=49152
@@ -459,21 +474,82 @@ test_changes() {
     echo "in your verdict's test_edits:"
     echo
     if [ -s "$WORK/edited" ]; then sed 's/^/- /' "$WORK/edited"; else echo "- none"; fi
-    while IFS="$tab" read -r label path digest; do
-        [ "$label" = edited ] || continue
-        # A rename's hunks need its old path in the pathspec as well.
-        old=$(awk -F '\t' -v p="$path" '$1 ~ /^R/ && $3 == p { print $2; exit }' "$WORK/paths")
+    edited_blocks "$WORK/edited"
+}
+
+# The run's notes on its test edits: `note` lines of the session's
+# test_change_ledger.jsonl, loaded once into $WORK/notes as
+# `<path>\t<reason>` rows.
+NOTES_LOADED=""
+load_notes() {
+    [ -z "$NOTES_LOADED" ] || return 0
+    NOTES_LOADED=1
+    : > "$WORK/notes"
+    koto context exists "$SESSION" test_change_ledger.jsonl >/dev/null 2>&1 || return 0
+    koto context get "$SESSION" test_change_ledger.jsonl 2>/dev/null \
+        | jq -Rr 'fromjson? | select(type == "object" and .event == "note"
+                  and (.file | type) == "string" and (.reason | type) == "string")
+                  | "\(.file)\t\(.reason | gsub("[\t\n\r]"; " "))"' > "$WORK/notes" 2>/dev/null || : > "$WORK/notes"
+}
+
+# fenced <file>: the file's text between two fences of backticks, each longer
+# than any backtick run the text holds, so the text can neither close its own
+# block nor start a heading of the packet's. Control characters other than
+# newline are dropped first.
+fenced() {
+    local n fence
+    LC_ALL=C tr -d '\000-\011\013-\037\177' < "$1" > "$1.vis"
+    n=$(LC_ALL=C awk '{ s = $0; while (match(s, /`+/)) { if (RLENGTH > m) m = RLENGTH; s = substr(s, RSTART + RLENGTH) } }
+                      END { print m + 0 }' "$1.vis")
+    [ "$n" -ge 3 ] || n=2
+    fence=$(printf '%*s' "$((n + 1))" '' | tr ' ' '`')
+    echo "${fence}text"
+    cat "$1.vis"
+    [ -z "$(tail -c 1 "$1.vis")" ] || echo
+    echo "$fence"
+}
+
+# edited_blocks <paths-file>: for each path, its `### Edited:` block: the
+# run's note on the edit, fenced and labelled as the run's claim (capped at
+# NOTE_CAP bytes), then its hunks. The hunks are counted against
+# TEST_HUNKS_CAP with scripts/lib/test-classify.sh's test_hunks_cut, the same
+# question panel-scope.sh --record asks, and a path whose hunks are cut is
+# named as cut: a seat that judges it must read the file and cite its path in
+# its verdict's `cited`, or its judgment doesn't count.
+NOTE_CAP=2048
+edited_blocks() {
+    local list="$1" path
+    [ -s "$list" ] || return 0
+    load_notes
+    test_hunks_cut "$BASE" "$HEAD_SHA" "$list" > "$WORK/cut"
+    if [ -s "$WORK/cut" ]; then
+        echo
+        echo "Cut (these hunks are not shown, as the packet's size cap was reached: read each file"
+        echo "yourself and cite its path in your verdict's cited, or your judgment of it does not count):"
+        echo
+        sed 's/^/- /' "$WORK/cut"
+    fi
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
         echo
         echo "### Edited: $path"
-        echo
-        echo '```diff'
-        if [ -n "$old" ]; then
-            git diff -M "$BASE" "$HEAD_SHA" -- "$old" "$path"
-        else
-            git diff -M "$BASE" "$HEAD_SHA" -- "$path"
+        P="$path" awk -F '\t' '$1 == ENVIRON["P"] { sub(/^[^\t]*\t/, ""); print }' "$WORK/notes" > "$WORK/note"
+        if [ -s "$WORK/note" ]; then
+            head -c "$NOTE_CAP" "$WORK/note" > "$WORK/note.cut"
+            echo
+            echo "The run's note on this edit (the run's own claim about its change, not evidence; judge the hunks):"
+            echo
+            fenced "$WORK/note.cut"
         fi
+        echo
+        if grep -Fxq -- "$path" "$WORK/cut"; then
+            echo "[cut: the hunks of $path are not shown; read the file and cite it]"
+            continue
+        fi
+        echo '```diff'
+        test_hunks "$BASE" "$HEAD_SHA" "$path"
         echo '```'
-    done < "$WORK/testrows"
+    done < "$list"
 }
 
 section() {
@@ -588,6 +664,23 @@ if [ "$KIND" = "recheck" ]; then
         || die 66 "git diff -M $FROM HEAD failed"
     PATH_COUNT=$(wc -l < "$WORK/paths" | tr -d '[:space:]')
 
+    # The edited tests the decision lists as due: each one's whole edit, from
+    # the code packet's base, with the run's note, so the re-verifier judges
+    # the test as it stands now and not only the commit that changed it last.
+    : > "$WORK/rtests"
+    jq -r '(.due_items // [])[] | .item? // empty | strings' "$WORK/decision" > "$WORK/due" 2>/dev/null \
+        || die 66 "could not read the due items for seat [$SEAT]"
+    if [ -s "$WORK/due" ]; then
+        resolve_base || die 64 "no base resolves to show the due tests' edits from"
+        {
+            echo "Due (edited since this panel last judged them; base $BASE, $BASE_SOURCE). Judge each one as"
+            echo "corrects or weakens in your verdict's test_edits, and no other test:"
+            echo
+            sed 's/^/- /' "$WORK/due"
+            edited_blocks "$WORK/due"
+        } > "$WORK/rtests" || die 66 "could not build the due tests' section"
+    fi
+
     {
         echo "# Review packet: recheck"
         echo
@@ -599,6 +692,7 @@ if [ "$KIND" = "recheck" ]; then
         echo "head: $HEAD_SHA"
         echo "changed paths: $PATH_COUNT"
         section "Findings to re-verify, by id ($SCOPE_KEY)" "$FINDINGS_CAP" "$WORK/findings" "[none due]"
+        [ ! -s "$WORK/rtests" ] || section "Test changes" "$TESTS_CAP" "$WORK/rtests" "none"
         if [ "$FIX_REVIEW" = yes ]; then
             section "Every panel's blocking criteria (the fix-diff review)" "$AC_CAP" "$WORK/criteria" "[none found]"
             section "Changed paths (fix-diff review, from $REVIEW_FROM)" "$PATHS_CAP" "$WORK/rpaths" "[no changes between $REVIEW_FROM and HEAD]"

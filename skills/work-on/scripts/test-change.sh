@@ -108,7 +108,15 @@
 #             prints the exact accept command a person runs. Exit 3 when one
 #             sorted path set has been declined three times (`held:
 #             decline-limit <paths>`), which the template routes to
-#             done_blocked.
+#             done_blocked. Once a review panel has recorded a seat for the
+#             unit (verdict_ledger.json holds a seat entry), its edited tests
+#             are answered from the panels' record instead of from acceptance
+#             lines: panel-scope.sh --due-items names each one due for a panel
+#             (`held: <path> due for <panel>`: no judgment of the panel at its
+#             content now) or carrying an open weakens finding (`held: <path>
+#             weakens: ...`), and no acceptance line counts or holds an edited
+#             test. A verdict record that can't be read, or a --due-items that
+#             can't decide, exits 2. Observations keep the acceptance path.
 #   covered   read-only: exit 0 when every named item has a live acceptance at
 #             its current digest. red-first.sh check-green asks it for an
 #             observation pair.
@@ -1430,6 +1438,44 @@ cmd_overrule() {
 
 # ----------------------------------------------------------------- status ----
 
+# panels_judge <session>: once a review panel has recorded a seat for the
+# unit (the session's verdict_ledger.json has a seat entry), its edited tests
+# are counted from the panels' record, not from acceptance lines: each one
+# panel-scope.sh --due-items reports due or carrying an open weakens finding
+# is held (`<path> due for <panel>`, `<path> weakens: an open finding of
+# <panel>`), and every edited test leaves $TMP/items, so no acceptance line
+# counts or holds it. Observations stay in $TMP/items. Undecided when the
+# verdict record can't be read or --due-items can't decide. A unit no panel
+# has recorded keeps the acceptance path.
+panels_judge() {
+    local s="$1" rc tab path why panel
+    tab=$(printf '\t')
+    ctx_get "$s" verdict_ledger.json "$TMP/verdicts" || undecided "could not read verdict_ledger.json"
+    [ -s "$TMP/verdicts" ] || return 0
+    jq -e 'type == "object"' "$TMP/verdicts" >/dev/null 2>>"$ERRLOG" || undecided "verdict_ledger.json does not parse"
+    jq -e '((.seats // {}) | length) > 0' "$TMP/verdicts" >/dev/null 2>>"$ERRLOG" || return 0
+    rc=0
+    ( cd "$H_WORKTREE" && "$PLUGIN_ROOT_SELF/skills/work-on/scripts/panel-scope.sh" --due-items "$s" ) \
+        > "$TMP/due" 2>>"$ERRLOG" || rc=$?
+    case "$rc" in
+        0|1) ;;
+        *) undecided "panel-scope.sh --due-items could not read the panels' record (exit $rc)" ;;
+    esac
+    [ "$rc" = 0 ] || [ -s "$TMP/due" ] || undecided "panel-scope.sh --due-items held with nothing named"
+    while IFS="$tab" read -r path why panel; do
+        [ -n "$path" ] || continue
+        case "$why" in
+            due) printf '%s due for %s\n' "$(clean "$path")" "$panel" ;;
+            weakens) printf '%s weakens: an open finding of %s\n' "$(clean "$path")" "$panel" ;;
+            *) printf '%s %s for %s\n' "$(clean "$path")" "$(clean "$why")" "$panel" ;;
+        esac
+    done < "$TMP/due" >> "$TMP/held"
+    grep '^observation:' "$TMP/items" > "$TMP/items.obs" || :
+    mv "$TMP/items.obs" "$TMP/items"
+    PANELS_JUDGED=1
+}
+PANELS_JUDGED=""
+
 cmd_status() {
     [ $# -eq 1 ] || usage "status takes <session>"
     local s="$1"
@@ -1446,11 +1492,14 @@ cmd_status() {
         follow_move "$s" write
         compute_items "$s"
         uncommitted >> "$TMP/held"
+        panels_judge "$s"
         fold "$TMP/items"
         grep '^held' "$TMP/live" | cut -f 2- >> "$TMP/held"
     fi
     if [ ! -s "$TMP/held" ]; then
-        if [ -s "$TMP/items" ]; then
+        if [ -n "$PANELS_JUDGED" ]; then
+            echo "counted: the panels judged every edited test at its content now, and every observation has a live acceptance"
+        elif [ -s "$TMP/items" ]; then
             echo "counted: every edited test and observation has a live acceptance"
         else
             echo "counted: no edited test or observation needs an acceptance"

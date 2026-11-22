@@ -156,6 +156,16 @@
 #                                and --verdict blocks <panel> on the finding,
 #                                so the run goes back to implementation. It
 #                                never closes anything.
+#   --due-items <session>        test-change.sh status, at the counting gates:
+#                                for every panel with a recorded seat, each
+#                                edited test that is due for it (see the round
+#                                file below) and each with an open blocking
+#                                review/test-edit-weakens finding of it, one
+#                                `<path>\t<due|weakens>\t<panel>` line each.
+#                                Exit 0 printing nothing when there is none
+#                                (or no panel has recorded), 1 when there is
+#                                one, 2 when the ledger or the unit's tests
+#                                can't be read.
 #
 # Usage: panel-scope.sh --plan    <panel> <koto-session-name>
 #        panel-scope.sh --carried <panel> <koto-session-name>
@@ -165,6 +175,7 @@
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
 #        panel-scope.sh --mark-fixed <panel> <koto-session-name> <id>...
 #        panel-scope.sh --promote <panel> <koto-session-name> <id> <reason>
+#        panel-scope.sh --due-items <koto-session-name>
 #
 # <panel> is scrutiny, review, qa (the qa_validation state) or light (the
 # light_review state, the `light` review level's one seat).
@@ -193,7 +204,35 @@
 # `weakens` is recorded as a blocking finding raised by that seat, under rule
 # review/test-edit-weakens, with the reason in its summary, and closes like any
 # other finding of that seat. The seat entry keeps its judgments as
-# `test_edits`. The re-verifier and decider entries judge no test edit.
+# `test_edits`. A decider entry judges no test edit.
+#
+# The re-verifier judges the edited tests its decision lists as `due_items`
+# (below), and nothing else: its `test_edits` must judge each listed test
+# corrects or weakens, and a round where it misses one, judges one twice, or
+# judges a test not listed is refused whole (65, rule
+# review/test-edit-judgment), so the test stays due. Its `weakens` is a
+# blocking finding raised by reviewer `fix-review` in the panel, under rule
+# review/test-edit-weakens.
+#
+# Every judgment --record accepts of an edited test is also kept, keyed by the
+# test's content, in `.judgments[<panel>]`: {item (the path), content (its
+# blob at HEAD, or `deleted`), judgment, by (the seat, or `reverifier`), run,
+# judged_at}. A test whose hunks the packet cut (test_hunks_cut in
+# scripts/lib/test-classify.sh, which review-packet.sh asks too) is kept there
+# only when the judging entry's `cited` names its path; the seat entry keeps
+# its judgment either way.
+#
+# A test is **due** for a panel when no judgment in `.judgments[<panel>]`
+# counts at its content now. A judgment counts when its item and content
+# match, its run is one a decision in the panel's history planned and the
+# ledger holds as recorded for the panel, and its judged_at is a commit that
+# is an ancestor of HEAD; one is enough, whichever seat made it. Outside a
+# full round --plan lists the panel's due tests on the re-verifier's decision
+# (`due_items: [{item, content}]`), planning a re-verifier for them alone,
+# with a reason starting `items-due`, when nothing else is due and no fix-diff
+# review is planned, and planning no fix-diff review when every path the fix
+# diff touches is a due test, since the re-verifier's judgment of each is the
+# review of that diff.
 #
 # `run` is required: when the scope's decision for the seat names a run, the
 # entry must name the same one, and no run is recorded twice. A decision that
@@ -260,10 +299,12 @@
 #                          raiser, run, location, summary, rule_id?, records}},
 #                          "runs": {"<run>": {panel, rev, recorded}},
 #                          "reverified": {"<panel>": {rev, run, head}},
+#                          "judgments": {"<panel>": [{item, content, judgment,
+#                          by, run, judged_at}]},
 #                          "decider_events": [...],
 #                          "history": [{"panel", "round", "head", "rev",
 #                          "spawned", "decisions": [{seat, decision, reason,
-#                          findings?}]}]}
+#                          findings?, run?}]}]}
 #                         Never cleared by a retry: it is what survives one.
 #                         The seat entries are summaries of the findings, kept
 #                         in the shape review-packet.sh reads.
@@ -271,7 +312,7 @@
 #                         {panel, head, rev, ac_sha, round, full, reason,
 #                          decisions: [{seat, decision, reason, run?,
 #                          findings?, fix_diff_from?, fix_review?,
-#                          review_from?, judged_at?}]}
+#                          review_from?, judged_at?, due_items?}]}
 #   <panel>_results.json  only when the panel carries, read by --carried;
 #                         otherwise the agent may write it at aggregation as
 #                         the round's summary. No gate reads it for the pass:
@@ -383,6 +424,11 @@ session_dir() {
 MODE="${1:-}"
 PANEL="${2:-}"
 SESSION="${3:-}"
+# --due-items reads every panel the session recorded, so it takes no panel.
+if [ "$MODE" = "--due-items" ]; then
+    SESSION="${2:-}"
+    PANEL=""
+fi
 
 # The gate modes answer every doubt, usage errors included, with one exit: 1
 # for --carried and --recorded, 2 for --verdict and --open-count. See Exit
@@ -391,15 +437,15 @@ refuse() {
     # $1 exit code for the other modes, $2 message
     case "$MODE" in
         --carried|--recorded) echo "panel-scope: $2" >&2; exit 1 ;;
-        --verdict|--open-count) echo "panel-scope: $2" >&2; exit 2 ;;
+        --verdict|--open-count|--due-items) echo "panel-scope: $2" >&2; exit 2 ;;
     esac
     die "$1" "$2"
 }
 
 case "$MODE" in
-    --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed|--promote) ;;
-    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed or --promote" ;;
-    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed or --promote" ;;
+    --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed|--promote|--due-items) ;;
+    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed, --promote or --due-items" ;;
+    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --open-count, --record, --mark-fixed, --promote or --due-items" ;;
 esac
 
 # seats_of <panel>: the panel's real seats, or nothing for a panel that isn't
@@ -412,9 +458,12 @@ seats_of() {
         light)    echo "reviewer" ;;
     esac
 }
-[ -n "$PANEL" ] || refuse 67 "missing panel"
-SEATS=$(seats_of "$PANEL")
-[ -n "$SEATS" ] || refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review, qa or light"
+SEATS=""
+if [ "$MODE" != "--due-items" ]; then
+    [ -n "$PANEL" ] || refuse 67 "missing panel"
+    SEATS=$(seats_of "$PANEL")
+    [ -n "$SEATS" ] || refuse 67 "unrecognised panel [$PANEL]: expected scrutiny, review, qa or light"
+fi
 [ -n "$SESSION" ] || refuse 67 "missing session argument for $MODE"
 command -v jq >/dev/null || refuse 127 "jq not on PATH"
 
@@ -722,7 +771,10 @@ store_ledger() {
 }
 
 # edited_tests: the unit's edited test paths on stdout, one per line, as
-# scripts/lib/test-classify.sh's test_classify_unit labels them: from
+# scripts/lib/test-classify.sh's test_classify_unit labels them, and the same
+# tests with their blob at HEAD (or `deleted`) as `<path>\t<content>` rows in
+# $WORK/tc_edited, the content a judgment is keyed by. TC_BASE is left at the
+# base it classified from, the one review-packet.sh shows hunks from. From
 # impl_base (else the merge-base with origin's default branch, else with local
 # main, the order review-packet.sh takes, so the round asks for what the packet
 # listed) to HEAD, with the session's stored rules copy (else the shipped
@@ -745,16 +797,95 @@ edited_tests() {
     if [ -z "$base" ] && git rev-parse --verify -q "refs/heads/main^{commit}" >/dev/null; then
         base=$(git merge-base HEAD main 2>>"$WORK/tc.err") || base=""
     fi
-    [ -n "$base" ] || die 65 "no base to tell the change's edited tests by (no impl_base and no merge-base), so the round's test_edits can't be checked"
+    [ -n "$base" ] || refuse 65 "no base to tell the change's edited tests by (no impl_base and no merge-base), so the round's test_edits can't be checked"
+    TC_BASE=$base
+    : > "$WORK/tc_edited"
     ctx_get review_level_rules.tsv > "$WORK/tc_rules"
     [ -s "$WORK/tc_rules" ] || cp "$PLUGIN_ROOT_PS/skills/work-on/references/review-level-rules.tsv" "$WORK/tc_rules" \
-        || die 65 "no rules file to tell test files by"
+        || refuse 65 "no rules file to tell test files by"
     awk -F '\t' '$1 == "class" && $2 == "test" && $3 != "" { f = 1 } END { exit !f }' "$WORK/tc_rules" || return 0
     ctx_get red_first.json > "$WORK/tc_red"
     test_classify_unit "$base" "$HEAD" "$WORK/tc_rules" "$WORK/tc_red" > "$WORK/tc_rows" 2>"$WORK/tc.err" \
-        || die 65 "could not classify the change's test files: $(head -n 1 "$WORK/tc.err")"
-    awk -F '\t' '$1 == "edited" { print $2 }' "$WORK/tc_rows"
+        || refuse 65 "could not classify the change's test files: $(head -n 1 "$WORK/tc.err")"
+    awk -F '\t' -v OFS='\t' '$1 == "edited" { print $2, $3 }' "$WORK/tc_rows" > "$WORK/tc_edited"
+    cut -f 1 "$WORK/tc_edited"
 }
+TC_BASE=""
+
+# due_items <panel> <ledger-file> <out-file>: the panel's edited tests that are
+# due, as `<path>\t<content>` rows in <out-file>, from the rows edited_tests
+# left in $WORK/tc_edited. A test is due when no judgment of the panel counts
+# at its content now. A judgment counts when it is in `.judgments[<panel>]`
+# with that item and content, its run is one a round of the panel planned (a
+# decision in the panel's history names it) and the ledger holds as recorded
+# for the panel, and its judged_at is a 40-hex commit that is an ancestor of
+# HEAD. One such judgment is enough, whichever seat or re-verifier made it.
+due_items() {
+    local panel="$1" lf="$2" out="$3" tab p c j ok
+    tab=$(printf '\t')
+    : > "$out"
+    jq -r --arg p "$panel" '
+        . as $l
+        | [ ($l.history // [])[] | select(type == "object" and .panel == $p)
+            | (.decisions // [])[] | .run? // empty | strings ] as $planned
+        | (($l.judgments // {})[$p] // [])[]
+        | select(type == "object" and (.item | type) == "string" and (.content | type) == "string"
+                 and (.judged_at | type) == "string" and (.judged_at | test("^[0-9a-f]{40}$"))
+                 and (.run | type) == "string")
+        | .run as $r
+        | select(($planned | index($r)) != null
+                 and (($l.runs // {})[$r].recorded // false) == true
+                 and (($l.runs // {})[$r].panel // "") == $p)
+        | "\(.item)\t\(.content)\t\(.judged_at)"' "$lf" > "$WORK/judged" 2>/dev/null \
+        || refuse 65 "could not read the judgments in $LEDGER"
+    while IFS="$tab" read -r p c; do
+        [ -n "$p" ] || continue
+        ok=""
+        P="$p" C="$c" awk -F '\t' '$1 == ENVIRON["P"] && $2 == ENVIRON["C"] { print $3 }' "$WORK/judged" > "$WORK/judged.at"
+        while IFS= read -r j; do
+            if git merge-base --is-ancestor "$j" HEAD 2>/dev/null; then ok=1; break; fi
+        done < "$WORK/judged.at"
+        [ -n "$ok" ] || printf '%s\t%s\n' "$p" "$c" >> "$out"
+    done < "$WORK/tc_edited"
+}
+
+# ---------------------------------------------------------------- --due-items
+
+# What the counting gates hold on, read from the panels' record: for every
+# panel with a recorded seat, each edited test due for it (no judgment of the
+# panel counts at its content now, see due_items) and each with an open
+# blocking review/test-edit-weakens finding of the panel. One tab-separated
+# `<path>\t<due|weakens>\t<panel>` line each, sorted. Exit 0 with nothing
+# printed when nothing is due or adverse (and when no panel has recorded), 1
+# when something is, 2 when the record or the unit's tests can't be read.
+if [ "$MODE" = "--due-items" ]; then
+    ledger=""
+    if koto context exists "$SESSION" "$LEDGER"; then
+        ledger=$(koto context get "$SESSION" "$LEDGER") || refuse 2 "could not read $LEDGER"
+        [ -n "$ledger" ] || refuse 2 "$LEDGER is empty"
+    fi
+    [ -n "$ledger" ] || exit 0
+    printf '%s' "$ledger" > "$WORK/due.ledger"
+    panels=$(jq -r 'if type != "object" then error("not an object") else . end
+        | [(.seats // {}) | keys[] | split("/")[0]
+           | select(. == "scrutiny" or . == "review" or . == "qa" or . == "light")] | unique | .[]' \
+        "$WORK/due.ledger" 2>/dev/null) || refuse 2 "$LEDGER is unreadable"
+    [ -n "$panels" ] || exit 0
+    edited_tests > /dev/null
+    : > "$WORK/due.out"
+    for p in $panels; do
+        due_items "$p" "$WORK/due.ledger" "$WORK/due.rows"
+        awk -F '\t' -v OFS='\t' -v p="$p" '{ print $1, "due", p }' "$WORK/due.rows" >> "$WORK/due.out"
+        jq -r --arg p "$p" "$JQ_DEFS"'
+            open_blocking($p)[] | select((.rule_id // "") == "review/test-edit-weakens")
+            | .location.path // empty | strings' "$WORK/due.ledger" > "$WORK/due.weak" 2>/dev/null \
+            || refuse 2 "could not read the findings in $LEDGER"
+        awk -v OFS='\t' -v p="$p" 'NF { print $0, "weakens", p }' "$WORK/due.weak" >> "$WORK/due.out"
+    done
+    [ -s "$WORK/due.out" ] || exit 0
+    LC_ALL=C sort -u "$WORK/due.out"
+    exit 1
+fi
 
 # ---------------------------------------------------------------- --mark-fixed
 
@@ -958,6 +1089,34 @@ if [ "$MODE" = "--record" ]; then
         || die 65 "could not read the test_edits in round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
     [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused, rule review/test-edit-judgment: $(head -n 5 <<<"$problems" | paste -sd ';' -)"
 
+    # The re-verifier judges exactly the due items its decision lists: each
+    # one corrects or weakens, and nothing else. A round whose re-verifier
+    # misses one, or judges one it wasn't given, is refused whole, so the item
+    # stays due.
+    problems=$(jq -r --argjson scope "${SCOPE_JSON:-null}" '
+        ([(($scope // {}).decisions // [])[] | select(.seat == "reverifier")][0] // {}) as $d
+        | [($d.due_items // [])[] | .item? // empty | strings] as $D
+        | .[] | select(.seat? == "reverifier") | . as $e
+        | if (.test_edits // []) | type != "array" then "the reverifier: test_edits is not an array"
+          else
+            ( (.test_edits // [])[]
+              | if type != "object" then "the reverifier: a test_edits entry is not an object"
+                elif (.path | type) != "string" or .path == "" then "the reverifier: a test_edits entry has no path"
+                elif (.path as $tp | $D | index($tp)) == null then "the reverifier judged [\(.path)], which its decision did not list as due"
+                elif (.judgment != "corrects" and .judgment != "weakens") then
+                    "the reverifier: the judgment of [\(.path)] is not corrects or weakens"
+                elif (.reason // "") != "" and ((.reason | type) != "string" or (.reason | utf8bytelength) > 1000) then
+                    "the reverifier: the reason for [\(.path)] is not a string of at most 1000 bytes"
+                else empty end ),
+            ( $D[] as $p
+              | select([($e.test_edits // [])[] | select(type == "object" and .path == $p)] | length == 0)
+              | "the reverifier did not judge the due test [\($p)] as corrects or weakens" ),
+            ( [(.test_edits // [])[] | select(type == "object") | .path] | group_by(.) | map(select(length > 1))[]
+              | "the reverifier judged [\(.[0])] twice" )
+          end' "$ROUND_FILE" 2>"$WORK/jq.err") \
+        || die 65 "could not read the reverifier's test_edits in round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
+    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused, rule review/test-edit-judgment: $(head -n 5 <<<"$problems" | paste -sd ';' -)"
+
     # A decider entry is accepted only when koto's own log holds the event it
     # names, and each event backs one entry: the log is koto's to write, so a
     # round file alone can't mint a decider verdict.
@@ -1049,10 +1208,11 @@ if [ "$MODE" = "--record" ]; then
 
     # A seat that judged an edited test `weakens` raised a blocking finding on
     # it, under rule review/test-edit-weakens; it is recorded and closed like
-    # any other finding of that seat.
+    # any other finding of that seat. The re-verifier's `weakens` is raised by
+    # fix-review in this panel, the way its other findings are.
     jq --rawfile edited "$WORK/edited_tests" --arg seats "$SEATS" '
         ($edited | split("\n") | map(select(. != ""))) as $E
-        | ($seats | split(" ")) as $real
+        | ($seats | split(" ") + ["reverifier"]) as $real
         | map(if (.seat? | type) == "string" and (.seat as $s | $real | index($s)) != null then
                 .findings = ((.findings // [])
                     + [ (.test_edits // [])[] | select(.judgment == "weakens" and (.path as $p | $E | index($p)) != null)
@@ -1061,6 +1221,43 @@ if [ "$MODE" = "--record" ]; then
                                      + (if (.reason // "") != "" then ": " + (.reason | .[0:800]) else "" end))} ])
               else . end)' "$ROUND_FILE" > "$WORK/round.judged" || die 65 "could not add the test-edit findings"
     mv "$WORK/round.judged" "$WORK/round"
+
+    # Each judgment of an edited test, keyed by the test's content at HEAD, for
+    # `.judgments[<panel>]`: what --due-items and --plan read to tell whether
+    # the panel has judged a test as it is now. A seat's judgments are of the
+    # unit's edited tests, the re-verifier's of the due items its decision
+    # listed. A test whose hunks the packet cut (test_hunks_cut, the same
+    # question review-packet.sh asks) counts as judged only when the judging
+    # entry cites its path: the seat read the file itself. Otherwise the seat
+    # entry keeps its judgment but the panel's list doesn't, so the test stays
+    # due.
+    jq -nr --argjson scope "${SCOPE_JSON:-null}" '
+        [(($scope // {}).decisions // [])[] | select(.seat == "reverifier")][0] // {}
+        | (.due_items // [])[] | .item? // empty | strings' > "$WORK/due_list" \
+        || die 65 "could not read the reverifier's due items"
+    : > "$WORK/cut_seats"
+    : > "$WORK/cut_rev"
+    if [ -n "$TC_BASE" ]; then
+        test_hunks_cut "$TC_BASE" "$HEAD" "$WORK/edited_tests" > "$WORK/cut_seats"
+        test_hunks_cut "$TC_BASE" "$HEAD" "$WORK/due_list" > "$WORK/cut_rev"
+    fi
+    jq -c --rawfile tce "$WORK/tc_edited" --rawfile cs "$WORK/cut_seats" --rawfile cr "$WORK/cut_rev" \
+        --rawfile due "$WORK/due_list" --arg seats "$SEATS" --arg head "$HEAD" '
+        def lines_of: split("\n") | map(select(. != ""));
+        ($tce | lines_of | map(split("\t") | {key: .[0], value: .[1]}) | from_entries) as $C
+        | ($cs | lines_of) as $CS | ($cr | lines_of) as $CR | ($due | lines_of) as $D
+        | ($seats | split(" ")) as $real
+        | [ .[] | select((.seat? | type) == "string") | . as $e
+            | select(($real | index($e.seat)) != null or $e.seat == "reverifier")
+            | (if $e.seat == "reverifier" then $CR else $CS end) as $cut
+            | ($e.test_edits // [])[] | select(type == "object") | . as $t
+            | select(($C[$t.path] // null) != null)
+            | select($e.seat != "reverifier" or ($D | index($t.path)) != null)
+            | select(($cut | index($t.path)) == null
+                     or any(($e.cited // [])[]; type == "object" and .path == $t.path))
+            | {item: $t.path, content: $C[$t.path], judgment: $t.judgment, by: $e.seat,
+               run: $e.run, judged_at: $head} ]' "$WORK/round" > "$WORK/judgments" \
+        || die 65 "could not build the round's judgments"
 
     # The id of every finding raised this round: a hash of panel, raiser kind
     # and name, path and whitespace-collapsed summary. jq builds the string and
@@ -1103,6 +1300,7 @@ if [ "$MODE" = "--record" ]; then
     printf '%s' "$LEDGER_JSON" | jq --arg panel "$PANEL" --arg head "$HEAD" --arg ac "$AC_SHA" \
         --arg seats "$SEATS" --argjson round "$ROUND_NO" --argjson scope "${SCOPE_JSON:-null}" \
         --slurpfile entries "$ROUND_FILE" --slurpfile ids "$WORK/ids" --slurpfile moved "$WORK/moved" \
+        --slurpfile judg "$WORK/judgments" \
         --rawfile events "$WORK/decider_events" "$JQ_DEFS"'
         def norm: map(select(.path | type == "string")
                       | {path} + (if .lines then {lines: (.lines | tostring)} else {} end));
@@ -1140,6 +1338,8 @@ if [ "$MODE" = "--record" ]; then
         | .findings = (.findings // {})
         | .runs = (.runs // {})
         | .decider_events = ((.decider_events // []) + ($events | split("\n") | map(select(. != ""))))
+        | .judgments = (.judgments // {})
+        | .judgments[$panel] = ((.judgments[$panel] // []) + $judg[0])
         | reduce ($E | to_entries[]) as $x (.;
             $x.key as $i | $x.value as $e
             | if $e.decider? != null then
@@ -1410,6 +1610,27 @@ if [ -z "$FULL_REASON" ]; then
     fi
 fi
 
+# The panel's due edited tests (due_items): outside a full round, the
+# re-verifier judges each one, planned for them alone when nothing else is due
+# and no fix-diff review is planned. When every path the fix diff touches is
+# one of those tests, the re-verifier's judgment of each, with its hunks and
+# the run's note, is the review of that diff, so no fix-diff review is
+# planned beside it. A full round needs none of this: every seat judges every
+# edited test.
+: > "$WORK/plan_due"
+if [ -z "$FULL_REASON" ]; then
+    printf '%s' "$LEDGER_JSON" > "$WORK/plan.ledger"
+    edited_tests > /dev/null
+    due_items "$PANEL" "$WORK/plan.ledger" "$WORK/plan_due"
+    if [ "$FIX_REVIEW" = 1 ] && [ -s "$WORK/plan_due" ]; then
+        git diff --no-renames --name-only "$FIXBASE" HEAD > "$WORK/fixpaths" 2>/dev/null || : > "$WORK/fixpaths"
+        if [ -s "$WORK/fixpaths" ] \
+            && [ -z "$(cut -f 1 "$WORK/plan_due" | LC_ALL=C sort -u | LC_ALL=C comm -23 <(LC_ALL=C sort -u "$WORK/fixpaths") -)" ]; then
+            FIX_REVIEW=0
+        fi
+    fi
+fi
+
 # Which of the panel's blocking findings are due, one line of JSON each, with
 # the base each was last judged at. A full round reads only the bases, for
 # the re-verifier's diff.
@@ -1478,7 +1699,8 @@ OPEN_FROM=$(oldest_base 'select(.status != "closed")')
 jq -n --argjson l "$LEDGER_JSON" --arg panel "$PANEL" --arg seats "$SEATS" \
     --argjson round "$ROUND" --argjson rev "$REV" --arg head "$HEAD" --arg ac "$AC_SHA" \
     --arg full "$FULL_REASON" --slurpfile due "$WORK/due" --arg fixreview "$FIX_REVIEW" \
-    --arg fixbase "$FIXBASE" --arg duefrom "$DUE_FROM" --arg openfrom "$OPEN_FROM" "$JQ_DEFS"'
+    --arg fixbase "$FIXBASE" --arg duefrom "$DUE_FROM" --arg openfrom "$OPEN_FROM" \
+    --rawfile dueitems "$WORK/plan_due" "$JQ_DEFS"'
     def mint($seat): ("\($panel)-r\($round)-\($seat)") as $r
         | if ((($l.runs // {})[$r].recorded) // false) then "\($r)-v\($rev)" else $r end;
     def fshape: {id, severity, summary, raiser: (.raiser.name // ""), status: status}
@@ -1500,6 +1722,7 @@ jq -n --argjson l "$LEDGER_JSON" --arg panel "$PANEL" --arg seats "$SEATS" \
               else [] end )
       else
         [ $due[] | select(.due) ] as $d
+        | [ $dueitems | split("\n")[] | select(. != "") | split("\t") | {item: .[0], content: .[1]} ] as $di
         | [ $real[] as $s
             | ((($l.seats // {})[$panel + "/" + $s]) // {}) as $e
             | ([ $open[] | select(.raiser.kind == "reviewer" and .raiser.name == $s) ] | length) as $n
@@ -1509,10 +1732,16 @@ jq -n --argjson l "$LEDGER_JSON" --arg panel "$PANEL" --arg seats "$SEATS" \
           + (if ($d | length) > 0 or $fixreview == "1" then
                [ {seat: "reverifier", decision: "recheck", run: mint("reverifier"),
                   reason: ("re-verify \($d | length) due finding(s) by id"
-                           + (if $fixreview == "1" then ", and review the fix diff since \($fixbase[0:12]) against every panel'"'"'s blocking criteria" else "" end)),
+                           + (if $fixreview == "1" then ", and review the fix diff since \($fixbase[0:12]) against every panel'"'"'s blocking criteria" else "" end)
+                           + (if ($di | length) > 0 then ", and judge \($di | length) edited test(s) changed since the panel judged them" else "" end)),
                   findings: [ $d[] | . as $x | ($l.findings[$x.id] | fshape) + {due: $x.why} ],
                   fix_diff_from: $duefrom, fix_review: ($fixreview == "1")}
-                 + (if $fixreview == "1" then {review_from: $fixbase} else {} end) ]
+                 + (if $fixreview == "1" then {review_from: $fixbase} else {} end)
+                 + (if ($di | length) > 0 then {due_items: $di} else {} end) ]
+             elif ($di | length) > 0 then
+               [ {seat: "reverifier", decision: "recheck", run: mint("reverifier"),
+                  reason: "items-due: judge \($di | length) edited test(s) changed since the panel judged them",
+                  findings: [], fix_diff_from: $duefrom, fix_review: false, due_items: $di} ]
              else [] end)
       end) as $decisions
     | {panel: $panel, head: $head, rev: $rev, ac_sha: $ac, round: $round,
@@ -1532,7 +1761,8 @@ printf '%s' "$LEDGER_JSON" | jq --slurpfile scope "$WORK/scope" '
     | {panel: $s.panel, head: $s.head, rev: $rev, round: $s.round,
        spawned: ([$s.decisions[] | select(.decision != "keep")] | length),
        decisions: [$s.decisions[] | {seat, decision, reason}
-                   + (if .decision != "keep" then {findings: [(.findings // [])[] | .id]} else {} end)]} as $entry
+                   + (if .decision != "keep" then {findings: [(.findings // [])[] | .id]} else {} end)
+                   + (if (.run // null) != null then {run} else {} end)]} as $entry
     | if $prev != null and $prev.value.head == $s.head and $prev.value.rev == $rev
       then .history[$prev.key] = $entry
       else .history += [$entry]

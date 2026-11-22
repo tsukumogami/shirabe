@@ -32,13 +32,21 @@
 #   declines          a seat's decline and `counting_status: declined` return
 #                     the run to implementation; the third decline of the same
 #                     test ends the run at done_blocked
-#   a test gap        a full code change held on its edited test commits a
-#                     test-only fix at pass_counting and submits
-#                     `counting_status: test_gap`: the run returns to
+#   a test gap        a full code change whose QA packet cut the edited test's
+#                     hunks, with no read of the file cited, is held at
+#                     pass_counting as due for qa; the run commits a
+#                     test-only fix, which makes the test due for every
+#                     panel, submits `counting_status: test_gap` and returns to
 #                     implementation with nothing written to the acceptance
-#                     ledger, scrutiny plans a re-verifier with a fix-diff
-#                     review before verification runs again, and the edit is
-#                     held again at its new digest
+#                     ledger, each panel plans a re-verifier for the due test
+#                     alone (items-due) before verification runs again, and
+#                     once every re-verifier judged it the run finalizes
+#   end to end        the shipped pass_counting in a fixture: a panel round's
+#                     corrects counts the edited test, a later commit to it
+#                     holds it (`held: <test> due for scrutiny`), --plan plans
+#                     the re-verifier with reason items-due, its packet carries
+#                     the hunks and the run's note, and its corrects counts the
+#                     unit again, each step printing its exit code
 #   a level raise     a fix raised from light to standard at
 #                     review_level_check keeps UNIT_KIND at fix: fix-kind.sh
 #                     agree still exits 0, and fix_green still holds without a
@@ -442,16 +450,28 @@ if walk "$S" 2 full; then
     tick "$S"
     record_round "$S" review "[{\"seat\":\"pragmatic\",\"findings\":[],$JUDGED},{\"seat\":\"architect\",\"findings\":[],$JUDGED},{\"seat\":\"maintainer\",\"findings\":[],$JUDGED}]"
     tick "$S"
+    # QA's packet cut the test's hunks (a cap of one byte) and the tester
+    # cited no read of the file, so QA's judgment doesn't count.
+    export TEST_HUNKS_CAP=1
     record_round "$S" qa "[{\"seat\":\"tester\",\"findings\":[],$JUDGED}]"
+    unset TEST_HUNKS_CAP
     tick "$S"
     settle_verification "$S"
-    expect_state "after clean panels and a local pass, the edited test holds the unit" pass_counting
+    expect_state "after clean panels and a local pass, a test QA didn't read holds the unit" pass_counting
     [ "$(visits "$S" verification)" = 1 ] && pass "verification ran once" || fail "verification was entered $(visits "$S" verification) times"
+    case "$(gate_stdout tests_counted)" in
+        *"held: tests/greet_test.sh due for qa"*) pass "tests_counted holds the test as due for qa" ;;
+        *) fail "tests_counted printed [$(gate_stdout tests_counted)]" ;;
+    esac
 
-    # The run finds its own test checks less than it should, before any seat
-    # ran, and commits a test-only fix.
+    # The run finds its own test checks less than it should, and commits a
+    # test-only fix.
     printf '[ "$(./greet.sh Ada)" = "Hello, Ada" ] || { echo "expected Hello, Ada"; exit 1; }\n' >> tests/greet_test.sh
     git commit -q -am "test: check a second name"
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1
+    grep -q '^held: tests/greet_test.sh due for qa$' "$WORKDIR/s.out" && grep -q '^held: tests/greet_test.sh due for review$' "$WORKDIR/s.out" \
+        && grep -q '^held: tests/greet_test.sh due for scrutiny$' "$WORKDIR/s.out" \
+        && pass "the test-only fix makes the test due for every panel" || fail "status printed [$(cat "$WORKDIR/s.out")]"
     tick "$S" '{"counting_status":"test_gap","detail":"the edited test checks one name; a second name is left unchecked"}'
     expect_state "counting_status test_gap from a held edit" implementation
     [ "$(ledger "$S" | jq -r 'select(.event == "decline" or .event == "seat") | .event' | wc -l | tr -d ' ')" = 0 ] \
@@ -459,23 +479,24 @@ if walk "$S" 2 full; then
     tick "$S" '{"implementation_status":"complete"}'
     tick "$S" '{"issue_type":"code"}'
     expect_state "the lap after the test gap" scrutiny
-    GOT=$(koto context get "$S" scrutiny_scope.json 2>/dev/null | jq -r '[.decisions[] | "\(.seat):\(.decision):\(.fix_review // "-")"] | join(",")')
-    [ "$GOT" = "completeness:keep:-,justification:keep:-,intent:keep:-,reverifier:recheck:true" ] \
-        && pass "scrutiny plans a re-verifier that reviews the fix diff" || fail "scrutiny_scope.json decisions are [$GOT]"
+    GOT=$(koto context get "$S" scrutiny_scope.json 2>/dev/null | jq -r '[.decisions[] | "\(.seat):\(.decision):\(.reason | split(":")[0] | select(. == "items-due") // "-"):\([.due_items[]?.item] | join("+"))"] | join(",")')
+    [ "$GOT" = "completeness:keep:-:,justification:keep:-:,intent:keep:-:,reverifier:recheck:items-due:tests/greet_test.sh" ] \
+        && pass "scrutiny plans a re-verifier for the due test alone" || fail "scrutiny_scope.json decisions are [$GOT]"
     [ "$(visits "$S" verification)" = 1 ] && pass "verification has not run again before the re-verifier" \
         || fail "verification was entered $(visits "$S" verification) times before the re-verifier"
-    record_round "$S" scrutiny '[{"seat":"reverifier","findings":[],"answers":[]}]'
+    REJUDGED='[{"seat":"reverifier","findings":[],"answers":[],"test_edits":[{"path":"tests/greet_test.sh","judgment":"corrects"}]}]'
+    record_round "$S" scrutiny "$REJUDGED"
     tick "$S"
-    [ "$STATE" = review ] && tick "$S"
-    [ "$STATE" = qa_validation ] && tick "$S"
+    expect_state "review's judgment is at the old content too" review
+    record_round "$S" review "$REJUDGED"
+    tick "$S"
+    expect_state "and QA's" qa_validation
+    record_round "$S" qa "$REJUDGED"
+    tick "$S"
     settle_verification "$S"
-    expect_state "after the re-verifier passed and a second local pass" pass_counting
-    [ "$(visits "$S" verification)" = 2 ] && pass "verification ran again after the re-verifier" \
+    expect_state "every panel's re-verifier judged the test at its content now: counted" finalization
+    [ "$(visits "$S" verification)" = 2 ] && pass "verification ran again after the re-verifiers" \
         || fail "verification was entered $(visits "$S" verification) times"
-    case "$(gate_stdout tests_counted)" in
-        *"held: unaccepted tests/greet_test.sh"*) pass "the edit is still held at its new digest" ;;
-        *) fail "tests_counted printed [$(gate_stdout tests_counted)]" ;;
-    esac
 fi
 
 # ==============================================================================
@@ -616,6 +637,67 @@ fixture_session() {
     printf '{"ts":"t","event":"determine","kind":"change","source":"none"}\n' | koto context add "$1" fix_kind.jsonl >/dev/null 2>&1
     "$TC" init "$1" >/dev/null 2>"$WORKDIR/tcinit.err" || { fail "$1: test-change.sh init failed: $(cat "$WORKDIR/tcinit.err")"; return 1; }
 }
+
+echo "--- end to end: a test edited after the panels looked is held until a re-verifier judges it"
+
+# The shipped pass_counting block in a fixture, with the real scripts on the
+# way to it: a panel round recorded with panel-scope.sh --record, a later
+# commit to the test, test-change.sh status, panel-scope.sh --plan and the
+# re-verifier's round. Each step prints its exit code.
+fixture "$WORKDIR/counting.md" pass_counting "$(extract_state pass_counting)" finalization implementation
+git checkout -q main
+git checkout -q -b case-e2e
+S=tc_e2e
+if fixture_session "$S" "$WORKDIR/counting.md"; then
+    drop_mark
+    git commit -q -am "feat: drop the exclamation mark"
+    "$TC" note "$S" --file tests/greet_test.sh --reason "the issue asks for the expected value to change" >/dev/null 2>&1
+    "$PS" --plan scrutiny "$S" >/dev/null 2>"$WORKDIR/plan.err"; RC=$?
+    echo "  step: panel-scope.sh --plan scrutiny (first round) exit $RC"
+    record_round "$S" scrutiny "[{\"seat\":\"completeness\",\"findings\":[],$JUDGED},{\"seat\":\"justification\",\"findings\":[],$JUDGED},{\"seat\":\"intent\",\"findings\":[],$JUDGED}]"
+    echo "  step: panel-scope.sh --record scrutiny (every seat corrects) done"
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC=$?
+    echo "  step: test-change.sh status exit $RC"
+    [ "$RC" = 0 ] && pass "with every seat's corrects at the test's content, status exits 0" || fail "status exited $RC: $(cat "$WORKDIR/s.out")"
+
+    printf '# the empty name is not checked here\n' >> tests/greet_test.sh
+    git commit -q -am "test: note what the test leaves out"
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC=$?
+    echo "  step: test-change.sh status after the test changed exit $RC"
+    [ "$RC" = 1 ] && grep -q '^held: tests/greet_test.sh due for scrutiny$' "$WORKDIR/s.out" \
+        && pass "a commit to the judged test holds it: status exits 1 with held: tests/greet_test.sh due" \
+        || fail "status exited $RC: $(cat "$WORKDIR/s.out")"
+    tick "$S"
+    expect_state "the counting gate holds on the due test" pass_counting
+
+    "$PS" --plan scrutiny "$S" > "$WORKDIR/scope.out" 2>"$WORKDIR/plan.err"; RC=$?
+    echo "  step: panel-scope.sh --plan scrutiny exit $RC"
+    GOT=$(jq -r '[.decisions[] | select(.decision != "keep") | "\(.seat):\(.reason | split(":")[0]):\([.due_items[]?.item] | join("+"))"] | join(",")' "$WORKDIR/scope.out" 2>/dev/null)
+    [ "$RC" = 0 ] && [ "$GOT" = "reverifier:items-due:tests/greet_test.sh" ] \
+        && pass "--plan plans the re-verifier alone, reason items-due, with the test due" \
+        || fail "--plan exited $RC with spawned decisions [$GOT]: $(cat "$WORKDIR/plan.err")"
+    PACKET_DIR="$WORKDIR/e2e-scratch"
+    mkdir -m 700 "$PACKET_DIR"
+    PKT=$("$PLUGIN_ROOT/scripts/review-packet.sh" recheck --session "$S" --panel scrutiny --seat reverifier --scratch "$PACKET_DIR" 2>"$WORKDIR/pkt.err"); RC=$?
+    echo "  step: review-packet.sh recheck exit $RC"
+    [ "$RC" = 0 ] && grep -q '^## Test changes$' "$PKT" && grep -q 'the issue asks for the expected value to change' "$PKT" \
+        && grep -q '^+# the empty name is not checked here$' "$PKT" \
+        && pass "the re-verifier's packet carries the test's hunks and the run's note" \
+        || fail "recheck packet exited $RC: $(cat "$WORKDIR/pkt.err")"
+    record_round "$S" scrutiny '[{"seat":"reverifier","findings":[],"answers":[],"test_edits":[{"path":"tests/greet_test.sh","judgment":"corrects"}]}]'
+    echo "  step: panel-scope.sh --record scrutiny (the re-verifier's corrects) done"
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC=$?
+    echo "  step: test-change.sh status after the re-verifier exit $RC"
+    [ "$RC" = 0 ] && pass "the re-verifier's corrects counts the unit: status exits 0" || fail "status exited $RC: $(cat "$WORKDIR/s.out")"
+    tick "$S"
+    expect_state "the counting gate passes" finalization
+    [ "$(ledger "$S" | jq -r 'select(.event == "seat" or .event == "accept")' | wc -l | tr -d ' ')" = 0 ] \
+        && pass "no seat was minted and no acceptance written" || fail "the ledger is [$(ledger "$S")]"
+    printf 'not json' | koto context add "$S" verdict_ledger.json >/dev/null 2>&1
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC=$?
+    echo "  step: test-change.sh status with an unreadable verdict record exit $RC"
+    [ "$RC" = 2 ] && pass "a verdict record that can't be read: status exits 2" || fail "status exited $RC: $(cat "$WORKDIR/s.out")"
+fi
 
 echo "--- pr_precheck re-runs status: a commit after counting is held before a pull request opens"
 

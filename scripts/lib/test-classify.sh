@@ -69,6 +69,23 @@
 # unit's revert of an earlier edit to main's content, since main didn't
 # change that file. A unit edit identical to main's own is dropped with it.
 #
+# And two for the readers that show an edited test's hunks to a reviewer:
+#
+#   test_hunks <base> <head> <path>
+#
+# prints the path's diff from <base> to <head> (`git diff -M`), with a
+# rename's old path in the pathspec too, so it shows as the rename it is.
+#
+#   test_hunks_cut <base> <head> <paths-file>
+#
+# prints, one per line, each path of <paths-file> (one per line, in order)
+# whose hunks don't fit: each path's test_hunks is counted in turn against
+# TEST_HUNKS_CAP bytes (40960 unless set), and a path whose hunks would cross
+# it is cut, its bytes not counted, and the next path tried. A packet shows
+# the hunks of every path not printed and names every printed one as cut;
+# panel-scope.sh --record asks the same question, so a judgment of a cut item
+# counts only when its seat cited reading the file. Always returns 0.
+#
 # Callers: skills/work-on/scripts/red-first.sh, for the tests a red copies onto
 # the base; skills/work-on/scripts/test-change.sh (the hold),
 # skills/work-on/scripts/review-level.sh (the `tests_edited` floor),
@@ -304,5 +321,33 @@ test_classify_unit() {
     fi
     cat "$w/rows"
     rm -rf "$w"
+    return 0
+}
+
+TEST_HUNKS_CAP=${TEST_HUNKS_CAP:-40960}
+
+test_hunks() {
+    local base="$1" head="$2" path="$3" old
+    old=$(git diff --name-status -M "$base" "$head" 2>/dev/null \
+        | awk -F '\t' -v p="$path" '$1 ~ /^R/ && $3 == p { print $2; exit }')
+    if [ -n "$old" ]; then
+        git diff -M "$base" "$head" -- "$old" "$path"
+    else
+        git diff -M "$base" "$head" -- "$path"
+    fi
+}
+
+test_hunks_cut() {
+    local base="$1" head="$2" list="$3" path n used=0
+    [ -f "$list" ] || return 0
+    while IFS= read -r path; do
+        [ -n "$path" ] || continue
+        n=$(test_hunks "$base" "$head" "$path" 2>/dev/null | LC_ALL=C wc -c | tr -d '[:space:]')
+        if [ $((used + ${n:-0})) -gt "$TEST_HUNKS_CAP" ]; then
+            printf '%s\n' "$path"
+        else
+            used=$((used + ${n:-0}))
+        fi
+    done < "$list"
     return 0
 }

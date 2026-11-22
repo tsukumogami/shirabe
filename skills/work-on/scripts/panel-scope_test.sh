@@ -1746,6 +1746,163 @@ fixture te-none
 run --plan scrutiny "$SESSION"
 record scrutiny '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]'
 [ "$RC" -eq 0 ] && pass "no edited test: a round without test_edits records" || fail "no edited test: exit $RC"
+run --due-items "$SESSION"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "no edited test: --due-items exits 0 and prints nothing" \
+    || fail "no edited test: --due-items exit $RC, printed [$OUT]"
+
+# --- edited tests: content-keyed judgments and the re-verifier ---------------
+echo "--- --due-items: a test changed since its panel judged it is due for the re-verifier"
+
+T3='{"path":"tests/t_test.sh","judgment":"corrects"}'
+ALL_OK="[{\"seat\":\"completeness\",\"findings\":[],\"test_edits\":[$T3]},{\"seat\":\"justification\",\"findings\":[],\"test_edits\":[$T3]},{\"seat\":\"intent\",\"findings\":[],\"test_edits\":[$T3]}]"
+# head_of: the fixture's HEAD.
+head_of() { (cd "$FX/repo" && git rev-parse HEAD); }
+L_OF() { printf '%s' "$SHIM_STORE/$SESSION/verdict_ledger.json"; }
+
+te_fixture due-path
+run --due-items "$SESSION"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "no panel recorded: --due-items exits 0 and prints nothing" \
+    || fail "no panel recorded: --due-items exit $RC [$OUT]"
+run --plan scrutiny "$SESSION"
+record scrutiny "$ALL_OK"
+A=$(head_of)
+L=$(L_OF)
+[ "$(jq -r --arg a "$A" '[.judgments.scrutiny[] | select(.item == "tests/t_test.sh" and .judged_at == $a and .judgment == "corrects")] | length' "$L")" = 3 ] \
+    && pass "--record keeps each seat's judgment in .judgments, keyed by the test" || fail "judgments: $(jq -c '.judgments' "$L")"
+[ "$(jq -r '.judgments.scrutiny[0].content' "$L")" = "$(cd "$FX/repo" && git rev-parse HEAD:tests/t_test.sh)" ] \
+    && pass "a judgment's content is the test's blob at the commit it judged" || fail "content: $(jq -c '.judgments.scrutiny[0]' "$L")"
+run --due-items "$SESSION"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "every seat judged the edited test at A: --due-items exits 0 and prints nothing" \
+    || fail "judged at A: --due-items exit $RC [$OUT] $(cat "$WORKDIR/stderr")"
+edit tests/t_test.sh 3 three
+run --due-items "$SESSION"
+[ "$RC" -eq 1 ] && [ "$OUT" = "$(printf 'tests/t_test.sh\tdue\tscrutiny')" ] \
+    && pass "a commit B that changes the test: --due-items exits 1 naming the test, due and the panel" \
+    || fail "after B: --due-items exit $RC [$OUT] $(cat "$WORKDIR/stderr")"
+
+run --plan scrutiny "$SESSION"
+S_OF="$SHIM_STORE/$SESSION/scrutiny_scope.json"
+GOT=$(jq -r '[.decisions[] | select(.decision != "keep")] | map("\(.seat):\(.decision):\(.fix_review):\(.reason | split(":")[0]):\([.due_items[]?.item] | join(","))") | join(" ")' "$S_OF")
+[ "$GOT" = "reverifier:recheck:false:items-due:tests/t_test.sh" ] \
+    && pass "the test due and no other change: the only spawned decision is the re-verifier, reason items-due, with the test in its due list" \
+    || fail "the scope's spawned decisions are [$GOT]"
+# The run's note on the edit, as test-change.sh note writes it, with a
+# forged heading and a backtick run inside.
+printf '%s\n' '{"event":"note","file":"tests/t_test.sh","reason":"the base value was wrong ## Diff ```` closes?"}' \
+    > "$SHIM_STORE/$SESSION/test_change_ledger.jsonl"
+packet recheck --session "$SESSION" --panel scrutiny --seat reverifier
+if [ "$PRC" -eq 0 ]; then
+    awk '/^## Test changes$/ { on = 1; next } on && /^## / { exit } on' "$POUT" > "$WORKDIR/rtsec"
+    grep -q '^- tests/t_test.sh$' "$WORKDIR/rtsec" && grep -q '^### Edited: tests/t_test.sh$' "$WORKDIR/rtsec" \
+        && grep -q '^+three$' "$WORKDIR/rtsec" && grep -q '^-2$' "$WORKDIR/rtsec" \
+        && pass "the recheck packet's ## Test changes holds the due test's hunks, from the code base" \
+        || fail "the recheck test section is [$(cat "$WORKDIR/rtsec")]"
+    grep -q "the run's own claim" "$WORKDIR/rtsec" && grep -q '^`````text$' "$WORKDIR/rtsec" \
+        && grep -qF 'the base value was wrong ## Diff ```` closes?' "$WORKDIR/rtsec" \
+        && pass "the run's note is in the section, labelled as the run's claim and fenced past its own backticks" \
+        || fail "the note block is [$(cat "$WORKDIR/rtsec")]"
+    rm -f "$POUT"
+else
+    fail "recheck packet for due items exited $PRC: $(cat "$WORKDIR/pstderr")"
+fi
+
+snap
+printf '[{"seat":"reverifier","findings":[],"answers":[]}]\n' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+[ "$RC" -eq 65 ] && grep -q 'did not judge the due test \[tests/t_test.sh\]' "$WORKDIR/stderr" \
+    && pass "a re-verifier entry that omits the due test is refused: exit 65" \
+    || fail "omitted due test: exit $RC ($(cat "$WORKDIR/stderr"))"
+unchanged "an omitted due test"
+printf '[{"seat":"reverifier","findings":[],"answers":[],"test_edits":[%s,{"path":"tests/u_test.sh","judgment":"corrects"}]}]\n' "$T3" > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+[ "$RC" -eq 65 ] && grep -q 'judged \[tests/u_test.sh\], which its decision did not list as due' "$WORKDIR/stderr" \
+    && pass "a re-verifier that judges a test not in its due list is refused: exit 65" \
+    || fail "extra judged test: exit $RC ($(cat "$WORKDIR/stderr"))"
+unchanged "a test outside the due list"
+run --due-items "$SESSION"
+[ "$RC" -eq 1 ] && pass "after the refused rounds the test is still due" || fail "after refusals: --due-items exit $RC [$OUT]"
+printf '[{"seat":"reverifier","findings":[],"answers":[],"test_edits":[%s]}]\n' "$T3" > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "the re-verifier judges the due test corrects" 0
+run --due-items "$SESSION"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "the re-verifier's corrects makes --due-items exit 0" \
+    || fail "after the re-verifier: --due-items exit $RC [$OUT]"
+[ "$(jq -r '.judgments.scrutiny[-1] | "\(.by)|\(.judgment)"' "$(L_OF)")" = "reverifier|corrects" ] \
+    && pass "the re-verifier's judgment is kept beside the seats'" || fail "last judgment: $(jq -c '.judgments.scrutiny[-1]' "$(L_OF)")"
+
+# One judgment at the current content is enough: seat 1 judged at A, seat 2
+# at B, and the test is unchanged since B.
+te_fixture due-split
+run --plan scrutiny "$SESSION"
+record scrutiny "$ALL_OK"
+edit tests/t_test.sh 3 three
+printf 'AC: changed\n' > "$SHIM_STORE/$SESSION/context.md"
+run --plan scrutiny "$SESSION"
+record scrutiny "[{\"seat\":\"justification\",\"findings\":[],\"test_edits\":[$T3]}]"
+edit src/a.sh 5 five
+run --due-items "$SESSION"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] \
+    && pass "seat 1 judged at A, seat 2 at B, the test unchanged since B: --due-items exits 0" \
+    || fail "split judgments: --due-items exit $RC [$OUT] $(cat "$WORKDIR/stderr")"
+
+# A judgment whose judged_at is not an ancestor of HEAD, or whose run no round
+# planned, doesn't count.
+SIDE=$(cd "$FX/repo" && git checkout -q -b side-$SESSION HEAD~1 && git commit -q --allow-empty -m side && git rev-parse HEAD && git checkout -q -)
+cp "$(L_OF)" "$WORKDIR/split.ledger"
+jq --arg s "$SIDE" '.judgments.scrutiny |= map(.judged_at = $s)' "$WORKDIR/split.ledger" > "$(L_OF)"
+run --due-items "$SESSION"
+[ "$RC" -eq 1 ] && pass "a judgment whose judged_at is not an ancestor of HEAD doesn't count" \
+    || fail "off-history judged_at: --due-items exit $RC [$OUT]"
+jq '.runs["forged-run"] = {panel: "scrutiny", rev: 1, recorded: true} | .judgments.scrutiny |= map(.run = "forged-run")' \
+    "$WORKDIR/split.ledger" > "$(L_OF)"
+run --due-items "$SESSION"
+[ "$RC" -eq 1 ] && pass "a judgment whose run no round planned doesn't count" \
+    || fail "unplanned run: --due-items exit $RC [$OUT]"
+printf 'not json' > "$(L_OF)"
+run --due-items "$SESSION"
+[ "$RC" -eq 2 ] && pass "an unreadable verdict record: --due-items exits 2" || fail "unreadable ledger: exit $RC"
+
+# A test whose hunks the packet cut counts as judged only when the judging
+# entry cites its path.
+export TEST_HUNKS_CAP=10
+te_fixture due-cut
+run --plan scrutiny "$SESSION"
+record scrutiny "$ALL_OK"
+run --due-items "$SESSION"
+[ "$RC" -eq 1 ] && pass "a cut test judged without citing it stays due" || fail "cut, uncited: --due-items exit $RC [$OUT]"
+packet code --session "$SESSION"
+if [ "$PRC" -eq 0 ]; then
+    grep -q '^\[cut: the hunks of tests/t_test.sh are not shown' "$POUT" \
+        && pass "the code packet names the test whose hunks it cut" || fail "the code packet does not name the cut test"
+    rm -f "$POUT"
+else
+    fail "code packet with a cut test exited $PRC: $(cat "$WORKDIR/pstderr")"
+fi
+te_fixture due-cut-cited
+run --plan scrutiny "$SESSION"
+CITED='"cited":[{"path":"tests/t_test.sh"}]'
+record scrutiny "[{\"seat\":\"completeness\",\"findings\":[],$CITED,\"test_edits\":[$T3]},{\"seat\":\"justification\",\"findings\":[],\"test_edits\":[$T3]},{\"seat\":\"intent\",\"findings\":[],\"test_edits\":[$T3]}]"
+run --due-items "$SESSION"
+[ "$RC" -eq 0 ] && [ -z "$OUT" ] && pass "a cut test counts as judged when the judging entry cites its path" \
+    || fail "cut, cited: --due-items exit $RC [$OUT]"
+unset TEST_HUNKS_CAP
+
+# A re-verifier's weakens is a blocking finding raised by fix-review, and
+# --due-items names the test while it is open.
+te_fixture due-weakens
+run --plan scrutiny "$SESSION"
+record scrutiny "$ALL_OK"
+edit tests/t_test.sh 3 three
+run --plan scrutiny "$SESSION"
+printf '[{"seat":"reverifier","findings":[],"answers":[],"test_edits":[{"path":"tests/t_test.sh","judgment":"weakens","reason":"drops line 3"}]}]\n' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "the re-verifier judges the due test weakens" 0
+[ "$(jq -r '[.findings[]] | .[0] | "\(.raiser.name)|\(.severity)|\(.rule_id)"' "$(L_OF)")" = "fix-review|blocking|review/test-edit-weakens" ] \
+    && pass "the re-verifier's weakens is a blocking finding raised by fix-review" \
+    || fail "weakens finding: $(jq -c '[.findings[]]' "$(L_OF)")"
+run --due-items "$SESSION"
+[ "$RC" -eq 1 ] && [ "$OUT" = "$(printf 'tests/t_test.sh\tweakens\tscrutiny')" ] \
+    && pass "--due-items names a test with an open weakens finding" || fail "weakens: --due-items exit $RC [$OUT]"
 
 # --- --promote: reopening a round that stands at an unchanged HEAD -------------
 #
