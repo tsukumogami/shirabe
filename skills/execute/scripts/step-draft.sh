@@ -76,12 +76,17 @@ case "$cmd" in
         [ $# -eq 2 ] || usage
         check_session "$1"; check_id "$2"
         command -v koto >/dev/null || die 2 "the koto CLI is not on PATH"
+        # koto answers 0 present and 1 absent, saying nothing; anything it does
+        # print, or any other exit, is a failed check, shown as koto wrote it.
         rc=0
-        koto context exists "$1" "step_refine/$2.md" >/dev/null 2>&1 || rc=$?
+        out=$(koto context exists "$1" "step_refine/$2.md" 2>&1) || rc=$?
+        if [ "$rc" -gt 1 ] || { [ "$rc" -eq 1 ] && [ -n "$out" ]; }; then
+            [ -n "$out" ] && printf '%s\n' "$out" >&2
+            die 2 "koto could not check step_refine/$2.md in $1 (exit $rc)"
+        fi
         case "$rc" in
             0) echo "ready=$2" ;;
             1) die 1 "step $2 has no step_refine/$2.md in $1: the owner records the entry before the step starts" ;;
-            *) die 2 "koto could not check step_refine/$2.md in $1" ;;
         esac
         ;;
     *) usage ;;
