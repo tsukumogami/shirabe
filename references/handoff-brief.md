@@ -195,6 +195,13 @@ inside. Exit 2 means git is missing or the argument isn't a directory inside
 a git work tree. Every git call turns off `core.fsmonitor` and
 `core.hooksPath`, so a repository's own configuration runs nothing.
 
+So the order at a run's end is: run the closing step from inside the worktree
+until it prints `closing=pass`, then run `write` from inside the worktree too,
+because `write` reads the branch, the pull request and the pushed head from
+its working directory and records `none` for each when that isn't the
+worktree. Only then move to the instance root and run the closing step again,
+which now prints `done=yes`.
+
 ## The brief at a run's end
 
 ```
