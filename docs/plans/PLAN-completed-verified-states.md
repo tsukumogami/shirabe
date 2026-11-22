@@ -179,9 +179,47 @@ change on the corpus. Run `shirabe validate` on the format reference.
 
 **Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/table.rs`, `crates/shirabe-validate/src/mermaid.rs`, `skills/roadmap/references/roadmap-format.md`
 
-### Step 4: a milestone that owes a verdict no longer stops another milestone's or a dependent's dispatch
+### Step 4: on a roadmap/v4 roadmap, a milestone that owes a verdict unblocks its dependents before its roadmap edit lands
 
-Code 49 and exit 10 apply only to a delivery brief for the owing milestone, the picker offers the owed verdict as a unit, and a coordinator taking a v4 roadmap up lists milestones that owe a verdict.
+**Goal**: On a `roadmap/v4` roadmap the coordinator's picker treats a
+milestone with a `verdict-owed` Work row as satisfying its dependents'
+dependency on it, whatever its roadmap Status reads, so dependents become
+pickable in the pass the milestone's work finishes; the owing milestone itself
+still takes no new delivery work, and its verdict is still offered as a unit.
+A coordinator taking up a `roadmap/v4` roadmap writes a `verdict-owed` row for
+every milestone that reads Completed and has none. The existing refusals
+(dispatch check code 49, `dispatch-worker.sh` exit 10) already apply only to a
+brief for the owing milestone itself; this step keeps them and proves it. On
+`roadmap/v1` to `v3` nothing changes.
+
+**Acceptance Criteria**:
+
+- [ ] On a `roadmap/v4` fixture where Milestone 2 depends on Milestone 1,
+  Milestone 1 reads In progress, and the record holds a `verdict-owed` row for
+  Milestone 1, `pick-facts.sh`'s JSON lists Milestone 2 in its pickable units
+  and gives Milestone 1 `"verdict_owed": true` and no pickable entry.
+- [ ] The same fixture declared `roadmap/v3` gives Milestone 2 blocked by
+  Milestone 1, exactly as on the base commit.
+- [ ] On that v4 fixture, the dispatch check for a brief naming Milestone 2
+  exits 40 (ok), and for a brief naming Milestone 1 exits 49;
+  `dispatch-worker.sh` for Milestone 2 exits 0 and for Milestone 1 exits 10
+  naming the owed verdict.
+- [ ] A coordinator run started over a `roadmap/v4` fixture whose Milestone 3
+  reads Completed, with an empty record, holds a `verdict-owed` row for
+  Milestone 3 after its reconcile pass, and the picker offers Milestone 3's
+  verdict; a milestone that already has the row gets no second one. On a
+  `roadmap/v3` fixture the same start writes no row.
+- [ ] The existing coordinate suites (pick, dispatch, reconcile and their
+  engine tests) pass unchanged.
+
+**Check**: Run `bash skills/coordinate/scripts/run-tests.sh` and the new
+v4 cases in `pick-facts_test.sh`, `dispatch-common_test.sh`,
+`dispatch-worker_test.sh` and the reconcile pass test; see the pick JSON,
+exit codes and rows listed above.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/coordinate/scripts/pick-facts.sh`, `skills/coordinate/scripts/reconcile-pass.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`
 
 ### Step 5: the coordinator records Completed at the merge in its pending roadmap edit or a new one
 
