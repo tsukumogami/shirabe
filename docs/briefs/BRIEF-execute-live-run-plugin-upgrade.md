@@ -70,8 +70,85 @@ today, finishing or starting over, are still there.
 
 ## User Journeys
 
-<Phase 3 will name the concrete journeys that exercise the feature.>
+### Moving a held run onto the fix
+
+The person driving a coordinated execute run sees a node stuck at its
+verification deferral because the run's copy of the script ignores the public
+wording. They install the shirabe release that fixes it, reopen the run and
+ask for it to move. The run reports that it moved onto the installed version,
+and the node's next step runs the fixed script and gets past the deferral. The
+run's request leg, its child runs and its record are the ones it had before.
+
+This journey is the one #1556 asks for: a fix that exists can reach the run
+that needs it.
+
+### Reopening after an upgrade without asking to move
+
+The same person upgrades shirabe for an unrelated reason and reopens a live
+execute run as they always do, without asking for a move. The run carries on
+under the version it was opened under, exactly as it does today, and the
+reopen says whether the run could be moved and how to ask for it.
+
+This journey keeps an upgrade from changing a run nobody asked to change.
+
+### A fix that a per-issue child needs
+
+The bug sits in a script the per-issue `/work-on` run calls, not one the
+parent execute run calls. The person moves the run as in the first journey,
+and the child that's in flight picks up the installed version along with the
+parent. Its next step runs the fixed script. Nobody has to reopen the child
+separately or find out afterwards that only the parent moved.
+
+This journey makes sure the move reaches every part of the run that can hit
+the bug, not just the top.
+
+### A release the run can't follow
+
+A newer release changes the execute template's shape, not only a script it
+calls. The person asks to move a live run onto it. Before anything changes,
+they're told the run can't move onto this release and why. The run stays on
+its version, untouched, and finishing it or starting a fresh run are both
+still open.
+
+This journey keeps a move from leaving a run half-moved or quietly broken.
 
 ## Scope Boundary
 
-<Phase 3 will record what this feature holds in and pushes out.>
+**In scope:**
+
+- Moving a live coordinated `/shirabe:execute` run onto the shirabe version
+  that's installed now, keeping the same run.
+- Carrying the run's request leg, its parent link, its live per-issue
+  `/work-on` children and its run record through the move.
+- Moving only when the person asks, and saying on an ordinary reopen whether a
+  move is possible.
+- Refusing a move the run can't safely make, before any change, with the
+  reason, and leaving the run as it was.
+- Releases whose changes the run's existing template can follow, such as a
+  fixed script.
+
+**Out of scope:**
+
+- Releases that change the structure of the execute or work-on template. A
+  run can't follow those in place; that would need a takeover that replaces
+  the run, which is separate follow-on work.
+- Moving a run automatically whenever a newer version is installed. An
+  upgrade changing a live run unasked is the thing the explicit request
+  guards against.
+- Finished runs. Reopening a finished execute run already replaces it and
+  carries its record forward.
+- `/shirabe:coordinate` runs. They already have a rebind and a takeover
+  route; this brief names them only as the comparison.
+- Moving a run back onto an older version on purpose. The feature is for
+  picking up fixes, not for downgrades.
+
+## Downstream Artifacts
+
+- `docs/designs/DESIGN-execute-live-run-plugin-upgrade.md`: the technical
+  approach for moving a live execute run and its children onto the installed
+  version.
+
+## References
+
+- `docs/briefs/BRIEF-settled-branch-record.md`: the settled branch record a
+  hand-run supersede would break by changing the run's name.
