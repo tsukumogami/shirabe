@@ -70,7 +70,8 @@
 #   VERIFICATION           `--verification=<local|hosted-ci>`, the same way.
 #   VERIFICATION_DEFERRAL_REASON
 #                          `--verification-reason=<text>`, the same way.
-#   STEP_DRAFTS            `--step-drafts=<on|off>`, the same way.
+#   STEP_DRAFTS            `--step-drafts=<on|off>`, the same way, on a single-pr
+#                          PLAN only; a coordinated PLAN gets no pair.
 #   STORE                  `--store <v>` or `--store=<v>`
 #   COORDINATION_PR        `--coordination-pr <url>`
 #   FOLLOW_UP              `--follow-up <node>=<url>` -> `<node> <url>`: the
@@ -634,7 +635,9 @@ printf '%s' "$TOKENS" | jq -c \
     | bound("--review-ceiling"; "REVIEW_CEILING") as $ceilings
     | bound("--verification"; "VERIFICATION") as $verifications
     | bound("--verification-reason"; "VERIFICATION_DEFERRAL_REASON") as $reasons
-    | bound("--step-drafts"; "STEP_DRAFTS") as $drafts
+    # STEP_DRAFTS exists only in the single-pr template (execute.md); a
+    # coordinated PLAN takes no pair, so the flag is ignored there.
+    | (if $coordinated == 1 then [] else bound("--step-drafts"; "STEP_DRAFTS") end) as $drafts
     | [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
     | [ .[] | select(. == "--auto" or . == "--interactive") ] as $modes
     | (if $plan == "" then [] else [["PLAN_DOC", $plan], ["PLAN_SLUG", $slug]] end)
