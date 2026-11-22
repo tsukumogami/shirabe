@@ -3,28 +3,55 @@
 # compaction note its hooks read back.
 #
 # Usage:
-#   scripts/handoff-brief.sh write --reasoning <file> --event end|stop [--file <path>]...
+#   scripts/handoff-brief.sh write --reasoning <file> --event end|park|stop [--file <path>]...
 #                                  [--watch "<label>=<re-arm command>"]...
 #                                  [--standing-rules <file>] [--instance <root>]
+#                                  [--keep-record <path>]
+#   scripts/handoff-brief.sh resume [--instance <root>] [--keep-record <path>]
 #   scripts/handoff-brief.sh read [--session <name>]
 #   scripts/handoff-brief.sh note --reasoning <file> --skill "<name> [<args>] <SKILL.md path>"
 #                                 [--skill ...] [--koto-session <name>] [--pr <url>]
 #
 # write stores one brief as key brief/brief.md in the session's koto session,
-# and each named file's exact bytes at brief/files/<sha256>. The brief has
-# four sections, in order: Reasoning (the --reasoning file), Pointers (the
-# koto session, branch, open pull request, the remote branch's commit, and
-# each --watch), Files (one line per named file: its path under its scratch
-# root, sha256, byte count) and Standing rules (the --standing-rules file, or
-# `None stated.`). Pointers are read, never passed: the branch from git, the
-# pull request from `gh pr list --head <branch> --state open`, the pushed head
-# from `git ls-remote <remote name>`.
+# and each named file of at most 262,144 bytes (the inline size) at
+# brief/files/<sha256>, holding its exact bytes; a larger file is named by
+# reference only. The brief has four sections, in order: Reasoning (the
+# --reasoning file), Pointers (the koto session, branch, open pull request,
+# the remote branch's commit, and each --watch), Files (one line per named
+# file: its path under its scratch root, sha256, byte count, and inline:yes or
+# inline:no) and Standing rules (the --standing-rules file, or `None stated.`).
+# Pointers are read, never passed: the branch from git, the pull request from
+# `gh pr list --head <branch> --state open`, the pushed head from
+# `git ls-remote <remote name>`. write refuses a brief whose named files total
+# over 2,097,152 bytes (the record cap), by-reference files included, or whose
+# rendered brief/brief.md is over the inline size.
 #
 # The koto session is $KOTO_SESSION when set. With no koto run, write opens a
 # plain koto session handoff-<job-id> (the base name of $CLAUDE_JOB_DIR), or
 # handoff-<session-id> when there is no job, writes the brief there, and
 # closes it done; a closed session's keys stay readable. With none of the
 # three, write refuses.
+#
+# The keep record is written only when a path is given, by --keep-record or
+# $HANDOFF_KEEP_RECORD (the argument wins). A relative path resolves against
+# --instance, and is refused without it; a path whose directory is missing or
+# is a symlink is refused. The record is JSON: write replaces only its own
+# fields (unit, written_by, written_at, brief, files, protects, resumed_at)
+# and keeps every other field, through a temporary file in the record's own
+# directory renamed over it, under a mkdir lock <path>.lock holding the
+# owner's pid and host. A lock whose pid is alive on this host, or that is
+# younger than ten minutes, is never taken over: the call refuses, naming it.
+# protects is ["instance", "files", "transcript"] for --event park or when a
+# file is named by reference, else ["files", "transcript"].
+#
+# Keys are stored in the order file keys, brief/brief.md, then the record. A
+# store that fails removes the keys this call added and puts back a
+# brief/brief.md it overwrote, then exits 2.
+#
+# resume finds the koto session as write does, refuses unless its latest
+# brief is a park, and stores brief/resumed holding the UTC time. With a
+# record path it sets the record's resumed_at to that time and drops
+# "instance" from protects unless the record's files name a by-reference file.
 #
 # A named file, and the --reasoning and --standing-rules files, must be a
 # regular file with link count 1 and no symlink anywhere in its path, inside
@@ -36,15 +63,18 @@
 # token-shaped string, a private key block, a JWT, a bearer header, a URL with
 # a password, cloud key JSON or a run of secret KEY=VALUE lines in a file, the
 # reasoning, the rules or a watch; a tab, control or format character in a
-# path or a watch; a shell operator in a watch. references/handoff-brief.md
-# lists every rule and what the scan misses.
+# path or a watch; a shell operator in a watch. These apply to every named
+# file, inline or by reference. references/handoff-brief.md lists every rule
+# and what the scan misses.
 #
 # read prints a brief as data: pointers first, then the reasoning and the
 # standing rules each between delimiters made fresh for this call, then the
 # Files section, each inline file's hash checked against its key and its bytes
-# printed between fresh delimiters. Control and format characters are shown
-# as <U+XXXX>, and a heading or brief field line inside free text or a file is
-# prefixed [flag]. Nothing read is run, and no file bytes are written to disk.
+# printed between fresh delimiters, and each by-reference file shown as by
+# reference with its sha256 and bytes. When brief/resumed exists it prints
+# the resumed time. Control and format characters are shown as <U+XXXX>, and
+# a heading or brief field line inside free text or a file is prefixed
+# [flag]. Nothing read is run, and no file bytes are written to disk.
 #
 # note writes the reasoning file as key compaction/note.md in the koto session
 # (--koto-session, else $KOTO_SESSION), then the session's ledger entry, which
@@ -64,7 +94,7 @@
 # Exit codes, every subcommand:
 #   0  done
 #   1  refused, with the cause named; nothing was written
-#   2  koto, git or gh is unavailable or failed
+#   2  koto, git, gh or jq is unavailable or failed
 #
 # Every git call runs with core.fsmonitor and core.hooksPath turned off; gh
 # runs under the repository's own configuration.
@@ -78,6 +108,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 TEMPLATE="$HERE/../koto-templates/skill-session.md"
 NOTE_KEY=compaction/note.md
 BRIEF_KEY=brief/brief.md
+RESUMED_KEY=brief/resumed
+# A named file at or under the inline size is stored in koto; a larger one is
+# named by reference. The rendered brief/brief.md obeys the same size. The
+# record cap bounds every file one brief names, by reference included.
+INLINE_MAX=262144
+RECORD_CAP=2097152
+# A record lock older than this, whose pid is gone on this host, is stale.
+LOCK_STALE_SECS=600
 MAX_SKILLS=8
 # The largest entry written. The hooks read at most 16 KiB and withhold a
 # re-anchor block of 10,000 characters or more; the block repeats the entry's
@@ -87,7 +125,7 @@ MAX_ENTRY_BYTES=8192
 G=(git -c core.fsmonitor=false -c core.hooksPath=/dev/null)
 
 usage() {
-    sed -n '5,11p' "$0" | sed 's/^# \{0,1\}//' >&2
+    sed -n '5,13p' "$0" | sed 's/^# \{0,1\}//' >&2
 }
 
 refuse() {
@@ -251,7 +289,7 @@ scan_file() {
     return 1
 }
 
-# --- write -----------------------------------------------------------------------
+# --- named paths -----------------------------------------------------------------
 
 # Scratch roots, each with its logical and physical spelling and its kind:
 # scratch (the job's scratch directory), job (the job directory, for the
@@ -377,53 +415,285 @@ check_free_text() {
     fi
 }
 
-# Stored keys this call added, removed again if a later store fails.
+# --- the koto session, the instance and the keep record ---------------------------
+
+# identity -- the koto session a brief lives in, found the same way by write
+# and resume: $KOTO_SESSION, else handoff-<job-id>, else handoff-<session-id>.
+# Sets SESSION, and JOB_ID and SID for the record (each empty when absent or
+# outside its grammar).
+SESSION="" JOB_ID="" SID=""
+identity() {
+    JOB_ID="" SID=""
+    if [ -n "${CLAUDE_JOB_DIR:-}" ] && [ -d "$CLAUDE_JOB_DIR" ]; then
+        JOB_ID="${CLAUDE_JOB_DIR%/}"
+        JOB_ID="${JOB_ID##*/}"
+        if [ -f "$CLAUDE_JOB_DIR/state.json" ]; then
+            SID=$(sed -n '/"sessionId"/{s/.*"sessionId"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9-]*\)".*/\1/p;q;}' "$CLAUDE_JOB_DIR/state.json")
+        fi
+    fi
+    [ -n "$SID" ] || SID="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+    if [ -n "${KOTO_SESSION:-}" ]; then
+        SESSION="$KOTO_SESSION"
+        valid_koto_session "$SESSION" || refuse "KOTO_SESSION [$(shown "$SESSION")] is not a koto session name"
+    elif [ -n "$JOB_ID" ]; then
+        valid_sid "$JOB_ID" || refuse "the job id [$(shown "$JOB_ID")] is outside [A-Za-z0-9-]{1,64}"
+        SESSION="handoff-$JOB_ID"
+    elif [ -n "$SID" ]; then
+        valid_sid "$SID" || refuse "the session id is outside [A-Za-z0-9-]{1,64}"
+        SESSION="handoff-$SID"
+    else
+        refuse "no identity to name a koto session: KOTO_SESSION is unset, there is no job id (CLAUDE_JOB_DIR) and no session id (CLAUDE_CODE_SESSION_ID)"
+    fi
+    valid_sid "$JOB_ID" || JOB_ID=""
+    valid_sid "$SID" || SID=""
+}
+
+# check_instance <root> -- an --instance that exists, encloses the working
+# directory and sits in no git worktree. Sets INSTANCE_P, its physical path.
+INSTANCE_P=""
+check_instance() {
+    local out
+    [ -d "$1" ] || refuse "--instance [$(shown "$1")] is not a directory"
+    out=$(cd "$1" && pwd -P) || refuse "--instance [$(shown "$1")] cannot be resolved"
+    case "$(pwd -P)/" in
+        "$out"/*) ;;
+        *) refuse "--instance [$1] does not enclose the working directory" ;;
+    esac
+    if in_git "$out"; then
+        refuse "--instance [$1] sits inside a git worktree; it must be the directory above the repositories"
+    fi
+    INSTANCE_P="$out"
+}
+
+# record_path <--keep-record value> -- the keep record's path: the argument,
+# else $HANDOFF_KEEP_RECORD, else none. A relative path resolves against
+# --instance (check_instance runs first). Sets RECORD (empty for none),
+# RECORD_DIR and LOCK, the lock directory beside the record.
+RECORD="" RECORD_DIR="" LOCK=""
+record_path() {
+    local rec="$1" src=--keep-record
+    if [ -z "$rec" ]; then
+        rec="${HANDOFF_KEEP_RECORD:-}"
+        src=HANDOFF_KEEP_RECORD
+    fi
+    [ -n "$rec" ] || return 0
+    case "$rec" in
+        /*) ;;
+        *)
+            [ -n "$INSTANCE_P" ] || refuse "$src [$rec]: the record path is relative, and there is no --instance to resolve it against"
+            rec="$INSTANCE_P/$rec"
+            ;;
+    esac
+    case "$rec" in
+        */) refuse "$src [$rec]: names a directory, not a record file" ;;
+    esac
+    RECORD_DIR="${rec%/*}"
+    [ -n "$RECORD_DIR" ] || RECORD_DIR=/
+    [ -L "$RECORD_DIR" ] && refuse "$src [$rec]: the record's directory [$RECORD_DIR] is a symlink"
+    [ -d "$RECORD_DIR" ] || refuse "$src [$rec]: the record's directory [$RECORD_DIR] does not exist"
+    [ -L "$rec" ] && refuse "$src [$rec]: the record is a symlink"
+    if [ -e "$rec" ] && [ ! -f "$rec" ]; then
+        refuse "$src [$rec]: the record is not a regular file"
+    fi
+    command -v jq >/dev/null 2>&1 || fault "jq is not on PATH; the keep record is JSON"
+    RECORD="$rec"
+    LOCK="$rec.lock"
+}
+
+# mtime_of <path> -- seconds since the epoch. GNU stat first, as link_count.
+mtime_of() {
+    stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
+}
+
+# take_lock -- the record lock: a mkdir directory beside the record holding
+# one line, "<pid> <host>". A held lock is taken over only when it is older
+# than LOCK_STALE_SECS and its pid is gone on this host; any other held lock
+# refuses the call at once, with no wait and no retry. cleanup removes it.
+LOCKED=0
+take_lock() {
+    local host owner="" opid ohost mt age took=0
+    host=$(uname -n) || fault "cannot read this host's name"
+    if ! (umask 077 && mkdir "$LOCK") 2>"$PRIV/lock.err"; then
+        [ -L "$LOCK" ] && refuse "the record lock [$LOCK] is a symlink, not a lock directory; nothing was written"
+        [ -d "$LOCK" ] || fault "cannot create the record lock [$LOCK]: $(shown "$(cat "$PRIV/lock.err")")"
+        [ -f "$LOCK/owner" ] && IFS= read -r owner <"$LOCK/owner"
+        opid="${owner%% *}"
+        ohost="${owner#* }"
+        [ "$ohost" != "$owner" ] || ohost=""
+        mt=$(mtime_of "$LOCK") || fault "cannot read the age of the record lock [$LOCK]"
+        age=$(($(date +%s) - mt))
+        if [[ "$opid" =~ ^[0-9]{1,10}$ ]] && [ "$ohost" = "$host" ] && [ "$age" -gt "$LOCK_STALE_SECS" ]; then
+            command -v ps >/dev/null 2>&1 || fault "ps is not on PATH, so the record lock's pid can't be checked"
+            if ! ps -p "$opid" >/dev/null; then
+                rm -rf "$LOCK" || fault "cannot remove the stale record lock [$LOCK]"
+                (umask 077 && mkdir "$LOCK") 2>"$PRIV/lock.err" \
+                    || refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
+                took=1
+            fi
+        fi
+        [ "$took" -eq 1 ] \
+            || refuse "the keep record is locked: [$LOCK] is held by pid $(shown "${opid:-unknown}") on host $(shown "${ohost:-unknown}"), ${age}s old. A lock is taken over only when it is over ten minutes old and its pid is gone on this host; nothing was written"
+    fi
+    LOCKED=1
+    printf '%s %s\n' "$$" "$host" >"$LOCK/owner" || fault "cannot write the record lock's owner"
+}
+
+# record_base -- the record at RECORD, or {} when there is none, copied to
+# $PRIV/record.old. A record that isn't one JSON object is refused and left
+# byte for byte as it was.
+record_base() {
+    local rc
+    if [ ! -e "$RECORD" ]; then
+        printf '{}\n' >"$PRIV/record.old" || fault "cannot write the private directory"
+        return 0
+    fi
+    cat "$RECORD" >"$PRIV/record.old" || fault "cannot read the keep record [$RECORD]"
+    jq -e -s 'length == 1 and (.[0] | type) == "object"' "$PRIV/record.old" >/dev/null 2>"$PRIV/jq.err"
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) refuse "the keep record [$RECORD] is not one JSON object; it was left as it was" ;;
+        *) refuse "the keep record [$RECORD] is not valid JSON ($(shown "$(head -n 1 "$PRIV/jq.err")")); it was left as it was" ;;
+    esac
+}
+
+# put_record -- $PRIV/record.new renamed over the record from a temporary
+# file in the record's own directory. A failure undoes this call's keys.
+put_record() {
+    local tmp
+    tmp=$(umask 077 && mktemp "$RECORD_DIR/.handoff-record.XXXXXX") || {
+        rollback
+        fault "cannot create a temporary file in the keep record's directory [$RECORD_DIR]; the keys this call stored were undone"
+    }
+    if ! { cat "$PRIV/record.new" >"$tmp" && chmod 600 "$tmp" && mv -f "$tmp" "$RECORD"; }; then
+        rm -f "$tmp"
+        rollback
+        fault "cannot put the keep record in place at [$RECORD]; the keys this call stored were undone"
+    fi
+}
+
+# cleanup -- on exit: the record lock this call holds, and the private
+# directory.
+PRIV=""
+cleanup() {
+    if [ "$LOCKED" -eq 1 ]; then
+        rm -f "$LOCK/owner"
+        rmdir "$LOCK" || printf '%s: could not remove the record lock [%s]\n' "$PROG" "$LOCK" >&2
+    fi
+    [ -z "$PRIV" ] || rm -rf "$PRIV"
+}
+
+# make_priv -- the private 0700 directory every copy lives in.
+make_priv() {
+    PRIV=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/handoff-brief.XXXXXX") || fault "cannot create a private directory"
+    trap cleanup EXIT
+    chmod 700 "$PRIV" || fault "cannot set the private directory's mode"
+}
+
+# --- storing keys ----------------------------------------------------------------
+
+# The keys a call stores, in order. Every one is checked with `koto context
+# exists` before any is stored: 0 is present, 1 absent, anything else a fault,
+# so a koto that fails is never read as an absent key. If a later store
+# fails, each key that was absent and got stored is removed again, and the
+# one key this call may overwrite with new bytes (brief/brief.md for write,
+# brief/resumed for resume) is put back to the bytes it held before.
+K_KEY=()
+K_FILE=()
+K_NEW=()
 STORED=()
-SESSION=""
-rollback() {
-    local k
-    [ "${#STORED[@]}" -gt 0 ] || return 0
-    for k in "${STORED[@]}"; do
-        koto context remove "$SESSION" "$k" >/dev/null || printf '%s: could not remove %s from %s\n' "$PROG" "$k" "$SESSION" >&2
+RESTORE_KEY=""
+RESTORE_SAVED=0
+RESTORE_TRIED=0
+
+# plan_key <key> <file> -- add a key to store, once.
+plan_key() {
+    local i=0
+    while [ "$i" -lt "${#K_KEY[@]}" ]; do
+        [ "${K_KEY[$i]}" = "$1" ] && return 0
+        i=$((i + 1))
+    done
+    K_KEY+=("$1")
+    K_FILE+=("$2")
+}
+
+# check_keys <restore key> -- is each planned key there? Saves the restore
+# key's earlier bytes when it is.
+check_keys() {
+    local i=0 rc
+    RESTORE_KEY="$1"
+    while [ "$i" -lt "${#K_KEY[@]}" ]; do
+        koto context exists "$SESSION" "${K_KEY[$i]}" >/dev/null
+        rc=$?
+        case "$rc" in
+            0)
+                K_NEW+=(0)
+                if [ "${K_KEY[$i]}" = "$RESTORE_KEY" ]; then
+                    koto context get "$SESSION" "$RESTORE_KEY" >"$PRIV/restore" \
+                        || fault "koto context get $SESSION $RESTORE_KEY failed; nothing was stored"
+                    RESTORE_SAVED=1
+                fi
+                ;;
+            1) K_NEW+=(1) ;;
+            *) fault "koto context exists $SESSION ${K_KEY[$i]} failed (exit $rc); nothing was stored" ;;
+        esac
+        i=$((i + 1))
     done
 }
 
-# kstore <key> <file> -- add one key; on failure undo this call's keys.
-kstore() {
-    local existed=0 out
-    if koto context exists "$SESSION" "$1" >/dev/null; then
-        existed=1
+rollback() {
+    local k
+    if [ "${#STORED[@]}" -gt 0 ]; then
+        for k in "${STORED[@]}"; do
+            koto context remove "$SESSION" "$k" >/dev/null || printf '%s: could not remove %s from %s\n' "$PROG" "$k" "$SESSION" >&2
+        done
     fi
-    if ! out=$(koto context add "$SESSION" "$1" --from-file "$2" 2>&1); then
-        rollback
-        fault "koto context add $SESSION $1 failed: $(shown "$out")"
+    if [ "$RESTORE_SAVED" -eq 1 ] && [ "$RESTORE_TRIED" -eq 1 ]; then
+        koto context add "$SESSION" "$RESTORE_KEY" --from-file "$PRIV/restore" >/dev/null \
+            || printf '%s: could not put back the earlier %s in %s\n' "$PROG" "$RESTORE_KEY" "$SESSION" >&2
     fi
-    [ "$existed" -eq 1 ] || STORED+=("$1")
 }
 
+# store_keys -- every planned key, in order; on a failure, undo and exit 2.
+store_keys() {
+    local i=0 out
+    while [ "$i" -lt "${#K_KEY[@]}" ]; do
+        [ "${K_KEY[$i]}" = "$RESTORE_KEY" ] && RESTORE_TRIED=1
+        if ! out=$(koto context add "$SESSION" "${K_KEY[$i]}" --from-file "${K_FILE[$i]}" 2>&1); then
+            rollback
+            fault "koto context add $SESSION ${K_KEY[$i]} failed: $(shown "$out")"
+        fi
+        [ "${K_NEW[$i]}" -eq 0 ] || STORED+=("${K_KEY[$i]}")
+        i=$((i + 1))
+    done
+}
+
+# --- write -----------------------------------------------------------------------
+
 cmd_write() {
-    local reasoning="" rules="" event="" instance="" f w label cmd job_id="" sid="" opened=0
+    local reasoning="" rules="" event="" instance="" keep="" f w label cmd opened=0
     local branch=none pr=none head=none remote merge out prs line i written_at sha bytes copy src_sha
+    local size total=0 byref=0 protects
     local files=() watches=()
-    local F_REL=() F_KIND=() F_SHA=() F_BYTES=() F_COPY=()
+    local F_REL=() F_KIND=() F_SHA=() F_BYTES=() F_COPY=() F_PHYS=() F_INLINE=()
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --reasoning)      [ "$#" -ge 2 ] || refuse "--reasoning needs a file"; reasoning="$2"; shift ;;
             --standing-rules) [ "$#" -ge 2 ] || refuse "--standing-rules needs a file"; rules="$2"; shift ;;
             --file)           [ "$#" -ge 2 ] || refuse "--file needs a path"; files+=("$2"); shift ;;
             --watch)          [ "$#" -ge 2 ] || refuse "--watch needs <label>=<command>"; watches+=("$2"); shift ;;
-            --event)          [ "$#" -ge 2 ] || refuse "--event needs end or stop"; event="$2"; shift ;;
+            --event)          [ "$#" -ge 2 ] || refuse "--event needs end, park or stop"; event="$2"; shift ;;
             --instance)       [ "$#" -ge 2 ] || refuse "--instance needs a directory"; instance="$2"; shift ;;
+            --keep-record)    [ "$#" -ge 2 ] || refuse "--keep-record needs a path"; keep="$2"; shift ;;
             -h|--help)        usage; exit 0 ;;
             *) refuse "unknown argument: $(shown "$1")" ;;
         esac
         shift
     done
     case "$event" in
-        end|stop) ;;
-        park) refuse "--event park is not supported yet; it comes with resume" ;;
-        "") refuse "--event is required: end or stop" ;;
-        *) refuse "--event must be end or stop, not [$(shown "$event")]" ;;
+        end|park|stop) ;;
+        "") refuse "--event is required: end, park or stop" ;;
+        *) refuse "--event must be end, park or stop, not [$(shown "$event")]" ;;
     esac
     [ -n "$reasoning" ] || refuse "--reasoning is required"
 
@@ -431,30 +701,7 @@ cmd_write() {
     command -v git >/dev/null 2>&1 || fault "git is not on PATH"
     [ -f "$TEMPLATE" ] || fault "the koto store template is missing: $TEMPLATE"
 
-    # The koto session: the run's, or a plain one named for the job or the
-    # Claude session.
-    if [ -n "${KOTO_SESSION:-}" ]; then
-        SESSION="$KOTO_SESSION"
-        valid_koto_session "$SESSION" || refuse "KOTO_SESSION [$(shown "$SESSION")] is not a koto session name"
-    else
-        if [ -n "${CLAUDE_JOB_DIR:-}" ] && [ -d "$CLAUDE_JOB_DIR" ]; then
-            job_id="${CLAUDE_JOB_DIR%/}"
-            job_id="${job_id##*/}"
-            valid_sid "$job_id" || refuse "the job id [$(shown "$job_id")] is outside [A-Za-z0-9-]{1,64}"
-            if [ -f "$CLAUDE_JOB_DIR/state.json" ]; then
-                sid=$(sed -n '/"sessionId"/{s/.*"sessionId"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9-]*\)".*/\1/p;q;}' "$CLAUDE_JOB_DIR/state.json")
-            fi
-        fi
-        [ -n "$sid" ] || sid="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
-        if [ -n "$job_id" ]; then
-            SESSION="handoff-$job_id"
-        elif [ -n "$sid" ]; then
-            valid_sid "$sid" || refuse "the session id is outside [A-Za-z0-9-]{1,64}"
-            SESSION="handoff-$sid"
-        else
-            refuse "no identity to name a koto session: KOTO_SESSION is unset, there is no job id (CLAUDE_JOB_DIR) and no session id (CLAUDE_CODE_SESSION_ID)"
-        fi
-    fi
+    identity
 
     # The scratch roots.
     if [ -n "${CLAUDE_JOB_DIR:-}" ] && [ -d "$CLAUDE_JOB_DIR" ]; then
@@ -462,21 +709,12 @@ cmd_write() {
         add_root "${CLAUDE_JOB_DIR%/}" job
     fi
     if [ -n "$instance" ]; then
-        [ -d "$instance" ] || refuse "--instance [$(shown "$instance")] is not a directory"
-        out=$(cd "$instance" && pwd -P) || refuse "--instance [$(shown "$instance")] cannot be resolved"
-        case "$(pwd -P)/" in
-            "$out"/*) ;;
-            *) refuse "--instance [$instance] does not enclose the working directory" ;;
-        esac
-        if in_git "$out"; then
-            refuse "--instance [$instance] sits inside a git worktree; it must be the directory above the repositories"
-        fi
+        check_instance "$instance"
         add_root "$instance" instance
     fi
+    record_path "$keep"
 
-    PRIV=$(umask 077 && mktemp -d "${TMPDIR:-/tmp}/handoff-brief.XXXXXX") || fault "cannot create a private directory"
-    trap 'rm -rf "$PRIV"' EXIT
-    chmod 700 "$PRIV" || fault "cannot set the private directory's mode"
+    make_priv
 
     written_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -520,11 +758,16 @@ cmd_write() {
 
     # The named files: each copied once into the private directory; size,
     # hash and stored bytes come from the copy, and the source is hashed again
-    # after the copy so a file swapped mid-write can't pass under a hash.
+    # after the copy so a file swapped mid-write can't pass under a hash. The
+    # source's size is checked against the record cap before the copy, so a
+    # huge file is never copied.
     if [ "${#files[@]}" -gt 0 ]; then
         i=0
         for f in "${files[@]}"; do
             check_path "$f" "--file" 0
+            size=$(byte_count "$CP_PHYS") || refuse "--file [$f]: cannot be read"
+            [ $((total + size)) -le "$RECORD_CAP" ] \
+                || refuse "--file [$f]: the named files would total $((total + size)) bytes, over the record cap of $RECORD_CAP bytes (by-reference files count)"
             copy="$PRIV/file.$i"
             cat "$CP_PHYS" >"$copy" || refuse "--file [$f]: cannot be read"
             sha=$(sha256_file "$copy")
@@ -534,8 +777,18 @@ cmd_write() {
                 refuse "--file [$f]: holds $SCAN_KIND"
             fi
             bytes=$(byte_count "$copy")
+            total=$((total + bytes))
+            [ "$total" -le "$RECORD_CAP" ] \
+                || refuse "--file [$f]: the named files total $total bytes, over the record cap of $RECORD_CAP bytes (by-reference files count)"
+            if [ "$bytes" -le "$INLINE_MAX" ]; then
+                F_INLINE+=(yes)
+            else
+                F_INLINE+=(no)
+                byref=1
+            fi
             F_REL+=("$CP_REL")
             F_KIND+=("$CP_KIND")
+            F_PHYS+=("$CP_PHYS")
             F_SHA+=("$sha")
             F_BYTES+=("$bytes")
             F_COPY+=("$copy")
@@ -603,8 +856,8 @@ EOF
         else
             i=0
             while [ "$i" -lt "${#F_SHA[@]}" ]; do
-                printf '%s:%s\tsha256:%s\tbytes:%s\tinline:yes\n' \
-                    "${F_KIND[$i]}" "${F_REL[$i]}" "${F_SHA[$i]}" "${F_BYTES[$i]}"
+                printf '%s:%s\tsha256:%s\tbytes:%s\tinline:%s\n' \
+                    "${F_KIND[$i]}" "${F_REL[$i]}" "${F_SHA[$i]}" "${F_BYTES[$i]}" "${F_INLINE[$i]}"
                 i=$((i + 1))
             done
         fi
@@ -616,9 +869,57 @@ EOF
             printf 'None stated.\n'
         fi
     } >"$PRIV/brief.md" || fault "cannot render the brief"
+    size=$(byte_count "$PRIV/brief.md")
+    [ "$size" -le "$INLINE_MAX" ] \
+        || refuse "the rendered $BRIEF_KEY would be $size bytes, over the inline size of $INLINE_MAX bytes; shorten the reasoning or the standing rules"
 
-    # The store: a plain session first when there is no koto run, then the
-    # file keys, then the brief, so a brief never names a key that isn't there.
+    # The keep record, built in full before anything is stored. protects is
+    # computed, never passed in.
+    if [ "$event" = park ] || [ "$byref" -eq 1 ]; then
+        protects='["instance","files","transcript"]'
+    else
+        protects='["files","transcript"]'
+    fi
+    if [ -n "$RECORD" ]; then
+        take_lock
+        record_base
+        : >"$PRIV/files.tsv" || fault "cannot write the private directory"
+        i=0
+        while [ "$i" -lt "${#F_SHA[@]}" ]; do
+            printf '%s\t%s\t%s\t%s\n' "${F_PHYS[$i]}" "${F_SHA[$i]}" "${F_BYTES[$i]}" "${F_INLINE[$i]}" >>"$PRIV/files.tsv"
+            i=$((i + 1))
+        done
+        jq -n --arg inst "$INSTANCE_P" --arg job "$JOB_ID" --arg sid "$SID" --arg at "$written_at" \
+            --arg ks "$SESSION" --arg key "$BRIEF_KEY" --argjson protects "$protects" \
+            --rawfile files "$PRIV/files.tsv" '
+            def or_null: if . == "" then null else . end;
+            {
+                unit: {instance: ($inst | or_null), job_id: ($job | or_null), session_id: ($sid | or_null)},
+                written_by: "handoff-brief.sh",
+                written_at: $at,
+                brief: {koto_session: $ks, key: $key},
+                files: [$files | split("\n")[] | select(length > 0) | split("\t")
+                    | {path: .[0], sha256: .[1], bytes: (.[2] | tonumber), inline: (.[3] == "yes")}],
+                protects: $protects,
+                resumed_at: null
+            }' >"$PRIV/record.own" 2>"$PRIV/jq.err" \
+            || fault "jq could not build the keep record: $(shown "$(cat "$PRIV/jq.err")")"
+        jq -s '.[0] + .[1]' "$PRIV/record.old" "$PRIV/record.own" >"$PRIV/record.new" 2>"$PRIV/jq.err" \
+            || fault "jq could not merge the keep record: $(shown "$(cat "$PRIV/jq.err")")"
+    fi
+
+    # The keys: the inline file keys, then the brief, so a brief never names
+    # a key that isn't there; then the record, so a record never points at a
+    # brief that isn't there.
+    i=0
+    while [ "$i" -lt "${#F_SHA[@]}" ]; do
+        [ "${F_INLINE[$i]}" = yes ] && plan_key "brief/files/${F_SHA[$i]}" "${F_COPY[$i]}"
+        i=$((i + 1))
+    done
+    plan_key "$BRIEF_KEY" "$PRIV/brief.md"
+    check_keys "$BRIEF_KEY"
+
+    # A plain session first when there is no koto run.
     if [ -z "${KOTO_SESSION:-}" ]; then
         if ! out=$(koto status "$SESSION" 2>&1); then
             out=$(koto init "$SESSION" --template "$TEMPLATE" 2>&1) || fault "koto init $SESSION failed: $(shown "$out")"
@@ -631,14 +932,8 @@ EOF
             esac
         fi
     fi
-    if [ "${#F_SHA[@]}" -gt 0 ]; then
-        i=0
-        while [ "$i" -lt "${#F_SHA[@]}" ]; do
-            kstore "brief/files/${F_SHA[$i]}" "${F_COPY[$i]}"
-            i=$((i + 1))
-        done
-    fi
-    kstore "$BRIEF_KEY" "$PRIV/brief.md"
+    store_keys
+    [ -z "$RECORD" ] || put_record
     if [ "$opened" -eq 1 ]; then
         out=$(koto next "$SESSION" --no-cleanup --with-data '{"close":"done"}' 2>&1) \
             || fault "the brief is stored, but closing $SESSION failed: $(shown "$out")"
@@ -647,6 +942,69 @@ EOF
     printf 'session=%s\n' "$SESSION"
     printf 'key=%s\n' "$BRIEF_KEY"
     printf 'files=%s\n' "${#F_SHA[@]}"
+    [ -z "$RECORD" ] || printf 'record=%s\n' "$RECORD"
+    exit 0
+}
+
+# --- resume ----------------------------------------------------------------------
+
+cmd_resume() {
+    local instance="" keep="" rc ev resumed_at
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --instance)    [ "$#" -ge 2 ] || refuse "--instance needs a directory"; instance="$2"; shift ;;
+            --keep-record) [ "$#" -ge 2 ] || refuse "--keep-record needs a path"; keep="$2"; shift ;;
+            -h|--help)     usage; exit 0 ;;
+            *) refuse "unknown argument: $(shown "$1")" ;;
+        esac
+        shift
+    done
+    command -v koto >/dev/null 2>&1 || fault "koto is not on PATH"
+
+    identity
+    [ -z "$instance" ] || check_instance "$instance"
+    record_path "$keep"
+
+    make_priv
+
+    # The latest brief must be a park.
+    koto context exists "$SESSION" "$BRIEF_KEY" >/dev/null
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) refuse "no $BRIEF_KEY in koto session $SESSION, so there is no park to resume" ;;
+        *) fault "koto context exists $SESSION $BRIEF_KEY failed (exit $rc)" ;;
+    esac
+    koto context get "$SESSION" "$BRIEF_KEY" >"$PRIV/brief.md" || fault "koto context get $SESSION $BRIEF_KEY failed"
+    ev=$(sed -n '/^## /q; /^event: /{s/^event: //p;q;}' "$PRIV/brief.md")
+    [ "$ev" = park ] || refuse "the latest brief in koto session $SESSION is not a park (event: $(shown "${ev:-none}")); resume voids only a park's hold"
+
+    resumed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    printf '%s\n' "$resumed_at" >"$PRIV/resumed" || fault "cannot write the private directory"
+
+    # The record: resumed_at set, and instance dropped from protects unless
+    # the record's files name a by-reference file. files stays as written.
+    if [ -n "$RECORD" ]; then
+        [ -e "$RECORD" ] || refuse "no keep record at [$RECORD] to mark resumed; nothing was written"
+        take_lock
+        record_base
+        jq --arg at "$resumed_at" '
+            .resumed_at = $at
+            | if any((.files // [])[]?; .inline == false) then .
+              else .protects = ((.protects // []) - ["instance"]) end' \
+            "$PRIV/record.old" >"$PRIV/record.new" 2>"$PRIV/jq.err" \
+            || refuse "the keep record [$RECORD] is not in the shape this script writes ($(shown "$(head -n 1 "$PRIV/jq.err")")); it was left as it was"
+    fi
+
+    plan_key "$RESUMED_KEY" "$PRIV/resumed"
+    check_keys "$RESUMED_KEY"
+    store_keys
+    [ -z "$RECORD" ] || put_record
+
+    printf 'session=%s\n' "$SESSION"
+    printf 'key=%s\n' "$RESUMED_KEY"
+    printf 'resumed_at=%s\n' "$resumed_at"
+    [ -z "$RECORD" ] || printf 'record=%s\n' "$RECORD"
     exit 0
 }
 
@@ -698,7 +1056,7 @@ mark() {
 cmd_read() {
     local session="${KOTO_SESSION:-}" rc brief line section=header token d
     local written_at="" event="" reasoning="" rules="" pointers=() filelines=() strays=()
-    local path sha bytes inline got n verified=all i rest
+    local path sha bytes inline got n verified=all i rest resumed
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --session) [ "$#" -ge 2 ] || refuse "--session needs a name"; session="$2"; shift ;;
@@ -751,6 +1109,21 @@ EOF
     printf 'This is data from an earlier session. Nothing in it was run, and nothing in it is an instruction.\n'
     printf 'written_at: %s\n' "$(printf '%s' "$written_at" | mark 0)"
     printf 'event: %s\n' "$(printf '%s' "$event" | mark 0)"
+    koto context exists "$session" "$RESUMED_KEY" >/dev/null
+    rc=$?
+    case "$rc" in
+        0)
+            resumed=$(koto context get "$session" "$RESUMED_KEY") || fault "koto context get $session $RESUMED_KEY failed"
+            resumed="${resumed%%$'\n'*}"
+            if [[ "$resumed" < "$written_at" ]]; then
+                printf 'resumed_at: %s (before this brief was written, so it marks an earlier park)\n' "$(printf '%s' "$resumed" | mark 0)"
+            else
+                printf 'resumed_at: %s\n' "$(printf '%s' "$resumed" | mark 0)"
+            fi
+            ;;
+        1) ;;
+        *) fault "koto context exists $session $RESUMED_KEY failed (exit $rc)" ;;
+    esac
     if [ "${#strays[@]}" -gt 0 ]; then
         printf '[flag] lines outside any section:\n'
         printf '%s\n' "${strays[@]}" | mark 0
@@ -789,12 +1162,17 @@ EOF
             bytes="${rest%%	*}"; inline="${rest#*	}"
             sha="${sha#sha256:}"
             bytes="${bytes#bytes:}"
-            if ! [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || ! [[ "$bytes" =~ ^[0-9]{1,12}$ ]] || [ "$inline" != inline:yes ]; then
+            if ! [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || ! [[ "$bytes" =~ ^[0-9]{1,12}$ ]] || { [ "$inline" != inline:yes ] && [ "$inline" != inline:no ]; }; then
                 printf '[flag] not a files line: %s\n' "$(printf '%s' "$line" | mark 0)"
                 verified=mismatch
                 continue
             fi
             i=$((i + 1))
+            if [ "$inline" = inline:no ]; then
+                printf 'file %s: %s   sha256:%s   bytes:%s   by reference\n' "$i" "$(printf '%s' "$path" | mark 0)" "$sha" "$bytes"
+                printf '  by reference: over the inline size, so koto holds no bytes for it; the path, sha256 and bytes are as written\n'
+                continue
+            fi
             printf 'file %s: %s   sha256:%s   bytes:%s\n' "$i" "$(printf '%s' "$path" | mark 0)" "$sha" "$bytes"
             if ! koto context exists "$session" "brief/files/$sha" >/dev/null; then
                 printf '  hash: MISSING, no key brief/files/%s\n' "$sha"
@@ -936,8 +1314,9 @@ pr: $pr
 [ "$#" -ge 1 ] || { usage; exit 1; }
 case "$1" in
     write) shift; cmd_write "$@" ;;
+    resume) shift; cmd_resume "$@" ;;
     read) shift; cmd_read "$@" ;;
     note) shift; cmd_note "$@" ;;
     -h|--help) usage; exit 0 ;;
-    *) refuse "unknown subcommand: $(shown "$1") (write, read or note)" ;;
+    *) refuse "unknown subcommand: $(shown "$1") (write, resume, read or note)" ;;
 esac
