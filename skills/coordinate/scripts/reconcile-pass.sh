@@ -282,7 +282,7 @@ if [ -z "$WJ" ]; then
     # verified one when it ran past its deadline or printed nothing readable.
     OWE=$(rd_deadline "$OWE_BUDGET" "${RUNBASH[@]}" "$HERE/reconcile-owe.sh" --session "$SESSION" 2> "$T/owe.err" 3>&-)
     ORC=$?
-    if [ "$ORC" != 0 ] || ! OWE=$(printf '%s\n' "$OWE" | head -n 1 | jq -ce 'select((.kind == "owe") and (.status | type) == "string")' 2>/dev/null); then
+    if [ "$ORC" != 0 ] || ! OWE=$(jq -cen 'input | select((.kind == "owe") and (.status | type) == "string")' <<< "$OWE" 2>/dev/null); then
         if [ "$ORC" = 124 ]; then WHY="still running at the end of its ${OWE_BUDGET} s budget"
         else WHY="it printed nothing readable (exit $ORC)"; fi
         OWE=$(jq -nc --arg r "$WHY" '{kind: "owe", status: "not_verified", reason: $r}') || die "the owed verdicts could not be stored"
