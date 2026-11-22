@@ -761,7 +761,61 @@ Deliverables:
 
 ## Security Considerations
 
-Not written yet: a later /design phase replaces this line.
+This design adds no network access and no new privilege. It changes which
+plugin root a live run's scripts come from, and it does so with the same local
+attach the opener already uses. The risks sit in what the move trusts and what
+it writes.
+
+**Trust in newer scripts.** A move runs scripts from a newer installed root
+under a template compiled by an older release. The compat tables are the
+control: a session moves only if its compiled template's structural
+fingerprint is listed at the current compat number, and CI holds each table to
+its rules, including a script digest that now covers every script a template
+reaches. That guards against an accidental incompatibility. It doesn't guard
+against a release that ships a harmful script on purpose, and it adds no trust
+the plugin doesn't already get, since such a release could ship the script
+directly. The CI check takes the base branch's check and table, so a pull
+request can't loosen its own gate. The one exception is the pull request that
+first adds a table, which is checked against its own head. Changes to the
+tables and to the check script are safety-relevant and should get review as
+such.
+
+**Recorded paths and journal contents.** The move reads session directories,
+recorded roots and rebind values from the run's sessions and the `run/move`
+journal, and it acts on them later, including in the undo a later open runs.
+`root-move.sh` checks those inputs before using them:
+
+- The target root and every journaled old root must exist and resolve under
+  the plugin cache.
+- Each journaled session directory must resolve to the run's session store or
+  to a worktree of the expected repository.
+- A directory named with `--repo-dir` must be a clone of the repository the
+  PLAN names.
+- Slugs, node names and paths that come from the journal or the PLAN are
+  quoted wherever they're passed to a script.
+
+The journal records only the variables each session's compiled template
+declares rebindable, such as `PLUGIN_ROOT`, `REVIEW_LEVEL`, `UNIT_KIND` and
+`PLAN_DOC_MOVED`. It never copies environment contents, so it holds no
+credentials.
+
+**Scope of the write.** One invocation can write several sessions, some in
+other worktrees or in a clone the caller names. The move takes the opener's
+lock and checks every target before the first write. It journals the old
+values and undoes on failure, so a refused move changes nothing. The flag is
+explicit, and coordinate passes it only on a re-dispatch someone asked for.
+Where the script can tell, an unattended run reports `root=held` and doesn't
+act on it. Extending the lock to single-pr runs means a lock left by a crashed
+process can now block a single-pr run as well, so the opener's stale-lock
+handling has to cover that case.
+
+**Residual risks.** A wrong compat listing is a process failure that CI can't
+fully catch: CI checks the listing's form and the script digest, not how the
+scripts behave. An old root that was altered on disk after the run started
+runs as altered, which is no change from today. A split, where an undo fails,
+blocks the run until a later open completes the undo. That failure is safe but
+disruptive. The `root=held` line and the journal name local filesystem paths,
+so they shouldn't be copied into public pull request text.
 
 ## Consequences
 
