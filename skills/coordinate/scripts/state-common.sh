@@ -574,6 +574,35 @@ lib_status_prop() {
         "$JQ_STATUS"'$s | status_entry($t; $fam) | .[$p] | if type == "object" then tojson else tostring end'
 }
 
+# lib_status_move <status> <trigger>: the Status word a roadmap/v4 milestone
+# reading <status> moves to on <trigger> (finished, verified, changes-needed,
+# reopen, drop), as the table's v4 transition list gives it, printed as the
+# table spells it. <status> is first read as the status it names (the v4
+# entry whose spelling it opens, or the open spelling it opens, so
+# `In progress -- the loader` is In progress); a move the list doesn't hold,
+# from that status on that trigger, returns 1 and prints nothing, and so does
+# a <status> that names no status at all. Returns 2 when the table can't be
+# loaded or its transitions aren't a list of {from, to, trigger}. Only v4 has
+# transitions; v1 to v3 roadmaps never ask.
+lib_status_move() {
+    lib_status_load || return
+    local to
+    to=$(jq -n -r --argjson t "$STATUS_TABLE" --arg s "$1" --arg g "$2" '
+        def opens($w): . as $s | ($s | startswith($w))
+            and ((($s | length) == ($w | length)) or ($s[($w | length):(($w | length) + 1)] | test("^[^A-Za-z0-9-]")));
+        ($t.transitions.v4 // null) as $moves
+        | if ($moves | type) != "array"
+             or any($moves[]; (.from | type) != "array" or (.to | type) != "string" or (.trigger | type) != "string")
+          then error("transitions") else . end
+        | ([($t.schemas.v4 | to_entries[] | select(any(.value.spellings[]; . as $w | $s | opens($w))) | .key),
+            ($t.open.spellings[] | select(. as $w | $s | opens($w)))][0] // "") as $from
+        | if $from == "" then "" else
+            ([$moves[] | select(.trigger == $g and any(.from[]; . == $from)) | .to][0] // "") end' 2> /dev/null) \
+        || { echo "${PROG:-state-common}: the milestone status table $STATUS_TABLE_FILE has no v4 transition list this script reads" >&2; return 2; }
+    [ -n "$to" ] || return 1
+    printf '%s\n' "$to"
+}
+
 # JQ_TAG_KEY: the jq def `tag_key`, a tag's key, through which every match of
 # a unit to a roadmap heading compares (a holding, a landed row, a Work row,
 # a verdict, goal-fit or failure entry, a follow-up, an amendment, a
