@@ -96,7 +96,10 @@ existing cases in `panel-scope_test.sh` and `test-change_test.sh` still pass.
 observations in front of every panel seat, each seat judges the pair `shown`
 or `not shown`, a change to the pair makes it due for the re-verifier, and
 `fix_green` and the counting gates count the pair from the panels' record
-instead of from a seat acceptance. Covers PRD R8, R10 and R17 and the
+instead of from a seat acceptance. It builds on step 1: the pair is one more
+item in `.judgments[<panel>]`, keyed by its two digests, `--due-items` reports
+it as `observation`, and `test-change.sh status` and `covered` answer it from
+there once a panel has recorded. Covers PRD R8, R10 and R17 and the
 observation cases of R9 and R12.
 
 **Acceptance Criteria**:
@@ -128,7 +131,7 @@ a re-verifier `shown` and see both exit 0 again. `panel-scope_test.sh`,
 
 **Dependencies**: Step 1
 
-**Files**: `skills/work-on/scripts/panel-scope.sh`, `scripts/review-packet.sh`, `skills/work-on/scripts/red-first.sh`, `skills/work-on/scripts/test-change.sh`, `references/rule-registry.json`
+**Files**: `skills/work-on/scripts/panel-scope.sh`, `scripts/review-packet.sh`, `skills/work-on/scripts/red-first.sh`, `skills/work-on/scripts/test-change.sh`, `skills/work-on/scripts/test-change-routes_test.sh`, `references/rule-registry.json`
 
 ### Step 3: no acceptance line, seat, person or overrule can count or hold a unit
 
