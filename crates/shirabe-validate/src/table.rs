@@ -76,6 +76,13 @@ pub struct Row {
     /// without being struck, and a v4 Dropped one is struck without
     /// satisfying it). FC07 reads it to decide `ready` against `blocked`.
     pub satisfies: bool,
+    /// The diagram class the status table gives a roadmap-profile row's
+    /// Status (`renders.class`: `done` for Done on v1 to v3; `completed`,
+    /// `done` or `dropped` for Completed, Verified or Dropped on v4), or
+    /// `None` when the class is chosen the way an open row's is (ready or
+    /// blocked) and for plan-profile and non-entity rows. FC07 expects it
+    /// on the row's node when it is set.
+    pub class: Option<String>,
     /// The raw Status cell value for roadmap-profile entity rows;
     /// `None` for plan-profile rows and for non-entity rows. FC07 echoes
     /// the value verbatim in the four-field class-versus-Status notice.
@@ -239,6 +246,88 @@ fn find_issues_table_section(doc: &Doc) -> Option<(usize, usize, usize)> {
     Some((start_idx, end_idx, heading_line))
 }
 
+/// One body row of a roadmap's Progress table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressRow {
+    /// The 1-indexed absolute line number of the row.
+    pub line: usize,
+    /// The first cell, trimmed: the milestone the row is about, written as
+    /// its tag and usually its title (`Milestone 1: Loader`, `EB1: ...`).
+    pub item: String,
+    /// The Status cell, trimmed, with any `~~` strikethrough removed.
+    pub status: String,
+}
+
+/// The Progress table of a roadmap: the first GFM pipe table under
+/// `## Progress` whose header has a `Status` column, as its body rows.
+///
+/// A milestone roadmap may keep a table there with one row per milestone
+/// (`| Milestone | Status | Verdict |`) beside its dated Progress lines; on
+/// `roadmap/v4` each row's Status must read what the milestone's block does.
+/// A table whose header has no `Status` column is not this table and is
+/// skipped, and a Progress section with no such table returns `None`. Rows
+/// end at the first blank or non-pipe line; a row with fewer cells than the
+/// Status column reads an empty status.
+pub fn parse_progress_table(doc: &Doc) -> Option<Vec<ProgressRow>> {
+    let heading_line = doc.sections.iter().find(|s| s.name == "Progress")?.line;
+    let mut start: Option<usize> = None;
+    let mut end = doc.body.len();
+    for (i, line) in doc.body.iter().enumerate() {
+        if start.is_none() {
+            if line.trim_end_matches([' ', '\t']) == "## Progress" {
+                start = Some(i + 1);
+            }
+            continue;
+        }
+        if line.starts_with("## ") {
+            end = i;
+            break;
+        }
+    }
+    let start = start?;
+    // `heading_line` is the heading's absolute line and `start - 1` its body
+    // index, so a body index converts to an absolute line by this offset.
+    let line_of = |i: usize| heading_line + (i + 1 - start);
+
+    let mut i = start;
+    while i < end {
+        let trimmed = doc.body[i].trim();
+        let is_header =
+            is_table_row(trimmed) && i + 1 < end && is_separator_row(doc.body[i + 1].trim());
+        if !is_header {
+            i += 1;
+            continue;
+        }
+        let columns = split_row(&doc.body[i]);
+        let body_start = i + 2;
+        let mut j = body_start;
+        while j < end && is_table_row(doc.body[j].trim()) {
+            j += 1;
+        }
+        if let Some(status_col) = columns.iter().position(|c| c == "Status") {
+            let rows = (body_start..j)
+                .map(|k| {
+                    let cells = split_row(&doc.body[k]);
+                    let cell = |n: usize| {
+                        cells
+                            .get(n)
+                            .map(|c| strip_strikethrough(c).trim().to_string())
+                            .unwrap_or_default()
+                    };
+                    ProgressRow {
+                        line: line_of(k),
+                        item: cell(0),
+                        status: cell(status_col),
+                    }
+                })
+                .collect();
+            return Some(rows);
+        }
+        i = j;
+    }
+    None
+}
+
 /// Reports whether `trimmed` is a GFM pipe-table row -- starts with `|`
 /// and contains at least one cell separator.
 fn is_table_row(trimmed: &str) -> bool {
@@ -328,6 +417,7 @@ fn classify_row(
         raw: String::new(),
         terminal: false,
         satisfies: false,
+        class: None,
         status: None,
     };
 
@@ -373,6 +463,7 @@ fn classify_row(
                     let props = crate::statuses::props_for(schema, &trimmed);
                     row.terminal = props.struck;
                     row.satisfies = props.satisfies;
+                    row.class = props.class;
                     if !trimmed.is_empty() {
                         row.status = Some(trimmed);
                     }
