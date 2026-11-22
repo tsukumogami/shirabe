@@ -60,9 +60,16 @@ jobs:
 
       # The compaction note writer, scripts/handoff-brief.sh note, against a
       # stub koto, and the two `shirabe compaction` hooks reading back what it
-      # wrote, against the binary just built.
+      # wrote, against the binary just built; then the brief a run hands
+      # forward, handoff-brief.sh write and read, against a file-backed koto
+      # stand-in and a gh stand-in.
       - name: Compaction note and hooks suite
         run: PATH="$PWD/target/release:$PATH" bash scripts/handoff-brief_test.sh
+
+      # The closing step a run takes before its brief, scripts/closing-step.sh,
+      # against a throwaway clone pushed to a local bare remote.
+      - name: Closing step suite
+        run: bash scripts/closing-step_test.sh
 
       - name: Cargo test (workspace)
         run: cargo test --workspace
