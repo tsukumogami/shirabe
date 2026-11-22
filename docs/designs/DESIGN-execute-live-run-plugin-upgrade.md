@@ -22,7 +22,9 @@ the run is created. Every script the run's directives call lives under that
 root: `coord-common.sh`, sourced by seven of execute's scripts from their own
 directory, runs from whichever copy `PLUGIN_ROOT` names. When a later release
 fixes one of those scripts, the run keeps calling the copy under its own root
-until it finishes (#1556).
+until it finishes whenever a reopen's attach is refused (#1556; which refusal
+is an open question below). A reopen whose attach is admitted moves only the
+parent, never its work-on children.
 
 Each per-issue work-on child records a root of its own. A child's
 `PLUGIN_ROOT` is set when the child is opened (`execute.md` passes
@@ -328,13 +330,22 @@ values of the other rebindable variables, such as a child's `REVIEW_LEVEL`,
 `UNIT_KIND` and `PLAN_DOC_MOVED`, so that nothing but the root changes. A
 target that can't be found, read or admitted refuses the whole move with
 `root_move=refused:<reason>`, naming the session and, for an unreachable
-child, the clone it needs. Nothing has been written at that point.
+child, the clone it needs. No session has been written at that point: the
+only write so far is a `pending` journal that holds off new ticks while the
+checks run (Security Considerations), and a refusal clears it.
 
-**The journal.** Only then does the move write a journal key on the parent,
-`run/move`. It holds the target root, the phase (`moving`), and for each
+**The journal.** Only then does the move set its journal key on the parent,
+`run/move`, to `moving`. It holds the target root, the phase, and for each
 session its directory, its old root and the values it will be attached
-with. koto prints no variable bindings and an attach reports only the new
-values, so without the journal there would be nothing to undo to.
+with. The old values come from the session's own event log: the `variables`
+its `workflow_initialized` event recorded, as later attaches rebound them.
+`root-move.sh` reads them once, before any write. No koto command prints a
+session's current bindings, and an attach reports only the new values, so
+reading the log is a dependency on koto's state format. If that format turns
+out not to carry rebound values, the move needs a small koto change that
+prints a session's current bindings, and Phase 4 waits for it. Either way the
+journal is the copy the undo trusts, since nothing after the first write can
+read the old values back.
 
 **The writes.** The parent goes first, through the opener's ordinary attach
 with `PLUGIN_ROOT` changed. It is the likeliest refusal (template, origin,
@@ -541,7 +552,8 @@ failed undo leaves the run blocked (`failed=move-split`) until a later open
 finishes the undo. A split is never a resting state.
 
 Without the flag, an ordinary reopen stops moving the parent silently, which
-is what it does today: it passes the run's recorded root back, and when the
+is a change from today, where a reopen passes the installed root. It passes
+the run's recorded root back instead, and when the
 installed root differs it reports `root=held` and whether the run is movable.
 The compat tables follow coordinate's shape and CI rules, with a digest scan
 extended to cover the scripts execute and work-on actually reach (scripts in
@@ -656,12 +668,15 @@ to children; and CI gains a compat check for the three templates.
   `root_move=not-movable:<reason>`, `root_move=moved`,
   `root_move=refused:<reason>`, `failed=move-split`. Reasons include
   `not-listed:<session>`, `unreadable:<session>`,
-  `child-unreachable:<session>:<repo>` and `attach-refused:<session>:<code>`.
-- **Journal key `run/move`:** `{target_root, phase, sessions: [{name, dir,
-  old_root, values}]}`, with `phase` one of `moving`, `done`, `rolled-back`,
-  `split`. A finished run's replacement carries `run/` keys, so a `done` or
-  `rolled-back` journal is carried as history; a `moving` or `split` one
-  can't be, because the undo runs before the replacement.
+  `child-unreachable:<session>:<repo>`, `attach-refused:<session>:<code>`
+  and `digest-mismatch`.
+- **Journal key `run/move`:** `{target_root, phase, sessions: [{name,
+  session_id, dir, old_root, values}]}`, with `phase` one of `pending`,
+  `moving`, `done`, `rolled-back`, `split`. A finished run's replacement
+  carries `run/` keys, so a `done` or `rolled-back` journal is carried as
+  history; a `moving` or `split` one can't be, because the undo runs before
+  the replacement. A `pending` journal holds no writes, so an open that finds
+  one from a process that is no longer running clears it.
 - **Compat table:** coordinate's shape with `script_digest` in place of
   `gate_scripts`.
 - **Child refusal:** `error=parent-move-split` from the hand-off and
@@ -671,11 +686,14 @@ to children; and CI gains a compat check for the three templates.
 
 1. The opener takes the lock and reads the session's state. A live run with
    a journal at `moving` or `split` goes to the undo first.
-2. With `--move-plugin-root`, `root-move.sh` lists the targets (the parent
-   and its live children), reads each compiled template, and gets a verdict
-   per target from `template-compat.sh` against the installed tables. Any
-   refusal stops here with nothing written.
-3. It writes `run/move` at `moving`, attaches the parent with the new root,
+2. With `--move-plugin-root`, `root-move.sh` writes `run/move` at `pending`,
+   which stops new ticks, and waits for any tick in flight. It lists the
+   targets (the parent and its live children), reads each compiled template
+   and each session's current values from its event log, recomputes the
+   target root's script digests, and gets a verdict per target from
+   `template-compat.sh` against the installed tables. Any refusal clears the
+   `pending` journal and stops, with no session written.
+3. It sets `run/move` to `moving`, attaches the parent with the new root,
    then each child from its own directory, checking each reported rebind.
 4. On success it sets `done` and the opener prints `root_move=moved`. On a
    failed attach it re-attaches every target with its old values and sets
@@ -744,8 +762,13 @@ movability verdict, and extend its lock to single-pr runs. This is the
 behaviour change, and it ships before the move so that no reopen moves a
 parent unchecked once the tables exist.
 
+The lock's stale-lock rule covers single-pr runs from this phase on: a lock
+records its holder's process id and start time, and an open that finds a
+holder no longer running takes the lock over.
+
 Deliverables:
-- `execute-open.sh` and its tests; `SKILL.md`
+- `execute-open.sh` and its tests, including the single-pr lock and its
+  stale-lock takeover; `SKILL.md`
 
 ### Phase 4: The move
 
@@ -755,66 +778,114 @@ undo-first rule, and the child refusals in the hand-off and
 
 Deliverables:
 - `root-move.sh`, `run-record.sh`, `execute-open.sh`, `work-on-open.sh`,
-  `entry-points.tsv`, `SKILL.md`
+  `step-agent-handoff.md`, `entry-points.tsv`, `SKILL.md`
+- the documented recovery for a split: the next `execute-open.sh` finishes
+  the undo from the journal, and the coordinate leg reads
+  `failed=move-split` as a blocked unit to re-dispatch, not a failed one
 - engine tests for a single-pr and a coordinated run moved with live
-  children, a refused move, a rolled-back move and a split
+  children, a refused move, a rolled-back move, a split and its recovery,
+  and a digest mismatch at move time
 
 ## Security Considerations
 
-This design adds no network access and no new privilege. It changes which
-plugin root a live run's scripts come from, and it does so with the same local
-attach the opener already uses. The risks sit in what the move trusts and what
-it writes.
+This design adds no network access and no new system privilege, and it uses
+the same local attach the opener already uses. It does add reach: one
+invocation can write sessions outside the run's own directory, in other
+worktrees or in a clone the caller names. It also changes which plugin root a
+live run's scripts come from, and a moved run keeps the authority it already
+holds (`MERGE`, its branch record) while it applies that authority with newer
+scripts. The risks sit in what the move trusts and what it writes.
 
 **Trust in newer scripts.** A move runs scripts from a newer installed root
 under a template compiled by an older release. The compat tables are the
 control: a session moves only if its compiled template's structural
 fingerprint is listed at the current compat number, and CI holds each table to
 its rules, including a script digest that now covers every script a template
-reaches. That guards against an accidental incompatibility. It doesn't guard
-against a release that ships a harmful script on purpose, and it adds no trust
-the plugin doesn't already get, since such a release could ship the script
-directly. The CI check takes the base branch's check and table, so a pull
-request can't loosen its own gate. The one exception is the pull request that
-first adds a table, which is checked against its own head. Changes to the
-tables and to the check script are safety-relevant and should get review as
-such.
+reaches. That guards against an accidental incompatibility in a release. It
+doesn't guard against a release that ships a harmful script on purpose, since
+such a release could ship the script directly.
+
+CI alone doesn't cover the root on disk, which can be a development checkout,
+a locally edited cache copy or a partial update. So `root-move.sh` recomputes
+each table's `script_digest` against the target root before the first write,
+and a mismatch refuses the move with `root_move=refused:digest-mismatch`.
+
+The CI gate holds only if a pull request can't edit it:
+
+- The compat check runs from the base ref, with the base branch's check
+  script, workflow definition and table. A pull request's own workflow file
+  doesn't run the check.
+- It is a required status check with no path filter, so a change outside
+  `skills/` and `scripts/` can't skip it.
+- The three tables, `check-template-compat.sh` and the compat workflow file
+  get a CODEOWNERS entry, so a person who owns the gate approves every change
+  to it.
+- A pull request that adds or raises a listing says which scripts' exit
+  meanings it checked.
+
+The pull request that first adds a table has no base table to check against,
+and that CODEOWNERS review covers it.
 
 **Recorded paths and journal contents.** The move reads session directories,
 recorded roots and rebind values from the run's sessions and the `run/move`
 journal, and it acts on them later, including in the undo a later open runs.
 `root-move.sh` checks those inputs before using them:
 
-- The target root and every journaled old root must exist and resolve under
-  the plugin cache.
+- The target root and every journaled old root must exist. Each one's real
+  path, with symlinks resolved and refused, must sit under the plugin cache.
+  It must also be a shirabe plugin root: the manifest names shirabe and
+  carries a compat table for the session's template.
 - Each journaled session directory must resolve to the run's session store or
-  to a worktree of the expected repository.
-- A directory named with `--repo-dir` must be a clone of the repository the
-  PLAN names.
+  to a worktree of the expected repository. The journal records each
+  session's koto session id, and the undo refuses a session whose id no
+  longer matches.
+- A directory named with `--repo-dir` must have an `origin` URL that matches
+  the repository the PLAN names.
 - Slugs, node names and paths that come from the journal or the PLAN are
   quoted wherever they're passed to a script.
 
 The journal records only the variables each session's compiled template
 declares rebindable, such as `PLUGIN_ROOT`, `REVIEW_LEVEL`, `UNIT_KIND` and
-`PLAN_DOC_MOVED`. It never copies environment contents, so it holds no
-credentials.
+`PLAN_DOC_MOVED`. Before an undo re-attaches a value, it checks the value
+against the type or enum the template declares. The journal never copies
+environment contents, so it holds no credentials.
+
+Every value that `root=` and `root_move=` lines print has control characters
+stripped and its length capped. The skill text treats those lines as data to
+report, never as instructions.
 
 **Scope of the write.** One invocation can write several sessions, some in
 other worktrees or in a clone the caller names. The move takes the opener's
 lock and checks every target before the first write. It journals the old
-values and undoes on failure, so a refused move changes nothing. The flag is
-explicit, and coordinate passes it only on a re-dispatch someone asked for.
-Where the script can tell, an unattended run reports `root=held` and doesn't
-act on it. Extending the lock to single-pr runs means a lock left by a crashed
-process can now block a single-pr run as well, so the opener's stale-lock
-handling has to cover that case.
+values and undoes on failure, so a refused move changes nothing.
 
-**Residual risks.** A wrong compat listing is a process failure that CI can't
-fully catch: CI checks the listing's form and the script digest, not how the
-scripts behave. An old root that was altered on disk after the run started
-runs as altered, which is no change from today. A split, where an undo fails,
-blocks the run until a later open completes the undo. That failure is safe but
-disruptive. The `root=held` line and the journal name local filesystem paths,
+Step agents and coordinated children tick without the opener's lock. So the
+move writes the `run/move` journal at phase `pending` before its compat
+checks. The hand-off and `work-on-open.sh` refuse to start a tick while the
+journal reads `pending` or `moving`, and the move waits for any tick already
+in flight to finish before its first write.
+
+The late-born child catch-up rebinds a new child only while the journal reads
+`done`, and only for a child born after that move. It never acts on a
+`rolled-back` or `split` journal.
+
+The flag is explicit. Coordinate passes it only on a re-dispatch someone asked
+for, and that rule is enforced rather than left to skill text:
+`execute-open.sh` refuses `--move-plugin-root` from the coordinate entry
+unless the run's request record carries an explicit move marker. An
+unattended run reports `root=held` and doesn't act on it. A lock left by a
+crashed process is taken over under the stale-lock rule in Phase 3, which now
+covers single-pr runs.
+
+**Residual risks.** A wrong compat listing is the one control between newer
+scripts and a live run that may be mid-gate or mid-merge, and rebinding back
+can't undo a script's side effects. CI checks the listing's form and the
+script digest, not how the scripts behave. So the listing has an owner: the
+CODEOWNERS approver, who reviews the stated exit-meaning checks. An old root
+altered on disk after the run started still runs as altered on an ordinary
+reopen, which is no change from today. The move-time digest check covers only
+the target root. A split, where an undo fails, blocks the run until a later
+open completes the undo. That recovery ships in Phase 4 with its own test. The `root=held` line and the journal name local filesystem paths,
 so they shouldn't be copied into public pull request text.
 
 ## Consequences
