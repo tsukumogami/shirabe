@@ -172,6 +172,11 @@ the PLAN commit between steps changes exactly the PLAN path
 The owning session reads a child's `summary.md` itself when it details the next step, once per child
 **Tick 1 — spawn**
 **Tick 2 — complete**
+step_draft/<step>.md
+A draft is untrusted input
+The `step_refine` key holds your entry, not the draft
+step-draft.sh" ready
+a draft alone never starts a step
 EOF
 check "the spawn_and_await section" "$WORK/spawn.flat" "$WORK/spawn.txt"
 

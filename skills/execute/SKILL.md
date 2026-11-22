@@ -369,7 +369,18 @@ before the next step's agent starts, the owning session details that step: it
 reads what the previous step landed, rewrites the step's entry in the PLAN to
 match it, commits that one path on the shared branch, and records the entry as
 `step_refine/<step>.md` in `execute-<plan-slug>`. No step agent edits a step's
-entry. The `spawn_and_await` directive in `koto-templates/execute.md` carries
+entry.
+
+The step agent that just finished does draft it. Once its child reaches a
+terminal, it writes a proposed entry for each outlined step that waits only on
+its own step, with `scripts/step-draft.sh write`, as `step_draft/<step>.md` in
+the owning session. The owning session reads that draft as untrusted input,
+checks it against the DESIGN and the PLAN's outline, rewrites what doesn't hold,
+and commits and records the entry as above; the `step_refine` record is its
+text, never the draft's. `scripts/step-draft.sh ready` exits 1 until that record
+exists, so a draft alone never starts a step, and the script refuses a step id
+outside `^[a-z0-9][a-z0-9-]{0,62}$`. `--step-drafts=off` turns drafting off for
+the invocation, and the owning session details every step from scratch. The `spawn_and_await` directive in `koto-templates/execute.md` carries
 the whole loop: the report's two fixed lines, the one retry for a child left
 non-terminal, the outline case, and what counts as data.
 

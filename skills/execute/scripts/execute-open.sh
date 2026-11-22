@@ -70,6 +70,7 @@
 #   VERIFICATION           `--verification=<local|hosted-ci>`, the same way.
 #   VERIFICATION_DEFERRAL_REASON
 #                          `--verification-reason=<text>`, the same way.
+#   STEP_DRAFTS            `--step-drafts=<on|off>`, the same way.
 #   STORE                  `--store <v>` or `--store=<v>`
 #   COORDINATION_PR        `--coordination-pr <url>`
 #   FOLLOW_UP              `--follow-up <node>=<url>` -> `<node> <url>`: the
@@ -633,6 +634,7 @@ printf '%s' "$TOKENS" | jq -c \
     | bound("--review-ceiling"; "REVIEW_CEILING") as $ceilings
     | bound("--verification"; "VERIFICATION") as $verifications
     | bound("--verification-reason"; "VERIFICATION_DEFERRAL_REASON") as $reasons
+    | bound("--step-drafts"; "STEP_DRAFTS") as $drafts
     | [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
     | [ .[] | select(. == "--auto" or . == "--interactive") ] as $modes
     | (if $plan == "" then [] else [["PLAN_DOC", $plan], ["PLAN_SLUG", $slug]] end)
@@ -641,7 +643,7 @@ printf '%s' "$TOKENS" | jq -c \
          else [ $merges[] | ["MERGE", (if . == "--merge" then "true" else ltrimstr("--merge=") end)] ] end)
       + (if ($modes | length) == 0 then [["PAUSE_BEFORE_FINALIZE", pause_of($header)]]
          else [ $modes[] | ["PAUSE_BEFORE_FINALIZE", pause_of(ltrimstr("--"))] ] end)
-      + $floors + $ceilings + $verifications + $reasons
+      + $floors + $ceilings + $verifications + $reasons + $drafts
       + coord("--store"; "STORE") + coord("--coordination-pr"; "COORDINATION_PR")
       + (coord("--follow-up"; "FOLLOW_UP") | map(.[1] |= sub("="; " ")))
       + coord("--remove"; "FOLLOW_UP_REMOVE")
