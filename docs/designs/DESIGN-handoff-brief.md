@@ -796,6 +796,7 @@ branch: <name>   pull_request: <number>   pushed_head: <sha>
 watch: <label> = <re-arm command>
 ## Files
 scratch:<relative path><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
+instance:<relative path><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
 ## Standing rules
 None stated.
 ```
@@ -1037,3 +1038,11 @@ reference states each.
   each session at its next dispatch.
 - The interim rule makes a by-reference file a hold, which is safe, and the
   reference says to keep named scratch small.
+
+## Amendments
+
+- 2026-11-22: A Files line names its path relative to the scratch root that
+  holds it, so it now names that root too. `scratch:<relative path>` is a file
+  in the job's scratch directory, and `instance:<relative path>` is a loose
+  file at `--instance`. A path relative to a root can't be read back without
+  knowing which root it is relative to, and a brief can name files from both.
