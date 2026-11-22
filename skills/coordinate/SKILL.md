@@ -871,6 +871,21 @@ lines, and the rows and refusals behind them, are in
   session, the text `Evidence clause <n> failed: <what was
   seen>` cut to 600 bytes). The milestone is then offered again, and its
   brief quotes the failure under the same heading.
+- **On a roadmap/v4 roadmap.** The merge records Completed, and the status
+  table says what a verdict or a reopen moves. `--unit` prints two lines,
+  `verdict-owed <tag>` and then the pull request that records the milestone
+  Completed (its own edit, or the run's pending edit it folded into), or
+  `<tag> already reads Completed on ...`. `--verdict` needs no verdict-owed
+  row and consumes the row when there is one; either verified verdict sets
+  the milestone's block and Progress row to Verified, and changes needed
+  sets both to In progress and prints the same `held-dependent <tag>
+  <worker>` lines a reopen prints. `--reopen` takes a Completed milestone
+  as well as a Verified one and sets block and row In progress. On v4 the
+  held-dependent lines also name each dependent that reads Completed or
+  Verified with no holding, as `held-dependent <tag> none`. A move the table
+  doesn't list (another verdict on a Verified milestone, anything on a
+  Dropped one) is refused before anything is opened, naming the milestone,
+  its status and the trigger. On v1 to v3 nothing here changes.
 - **Close-out.** A roadmap record doesn't close while a verdict is owed:
   close-out names the milestone (`verdict-owed <tag>`, code 49) even after
   it reads Done, until `--confirm` clears the row. A pending reopen edit

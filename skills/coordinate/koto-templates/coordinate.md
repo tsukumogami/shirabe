@@ -4287,6 +4287,17 @@ nothing, so a deferred verdict comes back here. A milestone that reached here
 from `classify_report` with no pull request and whose work should have merged
 one is `failed`: ask its worker for the pull request instead.
 
+On a `roadmap/v4` roadmap the merge does set a status, Completed, and
+`--outcome` is required. The script writes the verdict-owed row as above and
+records Completed, with the outcome on the milestone's Delivered line: in a
+pull request of its own, or folded into the run's pending roadmap edit when
+that one is still open. It prints two lines, `verdict-owed <tag>` and then
+that pull request's URL (or `<tag> already reads Completed on ...` when it
+already does). Submit `status: verdict_owed` with the same `unit`, as on any
+milestone roadmap, and hand the pull request to whoever merges roadmap
+changes. Its dependents read it met from here on; the milestone itself is
+offered only as a verdict to give.
+
 On a feature roadmap the script opens a pull request on the roadmap's repository that sets the
 feature's Status to Done, writes the text on its `**Delivered:**` line and
 removes its Needs line, regenerates the generated sections, and changes
@@ -4412,6 +4423,21 @@ entry already posted is refused.
 The entry changes nothing by itself: Done, the verdict-owed and rework rows
 and every pick follow only the record and the default branch.
 
+On a `roadmap/v4` roadmap the status table, not Done, sets what the edit
+writes. `--verdict` needs no verdict-owed row: give `--worker` the row's Who
+in step 4 when there is a row, and leave it off when there isn't. The
+script consumes the row when it opens the edit. Either verified verdict sets
+the milestone's block Status and its Progress row to Verified, and the
+record step confirms it once the default branch reads Verified. Changes
+needed sets both to In progress and prints `held-dependent <tag> <worker>`
+after the pull request, one line per dependent that read the milestone met:
+one a holding covers, or one reading Completed or Verified (`none` when no
+holding covers it). Tell each worker's owner, as step 6 of `milestone_reopen`
+says. A verdict the table has no move for (another verdict on a Verified
+milestone, any verdict on a Dropped one) is refused with the milestone, its
+status and the trigger named, and nothing is opened: submit `deferred` and
+report the refusal.
+
 ## milestone_reopen
 
 A failure was reported against a milestone that reads Done. Write the failure
@@ -4489,6 +4515,14 @@ before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}
 
 The failure entry reopens nothing by itself: the Status, the rework row and
 every pick follow only the record and the default branch.
+
+On a `roadmap/v4` roadmap a failure reopens a Completed or a Verified
+milestone: `check-failure` accepts either, and the edit sets the block
+Status and its Progress row to In progress. The held-dependent lines also
+name each dependent that reads Completed or Verified with no holding, as
+`held-dependent <tag> none`. Any other status (Not started, In progress,
+Dropped) is refused before anything is opened, naming the milestone, its
+status and the trigger: submit `failed`.
 
 ## roadmap_close
 
