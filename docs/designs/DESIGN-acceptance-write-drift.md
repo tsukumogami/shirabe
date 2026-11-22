@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Draft
+status: Proposed
 problem: |
   /work-on's three counting gates read test-change.sh status, which counts an
   edited test or observation only once a seat, a person or a coordinator has
@@ -8,14 +8,30 @@ problem: |
   already judge edited tests but store no freshness, the re-verifier judges
   none, observations reach no packet, and two late-commit paths never pass a
   panel, so retiring the seat needs the panels to own that judgment end to end.
+decision: |
+  Keep test-change.sh status as the counting gates' command, rewritten to read
+  the panels' verdict record instead of acceptance lines. panel-scope.sh keeps
+  per-panel judgments keyed by each test's blob and the observation pair's
+  digests, plans its re-verifier with every due item, and accepts test and
+  observation judgments from it; packets carry notes and observations. The
+  seat, person, overrule and rule library go; ci_pass_counting gains test_gap;
+  /execute sends test-touching CI fixes through a fix round of the step's run.
+rationale: |
+  The panels already judge edited tests with the production diff in front of
+  them, so the missing pieces were freshness, the re-verifier's share and the
+  late routes, not a second judge. Keeping the gate command and evidence names
+  holds the template, registry and route tests nearly still; one content-keyed
+  record makes "changed since a panel looked" a lookup; fix rounds keep every
+  judgment in the ledger of the run that owns the step.
 upstream: docs/prds/PRD-acceptance-write-drift.md
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: acceptance-write-drift
 
 ## Status
 
-Draft
+Proposed
 
 ## Context and Problem Statement
 
@@ -98,6 +114,8 @@ session (R23).
 
 ### Decision 1: Where the counting check lives and what it reads
 
+Resolved inline.
+
 The three gates need a check that holds the unit while an edited test or an
 observation pair is due for a panel, or carries an open adverse judgment
 (R12), keeps the header and clean-tree holds (R13), keeps the exit codes'
@@ -148,6 +166,8 @@ go to `done_blocked`. Only the descriptions and `failure_reason` texts change.
   record to be the only source (R18).
 
 ### Decision 2: How the panels and the re-verifier judge due items
+
+Resolved inline.
 
 The re-verifier has to judge each edited test or observation pair that changed
 since its panel last judged it (R9, R10), with the run's note for each edited
@@ -220,6 +240,8 @@ test (R7), and observation pairs have to reach the seats in the first place
 
 ### Decision 3: Routing late commits through a re-verifier
 
+Resolved inline.
+
 #### Chosen: a `test_gap` edge out of `ci_pass_counting`, and fix rounds for `/execute`'s test-touching CI fixes
 
 - **`ci_pass_counting` (shirabe#1931).** It gains `counting_status: test_gap`,
@@ -266,6 +288,8 @@ test (R7), and observation pairs have to reach the seats in the first place
   Rejected on scope.
 
 ### Decision 4: The panel-gate override, `/review-plan`, and the koto floor
+
+Resolved inline.
 
 #### Chosen: the run records overrides with the person named; `/review-plan` refuses on a live plan; the koto floor rises to 0.37.0
 
