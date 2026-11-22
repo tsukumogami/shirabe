@@ -31,6 +31,7 @@
 #
 # Exit codes: 0 every check passed (or skipped), 1 a check failed.
 set -uo pipefail
+. "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
@@ -50,7 +51,8 @@ if ! command -v "${KOTO_BIN:-koto}" >/dev/null 2>&1; then
 fi
 
 WORK=$(mktemp -d) || exit 1
-trap 'rm -rf "$WORK"' EXIT
+cleanup() { [ -n "${WORK:-}" ] && rm -rf "$WORK"; return 0; }
+ktg_on_exit cleanup
 
 # covered <template>: the repository-relative paths the template's gate digest
 # covers, plus the repository-root files they reach through $HERE/../../../.
