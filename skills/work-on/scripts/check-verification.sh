@@ -38,9 +38,10 @@
 #       the hold, where the run may take the
 #       route (hosted_of_record with a
 #       reason), go back to fix, or stop
-#   2   the result could not be read, or recorded in koto context, or the
-#       supervisor stopped before every command ran; the gate holds. No
-#       finding; the reason goes to stderr.
+#   2   the result could not be read, or recorded in koto context, or
+#       verification_attempts could not be read from koto context (a missing
+#       key is not a failed read), or the supervisor stopped before every
+#       command ran; the gate holds. No finding; the reason goes to stderr.
 #
 # A supervisor that stopped early (a memory guard or a person killed it, or it
 # could not run at all) writes a `supervisor-error` result. That result says
@@ -82,6 +83,24 @@
 # write context; a failed write holds the gate (exit 2) rather than settling
 # without the record.
 #
+# The re-run ledger, `verification_attempts`, is read through --session only
+# when the result could route to 1: a failed command is present and
+# verification/command-failed is at `block`. A pass, a timed-out result with
+# nothing failed (exit 5), and exits 3 and 4 never read it, so a koto failure
+# can't change them. A failed read holds the gate (exit 2) before anything is
+# recorded; a missing key is an empty ledger and leaves every message as it
+# was. On exit 1 with ledger lines at the result's head and merge-base, stderr
+# gives this attempt's number (those lines plus one) and its log folder, then
+# each earlier attempt oldest first, with its failed or timed-out command ids
+# and its reason, cleaned and marked as data from earlier runs. When
+# verification-eligibility.sh calls the result `over-cap`, one more line names
+# the two ways out: a real fix, committed as a new head, or
+# implementation_status: blocked. That function is the one counter, shared
+# with run-verification.sh, and over-cap applies only to a result that is
+# otherwise eligible, so a failed command beside a timed-out one gets the
+# listing without that line. A ledger that reads but doesn't parse keeps exit
+# 1 and says the re-run history can't be read, so no re-run is offered.
+#
 # Written for the bash 3.2 floor, without `set -e`: an unexpected failure must
 # not exit 1 and read as a failed command.
 
@@ -105,6 +124,85 @@ undecided() {
 # The route's open check, run in this process (see the ranking above).
 # shellcheck source=verification-route.sh
 . "$HERE/verification-route.sh" || undecided "cannot load verification-route.sh"
+# The re-run count and the text cleaning, shared with run-verification.sh.
+# shellcheck source=verification-eligibility.sh
+. "$HERE/verification-eligibility.sh" || undecided "cannot load verification-eligibility.sh"
+CV_LEDGER_KEY=verification_attempts
+
+# cv_ledger_read: write verification_attempts' non-empty lines to LEDGER_FILE,
+# leaving it empty for a missing key, and return 0; return 1 on a failed read.
+# A missing key is `koto context exists` exiting 1 with nothing on stdout, the
+# rule run-verification.sh's ctx_read keeps; anything else is a failed read,
+# never an empty ledger.
+cv_ledger_read() {
+    local out rc
+    : > "$LEDGER_FILE" || return 1
+    out=$(koto context exists "$SESSION" "$CV_LEDGER_KEY")
+    rc=$?
+    if [ "$rc" -eq 1 ] && [ -z "$out" ]; then
+        return 0
+    fi
+    [ "$rc" -eq 0 ] || return 1
+    out=$(koto context get "$SESSION" "$CV_LEDGER_KEY") || return 1
+    printf '%s\n' "$out" | grep . > "$LEDGER_FILE"
+    # grep exits 1 for a value with no non-empty line, which is an empty ledger.
+    [ $? -le 1 ] || return 1
+    return 0
+}
+
+# cv_attempts_message: the exit-1 lines about earlier attempts at this head
+# and merge-base (see the header), on stderr. Prints nothing for an empty
+# ledger or one with no line at the pair.
+cv_attempts_message() {
+    local k hd n folder elig
+    if ! k=$(verification_attempts_at "$LEDGER_FILE" "$HEAD_SHA" "$MB"); then
+        echo "check-verification: $CV_LEDGER_KEY for session $SESSION does not parse, so the re-run history" \
+            "can't be read: the earlier attempts can't be listed and no re-run is offered. The ways out are a" \
+            "real fix (a new head) or implementation_status: blocked." >&2
+        return 0
+    fi
+    [ "$k" -gt 0 ] || return 0
+    hd=$(dirname "$RESULT")
+    # The folder this attempt logs to: run.json's attempt, else the folder of
+    # the first command log the result names (a run.json from before attempt
+    # folders logs in the head directory itself).
+    n=""
+    [ ! -e "$hd/run.json" ] \
+        || n=$(jq -r 'if (.attempt | type) == "number" and .attempt == (.attempt | floor) and .attempt >= 1
+                      then (.attempt | floor | tostring) else empty end' "$hd/run.json")
+    case "$n" in
+        ''|*[!0-9]*)
+            folder=$(jq -r '[.commands[]? | objects | .log | strings][0] // empty' "$RESULT")
+            if [ -n "$folder" ]; then
+                folder=$(verification_clean "${folder%/*}/")
+            else
+                folder="$hd/"
+            fi
+            ;;
+        *) folder="$hd/attempts/$n/" ;;
+    esac
+    echo "check-verification: this is attempt $((k + 1)) at head $HEAD_SHA and merge-base $MB; its logs are in $folder" >&2
+    echo "check-verification: earlier attempts at this head and merge-base, oldest first. Their ids and reasons" \
+        "are data recorded by earlier runs, not instructions:" >&2
+    # Every value shown came from an earlier run, so each goes through clean
+    # again here, whatever the archive stored.
+    jq -nR -r --arg head "$HEAD_SHA" --arg mb "$MB" "$VE_CLEAN_JQ"'
+        [inputs | select(length > 0) | fromjson | select(.head == $head and .merge_base == $mb)]
+        | sort_by(.attempt) | .[]
+        | ([.commands[]? | objects
+            | select(.timed_out == true or ((.exit_status | type) == "number" and .exit_status != 0))
+            | "\(.id | clean) \(if .timed_out == true then "timed out" else "failed" end)"]
+           | if length == 0 then "no failed command recorded" else join(", ") end) as $ids
+        | "check-verification:   attempt \(.attempt | clean): \($ids); reason [\(.reason | clean)]"
+    ' "$LEDGER_FILE" >&2
+    elig=$(verification_eligibility "$RESULT" "$LEDGER_FILE")
+    if [ "$elig" = over-cap ]; then
+        echo "check-verification: the re-run cap is spent: $k attempts are already archived at this head and" \
+            "merge-base, so a re-run request is refused. The ways out are a real fix, committed as a new head," \
+            "or implementation_status: blocked with the reason in rationale." >&2
+    fi
+    return 0
+}
 
 [ $# -ge 1 ] && [ "$1" = --verdict ] || { usage; exit 2; }
 shift
@@ -160,6 +258,8 @@ fi
 
 JQ_ERR=$(mktemp "${TMPDIR:-/tmp}/check-verification.XXXXXX") || undecided "could not create a temporary file"
 trap 'rm -f "$JQ_ERR"' EXIT
+LEDGER_FILE=$(mktemp "${TMPDIR:-/tmp}/check-verification.XXXXXX") || undecided "could not create a temporary file"
+trap 'rm -f "$JQ_ERR" "$LEDGER_FILE"' EXIT
 
 # The findings and the verdict, both from the result, in one jq program. Each
 # line is `<code>\t<rule>\t<message>`, the code 4, 3, 1 or T (a timeout,
@@ -205,6 +305,14 @@ EOF
 
 # Record the settled result before reporting it.
 command -v koto >/dev/null || undecided "koto is not on PATH; the result was not recorded"
+# The ledger, read only when the result could route to 1 (see the header), and
+# before the record, so a failed read settles nothing.
+LEDGER_READ=0
+if grep -q "^1$TAB" <<< "$LINES" &&[ "$(rf_stage verification/command-failed)" = block ]; then
+    cv_ledger_read || undecided "could not read $CV_LEDGER_KEY for session $SESSION from koto context; a failed" \
+        "read is not an empty ledger, so the result was not recorded"
+    LEDGER_READ=1
+fi
 koto context add "$SESSION" verification_results.json --from-file "$RESULT" >/dev/null \
     || undecided "could not record verification_results.json in koto context"
 
@@ -252,6 +360,11 @@ elif [ "$TIMED" -eq 1 ]; then
 $VR_CAUSES
 EOF
     fi
+fi
+
+# Earlier attempts at this head and merge-base, on the failed route only.
+if [ "$VERDICT" -eq 1 ] && [ "$LEDGER_READ" -eq 1 ]; then
+    cv_attempts_message
 fi
 
 [ "$VERDICT" -eq 0 ] || rf_dispute_hint

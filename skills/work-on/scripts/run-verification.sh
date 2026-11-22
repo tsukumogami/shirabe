@@ -17,15 +17,20 @@
 #          this head is kept. koto failing is exit 2; koto not on PATH skips
 #          the step, since no key can exist without koto to hold it.
 #       1. Resolve HEAD and the merge-base of HEAD and the default branch. With
-#          koto on PATH, read the context key `verification_rerun_request` (its
-#          text is the reason for a re-run). Present, with an eligible result
-#          for this head and merge-base and a non-empty reason: archive the
-#          result as --archive does, remove the key, and go on, so step 2 finds
-#          no result and a fresh suite starts in the next attempt folder.
-#          Present otherwise (a pass, a running suite, no result, a dirty tree,
-#          an empty reason, a refused archive): remove the key, say why on
-#          stderr, and go on as if there were no request, so a pass is still
-#          reused. A failed read keeps the key and goes on the same way.
+#          koto on PATH, take the head's lock and, holding it, read the context
+#          key `verification_rerun_request` (its text is the reason for a
+#          re-run). Present: archive the result as --archive does (which runs
+#          inside this hold rather than taking the lock again), remove the key,
+#          release the lock and go on, so step 2 finds no result and a fresh
+#          suite starts in the next attempt folder. A refused archive (a pass,
+#          no result, a dirty tree, an empty reason, the cap spent, a ledger
+#          that disagrees with the disk) removes the key all the same, says why
+#          on stderr, and goes on as if there were no request, so a pass is
+#          still reused. A failed read of the request, or of the ledger, keeps
+#          the key and re-runs nothing: a failed read is not an empty ledger.
+#          When another live process holds the lock, a suite is running at this
+#          head, so a request names a result that is no longer current: the key
+#          is removed without the lock and nothing is archived.
 #       2. A result for this head and merge-base already on disk: exit 0.
 #       3. Tracked files with uncommitted changes: write a `dirty-tree` result.
 #       4. Read the map at the merge-base
@@ -46,20 +51,40 @@
 #          of the koto calls in steps 0 and 1 waits on a suite, so this stays fast.
 #   --archive --session <s> --reason <text> [--base-ref <ref>]
 #       Set the result at this head aside so the next --start runs the suite
-#       again. Refuses, exit 1, moving nothing and writing nothing, when the
-#       reason is empty or only whitespace, koto is not on PATH, a live
-#       supervisor holds the lock, there is no result for this head and
-#       merge-base, or verification-eligibility.sh does not call the result
+#       again. The reason is cleaned first (verification-eligibility.sh's
+#       VE_CLEAN_JQ: control characters, newlines, ANSI escape sequences and
+#       Unicode format characters stripped, capped at 500 characters). Then,
+#       all under the head's lock, so no supervisor starts while the attempt
+#       moves: the file checks, the ledger read, the count, the cross-check
+#       against the disk, the eligibility check, the ledger write and the move.
+#       Refuses, exit 1, moving nothing and writing nothing, when the reason is
+#       empty after cleaning, koto is not on PATH, a live supervisor holds the
+#       lock, there is no result for this head and merge-base, run.json records
+#       an `attempt` that isn't a whole number from 1 to 999999999, the ledger
+#       can't be read or doesn't parse, the ledger's count of lines at this head
+#       and merge-base disagrees with the archived attempts/*/result.json files
+#       at that pair, VE_CAP (2) attempts are already archived at the pair
+#       (`over-cap`), or verification-eligibility.sh doesn't call the result
 #       `eligible`. Otherwise it appends one JSON line for the outgoing attempt
 #       to the koto context key `verification_attempts` (the ledger), reads the
 #       key back and checks the line landed, and only then moves result.json
-#       and run.json into attempts/<n>/, n being the attempt run.json records.
-#       Prints one line naming the archived attempt and exits 0. A ledger line:
+#       and run.json into attempts/<n>/, n being the attempt run.json records
+#       (the next free folder for a run.json from before attempt folders).
+#       Prints one line naming the archived attempt and exits 0.
 #
-#         {"attempt": <ledger lines + 1>, "folder": n, "head", "merge_base",
-#          "exit": 1, "status", "reason", "archived_at": "<UTC ISO 8601>",
-#          "commands": [{"id", "exit_status", "timed_out", "duration_secs",
-#          "log": "attempts/<n>/<index>-<id>.log" or null}]}
+#       One disagreement is recovered rather than refused: an archive stopped
+#       between its ledger write and its move leaves a last ledger line at this
+#       head and merge-base naming folder n, one line more than the disk
+#       holds, and no attempts/<n>/result.json. Then the eligibility check runs
+#       against the ledger without that line, and the move finishes without a
+#       second line. A ledger line:
+#
+#         {"attempt": <ledger lines at the pair + 1>, "folder": n, "head",
+#          "merge_base", "exit": 1, "status", "reason" (cleaned),
+#          "archived_at": "<UTC ISO 8601>", "commands": [{"id" (cleaned),
+#          "exit_status", "timed_out", "duration_secs",
+#          "log": "attempts/<n>/<index>-<name>.log", or null for any other
+#          path}]}
 #   --locate --session <s> [--base-ref <ref>]
 #       Print three lines: the head, the merge-base, and the result file's
 #       path. check-verification.sh calls this so the path rules live here.
@@ -269,6 +294,12 @@ resolve() {
     done
     ROOT=$(git rev-parse --show-toplevel) || die "not inside a git working tree"
     HEAD_SHA=$(git -C "$ROOT" rev-parse --verify -q "HEAD^{commit}") || die "HEAD does not name a commit"
+    # The head names a directory that --archive moves files under and prune
+    # removes, so it is checked before it forms any path (SESSION is checked
+    # where the arguments are read).
+    case "$HEAD_SHA" in
+        ''|.|..|*[!A-Za-z0-9._-]*) die "HEAD [$HEAD_SHA] is not a head name" ;;
+    esac
     local base=$BASE_REF
     if [ -z "$base" ]; then
         base=$(git -C "$ROOT" symbolic-ref -q --short refs/remotes/origin/HEAD)
@@ -342,6 +373,55 @@ lock_live() {
     return 1
 }
 
+# lock_other <lock>: true when the lock names a running supervisor of ours
+# that is not this process. lock_live is true for this process too, so a step
+# that asks "is someone else running?" asks this instead, and a lock this
+# process holds never reads as a suite to wait for.
+lock_other() {
+    [ "$(readlink "$1" 2>/dev/null)" = "$$" ] && return 1
+    lock_live "$1"
+}
+
+LOCK_TOOK=0
+LOCK_HOLDER=""
+
+# lock_take <lock>: hold the lock for this process. Returns 0 holding it, with
+# LOCK_TOOK=1 when this call created it and LOCK_TOOK=0 when it already named
+# this process: --start's consume_request takes the lock and then calls
+# archive_attempt, which takes it again, and the inner call must not release
+# the outer hold. Returns 1 when it can't: LOCK_HOLDER is the pid of the live
+# process that holds it, or empty when the lock couldn't be created at all. A
+# lock whose process is gone is removed and taken.
+lock_take() {
+    LOCK_TOOK=0
+    LOCK_HOLDER=""
+    [ "$(readlink "$1" 2>/dev/null)" = "$$" ] && return 0
+    if ln -s "$$" "$1" 2>/dev/null; then
+        LOCK_TOOK=1
+        return 0
+    fi
+    if lock_live "$1"; then
+        LOCK_HOLDER=$(readlink "$1" 2>/dev/null)
+        return 1
+    fi
+    rm -f "$1"
+    if ln -s "$$" "$1" 2>/dev/null; then
+        LOCK_TOOK=1
+        return 0
+    fi
+    # Another start took it between the two attempts.
+    lock_live "$1" && LOCK_HOLDER=$(readlink "$1" 2>/dev/null)
+    return 1
+}
+
+# lock_release <lock> <took>: remove the lock when <took> is 1 (this caller's
+# own lock_take created it) and it still names this process.
+lock_release() {
+    [ "${2:-0}" = 1 ] || return 0
+    [ "$(readlink "$1" 2>/dev/null)" = "$$" ] && rm -f "$1"
+    return 0
+}
+
 # --- attempts and the ledger ---------------------------------------------------------
 
 LEDGER_KEY=verification_attempts
@@ -386,18 +466,81 @@ count_lines() {
     printf '%s\n' "$1" | grep -c .
 }
 
+# ledger_fetch <out-file>: write the ledger's non-empty lines to <out-file>, an
+# empty file for a missing key. Returns 1 on a failed read, which is never an
+# empty ledger. verification-eligibility.sh reads only files, so the koto read
+# stays here, with ctx_read's missing-key rule.
+ledger_fetch() {
+    : > "$1" || return 1
+    ctx_read "$LEDGER_KEY" || return 1
+    [ "$CTX_PRESENT" -eq 1 ] || return 0
+    printf '%s\n' "$CTX_VALUE" | grep . > "$1"
+    # grep exits 1 for a value with no non-empty line, which is an empty ledger.
+    [ $? -le 1 ] || return 1
+    return 0
+}
+
+# archived_at_pair: how many attempts/<n>/result.json files under HEAD_DIR are
+# for this head and merge-base. A file jq can't read is not at the pair, and
+# jq's error is left on stderr so the damaged file is seen.
+archived_at_pair() {
+    local count=0 f d name
+    for f in "$HEAD_DIR"/attempts/*/result.json; do
+        [ -f "$f" ] || continue
+        d=${f%/result.json}
+        name=${d##*/}
+        case "$name" in ''|*[!0-9]*) continue ;; esac
+        jq -e --arg head "$HEAD_SHA" --arg mb "$MB" '.head == $head and .merge_base == $mb' "$f" >/dev/null \
+            && count=$((count + 1))
+    done
+    echo "$count"
+}
+
+RUN_ATTEMPT=""
+
+# run_attempt <run.json>: set RUN_ATTEMPT to the attempt the file records and
+# return 0; RUN_ATTEMPT is empty for a missing file or one with no `attempt`
+# key, a run.json from before attempt folders, whose caller falls back to
+# next_attempt. Returns 1 when `attempt` is present but isn't a whole number
+# from 1 to 999999999, or the file doesn't parse, RUN_ATTEMPT then holding the
+# value as JSON, cleaned, for the message. The number forms a path that mv
+# writes to, so nothing else gets through.
+run_attempt() {
+    local v
+    RUN_ATTEMPT=""
+    [ -e "$1" ] || return 0
+    v=$(jq -r "$VE_CLEAN_JQ"'
+        if type != "object" then "bad " + (tojson | clean)
+        elif (has("attempt") | not) then "none"
+        elif (.attempt | type) == "number" and .attempt == (.attempt | floor)
+             and .attempt >= 1 and .attempt <= 999999999
+        then "ok \(.attempt | floor)"
+        else "bad " + (.attempt | tojson | clean) end' "$1") || v="bad unreadable"
+    case "$v" in
+        none) return 0 ;;
+        "ok "*)
+            RUN_ATTEMPT=${v#ok }
+            case "$RUN_ATTEMPT" in
+                ''|*[!0-9]*) return 1 ;;
+            esac
+            return 0
+            ;;
+    esac
+    RUN_ATTEMPT=${v#bad }
+    return 1
+}
+
 ARCH_TMP=""
 ARCH_LOCKED=0
 
 # archive_done <status>: remove the temporary folder, release the lock if
-# archive_attempt took it, and return <status>.
+# archive_attempt's own lock_take created it (not when it ran inside
+# consume_request's hold), and return <status>.
 archive_done() {
     [ -n "$ARCH_TMP" ] && rm -rf "$ARCH_TMP"
     ARCH_TMP=""
-    if [ "$ARCH_LOCKED" -eq 1 ]; then
-        [ "$(readlink "$HEAD_DIR/lock" 2>/dev/null)" = "$$" ] && rm -f "$HEAD_DIR/lock"
-        ARCH_LOCKED=0
-    fi
+    lock_release "$HEAD_DIR/lock" "$ARCH_LOCKED"
+    ARCH_LOCKED=0
     return "$1"
 }
 
@@ -410,42 +553,46 @@ archive_refuse() {
 
 # archive_attempt <reason>: archive the result at HEAD_DIR (see --archive in
 # the header). Needs resolve() to have run. Returns 0 once the ledger line is
-# confirmed and the files are moved, 1 on a refusal. The lock it takes is
-# released before it returns, so a --start that follows can take it.
+# confirmed and the files are moved (or, in recovery, the move is finished), 1
+# on a refusal, and 3 when the ledger read failed, so consume_request can keep
+# the request. Everything after the reason and the koto check runs under the
+# head's lock. A lock this call took is released before it returns, so a
+# --start that follows can take it; inside consume_request's hold it takes
+# nothing and releases nothing.
 archive_attempt() {
-    local reason=$1 elig n run_attempt count at_head next_attempt line new back back_count back_last adir status
-    case "$reason" in
-        *[![:space:]]*) ;;
-        *) archive_refuse "the reason is empty"; return 1 ;;
-    esac
+    local reason elig n adir at disk mode prior last k status line back back_count back_last lcount
+    reason=$(verification_clean "$1") || reason=""
+    [ -n "$reason" ] || { archive_refuse "the reason is empty after cleaning"; return 1; }
     command -v koto >/dev/null || { archive_refuse "koto is not on PATH"; return 1; }
-    lock_live "$HEAD_DIR/lock" && { archive_refuse "a verification run for $HEAD_SHA is still running"; return 1; }
+    [ -d "$HEAD_DIR" ] || { archive_refuse "there is no result for $HEAD_SHA"; return 1; }
+
+    # The lock first, so no supervisor starts at this head while the checks
+    # below run and the result moves. Its refusal comes before any file check.
+    if ! lock_take "$HEAD_DIR/lock"; then
+        if [ -n "$LOCK_HOLDER" ]; then
+            archive_refuse "a verification run for $HEAD_SHA is still running"
+        else
+            archive_refuse "could not take the lock at $HEAD_SHA"
+        fi
+        return 1
+    fi
+    ARCH_LOCKED=$LOCK_TOOK
+
     [ -L "$RESULT" ] && { archive_refuse "$RESULT is a symlink"; return 1; }
     [ -L "$HEAD_DIR/run.json" ] && { archive_refuse "$HEAD_DIR/run.json is a symlink"; return 1; }
+    [ -L "$HEAD_DIR/attempts" ] && { archive_refuse "$HEAD_DIR/attempts is a symlink"; return 1; }
     [ -f "$RESULT" ] || { archive_refuse "there is no result for $HEAD_SHA"; return 1; }
     jq -e --arg head "$HEAD_SHA" --arg mb "$MB" '.head == $head and .merge_base == $mb' "$RESULT" >/dev/null \
         || { archive_refuse "the result at $HEAD_SHA is not for merge-base $MB"; return 1; }
-    elig=$(verification_eligibility "$RESULT")
-    [ "$elig" = eligible ] || { archive_refuse "the result at $HEAD_SHA is $elig"; return 1; }
 
-    # The lock, so no supervisor starts at this head while the result moves.
-    if ! ln -s "$$" "$HEAD_DIR/lock" 2>/dev/null; then
-        lock_live "$HEAD_DIR/lock" && { archive_refuse "the lock at $HEAD_SHA is held"; return 1; }
-        rm -f "$HEAD_DIR/lock"
-        ln -s "$$" "$HEAD_DIR/lock" 2>/dev/null || { archive_refuse "could not take the lock at $HEAD_SHA"; return 1; }
+    if ! run_attempt "$HEAD_DIR/run.json"; then
+        archive_refuse "run.json records attempt [$RUN_ATTEMPT], which is not a whole number from 1 to 999999999"
+        return 1
     fi
-    ARCH_LOCKED=1
-
-    n=""
-    if [ -f "$HEAD_DIR/run.json" ]; then
-        run_attempt=$(jq -r '.attempt // empty | numbers | tostring' "$HEAD_DIR/run.json")
-        case "$run_attempt" in ''|*[!0-9]*) ;; *) n=$run_attempt ;; esac
-    fi
+    n=$RUN_ATTEMPT
     [ -n "$n" ] || n=$(next_attempt)
     adir="$HEAD_DIR/attempts/$n"
-    [ -L "$HEAD_DIR/attempts" ] && { archive_refuse "$HEAD_DIR/attempts is a symlink"; return 1; }
     [ -L "$adir" ] && { archive_refuse "$adir is a symlink"; return 1; }
-    [ -e "$adir/result.json" ] && { archive_refuse "$adir already holds a result.json"; return 1; }
 
     # The trap covers a signal between here and archive_done, which removes it
     # on every return.
@@ -453,88 +600,177 @@ archive_attempt() {
     ARCH_TMP=$(mktemp -d "${TMPDIR:-/tmp}/run-verification.XXXXXX") \
         || { ARCH_TMP=""; archive_refuse "could not create a temporary folder"; return 1; }
 
-    ctx_read "$LEDGER_KEY" || { archive_refuse "could not read $LEDGER_KEY for session $SESSION"; return 1; }
-    count=$(count_lines "$CTX_VALUE")
-    # The attempt is numbered at this head and merge-base; count is the whole
-    # ledger. A line that will not parse refuses the archive before any write.
-    at_head=0
-    if [ "$count" -gt 0 ]; then
-        at_head=$(printf '%s\n' "$CTX_VALUE" | grep . | jq -s --arg head "$HEAD_SHA" --arg mb "$MB" '[.[] | select(.head == $head and .merge_base == $mb)] | length') \
-            || { archive_refuse "could not count the attempts in $LEDGER_KEY for session $SESSION"; return 1; }
+    if ! ledger_fetch "$ARCH_TMP/ledger.old"; then
+        archive_refuse "could not read $LEDGER_KEY for session $SESSION"
+        return 3
     fi
-    next_attempt=$(( $at_head + 1 ))
-    status=$(jq -r .status "$RESULT")
-    line=$(jq -nc --argjson attempt "$next_attempt" --argjson folder "$n" \
-        --arg head "$HEAD_SHA" --arg mb "$MB" --arg status "$status" --arg reason "$reason" \
-        --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hd "$HEAD_DIR/" --slurpfile result "$RESULT" '
-        def rel: if (type == "string") and startswith($hd) then .[($hd | length):] else null end
-                 | if (type == "string") and test("^(attempts/[0-9]+/)?[0-9]+-[A-Za-z0-9._-]+\\.log$") then . else null end;
-        {attempt: $attempt, folder: $folder, head: $head, merge_base: $mb, exit: 1, status: $status,
-         reason: $reason, archived_at: $at,
-         commands: [$result[0].commands[] | {id, exit_status, timed_out, duration_secs, log: (.log | rel)}]}') \
-        || { archive_refuse "could not build the ledger line"; return 1; }
-    if [ "$count" -gt 0 ]; then
-        new=$(printf '%s\n' "$CTX_VALUE" | grep .)
-        printf '%s\n%s\n' "$new" "$line" > "$ARCH_TMP/ledger"
+    # A line that will not parse refuses the archive before any write.
+    at=$(verification_attempts_at "$ARCH_TMP/ledger.old" "$HEAD_SHA" "$MB") \
+        || { archive_refuse "could not count the attempts in $LEDGER_KEY for session $SESSION"; return 1; }
+    disk=$(archived_at_pair)
+
+    # The ledger and the disk must agree on how many attempts are archived at
+    # this pair, so a removed key or a pruned folder can't reset the count. A
+    # ledger one line ahead of the disk is an archive stopped between its
+    # write and its move, and only when its last line is at this pair, names
+    # this attempt's folder, and that folder holds no result yet.
+    if [ "$disk" -eq "$at" ]; then
+        mode=normal
+        prior=$at
+        cp "$ARCH_TMP/ledger.old" "$ARCH_TMP/ledger.elig" \
+            || { archive_refuse "could not copy the ledger to a temporary file"; return 1; }
+        [ -e "$adir/result.json" ] && { archive_refuse "$adir already holds a result.json"; return 1; }
     else
-        printf '%s\n' "$line" > "$ARCH_TMP/ledger"
+        mode=""
+        if [ "$disk" -eq $((at - 1)) ] && [ ! -e "$adir/result.json" ]; then
+            last=$(tail -n 1 "$ARCH_TMP/ledger.old")
+            if printf '%s\n' "$last" | jq -e --arg head "$HEAD_SHA" --arg mb "$MB" --argjson n "$n" \
+                    '.head == $head and .merge_base == $mb and (.folder | type) == "number" and .folder == $n' \
+                    >/dev/null; then
+                mode=recover
+            fi
+        fi
+        if [ "$mode" != recover ]; then
+            archive_refuse "$LEDGER_KEY records $at attempt(s) at head $HEAD_SHA and merge-base $MB," \
+                "but $disk archived result(s) at that pair are on disk under attempts/; they disagree," \
+                "so nothing is archived. The ways out are a real fix (a new head) or implementation_status: blocked"
+            return 1
+        fi
+        # The eligibility check sees the ledger as it was before the stopped
+        # archive wrote, so the line being finished doesn't count against it.
+        prior=$((at - 1))
+        lcount=$(grep -c . "$ARCH_TMP/ledger.old")
+        # awk rather than head: the count is 0 for a one-line ledger, and
+        # BSD head refuses `-n 0`.
+        awk -v n="$((lcount - 1))" 'NR <= n' "$ARCH_TMP/ledger.old" > "$ARCH_TMP/ledger.elig" \
+            || { archive_refuse "could not copy the ledger to a temporary file"; return 1; }
     fi
-    [ -s "$ARCH_TMP/ledger" ] || { archive_refuse "could not write the ledger to a temporary file"; return 1; }
-    koto context add "$SESSION" "$LEDGER_KEY" --from-file "$ARCH_TMP/ledger" >/dev/null \
-        || { archive_refuse "could not write $LEDGER_KEY for session $SESSION"; return 1; }
-    back=$(koto context get "$SESSION" "$LEDGER_KEY") \
-        || { archive_refuse "could not read back $LEDGER_KEY for session $SESSION"; return 1; }
-    back_count=$(count_lines "$back")
-    back_last=$(printf '%s\n' "$back" | grep . | tail -n 1)
-    if [ "$back_count" -ne $((count + 1)) ] || [ "$back_last" != "$line" ]; then
-        archive_refuse "$LEDGER_KEY for session $SESSION did not take this attempt's line"
-        return 1
+
+    elig=$(verification_eligibility "$RESULT" "$ARCH_TMP/ledger.elig")
+    case "$elig" in
+        eligible) ;;
+        over-cap)
+            archive_refuse "the cap is spent: $prior attempts are already archived at head $HEAD_SHA and" \
+                "merge-base $MB, and the cap is $VE_CAP re-runs per head and merge-base." \
+                "The ways out are a real fix (a new head) or implementation_status: blocked"
+            return 1
+            ;;
+        *) archive_refuse "the result at $HEAD_SHA is $elig"; return 1 ;;
+    esac
+
+    if [ "$mode" = normal ]; then
+        k=$((at + 1))
+        status=$(jq -r .status "$RESULT")
+        # Command ids get the reason's cleaning. A log path is kept only in the
+        # shape this script writes, attempts/<n>/<index>-<safe id>.log, relative
+        # to the head directory; anything else is stored as null.
+        line=$(jq -nc --argjson attempt "$k" --argjson folder "$n" \
+            --arg head "$HEAD_SHA" --arg mb "$MB" --arg status "$status" --arg reason "$reason" \
+            --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hd "$HEAD_DIR/" --slurpfile result "$RESULT" "$VE_CLEAN_JQ"'
+            def rel: if (type == "string") and startswith($hd) then .[($hd | length):] else null end
+                     | if (type == "string") and test("^attempts/[0-9]+/[0-9]+-[A-Za-z0-9._-]+\\.log$") then . else null end;
+            {attempt: $attempt, folder: $folder, head: $head, merge_base: $mb, exit: 1, status: $status,
+             reason: $reason, archived_at: $at,
+             commands: [$result[0].commands[] | {id: (.id | if type == "string" then clean else null end),
+                                                 exit_status, timed_out, duration_secs, log: (.log | rel)}]}') \
+            || { archive_refuse "could not build the ledger line"; return 1; }
+        lcount=$(grep -c . "$ARCH_TMP/ledger.old")
+        { cat "$ARCH_TMP/ledger.old" && printf '%s\n' "$line"; } > "$ARCH_TMP/ledger" \
+            || { archive_refuse "could not write the ledger to a temporary file"; return 1; }
+        [ -s "$ARCH_TMP/ledger" ] || { archive_refuse "could not write the ledger to a temporary file"; return 1; }
+        koto context add "$SESSION" "$LEDGER_KEY" --from-file "$ARCH_TMP/ledger" >/dev/null \
+            || { archive_refuse "could not write $LEDGER_KEY for session $SESSION"; return 1; }
+        back=$(koto context get "$SESSION" "$LEDGER_KEY") \
+            || { archive_refuse "could not read back $LEDGER_KEY for session $SESSION"; return 1; }
+        back_count=$(count_lines "$back")
+        back_last=$(printf '%s\n' "$back" | grep . | tail -n 1)
+        if [ "$back_count" -ne $((lcount + 1)) ] || [ "$back_last" != "$line" ]; then
+            archive_refuse "$LEDGER_KEY for session $SESSION did not take this attempt's line"
+            return 1
+        fi
+    else
+        k=$at
     fi
 
     # The ledger has the attempt; now, and only now, the files move.
     if [ ! -d "$adir" ]; then
         (umask 077 && mkdir -p "$adir") \
-            || { archive_refuse "the ledger has attempt $next_attempt, but $adir could not be created"; return 1; }
+            || { archive_refuse "the ledger has attempt $k, but $adir could not be created"; return 1; }
     fi
     mv -f "$RESULT" "$adir/result.json" \
-        || { archive_refuse "the ledger has attempt $next_attempt, but $RESULT could not be moved"; return 1; }
+        || { archive_refuse "the ledger has attempt $k, but $RESULT could not be moved"; return 1; }
     if [ -f "$HEAD_DIR/run.json" ]; then
         mv -f "$HEAD_DIR/run.json" "$adir/run.json" \
-            || { archive_refuse "attempt $next_attempt is archived, but $HEAD_DIR/run.json could not be moved"; return 1; }
+            || { archive_refuse "attempt $k is archived, but $HEAD_DIR/run.json could not be moved"; return 1; }
     fi
-    echo "run-verification: archived attempt $next_attempt at $HEAD_SHA into attempts/$n"
+    if [ "$mode" = normal ]; then
+        echo "run-verification: archived attempt $k at $HEAD_SHA into attempts/$n"
+    else
+        echo "run-verification: finished archiving attempt $k at $HEAD_SHA into attempts/$n; its ledger line was already written"
+    fi
     archive_done 0
+}
+
+CONSUME_LOCKED=0
+
+# consume_done: release the lock if consume_request's own lock_take created
+# it. Every return from consume_request past lock_take goes through here, so no
+# branch leaves a lock naming this process for step 1 or step 5 to trip on.
+consume_done() {
+    lock_release "$HEAD_DIR/lock" "$CONSUME_LOCKED"
+    CONSUME_LOCKED=0
+    return 0
 }
 
 # consume_request: --start's step 1 (see the header). Never fails the start.
 consume_request() {
-    local reason elig
+    local rc
     command -v koto >/dev/null 2>&1 || return 0
-    if ! ctx_read "$REQUEST_KEY"; then
-        echo "run-verification: could not read $REQUEST_KEY for session $SESSION; the request is kept and nothing is re-run" >&2
+    if ! lock_take "$HEAD_DIR/lock"; then
+        if [ -z "$LOCK_HOLDER" ]; then
+            echo "run-verification: could not take the lock at $HEAD_SHA; $REQUEST_KEY is kept and nothing is re-run" >&2
+            return 0
+        fi
+        # A suite is running at this head. The result a request was judged on
+        # is no longer the current one, and leaving the key would let a later
+        # start archive a fresh failure nobody judged. This is the one removal
+        # made without the lock, and it never archives.
+        if ! ctx_read "$REQUEST_KEY"; then
+            echo "run-verification: could not read $REQUEST_KEY for session $SESSION; the request is kept and nothing is re-run" >&2
+            return 0
+        fi
+        [ "$CTX_PRESENT" -eq 1 ] || return 0
+        echo "run-verification: rerun request dropped: a verification suite was running at this head (pid $LOCK_HOLDER)," \
+            "so the request named a result that is no longer current; nothing was archived" >&2
+        koto context remove "$SESSION" "$REQUEST_KEY" >/dev/null \
+            || echo "run-verification: could not remove $REQUEST_KEY for session $SESSION" >&2
         return 0
     fi
-    [ "$CTX_PRESENT" -eq 1 ] || return 0
-    reason=$CTX_VALUE
-    if [ -f "$RESULT" ] && ! jq -e --arg mb "$MB" '.merge_base == $mb' "$RESULT" >/dev/null; then
-        elig="for another merge-base"
-    else
-        elig=$(verification_eligibility "$RESULT")
+    CONSUME_LOCKED=$LOCK_TOOK
+
+    if ! ctx_read "$REQUEST_KEY"; then
+        echo "run-verification: could not read $REQUEST_KEY for session $SESSION; the request is kept and nothing is re-run" >&2
+        consume_done
+        return 0
     fi
-    if [ "$elig" != eligible ]; then
-        echo "run-verification: rerun request dropped: the result at this head is $elig" >&2
-    else
-        case "$reason" in
-            *[![:space:]]*)
-                archive_attempt "$reason" >&2 \
-                    || echo "run-verification: rerun request dropped: the archive was refused" >&2
-                ;;
-            *) echo "run-verification: rerun request dropped: it gives no reason" >&2 ;;
-        esac
+    if [ "$CTX_PRESENT" -ne 1 ]; then
+        consume_done
+        return 0
     fi
+    archive_attempt "$CTX_VALUE" >&2
+    rc=$?
+    case "$rc" in
+        0) ;;
+        3)
+            echo "run-verification: could not read $LEDGER_KEY for session $SESSION; $REQUEST_KEY is kept and nothing is re-run" >&2
+            consume_done
+            return 0
+            ;;
+        *) echo "run-verification: rerun request dropped: the archive was refused" >&2 ;;
+    esac
     koto context remove "$SESSION" "$REQUEST_KEY" >/dev/null \
         || echo "run-verification: could not remove $REQUEST_KEY for session $SESSION" >&2
-    return 0
+    consume_done
 }
 
 # --- --supervise ---------------------------------------------------------------------
@@ -851,7 +1087,9 @@ if [ -f "$RESULT" ]; then
     if jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree"' "$RESULT" >/dev/null; then
         exit 0
     fi
-    lock_live "$HEAD_DIR/lock" && exit 0
+    # Another process's lock, not one this process holds: consume_request
+    # releases its hold, but a lock naming this pid must never stop the start.
+    lock_other "$HEAD_DIR/lock" && exit 0
     rm -f "$RESULT"
 fi
 
@@ -894,13 +1132,10 @@ if [ -n "$ATTENDED" ]; then
 fi
 
 # 5. One supervisor per head. The lock is a symlink whose target is a pid:
-#    creating one is atomic, and so is renaming another over it.
+#    creating one is atomic, and so is renaming another over it. A lock that
+#    already names this process counts as taken.
 LOCK="$HEAD_DIR/lock"
-if ! ln -s "$$" "$LOCK" 2>/dev/null; then
-    lock_live "$LOCK" && exit 0
-    rm -f "$LOCK"
-    ln -s "$$" "$LOCK" 2>/dev/null || exit 0
-fi
+lock_take "$LOCK" || exit 0
 
 BUDGET=${SHIRABE_VERIFICATION_BUDGET_SECS:-$BUDGET_SECS}
 case "$BUDGET" in ''|*[!0-9]*|0) BUDGET=$BUDGET_SECS ;; esac

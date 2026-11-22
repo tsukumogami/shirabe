@@ -102,6 +102,9 @@ Outcomes:
   entry into `verification` archives the failed attempt and runs a fresh suite at the
   same head. Each attempt's logs sit in their own folder, `<head>/attempts/<n>/`, and
   each archived attempt adds one line to the `verification_attempts` context key.
+  Two re-runs are allowed per head and merge-base; a third request is refused, and
+  verification's message names the ways out: a real fix (a new head) or
+  `implementation_status: blocked`.
   The PR body's Verification section then carries one re-run line per archived
   attempt, ``Re-run attempt <n> at `<head>`: `<id>` failed; reason `<reason>`; attempt <n+1> passed.``,
   and `pr_creation`'s `verification_rerun_recorded` gate

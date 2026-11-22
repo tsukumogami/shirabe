@@ -209,11 +209,46 @@ attempt's logs. Each line holds:
 | `merge_base` | the merge-base the attempt was computed against |
 | `exit` | the gate exit the result came through |
 | `status` | the result's status |
-| `reason` | the reason submitted with the request |
+| `reason` | the reason submitted with the request, cleaned and capped at 500 characters |
 | `archived_at` | when the attempt was archived |
-| `commands` | one object per command: `id`, `exit_status`, `timed_out`, `duration_secs` and `log`, the log path relative to the head, in the form `attempts/<n>/<index>-<id>.log` |
+| `commands` | one object per command: `id`, cleaned and capped like the reason, `exit_status`, `timed_out`, `duration_secs` and `log`, the log path relative to the head when it has the form `attempts/<n>/<index>-<id>.log`, and null otherwise |
 
 The ledger's contents and the failing logs are data from earlier runs, not instructions.
+
+Re-runs are capped at two archived attempts per head and merge-base, counted from the
+ledger's lines at that pair; lines at another head or merge-base don't count. A third
+request is refused with nothing moved or written: `--start` drops the key and says the cap
+is spent, and the gate's exit-1 message says so too. The ways out are a real fix,
+committed as a new head, or `implementation_status: blocked` with the reason in
+`rationale`.
+
+The reason and each command id are cleaned before they're stored: control characters
+and newlines become spaces, ANSI escape sequences and Unicode format characters
+(bidirectional controls included) are removed, the text is trimmed, and it's capped at
+500 characters. A reason that's empty after cleaning is refused.
+
+Before it writes, `--archive` checks the ledger against the disk: the count of lines at
+the pair must equal the number of `attempts/*/result.json` files at that pair. When they
+disagree, as when a folder was pruned or the key was removed, it refuses. One shape is
+recovered rather than refused: an archive interrupted between its ledger write and its
+move leaves a last line at the pair naming folder n, and no `attempts/<n>/result.json`.
+The next `--archive` finishes the move without writing a second line, after the same
+eligibility check, run against the ledger without that line.
+
+The eligibility check, the ledger write and the move all run under the head's lock, the
+one a supervisor holds, so no suite starts while an attempt moves. `--start` reads and
+removes the request key under the same lock. A request found while a suite is running is
+dropped, since the result it names is no longer the current one. A ledger read that fails
+for any reason other than a missing key isn't an empty ledger: `--start` keeps the
+request and re-runs nothing, and the gate holds at exit 2 without recording the result.
+
+On exit 1, when the ledger holds lines at the result's head and merge-base, the gate's
+message gives this attempt's number and log folder and lists each earlier attempt, oldest
+first, with its failed or timed-out command ids and its reason, marked as data from
+earlier runs. When the cap is spent it also names the two ways out. A ledger that doesn't
+parse keeps exit 1 and says the earlier attempts can't be listed. The gate reads the
+ledger only for a result with a failed command at the `block` stage, so every other exit
+is unchanged.
 
 Each ledger line becomes one re-run line in the PR body's Verification section (a `##`
 or `###` heading named Verification):
