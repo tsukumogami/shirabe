@@ -28,6 +28,12 @@
 # check's koto calls the same with 3 entries and with 300, no entry read and
 # record/ never listed: the sections the verdicts read are got directly, an
 # absent one listed by its own key, and a listed one that can't be got exits 2.
+# At the end of a 107-run chain, at a second of the clock a hop: no walk with
+# no carry dated before the run start; a walk bounded to such a carry's
+# minute; and a carry from before the whole chain judged with no hop from the
+# sealed reconcile report's chain start, which is trusted only with its
+# sealed digest, a seal for the latest visit to reconcile_pass and a bound at
+# or before the carry's minute, the check walking otherwise.
 #
 # Usage: bash skills/coordinate/scripts/deferral-check_test.sh
 set -uo pipefail
@@ -624,8 +630,8 @@ koto_calls "$FULL" 300 > /dev/null
 eq "FULL: it reads only the sections and keys its checks need, each got once" \
     "decisions deferrals holdings run standing work" \
     "$(sed -n "s|^context get $S record/\([a-z-]*\)\$|\1|p" "$T/kc.calls" | grep -vx meta | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
-# The chain start (coord-log.sh chain-start) lists the run's koto/links/
-# relations, a fixed few keys; no record/ key is listed.
+# The chain start (coord-log.sh chain-start), when a carry needs it, lists
+# the run's koto/links/ relations, a fixed few keys; no record/ key is listed.
 eq "  ... and no record key is listed, since every one it reads is there" 0 "$(grep -c "^context list $S --prefix record/" "$T/kc.calls")"
 # A section that isn't there is told apart from a failed get by a listing of
 # that one key, which names no entry.
@@ -736,5 +742,127 @@ if kill -0 "$SP" 2> /dev/null; then
 else
     ok "lib_jobs_stop stops a background job it has no record of"
 fi
+
+echo "== check mode: a run at the end of a long chain, under koto's 30-second limit (shirabe#1548) =="
+# The run checked continues lc-1, which continues lc-2, and so on to lc-106,
+# each an hour older. A koto in front of the stand-in charges HOP_COST seconds
+# of a clock file for each member's log the walk looks up (one a hop) and,
+# once the clock passes its start plus 30, kills the check, as koto kills an
+# action at its limit, and fails every later lookup so the walk left behind
+# ends. What passes is what the check printed, never how long it took.
+LC=$T/long-chain
+mkdir -p "$LC/bin"
+cat > "$LC/bin/koto" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-} \${2:-}" = "session dir" ]; then
+    case "\${3:-}" in lc-*)
+        [ -f "$LC/killed" ] && exit 1
+        echo "\$3" >> "$LC/hops"
+        c=\$(( \$(cat "$LC/clock") + \${HOP_COST:-0} ))
+        echo "\$c" > "$LC/clock"
+        if [ "\$c" -gt "\$(cat "$LC/limit")" ]; then
+            : > "$LC/killed"
+            kill -KILL "\$(cat "$LC/pid")" 2> /dev/null
+            exit 1
+        fi ;;
+    esac
+fi
+exec "$HERE/testdata/koto" "\$@"
+EOF
+chmod +x "$LC/bin/koto"
+# limited <hop cost>: the check on S under the stand-in limit; OUT its verdict
+# (empty when it printed none), KILLED 1 when the limit ended it, HOPS the
+# hops its walk made.
+limited() {
+    echo 1000 > "$LC/clock"; echo 1030 > "$LC/limit"; : > "$LC/hops"; rm -f "$LC/killed"
+    HOP_COST=$1 PATH="$LC/bin:$PATH" bash -c 'echo $$ > "$0" && exec "$@"' "$LC/pid" bash "$DC" --session "$S" > "$LC/out" 2> "$T/err" &
+    wait $! 2> /dev/null
+    OUT=$(sed 's/ sealed:.*//' "$LC/out")
+    KILLED=0; [ -f "$LC/killed" ] && KILLED=1
+    HOPS=$(wc -l < "$LC/hops" | tr -d ' ')
+}
+seed "$(record_json roadmap plugin-system)"; session "$(roadmap_vars plugin-system)"
+prev=$S k=1
+while [ "$k" -le 106 ]; do
+    m=lc-$k
+    mkdir -p "$KOTO_STORE/sessions/$m" "$KOTO_STORE/context/$prev/koto/links/continues"
+    : > "$KOTO_STORE/context/$prev/koto/links/continues/$m"
+    printf '{"schema_version":1,"workflow":"%s","template_hash":"feedface","created_at":"%s","template_name":"coordinate"}\n' \
+        "$m" "$(jq -rn --argjson k "$k" '("2026-09-26T08:00:00Z" | fromdateiso8601) - $k * 3600 | todate')" > "$KOTO_STORE/sessions/$m/koto-$m.state.jsonl"
+    prev=$m k=$((k + 1))
+done
+limited 1
+eq "a check at the end of a 107-run chain with no deferral prints its verdict" "ok beta" "$OUT"
+eq "  ... not killed at koto's 30-second limit, and walking no chain" "0 0" "$KILLED $HOPS"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T08:30Z: this run')")"
+limited 1
+eq "a carry dated after the run start walks no chain either" "ok beta 0 0" "$OUT $KILLED $HOPS"
+# lc-3 started at 05:00: a carry at 05:30 is judged against it, as against
+# the chain start, and the walk stops there.
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z: three runs back')")"
+limited 1
+eq "a predecessor's carry three runs back is disposed" "ok beta" "$OUT"
+eq "  ... the walk bounded by it to three hops, inside the limit" "0 3" "$KILLED $HOPS"
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z until 2026-09-26T05:45Z: three runs back')")"
+limited 1
+eq "  ... unless its decide-by has passed" "deferral-open 1 3" "$OUT $HOPS"
+# A carry from before the first run can't shorten the walk: only the chain's
+# first run decides it. The run's reconcile_pass, which every run passes
+# before dispatch_check, walked the chain across its ticks and sealed what
+# it found in its report (chain: {start, back_to}); the check takes the start
+# from there, with no hop, at the same second a hop.
+# sealed <chain-json>: the run enters reconcile_pass again, whose pass writes
+# a report holding <chain-json> where reconcile-pass.sh writes it and the
+# engine captures its sealed line, then comes back through pick to
+# dispatch_check.
+RDIR="$KOTO_STORE/sessions/$S/coordinate-reconcile"
+again() { # again: back to dispatch_check through pick, as after the pass
+    log_to "$S" reconcile_pass pick
+    log_evidence "$S" pick '{"choice":"dispatch","unit":"beta"}'
+    log_to "$S" pick dispatch_check
+}
+sealed() {
+    mkdir -p "$RDIR"
+    jq -nc --argjson c "$1" '{schema: "coordinate-reconcile-report/v1", chain: $c}' > "$RDIR/report.json"
+    log_to "$S" dispatch_check reconcile_pass
+    log_capture "$S" RECONCILE_SEAL "$(bash "$CL" seal --session "$S" --state reconcile_pass --token "reconciled $($SHA256 < "$RDIR/report.json" | cut -d' ' -f1)")"
+    again
+}
+EARLIEST=$(jq -rn '("2026-09-26T08:00:00Z" | fromdateiso8601) - 106 * 3600 | todate')
+GOOD=$(jq -nc --arg s "$EARLIEST" '{start: $s, back_to: "2026-09-01T00:00"}')
+seed "$(with_deferrals "$(def 'carried 2026-09-01T00:00Z: before the chain')")"
+sealed "$GOOD"
+limited 1
+eq "a carry from before the whole chain is open, the start taken from the sealed reconcile report" "deferral-open 1 0 0" "$OUT $KILLED $HOPS"
+# The carry three runs back again, where a walk takes three hops: a sealed
+# report good for its minute serves it with none, and a report the check
+# can't trust, or whose start doesn't hold for the carry, leaves it to the
+# walk. A report trusted wrongly would show as no hop.
+seed "$(with_deferrals "$(def 'carried 2026-09-26T05:30Z: three runs back')")"
+sealed "$GOOD"
+limited 1
+eq "a sealed report whose bound is at or before the carry's minute serves it with no hop" "ok beta 0 0" "$OUT $KILLED $HOPS"
+rm -f "$RDIR/report.json"
+limited 1
+eq "  ... with no report file, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed "$GOOD"
+# Edited after the seal to a start the carry is before: trusted, it would open the carry.
+jq -c '.chain.start = "2026-09-26T06:00:00Z"' "$RDIR/report.json" > "$RDIR/report.new" && mv "$RDIR/report.new" "$RDIR/report.json"
+limited 1
+eq "  ... with a report whose sha256 isn't the sealed digest, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed "$(jq -nc --arg s "$EARLIEST" '{start: $s, back_to: "2026-09-26T06:00"}')"
+limited 1
+eq "  ... with a report whose bound is after the carry's minute, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed '{"start":"2026-09-26T08:00:00.000Z","back_to":null}'
+limited 1
+eq "  ... with a report whose start is the run start, no bound, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+sealed "$GOOD"
+# A later entry into reconcile_pass that hasn't sealed: the seal is an earlier visit's.
+log_to "$S" dispatch_check reconcile_pass
+again
+limited 1
+eq "  ... with a seal from an earlier visit to reconcile_pass, the check walks" "ok beta 0 3" "$OUT $KILLED $HOPS"
+for ((k = 1; k <= 106; k++)); do rm -rf "$KOTO_STORE/sessions/lc-$k"; done
+rm -rf "$KOTO_STORE/context/$S/koto" "$RDIR"
 
 done_tests deferral-check

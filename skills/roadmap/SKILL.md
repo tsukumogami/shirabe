@@ -124,8 +124,9 @@ Use an explore workflow when you don't know what artifact type you need yet.
 
 From `$ARGUMENTS`:
 
-1. **Empty** -- ask the user what initiative or theme they want to create a
-   roadmap for
+1. **Empty** -- when the conversation already describes the initiative,
+   derive the topic from it; otherwise ask the user what initiative or theme
+   they want to create a roadmap for
 2. **Path to existing ROADMAP** with lifecycle verb (`activate`, `done`) --
    execute the lifecycle transition via `shirabe transition <roadmap-path>
    <status>`
@@ -141,7 +142,10 @@ From `$ARGUMENTS`:
    feature context with no issues created. Issue filing goes through the
    R14 approval gate; issueless population does not. See
    [Populating the Issues Table](#populating-the-issues-table) below.
-4. **Anything else** -- use as the starting topic for Phase 1 scoping
+4. **Anything else** -- the author's topic: a slug used as given, or a
+   description of the initiative the agent derives a slug from, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says. The
+   description is the starting point for Phase 1 scoping.
 
 ### Session and Keys
 

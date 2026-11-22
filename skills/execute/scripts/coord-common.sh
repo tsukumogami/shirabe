@@ -493,6 +493,12 @@ cc_pr_node() {
     all_merged=0
     cc_deferral_record "$name" "$issues" "$n_repo" "$node_branch" "$node_rec" || return 1
     cc_rerun_record "$name" "$issues" "$n_repo" "$node_branch" "$node_rec" || return 1
+    cc_hosted_record "$name" "$url" "$n_sha" "$draft"
+    case $? in
+        0) ;;
+        2) [ -n "$eval_cand" ] || eval_cand="$name"; return 0 ;;
+        *) return 1 ;;
+    esac
     if [ "$draft" = "true" ]; then
         # A check that failed, was cancelled, or is `unreadable` (a required
         # check nothing the token can read answers) stops the run, as in
@@ -658,6 +664,60 @@ cc_rerun_record() {
         CC_ACTION="error:execute:status-read"
     fi
     return 1
+}
+
+# cc_hosted_record <node> <url> <head> <draft> -- an open node PR whose work
+# items took the hosted-of-record route (node-push.sh wrote
+# run/hosted/<node>, which the run record holds) is evaluated and readied, or
+# merged, only once that record is settled at the node's head.
+#
+# work-on's verification-route.sh decides, over the node's own key and PR:
+# `--read --dry-run` reads each declared job's latest attempt at the record's
+# head and writes nothing (this script writes nothing anywhere), so a refused
+# job (1) or one still pending 120 minutes after the record's taken_at (3) is
+# error:execute:ci, its stderr naming each job and the node head. A pending
+# job (75) leaves the node to be evaluated, never merged. A non-draft node
+# goes to its merge verdict only when `--ready` is 0: the record filled by a
+# real read (the evaluate action's), every run re-read, the PR out of draft
+# and every body line linking its run. A draft node is evaluated as before;
+# the evaluate action reads and marks it ready through the route script,
+# whose --mark-ready refuses an unsettled record.
+#
+# Called from cc_pr_node, in coord_compute's scope. Returns 0 to go on as
+# before (no record, or a settled one), 2 when the node is to be evaluated
+# instead of merged, and 1 once it has set CC_ACTION.
+cc_hosted_record() {
+    local has route err rc args
+    has=$(printf '%s' "$rec" | jq -r --arg k "run/hosted/$1" 'has($k)') \
+        || { CC_ACTION="error:execute:status-read"; return 1; }
+    [ "$has" = true ] || return 0
+    # COORD_VERIFICATION_ROUTE is the tests' seam for the route script.
+    route="${COORD_VERIFICATION_ROUTE:-$COORD_SELF_DIR/../../work-on/scripts/verification-route.sh}"
+    [ -f "$route" ] || { echo "$PROG: verification-route.sh is missing at $route" >&2; CC_ACTION="error:execute:status-read"; return 1; }
+    [[ $3 =~ $RE_COORD_SHA ]] || { echo "$PROG: node $1 has a hosted record and no recorded head" >&2; CC_ACTION="error:execute:status-read"; return 1; }
+    args=(--session "$CC_SESSION" --key "run/hosted/$1" --pr "$2" --head "$3")
+    err=$("$BASH" "$route" --read --dry-run "${args[@]}" </dev/null 2>&1 >/dev/null)
+    rc=$?
+    case "$rc" in
+        0) ;;
+        75) return 2 ;;
+        1|3)
+            [ -n "$err" ] && printf '%s\n' "$err" >&2
+            echo "$PROG: node $1's hosted jobs of record at $3 did not settle (the jobs are named above)" >&2
+            CC_ACTION="error:execute:ci"; return 1 ;;
+        *)
+            [ -n "$err" ] && printf '%s\n' "$err" >&2
+            CC_ACTION="error:execute:status-read"; return 1 ;;
+    esac
+    [ "$4" = true ] && return 0
+    err=$("$BASH" "$route" --ready "${args[@]}" </dev/null 2>&1 >/dev/null)
+    rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) return 2 ;;
+        *) [ -n "$err" ] && printf '%s\n' "$err" >&2
+           CC_ACTION="error:execute:status-read"; return 1 ;;
+    esac
 }
 
 # cc_children_deferrals <node> <items> -- the verification deferral reasons

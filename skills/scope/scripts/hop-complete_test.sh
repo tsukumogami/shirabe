@@ -74,6 +74,9 @@ seed() {
     design) mkdir -p "$root/docs/designs"
             sed "s/scope-koto-adoption/$T/g" "$FIXTURES/design.md.fixture" \
               > "$root/docs/designs/DESIGN-$T.md" ;;
+    design-draft)
+            mkdir -p "$root/docs/designs"
+            cp "$FIXTURES/design-draft.md.fixture" "$root/docs/designs/DESIGN-$T.md" ;;
     design-current)
             mkdir -p "$root/docs/designs/current"
             sed "s/scope-koto-adoption/$T/g" "$FIXTURES/design.md.fixture" \
@@ -97,6 +100,45 @@ C="$BASE/a2"; seed "$C" design
 run "design at docs/designs/" "$C" design 0
 C="$BASE/a3"; seed "$C" design-current
 run "design at docs/designs/current/" "$C" design 0
+
+# /design writes its document at Draft from the first phase, with every section
+# it hasn't reached holding the stub marker, and moves it to Proposed only once
+# the review has run. A Draft design validates clean, so the status is the only
+# thing that tells a hop in progress from a finished one. The Draft case also
+# checks the reason, so it can't pass on a validator that refuses Draft.
+C="$BASE/a12"; seed "$C" design-draft
+out="$(bash "$S" --hop design --topic "$T" --root "$C" 2>&1)"; rc=$?
+if [ "$rc" = 1 ] && grep -q "is a design still at Draft" <<<"$out"; then
+  PASS=$((PASS+1)); printf 'ok   %-46s hop=%-6s exit=1 (still at Draft)\n' "design at Draft with stub sections" "design"
+else
+  FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=1 out=%s\n' "design at Draft with stub sections" "$rc" "$out"
+fi
+
+# The same document once 6.5 has run: decision and rationale written, both
+# status lines moved together.
+set_design_status() {
+  python3 - "$1/docs/designs/DESIGN-$T.md" "$2" <<'PY'
+import sys
+p, status = sys.argv[1], sys.argv[2]
+s = open(p).read()
+s = s.replace("status: Draft\n", "status: %s\n" % status, 1)
+s = s.replace("## Status\n\nDraft\n", "## Status\n\n%s\n" % status, 1)
+s = s.replace("\n---\n\n# DESIGN",
+              "\ndecision: |\n  Read the design's status as well as its shape.\n"
+              "rationale: |\n  A draft validates clean, so only the status tells it apart.\n"
+              "---\n\n# DESIGN", 1)
+open(p, "w").write(s)
+PY
+}
+C="$BASE/a13"; seed "$C" design-draft; set_design_status "$C" Proposed
+run "same design at Proposed" "$C" design 0
+C="$BASE/a14"; seed "$C" design-draft; set_design_status "$C" Accepted
+run "same design at Accepted" "$C" design 0
+
+# Quoting the value changes nothing for YAML, so it must change nothing here.
+C="$BASE/a15"; seed "$C" design-draft
+sed 's/^status: Draft$/status: "Draft"/' "$FIXTURES/design-draft.md.fixture" > "$C/docs/designs/DESIGN-$T.md"
+run "design at quoted \"Draft\"" "$C" design 1
 
 C="$BASE/a4"; mkdir -p "$C/docs/briefs"; : > "$C/docs/briefs/BRIEF-$T.md"
 run "zero-byte artifact" "$C" brief 1

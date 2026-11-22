@@ -179,8 +179,14 @@ nothing else.
 
 ## Running the Workflow
 
-1. **Write the args file.** Split `$ARGUMENTS` into tokens as typed, the topic
-   included, and write them in order as a JSON array of strings to a private
+1. **Write the args file.** Work out the topic first, as
+   `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says: a slug given
+   as the first token is used as typed; otherwise derive a short kebab-case
+   slug from the prompt and, when it points back there, the conversation.
+   Name the slug in the first line of output. The args file's first token is
+   that slug, followed by the flags from `$ARGUMENTS` as typed; free text
+   describing the work stays out of the token list and informs the run
+   instead. Write them in order as a JSON array of strings to a private
    directory outside the work tree:
 
    ```bash
@@ -189,8 +195,9 @@ nothing else.
 
    Write `$ARGS_DIR/args.json` with the Write tool or `jq`, never by pasting
    tokens into a shell command and never with `eval`: a token is data, and the
-   file is the only route by which it reaches koto. If `$ARGUMENTS` holds no
-   topic, ask the author for one and stop instead.
+   file is the only route by which it reaches koto. Ask the author what the
+   work is, and stop, only when neither `$ARGUMENTS` nor the conversation
+   describes any work.
 
 2. **Open the session.**
 

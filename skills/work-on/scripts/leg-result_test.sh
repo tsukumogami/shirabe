@@ -182,6 +182,8 @@ build() {
             '  VERIFICATION:' '    description: verification' '    required: false' \
             '    default: local' '    values: [local, hosted-ci]' \
             '  VERIFICATION_DEFERRAL_REASON:' '    description: deferral reason' '    required: false' \
+            '  DELIVERY:' '    description: delivery, which the closing_keyword command reads' '    required: false' \
+            '    default: closes' '    values: [closes, partial]' \
             '  PROBE_NEAR_RULE:' '    description: the probe_near capture pr_creation reads' '    required: false' \
             'states:' '  start:' '    accepts:' '      go:' '        type: enum' \
             '        values: [pr, already]' '        required: true' '    transitions:' \

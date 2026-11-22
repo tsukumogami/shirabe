@@ -770,6 +770,9 @@ run_check --session s --topic w5
 wrote_nothing "  ... storing nothing and sealing nothing"
 case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
     *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
+# Its pull request merged, so the reason never says nothing did (shirabe#1833).
+case "$KOUT" in *"no pull request of it merged"*) bad "  ... and doesn't say nothing merged" "$KOUT" ;;
+    *) ok "  ... and doesn't say nothing merged" ;; esac
 setup_check
 run_check --session s --topic w6
 [ "$KRC" = 1 ] && ok "another topic's check: not confirmed" || bad "another topic's check: not confirmed" "exit $KRC: $KOUT"
@@ -1003,6 +1006,86 @@ run_pass
 eq_ "no handoff comment, the pull request not merged at the verdict's commit: refused" \
     "1|teardown-pass: refused: acme/widgets#600 is not merged at $(printf '%040d' 9)" "$RC|$LAST"
 [ ! -e "$ST/posted.txt" ] && ok "  ... no entry" || bad "  ... no entry" "$(cat "$ST/posted.txt")"
+
+# ---------------------------------------------------------------------------
+# A removed teardown before anything merged (shirabe#1833): the verdict says
+# `pr none` beside `handoff none`. The pass re-reads no pull request, its entry
+# says none merged, and check confirms it with the removed marker.
+echo "== a removed teardown with nothing merged =="
+# prnone_verdict [job-line]: none_verdict's, its pr line `pr none`.
+prnone_verdict() {
+    none_verdict "$@"
+    sed -i.bak 's/^pr .*/pr none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+}
+setup_run
+prnone_verdict 'job -'
+run_pass
+eq_ "nothing merged, no session survived: done, nothing archived" \
+    "0|teardown-pass: done: the unit was removed outside the pass and no session of it survives; nothing archived" "$RC|$LAST"
+eq_ "  ... the entry says no pull request of it merged" \
+    "Teardown of w5 closed without a handoff comment: the unit was removed outside the pass, niwa lists no instance w5, Claude Code lists no job there, no session of the worker survived, and no pull request of it merged. No handoff comment exists, so this entry stands in for the link." \
+    "$(cat "$ST/posted.txt" 2>&1)"
+eq_ "  ... no pull request is read" "" "$(line_of 'gh pr view')"
+[ -z "$(line_of 'niwa destroy')" ] && [ -z "$(line_of 'claude rm')" ] && ok "  ... nothing destroyed or removed" || bad "  ... nothing destroyed or removed" "$(cat "$ST/log")"
+eq_ "  ... the retired event names no pull request" \
+    "$(printf '%s\n' event --scope unit-cost --kind retired --koto-dir "$T/ws" unit.topic=w5 unit.koto_session=s --)" \
+    "$(emits)"
+confirm_archive
+eq_ "  ... confirm confirms it with no archive" "0 teardown-confirmed" "$CRC $COUT"
+run_check_here
+eq_ "  ... and check confirms it" 0 "$KRC"
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
+case "$KOUT" in *"; no pull request of it merged") ok "  ... and ends saying nothing merged" ;;
+    *) bad "  ... and ends saying nothing merged" "$KOUT" ;; esac
+
+setup_run
+coord_request
+prnone_verdict
+run_pass
+[ "$RC" = 0 ] && [ "$RES" = done ] && [ -z "$(line_of 'niwa destroy')" ] && ok "nothing merged, the worker's session survived: done, archived, nothing destroyed" \
+    || bad "nothing merged, the worker's session survived: done, archived, nothing destroyed" "exit $RC: $OUT $ERR"
+eq_ "  ... the README's Merged pull request line says none" \
+    "- Merged pull request: none" "$(grep '^- Merged pull request:' "$ARCHD/README.md" 2>&1)"
+eq_ "  ... the entry names the worker's session and says nothing merged" \
+    "Teardown of w5 closed without a handoff comment: the unit was removed outside the pass, niwa lists no instance w5, Claude Code lists no job there, the worker's session $SID is not live, and no pull request of it merged. No handoff comment exists, so this entry stands in for the link." \
+    "$(cat "$ST/posted.txt" 2>&1)"
+eq_ "  ... no pull request is read" "" "$(line_of 'gh pr view 600 --repo acme/widgets --json state,mergeCommit')"
+confirm_archive
+eq_ "  ... confirm passes the archive" "0 teardown-confirmed" "$CRC $COUT"
+run_check_here
+eq_ "  ... and check confirms it" 0 "$KRC"
+case "$KOUT" in *"teardown-confirmed: removed outside the run: "*) ok "  ... its reason carries the removed marker" ;;
+    *) bad "  ... its reason carries the removed marker" "$KOUT" ;; esac
+case "$KOUT" in *"; no pull request of it merged") ok "  ... and ends saying nothing merged" ;;
+    *) bad "  ... and ends saying nothing merged" "$KOUT" ;; esac
+
+# `pr none` stands only alone, beside `removed yes` and `handoff none`.
+PRNONE_WHY="a pr none line stands only as the one pr line of a removed verdict that says handoff none"
+setup_run
+removed_verdict 'job -'
+sed -i.bak 's/^pr .*/pr none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "pr none beside a handoff link: refused" "1|teardown-pass: refused: $PRNONE_WHY" "$RC|$LAST"
+[ -z "$(line_of 'niwa destroy')" ] && [ ! -e "$ST/posted.txt" ] && ok "  ... nothing destroyed, no entry" || bad "  ... nothing destroyed, no entry" "$(cat "$ST/log")"
+setup_run
+sed -i.bak -e 's/^pr .*/pr none/' -e 's/^handoff .*/handoff none/' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "pr none without removed yes: refused" "1|teardown-pass: refused: $PRNONE_WHY" "$RC|$LAST"
+[ -z "$(line_of 'niwa destroy')" ] && [ ! -e "$ST/posted.txt" ] && ok "  ... nothing destroyed, no entry" || bad "  ... nothing destroyed, no entry" "$(cat "$ST/log")"
+setup_run
+prnone_verdict 'job -'
+printf 'pr acme/widgets#600 %s\n' "$MSHA" >>"$VERDICT_FILE"
+run_pass
+eq_ "pr none next to another pr line: refused" "1|teardown-pass: refused: $PRNONE_WHY" "$RC|$LAST"
+[ ! -e "$ST/posted.txt" ] && ok "  ... no entry" || bad "  ... no entry" "$(cat "$ST/posted.txt")"
+# A verdict with no pr line at all still refuses as before.
+setup_run
+none_verdict 'job -'
+sed -i.bak '/^pr /d' "$VERDICT_FILE" && rm -f "$VERDICT_FILE.bak"
+run_pass
+eq_ "a removed handoff none verdict with no pr line: refused" \
+    "1|teardown-pass: refused: the verdict names no merged pull request" "$RC|$LAST"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

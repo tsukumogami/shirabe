@@ -64,6 +64,10 @@ the record saying the teardown closed without a handoff comment and why, and
 it refuses if that entry can't be written. Report its last line as for any
 pass.
 
+Such a verdict may also say `pr none`: no pull request of the unit merged
+before its worker was removed. The script then has no pull request to
+check, and its entry says none merged. Run and report it the same way.
+
 ## What you never do
 
 - Run anything else that removes, stops or changes something: no `niwa

@@ -57,7 +57,10 @@ volume.
 ### 3.4 Write Considered Options
 
 Map each decision report into the design doc's Considered Options section
-using the rendering rules from `${CLAUDE_PLUGIN_ROOT}/references/decision-report-format.md`:
+using the rendering rules from `${CLAUDE_PLUGIN_ROOT}/references/decision-report-format.md`.
+The section holds the stub marker line from Phase 0
+(`skills/design/references/design-format.md`, The stub marker): replace that
+line with what you write, don't add below it.
 
 - Context → opening paragraphs under `### Decision N: <Topic>`
 - Provenance → the entry's first line, `Resolved inline.` or
@@ -70,7 +73,8 @@ using the rendering rules from `${CLAUDE_PLUGIN_ROOT}/references/decision-report
 - Consequences → roll up into design doc's `## Consequences`
 
 Also write the Decision Outcome section synthesizing how the individual
-decisions work together.
+decisions work together, replacing its stub marker line the same way. The
+frontmatter stays as Phase 0 wrote it, at `status: Draft`.
 
 ### 3.5 Preserve Artifacts
 

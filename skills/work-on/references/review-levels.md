@@ -85,7 +85,10 @@ rebind there, so a resume that passes a different bound is refused.
 
 After implementation and before the first panel of a code change, on every
 lap, `review-level.sh facts` records the change's facts in
-`review_facts.json` and derives a floor from them:
+`review_facts.json` and derives a floor from them. Each gather is also
+appended, as one line, to `review_facts.jsonl`, so the size of the change at
+every lap survives the run for whoever reads its numbers later; nothing in
+the workflow reads that history back.
 
 - the diff is taken from two bases, the stored `impl_base` and the
   merge-base of HEAD with the default branch (origin/HEAD's branch, else

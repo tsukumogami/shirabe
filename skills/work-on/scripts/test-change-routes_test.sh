@@ -157,7 +157,10 @@ esac
 [ "$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "test_gap") | "\(.when["gates.tests_counted.exit_code"])/\(.when["gates.fix_green.exit_code"] // "-")>\(.target)"] | join(",")')" = "1/->implementation,0/1>implementation" ] \
     && pass "a test gap goes back to implementation from a held edit or a fix held on its green" \
     || fail "the test_gap edges are [$(q '[.states.pass_counting.transitions[] | select(.when.counting_status == "test_gap")]')]"
-[ "$(q '[.states.ci_monitor.transitions[] | select(.when["gates.ci_passing.exit_code"] == 0 and .when["gates.merge_state_clean.exit_code"] == 0) | .target] | join(",")')" = ci_pass_counting ] \
+# A run with no hosted-of-record record has hosted_settled at 0 (the gate
+# short-circuits), so that is the green edge this case reads; the edge for a
+# record that isn't settled yet goes to hosted_record first.
+[ "$(q '[.states.ci_monitor.transitions[] | select(.when["gates.ci_passing.exit_code"] == 0 and .when["gates.merge_state_clean.exit_code"] == 0 and .when["gates.hosted_settled.exit_code"] == 0) | .target] | join(",")')" = ci_pass_counting ] \
     && pass "green CI on a clean pull request goes to ci_pass_counting" || fail "ci_monitor's green edges are [$(q '.states.ci_monitor.transitions')]"
 [ "$(q '.states.ci_pass_counting.gates.tests_counted.command')" = "$(q '.states.pass_counting.gates.tests_counted.command')" ] \
     && [ "$(q '.states.ci_pass_counting.gates.fix_green.command')" = "$(q '.states.pass_counting.gates.fix_green.command')" ] \
@@ -645,7 +648,7 @@ echo "--- ci_pass_counting: a test edited while fixing CI is held after CI passe
 
 CI_BLOCKS="$(stub_block "$(extract_state ci_monitor)" ci_passing=0 merge_state_clean=0)
 $(extract_state ci_pass_counting)"
-fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS"
+fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS" hosted_record
 git checkout -q main
 git checkout -q -b case-ci
 S=tc_ci

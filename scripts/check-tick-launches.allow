@@ -7,3 +7,6 @@
 # no longer matches a call the templates reach fails the check, so it is
 # removed with the call it described.
 skills/coordinate/scripts/reconcile-legs.sh	skills/coordinate/scripts/dispatch-worker.sh	reconcile-legs.sh runs it only as --releg-imported, which exits before the niwa dispatch of the dispatch path
+skills/work-on/scripts/verification-route.sh	scripts/check-skill.sh	verification-route.sh only names it, as a path whose change closes the hosted-of-record route and as a file it reads at the merge-base with git show; it never runs it
+skills/work-on/scripts/verification-route.sh	scripts/skill-gate.sh	verification-route.sh only names it, as a path whose change closes the hosted-of-record route and as a file it reads at the merge-base with git show; it never runs it
+skills/work-on/scripts/verification-route.sh	skills/work-on/scripts/verification-hosted-coverage_test.sh	verification-route.sh only names it, as a path whose change closes the hosted-of-record route; it never runs it

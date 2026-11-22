@@ -13,6 +13,10 @@
 #                              run_lines
 #   run/node/<node>            repo, pr, head, deferrals, reruns,
 #                              public_reason, merged_head
+#   run/hosted/<node>          the node's hosted-of-record route: head,
+#                              taken_at, reason, checks, work_tree (written
+#                              by work-on's verification-route.sh --collect
+#                              from node-push.sh, never by run-record.sh)
 #   run/follow-up/<node>/<n>   repo, pr, head, merged_head, removed
 #   run/cascade                verdict, head, step
 #   run/recovered              pr, source
@@ -48,7 +52,7 @@
 #
 # Requires: bash 3.2+, jq, koto.
 
-RR_KEY_RE='^run/(setup|cascade|recovered|adopted|node/[a-z][a-z0-9-]*|follow-up/[a-z][a-z0-9-]*/[1-9][0-9]*)$'
+RR_KEY_RE='^run/(setup|cascade|recovered|adopted|node/[a-z][a-z0-9-]*|hosted/[a-z][a-z0-9-]*|follow-up/[a-z][a-z0-9-]*/[1-9][0-9]*)$'
 
 # rr_valid_key <key> -- the key is in the record's fixed layout.
 rr_valid_key() {

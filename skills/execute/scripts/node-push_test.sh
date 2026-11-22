@@ -604,6 +604,108 @@ done
     --public-reason "$PUBLIC_W" >/dev/null 2>&1); rc=$?
 [ "$rc" -eq 64 ] && pass "--public-reason in the coordination mode: 64" || fail "coordination --public-reason: rc=$rc"
 
+# --- the hosted-of-record route -----------------------------------------------------
+#
+# A work item that took the route holds hosted_of_record in its own session,
+# with its stored verification result on disk. The node gets its own record,
+# run/hosted/<node> in the run's session, for the head it pushes, written
+# only after the node branch's whole diff passes the route's diff checks.
+
+HOSTED_MAP='{"schema":"shirabe-verification-map/v1","commands":{"check-skill":{"run":["scripts/check-skill.sh","--changed"],"each":"skills/*","timeout_secs":3600,"hosted":[{"workflow":".github/workflows/check-skill-gate.yml","job":"skill-gate (ubuntu-latest)","runs":"check-skill {skill}"}]}},"entries":[{"paths":["skills/**"],"commands":["check-skill"]}]}'
+# hosted_repo <case>: fresh_repo, with main carrying a verification map that
+# declares the check-skill row's hosted job, and a change under skills/.
+hosted_repo() {
+    REPO="$CT_WORK/$1-repo"
+    PLAN="$REPO/docs/plans/PLAN-t.md"
+    ct_repo "$REPO"
+    (cd "$REPO" && git checkout -q main && mkdir -p .claude/shirabe-extensions \
+        && printf '%s\n' "$HOSTED_MAP" > .claude/shirabe-extensions/verification-map.json \
+        && git add .claude && git commit -q -m "chore: map" && git push -q origin main && git fetch -q origin \
+        && git checkout -q "$CT_CB" && git merge -q --ff-only main)
+    ct_plan "$REPO"
+    (cd "$REPO" && git add docs && git commit -q -m "docs: plan")
+    WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" 2>/dev/null | sed -n 's/^worktree=//p')
+    [ -n "$WT" ] && [ -d "$WT" ] || { echo "FAIL: node-cut.sh made no worktree for case $1" >&2; exit 1; }
+    (cd "$WT" && mkdir -p skills/coordinate && echo work > skills/coordinate/x.sh && git add skills && git commit -q -m "feat: work")
+}
+# hosted_child <item>: the work item's child took the route at the worktree's
+# HEAD: its stored result (check-skill:coordinate timed out, nothing failed)
+# and its own hosted_of_record.
+hosted_child() {
+    local c="work-on-t-$CT_CORE-$1" h mb res
+    h=$(git -C "$WT" rev-parse HEAD)
+    mb=$(git -C "$WT" merge-base HEAD refs/remotes/origin/main)
+    res="${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/$c/$h/result.json"
+    mkdir -p "$(dirname "$res")" "$CASE/ctx/$c"
+    jq -cn --arg h "$h" --arg mb "$mb" --arg fin "$(jq -rn 'now - 120 | floor | todate')" '
+        {schema: "shirabe-verification-result/v1", head: $h, merge_base: $mb, status: "timed-out", detail: "",
+         finished_at: $fin,
+         commands: [{id: "check-skill", check: "check-skill:coordinate", exit_status: 143, timed_out: true,
+                     runaway: false, not_started: false, outcome: "timed-out-limit", suites: null}]}' > "$res"
+    jq -cn --arg h "$h" --arg t "$(jq -rn 'now - 60 | floor | todate')" '
+        {head: $h, taken_at: $t, reason: "the coordinate suites need more than an hour here",
+         checks: [{id: "check-skill:coordinate",
+                   jobs: [{workflow: ".github/workflows/check-skill-gate.yml", job: "skill-gate (ubuntu-latest)",
+                           run_id: null, conclusion: null, attempt: null}]}]}' > "$CASE/ctx/$c/hosted_of_record"
+}
+hosted_rec() { cat "$CASE/ctx/$S/run/hosted/$CT_CORE" 2>/dev/null; }
+
+np_case hosted
+ct_write_db
+hosted_repo hosted
+hosted_child 1
+push_node
+SHA=$(git -C "$WT" rev-parse HEAD)
+if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$SHA" ] \
+    && [ "$(hosted_rec | jq -c --arg wt "$WT" '[.head, .work_tree == $wt, [.checks[] | [.id, .session, .result_head]]]')" \
+        = "[\"$SHA\",true,[[\"check-skill:coordinate\",\"work-on-t-$CT_CORE-1\",\"$SHA\"]]]" ]; then
+    pass "a work item that took the route: the node's own run/hosted/<node> record at the pushed head, its part naming the child"
+else
+    fail "the hosted node push: rc=$RC remote=[$(remote_head)] record=[$(hosted_rec)]; $(tail -5 "$CASE/stderr")"
+fi
+[ "$(hosted_rec | jq -r '.taken_at | fromdateiso8601')" -gt "$(jq -r '.taken_at | fromdateiso8601' "$CASE/ctx/work-on-t-$CT_CORE-1/hosted_of_record")" ] \
+    && pass "the node record's taken_at is its own, later than the child's" \
+    || fail "the node record's taken_at: [$(hosted_rec | jq -r .taken_at)]"
+[ ! -e "$CASE/ctx/$S/hosted_of_record" ] && pass "a coordinated node never writes the shared hosted_of_record key" \
+    || fail "a coordinated push wrote hosted_of_record"
+bash "$SCRIPT_DIR/../../work-on/scripts/verification-route.sh" --check-record --session "$S" --key "run/hosted/$CT_CORE" --head "$SHA" \
+    </dev/null >/dev/null 2>"$CASE/check.err" \
+    && pass "the node record validates part by part against the child's result and map, from the coordination checkout" \
+    || fail "--check-record on the node record: $(cat "$CASE/check.err")"
+
+np_case hosted-closing
+ct_write_db
+hosted_repo hosted-closing
+hosted_child 1
+(cd "$WT" && mkdir -p .github && echo x > .github/x && git add .github && git commit -q -m "ci: touch the workflows")
+hosted_child 1
+push_node
+if [ "$RC" -eq 81 ] && [ -z "$(remote_head)" ] && [ -z "$(hosted_rec)" ] && grep -qF "touches .github/x" "$CASE/stderr"; then
+    pass "a node branch whose diff touches .github/: exit 81, no record written, nothing pushed, the cause named"
+else
+    fail "the closing node push: rc=$RC remote=[$(remote_head)] record=[$(hosted_rec)]; $(tail -5 "$CASE/stderr")"
+fi
+
+np_case hosted-two
+ct_write_db
+hosted_repo hosted-two
+hosted_child 1
+NODE_A=$CT_CORE
+push_node
+RA=$(hosted_rec)
+CT_CORE=$CT_CLI
+hosted_repo hosted-two-b
+hosted_child 1
+push_node
+RB=$(hosted_rec)
+CT_CORE=$NODE_A
+if [ -n "$RA" ] && [ -n "$RB" ] && [ "$(cat "$CASE/ctx/$S/run/hosted/$NODE_A")" = "$RA" ] \
+    && [ "$(jq -r .head <<<"$RA")" != "$(jq -r .head <<<"$RB")" ] && [ ! -e "$CASE/ctx/$S/hosted_of_record" ]; then
+    pass "two nodes whose children took the route keep two records, each under its own node's key"
+else
+    fail "two hosted nodes: A=[$RA] B=[$RB]"
+fi
+
 np_case adopt-missing
 ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'author="someone-else"'

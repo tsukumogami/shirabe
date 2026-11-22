@@ -35,6 +35,14 @@
 #              refused partial-read and the unit stays held; naming them all
 #              counts it; a hand-written accept line with no read_whole
 #              doesn't count
+#   a renamed test in the brief
+#              a renamed edited test shows as a rename with the line the edit
+#              removed, never as a new file, while a deleted test still shows
+#              as deleted; the same when the brief is cut and its hunks are
+#              built per file; a renamed test the cut leaves out is in the
+#              work-tree read with its old path, and that read shows the
+#              rename, while --read-whole names its new path only; a person's
+#              terminal screen shows a renamed test as a rename too
 #   accept     a minted seat at reviewer is recorded with identity, kind,
 #              authority, the file's blob digest, reason, time and rule
 #              interim; refused, with a refuse line naming the rule, as the
@@ -632,6 +640,34 @@ eq "person at the remote default branch's tip: true" true "$(hdr_of dtip .person
 has "the tip is named in the source" "CLAUDE.md at the remote default branch: person" "$(hdr_of dtip .person_required_source)"
 git update-ref -d refs/remotes/origin/main
 
+# --- a merge of main onto a branch-only base (#1603) ----------------------------------------
+# impl_base is a commit only on the branch, so it isn't an ancestor of the
+# merge-base with main. The default branch here is b-1603-main, read through
+# origin/main, so main itself stays where the other sections expect it.
+echo "--- a merge of main onto a branch-only base"
+git checkout -q -B b-1603-main "$BASE"
+git checkout -q -B b-1603 "$BASE"
+printf '#!/bin/sh\n[ 2 -eq 2 ]\n' > tests/shared_test.sh
+git add -A && git commit -q -m "test: shared work before the unit"
+S=mob
+start_here "$S"
+printf '#!/bin/sh\n' > tests/other_test.sh
+git commit -q -am "test: the unit's own edit"
+git checkout -q b-1603-main
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: main edits a test"
+git update-ref refs/remotes/origin/main "$(git rev-parse HEAD)"
+git checkout -q b-1603
+git merge -q --no-edit b-1603-main >/dev/null
+run status "$S"
+eq "a merge of main onto a branch-only base: status holds on the unit's own edit" 1 "$RC"
+has "a merge of main onto a branch-only base: the unit's own edit is held" "held: unaccepted tests/other_test.sh" "$OUT"
+case "$OUT" in
+    *"held: unaccepted tests/greet_test.sh"*) bad "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" "[$OUT]" ;;
+    *) ok "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" ;;
+esac
+git update-ref -d refs/remotes/origin/main
+
 
 # --- a person-required repository ----------------------------------------------------------
 echo "--- a person-required repository"
@@ -681,6 +717,20 @@ if [ "$HAVE_PTY" -eq 1 ]; then
     cp "$W/preq.ledger" "$STORE/$S/test_change_ledger.jsonl"
     run status "$S"
     eq "restored, the tagged line counts again" 0 "$RC"
+
+    # The terminal screen builds its hunks as the brief does, so a renamed
+    # test shows there as a rename with the line its edit removed.
+    git checkout -q -B b-prren "$PERSON_BASE"
+    S=preqren
+    start_here "$S"
+    git mv tests/greet_test.sh tests/hello_test.sh
+    sed -i.bak 's/Hello, World!/Hello, World/' tests/hello_test.sh && rm -f tests/hello_test.sh.bak
+    git commit -q -am "test: rename and drop the mark"
+    OUT=$(cd "$R" && PATH="$BIN:$PATH" python3 -I "$PTY" right bash "$SCRIPT" accept "$S" --as person:pat --authority owner --all --reason "test was wrong" 2>&1); RC=$?
+    eq "a renamed test at a terminal: exit 0" 0 "$RC"
+    has "the terminal showed the rename" "rename from tests/greet_test.sh" "$OUT"
+    has "the terminal showed the line the rename's edit removed" '-[ "$out" = "Hello, World!" ]' "$OUT"
+    hasnt "the terminal showed no new file mode for the rename" "new file mode" "$OUT"
 else
     echo "SKIP: python3 with pty not found; the pseudo-terminal person cases did not run"
 fi
@@ -1108,6 +1158,63 @@ if [ "$RC" -eq 0 ]; then
 else
     has "a cut brief: a hand-written accept with no whole read doesn't count" "held: unaccepted tests/greet_test.sh" "$OUT"
 fi
+
+# --- a renamed test in the brief -----------------------------------------------------------
+# The held item is a rename's new path. A diff limited to that path shows a new
+# file with every line added, so the brief must name the old path too, or the
+# line the edit removed is shown nowhere.
+echo "--- a renamed test in the brief"
+S=renbrief
+start "$S"
+git mv tests/greet_test.sh tests/hello_test.sh
+sed -i.bak 's/Hello, World!/Hello, World/' tests/hello_test.sh && rm -f tests/hello_test.sh.bak
+git rm -q tests/other_test.sh
+printf '#!/bin/sh\n[ 2 -eq 2 ]\n' > tests/added_test.sh
+git add -A && git commit -q -m "test: rename with a change, delete one, add one"
+run seat "$S"
+eq "a renamed test: seat exits 0" 0 "$RC"
+has "a renamed test's brief shows the rename" "rename from tests/greet_test.sh" "$OUT"
+has "a renamed test's brief shows the line the edit removed" '-[ "$out" = "Hello, World!" ]' "$OUT"
+hasnt "a renamed test's brief shows no new file mode" "new file mode" "$OUT"
+has "a deleted test still shows as deleted" "deleted file mode" "$OUT"
+hasnt "an added test stays out of the edited hunks" "tests/added_test.sh" "$OUT"
+
+# Cut, with the rename's diff built per file and shown whole: the rename sorts
+# before the large edit that crosses the limit.
+S=rencut
+start "$S"
+git mv tests/greet_test.sh tests/alpha_test.sh
+sed -i.bak 's/Hello, World!/Hello, World/' tests/alpha_test.sh && rm -f tests/alpha_test.sh.bak
+awk 'BEGIN { for (i = 1; i <= 1200; i++) printf "# filler line %04d, so the diff is past the brief limit\n", i }' >> tests/other_test.sh
+sed -i.bak 's/alpha beta/alpha beta epsilon/' tests/other_test.sh && rm -f tests/other_test.sh.bak
+git commit -q -am "test: rename with a change, and a large edit"
+run seat "$S"
+eq "a cut brief with a rename: seat exits 0" 0 "$RC"
+has "a cut brief with a rename is cut" "of the diff of tests/other_test.sh" "$OUT"
+has "a cut brief shows the rename built per file" "rename from tests/greet_test.sh" "$OUT"
+has "a cut brief shows the line the rename's edit removed" '-[ "$out" = "Hello, World!" ]' "$OUT"
+hasnt "a cut brief shows no new file mode for the rename" "new file mode" "$OUT"
+
+# Cut, with the rename past the limit: the work-tree read names its old path
+# as well, and that read shows the rename and its removed line.
+S=rencutread
+start "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+awk 'BEGIN { for (i = 1; i <= 1200; i++) printf "# filler line %04d, so the diff is past the brief limit\n", i }' >> tests/greet_test.sh
+git mv tests/other_test.sh tests/zz_test.sh
+sed -i.bak 's/alpha beta/alpha beta epsilon/' tests/zz_test.sh && rm -f tests/zz_test.sh.bak
+git commit -q -am "test: a large edit, and a rename with a change"
+run seat "$S"
+eq "a cut rename: seat exits 0" 0 "$RC"
+has "a cut rename is named as not shown" "[cut: the diff of tests/zz_test.sh" "$OUT"
+has "the work-tree read names the rename's old path" "diff -M $BASE HEAD -- tests/greet_test.sh tests/zz_test.sh tests/other_test.sh" "$OUT"
+has "--read-whole names the rename's new path only" "--read-whole tests/greet_test.sh tests/zz_test.sh --reason" "$OUT"
+eq "the seat line records the cut items" '["tests/greet_test.sh","tests/zz_test.sh"]' \
+    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
+READ=$(printf '%s\n' "$OUT" | grep '^  git -C ')
+WHOLE=$(eval "$READ" 2>&1)
+has "the work-tree read shows the rename" "rename from tests/other_test.sh" "$WHOLE"
+has "the work-tree read shows the line the rename's edit removed" "-for word in alpha beta gamma delta; do" "$WHOLE"
 
 echo
 echo "test-change: $PASS passed, $FAIL failed"

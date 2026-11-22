@@ -20,7 +20,11 @@ Determine the `<topic>` string from input:
   `PLAN-*.md` file elsewhere, such as an eval fixture): strip the directory,
   the `PLAN-` prefix and the `.md` suffix to get `<topic>`, and remember the
   path as the PLAN document
-- If called standalone with a topic string: use as-is
+- If called standalone with a topic string: a slug is used as-is; a
+  description of the plan names the plan to review, so take the slug of that
+  plan (from the conversation, or the `docs/plans/PLAN-<slug>.md` it
+  describes), as `${CLAUDE_PLUGIN_ROOT}/references/topic-derivation.md` says, and name
+  it on the first line of output
 
 Check `<topic>` against `^[a-z0-9][a-z0-9-]*$` before it reaches any command.
 Every read and write below names keys in `plan-<topic>`.

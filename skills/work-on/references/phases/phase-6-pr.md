@@ -44,12 +44,30 @@ both parts of the body (`pr-body/banned-word`, PB5). Write that prose to
 `skills/writing-style`. A violation holds the state with a finding naming the
 rule: fix it with `gh pr edit` and submit `pr_status: created` again. For the **subjective**
 Part 2 section selection (which reviewer-context sections this change needs),
-apply the reasoning framework from your project's PR creation skill. Include
-`Fixes #<N>` in Part 2 — `pr_creation`'s `closing_keyword` gate reads the pull
-request GitHub actually has and blocks the run when the body does not close the
-issue, so this is an obligation the workflow enforces rather than a convention
-it asks for. Free-form work has no issue to close and the gate passes without
-consulting the body.
+apply the reasoning framework from your project's PR creation skill. Reference
+the issue in Part 2. `pr_creation`'s `closing_keyword` gate reads the pull
+request GitHub actually has and blocks the run when the reference is wrong, so
+this is an obligation the workflow enforces rather than a convention it asks
+for. Free-form work has no issue to close and the gate passes without
+consulting the body. Which reference depends on whether the pull request
+closes the issue:
+
+- **It closes the issue.** This is every run that didn't declare a partial
+  delivery and didn't come straight from an approved deferral. Include
+  `Fixes #<N>`; the gate blocks the run when the body doesn't close the issue.
+- **It leaves the issue open.** This is a run started with
+  `--delivery=partial --delivery-reason=<why>` (a planned split, where this pull
+  request is one step), or one whose pass came straight from an approved
+  deferral at `deferral_approval` with no return to `finalization` since.
+  Write `Part of #<N>`. The gate also accepts `Ref` or `Refs` in place of
+  `Part of`, but `Part of` is the line the directive, these docs and the
+  gate's refusal all give. Nothing in the pull request may close the issue:
+  the gate refuses a closing keyword before any spelling of `<N>` (a bare
+  `#<N>`, `GH-<N>`, this repository's `owner/repo#<N>`, its issue URL or the
+  markdown link to it) in the body, the title or any commit message, and
+  names where it found it. Part 2 also says in plain terms what this pull
+  request delivers and what stays open on the issue: for a split, the step
+  the delivery reason names; for a deferral, the deferred criterion.
 
 An issue in another repository (the run was initialized with `ISSUE_REPO`) is
 closed only by its qualified reference: write `Fixes <owner/repo>#<N>`, with
@@ -75,6 +93,15 @@ again. That issue then won't close on merge, so close it by hand if it
 should. A colon
 after the keyword (`Fixes: #<N>`) closes the issue too, and the gate reads
 it that way.
+
+When that run leaves its issue open, write `Part of <owner/repo>#<N>`, with
+the run's own `ISSUE_REPO`, or the markdown link
+`Part of [<owner/repo>#<N>](<its issue URL>)`. A bare `Part of #<N>` names
+this repository's issue `<N>` and doesn't count. Nothing may close either
+issue: the gate refuses a closing keyword before `<owner/repo>#<N>`, its
+issue URL or the link to it, as well as every form above that closes this
+repository's issue `<N>`, in the body, the title or a commit message. The
+old-name lookups run here too, with the same limits and the same exit 3.
 
 ### Workflow content: what the body leaves out
 
@@ -109,8 +136,10 @@ at the same head also gives each archived attempt its re-run line there, under e
 setting (see "Re-run attempts at the same head" below).
 
 If `deferral_approval` approved a deferral, say in Part 2, in plain terms, which
-acceptance criterion the change leaves undone and where it is tracked. Under
-`include`, also name the recorded approval.
+acceptance criterion the change leaves undone and where it is tracked. The
+undone criterion stays open on the issue, so the body writes `Part of #<N>`
+rather than `Fixes #<N>` (see **Create PR** above). Under `include`, also name
+the recorded approval.
 
 ### Verification deferred to hosted CI
 
@@ -179,6 +208,46 @@ reads nothing from GitHub. On a plan's shared branch the child opens no pull req
 the shared PR is checked at the owning `/execute` session's `pr_finalization`, by
 `rerun_recorded`.
 
+### Verification settled on hosted CI (the hosted-of-record route)
+
+A run whose local verification timed out, with no check failed, may have taken
+the hosted-of-record route at `verification`'s timed-out hold. It then has the
+koto key `hosted_of_record` for this head, and the pull request follows a
+different rule from the first push:
+
+- Open it as a draft, with the body passed by file:
+  `gh pr create --draft --body-file <file>`. Never pass the body inline.
+- Put the lines
+  `"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/verification-route.sh" --lines --session <session>`
+  prints into the body file verbatim, in the Verification part of Part 2. They
+  are one `Hosted of record: <check> at <head>: <job> (pending)` line per
+  recorded check and a `Reason for the hosted route:` line with the reason in a
+  code span, its `@`, `#`, `<`, `>`, `[` and `]` turned into `_`. Never type
+  or edit them: the script writes them from the record, so a reason can't forge
+  one. `--lines` exits 1 when there is no key at the current head; the
+  pull request then follows the ordinary rule.
+- `pr_creation`'s `hosted_record_line` gate (`check-pr-output.sh
+  --hosted-record`) holds `pr_status: created` until the pull request is a
+  draft and every recorded check has exactly one line naming its check id, the
+  record's head and its declared jobs.
+
+The reason is public: it reaches the body exactly as it was recorded. A key
+left from an earlier head is no record: `run-verification.sh --start` removes
+it at the new head, and the pull request then opens as usual.
+
+The pull request stays a draft until `hosted_record` settles the record. That
+state's read (`verification-route.sh --read`) fills each job's run once its
+latest attempt at the head concluded success, and rewrites the body's lines
+with the run links itself (`gh pr edit --body-file`). Only then mark it ready,
+with
+`"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/verification-route.sh" --mark-ready --session <session>`,
+which re-reads
+the pull request's head and runs `gh pr ready` only when it is still the
+record's. Don't run `gh pr ready` by hand, and don't fill the record yourself:
+`ci_monitor`'s `hosted_settled` gate re-reads every run and sends a record it
+can't confirm back to the read. Any commit after the route was taken voids it,
+and the run verifies the new head afresh.
+
 ### A repository with no hosted CI
 
 A pull request with no checks never passes `ci_passing` on its own: zero checks
@@ -230,6 +299,14 @@ check green.
 A check you cannot fix, or one still red when `ci_monitor`'s retry cap is
 spent, ends the run as `failing_unresolvable`; the state's directive carries
 the cap. An unattended run never asks the user instead.
+
+On the hosted-of-record route, green CI on the draft goes to `hosted_record`
+before `ci_pass_counting`. There the read waits while a recorded job is pending
+(for a bounded time from when the route was taken; the state's directive
+carries the limit), refuses a job that concluded
+anything but success, and the ready step follows a read that passed. Back at
+`ci_monitor` after the pull request is ready, the checks that run only on a
+ready pull request (the macOS legs, for example) are waited for like any other.
 
 ## Evidence (pr_creation)
 

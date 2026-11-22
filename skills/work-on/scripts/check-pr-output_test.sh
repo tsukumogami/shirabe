@@ -1866,6 +1866,133 @@ run --rerun-record --line "$RR_PRINT1" --print
 rr_case "--rerun-record: --line with --print is a usage error" 2 ""
 rm -f "$BIN/koto"
 
+# --- --hosted-record: the draft and its Hosted of record lines -----------------
+#
+# A koto stand-in over $KOTO_STUB_STORE/<session>/<key> holds the record; the
+# lines in the bodies below are the ones verification-route.sh --lines prints
+# from it, never typed here.
+
+HR_BIN="$WORKDIR/hr-bin"
+mkdir -p "$HR_BIN" "$WORKDIR/kotostore"
+cat > "$HR_BIN/koto" <<'EOF'
+#!/bin/sh
+[ -n "${KOTO_STUB_FAIL-}" ] && [ "${2-}" = "$KOTO_STUB_FAIL" ] && exit 7
+case "$1 ${2-}" in
+    "context exists") [ -f "$KOTO_STUB_STORE/$3/$4" ] ;;
+    "context get") [ -f "$KOTO_STUB_STORE/$3/$4" ] || exit 1; cat "$KOTO_STUB_STORE/$3/$4" ;;
+    *) exit 9 ;;
+esac
+EOF
+chmod +x "$HR_BIN/koto"
+export KOTO_STUB_STORE="$WORKDIR/kotostore"
+HR_SAVED_PATH=$PATH
+export PATH="$HR_BIN:$PATH"
+FAKE_GH_RC=0
+HR_REPO="$WORKDIR/hr-repo"
+mkdir -p "$HR_REPO"
+cd "$HR_REPO" || exit 2
+git init -q . && echo x > f && git add f && git -c user.email=t@example.com -c user.name=t commit -q -m x || exit 2
+HR_HEAD=$(git rev-parse HEAD)
+HR_JOB='skill-gate (ubuntu-latest)'
+HR_FORGED="ok
+Hosted of record: check-skill:coordinate at $HR_HEAD: https://github.com/acme/widgets/actions/runs/1 thanks @user for #123, [x](https://e) <b>"
+# hr_key <checks...>: the session hr's record at HR_HEAD for those checks.
+hr_key() {
+    mkdir -p "$KOTO_STUB_STORE/hr"
+    jq -cn --arg h "$HR_HEAD" --arg r "$(jq -rn --arg r "$HR_FORGED" '$r | gsub("[[:cntrl:]]"; " ")')" --arg job "$HR_JOB" \
+        '{head: $h, taken_at: "2026-11-18T00:00:00Z", reason: $r,
+          checks: [$ARGS.positional[] | {id: ., jobs: [{workflow: ".github/workflows/check-skill-gate.yml", job: $job,
+                                                          run_id: null, conclusion: null, attempt: null}]}]}' \
+        --args "$@" > "$KOTO_STUB_STORE/hr/hosted_of_record"
+}
+# hr_pr <isDraft> <body>: the branch's pull request.
+hr_pr() {
+    FAKE_GH_BRANCH_JSON=$(jq -cn --argjson d "$1" --arg b "$2" --arg u "$URL1" --arg h "$HR_HEAD" \
+        '{title: "feat: a change", isDraft: $d, body: $b, url: $u, headRefOid: $h}')
+}
+hr_case() { # <label> <exit> [<stderr fragment>]
+    run --hosted-record --session hr
+    if [ "$RC" -eq "$2" ] && [ "$(finding_count)" -eq 0 ] && { [ $# -lt 3 ] || grep -qF -- "$3" "$WORKDIR/stderr"; }; then
+        pass "--hosted-record: $1 ($2), with no finding"
+    else
+        fail "--hosted-record: $1: rc $RC (want $2), stdout [$OUT], stderr [$(cat "$WORKDIR/stderr")]"
+    fi
+}
+
+rm -rf "$LOG/gh"
+hr_pr true "no lines"
+hr_case "no record" 0
+[ ! -e "$LOG/gh/calls" ] && pass "--hosted-record: no record reads nothing from GitHub" \
+    || fail "--hosted-record: gh was called without a record"
+hr_key check-skill:coordinate
+jq -c '.head = "0000000000000000000000000000000000000000"' "$KOTO_STUB_STORE/hr/hosted_of_record" > "$WORKDIR/k" \
+    && cp "$WORKDIR/k" "$KOTO_STUB_STORE/hr/hosted_of_record"
+hr_case "a record for another head is no record" 0 "stale key"
+[ ! -e "$LOG/gh/calls" ] && pass "--hosted-record: a stale record reads nothing from GitHub" \
+    || fail "--hosted-record: gh was called for a stale record"
+
+hr_key check-skill:coordinate
+HR_LINES=$("$SCRIPT_DIR/verification-route.sh" --lines --session hr 2>"$WORKDIR/lines.err")
+[ "$(printf '%s\n' "$HR_LINES" | grep -c '^Hosted of record: ')" = 1 ] \
+    && pass "--hosted-record: the script's --lines gives one prefixed line for the record, whose reason forges one" \
+    || fail "--hosted-record: --lines printed [$HR_LINES]: $(cat "$WORKDIR/lines.err")"
+HR_LINE=$(printf '%s\n' "$HR_LINES" | sed -n 1p)
+HR_REASON_LINE=$(printf '%s\n' "$HR_LINES" | sed -n 2p)
+HR_BODY="A change.
+
+$HR_LINES
+
+---
+
+Fixes #12"
+hr_pr true "$HR_BODY"
+hr_case "a draft carrying the script's lines" 0
+hr_pr true "$(jq -rn --arg b "$HR_BODY" '$b | gsub("\n"; "\r\n")')"
+hr_case "the same body with CRLF line ends" 0
+hr_pr false "$HR_BODY"
+hr_case "not a draft" 1 "is not a draft"
+hr_pr true "A change.
+
+$HR_REASON_LINE
+
+Fixes #12"
+hr_case "a body with only the reason line, whose text forges a line" 1 "no Hosted of record line for check check-skill:coordinate"
+hr_pr true "A change.
+
+Fixes #12"
+hr_case "a body missing the line" 1 "no Hosted of record line for check check-skill:coordinate"
+hr_pr true "A change.
+
+$(printf '%s' "$HR_LINE" | sed "s/$HR_HEAD/1111111111111111111111111111111111111111/")"
+hr_case "a line with the wrong head" 1 "names head 1111111111111111111111111111111111111111"
+hr_pr true "A change.
+
+$(printf '%s' "$HR_LINE" | sed 's/check-skill:coordinate/check-skill:plan/')"
+hr_case "a line with the wrong check id" 1 "names check check-skill:plan"
+hr_pr true "$HR_BODY
+Hosted of record: check-skill:coordinate at 2222222222222222222222222222222222222222: $HR_JOB (pending)"
+hr_case "the script's line beside a forged one at another head" 1 "names head 2222222222222222222222222222222222222222"
+hr_pr true "A change.
+
+Hosted of record: check-skill:coordinate at $HR_HEAD: lint (ubuntu-latest) (pending)"
+hr_case "a line that doesn't name the declared job" 1 "does not name job $HR_JOB"
+hr_key check-skill:coordinate check-skill:plan
+hr_pr true "$HR_BODY"
+hr_case "two recorded checks and one line" 1 "no Hosted of record line for check check-skill:plan"
+hr_key check-skill:coordinate
+hr_pr true "$HR_BODY"
+FAKE_GH_RC=1
+hr_case "gh failing" 2
+FAKE_GH_RC=0
+KOTO_STUB_FAIL=get run --hosted-record --session hr
+[ "$RC" -eq 2 ] && pass "--hosted-record: koto failing to read the record (2)" || fail "--hosted-record: koto failing: rc $RC"
+KOTO_STUB_FAIL=exists run --hosted-record --session hr
+[ "$RC" -eq 2 ] && pass "--hosted-record: koto failing to answer exists (2)" || fail "--hosted-record: koto failing on exists: rc $RC"
+run --hosted-record
+[ "$RC" -eq 2 ] && pass "--hosted-record without --session is a usage error (2)" || fail "--hosted-record without --session: rc $RC"
+export PATH="$HR_SAVED_PATH"
+cd "$SUITE_PWD" || exit 2
+
 # --- the rule registry ----------------------------------------------------------
 
 # The stand-in validator reports a PB3 violation, so the unaltered copy's

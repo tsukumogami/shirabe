@@ -71,32 +71,26 @@ git config --global user.email t@example.com
 git config --global user.name t
 git config --global init.defaultBranch main
 
-# The koto stand-in, over $WORKDIR/kotostore/<s>/<key>, logging each call:
-# `koto context add <s> <key> [--from-file <f>]` writes the key, `exists`
-# exits 0 or 1 (printing nothing), `get` prints it (1 when absent), `remove`
-# deletes it. Anything else exits 9.
+# The koto stand-in: `koto context add <s> <key> --from-file <f>` copies the
+# file to $WORKDIR/kotostore/<s>/<key> and logs the call; `context exists`,
+# `get` and `remove` test, print and delete that file (get exits 1 when it is
+# absent), and `session list` prints $KOTO_STUB_STORE/sessions.json, or exits
+# 9 when there is none (session-role.sh then answers child). Every call is
+# logged to $KOTO_STUB_STORE/calls. KOTO_STUB_FAIL=<subcommand> makes that
+# subcommand exit 7.
 cat > "$WORKDIR/bin/koto" <<'EOF'
 #!/bin/sh
-[ "$1" = context ] || exit 9
-case "${2-}" in
-    add)
+echo "$*" >> "$KOTO_STUB_STORE/calls"
+[ -n "${KOTO_STUB_FAIL-}" ] && [ "${2-}" = "$KOTO_STUB_FAIL" ] && exit 7
+case "$1 ${2-}" in
+    "context add")
         mkdir -p "$KOTO_STUB_STORE/$3"
         [ "${5-}" = --from-file ] && cp "$6" "$KOTO_STUB_STORE/$3/$4" || cat > "$KOTO_STUB_STORE/$3/$4"
-        echo "add $3 $4" >> "$KOTO_STUB_STORE/log"
-        ;;
-    exists)
-        echo "exists $3 $4" >> "$KOTO_STUB_STORE/log"
-        [ -e "$KOTO_STUB_STORE/$3/$4" ] || exit 1
-        ;;
-    get)
-        echo "get $3 $4" >> "$KOTO_STUB_STORE/log"
-        [ -e "$KOTO_STUB_STORE/$3/$4" ] || exit 1
-        cat "$KOTO_STUB_STORE/$3/$4"
-        ;;
-    remove)
-        echo "remove $3 $4" >> "$KOTO_STUB_STORE/log"
-        rm -f "$KOTO_STUB_STORE/$3/$4"
-        ;;
+        echo "add $3 $4" >> "$KOTO_STUB_STORE/log" ;;
+    "context exists") [ -f "$KOTO_STUB_STORE/$3/$4" ] ;;
+    "context get") [ -f "$KOTO_STUB_STORE/$3/$4" ] || exit 1; cat "$KOTO_STUB_STORE/$3/$4" ;;
+    "context remove") rm -f "$KOTO_STUB_STORE/$3/$4"; echo "remove $3 $4" >> "$KOTO_STUB_STORE/log" ;;
+    "session list") [ -f "$KOTO_STUB_STORE/sessions.json" ] || exit 9; cat "$KOTO_STUB_STORE/sessions.json" ;;
     *) exit 9 ;;
 esac
 EOF
@@ -223,6 +217,8 @@ reference_work() {
     printf '%s' "$json" | jq '.entries // [] | length' >/dev/null 2>&1
     printf '%s' "$json" | jq -r '.default // [] | join(", ")' >/dev/null 2>&1
     jq -cn --arg mb "$mb" --argjson sel "$json" '{merge_base: $mb, sel: $sel}' >/dev/null 2>&1
+    # --start's stale-record step asks koto whether the session holds one.
+    koto context exists "$1" hosted_of_record >/dev/null 2>&1
     return 0
 }
 
@@ -403,7 +399,9 @@ rf_test_refusals "--verdict" skills/work-on/scripts/check-verification.sh verifi
 # The same result against plugin copies with verification/command-failed at
 # each stage: its finding prints at the stage's level, and only at block does
 # it route the run back (1).
-VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh skills/work-on/scripts/verification-eligibility.sh"
+# check-verification.sh sources verification-route.sh, which runs
+# session-role.sh, so a stage copy carries both.
+VERDICT_PATHS="skills/work-on/scripts/check-verification.sh skills/work-on/scripts/run-verification.sh skills/work-on/scripts/verification-eligibility.sh skills/work-on/scripts/verification-route.sh skills/work-on/scripts/session-role.sh"
 verdict_in_copy() { # <copy>
     cd "$WORKDIR/r-fail" && "$1/skills/work-on/scripts/check-verification.sh" --verdict --session s-fail
 }
@@ -650,14 +648,15 @@ verdict_at_warn() {
     rf_test_verify_copy "$3" "$STAGE_COPY" "$STAGE_LOG"
 }
 
-# needs-person can't share a result with a failed command (an attended result
-# lists no commands), so the mixed result is a failed command beside one past
-# its timeout, which ranks 4 like needs-person does.
+# The mixed result is a failed command beside one past its timeout. A failed
+# check outranks a timeout, so both at block route back to implementation (1);
+# with the failure at warn, the timeout chooses, and the failed record keeps
+# the hosted-of-record route closed (4).
 mkrepo mixed "$(map '{"bad": {"run": ["bin/fail.sh"]}, "slow": {"run": ["bin/slow.sh"], "timeout_secs": 1}}' '[]' '["bad", "slow"]')"
 change top.txt
 start s-mixed
 settle s-mixed
-expect_rc "a failed command beside a timed-out one, both at block" 4
+expect_rc "a failed command beside a timed-out one, both at block" 1
 verdict_at_warn s-mixed verification/timed-out "timed-out at warn beside command-failed at block" 1 \
     "verification/command-failed=error verification/timed-out=warning "
 verdict_at_warn s-mixed verification/command-failed "command-failed at warn beside timed-out at block" 4 \
@@ -749,7 +748,8 @@ add_outcome_fixtures
 change top.txt
 start s-sumfailed
 settle s-sumfailed
-expect_rc "stopped at the limit with a finished-failed suite (the exit is unchanged)" 4
+expect_rc "stopped at the limit with a finished-failed suite" 1
+expect_rule "stopped at the limit with a finished-failed suite" verification/command-failed
 expect_record "stopped at the limit with a finished-failed suite" s-sumfailed chk \
     '.timed_out == true and .outcome == "failed" and .suites.failed == ["s/x_test.sh"]'
 
@@ -782,8 +782,8 @@ add_outcome_fixtures
 change top.txt
 start s-inside
 settle s-inside
-expect_rc "a timed-out-inside record alone (the exit is unchanged)" 1
-expect_rule "a timed-out-inside record alone" verification/command-failed
+expect_rc "a timed-out-inside record alone, its row declaring no hosted jobs" 4
+expect_rule "a timed-out-inside record alone" verification/timed-out
 expect_record "a timed-out-inside record alone" s-inside inside '.outcome == "timed-out-inside"'
 
 echo "--- a summary left by an earlier run"
@@ -937,6 +937,138 @@ expect_rc "an uncompilable timeout_form beside a well-formed hosted" 3
 jq -e '.status == "bad-map" and (.detail | test("command hrow: timeout_form"))' "$(result_of s-hostedform)" >/dev/null 2>&1 \
     && pass "hosted: timeout_form still validates on a row that declares hosted" \
     || fail "hosted: an uncompilable timeout_form with hosted: $(head -c 400 "$(result_of s-hostedform)" 2>&1)"
+
+# --- the hold at 5 ---------------------------------------------------------------------
+#
+# A timed-out check with no failed one exits 5 when the hosted-of-record route
+# is open, which takes a root session (session-role.sh asks the stand-in's
+# session list) and a row that declares hosted jobs; 4 otherwise.
+
+echo "--- the hold: a timed-out check whose row declares hosted jobs"
+# root_sessions <s>...: the stand-in's session list names each as a root.
+root_sessions() {
+    jq -cn '$ARGS.positional | map({id: .})' --args "$@" > "$KOTO_STUB_STORE/sessions.json"
+}
+add_recslow() {
+    printf '#!/bin/sh\nprintf "start\\n" >> "$1"\nexec "$(dirname "$0")/sumslow.sh" clean\n' > bin/recslow.sh
+    chmod +x bin/recslow.sh
+}
+HOLD_REC="$WORKDIR/hold.rec"
+CMDS=$(jq -cn --arg f "$HOLD_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1, hosted: $h}}')
+mkrepo hold "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+root_sessions s-hold s-holdbare
+start s-hold
+settle s-hold
+expect_rc "a timed-out check, none failed, the route open" 5
+expect_rule "a timed-out check, none failed, the route open" verification/timed-out
+grep -qF 'verification_status: hosted_of_record' "$WORKDIR/verdict.err" \
+    && pass "the hold says what it offers: hosted_of_record with a reason, fix, blocked" \
+    || fail "the hold's stderr: $(cat "$WORKDIR/verdict.err")"
+[ "$(grep -c '^start$' "$HOLD_REC" 2>/dev/null)" = 1 ] && pass "the hold: the check started once" \
+    || fail "the hold: the check started $(grep -c '^start$' "$HOLD_REC" 2>/dev/null) times"
+start s-hold
+verdict s-hold
+expect_rc "re-entering verification at the same head and merge-base holds at 5 again" 5
+[ "$(grep -c '^start$' "$HOLD_REC" 2>/dev/null)" = 1 ] \
+    && pass "re-entry reuses the stored timed-out result and starts no check" \
+    || fail "re-entry started the check again: $(grep -c '^start$' "$HOLD_REC" 2>/dev/null) starts"
+OUT=$("$VERDICT" --verdict --session s-hold --shared-branch docs/x 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "the same result for a SHARED_BRANCH run of /execute: the hold, as for any run" 5
+grep -q 'child of /execute' "$WORKDIR/verdict.err" \
+    && fail "a SHARED_BRANCH run's verdict still names /execute as a closing cause: $(cat "$WORKDIR/verdict.err")" \
+    || pass "a SHARED_BRANCH run's verdict names no /execute refusal"
+OUT=$("$VERDICT" --verdict --session s-hold --shared-branch "" 2>"$WORKDIR/verdict.err")
+RC=$?
+expect_rc "an empty --shared-branch, as a run not under /execute passes it" 5
+root_sessions s-holdbare
+verdict s-hold
+expect_rc "the same result when the session is not listed as a root (a child /execute started): the hold" 5
+
+CMDS=$(jq -cn --arg f "$WORKDIR/holdbare.rec" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1}}')
+mkrepo holdbare "$(map "$CMDS" '[]' '["chk"]')"
+add_outcome_fixtures
+add_recslow
+change top.txt
+start s-holdbare
+settle s-holdbare
+expect_rc "a timed-out check whose row declares no hosted jobs, the route closed" 4
+grep -qF 'declares no hosted jobs' "$WORKDIR/verdict.err" \
+    && pass "the closed route's cause is on stderr" || fail "the closed verdict's stderr: $(cat "$WORKDIR/verdict.err")"
+rm -f "$KOTO_STUB_STORE/sessions.json"
+
+echo "--- the route's check runs in this process"
+if grep -q '^\. "\$HERE/verification-route.sh" ||' "$VERDICT" \
+    && ! grep -v '^[[:space:]]*#' "$VERDICT" | grep -q '"\$HERE/verification-route.sh" -'; then
+    pass "check-verification.sh sources verification-route.sh and never runs it as a second process"
+else
+    fail "check-verification.sh does not source verification-route.sh, or runs it"
+fi
+
+# --- the check id, finished_at and a stale hosted_of_record key -----------------------
+
+echo "--- the check id and finished_at"
+# result_of reads the repository the shell is in, so each lookup runs in its own.
+HRES=$(cd "$WORKDIR/r-hosted" && result_of s-hosted)
+NRES=$(cd "$WORKDIR/r-nomap" && result_of s-nomap)
+jq -e '[.commands[] | select(.id == "chk")] | length == 1 and all(.check == "chk:a")' "$HRES" >/dev/null 2>&1 \
+    && pass "check: an each row's record names its check <row>:<last argv> (chk:a)" \
+    || fail "check: the each row's record: $(jq -c '[.commands[] | {id, check}]' "$HRES" 2>&1 | head -c 400)"
+jq -e '[.commands[] | select(.id == "plain")] | length == 1 and all(.check == "plain")' "$HRES" >/dev/null 2>&1 \
+    && pass "check: a plain row's record names its check by the row id" \
+    || fail "check: the plain row's record: $(jq -c '[.commands[] | {id, check}]' "$HRES" 2>&1 | head -c 400)"
+jq -e '[.invocations[] | {id, check}] == [{id: "chk", check: "chk:a"}, {id: "plain", check: "plain"}]' "$HOSTED_RUN" >/dev/null 2>&1 \
+    && pass "check: run.json's invocations carry the check id" \
+    || fail "check: run.json's invocations: $(jq -c '[.invocations[] | {id, check}]' "$HOSTED_RUN" 2>&1 | head -c 400)"
+jq -e '.finished_at | fromdateiso8601 | . > 0' "$HRES" >/dev/null 2>&1 \
+    && pass "finished_at: a supervised result records when it was written" \
+    || fail "finished_at: the supervised result has none: $(head -c 400 "$HRES" 2>&1)"
+jq -e '.status == "no-map" and (.finished_at | fromdateiso8601 | . > 0)' "$NRES" >/dev/null 2>&1 \
+    && pass "finished_at: a result that needs no run records it too" \
+    || fail "finished_at: the no-map result: $(head -c 400 "$NRES" 2>&1)"
+
+echo "--- a hosted_of_record key from another head"
+mkrepo stalekey "$(map "{\"ok\": $(rec "$WORKDIR/stalekey.rec" ok)}" '[]' '["ok"]')"
+change top.txt
+SK="$KOTO_STUB_STORE/s-stalekey/hosted_of_record"
+OLD_HEAD=$(git rev-parse HEAD~1)
+# seed_key <head>: a hosted_of_record key for <head> in the stand-in's store.
+seed_key() {
+    mkdir -p "$(dirname "$SK")"
+    jq -cn --arg h "$1" '{head: $h, taken_at: "2026-01-01T00:00:00Z", reason: "x", checks: []}' > "$SK"
+}
+seed_key "$OLD_HEAD"
+start s-stalekey
+[ ! -e "$SK" ] && grep -qx "remove s-stalekey hosted_of_record" "$KOTO_STUB_STORE/log" \
+    && pass "stale key: --start removes a hosted_of_record key recorded for another head" \
+    || fail "stale key: the key for $OLD_HEAD is still there: $(cat "$SK" 2>&1)"
+settle s-stalekey
+expect_rc "stale key: the run at the new head" 0
+# The result now stands, so this --start returns at the reuse step; the key
+# goes all the same, since the step comes first.
+seed_key "$OLD_HEAD"
+start s-stalekey
+[ ! -e "$SK" ] && pass "stale key: removed before a stored result is reused" \
+    || fail "stale key: a reused result kept the key for $OLD_HEAD"
+seed_key "$(git rev-parse HEAD)"
+start s-stalekey
+[ -e "$SK" ] && pass "stale key: a key at the current head is kept" || fail "stale key: the current head's key was removed"
+mkdir -p "$(dirname "$SK")" && printf 'not json\n' > "$SK"
+start s-stalekey
+[ ! -e "$SK" ] && pass "stale key: a key that doesn't parse names no head and is removed" \
+    || fail "stale key: an unparsable key was kept"
+seed_key "$OLD_HEAD"
+KOTO_STUB_FAIL=exists "$START" --start --session s-stalekey >"$WORKDIR/start.out" 2>&1
+RC=$?
+[ "$RC" -eq 2 ] && pass "stale key: koto failing to answer exists is exit 2" \
+    || fail "stale key: koto failing on exists: --start exited $RC: $(cat "$WORKDIR/start.out")"
+KOTO_STUB_FAIL=remove "$START" --start --session s-stalekey >"$WORKDIR/start.out" 2>&1
+RC=$?
+[ "$RC" -eq 2 ] && pass "stale key: koto failing to remove the key is exit 2" \
+    || fail "stale key: koto failing on remove: --start exited $RC: $(cat "$WORKDIR/start.out")"
 
 # --- selection --------------------------------------------------------------------------
 

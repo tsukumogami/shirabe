@@ -28,6 +28,25 @@ The records land on the session the skill already uses (its parent's under
 script records changes what the skill does next. Only `doc-check.sh`'s exit
 code does.
 
+## Committing a partial document
+
+Every commit a document skill makes before the document is finished follows
+one rule:
+
+- **Commit a partial document only in a shape `shirabe validate` accepts.**
+  For a design that is `status: Draft` with `problem` set and all nine
+  required sections present, each one the run hasn't reached holding only the
+  stub marker line `skills/design/references/design-format.md` defines. A
+  validating pre-commit hook then takes the commit on the first try.
+- **Make no commit when there is nothing new.** Before a commit, run
+  `git status --porcelain -- <document>`; when it prints nothing, skip the
+  commit. The calls that follow a commit (the sections call, a check) still
+  run.
+- Never pass `--no-verify`, and never write a field the document doesn't hold
+  yet (a placeholder `decision`, an early `Proposed`) to get past the hook.
+  When the hook refuses, fix what its findings name in the document and commit
+  again.
+
 ## After a document commit
 
 Each drafting commit, and each fix commit, is followed by the sections call:
@@ -49,14 +68,16 @@ round-started`, run the pre-jury check:
   check of the same commit records nothing and exits 0 at once: that check
   already serves as this round's pre-jury check.
 - **Exit 1**: a block-stage rule failed. Fix what the findings name in the
-  document, commit, and run the fix loop below before spawning the jury.
+  document, commit under the rule above, and run the fix loop below before
+  spawning the jury.
 - **Exit 2**: the call was refused (a wrong path or argument). Fix the call;
   it is never a verdict on the document.
 
 ## The fix loop
 
 After every fix to the document, whether it answers a failing check or a
-jury's FAIL verdicts, commit it and record what it answered, then check again
+jury's FAIL verdicts, commit it under the rule above and record what it
+answered, then check again
 at the `post_fix` moment:
 
 ```bash

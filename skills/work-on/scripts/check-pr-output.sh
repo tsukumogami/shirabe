@@ -182,6 +182,24 @@
 #         owned pull request, no body                -> 2
 #       It prints no ::koto-finding:: line, like --deferral-record.
 #
+#   --hosted-record --session <s>
+#       For a run that took the hosted-of-record route (the koto key
+#       hosted_of_record, written by verification-route.sh --record). No key,
+#       or a key whose head is not HEAD (a stale key is no record), passes (0)
+#       without reading GitHub: such a run opens its pull request as today.
+#       Otherwise it reads `gh pr view --json isDraft,body,url,headRefOid` and
+#       requires a draft whose body carries exactly one `Hosted of record:`
+#       line per recorded check, naming the check id, the record's head and
+#       each declared job (verification-route.sh's vr_body_check, sourced
+#       here, the same check the route's ready gate runs). Only lines that
+#       start with the prefix count, so the reason line can't satisfy or forge
+#       one.
+#         a draft with every line                    -> 0
+#         not a draft, or a line missing or wrong    -> 1, one stderr line each
+#         koto or gh failing, an unreadable key      -> 2
+#       No ::koto-finding:: line: as with --deferral-record, the obligation is
+#       the template's own.
+#
 # owned-pr.sh is always the execute skill's copy beside this one
 # (skills/execute/scripts/owned-pr.sh under the same plugin root), never one
 # found on PATH. A gate runs with the PATH recorded when the session was
@@ -200,6 +218,8 @@
 #      --deferral-record: the body does not record the deferral (stderr
 #      only, no finding)
 #      --rerun-record: the body lacks a re-run line, or one is wrong (stderr
+#      only, no finding)
+#      --hosted-record: not a draft, or a body line missing or wrong (stderr
 #      only, no finding)
 #   2  could not decide: a usage error, a missing tool, a read that failed
 #      (a koto context read included), a validator that failed to run
@@ -243,11 +263,13 @@ Usage: check-pr-output.sh --pr-body [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --deferral-record --reason <reason> [--reason <reason>]... [--public-reason <text>] [--body] [--owned <owned-pr.sh arguments>]
        check-pr-output.sh --rerun-record --session <name> [--session <name>]... [--print | --owned <owned-pr.sh arguments>]
        check-pr-output.sh --rerun-record --line <line> [--line <line>]... [--owned <owned-pr.sh arguments>]
+       check-pr-output.sh --hosted-record --session <s>
 
 --pr-body:        exit 0 conformant, 1 a violation (findings on stdout), 2 could not decide.
 --owned-pr:        exit 0 one owned PR (its URL on stdout), 3 not exactly one, 2 could not decide.
 --deferral-record: exit 0 the body records the deferral, 1 it does not, 2 could not decide.
 --rerun-record:    exit 0 no re-run, or the body records each one, 1 it does not, 2 could not decide.
+--hosted-record:   exit 0 no record at HEAD, or a draft with its lines; 1 not a draft or a line wrong; 2 could not decide.
 EOF
 }
 
@@ -1000,6 +1022,62 @@ rr_check_body() {
     exit 0
 }
 
+check_hosted_record() {
+    local session rc key rec_head head url bad=0 c
+    [ $# -eq 2 ] && [ "$1" = --session ] && [ -n "$2" ] || { usage; exit 2; }
+    session=$2
+    for tool in git jq koto; do
+        command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
+    done
+    koto context exists "$session" hosted_of_record
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) echo "check-pr-output: no hosted_of_record key: the pull request opens as it does without the route" >&2; exit 0 ;;
+        *) undecided "koto context exists $session hosted_of_record exited $rc" ;;
+    esac
+    key=$(koto context get "$session" hosted_of_record) || undecided "could not read the hosted_of_record key of $session"
+    rec_head=$(jq -r 'if type == "object" and (.head | type) == "string" then .head else error("no head") end' <<<"$key") \
+        || undecided "the hosted_of_record key of $session names no head"
+    head=$(git rev-parse --verify -q "HEAD^{commit}") || undecided "HEAD does not name a commit"
+    if [ "$rec_head" != "$head" ]; then
+        echo "check-pr-output: the hosted_of_record key is for $rec_head, not HEAD $head; a stale key is no record" >&2
+        exit 0
+    fi
+    # Loaded only here: no other mode reads the route.
+    # shellcheck source=verification-route.sh
+    . "$HERE/verification-route.sh" || undecided "cannot load verification-route.sh"
+    for tool in gh; do
+        command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
+    done
+    make_work
+    gh pr view --json isDraft,body,url,headRefOid > "$WORK/pr.json" 2> "$WORK/gh.err" < /dev/null \
+        || undecided "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
+    jq -e 'type == "object" and (.isDraft | type) == "boolean" and (.body | type) == "string" and (.url | type) == "string"' \
+        "$WORK/pr.json" >/dev/null || undecided "gh pr view did not return isDraft, body and url"
+    url=$(jq -r .url "$WORK/pr.json")
+    jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
+    if [ "$(jq -r .isDraft "$WORK/pr.json")" != true ]; then
+        echo "check-pr-output: $url is not a draft; a run on the hosted-of-record route opens its pull request with gh pr create --draft" >&2
+        bad=$((bad + 1))
+    fi
+    if ! vr_body_check draft "$WORK/body.md" "$key" "$url"; then
+        while IFS= read -r c; do
+            [ -n "$c" ] || continue
+            echo "check-pr-output: $c" >&2
+            bad=$((bad + 1))
+        done <<EOF
+$VR_CAUSES
+EOF
+    fi
+    if [ "$bad" -gt 0 ]; then
+        echo "check-pr-output: the pull request does not carry the hosted-of-record route ($bad problem(s)); put the lines verification-route.sh --lines --session $session prints into the body verbatim, with gh pr edit --body-file" >&2
+        exit 1
+    fi
+    echo "check-pr-output: the draft carries one Hosted of record line per recorded check" >&2
+    exit 0
+}
+
 check_owned_pr() {
     [ $# -gt 0 ] || { usage; exit 2; }
     make_work
@@ -1026,6 +1104,7 @@ case "$MODE" in
     --owned-pr) check_owned_pr "$@" ;;
     --deferral-record) check_deferral_record "$@" ;;
     --rerun-record) check_rerun_record "$@" ;;
+    --hosted-record) check_hosted_record "$@" ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
 esac

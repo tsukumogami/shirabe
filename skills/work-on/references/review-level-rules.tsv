@@ -153,6 +153,7 @@ class	engine	skills/work-on/scripts/run-verification.sh
 class	engine	skills/work-on/scripts/session-role.sh
 class	engine	skills/work-on/scripts/step-detail-check.sh
 class	engine	skills/work-on/scripts/test-change.sh
+class	engine	skills/work-on/scripts/verification-route.sh
 
 # Text an agent follows as instructions.
 class	instruction	**/SKILL.md

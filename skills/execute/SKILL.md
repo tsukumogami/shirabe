@@ -31,7 +31,8 @@ From `$ARGUMENTS`:
    - `coordinated` — run the coordinated execution path below.
    - `multi-pr` — out of scope for `/execute`; multi-pr plans run one issue at a time
      through `/work-on` against the repo-persisted PLAN. Direct the user to `/work-on`.
-2. **Empty** — ask which PLAN to execute.
+2. **Empty** — when the conversation already names the PLAN, use it; otherwise
+   ask which PLAN to execute.
 
 The PLAN's `execution_mode` is an enum-typed input surface; re-validate it against
 `{single-pr, coordinated, multi-pr}` before it selects an execution path or is
