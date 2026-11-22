@@ -168,6 +168,8 @@ test (R7), and observation pairs have to reach the seats in the first place
   content don't count, whichever seat made them; one seat's judgment at
   current content is enough, because a full round has already required every
   seat to judge and any `weakens` stays open as its own blocking finding.
+  Only judgments whose `judged_at` is an ancestor of HEAD count, and
+  `.judgments` is only written by `--record` for runs the round planned.
   `panel-scope.sh --due-items <session>` prints, for every panel with recorded
   seats, each due item and each item with an open `weakens` or `not shown`
   finding, and exits 0 when there are none, 1 when there are, 2 when the record
@@ -180,7 +182,15 @@ test (R7), and observation pairs have to reach the seats in the first place
   both observation texts and the report passage, and the `## Test changes`
   section gains each edited test's note from the test-change ledger. The
   `recheck` packet gains the same two sections, restricted to the due items
-  its decision lists.
+  its decision lists. Notes and observation texts are the run's own prose, so
+  each is labeled as the run's claim and fenced with a fence longer than any
+  backtick run inside it, and a note is capped at 2 KiB; a forged `## ` heading
+  inside one stays inside its fence.
+- **Truncated items.** The test-changes section has a size cap. The packet
+  names every item whose hunks it cut, and a judgment of a cut item counts only
+  when the same entry's `cited` list includes that path (the seat read the file
+  itself); otherwise `--record` keeps the judgment on the seat entry but adds
+  no `.judgments` entry, so the item stays due.
 - **Round file.** A seat or re-verifier entry may carry
   `observations: {judgment: "shown"|"not_shown", reason}`. Every seat in a
   round must judge the pair when the unit has a complete pair, as seats must
@@ -214,8 +224,9 @@ test (R7), and observation pairs have to reach the seats in the first place
   the value `pass_counting` already has, with edges to `implementation` on
   `tests_counted` exits 0 and 1, matching `pass_counting`'s pair. From there the
   run passes the panels, whose next round plans the re-verifier for the due
-  test, then verification and counting again. The open PR is reused the same
-  way a fix round reaches `pr_creation` with an open PR today. These are the
+  test, then verification and counting again. The open PR is reused:
+  `pr_creation`'s directive already starts by checking for one
+  (`gh pr list --head <branch>`), which is how a fix round reaches it today. These are the
   only new edges (R25).
 - **`/execute`'s CI fixes (shirabe#1730).** A CI fix that edits a test is not
   pushed by `/execute` itself. Its `ci_monitor` directive starts a fix round of
@@ -227,8 +238,10 @@ test (R7), and observation pairs have to reach the seats in the first place
   `skills/execute/scripts/ci-fix-tests.sh`: it exits 1 when the diff from the
   newest child or fix-round session's counted head to HEAD touches a file the
   test classifier counts as a test, 0 otherwise, and 2 when it can't read the
-  heads. `/work-on` records `counted_head` in its own session when a counting
-  gate passes; `/execute` only reads it. A CI fix that edits no test passes the
+  heads, or when a recorded head isn't an ancestor of HEAD. `/work-on` records
+  `counted_head` in its own session when a counting gate passes; `/execute`
+  only reads it. The script passes paths to `git` after `--` and reads names
+  with `-z`. A CI fix that edits no test passes the
   gate as today (R20).
 
 #### Alternatives
@@ -251,9 +264,12 @@ test (R7), and observation pairs have to reach the seats in the first place
   `qa_verdict` and `light_verdict` each spell out
   `koto overrides record <session> --gate <gate> --rationale "<the person's reason>" --by person:<handle> --surface <terminal|forge|relay>`,
   with `--link <url>` for `relay`, run by the agent after the person says so,
-  never by the person in their own shell. `skills/work-on/requires.tsv` declares
-  `--by`, `--surface` and `--link`. koto 0.37.0 is the first release whose
-  `overrides record` takes `--by` and `--surface`, so `assert-koto-floor.sh`'s
+  never by the person in their own shell. The rationale quotes the person's
+  message, and an unattended run, where no person can be asked, records no
+  person override: it escalates instead. `skills/work-on/requires.tsv` declares
+  `--by`, `--surface` and `--link`. koto 0.37.0 is the release that made
+  `overrides record` record a decision with its decider (the `--by` and
+  `--surface` flags), so `assert-koto-floor.sh`'s
   floor rises from 0.33.0 to 0.37.0, which supersedes the floor in
   `DECISION-preflight-koto-minimum-2026-09-27.md`.
 - **`/review-plan`.** In its standalone case, when
@@ -360,22 +376,40 @@ do are recorded by the run's own `panel-scope.sh --record` from reviewer
 output. That removes an injection surface: a party that could append to the
 ledger can no longer flip a unit to counted.
 
-What it doesn't add: no new credentials, network calls or external inputs.
-The re-verifier's packet carries the run's notes and observation texts, which
-are agent-written prose, into a reviewer's context; they are framed as data in
-the packet the way test hunks already are, and the reviewer's output is parsed
-by `--record`'s existing schema checks, which refuse unknown items and values.
-A run could game its own review by writing misleading notes; that is the same
-producer-side trust the panels already rest on, and the PRD states it as a
-known limitation rather than something this work claims to solve.
+What it doesn't add: no new credentials, network calls or downloads. What it
+does add is agent-written prose in reviewer packets. Notes and observation
+texts reach every seat and the re-verifier, so a note could try to steer a
+reviewer. Each is labeled as the run's claim, fenced with a fence longer than
+any backtick run it contains so it can't close its own block or forge a
+packet heading, and capped at 2 KiB, with a test for a note that carries a
+forged `## ` heading. The reviewer's output is parsed by `--record`'s schema
+checks, which refuse unknown items and values. A run can still write a
+misleading note about its own test; that is the producer-side trust the panels
+already rest on, and the PRD states it as a known limitation.
+
+A content-keyed judgment is only as good as what the seat saw. The packet's
+test-changes section has a size cap, so a judgment of an item the packet cut
+counts only when the seat cites reading that file; otherwise the item stays
+due. Judgments count only when their `judged_at` is an ancestor of HEAD and
+were recorded for a run the round planned, so a rewritten history or a
+hand-built round file can't mark an item judged.
+
+The independence the seat claimed is gone by design: the panels are the run's
+own reviewers, and the run relays their verdicts into its own record. That is
+the producer-side model the PRD adopts. A production change that makes an
+unchanged test vacuous is not caught by the content key on the test; the panels
+see production diffs in their rounds, and late production-only commits are
+outside this work.
 
 The koto floor rise means hosts on koto older than 0.37.0 are refused at
 preflight rather than running with a flag koto would reject. A person override
-names its decider as the run is told it; koto records the handle without
-verifying it, which the PRD lists as a known limitation.
+now rests on the agent's report of what the person said; the rationale quotes
+the person's message, an unattended run records none, and koto records the
+handle without verifying it, which the PRD lists as a known limitation.
 
-`ci-fix-tests.sh` reads commit ranges and session context and writes nothing;
-it uses the existing test classifier and quotes every path it passes to `git`.
+`ci-fix-tests.sh` reads commit ranges and session context and writes nothing.
+It checks that each recorded head is an ancestor of HEAD, passes paths to
+`git` after `--`, and reads file names NUL-separated.
 
 ## Consequences
 
