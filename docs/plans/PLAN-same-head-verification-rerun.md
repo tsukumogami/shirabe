@@ -19,8 +19,8 @@ Active
 
 This design gives `/work-on` a named, recorded way to re-run verification at
 the same head and merge-base: an agent submits `verification_rerun` at
-`implementation` after a failed command, or `rerun` at a new exit-5 hold after
-an eligible timeout, and the launcher archives the outgoing attempt into a
+`implementation` after a failed command, or `rerun` at the gate's existing
+exit-5 hold after an eligible timeout with nothing failed, and the launcher archives the outgoing attempt into a
 `verification_attempts` ledger before starting a fresh suite in a fresh poll
 window, capped at two re-runs per head and merge-base. Logs move to
 per-attempt folders from the first run, and the PR body must carry one re-run
@@ -36,8 +36,9 @@ request into an archived attempt and a fresh suite. The eligibility check is
 the thinnest one that route needs, and the cap, the integrity guards and the
 gate's ledger read are left for later steps. Step 2 makes each archived
 attempt visible to a reviewer in the PR body. Step 3 bounds re-runs and
-hardens the ledger, and step 4 adds the timeout route: exit 5, its hold and
-its edges, which the design requires to land together in one commit.
+hardens the ledger, and step 4 adds the timeout route: a `rerun` edge at the
+gate's existing exit-5 hold and the `75 + rerun` edge, landing together in one
+commit.
 
 Step 1 comes first because its lap rests on the design's one assumption that
 was traced in koto's source but never run: that a target state's default
@@ -101,11 +102,31 @@ validation.
 
 ### Step 3: A third re-run at the same head and merge-base is refused, and the gate says why
 
-The cap of two archived attempts per head and merge-base, with the ledger's integrity guards and the gate's ledger read naming earlier attempts and the over-cap ways out.
+**Goal**: Re-runs are capped at two archived attempts per head and merge-base, counted from the `verification_attempts` ledger by one function that the launcher and the gate both source. A third request is refused, with nothing moved or written, and the result routes as it does today. The ledger gets the integrity guards the design names, the reason and command ids are cleaned before they're stored, and `check-verification.sh` reads the ledger: its exit-1 message lists the earlier attempts, and over the cap it names the two ways out.
 
-### Step 4: An eligible timeout holds at exit 5 and asks for rerun, fix or blocked
+**Acceptance Criteria**:
 
-The gate's exit 5 and the `rerun`, `fix` and `blocked` edges from it, plus `75 + rerun`, landing together in one commit.
+- [ ] `verification_eligibility <result-file> <ledger-file>` prints `over-cap` for an otherwise eligible result when the ledger holds two lines at the result's head and merge-base; lines at another merge-base don't count, and an unparseable ledger prints `ineligible unreadable`. `check-verification.sh` sources `verification-eligibility.sh` as `run-verification.sh` does.
+- [ ] With two ledger lines at the pair, `run-verification.sh --archive --reason <text>` exits 1 with a message naming the cap, moves no file and leaves `verification_attempts` byte-identical. When `--start` finds a third `verification_rerun_request`, it removes the key, says on stderr that the cap is spent and starts no new attempt.
+- [ ] `--archive` refuses (exit 1, nothing moved, ledger unchanged) when the count of ledger lines at the pair disagrees with the archived `attempts/*/result.json` files at that pair. Archived results from an earlier merge-base at the same head don't trip it, and ledger lines whose folders were pruned fail closed.
+- [ ] When the last ledger line names folder n at the live result's head and merge-base and `attempts/<n>/` holds no `result.json`, `--archive` finishes the move without appending a line. It still refuses a running suite, an ineligible result, and a head or merge-base that doesn't match that line.
+- [ ] The eligibility check, the ledger append and the move run under the supervisor lock, and `--start` reads and removes the request key under the same lock.
+- [ ] When the ledger read fails for any reason other than a missing key, `--start` refuses the re-run and keeps `verification_rerun_request`.
+- [ ] The head and session name must match `[A-Za-z0-9._-]+` and the folder number must be an integer before any of them forms a path for `mv` or `rm`; a `run.json` whose `attempt` isn't an integer refuses the archive. Ledger log paths are stored only in the shape `attempts/<n>/<index>-<name>.log`, and as null otherwise.
+- [ ] A reason has control characters, newlines, ANSI escape sequences and Unicode format characters (bidirectional controls included) stripped, and is then capped at 500 characters; a reason that is empty after cleaning is refused. Each command id gets the same cleaning and cap before it's stored.
+- [ ] `check-verification.sh` reads `verification_attempts` with `koto context` through its `--session`. A missing key leaves every message unchanged; a failed read exits 2 and settles nothing.
+- [ ] On exit 1 with ledger lines at the pair, the gate's message gives the attempt number (lines at the pair plus one), each earlier attempt's failed or timed-out command ids and reason, oldest first and marked as data from earlier runs, and the current attempt's log folder. Over the cap, it says the ways out are a real fix (a new head) or `implementation_status: blocked`. Every other exit's message is unchanged.
+- [ ] The `implementation` directive in `skills/work-on/koto-templates/work-on.md` says a re-run is refused once two attempts are archived at the head and merge-base, and names the same two ways out.
+
+**Check**: From the repo root, run `bash skills/work-on/scripts/run-verification_test.sh` and confirm it exits 0. Its new cases, against the koto stand-in, cover the over-cap refusal through `--archive` and through `--start` (each asserting the ledger and files unchanged), an earlier merge-base's lines and folders not counting, the disk disagreement and the pruned-folder refusal, the interrupted-archive recovery, a failed ledger read keeping the request key, a non-integer `run.json` attempt, a reason holding a newline, an ANSI escape, U+202E and 600 characters (stored cleaned and capped as one parseable line) and one that is empty after cleaning (refused), and the gate's exit-1 message with one and with two earlier attempts, its over-cap ways out, and exit 2 on a failed ledger read. Then run `bash skills/work-on/scripts/output-gates-routing_test.sh` and `bash skills/work-on/scripts/verification-route_test.sh` and confirm both exit 0.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/work-on/scripts/verification-eligibility.sh`, `skills/work-on/scripts/run-verification.sh`, `skills/work-on/scripts/check-verification.sh`, `skills/work-on/scripts/run-verification_test.sh`, `skills/work-on/scripts/output-gates-routing_test.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/references/verification-map.md`, `skills/work-on/SKILL.md`, `skills/work-on/evals/evals.json`
+
+### Step 4: An eligible timeout at the existing exit-5 hold can ask for a re-run
+
+The gate's existing exit-5 hold (a timed-out check and no failed one) gains a `rerun` edge beside `hosted_of_record`, `fix` and `blocked`, plus `75 + rerun`, landing together in one commit. Open, to decide when this step is detailed: whether a result with both a failed check and a timed-out one, which exits 1, becomes eligible on the exit-1 re-run route.
 
 ## Implementation Sequence
 
