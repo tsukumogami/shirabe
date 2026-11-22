@@ -65,8 +65,8 @@ Moving is something they ask for. A run that's reopened without asking stays on
 its version and tells them whether it could move, so an upgrade never changes
 a run out from under anyone. When a run can't move safely, for example because
 the new release changed the run's template in a way the old run can't follow,
-they hear that and why before anything changes. The two ways forward they have
-today, finishing or starting over, are still there.
+they hear that and why before anything changes. They can still let the run
+finish on its old version, or start a fresh run, just as they can today.
 
 ## User Journeys
 
@@ -116,29 +116,30 @@ This journey keeps a move from leaving a run half-moved or quietly broken.
 
 **In scope:**
 
-- Moving a live coordinated `/shirabe:execute` run onto the shirabe version
-  that's installed now, keeping the same run.
-- Carrying the run's request leg, its parent link, its live per-issue
-  `/work-on` children and its run record through the move.
-- Moving only when the person asks, and saying on an ordinary reopen whether a
-  move is possible.
-- Refusing a move the run can't safely make, before any change, with the
-  reason, and leaving the run as it was.
-- Releases whose changes the run's existing template can follow, such as a
-  fixed script.
+- Moving a live coordinated execute run onto the shirabe version that's
+  installed now, keeping it the same run.
+- Keeping what the run is tied to through the move: the request it answers,
+  the run above it, the per-issue work runs in flight under it, and its
+  record.
+- Moving only when the person asks, and telling them on an ordinary reopen
+  whether a move is possible.
+- Turning down a move the run can't safely make, before anything changes,
+  with the reason, and leaving the run as it was.
+- Releases the run's existing workflow can follow as it stands, such as one
+  that fixes a script the run calls.
 
 **Out of scope:**
 
-- Releases that change the structure of the execute or work-on template. A
-  run can't follow those in place; that would need a takeover that replaces
-  the run, which is separate follow-on work.
+- Releases that change the shape of the run's workflow itself. A run can't
+  follow those in place; they'd need a replacement run that takes over from
+  the old one, which is separate follow-on work.
 - Moving a run automatically whenever a newer version is installed. An
-  upgrade changing a live run unasked is the thing the explicit request
-  guards against.
+  upgrade changing a live run nobody asked to change is what the explicit
+  request guards against.
 - Finished runs. Reopening a finished execute run already replaces it and
   carries its record forward.
-- `/shirabe:coordinate` runs. They already have a rebind and a takeover
-  route; this brief names them only as the comparison.
+- Coordinate runs. They already have their own ways to move onto a newer
+  version; this brief names them only as the comparison.
 - Moving a run back onto an older version on purpose. The feature is for
   picking up fixes, not for downgrades.
 
