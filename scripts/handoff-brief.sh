@@ -527,7 +527,24 @@ take_lock() {
             # A presence probe: command -v has no diagnostic worth keeping, and the fault names the tool.
             command -v ps >/dev/null 2>&1 || fault "ps is not on PATH, so the record lock's pid can't be checked"
             if ! ps -p "$opid" >/dev/null; then
-                rm -rf "$LOCK" || fault "cannot remove the stale record lock [$LOCK]"
+                # Take over by renaming the lock aside, not by removing it: another
+                # writer may have taken over the same stale lock since it was judged,
+                # and removing would delete that writer's fresh lock. Only a lock
+                # whose owner line is still the stale one judged is discarded; any
+                # other is put back and this call refuses. Remaining edge: while a
+                # fresh lock sits aside for that check, a third writer's mkdir can
+                # slip in, and the lock can't be put back.
+                local aside="$LOCK.stale.$$" moved=""
+                mv "$LOCK" "$aside" 2>"$PRIV/lock.err" \
+                    || refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
+                [ -f "$aside/owner" ] && IFS= read -r moved <"$aside/owner"
+                if [ "$moved" != "$owner" ]; then
+                    if [ ! -e "$LOCK" ]; then
+                        mv "$aside" "$LOCK" || fault "cannot put back the record lock [$LOCK] from [$aside]"
+                    fi
+                    refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
+                fi
+                rm -rf "$aside" || fault "cannot remove the stale record lock [$aside]"
                 (umask 077 && mkdir "$LOCK") 2>"$PRIV/lock.err" \
                     || refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
                 took=1
@@ -919,6 +936,9 @@ EOF
         i=$((i + 1))
     done
     plan_key "$BRIEF_KEY" "$PRIV/brief.md"
+    # This runs before a plain session is opened below, so on a first write the
+    # session doesn't exist yet. That is safe: koto context exists exits 1 for a
+    # missing session as for a missing key, so every key reads as absent.
     check_keys "$BRIEF_KEY"
 
     # A plain session first when there is no koto run.

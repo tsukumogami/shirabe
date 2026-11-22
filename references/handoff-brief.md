@@ -229,8 +229,8 @@ koto_session: <name>
 branch: <name>   pull_request: <number|none>   pushed_head: <sha|none>
 watch: <label> = <re-arm command>
 ## Files
-scratch:<path under the job's scratch directory><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
-instance:<path under --instance><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:no
+scratch:<path under the job's scratch directory><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes|no
+instance:<path under --instance><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes|no
 ## Standing rules
 None stated.
 ```
@@ -433,8 +433,11 @@ The record lock is a directory, `<record>.lock`, made with `mkdir` beside the
 record (macOS has no `flock`). It holds one line, `<pid> <host>`, for the
 call that holds it, and is removed when that `write` or `resume` ends. A call
 that finds the lock held never waits and never retries. A lock older than ten
-minutes whose pid is gone on this host is stale: the call removes it, takes
-the lock and goes on. Any other lock (one younger than ten minutes, one whose
+minutes whose pid is gone on this host is stale: the call renames it aside,
+checks that its owner line is still the one it judged stale, then removes it,
+takes the lock and goes on. If another writer took the stale lock over first,
+the owner line differs, so the call puts that writer's lock back and refuses
+with exit 1. Any other lock (one younger than ten minutes, one whose
 pid is still alive here, or one from another host, whose pid can't be checked
 from here) refuses the call with exit 1, naming the lock's path, its pid and
 its host. No `brief/` key is written and the record is unchanged. A lock

@@ -849,6 +849,25 @@ OUT=$(WR_REC="$LREC" WR_KS=run-lock wr --event end --reasoning "$SCR/reasoning.m
 check "a lock older than ten minutes whose pid is gone on this host is taken over, and the record written" \
     '[ "$rc" -eq 0 ] && [ "$(jq -r .written_by "$LREC")" = handoff-brief.sh ] && [ "$(jq -r .planted "$LREC")" = true ]'
 check "  and the lock is removed when write ends" '[ ! -e "$LK" ]'
+# A takeover race: a ps stand-in answers "gone" for the stale pid, but first
+# swaps in a fresh lock owned by another writer, as if that writer took the
+# same stale lock over between this call's judgment and its takeover.
+mkdir -p "$B/bin-race"
+cat >"$B/bin-race/ps" <<EOF
+#!/bin/sh
+rm -rf "$LK" && mkdir "$LK" && printf '%s %s\n' "$$" "racer.invalid" >"$LK/owner"
+exit 1
+EOF
+chmod +x "$B/bin-race/ps"
+plant_lock "$DEAD" "$HOST" old
+cp "$LREC" "$B/race.before"
+mk_session run-race || exit 1
+OUT=$(WR_PATH="$B/bin-race:$(bpath)" WR_REC="$LREC" WR_KS=run-race wr --event end --reasoning "$SCR/reasoning.md" 2>&1); rc=$?
+check "a stale lock another writer took over first is put back, and the call refuses" \
+    '[ "$rc" -eq 1 ] && grep -qF "taken by another writer during the takeover" <<<"$OUT" && no_brief_keys run-race && cmp -s "$LREC" "$B/race.before"'
+check "  and the other writer's lock is in place, with nothing left aside" \
+    '[ "$(cat "$LK/owner")" = "$$ racer.invalid" ] && [ -z "$(ls -d "$LK".stale.* 2>/dev/null)" ]'
+rm -rf "$LK"
 plant_lock "$$" "$HOST" new
 OUT=$(WR_REC="$LREC" WR_KS=run-park rs 2>&1); rc=$?
 check "resume under a held lock exits 1 naming it, and writes nothing" \
