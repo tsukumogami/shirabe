@@ -58,5 +58,11 @@ jobs:
       - name: Pre-action hook suite
         run: PATH="$PWD/target/release:$PATH" bash hooks/pre-action-deny_test.sh
 
+      # The compaction note writer, scripts/handoff-brief.sh note, against a
+      # stub koto, and the two `shirabe compaction` hooks reading back what it
+      # wrote, against the binary just built.
+      - name: Compaction note and hooks suite
+        run: PATH="$PWD/target/release:$PATH" bash scripts/handoff-brief_test.sh
+
       - name: Cargo test (workspace)
         run: cargo test --workspace

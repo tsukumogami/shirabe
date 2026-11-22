@@ -25,6 +25,7 @@ use shirabe_validate::{
 };
 use shirabe_validate::{check_pr_writing_style, suppressed_terms};
 
+mod compaction;
 mod plan_outlines;
 mod populate;
 mod pr_body_hook;
@@ -98,6 +99,12 @@ enum Commands {
     /// emit hook JSON) and the `/inflight` skill (`render`, which prints the
     /// plain block). Every subcommand exits 0 (fail-safe).
     WorkSummary(work_summary::WorkSummaryArgs),
+    /// Compaction hooks: `pre-compact` (PreCompact) prints the summary
+    /// instruction and `re-anchor` (SessionStart, matched on `compact`) sends a
+    /// compacted session back to its skills, its koto session and its note,
+    /// both from the ledger entry `scripts/handoff-brief.sh note` writes. Both
+    /// read a Claude Code hook JSON on stdin and always exit 0.
+    Compaction(compaction::CompactionArgs),
     /// Client-side PreToolUse hook: deny a `gh pr create` / `gh pr edit`
     /// command whose title or body breaks a PR-body rule
     /// (references/pr-body-conformance.md) before it runs. Reads a Claude Code
@@ -456,6 +463,7 @@ fn main() -> ExitCode {
         Some(Commands::SlugPrefixDetect(args)) => run_slug_prefix_detect(&args),
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
+        Some(Commands::Compaction(args)) => compaction::run(&args.command),
         Some(Commands::PrBodyHook) => pr_body_hook::run(),
         Some(Commands::PreActionHook(args)) => {
             pre_action::run_plugin(&args.plugin_root, &args.rules)
