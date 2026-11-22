@@ -97,7 +97,7 @@ the run didn't make it on its own.
 
 ### A plan review run beside a live plan
 
-Someone runs `/review-plan` directly on a plan that a `/plan` session is still
+An author who wants a second opinion runs `/review-plan` directly on a plan that a `/plan` session is still
 writing. Instead of writing its verdict into the live session it doesn't own,
 `/review-plan` refuses or hands the review off, and the `/plan` run stays the
 only writer of its ledger.
@@ -106,23 +106,25 @@ only writer of its ledger.
 
 ### In scope
 
-- Retiring the acceptance seat in `/work-on`: the `seat`, `accept`, `decline`
-  and `overrule` subcommands of `test-change.sh`, the seat brief, and
-  `scripts/lib/acceptance-rule.sh` with its rules, or reducing them to what the
-  requirements decide to keep.
+- Retiring the acceptance seat in `/work-on`: minting a seat, the seat's
+  accept and decline verdicts, the coordinator overrule, the seat's brief and
+  the authority rules behind them, or reducing them to what the requirements
+  decide to keep.
 - Moving the judgment only the seat provides into the review panels'
   re-verifier: edited tests and observations whose content changed since a
   panel seat last judged them.
-- The check that replaces `test-change.sh status` at `pass_counting`,
-  `pr_precheck` and `ci_pass_counting`, kept under the same gate names.
-- Routing late commits back through a re-verifier, both from `/work-on`'s count
-  states (shirabe#1931) and from `/execute`'s CI-fix path (shirabe#1730).
+- The check that replaces the acceptance status read at the three points where
+  a run counts its checks, kept under the same gate names.
+- Sending late commits back through a re-verifier, both from `/work-on`'s
+  counting points (shirabe#1931) and from `/execute`'s CI-fix path
+  (shirabe#1730).
 - What happens to outside input that is kept: recorded by the run with its
   source named, or kept in the decider's own session.
-- The two smaller outside writers: a person's `koto overrides record` on a
-  panel verdict gate, and `/review-plan` run directly on a live `/plan`.
-- Keeping the producer-side pieces of red-first: red and green recording,
-  `init`, `classify`, `note`, `covered`, `record` and the test classifier.
+- The two smaller outside writers: a person's override of a panel verdict
+  gate, and `/review-plan` run directly on a live `/plan`.
+- Keeping the producer-side parts of red-first: red and green recording,
+  classifying the unit's test changes, the run's notes on why it edited a test,
+  and the record a run reads back.
 - Superseding the parts of the red-first requirements and design that assume
   an outside acceptor.
 
