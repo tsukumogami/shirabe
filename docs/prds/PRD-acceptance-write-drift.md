@@ -62,13 +62,12 @@ session, which makes `/plan` skip its own review.
 ## Goals
 
 - An author running `/work-on` gets every edited test and observation judged by
-  the panels, and re-judged when it changes after a panel seat last looked,
-  without minting, waiting on or relaying an acceptance seat.
+  the panels, and re-judged when it changes after the panels looked, without
+  minting, waiting on or relaying an acceptance seat.
 - A late test edit, whether `/work-on` makes it while counting or `/execute`
   pushes it as a CI fix, reaches a re-verifier before the run counts it.
 - A reader of a run's koto session finds only lines the run wrote, with any
   outside input named by its source.
-- The PR still stands on its own for a reviewer who never opens koto.
 
 ## User Stories
 
@@ -91,6 +90,26 @@ session, which makes `/plan` skip its own review.
 - As a reviewer reading a run's koto session, I want every test-change line in
   it to be the run's own, so that I can read it as the producer's proof of work.
 
+## Definitions
+
+- **Panel seat**: a reviewer seat a review panel (scrutiny, review, QA or the
+  light panel) spawns for a round, as opposed to the panel's re-verifier.
+  shirabe's panel-scope code calls these "real" seats.
+- **Re-verifier**: the single seat a panel plans to re-check due findings and,
+  after this work, due tests and observations.
+- **Judgment**: a `corrects` or `weakens` verdict on an edited test, or a
+  `shown` or `not shown` verdict on an observation pair, recorded by the run in
+  the panels' verdict record with the seat (or re-verifier) and the commit it
+  judged at.
+- **Item**: an edited test file in the unit's diff, or a fix's observation pair.
+  An item's **content** is its blob at the run's head (or `deleted`), or the
+  observation pair's recorded digests.
+- **Open adverse judgment**: a `weakens` or `not shown` judgment whose blocking
+  finding the panels' own finding lifecycle hasn't closed.
+- **Panel retry budget**: the per-run limit on panel retries that
+  `panel-retry-budget.sh` enforces today (two unconditional retries, three at
+  most, shared across the panels).
+
 ## Requirements
 
 ### Retiring the seat
@@ -101,180 +120,250 @@ session, which makes `/plan` skip its own review.
   `scripts/lib/acceptance-rule.sh` are removed, and no directive, reference or
   eval tells a run to use them.
 - **R2.** The person-required path is removed: the `## Test Change Acceptance:`
-  declaration is no longer read or documented as a convention, and nothing
-  waits at a terminal or checks a terminal code or tag.
+  declaration is no longer read or listed as a convention, and nothing waits at
+  a terminal or checks a terminal code or tag. A repository that still carries
+  the header runs as one without it.
 - **R3.** The coordinator overrule is removed. Nothing in shirabe writes, or
   tells a coordinator to write, a judgment into another run's session.
-- **R4.** The producer-side pieces of red-first stay and behave as before:
-  recording the red and the green, the ledger header (`init`), classifying the
-  unit's test files, the run's notes on why it edited a test, the record a run
-  reads back, and the test classifier.
+- **R4.** The producer-side pieces of red-first stay: recording the red and the
+  green, the ledger header (`init`), classifying the unit's test files
+  (`classify`), the run's notes on why it edited a test (`note`), the record a
+  run reads back (`record`), and the test classifier. Their existing tests pass
+  with only the cases that exercise removed subcommands or removed record lines
+  deleted.
+- **R5.** Seat, accept, decline, refuse and overrule lines already present in a
+  ledger from a run started before this change are ignored by the counting
+  check (R12). `record` may still list them as history.
 
 ### Judging tests and observations
 
-- **R5.** Every edited test in the unit's diff is judged `corrects` or
-  `weakens` by every real panel seat that runs, as today, and each `weakens` is
-  a blocking finding.
-- **R6.** The run's note on why it edited a test (R4) reaches the panel seats
-  and the re-verifier that judge that test.
-- **R7.** A fix's observations (the before and after pair) reach the panels,
-  which judge whether the pair shows the reported failure and then its absence.
-  A judgment that it doesn't is a blocking finding.
-- **R8.** An edited test is **due** when its content at the run's head differs
-  from its content at the commit where every panel seat that judged it last
-  judged it, or when no panel seat has judged it. An observation is due on the
-  same terms against its recorded content.
-- **R9.** When the panels plan a round and any edited test or observation is
-  due, a re-verifier judges each due item with the same verdicts R5 and R7 use,
-  and the run records its judgments in the panels' verdict record alongside the
-  seats'. A due item the re-verifier wasn't given can't be recorded as judged.
+- **R6.** Every panel seat that runs judges every edited test `corrects` or
+  `weakens`, as today; a round missing a judgment is refused, and each
+  `weakens` is a blocking finding.
+- **R7.** The run's note on why it edited a test reaches every panel seat and
+  re-verifier that judges that test.
+- **R8.** A fix's observation pair reaches the panel seats, which judge it
+  `shown` (the before observation shows the reported failure and the after
+  observation shows it gone) or `not shown`. `not shown` is a blocking finding.
+  The after observation is recorded before the panels run, or the pair is due
+  under R9 once it is.
+- **R9.** An item is **due** for a panel when that panel has no judgment of it
+  at its current content: no panel seat or re-verifier of that panel judged it
+  at a commit where its content equals the content at head. Judgments at other
+  commits don't count, whichever seat made them.
+- **R10.** When an item is due for a panel and the panel runs a round, the round
+  plans a re-verifier if it would otherwise plan only seats that keep their old
+  verdicts. The re-verifier's packet lists each due item (the test's hunks and
+  note, or the observation pair), it judges each one with the verdicts R6 and R8
+  use, and the run records those judgments. A judgment for an item that wasn't
+  in the packet is refused.
+- **R11.** A re-verifier that returns no judgment for a due item leaves the item
+  due.
 
 ### Counting
 
-- **R10.** At `pass_counting`, `pr_precheck` and `ci_pass_counting`, the gates
+- **R12.** At `pass_counting`, `pr_precheck` and `ci_pass_counting`, the gates
   that read `test-change.sh status` today (`tests_counted` and
-  `tests_still_counted`) read a check that holds the unit while any edited test
-  or observation is due, or is judged `weakens` (or not shown) at its current
-  content and not since re-judged. The gates keep their names.
-- **R11.** The check keeps today's other holds: a missing ledger header, and
-  uncommitted tracked changes or untracked test files in the work tree.
-- **R12.** The check's exit codes keep their meanings for counted (0), held (1)
-  and can't decide (2). The design says what exit 3 and the `declined`
-  evidence value mean once no seat declines, or shows they are unreachable.
-- **R13.** A fix whose red was an observation reaches its green only once its
-  observation pair has been judged at its current content and judged to show
-  the failure and its absence.
-- **R14.** A held unit is never counted by writing a line into the ledger: the
-  only way past the hold is a panel or re-verifier judgment recorded by the run,
-  or a change to the code or the test that removes the item.
+  `tests_still_counted`) read a check that holds the unit while any item is due
+  for any panel that judges tests at the unit's review level, or carries an open
+  adverse judgment. The gates keep their names, and the command stays identical
+  wherever one gate name appears.
+- **R13.** The check also holds a unit with no ledger header, with an
+  uncommitted change to a tracked file, or with an untracked file the test
+  classifier counts as a test.
+- **R14.** The check exits 0 when nothing holds the unit and 1 when it holds,
+  naming each held item and why (due, `weakens`, `not shown`, no header,
+  uncommitted, untracked). It exits 2 when it can't decide: the work tree is
+  gone, the session or the panels' verdict record can't be read, or the stored
+  classifier rules are missing. It exits 3 when it holds the unit and the panel
+  retry budget is spent, so no panel round can clear it.
+- **R15.** The evidence values the counting states accept keep their names and
+  edges. `declined` now means the unit is held by an adverse judgment or a due
+  item, and sends the run back the way it does today: to implementation from
+  `pass_counting`, which passes the panels again, and to `ci_monitor` from
+  `ci_pass_counting`. `blocked` and exit 3 end the run at `done_blocked`.
+- **R16.** From `pr_precheck`, a hold sends the run to `pass_counting` through
+  the existing `recount`, which then routes it as R15 says.
+- **R17.** A fix whose red was an observation reaches its green (`fix_green`)
+  only when its observation pair is not due and carries no open adverse
+  judgment.
+- **R18.** No line written into `test_change_ledger.jsonl` changes whether the
+  unit counts. The only ways past a hold are a judgment the run records from a
+  panel or re-verifier, or a change to the code or tests that removes the item.
 
 ### Late commits
 
-- **R15.** A test edited at `ci_pass_counting` reaches a re-verifier before CI
-  and counting run again (shirabe#1931).
-- **R16.** A CI fix that `/execute` pushes from its monitoring state and that
-  edits a test reaches the same judgment as a child run's own edit before the
-  plan treats the step as passing (shirabe#1730).
-- **R17.** A re-verifier `weakens` sends the run back the way a panel's
-  blocking finding does and counts against the panel retry budget. No separate
-  per-path decline limit exists.
+- **R19.** A test edited at `ci_pass_counting` reaches a re-verifier before CI
+  and counting run again (shirabe#1931). A commit there that edits a test and
+  production code together has its test judged this way; the production change
+  gets no fresh panel look (see Out of Scope).
+- **R20.** A CI fix that `/execute` pushes from its monitoring state and that
+  edits a test is judged by a re-verifier of the `/work-on` run that owns the
+  step, and that run records the judgment in its own session (shirabe#1730).
+  `/execute` doesn't treat the step as passing until that run's counting check
+  exits 0, and writes nothing into the run's session itself. A CI fix that
+  edits no test is unaffected.
+- **R21.** A re-verifier's `weakens` or `not shown` on a late item counts
+  against the panel retry budget like any blocking finding. There is no
+  separate limit on declines of the same set of files.
 
 ### Outside writers
 
-- **R18.** A person's override of a panel verdict gate is recorded by the run
-  with the person named and the surface named (terminal, forge or relay, with a
-  link for relay). The directives spell out that command for every panel verdict
-  gate, and the skill's declared koto requirements include the flags it uses.
-- **R19.** `/review-plan` run directly on a plan whose `/plan` session is live
-  writes nothing into that session and removes nothing from it. It says the
-  `/plan` run owns the session and runs its own review, and may review the plan
-  read-only, printing its findings without persisting them.
+- **R22.** A person's override of a panel verdict gate (`scrutiny_verdict`,
+  `review_verdict`, `qa_verdict`, `light_verdict`) is recorded by the run with
+  `koto overrides record --by person:<handle> --surface <terminal|forge|relay>`,
+  with `--link` to the person's words when the surface is `relay`. Each of those
+  gates' directives spells out the command, the run records it rather than the
+  person, and the skill's declared koto requirements include the flags.
+- **R23.** When `/review-plan` is run directly and the `plan-<topic>` session is
+  live (`skill-session.sh status` reports `live`) and owned by a `/plan` run, it
+  writes no key into that session and removes none. It says the `/plan` run owns
+  the session and runs its own review, and it may review the plan read-only,
+  printing findings without storing them. When the session is absent or
+  finished, `/review-plan` behaves as today.
 
 ### Documents
 
-- **R20.** The red-first requirements and design are marked as superseded on
-  the acceptance seat, the person path, the overrule and the interim rule, with
-  a pointer to this PRD. The red-first reference describes what replaces them.
+- **R24.** The red-first PRD and design carry a note naming the parts this PRD
+  supersedes (the acceptance seat, the person path, the overrule and the
+  interim acceptance rule) and pointing here. The red-first reference describes
+  the panel judgment of edited tests and observations, the due rule and the
+  re-verifier in their place.
 
 ### Non-functional
 
-- **R21.** `/work-on`'s states and edges are unchanged except where the design
-  shows a route R15 or R16 needs.
-- **R22.** No step in shirabe has a party other than the run write into the
-  run's koto session for test-change acceptance.
-- **R23.** An autonomous run never stops to wait for a person at a test-change
-  hold.
+- **R25.** `/work-on`'s template adds and removes no state. The only edges it
+  gains are out of `ci_pass_counting`, for R19.
+- **R26.** No shirabe script or directive outside `/work-on`'s own run writes
+  into a `/work-on` session for test-change acceptance.
+- **R27.** An autonomous run never stops to wait for a person at a test-change
+  hold; an adverse judgment loops it back or ends it blocked.
 
 ## Acceptance Criteria
 
 ### Retiring the seat
 
-- [ ] R1: `grep -rn "test-change.sh seat\|test-change.sh accept\|test-change.sh decline\|test-change.sh overrule" skills/ references/ scripts/`
+- [ ] R1: `grep -rnE "test-change\.sh (seat|accept|decline|overrule)" skills/ references/ scripts/`
       finds nothing, `scripts/lib/acceptance-rule.sh` doesn't exist, and
       `test-change.sh seat <session>` exits 64 as an unknown subcommand.
-- [ ] R1: no eval in `skills/work-on/evals/evals.json` asserts a seat is
+- [ ] R1: no eval in `skills/work-on/evals/evals.json` asserts that a seat is
       minted, commissioned or briefed.
-- [ ] R2: a repository whose `CLAUDE.md` declares
-      `## Test Change Acceptance: person` runs an edited-test fix exactly as one
-      without the header: no stop at a hold, no terminal prompt, and the
-      convention is absent from `references/fixes/claude-md-conventions.md`.
-- [ ] R3: no directive, reference or script in shirabe names an overrule of a
-      test-change acceptance.
-- [ ] R4: `test-change.sh init`, `classify`, `note`, `record` and the red and
-      green recording pass their existing tests unchanged in behaviour, apart
-      from the seat, accept, decline, refuse and overrule lines `record` no
-      longer has.
+- [ ] R2: in a fixture repository whose `CLAUDE.md` declares
+      `## Test Change Acceptance: person`, an edited-test fix's counting check
+      output is identical to the same fixture without the header, and
+      `grep -rn "Test Change Acceptance" references/ scripts/ skills/` finds
+      nothing.
+- [ ] R3: `grep -rniE "overrul" skills/ references/ scripts/` finds no
+      instruction or code for overruling a test-change acceptance (hits about
+      `koto overrides` on gates are allowed).
+- [ ] R4: the existing test cases for `init`, `classify`, `note`, `record` and
+      red/green recording pass, with only cases for removed subcommands or
+      removed record lines deleted, and none edited.
+- [ ] R5: a ledger holding a hand-written `accept` line for an edited test
+      leaves the counting check's result for that test the same as a ledger
+      without the line.
 
 ### Judging tests and observations
 
-- [ ] R5: a panel round over a diff with one edited test whose real seats omit
-      a `corrects`/`weakens` judgment for it is refused, and a `weakens` from any
-      seat records a blocking finding.
-- [ ] R6: the code packet and the re-verifier packet for a diff with an edited
-      test carry the run's note for that test.
-- [ ] R7: for a fix whose red was an observation, the panel packet carries both
-      observations, and a seat verdict that the pair doesn't show the failure
-      records a blocking finding.
-- [ ] R8: an edited test judged by every seat at commit A and unchanged at the
-      head is not due; the same test changed in a later commit B is due; a test
-      first edited after the round is due.
-- [ ] R9: with one due test, the next panel round plans a re-verifier whose
-      packet lists that test with its hunks; recording the re-verifier's
-      `corrects` makes it not due; a round that records no judgment for it
-      leaves it due.
+- [ ] R6: a panel round over a diff with one edited test is refused when a
+      panel seat omits a judgment for it, and a `weakens` from any seat records
+      a blocking finding.
+- [ ] R7: the code packet and the re-verifier packet for a diff with an edited
+      test both carry the run's note for that test.
+- [ ] R8: for a fix whose red was an observation, the panel packet carries both
+      observations; a seat's `not shown` (whether the before observation lacks
+      the failure or the after one still shows it) records a blocking finding.
+- [ ] R9: a test judged by every seat at commit A and unchanged at head is not
+      due; the same test changed at a later commit B is due; a test first edited
+      after the round is due; with seat 1 judging at A and seat 2 at B, and the
+      test unchanged since B, the test is not due (seat 2's judgment is at
+      current content).
+- [ ] R9: an observation pair judged at one digest and re-recorded with a new
+      after digest is due.
+- [ ] R10: with one due test and no other change, the next round of that panel
+      plans a re-verifier whose packet lists the test with its hunks and note;
+      recording its `corrects` makes the test not due; recording a judgment for
+      a test not in the packet is refused.
+- [ ] R10: with a due observation pair, the re-verifier packet lists the pair,
+      and its `shown` makes the pair not due.
+- [ ] R11: a re-verifier round recorded with no judgment for a due test leaves
+      the test due and the counting check holding.
 
 ### Counting
 
-- [ ] R10: at each of `pass_counting`, `pr_precheck` and `ci_pass_counting`, a
-      unit with a due edited test is held (exit 1) and names the test; once a
-      re-verifier judges it `corrects` at its current content, the same gate
+- [ ] R12: at each of `pass_counting`, `pr_precheck` and `ci_pass_counting`, a
+      unit with a due edited test makes the gate exit 1 and name the test; after
+      a re-verifier records `corrects` at its current content, the same gate
       exits 0.
-- [ ] R10: a unit whose edited test was judged `weakens` at its current content
-      is held until a later judgment at new content says `corrects`.
-- [ ] R11: the check holds a unit with no ledger header, and one with an
-      uncommitted change to a tracked file.
-- [ ] R12: the check exits 2 when the work tree is gone or the session can't be
-      read.
-- [ ] R13: an observation-based fix whose pair no panel judged doesn't pass
-      `fix_green`; after a panel judges it shown, it does.
-- [ ] R14: appending any line by hand to `test_change_ledger.jsonl` doesn't
-      change whether a held unit counts.
+- [ ] R12: a unit whose test carries an open `weakens` stays held until the
+      finding is closed or the test changes and is judged `corrects`.
+- [ ] R12: a unit with a due observation pair, or one judged `not shown`, is
+      held.
+- [ ] R13: the check holds a unit with no ledger header, one with an
+      uncommitted change to a tracked file, and one with an untracked file under
+      a test path.
+- [ ] R14: the check exits 2 when the work tree is gone, when the session can't
+      be read, and when the stored classifier rules are missing; it exits 3 when
+      it holds the unit and `panel-retry-budget.sh` reports the budget spent.
+- [ ] R15: at `pass_counting`, submitting `declined` for a held unit moves the
+      run to implementation; at `ci_pass_counting` it moves the run to
+      `ci_monitor`; exit 3 moves the run to `done_blocked`.
+- [ ] R16: a test edited after `pass_counting` makes `pr_precheck`'s gate hold,
+      and `recount` returns the run to `pass_counting`.
+- [ ] R17: an observation-based fix whose pair no panel judged fails
+      `fix_green`; after a panel judges it `shown` at its current digests, it
+      passes.
+- [ ] R18: appending any line by hand to `test_change_ledger.jsonl` doesn't
+      change the counting check's exit code or output.
 
 ### Late commits
 
-- [ ] R15: a run held at `ci_pass_counting` that commits a test-only change
-      reaches a re-verifier, and counting at `ci_pass_counting` runs again only
-      after that re-verifier records its judgment.
-- [ ] R16: in a plan, a CI fix `/execute` pushes from its monitoring state that
-      edits a test is judged by a re-verifier before `/execute` treats the step
-      as passing; a `weakens` keeps the step from passing.
-- [ ] R17: a re-verifier `weakens` routes the run back as a panel blocking
-      finding does and adds to the panel's retry count; once that budget is
-      spent the run ends blocked, and no third-decline rule exists.
+- [ ] R19: a run held at `ci_pass_counting` that commits a test-only change
+      reaches a re-verifier, and counting there runs again only after the
+      re-verifier's judgment is recorded; a `weakens` from it sends the run back
+      to `ci_monitor`.
+- [ ] R19: a commit at `ci_pass_counting` that edits a test and a production
+      file has the test judged and no panel round planned for the production
+      file alone.
+- [ ] R20: in a two-step plan, a CI fix `/execute` pushes from its monitoring
+      state that edits a test is judged by a re-verifier recorded in the step's
+      `/work-on` session; `/execute` doesn't mark the step passing while that
+      run's counting check exits 1; a `weakens` keeps the step from passing.
+- [ ] R20: a CI fix that edits no test passes through `/execute`'s monitoring
+      state as it does today.
+- [ ] R21: a re-verifier `weakens` on a late test adds one to the panel's
+      retry count; once `panel-retry-budget.sh` reports the budget spent, the
+      counting check exits 3 and the run ends at `done_blocked`.
 
 ### Outside writers
 
-- [ ] R18: every panel verdict gate's directive names
-      `koto overrides record` with `--by person:<handle>` and `--surface`, the
-      skill's `requires.tsv` declares those flags, and an override recorded that
-      way shows the person as the decider in `koto overrides list`.
-- [ ] R19: `/review-plan <plan>` run while `plan-<topic>` is live leaves that
+- [ ] R22: the directives for `scrutiny_verdict`, `review_verdict`,
+      `qa_verdict` and `light_verdict` each name `koto overrides record` with
+      `--by person:<handle>` and `--surface`; `skills/work-on/requires.tsv`
+      declares `--by`, `--surface` and `--link`; an override recorded with
+      `--surface relay --link <url>` shows the person and the link in
+      `koto overrides list`.
+- [ ] R23: `/review-plan <plan>` run while `plan-<topic>` is live leaves that
       session's keys unchanged (no `work/review.md`, no
-      `work/review_loopback.md`, no key removed) and says the `/plan` run owns
-      it.
+      `work/review_loopback.md`, none removed) and says the `/plan` run owns
+      it; run with the session finished, it writes its verdict as before.
 
 ### Documents and non-functional
 
-- [ ] R20: `docs/prds/PRD-red-first-fixes.md` and
-      `docs/designs/current/DESIGN-red-first-fixes.md` carry a note naming the
-      superseded parts and this PRD, and `skills/work-on/references/red-first.md`
-      names no seat.
-- [ ] R21: the work-on template's states and edges match `main` before this
-      change, except for edges the design names for R15 or R16.
-- [ ] R22: no shirabe script or directive writes into a `/work-on` session
-      other than as that run.
-- [ ] R23: an autonomous run with an edited test finishes counted with no stop
-      for a person.
+- [ ] R24: `docs/prds/PRD-red-first-fixes.md` and
+      `docs/designs/current/DESIGN-red-first-fixes.md` each carry a note naming
+      the acceptance seat, the person path, the overrule and the interim
+      acceptance rule as superseded by this PRD; `skills/work-on/references/red-first.md`
+      names no seat and names the due rule and the re-verifier.
+- [ ] R25: the work-on template's state list is identical to `main` before this
+      change, and its edges differ only by edges whose source is
+      `ci_pass_counting`.
+- [ ] R26: `grep -rln "test-change.sh\|test_change_ledger" skills/ scripts/`
+      lists only files under `skills/work-on/`, `scripts/lib/test-classify.sh`
+      and tests; no directive outside `skills/work-on/` names the ledger.
+- [ ] R27: an autonomous run with an edited test finishes counted with no stop
+      for a person, and one whose re-verifier says `weakens` loops back to
+      implementation without prompting anyone.
 
 ## Out of Scope
 
@@ -293,8 +382,10 @@ session, which makes `/plan` skip its own review.
   update them once this lands.
 - The same refusal for `/decision` run directly on a live `/design` session.
   It has the same shape as R19 but isn't part of this work.
-- Migrating runs started before this lands; a run mid-hold re-runs under the
-  new check.
+- Migrating runs started before this lands beyond R5: a run mid-hold re-runs
+  under the new check.
+- What a pull request's body says. shirabe already keeps workflow records out
+  of PRs, and this work doesn't change that.
 
 ## Known Limitations
 
