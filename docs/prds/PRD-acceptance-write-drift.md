@@ -165,8 +165,8 @@ session, which makes `/plan` skip its own review.
 - **R12.** At `pass_counting`, `pr_precheck` and `ci_pass_counting`, the gates
   that read `test-change.sh status` today (`tests_counted` and
   `tests_still_counted`) read a check that holds the unit while any item is due
-  for any panel that judges tests at the unit's review level, or carries an open
-  adverse judgment. The gates keep their names, and the command stays identical
+  for any panel the unit's review level runs (the panels the verdict record
+  shows planned for the unit), or carries an open adverse judgment. The gates keep their names, and the command stays identical
   wherever one gate name appears.
 - **R13.** The check also holds a unit with no ledger header, with an
   uncommitted change to a tracked file, or with an untracked file the test
@@ -175,8 +175,9 @@ session, which makes `/plan` skip its own review.
   naming each held item and why (due, `weakens`, `not shown`, no header,
   uncommitted, untracked). It exits 2 when it can't decide: the work tree is
   gone, the session or the panels' verdict record can't be read, or the stored
-  classifier rules are missing. It exits 3 when it holds the unit and the panel
-  retry budget is spent, so no panel round can clear it.
+  classifier rules are missing. It exits 3 when it holds the unit for an open
+  adverse judgment or a due item and the panel retry budget is spent, so no
+  further panel round can clear it.
 - **R15.** The evidence values the counting states accept keep their names and
   edges. `declined` now means the unit is held by an adverse judgment or a due
   item, and sends the run back the way it does today: to implementation from
@@ -184,25 +185,28 @@ session, which makes `/plan` skip its own review.
   `ci_pass_counting`. `blocked` and exit 3 end the run at `done_blocked`.
 - **R16.** From `pr_precheck`, a hold sends the run to `pass_counting` through
   the existing `recount`, which then routes it as R15 says.
-- **R17.** A fix whose red was an observation reaches its green (`fix_green`)
-  only when its observation pair is not due and carries no open adverse
-  judgment.
-- **R18.** No line written into `test_change_ledger.jsonl` changes whether the
-  unit counts. The only ways past a hold are a judgment the run records from a
+- **R17.** A fix whose red was an observation reaches its green (`fix_green`,
+  checked at `pass_counting`, after the panels have run) only when its
+  observation pair is not due and carries no open adverse judgment.
+- **R18.** Apart from the header `init` writes (R13), no line in
+  `test_change_ledger.jsonl` changes whether the unit counts. The only ways past a hold are a judgment the run records from a
   panel or re-verifier, or a change to the code or tests that removes the item.
 
 ### Late commits
 
 - **R19.** A test edited at `ci_pass_counting` reaches a re-verifier before CI
-  and counting run again (shirabe#1931). A commit there that edits a test and
+  and counting run again (shirabe#1931). `ci_pass_counting` gains the
+  `test_gap` evidence value `pass_counting` already has, with an edge that
+  takes the run back through the panels. A commit there that edits a test and
   production code together has its test judged this way; the production change
   gets no fresh panel look (see Out of Scope).
-- **R20.** A CI fix that `/execute` pushes from its monitoring state and that
-  edits a test is judged by a re-verifier of the `/work-on` run that owns the
-  step, and that run records the judgment in its own session (shirabe#1730).
-  `/execute` doesn't treat the step as passing until that run's counting check
-  exits 0, and writes nothing into the run's session itself. A CI fix that
-  edits no test is unaffected.
+- **R20.** A CI fix that `/execute` makes from its monitoring state and that
+  edits a test isn't pushed by `/execute` directly: it goes to the step's
+  `/work-on` run as a fix round, which re-enters that run (finished or not) so
+  its panels' re-verifier judges the test and the run records the judgment in
+  its own session (shirabe#1730). `/execute` treats the step as passing only
+  once that run's counting check exits 0, and writes nothing into the run's
+  session itself. A CI fix that edits no test is unaffected.
 - **R21.** A re-verifier's `weakens` or `not shown` on a late item counts
   against the panel retry budget like any blocking finding. There is no
   separate limit on declines of the same set of files.
@@ -216,8 +220,7 @@ session, which makes `/plan` skip its own review.
   gates' directives spells out the command, the run records it rather than the
   person, and the skill's declared koto requirements include the flags.
 - **R23.** When `/review-plan` is run directly and the `plan-<topic>` session is
-  live (`skill-session.sh status` reports `live`) and owned by a `/plan` run, it
-  writes no key into that session and removes none. It says the `/plan` run owns
+  live (`skill-session.sh status` reports `live`), it writes no key into that session and removes none. It says the `/plan` run owns
   the session and runs its own review, and it may review the plan read-only,
   printing findings without storing them. When the session is absent or
   finished, `/review-plan` behaves as today.
@@ -233,7 +236,7 @@ session, which makes `/plan` skip its own review.
 ### Non-functional
 
 - **R25.** `/work-on`'s template adds and removes no state. The only edges it
-  gains are out of `ci_pass_counting`, for R19.
+  gains leave `ci_pass_counting` on `counting_status: test_gap`, for R19.
 - **R26.** No shirabe script or directive outside `/work-on`'s own run writes
   into a `/work-on` session for test-change acceptance.
 - **R27.** An autonomous run never stops to wait for a person at a test-change
@@ -259,8 +262,8 @@ session, which makes `/plan` skip its own review.
 - [ ] R4: the existing test cases for `init`, `classify`, `note`, `record` and
       red/green recording pass, with only cases for removed subcommands or
       removed record lines deleted, and none edited.
-- [ ] R5: a ledger holding a hand-written `accept` line for an edited test
-      leaves the counting check's result for that test the same as a ledger
+- [ ] R5: a ledger holding hand-written `seat`, `accept`, `decline` and
+      `overrule` lines for an edited test leaves the counting check's result for that test the same as a ledger
       without the line.
 
 ### Judging tests and observations
@@ -295,6 +298,9 @@ session, which makes `/plan` skip its own review.
       unit with a due edited test makes the gate exit 1 and name the test; after
       a re-verifier records `corrects` at its current content, the same gate
       exits 0.
+- [ ] R12: the `tests_counted` gate's command is byte-identical at
+      `pass_counting` and `ci_pass_counting`, and
+      `scripts/validate-template-mermaid.sh` passes on the template.
 - [ ] R12: a unit whose test carries an open `weakens` stays held until the
       finding is closed or the test changes and is judged `corrects`.
 - [ ] R12: a unit with a due observation pair, or one judged `not shown`, is
@@ -313,8 +319,8 @@ session, which makes `/plan` skip its own review.
 - [ ] R17: an observation-based fix whose pair no panel judged fails
       `fix_green`; after a panel judges it `shown` at its current digests, it
       passes.
-- [ ] R18: appending any line by hand to `test_change_ledger.jsonl` doesn't
-      change the counting check's exit code or output.
+- [ ] R18: appending any line other than a header by hand to
+      `test_change_ledger.jsonl` doesn't change the counting check's exit code or output.
 
 ### Late commits
 
@@ -357,13 +363,16 @@ session, which makes `/plan` skip its own review.
       names no seat and names the due rule and the re-verifier.
 - [ ] R25: the work-on template's state list is identical to `main` before this
       change, and its edges differ only by edges whose source is
-      `ci_pass_counting`.
-- [ ] R26: `grep -rln "test-change.sh\|test_change_ledger" skills/ scripts/`
-      lists only files under `skills/work-on/`, `scripts/lib/test-classify.sh`
-      and tests; no directive outside `skills/work-on/` names the ledger.
-- [ ] R27: an autonomous run with an edited test finishes counted with no stop
-      for a person, and one whose re-verifier says `weakens` loops back to
-      implementation without prompting anyone.
+      `ci_pass_counting` and whose condition includes
+      `counting_status: test_gap`.
+- [ ] R26: no file outside `skills/work-on/` writes `test_change_ledger.jsonl`
+      or runs a `test-change.sh` subcommand that writes it; a file outside
+      `skills/work-on/` that reads the counting check (for R20) only reads.
+- [ ] R27: an autonomous run with an edited test finishes counted without any
+      directive asking for a person's input (no `AskUserQuestion`, no waiting
+      state), and one whose re-verifier says `weakens` loops back
+      (to implementation from `pass_counting`, to `ci_monitor` from
+      `ci_pass_counting`) without prompting anyone.
 
 ## Out of Scope
 
