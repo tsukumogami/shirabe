@@ -138,9 +138,46 @@ captured output unchanged, and the v4 and fail-closed cases as listed.
 
 **Files**: `skills/coordinate/scripts/state-common.sh`, `skills/coordinate/scripts/pick-facts.sh`, `skills/coordinate/scripts/closeout-read.sh`
 
-### Step 3: shirabe validate refuses Done on a roadmap/v4 milestone, a Done roadmap with open milestones, and a block that disagrees with its Progress row
+### Step 3: shirabe validate refuses a Done roadmap/v4 roadmap with open milestones and a milestone whose block disagrees with its Progress row
 
-New in this step are only the three v4 checks (a status outside the v4 set, a Done roadmap with a milestone that doesn't close, all-Dropped allowed, and a block disagreeing with its Progress row) and the format reference's v4 section; step 1 already accepts v4 and reads FC21 from the table.
+**Goal**: On a `roadmap/v4` roadmap, `shirabe validate` refuses the roadmap's
+own Done while any milestone doesn't close (by the table's `closes`), and
+refuses a milestone whose block `**Status:**` and Progress table row read
+different statuses; the diagram reconciliation accepts the `completed` and
+`dropped` classes; and the format reference documents `roadmap/v4`. Step 1
+already made FC21 read the table, so a v4 milestone at Done already fails and
+is only covered by a test here.
+
+**Acceptance Criteria**:
+
+- [ ] A `roadmap/v4` fixture whose own status is Done, with one milestone
+  Completed and one In progress, fails `shirabe validate` with one finding
+  per open milestone naming it; the same fixture with both milestones Verified
+  or Dropped passes, and so does one whose milestones are all Dropped.
+- [ ] A `roadmap/v4` fixture whose Milestone 1 block reads Completed and whose
+  Progress row reads In progress fails with a finding naming the milestone and
+  both values; with the two matching it passes. A v4 roadmap with no Progress
+  table passes this check.
+- [ ] A `roadmap/v4` fixture with a milestone at Done fails, naming the
+  milestone and the five allowed statuses (a regression test for step 1).
+- [ ] A populated `roadmap/v4` diagram declaring and using `completed` and
+  `dropped` passes FC07 and FC08; a v3 diagram using `completed` still fails
+  as before.
+- [ ] Neither new check fires on any `roadmap/v1`, `v2`, `v3` or schema-less
+  fixture: the identity corpus's validate output is unchanged.
+- [ ] `skills/roadmap/references/roadmap-format.md` has a `roadmap/v4`
+  section with the five statuses and their four properties, the transition
+  table, the fields that may change while a roadmap is Active, and the
+  install-before-migrate rollout note; `shirabe validate` passes on it.
+
+**Check**: Run `cargo test -p shirabe-validate` and `cargo test -p shirabe`
+with the new fixtures under `crates/shirabe/tests/fixtures/roadmap-v4/`, and
+the identity corpus test; see the new failure messages as listed and no
+change on the corpus. Run `shirabe validate` on the format reference.
+
+**Dependencies**: Step 1
+
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/table.rs`, `crates/shirabe-validate/src/mermaid.rs`, `skills/roadmap/references/roadmap-format.md`
 
 ### Step 4: a milestone that owes a verdict no longer stops another milestone's or a dependent's dispatch
 
