@@ -9,7 +9,7 @@
 # second work item then re-runs a failed verification command. The next push
 # adopts the open PR and finds its body missing that re-run line:
 #
-#   - it exits 81, naming the missing line, and nothing is pushed, recorded or
+#   - it exits 82, naming the missing line, and nothing is pushed, recorded or
 #     created: the remote branch keeps the first head, run/node/<node> keeps
 #     the first head with no reruns, and no gh pr create, edit, ready or merge
 #     runs;
@@ -100,7 +100,7 @@ jq -cn --arg h "$RR_HEAD" '{attempt: 1, folder: 1, head: $h, merge_base: $h, exi
 RR_LINE=$(printf 'Re-run attempt 1 at `%s`: `unit` failed; reason `flaky network test`.' "$(printf '%s' "$RR_HEAD" | cut -c1-12)")
 : > "$GH_CALL_LOG"
 push_node
-[ "$RC" -eq 81 ] && pass "an adopted PR whose body lacks the re-run line holds the push: 81" \
+[ "$RC" -eq 82 ] && pass "an adopted PR whose body lacks the re-run line holds the push: 82" \
     || fail "rerun-adopt hold: rc=$RC; $(tail -3 "$CASE/stderr")"
 [ "$(remote_head)" = "$FIRST" ] && pass "the held push leaves the remote branch at the first head" \
     || fail "rerun-adopt remote moved: rc=$RC remote=[$(remote_head)]; $(tail -3 "$CASE/stderr")"

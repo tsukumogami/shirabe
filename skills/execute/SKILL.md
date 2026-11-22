@@ -138,7 +138,7 @@ Two more flags, on both paths:
   same holds for re-runs on a coordinated PLAN: `node-push.sh` writes each
   child's re-run lines into the `## Verification` section of a node PR it
   opens and records them as the node's `reruns`, refuses to push to an open
-  node PR whose body lacks one (exit 81), and the loop neither readies nor
+  node PR whose body lacks one (exit 82), and the loop neither readies nor
   merges such a PR (`error:execute:rerun-record`).
   Unlike the bound, both are fixed
   for a live run, as in `/work-on`: a resume that attaches to it and leaves them

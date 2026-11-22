@@ -138,7 +138,7 @@
 # published whatever the deferral's wording; and an owned PR already on the
 # node branch is adopted only when its body carries every line
 # (shared-rerun-record.sh --recorded over it): one that doesn't is refused
-# with 81 before the push, and left to the caller to fix, as with 80. The
+# with 82 before the push, and left to the caller to fix, as with 80. The
 # lines are required whatever the repository's PR Workflow Content setting.
 #
 # In order:
@@ -162,7 +162,7 @@
 #      PR there, or several, stops with 73 and nothing pushed, and the
 #      run's own PR there whose body doesn't record the node's deferral
 #      stops with 80, and one whose body lacks a re-run line of the node's
-#      with 81, nothing pushed. Before those
+#      with 82, nothing pushed. Before those
 #      reads, in node mode, read the home repository's and the node
 #      repository's visibility live (coord_node_visibility): a private node
 #      under a public coordination PR is refused with 77, and a public node
@@ -264,7 +264,7 @@
 #       path that decides what the hosted job runs, or a child's record
 #       doesn't validate against its result and map (stderr names each
 #       cause); no record was written and nothing was pushed (execute:ci)
-#   81  node mode: a work item of the node re-ran a failed verification
+#   82  node mode: a work item of the node re-ran a failed verification
 #       command, and the owned PR on its branch lacks that re-run's line in
 #       its body, or has a wrong one (stderr names each); nothing was pushed
 #       or edited (execute:rerun-record)
@@ -725,7 +725,7 @@ if [ "$MODE" = node ]; then
         case $? in
             0) ;;
             1) echo "$PROG: node $NODE carries a verification re-run that $OWNED_NOW's body doesn't record; nothing was pushed. Add each re-run line to the ## Verification section of its body and push again" >&2
-               exit 81 ;;
+               exit 82 ;;
             *) echo "$PROG: could not check $OWNED_NOW's body for node $NODE's verification re-runs; nothing was pushed" >&2
                exit 72 ;;
         esac
