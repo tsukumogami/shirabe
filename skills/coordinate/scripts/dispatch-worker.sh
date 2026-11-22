@@ -500,6 +500,8 @@ input_role() {
 
 # successor_inputs: --successor's input, its scope built from the run's facts
 # (the header's step 1). Every refusal exits 1 before anything is written.
+# RE_ROADMAP is the template's ROADMAP variable pattern (koto-templates/
+# coordinate.md) without its empty alternative; keep the two in step.
 RE_ROADMAP='^docs/roadmaps/(([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+)/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
 RE_HOST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 successor_refuse() { printf '%s: refused: %s\n' "$PROG" "$1" >&2; exit 1; }
@@ -774,6 +776,8 @@ successor_write() {
     case "$?" in
         0) return 0 ;;
         10) die 8 "the record refused the successor row for $TOPIC (no open record, or a directed transition in the run log)" ;;
+        # The row landed and only its entry didn't: the dispatch goes on, since
+        # the row is what a restart reads, and the warning says what's missing.
         14) printf '%s: the successor row reads %s %s, but its entry wasn'"'"'t posted: %s\n' "$PROG" "$1" "$TOPIC" "$(head -1 "$WORK/succ.err")" >&2 ;;
         65) die 2 "the record refused the successor row $1 $TOPIC: $(sed -n 's/^state-stored-set: refused: //p' "$WORK/succ.err" | head -1)" ;;
         *) die 2 "writing the successor row $1 $TOPIC failed: $(head -1 "$WORK/succ.err")" ;;
