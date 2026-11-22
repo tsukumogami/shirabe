@@ -2137,6 +2137,8 @@ SUCC_INPUT='{"topic": "plugin-system-successor-1", "authority": "You are working
   "checkpoints": ["The run is taken over and its first reconcile is reported."], "acceptance": ["The first report names this run."]}'
 SBRIEF="$W/.niwa/dispatch-briefs/plugin-system-successor-1.md"
 SUCC_GOAL='Run `/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md --role manager` in acme/widgets.'
+# Split like PA_S, so the public-content check reads no session name here.
+SUCC_S=plugin_system_successor_1-""1a2b3c4d
 # sreset [successor input]: the stand-ins reset, the successor input in
 # context, and every worker input (brief_input.json, dispatch_topic,
 # coord/pick.json) removed, so the mode can't lean on them.
@@ -2144,7 +2146,7 @@ sreset() {
     reset "$INPUT_DELIVER"
     rm -f "$ST/ctx/brief_input.json" "$ST/ctx/dispatch_topic" "$ST/ctx/coord/pick.json"
     printf '%s' "${1:-$SUCC_INPUT}" >"$ST/ctx/successor_input.json"
-    export NIWA_NAME=plugin_system_successor_1-1a2b3c4d RECORD_ROLE=manager
+    export NIWA_NAME=$SUCC_S RECORD_ROLE=manager
     unset CL_FACTS_RC CL_SCOPE CL_ROADMAP SUCC_ROW SUCC_WRITE_RC
 }
 srun() { (cd "$W/inst" && DC_COORD_LOG="$T/coord-log-succ.sh" DC_RECORD_STATE="$T/state-stored-set-succ.sh" bash "$S" --session coord --successor "$@"); }
@@ -2156,7 +2158,7 @@ nothing_written() { # nothing_written <label>: no row write, launch, leg or brie
 sreset
 OUT=$(srun 2>"$T/err"); RC=$?
 eq  "successor: exit 0" 0 "$RC"
-eq  "successor: prints the session name" "session=plugin_system_successor_1-1a2b3c4d" "$OUT"
+eq  "successor: prints the session name" "session=$SUCC_S" "$OUT"
 SW1=$(grep -n 'state-stored-set --session coord --successor dispatching plugin-system-successor-1 --by coord$' "$ST/calls.log" | head -1 | cut -d: -f1)
 LAUNCH=$(grep -n '^niwa dispatch' "$ST/calls.log" | head -1 | cut -d: -f1)
 SW2=$(grep -n 'state-stored-set --session coord --successor dispatched plugin-system-successor-1 --by coord$' "$ST/calls.log" | head -1 | cut -d: -f1)
@@ -2184,7 +2186,7 @@ eq  "successor: ... rendering the record's role" 'Run `/shirabe:coordinate docs/
 sreset
 printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s1" | .units |= map(.verdict_owed = true)' >"$ST/ctx/coord/pick.json"
 OUT=$(srun 2>"$T/err"); RC=$?
-eq  "successor: a pick that holds every unit doesn't stop it" "0 session=plugin_system_successor_1-1a2b3c4d" "$RC $OUT"
+eq  "successor: a pick that holds every unit doesn't stop it" "0 session=$SUCC_S" "$RC $OUT"
 
 # The input may give entry_args and repo only as the run's own.
 sreset "$(jq -c '.entry_args = ["docs/roadmaps/ROADMAP-plugin-system.md"] | .repo = "acme/widgets"' <<<"$SUCC_INPUT")"
@@ -2239,10 +2241,10 @@ for st in dispatch-failed stranded; do
     srun >/dev/null 2>"$T/err"; eq "successor: a $st row of this topic exits 3" 3 "$?"
     nothing_written "successor: a $st row of this topic"
     sreset; export SUCC_ROW="$st plugin-system-successor-0 2026-09-26"
-    OUT=$(srun 2>"$T/err"); eq "successor: a $st row of another topic takes a new attempt" "0 session=plugin_system_successor_1-1a2b3c4d" "$? $OUT"
+    OUT=$(srun 2>"$T/err"); eq "successor: a $st row of another topic takes a new attempt" "0 session=$SUCC_S" "$? $OUT"
 done
 # A live session on the topic exits 5; the writer refusing the row exits 2.
-sreset; printf '[{"name":"x","path":"/p","session_name":"plugin_system_successor_1-1a2b3c4d"}]\n' >"$ST/sessions.json"
+sreset; printf '[{"name":"x","path":"/p","session_name":"%s"}]\n' "$SUCC_S" >"$ST/sessions.json"
 srun >/dev/null 2>"$T/err"; eq "successor: a live session on the topic exits 5" 5 "$?"
 nothing_written "successor: a live session on the topic"
 sreset; export SUCC_WRITE_RC=65
@@ -2271,7 +2273,7 @@ done
 # dispatches as it would without it.
 reset "$(jq -c '.successor = true' <<<"$INPUT_DELIVER")"
 OUT=$(run 2>"$T/err"); RC=$?
-eq  "successor: a worker input carrying successor still dispatches" "0 session=plugin_api-1a2b3c4d" "$RC $OUT"
+eq  "successor: a worker input carrying successor still dispatches" "0 session=$PA_S" "$RC $OUT"
 unset RECORD_ROLE NIWA_MODE
 fi
 

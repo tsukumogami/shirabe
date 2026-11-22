@@ -246,7 +246,7 @@ if mrun handover owed; then
     eq "1: the run's ROADMAP and host" "docs/roadmaps/ROADMAP-handover.md acme/widgets" "$ROADMAP $HOST"
     successor handover-successor-1
     eq "1: --successor exits 0" 0 "$SRC"
-    eq "1: ... and prints session=<name>" "session=handover_successor_1-1a2b3c4d" "$SO"
+    eq "1: ... and prints session=<name>" "session=handover_successor_1-""1a2b3c4d" "$SO"
     WANT="Run \`/shirabe:coordinate $ROADMAP --role manager\` in $HOST."
     eq "1: the brief's Goal line" "$WANT" "$(goal_line handover-successor-1)"
     has_line() { if grep -Fq -- "$3" <<< "$2"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
