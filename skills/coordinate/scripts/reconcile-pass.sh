@@ -305,8 +305,11 @@ if [ -z "$WJ" ]; then
     if [ -n "$TOP" ]; then
         case "$PR_ROOT/" in "$TOP"/*) PLACE='"inside"' ;; *) PLACE='"outside"' ;; esac
     fi
-    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --arg b "$BOUND" --argjson place "$PLACE" \
-        '{visit: $v, record: $rec, run_start: $rs, chain_start: (if $b == "" then $rs else null end),
+    # The record goes to jq from a file, not argv: a long-lived record outgrows
+    # the 128 KiB one argument may hold on Linux (shirabe#2042).
+    printf '%s' "$REC" > "$T/rec.json" || die "the record could not be stored"
+    NEW=$(jq -c -n --slurpfile recs "$T/rec.json" --arg v "$VISIT" --arg rs "$RUN_START" --arg b "$BOUND" --argjson place "$PLACE" \
+        '$recs[0] as $rec | {visit: $v, record: $rec, run_start: $rs, chain_start: (if $b == "" then $rs else null end),
           plugin_root: $place, facts: {}, done: false}
          + (if $b == "" then {} else {chain_back_to: $b, chain_cursor: null} end)') \
         || die "the record could not be stored"
