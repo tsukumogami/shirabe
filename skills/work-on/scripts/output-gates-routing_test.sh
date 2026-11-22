@@ -527,12 +527,12 @@ echo "--- rerun: a failed command re-runs once on request (real launcher)"
 # under a developer's own XDG_STATE_HOME.
 unset XDG_STATE_HOME
 
-# A plugin root holding the three real scripts. check-verification.sh sources
+# A plugin root holding the four real scripts. check-verification.sh sources
 # scripts/lib/rule-findings.sh relative to its own directory, so scripts/ is
 # the real one.
 RR_ROOT="$WORKDIR/rr-plugin"
 mkdir -p "$RR_ROOT/skills/work-on/scripts"
-for s in run-verification.sh verification-eligibility.sh check-verification.sh; do
+for s in run-verification.sh verification-eligibility.sh check-verification.sh verification-route.sh; do
     ln -s "$SCRIPT_DIR/$s" "$RR_ROOT/skills/work-on/scripts/$s"
 done
 ln -s "$REAL_ROOT/scripts" "$RR_ROOT/scripts"
