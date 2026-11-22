@@ -304,7 +304,7 @@ nothing else, sits in three more keys, `record/run`, `record/standing` and
 `record/work`, each once it has a row:
 
 ```json
-{"run": [{"key": "<arguments, cap, coordinator, told, pending, missing, rules, briefs, friction, reports-to or role>",
+{"run": [{"key": "<arguments, cap, coordinator, told, pending, missing, rules, briefs, friction, reports-to, role or successor>",
           "value": "<the value>", "set_by": "<who set it>", "set": "<YYYY-MM-DDTHH:MMZ>"}],
  "standing": [{"standing": "<s<n>>", "kind": "<pause, go-ahead, approval, answer, assignment or rule>",
                "on": "<a pause's or go-ahead's scope, an assignment's unit, or empty>",
@@ -377,6 +377,26 @@ write. Its reader is `state-read.sh --session S --run`, which prints
 when the read fails. The handover read prints it as `role`, or null. Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
+Run's last key is `successor`, one row at most: the successor this run
+dispatched with `dispatch-worker.sh --session <run> --successor` and how its
+dispatch stands. Its value is `<status> <topic> <YYYY-MM-DD>`, the topic the
+successor's dispatch topic (`^[a-z0-9][a-z0-9-]*$`, at most 64 characters)
+and the date the day the row was written, and its Set by is the run that
+dispatched it. The status is one of four: `dispatching` (written before
+`niwa dispatch` runs), `dispatched` (the launch confirmed), `dispatch-failed`
+(the launch failed) and `stranded` (a dispatched successor whose session is
+gone). `state-stored-set.sh --successor <status> <topic> --by <run>` is its
+only writer, and `--run successor` is a usage error (exit 64). Each status
+moves only from the row as it stands: `dispatching` from no row, or from a
+`dispatch-failed` or `stranded` row under another topic; `dispatched` and
+`dispatch-failed` from `dispatching` of the same topic; `stranded` from
+`dispatched` of the same topic. Any other write is refused (exit 65) with
+nothing written. A `dispatching` or `dispatched` write's entry names the
+topic, the brief (`.niwa/dispatch-briefs/<topic>.md` under the workspace
+root) and the role the Run `role` row holds. `--successor clear --by <who>`
+removes the row; the successor's opener runs it when it takes the run over
+with `--dispatched-by` naming the run in the row's Set by, and any other
+takeover keeps the row, carried with the rest of the record.
 **Standing** holds the events only a person owns while they still bind: a
 pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
@@ -414,6 +434,8 @@ written to the state and then told as an entry:
 state-stored-set.sh --session S --run arguments|cap|coordinator <value> --by <who>
 state-stored-set.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>
 state-stored-set.sh --session S --run role manager|director --by <who> [--intervention dispatcher|person]
+state-stored-set.sh --session S --successor dispatching|dispatched|dispatch-failed|stranded <topic> --by <run>    (dispatch-worker.sh's)
+state-stored-set.sh --session S --successor clear --by <who>    (the successor's opener's)
 state-stored-set.sh --session S --host <key> <value> [--host <key> <value>]...
 state-stored-set.sh --session S --rule-files <file> --by <session>    (the start's, never yours)
 state-stored-set.sh --session S --told <topic> --by <who>
