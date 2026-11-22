@@ -346,7 +346,9 @@ if needs_takeover "6: the takeovers that keep the row"; then
         case "$WANT_ROW" in "[{\"value\":\"dispatched $c-successor-1 $TODAY\",\"set_by\":\"$P\"}]") ok "6 $c: its row reads dispatched, set by the run" ;;
             *) bad "6 $c: its row reads dispatched, set by the run" "$WANT_ROW" ;; esac
         if [ "$c" = keep-unnamed ]; then opener_from "$c-successor-1" "$C_ID"
-        else opener_from "$c-successor-1" "$C_ID" --dispatched-by "${A:-$P}"; fi
+        elif [ -z "${A:-}" ] || [ "$A" = "$P" ]; then
+            bad "6 $c: case 1 opened another run to name" "${A:-none}"; continue
+        else opener_from "$c-successor-1" "$C_ID" --dispatched-by "$A"; fi
         eq "6 $c: the takeover prints outcome=continued" "0 continued" "$ORC $(line outcome)"
         eq "6 $c: ... and predecessor= names the run" "$P" "$(line predecessor)"
         eq "6 $c: the new run keeps the successor row, its value and Set by unchanged" \

@@ -483,7 +483,8 @@ configuration, and it's the same for either role. Your record holds your role,
   it. A brief you write for it by hand files its rules under a
   `## Standing rules` heading, as the brief-intake paragraph under The Record
   says.
-- Hand a roadmap run over from the `wait` hub: add `successor_input.json` to
+- Hand a roadmap run over from the `wait` hub, or from `roadmap_close_step`
+  when no milestone is left open: add `successor_input.json` to
   your run's context (a brief input with its `topic`, which
   `<roadmap name>-successor-<n>` suits, and no role, scope or repository),
   then run `dispatch-worker.sh --session <run> --successor`. A successor
