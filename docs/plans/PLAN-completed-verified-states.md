@@ -271,9 +271,62 @@ pull requests, commits, body lines and refusals listed above; run
 
 **Files**: `skills/coordinate/scripts/roadmap-status.sh`, `skills/coordinate/scripts/state-common.sh`
 
-### Step 6: verdicts and reopens on roadmap/v4 set Verified and In progress and refuse moves the table doesn't list
+### Step 6: on a roadmap/v4 roadmap, verdicts and reopens set Verified and In progress and refuse moves the table doesn't list
 
-`--verdict` works without a verdict-owed row, keeps the delivering-checker refusal, writes Verified or In progress with held-dependent lines, `--reopen` accepts Completed, and a Verified-to-Verified verdict or any other unlisted move is refused before anything is written.
+**Goal**: On a `roadmap/v4` roadmap, `roadmap-status.sh --verdict` accepts a
+verdict entry for a milestone whether or not a `verdict-owed` row names it
+(consuming the row when there is one). A verified or verified-with-follow-ups
+verdict sets the milestone's block Status and Progress row to Verified (adding
+any follow-ups as today); a changes-needed verdict sets both to In progress and
+prints one held-dependent line per dependent the record holds dispatched,
+Completed or Verified, in the format `--reopen` prints them. `--reopen`
+accepts a Completed milestone as well as a Verified one. Before writing, each
+of these asks `lib_status_move` (from step 5) whether the move is in the v4
+transition table and refuses one that isn't, naming the milestone, its status
+and the trigger, with nothing written; a Verified milestone given another
+verified verdict is refused that way. The existing refusal of a verdict whose
+checker is the delivering session is kept. The Status-and-Progress-row edit
+that `--unit` and these paths share is one function. SKILL.md,
+`references/state-keys.md`, `references/landing-milestone-roadmap.md` and the
+template's `roadmap_status` and `milestone_verdict` prose describe the v4
+`--unit`, `--verdict` and `--reopen` behaviour. On `roadmap/v1` to `v3`
+nothing changes.
+
+**Acceptance Criteria**:
+
+- [ ] On a `roadmap/v4` fixture, a verified verdict on a Completed Milestone 1
+  opens one pull request setting its block and Progress row to Verified, and
+  the record's `verdict-owed` row for it goes.
+- [ ] A verified-with-follow-ups verdict sets Verified and adds its follow-up
+  milestones in the same pull request.
+- [ ] A verified verdict on a Not started Milestone 4 with no `verdict-owed`
+  row sets it Verified; a verified verdict on Milestone 2 while its dependency
+  Milestone 1 is only Completed sets Milestone 2 Verified.
+- [ ] A changes-needed verdict on a Completed Milestone 1, with Milestone 2
+  dispatched against it in the record, sets Milestone 1 In progress in block
+  and row and prints one held-dependent line naming Milestone 2.
+- [ ] `--reopen` on a Verified milestone and on a Completed one sets each In
+  progress in block and row.
+- [ ] A verified verdict on a Verified milestone, a changes-needed verdict on
+  a Verified milestone, and any edit on a Dropped milestone each exit non-zero
+  naming the milestone, its status and the trigger, open no pull request and
+  leave the record unchanged.
+- [ ] A verdict whose checker is the delivering session is refused, as on the
+  base commit.
+- [ ] On `roadmap/v3` and `roadmap/v1` fixtures the existing verdict and
+  reopen suites pass unchanged.
+- [ ] SKILL.md, `state-keys.md`, `landing-milestone-roadmap.md` and the
+  template prose name the v4 `--unit` output (`verdict-owed TAG` and the pull
+  request line) and the v4 verdict and reopen moves.
+
+**Check**: Run `bash skills/coordinate/scripts/run-tests.sh` with the new v4
+verdict and reopen cases against the stubbed GitHub API, and
+`bash scripts/check-template-compat.sh`; see the pull requests, held-dependent
+lines and refusals listed above.
+
+**Dependencies**: Step 5
+
+**Files**: `skills/coordinate/scripts/roadmap-status.sh`, `skills/coordinate/scripts/state-common.sh`, `skills/coordinate/SKILL.md`, `skills/coordinate/references/state-keys.md`, `skills/coordinate/references/landing-milestone-roadmap.md`, `skills/coordinate/koto-templates/coordinate.md`
 
 ### Step 7: the progress view shows landed milestones and stops calling passing pull requests verified
 
