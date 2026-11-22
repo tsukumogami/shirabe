@@ -14,7 +14,8 @@ goals: |
   the run counts its checks. The run is the only writer of its ledger: the seat,
   the person path and the overrule are gone, and the outside input that stays (a
   person overriding a panel gate) is recorded by the run with the person named.
-upstream: docs/briefs/BRIEF-acceptance-write-drift.md
+absorbed:
+  - docs/briefs/BRIEF-acceptance-write-drift.md
 ---
 
 # PRD: acceptance-write-drift
@@ -22,6 +23,35 @@ upstream: docs/briefs/BRIEF-acceptance-write-drift.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-acceptance-write-drift](docs/briefs/BRIEF-acceptance-write-drift.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a `/work-on` run's koto session is supposed to be
+the run's own ledger, and test-change acceptance is the one routine place where
+someone else writes in it: a seat the run mints, a person at a terminal, or a
+coordinator's overrule, sometimes after the run is done. The seat mostly
+repeats the panels' judgment of edited tests with less to go on, and what only
+it catches has no other check. This document's Problem Statement states that in
+full.
+
+The outcome it asked for is an author who runs `/work-on` and gets every edited
+test and observation judged by the panels, and re-judged when it changes after
+they looked, with the run recording each result and nobody minting, waiting on
+or relaying a seat; and a reader of the ledger who finds every line is the
+run's own, with any outside input named by its source. The Goals and User
+Stories carry that, along with the four paths it was framed around: an issue
+whose fix edits a test, a test edited after the panels looked (including a CI
+fix from `/execute`), a person overriding a panel gate, and `/review-plan` run
+beside a live `/plan`.
+
+Its boundary holds the seat's retirement, the move of its judgment into the
+panels' re-verifier, the replacement counting check, the late-commit routes,
+the two smaller outside writers and the red-first documents' supersession; it
+pushes out the coordinator's land step, a freshness check for every late
+commit, koto changes, instructions outside shirabe, and changes to `/work-on`'s
+states. The Requirements and Out of Scope sections carry those lines.
 
 ## Problem Statement
 
