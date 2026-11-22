@@ -868,6 +868,34 @@ check "a stale lock another writer took over first is put back, and the call ref
 check "  and the other writer's lock is in place, with nothing left aside" \
     '[ "$(cat "$LK/owner")" = "$$ racer.invalid" ] && [ -z "$(ls -d "$LK".stale.* 2>/dev/null)" ]'
 rm -rf "$LK"
+# The racer is caught between its mkdir and its owner write: the moved lock
+# has no owner line, so it is dropped rather than put back ownerless.
+mkdir -p "$B/bin-race-bare"
+cat >"$B/bin-race-bare/ps" <<EOF
+#!/bin/sh
+rm -rf "$LK" && mkdir "$LK"
+exit 1
+EOF
+chmod +x "$B/bin-race-bare/ps"
+plant_lock "$DEAD" "$HOST" old
+OUT=$(WR_PATH="$B/bin-race-bare:$(bpath)" WR_REC="$LREC" WR_KS=run-race wr --event end --reasoning "$SCR/reasoning.md" 2>&1); rc=$?
+check "an ownerless lock caught mid-creation is dropped, not put back, and the call refuses" \
+    '[ "$rc" -eq 1 ] && [ ! -e "$LK" ] && [ -z "$(ls -d "$LK".stale.* 2>/dev/null)" ] && no_brief_keys run-race && cmp -s "$LREC" "$B/race.before"'
+# A writer whose lock was replaced while it held it leaves the new owner's
+# lock alone at exit: a jq stand-in rewrites the owner line mid-call.
+REAL_JQ=$(command -v jq)
+mkdir -p "$B/bin-steal"
+cat >"$B/bin-steal/jq" <<EOF
+#!/bin/sh
+[ -d "$LK" ] && printf '%s\n' "$$ thief.invalid" >"$LK/owner"
+exec "$REAL_JQ" "\$@"
+EOF
+chmod +x "$B/bin-steal/jq"
+mk_session run-steal || exit 1
+OUT=$(WR_PATH="$B/bin-steal:$(bpath)" WR_REC="$LREC" WR_KS=run-steal wr --event end --reasoning "$SCR/reasoning.md" 2>&1); rc=$?
+check "at exit a writer doesn't remove a lock whose owner line is no longer its own" \
+    '[ -d "$LK" ] && [ "$(cat "$LK/owner")" = "$$ thief.invalid" ]'
+rm -rf "$LK"
 plant_lock "$$" "$HOST" new
 OUT=$(WR_REC="$LREC" WR_KS=run-park rs 2>&1); rc=$?
 check "resume under a held lock exits 1 naming it, and writes nothing" \

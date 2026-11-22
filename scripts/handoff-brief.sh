@@ -510,7 +510,7 @@ mtime_of() {
 # one line, "<pid> <host>". A held lock is taken over only when it is older
 # than LOCK_STALE_SECS and its pid is gone on this host; any other held lock
 # refuses the call at once, with no wait and no retry. cleanup removes it.
-LOCKED=0
+LOCKED=0 LOCK_OWNER=""
 take_lock() {
     local host owner="" opid ohost mt age took=0
     host=$(uname -n) || fault "cannot read this host's name"
@@ -538,6 +538,15 @@ take_lock() {
                 mv "$LOCK" "$aside" 2>"$PRIV/lock.err" \
                     || refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
                 [ -f "$aside/owner" ] && IFS= read -r moved <"$aside/owner"
+                if [ -z "$moved" ]; then
+                    # A lock with no owner line yet is another writer's, caught
+                    # between its mkdir and its owner write. Putting it back would
+                    # leave an ownerless lock nothing can take over, so drop it:
+                    # that writer's owner write then fails and it exits 2 before
+                    # storing anything.
+                    rm -rf "$aside" || fault "cannot remove the moved record lock [$aside]"
+                    refuse "the record lock [$LOCK] was taken by another writer during the takeover of a stale lock; nothing was written"
+                fi
                 if [ "$moved" != "$owner" ]; then
                     if [ ! -e "$LOCK" ]; then
                         mv "$aside" "$LOCK" || fault "cannot put back the record lock [$LOCK] from [$aside]"
@@ -554,7 +563,8 @@ take_lock() {
             || refuse "the keep record is locked: [$LOCK] is held by pid $(shown "${opid:-unknown}") on host $(shown "${ohost:-unknown}"), ${age}s old. A lock is taken over only when it is over ten minutes old and its pid is gone on this host; nothing was written"
     fi
     LOCKED=1
-    printf '%s %s\n' "$$" "$host" >"$LOCK/owner" || fault "cannot write the record lock's owner"
+    LOCK_OWNER="$$ $host"
+    printf '%s\n' "$LOCK_OWNER" >"$LOCK/owner" || fault "cannot write the record lock's owner"
 }
 
 # record_base -- the record at RECORD, or {} when there is none, copied to
@@ -595,9 +605,15 @@ put_record() {
 # directory.
 PRIV=""
 cleanup() {
+    # Only a lock whose owner line is still this call's own is removed: one a
+    # racing writer moved away and replaced belongs to that writer now.
+    local line=""
     if [ "$LOCKED" -eq 1 ]; then
-        rm -f "$LOCK/owner"
-        rmdir "$LOCK" || printf '%s: could not remove the record lock [%s]\n' "$PROG" "$LOCK" >&2
+        [ -f "$LOCK/owner" ] && IFS= read -r line <"$LOCK/owner"
+        if [ -n "$line" ] && [ "$line" = "$LOCK_OWNER" ]; then
+            rm -f "$LOCK/owner"
+            rmdir "$LOCK" || printf '%s: could not remove the record lock [%s]\n' "$PROG" "$LOCK" >&2
+        fi
     fi
     [ -z "$PRIV" ] || rm -rf "$PRIV"
 }
