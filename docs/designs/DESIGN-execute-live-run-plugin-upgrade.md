@@ -1,18 +1,44 @@
 ---
 schema: design/v1
-status: Draft
+status: Proposed
 problem: |
   A live coordinated /shirabe:execute run keeps its recorded PLUGIN_ROOT and
   compiled template until it finishes, so a script fix in a newer installed
   release never reaches it. Its work-on children record their own roots, so a
   fix in a child-run script is out of reach even if the parent moved.
+decision: |
+  A live run moves onto the installed root only when asked, with an explicit
+  --move-plugin-root flag on execute-open.sh. The move rebinds PLUGIN_ROOT in
+  place through koto-open.sh --attach-live, for the parent and its live
+  work-on children together, and only when each session's compiled template
+  is listed in a compat table the newer release ships and CI checks. A new
+  root-move.sh journals the old values under run/move, holds the opener's
+  lock, and moves the parent first and then each child. Any refusal before
+  the first write changes nothing, and a failed attach undoes to the
+  journaled values. Without the flag, an ordinary reopen keeps the recorded
+  root and reports root=held and whether the run is movable.
+rationale: |
+  Rebinding in place keeps the session name, the run's history and its live
+  children. Its only possible koto dependency is a command that prints a
+  session's current bindings, needed only if the state log doesn't carry
+  them. Gating it on coordinate's
+  fingerprint and compat tables reuses machinery shirabe already maintains,
+  and it makes compatibility a claim a release states and CI checks rather
+  than one the opener guesses. An ungated rebind would move a parent onto
+  scripts its template was never checked against and leave its children
+  behind. A supersede takeover or park-then-replace needs a koto
+  suspend-terminal attribute, so it stays the follow-on route for fixes that
+  change a template's structure. A koto recompile verb would put a shirabe
+  concern in the engine. The journaled, all-or-nothing move with an explicit
+  trigger keeps each step reversible and keeps a move from ever happening
+  silently.
 ---
 
 # DESIGN: Moving a live execute run onto a newer installed plugin version
 
 ## Status
 
-Draft
+Proposed
 
 ## Context and Problem Statement
 
