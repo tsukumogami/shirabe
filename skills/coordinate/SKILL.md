@@ -483,6 +483,18 @@ configuration, and it's the same for either role. Your record holds your role,
   it. A brief you write for it by hand files its rules under a
   `## Standing rules` heading, as the brief-intake paragraph under The Record
   says.
+- Hand a roadmap run over from the `wait` hub: add `successor_input.json` to
+  your run's context (a brief input with its `topic`, which
+  `<roadmap name>-successor-<n>` suits, and no role, scope or repository),
+  then run `dispatch-worker.sh --session <run> --successor`. A successor
+  dispatch needs no unit: it reads no pick fact, so an owed verdict, a pause,
+  a parked decision or an empty roadmap doesn't stop it. It builds the
+  invocation from your run's own facts,
+  `/shirabe:coordinate <ROADMAP> --role <role>`, with `<role>` read from your
+  record's Run `role` row (none exits 1, naming the command that sets it), and
+  keeps the
+  pending successor on your Run `successor` row until the successor's opener
+  takes your run over and clears it.
 
 **Manager**
 

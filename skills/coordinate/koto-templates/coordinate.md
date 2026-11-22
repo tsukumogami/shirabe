@@ -2871,7 +2871,9 @@ the repositories its issues land in.
 Its `grant` is what the worker is dispatched holding: the authorities for the
 landing steps the brief hands it to take itself (`merge-pr`, `close-issue`,
 `cut-release`), left out for a worker you hand none, and `own` for your
-successor (entry point `coordinate`), which passes your own grant. A manager
+successor (entry point `coordinate`), which passes your own grant; the
+`--successor` mode (`dispatch-worker.sh --session <run> --successor`, from
+`wait`) sets `own` itself for the successor it dispatches. A manager
 you dispatch as a lane gets none. The script passes it to `niwa dispatch` as `--grant`,
 with your instance as `--parent-from`, when niwa takes those flags, and the
 brief's authority line names exactly what the launch asked for, or says the
@@ -2977,9 +2979,8 @@ First, every time you are here, check that this run has reconciled on this
 host: `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --check`.
 Exit 3 means it was imported to this host and hasn't reconciled here since:
 tick `moved` before anything else, and take the event you came with on the
-tick after the reconcile. The check reads what the run holds (its import facts
-against those its sealed report was read under), so it holds after a restart
-and whichever state the import found the run in.
+tick after the reconcile. The check reads what the run holds, so it holds
+after a restart and whichever state the import found the run in.
 
 Tick on each message or notification and name the `event`, with the `unit` it is
 about; never poll. `progress` for a worker's checkpoint report that only says
@@ -3090,6 +3091,9 @@ nothing more, write nothing, and don't re-arm the watch or arm a new one. Report
 the newest session's name to whoever launched this session, and end your turn.
 Nothing is lost: the newest session holds the record and the legs.
 
+**Handing over:** `dispatch-worker.sh --session {{SESSION_NAME}} --successor`,
+needing no unit (see Roles).
+
 **A usage-limit stop is not a pause.** Nobody sets it and nobody resumes it:
 the account's reset does, so write no Standing row for one. It shows as a
 worker's runs executing nothing (nested sessions exiting without running), as
@@ -3127,8 +3131,7 @@ Each wake counts for the record: a holding's Work row carries its Wakes, which
 `state-stored-set.sh --work` brings up to date from this run's log at each write
 (the events report, progress, leg, quiet, merged and resume, each counted for
 the worker it names, the leg it read or the topics a quiet sweep named), and
-the final count goes into an entry when the holding's row leaves Work. Name
-the `unit` on each event when there is one.
+the final count goes into an entry when the holding's row leaves Work.
 ## leg_pick
 
 Picking the request leg to read. koto runs this itself; tick with no evidence
