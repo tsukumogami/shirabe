@@ -125,5 +125,35 @@ packet cut (it says so, under "Cut") counts as judged only when the judging entr
 gates' command, holds an edited test while `panel-scope.sh --due-items` reports it due
 for a panel or carrying an open `weakens`, and no acceptance line counts or holds it.
 
+### Observations
+
+A fix whose bug no check reproduces records a before- and an after-observation in place of
+a red and a green (`red-first.sh observe`). The code packet carries them in an
+`## Observations` section: the report passage and both texts, each fenced, labelled as the
+run's claim and cut at 4 KiB. Every seat judges a complete pair in its entry's
+`observations`:
+
+```json
+{"seat": "intent", "run": "<run id>", "findings": [], "answers": [], "test_edits": [],
+ "observations": {"judgment": "shown", "reason": "<optional: what the pair shows or misses>"}}
+```
+
+A seat judges the observation pair `shown` or `not_shown`. `shown` means the before-observation
+shows the reported failure and the after-observation shows it gone, under the same conditions;
+`not_shown` means the pair doesn't show that. `--record` refuses the round (65) when a seat
+of the panel has no judgment of a complete pair, judges a pair the unit doesn't have, or
+gives any other value, and records each `not_shown` as a blocking finding raised by that
+seat, under rule `review/observation-not-shown`, with the reason in its summary. That
+finding blocks the panel like any other until the seat answers it by id.
+
+The pair's judgments are kept in the panel's list like a test's, keyed by its two digests,
+so re-recording either observation makes the pair due again (`observation` in
+`--due-items` and in the re-verifier's `due_items`). The `recheck` packet then carries the
+same section and the re-verifier's entry carries `observations`; `--record` refuses a round
+in which the re-verifier misses a due pair or judges one it wasn't given. Once any panel has
+recorded, `test-change.sh status` and `red-first.sh check-green` (through
+`test-change.sh covered`) hold the pair while `--due-items` names it, and no acceptance line
+counts it.
+
 `blocking_escalate` requires a `failure_reason`
 field; omitting it prevents koto context_assignments from propagating the reason downstream.

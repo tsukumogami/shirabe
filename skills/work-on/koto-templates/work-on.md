@@ -3977,7 +3977,7 @@ the bug with `--tests <path>...`.
 When no automated check can reproduce the bug, record a before-observation instead
 (`red-first.sh observe {{SESSION_NAME}} --phase before --file <observation.md>`;
 `references/red-first.md` lists its sections). An observation pair counts only once
-an acceptance seat accepts it, at `pass_counting`.
+the review panels have judged it `shown` as it is recorded, at `pass_counting`.
 
 Then tick with nothing submitted. The `red_recorded` gate passes once a red or a
 before-observation is recorded, and the run goes on to `implementation`. If neither
@@ -4398,9 +4398,11 @@ changes` means the work tree has changes the gate can't classify: commit them.
 `held: no header` means the ledger `test_change_ledger.jsonl` was never started at
 `fix_determination`; that can't be fixed here.
 
-A fix recorded by observations is held by both gates until a seat accepts the pair:
-the brief lists the observations, and `check-green` passes once the acceptance
-covers both digests.
+A fix recorded by observations is held by both gates until the review panels have
+judged the pair `shown` at its current digests (`held: observation due for <panel>`,
+or `held: observation not shown: ...` while a seat's `not_shown` finding is open).
+Every packet carries the pair, so the next panel round's re-verifier judges a pair
+re-recorded since.
 
 **A gap in your own tests.** When you find, while the run is held here, that the
 unit's tests need a test-only fix (an assertion narrowed further than the change

@@ -85,9 +85,14 @@ check`, `Passage` and `Marker`. The passage and marker meet the red's rules.
 After the change, `--phase after` records the failure gone, with `Produced`,
 `Environment` and `Seen`. A missing section is refused, naming it.
 
-An observation pair counts only once someone other than the run accepts it,
-under the same rule as an edited test (below). Until a live acceptance covers
-both observations' digests, `check-green` holds the fix at `pass_counting`.
+An observation pair counts only once the review panels have judged it. Every
+seat's packet carries both observations and the report passage, and every seat
+judges the pair `shown` or `not_shown`; the judgment is keyed by the pair's two
+digests, so re-recording either observation makes the pair due for the panel's
+re-verifier (`review-panel-orchestration.md`, "Observations"). Until a panel
+has judged the pair as it is now, with no open `not_shown` finding,
+`check-green` and `test-change.sh status` hold the fix at `pass_counting`,
+naming `observation`.
 
 ## The green
 

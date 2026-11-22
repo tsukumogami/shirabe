@@ -51,6 +51,12 @@
 #           test file. Every seat judges each edited test in its verdict's
 #           `test_edits`, and panel-scope.sh --record refuses a round that
 #           doesn't
+#         - observations (`## Observations`), only when the session's
+#           `red_first.json` records one: the report passage the
+#           before-observation quotes and the before- and after-observation
+#           texts, each labelled as the run's claim, fenced as the notes are
+#           and capped at OBS_CAP (4 KiB). Every seat judges a complete pair
+#           `shown` or `not_shown` in its verdict's `observations`
 #         - the diff: `git diff -M <base> HEAD`
 #         - with --panel and --seat, the seat's unclosed findings: the
 #           `findings` its decision in `<panel>_scope.json` carries, which
@@ -79,6 +85,9 @@
 #           note and its hunks from the code packet's base, built as the code
 #           packet builds its edited-test blocks. The re-verifier judges each
 #           one in its verdict's `test_edits`, and no other
+#         - when the decision lists `observation` among its `due_items`,
+#           observations (`## Observations`), as the code packet builds it;
+#           the re-verifier judges the pair in its verdict's `observations`
 #         - with a fix-diff review, every panel's blocking criteria: the
 #           scrutiny and review seats' questions and the QA tester's steps,
 #           read from the shipped phase files, since this one review stands
@@ -552,6 +561,51 @@ edited_blocks() {
     done < "$list"
 }
 
+# observations: the `## Observations` body on stdout, empty when the session's
+# red_first.json records no observation. A fix whose bug no check reproduces
+# records a before- and an after-observation in place of a red and a green;
+# every seat judges whether the pair shows the fix. The report passage (the
+# before-observation's quote from the unit's report) and each observation's
+# text are the run's own prose, so each is labelled as the run's claim,
+# fenced (fenced, above: a forged heading stays inside) and capped at OBS_CAP
+# bytes.
+OBS_CAP=4096
+observations() {
+    local rec="$WORK/obs_red" part
+    : > "$rec"
+    if koto context exists "$SESSION" red_first.json >/dev/null 2>&1; then
+        koto context get "$SESSION" red_first.json > "$rec" 2>/dev/null || : > "$rec"
+    fi
+    [ -s "$rec" ] || return 0
+    jq -e 'type == "object" and ((.observations // {}) | type == "object" and length > 0)' "$rec" >/dev/null 2>&1 || return 0
+    echo "This fix's bug is not reproduced by an automated check, so the run recorded what it observed"
+    echo "before and after the change in place of a red and a green. Every text below is the run's own"
+    echo "claim about its change, not evidence. Judge whether the pair shows the fix: your verdict's"
+    echo "observations is shown or not_shown, with a reason."
+    obs_part "Report passage (quoted by the run from the unit's report)" '.observations.before.passage // empty'
+    for part in before after; do
+        obs_part "${part}-observation (digest $(jq -r --arg p "$part" '.observations[$p].digest // "none"' "$rec"))" \
+            ".observations.${part}.text // empty"
+    done
+}
+
+# obs_part <heading> <jq-filter>: one fenced, capped part of the observations.
+obs_part() {
+    local total
+    echo
+    echo "### $1"
+    echo
+    jq -j "$2" "$WORK/obs_red" > "$WORK/obs_part" 2>/dev/null || : > "$WORK/obs_part"
+    if [ ! -s "$WORK/obs_part" ]; then
+        echo "[not recorded]"
+        return 0
+    fi
+    total=$(wc -c < "$WORK/obs_part" | tr -d '[:space:]')
+    head -c "$OBS_CAP" "$WORK/obs_part" > "$WORK/obs_part.cut"
+    fenced "$WORK/obs_part.cut"
+    [ "$total" -le "$OBS_CAP" ] || echo "[cut: kept $OBS_CAP of $total bytes; the whole text is in the session's red_first.json]"
+}
+
 section() {
     # $1 heading, $2 cap, $3 file, $4 text when the file is empty
     echo
@@ -668,8 +722,16 @@ if [ "$KIND" = "recheck" ]; then
     # the code packet's base, with the run's note, so the re-verifier judges
     # the test as it stands now and not only the commit that changed it last.
     : > "$WORK/rtests"
-    jq -r '(.due_items // [])[] | .item? // empty | strings' "$WORK/decision" > "$WORK/due" 2>/dev/null \
+    jq -r '(.due_items // [])[] | .item? // empty | strings' "$WORK/decision" > "$WORK/due.all" 2>/dev/null \
         || die 66 "could not read the due items for seat [$SEAT]"
+    grep -vx 'observation' "$WORK/due.all" > "$WORK/due" || :
+    # The observation pair, when the decision lists it as due: the same
+    # section the code packet carries, so the re-verifier judges the pair as
+    # it is recorded now.
+    : > "$WORK/observations"
+    if grep -qx 'observation' "$WORK/due.all"; then
+        observations > "$WORK/observations" || die 66 "could not build the observations section"
+    fi
     if [ -s "$WORK/due" ]; then
         resolve_base || die 64 "no base resolves to show the due tests' edits from"
         {
@@ -693,6 +755,7 @@ if [ "$KIND" = "recheck" ]; then
         echo "changed paths: $PATH_COUNT"
         section "Findings to re-verify, by id ($SCOPE_KEY)" "$FINDINGS_CAP" "$WORK/findings" "[none due]"
         [ ! -s "$WORK/rtests" ] || section "Test changes" "$TESTS_CAP" "$WORK/rtests" "none"
+        [ ! -s "$WORK/observations" ] || section "Observations" "$TESTS_CAP" "$WORK/observations" "none"
         if [ "$FIX_REVIEW" = yes ]; then
             section "Every panel's blocking criteria (the fix-diff review)" "$AC_CAP" "$WORK/criteria" "[none found]"
             section "Changed paths (fix-diff review, from $REVIEW_FROM)" "$PATHS_CAP" "$WORK/rpaths" "[no changes between $REVIEW_FROM and HEAD]"
@@ -769,6 +832,7 @@ PATH_COUNT=$(wc -l < "$WORK/paths" | tr -d '[:space:]')
 # the red's record, so the packet names the same edited tests the review
 # floor, the round's required judgments and the hold do.
 test_changes > "$WORK/tests" || die 66 "could not classify the change's test files: $(head -c 300 "$WORK/classify.err")"
+observations > "$WORK/observations" || die 66 "could not build the observations section"
 
 # A seat in a full round answers its own unclosed findings by id: the ones its
 # decision carries.
@@ -790,6 +854,7 @@ fi
     section "Design context ($DESIGN_SOURCE)" "$DESIGN_CAP" "$WORK/design" "[none recorded]"
     section "Changed paths" "$PATHS_CAP" "$WORK/paths" "[no changes between base and HEAD]"
     section "Test changes" "$TESTS_CAP" "$WORK/tests" "none"
+    [ ! -s "$WORK/observations" ] || section "Observations" "$TESTS_CAP" "$WORK/observations" "none"
     section "Diff" "$DIFF_CAP" "$WORK/diff" "[empty]"
     if [ -n "$SEAT" ]; then
         section "Your unclosed findings, by id ($SCOPE_KEY, seat $SEAT)" "$FINDINGS_CAP" "$WORK/own" "[none]"

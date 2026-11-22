@@ -115,11 +115,17 @@
 #             (`held: <path> due for <panel>`: no judgment of the panel at its
 #             content now) or carrying an open weakens finding (`held: <path>
 #             weakens: ...`), and no acceptance line counts or holds an edited
-#             test. A verdict record that can't be read, or a --due-items that
-#             can't decide, exits 2. Observations keep the acceptance path.
+#             test. The observation pair is answered the same way (`held:
+#             observation due for <panel>`, `held: observation not shown: an
+#             open finding of <panel>`), and no acceptance line counts or
+#             holds it either. A verdict record that can't be read, or a
+#             --due-items that can't decide, exits 2.
 #   covered   read-only: exit 0 when every named item has a live acceptance at
 #             its current digest. red-first.sh check-green asks it for an
-#             observation pair.
+#             observation pair; once a review panel has recorded, the pair
+#             (`observation:before`, `observation:after`) is covered only when
+#             --due-items names it for no panel, and held with the same lines
+#             status prints otherwise.
 #   record    read-only, for a person or a coordinator, and the one place who
 #             accepted under what authority reads back: the fix source, the
 #             red and green (or the observations), each test file as added or
@@ -1440,13 +1446,14 @@ cmd_overrule() {
 
 # panels_judge <session>: once a review panel has recorded a seat for the
 # unit (the session's verdict_ledger.json has a seat entry), its edited tests
-# are counted from the panels' record, not from acceptance lines: each one
-# panel-scope.sh --due-items reports due or carrying an open weakens finding
-# is held (`<path> due for <panel>`, `<path> weakens: an open finding of
-# <panel>`), and every edited test leaves $TMP/items, so no acceptance line
-# counts or holds it. Observations stay in $TMP/items. Undecided when the
-# verdict record can't be read or --due-items can't decide. A unit no panel
-# has recorded keeps the acceptance path.
+# and its observation pair are counted from the panels' record, not from
+# acceptance lines: each item panel-scope.sh --due-items reports due or
+# carrying an open adverse finding is held (`<path> due for <panel>`, `<path>
+# weakens: an open finding of <panel>`, `observation due for <panel>`,
+# `observation not shown: an open finding of <panel>`), and every item leaves
+# $TMP/items, so no acceptance line counts or holds it. The held lines go to
+# $TMP/held. Undecided when the verdict record can't be read or --due-items
+# can't decide. A unit no panel has recorded keeps the acceptance path.
 panels_judge() {
     local s="$1" rc tab path why panel
     tab=$(printf '\t')
@@ -1467,11 +1474,11 @@ panels_judge() {
         case "$why" in
             due) printf '%s due for %s\n' "$(clean "$path")" "$panel" ;;
             weakens) printf '%s weakens: an open finding of %s\n' "$(clean "$path")" "$panel" ;;
+            "not shown") printf '%s not shown: an open finding of %s\n' "$(clean "$path")" "$panel" ;;
             *) printf '%s %s for %s\n' "$(clean "$path")" "$(clean "$why")" "$panel" ;;
         esac
     done < "$TMP/due" >> "$TMP/held"
-    grep '^observation:' "$TMP/items" > "$TMP/items.obs" || :
-    mv "$TMP/items.obs" "$TMP/items"
+    : > "$TMP/items"
     PANELS_JUDGED=1
 }
 PANELS_JUDGED=""
@@ -1498,7 +1505,7 @@ cmd_status() {
     fi
     if [ ! -s "$TMP/held" ]; then
         if [ -n "$PANELS_JUDGED" ]; then
-            echo "counted: the panels judged every edited test at its content now, and every observation has a live acceptance"
+            echo "counted: the panels judged every edited test and the observation pair at their content now"
         elif [ -s "$TMP/items" ]; then
             echo "counted: every edited test and observation has a live acceptance"
         else
@@ -1543,8 +1550,25 @@ cmd_covered() {
         [ -n "$digest" ] || { echo "held: $item is not recorded"; exit 1; }
         printf '%s\t%s\n' "$item" "$digest" >> "$TMP/want"
     done
-    fold "$TMP/want"
-    grep '^held' "$TMP/live" | cut -f 2- | grep -v '^decline-limit ' > "$TMP/held"
+    # Once a panel has recorded, the observation pair is answered from the
+    # panels' record (panels_judge): held while --due-items names it, and no
+    # acceptance line counts it.
+    : > "$TMP/held"
+    if grep -q '^observation:' "$TMP/want"; then
+        panels_judge "$s"
+        if [ -n "$PANELS_JUDGED" ]; then
+            grep '^observation ' "$TMP/held" > "$TMP/held.obs" || :
+            mv "$TMP/held.obs" "$TMP/held"
+            grep -v '^observation:' "$TMP/want" > "$TMP/want.rest" || :
+            mv "$TMP/want.rest" "$TMP/want"
+        else
+            : > "$TMP/held"
+        fi
+    fi
+    if [ -s "$TMP/want" ]; then
+        fold "$TMP/want"
+        grep '^held' "$TMP/live" | cut -f 2- | grep -v '^decline-limit ' >> "$TMP/held"
+    fi
     if [ -s "$TMP/held" ]; then
         sed 's/^/held: /' "$TMP/held"
         exit 1

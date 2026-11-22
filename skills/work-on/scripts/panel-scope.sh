@@ -161,7 +161,11 @@
 #                                edited test that is due for it (see the round
 #                                file below) and each with an open blocking
 #                                review/test-edit-weakens finding of it, one
-#                                `<path>\t<due|weakens>\t<panel>` line each.
+#                                `<path>\t<due|weakens>\t<panel>` line each,
+#                                and the observation pair as
+#                                `observation\t<due|not shown>\t<panel>` when
+#                                it is due or has an open blocking
+#                                review/observation-not-shown finding.
 #                                Exit 0 printing nothing when there is none
 #                                (or no panel has recorded), 1 when there is
 #                                one, 2 when the ledger or the unit's tests
@@ -800,17 +804,40 @@ edited_tests() {
     [ -n "$base" ] || refuse 65 "no base to tell the change's edited tests by (no impl_base and no merge-base), so the round's test_edits can't be checked"
     TC_BASE=$base
     : > "$WORK/tc_edited"
+    ctx_get red_first.json > "$WORK/tc_red"
+    OBS_CONTENT=$(obs_content "$WORK/tc_red") \
+        || refuse 65 "red_first.json does not parse, so the observation pair can't be read"
+    : > "$WORK/tc_obs"
+    [ -z "$OBS_CONTENT" ] || printf 'observation\t%s\n' "$OBS_CONTENT" > "$WORK/tc_obs"
+    cp "$WORK/tc_obs" "$WORK/tc_items"
     ctx_get review_level_rules.tsv > "$WORK/tc_rules"
     [ -s "$WORK/tc_rules" ] || cp "$PLUGIN_ROOT_PS/skills/work-on/references/review-level-rules.tsv" "$WORK/tc_rules" \
         || refuse 65 "no rules file to tell test files by"
     awk -F '\t' '$1 == "class" && $2 == "test" && $3 != "" { f = 1 } END { exit !f }' "$WORK/tc_rules" || return 0
-    ctx_get red_first.json > "$WORK/tc_red"
     test_classify_unit "$base" "$HEAD" "$WORK/tc_rules" "$WORK/tc_red" > "$WORK/tc_rows" 2>"$WORK/tc.err" \
         || refuse 65 "could not classify the change's test files: $(head -n 1 "$WORK/tc.err")"
     awk -F '\t' -v OFS='\t' '$1 == "edited" { print $2, $3 }' "$WORK/tc_rows" > "$WORK/tc_edited"
+    cat "$WORK/tc_edited" "$WORK/tc_obs" > "$WORK/tc_items"
     cut -f 1 "$WORK/tc_edited"
 }
 TC_BASE=""
+OBS_CONTENT=""
+
+# obs_content <red-first-record-file>: the observation pair's content, the
+# item `observation` is judged by: `<before digest>/<after digest>`, printed
+# only when both observations are recorded (a pair a seat can judge). Nothing
+# for an empty record or one without a complete pair; status 1 when the record
+# doesn't parse, which every caller refuses on, since a pair that can't be
+# read can't be called judged.
+obs_content() {
+    [ -s "$1" ] || return 0
+    jq -r 'if type != "object" then error("not an object") else . end
+        | (.observations // {}) as $o
+        | if ($o | type) != "object" then empty
+          elif (($o.before.digest? // null) | type) == "string" and (($o.after.digest? // null) | type) == "string"
+               and ($o.before.digest | test("^[0-9a-f]{4,64}$")) and ($o.after.digest | test("^[0-9a-f]{4,64}$"))
+          then "\($o.before.digest)/\($o.after.digest)" else empty end' "$1" 2>/dev/null || return 1
+}
 
 # due_items <panel> <ledger-file> <out-file>: the panel's edited tests that are
 # due, as `<path>\t<content>` rows in <out-file>, from the rows edited_tests
@@ -846,7 +873,7 @@ due_items() {
             if git merge-base --is-ancestor "$j" HEAD 2>/dev/null; then ok=1; break; fi
         done < "$WORK/judged.at"
         [ -n "$ok" ] || printf '%s\t%s\n' "$p" "$c" >> "$out"
-    done < "$WORK/tc_edited"
+    done < "$WORK/tc_items"
 }
 
 # ---------------------------------------------------------------- --due-items
@@ -854,8 +881,10 @@ due_items() {
 # What the counting gates hold on, read from the panels' record: for every
 # panel with a recorded seat, each edited test due for it (no judgment of the
 # panel counts at its content now, see due_items) and each with an open
-# blocking review/test-edit-weakens finding of the panel. One tab-separated
-# `<path>\t<due|weakens>\t<panel>` line each, sorted. Exit 0 with nothing
+# blocking review/test-edit-weakens finding of the panel, and the observation
+# pair, as item `observation`, when it is due or the panel has an open
+# blocking review/observation-not-shown finding. One tab-separated
+# `<item>\t<due|weakens|not shown>\t<panel>` line each, sorted. Exit 0 with nothing
 # printed when nothing is due or adverse (and when no panel has recorded), 1
 # when something is, 2 when the record or the unit's tests can't be read.
 if [ "$MODE" = "--due-items" ]; then
@@ -881,6 +910,12 @@ if [ "$MODE" = "--due-items" ]; then
             | .location.path // empty | strings' "$WORK/due.ledger" > "$WORK/due.weak" 2>/dev/null \
             || refuse 2 "could not read the findings in $LEDGER"
         awk -v OFS='\t' -v p="$p" 'NF { print $0, "weakens", p }' "$WORK/due.weak" >> "$WORK/due.out"
+        # A seat's not_shown judgment of the observation pair is a blocking
+        # finding with no path; it holds the pair while it is open.
+        jq -r --arg p "$p" "$JQ_DEFS"'
+            [open_blocking($p)[] | select((.rule_id // "") == "review/observation-not-shown")] | length' \
+            "$WORK/due.ledger" > "$WORK/due.ns" 2>/dev/null || refuse 2 "could not read the findings in $LEDGER"
+        [ "$(cat "$WORK/due.ns")" = 0 ] || printf 'observation\tnot shown\t%s\n' "$p" >> "$WORK/due.out"
     done
     [ -s "$WORK/due.out" ] || exit 0
     LC_ALL=C sort -u "$WORK/due.out"
@@ -1095,7 +1130,7 @@ if [ "$MODE" = "--record" ]; then
     # stays due.
     problems=$(jq -r --argjson scope "${SCOPE_JSON:-null}" '
         ([(($scope // {}).decisions // [])[] | select(.seat == "reverifier")][0] // {}) as $d
-        | [($d.due_items // [])[] | .item? // empty | strings] as $D
+        | [($d.due_items // [])[] | .item? // empty | strings | select(. != "observation")] as $D
         | .[] | select(.seat? == "reverifier") | . as $e
         | if (.test_edits // []) | type != "array" then "the reverifier: test_edits is not an array"
           else
@@ -1116,6 +1151,40 @@ if [ "$MODE" = "--record" ]; then
           end' "$ROUND_FILE" 2>"$WORK/jq.err") \
         || die 65 "could not read the reverifier's test_edits in round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
     [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused, rule review/test-edit-judgment: $(head -n 5 <<<"$problems" | paste -sd ';' -)"
+
+    # The observation pair, when the unit has a complete one: every real seat
+    # that ran judges it `shown` or `not_shown` in its `observations`, and the
+    # re-verifier judges it exactly when its decision lists `observation` as
+    # due. A round that misses a judgment, or judges a pair the unit doesn't
+    # have or the re-verifier wasn't given, is refused whole, so the pair
+    # stays due.
+    problems=$(jq -r --arg obs "$OBS_CONTENT" --arg seats "$SEATS" --argjson scope "${SCOPE_JSON:-null}" '
+        def obs_problem($who):
+            if type != "object" then "\($who): observations is not an object"
+            elif (.judgment != "shown" and .judgment != "not_shown") then
+                "\($who): the observation pair'"'"'s judgment is not shown or not_shown"
+            elif (.reason // "") != "" and ((.reason | type) != "string" or (.reason | utf8bytelength) > 1000) then
+                "\($who): the reason for the observation pair is not a string of at most 1000 bytes"
+            else empty end;
+        ([(($scope // {}).decisions // [])[] | select(.seat == "reverifier")][0] // {}) as $d
+        | (any(($d.due_items // [])[]; (.item? // "") == "observation")) as $due
+        | ($seats | split(" ")) as $real
+        | .[] | select((.seat? | type) == "string") | . as $e
+        | ($e.observations // null) as $o
+        | if ($real | index($e.seat)) != null then
+            if $obs == "" then
+              (if $o != null then "seat [\($e.seat)] judged an observation pair, but the unit has no complete pair" else empty end)
+            elif $o == null then "seat [\($e.seat)] did not judge the observation pair as shown or not_shown"
+            else ($o | obs_problem("seat [\($e.seat)]")) end
+          elif $e.seat == "reverifier" then
+            if $due and $obs != "" then
+              (if $o == null then "the reverifier did not judge the due observation pair as shown or not_shown"
+               else ($o | obs_problem("the reverifier")) end)
+            elif $o != null then "the reverifier judged the observation pair, which its decision did not list as due"
+            else empty end
+          else empty end' "$ROUND_FILE" 2>"$WORK/jq.err") \
+        || die 65 "could not read the observations in round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
+    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused, the observation pair's judgment: $(head -n 5 <<<"$problems" | paste -sd ';' -)"
 
     # A decider entry is accepted only when koto's own log holds the event it
     # names, and each event backs one entry: the log is koto's to write, so a
@@ -1210,7 +1279,9 @@ if [ "$MODE" = "--record" ]; then
     # it, under rule review/test-edit-weakens; it is recorded and closed like
     # any other finding of that seat. The re-verifier's `weakens` is raised by
     # fix-review in this panel, the way its other findings are.
-    jq --rawfile edited "$WORK/edited_tests" --arg seats "$SEATS" '
+    # A `not_shown` judgment of the observation pair is a blocking finding the
+    # same way, under rule review/observation-not-shown, with no path.
+    jq --rawfile edited "$WORK/edited_tests" --arg seats "$SEATS" --arg obs "$OBS_CONTENT" '
         ($edited | split("\n") | map(select(. != ""))) as $E
         | ($seats | split(" ") + ["reverifier"]) as $real
         | map(if (.seat? | type) == "string" and (.seat as $s | $real | index($s)) != null then
@@ -1218,6 +1289,10 @@ if [ "$MODE" = "--record" ]; then
                     + [ (.test_edits // [])[] | select(.judgment == "weakens" and (.path as $p | $E | index($p)) != null)
                         | {severity: "blocking", path: .path, rule_id: "review/test-edit-weakens",
                            summary: ("the edit to " + .path + " weakens the test"
+                                     + (if (.reason // "") != "" then ": " + (.reason | .[0:800]) else "" end))} ]
+                    + [ (.observations // null) | select($obs != "" and type == "object" and .judgment == "not_shown")
+                        | {severity: "blocking", rule_id: "review/observation-not-shown",
+                           summary: ("the observation pair does not show the fix"
                                      + (if (.reason // "") != "" then ": " + (.reason | .[0:800]) else "" end))} ])
               else . end)' "$ROUND_FILE" > "$WORK/round.judged" || die 65 "could not add the test-edit findings"
     mv "$WORK/round.judged" "$WORK/round"
@@ -1237,12 +1312,13 @@ if [ "$MODE" = "--record" ]; then
         || die 65 "could not read the reverifier's due items"
     : > "$WORK/cut_seats"
     : > "$WORK/cut_rev"
+    grep -vx 'observation' "$WORK/due_list" > "$WORK/due_tests" || :
     if [ -n "$TC_BASE" ]; then
         test_hunks_cut "$TC_BASE" "$HEAD" "$WORK/edited_tests" > "$WORK/cut_seats"
-        test_hunks_cut "$TC_BASE" "$HEAD" "$WORK/due_list" > "$WORK/cut_rev"
+        test_hunks_cut "$TC_BASE" "$HEAD" "$WORK/due_tests" > "$WORK/cut_rev"
     fi
     jq -c --rawfile tce "$WORK/tc_edited" --rawfile cs "$WORK/cut_seats" --rawfile cr "$WORK/cut_rev" \
-        --rawfile due "$WORK/due_list" --arg seats "$SEATS" --arg head "$HEAD" '
+        --rawfile due "$WORK/due_list" --arg seats "$SEATS" --arg head "$HEAD" --arg obs "$OBS_CONTENT" '
         def lines_of: split("\n") | map(select(. != ""));
         ($tce | lines_of | map(split("\t") | {key: .[0], value: .[1]}) | from_entries) as $C
         | ($cs | lines_of) as $CS | ($cr | lines_of) as $CR | ($due | lines_of) as $D
@@ -1256,6 +1332,14 @@ if [ "$MODE" = "--record" ]; then
             | select(($cut | index($t.path)) == null
                      or any(($e.cited // [])[]; type == "object" and .path == $t.path))
             | {item: $t.path, content: $C[$t.path], judgment: $t.judgment, by: $e.seat,
+               run: $e.run, judged_at: $head} ]
+        # The observation pair, keyed by its two digests: a judgment by a real
+        # seat, or by the re-verifier when its decision listed the pair.
+        + [ .[] | select((.seat? | type) == "string") | . as $e
+            | select($obs != "")
+            | select(($real | index($e.seat)) != null or ($e.seat == "reverifier" and ($D | index("observation")) != null))
+            | ($e.observations // null) | select(type == "object")
+            | {item: "observation", content: $obs, judgment: .judgment, by: $e.seat,
                run: $e.run, judged_at: $head} ]' "$WORK/round" > "$WORK/judgments" \
         || die 65 "could not build the round's judgments"
 
@@ -1499,12 +1583,17 @@ fi
 # `promoted` from --promote) was written since on a finding of the panel's own
 # or one an earlier panel raised and --promote moved into it; anything else
 # plans a new round. Every agent record counts, not only those two kinds, so a
-# kind added later errs toward re-planning.
+# kind added later errs toward re-planning. A re-recorded observation changes
+# the pair without a commit, so the scope also stands only while the pair's
+# content is the one it was planned against.
+ctx_get red_first.json > "$WORK/plan_red"
+PLAN_OBS=$(obs_content "$WORK/plan_red") || die 65 "red_first.json does not parse, so the observation pair can't be read"
 if [ -z "$DIRTY" ]; then
     prev_scope=$(ctx_get "${PANEL}_scope.json")
     if [ -n "$prev_scope" ] && [ "$(jq -n --argjson s "$prev_scope" --argjson l "$LEDGER_JSON" \
-            --arg panel "$PANEL" --arg head "$HEAD" --arg ac "$AC_SHA" "$JQ_DEFS"'
+            --arg panel "$PANEL" --arg head "$HEAD" --arg ac "$AC_SHA" --arg obs "$PLAN_OBS" "$JQ_DEFS"'
             $s.head == $head and ($s.ac_sha // "") == $ac
+            and ($s.observation_content // "") == $obs
             and all(($s.decisions // [])[]; .decision == "keep" or (.run // null) != null)
             and (unrecorded($s; $l; $panel) | length) == 0
             and ([($l.findings // {})[] | select(.panel == $panel or promoted_into == $panel) | (.records // [])[]
@@ -1700,7 +1789,7 @@ jq -n --argjson l "$LEDGER_JSON" --arg panel "$PANEL" --arg seats "$SEATS" \
     --argjson round "$ROUND" --argjson rev "$REV" --arg head "$HEAD" --arg ac "$AC_SHA" \
     --arg full "$FULL_REASON" --slurpfile due "$WORK/due" --arg fixreview "$FIX_REVIEW" \
     --arg fixbase "$FIXBASE" --arg duefrom "$DUE_FROM" --arg openfrom "$OPEN_FROM" \
-    --rawfile dueitems "$WORK/plan_due" "$JQ_DEFS"'
+    --rawfile dueitems "$WORK/plan_due" --arg obs "$PLAN_OBS" "$JQ_DEFS"'
     def mint($seat): ("\($panel)-r\($round)-\($seat)") as $r
         | if ((($l.runs // {})[$r].recorded) // false) then "\($r)-v\($rev)" else $r end;
     def fshape: {id, severity, summary, raiser: (.raiser.name // ""), status: status}
@@ -1723,6 +1812,10 @@ jq -n --argjson l "$LEDGER_JSON" --arg panel "$PANEL" --arg seats "$SEATS" \
       else
         [ $due[] | select(.due) ] as $d
         | [ $dueitems | split("\n")[] | select(. != "") | split("\t") | {item: .[0], content: .[1]} ] as $di
+        | ([$di[] | select(.item != "observation")] | length) as $nt
+        | (if $nt > 0 and ($di | length) > $nt then "\($nt) edited test(s) and the observation pair"
+           elif $nt > 0 then "\($nt) edited test(s)"
+           else "the observation pair" end) as $what
         | [ $real[] as $s
             | ((($l.seats // {})[$panel + "/" + $s]) // {}) as $e
             | ([ $open[] | select(.raiser.kind == "reviewer" and .raiser.name == $s) ] | length) as $n
@@ -1733,20 +1826,21 @@ jq -n --argjson l "$LEDGER_JSON" --arg panel "$PANEL" --arg seats "$SEATS" \
                [ {seat: "reverifier", decision: "recheck", run: mint("reverifier"),
                   reason: ("re-verify \($d | length) due finding(s) by id"
                            + (if $fixreview == "1" then ", and review the fix diff since \($fixbase[0:12]) against every panel'"'"'s blocking criteria" else "" end)
-                           + (if ($di | length) > 0 then ", and judge \($di | length) edited test(s) changed since the panel judged them" else "" end)),
+                           + (if ($di | length) > 0 then ", and judge \($what) changed since the panel judged them" else "" end)),
                   findings: [ $d[] | . as $x | ($l.findings[$x.id] | fshape) + {due: $x.why} ],
                   fix_diff_from: $duefrom, fix_review: ($fixreview == "1")}
                  + (if $fixreview == "1" then {review_from: $fixbase} else {} end)
                  + (if ($di | length) > 0 then {due_items: $di} else {} end) ]
              elif ($di | length) > 0 then
                [ {seat: "reverifier", decision: "recheck", run: mint("reverifier"),
-                  reason: "items-due: judge \($di | length) edited test(s) changed since the panel judged them",
+                  reason: "items-due: judge \($what) changed since the panel judged them",
                   findings: [], fix_diff_from: $duefrom, fix_review: false, due_items: $di} ]
              else [] end)
       end) as $decisions
     | {panel: $panel, head: $head, rev: $rev, ac_sha: $ac, round: $round,
        full: ($full != ""), reason: (if $full != "" then $full else "a retry: nothing re-runs but what is due" end),
-       decisions: $decisions}' > "$WORK/scope" || die 65 "could not build ${PANEL}_scope.json"
+       decisions: $decisions}
+    + (if $obs != "" then {observation_content: $obs} else {} end)' > "$WORK/scope" || die 65 "could not build ${PANEL}_scope.json"
 
 # The history entry for this round. Replaced, not appended, when the previous
 # entry for this panel is at the same HEAD and nothing was recorded since.

@@ -491,7 +491,7 @@ run covered "$S" observation:before observation:after
 eq "covered before an acceptance: exit 1" 1 "$RC"
 OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$HERE/red-first.sh" check-green "$S" 2>/dev/null); RC=$?
 eq "check-green before an acceptance: exit 1" 1 "$RC"
-has "check-green before an acceptance: observations wait" "refused: observations wait for acceptance" "$OUT"
+has "check-green before an acceptance: the pair is not counted" "refused: the observation pair is not counted at its current digests" "$OUT"
 run seat "$S"
 has "the brief lists the observation" "after text" "$OUT"
 run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "the pair shows it gone"

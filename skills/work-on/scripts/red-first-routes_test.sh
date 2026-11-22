@@ -35,8 +35,8 @@
 #                     step, whose red is refused for a passage from the issue
 #                     body and recorded for one from the Fixes line
 #   observations      a fix recorded by a before- and after-observation stays
-#                     held at pass_counting, the gate saying observations wait
-#                     for acceptance
+#                     held at pass_counting, the gate saying the pair is not
+#                     counted (no panel judged it)
 #
 # Usage: red-first-routes_test.sh
 #
@@ -349,7 +349,7 @@ EOF
 fi
 
 # ==============================================================================
-echo "--- observations wait for acceptance at pass_counting"
+echo "--- an observation pair no panel judged is held at pass_counting"
 
 S=rf_obs
 if walk_to_choice "$S" 1 --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
@@ -388,7 +388,7 @@ EOF
     "$RF" observe "$S" --phase after --file "$WORKDIR/after.md" >/dev/null 2>&1 && pass "an after-observation is recorded" || fail "observe after failed"
     tick "$S"
     expect_state "an observation pair stays held" pass_counting
-    case "$(gate_stdout fix_green)" in *"refused: observations wait for acceptance"*) pass "fix_green says observations wait for acceptance" ;; *) fail "fix_green printed [$(gate_stdout fix_green)]" ;; esac
+    case "$(gate_stdout fix_green)" in *"refused: the observation pair is not counted"*) pass "fix_green says the observation pair is not counted" ;; *) fail "fix_green printed [$(gate_stdout fix_green)]" ;; esac
 fi
 
 echo

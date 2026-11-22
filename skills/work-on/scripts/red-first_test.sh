@@ -26,10 +26,10 @@
 #              fix with neither, printing finding red-first/no-red
 #   check-green  passes for a non-fix and for a green at HEAD; holds with no
 #              green, a failed green, and a green at an older head; holds an
-#              observation pair with a `refused:` line saying observations
-#              wait for acceptance, and passes it once a minted seat's
-#              acceptance covers both digests; every hold prints
-#              red-first/no-green
+#              observation pair with a `refused:` line saying the pair is
+#              not counted, and, with no panel recorded, passes it once a
+#              minted seat's acceptance covers both digests; every hold
+#              prints red-first/no-green
 #   refused    a context read koto refuses leaves check-red and check-green
 #              undecided and fails observe and green with 66, the record
 #              untouched, never reading as an absent key
@@ -351,7 +351,7 @@ run observe o1 --phase after --file "$W/obs-after.md"
 eq "an after-observation: exit 0" 0 "$RC"
 run check-green o1
 eq "an observation pair: check-green exit 1" 1 "$RC"
-has "an observation pair: a refused line saying observations wait for acceptance" "refused: observations wait for acceptance" "$OUT"
+has "an observation pair: a refused line saying the pair is not counted" "refused: the observation pair is not counted at its current digests" "$OUT"
 has "an observation pair: finding red-first/no-green" '"rule_id":"red-first/no-green"' "$OUT"
 # A minted seat's acceptance of both digests, as test-change.sh writes it.
 jq -nc --arg wt "$R" --arg base "$BASE" '{event: "header", author: "agent:o1", impl_base: $base, worktree: $wt, person_required: false}' > "$STORE/o1/test_change_ledger.jsonl"
@@ -361,7 +361,7 @@ jq -c '{event: "accept", identity: "agent:o1/accept-1", kind: "agent", authority
                 {path: "observation:after", digest: .observations.after.digest}]}' "$STORE/o1/red_first.json" >> "$STORE/o1/test_change_ledger.jsonl"
 run check-green o1
 eq "an accepted observation pair: check-green exit 0" 0 "$RC"
-has "an accepted observation pair: passes" "pass: the observation pair has a live acceptance" "$OUT"
+has "an accepted observation pair: passes" "pass: the observation pair is counted at its current digests" "$OUT"
 
 # --- a refused read ----------------------------------------------------------------
 # koto refuses a read of a session bound to another workspace, printing the

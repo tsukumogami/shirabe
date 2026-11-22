@@ -47,7 +47,13 @@
 #                     the re-verifier with reason items-due, its packet carries
 #                     the hunks and the run's note, and its corrects counts the
 #                     unit again, each step printing its exit code
-#   a level raise     a fix raised from light to standard at
+#   observations      the same fixture for a fix recorded by an observation
+#                     pair: a panel round's shown lets check-green and status
+#                     exit 0, a re-recorded after-observation holds both
+#                     naming `observation`, --plan plans the re-verifier with
+#                     the pair (items-due), and its shown counts the unit with
+#                     no seat minted
+#   a level raise    a fix raised from light to standard at
 #                     review_level_check keeps UNIT_KIND at fix: fix-kind.sh
 #                     agree still exits 0, and fix_green still holds without a
 #                     green
@@ -697,6 +703,99 @@ if fixture_session "$S" "$WORKDIR/counting.md"; then
     "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC=$?
     echo "  step: test-change.sh status with an unreadable verdict record exit $RC"
     [ "$RC" = 2 ] && pass "a verdict record that can't be read: status exits 2" || fail "status exited $RC: $(cat "$WORKDIR/s.out")"
+fi
+
+echo "--- end to end: an observation pair is judged by the panels and counted from their record"
+
+# The same fixture for a fix whose red and green are observations: the pair is
+# recorded with red-first.sh observe, a panel round judges it shown, and
+# fix_green (red-first.sh check-green) and tests_counted (test-change.sh
+# status) count it; re-recording the after-observation holds both naming
+# `observation`, and the re-verifier's shown counts the unit again. No seat
+# is minted and no acceptance written. Each step prints its exit code.
+git checkout -q main
+git checkout -q -b case-e2e-obs
+S=tc_e2e_obs
+if fixture_session "$S" "$WORKDIR/counting.md"; then
+    printf '{"ts":"t","event":"determine","kind":"fix","source":"label:bug"}\n' | koto context add "$S" fix_kind.jsonl >/dev/null 2>&1
+    jq -r .body "$GH_ISSUES/1.json" | koto context add "$S" fix_report.txt >/dev/null 2>&1
+    cat > "$WORKDIR/obs-before.md" <<EOF
+## Produced
+Typed ./greet.sh '' at a terminal.
+
+## Environment
+The fixture repository.
+
+## Seen
+Hello, ! where the report expects error: name required.
+
+## Why no check
+Stands in for a terminal-only failure.
+
+## Passage
+Running \`./greet.sh ''\` prints \`Hello, !\` instead of \`error: name required\`
+
+## Marker
+error: name required
+EOF
+    "$RF" observe "$S" --phase before --file "$WORKDIR/obs-before.md" >/dev/null 2>"$WORKDIR/obs.err"; RC=$?
+    echo "  step: red-first.sh observe before exit $RC"
+    printf '#!/bin/sh\n[ -n "$1" ] || { echo "error: name required" >&2; exit 2; }\necho "Hello, $1!"\n' > greet.sh
+    git commit -q -am "fix: refuse an empty name"
+    printf '## Produced\nTyped it again.\n\n## Environment\nThe fixture.\n\n## Seen\nerror: name required\n' > "$WORKDIR/obs-after.md"
+    "$RF" observe "$S" --phase after --file "$WORKDIR/obs-after.md" >/dev/null 2>>"$WORKDIR/obs.err"; RC2=$?
+    echo "  step: red-first.sh observe after exit $RC2"
+    [ "$RC" = 0 ] && [ "$RC2" = 0 ] && pass "the observation pair is recorded" || fail "observe exited $RC/$RC2: $(cat "$WORKDIR/obs.err")"
+
+    "$RF" check-green "$S" > "$WORKDIR/g.out" 2>&1; RC=$?
+    echo "  step: red-first.sh check-green before any panel exit $RC"
+    "$PS" --plan scrutiny "$S" >/dev/null 2>"$WORKDIR/plan.err"; RC=$?
+    echo "  step: panel-scope.sh --plan scrutiny (first round) exit $RC"
+    SHOWN='"observations":{"judgment":"shown"}'
+    record_round "$S" scrutiny "[{\"seat\":\"completeness\",\"findings\":[],$SHOWN},{\"seat\":\"justification\",\"findings\":[],$SHOWN},{\"seat\":\"intent\",\"findings\":[],$SHOWN}]"
+    echo "  step: panel-scope.sh --record scrutiny (every seat shown) done"
+    "$RF" check-green "$S" > "$WORKDIR/g.out" 2>&1; RC=$?
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC2=$?
+    echo "  step: check-green exit $RC, status exit $RC2"
+    [ "$RC" = 0 ] && [ "$RC2" = 0 ] && pass "with the pair judged shown, check-green and status both exit 0" \
+        || fail "check-green $RC [$(cat "$WORKDIR/g.out")], status $RC2 [$(cat "$WORKDIR/s.out")]"
+
+    printf '## Produced\nTyped it once more.\n\n## Environment\nThe fixture.\n\n## Seen\nerror: name required, exit 2\n' > "$WORKDIR/obs-after.md"
+    "$RF" observe "$S" --phase after --file "$WORKDIR/obs-after.md" >/dev/null 2>&1
+    "$RF" check-green "$S" > "$WORKDIR/g.out" 2>&1; RC=$?
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC2=$?
+    echo "  step: after re-recording the after-observation: check-green exit $RC, status exit $RC2"
+    [ "$RC" = 1 ] && grep -q 'observation due for scrutiny' "$WORKDIR/g.out" \
+        && pass "a re-recorded after-observation: check-green exits 1 naming observation" \
+        || fail "check-green exited $RC: $(cat "$WORKDIR/g.out")"
+    [ "$RC2" = 1 ] && grep -q '^held: observation due for scrutiny$' "$WORKDIR/s.out" \
+        && pass "a re-recorded after-observation: status exits 1 with held: observation due" \
+        || fail "status exited $RC2: $(cat "$WORKDIR/s.out")"
+    tick "$S"
+    expect_state "the counting gates hold on the due pair" pass_counting
+
+    "$PS" --plan scrutiny "$S" > "$WORKDIR/scope.out" 2>"$WORKDIR/plan.err"; RC=$?
+    echo "  step: panel-scope.sh --plan scrutiny exit $RC"
+    GOT=$(jq -r '[.decisions[] | select(.decision != "keep") | "\(.seat):\(.reason | split(":")[0]):\([.due_items[]?.item] | join("+"))"] | join(",")' "$WORKDIR/scope.out" 2>/dev/null)
+    [ "$RC" = 0 ] && [ "$GOT" = "reverifier:items-due:observation" ] \
+        && pass "--plan plans the re-verifier alone, reason items-due, with the pair due" \
+        || fail "--plan exited $RC with spawned decisions [$GOT]: $(cat "$WORKDIR/plan.err")"
+    PKT=$("$PLUGIN_ROOT/scripts/review-packet.sh" recheck --session "$S" --panel scrutiny --seat reverifier --scratch "$PACKET_DIR" 2>"$WORKDIR/pkt.err"); RC=$?
+    echo "  step: review-packet.sh recheck exit $RC"
+    [ "$RC" = 0 ] && grep -q '^## Observations$' "$PKT" && grep -q 'error: name required, exit 2' "$PKT" \
+        && pass "the re-verifier's packet carries the pair as it is recorded now" \
+        || fail "recheck packet exited $RC: $(cat "$WORKDIR/pkt.err")"
+    record_round "$S" scrutiny "[{\"seat\":\"reverifier\",\"findings\":[],\"answers\":[],$SHOWN}]"
+    echo "  step: panel-scope.sh --record scrutiny (the re-verifier's shown) done"
+    "$RF" check-green "$S" > "$WORKDIR/g.out" 2>&1; RC=$?
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC2=$?
+    echo "  step: after the re-verifier: check-green exit $RC, status exit $RC2"
+    [ "$RC" = 0 ] && [ "$RC2" = 0 ] && pass "the re-verifier's shown counts the pair: check-green and status exit 0" \
+        || fail "check-green $RC [$(cat "$WORKDIR/g.out")], status $RC2 [$(cat "$WORKDIR/s.out")]"
+    tick "$S"
+    expect_state "both counting gates pass" finalization
+    [ "$(ledger "$S" | jq -r 'select(.event == "seat" or .event == "accept")' | wc -l | tr -d ' ')" = 0 ] \
+        && pass "no seat was minted and no acceptance written for the pair" || fail "the ledger is [$(ledger "$S")]"
 fi
 
 echo "--- pr_precheck re-runs status: a commit after counting is held before a pull request opens"
