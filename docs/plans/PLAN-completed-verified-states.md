@@ -330,7 +330,38 @@ lines and refusals listed above.
 
 ### Step 7: the progress view shows landed milestones and stops calling passing pull requests verified
 
-A Completed milestone reads `landed, verdict owed`, and the pull-request rows read `checks passed, ready to merge` and its held and paused variants.
+**Goal**: `progress-view.sh` lists a unit whose pick facts carry
+`"verdict_owed": true` in its own row with the status text
+`landed, verdict owed` and the next step `its verdict is given at the next
+pass`, never as `ready to assign`; and the Ready to merge rows read
+`checks passed, ready to merge`, `checks passed; merge held by your direction`
+and `checks passed; held by pause <id>` where they read `verified, ...`
+today. The header comment describing those rows says "checks passed" too.
+This applies on every roadmap schema, since the pick facts carry
+`verdict_owed` on v2, v3 and v4 alike.
+
+**Acceptance Criteria**:
+
+- [ ] On pick facts with one unit whose `verdict_owed` is true, the view
+  prints a row for it whose status cell reads `landed, verdict owed` and whose
+  next cell reads `its verdict is given at the next pass`, and no row for it
+  reads `ready to assign`.
+- [ ] On pick facts with a parked holding whose pull request passed its
+  checks, the Ready to merge row reads `checks passed, ready to merge`; held,
+  `checks passed; merge held by your direction`; paused, `checks passed;
+  held by pause <id>`.
+- [ ] `grep -n verified skills/coordinate/scripts/progress-view.sh` finds no
+  line that labels a pull request or its checks.
+- [ ] Every other row of the existing `progress-view_test.sh` cases is
+  unchanged; the cases whose expected text named "verified" for a pull request
+  are updated to the new wording and no others.
+
+**Check**: Run `bash skills/coordinate/scripts/progress-view_test.sh` and
+`bash skills/coordinate/scripts/run-tests.sh`; see the rows listed above.
+
+**Dependencies**: Step 4
+
+**Files**: `skills/coordinate/scripts/progress-view.sh`, `skills/coordinate/scripts/progress-view_test.sh`
 
 ### Step 8: shirabe roadmap migrate moves a v2 or v3 roadmap to v4 with a dry run
 
