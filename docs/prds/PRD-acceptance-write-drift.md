@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   A /work-on run's koto session is meant to be the run's own ledger, but
   test-change acceptance has a minted seat, a person at a terminal or a
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-acceptance-write-drift.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
