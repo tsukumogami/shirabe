@@ -248,7 +248,7 @@ fn read_entry(sid: &str) -> Option<Entry> {
     }
     let file = fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc_o_nofollow())
+        .custom_flags(entry_open_flags())
         .open(dir.join(sid))
         .ok()?;
     if !file.metadata().ok()?.file_type().is_file() {
@@ -266,9 +266,12 @@ fn read_entry(sid: &str) -> Option<Entry> {
     Some(entry)
 }
 
-/// `O_NOFOLLOW` through rustix, so no libc dependency is added.
-fn libc_o_nofollow() -> i32 {
-    rustix::fs::OFlags::NOFOLLOW.bits() as i32
+/// `O_NOFOLLOW | O_NONBLOCK` through rustix, so no libc dependency is added.
+/// `O_NONBLOCK` keeps the open from waiting on a FIFO at the entry path; the
+/// regular-file check after the open then refuses it. Reads from a regular
+/// file are unaffected.
+fn entry_open_flags() -> i32 {
+    (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32
 }
 
 fn read_stdin() -> String {

@@ -152,6 +152,27 @@ if command -v shirabe >/dev/null 2>&1 && shirabe compaction --help >/dev/null 2>
         OUT=$(hook "$sub" "$IN"); rc=$?
         check "$sub: deleted entry gives exit 0, no output" '[ "$rc" -eq 0 ] && [ -z "$OUT" ]'
     done
+    # A FIFO at the entry path: the hook must not wait for a writer.
+    if mkfifo "$ENTRY" 2>/dev/null; then
+        for sub in pre-compact re-anchor; do
+            rm -f "$T/fifo.out" "$T/fifo.rc"
+            ( hook "$sub" "$IN" >"$T/fifo.out"; echo "$?" >"$T/fifo.rc" ) &
+            pid=$!
+            i=0
+            while [ ! -s "$T/fifo.rc" ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+            if [ -s "$T/fifo.rc" ]; then
+                wait "$pid" 2>/dev/null
+                check "$sub: FIFO entry gives exit 0, no output, no wait" \
+                    '[ "$(cat "$T/fifo.rc")" = 0 ] && [ ! -s "$T/fifo.out" ]'
+            else
+                # Open the write end once so the blocked reader returns.
+                ( : >"$ENTRY" ) & w=$!
+                sleep 0.2; kill "$w" 2>/dev/null; wait "$pid" 2>/dev/null
+                bad "$sub: FIFO entry gives exit 0, no output, no wait" "still running after 5s"
+            fi
+        done
+        rm -f "$ENTRY"
+    fi
 else
     echo "== hooks skipped: no shirabe with 'compaction' on PATH =="
 fi
