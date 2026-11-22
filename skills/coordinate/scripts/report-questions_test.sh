@@ -26,13 +26,22 @@ ENTRY='{"decision":"3","round":"0","question":"What cap does one question get?",
   "source":"worker w1 [20260926T080000Z report 5.1]","updated":"2026-09-26T09:00Z"}'
 
 N=0
+# with_big: the record on stdin, with BIG_ENTRIES' entries (a file holding a
+# JSON array, when set) added to its Decisions section. A file, not an
+# argument, since the section it builds is larger than one argument may be.
+with_big() {
+    if [ -n "${BIG_ENTRIES-}" ]; then
+        jq -c --slurpfile b "$BIG_ENTRIES" '.decisions.entries += $b[0]
+            | .decisions.next = ([.decisions.next, ($b[0] | map(.decision | tonumber) | max) + 1] | max)'
+    else cat; fi
+}
 # run <report-facts token> <report text> [holding-json] [entries-json]: a fresh
 # record and session, report_facts' sealed verdict, the report, then the
 # extraction. Sets S, OUT (stdout) and RC.
 run() {
     N=$((N + 1))
     local rec
-    rec=$(record_json roadmap feat | jq -c --argjson e "${4:-[]}" '.decisions = {next: 10, entries: $e}')
+    rec=$(record_json roadmap feat | jq -c --argjson e "${4:-[]}" '.decisions = {next: 10, entries: $e}' | with_big)
     [ -n "${3-}" ] && rec=$(printf '%s' "$rec" | jq -c --argjson h "$3" '.holdings = [$h]')
     S="coordinate-roadmap-feat-q$N-$RUNSTAMP"
     found_session "$S" "$(roadmap_vars feat)"
@@ -90,7 +99,7 @@ others_archive() { archive_row "$(printf '%s' "$SETTLED3" | jq -c '.source = "wo
 run_archived() {
     N=$((N + 1))
     local rec
-    rec=$(record_json roadmap feat | jq -c --argjson h "$WORKER" ".holdings = [\$h] | $ARCHIVED")
+    rec=$(record_json roadmap feat | jq -c --argjson h "$WORKER" ".holdings = [\$h] | $ARCHIVED" | with_big)
     S="coordinate-roadmap-feat-q$N-$RUNSTAMP"
     found_session "$S" "$(roadmap_vars feat)"
     seed_session "$S" "$rec"
@@ -355,6 +364,24 @@ eq "a question with a tab in it is measured whole, as a leg report over the cap 
 run "holding none rr" "$(escalation 4 1)" "$COORD" \
     '[{"decision":"2","round":"0","question":"Merge before the release?","options":"wait\nmerge now","state":"settled","source":"coordinator rr #4 round 1 [20260926T070000Z report 3.1]","outcome":"wait; reason: r","decided_by":"a person","updated":"2026-09-26T09:00Z"}]'
 eq "escalation: a re-sent one whose entry has settled still opens nothing" "0 none" "$RC $(word)"
+
+# A Decisions section larger than one command-line argument may be (128 KiB
+# on Linux, shirabe#2042): every path that reads the section still runs.
+jq -nc '[range(20; 270) | tostring as $n | {decision: $n, round: "0", state: "proposed",
+    question: "Which of the listed approaches should entry \($n) take? \("context " * 40)",
+    options: "\("first approach " * 12)\n\("second approach " * 12)",
+    source: "worker w9 [20260926T080000Z report \($n).1]", updated: "2026-09-26T09:00Z"}]' > "$T/big-entries.json"
+export BIG_ENTRIES="$T/big-entries.json"
+run "holding none w1" "$(cat "$HERE/testdata/report-questions/questions-shape.txt")" "$WORKER" "[$ENTRY]"
+SEC_BYTES=$(bash "$HERE/state-decision.sh" --session "$S" --list | wc -c | tr -d ' ')
+[ "$SEC_BYTES" -gt 131072 ] && ok "the section is larger than one argument may be ($SEC_BYTES bytes)" ||
+    bad "the section is larger than one argument may be" "$SEC_BYTES bytes"
+eq "a report on a section over 128 KiB is read" "0 questions 2" "$RC $(printf '%s' "$OUT" | cut -d' ' -f1-2)"
+[ "$RC" = 0 ] || sed 's/^/     stderr: /' "$T/err"
+eq "  ... a citation of the worker's own entry kept" "null 3" "$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+run_archived own_archive
+eq "an archived citation on a section over 128 KiB is kept" "0|null 3" "$RC|$(list | jq -r '[.[].cite | tostring] | join(" ")')"
+unset BIG_ENTRIES
 
 # Linear in the report: a long fenced log with a question after it.
 { echo 'Verdict: the build log is below.'; echo '```'
