@@ -174,10 +174,12 @@ test (R7), and observation pairs have to reach the seats in the first place
   seats, each due item and each item with an open `weakens` or `not shown`
   finding, and exits 0 when there are none, 1 when there are, 2 when the record
   can't be read.
-- **Planning.** `--plan` computes the panel's due items. In a round that would
-  otherwise keep every seat, a non-empty due list plans the re-verifier (new
-  decision reason `items-due`) and puts the list in its decision. A full round
-  needs no special case: every seat judges every edited test and the pair.
+- **Planning.** `--plan` computes the panel's due items. In any round that
+  isn't full, the re-verifier carries the due list in its decision, whether it
+  was planned for due findings, for the fix-diff review, or, when neither
+  applies, for the due items alone (new decision reason `items-due`). A full
+  round needs no special case: every seat judges every edited test and the
+  pair.
 - **Packets.** `review-packet.sh code` gains an `## Observations` section with
   both observation texts and the report passage, and the `## Test changes`
   section gains each edited test's note from the test-change ledger. The
@@ -222,7 +224,11 @@ test (R7), and observation pairs have to reach the seats in the first place
 
 - **`ci_pass_counting` (shirabe#1931).** It gains `counting_status: test_gap`,
   the value `pass_counting` already has, with edges to `implementation` on
-  `tests_counted` exits 0 and 1, matching `pass_counting`'s pair. From there the
+  `tests_counted` exits 0 and 1, matching `pass_counting`'s pair. The run
+  submits `test_gap` when the check holds on a due or adverse item (exit 1), or
+  when, with the check passing, it has found a gap in its own tests and is about
+  to change one; `declined` keeps its route to `ci_monitor` for a hold the run
+  answers with a non-test fix. From there the
   run passes the panels, whose next round plans the re-verifier for the due
   test, then verification and counting again. The open PR is reused:
   `pr_creation`'s directive already starts by checking for one
@@ -239,7 +245,10 @@ test (R7), and observation pairs have to reach the seats in the first place
   newest child or fix-round session's counted head to HEAD touches a file the
   test classifier counts as a test, 0 otherwise, and 2 when it can't read the
   heads, or when a recorded head isn't an ancestor of HEAD. `/work-on` records
-  `counted_head` in its own session when a counting gate passes; `/execute`
+  `counted_head` (one line: the commit sha the counting gate passed at) in its
+  own session when a counting gate passes, and `ci-fix-tests.sh` reads it from
+  every child and fix-round session of the plan, taking the newest by
+  ancestry; `/execute`
   only reads it. The script passes paths to `git` after `--` and reads names
   with `-z`. A CI fix that edits no test passes the
   gate as today (R20).
@@ -292,9 +301,9 @@ test (R7), and observation pairs have to reach the seats in the first place
 
 The seat machine goes, and the panels carry its one unique job. Each panel
 keeps a list of what it judged, keyed by the item's content, so "changed since a
-panel last looked" is a lookup rather than a guess. A panel round that would
-otherwise run nothing plans its re-verifier whenever that lookup finds a due
-item, and the re-verifier judges exactly those items with the run's notes in
+panel last looked" is a lookup rather than a guess. A panel round that isn't
+full gives its re-verifier every item that lookup finds due, planning one for
+that alone when nothing else would, and the re-verifier judges exactly those items with the run's notes in
 front of it. Observation pairs reach the packets and get a `shown` or
 `not shown` from every seat, the same way edited tests get `corrects` or
 `weakens`. The counting gates keep their names and commands: `test-change.sh
@@ -358,7 +367,8 @@ its judgments land in a ledger that run owns.
    descriptions, `red-first.sh`'s message, the registry, the tests, the evals
    and the references. Depends on step 1.
 3. **`ci_pass_counting` `test_gap`.** The evidence value, the two edges, the
-   directive and a route test. Depends on step 2.
+   directive and a route test. Depends on step 2 and lands with it: without
+   it, a unit held at `ci_pass_counting` has no route to a re-verifier.
 4. **`/execute` CI fixes.** `counted_head` recording in `/work-on`,
    `ci-fix-tests.sh`, the gate and the directive, with tests. Depends on step 2.
 5. **Outside writers.** The override directives, `requires.tsv`, the koto
@@ -408,8 +418,22 @@ the person's message, an unattended run records none, and koto records the
 handle without verifying it, which the PRD lists as a known limitation.
 
 `ci-fix-tests.sh` reads commit ranges and session context and writes nothing.
-It checks that each recorded head is an ancestor of HEAD, passes paths to
-`git` after `--`, and reads file names NUL-separated.
+Commit values read from session context (`counted_head`, `judged_at`) are
+accepted only as 40-hex shas before they reach `git`, each recorded head must
+be an ancestor of HEAD, paths go to `git` after `--`, and file names are read
+NUL-separated. Observation texts and the report passage get the same fencing
+and a 4 KiB cap in packets as notes do, with control characters stripped.
+
+Two limits remain and are stated rather than solved. The verdict record is a
+koto context key, and anything that can write the run's session can write it;
+that is true of every key a run keeps, and the one-writer rule is a convention
+the scripts follow, not something koto enforces. `--due-items` counts a
+judgment only when its `run` matches a decision the record's own round history
+planned, which catches a hand-edited entry but not a deliberate forger with
+write access. And a test reverted to content a panel already judged counts as
+judged at that content, which is correct for the content but can hide that the
+revert undid a later fix; the panels see the revert in their next round's
+diff.
 
 ## Consequences
 
