@@ -140,7 +140,11 @@ one torn down outside the pass (a removed pass), including one closed with no
 handoff comment, where the pass's entry stands in for the link. A
 leg-bound row whose worker was removed outside the run before anything
 merged goes the same way (its verdict says `pr none`); `--retire` then
-abandons the leg's request and its entry says so. A `dispatch-failed` row, a launch that never
+abandons the leg's request and its entry says so. A row whose unit ended
+with no pull request (no branch, or a branch with nothing beyond its base,
+and a handoff comment on its issue) goes once its teardown pass is done,
+merged or not; a leg-bound one's request is abandoned with the handoff link
+as the rationale. A `dispatch-failed` row, a launch that never
 started, goes through `--retire` too once no worker exists for its topic
 (niwa lists no session and no unfinished Claude job carries it); its removal
 is told as an `entry` entry.

@@ -295,6 +295,48 @@ eq "  ... and the entry says the release failed and how to finish it" \
     "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
 : >"$CHECK_MSG"
 
+echo "== retired after a unit that ended with no pull request (shirabe#1075) =="
+# The run's own teardown pass tore the unit down, and its check confirms it
+# with a reason that ends saying nothing of it merged and naming the handoff
+# (a `pr none` verdict). The row goes, merged or not; a leg-bound one's
+# request is abandoned with the handoff link in its rationale, and the entry
+# says the unit ended with no pull request. A confirmed reason without the
+# ending still retires only a merged row.
+HLINK="https://github.com/acme/widgets/issues/591#issuecomment-1005"
+NOPR_ENTRY="retired after its teardown pass: the unit ended with no pull request merged, and its handoff comment is on its issue."
+seed "$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" \
+    --argjson z "$(holding zeta '{"return_path": "leg req_6:work-on", "entry_point": "/shirabe:work-on", "branch": ""}')" \
+    --argjson e "$(holding eta '{"branch": ""}')" '.holdings = [$a, $z, $e]')"
+SNAP=$(session_snapshot "$SR")
+echo 0 >"$CHECK_RC"
+echo "teardown-pass: teardown-confirmed: the instance and the job are gone and the archive is whole" >"$CHECK_MSG"
+hr --topic zeta --retire >/dev/null 2>"$T/err"; eq "--retire refuses an unmerged holding whose confirmed teardown doesn't say nothing merged" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+echo "teardown-pass: teardown-confirmed: the instance and the job are gone and the archive is whole; no pull request of it merged; handoff $HLINK" >"$CHECK_MSG"
+echo 1 >"$CHECK_RC"
+hr --topic zeta --retire >/dev/null 2>"$T/err"; eq "--retire refuses one whose teardown isn't confirmed" 65 $?
+eq "  ... and nothing was written" "$SNAP" "$(session_snapshot "$SR")"
+echo 0 >"$CHECK_RC"
+: >"$KOTO_STORE/calls"
+hr --topic zeta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a leg-bound holding that ended with no pull request" \
+    || bad "--retire removes a leg-bound holding that ended with no pull request" "exit $rc: $(cat "$T/err")"
+eq "  ... and only it" "alpha eta" "$(live | jq -r '.holdings | map(.worker) | join(" ")')"
+eq "  ... and abandons its leg's request with the handoff link as the rationale" \
+    "request abandon-request req_6 --rationale zeta was retired after its unit ended with no pull request; handoff $HLINK" \
+    "$(grep '^request abandon-request' "$KOTO_STORE/calls")"
+eq "  ... and its entry says the unit ended with no pull request" \
+    "entry|Holding zeta (unit $(holding zeta | jq -r .unit)) $NOPR_ENTRY The retirement released its leg req_6:work-on." \
+    "$(koto context get "$SR" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+: >"$KOTO_STORE/calls"
+hr --topic eta --retire >/dev/null 2>"$T/err"; rc=$?
+[ "$rc" = 0 ] && ok "--retire removes a message-path holding that ended with no pull request" \
+    || bad "--retire removes a message-path holding that ended with no pull request" "exit $rc: $(cat "$T/err")"
+eq "  ... abandoning nothing" "" "$(grep 'request abandon-request' "$KOTO_STORE/calls")"
+eq "  ... with the entry alone" "entry|Holding eta (unit $(holding eta | jq -r .unit)) $NOPR_ENTRY" \
+    "$(koto context get "$SR" record/entries/000002 | jq -r '"\(.kind)|\(.text)"')"
+: >"$CHECK_MSG"
+
 echo "== a dispatch-failed holding retired (shirabe#1612) =="
 # A failed launch's row goes through --retire only when no worker exists for
 # its topic: niwa lists no session for it, and no unfinished Claude job carries

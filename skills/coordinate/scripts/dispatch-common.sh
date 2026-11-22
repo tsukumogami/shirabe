@@ -806,6 +806,41 @@ dc_tree() {
     wait "$p"
 }
 
+# dc_valid_branch <name>: 0 when a branch name is one dc_branch_ahead puts in
+# an API path as it is: [A-Za-z0-9._/-] only, with no empty, `.` or `..`
+# component.
+dc_valid_branch() {
+    grep -Eq '^[A-Za-z0-9._/-]{1,255}$' <<<"$1" || return 1
+    case "/$1/" in *//* | */./* | */../*) return 1 ;; esac
+    return 0
+}
+
+# dc_branch_ahead <secs> <owner/repo> <branch>: how far a branch on GitHub
+# runs ahead of its repository's default branch, for a unit that ends with no
+# pull request merged (shirabe#1075). Prints `absent` when GitHub has no such
+# branch (it was never pushed, or was deleted), else the number of commits it
+# holds that the default branch doesn't (`ahead_by` of the compare). Each read
+# runs under <secs> through dc_with_deadline, with GH naming gh. Returns 2,
+# with gh's last line on stderr, when a read fails or answers something else;
+# the branch is checked with dc_valid_branch first.
+dc_branch_ahead() {
+    local secs=$1 repo=$2 br=$3 gh=${GH:-gh} err def out
+    dc_valid_branch "$br" || { echo "the branch name is not one this check reads" >&2; return 2; }
+    err=$(mktemp "${TMPDIR:-/tmp}/dc-branch.XXXXXX") || return 2
+    # The exact ref, not refs/heads/<prefix>: `git/ref/` answers one ref or 404.
+    if ! dc_with_deadline "$secs" "$gh" api "repos/$repo/git/ref/heads/$br" --jq .ref >/dev/null 2>"$err"; then
+        if grep -q 'HTTP 404' "$err"; then rm -f "$err"; echo absent; return 0; fi
+        tail -1 "$err" >&2; rm -f "$err"; return 2
+    fi
+    def=$(dc_with_deadline "$secs" "$gh" api "repos/$repo" --jq .default_branch 2>"$err") \
+        && dc_valid_branch "$def" \
+        && out=$(dc_with_deadline "$secs" "$gh" api "repos/$repo/compare/$def...$br" --jq .ahead_by 2>"$err") \
+        && grep -Eq '^[0-9]+$' <<<"$out" \
+        || { tail -1 "$err" >&2; rm -f "$err"; return 2; }
+    rm -f "$err"
+    printf '%s\n' "$out"
+}
+
 dc_job_finished() {
     local home="$1" job="$2" row="$3" pid f st
     if ! grep -Eq '^[0-9a-f]{6,64}$' <<<"$job"; then
