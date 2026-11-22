@@ -62,13 +62,23 @@ fn lines_with<'a>(text: &'a str, code: &str) -> Vec<&'a str> {
     text.lines().filter(|l| l.contains(&tag)).collect()
 }
 
-const DONE_OPEN: &str = "roadmap-v4/ROADMAP-done-open.md";
+/// A Done roadmap whose milestones read Verified and Dropped. The failing
+/// cases are built from it here rather than committed: every committed
+/// roadmap must pass FC21 (`milestone_roadmap.rs` checks them all).
+const DONE_CLOSED: &str = "roadmap-v4/ROADMAP-done-closed.md";
 const PROGRESS: &str = "roadmap-v4/ROADMAP-progress-table.md";
 const POPULATED: &str = "roadmap-v4/ROADMAP-populated-classes.md";
 
 #[test]
 fn a_done_v4_roadmap_fails_once_per_milestone_that_does_not_close() {
-    let (code, t) = validate_variant(DONE_OPEN, "done-open", &[]);
+    let (code, t) = validate_variant(
+        DONE_CLOSED,
+        "done-open",
+        &[
+            ("**Status:** Verified", "**Status:** Completed"),
+            ("**Status:** Dropped", "**Status:** In progress"),
+        ],
+    );
     assert_eq!(code, Some(2), "{t}");
     let fc21 = lines_with(&t, "FC21");
     assert_eq!(fc21.len(), 2, "{t}");
@@ -85,23 +95,14 @@ fn a_done_v4_roadmap_fails_once_per_milestone_that_does_not_close() {
 #[test]
 fn a_done_v4_roadmap_passes_once_every_milestone_is_verified_or_dropped() {
     let cases: [(&str, &[(&str, &str)]); 2] = [
-        (
-            "verified-dropped",
-            &[
-                ("**Status:** Completed", "**Status:** Verified"),
-                ("**Status:** In progress", "**Status:** Dropped"),
-            ],
-        ),
+        ("verified-dropped", &[]),
         (
             "all-dropped",
-            &[
-                ("**Status:** Completed", "**Status:** Dropped"),
-                ("**Status:** In progress", "**Status:** Dropped"),
-            ],
+            &[("**Status:** Verified", "**Status:** Dropped")],
         ),
     ];
     for (tag, edits) in cases {
-        let (code, t) = validate_variant(DONE_OPEN, tag, edits);
+        let (code, t) = validate_variant(DONE_CLOSED, tag, edits);
         assert_eq!(code, Some(0), "{tag}: {t}");
         assert!(lines_with(&t, "FC21").is_empty(), "{tag}: {t}");
     }

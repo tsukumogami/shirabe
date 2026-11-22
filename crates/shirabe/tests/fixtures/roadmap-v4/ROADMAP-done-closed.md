@@ -31,7 +31,7 @@ by name with the version it loaded.
 **Left open:** None
 
 **Dependencies:** None
-**Status:** Completed
+**Status:** Verified
 
 ### Milestone 2: Registry
 
@@ -44,7 +44,7 @@ directory.
 **Left open:** None
 
 **Dependencies:** Milestone 1
-**Status:** In progress
+**Status:** Dropped
 
 ## Sequencing Rationale
 
@@ -52,7 +52,7 @@ The loader comes first because the registry reads what it loads.
 
 ## Progress
 
-The loader landed; the registry is under way.
+The loader was verified; the registry was dropped.
 
 ## Implementation Issues
 
