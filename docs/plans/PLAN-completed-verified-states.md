@@ -221,9 +221,55 @@ exit codes and rows listed above.
 
 **Files**: `skills/coordinate/scripts/pick-facts.sh`, `skills/coordinate/scripts/reconcile-pass.sh`, `skills/coordinate/scripts/dispatch-common.sh`, `skills/coordinate/scripts/dispatch-worker.sh`
 
-### Step 5: the coordinator records Completed at the merge in its pending roadmap edit or a new one
+### Step 5: on a roadmap/v4 roadmap, the coordinator records Completed at the merge in its pending roadmap edit or a new one
 
-On v4, `roadmap-status.sh --unit` writes Completed and Delivered to block and Progress row, folding into the run's own pending edit with a fast-forward push or opening a new edit, and re-reads the pending edit's state when a push fails.
+**Goal**: On a `roadmap/v4` roadmap, `roadmap-status.sh --unit TAG` keeps
+writing the `verdict-owed` row as today and also records the milestone as
+Completed in the roadmap: its block `**Status:**` and its Progress row read
+Completed, `**Delivered:**` names the merged pull requests (the `--outcome`
+text), and its Needs line goes. When the record holds no pending roadmap edit
+it opens one the way the v1 path does (a `coordinate/roadmap-status-<tag>-<minute>`
+branch through the git data and contents APIs, a pull request, a Side effects
+row). When the run's own roadmap edit is pending, it commits the Completed
+change onto that edit's branch through the same APIs, as a new commit whose
+parent is the branch's current head, and adds one line naming the folded
+milestone to that pull request's body; it opens no second pull request. A
+branch whose head moved, or a pending edit that merged or closed meanwhile,
+makes it read the pending state again: a merged or closed edit means it opens
+a new one; anything else refuses with the reason and writes nothing. On
+`roadmap/v1` to `v3` `--unit` behaves exactly as on the base commit.
+
+**Acceptance Criteria**:
+
+- [ ] On a `roadmap/v4` fixture with no pending edit, `--unit 'Milestone 1'
+  --outcome '#12'` writes the `verdict-owed` row, opens one pull request whose
+  diff sets Milestone 1's block Status and Progress row to Completed, writes
+  `**Delivered:** #12`, removes its Needs line, and leaves every other
+  milestone's text unchanged; `shirabe validate` passes on the resulting file.
+- [ ] Run with a pending roadmap edit of the same run open (a stubbed GitHub
+  API holding a branch and pull request), it commits onto that branch with the
+  branch's head as parent, adds one line naming Milestone 1 to that pull
+  request's body, opens no new pull request, and the record still holds one
+  pending edit.
+- [ ] With the stubbed branch head moved after the read, it re-reads: a
+  pending edit reported merged leads to a new pull request; one still open at
+  a new head refuses, naming the moved head, with no commit and no row change.
+- [ ] Run a second time for the same milestone, it changes nothing and prints
+  that Milestone 1 already reads Completed.
+- [ ] On a `roadmap/v3` fixture, `--unit` writes only the `verdict-owed` row
+  and opens no pull request, and on `roadmap/v1` it opens the Done pull request,
+  each exactly as on the base commit (existing roadmap-status suites unchanged).
+- [ ] The words written to the block and the Progress row are the status
+  table's canonical `Completed`, so step 3's block-versus-row check passes.
+
+**Check**: Run `bash skills/coordinate/scripts/run-tests.sh` with the new v4
+cases in the roadmap-status suite against its stubbed GitHub API, and see the
+pull requests, commits, body lines and refusals listed above; run
+`shirabe validate` on each written fixture.
+
+**Dependencies**: Step 3, Step 4
+
+**Files**: `skills/coordinate/scripts/roadmap-status.sh`, `skills/coordinate/scripts/state-common.sh`
 
 ### Step 6: verdicts and reopens on roadmap/v4 set Verified and In progress and refuse moves the table doesn't list
 
