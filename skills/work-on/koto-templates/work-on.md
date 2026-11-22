@@ -181,7 +181,8 @@ variables:
       Where the definition-of-done gate runs. `local` (the default) enters the
       verification state, which runs the repository's verification map on this
       host. `hosted-ci` defers verification to the pull request's hosted CI:
-      every edge into verification goes to verification_deferred instead, so
+      every edge into verification from another state goes to
+      verification_deferred instead, so
       the map is never launched, and the run still finalizes and opens its
       pull request. A deferral needs VERIFICATION_DEFERRAL_REASON, and
       pr_creation holds until the pull request body records it. Set at init
@@ -1236,8 +1237,8 @@ states:
       - target: review_level_check
         when:
           issue_type: code
-      # Every edge into verification has a twin into verification_deferred,
-      # split on VERIFICATION; see that state's comment.
+      # Every edge into verification from another state has a twin into
+      # verification_deferred, split on VERIFICATION; see that state's comment.
       - target: verification
         when:
           issue_type: docs
@@ -2099,9 +2100,11 @@ states:
 
   verification_deferred:
     # Where a VERIFICATION=hosted-ci run goes instead of verification (#1012).
-    # Every edge into verification has a twin here, split on the variable's
-    # value, so a `local` run (the default) takes exactly the routes it took
-    # before the twins existed.
+    # Every edge into verification from another state has a twin here, split
+    # on the variable's value, so a `local` run (the default) takes exactly the
+    # routes it took before the twins existed. The `rerun` self-loops at
+    # verification's timed-out hold need no twin: they start and end in
+    # verification, which a hosted-ci run never enters.
     #
     # The split sits on the edges, not inside verification, because koto runs
     # a state's default_action before its skip_if and its transitions: once a
@@ -2177,7 +2180,8 @@ states:
     # On 1 the record is wrong for this head and the run returns to
     # verification, where the reused result holds at 5 again. That edge has
     # its twin into verification_deferred, as every edge into verification
-    # does; a hosted-ci run never reaches this state, so the twin never fires.
+    # from another state does; a hosted-ci run never reaches this state, so the
+    # twin never fires.
     # On 2 the state holds; `hosted_status: blocked` stops the run.
     default_action:
       command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/verification-route.sh" --record --session "{{SESSION_NAME}}"'
@@ -4343,8 +4347,9 @@ with the reason in `detail`. The run stops at `done_blocked`.
 
 A check that ran out of time locally, with nothing failed, may be settled by the
 hosted job its map row declares, run at this head on the pull request: the
-hosted-of-record route. `rerun`, `fix` and `hosted_of_record` are accepted only
-here, at exit 5:
+hosted-of-record route. `rerun`, `fix` and `hosted_of_record` are accepted here,
+at exit 5; of the three, only `rerun` is also accepted at exit 75, after you've
+archived the attempt yourself (see the end of the first item):
 
 - `verification_status: rerun` with the reason in `detail` runs the suite again at
   this head, when you judge the timeout outside the change (the host was loaded, say,
