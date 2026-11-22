@@ -41,6 +41,11 @@ set -uo pipefail
 PROG=handoff-brief.sh
 NOTE_KEY=compaction/note.md
 MAX_SKILLS=8
+# The largest entry written. The hooks read at most 16 KiB and withhold a
+# re-anchor block of 10,000 characters or more; the block repeats the entry's
+# values with under 1,100 characters of its own wording, so an entry within
+# 8 KiB always comes back whole.
+MAX_ENTRY_BYTES=8192
 
 usage() {
     sed -n '4,7p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -166,23 +171,30 @@ cmd_note() {
     entry="$dir/$sid"
     [ -L "$entry" ] && refuse "the ledger entry [$entry] is a link"
 
+    # Build the entry first, so one too large for the hooks to give back is
+    # refused before anything is written. Every value is ASCII by its grammar,
+    # so the length in characters is the length in bytes.
+    content="koto_session: $koto_session
+note_key: $NOTE_KEY
+branch: $branch
+pr: $pr
+"
+    if [ "${#skills[@]}" -gt 0 ]; then
+        for s in "${skills[@]}"; do
+            content="${content}skill: $s
+"
+        done
+    fi
+    [ "${#content}" -le "$MAX_ENTRY_BYTES" ] \
+        || refuse "the ledger entry would be ${#content} bytes, over $MAX_ENTRY_BYTES"
+
     # The note first: an entry naming a note that was never written would send
     # a compacted session to read nothing.
     koto context add "$koto_session" "$NOTE_KEY" --from-file "$reasoning" >/dev/null \
         || fail "koto context add $koto_session $NOTE_KEY failed"
 
     tmp=$(umask 077 && mktemp "$dir/.entry.XXXXXX") || fail "cannot create a temporary ledger file"
-    {
-        printf 'koto_session: %s\n' "$koto_session"
-        printf 'note_key: %s\n' "$NOTE_KEY"
-        printf 'branch: %s\n' "$branch"
-        printf 'pr: %s\n' "$pr"
-        if [ "${#skills[@]}" -gt 0 ]; then
-            for s in "${skills[@]}"; do
-                printf 'skill: %s\n' "$s"
-            done
-        fi
-    } >"$tmp" || { rm -f "$tmp"; fail "cannot write the ledger entry"; }
+    printf '%s' "$content" >"$tmp" || { rm -f "$tmp"; fail "cannot write the ledger entry"; }
     chmod 600 "$tmp" || { rm -f "$tmp"; fail "cannot set the ledger entry's mode"; }
     mv -f "$tmp" "$entry" || { rm -f "$tmp"; fail "cannot put the ledger entry in place"; }
 

@@ -116,6 +116,20 @@ rm -f "$ENTRY"
 OUT=$(KOTO_STUB_RC=1 run_note --reasoning "$T/reasoning.md" --koto-session k 2>&1); rc=$?
 check "a failed koto write exits 1 and writes no entry" '[ "$rc" -eq 1 ] && [ ! -e "$ENTRY" ]'
 
+# Entry size: 8 skills of 4 arguments of 200 characters stay within 8 KiB; 5
+# arguments each go over it and are refused before anything is written.
+A200=$(printf '%200s' '')
+A200=${A200// /a}
+BIG4="shirabe:deliver $A200 $A200 $A200 $A200 $DELIVER"
+BIG5="shirabe:deliver $A200 $A200 $A200 $A200 $A200 $DELIVER"
+BIG4_ARGS=() BIG5_ARGS=()
+for i in 1 2 3 4 5 6 7 8; do BIG4_ARGS+=(--skill "$BIG4"); BIG5_ARGS+=(--skill "$BIG5"); done
+rm -f "$ENTRY" "$T/koto.log"
+OUT=$(run_note --reasoning "$T/reasoning.md" --koto-session k "${BIG5_ARGS[@]}" 2>&1); rc=$?
+check "an entry over 8 KiB is refused, nothing written" '[ "$rc" -eq 2 ] && [ ! -e "$ENTRY" ] && [ ! -e "$T/koto.log" ]'
+OUT=$(run_note --reasoning "$T/reasoning.md" --koto-session k "${BIG4_ARGS[@]}" 2>&1); rc=$?
+check "an entry within 8 KiB is written" '[ "$rc" -eq 0 ] && [ "$(wc -c <"$ENTRY" | tr -d " ")" -le 8192 ]'
+
 if command -v shirabe >/dev/null 2>&1 && shirabe compaction --help >/dev/null 2>&1; then
     echo "== the hooks read the entry back =="
     RUN_KOTO_SESSION=probe-run run_note --reasoning "$T/reasoning.md" \
@@ -147,6 +161,12 @@ if command -v shirabe >/dev/null 2>&1 && shirabe compaction --help >/dev/null 2>
         OUT=$(hook "$sub" 'not json'); rc=$?
         check "$sub: bad input gives exit 0, no output" '[ "$rc" -eq 0 ] && [ -z "$OUT" ]'
     done
+    # The largest entry the writer allows comes back whole.
+    run_note --reasoning "$T/reasoning.md" --koto-session k "${BIG4_ARGS[@]}" >/dev/null 2>&1
+    RA=$(hook re-anchor "$IN")
+    CTX=$(jq -r '.hookSpecificOutput.additionalContext' <<<"$RA")
+    check "re-anchor gives back all 8 skills of an entry at the size limit" \
+        '[ "$(grep -c -F "$DELIVER again" <<<"$CTX")" -eq 8 ]'
     rm -f "$ENTRY"
     for sub in pre-compact re-anchor; do
         OUT=$(hook "$sub" "$IN"); rc=$?
