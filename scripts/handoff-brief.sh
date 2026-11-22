@@ -495,6 +495,7 @@ record_path() {
     if [ -e "$rec" ] && [ ! -f "$rec" ]; then
         refuse "$src [$rec]: the record is not a regular file"
     fi
+    # A presence probe: command -v has no diagnostic worth keeping, and the fault names the tool.
     command -v jq >/dev/null 2>&1 || fault "jq is not on PATH; the keep record is JSON"
     RECORD="$rec"
     LOCK="$rec.lock"
@@ -523,6 +524,7 @@ take_lock() {
         mt=$(mtime_of "$LOCK") || fault "cannot read the age of the record lock [$LOCK]"
         age=$(($(date +%s) - mt))
         if [[ "$opid" =~ ^[0-9]{1,10}$ ]] && [ "$ohost" = "$host" ] && [ "$age" -gt "$LOCK_STALE_SECS" ]; then
+            # A presence probe: command -v has no diagnostic worth keeping, and the fault names the tool.
             command -v ps >/dev/null 2>&1 || fault "ps is not on PATH, so the record lock's pid can't be checked"
             if ! ps -p "$opid" >/dev/null; then
                 rm -rf "$LOCK" || fault "cannot remove the stale record lock [$LOCK]"
@@ -959,6 +961,7 @@ cmd_resume() {
         esac
         shift
     done
+    # A presence probe: command -v has no diagnostic worth keeping, and the fault names the tool.
     command -v koto >/dev/null 2>&1 || fault "koto is not on PATH"
 
     identity
