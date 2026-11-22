@@ -112,7 +112,12 @@ exec 3>&1 1>&2
 STATE=reconcile_pass
 CUTOFF=20
 READS_END=24
-# The owed verdicts' deadline (reconcile-owe.sh, a record read and write).
+# The owed verdicts' deadline (reconcile-owe.sh: a roadmap read, a record read
+# and, when a row is owed, a record write). It runs first in a visit, so the
+# whole of it fits under koto's 30-second limit; the record read after it gets
+# what is left before READS_END, at least 2 s, and a read that ends late only
+# leaves the pass pending. 16 s matches what a settle may take (its natural
+# budget of 20 s, less the reads it makes that this doesn't).
 OWE_BUDGET=16
 PARALLEL=4
 # Of the PARALLEL slots, inventories hold at most this many at once.
@@ -275,7 +280,7 @@ if [ -z "$WJ" ]; then
     rm -f "$W/reasoning.md"
     # The owed verdicts, the visit's first step: its one fact, a not
     # verified one when it ran past its deadline or printed nothing readable.
-    OWE=$(rd_deadline "$OWE_BUDGET" env RECONCILE_READ_DEADLINE=8 "${RUNBASH[@]}" "$HERE/reconcile-owe.sh" --session "$SESSION" 2> "$T/owe.err" 3>&-)
+    OWE=$(rd_deadline "$OWE_BUDGET" "${RUNBASH[@]}" "$HERE/reconcile-owe.sh" --session "$SESSION" 2> "$T/owe.err" 3>&-)
     ORC=$?
     if [ "$ORC" != 0 ] || ! OWE=$(printf '%s\n' "$OWE" | head -n 1 | jq -ce 'select((.kind == "owe") and (.status | type) == "string")' 2>/dev/null); then
         if [ "$ORC" = 124 ]; then WHY="still running at the end of its ${OWE_BUDGET} s budget"

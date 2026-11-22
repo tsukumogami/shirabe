@@ -8,11 +8,11 @@
 # --unit writes at the landed tick. A coordinator that takes up a roadmap
 # whose milestones were Completed before this record knew of them (a new
 # record, a restart over a migrated roadmap) finds no row for them, so pick
-# would never offer their verdicts. reconcile-pass.sh launches this once per
-# visit at roadmap scope, as it launches reconcile-settle.sh, and only when
-# its whole budget fits in the pass; it runs roadmap-status.sh
-# --owe-completed, the only writer of verdict-owed rows, which writes a row
-# for each such milestone and nothing on v1 to v3
+# would never offer their verdicts. reconcile-pass.sh runs this once per
+# visit, first, before its record read and with its own deadline
+# (OWE_BUDGET there); it runs roadmap-status.sh --owe-completed, the only
+# writer of verdict-owed rows, which writes a row for each such milestone and
+# nothing on v1 to v3 or at discipline scope
 # (docs/designs/DESIGN-completed-verified-states.md, Decision 3).
 #
 # Usage:
