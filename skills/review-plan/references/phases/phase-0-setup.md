@@ -37,8 +37,22 @@ SKILL.md's Session and Keys names three cases. Pick one:
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" status plan-<topic>
 ```
 
-- Called as a sub-operation: `/plan` holds `plan-<topic>` open. Use it as is.
-- `live` (standalone): a plan is in flight. Use it as is; close nothing.
+- Called as a sub-operation (`plan_topic` in the args): `/plan` holds
+  `plan-<topic>` open. Use it as is. This case is unchanged by the next one:
+  the status is not consulted.
+- `live` (standalone): a `/plan` run is in flight and owns `plan-<topic>`.
+  Stop here, before any write: write no `work/review.md` and no
+  `work/review_loopback.md`, remove no key, and open, adopt or close nothing.
+  Say so in these words, filling in the topic:
+
+  ```
+  plan-<topic> is live: a /plan run owns this session and runs its own review
+  at its Phase 6, so /review-plan writes nothing to it.
+  I can run a read-only review instead and print its verdict here. Want that?
+  ```
+
+  On a yes, run the read-only review (**Read-only Review** below). On anything
+  else, end the run.
 - `absent` or `finished` (standalone): review the PLAN document alone: the
   path given, or `docs/plans/PLAN-<topic>.md` for a topic. Check that it exists
   (stop and say so when it doesn't),
@@ -53,6 +67,25 @@ SKILL.md's Session and Keys names three cases. Pick one:
   this run opened the session: Phase 5 closes it (unless `adopt` matched a
   parent). In this case skip 0.2 to 0.4 and read the PLAN document instead
   (0.4a).
+
+#### Read-only Review
+
+Offered only in the `live` standalone case, and run only when the person
+accepts it. It reads what any review reads and writes nothing anywhere a
+`/plan` run or a later review would look:
+
+- Run 0.2 to 0.5 as written: they only read `plan-<topic>`'s keys.
+- Skip 0.6b: `review-events.sh round-started` adds to the `review/round` key
+  in `plan-<topic>`, so the round is not recorded.
+- Run Phases 1 to 4b as on any review, and Phase 5's synthesis up to the
+  `review_result` block. Print that block and its summary to the
+  conversation instead of writing a verdict key.
+- Skip the rest of Phase 5 (the verdict key, Recording the Round, Closing)
+  and all of Phase 6: nothing is removed, and `review_rounds` is not
+  incremented.
+
+A seat's packet is materialized into a `skill-session.sh scratch` directory
+as 0.4 says; that directory is private to this run and outside the session.
 
 ### 0.2 Validate Required Artifacts Exist
 

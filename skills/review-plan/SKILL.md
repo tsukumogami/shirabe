@@ -73,9 +73,15 @@ and the keys it holds:
 - **Run by `/plan`** (a sub-operation, `plan_topic` in its args): `/plan` has
   `plan-<topic>` open. `/review-plan` reads and writes it, and opens, adopts
   and closes nothing.
-- **Run directly on a plan in flight** (`plan-<topic>` is `live` and holds
-  `/plan`'s keys): the same reads and writes; the session belongs to `/plan`,
-  which closes it, so `/review-plan` closes nothing.
+- **Run directly on a plan in flight** (no `plan_topic` in its args, and
+  `plan-<topic>` is `live`): the session belongs to the `/plan` run, which
+  runs its own review at its Phase 6. `/review-plan` stops before any write:
+  it writes neither `work/review.md` nor `work/review_loopback.md`, removes no
+  key, opens and closes nothing, and says the `/plan` run owns the session. It
+  offers a read-only review instead, which reads the keys and prints the
+  `review_result` block to the conversation
+  (`references/phases/phase-0-setup.md`, Read-only Review). The sub-operation
+  case above never takes this path.
 - **Run directly on a topic with no plan session** (`absent` or `finished`):
   it reviews the PLAN document alone (`docs/plans/PLAN-<topic>.md`), opens
   `plan-<topic>` to write its verdict, and closes it when it finishes, since it
@@ -203,6 +209,10 @@ key each verdict gets. See `references/templates/review-result-schema.md` for th
 `review_result` YAML schema and its full field specification.
 
 ## Resume Logic
+
+A direct run on a live `plan-<topic>` refuses first, as Session and Keys
+says, whatever keys the session holds. The rules below apply to every other
+case.
 
 ```
 if key work/review.md exists in plan-<topic>          → skip to Phase 7 (already reviewed, proceed)

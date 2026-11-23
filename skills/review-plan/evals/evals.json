@@ -199,6 +199,37 @@
       ],
       "fixture_dir": "fixtures/clean-proceed-path",
       "files": []
+    },
+    {
+      "id": 15,
+      "name": "direct-run-on-live-plan-session-refuses",
+      "prompt": "/review-plan my-feature -- a /plan run on my-feature is in flight: skill-session.sh status plan-my-feature prints live, and the session holds /plan's keys from the clean-proceed-path fixture (work/analysis.md, work/decomposition.md, work/manifest.json, work/dependencies.md and work/issue_<id>_body.md for issues 1 to 3). No plan_topic argument is given.",
+      "expected_output": "This is a direct run, not /plan's sub-operation, and Phase 0's step 0.1a finds plan-my-feature live. It stops there, before any write: it says the /plan run owns plan-my-feature and runs its own review at its Phase 6, and offers a read-only review printed to the conversation. It writes neither work/review.md nor work/review_loopback.md, removes no key, does not record a round with review-events.sh round-started, and runs no skill-session.sh open, adopt or close. The keys plan-my-feature holds after the run are exactly the keys it held before.",
+      "assertions": [
+        "Phase 0 runs skill-session.sh status plan-my-feature and reads live",
+        "The output names the /plan run as the owner of plan-my-feature and offers a read-only review",
+        "No koto context add of work/review.md or work/review_loopback.md runs against plan-my-feature",
+        "No koto context remove runs against plan-my-feature, and its key list is unchanged",
+        "No review-events.sh round-started call and no skill-session.sh open, adopt or close of plan-my-feature runs"
+      ],
+      "fixture_dir": "fixtures/clean-proceed-path",
+      "files": []
+    },
+    {
+      "id": 16,
+      "name": "direct-run-on-finished-plan-session-writes-verdict",
+      "prompt": "/review-plan skills/review-plan/evals/fixtures/PLAN-v2-behavioural.md -- the topic is v2-behavioural, and skill-session.sh status plan-v2-behavioural prints finished: an earlier /plan run on it closed its session. No plan_topic argument is given.",
+      "expected_output": "This is a direct run and Phase 0's step 0.1a finds plan-v2-behavioural finished, so it behaves as before this change: it reviews the PLAN document alone (0.4a), opens the session with skill-session.sh open plan v2-behavioural and adopt plan v2-behavioural, runs the categories, and Phase 5 writes the verdict to work/review.md (the fixture is clean, so the verdict is proceed) and closes plan-v2-behavioural since this run opened it. No refusal about a live /plan run is printed.",
+      "assertions": [
+        "Phase 0 reads finished from skill-session.sh status and does not refuse",
+        "skill-session.sh open plan v2-behavioural runs before any category",
+        "Phase 5 writes the verdict key with koto context add (work/review.md for a proceed verdict)",
+        "Phase 5 closes plan-v2-behavioural with skill-session.sh close",
+        "No message about a live /plan run owning the session appears"
+      ],
+      "files": [
+        "skills/review-plan/evals/fixtures/PLAN-v2-behavioural.md"
+      ]
     }
   ]
 }
