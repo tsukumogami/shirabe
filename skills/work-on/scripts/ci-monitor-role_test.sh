@@ -173,6 +173,8 @@ $(stub_gates "$CI_PASS_COUNTING" "${3:-0}" "${4:-0}" "${5:-0}")
     terminal: true
   hosted_record:
     terminal: true
+  implementation:
+    terminal: true
   done:
     terminal: true
   done_blocked:
@@ -191,6 +193,9 @@ Green CI routes on the gates; submit ci_outcome only while CI fails.
 
 ## hosted_record
 Stub terminal for the hosted-of-record read, which a run with no record never reaches.
+
+## implementation
+Stub terminal for ci_pass_counting's test_gap edges, which no case here takes.
 
 ## ci_pass_counting
 Counts the pass, then routes on is_root.

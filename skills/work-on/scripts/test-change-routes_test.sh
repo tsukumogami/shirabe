@@ -65,6 +65,15 @@
 #                     a CI fix is held after CI passes, and once a panel round
 #                     judges it corrects a root goes through cascade_entry to
 #                     done
+#   test_gap after CI the same fixture with the real scrutiny block: a test the
+#                     panels judged, edited again by a CI fix, is held at
+#                     ci_pass_counting; `test_gap` returns to implementation,
+#                     a test-only commit follows, scrutiny spawns only the
+#                     re-verifier with the test due, and its corrects counts
+#                     the unit at ci_pass_counting again; with a weakens the
+#                     panel's last retry is spent, the run goes back to
+#                     implementation, status exits 3 and the next weakens
+#                     round ends the run at done_blocked
 #
 # Nothing here calls GitHub: the gh stand-in serves issues only.
 #
@@ -168,6 +177,13 @@ esac
     && pass "ci_pass_counting runs pass_counting's two gates" || fail "ci_pass_counting's gates are [$(q '.states.ci_pass_counting.gates')]"
 [ "$(q '[.states.ci_pass_counting.transitions[] | select(.when.counting_status == "declined") | .target] | join(",")')" = ci_monitor ] \
     && pass "declined at ci_pass_counting goes back to ci_monitor" || fail "the declined edges are [$(q '.states.ci_pass_counting.transitions')]"
+[ "$(q '[.states.ci_pass_counting.transitions[] | select(.when.counting_status == "test_gap") | "\(.when["gates.tests_counted.exit_code"])/\(.when["gates.fix_green.exit_code"] // "-")>\(.target)"] | join(",")')" = "1/->implementation,0/1>implementation" ] \
+    && pass "a test gap at ci_pass_counting goes back to implementation, as at pass_counting" \
+    || fail "ci_pass_counting's test_gap edges are [$(q '[.states.ci_pass_counting.transitions[] | select(.when.counting_status == "test_gap")]')]"
+[ "$(q '.states.ci_pass_counting.accepts.counting_status.values | join(",")')" = "green_failed,declined,test_gap,blocked" ] \
+    && pass "ci_pass_counting accepts test_gap" || fail "ci_pass_counting accepts [$(q '.states.ci_pass_counting.accepts.counting_status.values')]"
+[ "$(q '[.states | to_entries[] | . as $s | .value.transitions[]? | select(.when.counting_status == "test_gap") | $s.key] | unique | join(",")')" = "ci_pass_counting,pass_counting" ] \
+    && pass "test_gap leaves only the two counting states" || fail "test_gap edges leave [$(q '[.states | to_entries[] | . as $s | .value.transitions[]? | select(.when.counting_status == "test_gap") | $s.key] | unique')]"
 case "$(q '.states.pr_precheck.gates.tests_still_counted.command')" in
     *"test-change.sh\" status \"{{SESSION_NAME}}\""*) pass "pr_precheck re-runs test-change.sh status as tests_still_counted" ;;
     *) fail "tests_still_counted is [$(q '.states.pr_precheck.gates.tests_still_counted')]" ;;
@@ -762,7 +778,7 @@ echo "--- ci_pass_counting: a test edited while fixing CI is held after CI passe
 
 CI_BLOCKS="$(stub_block "$(extract_state ci_monitor)" ci_passing=0 merge_state_clean=0)
 $(extract_state ci_pass_counting)"
-fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS" hosted_record
+fixture "$WORKDIR/ci.md" ci_monitor "$CI_BLOCKS" hosted_record implementation
 git checkout -q main
 git checkout -q -b case-ci
 S=tc_ci
@@ -783,6 +799,108 @@ if fixture_session "$S" "$WORKDIR/ci.md"; then
     expect_state "judged by a panel, a root goes on through cascade_entry" done
     [ "$(visits "$S" cascade_entry)" = 1 ] && pass "a root went through cascade_entry" || fail "cascade_entry visits: $(visits "$S" cascade_entry)"
 
+fi
+
+echo "--- test_gap at ci_pass_counting: a test fixed after CI goes back through the panels"
+
+# The shipped ci_monitor (CI gates stubbed green), ci_pass_counting and
+# scrutiny blocks. implementation stands in for the real one: it clears the
+# same panel keys on entry and goes to scrutiny on `complete`. review stands in
+# for the rest of the lap (the other panels, verification, pass_counting,
+# finalization, and pr_creation reusing the open pull request) and goes
+# straight back to ci_monitor.
+GAP_STUBS=$(printf '%s\n' \
+    '  implementation:' \
+    '    clear_on_entry: [scrutiny_results.json, review_results.json, qa_results.json, light_results.json, summary.md, scrutiny_scope.json, review_scope.json, qa_scope.json, light_scope.json]' \
+    '    accepts:' '      implementation_status:' '        type: enum' '        values: [complete]' \
+    '    transitions:' '      - target: scrutiny' '        when:' '          implementation_status: complete' \
+    '  review:' '    transitions:' '      - target: ci_monitor')
+GAP_BLOCKS="$(stub_block "$(extract_state ci_monitor)" ci_passing=0 merge_state_clean=0)
+$(extract_state ci_pass_counting)
+$(extract_state scrutiny)
+$GAP_STUBS"
+fixture "$WORKDIR/ci-gap.md" ci_monitor "$GAP_BLOCKS" hosted_record
+FULL_SCRUTINY="[{\"seat\":\"completeness\",\"findings\":[],$JUDGED},{\"seat\":\"justification\",\"findings\":[],$JUDGED},{\"seat\":\"intent\",\"findings\":[],$JUDGED}]"
+
+# ci_gap_hold <session>: a panel round judges the edited test, a CI fix edits it
+# again, and the run is held at ci_pass_counting with the test due for
+# scrutiny; then `test_gap` and a test-only commit, and the lap's scrutiny.
+ci_gap_hold() {
+    drop_mark
+    git commit -q -am "feat: drop the exclamation mark"
+    "$TC" note "$1" --file tests/greet_test.sh --reason "the issue asks for the expected value to change" >/dev/null 2>&1
+    "$PS" --plan scrutiny "$1" >/dev/null 2>"$WORKDIR/plan.err" || fail "$1: --plan scrutiny failed: $(cat "$WORKDIR/plan.err")"
+    record_round "$1" scrutiny "$FULL_SCRUTINY"
+    printf '# the CI runner has no locale; the greeting is plain ASCII\n' >> tests/greet_test.sh
+    git commit -q -am "fix(ci): note the runner's locale in the test"
+    tick "$1"
+    expect_state "$1: after CI passed, the CI fix's test edit is held" ci_pass_counting
+    case "$(gate_stdout tests_counted)" in
+        *"held: tests/greet_test.sh due for scrutiny"*) pass "$1: tests_counted holds the test as due for scrutiny" ;;
+        *) fail "$1: tests_counted printed [$(gate_stdout tests_counted)]" ;;
+    esac
+    tick "$1" '{"counting_status":"test_gap","detail":"the test checks one name after the CI fix; a second name is left unchecked"}'
+    expect_state "$1: counting_status test_gap at ci_pass_counting" implementation
+    [ "$(visits "$1" ci_monitor)" = 1 ] && pass "$1: test_gap does not go back to ci_monitor" \
+        || fail "$1: ci_monitor was entered $(visits "$1" ci_monitor) times"
+    printf '[ "$(./greet.sh Ada)" = "Hello, Ada" ] || { echo "expected Hello, Ada"; exit 1; }\n' >> tests/greet_test.sh
+    git commit -q -am "test: check a second name"
+    tick "$1" '{"implementation_status":"complete"}'
+    expect_state "$1: the lap after the test gap" scrutiny
+    GOT=$(koto context get "$1" scrutiny_scope.json 2>/dev/null | jq -r '[.decisions[] | select(.decision != "keep") | "\(.seat):\(.reason | split(":")[0]):\([.due_items[]?.item] | join("+"))"] | join(",")')
+    [ "$GOT" = "reverifier:items-due:tests/greet_test.sh" ] \
+        && pass "$1: scrutiny spawns only the re-verifier, with the test due" || fail "$1: scrutiny's spawned decisions are [$GOT]"
+}
+
+git checkout -q main
+git checkout -q -b case-ci-gap
+S=tc_ci_gap
+if fixture_session "$S" "$WORKDIR/ci-gap.md"; then
+    ci_gap_hold "$S"
+    record_round "$S" scrutiny '[{"seat":"reverifier","findings":[],"answers":[],"test_edits":[{"path":"tests/greet_test.sh","judgment":"corrects"}]}]'
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC=$?
+    [ "$RC" = 0 ] && pass "the re-verifier's corrects counts the unit: status exits 0" || fail "status exited $RC: $(cat "$WORKDIR/s.out")"
+    tick "$S"
+    expect_state "counted at ci_pass_counting again, a root goes on through cascade_entry" done
+    [ "$(visits "$S" ci_pass_counting)" = 2 ] && pass "the run reached ci_pass_counting a second time" \
+        || fail "ci_pass_counting was entered $(visits "$S" ci_pass_counting) times"
+    [ "$(visits "$S" cascade_entry)" = 1 ] && pass "the second count passed: cascade_entry was entered" \
+        || fail "cascade_entry visits: $(visits "$S" cascade_entry)"
+fi
+
+git checkout -q main
+git checkout -q -b case-ci-gap-weakens
+S=tc_ci_gap_weak
+if fixture_session "$S" "$WORKDIR/ci-gap.md"; then
+    # Two retries spent earlier in the run, the last with two blocking
+    # findings: one retry is left, and a round with fewer is progress.
+    printf 'scrutiny 3\nscrutiny 2\n' | koto context add "$S" panel_retries >/dev/null 2>&1
+    ci_gap_hold "$S"
+    WEAKENS='[{"seat":"reverifier","findings":[],"answers":[],"test_edits":[{"path":"tests/greet_test.sh","judgment":"weakens"}]}]'
+    record_round "$S" scrutiny "$WEAKENS"
+    tick "$S"
+    expect_state "the re-verifier's weakens holds the panel" scrutiny
+    "$PLUGIN_ROOT/skills/work-on/scripts/panel-retry-budget.sh" "$S" scrutiny > "$WORKDIR/b.out" 2>&1; RC=$?
+    [ "$RC" = 0 ] && [ "$(koto context get "$S" panel_retries 2>/dev/null | wc -l | tr -d ' ')" = 3 ] \
+        && pass "the weakens spends the panel's last retry: the retry count goes from 2 to 3" \
+        || fail "panel-retry-budget.sh exited $RC [$(cat "$WORKDIR/b.out")], panel_retries is [$(koto context get "$S" panel_retries 2>/dev/null)]"
+    tick "$S" '{"scrutiny_outcome":"blocking_retry"}'
+    expect_state "blocking_retry after the weakens" implementation
+    "$TC" status "$S" > "$WORKDIR/s.out" 2>&1; RC=$?
+    [ "$RC" = 3 ] && grep -q 'budget spent' "$WORKDIR/s.out" \
+        && pass "with the budget spent, the counting check exits 3" || fail "status exited $RC: $(cat "$WORKDIR/s.out")"
+    printf '# a second rework of the test\n' >> tests/greet_test.sh
+    git commit -q -am "test: rework the second-name check"
+    tick "$S" '{"implementation_status":"complete"}'
+    expect_state "the lap after the retry" scrutiny
+    record_round "$S" scrutiny "$WEAKENS"
+    "$PLUGIN_ROOT/skills/work-on/scripts/panel-retry-budget.sh" "$S" scrutiny > "$WORKDIR/b.out" 2>&1; RC=$?
+    [ "$RC" != 0 ] && pass "a further weakens gets no retry" || fail "panel-retry-budget.sh granted a fourth retry: $(cat "$WORKDIR/b.out")"
+    jq -n --arg r "$(sed -n 's/^verdict=escalate reason=//p' "$WORKDIR/b.out")" '{scrutiny_outcome: "blocking_escalate", failure_reason: $r}' > "$WORKDIR/ev.json"
+    tick "$S" "@$WORKDIR/ev.json"
+    expect_state "the budget spent, the run ends" done_blocked
+    [ "$(visits "$S" ci_pass_counting)" = 1 ] && pass "the run never counted the weakened test" \
+        || fail "ci_pass_counting was entered $(visits "$S" ci_pass_counting) times"
 fi
 
 echo

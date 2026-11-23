@@ -3252,6 +3252,23 @@ states:
     # rather than a shared one with a
     # variable naming where it came from: a hand rebind of that variable
     # could send a post-CI hold to finalization.
+    #
+    # ci_monitor plans no panel round, so a hold answered there with another
+    # test edit is held again on the next green, with nothing to judge it
+    # (shirabe#1931). A run whose hold is on a test, or that finds a gap in
+    # its own tests after CI, submits `test_gap` instead: it returns to
+    # implementation, the route pass_counting already has, and the next lap
+    # reaches the run's first panel, whose panel-scope.sh --plan plans the
+    # re-verifier for the test now due. Verification, counting and CI then
+    # run again, and pr_creation reuses the open pull request. Each lap whose
+    # re-verifier finds the test weakened spends a panel retry
+    # (panel-retry-budget.sh), so the loop ends: at a spent budget the panel
+    # escalates, and a hold here exits 3 to done_blocked. `declined` keeps
+    # its route to ci_monitor, for a hold answered with a fix that isn't a
+    # test change. The two test_gap edges are pass_counting's: an edit not
+    # yet counted (tests_counted 1), and a fix held only on its green
+    # (tests_counted 0, fix_green 1); the second names fix_green so it can't
+    # overlap the counted edges below.
     gates:
       fix_green:
         type: command
@@ -3279,17 +3296,21 @@ states:
     accepts:
       counting_status:
         type: enum
-        values: [green_failed, declined, blocked]
+        values: [green_failed, declined, test_gap, blocked]
         description: >-
           Absent on the passing path: koto routes once fix_green and
           tests_counted pass. `green_failed` returns to ci_monitor after a
           green that exited non-zero, and `declined` while tests_counted
           holds an edited test or observation pair as due for a panel or
-          under an open adverse finding; `blocked` stops the run when a hold
-          can't be cleared.
+          under an open adverse finding and the answer isn't a test change;
+          `test_gap` returns to implementation when the answer is a
+          test-only fix the panels must judge, named in `detail`; `blocked`
+          stops the run when a hold can't be cleared.
       detail:
         type: string
-        description: Why the run can't be counted.
+        description: >-
+          Why the run can't be counted, or, with `test_gap`, the gap in the
+          unit's own tests that the test-only fix closes.
     transitions:
       # The cascade belongs to the run that owns the PLAN, and that is the root.
       # A child materialized by /execute lands its own pull request and must not
@@ -3327,6 +3348,15 @@ states:
         when:
           gates.tests_counted.exit_code: 1
           counting_status: declined
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 1
+          counting_status: test_gap
+      - target: implementation
+        when:
+          gates.tests_counted.exit_code: 0
+          gates.fix_green.exit_code: 1
+          counting_status: test_gap
       - target: done_blocked
         when:
           gates.tests_counted.exit_code: 0
@@ -4628,7 +4658,10 @@ Author the title and body to the mechanical rule in `{{PR_BODY_RULES}}`, which
 `skills/writing-style`: the gate below also holds on a banned word from its
 rules (`pr-body/banned-word`), a check that runs here, not in CI.
 
-Check if a PR already exists: `gh pr list --head {{BRANCH}}`
+Check if a PR already exists: `gh pr list --head {{BRANCH}}`. A run that came
+back here from `ci_pass_counting` on `test_gap` has one: reuse it, push the new
+commits to its branch, and submit its URL with `pr_status: created` rather than
+opening another.
 
 Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it is already interpolated above; do not recover it again.
 
@@ -4894,11 +4927,34 @@ on the passing path you submit nothing.
 - `tests_counted`: `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`.
   It holds an edited test or observation pair exactly as at `pass_counting`: due
   for a panel that hasn't judged it at its content now, or under an open
-  weakens or not-shown finding. Submit `counting_status: declined`, back to
-  `ci_monitor`, where the edit is reworked or reverted and pushed. When `status`
-  exits 3 no further lap can clear the hold (the panel retry budget is spent,
-  or the run went back once and still no panel has recorded) and the run ends
-  at `done_blocked`.
+  weakens or not-shown finding. When `status` exits 3 no further lap can clear
+  the hold (the panel retry budget is spent, or the run went back once and
+  still no panel has recorded) and the run ends at `done_blocked`.
+
+How you answer a hold depends on what the answer is:
+
+- **The answer is a test change**: submit `counting_status: test_gap` with
+  `detail` naming what the test change fixes. Use it when the held item is a
+  test the CI fix edited and the test itself is what you keep, rework or
+  extend, and when you find, after CI, that the unit's tests need a test-only
+  fix (an assertion narrowed further than the change calls for, a case
+  nothing checks). The run returns to `implementation`: commit the test change
+  there and finish as usual. The next lap reaches the run's first panel, whose
+  re-verifier judges the test at its new content before verification runs
+  again, and the run comes back here once CI passes on the new head. A
+  re-verifier that finds the test weakened sends the run back to
+  `implementation` and spends one panel retry; once the budget is spent the
+  run ends at `done_blocked`.
+- **The answer isn't a test change**: submit `counting_status: declined`, back
+  to `ci_monitor`, when you revert the test edit and fix CI some other way.
+  `ci_monitor` plans no panel round, so a test edit pushed from there is held
+  again on the next green with nothing to judge it; don't answer a test hold
+  that way.
+
+On the way back through `pr_creation` after `test_gap`, the run already has its
+pull request: push the new commits to the same branch and submit the same URL
+with `pr_status: created`. Don't open a second one. A child on `/execute`'s
+shared branch submits `pr_status: shared` as before.
 
 Once both pass, the `is_root` gate decides where the run goes: it runs
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which
