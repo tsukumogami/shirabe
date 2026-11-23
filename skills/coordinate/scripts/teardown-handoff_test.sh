@@ -238,6 +238,25 @@ fixture
 jq -c '. + [.[0] | .id = "9c9c9c9c" | .sessionId = "9c9c9c9c-0000-4000-8000-00000000"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
 refused "two jobs in the instance" "$JOB, 9c9c9c9c"
 
+# --- a job that runs from a directory inside the instance (shirabe#1243) -----------------------
+#
+# A worker resumed in place from one of its instance's worktrees has that
+# worktree as its job's cwd. The job is the instance's all the same; a
+# directory that only shares the instance path as a string prefix is not.
+fixture
+listed ".cwd = \"$INST/.niwa/worktrees/repo-1a2b\""
+OUT=$(seal); RC=$?
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "a job in a worktree under the instance is ready" ;; *) bad "a job in a worktree under the instance is ready" "$OUT $(cat "$T/seal.err") $(verdict)" ;; esac
+has "  ... and the verdict names that job" "$(verdict)" "job $JOB $SID"
+
+fixture
+jq -c --arg c "$INST/public/repo" '. + [.[0] | .id = "9c9c9c9c" | .sessionId = "9c9c9c9c-0000-4000-8000-00000000" | .cwd = $c]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+refused "two jobs under one instance, one at its path and one below it" "2 Claude Code jobs ran in $INST ($JOB, 9c9c9c9c)"
+
+fixture
+listed ".cwd = \"$INST-other\""
+refused "a job in a sibling directory that shares the instance path as a prefix" "no Claude Code job runs in $INST"
+
 # --- a pull request in another repository (shirabe#1581) ---------------------------------------
 #
 # The holding's repo is acme/widgets and its pull_request link names
@@ -465,6 +484,18 @@ eq  "removed, 300 unrelated sessions: only the two headers naming the slug were 
     "$TEARDOWN_KOTO_SESSIONS/wk-far/koto-wk-far.state.jsonl|$TEARDOWN_KOTO_SESSIONS/wk-rm/koto-wk-rm.state.jsonl" \
     "$(sort "$ST/opened" | tr '\n' '|' | sed 's/|$//')"
 eq  "removed, 300 unrelated sessions: nothing else ran" "" "$(cat "$ST/calls")"
+
+# A job still listed in a directory under the recovered path means the unit
+# wasn't removed (shirabe#1243); one in a sibling sharing the prefix doesn't.
+rfixture
+header wk-rm "$RINST/public/repo"
+printf '[{"id":"9c9c9c9c","cwd":"%s/public/repo","sessionId":"9c9c9c9c-0000-4000-8000-00000000"}]\n' "$RINST" >"$ST/agents.json"
+refused "removed, a job still listed under the instance path" "Claude Code lists job 9c9c9c9c in $RINST; it was not removed"
+rfixture
+header wk-rm "$RINST/public/repo"
+printf '[{"id":"9c9c9c9c","cwd":"%s-other","sessionId":"9c9c9c9c-0000-4000-8000-00000000"}]\n' "$RINST" >"$ST/agents.json"
+cseal
+case "$RC $OUT" in "0 handoff-ready keyseal:7:"*) ok "removed, a job in a sibling sharing the path as a prefix is not the unit's" ;; *) bad "removed, a job in a sibling sharing the path as a prefix is not the unit's" "$OUT $(cat "$T/seal.err") $(verdict)" ;; esac
 
 # A header symlinked into the store is never read, even when it names the slug.
 rfixture
