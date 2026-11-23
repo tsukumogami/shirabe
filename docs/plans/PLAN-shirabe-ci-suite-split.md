@@ -81,7 +81,26 @@ What Step 1 landed, for this step to build on: the selector is `scripts/lib/suit
 
 ### Step 3: the skill gate's suites run in four slices per platform while skill-gate (ubuntu-latest) stays the job of record
 
-skill-gate-suites runs four slices on Linux and on macOS bash 3.2, skill-gate needs them and runs the checks part, and a skipped job of record reads as not passed.
+**Goal**: On a ready pull request, the skill gate's suite run (`check-skill.sh` step 4, about 42 minutes on Linux and 72 on macOS bash 3.2) is spread over four slice jobs per platform. The job `skill-gate`, its leg `skill-gate (ubuntu-latest)` and that leg's step `bash scripts/skill-gate.sh` keep the names, matrix and step strings the verification map declares, so the hosted job of record still means "check-skill passed for every touched skill". `check-skill-gate.yml` gains a job `skill-gate-suites`: matrix `os` (the same draft and push expressions as `skill-gate`) by `slice: [1, 2, 3, 4]`, `fail-fast: false`, the same checkout, tsuku, koto and base-commit steps as `skill-gate`, `SUITE_SLICE: ${{ matrix.slice }}/4` and `SKILL_GATE_PART: suites`, and the same two step strings (`bash scripts/skill-gate.sh` on Linux, `scripts/check-bash-floor.sh --backend system skill-gate` on macOS). `skill-gate` adds `needs: skill-gate-suites` and `SKILL_GATE_PART: checks`, and gains no `if: always()` or `continue-on-error`, so a failed slice leaves it skipped, which the verification route reads as not passed. `check-skill.sh` filters its step 4 suites through the selector and honours `SKILL_GATE_PART=suites|checks` (`suites`: only step 4's suites; `checks`: every other step, `script-cases --all` included), refusing any other value with exit 2. Unset, it runs both, as today. `skill-gate.sh` passes the part through. `check-skill.sh` sets `SUITE_SLICE_COSTS` to its skill's `check-skill.tsv` when it's unset.
+
+What Steps 1 and 2 landed, for this step to build on: the selector is `scripts/lib/suite-slice.sh` (`SUITE_SLICE=i/n`, unset or empty means the full list; costs from `SUITE_SLICE_COSTS`, rows `cost<TAB><basename><TAB><secs>`; suite paths on stdout in the runner's order, the count line on stderr). `run-suites.sh` and `check-bash-floor.sh` already slice through it. Floor lists already accept `cost:` and `slice: pass` lines, and `skill-gate.list` can take `slice: pass` as is, so the macOS skill-gate leg's children keep `SUITE_SLICE` set and slice inside `check-skill.sh`. `scripts/check-suite-slices.sh` checks every sliced job named in its REQUIRED list; `skill-gate-suites` goes on that list, and the script also gains the skill gate's shape rules (`skill-gate` has `needs: skill-gate-suites`, and neither job has a job-level `if:` or `continue-on-error`). `check-macos-floor-setup.sh` was already edited in Step 2 so the slice variables don't fail its env comparison; it must also accept the `skill-gate` floor suite from two jobs whose setup steps are identical.
+
+**Acceptance Criteria**:
+
+- [ ] On a ready pull request touching `skills/coordinate/scripts/`, `check-skill-gate.yml` shows four `skill-gate-suites` jobs per platform and exactly one job named `skill-gate (ubuntu-latest)`, which runs `bash scripts/skill-gate.sh` and starts only after every slice finished
+- [ ] The four Linux slice logs' count lines add up to the number of step 4 suites an unsliced `check-skill.sh` runs for the touched skill, with no suite in two slices; the same holds for the macOS slices
+- [ ] `SKILL_GATE_PART=checks bash scripts/check-skill.sh <skill>` runs every step except step 4's suites, and `SKILL_GATE_PART=suites` runs only those suites; unset, both run; any other value exits 2 from both `check-skill.sh` and `skill-gate.sh`
+- [ ] `verification-hosted-coverage_test.sh` and `eval-workflows_test.sh` pass with no edit, and `.claude/shirabe-extensions/verification-map.json` is unchanged
+- [ ] A new case in `skills/work-on/scripts/verification-route.sh`'s test shows a skipped `skill-gate (ubuntu-latest)` does not count as passed
+- [ ] `check-suite-slices.sh` lists `skill-gate-suites` and fails a fixture workflow where `skill-gate` lacks `needs: skill-gate-suites` or has a job-level `if:` or `continue-on-error`
+- [ ] `check-macos-floor-legs.sh` and `check-macos-floor-setup.sh` pass on the changed workflow
+- [ ] No test is removed, skipped or edited to assert less, and no retry is added
+
+**Check**: Run `bash scripts/check-skill_test.sh`, `bash scripts/skill-gate_test.sh`, `bash scripts/check-suite-slices_test.sh`, the verification-route test, `bash scripts/verification-hosted-coverage_test.sh`, `bash scripts/eval-workflows_test.sh`, `bash scripts/check-macos-floor-legs.sh` and `bash scripts/check-macos-floor-setup.sh`, and see each pass. Confirm `git diff main... -- .claude/shirabe-extensions/verification-map.json` prints nothing. Don't run full suite lists locally; the host is shared. On the pull request, open the skill-gate run, count four slice jobs per platform and one `skill-gate (ubuntu-latest)`, and add up the slice count lines.
+
+**Dependencies**: Step 2
+
+**Files**: `.github/workflows/check-skill-gate.yml`, `scripts/check-skill.sh`, `scripts/check-skill_test.sh`, `scripts/skill-gate.sh`, `scripts/skill-gate_test.sh`, `scripts/check-suite-slices.sh`, `scripts/check-suite-slices_test.sh`, `scripts/bash-floor/skill-gate.list`, `scripts/check-macos-floor-setup.sh`, `skills/work-on/scripts/verification-route_test.sh`
 
 ### Step 4: the rule-registry suites run in four slices with its long suite split into part files
 
