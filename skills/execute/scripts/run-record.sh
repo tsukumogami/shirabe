@@ -20,8 +20,8 @@
 #
 #   setup      record-coord-setup.sh, sealing a new run's run/setup
 #   push       node-push.sh node: a node's repo, pr, pushed head, the
-#              verification deferral reasons it carried at the push, and the
-#              deferral's public wording when one was given
+#              verification deferral reasons and re-run lines it carried at
+#              the push, and the deferral's public wording when one was given
 #   observe    coord-render.sh, the coordination body's renderer: a merged
 #              head it read live (the merge commit GitHub reports)
 #   cascade    node-push.sh coordination (pushed, with the head) and
@@ -41,7 +41,7 @@
 #   run/setup              store coordination_pr repos mode nodes run_lines
 #                                                    setup recover carry
 #   run/node/*             repo pr head deferrals    push recover carry
-#                          public_reason
+#                          reruns public_reason
 #   run/node/*             merged_head               observe recover carry
 #   run/follow-up/*/*      repo pr head removed      follow-up recover carry
 #   run/follow-up/*/*      merged_head               observe recover carry
@@ -56,7 +56,8 @@
 # run_lines an object whose keys are among topic, exit, outcome, intent, mode,
 # each value ^[A-Za-z0-9._-]{1,64}$; repo owner/repo; head and merged_head 40
 # hex; deferrals an array of distinct non-empty one-line strings (empty when
-# the node deferred nothing); public_reason a one-line string with more than
+# the node deferred nothing); reruns the same (empty when no work item of the
+# node re-ran verification); public_reason a one-line string with more than
 # whitespace in it; removed a boolean; verdict not-run|pushed|failed; step
 # ^execute:[a-z-]+$; recovered's pr a pull request URL and source
 # carried|run-line|markers|minted|adopted; id 32 hex; login a GitHub login; at
@@ -114,7 +115,7 @@ RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 
 # The verb-to-field table, as data: <kind> TAB <fields> TAB <owning verbs>.
 OWNERS='setup	store coordination_pr repos mode nodes run_lines	setup recover carry
-node	repo pr head deferrals public_reason	push recover carry
+node	repo pr head deferrals reruns public_reason	push recover carry
 node	merged_head	observe recover carry
 follow-up	repo pr head removed	follow-up recover carry
 follow-up	merged_head	observe recover carry
@@ -214,7 +215,7 @@ VERDICT=$(jq -nc --arg verb "$VERB" --arg owners "$OWNERS" --arg keyre "$RR_KEY_
           then is_str("^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$")
           else is_posint end)
         elif $f == "head" or $f == "merged_head" then is_sha
-        elif $f == "deferrals" then type == "array"
+        elif $f == "deferrals" or $f == "reruns" then type == "array"
           and all(.[]; type == "string" and length > 0 and (test("[\n\r]") | not))
           and ((unique | length) == length)
         elif $f == "public_reason" then type == "string" and test("[^[:space:]]")
