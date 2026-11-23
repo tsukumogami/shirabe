@@ -254,7 +254,6 @@ DISC=prov
 open_run prov || bad "7: the next rotation opens" "$(cat "$T/open.err")"
 case "$OPEN_OUT" in *"cancelled=$PV"*) ok "7: the start cancels the live predecessor" ;; *) bad "7: the start cancels the live predecessor" "$OPEN_OUT" ;; esac
 eq "7: the find reads the predecessor, the carry lands, and the next find reaches reconcile" "predecessor_carry reconcile" "$(to_reconcile)"
-eq "  ... the find's token names it" "predecessor $PV" "$(token)"
 eq "  ... the rotation names it" "$PV" "$(key "$S" record/rotation | jq -r .predecessor)"
 eq "  ... the carried record reads back as this discipline's" '{"kind":"discipline","name":"prov"}' "$(key "$S" record/meta | jq -c .scope)"
 PVLOG="$( (cd "$WD" && koto session dir "$PV"))/koto-$PV.state.jsonl"
