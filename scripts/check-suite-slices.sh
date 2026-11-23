@@ -60,6 +60,7 @@ REQUIRED='
 check-coordinate-scripts.yml test-coordinate-engine
 check-coordinate-scripts.yml test-coordinate-scripts
 check-koto-entry-floor.yml entry-floor-coordinate
+check-rule-registry.yml test-rule-registry
 check-skill-gate.yml skill-gate-suites
 '
 
