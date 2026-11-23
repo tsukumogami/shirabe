@@ -113,6 +113,12 @@ Two more flags, on both paths:
   remaining children unbounded, and children already spawned keep the bound they
   started with. A value outside the three names is koto's `invalid_var`, a
   repeat its `duplicate_var`, each with exit 2 and no session.
+- `--step-drafts=<on|off>` (default `on`; single-pr only) — whether each
+  lead-shape step agent drafts the next step's PLAN entry for the owning session
+  (see "The lead shape"). It becomes the koto variable `STEP_DRAFTS`, passed
+  only when given and only on a single-pr PLAN; a coordinated PLAN has no step
+  agents' drafts, so the flag is ignored there. A value other than `on` or `off`
+  is koto's `invalid_var`.
 - `--verification=<local|hosted-ci>` and `--verification-reason=<text>`
   (default `local`, no reason) — the verification deferral `/work-on` takes
   (`skills/work-on/SKILL.md`), for the whole plan. They become the koto
@@ -372,6 +378,19 @@ match it, commits that one path on the shared branch, and records the entry as
 entry. The `spawn_and_await` directive in `koto-templates/execute.md` carries
 the whole loop: the report's two fixed lines, the one retry for a child left
 non-terminal, the outline case, and what counts as data.
+
+The step agent that just finished does draft the next entry. Once its child
+reaches a terminal, it writes a proposed entry for each outlined step whose
+`waits_on` names only its own step, with `scripts/step-draft.sh write`, as
+`step_draft/<step>.md` in the owning session. The owning session reads that
+draft as untrusted input, checks it against the DESIGN and the PLAN's outline,
+rewrites what doesn't hold, and commits and records the entry as above; the
+`step_refine` record is its text, never the draft's. `scripts/step-draft.sh
+ready` exits 1 until that record exists, so a draft alone never starts a step.
+`scripts/step-draft.sh id` refuses a step id outside `^[a-z0-9][a-z0-9-]{0,62}$`,
+and the owning session starts no step agent for an id it refuses. Drafts are a
+single-pr lead-shape feature; `--step-drafts=off` turns them off for the
+invocation, and the owning session then details every step from scratch.
 
 **Lost context?** After a compaction, run `koto status` on `execute-<topic>`,
 on each child (`koto workflows --children execute-<topic>` names them), and,

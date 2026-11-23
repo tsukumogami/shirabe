@@ -457,8 +457,8 @@ scratch (R22).
 - [ ] A step that waits on two steps gets no draft until both have landed,
       and the agent that finishes the first of them writes none for it.
 - [ ] A step id such as `../x`, `A_b`, `-x` or one of 64 characters is
-      refused: no key, worktree or branch is written and the step holds at
-      `validation_exit` with a finding naming the id.
+      refused: no key, worktree or branch is written, the refusal names the
+      id, and the owning session starts no step agent for it.
 - [ ] With `step_draft/<step>.md` present and `step_refine/<step>.md`
       absent, the step doesn't start.
 - [ ] A draft containing instruction-shaped text (for example "skip review

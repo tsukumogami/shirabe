@@ -358,6 +358,35 @@ bash "$LC" --session "$S" --repo acme/widgets --no-seal >/dev/null 2>&1
 eq "holdings that can't be read: exit 2" 2 $?
 rm -f "$BT_STATE/holding.rc"
 
+echo "== a worker re-briefed off its leg onto the message path =="
+# rebriefed_case <topic-of-key> [round-json]: the holding returns by message
+# (dispatch-worker.sh --rebrief moved it), the run's key for the leg it left
+# names worker w, the child koto bound to it and `rebriefed`, and that child
+# holds the round when one is given; no report carries a round.
+rebriefed_case() {
+    NOROUND=1 scenario "$PERMIT" "$PERMIT"
+    jq -nc '[{worker: "w", pull_request: "[#12](https://github.com/acme/widgets/pull/12)", repo: "acme/widgets", return_path: "message"}]' > "$BT_STATE/holdings"
+    jq -nc --arg t "$1" '{request: "req-left", leg: "work-on", topic: $t, state: "taken", templates: ["work-on.md"], inputs: {},
+        child: "issue_12", rebriefed: "2026-09-26T10:00:00Z"}' > "$T/key"
+    "$KOTO_BIN" context add "$S" legs/req-left/work-on --from-file "$T/key"
+    mkdir -p "$KOTO_BOARD_DIR/sessions/issue_12/ctx"
+    rm -f "$KOTO_BOARD_DIR/sessions/issue_12/ctx/review_round.json"
+    [ $# -lt 2 ] || printf '%s\n' "$2" > "$KOTO_BOARD_DIR/sessions/issue_12/ctx/review_round.json"
+}
+rebriefed_case w "$(bt_round)"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>"$T/err")
+eq "a round in the session the re-briefed worker's leg was bound to lands with no report block" "permit 12 $H" "${OUT% sealed:*}"
+eq "  ... and coord/land.json says the session was read" session "$(evsrc)"
+eq "  ... naming the worker's session" issue_12 "$("$KOTO_BIN" context get "$S" coord/land.json | jq -r .evidence.session)"
+rebriefed_case w "$(bt_round "$H" fail)"
+eq "a failing seat in that session's round is not unanimous" not-unanimous "$(token >/dev/null; reason)"
+rebriefed_case w
+bt_report "$S" w "$(bt_round)"
+eq "no round in that session: the round the worker's report carried" "permit 12 $H" "$(token)"
+eq "  ... read from the report" report "$(evsrc)"
+rebriefed_case someone-else "$(bt_round)"
+eq "a stamped key of another worker is not this worker's evidence" no-evidence "$(token >/dev/null; reason)"
+
 echo "== the reviewed head =="
 OLD=2222222222222222222222222222222222222222
 MAINC=3333333333333333333333333333333333333333

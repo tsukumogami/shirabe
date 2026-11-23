@@ -267,7 +267,11 @@
 # same two facts in the run's key session/link-warning, and leaves the exit
 # code as it was: the run goes on, only outside the dispatcher's hierarchy.
 # The retry, warning and record are scripts/lib/dispatch-link.sh's. Without the
-# flag no link is written for a dispatcher.
+# flag no link is written for a dispatcher. On a takeover, a --dispatched-by
+# naming the run in the carried record's Run `successor` row's Set by (the
+# successor that run dispatched with dispatch-worker.sh --successor) also
+# clears that row, in the step that writes the coordinator and role rows; any
+# other takeover keeps it.
 #
 # A carried run (a recycled coordinator: a new run holding an earlier run's
 # record) is linked the same way to the run it carried, with
@@ -862,12 +866,28 @@ takeover_failed() {
     [ -z "$IMPORT" ] || import_unfinished takeover_record "$1"
     echo "failed=takeover_record"; echo "coordinate-open: $1; run the opener again from this session to finish" >&2; exit 1
 }
+# successor_clear <successor>: the carried Run `successor` row, the pending
+# successor the predecessor dispatched, removed when --dispatched-by names the
+# run in its Set by: this start is that successor. A start that names no
+# dispatcher, or another one (a crash restart, a takeover by anyone else),
+# keeps the row for the predecessor's settle. The clear writes nothing when
+# the row is gone, so a re-run after a crash is the same.
+successor_clear() {
+    local by
+    [ "$HAVE_DISPATCHER" -eq 1 ] || return 0
+    by=$(bash "$HERE/state-read.sh" --session "$1" --run 2> "$T_ERR" | jq -r '[.[] | select(.key == "successor") | .set_by][0] // ""') \
+        || takeover_failed "$1's Run section couldn't be read for its successor row: $(head -c 400 "$T_ERR")"
+    [ -n "$by" ] && [ "$by" = "$DISPATCHER" ] || return 0
+    bash "$HERE/state-stored-set.sh" --session "$1" --successor clear --by "${CALLER_NAME:-$1}" > /dev/null 2> "$T_ERR" \
+        || takeover_failed "$1's successor row, set by $DISPATCHER, wasn't cleared: $(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400)"
+}
 # finish_takeover <successor> <predecessor> <yes|no>: the successor's own
 # record changes after the fence, each written once, so a re-run after a crash
 # finishes what is missing: the driver (first, so a re-run knows the run is
 # its own), the coordinator row naming the caller, which clears the told set,
-# an import's record/host, one takeover entry, and record/meta's takeover_done
-# last. Then the result.
+# the role row, the carried successor row when this start is that successor
+# (successor_clear), an import's record/host, one takeover entry, and
+# record/meta's takeover_done last. Then the result.
 finish_takeover() {
     local succ=$1 pred=$2 stopped=$3 d
     if [ "$(meta_field "$succ" driver)" != "$CALLER" ] || [ "$(meta_field "$succ" takeover_done)" = true ]; then
@@ -892,6 +912,7 @@ finish_takeover() {
     # after a crash writes nothing it already wrote.
     role_write "$succ" \
         || takeover_failed "$succ's role row ($ROLE_OUT) wasn't written: $(tr -s '\t\n' '  ' < "$T_ERR" | head -c 400)"
+    successor_clear "$succ"
     # An import's source facts go on the run that now holds the record, since
     # the copy, opened from the source host's plugin root, refuses every
     # record write.
