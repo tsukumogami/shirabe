@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   On a milestone roadmap, Done is set only when a verified verdict's roadmap
   edit merges, so a milestone whose work has landed reads In progress until
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-completed-verified-states](docs/briefs/BRIEF-completed-verified-states.md); carried in Absorbed Brief.
 
