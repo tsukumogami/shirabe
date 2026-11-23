@@ -62,6 +62,7 @@ check-coordinate-scripts.yml test-coordinate-scripts
 check-koto-entry-floor.yml entry-floor-coordinate
 check-rule-registry.yml test-rule-registry
 check-skill-gate.yml skill-gate-suites
+check-work-on-scripts.yml test-work-on-scripts
 '
 
 ROOT=${CHECK_SUITE_SLICES_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}

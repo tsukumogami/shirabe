@@ -138,13 +138,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The suites run as two slices per platform, one job each: each slice runs
+  # its share of the `work-on` list, balanced by the list's cost lines
+  # (scripts/lib/suite-slice.sh), and the two together run every suite once.
+  # fail-fast stays off so one failing slice doesn't cancel the other;
+  # scripts/check-suite-slices.sh holds that shape.
   test-work-on-scripts:
     strategy:
+      fail-fast: false
       matrix:
         # No macOS leg while the pull request is a draft (shirabe#1300);
         # scripts/check-macos-floor-legs.sh holds the one copy of this line.
         os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        slice: [1, 2]
     runs-on: ${{ matrix.os }}
+    env:
+      SUITE_SLICE: ${{ matrix.slice }}/2
     steps:
       - uses: actions/checkout@v4
 
@@ -177,248 +186,11 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/assert-koto-floor.sh
 
-      - name: Run retry-clearing tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/retry-clearing_test.sh
-
-      # Drives one koto tick across the cascade states and asserts what that
-      # single invocation did. koto chains through a state whose transitions are
-      # all unconditional even when it declares required evidence, so a
-      # state-by-state review cannot tell whether cascade_run is safe; only a
-      # driven tick can. The suite's middle case mutates the shipped template to
-      # all-unconditional and asserts the defect is detectable. It skips when
-      # koto is absent, which is why it runs here after the install step rather
-      # than relying on the skip.
-      - name: Run cascade chaining tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/cascade-chaining_test.sh
-
-      # Builds real repositories and asserts the post-state verifier reads the
-      # finalization COMMIT rather than the working tree. Its central case is a
-      # tree where every document is terminal on disk and the commit contains
-      # none of them, which is what the cascade's staging defect produces and
-      # what a tree-reading check passes. No engine needed. Here it runs under
-      # Linux's bash 5; the macOS leg runs it on the floor through the work-on
-      # suite in the last step, not with a bare `bash`, which on a macOS runner
-      # is Homebrew's bash 5 (shirabe#416).
-      - name: Run cascade post-state verifier tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/verify-cascade-commit_test.sh
-
-      # Drives the shipped ci_monitor block with each session role and asserts
-      # where the run lands. Its control is the state as it stood before the
-      # branch existed, because the half-changed shape does not compile: koto
-      # refuses two edges it cannot prove exclusive. Needs the engine.
-      - name: Run ci_monitor role branch tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/ci-monitor-role_test.sh
-
-      # Reads the time limit ci_passing and execute.md's owned_ci_passing
-      # declare, then drives the shipped ci_monitor block under real koto
-      # against a gh that answers slower than koto's 30-second default, and
-      # asserts the gate still reaches its verdict. Needs the engine.
-      - name: Run ci_passing time limit tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/ci-passing-timeout_test.sh
-
-      # Sources the pull request URL parse both CI fallbacks share and checks
-      # its answer for each URL. No engine needed; the macOS leg runs it on the
-      # floor through the work-on suite.
-      - name: Run pull request URL parse tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/pr-url_test.sh
-
-      # Runs ci_passing's fallback for a MERGED pull request's cancelled macOS
-      # floor checks, alone and through the gate command extracted from the
-      # template, against stubbed gh and koto. No engine needed; the macOS leg
-      # runs it on the floor through the work-on suite.
-      - name: Run CI cancel-after-merge fallback tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/ci-cancel-after-merge_test.sh
-
-      # Runs the no-hosted-CI fallback, alone and with --owned, and drives
-      # ci_passing and execute.md's owned_ci_passing, extracted from the
-      # templates, through zero checks, the post-push window and the declared
-      # exception, against stubbed gh and koto. No engine needed; the macOS
-      # leg runs it on the floor through the work-on suite.
-      - name: Run zero-checks and no-hosted-CI gate tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/ci-none-declared_test.sh
-
-      # Runs the check reader every CI gate reads through, alone and through
-      # ci_passing and execute.md's owned_ci_passing extracted from the
-      # templates, against a stubbed gh that answers the check read or
-      # refuses it as a fine-grained token sees it. No engine needed; the
-      # macOS leg runs it on the floor through the work-on suite.
-      - name: Run check reader fallback tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/pr-checks_test.sh
-
-      # Runs pr_creation's closing-keyword gate expression, extracted from the
-      # template, against constructed bodies with gh stubbed. No engine needed;
-      # the macOS leg runs it on the floor through the work-on suite.
-      - name: Run closing keyword gate tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/closing-keyword-gate_test.sh
-
-      # Drives the shipped pre-PR obligation ladder in throwaway repositories.
-      # Its central cases are the placeholder ones: a referent like "done" must
-      # fail the state rather than satisfy it. Needs the engine.
-      - name: Run pre-PR evidence tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/pre-pr-evidence_test.sh
-
-      # Walks the shipped template to finalization and asserts a malformed
-      # summary.md or pre_pr.md holds the run there, naming the failing gate,
-      # rather than reaching pre_pr_evidence's done_blocked backstop. Also pins
-      # that the early gates are identical to the backstop's. Needs the engine.
-      - name: Run finalization shape tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/finalization-shape_test.sh
-
-      # Runs the referent check the pre-PR gates call against a repository with
-      # real commits: a sha naming no commit, a commit from another branch and a
-      # diagram path never committed must fail; HEAD and a committed path pass.
-      - name: Run pre-PR referent check tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/check-pre-pr-referents_test.sh
-
-      # terminal-retention_test.sh drives the shipped work-on.md to done_blocked
-      # to assert the run's context survives it, and materializes children to
-      # assert that a flagged child is kept and still delivers its result, and
-      # that a failed child is kept, readable, and retryable. Both need the
-      # engine.
-      - name: Run terminal-retention tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/terminal-retention_test.sh
-
-      # record-changed-paths_test.sh runs the script against git fixtures
-      # through a koto stand-in, which needs only git, so those cases run on
-      # both legs: here, and on the macOS floor through the work-on suite. Its
-      # second half drives the shipped template through changed_paths_record
-      # and issue_type_routing, and skips where koto is absent -- the macOS
-      # leg -- so this Linux step is where that half runs.
-      - name: Run changed-paths record tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/record-changed-paths_test.sh
-
-      # has-commits_test.sh runs the has_commits check against real clones of
-      # three shapes (plain, no local main, linked worktree) through a koto
-      # stand-in, so those cases also run on the macOS floor through the
-      # work-on suite. Its engine half drives the shipped template's docs and
-      # scrutiny routes in each shape and skips without koto, so it runs here.
-      - name: Run has_commits tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/has-commits_test.sh
-
-      # check-staleness_test.sh runs the ported staleness check against a
-      # stubbed gh and a throwaway repository, which needs only jq and git. Its
-      # gate cases run the staleness_check gate command extracted from the
-      # template; its engine cases drive the state through koto, which this leg
-      # installs. The macOS leg runs it through the floor runner below, where
-      # it is in the work-on suite and the engine cases skip.
-      - name: Run staleness check tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/check-staleness_test.sh
-
-      # work-on-open_test.sh checks the --koto-leg entry's own refusals against
-      # a koto stub (both legs), then opens real requests, binds runs of the
-      # shipped template to their legs, and reads each result back off the leg.
-      # The engine half skips where koto is absent -- the macOS leg, which runs
-      # this harness on the floor through the work-on suite.
-      - name: Run --koto-leg entry tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/work-on-open_test.sh
-
-      # leg-result_test.sh checks the shipped template for the pull request's
-      # result map (both legs), then binds fixtures built from its shipped
-      # states to real request legs and reads the promoted pr back. The engine
-      # half skips where koto is absent -- the macOS leg, which runs this
-      # harness on the floor through the work-on suite.
-      - name: Run leg result tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/leg-result_test.sh
-
-      # verification-deferral_test.sh checks the shipped template's twin edges
-      # into verification_deferred and runs pr_creation's record gate command
-      # against a fake (both legs), then drives fixtures built from the shipped
-      # states through a real koto: a hosted-ci run reaches finalization
-      # without starting the map, and on a leg reaches done with its pull
-      # request only once the body records the deferral. The engine half skips
-      # where koto is absent -- the macOS leg, which runs this harness on the
-      # floor through the work-on suite.
-      - name: Run verification deferral tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/verification-deferral_test.sh
-
-      # The mode:koto-leg floor record, against a stand-in koto older than the
-      # entry flags: a run without the flag is not refused for lacking them. The macOS
-      # leg runs it on the floor through the work-on suite.
-      - name: Run koto floor declaration tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/work-on-requires_test.sh
-
-      # panel-scope_test.sh runs the sticky-verdict script against git fixtures
-      # through a koto stand-in (git and jq only, so both legs), then drives the
-      # shipped template through a QA retry whose fix touches nothing scrutiny
-      # or review cited and asserts koto carries both panels to the QA
-      # re-check. The engine half skips without koto, so it runs here.
-      - name: Run panel scope tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/panel-scope_test.sh
-
-      # review-level_test.sh runs the review level script against git fixtures
-      # through a koto stand-in (git and jq only, so both legs), then drives
-      # real koto sessions of a scratch template that declares REVIEW_LEVEL:
-      # the rebind, the floor hold, the unset route and the reader. The engine
-      # half skips without koto, so it runs here.
-      - name: Run review level tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/review-level_test.sh
-
-      # review-level-routes_test.sh drives the shipped work-on.md through a real
-      # koto at each review level: the choice before implementation, the light,
-      # standard, full and unset routes, the floor hold, a light retry and a
-      # hand rebind. Its clearing-site greps need no engine and run on both
-      # legs; the engine cases skip without koto, so they run here.
-      - name: Run review level route tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/review-level-routes_test.sh
-
-      # decision-reasons_test.sh pins the scrutiny_decider slice's bytes and
-      # exits, and the directive and phase-file text for a pending batch. jq
-      # only, so the macOS leg runs it on the floor through the work-on suite.
-      - name: Run decision reasons slice tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/decision-reasons_test.sh
-
-      # scrutiny-decider-routes_test.sh drives the shipped work-on.md through a
-      # real koto with the decider in shadow at an unreachable loopback
-      # endpoint: a pending batch on a full and a carried round, the agent's
-      # answer, no decision, an over-budget slice and the decider off. The
-      # engine cases skip without koto, so they run here.
-      - name: Run scrutiny decider route tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/scrutiny-decider-routes_test.sh
-
-      # Reads the shipped files for the statements each contradiction-settlement
-      # decision record settled: no force push, no rebase, and so on. No engine
-      # needed; the macOS leg runs it on the floor through the work-on suite.
-      - name: Run settled-policy tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/settled-policy_test.sh
-
-      # The review panels' retry budget: the progress rule and its fail-closed
-      # cases through a koto stand-in (both legs; the macOS leg runs them on the
-      # floor through the work-on suite), then the same sequences against a real
-      # koto session, which only this leg has.
-      - name: Run panel retry budget tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/panel-retry-budget_test.sh
-
       # The branch output gate test runs the real validator for its
       # --docs-visibility cases and skips them without one, so this leg builds
-      # it from the checkout, the way check-scope-scripts.yml does.
+      # it from the checkout, the way check-scope-scripts.yml does. It builds
+      # in every slice, so every suite runs with the same tools on PATH
+      # whichever slice the selector puts it in.
       - name: Install Rust toolchain (Linux)
         if: runner.os == 'Linux'
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
@@ -431,201 +203,64 @@ jobs:
           install -m 0755 target/release/shirabe "$RUNNER_TEMP/work-on-bin/shirabe"
           echo "$RUNNER_TEMP/work-on-bin" >> "$GITHUB_PATH"
 
-      # The output gate scripts: the branch checks against git fixtures (with
-      # the validator built above for --docs-visibility) and the PR checks
-      # against stand-in gh, shirabe and owned-pr.sh, each verifying every
-      # finding it printed against the rule registry. No engine needed; the
-      # macOS leg runs both on the floor through the work-on suite.
-      - name: Run branch output gate tests (Linux)
+      # Every suite in the `work-on` list that needs nothing of its own runs
+      # here, under Linux's own bash 5, through run-suites.sh: this job's
+      # slice of them, balanced by the list's cost lines. Each suite's header
+      # says what it covers. Most drive the shipped work-on.md through the koto
+      # installed above, and their engine cases skip without it, which is why
+      # the floor assertion comes first. The two suites that need their own
+      # environment are dropped from the list here and run in the steps after
+      # this one. A suite added to the list runs here with no workflow edit.
+      - name: Run the suites (Linux)
         if: runner.os == 'Linux'
-        run: skills/work-on/scripts/check-branch-output_test.sh
+        run: |
+          set -euo pipefail
+          awk '$1 == "cost:" { n = split($2, p, "/"); printf "cost\t%s\t%s\n", p[n], $3 }' \
+            scripts/bash-floor/work-on.list > "$RUNNER_TEMP/work-on-costs.tsv"
+          suites=$(scripts/check-bash-floor.sh --scripts work-on \
+            | grep -vxF -e skills/work-on/scripts/check-pr-output_test.sh \
+                        -e skills/work-on/scripts/step-detail-check_test.sh)
+          # One path per line, none with a space, so the word split is safe.
+          # shellcheck disable=SC2086
+          SUITE_SLICE_COSTS="$RUNNER_TEMP/work-on-costs.tsv" bash scripts/run-suites.sh $suites
 
+      # The two suites with their own environment run once, in slice 1. The
+      # slice is read from SUITE_SLICE rather than put in the `if`, which
+      # scripts/check-macos-floor-legs.sh reads as Linux-only only in its
+      # plain form. The macOS leg runs both on the floor through the work-on
+      # suite.
+      #
+      # The PR output gate checks against stand-in gh, shirabe and
+      # owned-pr.sh; its PB5 cases run against the validator built above, and
+      # fail rather than skip without it.
       - name: Run PR output gate tests (Linux)
         if: runner.os == 'Linux'
-        # The PB5 cases run against the validator built above, and fail
-        # rather than skip without it.
         env:
           CHECK_PR_OUTPUT_REQUIRE_SHIRABE: '1'
-        run: skills/work-on/scripts/check-pr-output_test.sh
-
-      # The live offload canary: the draw against a scratch plugin root whose
-      # registry marks PB4 eligible (balance, the fallbacks, the rendering),
-      # then the shipped work-on.md driven through a real koto to entry and to
-      # a rendered pr_creation directive. The engine cases skip without koto;
-      # the macOS leg runs both on the floor through the work-on suite.
-      - name: Run offload canary tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/offload-canary_test.sh
-
-      - name: Run offload canary route tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/offload-canary-routes_test.sh
-
-      # The rule-distance probe: probe.sh's draw, check and leak gates against
-      # constructed session logs, git fixtures and a stubbed gh (no engine),
-      # then the shipped probe states driven through a real koto: each arm's
-      # routes and directives, the hold, the created edges and the exported
-      # records. The engine cases skip without koto; the macOS leg runs both
-      # on the floor through the work-on suite.
-      - name: Run probe tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/probe_test.sh
-
-      - name: Run probe route tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/probe-routes_test.sh
-
-      # Holds shirabe's verification map to the v1 schema with jq, and the
-      # schema reference and work-on.md to what they must say. Needs only git
-      # and jq; the macOS leg runs it on the floor through the work-on suite.
-      - name: Run verification map schema tests (Linux)
-        if: runner.os == 'Linux'
-        run: skills/work-on/scripts/verification-map-schema_test.sh
-
-      # Proves the map's hosted declaration: the declared skill-gate job
-      # exists under its reported name, its pull_request paths cover what
-      # selects the row, its plan has a line for every skill the row selects
-      # over fixture diffs, and every suite the row's --changed run can select
-      # is in the skill's full list. The suite-list cases call check-skill.sh,
-      # which needs koto; the macOS leg runs the rest on the floor through the
-      # work-on suite.
-      - name: Run hosted coverage tests (Linux)
-        if: runner.os == 'Linux'
-        run: skills/work-on/scripts/verification-hosted-coverage_test.sh
-
-      # The hosted-of-record route script: when the route opens, the record it
-      # writes and validates, the body lines, the hosted read over fixture
-      # Actions responses with the clock set by the test, and the settled,
-      # ready and mark-ready checks. Needs git and jq, with koto and gh
-      # stubbed; the macOS leg runs it on the floor through the work-on suite.
-      - name: Run verification route tests (Linux)
-        if: runner.os == 'Linux'
-        run: skills/work-on/scripts/verification-route_test.sh
-
-      # Starts the verification runner against git fixtures with fixture
-      # commands (passing, failing, slow, forking under a small max_procs,
-      # missing) and checks the verdict exit and finding for each, then drives
-      # the launcher and the poll: gate through a real koto tick. The macOS leg
-      # runs it on the floor through the work-on suite, without the koto case.
-      - name: Run verification runner tests (Linux)
-        if: runner.os == 'Linux'
-        run: skills/work-on/scripts/run-verification_test.sh
-
-      # The output gates wired into work-on.md: every route the gates take,
-      # driven through a real koto tick against the shipped state blocks with
-      # fake gate scripts under a fake plugin root; the removed evidence
-      # values; routing gates printing no finding; and the directive lines the
-      # build kept. The macOS leg runs its engine-free cases on the floor
-      # through the work-on suite.
-      - name: Run output gate routing tests (Linux)
-        if: runner.os == 'Linux'
-        run: skills/work-on/scripts/output-gates-routing_test.sh
-
-      # extract-context.sh stores context in a koto session and writes no file.
-      # The suite runs it with no session and with no koto on PATH and asserts
-      # the failed JSON and that nothing was created. Needs only bash and jq;
-      # the macOS leg runs it on the floor through the work-on suite.
-      - name: Run extract-context tests (Linux)
-        if: runner.os == 'Linux'
-        run: skills/work-on/scripts/extract-context_test.sh
+        run: |
+          case "$SUITE_SLICE" in
+            1/*) skills/work-on/scripts/check-pr-output_test.sh ;;
+            *) echo "the PR output gate tests run in slice 1; this is slice $SUITE_SLICE" ;;
+          esac
 
       # step-detail-check.sh against git fixtures, with the shirabe built above
       # (an installed one may predate plan/v2), then the shipped template's
       # plan_validation gate on an outline step, before and after the step is
-      # detailed, through a real koto. The macOS leg runs it on the floor
-      # through the work-on suite, where it builds shirabe itself and the koto
-      # cases skip.
+      # detailed, through a real koto.
       - name: Run step detail check tests (Linux)
         if: runner.os == 'Linux'
         env:
           SHIRABE_BIN: ${{ runner.temp }}/work-on-bin/shirabe
-        run: skills/work-on/scripts/step-detail-check_test.sh
-
-      # The red-first libraries: the fence-aware CLAUDE.md header reader, read
-      # at a commit, and the classifier that labels each test file a diff
-      # touched added, edited or unchanged. git fixtures only; the macOS leg
-      # runs both on the floor through the work-on suite.
-      - name: Run CLAUDE.md header reader tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash scripts/lib/claude-md-header_test.sh
-
-      - name: Run test classifier tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash scripts/lib/test-classify_test.sh
-
-      # The build-output cleanup: clean-build-output.sh against git fixtures
-      # (the switch, the base, every refusal word, the trash, the record and
-      # the detached deleter), and the default-branch ref reader. No engine;
-      # the macOS leg runs both on the floor through the work-on suite.
-      - name: Run build-output cleanup tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/clean-build-output_test.sh
-
-      - name: Run default remote ref tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash scripts/lib/default-remote-ref_test.sh
-
-      # fix-kind.sh (a fix from a label, a Fixes line or a declaration, never
-      # withdrawn) and red-first.sh (the red on the base, observations, the
-      # green, and both gates) against git fixtures through koto and gh
-      # stand-ins. No engine; the macOS leg runs them on the floor too.
-      - name: Run fix kind tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/fix-kind_test.sh
-
-      - name: Run red-first tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/red-first_test.sh
-
-      # Drives the shipped work-on.md through a real koto in the walkthrough
-      # repository: a bug-labelled fix held at reproduce until its red is
-      # recorded on the base, held at pass_counting until its green at HEAD,
-      # and a change that takes neither. Skips without koto, so it runs here.
-      - name: Run red-first route tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/red-first-routes_test.sh
-
-      # The interim acceptance rule called directly, and test-change.sh (the
-      # ledger's header, the seat, accept and decline, the status gate)
-      # against repository fixtures through a koto stand-in. No engine; the
-      # macOS leg runs both on the floor too.
-      - name: Run acceptance rule tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash scripts/lib/acceptance-rule_test.sh
-
-      - name: Run test change tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/test-change_test.sh
-
-      # Drives the shipped work-on.md through a real koto: an edited test held
-      # at pass_counting until a minted seat accepts it, refused for the run
-      # and an unminted name, held again after a later edit, declines back to
-      # implementation and the third to done_blocked. Skips without koto.
-      - name: Run test change route tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/test-change-routes_test.sh
-
-      # A fix round after done (#1322): a child of a stand-in parent driven to
-      # done, rewound to show rewind only reaches pr_creation, then fix rounds
-      # started from the shipped work-on.md through a real koto, their changed
-      # paths, review-round.sh at the fix head in both sessions, and the
-      # open-round and three-round refusals. Skips without koto.
-      - name: Run fix round tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/fix-round_test.sh
-
-      # Drives the shipped work-on.md through a real koto (#1916): a
-      # plan-backed child with no baseline.md held at setup_plan_backed on
-      # both override and completed, both reaching analysis once baseline.md
-      # is recorded, the SHARED_BRANCH skip, and the compiled state's edges
-      # read with jq. Skips without koto.
-      - name: Run setup_plan_backed baseline tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/setup-plan-backed-baseline_test.sh
+        run: |
+          case "$SUITE_SLICE" in
+            1/*) skills/work-on/scripts/step-detail-check_test.sh ;;
+            *) echo "the step detail check tests run in slice 1; this is slice $SUITE_SLICE" ;;
+          esac
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
-      # it is the same command a developer runs locally.
+      # it is the same command a developer runs locally. It runs slice
+      # SUITE_SLICE of the list.
       - name: Run work-on suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
         run: scripts/check-bash-floor.sh --backend system work-on

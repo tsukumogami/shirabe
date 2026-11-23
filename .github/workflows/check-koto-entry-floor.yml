@@ -31,6 +31,16 @@ on:
       - 'scripts/run-suites_test.sh'
       - 'scripts/skill-preflight.sh'
       - 'scripts/skill-preflight_test.sh'
+      # Scripts the skills' templates and entry suites reach outside their
+      # own directories, and the references their suites read, so a change
+      # to any of them re-runs the floor.
+      - 'scripts/skill-session.sh'
+      - 'scripts/check-handoff.sh'
+      - 'scripts/check-template-compat.sh'
+      - 'scripts/session-role.sh'
+      - 'scripts/doc-shadow-check.sh'
+      - 'scripts/review-events.sh'
+      - 'references/**'
       - 'scripts/lib/**'
       - 'crates/**'
       - '.tsuku.toml'
