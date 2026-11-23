@@ -104,7 +104,24 @@ What Steps 1 and 2 landed, for this step to build on: the selector is `scripts/l
 
 ### Step 4: the rule-registry suites run in four slices with its long suite split into part files
 
-check-rule-registry_test.sh runs as four part files across four slices on Linux and macOS bash 3.2, every case kept and none edited.
+**Goal**: `test-rule-registry` stops being a 45-minute macOS job. Almost all of that time is one suite, `scripts/check-rule-registry_test.sh` (893 lines, about 43 minutes on bash 3.2). It's split into `scripts/check-rule-registry_1_test.sh` through `_4_test.sh` by case order: cases move without being edited, and each part file carries the setup its cases need. The job in `check-rule-registry.yml` gains `slice: [1, 2, 3, 4]` with `fail-fast: false` and `SUITE_SLICE: ${{ matrix.slice }}/4`, keeping its os expression, `paths`, concurrency group and step names. The Linux step, today four `bash scripts/<suite>` lines, becomes one `scripts/run-suites.sh` call over the suites in `scripts/bash-floor/rule-registry.list`. The macOS step keeps `scripts/check-bash-floor.sh --backend system rule-registry`, which slices the list's harness lines. The list names the four part files in place of the old suite, and carries `cost:` lines (first estimates, from the old suite's measured time over four plus the three short suites' times) so the selector puts one part file in each slice and the three short suites on the lightest ones. The workflow's `paths` name the four part files in place of the old suite. `check-rule-registry_test.sh` is removed only once all of its cases live in the parts.
+
+What Steps 1 to 3 landed, for this step to build on: the selector is `scripts/lib/suite-slice.sh` (`SUITE_SLICE=i/n`; unset or empty means the full list; it fails closed on a malformed value or an empty slice). `scripts/run-suites.sh` and `scripts/check-bash-floor.sh` already slice through it and print the slice in their count lines. Floor lists accept `cost: <suite path> <seconds>` lines, matched on the suite's basename, and `check-bash-floor.sh` unsets `SUITE_SLICE` for the children of a sliced list. `scripts/check-suite-slices.sh` checks each sliced job on its REQUIRED list, and the sliced `test-rule-registry` job goes on that list. `check-macos-floor-legs.sh` and `check-macos-floor-setup.sh` check the macOS floor legs.
+
+**Acceptance Criteria**:
+
+- [ ] `scripts/check-rule-registry_1_test.sh` through `_4_test.sh` together hold every case `scripts/check-rule-registry_test.sh` held on main, each unedited, and the old file is gone. The sorted case names across the four parts equal the sorted case names in main's file, and the parts' pass counts add up to its pass count
+- [ ] Each part file passes on its own (`bash scripts/check-rule-registry_<n>_test.sh`), with no state shared across the cut
+- [ ] `scripts/bash-floor/rule-registry.list` names the four part files and has a `cost:` line for each of its suites; `SUITE_SLICE=<i>/4 scripts/run-suites.sh <list's suites>` puts each part file in a different slice, and the four slices' count lines add up to the list's suite count
+- [ ] `check-rule-registry.yml`'s `pull_request` and `push` `paths` are a superset of main's with the old suite replaced by the four part files, and the job keeps its name, os expression and concurrency group
+- [ ] `check-suite-slices.sh` lists the sliced rule-registry job and passes on the changed workflow; `check-macos-floor-legs.sh`, `check-macos-floor-setup.sh` and `check-bash-floor_test.sh` pass
+- [ ] No case is removed, skipped or edited to assert less, and no retry is added
+
+**Check**: Extract the case names from main's `scripts/check-rule-registry_test.sh` (`git show main:scripts/check-rule-registry_test.sh`) and from the four part files, sort both, and `diff` them; it prints nothing. Run each part file once and confirm the pass counts sum to the old suite's count from a main run's log (don't rerun the old 43-minute suite locally; the host is shared). Run `SUITE_SLICE=1/4` to `4/4` against the list's suites with `scripts/lib/suite-slice.sh` directly (not the full run) and confirm one part per slice. Run `bash scripts/check-suite-slices_test.sh`, `bash scripts/check-suite-slices.sh`, `bash scripts/check-macos-floor-legs.sh`, `bash scripts/check-macos-floor-setup.sh` and `bash scripts/check-bash-floor_test.sh`. On the pull request, the four `test-rule-registry` jobs per platform each finish in their limit.
+
+**Dependencies**: Step 3
+
+**Files**: `scripts/check-rule-registry_test.sh` (removed), `scripts/check-rule-registry_1_test.sh` to `_4_test.sh`, `scripts/bash-floor/rule-registry.list`, `.github/workflows/check-rule-registry.yml`, `scripts/check-suite-slices.sh`
 
 ### Step 5: every job on a ready /coordinate pull request fits its time limit with no test file lost
 
