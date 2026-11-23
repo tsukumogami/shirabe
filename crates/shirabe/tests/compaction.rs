@@ -31,6 +31,8 @@ const INPUT_MARKER: &str = "INPUT-MARKER-9z";
 const KOTO_STUB: &str = r#"#!/bin/bash
 printf '%s\n' "$*" >>"$KOTO_STUB/log"
 [ -f "$KOTO_STUB/slow" ] && exec sleep 30
+# A grandchild that keeps this call's stdout open after it exits.
+if [ -f "$KOTO_STUB/linger" ]; then sleep 30 & fi
 f=""
 case "$1:${2-}" in
     context:history) f="$KOTO_STUB/history/${4//\//__}" ;;
@@ -49,6 +51,14 @@ exit 0
 fn good_entry() -> String {
     format!(
         "koto_session: {KS}\nnote_key: compaction/note.md\nbranch: {BRANCH}\npr: {PR}\nskill: shirabe:deliver handoff-brief {SKILL}\n"
+    )
+}
+
+/// The good entry with a `repo:` line naming `repo`.
+fn entry_with_repo(repo: &str) -> String {
+    good_entry().replace(
+        &format!("branch: {BRANCH}\n"),
+        &format!("branch: {BRANCH}\nrepo: {repo}\n"),
     )
 }
 
@@ -382,20 +392,60 @@ fn pre_compact_makes_no_gh_call_and_every_git_call_is_safe() {
     assert!(log.lines().count() >= 2, "{log}");
     for line in log.lines() {
         assert!(
-            line.starts_with("-c core.fsmonitor=false -c core.hooksPath=/dev/null "),
+            line.starts_with(
+                "-c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false "
+            ),
             "unsafe git call: {line}"
         );
     }
 }
 
+/// Put a commit object carrying a hand-written `gpgsig` header at
+/// `refs/heads/<BRANCH>` of `repo`, so `git log --show-signature` would hand
+/// it to `gpg.program`. Its commit time predates the note.
+fn sign_tip(fx: &Fx, repo: &str) {
+    let rev = |what: &str| {
+        let out = fx.git_cmd(repo).args(["rev-parse", what]).output().unwrap();
+        assert!(out.status.success(), "rev-parse {what}: {out:?}");
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    };
+    let tree = rev("HEAD^{tree}");
+    let parent = rev("HEAD");
+    let body = format!(
+        "tree {tree}\nparent {parent}\n\
+author t <t@example.com> 1780300000 +0000\n\
+committer t <t@example.com> 1780300000 +0000\n\
+gpgsig -----BEGIN PGP SIGNATURE-----\n \n iQEzBAABCAAdFiEEAAAAAAAAAAAAAAAAAAAAAAAAAAAFAmAAAAAACgkQAAAAAAAAAAAA\n =AAAA\n -----END PGP SIGNATURE-----\n\nsigned\n"
+    );
+    let mut child = fx
+        .git_cmd(repo)
+        .args(["hash-object", "-t", "commit", "-w", "--stdin"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(body.as_bytes()).unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "hash-object: {out:?}");
+    let sha = String::from_utf8(out.stdout).unwrap().trim().to_string();
+    fx.git_ok(repo, &["update-ref", &format!("refs/heads/{BRANCH}"), &sha]);
+}
+
 #[test]
-fn a_repository_fsmonitor_or_hook_never_runs() {
+fn a_repository_signature_program_fsmonitor_or_hook_never_runs() {
     let fx = Fx::new();
     let marker = fx.p("marker");
     let prog = fx.p("mark.sh");
     write_exec(
         &prog,
-        &format!("#!/bin/bash\nprintf ran >>'{}'\n", marker.display()),
+        &format!(
+            "#!/bin/bash\nprintf 'ran %s\\n' \"$*\" >>'{}'\n",
+            marker.display()
+        ),
     );
     fs::create_dir_all(fx.p("hooks")).unwrap();
     for h in [
@@ -407,25 +457,138 @@ fn a_repository_fsmonitor_or_hook_never_runs() {
     ] {
         std::os::unix::fs::symlink(&prog, fx.p("hooks").join(h)).unwrap();
     }
+    let prog_s = prog.display().to_string();
+    let hooks_s = fx.p("hooks").display().to_string();
     for repo in ["repo", "other"] {
-        fx.git_ok(
-            repo,
-            &["config", "core.fsmonitor", &prog.display().to_string()],
-        );
-        fx.git_ok(
-            repo,
-            &[
-                "config",
-                "core.hooksPath",
-                &fx.p("hooks").display().to_string(),
-            ],
-        );
+        for (k, v) in [
+            ("core.fsmonitor", prog_s.as_str()),
+            ("core.hooksPath", hooks_s.as_str()),
+            ("log.showSignature", "true"),
+            ("gpg.program", prog_s.as_str()),
+        ] {
+            fx.git_ok(repo, &["config", k, v]);
+        }
     }
-    let _ = fx.pre_compact();
+    sign_tip(&fx, "repo");
+    // The fixture can fire: the same `git log` without the hook's flags runs
+    // the signature program.
+    let refname = format!("refs/heads/{BRANCH}");
+    let probe = fx
+        .git_cmd("repo")
+        .args(["log", "-1", "--format=%ct", &refname, "--"])
+        .output()
+        .unwrap();
+    assert!(probe.status.success(), "{probe:?}");
+    assert!(marker.exists(), "the fixture's signature program never ran");
+    fs::remove_file(&marker).unwrap();
+
+    // With the entry, from the repository, then through the entry's repo line.
+    let out = fx.pre_compact();
+    assert!(
+        !marker.exists(),
+        "a repository program ran: {:?}",
+        fs::read_to_string(&marker)
+    );
+    assert!(out.contains(KS) && !out.contains(UNKNOWN), "{out}");
+    fx.entry(&entry_with_repo(&fx.p("repo").display().to_string()));
+    let out = fx.run("pre-compact", "plain");
+    assert!(
+        !marker.exists(),
+        "a repository program ran: {:?}",
+        fs::read_to_string(&marker)
+    );
+    assert!(out.contains(KS) && !out.contains(UNKNOWN), "{out}");
+    // With no entry, from the other repository.
     fs::remove_file(fx.entry_path()).unwrap();
     let out = fx.run("pre-compact", "other");
     assert!(out.contains(OTHER_BRANCH), "{out}");
     assert!(!marker.exists(), "a repository program ran");
+}
+
+// --- the entry's repository -----------------------------------------------------------
+
+#[test]
+fn a_commit_is_seen_through_the_entry_repo_from_outside_the_repository() {
+    let fx = Fx::new();
+    fx.entry(&entry_with_repo(&fx.p("repo").display().to_string()));
+    // From a directory that is no repository: fresh, then stale on a commit.
+    let out = fx.run("pre-compact", "plain");
+    assert!(out.contains(KS), "{out}");
+    assert!(!out.contains(STALE) && !out.contains(UNKNOWN), "{out}");
+    fx.commit("repo", AFTER_NOTE);
+    let out = fx.run("pre-compact", "plain");
+    assert_eq!(out.matches(STALE).count(), 1, "{out}");
+    // From a repository with no such branch, the entry's repository still
+    // answers.
+    let out = fx.run("pre-compact", "other");
+    assert_eq!(out.matches(STALE).count(), 1, "{out}");
+    let log = fs::read_to_string(fx.p("git.log")).unwrap();
+    assert!(
+        log.contains(&format!("-C {} log -1", fx.p("repo").display())),
+        "{log}"
+    );
+}
+
+/// A refused repo line falls back to the hook's working directory: the
+/// branch isn't in `other`, so the freshness is unknown there, and the
+/// commit is seen from `repo`. Had the repo line been used, `other` would
+/// have shown the note stale.
+fn assert_repo_refused(fx: &Fx, why: &str) {
+    let out = fx.run("pre-compact", "other");
+    assert!(out.contains(KS), "{why}: the entry was not used: {out}");
+    assert!(
+        out.contains(UNKNOWN) && !out.contains(STALE),
+        "{why}: {out}"
+    );
+    let out = fx.run("pre-compact", "repo");
+    assert_eq!(out.matches(STALE).count(), 1, "{why}: {out}");
+}
+
+#[test]
+fn a_repo_line_outside_a_work_tree_is_refused_and_falls_back() {
+    let fx = Fx::new();
+    fx.commit("repo", AFTER_NOTE);
+    // The repository's .git directory: git reads the branch there, but it
+    // isn't inside a work tree.
+    fx.entry(&entry_with_repo(&fx.p("repo/.git").display().to_string()));
+    assert_repo_refused(&fx, "a git directory");
+    fx.entry(&entry_with_repo(&fx.p("plain").display().to_string()));
+    assert_repo_refused(&fx, "no repository");
+    fx.entry(&entry_with_repo(&fx.p("repo/f.txt").display().to_string()));
+    assert_repo_refused(&fx, "a file");
+    fx.entry(&entry_with_repo(&fx.p("gone").display().to_string()));
+    assert_repo_refused(&fx, "a missing path");
+}
+
+#[test]
+fn a_repo_line_that_is_a_symlink_is_refused_and_falls_back() {
+    let fx = Fx::new();
+    fx.commit("repo", AFTER_NOTE);
+    std::os::unix::fs::symlink(fx.p("repo"), fx.p("repo-link")).unwrap();
+    fx.entry(&entry_with_repo(&fx.p("repo-link").display().to_string()));
+    assert_repo_refused(&fx, "a symlink");
+}
+
+#[test]
+fn a_repo_line_failing_its_grammar_is_refused_and_falls_back() {
+    let fx = Fx::new();
+    fx.commit("repo", AFTER_NOTE);
+    let repo = fx.p("repo").display().to_string();
+    fx.entry(&entry_with_repo(&format!("{repo}\u{200b}")));
+    assert_repo_refused(&fx, "a format character");
+    fx.entry(&entry_with_repo("repo"));
+    assert_repo_refused(&fx, "a relative path");
+}
+
+#[test]
+fn an_entry_with_no_repo_line_reads_the_branch_in_the_working_directory() {
+    let fx = Fx::new();
+    fx.commit("repo", AFTER_NOTE);
+    assert_eq!(fx.pre_compact().matches(STALE).count(), 1);
+    let out = fx.run("pre-compact", "plain");
+    assert!(out.contains(UNKNOWN) && !out.contains(STALE), "{out}");
+    let log = fs::read_to_string(fx.p("git.log")).unwrap();
+    assert!(!log.contains(" -C "), "{log}");
 }
 
 // --- freshness that can't be read ------------------------------------------------
@@ -489,6 +652,18 @@ fn an_unreadable_note_or_key_leaves_freshness_unknown() {
     let fx = Fx::new();
     fx.list(&["brief/brief.md", "compaction/note.md", "-not-a-key"]);
     assert_unknown(&fx.pre_compact());
+}
+
+#[test]
+fn a_grandchild_holding_a_tools_stdout_does_not_hold_the_hook() {
+    let fx = Fx::new();
+    fs::write(fx.p("stub/linger"), "").unwrap();
+    let t = Instant::now();
+    let out = fx.pre_compact();
+    assert_unknown(&out);
+    // Inside the 20-second budget for the whole read, though each lingering
+    // call's grandchild holds the pipe for 30.
+    assert!(t.elapsed().as_secs() < 20, "took {:?}", t.elapsed());
 }
 
 #[test]
@@ -694,8 +869,47 @@ fn re_anchor_with_a_good_entry_is_unchanged() {
     let a = ctx.find(SKILL).unwrap();
     let b = ctx.find(&format!("koto status {KS}")).unwrap();
     let c = ctx
-        .find(&format!("koto context get {KS} compaction/note.md"))
+        .find(&format!("handoff-brief.sh read --note --session {KS}"))
         .unwrap();
     assert!(a < b && b < c);
     assert!(!ctx.contains(INPUT_MARKER));
+}
+
+#[test]
+fn an_entry_whose_re_anchor_would_reach_the_cap_gets_the_generic_steps() {
+    let fx = Fx::new();
+    // Eight skills each with six 200-character arguments: within the 16 KiB
+    // the hooks read, but a re-anchor block over 10,000 characters.
+    let arg = "q".repeat(200);
+    let args = [arg.as_str(); 6].join(" ");
+    let mut text =
+        format!("koto_session: {KS}\nnote_key: compaction/note.md\nbranch: {BRANCH}\npr: {PR}\n");
+    for _ in 0..8 {
+        text.push_str(&format!("skill: shirabe:deliver {args} {SKILL}\n"));
+    }
+    assert!(text.len() < 16 * 1024 && text.len() > 10_000);
+    fx.entry(&text);
+    // The entry is usable: pre-compact names it.
+    assert!(fx.pre_compact().contains(KS));
+    let ra = fx.run("re-anchor", "repo");
+    assert!(ra.chars().count() < 10_000);
+    let ctx = context_of(&ra);
+    assert!(ctx.contains("too long to show"), "{ctx}");
+    assert!(!ctx.contains("no compaction note is recorded"), "{ctx}");
+    for want in [
+        "`deliver-`",
+        "SKILL.md",
+        "koto status",
+        "handoff-brief.sh read --note --session",
+    ] {
+        assert!(ctx.contains(want), "missing {want}: {ctx}");
+    }
+    for text in [KS, SKILL, arg.as_str(), INPUT_MARKER] {
+        assert!(!ctx.contains(text), "printed {text}: {ctx}");
+    }
+    // With the entry gone, the no-entry wording is unchanged.
+    fs::remove_file(fx.entry_path()).unwrap();
+    let ctx = context_of(&fx.run("re-anchor", "repo"));
+    assert!(ctx.contains("no compaction note is recorded"), "{ctx}");
+    assert!(!ctx.contains("too long to show"), "{ctx}");
 }

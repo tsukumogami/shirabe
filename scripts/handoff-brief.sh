@@ -93,11 +93,13 @@
 # The directory is 0700 and the entry 0600. The entry is replaced whole through
 # a temporary file in the same directory, and an entry or directory that is a
 # link is refused. It holds one `key: value` line each for the koto session,
-# the note key, the branch and the pull request, then one `skill:` line per
-# --skill, in the order given (outermost first). Each --skill path is a
-# plugin's <root>/skills/<dir>/SKILL.md, and the skills of one plugin (the
-# <plugin>: part of the name) share one root. The session id comes from
-# CLAUDE_CODE_SESSION_ID (then CLAUDE_SESSION_ID). After the entry is in
+# the note key, the branch, the repository's top level (`repo:`, an absolute
+# path of at most 512 bytes with no control or format character, left out
+# when note doesn't run in a work tree) and the pull request, then one
+# `skill:` line per --skill, in the order given (outermost first). Each
+# --skill path is a plugin's <root>/skills/<dir>/SKILL.md, and the skills of
+# one plugin (the <plugin>: part of the name) share one root. The session id
+# comes from CLAUDE_CODE_SESSION_ID (then CLAUDE_SESSION_ID). After the entry is in
 # place, note removes the other entries in the directory whose modification
 # time is more than 30 days old: only regular files whose names pass the
 # session-id grammar, never through a link. A removal that fails is reported
@@ -212,6 +214,16 @@ has_bad_chars() {
     LC_ALL=C grep -q -e "$CTL_RE" <<<"$1" && return 0
     LC_ALL=C grep -Eq -e "$FMT_RE" <<<"$1" && return 0
     return 1
+}
+
+# valid_repo_path <path> -- a repository top-level the hooks will take: an
+# absolute path of at most 512 bytes with no newline, control or format
+# character. The hooks re-check it (crates/shirabe/src/compaction.rs).
+valid_repo_path() {
+    case "$1" in /*) ;; *) return 1 ;; esac
+    [ "$(printf '%s' "$1" | LC_ALL=C wc -c | tr -d ' ')" -le 512 ] || return 1
+    has_bad_chars "$1" && return 1
+    return 0
 }
 
 sha256_file() {
@@ -1099,9 +1111,12 @@ cmd_resume() {
 # --- read ------------------------------------------------------------------------
 
 # mark <flag 0|1> -- stdin to stdout with every control and format character
-# shown as <U+XXXX> (newline kept). With flag 1, a line that looks like a
-# heading or a brief field is prefixed [flag]. Bytes are read through od, so
-# a NUL or an invalid sequence can't stop it.
+# shown as <U+XXXX> (newline kept): C0, DEL, C1, U+00AD, U+061C, U+180E,
+# U+200B-U+200F, U+2028-U+202E, U+2060-U+2064, U+2066-U+206F, U+FEFF,
+# U+FFF9-U+FFFB and the tag characters U+E0000-U+E007F (shown with five hex
+# digits). With flag 1, a line that looks like a heading or a brief field is
+# prefixed [flag]. Bytes are read through od, so a NUL or an invalid sequence
+# can't stop it.
 mark() {
     LC_ALL=C od -An -v -tx1 | LC_ALL=C awk -v flag="$1" '
         function emit(s) {
@@ -1125,16 +1140,28 @@ mark() {
                     if ((y >= 128 && y <= 159) || y == 173) { line = line sprintf("<U+%04X>", y); i++; continue }
                 }
                 if (x == "d8" && i + 1 < n && b[i + 1] == "9c") { line = line "<U+061C>"; i++; continue }
+                if (x == "e1" && i + 2 < n && b[i + 1] == "a0" && b[i + 2] == "8e") { line = line "<U+180E>"; i += 2; continue }
                 if (x == "e2" && i + 2 < n) {
                     y = b[i + 1]; z = v[b[i + 2]]
                     if (y == "80" && ((z >= 139 && z <= 143) || (z >= 168 && z <= 174))) {
                         line = line sprintf("<U+20%02X>", z - 128); i += 2; continue
                     }
-                    if (y == "81" && ((z >= 160 && z <= 164) || (z >= 166 && z <= 169))) {
+                    if (y == "81" && ((z >= 160 && z <= 164) || (z >= 166 && z <= 175))) {
                         line = line sprintf("<U+20%02X>", z - 64); i += 2; continue
                     }
                 }
                 if (x == "ef" && i + 2 < n && b[i + 1] == "bb" && b[i + 2] == "bf") { line = line "<U+FEFF>"; i += 2; continue }
+                if (x == "ef" && i + 2 < n && b[i + 1] == "bf") {
+                    z = v[b[i + 2]]
+                    if (z >= 185 && z <= 187) { line = line sprintf("<U+%04X>", 65472 + z - 128); i += 2; continue }
+                }
+                # The tag characters, U+E0000-U+E007F: f3 a0 80-81 80-bf.
+                if (x == "f3" && i + 3 < n && b[i + 1] == "a0" && (b[i + 2] == "80" || b[i + 2] == "81")) {
+                    z = v[b[i + 3]]
+                    if (z >= 128 && z <= 191) {
+                        line = line sprintf("<U+%05X>", 917504 + (v[b[i + 2]] - 128) * 64 + z - 128); i += 3; continue
+                    }
+                }
                 line = line ch[x]
             }
             if (line != "") emit(line)
@@ -1389,7 +1416,7 @@ prune_ledger() {
 }
 
 cmd_note() {
-    local reasoning="" koto_session="${KOTO_SESSION:-}" pr="" sid branch dir entry tmp s content
+    local reasoning="" koto_session="${KOTO_SESSION:-}" pr="" sid branch repo dir entry tmp s content
     local skills=()
     while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -1427,6 +1454,13 @@ cmd_note() {
     command -v koto >/dev/null 2>&1 || fault "koto is not on PATH"
     branch=$("${G[@]}" symbolic-ref --quiet --short HEAD) || refuse "HEAD is not on a named branch"
     valid_branch "$branch" || refuse "branch [$branch] is outside its grammar"
+    # The repository's top level, so a hook run from another directory reads
+    # the branch there. Outside a work tree there is none, and no line.
+    repo=$("${G[@]}" rev-parse --show-toplevel 2>/dev/null) || repo=""
+    if [ -n "$repo" ]; then
+        valid_repo_path "$repo" \
+            || refuse "the repository top level [$(shown "$repo")] is not an absolute path of at most 512 bytes free of control and format characters"
+    fi
 
     if [ -n "${XDG_STATE_HOME:-}" ]; then
         dir="$XDG_STATE_HOME/shirabe/compaction"
@@ -1442,12 +1476,15 @@ cmd_note() {
     [ -L "$entry" ] && refuse "the ledger entry [$entry] is a link"
 
     # Build the entry first, so one too large for the hooks to give back is
-    # refused before anything is written. Every value is ASCII by its grammar,
-    # so the length in characters is the length in bytes.
+    # refused before anything is written. The repository path may hold
+    # non-ASCII characters, so the size is counted in bytes.
     content="koto_session: $koto_session
 note_key: $NOTE_KEY
 branch: $branch
-pr: $pr
+"
+    [ -z "$repo" ] || content="${content}repo: $repo
+"
+    content="${content}pr: $pr
 "
     if [ "${#skills[@]}" -gt 0 ]; then
         for s in "${skills[@]}"; do
@@ -1455,8 +1492,9 @@ pr: $pr
 "
         done
     fi
-    [ "${#content}" -le "$MAX_ENTRY_BYTES" ] \
-        || refuse "the ledger entry would be ${#content} bytes, over $MAX_ENTRY_BYTES"
+    s=$(printf '%s' "$content" | LC_ALL=C wc -c | tr -d ' ')
+    [ "$s" -le "$MAX_ENTRY_BYTES" ] \
+        || refuse "the ledger entry would be $s bytes, over $MAX_ENTRY_BYTES"
 
     # The note first: an entry naming a note that was never written would send
     # a compacted session to read nothing.

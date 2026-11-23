@@ -21,11 +21,13 @@
 //! koto_session: <name>
 //! note_key: compaction/note.md
 //! branch: <branch>
+//! repo: <the repository's top-level directory>
 //! pr: <pull request URL, or none>
 //! skill: <name> [<arg> ...] <plugin root>/skills/<dir>/SKILL.md
 //! ```
 //!
-//! with one `skill:` line per active skill, outermost first.
+//! with one `skill:` line per active skill, outermost first. The `repo:` line
+//! is there when `note` ran in a work tree.
 //!
 //! An entry is used only when the directory is a real 0700 directory (not a
 //! link), the entry is a regular 0600 file opened through that directory
@@ -43,16 +45,18 @@
 //! `koto status` gives the current state (a transition after the note
 //! changes it); and `koto context list` plus `koto context history` of each
 //! other key gives the latest write seq of every key. The branch's tip
-//! commit time comes from `git log -1 --format=%ct refs/heads/<branch>`.
-//! Every call is bounded in time. A check that can't be read leaves the
-//! freshness unknown unless another check already found the note stale.
+//! commit time comes from `git log -1 --format=%ct refs/heads/<branch>`, run
+//! in the entry's repository when that is still a work tree, else in the
+//! hook's working directory. Every call is bounded in time. A check that
+//! can't be read leaves the freshness unknown unless another check already
+//! found the note stale.
 //!
 //! Both commands are fail-open: they always exit 0 and never block a
 //! compaction. A session id that fails its grammar, or a hook input that
 //! isn't JSON, means no output at all. Neither command ever prints the note's
 //! text, a skill's text or any text from the hook input; they print where to
 //! read them. Neither makes a `gh` call, and every `git` call runs with
-//! `core.fsmonitor` and `core.hooksPath` turned off.
+//! `core.fsmonitor`, `core.hooksPath` and `log.showSignature` turned off.
 
 use std::fs;
 use std::io::Read;
@@ -94,13 +98,16 @@ const MAX_KEYS_SCANNED: usize = 256;
 /// The most bytes read from one tool's stdout.
 const MAX_TOOL_OUTPUT: u64 = 4 * 1024 * 1024;
 
-/// The flags every `git` call carries, so a repository's fsmonitor or hooks
-/// never run from a hook.
-const GIT_SAFE: [&str; 4] = [
+/// The flags every `git` call carries, so a repository's fsmonitor, hooks or
+/// signature program (`gpg.program`, run by `git log` when the repository
+/// sets `log.showSignature`) never run from a hook.
+const GIT_SAFE: [&str; 6] = [
     "-c",
     "core.fsmonitor=false",
     "-c",
     "core.hooksPath=/dev/null",
+    "-c",
+    "log.showSignature=false",
 ];
 
 #[derive(Args)]
@@ -195,6 +202,30 @@ fn plugin_root(p: &str) -> Option<&str> {
     }
 }
 
+/// A character `has_bad_chars` in scripts/handoff-brief.sh refuses: a
+/// control character (C0, DEL, C1), or a format character that hides or
+/// reorders text (U+00AD, U+061C, U+200B-U+200F, U+2028-U+202E,
+/// U+2060-U+2064, U+2066-U+2069, U+FEFF).
+fn bad_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{ad}'
+                | '\u{61c}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{feff}'
+        )
+}
+
+/// A repository top-level: absolute, at most 512 bytes, and no control or
+/// format character. `note` applies the same rule before it writes one.
+fn valid_repo_path(p: &str) -> bool {
+    p.starts_with('/') && p.len() <= 512 && !p.chars().any(bad_char)
+}
+
 fn valid_koto_key(k: &str) -> bool {
     k.len() <= 512 && KOTO_KEY_RE.is_match(k)
 }
@@ -216,6 +247,10 @@ pub struct Entry {
     pub koto_session: String,
     pub note_key: String,
     pub branch: String,
+    /// The repository top-level `note` ran in, when its line passed its
+    /// grammar. A line that fails it is dropped here, not the entry: the
+    /// branch is then read in the hook's working directory.
+    pub repo: Option<String>,
     pub pr: Option<String>,
     pub skills: Vec<Skill>,
 }
@@ -266,11 +301,15 @@ fn one_root_per_plugin(skills: &[Skill]) -> bool {
 
 /// Parse a ledger entry. Every field must pass its grammar, each of the four
 /// single fields must appear exactly once, and the skills of one plugin must
-/// share one plugin root; anything else is `None`.
+/// share one plugin root; anything else is `None`. The `repo` line may appear
+/// at most once; a value failing its grammar leaves `repo` empty and the
+/// entry otherwise usable.
 pub fn parse_entry(text: &str) -> Option<Entry> {
     let mut koto_session = None;
     let mut note_key = None;
     let mut branch = None;
+    let mut repo_seen = false;
+    let mut repo = None;
     let mut pr: Option<Option<String>> = None;
     let mut skills = Vec::new();
     for line in text.lines() {
@@ -296,6 +335,15 @@ pub fn parse_entry(text: &str) -> Option<Entry> {
                     return None;
                 }
                 branch = Some(v.to_string());
+            }
+            "repo" => {
+                if repo_seen {
+                    return None;
+                }
+                repo_seen = true;
+                if valid_repo_path(v) {
+                    repo = Some(v.to_string());
+                }
             }
             "pr" => {
                 if pr.is_some() {
@@ -325,6 +373,7 @@ pub fn parse_entry(text: &str) -> Option<Entry> {
         koto_session: koto_session?,
         note_key: note_key?,
         branch: branch?,
+        repo,
         pr: pr?,
         skills,
     })
@@ -462,10 +511,14 @@ fn run_tool(prog: &str, args: &[&str], timeout: Duration) -> Option<String> {
         .ok()?;
     let out = child.stdout.take()?;
     // A reader thread, so a child that fills the pipe never stalls the wait.
-    let reader = std::thread::spawn(move || {
+    // Its result comes back over a channel and the thread is never joined: a
+    // grandchild that inherited the pipe can hold it open after the child
+    // exits, and the call still ends by its deadline.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
         let mut buf = Vec::new();
         let ok = out.take(MAX_TOOL_OUTPUT + 1).read_to_end(&mut buf).is_ok();
-        (ok, buf)
+        let _ = tx.send((ok, buf));
     });
     let deadline = Instant::now() + timeout;
     let status = loop {
@@ -481,7 +534,10 @@ fn run_tool(prog: &str, args: &[&str], timeout: Duration) -> Option<String> {
             }
         }
     };
-    let (ok, buf) = reader.join().ok()?;
+    // The child has exited; its stdout is read to the end only if that
+    // happens before the deadline.
+    let left = deadline.saturating_duration_since(Instant::now());
+    let (ok, buf) = rx.recv_timeout(left).ok()?;
     if !ok || !status.success() || buf.len() as u64 > MAX_TOOL_OUTPUT {
         return None;
     }
@@ -502,15 +558,46 @@ fn cwd_branch(budget: &Budget) -> Option<String> {
     }
 }
 
+/// The entry's repository, when it is still one: not a link, a directory,
+/// and inside a git work tree by git's own answer. `None` when the entry
+/// records none or it fails a check; the branch is then read in the hook's
+/// working directory.
+fn entry_repo<'a>(e: &'a Entry, budget: &Budget) -> Option<&'a str> {
+    let repo = e.repo.as_deref()?;
+    let meta = fs::symlink_metadata(repo).ok()?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return None;
+    }
+    let mut args: Vec<&str> = GIT_SAFE.to_vec();
+    args.extend(["-C", repo, "rev-parse", "--is-inside-work-tree"]);
+    let out = budget.run("git", &args)?;
+    if out.trim_end_matches('\n') == "true" {
+        Some(repo)
+    } else {
+        None
+    }
+}
+
 /// The commit time, in seconds since the epoch, of the tip of
-/// `refs/heads/<branch>` in the working directory's repository.
-fn branch_commit_secs(branch: &str, budget: &Budget) -> Option<i64> {
+/// `refs/heads/<branch>` in `repo`, or in the working directory's repository
+/// when `repo` is `None`.
+fn branch_commit_secs(branch: &str, repo: Option<&str>, budget: &Budget) -> Option<i64> {
     if !valid_branch(branch) {
         return None;
     }
     let refname = format!("refs/heads/{branch}");
     let mut args: Vec<&str> = GIT_SAFE.to_vec();
-    args.extend(["log", "-1", "--format=%ct", &refname, "--"]);
+    if let Some(r) = repo {
+        args.extend(["-C", r]);
+    }
+    args.extend([
+        "log",
+        "-1",
+        "--no-show-signature",
+        "--format=%ct",
+        &refname,
+        "--",
+    ]);
     let out = budget.run("git", &args)?;
     out.trim().parse::<i64>().ok()
 }
@@ -626,8 +713,10 @@ fn note_freshness(e: &Entry, budget: &Budget) -> Freshness {
         }
     }
 
-    // A commit on the branch newer than the note's write.
-    match branch_commit_secs(&e.branch, budget) {
+    // A commit on the branch newer than the note's write, in the entry's
+    // repository when it still is one.
+    let repo = entry_repo(e, budget);
+    match branch_commit_secs(&e.branch, repo, budget) {
         Some(ct) if ct > note.secs => return Freshness::Stale,
         Some(_) => {}
         None => unknown = true,
@@ -753,8 +842,8 @@ pub fn re_anchor_text(e: &Entry) -> String {
     ));
     n += 1;
     s.push_str(&format!(
-        "{n}. Read your compaction note: `koto context get {} {}`.\n",
-        e.koto_session, e.note_key
+        "{n}. Read your compaction note, key {}, with `handoff-brief.sh read --note --session {}` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n",
+        e.note_key, e.koto_session
     ));
     s.push_str(&format!(
         "Then carry on from where koto says the run stands, on branch {}",
@@ -767,13 +856,30 @@ pub fn re_anchor_text(e: &Entry) -> String {
     s
 }
 
+/// The steps both fixed re-anchor texts give: they name nothing read from
+/// anywhere.
+macro_rules! generic_steps {
+    () => {
+        "1. Work out the skill you were running from your koto session's name prefix (`deliver-` is shirabe:deliver, `scope-` is shirabe:scope, `coordinate-` is shirabe:coordinate), and read that skill's SKILL.md again.\n\
+2. In your worktree, run `koto status` on that koto session (`koto workflows` lists the sessions there) to see where the run stands.\n\
+3. Read your compaction note with `handoff-brief.sh read --note --session <koto session>` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n\
+Then carry on from where koto says the run stands."
+    };
+}
+
 /// The re-anchor text for a session with no usable ledger entry. Fixed text:
 /// it names nothing read from anywhere.
-pub const GENERIC_RE_ANCHOR: &str = "This session was just compacted, and no compaction note is recorded for it. Before doing anything else, in this order:\n\
-1. Work out the skill you were running from your koto session's name prefix (`deliver-` is shirabe:deliver, `scope-` is shirabe:scope, `coordinate-` is shirabe:coordinate), and read that skill's SKILL.md again.\n\
-2. In your worktree, run `koto status` on that koto session (`koto workflows` lists the sessions there) to see where the run stands.\n\
-3. Read your compaction note with `handoff-brief.sh read --note` (scripts/handoff-brief.sh in the shirabe plugin), which prints it as data.\n\
-Then carry on from where koto says the run stands.";
+pub const GENERIC_RE_ANCHOR: &str = concat!(
+    "This session was just compacted, and no compaction note is recorded for it. Before doing anything else, in this order:\n",
+    generic_steps!()
+);
+
+/// The re-anchor text for a usable entry whose block would reach the cap.
+/// Fixed text, the generic steps behind a line saying the entry was too long.
+pub const OVER_CAP_RE_ANCHOR: &str = concat!(
+    "This session was just compacted. Its compaction ledger entry is recorded but too long to show here. Before doing anything else, in this order:\n",
+    generic_steps!()
+);
 
 /// `pre-compact`'s stdout for a hook input, or `None` for no output.
 pub fn pre_compact_output(input: &str) -> Option<String> {
@@ -793,12 +899,14 @@ pub fn pre_compact_output(input: &str) -> Option<String> {
 }
 
 /// `re-anchor`'s stdout for a hook input, or `None` for no output. An entry
-/// whose block would reach the cap gets the generic block instead.
+/// whose block would reach the cap gets the generic steps behind a line
+/// saying so.
 pub fn re_anchor_output(input: &str) -> Option<String> {
     let sid = hook_sid(input)?;
-    read_entry(&sid)
-        .and_then(|e| re_anchor_json(&e))
-        .or_else(|| context_json(GENERIC_RE_ANCHOR))
+    match read_entry(&sid) {
+        Some(e) => re_anchor_json(&e).or_else(|| context_json(OVER_CAP_RE_ANCHOR)),
+        None => context_json(GENERIC_RE_ANCHOR),
+    }
 }
 
 /// The SessionStart hook JSON for an entry, withheld (`None`) rather than
@@ -926,7 +1034,7 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
         let scope = t.find("skills/scope/SKILL.md").unwrap();
         let status = t.find("koto status probe-run").unwrap();
         let note = t
-            .find("koto context get probe-run compaction/note.md")
+            .find("handoff-brief.sh read --note --session probe-run")
             .unwrap();
         assert!(deliver < scope && scope < status && status < note);
         assert!(t.chars().count() < CONTEXT_CAP);
@@ -1165,6 +1273,53 @@ skill: shirabe:scope handoff-brief /opt/plugins/shirabe/0.50.0/skills/scope/SKIL
             serde_json::from_str(&context_json(GENERIC_RE_ANCHOR).unwrap()).unwrap();
         assert_eq!(j["hookSpecificOutput"]["hookEventName"], "SessionStart");
         assert!(GENERIC_RE_ANCHOR.chars().count() < CONTEXT_CAP);
+    }
+
+    #[test]
+    fn a_repo_line_is_kept_when_it_passes_its_grammar() {
+        let t = GOOD.replace(
+            "branch: session/abc123\n",
+            "branch: session/abc123\nrepo: /home/u/work/widgets\n",
+        );
+        let e = parse_entry(&t).expect("parses");
+        assert_eq!(e.repo.as_deref(), Some("/home/u/work/widgets"));
+        assert_eq!(parse_entry(GOOD).unwrap().repo, None);
+    }
+
+    #[test]
+    fn a_repo_line_failing_its_grammar_is_dropped_not_the_entry() {
+        let long = format!("/{}", "r".repeat(512));
+        for bad in [
+            "relative/path",
+            "/a\u{7}b",
+            "/a\tb",
+            "/a\u{200b}b",
+            "/a\u{202e}b",
+            "/a\u{feff}b",
+            "/a\u{85}b",
+            long.as_str(),
+        ] {
+            let t = GOOD.replace(
+                "branch: session/abc123\n",
+                &format!("branch: session/abc123\nrepo: {bad}\n"),
+            );
+            let e = parse_entry(&t).unwrap_or_else(|| panic!("entry refused for {bad:?}"));
+            assert_eq!(e.repo, None, "kept {bad:?}");
+        }
+        let at = format!("/{}", "r".repeat(511));
+        assert!(valid_repo_path(&at));
+        // Two repo lines are a malformed entry, like any repeated field.
+        let t = format!("{GOOD}repo: /a\nrepo: /b\n");
+        assert!(parse_entry(&t).is_none());
+    }
+
+    #[test]
+    fn the_over_cap_re_anchor_line_does_not_say_no_note_is_recorded() {
+        assert!(!OVER_CAP_RE_ANCHOR.contains("no compaction note is recorded"));
+        assert!(OVER_CAP_RE_ANCHOR.contains("too long to show"));
+        assert!(OVER_CAP_RE_ANCHOR.contains("handoff-brief.sh read --note --session"));
+        assert!(GENERIC_RE_ANCHOR.contains("no compaction note is recorded"));
+        assert!(OVER_CAP_RE_ANCHOR.chars().count() < CONTEXT_CAP);
     }
 
     // --- the ledger file's checks ---------------------------------------------

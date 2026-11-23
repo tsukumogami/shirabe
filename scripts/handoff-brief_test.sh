@@ -104,9 +104,11 @@ check "entry exists" '[ -f "$ENTRY" ]'
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 check "entry is 0600" '[ "$(mode_of "$ENTRY")" = 600 ]'
 check "directory is 0700" '[ "$(mode_of "$T/state/shirabe/compaction")" = 700 ]'
+REPO_TOP=$(git -C "$T/repo" rev-parse --show-toplevel) || exit 1
 check "entry lines in order" '[ "$(cat "$ENTRY")" = "koto_session: probe-run
 note_key: compaction/note.md
 branch: session/test1
+repo: $REPO_TOP
 pr: https://github.com/acme/widgets/pull/42
 skill: shirabe:deliver handoff-brief --no-merge $DELIVER
 skill: shirabe:scope handoff-brief $SCOPE" ]'
@@ -119,6 +121,23 @@ OUT=$(RUN_KOTO_SESSION=other run_note --reasoning "$T/reasoning.md" --koto-sessi
 check "exit 0" '[ "$rc" -eq 0 ]'
 check "pr: none" 'grep -qx "pr: none" "$ENTRY"'
 check "skill with no arguments" 'grep -qx "skill: shirabe:scope $SCOPE" "$ENTRY"'
+
+echo "== the repo line =="
+check "repo names the work tree's top level" '[ "$(grep -c "^repo: " "$ENTRY")" -eq 1 ] && grep -qxF "repo: $REPO_TOP" "$ENTRY"'
+mkdir -p "$T/repo/sub/dir" || exit 1
+OUT=$(cd "$T/repo/sub/dir" && PATH="$T/bin:$PATH" KOTO_STUB_LOG="$T/koto.log" XDG_STATE_HOME="$T/state" \
+    CLAUDE_CODE_SESSION_ID="$SID" KOTO_SESSION="" bash "$SCRIPT" note --reasoning "$T/reasoning.md" --koto-session k 2>&1); rc=$?
+check "from a subdirectory, repo is still the top level" '[ "$rc" -eq 0 ] && grep -qxF "repo: $REPO_TOP" "$ENTRY"'
+OUT=$(cd "$T/repo/.git" && PATH="$T/bin:$PATH" KOTO_STUB_LOG="$T/koto.log" XDG_STATE_HOME="$T/state" \
+    CLAUDE_CODE_SESSION_ID="$SID" KOTO_SESSION="" bash "$SCRIPT" note --reasoning "$T/reasoning.md" --koto-session k 2>&1); rc=$?
+check "outside a work tree there is no repo line" '[ "$rc" -eq 0 ] && grep -qx "branch: session/test1" "$ENTRY" && ! grep -q "^repo:" "$ENTRY"'
+BADREPO="$T/bad"$'\t'"repo"
+git init -q -b session/test1 "$BADREPO" || exit 1
+rm -f "$ENTRY" "$T/koto.log"
+OUT=$(cd "$BADREPO" && PATH="$T/bin:$PATH" KOTO_STUB_LOG="$T/koto.log" XDG_STATE_HOME="$T/state" \
+    CLAUDE_CODE_SESSION_ID="$SID" KOTO_SESSION="" bash "$SCRIPT" note --reasoning "$T/reasoning.md" --koto-session k 2>&1); rc=$?
+check "a top level holding a control character is refused, nothing written" \
+    '[ "$rc" -eq 1 ] && [ ! -e "$ENTRY" ] && [ ! -e "$T/koto.log" ] && grep -q "repository top level" <<<"$OUT"'
 
 echo "== refusals write nothing =="
 refused() {
@@ -256,7 +275,7 @@ if command -v shirabe >/dev/null 2>&1 && shirabe compaction --help >/dev/null 2>
     check "re-anchor order: SKILL.md, koto status, note" '
         a=$(grep -n -m 1 -F "$DELIVER" <<<"$CTX" | cut -d: -f1)
         b=$(grep -n -m 1 "koto status probe-run" <<<"$CTX" | cut -d: -f1)
-        c=$(grep -n -m 1 "koto context get probe-run compaction/note.md" <<<"$CTX" | cut -d: -f1)
+        c=$(grep -n -m 1 -F "handoff-brief.sh read --note --session probe-run" <<<"$CTX" | cut -d: -f1)
         [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ]'
     for sub in pre-compact re-anchor; do
         OUT=$(hook "$sub" '{"session_id":"../../etc/passwd"}'); rc=$?
@@ -577,6 +596,19 @@ check "a format character is shown as <U+200B>" 'grep -qx "zero<U+200B>width" <<
 check "UTF-8 text passes through" 'grep -qx "café stays" <<<"$R4"'
 check "a forged written_at inside the reasoning is flagged" 'grep -qx "\[flag\] written_at: 2001-01-01T00:00:00Z" <<<"$R4"'
 check "the watch command was not run" '[ ! -e "$B/watch-ran" ] && grep -qF "probe = touch $B/watch-ran" <<<"$R4"'
+# The other format characters: the tag block U+E0000-U+E007F, U+180E,
+# U+FFF9-U+FFFB and U+206A-U+206F, each range at both ends.
+printf 'tag\363\240\201\211\363\240\201\207end\ntagends\363\240\200\200|\363\240\201\277\nmongol\341\240\216vowel\nanchor\357\277\271x\357\277\273y\ninhibit\342\201\252z\342\201\257w\n' >"$B/fmt.txt"
+cp "$B/fmt.txt" "$SCR/odd-fmt.md"
+mk_session run-odd-fmt || exit 1
+OUT=$(WR_KS=run-odd-fmt wr --event end --reasoning "$SCR/odd-fmt.md" 2>&1); rc=$?
+check "reasoning with the other format characters written" '[ "$rc" -eq 0 ]'
+R5=$(rd --session run-odd-fmt 2>&1)
+check "read shows tag characters as <U+E0049><U+E0047>" 'grep -qx "tag<U+E0049><U+E0047>end" <<<"$R5"'
+check "read shows the tag block's ends as <U+E0000> and <U+E007F>" 'grep -qx "tagends<U+E0000>|<U+E007F>" <<<"$R5"'
+check "read shows U+180E as <U+180E>" 'grep -qx "mongol<U+180E>vowel" <<<"$R5"'
+check "read shows U+FFF9 and U+FFFB as <U+FFF9> and <U+FFFB>" 'grep -qx "anchor<U+FFF9>x<U+FFFB>y" <<<"$R5"'
+check "read shows U+206A and U+206F as <U+206A> and <U+206F>" 'grep -qx "inhibit<U+206A>z<U+206F>w" <<<"$R5"'
 
 echo "== a stored file altered afterwards reads as a mismatch =="
 printf 'tampered\n' >"$B/tampered"
@@ -1151,6 +1183,14 @@ if [ -n "$SHIRABE" ]; then
     GIT_AUTHOR_DATE="$FUTURE +0000" GIT_COMMITTER_DATE="$FUTURE +0000" git -C "$SR" commit -q -am newer || exit 1
     PC=$(pc)
     check "a commit newer than the note: the stale line again" '[ "$(grep -c "The compaction note is stale" <<<"$PC")" -eq 1 ]'
+    # From a directory that is no repository, the entry's repo line still
+    # finds the branch.
+    mkdir -p "$B/hook-cwd" || exit 1
+    PC=$(printf '{"session_id":"%s"}' "$STALE_SID" | (cd "$B/hook-cwd" && PATH="$B/bin-k:$B/bin-g:$B/tools" \
+        KOTO_STUB_STORE="$B/kstore" XDG_STATE_HOME="$B/state" GH_STUB_LOG="$B/gh-pc.log" KOTO_SESSION= \
+        "$SHIRABE" compaction pre-compact)); rc=$?
+    check "from outside the repository, the commit still makes it stale" \
+        '[ "$rc" -eq 0 ] && grep -qF "repo: " "$STALE_ENTRY" && [ "$(grep -c "The compaction note is stale" <<<"$PC")" -eq 1 ]'
     check "pre-compact made no gh call" '[ ! -s "$B/gh-pc.log" ]'
     PC=$(pc "$B/bin-g:$B/tools"); rc=$?
     check "koto absent: exit 0, the summary, and freshness unknown" \
@@ -1167,6 +1207,15 @@ check "a fresh delimiter fences the note" '[ -n "$ND1" ] && grep -qx "$ND1 note 
 check "the note's text sits inside the fence" 'grep -q NOTE-MARKER-4c <<<"$(fenced "$N1" "$ND1" note)"'
 check "a control character is shown as <U+0007>" 'grep -qx "bell<U+0007>end" <<<"$N1"'
 check "a format character is shown as <U+200B>" 'grep -qx "zero<U+200B>width" <<<"$N1"'
+mk_session run-note-fmt || exit 1
+kk context add run-note-fmt compaction/note.md --from-file "$B/fmt.txt" >/dev/null
+N4=$(rd --note --session run-note-fmt 2>&1); rc=$?
+check "read --note of a note with the other format characters: exit 0" '[ "$rc" -eq 0 ]'
+check "read --note shows tag characters as <U+E0049><U+E0047>" 'grep -qx "tag<U+E0049><U+E0047>end" <<<"$N4"'
+check "read --note shows the tag block's ends as <U+E0000> and <U+E007F>" 'grep -qx "tagends<U+E0000>|<U+E007F>" <<<"$N4"'
+check "read --note shows U+180E as <U+180E>" 'grep -qx "mongol<U+180E>vowel" <<<"$N4"'
+check "read --note shows U+FFF9 and U+FFFB as <U+FFF9> and <U+FFFB>" 'grep -qx "anchor<U+FFF9>x<U+FFFB>y" <<<"$N4"'
+check "read --note shows U+206A and U+206F as <U+206A> and <U+206F>" 'grep -qx "inhibit<U+206A>z<U+206F>w" <<<"$N4"'
 check "read --note wrote nothing to disk" '[ -z "$(ls -A "$B/rtmp")" ] && [ -z "$(ls -A "$B/rcwd")" ]'
 N2=$(rd --note --session run-stale 2>&1)
 ND2=$(sed -n 's/^\(@@note-[0-9a-f]\{32\}@@\) note begin$/\1/p' <<<"$N2")
