@@ -113,8 +113,21 @@ jobs:
 
   # Drives real koto: the session-log helper against a skeleton template, the
   # compiled coordinate template, and its routes against a stand-in gh.
+  #
+  # The engine suites run as four slices, one job each: run-tests.sh keeps
+  # slice SUITE_SLICE of them, balanced by check-skill.tsv's cost rows
+  # (scripts/lib/suite-slice.sh), and the four together run every suite once.
+  # fail-fast stays off so one failing slice doesn't cancel the rest;
+  # scripts/check-suite-slices.sh holds that shape.
   test-coordinate-engine:
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [1, 2, 3, 4]
     runs-on: ubuntu-latest
+    env:
+      SUITE_SLICE: ${{ matrix.slice }}/4
+      SUITE_SLICE_COSTS: skills/coordinate/check-skill.tsv
     steps:
       # Full history: directive-ceiling_engine_test.sh reads the hub's ceiling
       # at the merge base with the base branch, and fails a pull request run
