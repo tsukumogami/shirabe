@@ -97,6 +97,20 @@ Outcomes:
   `pass_counting` (see **Fixes Start Red**), then finalization.
 - **Failed** — a command ran and did not pass. The workflow returns to implementation to
   fix the failure; a failing verification never advances toward a clean finalization.
+  When the failure is a flake rather than the change, the agent submits
+  `implementation_status: verification_rerun` with its reason instead, and the next
+  entry into `verification` archives the failed attempt and runs a fresh suite at the
+  same head. Each attempt's logs sit in their own folder, `<head>/attempts/<n>/`, and
+  each archived attempt adds one line to the `verification_attempts` context key.
+  A failed check beside a timed-out one is a failure too, and is eligible the same
+  way. Two re-runs are allowed per head and merge-base, counted together with the
+  timed-out hold's `rerun`; a third request is refused, and verification's message
+  names the ways out: a real fix (a new head) or `implementation_status: blocked`.
+  The PR body's Verification section then carries one re-run line per archived
+  attempt, ``Re-run attempt <n> at `<head>`: `<id>` failed; reason `<reason>`; attempt <n+1> passed.``,
+  and `pr_creation`'s `verification_rerun_recorded` gate
+  (`check-pr-output.sh --rerun-record`) refuses a body without it (see **Pull
+  Request Text**).
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.
@@ -106,8 +120,12 @@ that does not parse, or selects nothing) and 4 a command that needs a person, ti
 out with the hosted-of-record route closed, grew past its process bound, could not
 start, or a dirty tree — both of the last two cannot-verify, ending at `done_blocked`.
 Exit 5 is the timed-out hold: a check timed out, none failed, and the route is open, so
-the run may settle the timed-out checks on the hosted jobs their map rows declare
-(`hosted_of_record`, with a public reason), return to fix them, or stop. The route
+the run may run the suite again at the same head (`rerun`, with a reason), settle the
+timed-out checks on the hosted jobs their map rows declare (`hosted_of_record`, with a
+public reason), return to fix them, or stop. A `rerun` archives the timed-out attempt
+into `verification_attempts` and starts a fresh suite, under the same cap of two
+archived attempts per head and merge-base as the failed route's re-run; over the cap
+the hold comes back and offers only the other three. The route
 records itself in `verification_hosted`, opens the pull request as a draft, and is
 settled by `hosted_record`'s read before the pull request is marked ready
 (`references/verification-map.md`). Each violation names its rule
@@ -251,6 +269,23 @@ or `CLAUDE.md`; `${CLAUDE_PLUGIN_ROOT}/scripts/pr-workflow-content.sh` prints
 uses. Under `omit`, `pr_creation`'s `pr_body_conformant` gate holds on the records it
 can see (`pr-body/workflow-content`). `references/phases/phase-6-pr.md` says what goes
 where under each setting.
+
+A run that re-ran verification at the same head says so under either setting. Its
+Verification section has one re-run line for each attempt in `verification_attempts`:
+
+```text
+Re-run attempt <n> at `<head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`; attempt <n+1> passed.
+```
+
+The head is 7 or more of its hex characters; each failed or timed-out command id and
+the reason sit in code spans; the line ends with what the next attempt showed
+(`passed`, `failed` or `timed out`), and holds no path and no log excerpt.
+`pr_creation`'s `verification_rerun_recorded` gate runs
+`check-pr-output.sh --rerun-record --session <session>` and refuses a body that
+leaves a line out, puts an id or the reason outside a code span, or holds an absolute
+path; with an empty ledger it asks for nothing. On a plan's shared branch the child
+opens no PR, and the shared PR is checked at the owning session's `pr_finalization`
+by its `rerun_recorded` gate.
 
 A coordinator that dispatched this run reads its review round from this run's session,
 not from the body. When the brief asks for the round, record it once the seats at the

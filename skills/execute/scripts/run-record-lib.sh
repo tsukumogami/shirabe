@@ -11,8 +11,8 @@
 #
 #   run/setup                  store, coordination_pr, repos, mode, nodes,
 #                              run_lines
-#   run/node/<node>            repo, pr, head, deferrals, public_reason,
-#                              merged_head
+#   run/node/<node>            repo, pr, head, deferrals, reruns,
+#                              public_reason, merged_head
 #   run/hosted/<node>          the node's hosted-of-record route: head,
 #                              taken_at, reason, checks, work_tree (written
 #                              by work-on's verification-route.sh --collect

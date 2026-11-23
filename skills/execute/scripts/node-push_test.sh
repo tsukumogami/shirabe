@@ -129,6 +129,11 @@
 #                                                refused
 #     the script run in the node worktree        72, nothing pushed, recorded
 #                                                or written
+#   the verification re-runs                     a work item's child holding a
+#     verification_attempts ledger line: its re-run line in run/node's
+#     reruns and in the new node PR's Verification section, work-on's own
+#     --rerun-record check passes the body, and the loop's next pass finds
+#     it there from the record, reading no work item's session
 #   the push is `git -C <worktree> push <remote> HEAD:refs/heads/<branch>`,
 #   never forced
 #
@@ -296,9 +301,9 @@ else
     fail "the index line is missing; body: $(db_body | grep '^- ')"
 fi
 [ "$(printf '%s\n' "$OUT" | sed -n 's/^head=//p')" = "$SHA" ] && pass "node-push.sh prints head=<sha>" || fail "output: [$OUT]"
-WANT_REC=$(jq -cnS --arg r "$CT_REPO" --arg h "$SHA" '{repo: $r, pr: 50, head: $h, deferrals: []}')
+WANT_REC=$(jq -cnS --arg r "$CT_REPO" --arg h "$SHA" '{repo: $r, pr: 50, head: $h, deferrals: [], reruns: []}')
 [ "$(rec_node "$CT_CORE")" = "$WANT_REC" ] \
-    && pass "the run record holds run/node/<node> {repo, pr, head=<the pushed sha>, deferrals=[]}" \
+    && pass "the run record holds run/node/<node> {repo, pr, head=<the pushed sha>, deferrals=[], reruns=[]}" \
     || fail "run/node after the push: [$(rec_node "$CT_CORE")]"
 ADD_AT=$(grep -n "^context add $S run/node/$CT_CORE" "$CASE/koto-calls.log" | head -1 | cut -d: -f1)
 [ -n "$ADD_AT" ] && pass "the head was written through the run record's writer" || fail "no run/node write in the koto log"
@@ -1643,6 +1648,54 @@ if [ "$RC" -eq 72 ] && [ -z "$(remote_head)" ] && [ -z "$(rec_node "$CT_CORE")" 
 else
     fail "from the worktree: rc=$RC remote=[$(remote_head)] $(tail -1 "$CASE/stderr")"
 fi
+
+# --- the verification re-runs -------------------------------------------------------
+#
+# A work item's child holding verification_attempts re-ran a failed command:
+# its re-run line lands in run/node/<node>'s reruns and in the new node PR's
+# Verification section, and the loop's next pass, reading the record, finds
+# it in the body without reading the child's session.
+
+np_case rerun-child
+ct_write_db
+fresh_repo rerun-child
+RR_HEAD=$(git -C "$WT" rev-parse HEAD)
+mkdir -p "$CASE/ctx/work-on-t-$CT_CORE-2"
+jq -cn --arg h "$RR_HEAD" '{attempt: 1, folder: 1, head: $h, merge_base: $h, exit: 1, status: "done",
+    reason: "flaky network test", archived_at: "2026-01-01T00:00:00Z",
+    commands: [{id: "unit", exit_status: 1, timed_out: false, duration_secs: 3, log: "attempts/1/0-unit.log"}]}' \
+    > "$CASE/ctx/work-on-t-$CT_CORE-2/verification_attempts"
+RR_LINE=$(printf 'Re-run attempt 1 at `%s`: `unit` failed; reason `flaky network test`.' "$(printf '%s' "$RR_HEAD" | cut -c1-12)")
+push_node
+if [ "$RC" -eq 0 ] && [ "$(remote_head)" = "$RR_HEAD" ]; then
+    pass "a node whose second work item re-ran is pushed"
+else
+    fail "rerun-child push: rc=$RC; $(tail -3 "$CASE/stderr")"
+fi
+[ "$(rec_node "$CT_CORE" | jq -c '[.reruns, .deferrals]')" = "$(jq -cn --arg l "$RR_LINE" '[[$l], []]')" ] \
+    && pass "run/node/<node> records the child's re-run line as reruns, beside an empty deferrals" \
+    || fail "rerun-child record: [$(rec_node "$CT_CORE")]"
+P2=$(part2)
+if grep -qx '## Verification' <<<"$P2" && grep -qxF "$RR_LINE" <<<"$P2" \
+    && ! grep -q 'Local verification did not run' <<<"$P2"; then
+    pass "the new node PR's Verification section carries the re-run line, with no deferral lines"
+else
+    fail "rerun-child part2: [$P2]"
+fi
+if bash "$SCRIPT_DIR/../../work-on/scripts/check-pr-output.sh" --rerun-record --session "work-on-t-$CT_CORE-2" \
+        --owned --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open >/dev/null 2>"$CASE/check.err"; then
+    pass "work-on's own --rerun-record check, over the child's ledger, passes the body node-push.sh wrote"
+else
+    fail "check-pr-output.sh --rerun-record refused the written body: $(cat "$CASE/check.err")"
+fi
+: > "$CASE/koto-calls.log"
+NEXT_OUT=$(cd "$REPO" && bash "$SCRIPT_DIR/coordinated-next.sh" --session "$S" --plan docs/plans/PLAN-t.md --slug t \
+    --repos "acme/repo-a,acme/repo-b" --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true 2>"$CASE/next-stderr")
+[ "$NEXT_OUT" = "evaluate:$CT_CORE" ] \
+    && pass "the loop's next pass finds the recorded re-run line in the node PR's body: evaluate:$CT_CORE" \
+    || fail "the loop's next pass over the re-run node: [$NEXT_OUT]; $(grep -v '^\[plan-to-tasks\]' "$CASE/next-stderr" | tail -2)"
+grep -q "work-on-t-" "$CASE/koto-calls.log" && fail "the loop read a work item's session for the re-run: $(grep -m1 "work-on-t-" "$CASE/koto-calls.log")" \
+    || pass "the loop's re-run check reads the run record, not the work item's session"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

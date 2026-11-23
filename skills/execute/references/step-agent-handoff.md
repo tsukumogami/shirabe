@@ -22,11 +22,16 @@ commands, tool calls, files to read or scope.
 | `{{CHECKOUT}}` | the absolute path of the owning session's own checkout |
 | `{{SHARED_BRANCH}}` | the settled branch the run's children commit to |
 | `{{PLUGIN_ROOT}}` | the resolved plugin root, `${CLAUDE_PLUGIN_ROOT}` |
+| `{{OWNER_SESSION}}` | the owning session, `execute-<plan-slug>`, as the owning session itself is named (single-pr template) |
+| `{{NEXT_STEPS}}` | the step ids of the PLAN's outlined steps whose only `waits_on` is this step, space-separated, each matching `^[a-z0-9][a-z0-9-]{0,62}$`; empty when there are none or when the run's `STEP_DRAFTS` is `off` (single-pr template) |
 
 The owning session fills each one from a value it computed itself (koto's child
-name, its own checkout, the settled branch, the resolved plugin path), never from
-PLAN or issue text. It starts no step agent when the settled branch has a
-character outside letters, digits, `.`, `_`, `/` and `-`.
+name, its own checkout, the settled branch, the resolved plugin path, its own
+session name), never from PLAN or issue text. The one exception is
+`{{NEXT_STEPS}}`, read from the PLAN's `waits_on` structure: each id goes in only
+after `step-draft.sh id <step>` accepts it, and none of the PLAN's prose does. It
+starts no step agent when the settled branch has a character outside letters,
+digits, `.`, `_`, `/` and `-`.
 
 On the coordinated path the same four names are filled differently, and the
 dispatch variables are added; "The coordinated template" below lists them.
@@ -57,6 +62,13 @@ How to drive it:
   stop and report `seats=unavailable`.
 - Never edit any step's entry in the PLAN. The session that started you details
   every step; a step agent edits no step's entry, its own included.
+- Once your child reaches a terminal, draft the entry of each step listed here:
+  {{NEXT_STEPS}} (none when the list is empty). For each, write the entry as it
+  should read after what your step landed (its goal, criteria, check, files) to a
+  `mktemp` file outside the checkout, store it with
+  `"{{PLUGIN_ROOT}}/skills/execute/scripts/step-draft.sh" write {{OWNER_SESSION}} <step> <file>`,
+  and remove the file. A draft is a proposal the session that started you checks
+  and rewrites; it changes nothing in the PLAN. Draft only the steps listed.
 - Never open, print or search any settings or credential file (for example a
   `.claude/settings*.json`, a `.env`, a token or key file), in the checkout or in
   the home directory. If you need a setting, say so in your report.
