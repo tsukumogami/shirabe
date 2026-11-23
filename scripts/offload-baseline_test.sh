@@ -434,8 +434,9 @@ TREE2="$TEST_DIR/tree-second"
 mkdir -p "$TREE2"
 git_fix archive "$SECOND" | tar -x -C "$TREE2"
 run count --tree "$TREE2" --manifest "$MISSING_STATE"
-if [ "$STATUS" -eq 0 ] && [ "$OUT" = "$(printf 'p\t0\t0')" ] \
-    && printf '%s' "$ERR" | grep -q "note: state 'beta' is not in skills/deliver/koto-templates/deliver.md"; then
+NOTED=0
+case "$ERR" in *"note: state 'beta' is not in skills/deliver/koto-templates/deliver.md"*) NOTED=1 ;; esac
+if [ "$STATUS" -eq 0 ] && [ "$OUT" = "$(printf 'p\t0\t0')" ] && [ "$NOTED" -eq 1 ]; then
     pass "count --tree: a state the tree no longer has counts as 0 bytes, with a note"
 else
     fail "count --tree: a state the tree no longer has counts as 0 bytes, with a note" "status $STATUS, got [$OUT], stderr: $ERR"
