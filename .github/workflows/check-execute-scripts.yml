@@ -198,6 +198,7 @@ jobs:
           bash skills/execute/scripts/worktree-isolation_test.sh
           bash skills/execute/scripts/node-cut_test.sh
           bash skills/execute/scripts/node-push_test.sh
+          bash skills/execute/scripts/node-push-rerun-adopt_test.sh
           bash skills/execute/scripts/child-read_test.sh
           bash skills/execute/scripts/repo-visibility_test.sh
           bash skills/execute/scripts/coordinated-visibility_test.sh
@@ -258,6 +259,13 @@ jobs:
       - name: Run shared deferral record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/shared-deferral-record_test.sh
+
+      # pr_finalization's rerun_recorded gate: its script through koto, gh
+      # and owned-pr.sh stubs with the real check-pr-output.sh, then over real
+      # child sessions, one holding a verification_attempts ledger.
+      - name: Run shared re-run record tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/shared-rerun-record_test.sh
 
       # The coordinated envelope's shape, read from the compiled
       # execute-coordinated.md: every edge into `merged` from

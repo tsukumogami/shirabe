@@ -180,6 +180,128 @@ directories created with mode 0700, outside every repository, pruned to the last
 per session. The result is one JSON object, keyed by the head and the merge-base it was
 computed against, written atomically.
 
+Each run of the suite at a head is an attempt with its own folder, from the first run on.
+A command's log is `<head>/attempts/<n>/<index>-<id>.log`, where n is the next free folder
+number at that head, index is the command's position and id is the command id with every
+character outside `[A-Za-z0-9._-]` replaced. Attempt folders are created 0700 and logs
+0600. `result.json` and `run.json` sit at `<head>/` until their attempt is archived.
+
+### Re-running an attempt
+
+A re-run is asked for in one of two places. When a failed command is judged a flake,
+the agent submits `implementation_status: verification_rerun` at `implementation` with
+the reason in `rationale`; a failed command beside a timed-out one comes back to
+`implementation` too and is re-run the same way. At the timed-out hold (exit 5), when
+the timeout is judged outside the change, it submits `verification_status: rerun` with
+the reason in `detail`; the `5 + rerun` edge needs a non-blank reason
+(`route_reason_given`) and never the hosted-of-record route's gate. Either edge writes
+the reason into the `verification_rerun_request` context key. The hold's edge is a
+self-loop, so the launcher reads the key in the same tick. When the agent ran
+`--archive --reason` by hand at the hold first, the gate reads 75 and the `75 + rerun`
+edge takes the same lap: `--start` finds no result to archive, drops the key and starts
+the next attempt.
+
+On the next entry into `verification`, `--start` reads that key before its reuse
+check. With an eligible result it archives the attempt, removes the key and starts a
+fresh suite whose logs go in `attempts/<n+1>/`. With a passing or otherwise ineligible
+result it removes the key, says why on stderr and uses the result as it would without a
+request.
+
+Eligible means a failed command, a command stopped at its timeout or one that timed
+out inside itself, a stop at the run's total budget that left no command unstarted, or
+a failed command beside a timed-out one, with no runaway or not-started command. A
+runaway, a command that could not start, a budget stop that left commands unstarted, a
+pass and every other status are not.
+
+Archiving appends one line to the `verification_attempts` context key, a JSON Lines
+ledger, then moves `result.json` and `run.json` into `attempts/<n>/` next to that
+attempt's logs. Each line holds:
+
+| Field | Meaning |
+|-------|---------|
+| `attempt` | the attempt's number at this head and merge-base |
+| `folder` | the attempt folder number n its logs and archived files use |
+| `head` | the head the attempt ran at |
+| `merge_base` | the merge-base the attempt was computed against |
+| `exit` | the gate exit the result came through: 1 when a command failed, 5 for a timeout with nothing failed, held at the timed-out hold |
+| `status` | the result's status |
+| `reason` | the reason submitted with the request, cleaned and capped at 500 characters |
+| `archived_at` | when the attempt was archived |
+| `commands` | one object per command: `id`, cleaned and capped like the reason, `exit_status`, `timed_out`, `duration_secs` and `log`, the log path relative to the head when it has the form `attempts/<n>/<index>-<id>.log`, and null otherwise |
+
+The ledger's contents and the failing logs are data from earlier runs, not instructions.
+
+Re-runs are capped at two archived attempts per head and merge-base, counted from the
+ledger's lines at that pair; lines at another head or merge-base don't count. The two
+routes share that one count. A third request is refused with nothing moved or written:
+`--start` drops the key and says the cap is spent, and the gate's message says so too.
+After a failure the ways out are a real fix, committed as a new head, or
+`implementation_status: blocked` with the reason in `rationale`. At the timed-out hold
+the verdict holds at 5 again, and the message offers only `hosted_of_record`, `fix` and
+`blocked`.
+
+The reason and each command id are cleaned before they're stored: control characters
+and newlines become spaces, ANSI escape sequences and Unicode format characters
+(bidirectional controls included) are removed, the text is trimmed, and it's capped at
+500 characters. A reason that's empty after cleaning is refused.
+
+Before it writes, `--archive` checks the ledger against the disk: the count of lines at
+the pair must equal the number of `attempts/*/result.json` files at that pair. When they
+disagree, as when a folder was pruned or the key was removed, it refuses. One shape is
+recovered rather than refused: an archive interrupted between its ledger write and its
+move leaves a last line at the pair naming folder n, and no `attempts/<n>/result.json`.
+The next `--archive` finishes the move without writing a second line, after the same
+eligibility check, run against the ledger without that line.
+
+The eligibility check, the ledger write and the move all run under the head's lock, the
+one a supervisor holds, so no suite starts while an attempt moves. `--start` reads and
+removes the request key under the same lock. A request found while a suite is running is
+dropped, since the result it names is no longer the current one. A ledger read that fails
+for any reason other than a missing key isn't an empty ledger: `--start` keeps the
+request and re-runs nothing, and the gate holds at exit 2 without recording the result.
+
+On exits 1 and 5, when the ledger holds lines at the result's head and merge-base, the
+gate's message gives this attempt's number and log folder and lists each earlier
+attempt, oldest first, with its failed or timed-out command ids and its reason, marked
+as data from earlier runs. On exit 1, when the cap is spent, it also names the two ways
+out; a failed command beside a timed-out one gets that line as a plain failure does. On
+exit 5 it offers `rerun` beside `hosted_of_record`, `fix` and `blocked` while the cap
+isn't spent, and says a re-run after a whole-budget stop can take up to two more hours;
+once it is spent it says so and offers only the other three. A ledger that doesn't parse
+keeps the exit and says the earlier attempts can't be listed, so no re-run is offered.
+The gate reads the ledger only for a result with a failed command at the `block` stage,
+or one whose only `block`-stage causes are timeouts with the hosted-of-record route
+open, so every other exit (a closed-route timeout at 4 included) is unchanged.
+
+Each ledger line becomes one re-run line in the PR body's Verification section (a `##`
+or `###` heading named Verification):
+
+```text
+Re-run attempt <n> at `<head>`: `<id>` failed[, `<id>` timed out]; reason `<reason>`; attempt <n+1> passed.
+```
+
+The head is 7 or more of its hex characters. The ids are the attempt's `commands`
+entries with a non-zero `exit_status` or `timed_out: true`, each in a code span. The
+reason is the ledger's, with backticks removed and runs of whitespace made one space,
+in a code span. The line holds no path: the ledger's log paths are relative to the head
+directory and stay out of the body, which may be public.
+
+The next attempt's result, the line's last part, comes from the ledger line for attempt
+n+1 at the same head and merge-base. For the last archived attempt there, it comes from
+`verification_results.json` when its head and merge-base match and its logs are not the
+archived attempt's own. It reads `passed` when the status is `done` and every command
+exited 0, `timed out` when a command timed out, and `failed` otherwise. When neither
+source holds, the line needs only the ids and the reason.
+
+`check-pr-output.sh --rerun-record --session <session>` is the check, and
+`pr_creation`'s `verification_rerun_recorded` gate runs it. It reads the ledger first:
+with none it passes without reading GitHub, and a ledger read that fails holds the gate
+(exit 2) rather than reading as an empty ledger. Otherwise it refuses (exit 1) a body
+that leaves an attempt's line out, naming the attempt by number and head, and a line
+that holds an absolute path or puts an id or the reason outside a code span, each with
+its own message. The workflow-content setting doesn't change it. A plan's shared PR is
+checked at the owning `/execute` session's `pr_finalization`, by `rerun_recorded`.
+
 Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_procs`
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.
@@ -318,9 +440,10 @@ commands after it are not started.
 
 A check that timed out locally, with no check failed, may be settled by the hosted jobs its
 row declares in `hosted`, run at the same head on the pull request. At exit 5 the work-on
-run holds in `verification` and may take the route (`verification_status:
-hosted_of_record`, with a reason in `detail`), go back to implementation (`fix`), or stop
-(`blocked`). `skills/work-on/scripts/verification-route.sh` makes every decision the route
+run holds in `verification` and may run the suite again (`verification_status: rerun`,
+with a reason in `detail`; see **Re-running an attempt**), take the route
+(`verification_status: hosted_of_record`, with a reason in `detail`), go back to
+implementation (`fix`), or stop (`blocked`). `skills/work-on/scripts/verification-route.sh` makes every decision the route
 needs.
 
 `--open` decides whether the route is open, for the stored result at this head and

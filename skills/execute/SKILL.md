@@ -132,12 +132,20 @@ Two more flags, on both paths:
   verification did not run, a `Reason: <reason>` line for each reason, and
   that hosted CI is the build of record. On a single-pr PLAN every child task
   gets both through the spawn, and under `include` `pr_finalization` holds
-  until the shared PR's body records it. On a
+  until the shared PR's body records it. Whatever the setting,
+  `pr_finalization` also holds until the shared PR's body carries each
+  child's re-run lines, one per verification attempt the child archived
+  (`rerun_recorded`, through `shared-rerun-record.sh`). On a
   coordinated PLAN, whatever the setting, the dispatch step gives both to every
   work item's child on every node; `node-push.sh` writes the section into each node PR it opens
   and refuses to push to a node PR already open that doesn't carry it (exit
   80), and the loop neither readies nor merges a node PR whose children
-  deferred until its body records it (`error:execute:deferral-record`).
+  deferred until its body records it (`error:execute:deferral-record`). The
+  same holds for re-runs on a coordinated PLAN: `node-push.sh` writes each
+  child's re-run lines into the `## Verification` section of a node PR it
+  opens and records them as the node's `reruns`, refuses to push to an open
+  node PR whose body lacks one (exit 82), and the loop neither readies nor
+  merges such a PR (`error:execute:rerun-record`).
   Unlike the bound, both are fixed
   for a live run, as in `/work-on`: a resume that attaches to it and leaves them
   out keeps them, and one that passes another value is koto's refusal. A
@@ -336,8 +344,8 @@ those answers through gates and routes on them itself: which PR the run owns
 (`orchestrator_setup`, `pr_finalization`, `plan_completion` and `ci_monitor`
 each look it up through `check-pr-output.sh --owned-pr`), whether the PR body,
 the shared branch's commits and its `docs/` visibility pass, and whether the
-body records every verification deferral the run carries
-(`pr_finalization`), the cascade's verdict (`plan_completion`, from the
+body records every verification deferral the run carries and has each
+child's re-run lines (`pr_finalization`), the cascade's verdict (`plan_completion`, from the
 `cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
 state, and whether GitHub reports the PR `MERGED` (`ci_monitor`), and the pause
 (`PAUSE_BEFORE_FINALIZE`). A failing output check holds the run in its state
