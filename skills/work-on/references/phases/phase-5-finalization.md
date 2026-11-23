@@ -41,9 +41,11 @@ and submit again:
 
 The same hold applies to an approved deferral at `deferral_approval`.
 
-A passing `ready_for_pr` goes straight to `pr_precheck`. Submit it with the two
-judgment calls as enums: `cleanup_done` (`removed` or `none_found`) and
-`design_diagram` (`updated` or `not_applicable`).
+A passing `ready_for_pr` goes straight to `pr_precheck`. Both judgment calls are
+required with it, as enums: `cleanup_done` (`removed` or `none_found`) and
+`design_diagram` (`updated` or `not_applicable`). A `ready_for_pr` that leaves
+either out matches no edge and holds, with every record in order. The same two
+fields are required with `approval_decision: approved` at `deferral_approval`.
 
 ## Auto-Skip
 

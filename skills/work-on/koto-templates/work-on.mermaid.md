@@ -47,7 +47,10 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pr_precheck : approval_decision: approved, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: updated, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: removed, design_diagram: not_applicable, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: none_found, design_diagram: updated, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, cleanup_done: none_found, design_diagram: not_applicable, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
@@ -55,7 +58,10 @@ stateDiagram-v2
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
     finalization --> check_exit : finalization_status: check_unsatisfiable, gates.commit_convention.exit_code: 1
-    finalization --> pr_precheck : finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    finalization --> pr_precheck : cleanup_done: removed, design_diagram: updated, finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    finalization --> pr_precheck : cleanup_done: removed, design_diagram: not_applicable, finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    finalization --> pr_precheck : cleanup_done: none_found, design_diagram: updated, finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    finalization --> pr_precheck : cleanup_done: none_found, design_diagram: not_applicable, finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     fix_determination --> implementation : gates.kind_route.exit_code: 0
     fix_determination --> reproduce : gates.kind_route.exit_code: 3

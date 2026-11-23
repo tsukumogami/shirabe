@@ -224,6 +224,11 @@ decision:
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
 
+Both ways out to the pull request, `ready_for_pr` at `finalization` and
+`approved` at `deferral_approval`, require the two pre-PR judgment calls with
+them: `cleanup_done` (`removed` or `none_found`) and `design_diagram` (`updated`
+or `not_applicable`). A submission that leaves either out holds the state.
+
 A planned split is the other way a pull request leaves its issue open: the run is
 started with `--delivery=partial --delivery-reason=<why>` (see **Initialize**), and
 the reason names the step this pull request delivers. That doesn't loosen
@@ -693,7 +698,8 @@ leg, since one leg answers one session.
   `code_route` gate, run by koto: 0 when the hint (`ISSUE_TYPE`) is `code` and
   `changed_paths.txt` names a path `review-level.sh classify` doesn't class as
   plain documentation, so the state takes the code route on entry with nothing
-  asked; 1 otherwise, and the agent answers `issue_type`; 64 usage.
+  asked; 1 otherwise, and the agent answers `issue_type`. Bad arguments also
+  exit 1, with a `route: ask` line, since the gate's edges name only 0 and 1.
   `scripts/issue-type-route_test.sh` is its harness.
 - `scripts/test-change.sh init|classify|note|seat|accept|decline|overrule|status|covered|record`
   — the held test change (`references/red-first.md`), the only writer of the

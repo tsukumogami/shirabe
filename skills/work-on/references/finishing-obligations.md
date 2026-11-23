@@ -68,8 +68,15 @@ enforced in the record.
 
 | Obligation | State | Field | Why a placeholder cannot satisfy it |
 |---|---|---|---|
-| The code was cleaned up | `finalization` | `cleanup_done` | A closed enum (`removed`, `none_found`), with the commit reviewed recorded in `pre_pr.md` and gated as `HEAD` or an ancestor of it. |
-| The design diagram was updated, or does not apply | `finalization` | `design_diagram` | A closed enum, with the path or the stated reason in `pre_pr.md`, and a path gated as a file in `HEAD`'s tree. |
+| The code was cleaned up | `finalization` / `deferral_approval` | `cleanup_done` | A closed enum (`removed`, `none_found`), required with `ready_for_pr` and with `approved`, with the commit reviewed recorded in `pre_pr.md` and gated as `HEAD` or an ancestor of it. |
+| The design diagram was updated, or does not apply | `finalization` / `deferral_approval` | `design_diagram` | A closed enum (`updated`, `not_applicable`), required with `ready_for_pr` and with `approved`, with the path or the stated reason in `pre_pr.md`, and a path gated as a file in `HEAD`'s tree. |
+
+koto's evidence schema can mark a field required for every submission, not
+for one value of another field, and it tests a field on an edge only for a
+value. So both routes to `pr_precheck` list each pair of the two enums' values
+as its own edge, four at `finalization` and four at `deferral_approval`, each
+with all five gates. A `ready_for_pr` or an `approved` that leaves either enum
+out matches none of them and holds.
 | What the cascade did | `cascade_run` | `cascade_status` | A closed enum. |
 | What the repository shows after the cascade | `cascade_run` | `post_state` | A closed enum of one success and five distinct causes, read from the verifier's exit code. |
 | The anchor and the finalization commit | `cascade_run` | `anchor_plan`, `finalization_commit` | A path and a sha, both re-derivable: the verifier reads the same commit independently, so a wrong value fails the state rather than decorating it. |
