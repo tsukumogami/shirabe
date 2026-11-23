@@ -814,7 +814,9 @@ if koto init "$S" --template "$WORKDIR/override-fixture/t.md" >/dev/null 2>&1; t
         | jq -r '[.. | objects | select(.kind? == "gate-pass") | .decider | "\(.kind):\(.handle.value)|\(.surface)|\(.link)"] | unique | join(",")')
     [ "$GOT" = "person:ada|relay|https://example.com/x" ] && pass "the recorded decision names person:ada, relay and the link" \
         || fail "the recorded decision has [$GOT]"
-    GOT=$(bash "$RL" report "$S" 2>/dev/null | awk -F'\t' 'NR == 2 { print $11 }')
+    # The column is found by its header name, `overrides`, not by position.
+    GOT=$(bash "$RL" report "$S" 2>/dev/null \
+        | awk -F'\t' 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "overrides") c = i } NR == 2 && c { print $c }')
     [ "$GOT" = 1 ] && pass "review-level.sh report counts the person override" \
         || fail "review-level.sh report counts [$GOT] overrides"
 else
