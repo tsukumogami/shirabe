@@ -71,5 +71,13 @@ jobs:
       - name: Closing step suite
         run: bash scripts/closing-step_test.sh
 
+      # The context reader, scripts/context-size.sh, against synthetic
+      # transcripts, and the thrash check, scripts/thrash-check.sh, against
+      # the reports it prints.
+      - name: Context reader and thrash check suites
+        run: |
+          bash scripts/context-size_test.sh
+          bash scripts/thrash-check_test.sh
+
       - name: Cargo test (workspace)
         run: cargo test --workspace
