@@ -9,6 +9,8 @@
 #   state-stored-set.sh --session S --run KEY VALUE --by WHO
 #   state-stored-set.sh --session S --run reports-to|cap VALUE --inferred SENTENCE --by WHO
 #   state-stored-set.sh --session S --run role manager|director --by WHO [--intervention dispatcher|person]
+#   state-stored-set.sh --session S --successor dispatching|dispatched|dispatch-failed|stranded TOPIC --by RUN
+#   state-stored-set.sh --session S --successor clear --by WHO
 #   state-stored-set.sh --session S --host KEY VALUE [--host KEY VALUE]...
 #   state-stored-set.sh --session S --rule-files FILE --by WHO
 #   state-stored-set.sh --session S --rotation FILE
@@ -107,6 +109,26 @@
 # run yet), the path --rule-files takes below; without it --run role needs a
 # found record, as every other --run key does. The only other writer of the
 # row is state-open.sh's seed. Readers read it through state-read.sh --run.
+#
+# --successor writes the run's one Run `successor` row, the successor this
+# run dispatched and how its dispatch stands, `<status> <topic>
+# <YYYY-MM-DD>` with the day written, its Set by RUN (the run that
+# dispatched it, which dispatch-worker.sh --successor names). `--run
+# successor` is a usage error (64): this mode is the row's only writer. TOPIC
+# is a dispatch topic (^[a-z0-9][a-z0-9-]*$, at most 64 characters) and RUN
+# a koto session name, else 65. Each status moves only from the row as
+# read: `dispatching` from no row, or from a `dispatch-failed` or `stranded`
+# row under another topic (a new attempt takes a new topic); `dispatched` and
+# `dispatch-failed` from a `dispatching` row of the same topic; `stranded`
+# from a `dispatched` row of the same topic. Any other move is refused (65),
+# naming the row as it stands, and nothing is written. `--successor clear`
+# removes the row, whatever it reads, and with no row writes and prints
+# nothing and exits 0: a successor's opener runs it on the record it took
+# over, when its --dispatched-by names the run in the row's Set by
+# (coordinate-open.sh). Each write is told as a `run` entry naming the row,
+# and a `dispatching` or `dispatched` one also names the successor's brief
+# (.niwa/dispatch-briefs/<topic>.md under the workspace root) and the role
+# the record's Run `role` row holds, which the brief renders.
 #
 # --rule-files FILE writes the `rules` rows of the files the session loaded
 # as rules, from rule-files.sh's list in FILE: one {label, path, digest}
@@ -388,6 +410,8 @@ set -uo pipefail
 PROG=state-stored-set
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= MODE=
+# --successor's status and topic.
+SSTATUS= STOPIC=
 KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL= RFILE=
 # --intake's brief label.
 ILABEL=
@@ -416,6 +440,8 @@ while [ $# -gt 0 ]; do
         --host) [ $# -ge 3 ] || usage; [ "$MODE" = host ] || setmode host
                 case "$2$3" in *$'\t'*|*$'\n'*) echo "$PROG: refused: a --host key or value holds a tab or a newline" >&2; exit 65 ;; esac
                 HOSTKV="$HOSTKV$2"$'\t'"$3"$'\n'; shift 3 ;;
+        --successor) [ $# -ge 2 ] || usage; setmode successor; SSTATUS=$2
+                     if [ "$2" = clear ]; then shift 2; else [ $# -ge 3 ] || usage; STOPIC=$3; shift 3; fi ;;
         --rotation) [ $# -ge 2 ] || usage; setmode rotation; RFILE=$2; shift 2 ;;
         --rule-files) [ $# -ge 2 ] || usage; setmode rule-files; RFILE=$2; shift 2 ;;
         --reasoning-file) [ $# -ge 2 ] || usage; setmode reasoning; RFILE=$2; shift 2 ;;
@@ -454,6 +480,9 @@ case "$MODE" in
          case "$KEY" in arguments|cap|coordinator|rules|briefs|friction|reports-to|role) ;;
              *) echo "$PROG: --run takes arguments, cap, coordinator, rules, briefs, friction, reports-to or role" >&2; exit 64 ;; esac ;;
     host) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    successor) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
+               case "$SSTATUS" in dispatching|dispatched|dispatch-failed|stranded|clear) ;;
+                   *) echo "$PROG: --successor takes dispatching, dispatched, dispatch-failed, stranded or clear" >&2; exit 64 ;; esac ;;
     rule-files) [ -n "$BY" ] && [ -r "$RFILE" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     rotation|reasoning) [ -r "$RFILE" ] && [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     reasoning-check) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -508,6 +537,16 @@ if [ "$MODE" = run ] && [ "$KEY" = role ]; then
     esac
     case "$BY" in *[[:cntrl:]]*) echo "$PROG: refused: --by for --run role is one line, with no line break or control character" >&2; exit 65 ;; esac
     [ "$(jq -rn --arg b "$BY" '$b | length')" -le 80 ] || { echo "$PROG: refused: --by for --run role is at most 80 characters" >&2; exit 65; }
+fi
+# The successor row's topic and who set it, checked before anything is read.
+if [ "$MODE" = successor ]; then
+    case "$BY" in *[[:cntrl:]]*) echo "$PROG: refused: --by for --successor is one line, with no line break or control character" >&2; exit 65 ;; esac
+    if [ "$SSTATUS" != clear ]; then
+        { [ "${#STOPIC}" -le 64 ] && [[ $STOPIC =~ ^[a-z0-9][a-z0-9-]*$ ]]; } \
+            || { echo "$PROG: refused: --successor takes a dispatch topic, ^[a-z0-9][a-z0-9-]*\$ (at most 64 characters)" >&2; exit 65; }
+        { [ "${#BY}" -le 200 ] && [[ $BY =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; } \
+            || { echo "$PROG: refused: --by for --successor names the run that dispatched it, a koto session name" >&2; exit 65; }
+    fi
 fi
 [ "$COUNTS" = 0 ] || { [ "$MODE" = rules ] && [ -z "$RIDS" ]; } || usage
 . "$HERE/state-common.sh"
@@ -1148,6 +1187,40 @@ standing)
     else
         ETEXT="$SID ($KIND${ON:+ on $ON}${UNTIL:+, until $UNTIL}): $WHAT. Owner: $OWNER.${RELAYED:+ Relayed by $RELAYED.}"
     fi
+    ;;
+successor)
+    OLDV=$(jq -r '[(.run // [])[] | select(.key == "successor") | .value][0] // ""' "$P") || lib_die2 "jq failed"
+    OLDS=${OLDV%% *} OLDT=${OLDV#* }
+    OLDT=${OLDT%% *}
+    if [ "$SSTATUS" = clear ]; then
+        [ -n "$OLDV" ] || exit 0
+        jq '.run = [(.run // [])[] | select(.key != "successor")]' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+        ETEXT="Run successor $OLDV cleared by $BY."
+    else
+        STANDS="the successor row reads ${OLDV:-nothing}"
+        case "$SSTATUS" in
+            dispatching)
+                if [ -n "$OLDV" ]; then
+                    case "$OLDS" in dispatch-failed|stranded) ;;
+                        *) refuse "$STANDS, a successor still pending; another is dispatched only once it is dispatch-failed or stranded" ;; esac
+                    [ "$OLDT" != "$STOPIC" ] || refuse "$STANDS; a new attempt takes a new topic, not $STOPIC"
+                fi ;;
+            dispatched|dispatch-failed)
+                [ "$OLDS" = dispatching ] && [ "$OLDT" = "$STOPIC" ] || refuse "$STANDS; $SSTATUS follows only a dispatching row of $STOPIC" ;;
+            stranded)
+                [ "$OLDS" = dispatched ] && [ "$OLDT" = "$STOPIC" ] || refuse "$STANDS; stranded follows only a dispatched row of $STOPIC" ;;
+        esac
+        VALUE="$SSTATUS $STOPIC ${NOW%%T*}"
+        jq --arg v "$VALUE" --arg b "$BY" --arg t "$NOW" \
+            '.run = ([(.run // [])[] | select(.key != "successor")] + [{key: "successor", value: $v, set_by: $b, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+        ETEXT="Run successor $VALUE set by $BY."
+        case "$SSTATUS" in
+            dispatching|dispatched)
+                SROLE=$(jq -r '[(.run // [])[] | select(.key == "role") | .value][0] // "none"' "$P") || lib_die2 "jq failed"
+                ETEXT="Run successor $VALUE set by $BY: the brief .niwa/dispatch-briefs/$STOPIC.md, role $SROLE." ;;
+        esac
+    fi
+    EKIND=run
     ;;
 end)
     ROW=$(jq -c --arg s "$ID" '[(.standing // [])[] | select(.standing == $s)][0] // empty' "$P")

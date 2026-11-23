@@ -462,13 +462,13 @@ printf '%s\n' 'rotation_role() {' "    jq '.run = [{key: \"role\", value: \"mana
 # forms: the writers, state-handover.sh, coordinate-open.sh, which reads the
 # role of the run a start continues, coordinate-report.sh, whose --record-line
 # prints it on the record line (Decision 3), and dispatch-worker.sh's
-# input_role alone, which writes a successor brief's role from it
+# input_role and successor_inputs alone, which write a successor brief's role from it
 # (Decision 2): the script's resolve_grant, and every function that one
 # calls, stays role-blind, so a grant never depends on a role. An entry
 # `<path>:<function>` pins a script with two paths to the function that may
 # read it, so a read in any other function of that script (or outside one)
 # fails, the readers' list below included.
-ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/coordinate-open.sh scripts/dispatch-worker.sh:input_role scripts/coordinate-report.sh"
+ROLE_ALLOW="scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/coordinate-open.sh scripts/dispatch-worker.sh:input_role scripts/dispatch-worker.sh:successor_inputs scripts/coordinate-report.sh"
 # ROLE_READERS: the scripts that read the Run section or the record at the
 # branch base this test landed on. Each may keep its whole reads for other rows,
 # and may read record/run directly; any other script that adds a direct
@@ -534,10 +534,12 @@ role_readers() {
         { print }'
 }
 RR=$(role_readers "$HERE/..") || RR="the reader check failed: $RR"
-[ -z "$RR" ] && pass "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and coordinate-report.sh read the Run role row, and only the listed readers read record/run" \
-    || fail "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and coordinate-report.sh read the Run role row, and only the listed readers read record/run" "$RR"
+[ -z "$RR" ] && pass "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and successor_inputs, and coordinate-report.sh read the Run role row, and only the listed readers read record/run" \
+    || fail "only the writers, state-handover.sh, coordinate-open.sh, dispatch-worker.sh's input_role and successor_inputs, and coordinate-report.sh read the Run role row, and only the listed readers read record/run" "$RR"
 grep -q '^scripts/dispatch-worker.sh	input_role	role-key	' <<<"$RH_ALL" && pass "dispatch-worker.sh's input_role reads it, a reader the check sees" \
     || fail "dispatch-worker.sh's input_role reads it, a reader the check sees" "$RH_ALL"
+grep -q '^scripts/dispatch-worker.sh	successor_inputs	role-key	' <<<"$RH_ALL" && pass "dispatch-worker.sh's successor_inputs reads it, a reader the check sees" \
+    || fail "dispatch-worker.sh's successor_inputs reads it, a reader the check sees" "$RH_ALL"
 grep -q '^scripts/coordinate-report.sh	-	run-read	' <<<"$RH_ALL" && grep -q '^scripts/coordinate-report.sh	-	role-key	' <<<"$RH_ALL" \
     && pass "coordinate-report.sh reads it through state-read.sh --run for the record line, a reader the check sees" \
     || fail "coordinate-report.sh reads it through state-read.sh --run for the record line, a reader the check sees" "$(grep coordinate-report <<<"$RH_ALL")"
@@ -548,7 +550,7 @@ grep -q '^scripts/coordinate-open.sh	[^	]*	run-read	' <<<"$RH_ALL" && pass "coor
 eq_fx() { [ "$2" = "$3" ] && pass "$1" || fail "$1" "want [$2], got [$3]"; }
 eq_fx "  ... and with coordinate-open.sh and coordinate-report.sh off the list, their reads fail the check" "scripts/coordinate-open.sh
 scripts/coordinate-report.sh" \
-    "$(role_readers "$HERE/.." "scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/dispatch-worker.sh:input_role" | cut -f1 | sort -u)"
+    "$(role_readers "$HERE/.." "scripts/state-schema.jq scripts/state-stored-set.sh scripts/state-open.sh scripts/state-handover.sh scripts/dispatch-worker.sh:input_role scripts/dispatch-worker.sh:successor_inputs" | cut -f1 | sort -u)"
 # into_fn <name> <function> <line>: a skill directory holding dispatch-worker.sh
 # with <line> added as the first line of <function>; prints what role_readers
 # reports there, path, function and form.
