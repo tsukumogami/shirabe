@@ -70,18 +70,20 @@ bl_session_ok "$SESSION" || usage
 # context key coord/merged_facts.json. Exits 2 when the holdings can't be
 # listed, so the tick is retried rather than refused on a guess.
 refuse_unit() {
-    local known
-    known=$(bash "$HERE/state-holding.sh" --session "$SESSION" --list 2>/dev/null \
-        | jq -c -L "$HERE" 'include "state-schema"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]') || {
-        echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
     DETAIL=$(mktemp "${TMPDIR:-/tmp}/merged-facts.XXXXXX") || exit 2
     # lib_emit exits through this trap. no_verified_head sets the only other
     # one; both functions end the script, so one invocation reaches at most
     # one of the two and neither trap replaces the other's file.
-    trap 'rm -rf "$DETAIL" "${ONCE:-}"' EXIT
-    jq -n --arg u "${UNIT:0:80}" --arg why "$1" --argjson known "$known" \
+    trap 'rm -rf "$DETAIL" "$DETAIL.known" "${ONCE:-}"' EXIT
+    # The accepted topics go to jq from a file, not argv: a long-lived
+    # record's holdings outgrow the 128 KiB one argument may hold on Linux.
+    bash "$HERE/state-holding.sh" --session "$SESSION" --list 2>/dev/null \
+        | jq -c -L "$HERE" 'include "state-schema"; [.[]? | select([(.pull_request // "") | pr_link] | length > 0) | .worker]' \
+        > "$DETAIL.known" && [ -s "$DETAIL.known" ] || {
+        echo "$PROG: the record's holdings could not be read" >&2; exit 2; }
+    jq -n --arg u "${UNIT:0:80}" --arg why "$1" --slurpfile k "$DETAIL.known" \
         --arg lead "the merged event's unit" --arg want "unit takes the dispatch topic of a holding with a pull request (its Worker), one of" \
-        '{verdict: "unknown-topic", field: "unit", value: $u, accepted: $known,
+        '$k[0] as $known | {verdict: "unknown-topic", field: "unit", value: $u, accepted: $known,
           reason: ($lead + " [" + $u + "] " + $why + "; " + $want + ": "
                    + (if ($known | length) == 0 then "none (no holding has a pull request yet)" else ($known | join(", ")) end))}' > "$DETAIL"
     echo "$PROG: refused: $(jq -r .reason "$DETAIL")" >&2
