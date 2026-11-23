@@ -135,7 +135,56 @@ a re-verifier `shown` and see both exit 0 again. `panel-scope_test.sh`,
 
 ### Step 3: no acceptance line, seat, person or overrule can count or hold a unit
 
-The seat, accept, decline, overrule, person path and acceptance-rule.sh are gone, old ledger lines are ignored, exit 3 means the panel retry budget is spent, and red-first.md, SKILL.md and the red-first PRD and design say so.
+**Goal**: The counting gates and `fix_green` answer only from the panels'
+record. The acceptance fallback steps 1 and 2 left (used while no panel had
+recorded) goes, so an edited test or observation pair no panel has judged is
+held as due rather than sent to a seat; `test-change.sh seat`, `accept`,
+`decline` and `overrule`, the person-required path and its key and tag, the
+seat brief and `scripts/lib/acceptance-rule.sh` are deleted; old acceptance
+lines in a ledger are ignored; exit 3 means the panel retry budget is spent;
+and every directive, reference, eval and document that described the seat
+says what replaced it. Covers PRD R1 to R5, R13 to R15, R18, R24, R26 and R27.
+
+**Acceptance Criteria**:
+
+- [ ] `grep -rnE "test-change\.sh (seat|accept|decline|overrule)" skills/ references/ scripts/`
+  finds nothing, `scripts/lib/acceptance-rule.sh` and its test don't exist,
+  and `test-change.sh seat <session>` exits 64 naming an unknown subcommand.
+- [ ] On a fixture unit with an edited test and no panel round recorded,
+  `test-change.sh status` exits 1 with a `held:` line naming the test as due,
+  and no line in its output tells the run to mint or commission a seat.
+- [ ] A ledger holding hand-written `seat`, `accept`, `decline` and `overrule`
+  lines for an edited test gives the same `status` exit code and output as the
+  same ledger without them; `test-change.sh record` lists them as legacy
+  history.
+- [ ] With an edited test held as due and `panel-retry-budget.sh --remaining`
+  reporting no retry left, `status` exits 3; with retries left it exits 1.
+- [ ] A fixture repository whose `CLAUDE.md` declares
+  `## Test Change Acceptance: person` gets the same `status` output as one
+  without the header, and `grep -rn "Test Change Acceptance" references/ scripts/ skills/`
+  finds nothing.
+- [ ] The work-on template names no seat, person acceptance, overrule or
+  decline limit in any directive, description or `failure_reason`, its
+  `tests_counted` command is byte-identical at `pass_counting` and
+  `ci_pass_counting`, and `scripts/validate-template-mermaid.sh` passes.
+- [ ] `skills/work-on/references/red-first.md` names no seat and describes the
+  due rule and the re-verifier; `docs/prds/PRD-red-first-fixes.md` and
+  `docs/designs/current/DESIGN-red-first-fixes.md` each carry a note naming the
+  acceptance seat, the person path, the overrule and the interim acceptance
+  rule as superseded by `docs/prds/PRD-acceptance-write-drift.md`.
+- [ ] No eval in `skills/work-on/evals/evals.json` asserts a seat is minted,
+  commissioned or briefed, and `test-change/held` in
+  `references/rule-registry.json` has fixtures that pass for the new holds.
+
+**Check**: Run the work-on suites the CI workflow `check-work-on-scripts.yml`
+runs, including `test-change_test.sh`, `test-change-routes_test.sh`,
+`red-first_test.sh`, `output-gates-routing_test.sh` and
+`scripts/rule-registry_test.sh`, and see them pass with the seat cases removed;
+then run the greps in the criteria above and see each find nothing.
+
+**Dependencies**: Step 2
+
+**Files**: `skills/work-on/scripts/test-change.sh`, `scripts/lib/acceptance-rule.sh`, `skills/work-on/scripts/panel-retry-budget.sh`, `skills/work-on/scripts/red-first.sh`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/SKILL.md`, `skills/work-on/references/red-first.md`, `references/rule-registry.json`, `skills/work-on/evals/evals.json`, `docs/prds/PRD-red-first-fixes.md`, `docs/designs/current/DESIGN-red-first-fixes.md`
 
 ### Step 4: a test fixed at ci_pass_counting goes back through the panels
 
