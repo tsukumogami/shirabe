@@ -51,9 +51,13 @@
 #             <panel>`, and, while no panel has recorded a seat for the unit,
 #             `<item> due: no panel has judged it`. Exit 3 when an item is
 #             held and panel-retry-budget.sh --remaining reports no retry
-#             left, so no further panel round can clear it; the template
-#             routes that to done_blocked. Exit 2 when the verdict record
-#             can't be read or --due-items can't decide.
+#             left, so no further panel round can clear it, or when no panel
+#             has recorded and koto's log shows the run already submitted
+#             `counting_status: declined` once (a unit routed as docs or
+#             task that went back and still reached no panel); the template
+#             routes that to done_blocked. Exit 2 when the verdict record,
+#             the retry record or koto's log can't be read, or --due-items
+#             can't decide.
 #   covered   read-only: exit 0 when no named item is held. red-first.sh
 #             check-green asks it for an observation pair
 #             (`observation:before`, `observation:after`), which is held with
@@ -127,7 +131,9 @@
 #       budget that can't decide, a koto older than the floor, a session
 #       listing that fails or doesn't parse, or a session bound to a work tree
 #       that isn't the run's work
-#   3   status only: an item is held and the panel retry budget is spent
+#   3   status only: an item is held and no further lap can clear it (the
+#       panel retry budget is spent, or the run went back once and still no
+#       panel has recorded)
 #   64  usage
 #   66  a koto context read or write failed
 #   75  the lock is held by a live writer; retry
@@ -697,6 +703,7 @@ judge_items() {
             esac
             printf '%s\t%s due: no panel has judged it\n' "$path" "$path"
         done < "$TMP/items" | LC_ALL=C sort -u > "$TMP/item_held"
+        NO_PANEL=1
         return 0
     fi
     rc=0
@@ -717,6 +724,36 @@ judge_items() {
             *) printf '%s\t%s %s for %s\n' "$path" "$path" "$(clean "$why")" "$panel" ;;
         esac
     done < "$TMP/due" > "$TMP/item_held"
+}
+
+NO_PANEL=""
+
+# went_back_unjudged <session>: 0 when the run has already submitted
+# `counting_status: declined` at pass_counting or ci_pass_counting while no
+# panel had recorded. A unit routed as docs or task that edits a test reaches
+# no panel, and going back once is its chance to route as code; a second hold
+# with still no panel on record means it didn't, and no lap on that route can
+# clear the items, so status ends the run (exit 3) rather than loop. The
+# count comes from koto's own log of the session (`koto session dir`); a log
+# that isn't there counts none, and one that can't be read is undecided.
+went_back_unjudged() {
+    local dir log n
+    dir=$(koto session dir "$1" 2>>"$ERRLOG") || undecided "koto session dir $1 failed, so the run's earlier counting laps can't be read"
+    log="$dir/koto-$1.state.jsonl"
+    [ -f "$log" ] || return 1
+    # A lap counts once it has left: a `declined` submission at a counting
+    # state followed by the transition out of that state. The submission
+    # this gate is being evaluated for has no transition yet, so it never
+    # counts against itself.
+    n=$(jq -Rn 'reduce (inputs | fromjson? | select(type == "object")) as $e ({pending: {}, n: 0};
+            if $e.type == "evidence_submitted"
+               and (($e.payload.state // "") == "pass_counting" or ($e.payload.state // "") == "ci_pass_counting")
+            then .pending[$e.payload.state] = (($e.payload.fields.counting_status // "") == "declined")
+            elif $e.type == "transitioned" and (.pending[$e.payload.from // ""] // false)
+            then .n += 1 | .pending[$e.payload.from] = false
+            else . end) | .n' "$log" 2>>"$ERRLOG") \
+        || undecided "koto's log of $1 could not be read"
+    [ "${n:-0}" -ge 1 ]
 }
 
 # budget_spent <session>: 0 when panel-retry-budget.sh --remaining reports no
@@ -761,9 +798,14 @@ cmd_status() {
         exit 0
     fi
     local spent=0
-    if [ -s "$TMP/item_held" ] && budget_spent "$s"; then
-        spent=1
-        echo "budget spent: panel-retry-budget.sh --remaining reports no retry left, so no further panel round can clear these items" >> "$TMP/held"
+    if [ -s "$TMP/item_held" ]; then
+        if budget_spent "$s"; then
+            spent=1
+            echo "budget spent: panel-retry-budget.sh --remaining reports no retry left, so no further panel round can clear these items" >> "$TMP/held"
+        elif [ -n "$NO_PANEL" ] && went_back_unjudged "$s"; then
+            spent=1
+            echo "no panel reached: the run already went back once with these items held and still no panel has recorded, so its route reaches no panel that can clear them" >> "$TMP/held"
+        fi
     fi
     sed 's/^/held: /' "$TMP/held"
     rf_finding test-change/held "$(paste -sd ';' "$TMP/held" | sed 's/;/; /g')"

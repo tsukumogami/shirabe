@@ -122,6 +122,13 @@ case "$1" in
         # `session list`: one {id, execution_dir} per session under
         # $SHIM_STORE, the directory read from its execution_dir file and left
         # out when there is none. SHIM_LIST_FAIL makes the listing fail.
+        # `session dir <s>`: the session's directory, where its koto log
+        # (koto-<s>.state.jsonl) is kept.
+        if [ "$2" = dir ]; then
+            [ -d "$SHIM_STORE/$3" ] || { echo "shim: no session $3" >&2; exit 2; }
+            printf '%s\n' "$SHIM_STORE/$3"
+            exit 0
+        fi
         [ "$2" = list ] || { echo "shim: unsupported $*" >&2; exit 2; }
         [ -z "${SHIM_LIST_FAIL:-}" ] || { echo "shim: session list failed" >&2; exit 1; }
         for d in "$SHIM_STORE"/*/; do
@@ -388,6 +395,29 @@ printf '# again\n' >> tests/greet_test.sh && git commit -q -am "test: again"
 printf 'not a record line\n' > "$STORE/$S/panel_retries"
 run status "$S"
 eq "a retry record that can't be read: exit 2" 2 "$RC"
+
+# A unit no panel has judged, sent back once already (a docs or task route
+# that never reaches a panel): a second hold ends the run (exit 3) instead of
+# looping.
+S=nopanel
+start "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+run status "$S"
+eq "no panel, never sent back: exit 1" 1 "$RC"
+jq -nc '{type: "evidence_submitted", payload: {state: "pass_counting", fields: {counting_status: "declined"}}}' \
+    > "$STORE/$S/koto-$S.state.jsonl"
+run status "$S"
+eq "a declined submission still being evaluated doesn't count against itself: exit 1" 1 "$RC"
+jq -nc '{type: "transitioned", payload: {from: "pass_counting", to: "implementation"}}' >> "$STORE/$S/koto-$S.state.jsonl"
+run status "$S"
+eq "no panel, sent back once already: exit 3" 3 "$RC"
+has "no panel, sent back once: held says no panel was reached" "held: no panel reached: the run already went back once" "$OUT"
+judge "$S" "$R" tests/greet_test.sh
+printf '# again\n' >> tests/greet_test.sh && git commit -q -am "test: again"
+run status "$S"
+eq "a panel on record, the same declined lap behind it: exit 1, the panels re-judge" 1 "$RC"
+has "a panel on record: held as due for it" "held: tests/greet_test.sh due for scrutiny" "$OUT"
 
 # --- legacy lines ----------------------------------------------------------------------
 # Seat, accept, decline, refuse and overrule lines a run wrote before the

@@ -363,6 +363,27 @@ if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_R
 fi
 
 # ==============================================================================
+echo "--- a test edit routed as a task twice: no panel ever reached, done_blocked"
+
+S=tc_task_loop
+if walk "$S" 2 light --var VERIFICATION=hosted-ci --var "VERIFICATION_DEFERRAL_REASON=the fixture has no CI"; then
+    drop_mark
+    git commit -q -am "feat: drop the exclamation mark"
+    tick "$S" '{"implementation_status":"complete"}'
+    tick "$S" '{"issue_type":"task"}'
+    expect_state "routed as a task, the edited test is held" pass_counting
+    tick "$S" '{"counting_status":"declined"}'
+    expect_state "declined goes back to implementation" implementation
+    tick "$S" '{"implementation_status":"complete"}'
+    tick "$S" '{"issue_type":"task"}'
+    expect_state "routed as a task again, with still no panel on record" done_blocked
+    case "$(koto context get "$S" failure_reason 2>/dev/null)" in
+        *"still reached no panel"*) pass "the failure reason says no panel was reached" ;;
+        *) fail "failure_reason is [$(koto context get "$S" failure_reason 2>/dev/null)]" ;;
+    esac
+fi
+
+# ==============================================================================
 echo "--- a level raise after fix_determination keeps the fix"
 
 # unit_kind <session>: UNIT_KIND as the session's event log last set it.

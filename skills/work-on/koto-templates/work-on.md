@@ -2199,19 +2199,23 @@ states:
     #                  the panels' record through panel-scope.sh --due-items.
     #                  No line of test_change_ledger.jsonl but its header
     #                  counts or holds anything. Exit 1 holds (finding
-    #                  test-change/held), 2 can't decide, 3 holds with the
-    #                  panel retry budget spent (panel-retry-budget.sh
-    #                  --remaining reports none left).
+    #                  test-change/held), 2 can't decide, 3 holds with no lap
+    #                  left to clear it: the panel retry budget is spent
+    #                  (panel-retry-budget.sh --remaining reports none left),
+    #                  or the run already went back once with no panel on
+    #                  record, a docs or task route that never reaches one.
     #
     # A held run sends itself back with `declined`: implementation, whose
     # clear_on_entry drops the panels' stale results, then the panels again,
     # where --plan plans a re-verifier for each due item and the panels'
     # seats or re-verifier judge it. A unit routed as docs or task that edits
     # a test has no panel to judge it; it goes back the same way and routes
-    # as code. check-green compares the green's head with HEAD, and status
-    # compares each judgment's content with HEAD's, so a later commit holds
-    # again. A hold the retry budget can no longer clear (exit 3) goes to
-    # done_blocked with no evidence. Nothing here waits for a person.
+    # as code; if it reaches this hold again with still no panel on record,
+    # status exits 3 rather than let it loop. check-green compares the
+    # green's head with HEAD, and status compares each judgment's content
+    # with HEAD's, so a later commit holds again. A hold no further lap can
+    # clear (exit 3) goes to done_blocked with no evidence. Nothing here
+    # waits for a person.
     #
     # A held run that finds a gap in its own tests before the panels have
     # judged them (an assertion narrowed too far, a case left unchecked)
@@ -2259,7 +2263,7 @@ states:
         when:
           gates.tests_counted.exit_code: 3
         context_assignments:
-          failure_reason: "pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and the panel retry budget is spent, so no further panel round can clear it. The panels' record is in context as verdict_ledger.json."
+          failure_reason: "pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and no further lap can clear it: the panel retry budget is spent, or the run already went back once and still reached no panel. The panels' record is in context as verdict_ledger.json."
       - target: implementation
         when:
           gates.tests_counted.exit_code: 0
@@ -3308,7 +3312,7 @@ states:
         when:
           gates.tests_counted.exit_code: 3
         context_assignments:
-          failure_reason: "ci_pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and the panel retry budget is spent, so no further panel round can clear it. The panels' record is in context as verdict_ledger.json."
+          failure_reason: "ci_pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and no further lap can clear it: the panel retry budget is spent, or the run already went back once and still reached no panel. The panels' record is in context as verdict_ledger.json."
       - target: ci_monitor
         when:
           gates.tests_counted.exit_code: 0
@@ -4375,9 +4379,11 @@ the observation pair), so record that note while implementing
 (`test-change.sh note`). Nothing here waits for a person, and nothing you write
 into the ledger counts a test.
 
-When `status` exits 3 (`held: budget spent: ...`), an item is still held and the
-panel retry budget is spent, so no further panel round can clear it: the run ends
-at `done_blocked` on the next tick with no evidence. `held: uncommitted changes`
+When `status` exits 3, an item is still held and no further lap can clear it: the
+panel retry budget is spent (`held: budget spent: ...`), or the run already went
+back once with the items held and still no panel has recorded (`held: no panel
+reached: ...`), which is what a unit that keeps routing a test edit as `docs` or
+`task` reaches. The run ends at `done_blocked` on the next tick with no evidence. `held: uncommitted changes`
 means the work tree has changes the gate can't classify: commit them. `held: no
 header` means the ledger `test_change_ledger.jsonl` was never started at
 `fix_determination`; that can't be fixed here. `pr_precheck` runs the same status
@@ -4593,7 +4599,7 @@ One more gate checks what the branch carries, and holds the state until it passe
 
 An exit 2 means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` it passes at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
 
-`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one the panels judged, holds here (`held:` lines name the file and the panel it is due for). Submit `precheck_status: recount` to go back to `pass_counting`, which sends it back through the panels as before; nothing else moves the run past this gate while it holds. `held: budget spent` (the gate exits 3) also takes `recount`, and `pass_counting` then ends the run at `done_blocked`.
+`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one the panels judged, holds here (`held:` lines name the file and the panel it is due for). Submit `precheck_status: recount` to go back to `pass_counting`, which sends it back through the panels as before; nothing else moves the run past this gate while it holds. A hold the gate exits 3 on (`held: budget spent` or `held: no panel reached`) also takes `recount`, and `pass_counting` then ends the run at `done_blocked`.
 
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 
@@ -4890,7 +4896,9 @@ on the passing path you submit nothing.
   for a panel that hasn't judged it at its content now, or under an open
   weakens or not-shown finding. Submit `counting_status: declined`, back to
   `ci_monitor`, where the edit is reworked or reverted and pushed. When `status`
-  exits 3 the panel retry budget is spent and the run ends at `done_blocked`.
+  exits 3 no further lap can clear the hold (the panel retry budget is spent,
+  or the run went back once and still no panel has recorded) and the run ends
+  at `done_blocked`.
 
 Once both pass, the `is_root` gate decides where the run goes: it runs
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which

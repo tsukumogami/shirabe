@@ -163,8 +163,11 @@ where a weakening edit is reworked or reverted, and goes through the panels
 again, whose re-verifier judges what is due. A unit routed as `docs` or `task`
 runs no panel, so an edit it makes to a test is held as due until the run is
 routed as `code`. Nothing waits for a person. `status` exits 3 when an item is
-held and `panel-retry-budget.sh --remaining` reports no retry left, since no
-further panel round can clear it, and the run ends at `done_blocked`.
+held and no further lap can clear it, and the run ends at `done_blocked`: when
+`panel-retry-budget.sh --remaining` reports no retry left, and when the run
+already went back once (`counting_status: declined`, read from koto's log of
+the session) and still no panel has recorded, the docs or task route that
+never reaches one.
 
 ### The ledger
 

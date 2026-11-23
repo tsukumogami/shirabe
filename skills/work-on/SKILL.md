@@ -187,7 +187,8 @@ the rules; this is the route.
   held run submits `counting_status: declined` and goes back through
   implementation to the panels, whose re-verifier judges what is due; nothing
   waits for a person. When `panel-retry-budget.sh --remaining` reports no retry
-  left, `status` exits 3 and the run ends at `done_blocked`. A run that finds a
+  left, or the run already went back once and still no panel has recorded,
+  `status` exits 3 and the run ends at `done_blocked`. A run that finds a
   gap in its own tests while held submits `counting_status: test_gap`, naming
   the gap: it returns to implementation for a test-only fix, which the first
   panel's re-verifier judges before verification runs again. A unit that only
