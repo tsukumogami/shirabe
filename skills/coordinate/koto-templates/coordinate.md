@@ -1863,7 +1863,7 @@ states:
         description: stopped after the worker's session was stopped by its id; removed when its instance and job are already gone, torn down outside the teardown pass; kept when the worker stays.
       handoff:
         type: string
-        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one. A removed may leave it out when the worker is gone and never wrote one; teardown_handoff then checks that the worker is over and the pass records an entry in place of the link.
+        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one. A unit that ended with no pull request puts it on the unit's issue. A removed may leave it out when the worker is gone and never wrote one; teardown_handoff then checks that the worker is over and the pass records an entry in place of the link.
     transitions:
       - target: teardown_inventory
         when:
@@ -4078,6 +4078,16 @@ Claude Code lists no job for its session, that session's job reads finished,
 and every koto session that ran in the instance is cancelled or has had no
 event for 10 minutes. A live worker refuses; a session log that can't be read
 seals nothing; tick again. A `stopped` with no link is still refused.
+
+A unit that ended with no pull request (a report-only unit, a worker stopped
+before it pushed, an open that failed), stopped or removed, is sealed ready
+when its handoff link is a comment on the unit's issue and its holding names
+no branch, or one GitHub shows with no commit beyond the default branch. The
+verdict says `pr none` beside the link, with `branch none` or the branch. A
+branch with a commit beyond its base, an unmerged pull request's included,
+is refused, as is a link anywhere but the issue. `--retire` then removes the
+row merged or not, and abandons a leg-bound row's request with the handoff
+link as its rationale.
 
 ## promote
 

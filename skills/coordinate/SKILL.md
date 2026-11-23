@@ -775,6 +775,14 @@ states never ask you to do these steps by hand.
   When no pull request of it merged either, the verdict says `pr none`
   beside `handoff none`, and `--retire` also releases a leg-bound row's
   leg by abandoning its request.
+  A unit that ends with no pull request (a report-only spike, a worker
+  stopped before it pushed, an open that failed) goes through the same
+  states, stopped or removed, with its handoff comment on the unit's
+  issue: the seal reads its holding's branch, if it names one, and refuses
+  when GitHub shows a commit on it beyond the default branch. The verdict
+  says `pr none` with a `branch` line beside the link, and `--retire`
+  removes the row merged or not and releases a leg-bound row's leg with the
+  handoff link in the abandon's rationale.
   Before the destroy the pass writes the unit's `cost` entry into the record,
   posting it on the unit's pull request or issue only where that repository
   opts in (`references/unit-cost.md`), which can add up to two minutes, so a
