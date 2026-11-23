@@ -447,13 +447,16 @@ back from the session id Claude Code hands it:
   wiped at a reboot or logout, which a long session can outlive, so this
   ledger doesn't use it.
 - **What.** One `key: value` line each for the koto session, the note key,
-  the branch and the pull request. Then one `skill:` line per active skill,
-  outermost first, each with the arguments it was invoked with and the path
-  of its `SKILL.md` under the plugin root the session started on. For
-  example, `skill: shirabe:deliver handoff-brief --no-merge
-  <root>/skills/deliver/SKILL.md`, then the same for `shirabe:scope`. The
-  session passes the skill lines; `note` checks each path exists under one
-  plugin root.
+  the branch, the repository top-level `note` ran in (left out when it isn't
+  run in a work tree) and the pull request. The hook reads the branch's
+  commits with `git -C` in that repository when it is still a work tree that
+  isn't a symlink, and falls back to its own working directory otherwise.
+  Then one `skill:` line per active skill, outermost first, each with the
+  arguments it was invoked with and the path of its `SKILL.md` under the
+  plugin root the session started on. For example, `skill: shirabe:deliver
+  handoff-brief --no-merge <root>/skills/deliver/SKILL.md`, then the same for
+  `shirabe:scope`. The session passes the skill lines; `note` checks each
+  path exists under one plugin root.
 - **Trust.** A hook accepts an entry only when its koto session matches
   `KOTO_SESSION` where that is set, and every field passes its grammar.
 - **Cleanup.** Each `note` replaces its own entry, and removes entries older
@@ -509,7 +512,8 @@ the hook rather than looked up on `PATH` at every compaction, and exits 0
 silently if that binary is gone. Both hooks check the session id from their
 input, and the koto session and note key read from the ledger, against their
 grammars before using them. The pre-compact hook runs its `git` calls with
-`-c core.fsmonitor=false` and `-c core.hooksPath=/dev/null`. niwa writes them into instance settings at apply with no niwa
+`-c core.fsmonitor=false`, `-c core.hooksPath=/dev/null` and
+`-c log.showSignature=false`, and with `GIT_NO_LAZY_FETCH=1` and an empty `GIT_ALLOW_PROTOCOL` set. niwa writes them into instance settings at apply with no niwa
 change, beside its own compact-matched hooks. Without niwa, a person adds the
 same two entries to their own settings. A binary subcommand keeps the hook's
 path the same across plugin versions, which a script inside the versioned
@@ -1046,3 +1050,9 @@ reference states each.
   in the job's scratch directory, and `instance:<relative path>` is a loose
   file at `--instance`. A path relative to a root can't be read back without
   knowing which root it is relative to, and a brief can name files from both.
+- 2026-11-23: The ledger entry records the repository top-level `note` ran
+  in, and the pre-compact hook runs its branch `git` calls there, falling back
+  to its own working directory when that path is absent or no longer a work
+  tree. The stale flag must work for a session rooted outside the repository,
+  which is how dispatched workers run; read from the hook's working directory
+  alone, such a session's branch input could never be checked.
