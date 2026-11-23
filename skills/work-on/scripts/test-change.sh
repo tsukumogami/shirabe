@@ -762,7 +762,8 @@ budget_spent() {
     local out rc=0 left
     out=$("$HERE/panel-retry-budget.sh" --remaining "$1" 2>>"$ERRLOG") || rc=$?
     [ "$rc" = 0 ] || undecided "panel-retry-budget.sh --remaining could not read the retry record (exit $rc)"
-    left=$(printf '%s\n' "$out" | sed -n 's/^remaining=\([0-9][0-9]*\) .*/\1/p' | head -n 1)
+    left=$(sed -n 's/^remaining=\([0-9][0-9]*\) .*/\1/p' <<< "$out")
+    left=${left%%$'\n'*}
     [ -n "$left" ] || undecided "panel-retry-budget.sh --remaining printed no count: [$(clean "$out")]"
     [ "$left" -eq 0 ]
 }
