@@ -645,7 +645,16 @@ in a file (`state-write.sh --state-file <file>`), never by writing the
 session's keys by hand. Build the file in a private directory of your own,
 readable only by you. The write script compares the state's `written` time
 with the live record's, refuses with `record-changed` (exit 12) when someone
-wrote since, and stamps its own time on what it writes. Every pull request in
+wrote since, and stamps its own time on what it writes, always a time after
+the version it replaces. The compare and the keys' write happen under the
+record's write lock, a file in the session's directory that every writer on
+the host takes, so two writers can't both pass the compare: one that finds
+the lock held waits for it, then compares, and one still waiting after
+`CORE_LOCK_WAIT` seconds (60) is refused `record-changed` too. A refusal is
+re-read and redone, never dropped. A lock whose holder is gone is taken over,
+and a `pending` mark left while no writer holds the lock is a writer that
+stopped part way: readers read past it and the next write replaces it.
+Every pull request in
 the record is a link. Follow the host repository's conventions (its
 CLAUDE.md) for commit messages and bodies.
 
