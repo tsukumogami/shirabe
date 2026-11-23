@@ -531,8 +531,8 @@ holds.
 roadmap to v4. A coordinator from an earlier release reads a v4 roadmap as
 having no milestones. The release notes,
 [Completed and Verified milestone states](../../../docs/guides/RELEASE-NOTES-completed-verified-states.md),
-give the whole order: install, `shirabe roadmap migrate --dry-run`, migrate,
-then `shirabe roadmap populate`.
+give the whole order: install, a dry run of the roadmap migrate command,
+the migration itself, then a populate pass.
 
 #### The five statuses
 
