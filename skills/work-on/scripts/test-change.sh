@@ -45,7 +45,7 @@
 #             existing header is left alone and the exit is 0.
 #   classify  the unit's test files, one `<label>\t<path>\t<digest>` row each
 #             (scripts/lib/test-classify.sh over impl_base..HEAD with the rules
-#             copy fix_determination's action stored): `added` (new, or only gaining
+#             copy review-level.sh init stored): `added` (new, or only gaining
 #             lines), `edited` (losing a line, deleted, binary, or a rename
 #             that changed a line) or `unchanged`. For a fix with a red, a
 #             reproducing test or harness file whose blob differs from the one
@@ -630,7 +630,7 @@ compute_items() {
     [ -d "$H_WORKTREE" ] || undecided "the run's work tree [$H_WORKTREE] is gone"
     head=$(G rev-parse -q --verify "HEAD^{commit}" 2>>"$ERRLOG") || undecided "HEAD names no commit in $H_WORKTREE"
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
-    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; fix_determination's action stores it"
+    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review-level.sh init stores it, in analysis's action"
 
     # The test rows, with a fix's reproducing tests and harness files changed
     # since the red ran labelled edited too (test_classify_unit).
@@ -831,7 +831,7 @@ cmd_init() {
     head=$(git rev-parse -q --verify "HEAD^{commit}") || undecided "HEAD names no commit"
     top=$(git rev-parse --show-toplevel 2>>"$ERRLOG") || undecided "not inside a git work tree"
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
-    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; fix_determination's action stores it"
+    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review-level.sh init stores it, in analysis's action"
 
     # Where the unit started: impl_base must be one of these, so neither a
     # later nor an older base narrows the test class. HEAD counts because

@@ -30,16 +30,18 @@
 # <floor>, <ceiling> and the <level> of facts/check/agree/slice may be empty (an
 # unset template variable); <level> for set must be one of the three names.
 #
-#   init    run by fix_determination's action, before anything is
-#           implemented. Stores the bound in
+#   init    run by analysis's action as the run enters analysis, and again
+#           by fix_determination's, where it is a no-op unless analysis's
+#           failed and was recovered by hand. Stores the bound in
 #           `review_level_bound.json`, the acceptance-criteria text in
 #           `review_level_criteria.txt` and a copy of the rules file in
 #           `review_level_rules.tsv`, then appends one `bound` line. A second
-#           run finds the `bound` line and writes nothing.
+#           run finds the `bound` line and writes nothing, except the
+#           criteria copy when the first run found no context.md and one
+#           exists now.
 #   set     run by the agent, to raise (or, with a reason, lower) the level.
-#           Refused until init has recorded the bound, which happens as the
-#           run passes fix_determination: a level is set from reproduce or
-#           implementation on, never at analysis. Decides the event from the
+#           Refused until init has recorded the bound, which analysis's
+#           action does: a level is set from analysis on. Decides the event from the
 #           ledger's last level, the bound and the recorded facts:
 #             no level yet  choose; refused below the bound's floor, above
 #                           its ceiling without --reason (with one it adds
@@ -442,6 +444,30 @@ session_criteria() {
 
 # ---------------------------------------------------------------- init --------
 
+# store_criteria <session>: stores the acceptance-criteria copy once, from
+# context.md, when no copy is stored yet and context.md exists. With no
+# context.md yet it stores nothing, so a later init (fix_determination's,
+# after analysis's) stores it once context.md is there, rather than a copy of
+# nothing that every later facts call would read as changed criteria.
+store_criteria() {
+    local rc=0
+    ctx_has "$1" "$CRITERIA_KEY" || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) ;;
+        *) die 66 "could not read $CRITERIA_KEY" ;;
+    esac
+    rc=0
+    ctx_has "$1" context.md || rc=$?
+    case "$rc" in
+        0) ;;
+        1) return 0 ;;
+        *) die 66 "could not read context.md" ;;
+    esac
+    session_criteria "$1" "$WORK/criteria" || die 66 "could not read context.md"
+    ctx_put "$1" "$CRITERIA_KEY" "$WORK/criteria" || die 66 "could not write $CRITERIA_KEY"
+}
+
 cmd_init() {
     [ $# -eq 3 ] || usage "init takes <session> <floor> <ceiling>"
     local s="$1" floor="$2" ceiling="$3"
@@ -451,6 +477,7 @@ cmd_init() {
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
     if has_event "$WORK/ledger" bound; then
+        store_criteria "$s"
         exit 0
     fi
     load_rules "$RULES_SHIPPED"
@@ -458,9 +485,8 @@ cmd_init() {
     jq -nc --arg f "$floor" --arg c "$ceiling" \
         '{floor: (if $f == "" then null else $f end), ceiling: (if $c == "" then null else $c end)}' \
         > "$WORK/bound"
-    session_criteria "$s" "$WORK/criteria" || die 66 "could not read context.md"
     ctx_put "$s" "$BOUND_KEY" "$WORK/bound" || die 66 "could not write $BOUND_KEY"
-    ctx_put "$s" "$CRITERIA_KEY" "$WORK/criteria" || die 66 "could not write $CRITERIA_KEY"
+    store_criteria "$s"
     ctx_put "$s" "$RULES_KEY" "$RULES_SHIPPED" || die 66 "could not write $RULES_KEY"
 
     # The bound line goes last: its presence is what says init finished.
@@ -549,7 +575,7 @@ cmd_set() {
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
     has_event "$WORK/ledger" bound \
-        || refuse "no bound recorded yet: koto records it as the run passes fix_determination, so set the level from reproduce or implementation on"
+        || refuse "no bound recorded yet: koto records it as the run enters analysis, so set the level from analysis on (tick into analysis first)"
     ctx_get "$s" "$BOUND_KEY" "$WORK/bound" || die 66 "could not read $BOUND_KEY"
     local bfloor bceil
     bfloor=$(jq -r '.floor // ""' "$WORK/bound")
@@ -989,7 +1015,7 @@ cmd_set_from_facts() {
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
     has_event "$WORK/ledger" bound \
-        || refuse "no bound recorded yet: fix_determination's action records it with review-level.sh init"
+        || refuse "no bound recorded yet: analysis's action records it with review-level.sh init"
     ctx_get "$s" "$BOUND_KEY" "$WORK/bound" || die 66 "could not read $BOUND_KEY"
     local bfloor bceil
     bfloor=$(jq -r '.floor // ""' "$WORK/bound")

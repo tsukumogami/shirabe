@@ -135,8 +135,9 @@ variables:
       (../references/review-levels.md). Nobody chooses it up front:
       review_level_check's action sets it from the facts of the change, within
       the coordinator's bound, with review-level.sh set-from-facts, and the
-      agent can raise it with review-level.sh set once the run is past
-      fix_determination. Those two are the only things that change it: each
+      agent can raise it with review-level.sh set from analysis on, once
+      analysis's action has recorded the bound. Those two are the only things
+      that change it: each
       rebinds the variable through `koto init --attach-live` and appends to
       the review_level.jsonl ledger in the same call. review_level_check
       routes on the ledger's level (its level_route gate), since a rebind in
@@ -152,8 +153,9 @@ variables:
   REVIEW_FLOOR:
     description: >-
       The lowest review level a coordinator allows, from --review-floor.
-      review-level.sh init records it once, in fix_determination's action.
-      Not rebindable: a bound doesn't move inside a run.
+      review-level.sh init records it once, in analysis's action (and
+      fix_determination's, a no-op safety net). Not rebindable: a bound
+      doesn't move inside a run.
     required: false
     pattern: ^(light|standard|full)?$
   REVIEW_CEILING:
@@ -726,19 +728,34 @@ states:
     # (it guards routes that must not be taken without commits), so the
     # fallback asks for the key before the analysis evidence.
     #
+    # The action then records the review-level bound (review-level.sh init):
+    # the coordinator's REVIEW_FLOOR and REVIEW_CEILING, the acceptance-
+    # criteria copy from context.md (which setup has written by now) and the
+    # rules copy. Recording it here is what lets the agent raise the level
+    # with review-level.sh set from analysis on, before anything is
+    # implemented; set is refused until the bound exists. Nobody chooses a
+    # level: review_level_check sets it from the facts within the bound and
+    # keeps a raise. init writes once, so a re-entry changes nothing.
+    #
     # {{SESSION_NAME}} rather than a name rebuilt from a variable: this template
     # is both initialized directly and materialized as a child, so no declared
     # variable carries the session's name. koto substitutes it inside a
     # default_action command.
     default_action:
-      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}"'
+      command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/record-changed-paths.sh --base "{{SESSION_NAME}}" --shared-branch "{{SHARED_BRANCH}}" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" init "{{SESSION_NAME}}" "{{REVIEW_FLOOR}}" "{{REVIEW_CEILING}}"'
       fallback: >-
         koto could not record impl_base, the commit this issue's work starts
-        from. Read the command's own output above: the script exits 64 when
-        HEAD names no commit or this is not a git repository, 66 when writing
-        the context key failed, and 127 or 126 when PLUGIN_ROOT does not reach
-        the plugin. Fix the cause and tick again -- the action re-runs on entry
-        and never overwrites a base it already recorded. If it can't be fixed,
+        from, or the review-level bound. Read the command's own output above.
+        record-changed-paths.sh exits 64 when HEAD names no commit or this is
+        not a git repository and 66 when writing the context key failed;
+        review-level.sh init, which runs after it, exits 64 when the rules
+        file is malformed or a bound value is not a level name and 66 when a
+        koto context read or write failed. Either exits 127 or 126 when
+        PLUGIN_ROOT does not reach the plugin. Fix the cause and tick again --
+        the action re-runs on entry, never overwrites a base it already
+        recorded, and records the bound once. Until the bound is recorded
+        review-level.sh set refuses; fix_determination's action records it
+        if this one couldn't. If impl_base can't be fixed,
         record the base yourself before committing anything:
         `git merge-base HEAD origin/main | koto context add <session> impl_base`
         (origin's default branch in place of origin/main when it has another
@@ -897,14 +914,14 @@ states:
     # (fix-kind.sh agree), and holds the run here; no route leaves without
     # kind_route passing.
     #
-    # Before that, the action records the review-level bound
-    # (review-level.sh init): the coordinator's REVIEW_FLOOR and
-    # REVIEW_CEILING, the acceptance-criteria copy the facts compare against
-    # and the rules copy they classify with. Nobody chooses a level here:
-    # review_level_check sets it from the facts within this bound, and `set`
-    # is refused until the bound exists, so a raise is made from reproduce or
-    # implementation on. init writes once: a re-entry (analysis re-runs on
-    # scope_expanded_retry) finds the bound line and changes nothing.
+    # Before that, the action runs review-level.sh init, which analysis's
+    # action already ran: here it is a no-op safety net for a run whose
+    # analysis action failed and was recovered by hand (the agent recorded
+    # impl_base and submitted plan_outcome, which skips the action), so the
+    # bound, the acceptance-criteria copy and the rules copy the test-change
+    # header reads exist before anything is implemented. init writes once: it
+    # finds the bound line and changes nothing, except storing the criteria
+    # copy if analysis's run found no context.md.
     #
     # Then it writes the test-change ledger's header (test-change.sh init
     # --entry): the author, impl_base and the work tree every later
@@ -1306,7 +1323,7 @@ states:
     # every lap, and where the run's review level is set. The action gathers
     # the facts of the change (lines, files, path classes, whether tests or
     # the acceptance criteria changed) into review_facts.json and derives a
-    # floor from the rules copy fix_determination's action stored, so a diff
+    # floor from the rules copy analysis's action stored, so a diff
     # that edits the rules can't lower its own floor. Then set-from-facts sets
     # the level: the highest of that floor, the ledger's level (which carries
     # any raise the agent made with `set`) and the bound's floor, logging a
@@ -3894,6 +3911,16 @@ those marks it, declare the fix now, before you submit `plan_outcome`:
 A fix can't be taken back: `fix-kind.sh` refuses to make one a change, and the run
 owes a red before implementation.
 
+**The review level is not chosen here.** After implementation, `review_level_check`
+sets it from the facts of the change within the coordinator's bound, which koto
+recorded as it entered this state (`references/review-levels.md`). When the plan
+shows the change is riskier than its paths will, raise it now, and the check keeps
+the raise:
+
+```bash
+"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <standard|full> --reason "<why>"
+```
+
 Retry cap: self-loop with `scope_changed_retry` up to 3 times. After 3,
 use `scope_changed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
@@ -3946,10 +3973,9 @@ koto decides here whether this unit is a fix, before anything is implemented
 a change goes to `implementation`, a fix to `reproduce`. On entry it ran
 `fix-kind.sh resolve`, which records a fix when the issue carries one of the
 repository's fix labels or the plan step has a `**Fixes**:` line, keeps a fix
-declared at `analysis`, and records a change otherwise. Before that it recorded
-the review-level bound (`review-level.sh init`: the coordinator's floor and
-ceiling, and the copies of the acceptance criteria and the rules the level check
-reads) and started the test-change ledger (`test-change.sh init`), which an
+declared at `analysis`, and records a change otherwise. Before that it ran
+`review-level.sh init` again, which changes nothing once `analysis` recorded the
+review-level bound, and started the test-change ledger (`test-change.sh init`), which an
 edited test is judged against at `pass_counting`. You see this directive only
 when the run is held here.
 
@@ -4014,7 +4040,8 @@ asks for the type once, at `issue_type_routing`.
 Nobody chooses a review level up front: after implementation, `review_level_check`
 sets it from the facts of the change, within the coordinator's bound
 (`references/review-levels.md`). When the change is riskier than its paths will
-show, raise the level now, and the check keeps the raise:
+show, raise the level, here or already at `analysis`, and the check keeps the
+raise:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <standard|full> --reason "<why>"

@@ -369,7 +369,7 @@ cmd_red() {
     git cat-file -e "$base^{commit}" 2>>"$ERRLOG" || undecided "impl_base [$base] names no commit"
     head=$(git rev-parse -q --verify "HEAD^{commit}") || undecided "HEAD names no commit"
     ctx_get "$s" "$RULES_KEY" "$TMP/rules" || die66 "could not read $RULES_KEY"
-    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; fix_determination's action stores it"
+    [ -s "$TMP/rules" ] || undecided "no rules copy ($RULES_KEY) is stored; review-level.sh init stores it, in analysis's action"
 
     # shellcheck source=../../../scripts/lib/test-classify.sh
     . "$PLUGIN_ROOT_SELF/scripts/lib/test-classify.sh" || undecided "cannot load scripts/lib/test-classify.sh"
