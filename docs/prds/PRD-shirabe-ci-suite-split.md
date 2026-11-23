@@ -12,7 +12,8 @@ goals: |
   macOS by running independent suites side by side, while every test that
   runs today still runs on the same koto releases, bash versions and
   operating systems, and the checks the rulesets require keep reporting.
-upstream: docs/briefs/BRIEF-shirabe-ci-suite-split.md
+absorbed:
+  - docs/briefs/BRIEF-shirabe-ci-suite-split.md
 ---
 
 # PRD: Shorter CI rounds for shirabe pull requests
@@ -20,6 +21,27 @@ upstream: docs/briefs/BRIEF-shirabe-ci-suite-split.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-shirabe-ci-suite-split](docs/briefs/BRIEF-shirabe-ci-suite-split.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so that someone pushing a fix to a shirabe pull request
+learns whether it passed in minutes rather than close to an hour. A round
+that took 2-3 minutes in September 2026 takes 40-75 by late November, and
+the cause is that a few jobs run long, independent suite lists one after
+another on one runner, not that the jobs trigger too often. The outcome is a
+round bounded by the slowest slice of work, with the same tests on the same
+koto releases, bash versions and operating systems, and with every failure
+still named.
+
+Four users exercise it: a contributor changing one /coordinate script, a
+contributor changing a shared script that many suites call, an author
+marking a draft ready (which starts the macOS bash 3.2 legs), and a
+maintainer reading a red check. The boundary holds every guarantee the jobs
+give today. Nothing is removed, skipped, weakened or retried, no skill prose
+or template changes, the macOS legs stay on pull requests, the floor check
+keeps its release, and the checks the rulesets require keep their names.
 
 ## Problem Statement
 
