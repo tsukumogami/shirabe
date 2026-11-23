@@ -8,7 +8,7 @@
 #
 #   staleness_check  staleness_fresh        routes on its exit, no evidence
 #   verification     verification_verdict   a poll: gate over the runner
-#   finalization, deferral_approval, pre_pr_evidence
+#   finalization, deferral_approval
 #                    commit_convention      every commit, not only the tip
 #   pr_precheck      branch_docs_visibility, tests_still_counted
 #   pr_creation      pr_body_conformant
@@ -174,9 +174,24 @@ fi
 
 # The diff: each base line against the current body's lines, kept in base order.
 body "$TEMPLATE" > "$WORKDIR/cur-body"
+# A base line whose state was removed is retired rather than dropped: its
+# guidance moved to another state's directive, and the line that carries it
+# there must be present instead. Each entry is the base line, a tab, and a
+# fixed string the current body must contain.
+#   pre_pr_evidence's directive said the commit check ran there; the state is
+#   gone and finalization's directive says what a commit_convention hold means.
+RETIRED="Conventional Commits, and the two referents. A failing one stops the run before	has a subject that is not a Conventional Commits subject, or"
 : > "$WORKDIR/kept"
 while IFS= read -r line; do
-    grep -Fxq -- "$line" "$WORKDIR/cur-body" && printf '%s\n' "$line" >> "$WORKDIR/kept"
+    if grep -Fxq -- "$line" "$WORKDIR/cur-body"; then
+        printf '%s\n' "$line" >> "$WORKDIR/kept"
+        continue
+    fi
+    successor=$(printf '%s\n' "$RETIRED" | awk -F '\t' -v l="$line" '$1 == l { print $2; exit }')
+    if [ -n "$successor" ] && grep -Fq -- "$successor" "$WORKDIR/cur-body"; then
+        printf '%s\n' "$line" >> "$WORKDIR/kept"
+        pass "retired base line [$line] is carried by [$successor]"
+    fi
 done < "$WORKDIR/base-lines"
 if diff "$WORKDIR/base-lines" "$WORKDIR/kept" >"$WORKDIR/kept.diff"; then
     pass "every base directive line about verification commands, the PR body or the commit convention is still present"
@@ -553,24 +568,21 @@ fi
 drive ci_monitor "" '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' ci_passing=1 merge_state_clean=0
 expect "ci_outcome: failing_unresolvable on red CI" done_blocked
 
-# commit_convention: holds at finalization and deferral_approval, ends the run at pre_pr_evidence.
+# commit_convention: holds at finalization and deferral_approval, and on exit 0
+# both go straight to pr_precheck. No later state checks the commits again.
 SEED_SUMMARY=1
 for rc in 1 2; do
     reset_rc; set_rc check-branch-output.sh--commits "$rc"
-    drive finalization "" '{"finalization_status":"ready_for_pr"}'
+    drive finalization "" '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     holds "commit_convention exit $rc at finalization" finalization commit_convention
     drive deferral_approval "" '{"approval_decision":"approved","deferral_detail":"x"}'
     holds "commit_convention exit $rc on deferral_approval's approved edge" deferral_approval commit_convention
-    drive pre_pr_evidence "" '{"pre_pr_status":"recorded","cleanup_done":"none_found","design_diagram":"not_applicable"}'
-    expect "commit_convention exit $rc at pre_pr_evidence" done_blocked
 done
 reset_rc
-drive finalization "" '{"finalization_status":"ready_for_pr"}'
-expect "commit_convention exit 0 at finalization" pre_pr_evidence
+drive finalization "" '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
+expect "commit_convention exit 0 at finalization" pr_precheck
 drive deferral_approval "" '{"approval_decision":"approved","deferral_detail":"x"}'
-expect "commit_convention exit 0 on the approved edge" pre_pr_evidence
-drive pre_pr_evidence "" '{"pre_pr_status":"recorded","cleanup_done":"none_found","design_diagram":"not_applicable"}'
-expect "commit_convention exit 0 at pre_pr_evidence" pr_precheck
+expect "commit_convention exit 0 on the approved edge" pr_precheck
 SEED_SUMMARY=
 
 # pr_precheck: the branch checks hold unless SHARED_BRANCH is set.
@@ -705,17 +717,17 @@ else
 fi
 
 # The ladder's context is on every gate that prints registry findings, and the
-# three commit_convention copies stay identical (finalization-shape_test.sh
-# compares them compiled).
+# two commit_convention copies, at finalization and deferral_approval, stay
+# identical (finalization-shape_test.sh compares them compiled).
 for g in pr_body_conformant commit_convention branch_docs_visibility verification_verdict \
          scrutiny_verdict review_verdict qa_verdict light_verdict; do
     n=$(awk -v g="      $g:" '$0 == g { f = 1; next } f && /^        command:/ { print; f = 0 }' "$TEMPLATE" \
         | grep -c "SHIRABE_GATE_LOG=\"{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl\" SHIRABE_GATE_NAME=$g SHIRABE_GATE_EXITS=")
-    want=1; [ "$g" = commit_convention ] && want=3
+    want=1; [ "$g" = commit_convention ] && want=2
     [ "$n" = "$want" ] && pass "$g carries the ladder's context ($n)" || fail "$g: ladder context on $n command(s), want $want"
 done
 [ "$(awk '/^      commit_convention:$/ { f = 1; next } f && /^        command:/ { print; f = 0 }' "$TEMPLATE" | sort -u | wc -l | tr -d ' ')" = 1 ] \
-    && pass "the three commit_convention commands are byte-identical" || fail "commit_convention commands differ"
+    && pass "the two commit_convention commands are byte-identical" || fail "commit_convention commands differ"
 
 # One real run of the ladder through koto: the shipped pr_creation state, a gate
 # script that prints a PB4 finding through the real findings library and the

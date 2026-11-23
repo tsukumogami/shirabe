@@ -373,6 +373,8 @@ build() {
             '    pattern: ^(light|standard|full)?$'
         extract_var VERIFICATION
         extract_var VERIFICATION_DEFERRAL_REASON
+        # issue_type_routing's code_route gate passes the type hint.
+        extract_var ISSUE_TYPE
         printf '%s\n' '  PROBE_NEAR_RULE:' '    description: the probe_near capture pr_creation reads' '    required: false'
         printf '%s\n' 'states:' '  start:'
         if [ "$initial" = pr_creation ]; then

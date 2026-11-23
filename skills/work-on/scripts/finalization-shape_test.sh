@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # finalization-shape_test.sh — a malformed summary or pre-PR record holds the run
-# at finalization instead of ending it at pre_pr_evidence.
+# at finalization, fixed in place, and a good one goes straight to pr_precheck.
 #
-# summary.md and pre_pr.md are written at `finalization`, and pre_pr_evidence
-# checks them and sends a failure to done_blocked, so a record the agent could
-# have fixed in one edit cost a full re-entry. The same gates
-# (summary_shape, the two referent checks, and commit_convention, the walk over
-# every commit since impl_base) now sit on finalization's ready_for_pr edge and
+# summary.md and pre_pr.md are written at `finalization`. The gates that check
+# them (summary_shape, the two referent checks, and commit_convention, the walk
+# over every commit since impl_base) sit on finalization's ready_for_pr edge and
 # on deferral_approval's approved edge, where a failure matches no edge and the
-# state holds with the failing gate named (case 9 for the commit walk).
+# state holds with the failing gate named (case 9 for the commit walk). A later
+# state, pre_pr_evidence, used to run the same gates again and end the run at
+# done_blocked; it is gone, and both edges go to pr_precheck.
 #
 # The cases drive the SHIPPED template, walked from entry to finalization the
 # way retry-clearing_test.sh walks it:
 #
-#   a correct record advances to pre_pr_evidence            (case 1)
+#   a correct record advances to pr_precheck                (case 1)
 #   a missing heading holds, names summary_shape, and a fix in place advances
 #                                                           (case 2)
 #   a wrong pre_pr.md key form, a referent naming nothing (a commit from
@@ -21,11 +21,12 @@
 #   names its gate                                          (cases 3, 4)
 #   an approved deferral holds on a bad shape; the escape edges stay open
 #                                                           (cases 5, 6)
-#   the early gates are identical to the backstop's, every copy of a referent
-#   gate runs the existence check, and the backstop still routes a failure to
-#   done_blocked                                            (cases 7, 8)
+#   finalization's and deferral_approval's copies of the gates are identical,
+#   every copy of a referent gate runs the existence check, both advancing
+#   edges require every gate, and no pre_pr_evidence state is left (cases 7, 8)
 #
-# pre-pr-evidence_test.sh drives the backstop itself.
+# pre-pr-evidence_test.sh drives finalization alone, in a fixture, through the
+# placeholder and referent forms.
 #
 # Usage: finalization-shape_test.sh
 # Exit codes: 0 all pass, or koto/git/jq absent and the run skipped; 1 any failed.
@@ -113,6 +114,14 @@ submit() {
 }
 put() { printf '%s\n' "$3" | koto context add "$1" "$2" >/dev/null 2>&1; }
 names_gate() { grep -q "\"name\":\"$1\"" <<<"$NEXT_RESPONSE"; }
+# reached_precheck <session> <from>: the run moved from <from> into pr_precheck,
+# once. pr_precheck reads the branch on entry and advances on its own when its
+# gates pass, so the response's state may already be past it; the state log
+# records the arrival either way.
+reached_precheck() {
+    [ "$(jq -s --arg f "$2" '[.[] | select(.type == "transitioned" and .payload.from == $f and .payload.to == "pr_precheck")] | length' \
+        "$HOME/.koto/sessions/$1/koto-$1.state.jsonl" 2>/dev/null)" = 1 ]
+}
 # Round files name their runs (panel-scope.sh --record refuses one that doesn't).
 . "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
@@ -184,9 +193,8 @@ to_finalization() {
     put "$1" impl_base "$BASE_SHA"
     # The full review level keeps all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
-    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
-    # from the next tick, to implementation.
-    koto next "$1" --no-cleanup >/dev/null 2>&1
+    # Into fix_determination, whose action records the kind and whose
+    # kind_route gate routes on it in the same tick, to implementation.
     koto next "$1" --no-cleanup >/dev/null 2>&1
     submit "$1" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'
@@ -222,10 +230,10 @@ if to_finalization ok; then
     put ok summary.md "$GOOD_SUMMARY"
     put ok pre_pr.md "$GOOD_PREPR"
     submit ok '{"finalization_status":"ready_for_pr"}'
-    if [ "$NEXT_STATE" = pre_pr_evidence ]; then
-        pass "a correct summary and pre_pr.md advance to pre_pr_evidence"
+    if reached_precheck ok finalization; then
+        pass "a correct summary and pre_pr.md advance to pr_precheck"
     else
-        fail "correct record: expected pre_pr_evidence, got [$NEXT_STATE]"
+        fail "correct record: expected pr_precheck, got [$NEXT_STATE]"
     fi
 fi
 
@@ -246,16 +254,17 @@ if to_finalization heading; then
     fi
     put heading summary.md "$GOOD_SUMMARY"
     submit heading '{"finalization_status":"ready_for_pr"}'
-    if [ "$NEXT_STATE" = pre_pr_evidence ]; then
-        pass "after the fix in place, the same submission advances"
+    if reached_precheck heading finalization; then
+        pass "after the fix in place, the same submission advances to pr_precheck"
     else
-        fail "fix in place: expected pre_pr_evidence, got [$NEXT_STATE]"
+        fail "fix in place: expected pr_precheck, got [$NEXT_STATE]"
     fi
 fi
 
 echo "--- Case 3/4: a wrong pre_pr.md key form holds"
-# The underscored enum is what pre_pr_evidence accepts as evidence, and exactly
-# what a run writes into pre_pr.md by mistake.
+# The underscored enum is what finalization accepts as evidence
+# (design_diagram: not_applicable), and exactly what a run writes into pre_pr.md
+# by mistake.
 if to_finalization diagram; then
     put diagram summary.md "$GOOD_SUMMARY"
     put diagram pre_pr.md "cleanup_commit: $HEAD_SHA
@@ -293,10 +302,10 @@ design_diagram: not-applicable: no design document is touched"
     fi
     put offbranch pre_pr.md "$GOOD_PREPR"
     submit offbranch '{"finalization_status":"ready_for_pr"}'
-    if [ "$NEXT_STATE" = pre_pr_evidence ]; then
-        pass "after HEAD is recorded in place, the same submission advances"
+    if reached_precheck offbranch finalization; then
+        pass "after HEAD is recorded in place, the same submission advances to pr_precheck"
     else
-        fail "off-branch fix in place: expected pre_pr_evidence, got [$NEXT_STATE]"
+        fail "off-branch fix in place: expected pr_precheck, got [$NEXT_STATE]"
     fi
 fi
 if to_finalization nodoc; then
@@ -340,10 +349,10 @@ if to_finalization defer; then
         fi
         put defer summary.md "$GOOD_SUMMARY"
         submit defer '{"approval_decision":"approved","deferral_detail":"x"}'
-        if [ "$NEXT_STATE" = pre_pr_evidence ]; then
-            pass "approved advances once the summary is fixed in place"
+        if reached_precheck defer deferral_approval; then
+            pass "approved advances to pr_precheck once the summary is fixed in place"
         else
-            fail "approved after fix: expected pre_pr_evidence, got [$NEXT_STATE]"
+            fail "approved after fix: expected pr_precheck, got [$NEXT_STATE]"
         fi
     else
         fail "deferral_requested: expected deferral_approval, got [$NEXT_STATE]"
@@ -365,41 +374,59 @@ if to_finalization late-result late; then
     pass "a run whose result comes after the entering tick starts still reaches finalization"
 fi
 
-echo "--- Case 7/8: the early gates match the backstop, which still routes to done_blocked"
+echo "--- Case 7/8: the two copies of the gates match, and both edges require them"
 COMPILED=$(koto template compile "$TEMPLATE" 2>/dev/null)
 if [ -z "$COMPILED" ] || [ ! -f "$COMPILED" ]; then
     fail "could not compile $TEMPLATE"
 else
+    # pre_pr_evidence ran the same gates again and was removed; nothing may
+    # bring it back or route to it.
+    if [ "$(jq '.states | has("pre_pr_evidence")' "$COMPILED")" = false ]; then
+        pass "the compiled template has no pre_pr_evidence state"
+    else
+        fail "the compiled template still has a pre_pr_evidence state"
+    fi
+    n=$(jq '[.states[].transitions[]? | select(.target == "pre_pr_evidence")] | length' "$COMPILED")
+    [ "$n" = 0 ] && pass "no edge targets pre_pr_evidence" || fail "$n edges still target pre_pr_evidence"
+    # finalization and deferral_approval each carry a copy of the four gates;
+    # the two copies must stay identical.
     for g in summary_shape cleanup_referent diagram_referent commit_convention; do
-        want=$(jq -c --arg g "$g" '.states.pre_pr_evidence.gates[$g]' "$COMPILED")
-        for s in finalization deferral_approval; do
-            got=$(jq -c --arg g "$g" --arg s "$s" '.states[$s].gates[$g]' "$COMPILED")
-            if [ "$want" != null ] && [ "$got" = "$want" ]; then
-                pass "$s.$g is identical to pre_pr_evidence.$g"
-            else
-                fail "$s.$g drifted from pre_pr_evidence.$g: [$got] vs [$want]"
-            fi
-        done
-    done
-    # The backstop: pre_pr_evidence still routes each copied gate's failure to
-    # done_blocked.
-    # summary_shape is a context-matches gate and fails as matches: false; the
-    # referent gates are command gates and fail as exit_code: 1.
-    for spec in "summary_shape matches false" "cleanup_referent exit_code 1" "diagram_referent exit_code 1" \
-                "commit_convention exit_code 1" "commit_convention exit_code 2"; do
-        set -- $spec
-        n=$(jq --arg k "gates.$1.$2" --argjson v "$3" '[.states.pre_pr_evidence.transitions[]
-                  | select(.target == "done_blocked")
-                  | select(.when[$k] == $v)] | length' "$COMPILED")
-        if [ "$n" = 1 ]; then
-            pass "pre_pr_evidence still sends $1 $2: $3 to done_blocked"
+        want=$(jq -c --arg g "$g" '.states.finalization.gates[$g]' "$COMPILED")
+        got=$(jq -c --arg g "$g" '.states.deferral_approval.gates[$g]' "$COMPILED")
+        if [ "$want" != null ] && [ "$got" = "$want" ]; then
+            pass "deferral_approval.$g is identical to finalization.$g"
         else
-            fail "pre_pr_evidence's $1 backstop edge changed (found $n)"
+            fail "deferral_approval.$g drifted from finalization.$g: [$got] vs [$want]"
         fi
     done
+    # Both advancing edges go to pr_precheck and require every gate to pass:
+    # with no later state checking the records, an edge that dropped one would
+    # let a failure through.
+    for spec in "finalization finalization_status ready_for_pr" "deferral_approval approval_decision approved"; do
+        set -- $spec
+        edge=$(jq -c --arg s "$1" --arg k "$2" --arg v "$3" \
+            '[.states[$s].transitions[] | select(.when[$k] == $v)]' "$COMPILED")
+        ok=$(jq -r 'length == 1 and (.[0].target == "pr_precheck")
+                    and (.[0].when["gates.summary_exists.exists"] == true)
+                    and (.[0].when["gates.summary_shape.matches"] == true)
+                    and (.[0].when["gates.cleanup_referent.exit_code"] == 0)
+                    and (.[0].when["gates.diagram_referent.exit_code"] == 0)
+                    and (.[0].when["gates.commit_convention.exit_code"] == 0)' <<<"$edge")
+        if [ "$ok" = true ]; then
+            pass "$1's $3 edge goes to pr_precheck and requires all five gates"
+        else
+            fail "$1's $3 edge changed: $edge"
+        fi
+    done
+    # finalization takes the two judgment calls pre_pr_evidence used to.
+    for f in "cleanup_done removed,none_found" "design_diagram updated,not_applicable"; do
+        set -- $f
+        got=$(jq -r --arg f "$1" '.states.finalization.accepts[$f] | "\(.field_type)|\(.values | join(","))"' "$COMPILED")
+        [ "$got" = "enum|$2" ] && pass "finalization accepts $1 as enum $2" || fail "finalization's $1 is [$got]"
+    done
     # shirabe#422: no copy of a referent gate may fall back to a shape check.
-    # Each of the three states runs the existence check.
-    for s in finalization deferral_approval pre_pr_evidence; do
+    # Each of the two states runs the existence check.
+    for s in finalization deferral_approval; do
         for g in cleanup_referent diagram_referent; do
             ok=$(jq -r --arg g "$g" --arg s "$s" '.states[$s].gates[$g]
                   | (.type == "command") and ((.command // "") | test("check-pre-pr-referents[.]sh"))' "$COMPILED")
@@ -429,10 +456,10 @@ if to_finalization commits; then
     fi
     git commit -q --amend --allow-empty -m "fix: the thing"
     submit commits '{"finalization_status":"ready_for_pr"}'
-    if [ "$NEXT_STATE" = pre_pr_evidence ]; then
-        pass "after the commit is reworded in place, the same submission advances"
+    if reached_precheck commits finalization; then
+        pass "after the commit is reworded in place, the same submission advances to pr_precheck"
     else
-        fail "reworded commit: expected pre_pr_evidence, got [$NEXT_STATE]"
+        fail "reworded commit: expected pr_precheck, got [$NEXT_STATE]"
     fi
 fi
 

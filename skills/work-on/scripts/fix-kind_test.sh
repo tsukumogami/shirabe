@@ -20,6 +20,10 @@
 #              in the ledger, still a fix; a change: nothing to withdraw
 #   agree      passes on a match; holds on a hand rebind naming the source,
 #              on an empty variable, and with no determination
+#   kind       --exit answers 0 a change, 3 a fix, 4 nothing recorded;
+#              --current agreeing keeps the code, disagreeing exits 1, empty
+#              lets the ledger decide; --current without --exit, or a bad
+#              value, is a usage error
 #   failures   gh can't read the issue, the rebind fails, the ledger write
 #              fails (the variable is put back), a duplicate Fix Labels
 #              header, and usage errors
@@ -285,6 +289,40 @@ run resolve s10 --issue 12
 run withdraw s10
 eq "withdraw a change: exit 0" 0 "$RC"
 has "withdraw a change: nothing to withdraw" "nothing to withdraw" "$OUT"
+
+# --- kind --exit -----------------------------------------------------------------
+# fix_determination's kind_route gate: the exit status is the route.
+run kind s10 --exit
+eq "kind --exit on a change: exit 0" 0 "$RC"
+eq "kind --exit on a change: prints the kind" change "$OUT"
+run kind s1 --exit
+eq "kind --exit on a fix: exit 3" 3 "$RC"
+eq "kind --exit on a fix: prints the kind" fix "$OUT"
+new_session k1
+run kind k1 --exit
+eq "kind --exit with nothing recorded: exit 4" 4 "$RC"
+eq "kind --exit with nothing recorded: nothing on stdout" "" "$OUT"
+run kind k1
+eq "kind without --exit and nothing recorded: exit 0" 0 "$RC"
+run kind s10 --exit --current change
+eq "kind --exit, --current agreeing on a change: exit 0" 0 "$RC"
+run kind s1 --exit --current fix
+eq "kind --exit, --current agreeing on a fix: exit 3" 3 "$RC"
+run kind s1 --exit --current ""
+eq "kind --exit, an empty --current: the ledger decides" 3 "$RC"
+run kind s1 --exit --current change
+eq "kind --exit, --current disagreeing: exit 1" 1 "$RC"
+has "kind --exit, --current disagreeing: a hold line naming both" "hold: UNIT_KIND is change but the ledger records fix" "$(cat "$W/err")"
+run kind s10 --exit --current fix
+eq "kind --exit, --current fix on a change: exit 1" 1 "$RC"
+run kind s1 --current fix
+eq "kind --current without --exit: exit 64" 64 "$RC"
+run kind s1 --exit --current maybe
+eq "kind --exit, a bad --current value: exit 64" 64 "$RC"
+run kind s1 --exit --current
+eq "kind --exit, --current with no value: exit 64" 64 "$RC"
+run kind s1 --frob
+eq "kind with an unknown flag: exit 64" 64 "$RC"
 
 # --- failures ------------------------------------------------------------------
 new_session f1

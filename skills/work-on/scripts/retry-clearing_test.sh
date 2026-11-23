@@ -243,9 +243,8 @@ to_implementation() {
     # The review level, chosen before implementation: full keeps all three
     # panels on the code route this harness walks.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
-    # Into fix_determination, whose action binds UNIT_KIND; koto routes on it
-    # from the next tick, to implementation.
-    koto next "$1" >/dev/null 2>&1
+    # Into fix_determination, whose action records the kind and whose
+    # kind_route gate routes on it in the same tick, to implementation.
     koto next "$1" >/dev/null 2>&1
 }
 
@@ -472,18 +471,18 @@ if [ "$NEXT_STATE" = "deferral_approval" ]; then
     # that the state would have refused whatever the key's status.
     seed_finishing defer-hold
     submit defer-hold '{"approval_decision":"approved"}'
-    # The approved path now stops at pre_pr_evidence rather than chaining on to
-    # pr_creation. That is the pre-PR obligation state doing its job: it declares
-    # required evidence and conditional edges, so a tick cannot pass through it
-    # unattended. Before it existed this tick chained deferral_approval ->
-    # pr_precheck -> pr_creation in one invocation, which is precisely how a
-    # finishing obligation gets skipped without anyone seeing it. What this case
-    # pins is unchanged: with summary.md present the state ADVANCES, and with it
-    # cleared the state HOLDS.
-    if [ "$NEXT_STATE" = "pre_pr_evidence" ]; then
-        pass "deferral_approval: summary.md present + approved -> advances to pre_pr_evidence"
+    # The approved edge goes straight to pr_precheck, which reads the branch on
+    # entry and advances on its own when its gates pass, so the response's state
+    # may already be past it; the state log records the arrival. The pre-PR
+    # records are checked on the approved edge itself, so nothing is skipped by
+    # chaining on. What this case pins is unchanged: with summary.md present the
+    # state ADVANCES, and with it cleared the state HOLDS.
+    ARRIVED=$(jq -s '[.[] | select(.type == "transitioned" and .payload.from == "deferral_approval" and .payload.to == "pr_precheck")] | length' \
+        "$HOME/.koto/sessions/defer-hold/koto-defer-hold.state.jsonl" 2>/dev/null)
+    if [ "$NEXT_STATE" != "deferral_approval" ] && [ "$ARRIVED" = 1 ]; then
+        pass "deferral_approval: summary.md present + approved -> advances to pr_precheck"
     else
-        fail "deferral_approval: summary.md present + approved -> expected pre_pr_evidence, got [$NEXT_STATE]"
+        fail "deferral_approval: summary.md present + approved -> expected pr_precheck, got [$NEXT_STATE] (arrivals: [$ARRIVED])"
     fi
     # And the rejected exit stays reachable with the key absent -- deferral_approval's
     # own route to a terminal state, the analogue of the escalate exits elsewhere.
