@@ -125,7 +125,29 @@ What Steps 1 to 3 landed, for this step to build on: the selector is `scripts/li
 
 ### Step 5: every job on a ready /coordinate pull request fits its time limit with no test file lost
 
-/work-on's Linux suites run in two slices, the floor check's trigger gaps close, and Actions API timings and a before-and-after test-file inventory show the limits met and nothing missing.
+**Goal**: Finish the split and measure it. Three changes come first. (1) `test-work-on-scripts` in `check-work-on-scripts.yml` (about 20 minutes on Linux, some 60 separate suites) gets `slice: [1, 2]` with `fail-fast: false`: its Linux steps that are a plain `bash <suite>` move into one `scripts/run-suites.sh` call under `SUITE_SLICE: ${{ matrix.slice }}/2`, and steps with their own environment or setup stay as steps, pinned to slice 1. `test-execute-scripts` is left alone unless a measured run puts it over a limit. (2) The floor check's trigger gaps close: `check-koto-entry-floor.yml`'s `paths` gain `scripts/skill-session.sh`, `scripts/check-handoff.sh`, `scripts/check-template-compat.sh`, `scripts/session-role.sh`, `scripts/doc-shadow-check.sh`, `scripts/review-events.sh` and `references/**`, which only widens triggers. (3) `docs/designs/current/DESIGN-rule-registry.md` stops naming the removed `scripts/check-rule-registry_test.sh` (around line 478) and names the four part files.
+
+Then measure on the pull request's own runs, from the Actions API (`gh api repos/tsukumogami/shirabe/actions/runs/<id>/jobs`). Per job, `completed_at - started_at` must be 15 minutes or less on Linux and 25 or less on macOS. Compare a per-test-file inventory from the job logs against the same inventory from a run on the base commit, so no test file that ran before is missing after. The organization's runners are queue-limited (about 50 shirabe runs queued at 10am on 2026-11-23), and this change raises the jobs per round, so the step also compares a typical round before and after: jobs per round, total runner-minutes (the sum of job durations), the longest job, and push-to-green wall-clock including queue time (first job `created_at` to last job `completed_at`). The before figures come from a recent comparable run on main's base commit. If push-to-green under load gets worse or barely moves, `summary.md` says so first, before any per-job figure.
+
+What Steps 1 to 4 landed, for this step to build on: `scripts/lib/suite-slice.sh` is the selector (`SUITE_SLICE=i/n`, unset or empty means the full list, fails closed); `run-suites.sh` and `check-bash-floor.sh` slice through it and print the slice in their count lines; floor lists take `cost:` and `slice: pass` lines. Sliced jobs so far: `test-coordinate-engine` (4), `entry-floor` (five per-skill legs) and `entry-floor-coordinate` (4), `test-coordinate-scripts` (4 per platform), `skill-gate-suites` (4 per platform, with `skill-gate` as the job of record), and `test-rule-registry` (4, one part file per slice, with first-estimate `cost:` lines of 645 seconds per part). `scripts/check-suite-slices.sh` checks each sliced job on its REQUIRED list, and `test-work-on-scripts` joins it. The pull request is a draft until the run's finalization marks it ready, and macOS legs skip on drafts, so this step measures the draft run's jobs. The ready run's macOS jobs and the push to main are measured after this step by the session that owns the PR, and recorded in its description.
+
+**Acceptance Criteria**:
+
+- [ ] `test-work-on-scripts` runs as two Linux slices whose count lines add up to the unsliced suite count, with the own-environment steps only in slice 1, and `check-suite-slices.sh` lists it and passes
+- [ ] `check-koto-entry-floor.yml`'s `pull_request` and `push` `paths` contain every path they did on main plus the seven named above
+- [ ] `git grep -n 'check-rule-registry_test.sh' -- docs scripts .github` matches nothing outside history
+- [ ] On the pull request's latest draft run, every Linux job's `completed_at - started_at` is 15 minutes or less, and every macOS job that ran is 25 minutes or less; any job over a limit is split further or named in `summary.md` with its measured time
+- [ ] The per-test-file inventory from that run contains every test file the base commit's comparable run ran on the same platform, with none missing
+- [ ] `summary.md` gives, before and after: jobs per round, total runner-minutes, longest job, and push-to-green wall-clock including queue, with the run ids used, and leads with the wall-clock result if it got worse or barely moved
+- [ ] If the first sliced run shows the `test-rule-registry` part costs badly unbalanced, the list's `cost:` lines are corrected from that run's times
+- [ ] `check-macos-floor-legs.sh`, `check-macos-floor-setup.sh`, `check-bash-floor_test.sh`, `koto-minimum-consistency_test.sh`, `eval-workflows_test.sh` and `verification-hosted-coverage_test.sh` pass with no edit to the rules they enforce
+- [ ] No test is removed, skipped or edited to assert less, and no retry is added
+
+**Check**: Run `bash scripts/check-suite-slices_test.sh`, `bash scripts/check-suite-slices.sh` and the six repository checks named above. Diff the floor check's `paths` against `git show main:.github/workflows/check-koto-entry-floor.yml`. After pushing, wait for the pull request's run to finish, then for each workflow run list its jobs with `gh api .../actions/runs/<id>/jobs` and compute each job's duration. Build the test-file inventory from the job logs (`gh run view <id> --log`) by extracting each suite file name the runners print, and do the same for the base commit's comparable run; `comm -23 base.txt new.txt` prints nothing. For the before-and-after, pick the most recent run on main's base commit that triggered the same workflows. Don't run full suites locally; the host is shared.
+
+**Dependencies**: Step 4
+
+**Files**: `.github/workflows/check-work-on-scripts.yml`, `.github/workflows/check-koto-entry-floor.yml`, `scripts/check-suite-slices.sh`, `scripts/bash-floor/rule-registry.list`, `docs/designs/current/DESIGN-rule-registry.md`
 
 ## Implementation Sequence
 
