@@ -146,11 +146,12 @@ too light for the facts of the change.
 
 **Sources.** `review_facts.json`, which the state's own `default_action`
 (`review-level.sh facts`) writes from git; `review_level_rules.tsv`, the copy
-of `review-level-rules.tsv` that `review-level.sh init` stores as
-`review_level_choice`'s action, which `facts` derived the floor from (a
+of `review-level-rules.tsv` that `review-level.sh init` stores in
+`fix_determination`'s action, which `facts` derived the floor from (a
 session with no stored copy, one `init` never ran for, uses the shipped file,
-as `facts` does); and `REVIEW_LEVEL`, the level the agent chose, which is what
-the criterion judges.
+as `facts` does); and the ledger's level, which `set-from-facts` set from the
+facts in the same action (raised above the floor when the agent raised it),
+which is what the criterion judges.
 
 **Slice.** `review-level.sh slice` prints one JSON line of typed facts (changed
 lines and files as non-negative integers, at most 16 path-class names, whether

@@ -1,9 +1,11 @@
 # Review levels
 
-A `/work-on` run commits to a review level before it implements anything. The
-level decides which review panels a code change goes through. Facts about the
-change can raise it but never lower it, a coordinator can bound it, and every
-change to it lands in a per-run ledger.
+A `/work-on` run's review level decides which review panels a code change
+goes through. Nobody chooses it up front: after implementation, the level
+check sets it from the facts of the change, within the bound a coordinator
+gave the run. The agent can raise it when the change is riskier than its paths
+show, facts can raise it but never lower it, and every change to it lands in
+a per-run ledger.
 
 `scripts/review-level.sh` is the only way a level is set, raised or lowered.
 Its header documents each subcommand and its exit codes; this page says what
@@ -31,22 +33,53 @@ In increasing order:
 A blocking result from any panel, the `light` panel included, retries through
 implementation under the same retry cap, and its next round is planned from
 the findings ledger like every panel's: only the findings the fix made due are
-re-verified. A `docs` or `task` run records a level too; its route skips the
-panels, so the level only appears in its ledger.
+re-verified. A `docs` or `task` run skips the level check and the panels, so
+it records a level only when the agent set one.
 
-## Choosing, raising and lowering
+## How the level is set
 
-The template variable `REVIEW_LEVEL` holds the level and koto routes on it.
+The template variable `REVIEW_LEVEL` holds the level, and the ledger holds
+every change to it. At `review_level_check`, on every lap, koto runs
+`review-level.sh facts` and then `review-level.sh set-from-facts`, which sets
+the level to the highest of:
+
+- the facts floor (below);
+- the ledger's last level, which carries every raise the agent made, so a
+  raise is kept; and
+- the bound's floor.
+
+When that differs from the ledger's level it writes one `from_facts` line;
+when it's the same it writes no level line. A facts floor above the bound's
+ceiling wins: the level is the facts floor and a `breach` line follows. A
+facts floor at or below the ceiling never writes a breach. The level never
+drops on its own: a lap whose diff is smaller keeps the level an earlier lap
+reached, and only a `set` lower moves it down. Then it rebinds `REVIEW_LEVEL`
+as `set` does.
+
+A rebind shows only from koto's next tick, so the state doesn't route on the
+variable. Its `level_route` gate runs `review-level.sh level <session> --exit`,
+which reads the ledger's level and exits 11 for `light`, 12 for `standard` and
+13 for `full` (10 plus the level's rank), 4 when no level is recorded and 66
+when the read fails. `light` goes to the light panel and the other two to
+scrutiny, in the tick that entered the state, so the run doesn't stop at the
+level check on the passing path.
+
+## Raising and lowering
+
 `review-level.sh set <session> <level> [--reason <text>] [--cause veto:<criterion>]`
 rebinds the variable on the live session and appends to the ledger in the
 same call. It exits 0 when the change is recorded, 1 with a `refused:` line
 when a rule below refuses it (nothing changes), 64 on a usage error, and 66
 when the rebind or a context read or write fails (neither changes).
 
-- **Choose.** The first `set` chooses the level from the issue and the
-  analysis plan. It must fall inside the bound. It is refused before the
-  level-choice state has recorded the bound (`refused: no bound recorded
-  yet`).
+`set` is refused until the bound is recorded (`refused: no bound recorded
+yet`), which `fix_determination`'s action does: a raise is made from
+`reproduce` or `implementation` on, not at `analysis`.
+
+- **Before the first check.** With no level in the ledger yet, `set` records
+  a `choose`, which the check then keeps as a raise. It is refused below the
+  bound's floor; above the ceiling it needs `--reason` and is recorded as a
+  breach.
 - **Raise.** A higher level is free inside the bound: no reason needed. A
   raise above the ceiling needs `--reason` and is recorded as a breach. The
   exception is a **floor raise**, a raise to exactly the current facts floor
@@ -70,10 +103,12 @@ A coordinator can give a run a floor, a ceiling, or both, each one of the
 three level names, through `--review-floor=<level>` and
 `--review-ceiling=<level>`. The run holds them in the `REVIEW_FLOOR` and
 `REVIEW_CEILING` template variables, and `review-level.sh init` records them
-once, at the level-choice state, as a `bound` line and the
-`review_level_bound.json` key. The first choice must fall inside the bound.
-A bound whose floor is above its ceiling refuses every `set`, naming both
-values, and the level check holds under it whatever the level.
+once, in `fix_determination`'s action, as a `bound` line and the
+`review_level_bound.json` key. The level the check sets never sits below the
+bound's floor; it goes above the ceiling only for a facts floor or a raise
+with a reason, and either is logged as a breach. A bound whose floor is above
+its ceiling refuses every `set` and `set-from-facts`, naming both values, and
+the level check holds under it whatever the level.
 
 `/execute` and `/deliver` take the same two flags. `/deliver` forwards them to
 `/execute`, and `/execute` sets them on every child task it spawns, only when
@@ -163,24 +198,28 @@ and a `.sh`, `.py` or `.rs` file in no class floors at `standard`. A test in
 `review-level_test.sh` fails when a template names a script the `engine` class
 doesn't cover, so the list can't fall behind the templates.
 
-`facts` classifies with the copy of the rules `init` stored when the level
-was first chosen, never with a file the run's diff can change, and the rules
+`facts` classifies with the copy of the rules `init` stored before
+implementation, never with a file the run's diff can change, and the rules
 file is itself in the `security` class. A change to the rules applies to runs
 that start after it lands.
 
-The level check (`review-level.sh check`, a command gate) passes when the
-level is at or above the floor, matches the ledger's last level, sits inside
-the bound (or above the ceiling with a breach recorded), and the facts were
-gathered at HEAD. Otherwise it holds with a `hold:` line naming why, and the
-run reaches no panel until the level is raised. koto's override record is the
-only way past the hold without a raise, and the ledger reader counts each
-override. With the level unset and no level in the ledger (a session from an
-earlier template), the check exits 3 and the run takes the full path.
+The level check (`review-level.sh check <session> --ledger`, a command gate
+every route needs) judges the level `set-from-facts` recorded: it passes when
+that level is at or above the floor, sits inside the bound (or above the
+ceiling with a breach recorded), and the facts were gathered at HEAD.
+Otherwise it holds with a `hold:` line naming why, as it does when no level is
+recorded, and the run reaches no panel until the next tick's action sets the
+level again or the agent raises it. koto's override record is the only way
+past the hold without a raise, and the ledger reader counts each override.
+Given a variable's value instead of `--ledger`, as a template from before this
+change passes it, the check also holds when the variable differs from the
+ledger, and with the level unset and no level in the ledger (a session from
+an earlier template) it exits 3 and the run takes the full path.
 
 The level check also carries a veto-mode decider check whose command is
 `review-level.sh slice`: the counts, class names, booleans, the floor, the
 order of the three levels, the rules above as the facts that call for each
-level, and the chosen level, never a path, a glob, a reason or criteria text.
+level, and the ledger's level, never a path, a glob, a reason or criteria text.
 Every value is typed (counts are non-negative integers, at most 16 class
 names), so a hand-edited facts key can't carry text to the decider, and the
 rules are rendered from the copy `init` stored, the one the floor was derived
@@ -219,8 +258,8 @@ merge-base when `impl_base` is unset. Both leave out a merge of the default
 branch into the shared branch made after `impl_base`, the same way: the base
 becomes the clean merge of `impl_base` and the default branch's merge-base.
 
-The step's own `/work-on` chooses its level, inside the bound the run was
-given, and its own commits set the floor. A path in the `ci`, `security`,
+The step's own `/work-on` sets its level from its own commits, inside the
+bound the run was given. A path in the `ci`, `security`,
 `template` or `engine` class floors a step at `full`, as anywhere else. A step
 that touches none of those classes and stays within 400 changed lines and 12
 changed files floors no higher than `standard`, however much the steps before
@@ -229,24 +268,26 @@ it changed or a merge of the default branch brought in.
 ## Hand rebinds
 
 `REVIEW_LEVEL` can also be changed by hand with `koto init <session>
---attach-live --var REVIEW_LEVEL=<level>`. The level check holds whenever the
-variable differs from the ledger's last level, naming both; a `set` to the
-level the run should be at clears it.
+--attach-live --var REVIEW_LEVEL=<level>`. The level check doesn't read the
+variable, and its action rebinds it to the ledger's level on every lap, so a
+hand rebind made before the check changes nothing.
 
 The level check runs once per lap, and two later states route on the level
 again: `review` (whether QA runs) and `light_review`. Each carries a
 `level_unchanged` gate, `review-level.sh agree`, on every route that depends
 on the level, its carried route included. It passes when the variable equals
-the ledger's last level (both empty is the unset route) and holds otherwise,
+the ledger's last level, and when the variable is empty, and holds otherwise,
 so a hand rebind made while the run sits in one of those states can't skip
 QA or leave the light panel with the ledger untouched. A `set` to the
-ledger's level clears the hold.
+ledger's level clears the hold. An empty variable passes because it can't
+skip a panel (review sends it to QA, and light_review doesn't route on it),
+and because the tick that records the run's first level enters the light
+panel or scrutiny before the rebind shows.
 
 An attach re-applies every rebind variable from its own arguments, so one that
 doesn't pass `REVIEW_LEVEL` (a resume through `koto init --attach-live`, say)
-empties it. With a level in the ledger that is a reset, not the unset route:
-the check holds, naming the ledger's level, until `set` rebinds it. For the
-same reason `set` passes `PLUGIN_ROOT` along with the level.
+empties it. The next level check rebinds it from the ledger. For the same
+reason `set` and `set-from-facts` pass `PLUGIN_ROOT` along with the level.
 
 ## The ledger
 
@@ -258,21 +299,24 @@ ISO-8601) and `event`, plus the fields the event needs from `from`, `to`,
 | Event | Written by | Means |
 |-------|------------|-------|
 | `bound` | `init` | the bound in force (`floor`, `ceiling`, null when absent) |
-| `choose` | `set` | the first level |
+| `from_facts` | `set-from-facts` | the level the check set, naming its `source` (`facts` or `bound`) and the facts `rule` |
+| `choose` | `set` | the first level, set before any check |
 | `raise` | `set` | a higher level |
 | `lower` | `set` | a lower level, with its `reason` |
 | `floor_raise` | `set` | a raise to the facts floor, naming the `rule` |
 | `veto` | `set` | a raise the decider check asked for, naming the criterion in `rule` |
-| `breach` | `set` | the level change on the line before went above the ceiling |
-| `check` | `facts` | the level and the facts floor at the check, written when the head, level or floor differs from the ledger's last `check` or `unset` line |
-| `unset` | `facts` | the check was reached with no level |
+| `breach` | `set`, `set-from-facts` | the level change on the line before went above the ceiling |
+| `check` | `set-from-facts`, `facts` | the level and the facts floor at the check, written when the head, level or floor differs from the ledger's last `check` or `unset` line |
+| `unset` | `facts` | the check was reached with no level (a template from before `set-from-facts`) |
 
-Each level change writes exactly one of `choose`, `raise`, `lower`,
-`floor_raise` or `veto`, plus `breach` when it goes above the ceiling.
+Each level change writes exactly one of `from_facts`, `choose`, `raise`,
+`lower`, `floor_raise` or `veto`, plus `breach` when it goes above the
+ceiling.
 
 `review-level.sh report [<session>...]` reads the ledgers of retained
 sessions: one tab-separated row per session with `session`, `chosen` (the
-first `choose`), `final` (the level of the last `check` at or above its
+first `choose`, `-` for a run whose level came from the facts alone), `final`
+(the level of the last `check` at or above its
 floor, `-` when there is none), `floor` and `ceiling` (the bound, `-` when
 absent), counts of `raise`, `lower`, `floor_raise`, `veto` and `breach`
 lines, `overrides` (koto overrides on the level check's gates) and `seats`
