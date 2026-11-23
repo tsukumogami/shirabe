@@ -575,13 +575,13 @@ for rc in 1 2; do
     reset_rc; set_rc check-branch-output.sh--commits "$rc"
     drive finalization "" '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     holds "commit_convention exit $rc at finalization" finalization commit_convention
-    drive deferral_approval "" '{"approval_decision":"approved","deferral_detail":"x"}'
+    drive deferral_approval "" '{"approval_decision":"approved","deferral_detail":"x","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     holds "commit_convention exit $rc on deferral_approval's approved edge" deferral_approval commit_convention
 done
 reset_rc
 drive finalization "" '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
 expect "commit_convention exit 0 at finalization" pr_precheck
-drive deferral_approval "" '{"approval_decision":"approved","deferral_detail":"x"}'
+drive deferral_approval "" '{"approval_decision":"approved","deferral_detail":"x","cleanup_done":"none_found","design_diagram":"not_applicable"}'
 expect "commit_convention exit 0 on the approved edge" pr_precheck
 SEED_SUMMARY=
 

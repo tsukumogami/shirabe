@@ -10,7 +10,9 @@
 #              task hint over a script path; no changed_paths.txt; a
 #              changed_paths.txt with headers and no path lines; a read koto
 #              refuses
-#   usage      a missing argument, an extra one, a bad session name
+#   bad args   a missing argument, an extra one, a bad session name: each
+#              asks (exit 1, a `route: ask` line), since the gate's edges
+#              name only 0 and 1
 #
 # The real review-level.sh classifies, from the shipped rules file.
 #
@@ -108,17 +110,22 @@ has "headers and no path lines: says so" "no changed paths" "$OUT"
 SHIM_FAIL_GET=1 run a2 code
 eq "a read koto refuses: exit 1" 1 "$RC"
 
-# --- usage -----------------------------------------------------------------------
+# --- bad arguments ask -----------------------------------------------------------
+# asks <label>: the last run exited 1 with a `route: ask` line.
+asks() {
+    eq "$1: exit 1" 1 "$RC"
+    has "$1: a route: ask line" "route: ask" "$OUT"
+}
 run c1
-eq "a missing hint: exit 64" 64 "$RC"
+asks "a missing hint"
 run
-eq "no arguments: exit 64" 64 "$RC"
+asks "no arguments"
 run c1 code extra
-eq "an extra argument: exit 64" 64 "$RC"
+asks "an extra argument"
 run "bad name" code
-eq "a bad session name: exit 64" 64 "$RC"
+asks "a bad session name"
 run -x code
-eq "a session name that looks like a flag: exit 64" 64 "$RC"
+asks "a session name that looks like a flag"
 
 echo
 echo "issue-type-route: $PASS passed, $FAIL failed"

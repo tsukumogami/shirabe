@@ -344,6 +344,28 @@ OUT=$(land "prepr-missing-diagram-$$" "feat(work-on): add a thing" "$GOOD_SUMMAR
 design_diagram: docs/designs/DESIGN-missing.md' "$GOOD_EVIDENCE" || true)
 expect_hold "missing-diagram" diagram_referent "$OUT"
 
+# Cases 12a-c — the two judgment calls are required with ready_for_pr. koto
+# tests an evidence field only for a value, so the route lists each pair of
+# values: a submission that leaves one out matches no edge and holds, with
+# every record in order.
+OUT=$(land "prepr-no-cleanup-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
+    '{"finalization_status":"ready_for_pr","design_diagram":"updated"}' || true)
+if grep -q '"state":"finalization"' <<<"$OUT"; then
+    pass "ready_for_pr with no cleanup_done holds at finalization"
+else
+    fail "ready_for_pr with no cleanup_done: expected a hold at finalization, got: $(head -c 300 <<<"$OUT")"
+fi
+OUT=$(land "prepr-no-diagram-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
+    '{"finalization_status":"ready_for_pr","cleanup_done":"removed"}' || true)
+if grep -q '"state":"finalization"' <<<"$OUT"; then
+    pass "ready_for_pr with no design_diagram holds at finalization"
+else
+    fail "ready_for_pr with no design_diagram: expected a hold at finalization, got: $(head -c 300 <<<"$OUT")"
+fi
+OUT=$(land "prepr-both-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
+    '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"updated"}' || true)
+expect_advance "ready_for_pr with both cleanup_done and design_diagram" "$OUT"
+
 # Case 12 — the status is required. Submitting nothing must not advance, since
 # the state would otherwise be satisfied by silence.
 OUT=$(land "prepr-empty-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" '{}' || true)

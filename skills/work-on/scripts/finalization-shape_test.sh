@@ -22,8 +22,10 @@
 #   an approved deferral holds on a bad shape; the escape edges stay open
 #                                                           (cases 5, 6)
 #   finalization's and deferral_approval's copies of the gates are identical,
-#   every copy of a referent gate runs the existence check, both advancing
-#   edges require every gate, and no pre_pr_evidence state is left (cases 7, 8)
+#   every copy of a referent gate runs the existence check, each state has
+#   four edges to pr_precheck, one per pair of the two judgment enums, every
+#   one requiring all five gates, an approval without the enums holds, and
+#   no pre_pr_evidence state is left                       (cases 5-8)
 #
 # pre-pr-evidence_test.sh drives finalization alone, in a fixture, through the
 # placeholder and referent forms.
@@ -229,7 +231,7 @@ echo "--- Case 1: a correct record advances"
 if to_finalization ok; then
     put ok summary.md "$GOOD_SUMMARY"
     put ok pre_pr.md "$GOOD_PREPR"
-    submit ok '{"finalization_status":"ready_for_pr"}'
+    submit ok '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if reached_precheck ok finalization; then
         pass "a correct summary and pre_pr.md advance to pr_precheck"
     else
@@ -241,7 +243,7 @@ echo "--- Case 2: a missing heading holds, and is fixed in place"
 if to_finalization heading; then
     put heading summary.md "$NO_HEADING_SUMMARY"
     put heading pre_pr.md "$GOOD_PREPR"
-    submit heading '{"finalization_status":"ready_for_pr"}'
+    submit heading '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = finalization ]; then
         pass "a summary without '## Changes Made' holds at finalization"
     else
@@ -253,7 +255,7 @@ if to_finalization heading; then
         fail "missing heading: expected summary_shape named; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-200)"
     fi
     put heading summary.md "$GOOD_SUMMARY"
-    submit heading '{"finalization_status":"ready_for_pr"}'
+    submit heading '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if reached_precheck heading finalization; then
         pass "after the fix in place, the same submission advances to pr_precheck"
     else
@@ -269,7 +271,7 @@ if to_finalization diagram; then
     put diagram summary.md "$GOOD_SUMMARY"
     put diagram pre_pr.md "cleanup_commit: $HEAD_SHA
 design_diagram: not_applicable"
-    submit diagram '{"finalization_status":"ready_for_pr"}'
+    submit diagram '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = finalization ] && names_gate diagram_referent; then
         pass "design_diagram: not_applicable holds at finalization, naming diagram_referent"
     else
@@ -280,7 +282,7 @@ if to_finalization cleanup; then
     put cleanup summary.md "$GOOD_SUMMARY"
     put cleanup pre_pr.md 'cleanup_commit: done
 design_diagram: not-applicable: no design document is touched'
-    submit cleanup '{"finalization_status":"ready_for_pr"}'
+    submit cleanup '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = finalization ] && names_gate cleanup_referent; then
         pass "cleanup_commit: done holds at finalization, naming cleanup_referent"
     else
@@ -294,14 +296,14 @@ if to_finalization offbranch; then
     put offbranch summary.md "$GOOD_SUMMARY"
     put offbranch pre_pr.md "cleanup_commit: $OTHER_SHA
 design_diagram: not-applicable: no design document is touched"
-    submit offbranch '{"finalization_status":"ready_for_pr"}'
+    submit offbranch '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = finalization ] && names_gate cleanup_referent; then
         pass "a cleanup_commit from another branch holds at finalization, naming cleanup_referent"
     else
         fail "off-branch cleanup_commit: expected a hold naming cleanup_referent, got [$NEXT_STATE]"
     fi
     put offbranch pre_pr.md "$GOOD_PREPR"
-    submit offbranch '{"finalization_status":"ready_for_pr"}'
+    submit offbranch '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if reached_precheck offbranch finalization; then
         pass "after HEAD is recorded in place, the same submission advances to pr_precheck"
     else
@@ -312,7 +314,7 @@ if to_finalization nodoc; then
     put nodoc summary.md "$GOOD_SUMMARY"
     put nodoc pre_pr.md "cleanup_commit: $HEAD_SHA
 design_diagram: docs/designs/DESIGN-missing.md"
-    submit nodoc '{"finalization_status":"ready_for_pr"}'
+    submit nodoc '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = finalization ] && names_gate diagram_referent; then
         pass "a design_diagram path that does not exist holds at finalization, naming diagram_referent"
     else
@@ -324,7 +326,7 @@ fi
 # referent gates fail closed on an absent key, so this holds.
 if to_finalization absent; then
     put absent summary.md "$GOOD_SUMMARY"
-    submit absent '{"finalization_status":"ready_for_pr"}'
+    submit absent '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = finalization ] && names_gate cleanup_referent && names_gate diagram_referent; then
         pass "no pre_pr.md holds at finalization, naming cleanup_referent and diagram_referent"
     else
@@ -341,14 +343,14 @@ if to_finalization defer; then
     if [ "$NEXT_STATE" = deferral_approval ]; then
         pass "deferral_requested reaches deferral_approval with a malformed summary and no pre_pr.md"
         put defer pre_pr.md "$GOOD_PREPR"
-        submit defer '{"approval_decision":"approved","deferral_detail":"x"}'
+        submit defer '{"approval_decision":"approved","deferral_detail":"x","cleanup_done":"none_found","design_diagram":"not_applicable"}'
         if [ "$NEXT_STATE" = deferral_approval ] && names_gate summary_shape; then
             pass "approved holds at deferral_approval on a missing heading, naming summary_shape"
         else
             fail "approved with missing heading: expected a hold naming summary_shape, got [$NEXT_STATE]"
         fi
         put defer summary.md "$GOOD_SUMMARY"
-        submit defer '{"approval_decision":"approved","deferral_detail":"x"}'
+        submit defer '{"approval_decision":"approved","deferral_detail":"x","cleanup_done":"none_found","design_diagram":"not_applicable"}'
         if reached_precheck defer deferral_approval; then
             pass "approved advances to pr_precheck once the summary is fixed in place"
         else
@@ -356,6 +358,27 @@ if to_finalization defer; then
         fi
     else
         fail "deferral_requested: expected deferral_approval, got [$NEXT_STATE]"
+    fi
+fi
+# An approval without the two judgment enums matches no edge and holds, with
+# every record in order. Its own session: koto keeps the evidence of every
+# submission in a visit, so after an earlier approved that carried the enums
+# a later one without them would still have them.
+if to_finalization noenum; then
+    put noenum summary.md "$GOOD_SUMMARY"
+    put noenum pre_pr.md "$GOOD_PREPR"
+    submit noenum '{"finalization_status":"deferral_requested"}'
+    submit noenum '{"approval_decision":"approved","deferral_detail":"x"}'
+    if [ "$NEXT_STATE" = deferral_approval ]; then
+        pass "approved without cleanup_done and design_diagram holds at deferral_approval"
+    else
+        fail "approved without the enums: expected a hold at deferral_approval, got [$NEXT_STATE]"
+    fi
+    submit noenum '{"approval_decision":"approved","deferral_detail":"x","cleanup_done":"removed","design_diagram":"not_applicable"}'
+    if reached_precheck noenum deferral_approval; then
+        pass "the same approval with both enums advances to pr_precheck"
+    else
+        fail "approved with the enums: expected pr_precheck, got [$NEXT_STATE]"
     fi
 fi
 if to_finalization reject; then
@@ -399,30 +422,41 @@ else
             fail "deferral_approval.$g drifted from finalization.$g: [$got] vs [$want]"
         fi
     done
-    # Both advancing edges go to pr_precheck and require every gate to pass:
+    # Both advancing routes go to pr_precheck and require every gate to pass:
     # with no later state checking the records, an edge that dropped one would
-    # let a failure through.
+    # let a failure through. koto tests an evidence field only for a value, so
+    # requiring both judgment enums takes one edge per pair of values: four
+    # edges, the four pairs once each, every one with all five gates. An edge
+    # to pr_precheck that names neither enum would let a submission without
+    # them through, so none may exist.
+    PAIRS="none_found|not_applicable,none_found|updated,removed|not_applicable,removed|updated"
     for spec in "finalization finalization_status ready_for_pr" "deferral_approval approval_decision approved"; do
         set -- $spec
-        edge=$(jq -c --arg s "$1" --arg k "$2" --arg v "$3" \
-            '[.states[$s].transitions[] | select(.when[$k] == $v)]' "$COMPILED")
-        ok=$(jq -r 'length == 1 and (.[0].target == "pr_precheck")
-                    and (.[0].when["gates.summary_exists.exists"] == true)
-                    and (.[0].when["gates.summary_shape.matches"] == true)
-                    and (.[0].when["gates.cleanup_referent.exit_code"] == 0)
-                    and (.[0].when["gates.diagram_referent.exit_code"] == 0)
-                    and (.[0].when["gates.commit_convention.exit_code"] == 0)' <<<"$edge")
+        edges=$(jq -c --arg s "$1" '[.states[$s].transitions[] | select(.target == "pr_precheck")]' "$COMPILED")
+        n=$(jq 'length' <<<"$edges")
+        [ "$n" = 4 ] && pass "$1 has four edges to pr_precheck" || fail "$1 has $n edges to pr_precheck, want 4"
+        got=$(jq -r '[.[] | "\(.when.cleanup_done)|\(.when.design_diagram)"] | sort | join(",")' <<<"$edges")
+        [ "$got" = "$PAIRS" ] && pass "$1's pr_precheck edges cover the four cleanup_done/design_diagram pairs once each" \
+            || fail "$1's pr_precheck edges cover [$got], want [$PAIRS]"
+        ok=$(jq -r --arg k "$2" --arg v "$3" 'all(.[]; .when[$k] == $v
+                    and .when["gates.summary_exists.exists"] == true
+                    and .when["gates.summary_shape.matches"] == true
+                    and .when["gates.cleanup_referent.exit_code"] == 0
+                    and .when["gates.diagram_referent.exit_code"] == 0
+                    and .when["gates.commit_convention.exit_code"] == 0)' <<<"$edges")
         if [ "$ok" = true ]; then
-            pass "$1's $3 edge goes to pr_precheck and requires all five gates"
+            pass "every $1 edge to pr_precheck takes $3 and requires all five gates"
         else
-            fail "$1's $3 edge changed: $edge"
+            fail "$1's pr_precheck edges changed: $edges"
         fi
     done
-    # finalization takes the two judgment calls pre_pr_evidence used to.
-    for f in "cleanup_done removed,none_found" "design_diagram updated,not_applicable"; do
-        set -- $f
-        got=$(jq -r --arg f "$1" '.states.finalization.accepts[$f] | "\(.field_type)|\(.values | join(","))"' "$COMPILED")
-        [ "$got" = "enum|$2" ] && pass "finalization accepts $1 as enum $2" || fail "finalization's $1 is [$got]"
+    # Both states take the two judgment calls pre_pr_evidence used to.
+    for s in finalization deferral_approval; do
+        for f in "cleanup_done removed,none_found" "design_diagram updated,not_applicable"; do
+            set -- $f
+            got=$(jq -r --arg s "$s" --arg f "$1" '.states[$s].accepts[$f] | "\(.field_type)|\(.values | join(","))"' "$COMPILED")
+            [ "$got" = "enum|$2" ] && pass "$s accepts $1 as enum $2" || fail "$s's $1 is [$got]"
+        done
     done
     # shirabe#422: no copy of a referent gate may fall back to a shape check.
     # Each of the two states runs the existence check.
@@ -448,14 +482,14 @@ if to_finalization commits; then
     put commits summary.md "$GOOD_SUMMARY"
     put commits pre_pr.md "$GOOD_PREPR"
     git commit -q --allow-empty -m "fixed the thing"
-    submit commits '{"finalization_status":"ready_for_pr"}'
+    submit commits '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if [ "$NEXT_STATE" = finalization ] && names_gate commit_convention; then
         pass "a non-conventional commit since impl_base holds at finalization, naming commit_convention"
     else
         fail "non-conventional commit: expected a hold naming commit_convention, got [$NEXT_STATE]"
     fi
     git commit -q --amend --allow-empty -m "fix: the thing"
-    submit commits '{"finalization_status":"ready_for_pr"}'
+    submit commits '{"finalization_status":"ready_for_pr","cleanup_done":"none_found","design_diagram":"not_applicable"}'
     if reached_precheck commits finalization; then
         pass "after the commit is reworded in place, the same submission advances to pr_precheck"
     else
