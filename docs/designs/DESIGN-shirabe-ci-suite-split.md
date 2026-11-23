@@ -1,20 +1,36 @@
 ---
 schema: design/v1
-status: Draft
+status: Proposed
 problem: |
   Five CI jobs on a shirabe pull request run long, independent suite lists one
   after another on one runner, so each takes 35-72 minutes and the round takes
   40-75. Splitting them has to keep every suite running on the same koto
   release and bash version, keep the skill gate the verification map's job of
   record, and get past workflow linters that pin job names and floor calls.
+decision: |
+  Every long job becomes a fail-fast-off matrix of slices inside its existing
+  workflow. One selector, scripts/lib/suite-slice.sh, reads SUITE_SLICE=i/n
+  and assigns a list's suites greedily by measured cost; run-tests.sh,
+  run-suites.sh, check-skill.sh and check-bash-floor.sh filter through it.
+  The skill gate keeps its job of record, which needs new slice jobs and runs
+  the once-per-skill checks. An over-long rule-registry suite splits into part
+  files, and a static check pins every sliced matrix and the gate's shape.
+rationale: |
+  An environment variable reaches nested runners and keeps macOS floor calls
+  naming their suite literally, which the floor linters require; a flag or
+  hand-written lists would not. Cost-balanced greedy slices stay within one
+  suite of each other where equal counts would not. Slice jobs the gate needs
+  keep the verification map's job name and meaning. Matrices inside existing
+  files keep triggers, concurrency and registrations as they are.
 upstream: docs/prds/PRD-shirabe-ci-suite-split.md
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: Shorter CI rounds through sliced suite lists
 
 ## Status
 
-Draft
+Proposed
 
 ## Context and Problem Statement
 
@@ -119,14 +135,22 @@ Key assumptions:
 
 A new library, `scripts/lib/suite-slice.sh`, reads a list of suite paths on
 standard input and the environment variable `SUITE_SLICE` (`i/n`, with
-`1 <= i <= n <= 16`). It sorts the list by name with `LC_ALL=C`, reads each
-suite's cost from the rows a caller names (`SUITE_SLICE_COSTS`, a file of
-`cost <name> <seconds>` rows such as a skill's `check-skill.tsv`), gives a
-suite with no row the median of the known costs, and assigns suites greedily,
-costliest first, each to the slice with the lowest running total, ties broken
-by lower slice number. It prints the suites of slice `i` and, on standard
-error, `suite-slice: slice i/n: k of N suites`. With `SUITE_SLICE` unset it
-prints the list unchanged, which is how R6 holds.
+`1 <= i <= n <= 16`). It sorts the list by name with `LC_ALL=C` and looks up
+each suite's cost by its file's basename in a cost table: either the file
+`SUITE_SLICE_COSTS` names, holding `check-skill.tsv`-style rows
+(`cost<TAB><basename><TAB><seconds>`), or cost pairs a caller passes on
+another descriptor (how `check-bash-floor.sh` hands over a list's `cost:`
+lines). A suite with no cost gets the median of the known costs, or 1 when
+none is known. Suites are assigned greedily, costliest first, each to the
+slice with the lowest running total, ties broken by lower slice number. It
+prints the suites of slice `i` in the runner's original order and, on
+standard error, `suite-slice: slice i/n: k of N suites`. With `SUITE_SLICE`
+unset or empty it prints the list unchanged, which is how R6 holds.
+
+It fails closed. An empty full list is an error (exit 1, naming the runner),
+since every slice of an empty list would pass having run nothing. An empty
+slice is allowed only when the list has fewer suites than `n`. A cost value
+that isn't a whole number is an error, not a default.
 
 Greedy longest-first assignment keeps every slice within one largest suite of
 the lightest (the PRD's R3 bound), is deterministic for a given list and cost
@@ -138,9 +162,12 @@ Each runner filters its list through the selector:
   line reports the slice (`run-tests: 12 of 47 suites (slice 2/4)`), and both
   already name a failing suite.
 - `check-skill.sh` in step 4 only, after its own suite selection and before
-  the cost-ordered launch, so `--changed` selection and slicing compose.
-- `check-bash-floor.sh` over a list's harness lines, shrinking the "ran X of
-  Y listed" count to the slice. A list can carry a new directive,
+  the cost-ordered launch, so `--changed` selection and slicing compose. It
+  points the selector at `skills/<skill>/check-skill.tsv` itself when that
+  file exists, so no workflow names a per-skill cost file.
+- `check-bash-floor.sh` over a list's harness lines (the script paths in
+  `scripts/bash-floor/<suite>.list`; the `coordinate` list names 54 suite
+  files one per line), shrinking the "ran X of Y listed" count to the slice. A list can carry a new directive,
   `slice: pass`, which tells `check-bash-floor.sh` not to slice its harnesses
   and to leave `SUITE_SLICE` set for them; the `skill-gate` list uses it, so
   the slice reaches `check-skill.sh` instead. Without that directive
@@ -150,6 +177,15 @@ Each runner filters its list through the selector:
 Workflows set `SUITE_SLICE: ${{ matrix.slice }}/<n>` as a job-level
 environment variable, so the floor call stays
 `scripts/check-bash-floor.sh --backend system <suite>`.
+
+Because the variable is ambient, every test of a runner
+(`run-suites_test.sh`, `check-skill_test.sh`, `skill-gate_test.sh`,
+`check-bash-floor_test.sh`, and the new `run-tests.sh` cases) unsets
+`SUITE_SLICE`, `SUITE_SLICE_COSTS` and `SKILL_GATE_PART` before running a
+runner on its fixtures, and each has a case proving a fixture run is
+unaffected when the variable is set in its own environment. A developer who
+sets the variable in a shell gets a sliced local run, and the runner's count
+line says so.
 
 #### Alternatives Considered
 
@@ -239,15 +275,17 @@ Each workflow keeps its file, `paths`, concurrency group and registration, and
 its long job becomes a matrix with `fail-fast: false`:
 
 - **Floor check.** `entry-floor` gets `matrix.leg: [shared, scope, execute,
-  deliver, work-on, coordinate-1, coordinate-2, coordinate-3, coordinate-4]`.
-  Every leg keeps `fetch-depth: 0`, reads the floor with
-  `assert-koto-floor.sh --print-floor`, installs `koto@$KOTO_FLOOR_RELEASE`,
-  asserts the exact version and builds shirabe (R1). The `shared` leg runs the
-  template compile, the decider check, `run-suites_test.sh` and the shared
-  entry and preflight suites; each skill leg runs its existing
-  `run-suites.sh` list; the `coordinate-<i>` legs run `run-tests.sh --engine`
-  with `SUITE_SLICE=<i>/4` and `SUITE_SLICE_COSTS` set to /coordinate's
-  `check-skill.tsv`.
+  deliver, work-on]`, and a second job in the same file,
+  `entry-floor-coordinate`, gets `matrix.slice: [1, 2, 3, 4]` with
+  `SUITE_SLICE: ${{ matrix.slice }}/4`. Every job keeps `fetch-depth: 0`,
+  reads the floor with `assert-koto-floor.sh --print-floor`, installs
+  `koto@$KOTO_FLOOR_RELEASE`, asserts the exact version and builds shirabe
+  (R1). The `shared` leg runs the template compile, the decider check,
+  `run-suites_test.sh` and the shared entry and preflight suites; each skill
+  leg runs its existing `run-suites.sh` list; `entry-floor-coordinate` runs
+  `run-tests.sh --engine` with `SUITE_SLICE_COSTS` set to /coordinate's
+  `check-skill.tsv`. A separate job keeps the slice in `matrix.slice`, the
+  one form the matrix check reads.
 - **Coordinate workflow.** `test-coordinate-engine` gets `slice: [1..4]`.
   `test-coordinate-scripts` keeps its os expression and gains `slice: [1..4]`;
   the Linux step is unchanged apart from the environment, the squash-message
@@ -256,10 +294,13 @@ its long job becomes a matrix with `fail-fast: false`:
 - **Rule registry.** `check-rule-registry_test.sh` is split into
   `check-rule-registry_1_test.sh` through `_4_test.sh` by case order, moving
   cases without editing them, and its floor list, the Linux step and the
-  workflow `paths` name the four parts. The job gains `slice: [1, 2, 3]`; the
-  Linux step becomes one `run-suites.sh` call over the list, and the list
-  carries `cost:` directive lines from a measured run so the selector can
-  balance it. The two merge-base registry checks run in slice 1.
+  workflow `paths` name the four parts. The job gains `slice: [1, 2, 3, 4]`,
+  one slice per part, with the three short suites landing on the lightest
+  slices; the Linux step becomes one `run-suites.sh` call over the list,
+  and the list carries `cost:` directive lines so the selector can balance
+  it. The first cost lines come from the 2026-11-23 macOS log, scaled by
+  case count per part, and are corrected from the first sliced run in a
+  follow-up commit. The two merge-base registry checks run in slice 1.
 - **/work-on and /execute.** `test-work-on-scripts` Linux steps that are a
   plain `bash <suite>` move into one `run-suites.sh` call under
   `slice: [1, 2]`; steps with their own environment or setup stay as steps,
@@ -304,8 +345,14 @@ Key assumptions:
 #### Chosen: A static matrix check plus the selector's own tests
 
 `scripts/check-suite-slices.sh` reads every workflow, finds each job that sets
-`SUITE_SLICE: ${{ matrix.slice }}/<n>`, and fails unless that job's
-`matrix.slice` is exactly `[1, ..., n]` and `fail-fast` is `false`. It runs in
+`SUITE_SLICE`, and fails unless the value is exactly
+`${{ matrix.slice }}/<n>`, that job's `matrix.slice` is exactly
+`[1, ..., n]`, `fail-fast` is `false`, and no `run:` body in the job holds
+`${{ matrix`. It also holds the skill gate's shape: `skill-gate` has
+`needs: skill-gate-suites`, and neither `skill-gate` nor `skill-gate-suites`
+carries a job-level `if:` or `continue-on-error`. Finally it requires each of
+the sliced jobs this design creates to exist, by workflow and job name, so
+deleting one fails the check rather than shrinking coverage. It runs in
 `check-pr-workflow-content.yml`, whose trigger covers `.github/workflows/**`,
 and in a new step of the bash-floor registry tests. The selector's own suite,
 `scripts/lib/suite-slice_test.sh`, proves the partition: for lists of 0, 1, 2
@@ -371,7 +418,10 @@ workflow matrix (slice: [1..n], fail-fast: false)
 - **`scripts/check-bash-floor.sh`**: slice harness lines unless the list says
   `slice: pass`; read `cost:` lines; unset `SUITE_SLICE` for children of a
   sliced list.
-- **`scripts/check-suite-slices.sh`** (new) and its test: the matrix check.
+- **`scripts/check-suite-slices.sh`** (new) and its test: the matrix check
+  and the skill gate's shape.
+- **`skills/work-on/scripts/verification-route.sh`'s test**: a new case for a
+  skipped job of record.
 - **Workflows**: `check-koto-entry-floor.yml`, `check-coordinate-scripts.yml`,
   `check-skill-gate.yml`, `check-rule-registry.yml`,
   `check-work-on-scripts.yml`, plus a step in
@@ -383,9 +433,12 @@ workflow matrix (slice: [1..n], fail-fast: false)
 ### Key Interfaces
 
 - `SUITE_SLICE=i/n`: unset or empty means the full list.
-- `SUITE_SLICE_COSTS=<file>`: rows `cost<TAB><suite file name><TAB><seconds>`;
-  floor lists use `cost: <suite path> <seconds>` directive lines instead.
-- `SKILL_GATE_PART=suites|checks`: unset means both.
+- `SUITE_SLICE_COSTS=<file>`: rows `cost<TAB><suite basename><TAB><seconds>`;
+  floor lists use `cost: <suite path> <seconds>` directive lines instead, and
+  both are matched on the suite's basename. `check-skill.sh` sets it to its
+  skill's `check-skill.tsv` when unset.
+- `SKILL_GATE_PART=suites|checks`: unset means both. `skill-gate.sh` and
+  `check-skill.sh` refuse any other value with exit 2.
 - `suite-slice.sh` standard output: one suite path per line, the slice's
   suites in the runner's original order; standard error: the count line.
 
@@ -407,18 +460,20 @@ cases for the full-run default and a sliced run; `check-suite-slices.sh` and
 its test. Checked locally only on targeted suites (the selector's, the
 runners' own tests on a small fixture list), never the full lists.
 
-### Phase 2: Workflows
+### Phase 2: Long single suites
 
-The matrix changes in the five workflows, the floor-list directives, the
+Split `check-rule-registry_test.sh` into four part files by case order,
+moving cases without editing them, and update its floor list, Linux step and
+workflow `paths` to name the parts, with first-estimate `cost:` lines.
+
+### Phase 3: Workflows
+
+The matrix changes in the five workflows, the `slice: pass` directive, the
 floor check's widened paths, and the matrix check's step. Checked by the
-repository's workflow linters and by one pull request run.
-
-### Phase 3: Long single suites
-
-Split `check-rule-registry_test.sh` into four part files by case order and
-update its list, step and paths. If the first sliced run shows another suite
-over a limit, split it the same way or name it, with its measured runtime, in
-the pull request description (PRD R9).
+repository's workflow linters and by one pull request run. If that run shows
+another suite over a limit, split it as in Phase 2 or name it, with its
+measured runtime, in the pull request description (PRD R9); corrected
+`cost:` lines land in a follow-up commit.
 
 ### Phase 4: Measure
 
@@ -429,15 +484,38 @@ draft run, a ready run and the push to main (R12).
 
 ## Security Considerations
 
-No new permissions, secrets or tokens. Every new job copies the
-`permissions: contents: read` and `GITHUB_TOKEN` use of the job it splits from,
-and no `pull_request_target` trigger is added. The selector and the matrix
-check read only files in the checked-out tree and environment values set by
-the workflow, never pull request text. `SUITE_SLICE` and `SKILL_GATE_PART` are
-validated against fixed patterns before use and are never evaluated by a
-shell. Third-party actions stay pinned to the same commit SHAs. More jobs per
-pull request means more checkouts of untrusted pull request code, but each
-runs with the same read-only token the unsplit job had.
+No new permissions, secrets or triggers. New jobs inherit the workflow-level
+`permissions: contents: read`, add no job-level `permissions`, and use the
+same `GITHUB_TOKEN` the job they split from uses; no `pull_request_target`
+trigger is added, and `eval-workflows_test.sh` keeps guarding that for every
+job. Matrix values are static YAML literals and reach shell steps only through
+`env:`, never through `${{ }}` inside a `run:` body.
+
+The selector and the matrix check read only files in the checked-out tree and
+environment values the workflow sets, never pull request text. `SUITE_SLICE`
+and `SKILL_GATE_PART` are validated against fixed patterns before use, and
+cost files and `cost:` lines are parsed as data by awk with numeric checks,
+never sourced or evaluated.
+
+`skill-gate` must not gain `if: always()` or `continue-on-error`: a failed or
+skipped slice has to leave the job of record unpassed, which is what keeps the
+verification route honest. `check-suite-slices.sh` enforces that, and a new
+case in `verification-route.sh`'s test proves a skipped `skill-gate
+(ubuntu-latest)` does not count as passed. GitHub treats a skipped job as
+passing for a required status check, so `skill-gate` must not become a
+required check without an always-run aggregate job in front of it; today it
+isn't one.
+
+The variable that selects a slice could also shrink coverage silently. The
+selector fails on an empty full list, runner tests unset it before fixture
+runs, and the matrix check pins every sliced job's slice set, so no path
+leaves a job green with fewer suites than its slice holds. Every new job that installs tools sets
+`TSUKU_TELEMETRY=0` and uses the same actions as its parent job, the
+SHA-pinned ones at the same SHAs and `actions/checkout` at the same tag as
+today. More jobs per pull request means more checkouts of untrusted pull
+request code and more downloads of koto, tsuku and apt packages, but no more
+trust placed in any of them: each runs with the read-only token the unsplit
+job had.
 
 ## Consequences
 
