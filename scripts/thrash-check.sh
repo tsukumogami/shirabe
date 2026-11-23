@@ -38,7 +38,8 @@
 #      repeated key, a missing key, a figure that isn't an integer, a
 #      boundaries count that differs from the number of boundary_turns,
 #      turns out of order, a hard_stop with a window that isn't an integer
-#      or none with one that is, or a report over 65,536 bytes
+#      or none with one that is, a report over 65,536 bytes or holding a NUL
+#      byte, or an empty path argument
 #
 # bash 3.2.
 
@@ -62,18 +63,35 @@ is_int() {
 if [ "$#" -gt 1 ]; then
     refuse "usage: thrash-check.sh [<report-file>]"
 fi
+if [ "$#" -eq 1 ] && [ -z "$1" ]; then
+    refuse "an empty report path"
+fi
 src=${1:--}
+
+# At most MAX_BYTES + 1 bytes go to a private copy first. Command
+# substitution drops trailing newlines and NUL bytes, so the size and the NUL
+# test are taken on the copy's bytes, before anything is parsed.
+COPY=$(mktemp "${TMPDIR:-/tmp}/thrash-check.XXXXXX") || refuse "could not make a temporary file"
+trap 'case "$COPY" in */thrash-check.*) rm -f "$COPY" ;; esac' EXIT
 if [ "$src" != "-" ]; then
     [ -e "$src" ] || refuse "no such report file"
     [ -f "$src" ] || refuse "the report is not a regular file"
     [ -r "$src" ] || refuse "the report file is not readable"
-    report=$(head -c "$((MAX_BYTES + 1))" -- "$src") || refuse "the report file could not be read"
+    head -c "$((MAX_BYTES + 1))" -- "$src" >"$COPY" || refuse "the report file could not be read"
 else
-    report=$(head -c "$((MAX_BYTES + 1))") || refuse "the report could not be read from stdin"
+    head -c "$((MAX_BYTES + 1))" >"$COPY" || refuse "the report could not be read from stdin"
 fi
-if [ "${#report}" -gt "$MAX_BYTES" ]; then
+size=$(wc -c <"$COPY") || refuse "the report copy could not be measured"
+size=${size//[!0-9]/}
+if [ "$size" -gt "$MAX_BYTES" ]; then
     refuse "the report is over $MAX_BYTES bytes"
 fi
+kept=$(tr -d '\000' <"$COPY" | wc -c) || refuse "the report copy could not be measured"
+kept=${kept//[!0-9]/}
+if [ "$kept" -ne "$size" ]; then
+    refuse "the report holds a NUL byte"
+fi
+report=$(cat -- "$COPY") || refuse "the report copy could not be read"
 
 ctx="" nb="" turns="" window="" hard=""
 seen=" "

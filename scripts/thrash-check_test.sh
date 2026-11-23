@@ -124,6 +124,33 @@ check "the refused line's text is not echoed" '! grep -q secret <<<"$OUT"'
 check "the refusal names the line number" 'grep -q "line 5" <<<"$OUT"'
 BIG=$(head -c 70000 /dev/zero | tr '\0' 'a')
 refused "a report over 65,536 bytes" "$BIG"
+refused "a leading zero in boundary_turns" "$(report 1 3 "010 020 045" unset)"
+refused "no boundary_turns line" "$(printf 'context_tokens: 1\nboundaries: 0\nwindow: unset\n')"
+# A report padded with newlines to past the cap, with a repeated key and a
+# hard_stop beyond it: command substitution would drop the padding.
+{
+    report 400000 0 none 280000 350000
+    head -c 65600 /dev/zero | tr '\0' '\n'
+    printf 'boundaries: 0\n'
+} >"$T/padded.txt"
+OUT=$(bash "$SCRIPT" "$T/padded.txt" 2>&1); rc=$?
+check "a newline-padded report over the cap exits 2" '[ "$rc" -eq 2 ] && grep -q "over 65536 bytes" <<<"$OUT"'
+check "and prints no status" '! grep -q "^status:" <<<"$OUT"'
+OUT=$(bash "$SCRIPT" - <"$T/padded.txt" 2>&1); rc=$?
+check "the same on stdin" '[ "$rc" -eq 2 ] && grep -q "over 65536 bytes" <<<"$OUT"'
+report 1 0 none unset >"$T/exact.txt"
+head -c "$((65536 - $(wc -c <"$T/exact.txt")))" /dev/zero | tr '\0' '\n' >>"$T/exact.txt"
+OUT=$(bash "$SCRIPT" "$T/exact.txt" 2>&1); rc=$?
+check "a report of exactly 65,536 bytes is read" '[ "$rc" -eq 0 ] && [ "$(wc -c <"$T/exact.txt")" -eq 65536 ]'
+{
+    printf 'context_tokens: 35'
+    printf '\000'
+    printf '0001\nboundaries: 0\nboundary_turns: none\nwindow: 280000\nhard_stop: 350000\n'
+} >"$T/nul.txt"
+OUT=$(bash "$SCRIPT" "$T/nul.txt" 2>&1); rc=$?
+check "a NUL byte in the report exits 2" '[ "$rc" -eq 2 ] && grep -q "NUL byte" <<<"$OUT"'
+OUT=$(bash "$SCRIPT" "" 2>&1); rc=$?
+check "an empty path argument exits 2" '[ "$rc" -eq 2 ] && grep -q "empty report path" <<<"$OUT"'
 OUT=$(bash "$SCRIPT" "$T/missing.txt" 2>&1); rc=$?
 check "a missing report file exits 2" '[ "$rc" -eq 2 ]'
 OUT=$(bash "$SCRIPT" "$T" 2>&1); rc=$?

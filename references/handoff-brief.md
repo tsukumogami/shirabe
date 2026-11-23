@@ -524,8 +524,9 @@ An assistant turn is one message id. Claude Code writes a record per content
 block, so records sharing an id count as one turn, and the figure comes from
 that id's last record. A sidechain record is never a turn or a boundary, and
 a `<synthetic>` assistant record (written with no model call behind it) is
-not a turn. A record whose usage counts aren't whole numbers gives no turn
-and no figure, and a line that isn't a JSON object, such as a half-written
+not a turn. A missing usage count reads as 0. A record whose counts aren't
+whole numbers, or whose total reaches 10^15, gives no turn and no figure, so
+the reader never prints a figure the thrash check would refuse; and a line that isn't a JSON object, such as a half-written
 last line, is skipped.
 
 The reader prints integers and the words above only, never transcript text
@@ -543,12 +544,14 @@ the one two after it differ by 30 or less: `reason: thrash` with the three
 turns), or when `context_tokens` is above `hard_stop` (`reason: hard_stop`
 with both figures); both reasons print when both hold. Otherwise it prints
 `status: continue` and exits 0. It parses integers only. It refuses a report
-with exit 2 and no status, naming the line number and the cause but never the
-line's text, when a line isn't of the form `key: value`, a key is unknown,
-repeated or missing, a figure isn't a plain whole number of at most fifteen
-digits, the `boundaries` count differs from the turns listed, the turns are
-out of order, a `hard_stop` line doesn't match whether the window is an
-integer, or the report is over 65,536 bytes.
+with exit 2 and no status, naming the cause but never a line's text (and the
+line number, for a cause found on one line), when a line isn't of the form
+`key: value`, a key is unknown, repeated or missing, a figure isn't a plain
+whole number of at most fifteen digits, the `boundaries` count differs from
+the turns listed, the turns are out of order, a `hard_stop` line doesn't
+match whether the window is an integer, or the report is over 65,536 bytes
+or holds a NUL byte. The size and the NUL test are taken on the bytes
+received, before any line is read.
 
 The values are the design's: three within 30 sits far from both the one
 thrashing session on hand, which put three boundaries within 2 turns, and

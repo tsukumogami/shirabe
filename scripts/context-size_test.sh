@@ -157,6 +157,31 @@ TR="$T/ws/inst/e2.jsonl"
 } >"$TR"
 OUT=$(run "$TR" 2>&1); rc=$?
 check "a missing cache count reads as 0" '[ "$(val context_tokens)" = 3 ]'
+TR="$T/ws/inst/e3.jsonl"
+{
+    asst_rec k1 1 500 0
+    asst_rec k2 1 99999999999999999 0
+    asst_rec k3 400000000000000 400000000000000 400000000000000
+} >"$TR"
+OUT=$(run "$TR" 2>&1); rc=$?
+check "a count of 1e15 or more, or a total that reaches it, gives no figure" '[ "$rc" -eq 0 ] && [ "$(val context_tokens)" = 501 ]'
+TR="$T/ws/inst/e4.jsonl"
+{
+    asst_rec n1 1 500 0
+    printf '{"type":"assistant","isSidechain":false,"message":{"id":"n2","model":"m","usage":{"input_tokens":-0,"cache_read_input_tokens":-0,"cache_creation_input_tokens":-0}}}\n'
+} >"$TR"
+OUT=$(run "$TR" 2>&1); rc=$?
+check "-0 counts read as 0" '[ "$rc" -eq 0 ] && [ "$(val context_tokens)" = 0 ]'
+TR="$T/ws/inst/e5.jsonl"
+{
+    asst_rec p1 1 100 0
+    asst_rec p2 1 200 0
+    asst_rec p1 1 300 0
+    boundary_rec
+    asst_rec p3 1 400 0
+} >"$TR"
+OUT=$(run "$TR" 2>&1); rc=$?
+check "an id seen again after another one is still one turn" '[ "$(val boundary_turns)" = 2 ]'
 
 echo "== the same report from any directory, and after five more turns =="
 TR="$T/ws/inst/b.jsonl"

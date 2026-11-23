@@ -34,7 +34,9 @@
 # and the figure comes from that id's last record. A record is a turn only
 # when it is the main chain's (isSidechain not true), names a model other
 # than `<synthetic>` (a synthetic record has no model call behind it), and
-# carries a string message id and usage counts that are whole numbers.
+# carries a string message id and usage counts that are whole numbers below
+# 10^15 (a missing count reads as 0) whose total is also below 10^15, so the
+# report never holds a figure thrash-check.sh would refuse.
 # Sidechain records are never boundaries either.
 #
 # It reads only record types, those flags and the usage integers. It prints
@@ -107,12 +109,13 @@ fi
 # shellcheck disable=SC2016
 PROGRAM='
 def whole: type == "number" and . >= 0 and . == floor and . < 1e15;
-def count: if . == null then 0 elif whole then . else null end;
+def count: if . == null or . == 0 then 0 elif whole then . else null end;
 def usage_total:
   (.input_tokens | count) as $a
   | (.cache_read_input_tokens | count) as $b
   | (.cache_creation_input_tokens | count) as $c
-  | if $a == null or $b == null or $c == null then null else $a + $b + $c end;
+  | if $a == null or $b == null or $c == null then null
+    else ($a + $b + $c) | (if . < 1e15 then . else null end) end;
 reduce (inputs | fromjson? | select(type == "object")) as $r
   ({turns: 0, ids: {}, bounds: [], last: null};
    if ($r.isSidechain == true) then .
