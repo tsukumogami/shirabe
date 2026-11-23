@@ -930,25 +930,38 @@ Scope is part of the rule's words. When a rule applies and what it
   the quoted words, a second copy that can disagree with the source, which
   is why Owner stays blank (Decision 1). No reader could honor a free-text
   scope mechanically either: deciding that a rule doesn't apply here is a
-  reading. Carried by the compiled-brief work, where rules stop riding in
-  prose and a rule's condition can be a structured field its source sets.
+  reading. Left out on purpose and carried by the compiled-brief work,
+  #2055, where rules stop riding in prose and a rule's condition (when it
+  applies, what it defers to) is a structured field its source sets, with
+  a reader that honors it.
 
-Review already happens per class, at every succession. An inferred
-  row is listed by the handover read and the start report at every start
-  until it's confirmed or ended, a trigger of one succession, stricter than
-  any count. A cited row's standing is read from koto each time it's read,
-  so a reversal takes effect without review. A `skill`, `doc` or `pinned`
-  row is pinned to words at a commit, and comparing those with the file's
-  current contents is already the compiled-brief work's (Security
-  Considerations); accretion is bounded by the caps and step 17's
-  threshold.
+Review already happens per class, at every succession, so no row needs
+  a trigger column of its own:
+
+  - An `inferred` row is listed by the handover read and the start report
+    at every start until it's confirmed or ended: a trigger of one
+    succession, stricter than any larger count.
+  - A cited row's standing is read from koto each time it's read, so a
+    reversal takes effect at the next read and the row needs no review to
+    learn of it.
+  - A `skill` or `doc` row is pinned to words at a commit, and a `pinned`
+    row to a file's sha256 digest. Comparing those with the cited file's
+    current contents, and marking a row whose source has moved as due for
+    review at the succession that sees it, is left out of this design on
+    purpose and carried by #2055 (Security Considerations says the same of
+    the digest).
+
+  Meanwhile, accretion of unconfirmed rows is bounded by the caps; step 17
+  checks the rise.
 
 - **Add both fields, counted in successions, with readers that honor
-  them.** Rejected because the readers of steps 1 to 5 have shipped
-  against the current row shape, and Decision 3 widens the row only in a
-  reader release before anything writes it, so the fields would need a new
-  reader release ahead of step 6 and would reorder the plan. The scope
-  field would also be the unsourced copy described above.
+  them.** Rejected because the readers of steps 1 to 5 and the rule write
+  of step 6 have shipped against the current row shape, and Decision 3
+  widens the row only in a reader release before anything writes it. The
+  fields would need a new reader release, then a change to the shipped
+  writer and the record schema, ahead of any step that reads them, and
+  would reorder the plan. The scope field would also be the unsourced copy
+  described above.
 
 ## Decision Outcome
 
@@ -2351,7 +2364,7 @@ reads as a 404 passes, since a 404 can't tell an absent repository from a
 hidden one and refusing every such token would refuse ordinary prose like
 `and/or`. A refusal reads the same for a repository that
 doesn't exist as for one the writer can't read. A pinned or brief digest records what was read; comparing it
-with the file's current contents is the compiled-brief work's, so this
+with the file's current contents is the compiled-brief work's (#2055), so this
 design doesn't present it as an integrity check, and that is why a pinned
 rule can only restrict. A `skill` or `doc` rule can grant only from a
 commit its repository's default branch contains, so it points at merged
