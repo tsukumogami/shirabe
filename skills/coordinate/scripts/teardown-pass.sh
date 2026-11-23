@@ -133,6 +133,16 @@
 #       re-read, the retired event carries none, the README's Merged pull
 #       request line says none, and the entry says no pull request of the
 #       unit merged in place of naming one.
+#
+#       A unit that ended with no pull request (shirabe#1075), stopped or
+#       removed, has a verdict that says `pr none` beside a handoff link on
+#       its issue and a `branch` line: `branch none`, or `branch <owner/repo>
+#       <name>` for a branch that held nothing beyond its base. Step 2
+#       re-reads the handoff comment and, for a named branch, that GitHub
+#       still has it no further ahead of its default branch than none (or not
+#       at all); a branch that gained a commit refuses. The rest of the pass
+#       is the one its mode runs, and the README's Merged pull request line
+#       says none. A branch line anywhere but beside `pr none` refuses.
 #   teardown-pass.sh confirm --session <s>
 #       The teardown_confirm state's default action: reads the verdict the
 #       same way, both listings, and the archive (RESULT says done, the
@@ -160,7 +170,11 @@
 #       reads to retire a holding whose row was never marked merged and to
 #       record that the teardown was not the run's own (shirabe#1196); a
 #       `pr none` verdict gets the same marker, so a holding whose worker
-#       was removed before anything merged retires too (shirabe#1833). Only
+#       was removed before anything merged retires too (shirabe#1833). Any
+#       confirmed `pr none` verdict's <why> ends `; no pull request of it
+#       merged`, followed by `; handoff <url>` when it has a link, which
+#       --retire reads to retire a holding that ended with no pull request
+#       and to give the link as its leg's rationale (shirabe#1075). Only
 #       this run's own pass archive is read: an archive someone else left
 #       when they tore the unit down is not, so a removed verdict still needs
 #       the pass.
@@ -272,16 +286,32 @@ read_verdict() {
         [ "$INAME" = - ] || { echo "a removed verdict names an instance [$INAME]; it must be -" >"$T/why"; return 1; }
         grep -qx 'job -' <<<"$v" && { NOJOB=1 JOB="" SID=""; }
     fi
-    # `pr none` (shirabe#1833): the worker was torn down outside the run
-    # before any pull request of it merged. It stands only as the one pr
-    # line, beside `removed yes` and `handoff none`; then there is no pull
-    # request to re-read, archive or name, and PRS is empty.
+    # `pr none`: nothing of the unit merged. It stands only as the one pr
+    # line, either beside `removed yes` and `handoff none` (shirabe#1833),
+    # or beside a handoff link and a `branch` line, for a unit that ended
+    # with no pull request (shirabe#1075); then there is no pull request to
+    # re-read, archive or name, and PRS is empty.
+    BRANCH_LINE=$(sed -n '/^branch /{s///p;q;}' <<<"$v")
     if grep -qx 'none' <<<"$PRS"; then
-        if [ "$(printf '%s\n' "$PRS" | grep -c .)" != 1 ] || [ "$REMOVED" = 0 ] || [ "$HANDOFF" != none ]; then
-            echo "a pr none line stands only as the one pr line of a removed verdict that says handoff none" >"$T/why"; return 1
+        if [ "$(printf '%s\n' "$PRS" | grep -c .)" != 1 ]; then
+            echo "a pr none line stands only as the verdict's one pr line" >"$T/why"; return 1
+        fi
+        if [ "$HANDOFF" = none ]; then
+            [ "$REMOVED" = 1 ] || { echo "a pr none line with handoff none stands only in a removed verdict" >"$T/why"; return 1; }
+        else
+            [ -n "$BRANCH_LINE" ] || { echo "a pr none line beside a handoff link needs the verdict's branch line" >"$T/why"; return 1; }
         fi
         PRS=""
         PR_NONE=1
+    elif [ -n "$BRANCH_LINE" ]; then
+        echo "a branch line stands only beside pr none" >"$T/why"; return 1
+    fi
+    # The branch the pass reads again: `none`, or `<owner/repo> <name>`.
+    BR_REPO="" BR_NAME=""
+    if [ -n "$BRANCH_LINE" ] && [ "$BRANCH_LINE" != none ]; then
+        BR_REPO=${BRANCH_LINE%% *} BR_NAME=${BRANCH_LINE#* }
+        grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$BR_REPO" && dc_valid_branch "$BR_NAME" \
+            || { echo "the verdict's branch line is not <owner/repo> <branch>" >"$T/why"; return 1; }
     fi
     # `handoff none` (shirabe#1529): the worker was gone before it could
     # write a handoff comment, which only a unit removed outside the pass can
@@ -366,15 +396,20 @@ if [ "$MODE" = confirm ] || [ "$MODE" = check ]; then
     AG=$(agents) || { say "claude agents could not be read"; exit 2; }
     printf '%s' "$AG" | jq -e --arg j "$JOB" 'type == "array" and (any(.[]; .id == $j) | not)' >/dev/null \
         || verdict teardown-incomplete "claude agents still lists job $JOB"
+    # A `pr none` verdict's reason ends saying so, which state-holding.sh
+    # --retire reads to say the pull request had not merged and to retire a
+    # holding that ended with no pull request: the row alone can't tell,
+    # since one merged outside the land path is never marked merged
+    # (shirabe#1833, shirabe#1075). With a handoff link it adds `; handoff
+    # <url>`, the link --retire gives as a leg's rationale.
+    NOMERGE=""
+    if [ "$PR_NONE" = 1 ]; then
+        NOMERGE="; no pull request of it merged"
+        [ "$HANDOFF" != none ] && NOMERGE="$NOMERGE; handoff $HANDOFF"
+    fi
     if [ "$REMOVED" = 1 ]; then
         printf '%s' "$AG" | jq -e --arg p "$IPATH" 'any(.[]; .cwd == $p) | not' >/dev/null \
             || verdict teardown-incomplete "claude agents lists a job in $IPATH"
-        # A `pr none` verdict's reason ends saying so, which state-holding.sh
-        # --retire reads to say the pull request had not merged: the row
-        # alone can't tell, since one merged outside the land path is never
-        # marked merged (shirabe#1833).
-        NOMERGE=""
-        [ "$PR_NONE" = 1 ] && NOMERGE="; no pull request of it merged"
         # No session survived the removal: there was nothing to archive. The
         # reason's prefix is the marker state-holding.sh --retire reads.
         [ "$NOJOB" = 1 ] && verdict teardown-confirmed "removed outside the run: the unit was removed outside the pass and no session of it survived to archive$NOMERGE"
@@ -405,7 +440,7 @@ if [ "$MODE" = confirm ] || [ "$MODE" = check ]; then
     # A removed verdict's reason carries the marker state-holding.sh --retire
     # reads, and keeps the words the ordinary one ends with.
     [ "$REMOVED" = 1 ] && verdict teardown-confirmed "removed outside the run: the instance and the job were already gone, and the run's removed pass archived what survived; the archive is whole$NOMERGE"
-    verdict teardown-confirmed "the instance and the job are gone and the archive is whole"
+    verdict teardown-confirmed "the instance and the job are gone and the archive is whole$NOMERGE"
 fi
 
 # ---------------------------------------------------------------------------
@@ -436,6 +471,16 @@ if [ "$HANDOFF" != none ]; then
     out=$(dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$hrepo/issues/comments/$cid" 2>"$T/gh.err") \
         || refused "the handoff comment could not be read: $(tail -1 "$T/gh.err")"
     printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null || refused "the handoff comment is gone or empty"
+fi
+# A unit that ended with no pull request (shirabe#1075): its branch, when the
+# verdict names one, still holds nothing beyond its base.
+if [ -n "$BR_NAME" ]; then
+    ahead=$(dc_branch_ahead "$FETCH_SECS" "$BR_REPO" "$BR_NAME" 2>"$T/gh.err") \
+        || refused "the branch $BR_NAME in $BR_REPO could not be read: $(tail -1 "$T/gh.err")"
+    case "$ahead" in
+        absent | 0) ;;
+        *) refused "the branch $BR_NAME in $BR_REPO now holds $ahead commits beyond its default branch" ;;
+    esac
 fi
 if [ "$REMOVED" = 1 ]; then
     # Removed mode: the unit is already gone. Check that it is (neither

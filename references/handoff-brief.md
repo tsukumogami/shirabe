@@ -10,9 +10,9 @@ else.
 
 This reference covers the pieces that exist today: the note writer, the
 ledger entry, the two hooks, how to install them, the window setting, the
-results of one live compaction read against them, and the brief a run hands
-forward at its end with the closing step before it. Later work adds the
-brief's two size limits, the opt-in keep record, park and resume.
+results of one live compaction read against them, and the brief a session
+hands forward when it stops, with the closing step before it, the brief's two
+size limits, the opt-in keep record, park and resume.
 
 ## The note writer
 
@@ -205,15 +205,18 @@ which now prints `done=yes`.
 ## The brief at a run's end
 
 ```
-scripts/handoff-brief.sh write --reasoning <file> --event end|stop \
+scripts/handoff-brief.sh write --reasoning <file> --event end|park|stop \
     [--file <path>]... [--watch "<label>=<re-arm command>"]... \
-    [--standing-rules <file>] [--instance <root>]
+    [--standing-rules <file>] [--instance <root>] [--keep-record <path>]
+scripts/handoff-brief.sh resume [--instance <root>] [--keep-record <path>]
 scripts/handoff-brief.sh read [--session <name>]
 ```
 
 `write` stores one brief as `brief/brief.md` in the session's koto session,
-and each named file's exact bytes at `brief/files/<sha256>`. The brief has a
-fixed layout:
+and the exact bytes of each named file that fits the inline size at
+`brief/files/<sha256>`. `end` is a run's end, `stop` a session stopping
+before its run ends, and `park` a stop that holds the instance until a later
+`resume`. The brief has a fixed layout:
 
 ```markdown
 # Handoff brief
@@ -226,8 +229,8 @@ koto_session: <name>
 branch: <name>   pull_request: <number|none>   pushed_head: <sha|none>
 watch: <label> = <re-arm command>
 ## Files
-scratch:<path under the job's scratch directory><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
-instance:<path under --instance><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes
+scratch:<path under the job's scratch directory><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes|no
+instance:<path under --instance><TAB>sha256:<hex><TAB>bytes:<n><TAB>inline:yes|no
 ## Standing rules
 None stated.
 ```
@@ -252,11 +255,37 @@ session `done`. A closed session's keys stay readable with `koto context get`,
 and a later `write` from the same job stores into the same session rather
 than replacing it. With no koto run, no job and no session id, `write`
 refuses and opens nothing. It prints `session=<name>`, `key=brief/brief.md`
-and `files=<n>`.
+and `files=<n>`, and `record=<path>` when it wrote a keep record.
 
-The store order is the file keys, then `brief/brief.md`, so a brief never
-names a key that isn't there. If a later store fails, the keys this call
-added are removed again. No keep record is written yet.
+The store order is the inline file keys, then `brief/brief.md`, then the keep
+record where a path is given, so a brief never names a key that isn't there
+and a record never points at a brief that isn't there. Before anything is
+stored, `write` asks `koto context exists` about every key it will store:
+exit 0 is present, 1 is absent, and anything else is a koto fault, which
+exits 2 before any key is stored rather than being read as an absent key. A
+`brief/brief.md` that is already there is read first. If a later store
+fails, `write` exits 2, removes every key this call added, and puts the
+earlier `brief/brief.md` back to the bytes it held before this call.
+
+### The two limits
+
+The inline size is 262,144 bytes (256 KiB). A named file at or under it is
+stored at `brief/files/<sha256>` and its Files line ends `inline:yes`. A
+larger file gets no key: its Files line still shows its path, sha256 and byte
+count, and ends `inline:no`, so the brief names it by reference and the file
+has to be read where it sits. The rendered `brief/brief.md` must fit the
+inline size too, so a reasoning or standing rules file too large for it is
+refused. The inline size sits under shirabe's 1 MiB limit on one stored
+value.
+
+The record cap is 2,097,152 bytes (2 MiB) over every file one brief names,
+by-reference files included. A brief whose named files total more is
+refused. A file's size is checked against the cap before it is copied, so a
+huge file is never copied into the private directory.
+
+Every rule in the next two sections applies to every named file, inline or by
+reference: a by-reference file is still checked for its path, its basename
+and its content before the brief names it.
 
 ### Where a named file may come from
 
@@ -312,7 +341,13 @@ Each of these exits 1, names the cause, and writes no key:
   like), an AWS secret key setting, and three or more `KEY=VALUE` lines in a
   row where one key names a secret (`KEY`, `TOKEN`, `SECRET`, `PASS`, `PWD`,
   `CREDENTIAL`, `AUTH`);
-- `--event park`, which comes with resume.
+- a rendered `brief/brief.md` over the inline size, or named files totalling
+  over the record cap;
+- a keep record path that is relative with no `--instance`, whose directory
+  doesn't exist or is a symlink, or that is itself a symlink or not a regular
+  file, and an existing record that isn't one JSON object (left byte for byte
+  as it was);
+- a keep record lock another writer holds (see the keep record below).
 
 A 40-hex git commit id or a 64-hex sha256 is not a secret shape and is never
 refused.
@@ -333,7 +368,13 @@ this call (`@@brief-<32 hex>@@`). A reasoning line that copies an earlier
 call's delimiter stays inside the fence. Last is the Files section, after the
 free text. For each inline file, `read` hashes the stored bytes and reports
 `hash: verified` or `hash: MISMATCH`, then prints the bytes between fresh
-delimiters. The last line is `verified=all` or `verified=mismatch`.
+delimiters. An `inline:no` line is printed as by reference, with its sha256
+and bytes as written; koto holds no bytes for it, so there is nothing to
+verify, and it never counts as a mismatch or a missing key. The last line is
+`verified=all` or `verified=mismatch`, over the inline files. When
+`brief/resumed` exists, `read` prints `resumed_at: <time>` after the
+`event:` line, noting when that time is older than the brief's `written_at`,
+which means it marks an earlier park than the brief shown.
 
 Control and format characters are shown as `<U+XXXX>`, newlines aside. A
 line inside the free text or a file that looks like a heading or a brief
@@ -343,6 +384,95 @@ writes no file bytes to disk and sets no executable bit. A matching hash
 proves a file is unchanged since the write, not that it is safe to run, and
 the Standing rules section is the earlier session's claim until someone
 checks it against each rule's source.
+
+### The keep record
+
+The keep record tells whatever removes instances what a brief still needs. It
+is optional and has no fixed place: `write` and `resume` touch one only when
+given a path, by `--keep-record <path>` or by `HANDOFF_KEEP_RECORD`, and the
+argument wins over the environment. A workspace opts in by setting
+`HANDOFF_KEEP_RECORD` once in its own configuration, for example to the file
+its instance cleanup reads. A relative path resolves against `--instance`,
+and is refused when there is no `--instance`. With no path, no record is
+written anywhere, the brief's Files section is the one list, and a park
+holds nothing outside koto.
+
+The record is a JSON object. These are the fields the script owns:
+
+```json
+{
+  "unit": {"instance": "<root>", "job_id": "<id>", "session_id": "<id>"},
+  "written_by": "handoff-brief.sh",
+  "written_at": "2026-11-22T15:30:00Z",
+  "brief": {"koto_session": "<name>", "key": "brief/brief.md"},
+  "files": [{"path": "<abs>", "sha256": "<hex>", "bytes": 123, "inline": true}],
+  "protects": ["files", "transcript"],
+  "resumed_at": null
+}
+```
+
+`unit.instance` is the physical path of `--instance`, and each of the three
+is `null` when absent. `written_at` equals the brief's `written_at` line.
+`files` lists every named file by its absolute physical path, with `inline`
+false for a by-reference file. `protects` is computed, never passed in:
+`["instance", "files", "transcript"]` for `--event park` and for any event
+that names a by-reference file, since that file must stay where it is, and
+`["files", "transcript"]` for `end` or `stop` naming only inline files.
+`write` sets `resumed_at` to `null`.
+
+`write` reads an existing record at the path and replaces only those seven
+fields, keeping every other field another tool put there. It writes the
+result with jq to a temporary file in the record's own directory under
+`umask 077`, sets it to mode 0600 and renames it over the record, so a reader
+sees the old record or the new one and never a part. An existing record that
+isn't one JSON object is refused and left byte for byte as it was. jq and
+perl are needed only when a record path is given; without either on `PATH`
+that call exits 2.
+
+The record lock is a directory, `<record>.lock`, made with `mkdir` beside the
+record (macOS has no `flock`). It holds one line, `<pid> <host>`, for the
+call that holds it, and is removed when that `write` or `resume` ends. The
+lock never exists without that line: the call makes `<record>.lock.new.<pid>`
+under `umask 077`, writes the owner line into it, then renames it onto
+`<record>.lock` with perl's `rename`, which fails when a lock is already
+there (a BSD `mv` would move the directory inside the existing one instead).
+A failed rename means the lock is held, and the temporary directory is
+removed. A call
+that finds the lock held never waits and never retries. A lock older than ten
+minutes whose pid is gone on this host is stale: the call renames it aside,
+checks that its owner line is still the one it judged stale, then removes it,
+takes the lock and goes on. If another writer took the stale lock over first,
+the owner line differs, so the call puts that writer's lock back and refuses
+with exit 1. Any other lock (one younger than ten minutes, one whose
+pid is still alive here, or one from another host, whose pid can't be checked
+from here) refuses the call with exit 1, naming the lock's path, its pid and
+its host. No `brief/` key is written and the record is unchanged. A lock
+with no owner line (one this script didn't make, since it makes none) can't
+be shown stale, so it is left for someone to remove by hand.
+
+### Park and resume
+
+`write --event park` writes a brief whose `event:` line reads `park`, and its
+record (where a path is given) protects the instance. `resume` marks the
+session as working again:
+
+- It finds the koto session exactly as `write` does: `$KOTO_SESSION`, else
+  `handoff-<job-id>`, else `handoff-<session-id>`, and refuses with no
+  identity. A plain `handoff-` session that `write` closed `done` still takes
+  the mark.
+- It refuses, writing nothing, when the session has no `brief/brief.md` or
+  its latest brief's `event:` isn't `park`. Only a park has a hold to void.
+- It stores `brief/resumed`, holding the UTC time in the brief's format
+  (`2026-11-22T16:05:00Z`), and prints `session=`, `key=brief/resumed` and
+  `resumed_at=`.
+- With a record path, the record must already be there. Under the same lock,
+  `resume` sets `resumed_at` to that time and drops `instance` from
+  `protects` unless the record's `files` names a by-reference file, and
+  leaves `files` as written, since the named files stay named after the work
+  resumes. If the record write fails, `resume` exits 2 and puts
+  `brief/resumed` back as it was.
+
+The record isn't deleted to void a hold: that would drop the named files.
 
 ### Who can read a brief
 
