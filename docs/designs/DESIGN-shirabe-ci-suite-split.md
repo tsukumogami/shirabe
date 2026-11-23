@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   Five CI jobs on a shirabe pull request run long, independent suite lists one
   after another on one runner, so each takes 35-72 minutes and the round takes
@@ -30,7 +30,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
