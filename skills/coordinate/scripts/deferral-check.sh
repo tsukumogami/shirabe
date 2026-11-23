@@ -267,12 +267,16 @@ else
     lib_die2 "cannot make a temporary directory"
 fi
 
-REASON= OPEN='[]' ACTIVE=0 PARKED=0 CHOICE= TOPIC=-
+REASON= ACTIVE=0 PARKED=0 CHOICE= TOPIC=-
+# The open rows go to jq from a file, not argv: a long-lived record's open
+# deferrals outgrow the 128 KiB one argument may hold on Linux.
+OPEN="$T/open.json"
+printf '[]\n' > "$OPEN" || lib_die2 "cannot write the open deferrals"
 finish() {
-    jq -n --arg v "${1%% *}" --arg reason "$REASON" --argjson open "$OPEN" \
+    jq -n --arg v "${1%% *}" --arg reason "$REASON" --slurpfile o "$OPEN" \
         --argjson a "$ACTIVE" --argjson p "$PARKED" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" \
         --arg choice "$CHOICE" --arg topic "$TOPIC" \
-        '{verdict: $v, reason: $reason, open_deferrals: $open, active: $a, parked: $p, cap: $cap,
+        '{verdict: $v, reason: $reason, open_deferrals: $o[0], active: $a, parked: $p, cap: $cap,
           parked_bound: $pb, choice: $choice, topic: $topic}' > "$T/detail.json"
     lib_emit dispatch_check "$1" coord/dispatch_check.json "$T/detail.json"
 }
@@ -519,8 +523,8 @@ while [ "$i" -lt "$N" ]; do
     open_row "$TEXT" "${ROW_VERDICT#undisposed }"
 done
 
-OPEN=$(jq -s -c 'unique_by(.deferral + "\u0000" + .why)' "$T/open.jsonl")
-COUNT=$(printf '%s' "$OPEN" | jq 'map(.deferral) | unique | length')
+jq -s -c 'unique_by(.deferral + "\u0000" + .why)' "$T/open.jsonl" > "$OPEN" || lib_die2 "jq failed"
+COUNT=$(jq 'map(.deferral) | unique | length' "$OPEN") || lib_die2 "jq failed"
 if [ "$COUNT" -gt 0 ]; then
     REASON="$COUNT deferral(s) open"; finish "deferral-open $COUNT"
 fi
