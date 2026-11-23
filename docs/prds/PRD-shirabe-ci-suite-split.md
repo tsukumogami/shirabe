@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A CI round on a shirabe pull request takes 40-75 minutes, against 2-3
   minutes in September 2026, because a few jobs run long suite lists one
@@ -20,7 +20,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-shirabe-ci-suite-split](docs/briefs/BRIEF-shirabe-ci-suite-split.md); carried in Absorbed Brief.
 
