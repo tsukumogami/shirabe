@@ -158,6 +158,12 @@ done
 cap_in light_review 'the first 2 are granted whatever the counts, a third only when this panel' "$PANEL_NOTE"
 cap_in light_review 'and no run gets more than 3.' "$PANEL_NOTE"
 cap_in light_review 'panel-retry-budget.sh" "{{SESSION_NAME}}" light_review`' "$PANEL_NOTE"
+# The record's 2026-11-23 amendment (#2061): a third is also granted when none
+# of the round's open findings was open on the run's previous blocking round.
+for panel in scrutiny review light_review; do
+    cap_in "$panel" "or when none of its open blocking findings was open on the run's previous blocking round in any panel" "$PANEL_NOTE"
+done
+cap_in qa_validation "or when none of its failed scenarios was open on the run's previous blocking round in any panel" "$PANEL_NOTE"
 RECORD=docs/decisions/DECISION-contradiction-retry-caps-2026-09-28.md
 
 absent "no phase or reference file restates a retry number" \
