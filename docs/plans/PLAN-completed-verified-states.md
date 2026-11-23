@@ -365,7 +365,60 @@ This applies on every roadmap schema, since the pick facts carry
 
 ### Step 8: shirabe roadmap migrate moves a v2 or v3 roadmap to v4 with a dry run
 
-The command maps Done, Shipped and Closed by each milestone's latest verdict line, converts the v2 layout, writes atomically through an exclusive temp file, refuses paths outside the repository, and applies the design's check order.
+**Goal**: A new `shirabe roadmap migrate <roadmap> [--dry-run]` subcommand,
+beside `roadmap populate` in `crates/shirabe/src/`, moves a `roadmap/v3` or
+`roadmap/v2` roadmap to `roadmap/v4`. It checks, in this order: a file already
+on `roadmap/v4` exits 0 printing `already roadmap/v4` and changes nothing; a
+`roadmap/v1` or schema-less file exits non-zero naming the schema; a roadmap
+whose own status is Done exits non-zero saying a finished roadmap isn't
+migrated; a path outside the repository it runs in, or a milestone block it
+can't parse, exits non-zero naming it. Otherwise it maps each milestone at
+Done, Shipped or Closed to Verified when its latest verdict line (the last
+`- <date>: <milestone> -- <verdict>` line naming it in the Progress section,
+`Feature N` read as `Milestone N`) is verified or verified with follow-ups,
+and to Completed otherwise, keeping every other status; converts a v2
+`## Features` layout to `## Milestones` with `### Milestone N:` headings; writes
+each new status to the block and the Progress row (step 3's check must pass);
+and prints one line per milestone as
+`<milestone>: <old status> -> <new status> (<latest verdict line>)`, with
+`no verdict line` when there is none, control characters stripped. With
+`--dry-run` it writes nothing. Without it, it validates the result and writes
+it through a temporary file created with `create_new` and an unpredictable
+name in the same directory, then renames it over the original; any failure
+leaves the original untouched.
+
+**Acceptance Criteria**:
+
+- [ ] `--dry-run` on a `roadmap/v3` fixture with Done milestones A, B and C,
+  where A's latest verdict line is verified, B's is verified with follow-ups
+  and C has none, prints `A: Done -> Verified (...)`, `B: Done -> Verified
+  (...)` and `C: Done -> Completed (no verdict line)`, exits 0, and the file's
+  checksum is unchanged.
+- [ ] Without `--dry-run`, that fixture becomes `schema: roadmap/v4` with those
+  statuses in block and Progress row, every other milestone's status and text
+  unchanged, and `shirabe validate` passes on it; a second run prints
+  `already roadmap/v4`, exits 0 and leaves the checksum unchanged.
+- [ ] A milestone whose latest verdict line is changes needed after an earlier
+  verified line migrates to Completed.
+- [ ] A `roadmap/v2` fixture with `## Features`, a Shipped milestone and a
+  verdict line naming `Feature 2` becomes `## Milestones` with Milestone 2
+  Verified and the Shipped milestone mapped by its own verdict line.
+- [ ] A `roadmap/v1` fixture, a schema-less fixture, a `roadmap/v3` fixture
+  whose status is Done, a path outside the repository, and a fixture with an
+  unparseable milestone block each exit non-zero with the reason above and
+  leave the file's checksum unchanged.
+- [ ] With the target's directory made read-only before the write, the
+  command exits non-zero and the original file is unchanged, and a file
+  planted at a predictable temp name next to it is left untouched.
+- [ ] A verdict line holding control characters is printed with them removed.
+
+**Check**: Run `cargo test -p shirabe migrate` with the fixtures under
+`crates/shirabe/tests/fixtures/roadmap-migrate/`, and `cargo test --workspace`;
+see the lines, exit codes and checksums listed above.
+
+**Dependencies**: Step 3
+
+**Files**: `crates/shirabe/src/main.rs`, `crates/shirabe/src/migrate.rs`
 
 ### Step 9: CI refuses status-word comparisons outside the shared readers, and the release notes give the rollout order
 
