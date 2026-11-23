@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
 use shirabe_validate::features::{dependency_positions, RoadmapVersion};
+use shirabe_validate::statuses::{self, StatusFamily, StatusProps};
 use shirabe_validate::{
     extract_needs_label, is_stable_table_key, parse_doc, parse_features, strip_label_decoration,
     Feature,
@@ -114,8 +115,9 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
     let features = parse_features(&doc);
     if features.is_empty() {
         let version = RoadmapVersion::of(&doc.schema);
-        // v1 and v2 keep their message word for word; v3 names its section.
-        let message = if version == RoadmapVersion::V3 {
+        // v1 and v2 keep their message word for word; v3 and v4 name their
+        // section.
+        let message = if version.uses_milestone_words() {
             format!(
                 "no milestones parsed from {} (Milestones section empty or missing)",
                 roadmap.display()
@@ -268,7 +270,7 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str, schema: &st
         let key = keys[i].clone();
         // A delivered feature no longer awaits an upstream artifact, so its
         // Issues cell is `None`, never a leftover `needs-*` label.
-        let issue_cell = if feature_is_terminal(f) {
+        let issue_cell = if feature_is_struck(f, schema) {
             "None".to_string()
         } else {
             match extract_needs_label(&f.needs) {
@@ -285,7 +287,7 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str, schema: &st
         );
         let status_cell = pick_status_cell(f);
         let desc = concise_description(summary_text(f, schema));
-        if feature_is_terminal(f) {
+        if feature_is_struck(f, schema) {
             s.push_str(&format!(
                 "| ~~{}~~ | ~~{}~~ | ~~{}~~ | ~~{}~~ |\n",
                 key, issue_cell, deps_cell, status_cell
@@ -616,7 +618,7 @@ fn obtain_mapping(
     // Features still needing a fresh tracking issue.
     let to_create: Vec<&Feature> = features
         .iter()
-        .filter(|f| !map.contains_key(&f.id.to_string()) && !feature_is_terminal(f))
+        .filter(|f| !map.contains_key(&f.id.to_string()) && !feature_is_struck(f, schema))
         .collect();
 
     if args.dry_run {
@@ -828,7 +830,7 @@ pub fn render_table(
         );
         let status_cell = pick_status_cell(f);
         let desc = concise_description(summary_text(f, schema));
-        if feature_is_terminal(f) {
+        if feature_is_struck(f, schema) {
             // A delivered feature's rows are struck through per
             // `references/issues-table.md`; the entity row and its
             // description row are struck together.
@@ -947,8 +949,14 @@ pub fn render_diagram(features: &[Feature], mapping: &IssueMap, version: Roadmap
 /// consistent with the validator, including when a feature's only blocker
 /// has already shipped.
 fn pick_class(f: &Feature, features: &[Feature], version: RoadmapVersion) -> &'static str {
-    if feature_is_terminal(f) {
-        return "done";
+    // A status the table gives a class of its own (done, and on v4 completed
+    // and dropped) takes it; every other status is chosen as an open one.
+    if let Some(class) = status_props(f, version)
+        .class
+        .and_then(|c| CLASS_PALETTE.iter().find(|(name, _, _)| *name == c))
+        .map(|(name, _, _)| *name)
+    {
+        return class;
     }
     if let Some(label) = extract_needs_label(&f.needs) {
         return match label.as_str() {
@@ -975,7 +983,7 @@ fn ready_or_blocked(f: &Feature, features: &[Feature], version: RoadmapVersion) 
         return "blocked";
     }
     for pos in dependency_positions(&f.dependencies, features, Some(f.id), version) {
-        if !feature_is_terminal(&features[pos - 1]) {
+        if !status_props(&features[pos - 1], version).satisfies {
             return "blocked";
         }
     }
@@ -1245,6 +1253,11 @@ fn render_deps_cell(
 /// (Sub-C), never the kebab-case form.
 const CLASS_PALETTE: &[(&str, &str, &str)] = &[
     ("done", "fill:#c8e6c9", "Green"),
+    // `completed` and `dropped` are assigned only on a `roadmap/v4` diagram
+    // (the status table gives no v1 to v3 status either class), so a v1 to v3
+    // diagram never declares them.
+    ("completed", "fill:#dcedc8", "Light green"),
+    ("dropped", "fill:#e0e0e0", "Grey"),
     ("ready", "fill:#bbdefb", "Blue"),
     ("blocked", "fill:#fff9c4", "Yellow"),
     ("needsDesign", "fill:#e1bee7", "Purple"),
@@ -1290,13 +1303,24 @@ fn render_legend(assigned: &[&str]) -> String {
     format!("**Legend**: {}\n", entries.join(", "))
 }
 
-/// Reports whether a roadmap feature has reached a terminal (delivered)
-/// state. Mirrors `is_terminal_roadmap_status` in `shirabe-validate`'s
-/// table parser: `Done` and `Closed` (case-insensitive, trimmed) are
-/// terminal; every other Status value is open.
-fn feature_is_terminal(f: &Feature) -> bool {
-    let s = f.status.trim();
-    s.eq_ignore_ascii_case("Done") || s.eq_ignore_ascii_case("Closed")
+/// The status table's properties for a feature's Status on a roadmap of
+/// `version`. Every status question populate asks (strike, class, whether a
+/// dependency is met) goes through here, so populate and the validator's
+/// table parser read the same table.
+fn status_props(f: &Feature, version: RoadmapVersion) -> StatusProps {
+    let family = if version == RoadmapVersion::V4 {
+        StatusFamily::V4
+    } else {
+        StatusFamily::V1ToV3
+    };
+    statuses::table().props(family, &f.status)
+}
+
+/// True when the feature's rows are struck through (`renders.struck`): Done,
+/// Shipped or Closed on v1 to v3, Verified or Dropped on v4. A struck feature
+/// gets no new tracking issue and an `Issues = None` cell.
+fn feature_is_struck(f: &Feature, schema: &str) -> bool {
+    status_props(f, RoadmapVersion::of(schema)).struck
 }
 
 /// Reports whether a Dependencies cell names at least one cross-repo

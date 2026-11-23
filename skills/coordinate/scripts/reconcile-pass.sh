@@ -40,14 +40,22 @@
 # no other context call it can do without: a tick of a pending visit makes
 # two, the sealing tick five at most. reconcile-pass_test.sh pins the counts.
 #
-# The pass writes the record in two cases only. A holding left `dispatching`
+# The pass writes the record in three cases only. A holding left `dispatching`
 # whose worker the listing finds (and whose leg, when it has one, is bound or
 # resolved) is rewritten `dispatched` by reconcile-settle.sh. A dispatched
 # holding whose leg's request this host's store doesn't hold (the run was
 # imported here) gets its leg an end from reconcile-legs.sh: re-legged when
 # the worker's session came along unbound, else moved to the message path
-# (PRD R15). Each is launched like a re-check once the facts it needs are
-# in, and reported under "Changed since then".
+# (PRD R15). Each of those two is launched like a re-check once the facts it
+# needs are in. And once per visit, before the record read, reconcile-owe.sh
+# owes the verdict of every milestone a roadmap/v4 roadmap reads Completed
+# that the record doesn't owe yet (a verdict-owed Work row through
+# roadmap-status.sh --owe-completed; nothing on v1 to v3 or at discipline
+# scope), so a run taking up such a roadmap offers those verdicts at its
+# first pick (docs/designs/DESIGN-completed-verified-states.md, Decision 3).
+# It runs first, with the whole pass ahead of it, so it is never cut short by
+# the pass's own clock; the record read then gets what is left. Every write is
+# reported under "Changed since then".
 # A deferral's carry is judged against the chain start (coord-log.sh
 # chain-start), so a restart or a takeover doesn't re-decide what the run it
 # replaced carried. The walk to it reads every run before this one, and at
@@ -104,6 +112,13 @@ exec 3>&1 1>&2
 STATE=reconcile_pass
 CUTOFF=20
 READS_END=24
+# The owed verdicts' deadline (reconcile-owe.sh: a roadmap read, a record read
+# and, when a row is owed, a record write). It runs first in a visit, so the
+# whole of it fits under koto's 30-second limit; the record read after it gets
+# what is left before READS_END, at least 2 s, and a read that ends late only
+# leaves the pass pending. 16 s matches what a settle may take (its natural
+# budget of 20 s, less the reads it makes that this doesn't).
+OWE_BUDGET=16
 PARALLEL=4
 # Of the PARALLEL slots, inventories hold at most this many at once.
 INV_PARALLEL=2
@@ -263,6 +278,15 @@ fi
 READ_LATE=0
 if [ -z "$WJ" ]; then
     rm -f "$W/reasoning.md"
+    # The owed verdicts, the visit's first step: its one fact, a not
+    # verified one when it ran past its deadline or printed nothing readable.
+    OWE=$(rd_deadline "$OWE_BUDGET" "${RUNBASH[@]}" "$HERE/reconcile-owe.sh" --session "$SESSION" 2> "$T/owe.err" 3>&-)
+    ORC=$?
+    if [ "$ORC" != 0 ] || ! OWE=$(jq -cen 'input | select((.kind == "owe") and (.status | type) == "string")' <<< "$OWE" 2>/dev/null); then
+        if [ "$ORC" = 124 ]; then WHY="still running at the end of its ${OWE_BUDGET} s budget"
+        else WHY="it printed nothing readable (exit $ORC)"; fi
+        OWE=$(jq -nc --arg r "$WHY" '{kind: "owe", status: "not_verified", reason: $r}') || die "the owed verdicts could not be stored"
+    fi
     tr=$(now) || exit 1
     RB=$((READS_END - (tr - T0)))
     [ "$RB" -lt 2 ] && RB=2
@@ -308,9 +332,9 @@ if [ -z "$WJ" ]; then
     # The record goes to jq from a file, not argv: a long-lived record outgrows
     # the 128 KiB one argument may hold on Linux (shirabe#2042).
     printf '%s' "$REC" > "$T/rec.json" || die "the record could not be stored"
-    NEW=$(jq -c -n --slurpfile recs "$T/rec.json" --arg v "$VISIT" --arg rs "$RUN_START" --arg b "$BOUND" --argjson place "$PLACE" \
+    NEW=$(jq -c -n --slurpfile recs "$T/rec.json" --arg v "$VISIT" --arg rs "$RUN_START" --arg b "$BOUND" --argjson place "$PLACE" --argjson owe "$OWE" \
         '$recs[0] as $rec | {visit: $v, record: $rec, run_start: $rs, chain_start: (if $b == "" then $rs else null end),
-          plugin_root: $place, facts: {}, done: false}
+          plugin_root: $place, facts: {}, owe: $owe, done: false}
          + (if $b == "" then {} else {chain_back_to: $b, chain_cursor: null} end)') \
         || die "the record could not be stored"
     save "$NEW"
@@ -689,7 +713,8 @@ jq -c --arg at "$(iso)" '
                  else {kind: "other", status: "ok", verdict: "not_rechecked", reason: ""} end)}],
      deferrals: [$rec.deferrals | to_entries[] | "d\(.key)" as $p
        | {row: .value.row} + (if $f[$p] != null then (get($p) | {disposed, how, status, reason}) else {status: "not_verified", reason: "not read"} end)],
-     reasoning: $rec.reasoning, unparseable: $rec.unparseable}' > "$T/facts.json" <<< "$WJ" \
+     reasoning: $rec.reasoning, unparseable: $rec.unparseable}
+    + (if (.owe // null) == null then {} else {owe: .owe} end)' > "$T/facts.json" <<< "$WJ" \
     || die "the facts could not be assembled"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"

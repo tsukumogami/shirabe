@@ -13,12 +13,17 @@
 #                      it, `verdict-owed <tag>`, and the detail's blocker is
 #                      its row (docs/designs/DESIGN-milestone-verdicts.md)
 #   features-open      an item under the roadmap's items section
-#                      (`## Milestones` on roadmap/v3, `## Features`
-#                      otherwise) doesn't read Done, Shipped or Dropped
-#                      (annotated or not, as in `Done -- shipped in #12`, as
-#                      lib_roadmap_features reads it), the roadmap lists no
-#                      item, or it is missing; on v3 the reason names
-#                      milestones
+#                      (`## Milestones` on roadmap/v3 and v4, `## Features`
+#                      otherwise) has a status that doesn't close, as the
+#                      milestone status table says (state-common.sh
+#                      lib_status, through lib_roadmap_features): on v1 to
+#                      v3 one that doesn't read Done, Shipped, Closed or
+#                      Dropped (annotated or not, as in
+#                      `Done -- shipped in #12`), on roadmap/v4 one that
+#                      doesn't read Verified or Dropped, so a Completed
+#                      milestone keeps the roadmap open. Also when the
+#                      roadmap lists no item, or it is missing; on v3 and
+#                      v4 the reason names milestones
 #   holdings           Holdings isn't empty
 #   side-effects       Side effects in flight isn't empty; a milestone's
 #                      pending reopen edit (roadmap-status.sh --reopen) is
@@ -64,6 +69,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 . "$HERE/state-common.sh"
+lib_status
 ROADMAP=$ARG_ROADMAP
 lib_facts
 [ -z "$ARG_ROADMAP" ] || [ "$OVERRIDE" = 1 ] || usage
@@ -106,16 +112,19 @@ if [ "$BLOCKER" != null ]; then
     finish verdict-owed
 fi
 lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
-# RM_SECTION and RM_WORD, from the reader: the item is a milestone on v3.
+# RM_SECTION and RM_WORD, from the reader: the item is a milestone on v3
+# and v4. CLOSING names the statuses that close, for the reasons below.
 ITEM=feature
 [ "$RM_WORD" = Milestone ] && ITEM=milestone
+CLOSING="Done, Shipped or Dropped"
+[ "$(lib_status_family "$RM_SCHEMA")" = v4 ] && CLOSING="Verified or Dropped"
 if [ "$(jq length "$T/features.json")" -eq 0 ]; then
     REASON="the roadmap lists no $ITEM under ## $RM_SECTION"; finish features-open
 fi
-OPEN=$(jq -c '[.[] | select(.done | not)]' "$T/features.json")
+OPEN=$(jq -c '[.[] | select(.closes | not)]' "$T/features.json")
 if [ "$(printf '%s' "$OPEN" | jq length)" -gt 0 ]; then
     BLOCKER=$(printf '%s' "$OPEN" | jq -c '.[0] | {id, title, status}')
-    REASON="$(printf '%s' "$OPEN" | jq length) $ITEM(s) not Done, Shipped or Dropped"
+    REASON="$(printf '%s' "$OPEN" | jq length) $ITEM(s) not $CLOSING"
     finish features-open
 fi
 if [ "$(jq '.holdings | length' "$T/parsed.json")" -gt 0 ]; then
@@ -144,5 +153,5 @@ BLOCKER=$(jq -c '[(.decisions.entries // [])[] | select(.state != "settled")][0]
 if [ "$BLOCKER" != null ]; then
     REASON="a decision is not settled"; finish decisions
 fi
-REASON="every feature Done, Shipped or Dropped and the record is clear"
+REASON="every feature $CLOSING and the record is clear"
 finish ready
