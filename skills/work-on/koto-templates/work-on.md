@@ -1424,7 +1424,11 @@ states:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded scrutiny "{{SESSION_NAME}}"'
       # The panel's pass, from the ledger (gate 6). A person's override is the
-      # only way past it, listed by `koto overrides list`.
+      # only way past it, listed by `koto overrides list`. The run records it
+      # itself, naming the person (`--by person:<handle> --surface ...`, koto
+      # 0.37.0 and later), once the person says so; the person never writes
+      # into the run's session from their own shell, and an unattended run
+      # records none and escalates (DESIGN-acceptance-write-drift Decision 4).
       scrutiny_verdict:
         type: command
         command: 'SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=scrutiny_verdict SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" "{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "{{SESSION_NAME}}"'
@@ -4179,6 +4183,14 @@ koto decider answer {{SESSION_NAME}} --gate scrutiny_decider --criterion work-on
 
 Submit nothing when the panel passes. While `scrutiny_verdict` exits 1, submit `scrutiny_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. `blocking_escalate` is also taken while the gate exits 2, for a round that can't be recorded at all. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0, and no value advances the panel: only the recorded verdicts do, or a person's override of `scrutiny_verdict`.
 
+A person's override of `scrutiny_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate scrutiny_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `blocking_escalate` instead.
+
 Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" scrutiny` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count`), the same set `scrutiny_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## review
@@ -4194,6 +4206,14 @@ Where a passing panel goes depends on the run's review level: at `standard` it g
 
 The `level_unchanged` gate holds every passing route, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level: the variable was changed by hand after the review-level check. Its `hold:` line names both levels. Put the variable back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <the ledger's level>` and tick again. A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
 
+A person's override of `review_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate review_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `blocking_escalate` instead.
+
 Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" review` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count`), the same set `review_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## qa_validation
@@ -4205,6 +4225,14 @@ koto decides whether the panel passed, from the ledger, as at scrutiny: the `qa_
 Read `qa_scope.json` for what runs: in a full round the tester runs a full validation and answers its own unclosed failures by id; any other round keeps the tester and plans at most one run, the panel's re-verifier, which runs each due failing scenario again and answers it by id with `holds` or `reverified`, reading the `review-packet.sh recheck --seat reverifier` packet the phase file's commissioning line gives. Record every run with `panel-scope.sh --record qa` after the round; `qa_recorded` holds the passing route and `blocking_retry` until you have. A carried panel submits nothing and neither spends nor resets the retry count below.
 
 Submit nothing when QA passes. While `qa_verdict` exits 1, submit `qa_outcome: blocking_retry` when the defects are correctable, or `blocking_escalate` when they cannot be resolved without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
+
+A person's override of `qa_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate qa_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `blocking_escalate` instead.
 
 Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of failed scenarios is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" qa_validation` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count`), the same set `qa_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
@@ -4221,6 +4249,14 @@ Read `light_scope.json` and spawn only the decisions that aren't `keep`, as at s
 The `level_unchanged` gate holds both passing routes, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level (`light`): the variable was changed by hand after the review-level check. Put it back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" light` and tick again. A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
 
 Submit nothing when the seat passes (the run goes to `verification`). While `light_verdict` exits 1, submit `light_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
+
+A person's override of `light_verdict`. Only a person can pass this panel past its verdict, and the run records the override, not the person. When a person tells you the panel should pass, in this conversation (`terminal`), on the pull request or issue (`forge`), or in a message relayed to you (`relay`), run
+
+```bash
+koto overrides record {{SESSION_NAME}} --gate light_verdict --rationale "<the person's words>" --by person:<handle> --surface <terminal|forge|relay>
+```
+
+adding `--link <url>` to the original message for `relay`, then tick again. The rationale quotes what the person said, and `<handle>` is the login or name they go by. Run it only after the person says so: never on your own judgment, and never ask the person to run it in their own shell. An unattended run (`--auto`, or a session no person is attending, such as a dispatched worker or a step agent) has no person to ask, so it records no person override and submits `blocking_escalate` instead.
 
 Retry cap: retries from this panel share the run's blocking retries with scrutiny, review and qa_validation, under the rule the scrutiny directive states: the first 2 are granted whatever the counts, a third only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. Before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" light_review` once for the round. It takes no count: it reads the panel's unclosed blocking findings from the ledger itself (`panel-scope.sh --open-count`), the same set `light_verdict` printed, so the count it compares is never the agent's. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 

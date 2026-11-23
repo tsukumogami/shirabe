@@ -244,9 +244,11 @@ either, and where such a change is announced.
   and the plugin's pre-action hook runs it on every guarded command, so
   install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, `/work-on`, and `/coordinate` require koto 0.33.0 or later.
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.37.0 or later.
   `.tsuku.toml` tracks the newest koto 0.x rather than pinning a release, so
-  `tsuku install` never downgrades a newer koto you already have. 0.33.0
+  `tsuku install` never downgrades a newer koto you already have. 0.37.0
+  records a gate override with the person who decided it (`koto overrides
+  record --by`), which `/work-on`'s panel directives use. 0.33.0
   records a pull request review panel in the run journal (`koto review record
   code-round`), which `review-round.sh` writes. 0.31.0
   records which rule a directive carries (`directive_rules`) and lets a
