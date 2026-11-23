@@ -422,4 +422,47 @@ see the lines, exit codes and checksums listed above.
 
 ### Step 9: CI refuses status-word comparisons outside the shared readers, and the release notes give the rollout order
 
-`scripts/check-status-words.sh` runs in CI with the PRD's search pattern, and the format reference and release notes say to install the release on every coordinator host before migrating a roadmap.
+**Goal**: `scripts/check-status-words.sh` runs the PRD's search over `skills`
+and `crates` and fails, naming each line, when a comparison against a
+milestone status word (Done, Shipped, Closed, Completed, Verified) appears
+outside `statuses.rs`, `lib_status` in `state-common.sh` and their tests,
+allowing lines that compare PLAN, PRD, DESIGN or BRIEF statuses; a GitHub
+workflow runs it on every pull request. The pull-request labels outside the
+progress view that still call a passing pull request "verified"
+(`reconcile-report.sh`'s `verified; merge stopped by a hold`, and the
+coordinate SKILL.md and template prose that says "a verified, ready pull
+request") say "checks passed" instead; the coordinator's internal "verified
+head" term is left alone. `docs/guides/RELEASE-NOTES-completed-verified-states.md`
+tells an adopter what changed: the `roadmap/v4` statuses and their meaning,
+that Shipped and Closed now read as Done on older schemas, to install the
+release on every host that runs a coordinator before migrating any roadmap
+(an older coordinator reads a v4 roadmap as having no milestones), how to run
+`shirabe roadmap migrate` with `--dry-run` first, that a finished roadmap isn't
+migrated, and to run `shirabe roadmap populate` after migrating so the
+generated sections pick up the new classes.
+
+**Acceptance Criteria**:
+
+- [ ] `scripts/check-status-words.sh` exits 0 on the branch's head.
+- [ ] Adding a line `[ "$status" = "Done" ]` to any coordinate script outside
+  `state-common.sh` makes it exit non-zero naming that file and line; adding
+  `s.eq_ignore_ascii_case("Verified")` to `populate.rs` does the same.
+- [ ] A line comparing a PLAN's `status: Done` in a plan script is not
+  reported.
+- [ ] A workflow under `.github/workflows/` runs the script on pull requests,
+  and `scripts/check-skill.sh --changed coordinate` passes.
+- [ ] `grep -n "verified; merge stopped\|verified, ready pull request"` over
+  `skills/coordinate` finds nothing, and the reconcile report tests pass with
+  their expected text updated for that wording only.
+- [ ] The release notes guide exists, passes `shirabe validate`, and covers
+  each point in the goal; the format reference's rollout note links to it.
+
+**Check**: Run `bash scripts/check-status-words.sh`, then plant each line
+above in a scratch copy and run it again; run
+`bash skills/coordinate/scripts/run-tests.sh` and
+`bash scripts/check-skill.sh --changed coordinate`; run `shirabe validate` on
+the guide.
+
+**Dependencies**: Step 7, Step 8
+
+**Files**: `scripts/check-status-words.sh`, `.github/workflows/check-status-words.yml`, `skills/coordinate/scripts/reconcile-report.sh`, `skills/coordinate/SKILL.md`, `skills/coordinate/koto-templates/coordinate.md`, `docs/guides/RELEASE-NOTES-completed-verified-states.md`, `skills/roadmap/references/roadmap-format.md`
