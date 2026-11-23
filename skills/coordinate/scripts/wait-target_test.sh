@@ -226,6 +226,17 @@ eq  "select: the passed-over leg isn't taken" "" "$(cat "$ST/ctx/taken_legs" 2>/
 pause_state all
 eq  "select: under a pause on all no leg is picked" none "$(sel)"
 eq  "select: and both topics are named passed over" '["alpha","gamma"]' "$(target '.passed_over | tojson')"
+# The passed-over topics reach jq through a file, not an argument: Linux caps
+# one argument at 131072 bytes, and nothing caps how many holdings a pause holds.
+reset "$(jq -nc '[range(2000) | {worker: ("w\(.)-" + ("x" * 70)), unit: "Feature \(. + 2)", dispatch_status: "dispatched", return_path: "leg req_a:scope"}]')"
+req req_a scope open
+pause_state all
+eq  "select: under a pause on all, 2000 holdings over 131072 bytes pick none" none "$(sel 2>"$ST/err")"
+N_PASSED=$(target '.passed_over | length' 2>/dev/null)
+[ "$N_PASSED" = 2000 ] && ok "select: and all 2000 are named passed over" \
+    || bad "select: and all 2000 are named passed over" "got [$N_PASSED]; $(head -3 "$ST/err")"
+reset "$PROWS"
+req req_a scope open; req req_g execute resolved
 rm -f "$ST/state.json"
 eq  "select: after the resume the resolved leg is offered first" req_g "$(sel)"
 fi

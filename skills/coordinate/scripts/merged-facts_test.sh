@@ -208,6 +208,21 @@ rm -f "$BT_STATE/holding.rc"
 at_facts; bt_reach fail
 bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "a failed comparison read" 2 $?
 
+echo "== a long record's holdings =="
+# The accepted topics reach jq through a file, not an argument: Linux caps one
+# argument at 131072 bytes, and a long-running record's holdings with a pull
+# request grow past that.
+at_facts
+jq -nc '[range(2000) | {worker: ("w\(.)-" + ("x" * 70)), repo: "acme/widgets",
+                        pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}]' > "$BT_STATE/holdings"
+KNOWN_BYTES=$(jq -c '[.[].worker]' "$BT_STATE/holdings" | wc -c)
+[ "$KNOWN_BYTES" -gt 131072 ] && ok "the accepted topics are over 131072 bytes" || bad "the accepted topics are over 131072 bytes" "$KNOWN_BYTES"
+OUT=$(bash "$MF" --session "$S" --unit nobody 2>"$T/err"); rc=$?
+eq "a unit no holding names, with that many holdings, is refused" "0 unknown-topic" "$rc ${OUT% sealed:*}"
+D="$KOTO_BOARD_DIR/sessions/$S/ctx/coord__merged_facts.json"
+[ "$(jq '.accepted | length' "$D" 2>/dev/null)" = 2000 ] && ok "  ... and the detail lists every accepted topic" \
+    || bad "  ... and the detail lists every accepted topic" "$(grep -v 'refused:' "$T/err" | head -3)"
+
 echo "== overrides and usage =="
 at_facts
 eq "--pr --repo skip the holding read" "merged 12 $H" "$(bash "$MF" --session "$S" --unit x --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"

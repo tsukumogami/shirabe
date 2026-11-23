@@ -173,8 +173,11 @@ core_live() {
             echo "$PROG: refused: the Holds section changes only through state-hold.sh; carry it as the live record has it" >&2
             exit 65
         fi
-    elif ! jq -n -e --argjson n "$NEW_H" --argjson l "$LIVE_H" '
-            all($l[]; . as $o | [$n[] | select(.hold == $o.hold)] as $m
+    # Read from the files, not argv: a long-lived record's Holds section can
+    # outgrow the 128 KiB one argument may hold on Linux (shirabe#2042).
+    elif ! jq -n -e --slurpfile np "$T/parsed.json" --slurpfile lp "$T/live.json" '
+            ($np[0].holds // []) as $n | ($lp[0].holds // []) as $l
+            | all($l[]; . as $o | [$n[] | select(.hold == $o.hold)] as $m
                 | ($m | length) == 1
                   and ($m[0] | del(.lifted)) == ($o | del(.lifted))
                   and ($o.lifted == "" or $m[0].lifted == $o.lifted))' > /dev/null; then
