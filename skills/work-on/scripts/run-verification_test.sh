@@ -25,6 +25,7 @@
 
 set -u
 . "$(dirname "$0")/../../../scripts/lib/koto-test-guard.sh" || exit 1
+unset SHIRABE_VERIFICATION_TEST_PAUSE
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 START="$SCRIPT_DIR/run-verification.sh"
@@ -1174,6 +1175,141 @@ start s-lock
 settle s-lock
 expect_rc "a stale lock whose process is gone" 0
 [ -e "$WORKDIR/lock.rec" ] && pass "a stale lock does not block a new start" || fail "the stale lock blocked the start"
+
+# --start stopped partway: SHIRABE_VERIFICATION_TEST_PAUSE stops it at a named
+# point, the case kills it there with KILL (what koto does to an action's
+# process group past its limit) and checks what the next --start does. The
+# command waits for a marker file, so a supervisor lives as long as the case
+# needs it to.
+GATED="$WORKDIR/gated.sh"
+cat > "$GATED" <<'EOF'
+#!/bin/sh
+# Record the start, then wait for the marker, for at most 60 seconds.
+printf 'started\n' >> "$1"
+n=0
+while [ ! -e "$2" ] && [ "$n" -lt 600 ]; do
+    sleep 0.1
+    n=$((n + 1))
+done
+EOF
+chmod +x "$GATED"
+
+# gated_map <rec> <marker>: a map whose one command is the gated fixture.
+gated_map() {
+    map "$(jq -cn --arg c "$GATED" --arg r "$1" --arg m "$2" '{gated: {run: [$c, $r, $m], timeout_secs: 120}}')" '[]' '["gated"]'
+}
+
+# wait_file <path>: true once <path> exists, waiting at most 10 seconds.
+wait_file() {
+    local n=0
+    while [ ! -e "$1" ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    [ -e "$1" ]
+}
+
+# paused_start <session> <point>: --start in the background, armed to stop at
+# <point>; sets PS_PID and PS_DIR. False when it doesn't reach the point.
+paused_start() {
+    PS_DIR="$WORKDIR/pause-$1"
+    mkdir -p "$PS_DIR"
+    : > "$PS_DIR/$2.wait"
+    SHIRABE_VERIFICATION_TEST_PAUSE="$PS_DIR" "$START" --start --session "$1" >"$WORKDIR/ps-$1.out" 2>&1 &
+    PS_PID=$!
+    wait_file "$PS_DIR/$2.reached"
+}
+
+# rec_count <rec>: how many times the gated command started.
+rec_count() { grep -c . "$1" 2>/dev/null || true; }
+
+echo "--- a --start killed after its supervisor started"
+SK_REC="$WORKDIR/sk.rec"
+SK_GO="$WORKDIR/sk.go"
+mkrepo startkill "$(gated_map "$SK_REC" "$SK_GO")"
+change top.txt
+HD=$(dirname "$(result_of s-startkill)")
+if paused_start s-startkill started && wait_file "$SK_REC"; then
+    kill -KILL "$PS_PID" 2>/dev/null
+    wait "$PS_PID" 2>/dev/null
+    "$START" --start --session s-startkill >"$WORKDIR/sk2.out" 2>&1
+    SK_RC=$?
+    SK_LOCK=$(readlink "$HD/lock" 2>/dev/null)
+    SK_CMD=""
+    case "$SK_LOCK" in ''|*[!0-9]*) ;; *) SK_CMD=$(ps -p "$SK_LOCK" -o command= 2>/dev/null) ;; esac
+    if [ "$SK_RC" -eq 0 ] && [ ! -e "$HD/attempts/2" ] && jq -e '.attempt == 1' "$HD/run.json" >/dev/null 2>&1 \
+        && case "$SK_CMD" in *run-verification.sh*) true ;; *) false ;; esac; then
+        pass "startkill: the lock names the live supervisor, and the next --start starts no second attempt"
+    else
+        fail "startkill: the next --start exited $SK_RC; lock [$SK_LOCK] is [$SK_CMD]; run.json attempt [$(jq -c .attempt "$HD/run.json" 2>&1)]; attempts/ holds [$(ls "$HD/attempts" 2>/dev/null | tr '\n' ' ')]"
+    fi
+else
+    fail "startkill: --start never stopped after its supervisor started, or the command never ran"
+fi
+: > "$SK_GO"
+settle s-startkill
+expect_rc "startkill: the suite finishes" 0
+[ "$(rec_count "$SK_REC")" = 1 ] && pass "startkill: the command ran once" \
+    || fail "startkill: the command ran $(rec_count "$SK_REC") times"
+
+echo "--- a --start killed while its supervisor is held"
+HE_REC="$WORKDIR/he.rec"
+HE_GO="$WORKDIR/he.go"
+mkrepo held "$(gated_map "$HE_REC" "$HE_GO")"
+change top.txt
+HD=$(dirname "$(result_of s-held)")
+if paused_start s-held held; then
+    # The lock names the held supervisor, and attempts/1 and run.json exist.
+    HE_SUP=$(readlink "$HD/lock" 2>/dev/null)
+    HE_CMD=""
+    case "$HE_SUP" in ''|*[!0-9]*) ;; *) HE_CMD=$(ps -p "$HE_SUP" -o command= 2>/dev/null) ;; esac
+    kill -KILL "$PS_PID" 2>/dev/null
+    wait "$PS_PID" 2>/dev/null
+    n=0
+    while [ -n "$HE_CMD" ] && kill -0 "$HE_SUP" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    if case "$HE_CMD" in *run-verification.sh*) true ;; *) false ;; esac \
+        && ! kill -0 "$HE_SUP" 2>/dev/null && [ ! -e "$HD/lock" ] && [ ! -e "$HD/result.json" ] && [ ! -e "$HE_REC" ]; then
+        pass "held: the held supervisor reads end of file, removes its lock and exits, and nothing runs"
+    else
+        fail "held: lock [$HE_SUP] was [$HE_CMD]; after the kill the lock is [$(readlink "$HD/lock" 2>/dev/null)], result.json $( [ -e "$HD/result.json" ] && echo present || echo absent), the command ran $(rec_count "$HE_REC") times"
+    fi
+else
+    fail "held: --start never stopped with its supervisor held"
+fi
+: > "$HE_GO"
+start s-held
+settle s-held
+expect_rc "held: the next --start runs the suite" 0
+if jq -e '.attempt == 2' "$HD/run.json" >/dev/null 2>&1 && [ -d "$HD/attempts/1" ] && [ "$(rec_count "$HE_REC")" = 1 ]; then
+    pass "held: it runs in the next attempt folder, attempt 2, and the command ran once"
+else
+    fail "held: run.json attempt [$(jq -c .attempt "$HD/run.json" 2>&1)]; attempts/ holds [$(ls "$HD/attempts" 2>/dev/null | tr '\n' ' ')]; the command ran $(rec_count "$HE_REC") times"
+fi
+
+echo "--- a supervisor that finishes while another --start is on its way to the lock"
+FL_REC="$WORKDIR/fl.rec"
+FL_GO="$WORKDIR/fl.go"
+mkrepo finlock "$(gated_map "$FL_REC" "$FL_GO")"
+change top.txt
+HD=$(dirname "$(result_of s-finlock)")
+start s-finlock
+if wait_file "$FL_REC" && paused_start s-finlock lock; then
+    # The first supervisor writes its result, then removes its lock, while
+    # the second --start has read no result and not yet looked at the lock.
+    : > "$FL_GO"
+    n=0
+    while { [ ! -f "$HD/result.json" ] || [ -e "$HD/lock" ]; } && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+    : > "$PS_DIR/lock.go"
+    wait "$PS_PID"
+    FL_RC=$?
+    if [ "$FL_RC" -eq 0 ] && [ ! -e "$HD/attempts/2" ] && jq -e '.attempt == 1' "$HD/run.json" >/dev/null 2>&1 \
+        && [ "$(rec_count "$FL_REC")" = 1 ]; then
+        pass "finlock: the second --start finds the result under the lock and starts no second attempt"
+    else
+        fail "finlock: the second --start exited $FL_RC; run.json attempt [$(jq -c .attempt "$HD/run.json" 2>&1)]; attempts/ holds [$(ls "$HD/attempts" 2>/dev/null | tr '\n' ' ')]; the command ran $(rec_count "$FL_REC") times"
+    fi
+else
+    fail "finlock: the first command never ran, or the second --start never stopped before the lock"
+fi
+settle s-finlock
+expect_rc "finlock: the result stands" 0
 
 echo "--- directory modes and pruning"
 mkrepo prune "$(map "{\"ok\": $(rec "$WORKDIR/prune.rec" ok)}" '[]' '["ok"]')"

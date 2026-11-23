@@ -42,13 +42,21 @@
 #          command: `attended`, and nothing is started.
 #       6. A lock naming a live supervisor for this head: exit 0. A lock
 #          whose process is gone is removed.
-#       7. Take the next free attempt number n at this head, create
-#          attempts/<n>/, record n in run.json as "attempt", start the
-#          supervisor in its own process group (job control, not a
-#          new-session command, which the macOS floor lacks), standard input from
-#          /dev/null, both outputs to its log, koto's tick marker
-#          (KOTO_TICK_SESSION) removed from its environment, and exit 0. None
-#          of the koto calls in steps 0 and 1 waits on a suite, so this stays fast.
+#       7. Start the supervisor held, in its own process group (job control,
+#          not a new-session command, which the macOS floor lacks), standard
+#          input from /dev/null, both outputs to its log, koto's tick marker
+#          (KOTO_TICK_SESSION) removed from its environment. It waits on a
+#          fifo before it reads anything. Take the lock in the supervisor's
+#          pid, so the lock never names a process that ends before the run
+#          does. Under the lock, a result for this head and merge-base that
+#          appeared since step 2 (a supervisor that finished in between) stops
+#          the start, with the held supervisor let go. Otherwise take the
+#          next free attempt number n at this head, create attempts/<n>/,
+#          record n in run.json as "attempt", release the supervisor and exit
+#          0. A --start stopped before the release leaves a supervisor that
+#          reads end of file, removes the lock it names and exits, having run
+#          nothing. None of the koto calls in steps 0 and 1 waits on a suite,
+#          so this stays fast.
 #   --archive --session <s> --reason <text> [--base-ref <ref>]
 #       Set the result at this head aside so the next --start runs the suite
 #       again. The reason is cleaned first (verification-eligibility.sh's
@@ -96,7 +104,8 @@
 #       path. check-verification.sh calls this so the path rules live here.
 #   --supervise <dir>
 #       Internal: the supervisor. Never calls koto (only --start's steps 0
-#       and 1 do).
+#       and 1 do). Reads one line from its fd 3 before anything else and runs
+#       only when --start wrote `go` there.
 #
 # --base-ref names the default branch. Without it: the ref origin/HEAD points
 # at, else origin/main, else main.
@@ -168,6 +177,16 @@
 # SHIRABE_VERIFICATION_BUDGET_SECS overrides it for tests; koto's cleared
 # environment never carries it.
 #
+# Test hook, read only from the environment, which koto's fixed environment
+# never carries. Only the tests set it, to stop --start at a point and kill it
+# there:
+#   SHIRABE_VERIFICATION_TEST_PAUSE  a directory: at a point <p> the test
+#                                    armed with `<p>.wait`, touch
+#                                    `<p>.reached` and wait for `<p>.go`, as
+#                                    long as test_pause's loop bound allows.
+#                                    Points, all in --start: lock, held,
+#                                    started
+#
 # Exit status: 0 the launcher did its job (a result exists, or a supervisor is
 # running, or --archive archived); 1 --archive refused; 2 it could not decide
 # (usage, a missing tool, no HEAD, no merge-base, no state directory). The
@@ -200,6 +219,16 @@ EOF
 die() {
     echo "run-verification: $*" >&2
     exit 2
+}
+
+test_pause() {
+    local d=${SHIRABE_VERIFICATION_TEST_PAUSE:-} i=0
+    [ -n "$d" ] && [ -d "$d" ] && [ -e "$d/$1.wait" ] || return 0
+    : > "$d/$1.reached"
+    while [ ! -e "$d/$1.go" ] && [ "$i" -lt 300 ]; do
+        sleep 0.1
+        i=$((i + 1))
+    done
 }
 
 # shellcheck source=SCRIPTDIR/verification-eligibility.sh
@@ -391,18 +420,20 @@ lock_other() {
 LOCK_TOOK=0
 LOCK_HOLDER=""
 
-# lock_take <lock>: hold the lock for this process. Returns 0 holding it, with
-# LOCK_TOOK=1 when this call created it and LOCK_TOOK=0 when it already named
-# this process: --start's consume_request takes the lock and then calls
-# archive_attempt, which takes it again, and the inner call must not release
-# the outer hold. Returns 1 when it can't: LOCK_HOLDER is the pid of the live
-# process that holds it, or empty when the lock couldn't be created at all. A
-# lock whose process is gone is removed and taken.
+# lock_take <lock> [<pid>]: hold the lock for <pid>, this process when it is
+# not given (--start takes it for the supervisor it just launched). Returns 0
+# holding it, with LOCK_TOOK=1 when this call created it and LOCK_TOOK=0 when
+# it already named <pid>: --start's consume_request takes the lock and then
+# calls archive_attempt, which takes it again, and the inner call must not
+# release the outer hold. Returns 1 when it can't: LOCK_HOLDER is the pid of
+# the live process that holds it, or empty when the lock couldn't be created at
+# all. A lock whose process is gone is removed and taken.
 lock_take() {
+    local pid=${2:-$$}
     LOCK_TOOK=0
     LOCK_HOLDER=""
-    [ "$(readlink "$1" 2>/dev/null)" = "$$" ] && return 0
-    if ln -s "$$" "$1" 2>/dev/null; then
+    [ "$(readlink "$1" 2>/dev/null)" = "$pid" ] && return 0
+    if ln -s "$pid" "$1" 2>/dev/null; then
         LOCK_TOOK=1
         return 0
     fi
@@ -411,7 +442,7 @@ lock_take() {
         return 1
     fi
     rm -f "$1"
-    if ln -s "$$" "$1" 2>/dev/null; then
+    if ln -s "$pid" "$1" 2>/dev/null; then
         LOCK_TOOK=1
         return 0
     fi
@@ -832,7 +863,17 @@ outcome_of() {
 }
 
 supervise() {
-    local dir=$1
+    local dir=$1 go=""
+    # Held until --start writes `go` on fd 3 (its step 6), so run.json is
+    # read only once it is written. End of file instead means --start stopped
+    # first: the lock goes if it names this process, and nothing runs.
+    read -r go <&3
+    exec 3<&-
+    if [ "$go" != go ]; then
+        [ "$(readlink "$dir/lock" 2>/dev/null)" = "$$" ] && rm -f "$dir/lock"
+        echo "run-verification: --start stopped before it released the supervisor; nothing ran" >&2
+        exit 0
+    fi
     RUN="$dir/run.json"
     [ -r "$RUN" ] || { echo "no run.json in $dir" >&2; exit 2; }
     ROOT=$(jq -r .root "$RUN"); HEAD_SHA=$(jq -r .head "$RUN"); MB=$(jq -r .merge_base "$RUN")
@@ -1142,37 +1183,82 @@ if [ -n "$ATTENDED" ]; then
 fi
 
 # 5. One supervisor per head. The lock is a symlink whose target is a pid:
-#    creating one is atomic, and so is renaming another over it. A lock that
-#    already names this process counts as taken.
+#    creating one is atomic. It names the supervisor from the moment it is
+#    taken, never this process, so a --start stopped anywhere below (koto
+#    kills an action's process group past its limit) leaves no lock that
+#    reads as stale while a run is live.
 LOCK="$HEAD_DIR/lock"
-lock_take "$LOCK" || exit 0
+test_pause lock
+lock_other "$LOCK" && exit 0
 
 BUDGET=${SHIRABE_VERIFICATION_BUDGET_SECS:-$BUDGET_SECS}
 case "$BUDGET" in ''|*[!0-9]*|0) BUDGET=$BUDGET_SECS ;; esac
 
+# 6. Detach, held. `set -m` gives the background job its own process group,
+#    so the group kill koto applies to this action never reaches the
+#    supervisor. The supervisor first reads one line from a fifo on its fd 3
+#    and runs only on `go`. This process holds the fifo's only write end, so
+#    if it stops before the go, the supervisor reads end of file instead,
+#    removes the lock if it names it, and exits having run nothing.
+HOLD="$HEAD_DIR/hold.$$"
+rm -f "$HOLD"
+(umask 077 && mkfifo "$HOLD") || die "could not create $HOLD"
+# The read-write open first, so neither one-way open after it blocks; then
+# only the write end here and the read end the supervisor takes stay open.
+if ! { exec 5<>"$HOLD"; } || ! { exec 3>"$HOLD"; } || ! { exec 4<"$HOLD"; }; then
+    rm -f "$HOLD"; die "could not open $HOLD"
+fi
+exec 5<&-
+rm -f "$HOLD"
+set -m
+(
+    unset KOTO_TICK_SESSION
+    # Moved by a bare exec: a redirection on the exec that runs the script
+    # leaves bash 3.2's saved copies of fds 3 and 4 open in it, the write end
+    # among them, and the supervisor would never read end of file.
+    exec 3<&4 4<&-
+    exec "$SELF" --supervise "$HEAD_DIR"
+) </dev/null >>"$HEAD_DIR/supervisor.log" 2>&1 &
+SUP=$!
+set +m
+exec 4<&-
+
+# held_abort: stop the held supervisor: remove the lock if it names it, then
+# close the write end, which the supervisor reads as end of file.
+held_abort() {
+    [ "$(readlink "$LOCK" 2>/dev/null)" = "$SUP" ] && rm -f "$LOCK"
+    exec 3>&-
+}
+
+if ! lock_take "$LOCK" "$SUP"; then
+    held_abort
+    exit 0
+fi
+
+# A supervisor that finished after step 1's check wrote its result before it
+# removed its lock, so the check made again under the lock is exact.
+if [ -f "$RESULT" ] && jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree"' "$RESULT" >/dev/null; then
+    held_abort
+    exit 0
+fi
+
 # This run's attempt folder: the next free number, created here under the
 # lock, so two starts can't share one.
 if [ -L "$HEAD_DIR/attempts" ]; then
-    rm -f "$LOCK"; die "$HEAD_DIR/attempts is a symlink"
+    held_abort; die "$HEAD_DIR/attempts is a symlink"
 fi
 ATTEMPT=$(next_attempt)
 (umask 077 && mkdir -p "$HEAD_DIR/attempts" && mkdir "$HEAD_DIR/attempts/$ATTEMPT") \
-    || { rm -f "$LOCK"; die "could not create $HEAD_DIR/attempts/$ATTEMPT"; }
+    || { held_abort; die "could not create $HEAD_DIR/attempts/$ATTEMPT"; }
 
 jq -cn --arg root "$ROOT" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson sel "$SELECTION" --argjson budget "$BUDGET" \
     --argjson attempt "$ATTEMPT" \
     '{root: $root, head: $head, merge_base: $mb, budget_secs: $budget, attempt: $attempt, invocations: $sel.invocations}' \
     > "$HEAD_DIR/run.json" \
-    || { rm -f "$LOCK"; die "could not write run.json"; }
+    || { held_abort; die "could not write run.json"; }
 
-# 6. Detach. `set -m` gives the background job its own process group, so the
-#    group kill koto applies to this action never reaches the supervisor.
-set -m
-(
-    unset KOTO_TICK_SESSION
-    exec "$SELF" --supervise "$HEAD_DIR"
-) </dev/null >>"$HEAD_DIR/supervisor.log" 2>&1 &
-SUP=$!
-set +m
-ln -s "$SUP" "$LOCK.new" && mv -f "$LOCK.new" "$LOCK"
+test_pause held
+printf 'go\n' >&3 || { held_abort; die "could not release the supervisor"; }
+exec 3>&-
+test_pause started
 exit 0
