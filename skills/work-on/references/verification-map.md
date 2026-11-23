@@ -184,21 +184,47 @@ Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_
 briefly before the group is killed; and a descendant that starts its own session or process
 group escapes the count and the kill.
 
+### A fix round's carry
+
+A `/work-on` fix round (`fix-round.sh`) is a new session whose context holds
+`fix_round.json` (`{from, round, base}`), `base` being the head the run it follows left.
+That run is the previous round, the line before this session's in the original's
+`fix_rounds.jsonl`, or `from` for the first round. The launcher reads that run's result
+at `base`, at the path `--locate` gives for that session and head, and the round's own
+diff, `git diff --name-only <base>..HEAD`, selected through the same map. Selection for
+the result is still the merge-base diff, so the round's result holds the same checks a
+full run's would. Each of them then:
+
+- is carried, not run, when the parent's record for it passed (`passed` or `carried`)
+  with the same `argv` and the round's diff doesn't select it;
+- runs when the round's diff selects it, and an `each` row's command gets
+  `SHIRABE_VERIFY_BASE=<base>` in its environment, so `scripts/check-skill.sh --changed`
+  picks suites from the round's diff rather than the merge-base's;
+- runs as in a full run, without `SHIRABE_VERIFY_BASE`, when the parent failed it,
+  timed out, never ran it, or has no result at `base`.
+
+The carry is off, and everything selected runs, when the session has no
+`fix_round.json`, when it has `fresh: true` (`fix-round.sh start --fresh`), or when
+`SHIRABE_VERIFY_FULL=1` is in the launcher's environment. koto runs the launcher in a
+cleared environment, so the variable takes effect on a `--start` run by hand; a result
+already at the head stands until it is moved aside.
+
 ### Command records
 
-The result lists one record per command run, with its `id` (the map row's id), its
-`check`, `argv`, `exit_status`, `duration_secs`, `log`, the `timed_out`, `runaway` and
-`not_started` flags, and two fields that say how it ended. `check` names the check the
+The result lists one record per selected command, run or carried, with its `id` (the map
+row's id), its `check`, `argv`, `exit_status`, `duration_secs`, `log`, the `timed_out`,
+`runaway` and `not_started` flags, and two fields that say how it ended. `check` names the check the
 record is: the row id for a plain row, and `<row id>:<last argv>` for an `each` row
 (`check-skill:coordinate`), so two runs of one row are told apart. The result itself carries
 `finished_at`, the UTC time it was written; a hosted-of-record record can't be taken
 before it.
 
-- `outcome` — one of four values:
+- `outcome` — one of five values:
 
   | `outcome` | When |
   |-----------|------|
   | `passed` | The command exited 0 inside its limit. |
+  | `carried` | It didn't run: the session is a fix round, the run it follows passed this check (same `check`, same `argv`) at the round's base head, and the round's own diff doesn't select it. See **A fix round's carry**. |
   | `timed-out-limit` | The supervisor stopped it at its `timeout_secs` (or at the run's budget), and its suite summary lists no finished-failed suite, or it wrote no summary. `timed_out` is `true`. |
   | `timed-out-inside` | It exited nonzero inside its limit, its row declares `timeout_form`, its log reports at least one failure line, and every failure line matches the form. `timed_out` is `false`. |
   | `failed` | Anything else: a nonzero exit that isn't `timed-out-inside`, a stop at the limit whose summary lists a finished-failed suite, a runaway, or a command that never started. The `runaway` and `not_started` flags still say which of the last two it was, and neither is ever a timeout. |
@@ -220,7 +246,12 @@ before it.
   into place, so a command killed outright still leaves the last whole summary. It unsets
   the variable before any suite runs, so a suite can't write the summary itself.
 
-The verdict reads `outcome`. A `failed` record exits 1, a stop at the limit with a
+- `carried_from` — on a `carried` record only: `{"session", "head"}`, the session and
+  head whose result the check was carried from. The record keeps that result's `id`,
+  `check` and `argv`, with `exit_status` 0, `duration_secs` 0, `not_started`, `timed_out`
+  and `runaway` false, and `pgid`, `log` and `suites` null.
+
+The verdict reads `outcome`. A `carried` record counts as `passed`. A `failed` record exits 1, a stop at the limit with a
 finished-failed suite included, since that suite says the change broke something. A
 `timed-out-limit` or `timed-out-inside` record exits 5 when the hosted-of-record route is
 open and 4 when it isn't. A record without `outcome` (a result written before outcomes
@@ -236,7 +267,7 @@ for the current head. A settled result is also recorded in koto context as
 | Exit | Meaning | `rule_id` |
 |------|---------|-----------|
 | 75 | no result for this head yet; the gate waits | none |
-| 0 | every selected command ran and passed | none |
+| 0 | every selected command ran and passed, or was carried | none |
 | 1 | a check failed (`outcome: failed`), including a stop at its limit with a finished-failed suite | `verification/command-failed` |
 | 3 | no map at the merge-base, or a map that selects nothing | `verification/no-map` |
 | 3 | a map that does not parse | `verification/bad-map` |

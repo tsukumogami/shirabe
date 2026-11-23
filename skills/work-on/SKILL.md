@@ -712,12 +712,12 @@ leg, since one leg answers one session.
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 66 a live session's level or kind read under `--koto-leg`
   that failed, with no `koto init`, 127 no koto or jq, and koto's own code otherwise.
-- `scripts/fix-round.sh start --from <session>` — starts a fix round for a
-  run at `done` as `<session>-fix-<n>`, a new work-on session with the run's
-  variables and parent, and records it in both sessions (see **A Fix Round
-  After Done**). Exit codes: 0 started, 1 refused (`not-done`, `round-open`,
-  `cap`, `wrong-branch`), 2 a koto call or a read of the run's log failed, 64
-  usage.
+- `scripts/fix-round.sh start --from <session> [--fresh]` — starts a fix
+  round for a run at `done` as `<session>-fix-<n>`, a new work-on session with
+  the run's variables and parent, and records it in both sessions, marked
+  `fresh` under `--fresh` (see **A Fix Round After Done**). Exit codes: 0
+  started, 1 refused (`not-done`, `round-open`, `cap`, `wrong-branch`), 2 a
+  koto call or a read of the run's log failed, 64 usage.
   `scripts/fix-round_test.sh` is its harness.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
@@ -878,7 +878,7 @@ terminal, and `koto rewind` doesn't reopen a round. From `done` it steps back to
 instead, from the branch the run worked on:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF>
+${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/fix-round.sh start --from <WF> [--fresh]
 ```
 
 It starts `<WF>-fix-<n>` from this plugin's `work-on.md` with the run's variables
@@ -895,6 +895,20 @@ round started from a round counts against the original run. The script refuses
 run at `done_blocked` walks back with `koto rewind`), a second round while one is
 open (`round-open`), a fourth round (`cap`), which is a person's call, and a start
 from a branch other than the run's `SHARED_BRANCH` (`wrong-branch`).
+
+The round's verification carries what the run it follows already passed. That
+run is the previous round, else the original, and the launcher reads its result
+at the round's base head. A check it passed that the round's own diff (from the
+base to the fix head) doesn't select isn't run again: its record says `outcome:
+carried`, with `carried_from` naming that session and head, and the verdict
+counts it as passed. A check the round's diff selects runs, and a per-skill
+`check-skill.sh --changed` among them picks its suites from the round's diff,
+not the merge-base's. A check the run failed, timed out or never ran, or one
+with no result at the base, runs as before. The result still lists every check
+a full run would. To verify the round in full, start it with `--fresh`, which
+writes `fresh: true` into `fix_round.json`; a `run-verification.sh --start` run
+by hand with `SHIRABE_VERIFY_FULL=1` does the same once the stored result is
+moved aside. `references/verification-map.md` has the rule.
 
 The round is a unit like any other: a fix-labelled issue makes it a fix that owes
 a red at `reproduce`, where a review change or a CI repair with no check failing
