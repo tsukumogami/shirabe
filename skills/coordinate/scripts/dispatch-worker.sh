@@ -948,7 +948,7 @@ stamp_rebriefed() {
         printf '%s: the leg key for %s names another worker: not stamped\n' "$PROG" "$rp" >&2; return 0; }
     child=$(jq -r '.child // "" | strings' <<<"$key")
     if [ -z "$child" ] && request_view "$req"; then
-        child=$(jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW" 2>/dev/null)
+        child=$(jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW") || child=
     fi
     if [ -z "$child" ]; then
         printf '%s: no session is bound to %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2

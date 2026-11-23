@@ -1168,7 +1168,7 @@ rm -rf "$LANDLIB"; mkdir -p "$LANDLIB"
 for f in "$DW/skills/coordinate/scripts/"*; do ln -s "$f" "$LANDLIB/"; done
 rm -f "$LANDLIB/state-holding.sh"; cp "$T/state-holding.sh" "$LANDLIB/state-holding.sh"
 land_round() { (HERE=$LANDLIB PROG=land-round KOTO_BIN=koto; . "$LANDLIB/board-lib.sh"; bl_review_evidence coord acme/widgets 12); }
-ROUND=$(jq -nc --arg h "$(printf 'a%.0s' $(seq 40))" '{reviewed_head: $h, seats: [
+ROUND=$(jq -nc --arg h aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa '{reviewed_head: $h, seats: [
     {seat: "architect", model: "sonnet", run: "agent-r1", verdict: "pass"},
     {seat: "maintainer", model: "sonnet", run: "agent-r2", verdict: "pass"},
     {seat: "pragmatic", model: "sonnet", run: "agent-r3", verdict: "pass"}]}')
@@ -1192,7 +1192,7 @@ for how in key request; do
     EV=$(land_round 2>"$T/land.err")
     eq  "rebrief then land ($how): the round is read from the worker's session" "session scope-plugin-api" \
         "$(jq -r '"\(.source) \(.session)"' <<<"$EV" 2>/dev/null)"
-    eq  "rebrief then land ($how): and it is a well-formed round" "ok" "$(jq -r '.status // ""' <<<"$EV" 2>/dev/null)"
+    eq  "rebrief then land ($how): and it is a well-formed round" "ok " "$(jq -r '"\(.status) \(.reason // "")"' <<<"$EV")"
 done
 # A message-path worker no re-brief moved off a leg: no stamped key, so the
 # session's round isn't its evidence; its report stays the source.
