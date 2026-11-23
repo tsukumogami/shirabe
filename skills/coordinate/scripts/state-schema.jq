@@ -225,7 +225,8 @@ def check_holds($h; $private):
 # Run, one row per key from a closed set; `told`, `pending` and `missing`
 # repeat, and `rules`, `briefs` and `briefs-read` once per label:
 #   Key      arguments | cap | coordinator | told | pending | missing | store |
-#            rules | briefs | briefs-read | friction | reports-to | role
+#            rules | briefs | briefs-read | friction | reports-to | role |
+#            successor
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address; pending: a worker
@@ -239,7 +240,8 @@ def check_holds($h; $private):
 #            rules, briefs, friction and reports-to are the crash set (see
 #            run_keys below). briefs-read: how far a capped intake of a
 #            brief got (see run_keys below). role: manager or director, at
-#            most one row (see run_keys below).
+#            most one row (see run_keys below). successor: the pending
+#            successor, at most one row (see run_keys below).
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run, and the
@@ -335,7 +337,13 @@ def state_secs: [
 # and c, with 0 < c < n, the index of the first one the intake couldn't take.
 # Only state-stored-set.sh --intake writes or removes it; the carries copy it
 # with the rest of the Run section, and briefs_read_start reads it.
-def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "missing", "store", "rules", "briefs", "briefs-read", "friction", "reports-to", "role"];
+# successor: the pending successor this run dispatched, one row at most,
+# `<status> <topic> <YYYY-MM-DD>`: the status dispatching, dispatched,
+# dispatch-failed or stranded, the topic in the dispatch topic's grammar, the
+# date the day it was written. Only state-stored-set.sh --successor writes or
+# removes it, and its Set by is the run that dispatched the successor.
+def run_keys: ["arguments", "cap", "coordinator", "told", "pending", "missing", "store", "rules", "briefs", "briefs-read", "friction", "reports-to", "role", "successor"];
+def re_successor: "^(dispatching|dispatched|dispatch-failed|stranded) [a-z0-9][a-z0-9-]{0,63} [0-9]{4}-[0-9]{2}-[0-9]{2}$";
 def run_roles: ["manager", "director"];
 def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment", "rule"];
@@ -573,6 +581,9 @@ def check_srow($sec; $private):
           else . end)
        elif .key == "role" then
          (.value as $v | if any(run_roles[]; . == $v) then . else refuse("run.value: a role row is manager or director") end)
+       elif .key == "successor" then
+         (if (.value | test(re_successor)) then .
+          else refuse("run.value: a successor row is `<dispatching|dispatched|dispatch-failed|stranded> <topic> <YYYY-MM-DD>`") end)
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
     elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
@@ -632,6 +643,7 @@ def check_state($sec; $rows; $private):
         | ($r | map(select(.key == "briefs-read") | .value | split(" ")[0])) as $read
         | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: the store row is used twice")
           elif ($once | map(select(. == "role")) | length) > 1 then refuse("run: the role row is used twice; a run has one role")
+          elif ($once | map(select(. == "successor")) | length) > 1 then refuse("run: the successor row is used twice; a run has one pending successor")
           elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, pending, missing, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
           elif ($pending | unique | length) != ($pending | length) then refuse("run: a worker is pending twice")

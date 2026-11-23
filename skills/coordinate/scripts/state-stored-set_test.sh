@@ -1055,4 +1055,81 @@ bash "$RS" "${RM[@]}" --list > "$T/list" 2>"$T/err"
 eq "  ... and --list reads it back" "0 director" "$? $(jq -r '.run[] | select(.key == "role") | .value' "$T/list")"
 eq "no role write reached GitHub" "" "$(gh_writes)"
 
+echo "== --successor: the pending successor's Run row =="
+# The row a successor dispatch writes (dispatch-worker.sh --successor): its
+# value grammar, the moves each status takes from the row as read, the entry
+# naming the brief and the role, the clear, and --run successor refused.
+DAY=$(date -u +%Y-%m-%d)
+PRED=coordinate-roadmap-plugin-system-20260925T070000Z
+succ_of() { live | jq -c '[(.run // [])[] | select(.key == "successor") | {value, set_by}]'; }
+seed "$(printf '%s' "$TWO" | jq -c '.run = [{key: "role", value: "manager", set_by: "the human", set: "2026-09-26T08:00Z"}]')"
+SNAP=$(session_snapshot "$SR")
+bash "$RS" "${W[@]}" --run successor "dispatching plugin-system-successor-1 $DAY" --by "$PRED" >/dev/null 2>"$T/err"
+eq "--run successor is a usage error" 64 $?
+bash "$RS" "${W[@]}" --successor pending plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "--successor with a status it doesn't take is a usage error" 64 $?
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 >/dev/null 2>"$T/err"
+eq "--successor without --by is a usage error" 64 $?
+bash "$RS" "${W[@]}" --successor dispatching Plugin_Successor --by "$PRED" >/dev/null 2>"$T/err"
+eq "--successor with a topic outside the grammar is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 --by "the human" >/dev/null 2>"$T/err"
+eq "--successor set by something that isn't a run is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatched plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatched with no row is refused" 65 $?
+grep -q 'the successor row reads nothing' "$T/err" && ok "  ... naming the row as it stands" || bad "  ... naming the row as it stands" "$(cat "$T/err")"
+eq "  ... and none of them writes anything" "$SNAP" "$(session_snapshot "$SR")"
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatching with no row is written" 0 $?
+eq "  ... one row, its value and Set by" "[{\"value\":\"dispatching plugin-system-successor-1 $DAY\",\"set_by\":\"$PRED\"}]" "$(succ_of)"
+eq "  ... told as an entry naming the topic, the brief and the role" \
+    "Run successor dispatching plugin-system-successor-1 $DAY set by $PRED: the brief .niwa/dispatch-briefs/plugin-system-successor-1.md, role manager." \
+    "$(entries | jq -r '.[-1].text')"
+bash "$RS" "${RM[@]}" --list > "$T/list" 2>"$T/err"
+eq "  ... and --list reads it back" "0 dispatching plugin-system-successor-1 $DAY" "$? $(jq -r '.run[] | select(.key == "successor") | .value' "$T/list")"
+SNAP=$(session_snapshot "$SR")
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a second dispatching while one is pending is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatched plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatched under another topic is refused" 65 $?
+bash "$RS" "${W[@]}" --successor stranded plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "stranded from dispatching is refused" 65 $?
+eq "  ... and none of them writes anything" "$SNAP" "$(session_snapshot "$SR")"
+bash "$RS" "${W[@]}" --successor dispatched plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatched from dispatching of the same topic is written" "0 [{\"value\":\"dispatched plugin-system-successor-1 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+eq "  ... its entry naming the brief and the role" \
+    "Run successor dispatched plugin-system-successor-1 $DAY set by $PRED: the brief .niwa/dispatch-briefs/plugin-system-successor-1.md, role manager." \
+    "$(entries | jq -r '.[-1].text')"
+bash "$RS" "${W[@]}" --successor stranded plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "stranded from dispatched is written" "0 [{\"value\":\"stranded plugin-system-successor-1 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+eq "  ... its entry naming the row" "Run successor stranded plugin-system-successor-1 $DAY set by $PRED." "$(entries | jq -r '.[-1].text')"
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-1 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a new attempt under the stranded row's topic is refused" 65 $?
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a new attempt under a new topic replaces the stranded row" "0 [{\"value\":\"dispatching plugin-system-successor-2 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+bash "$RS" "${W[@]}" --successor dispatch-failed plugin-system-successor-2 --by "$PRED" >/dev/null 2>"$T/err"
+eq "dispatch-failed from dispatching is written" "0 [{\"value\":\"dispatch-failed plugin-system-successor-2 $DAY\",\"set_by\":\"$PRED\"}]" "$? $(succ_of)"
+bash "$RS" "${W[@]}" --successor dispatching plugin-system-successor-3 --by "$PRED" >/dev/null 2>"$T/err"
+eq "a dispatch-failed row takes a new attempt under a new topic" 0 $?
+bash "$RS" "${W[@]}" --successor clear --by "the successor" >/dev/null 2>"$T/err"
+eq "clear removes the row" "0 []" "$? $(succ_of)"
+eq "  ... told as an entry" "Run successor dispatching plugin-system-successor-3 $DAY cleared by the successor." "$(entries | jq -r '.[-1].text')"
+SNAP=$(session_snapshot "$SR")
+OUT=$(bash "$RS" "${W[@]}" --successor clear --by "the successor" 2>"$T/err")
+eq "clear with no row exits 0, printing nothing" "0 " "$? $OUT"
+eq "  ... and writes nothing" "$SNAP" "$(session_snapshot "$SR")"
+# Rows no writer here makes, put in the session's key as a newer or broken
+# plugin's would be.
+seed "$TWO"
+jq -nc --arg d "$DAY" '[{key: "successor", value: "dispatched x-successor \($d)", set_by: "a", set: "2026-09-26T08:00Z"},
+    {key: "successor", value: "dispatched y-successor \($d)", set_by: "a", set: "2026-09-26T08:00Z"}]' | koto context add "$SR" record/run
+bash "$RS" "${RM[@]}" --list >/dev/null 2>"$T/err"
+eq "a record with two successor rows is refused" 65 $?
+grep -q 'the successor row is used twice' "$T/err" && ok "  ... naming the row" || bad "  ... naming the row" "$(cat "$T/err")"
+seed "$TWO"
+printf '%s' '[{"key":"successor","value":"pending x-successor 2026-09-26","set_by":"a","set":"2026-09-26T08:00Z"}]' | koto context add "$SR" record/run
+bash "$RS" "${RM[@]}" --list >/dev/null 2>"$T/err"
+eq "a successor row outside its grammar is refused" 65 $?
+grep -q 'a successor row is' "$T/err" && ok "  ... naming the grammar" || bad "  ... naming the grammar" "$(cat "$T/err")"
+eq "no successor write reached GitHub" "" "$(gh_writes)"
+
 done_tests state-stored-set_test
