@@ -772,7 +772,7 @@ if jq -e '[.decisions[] | select(.seat == "reverifier") | .fix_review] == [true]
 else
     fail "the inheriting round planned $(jq -c '[.decisions[] | {seat, decision, fix_review}]' "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
 fi
-record scrutiny "$ALL_PASS"
+record scrutiny '[{"seat":"reverifier"}]'
 if jq -e '.inherited.from == "tr-inherit"' "$SHIM_STORE/$SESSION/verdict_ledger.json" >/dev/null 2>&1; then
     pass "recording the round keeps the ledger's inherited mark"
 else
