@@ -394,7 +394,7 @@ CHECK_OUT=$(jq -r "$JQ_CHECKS" "$INPUT") || { printf '%s: jq failed reading the 
 # SCOPE_N: how many leading entry_args tokens are the scope, the positional
 # or a discipline successor's four (dispatch-common.sh DC_JQ_SCOPE_N). The
 # flag checks below read the tokens after them.
-SCOPE_N=$(jq -r "$DC_JQ_SCOPE_N"' | $n' "$INPUT" 2>/dev/null) || SCOPE_N=1
+SCOPE_N=$(jq -r "$DC_JQ_SCOPE_N"' | $n' "$INPUT") || { printf '%s: jq failed reading the scope of entry_args\n' "$PROG" >&2; exit 2; }
 
 # --- checks that need the entry-point table -------------------------------------
 
