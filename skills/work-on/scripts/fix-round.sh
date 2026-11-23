@@ -45,7 +45,7 @@
 # The round inherits the verdicts already given. The ledger of the run the
 # round follows (the last earlier round, else the original run) is copied into
 # the round as its `verdict_ledger.json`, with `inherited` set to {from, base,
-# context_sha}, when every commit the ledger recorded is an ancestor of the
+# criteria_sha}, when every commit the ledger recorded is an ancestor of the
 # round's base: the panels judged the head the round starts from, or an
 # ancestor of it. panel-scope.sh then judges the round's fix as a fix diff
 # from the panels' last judged commit, so a small fix gets the re-verifier and
@@ -102,6 +102,7 @@ die() { echo "fix-round: $2" >&2; exit "$1"; }
 refuse() { echo "refused=$1"; echo "fix-round: $2" >&2; exit 1; }
 
 LEDGER_KEY=verdict_ledger.json
+CRITERIA_KEY=review_level_criteria.txt
 FRESH=0
 [ $# -ge 3 ] && [ "$1" = start ] && [ "$2" = --from ] || usage
 FROM=$3
@@ -205,13 +206,17 @@ if [ "$FRESH" -eq 0 ] && koto context exists "$SRC" "$LEDGER_KEY"; then
 $COMMITS
 EOF
         if [ "$OK" -eq 1 ]; then
-            CTX_SHA=""
-            if koto context exists "$SRC" context.md; then
-                CTX_SHA=$(koto context get "$SRC" context.md | git hash-object --stdin) \
-                    || die 2 "the round $NAME started, but context.md in $SRC could not be read"
+            # The acceptance criteria the seats judged against, as
+            # review-level.sh stored them from context.md: the round writes
+            # its own context.md at entry, and only the criteria have to
+            # match, not the rest of the issue text.
+            CRIT_SHA=""
+            if koto context exists "$SRC" "$CRITERIA_KEY"; then
+                CRIT_SHA=$(koto context get "$SRC" "$CRITERIA_KEY" | git hash-object --stdin) \
+                    || die 2 "the round $NAME started, but $CRITERIA_KEY in $SRC could not be read"
             fi
-            printf '%s' "$LEDGER_JSON" | jq -c --arg from "$SRC" --arg base "$BASE" --arg ctx "$CTX_SHA" \
-                '.inherited = {from: $from, base: $base, context_sha: $ctx}' \
+            printf '%s' "$LEDGER_JSON" | jq -c --arg from "$SRC" --arg base "$BASE" --arg crit "$CRIT_SHA" \
+                '.inherited = {from: $from, base: $base, criteria_sha: $crit}' \
                 | koto context add "$NAME" "$LEDGER_KEY" >/dev/null \
                 || die 2 "the round $NAME started, but $LEDGER_KEY could not be copied into it"
             INHERITED=$SRC

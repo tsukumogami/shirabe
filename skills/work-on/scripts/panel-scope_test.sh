@@ -736,26 +736,31 @@ expect_full "seats that judged no commit since impl_base" scrutiny "no commit si
 # A fix round (fix-round.sh) inherits the ledger of the run it follows, marked
 # `inherited`, and records its own impl_base at the head that run left, so
 # every seat's newest record is no later than impl_base. Its plan.md is the
-# fix's. Under the same criteria the round judges the fix as a fix diff; with
-# other criteria, without the mark, or with a fix over the threshold it
-# reviews in full.
-# fix_round <name> <inherit:yes|no> <context>: SESSION becomes <name>, a
+# fix's, and its context.md is its own issue text, which may differ (a
+# comment added since); what has to match is the criteria section
+# review-level.sh stored, review_level_criteria.txt. Under the same criteria
+# the round judges the fix as a fix diff; with other criteria, without the
+# mark, or with a fix over the threshold it reviews in full.
+# fix_round <name> <inherit:yes|no> <criteria>: SESSION becomes <name>, a
 # round of the current fixture's run whose panels judged HEAD.
 fix_round() {
     local parent="$SESSION" head
     head=$(cd "$FX/repo" && git rev-parse HEAD)
     SESSION="$1"
     mkdir -p "$SHIM_STORE/$SESSION"
+    printf 'AC: the issue body\n' > "$SHIM_STORE/$parent/review_level_criteria.txt"
     if [ "$2" = yes ]; then
         jq --arg from "$parent" --arg base "$head" \
-            --arg ctx "$(git hash-object "$SHIM_STORE/$parent/context.md")" \
-            '.inherited = {from: $from, base: $base, context_sha: $ctx}' \
+            --arg crit "$(git hash-object "$SHIM_STORE/$parent/review_level_criteria.txt")" \
+            '.inherited = {from: $from, base: $base, criteria_sha: $crit}' \
             "$SHIM_STORE/$parent/verdict_ledger.json" > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        printf 'AC: the issue body\nComment: a reviewer asked for a fix\n' > "$SHIM_STORE/$SESSION/context.md"
     else
         cp "$SHIM_STORE/$parent/verdict_ledger.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
+        cp "$SHIM_STORE/$parent/context.md" "$SHIM_STORE/$SESSION/context.md"
     fi
     printf '%s\n' "$head" > "$SHIM_STORE/$SESSION/impl_base"
-    printf '%s\n' "$3" > "$SHIM_STORE/$SESSION/context.md"
+    printf '%s\n' "$3" > "$SHIM_STORE/$SESSION/review_level_criteria.txt"
     printf 'Plan: the fix review asked for\n' > "$SHIM_STORE/$SESSION/plan.md"
 }
 

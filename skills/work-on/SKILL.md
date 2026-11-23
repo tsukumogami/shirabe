@@ -898,7 +898,8 @@ every commit that ledger recorded is still an ancestor of the round's base. Its
 panels then judge the fix as a fix diff from where their seats last judged, so a
 small fix gets the re-verifier and the fix-diff review instead of every seat,
 and a fix over the panels' line threshold, or a round whose acceptance criteria
-(`context.md`) differ from the ones the seats judged, still gets every seat. A
+(the criteria section of `context.md`, as `review-level.sh` stores it) differ
+from the ones the seats judged, still gets every seat. A
 rebase or reset since the run, or `--fresh`, inherits nothing and the round
 reviews in full. The script prints `inherited=<session>` or `inherited=none`.
 The round's review floor is never below the run's: `review-level.sh facts`

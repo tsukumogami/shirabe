@@ -27,9 +27,9 @@
 #     is written at setup and plan.md at analysis, so in practice this fires
 #     when a scope_expanded_retry or scope_changed_retry rewrote the plan. A
 #     seat whose verdict a fix round inherited, judged no later than the
-#     round's base, is held to the criteria alone: the round's context.md
-#     must hash to the ledger's `inherited.context_sha`, since its plan.md is
-#     the fix's
+#     round's base, is held to the criteria alone: the round's stored
+#     acceptance criteria (review_level_criteria.txt) must hash to the
+#     ledger's `inherited.criteria_sha`, since its plan.md is the fix's
 #   - the working tree has uncommitted changes, untracked files included (the
 #     fix may not be committed, and the diff below would miss it)
 #   - there are no commits since impl_base, or no impl_base recorded (nothing
@@ -271,7 +271,7 @@
 #                          "history": [{"panel", "round", "head", "rev",
 #                          "spawned", "decisions": [{seat, decision, reason,
 #                          findings?}]}],
-#                          "inherited": {from, base, context_sha}?}
+#                          "inherited": {from, base, criteria_sha}?}
 #                         Never cleared by a retry: it is what survives one.
 #                         `inherited` is set only in a fix round, by
 #                         fix-round.sh, which copied the ledger from the run
@@ -1353,15 +1353,18 @@ recorded_commits() {
 # A ledger a fix round inherited (fix-round.sh copies it from the run the
 # round follows): its seats judged that run's change, up to the round's base.
 # INHERITED_BASE is that base when it names a commit here; INHERITED_CTX is 1
-# when the round's context.md is the one those seats judged against. The round's own plan.md describes the
-# fix, so ac_sha always differs for an inherited seat; the criteria are what
-# the round is held to.
+# when the round's acceptance criteria are the ones those seats judged
+# against: review_level_criteria.txt, the criteria section review-level.sh
+# stored from context.md, hashes to the ledger's `inherited.criteria_sha`.
+# The rest of context.md is the round's own issue text and may differ, and
+# its plan.md describes the fix, so ac_sha always differs for an inherited
+# seat; the criteria are what the round is held to.
 INHERITED_BASE=$(printf '%s' "$LEDGER_JSON" | jq -r '(.inherited // {}).base // "" | strings')
 is_commit "$INHERITED_BASE" || INHERITED_BASE=""
 INHERITED_CTX=0
 if [ -n "$INHERITED_BASE" ]; then
-    want=$(printf '%s' "$LEDGER_JSON" | jq -r '(.inherited // {}).context_sha // "" | strings')
-    have=$(ctx_get context.md | git hash-object --stdin)
+    want=$(printf '%s' "$LEDGER_JSON" | jq -r '(.inherited // {}).criteria_sha // "" | strings')
+    have=$(ctx_get review_level_criteria.txt | git hash-object --stdin)
     [ -n "$want" ] && [ "$want" = "$have" ] && INHERITED_CTX=1
 fi
 

@@ -210,7 +210,8 @@ ledger_at() {
         findings: {}, history: [{panel: "review", round: 1, head: $h, rev: 1}]}'
 }
 ledger_at "$DONE_HEAD" | koto context add par.kid verdict_ledger.json >/dev/null
-printf 'criteria\n' | koto context add par.kid context.md >/dev/null
+# The criteria review-level.sh stored from the child's context.md.
+printf 'criteria\n' | koto context add par.kid review_level_criteria.txt >/dev/null
 OFF_BRANCH=$(git -C "$REPO" commit-tree "HEAD^{tree}" -m "not on the branch")
 
 OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid); RC=$?
@@ -219,10 +220,10 @@ if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-1\nround=1\ninherited=par.kid
 else
     fail "fix round 1 did not start (rc=$RC, out=[$OUT])"
 fi
-CTX_SHA=$(printf 'criteria\n' | git hash-object --stdin)
-if koto context get par.kid-fix-1 verdict_ledger.json 2>/dev/null | jq -e --arg h "$DONE_HEAD" --arg c "$CTX_SHA" '
+CRIT_SHA=$(printf 'criteria\n' | git hash-object --stdin)
+if koto context get par.kid-fix-1 verdict_ledger.json 2>/dev/null | jq -e --arg h "$DONE_HEAD" --arg c "$CRIT_SHA" '
         .seats["review/architect"].judged_at == $h and .rev == 1
-        and .inherited == {from: "par.kid", base: $h, context_sha: $c}' >/dev/null; then
+        and .inherited == {from: "par.kid", base: $h, criteria_sha: $c}' >/dev/null; then
     pass "the inherited ledger keeps the child's verdicts and names the child, the base and the criteria"
 else
     fail "the round's ledger is $(koto context get par.kid-fix-1 verdict_ledger.json 2>&1)"
