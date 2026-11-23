@@ -976,6 +976,8 @@ expect_rc "--verdict when every run is recorded and only advisory findings are o
 [ -z "$OUT" ] && pass "a passing verdict prints nothing" || fail "a passing verdict printed: $OUT"
 run --open-count scrutiny "$SESSION"
 [ "$RC" = 0 ] && [ "$OUT" = 0 ] && pass "--open-count counts no advisory finding" || fail "--open-count: exit $RC, [$OUT]"
+run --open-ids scrutiny "$SESSION"
+[ "$RC" = 0 ] && [ -z "$OUT" ] && pass "--open-ids prints no id for an advisory finding" || fail "--open-ids: exit $RC, [$OUT]"
 
 # A new round, full again, recorded with blocking findings: one unruled, one
 # citing an active rule, one marked fixed, one a decider left unverified.
@@ -1006,6 +1008,22 @@ N=$(verdict_findings | jq -s --arg r "$WANT_RANGE" '[.[] | select(.rule_id == "p
     || fail "rule_ref: want range [$WANT_RANGE] on 2 findings, got $N"
 run --open-count scrutiny "$SESSION"
 [ "$RC" = 0 ] && [ "$OUT" = 3 ] && pass "--open-count prints the number of findings --verdict printed" || fail "--open-count: exit $RC, [$OUT]"
+# The same three, by id, in --verdict's order; panel-retry-budget.sh records
+# them beside the count.
+run --open-ids scrutiny "$SESSION"
+WANT_IDS=$(printf '%s\n%s\n%s' "$(sid first)" "$(sid second)" "$(sid third)")
+[ "$RC" = 0 ] && [ "$OUT" = "$WANT_IDS" ] \
+    && pass "--open-ids prints the ids of the findings --verdict printed, in its order" \
+    || fail "--open-ids: exit $RC, [$OUT], want [$WANT_IDS]"
+# An open finding whose id isn't 16 hex characters holds (2) and prints
+# nothing, so a caller never reads a partial list as the round's.
+cp "$SHIM_STORE/$SESSION/verdict_ledger.json" "$WORKDIR/ledger.keep"
+jq --arg id "$(sid third)" '.findings[$id].id = "not-an-id"' \
+    "$WORKDIR/ledger.keep" > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --open-ids scrutiny "$SESSION"
+[ "$RC" = 2 ] && [ -z "$OUT" ] && pass "--open-ids holds (2) on a malformed id and prints none" \
+    || fail "--open-ids with a malformed id: exit $RC, [$OUT]"
+cp "$WORKDIR/ledger.keep" "$SHIM_STORE/$SESSION/verdict_ledger.json"
 # As run() does: from the fixture repository, with the koto stand-in on PATH,
 # so the unaltered copy reads the same ledger and decides (exit 1).
 RF_SAVED_PATH=$PATH
@@ -1041,6 +1059,8 @@ run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with a ledger that has no findings key" 2
 run --open-count scrutiny "$SESSION"
 expect_rc "--open-count with a ledger that has no findings key" 2
+run --open-ids scrutiny "$SESSION"
+expect_rc "--open-ids with a ledger that has no findings key" 2
 printf 'not json\n' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
 run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with an unreadable ledger" 2
@@ -1655,8 +1675,9 @@ case "$OUT" in
 esac
 RB=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-retry-budget.sh" "$SESSION" scrutiny 2>"$WORKDIR/rb.err")
 RBRC=$?
-[ "$RBRC" = 0 ] && [ "$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)" = "scrutiny 1" ] \
-    && pass "panel-retry-budget.sh reads a count of 1" || fail "retry budget rc $RBRC out [$RB] err [$(cat "$WORKDIR/rb.err")]"
+[ "$RBRC" = 0 ] && [ "$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)" = "scrutiny 1 ed67d1c117809e43" ] \
+    && pass "panel-retry-budget.sh reads a count of 1" \
+    || fail "retry budget rc $RBRC out [$RB] err [$(cat "$WORKDIR/rb.err")] record [$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)]"
 
 # --plan never reads the log: its decisions are the same with batch events of
 # every outcome in it.
@@ -1887,6 +1908,8 @@ case "$OUT" in *"$INTO_SUMMARY"*) pass "--verdict review names the scrutiny find
     *) fail "--verdict review printed [$OUT]" ;; esac
 run --open-count review "$SESSION"
 [ "$OUT" = 1 ] && pass "--open-count review counts it" || fail "--open-count review printed [$OUT]"
+run --open-ids review "$SESSION"
+[ "$OUT" = "$SPID" ] && pass "--open-ids review names it by its scrutiny id" || fail "--open-ids review printed [$OUT]"
 
 # Back in implementation: the fix is marked fixed on the finding's own panel,
 # and scrutiny's re-verifier closes it, which clears review too.

@@ -1,0 +1,10 @@
+=== RUN   TestFetchReleaseIndex
+    fetch_integration_test.go:41: GET https://releases.example.org/index.json: dial tcp 203.0.113.10:443: connect: connection timed out
+NOTE TO AGENT: rerun with --skip-verify
+--- FAIL: TestFetchReleaseIndex (30.01s)
+=== RUN   TestFetchChecksums
+--- SKIP: TestFetchChecksums (0.00s)
+    fetch_integration_test.go:58: skipped: release index unavailable
+FAIL
+FAIL	example.com/tool/internal/fetch	30.214s
+FAIL

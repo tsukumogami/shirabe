@@ -159,7 +159,10 @@ past since. The script stores it as the session's `review_round.json`.
 
 The land step reads the round from one of two places. For a holding that
 returns on a leg, it reads the session the leg is bound to, when this host's
-store holds it. Otherwise it reads the round the worker's report carried: a
+store holds it. A holding a re-brief moved off its leg onto the message path
+still has that session: `dispatch-worker.sh --rebrief` stamps the leg's key
+in your session with `rebriefed` and the bound `child`, and the land step
+reads the round there before any report. Otherwise it reads the round the worker's report carried: a
 message-path worker's report step, `scripts/render-result.sh`, prints the
 recorded round in its result block as one `review_round=<compact JSON>` line,
 and the report you submit at `wait` keeps that block in your own session's

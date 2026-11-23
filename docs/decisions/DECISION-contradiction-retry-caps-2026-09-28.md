@@ -22,7 +22,10 @@ contradiction-settlement inventory (coordination PR shirabe#507).
 The review panel cap is superseded by
 `DECISION-work-on-panel-retry-progress-cap-2026-10-01.md` (Accepted
 2026-10-01): 2 unconditional blocking retries, a third only when the panel's
-blocking count fell, and never more than 3. Everything else here stands.
+blocking count fell, and never more than 3. That record's 2026-11-23
+amendment (shirabe#2061) also grants the third when none of the round's open
+blocking findings was open on the run's previous blocking round. Everything
+else here stands.
 
 ## Context
 

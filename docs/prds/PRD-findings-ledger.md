@@ -306,6 +306,16 @@ blocked verdict and carried rounds, exposes those counts to no command, and
 keeps no per-round finding count, so its attempt counts can't express this
 rule without changing it.
 
+*Amended 2026-11-23, for shirabe#2061:* the rule R16 kept has since gained a
+second way to earn the third retry. Past the first two, a retry is also
+granted when none of the round's open blocking findings was open on the
+run's previous blocking round, in any panel. The ledger supplies those ids
+through `panel-scope.sh --open-ids`, and `panel_retries` lines carry them as
+a third field. The count still comes from `--open-count`, and the ceiling of
+three is unchanged. `DECISION-work-on-panel-retry-progress-cap-2026-10-01.md`
+records the amendment and why. This requirement was met as written when
+this feature shipped.
+
 ### Evidence and hygiene
 
 **R17. The saving is shown.** A test drives `panel-scope.sh` on a fixture
