@@ -681,7 +681,7 @@ leg, since one leg answers one session.
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
-- `scripts/panel-scope.sh --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed|--promote <panel> <session>`
+- `scripts/panel-scope.sh --plan|--carried|--recorded|--verdict|--open-count|--open-ids|--record|--mark-fixed|--promote <panel> <session>`
   — the findings ledger and what a panel round runs. koto runs `--plan` on
   entering `scrutiny`, `review`, `qa_validation` and `light_review`, and
   `--carried`, `--recorded` and `--verdict` as each one's gates; the agent runs
@@ -692,7 +692,8 @@ leg, since one leg answers one session.
   re-verifier, which answers the findings the fix made due by id and reviews the
   fix diff once per retry. A panel passes only when every blocking finding is
   closed, and one with nothing to run and nothing open is carried through by
-  koto. `--open-count` gives `panel-retry-budget.sh` its count. The phase files
+  koto. `--open-count` and `--open-ids` give `panel-retry-budget.sh` the count
+  and the ids of those findings. The phase files
   under `references/phases/phase-4*` say how to act on the scope;
   `scripts/panel-scope_test.sh` is its harness.
 - `scripts/review-level.sh init|set|facts|check|slice|report|level` — the run's
@@ -755,9 +756,9 @@ leg, since one leg answers one session.
   `scripts/fix-round_test.sh` is its harness.
 - `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
-  again, reading the count of unclosed blocking findings from the ledger
-  (`panel-scope.sh --open-count`), and records each retry it grants in
-  `panel_retries`. The panel
+  again, reading the count and ids of unclosed blocking findings from the
+  ledger (`panel-scope.sh --open-count` and `--open-ids`), and records each
+  retry it grants in `panel_retries`. The panel
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.
