@@ -190,24 +190,37 @@ A `/work-on` fix round (`fix-round.sh`) is a new session whose context holds
 `fix_round.json` (`{from, round, base}`), `base` being the head the run it follows left.
 That run is the previous round, the line before this session's in the original's
 `fix_rounds.jsonl`, or `from` for the first round. The launcher reads that run's result
-at `base`, at the path `--locate` gives for that session and head, and the round's own
-diff, `git diff --name-only <base>..HEAD`, selected through the same map. Selection for
-the result is still the merge-base diff, so the round's result holds the same checks a
-full run's would. Each of them then:
+at `base`, at the path `--locate` gives for that session and head. When there is none,
+it takes the newest result with status `done` that the session wrote at an ancestor of
+`base`: a run that reached `done` often committed after its verification, at
+finalization or to fix CI on its pull request. The head of the result used is the carry
+base. The round's own diff is `git diff --name-only <carry base>..HEAD`, selected through
+the same map, so the commits between the parent's verified head and the round's base
+count as the round's changes. Selection for the result is still the merge-base diff, so
+the round's result holds the same checks a full run's would. Each of them then:
 
 - is carried, not run, when the parent's record for it passed (`passed` or `carried`)
-  with the same `argv` and the round's diff doesn't select it;
+  with the same `argv` and the round's diff doesn't select it; `carried_from` names the
+  parent session and the carry base;
 - runs when the round's diff selects it, and an `each` row's command gets
-  `SHIRABE_VERIFY_BASE=<base>` in its environment, so `scripts/check-skill.sh --changed`
-  picks suites from the round's diff rather than the merge-base's;
+  `SHIRABE_VERIFY_BASE=<carry base>` in its environment, so
+  `scripts/check-skill.sh --changed` picks suites from the round's diff rather than the
+  merge-base's;
 - runs as in a full run, without `SHIRABE_VERIFY_BASE`, when the parent failed it,
-  timed out, never ran it, or has no result at `base`.
+  timed out or never ran it.
 
-The carry is off, and everything selected runs, when the session has no
-`fix_round.json`, when it has `fresh: true` (`fix-round.sh start --fresh`), or when
-`SHIRABE_VERIFY_FULL=1` is in the launcher's environment. koto runs the launcher in a
-cleared environment, so the variable takes effect on a `--start` run by hand; a result
-already at the head stands until it is moved aside.
+A round that touches shared code reruns the full selection. When the round's diff holds
+a path outside one skill's directory (anything not under `skills/<name>/`) or a path no
+map entry matches, nothing is carried: such a path selects no check for the skills whose
+suites may run it, and a carried pass for them would have been made with the old code.
+
+The carry is also off, and everything selected runs, when the session has no
+`fix_round.json`, when it has `fresh: true` (`fix-round.sh start --fresh`), when
+`SHIRABE_VERIFY_FULL=1` is in the launcher's environment, when koto isn't on `PATH`, or
+when the parent has no result at `base` or at a `done` head before it. The launcher says
+on stderr why. koto runs the launcher in a cleared environment, so the variable takes
+effect on a `--start` run by hand; a result already at the head stands until it is moved
+aside.
 
 ### Command records
 
@@ -224,7 +237,7 @@ before it.
   | `outcome` | When |
   |-----------|------|
   | `passed` | The command exited 0 inside its limit. |
-  | `carried` | It didn't run: the session is a fix round, the run it follows passed this check (same `check`, same `argv`) at the round's base head, and the round's own diff doesn't select it. See **A fix round's carry**. |
+  | `carried` | It didn't run: the session is a fix round, the run it follows passed this check (same `check`, same `argv`) at the carry base, the round's own diff doesn't select it, and that diff touches no shared code. See **A fix round's carry**. |
   | `timed-out-limit` | The supervisor stopped it at its `timeout_secs` (or at the run's budget), and its suite summary lists no finished-failed suite, or it wrote no summary. `timed_out` is `true`. |
   | `timed-out-inside` | It exited nonzero inside its limit, its row declares `timeout_form`, its log reports at least one failure line, and every failure line matches the form. `timed_out` is `false`. |
   | `failed` | Anything else: a nonzero exit that isn't `timed-out-inside`, a stop at the limit whose summary lists a finished-failed suite, a runaway, or a command that never started. The `runaway` and `not_started` flags still say which of the last two it was, and neither is ever a timeout. |

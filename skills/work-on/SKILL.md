@@ -898,17 +898,25 @@ from a branch other than the run's `SHARED_BRANCH` (`wrong-branch`).
 
 The round's verification carries what the run it follows already passed. That
 run is the previous round, else the original, and the launcher reads its result
-at the round's base head. A check it passed that the round's own diff (from the
-base to the fix head) doesn't select isn't run again: its record says `outcome:
-carried`, with `carried_from` naming that session and head, and the verdict
-counts it as passed. A check the round's diff selects runs, and a per-skill
-`check-skill.sh --changed` among them picks its suites from the round's diff,
-not the merge-base's. A check the run failed, timed out or never ran, or one
-with no result at the base, runs as before. The result still lists every check
-a full run would. To verify the round in full, start it with `--fresh`, which
-writes `fresh: true` into `fix_round.json`; a `run-verification.sh --start` run
-by hand with `SHIRABE_VERIFY_FULL=1` does the same once the stored result is
-moved aside. `references/verification-map.md` has the rule.
+at the round's base head, or, when there is none, its newest passing result at
+an ancestor of the base (a done run often commits after its verification). A
+check it passed that the round's own diff (from that result's head to the fix
+head) doesn't select isn't run again: its record says `outcome: carried`, with
+`carried_from` naming that session and head, and the verdict counts it as
+passed. A check the round's diff selects runs, and a per-skill `check-skill.sh
+--changed` among them picks its suites from the round's diff, not the
+merge-base's. A check the run failed, timed out or never ran runs as before.
+The result still lists every check a full run would.
+
+A round that touches shared code reruns the full selection: when its diff
+changes any path outside one skill's directory (not under `skills/<name>/`) or
+a path no verification-map entry matches, nothing is carried, since another
+skill's suites may run that code. Nothing is carried either when the run has no
+result at or before the base. To verify a round in full anyway, start it with
+`--fresh`, which writes `fresh: true` into `fix_round.json`; a
+`run-verification.sh --start` run by hand with `SHIRABE_VERIFY_FULL=1` does the
+same once the stored result is moved aside. `references/verification-map.md`
+has the rule.
 
 The round is a unit like any other: a fix-labelled issue makes it a fix that owes
 a red at `reproduce`, where a review change or a CI repair with no check failing

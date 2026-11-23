@@ -1196,10 +1196,16 @@ CMDS=$(jq -cn --arg f "$CR" --arg m "$FLAKY" '{
     chk: {run: ["bin/recenv.sh", $f, "chk"], each: "skills/*"},
     plain: {run: ["bin/recenv.sh", $f, "plain"]},
     flaky: {run: ["bin/flaky.sh", $m, $f]}}')
-mkrepo carry "$(map "$CMDS" '[{"paths": ["skills/**"], "commands": ["chk"]}, {"paths": ["top.txt"], "commands": ["plain", "flaky"]}]')"
-printf '#!/bin/sh\nrec=$1; shift\nprintf "%%s base=%%s\\n" "$*" "${SHIRABE_VERIFY_BASE-}" >> "$rec"\n' > bin/recenv.sh
-printf '#!/bin/sh\nprintf "flaky base=%%s\\n" "${SHIRABE_VERIFY_BASE-}" >> "$2"\n[ "$(cat "$1")" = pass ]\n' > bin/flaky.sh
-chmod +x bin/recenv.sh bin/flaky.sh
+CARRY_ENTRIES='[{"paths": ["skills/**"], "commands": ["chk"]}, {"paths": ["top.txt"], "commands": ["plain", "flaky"]}]'
+# carry_repo <name>: a repository with the carry map and its two fixtures,
+# uncommitted, so the branch's first change commits them.
+carry_repo() {
+    mkrepo "$1" "$(map "$CMDS" "$CARRY_ENTRIES")"
+    printf '#!/bin/sh\nrec=$1; shift\nprintf "%%s base=%%s\\n" "$*" "${SHIRABE_VERIFY_BASE-}" >> "$rec"\n' > bin/recenv.sh
+    printf '#!/bin/sh\nprintf "flaky base=%%s\\n" "${SHIRABE_VERIFY_BASE-}" >> "$2"\n[ "$(cat "$1")" = pass ]\n' > bin/flaky.sh
+    chmod +x bin/recenv.sh bin/flaky.sh
+}
+carry_repo carry
 echo fail > "$FLAKY"
 change skills/a/f.txt skills/b/f.txt top.txt
 start s-orig
@@ -1262,9 +1268,10 @@ for c in chk:a chk:b plain flaky; do
         ".outcome == \"carried\" and .carried_from == {session: \"s-orig-fix-1\", head: \"$FIX1_HEAD2\"}"
 done
 
-echo "--- fix round: no result at the round's base"
+echo "--- fix round: a run with no result at all"
+# s-ghost never verified, so it has no result at the round's base or before.
 rm -f "$CR"
-fix_round s-nobase s-orig 1 "$FIX1_HEAD"
+fix_round s-nobase s-ghost 1 "$FIX1_HEAD"
 start s-nobase
 grep -q 'has no verification result at the round' "$WORKDIR/start.out" \
     && pass "no parent result: --start says nothing is carried" || fail "no parent result: --start's stderr: $(cat "$WORKDIR/start.out")"
@@ -1318,6 +1325,80 @@ expect_rc "passed and carried records" 0
 verdict_on s-cv-failed '.commands |= map(if .check == "flaky" then .outcome = "failed" | .exit_status = 3 | del(.carried_from) else . end)'
 expect_rc "a carried record beside a failed one" 1
 expect_rule "a carried record beside a failed one" verification/command-failed
+
+echo "--- fix round: shared code reruns the full selection"
+# s-orig-fix-2 passed or carried everything at this head. A round whose diff
+# touches scripts/lib/x.sh (outside every skill, and matched by no entry)
+# carries nothing.
+rm -f "$CR"
+SHARED_BASE=$(git rev-parse HEAD)
+fix_round s-shared s-orig 3 "$SHARED_BASE"
+printf '%s\n' "$(jq -cn --arg h "$SHARED_BASE" '{round: 3, session: "s-shared", base: $h, ts: "t"}')" \
+    >> "$KOTO_STUB_STORE/s-orig/fix_rounds.jsonl"
+change scripts/lib/x.sh
+start s-shared
+grep -qF 'touches shared code (scripts/lib/x.sh)' "$WORKDIR/start.out" \
+    && pass "shared code: --start says the round reruns the full selection" \
+    || fail "shared code: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-shared
+expect_rc "a fix round touching scripts/lib/x.sh" 0
+ran "a fix round touching scripts/lib/x.sh runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-shared)" >/dev/null 2>&1 \
+    && pass "shared code: no record is carried" || fail "shared code: a record was carried"
+
+# The next round touches only one skill's files, so it still carries the rest.
+rm -f "$CR"
+SKILL_BASE=$(git rev-parse HEAD)
+fix_round s-skillonly s-shared 1 "$SKILL_BASE"
+change skills/a/g.txt
+start s-skillonly
+settle s-skillonly
+expect_rc "a fix round touching only skills/a after the shared round" 0
+ran "a fix round touching only skills/a runs that skill's check and carries the other skills" "chk a base=$SKILL_BASE "
+expect_check "a fix round touching only skills/a" s-skillonly chk:b \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-shared\", head: \"$SKILL_BASE\"}"
+
+echo "--- fix round: the parent verified an earlier head"
+# s-anc verified at ANC1; a later commit touching skills/b is the head the
+# round starts from. The round finds the result at ANC1, an ancestor of its
+# base, and the commit after it is the round's own change: chk:b runs with
+# ANC1 as its base, the rest carry from ANC1.
+rm -f "$CR"
+echo pass > "$FLAKY"
+carry_repo anc
+change skills/a/f.txt skills/b/f.txt top.txt
+start s-anc
+settle s-anc
+expect_rc "the run verified at its earlier head" 0
+ANC1=$(git rev-parse HEAD)
+change skills/b/f.txt
+ANC_BASE=$(git rev-parse HEAD)
+rm -f "$CR"
+fix_round s-anc-fix-1 s-anc 1 "$ANC_BASE"
+start s-anc-fix-1
+grep -qF "carrying from its result at $ANC1, an ancestor of it" "$WORKDIR/start.out" \
+    && pass "an earlier verified head: --start names the result it carries from" \
+    || fail "an earlier verified head: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-anc-fix-1
+expect_rc "a fix round whose parent verified an earlier head" 0
+ran "a commit after the parent's verified head runs that skill's check from that head" "chk b base=$ANC1 "
+for c in chk:a plain flaky; do
+    expect_check "an earlier verified head" s-anc-fix-1 "$c" \
+        ".outcome == \"carried\" and .carried_from == {session: \"s-anc\", head: \"$ANC1\"}"
+done
+
+echo "--- fix round: no result at an ancestor of the base"
+# The base is main's commit, which the parent's verified head descends from,
+# not the other way round: no result counts, and everything runs.
+rm -f "$CR"
+fix_round s-anc-fix-old s-anc 1 "$(git rev-parse main)"
+start s-anc-fix-old
+grep -qF 'or at a done head before it' "$WORKDIR/start.out" \
+    && pass "no ancestor result: --start says nothing is carried" \
+    || fail "no ancestor result: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-anc-fix-old
+expect_rc "a fix round with no ancestor result" 0
+ran "a fix round with no ancestor result runs everything" "chk a base= chk b base= flaky base= plain base= "
 
 # --- the lock, the state directories ------------------------------------------------------
 

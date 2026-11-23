@@ -47,31 +47,40 @@
 # `fix_round.json` ({from, round, base}, written by fix-round.sh) is a fix
 # round, and `base` is the head the run it follows left. That run is the
 # previous round (the line before this session's in the original's
-# `fix_rounds.jsonl`), else `from`. Its result at `base` is found by the same
-# path rules as --locate, with that session and head = base. Selection for the
-# result is still the merge-base diff, so the round's set of checks is a full
-# run's; only what runs changes. For each selected check:
+# `fix_rounds.jsonl`), else `from`. Its result is found by the same path
+# rules as --locate, with that session and head = base; when there is none,
+# the newest result with status `done` that session wrote at an ancestor of
+# base (`git merge-base --is-ancestor`) is used instead, since a run that
+# reached done often committed after its verification. The head of the
+# result used is the carry base, and the round's own diff is
+# `git diff --name-only <carry base>..HEAD`, so commits between the parent's
+# verified head and the round's base count as the round's changes. Selection
+# for the result is still the merge-base diff, so the round's set of checks
+# is a full run's; only what runs changes. For each selected check:
 #   - the parent's record for the same check passed (`outcome` passed or
-#     carried) with the same argv, and the round's own diff
-#     (`git diff --name-only <base>..HEAD`, selected through the same map)
-#     doesn't select it: it doesn't run. Its record is written with
-#     `outcome: carried` and `carried_from: {session, head}` naming the parent
-#     result, exit_status 0, duration_secs 0, not_started false, log and
-#     suites null;
+#     carried) with the same argv, and the round's diff, selected through the
+#     same map, doesn't select it: it doesn't run. Its record is written with
+#     `outcome: carried` and `carried_from: {session, head}` naming the
+#     parent session and the carry base, exit_status 0, duration_secs 0,
+#     not_started false, log and suites null;
 #   - the parent passed it and the round's diff selects it: it runs, and an
 #     `each` row's command (check `<row id>:<leaf>`) gets
-#     SHIRABE_VERIFY_BASE=<base> in its environment, so check-skill.sh
-#     --changed diffs against the round's base, not the merge-base;
-#   - otherwise (the parent failed it, timed out, never ran it, or has no
-#     result at base) it runs as in a full run, with no SHIRABE_VERIFY_BASE.
-# The carry is off, and every selected check runs, with no fix_round.json,
-# with `fresh: true` in it (fix-round.sh start --fresh), with
-# SHIRABE_VERIFY_FULL=1 in --start's environment, or when the base or the
-# parent's result can't be read; each but the first says so on stderr. koto
-# runs this launcher in a cleared environment, so SHIRABE_VERIFY_FULL=1 takes
-# effect on a --start run by hand. A koto failure reading the keys is exit 2,
-# as in step 0. A result already at this head stands either way: move it
-# aside to run again.
+#     SHIRABE_VERIFY_BASE=<carry base> in its environment, so check-skill.sh
+#     --changed diffs against it, not the merge-base;
+#   - otherwise (the parent failed it, timed out, never ran it) it runs as in
+#     a full run, with no SHIRABE_VERIFY_BASE.
+# A round that touches shared code reruns the full selection: when the
+# round's diff holds a path outside one skill's directory (not under
+# skills/<name>/) or a path no map entry matches, nothing is carried, since
+# such a path selects no check for the skills whose suites may run it.
+# The carry is also off, and every selected check runs, with no
+# fix_round.json, with `fresh: true` in it (fix-round.sh start --fresh), with
+# SHIRABE_VERIFY_FULL=1 in --start's environment, without koto on PATH, or
+# when the base or no parent result at or before it can be read; each but
+# the first says so on stderr. koto runs this launcher in a cleared
+# environment, so SHIRABE_VERIFY_FULL=1 takes effect on a --start run by
+# hand. A koto failure reading the keys is exit 2, as in step 0. A result
+# already at this head stands either way: move it aside to run again.
 #
 # Where things go: ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/
 # <session>/<head>/, every directory created with mode 0700, outside every
@@ -96,7 +105,7 @@
 #
 # Each command's `outcome` says how it ended, as one of five values:
 #   passed            exit 0 inside its limit;
-#   carried           not run: a fix round's parent passed it at the round's
+#   carried           not run: a fix round's parent passed it at the carry
 #                     base and the round's diff doesn't select it (above);
 #                     the verdict counts it as passed;
 #   timed-out-limit   stopped at its timeout_secs (or the run's budget), unless
@@ -241,7 +250,8 @@ try (
   | (if has("default") then (.default | ids_ok("default"; $defined)) else [] end) as $default
   | ($entries | map(. as $e | select(any($changed[]; . as $p | any($e.res[]; . as $r | $p | test($r)))))
      | map(.commands[])) as $from_entries
-  | ([$changed[] | . as $p | select(all($entries[]; all(.res[]; . as $r | $p | test($r) | not)))] | length) as $unmatched
+  | [$changed[] | . as $p | select(all($entries[]; all(.res[]; . as $r | $p | test($r) | not)))] as $unmatched_paths
+  | ($unmatched_paths | length) as $unmatched
   | ($from_entries + (if $unmatched > 0 then $default else [] end) | dedupe) as $ids
   | ($cmds | map({key: .id, value: .}) | from_entries) as $byid
   | [$changed[] | split("/") as $parts | range(1; $parts | length) | $parts[0:.] | join("/")] | unique as $dirs
@@ -254,7 +264,8 @@ try (
          | {id: $c.id, check: "\($c.id):\($leaf)", argv: ($c.run + [$leaf]), timeout_secs: $c.timeout_secs, max_procs: $c.max_procs, unattended: $c.unattended,
             timeout_form: $c.timeout_form, hosted: $c.hosted}
        end] as $inv
-  | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe)}
+  | {invocations: $inv, attended: ($inv | map(select(.unattended == false) | .id) | dedupe),
+     unmatched: $unmatched_paths}
 ) catch {error: (if type == "string" then . else tostring end)}
 '
 
@@ -711,8 +722,11 @@ note() {
 }
 
 carry() {
-    local rc fr from round fresh base prev rounds parent_result round_changed round_sel round_checks out
-    command -v koto >/dev/null 2>&1 || return 0
+    local rc fr from round fresh base prev rounds sdir cbase d h parent_result round_changed round_sel round_checks shared out
+    if ! command -v koto >/dev/null 2>&1; then
+        note "koto is not on PATH, so no fix_round.json can be read and nothing is carried; every selected check runs"
+        return 0
+    fi
     koto context exists "$SESSION" fix_round.json
     rc=$?
     case "$rc" in
@@ -739,7 +753,7 @@ carry() {
     fi
     if ! grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' <<<"$from" || [ -z "$round" ] \
         || ! grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' <<<"$base"; then
-        note "fix_round.json of $SESSION names no run, round or base head, so nothing is carried"
+        note "fix_round.json of $SESSION names no run, round or base head, so nothing is carried; every selected check runs"
         return 0
     fi
 
@@ -767,39 +781,74 @@ carry() {
     fi
 
     if ! git -C "$ROOT" rev-parse --verify -q "${base}^{commit}" >/dev/null; then
-        note "the round's base $base is not a commit here, so nothing is carried"
-        return 0
-    fi
-    parent_result="${SESSION_DIR%/*}/$prev/$base/result.json"
-    if [ ! -f "$parent_result" ]; then
-        note "$prev has no verification result at the round's base $base, so nothing is carried"
-        return 0
-    fi
-    if ! jq -e --arg schema "$RESULT_SCHEMA" --arg base "$base" \
-            '.schema == $schema and .head == $base and (.commands | type) == "array"' "$parent_result" >/dev/null; then
-        note "the result $parent_result is not a result for $base, so nothing is carried"
+        note "the round's base $base is not a commit here, so nothing is carried; every selected check runs"
         return 0
     fi
 
-    # The round's own diff, selected through the same map.
-    if ! round_changed=$(set -o pipefail; git -C "$ROOT" diff --name-only -z "$base..HEAD" \
+    # The carry base: the parent's result at the round's base, else the newest
+    # `done` result it wrote at an ancestor of the base. A run that reached
+    # done often committed after its verification (finalization, CI fixes),
+    # so the exact head is often missing; the commits between the carry base
+    # and the round's base then count as the round's own changes below.
+    sdir="${SESSION_DIR%/*}/$prev"
+    cbase=""
+    if [ -f "$sdir/$base/result.json" ] && jq -e --arg schema "$RESULT_SCHEMA" --arg h "$base" \
+            '.schema == $schema and .head == $h and (.commands | type) == "array"' "$sdir/$base/result.json" >/dev/null; then
+        cbase=$base
+    else
+        for d in "$sdir"/*; do
+            h=${d##*/}
+            grep -Eq '^[0-9a-f]{40}([0-9a-f]{24})?$' <<<"$h" || continue
+            [ "$h" != "$base" ] && [ -f "$d/result.json" ] || continue
+            jq -e --arg schema "$RESULT_SCHEMA" --arg h "$h" \
+                '.schema == $schema and .head == $h and .status == "done" and (.commands | type) == "array"' \
+                "$d/result.json" >/dev/null || continue
+            git -C "$ROOT" rev-parse --verify -q "${h}^{commit}" >/dev/null || continue
+            git -C "$ROOT" merge-base --is-ancestor "$h" "$base" || continue
+            # The newest by ancestry: a candidate replaces the one held when
+            # the held one is its ancestor.
+            if [ -z "$cbase" ] || git -C "$ROOT" merge-base --is-ancestor "$cbase" "$h"; then
+                cbase=$h
+            fi
+        done
+        if [ -z "$cbase" ]; then
+            note "$prev has no verification result at the round's base $base or at a done head before it, so nothing is carried; every selected check runs"
+            return 0
+        fi
+        note "$prev has no result at the round's base $base; carrying from its result at $cbase, an ancestor of it"
+    fi
+    parent_result="$sdir/$cbase/result.json"
+
+    # The round's own diff, from the carry base, selected through the same map.
+    if ! round_changed=$(set -o pipefail; git -C "$ROOT" diff --name-only -z "$cbase..HEAD" \
             | jq -Rs 'split("\u0000") | map(select(length > 0))'); then
-        note "could not list the paths changed since the round's base $base, so nothing is carried"
+        note "could not list the paths changed since $cbase, so nothing is carried; every selected check runs"
         return 0
     fi
     round_sel=$(printf '%s' "$MAP_JSON" | jq -c --argjson changed "$round_changed" "$SELECT_JQ") \
         || die "the selection program failed on the round's diff"
     round_checks=$(printf '%s' "$round_sel" | jq -c 'if has("error") then null else [.invocations[].check] end')
     if [ "$round_checks" = null ] || [ -z "$round_checks" ]; then
-        note "the map does not select on the round's diff, so nothing is carried"
+        note "the map does not select on the round's diff, so nothing is carried; every selected check runs"
+        return 0
+    fi
+
+    # Shared code: a path outside one skill's directory, or one no map entry
+    # matches, selects no check for the skills whose suites may run it, so a
+    # pass carried for them would be a pass made with the old code.
+    shared=$(printf '%s' "$round_sel" | jq -r --argjson changed "$round_changed" '
+        ([$changed[] | select(test("^skills/[^/]+/.") | not)] + (.unmatched // [])) | unique
+        | if length == 0 then "" else "\(.[0:5] | join(", "))\(if length > 5 then " and \(length - 5) more" else "" end)" end')
+    if [ -n "$shared" ]; then
+        note "the round's diff since $cbase touches shared code ($shared): a path outside one skill's directory or matched by no map entry. A round that touches shared code reruns the full selection, so nothing is carried"
         return 0
     fi
 
     INVOCATIONS=$(printf '%s' "$INVOCATIONS" | jq -c --slurpfile parent "$parent_result" \
-        --argjson round "$round_checks" --arg from "$prev" --arg base "$base" \
+        --argjson round "$round_checks" --arg from "$prev" --arg base "$cbase" \
         '$parent[0] as $parent | '"$CARRY_JQ") \
         || die "could not apply the carry from $parent_result"
-    note "$(printf '%s' "$INVOCATIONS" | jq -r --arg p "$prev" --arg b "$base" '
+    note "$(printf '%s' "$INVOCATIONS" | jq -r --arg p "$prev" --arg b "$cbase" '
         "carried \([.[] | select(.carried)] | length) check(s) \($p) passed at \($b); running \([.[] | select(.carried | not)] | length): \([.[] | select(.carried | not) | .check] | join(", "))"')"
 }
 carry
