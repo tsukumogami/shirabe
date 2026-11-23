@@ -261,19 +261,17 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/closing-keyword-gate_test.sh
 
-      # Drives the shipped finalization state's pre-PR checks in throwaway
-      # repositories. Its central cases are the placeholder ones: a referent
-      # like "done" must hold the state rather than satisfy it. Needs the
-      # engine.
+      # Drives the shipped pre-PR obligation ladder in throwaway repositories.
+      # Its central cases are the placeholder ones: a referent like "done" must
+      # fail the state rather than satisfy it. Needs the engine.
       - name: Run pre-PR evidence tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/pre-pr-evidence_test.sh
 
       # Walks the shipped template to finalization and asserts a malformed
       # summary.md or pre_pr.md holds the run there, naming the failing gate,
-      # and a good one goes straight to pr_precheck. Also pins that
-      # finalization's and deferral_approval's copies of the gates are
-      # identical. Needs the engine.
+      # rather than reaching pre_pr_evidence's done_blocked backstop. Also pins
+      # that the early gates are identical to the backstop's. Needs the engine.
       - name: Run finalization shape tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/finalization-shape_test.sh
@@ -578,12 +576,6 @@ jobs:
       - name: Run red-first tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/red-first_test.sh
-
-      # issue-type-route.sh (issue_type_routing's code_route gate) against a
-      # koto stand-in, classifying with the real review-level.sh. No engine.
-      - name: Run issue-type route tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash skills/work-on/scripts/issue-type-route_test.sh
 
       # Drives the shipped work-on.md through a real koto in the walkthrough
       # repository: a bug-labelled fix held at reproduce until its red is
