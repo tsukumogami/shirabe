@@ -3049,7 +3049,7 @@
     {
       "id": "test-change/held",
       "status": "active",
-      "summary": "A pass came with an edited test or an observation that has no live acceptance",
+      "summary": "A pass came with an edited test or an observation pair that a review panel has not judged at its content now, or that carries an open adverse judgment",
       "text": {
         "path": "skills/work-on/references/red-first.md",
         "first": "| `test-change/held` | A pass came with"

@@ -941,7 +941,7 @@ states:
     #
     # Before that, the action writes the test-change ledger's header
     # (test-change.sh init --entry): the author, impl_base and the work tree
-    # every later acceptance is judged against. It runs here, after
+    # the counting gates classify the unit's tests against. It runs here, after
     # review_level_choice stored the rules copy the classifier reads, and
     # writes once; a later entry finds the header and changes nothing.
     default_action:
@@ -2186,46 +2186,44 @@ states:
     #   fix_green      red-first.sh check-green. Passes for a unit that isn't a
     #                  fix; a fix needs a green, the red's command re-run at
     #                  HEAD with exit 0, which the agent records with
-    #                  red-first.sh green, or an observation pair a live
-    #                  acceptance covers. Every hold prints finding
-    #                  red-first/no-green.
+    #                  red-first.sh green, or an observation pair the review
+    #                  panels judged shown at its digests now. Every hold
+    #                  prints finding red-first/no-green.
     #   tests_counted  test-change.sh status. Classifies the test files the
     #                  unit's committed diff touched since impl_base: an edited
     #                  test (a line removed, deleted, renamed with a change) or
-    #                  an observation holds the unit until the session ledger
-    #                  test_change_ledger.jsonl shows a live acceptance by
-    #                  someone other than the run, under the interim rule in
-    #                  scripts/lib/acceptance-rule.sh. Exit 1 holds (finding
-    #                  test-change/held), 2 can't decide, 3 means one set of
-    #                  paths was declined three times.
+    #                  an observation pair holds the unit while it is due for
+    #                  a panel (no judgment of that panel at its content now;
+    #                  before any panel has recorded, every item is due) or
+    #                  carries an open weakens or not-shown finding, read from
+    #                  the panels' record through panel-scope.sh --due-items.
+    #                  No line of test_change_ledger.jsonl but its header
+    #                  counts or holds anything. Exit 1 holds (finding
+    #                  test-change/held), 2 can't decide, 3 holds with the
+    #                  panel retry budget spent (panel-retry-budget.sh
+    #                  --remaining reports none left).
     #
-    # A held run in a repository that isn't person-required mints a seat
-    # (test-change.sh seat) and commissions it with the brief the script
-    # prints; the seat accepts or declines under its minted identity, and the
-    # next tick re-reads the ledger. In a repository that declares
-    # `## Test Change Acceptance: person` no seat can accept: the run stops
-    # here, status prints the command a person runs at a terminal, and the
-    # resumed run's next tick finds the person's acceptance.
+    # A held run sends itself back with `declined`: implementation, whose
+    # clear_on_entry drops the panels' stale results, then the panels again,
+    # where --plan plans a re-verifier for each due item and the panels'
+    # seats or re-verifier judge it. A unit routed as docs or task that edits
+    # a test has no panel to judge it; it goes back the same way and routes
+    # as code. check-green compares the green's head with HEAD, and status
+    # compares each judgment's content with HEAD's, so a later commit holds
+    # again. A hold the retry budget can no longer clear (exit 3) goes to
+    # done_blocked with no evidence. Nothing here waits for a person.
     #
-    # A green that failed, or a decline, sends the run back to implementation,
-    # whose clear_on_entry drops the panels' stale results; check-green
-    # compares the green's head with HEAD, and status compares every
-    # acceptance's digests with HEAD's, so a later commit holds again. The
-    # third decline of one path set goes to done_blocked with no evidence.
-    #
-    # A held run that finds a gap in its own tests before anyone has judged
-    # them (an assertion narrowed too far, a case left unchecked) submits
-    # `test_gap` with the gap in `detail` (#1915). The fix is a test-only
-    # commit, and the review panels have to see it: a commit made here with
-    # no route out moves HEAD under the held gates, and nothing on this
-    # state plans a review of it. `test_gap` returns to implementation like
-    # a decline, but no seat declined: the acceptance ledger is untouched
-    # and the decline limit doesn't move. The next lap reaches the run's
-    # first panel, whose panel-scope.sh --plan plans a re-verifier with a
-    # fix-diff review for any commit since the panel last recorded, so the
+    # A held run that finds a gap in its own tests before the panels have
+    # judged them (an assertion narrowed too far, a case left unchecked)
+    # submits `test_gap` with the gap in `detail` (#1915). The fix is a
+    # test-only commit, and the review panels have to see it: a commit made
+    # here with no route out moves HEAD under the held gates, and nothing on
+    # this state plans a review of it. `test_gap` returns to implementation
+    # like `declined`. The next lap reaches the run's first panel, whose
+    # panel-scope.sh --plan plans a re-verifier for the test now due, so the
     # fix is reviewed before verification runs again. Its two edges are the
-    # two holds a run can stop at short of the decline limit: an edit not
-    # yet counted (tests_counted 1), and a fix held only on its green
+    # two holds a run can stop at short of a spent budget: an edit not yet
+    # counted (tests_counted 1), and a fix held only on its green
     # (tests_counted 0, fix_green 1).
     gates:
       fix_green:
@@ -2242,10 +2240,11 @@ states:
           Absent on the passing path: koto advances once fix_green and
           tests_counted pass. `green_failed` returns to implementation after a
           green that exited non-zero; `declined` returns to implementation
-          after the acceptance seat declined a test edit; `test_gap` returns
-          to implementation for a test-only fix the run found itself, named in
-          `detail`, with no seat's decline; `blocked` stops the run when a
-          hold can't be cleared.
+          while tests_counted holds an edited test or observation pair as due
+          for a panel or under an open weakens or not-shown finding, so the
+          panels judge it again; `test_gap` returns to implementation for a
+          test-only fix the run found itself, named in `detail`; `blocked`
+          stops the run when a hold can't be cleared.
       detail:
         type: string
         description: >-
@@ -2260,7 +2259,7 @@ states:
         when:
           gates.tests_counted.exit_code: 3
         context_assignments:
-          failure_reason: "pass_counting: the acceptance seats declined the same test edits three times. The ledger is in context as test_change_ledger.jsonl."
+          failure_reason: "pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and the panel retry budget is spent, so no further panel round can clear it. The panels' record is in context as verdict_ledger.json."
       - target: implementation
         when:
           gates.tests_counted.exit_code: 0
@@ -2642,9 +2641,10 @@ states:
       # The pass counted at pass_counting, counted again before a pull
       # request shows it (../references/red-first.md): test-change.sh status
       # re-reads the committed diff, so a commit made after counting that
-      # edits a test, or changes an accepted one, holds here. Exit 1 holds;
-      # `precheck_status: recount` sends the run back to pass_counting,
-      # where the acceptance is given. Every pull request edge needs 0.
+      # edits a test, or changes one the panels judged, holds here. Exit 1
+      # holds; `precheck_status: recount` sends the run back to
+      # pass_counting, which routes it back through the panels. Every pull
+      # request edge needs 0.
       tests_still_counted:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" || exit 2; SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl" SHIRABE_GATE_NAME=tests_still_counted "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"'
@@ -2704,8 +2704,8 @@ states:
         when:
           precheck_status: recount
           gates.tests_still_counted.exit_code: 1
-      # The decline limit (status exit 3) recounts too: pass_counting's own
-      # exit-3 edge then ends the run at done_blocked with its reason.
+      # A spent retry budget (status exit 3) recounts too: pass_counting's
+      # own exit-3 edge then ends the run at done_blocked with its reason.
       - target: pass_counting
         when:
           precheck_status: recount
@@ -3242,9 +3242,10 @@ states:
     # green edge). The pass is counted again here, with pass_counting's two
     # gates under the same names and commands (../references/red-first.md),
     # because a commit that fixed CI may have edited a test or moved HEAD
-    # past a fix's green. A held run is accepted here as at pass_counting; a
-    # decline or a failed green returns it to ci_monitor, where the edit is
-    # reworked and pushed. A separate state rather than a shared one with a
+    # past a fix's green. A held run is counted here as at pass_counting,
+    # from the panels' record; `declined` or a failed green returns it to
+    # ci_monitor, where the edit is reworked and pushed. A separate state
+    # rather than a shared one with a
     # variable naming where it came from: a hand rebind of that variable
     # could send a post-CI hold to finalization.
     gates:
@@ -3277,8 +3278,11 @@ states:
         values: [green_failed, declined, blocked]
         description: >-
           Absent on the passing path: koto routes once fix_green and
-          tests_counted pass. `green_failed` and `declined` return to
-          ci_monitor; `blocked` stops the run when a hold can't be cleared.
+          tests_counted pass. `green_failed` returns to ci_monitor after a
+          green that exited non-zero, and `declined` while tests_counted
+          holds an edited test or observation pair as due for a panel or
+          under an open adverse finding; `blocked` stops the run when a hold
+          can't be cleared.
       detail:
         type: string
         description: Why the run can't be counted.
@@ -3304,7 +3308,7 @@ states:
         when:
           gates.tests_counted.exit_code: 3
         context_assignments:
-          failure_reason: "ci_pass_counting: the acceptance seats declined the same test edits three times. The ledger is in context as test_change_ledger.jsonl."
+          failure_reason: "ci_pass_counting: an edited test or observation pair is still due for a panel or under an open adverse finding, and the panel retry budget is spent, so no further panel round can clear it. The panels' record is in context as verdict_ledger.json."
       - target: ci_monitor
         when:
           gates.tests_counted.exit_code: 0
@@ -4347,56 +4351,38 @@ fix doesn't pass its own check: submit `counting_status: green_failed` and the r
 returns to `implementation`.
 
 `tests_counted` passes when no test file in the unit's committed diff was edited
-(only added tests, or none) and no observation is recorded. An edited test (a line
-removed, a file deleted, a rename with a change) or an observation holds the unit,
-one `held:` line each:
+(only added tests, or none) and no observation is recorded, or when the review
+panels have judged each edited test and the observation pair at its content now.
+It reads the panels' record, never a line a run or anyone else writes into the
+test-change ledger, one `held:` line per hold:
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"
 ```
 
-`held: unaccepted <path>`, `held: changed since acceptance <path>` and
-`held: overruled <path> by <identity>` need an acceptance from someone other than
-this run. You can't give it: the rule refuses the run's own identity
-(`agent:{{SESSION_NAME}}`) and any reviewer name the run didn't mint. An overruled
-edit needs an acceptance at or above the overruling's authority, which a seat
-can't give: stop and report it.
+An item is due for a panel when no seat or re-verifier of that panel judged it at
+its content now: `held: <path> due for <panel>`, or `held: observation due for
+<panel>`. Before any panel has recorded, every edited test and the pair are due
+(`held: <item> due: no panel has judged it`), which is what a unit routed as `docs`
+or `task` sees when it edits a test: no panel ran, so none judged it. `held: <path>
+weakens: ...` and `held: observation not shown: ...` name an open blocking finding
+a seat raised. Submit `counting_status: declined` for any of these: the run returns
+to `implementation`, where a weakening edit is reworked or reverted, and goes
+through the panels again, routed as `code` when the diff edits a test. The next
+round's `panel-scope.sh --plan` plans the panel's re-verifier for each due item,
+and its packet carries the test's hunks with your note on why you edited it (or
+the observation pair), so record that note while implementing
+(`test-change.sh note`). Nothing here waits for a person, and nothing you write
+into the ledger counts a test.
 
-**A repository that requires a person.** When `status` prints a
-`person-required:` line, the repository declares `## Test Change Acceptance:
-person`, and no agent can accept: `seat` refuses, and an agent's accept is
-refused `person-required`. Commission nothing. Stop here and report the held
-files and the exact command `status` printed, which a person runs in their own
-terminal; it shows them the edited hunks and a code to type back. The run stays
-at `pass_counting`; once the person has accepted, resuming it ticks the gate and
-goes on to `finalization`.
-
-Otherwise, mint one acceptance seat and print its brief:
-
-```bash
-"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" seat "{{SESSION_NAME}}"
-```
-
-The first line is the seat's identity (`agent:{{SESSION_NAME}}/accept-<n>`); the rest
-is the brief. Spawn one seat with the Agent tool on the same commissioning as the
-`light` panel's seat (`model: "sonnet"`, per
-`${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`), and give it the
-brief exactly as printed, with nothing added: the script fixes its text, and the
-seat treats everything inside its data markers as data. The seat runs
-`test-change.sh accept` or `decline` itself, under its minted identity. Then tick
-with nothing submitted. An accepted unit goes on to `finalization` with no stop
-for a person. `pr_precheck` runs the same status again before a pull request
-opens, so a commit made after this count that edits a test sends the run back
-here (`precheck_status: recount`).
-
-When the seat declines (`held: declined <path> by <seat>`), submit
-`counting_status: declined`: the run returns to `implementation`, where the edit is
-reworked or reverted. The third decline of the same set of paths ends the run at
-`done_blocked` on the next tick. A commit after an acceptance holds the changed
-file again (`changed since acceptance`); mint a new seat for it. `held: uncommitted
-changes` means the work tree has changes the gate can't classify: commit them.
-`held: no header` means the ledger `test_change_ledger.jsonl` was never started at
-`fix_determination`; that can't be fixed here.
+When `status` exits 3 (`held: budget spent: ...`), an item is still held and the
+panel retry budget is spent, so no further panel round can clear it: the run ends
+at `done_blocked` on the next tick with no evidence. `held: uncommitted changes`
+means the work tree has changes the gate can't classify: commit them. `held: no
+header` means the ledger `test_change_ledger.jsonl` was never started at
+`fix_determination`; that can't be fixed here. `pr_precheck` runs the same status
+again before a pull request opens, so a commit made after this count that edits a
+test sends the run back here (`precheck_status: recount`).
 
 A fix recorded by observations is held by both gates until the review panels have
 judged the pair `shown` at its current digests (`held: observation due for <panel>`,
@@ -4406,14 +4392,11 @@ re-recorded since.
 
 **A gap in your own tests.** When you find, while the run is held here, that the
 unit's tests need a test-only fix (an assertion narrowed further than the change
-calls for, a case or a row nothing checks), don't commission a seat on tests you
-know are incomplete, and don't submit `declined` when no seat declined. Submit
-`counting_status: test_gap` with `detail` naming the gap. The run returns to
+calls for, a case or a row nothing checks), submit `counting_status: test_gap`
+with `detail` naming the gap, rather than `declined`. The run returns to
 `implementation`: commit the fix there and finish as usual, answering the issue
-type as before. The run's first panel then plans a re-verifier that reviews the
-fix diff, and verification runs again only after it. Nothing is written to the
-acceptance ledger, so the decline limit doesn't move, and the edit is held again
-at its new digest when the run comes back here.
+type as before. The run's first panel then plans a re-verifier that judges the
+test at its new content, and verification runs again only after it.
 
 Submit `counting_status: blocked` with `detail` to stop the run when a hold can't be
 cleared.
@@ -4610,7 +4593,7 @@ One more gate checks what the branch carries, and holds the state until it passe
 
 An exit 2 means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` it passes at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
 
-`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one that was accepted, holds here (`held:` lines name the file). Submit `precheck_status: recount` to go back to `pass_counting`, where it is accepted as before; nothing else moves the run past this gate while it holds. `held: decline-limit` (the gate exits 3) also takes `recount`, and `pass_counting` then ends the run at `done_blocked`.
+`tests_still_counted` re-runs `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`, the gate `pass_counting` passed. A commit made since then that edits a test, or changes one the panels judged, holds here (`held:` lines name the file and the panel it is due for). Submit `precheck_status: recount` to go back to `pass_counting`, which sends it back through the panels as before; nothing else moves the run past this gate while it holds. `held: budget spent` (the gate exits 3) also takes `recount`, and `pass_counting` then ends the run at `done_blocked`.
 
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 
@@ -4903,12 +4886,11 @@ on the passing path you submit nothing.
   and tick; a green that exits non-zero is `counting_status: green_failed`, which
   returns the run to `ci_monitor` to fix and push.
 - `tests_counted`: `"{{PLUGIN_ROOT}}/skills/work-on/scripts/test-change.sh" status "{{SESSION_NAME}}"`.
-  An edited test held here is accepted exactly as at `pass_counting`: mint a seat
-  with `test-change.sh seat` and commission it with the brief, or, in a
-  repository that requires a person, stop and report the command `status`
-  prints. A decline is `counting_status: declined`, back to `ci_monitor`, where
-  the edit is reworked or reverted and pushed; the third decline of the same
-  paths ends at `done_blocked`.
+  It holds an edited test or observation pair exactly as at `pass_counting`: due
+  for a panel that hasn't judged it at its content now, or under an open
+  weakens or not-shown finding. Submit `counting_status: declined`, back to
+  `ci_monitor`, where the edit is reworked or reverted and pushed. When `status`
+  exits 3 the panel retry budget is spent and the run ends at `done_blocked`.
 
 Once both pass, the `is_root` gate decides where the run goes: it runs
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which

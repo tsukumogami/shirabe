@@ -61,9 +61,10 @@
 #   check-green  pass_counting's fix_green gate. Passes for a unit that isn't
 #                a fix, for a fix whose green ran the red's command at HEAD
 #                and exited 0, and for a fix recorded by an observation pair
-#                that test-change.sh covered counts: once a review panel has
-#                recorded, a pair the panels judged at its current digests,
-#                with no open not-shown finding. A pair not counted is held
+#                that test-change.sh covered counts: a pair the review panels
+#                judged at its current digests, with no open not-shown
+#                finding. A pair no panel has judged yet is due, and a pair
+#                not counted is held
 #                with a `refused:` line naming what test-change.sh holds it
 #                on (`observation due for <panel>`, say). Every hold prints
 #                finding red-first/no-green; a covered that can't decide
@@ -688,7 +689,8 @@ cmd_check_green() {
         if jq -e '.observations.after != null' "$TMP/record" >/dev/null; then
             # An observation pair counts once the review panels have judged
             # it shown at its current digests (test-change.sh covered, which
-            # reads panel-scope.sh --due-items once a panel has recorded).
+            # reads panel-scope.sh --due-items; before any panel has recorded,
+            # the pair is due).
             local crc=0
             "$HERE/test-change.sh" covered "$s" observation:before observation:after > "$TMP/covered" 2>>"$ERRLOG" || crc=$?
             case "$crc" in
@@ -699,7 +701,7 @@ cmd_check_green() {
                 1) ;;
                 *) undecided "test-change.sh covered could not decide the observation pair (exit $crc)" ;;
             esac
-            echo "refused: the observation pair is not counted at its current digests; once a review panel has recorded, it counts only when the panels judged it shown as it is now ($(paste -sd ';' "$TMP/covered" | sed 's/;/; /g'))"
+            echo "refused: the observation pair is not counted at its current digests; it counts only once the review panels have judged it shown as it is now ($(paste -sd ';' "$TMP/covered" | sed 's/;/; /g'))"
             gate_hold red-first/no-green "the unit's red and green are observations the review panels have not judged shown as they are now; the next panel round judges the pair ($(sed -n 's/^held: //p' "$TMP/covered" | paste -sd ';' - | sed 's/;/; /g'))"
         fi
         gate_hold red-first/no-green "no after-observation is recorded; record one with red-first.sh observe $s --phase after --file <observation.md>"

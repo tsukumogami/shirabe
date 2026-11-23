@@ -31,6 +31,14 @@ in the run's retained session only, and R18's record command is how anyone
 reads who accepted and under what authority. Review's edited-versus-added
 distinction (R20) stays in the review packet the seats read.
 
+Superseded in part by `docs/prds/PRD-acceptance-write-drift.md`: the
+acceptance seat, the person path (`## Test Change Acceptance: person` and the
+terminal acceptance), the coordinator overrule and the interim acceptance rule
+(`scripts/lib/acceptance-rule.sh`) are retired. An edited test or an
+observation pair now counts once the review panels have judged it at its
+content now; the red, the green, the ledger header, the classifier, the notes
+and the record stay as written here.
+
 ## Problem Statement
 
 A green check is how anyone other than the author learns that a behaviour

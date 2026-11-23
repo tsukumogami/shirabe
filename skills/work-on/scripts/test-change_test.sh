@@ -5,7 +5,9 @@
 # The fixture is the design's walkthrough repository: greet.sh prints
 # `Hello, <name>!` and tests/greet_test.sh asserts it for `World`. Each case
 # branches off main, records impl_base and the rules copy as analysis and
-# review_level_choice would, and runs `init`.
+# review_level_choice would, and runs `init`. A panel's judgment is written
+# into the session's verdict_ledger.json as panel-scope.sh --record leaves it
+# (judge, below), and status reads it back through panel-scope.sh --due-items.
 #
 # Covers:
 #   classify   a new test and one that only gained lines are `added`; a removed
@@ -15,79 +17,32 @@
 #   init       writes the header once: a second init exits 1, --entry exits 0
 #              and writes nothing; an impl_base that isn't where the unit
 #              started is refused; a ledger with lines but no header is refused
-#   status     exits 0 with no acceptance for added-only tests; exits 1 with
-#              `held: unaccepted <path>` and finding test-change/held for an
-#              edit; holds with `no header` on a ledger without one, and over
-#              uncommitted changes; `changed since acceptance` after a commit
-#              changes an accepted file, cleared by a second seat's accept;
-#              `declined` after a decline, and exit 3 (`decline-limit`) after
-#              the third decline of the same path set
-#   seat       prints agent:<session>/accept-1, then a brief holding the
-#              edited hunk, the run's note and the acceptance criteria
-#              and, when the hunks fit, no cut marker and no `cut` on the seat
-#              line
-#   a cut brief
-#              edited hunks past the brief's limit: the brief marks where the
-#              first file's diff stops and names every file not there in full,
-#              gives the work-tree read and an accept command with
-#              --read-whole, and the seat line records the cut files; an
-#              accept without --read-whole, or naming only some of them, is
-#              refused partial-read and the unit stays held; naming them all
-#              counts it; a hand-written accept line with no read_whole
-#              doesn't count
-#   a renamed test in the brief
-#              a renamed edited test shows as a rename with the line the edit
-#              removed, never as a new file, while a deleted test still shows
-#              as deleted; the same when the brief is cut and its hunks are
-#              built per file; a renamed test the cut leaves out is in the
-#              work-tree read with its old path, and that read shows the
-#              rename, while --read-whole names its new path only; a person's
-#              terminal screen shows a renamed test as a rename too
-#   accept     a minted seat at reviewer is recorded with identity, kind,
-#              authority, the file's blob digest, reason, time and rule
-#              interim; refused, with a refuse line naming the rule, as the
-#              author (author), an unminted name (unminted-seat), an agent at
-#              owner (authority-kind), a coordinator naming no session
-#              (unknown-session), and a seat used twice; a coordinator naming
-#              another existing session is allowed; --repo must match
-#   observations  held as unaccepted until a seat accepts their digests;
-#              `covered` and red-first.sh check-green then pass
-#   the swap   with acceptance_rule_decide and acceptance_rule_live given a
-#              refuse-all body in a copy of the plugin, every accept exits 1
-#              and an edited unit stays held
+#   status     exits 0 for added-only tests; with no panel recorded, exits 1
+#              holding every edited test as due (`<path> due: no panel has
+#              judged it`) with finding test-change/held and no word of a
+#              seat; a panel's judgment at the test's content counts it; a
+#              later commit to the test holds it as due for that panel until
+#              a judgment at the new content; an open weakens finding holds
+#              it; uncommitted changes hold; exit 3 when an item is held and
+#              the panel retry budget is spent, exit 1 while a retry is left,
+#              exit 2 when the retry record can't be read
+#   legacy lines
+#              hand-written seat, accept, decline, refuse and overrule lines
+#              leave status's exit code and output unchanged, held or
+#              counted; record lists them as legacy history
+#   the retired person-acceptance header
+#              a repository whose CLAUDE.md still declares the header that
+#              once required a person to accept (`## $DECL: person`) gets
+#              the same status output as one without it
+#   removed subcommands
+#              seat, accept, decline and overrule exit 64 as unknown
+#   observations  due until a panel judges the pair; `covered` and
+#              red-first.sh check-green then pass
 #   the lock   a live owner makes a writer exit 75; a dead owner's lock is
 #              broken
-#   the person-required declaration
-#              `## Test Change Acceptance: person` in CLAUDE.md at impl_base or
-#              at the remote default branch's tip makes the header record
-#              person_required true with its source; a CLAUDE.local.md saying
-#              agent leaves it true, one saying person makes it true, an
-#              unknown value reads as person and is named; nothing declared is
-#              false
-#   a person-required repository
-#              an edit holds and status prints the exact command a person
-#              runs; seat refuses to commission a seat; an agent's accept is
-#              refused person-required and a person's without a terminal
-#              no-terminal, both recorded; under a pseudo-terminal (python3)
-#              a wrong code is refused no-terminal, the right one counts the
-#              unit at owner with the hunk and digest shown and a tag on the
-#              line, and a line edited after tagging stops counting
-#   overrule   refused for the author (author), a coordinator naming no
-#              session (unknown-session), a seat at the same authority
-#              (not-higher) and an acceptance id the ledger lacks; a
-#              coordinator's overrule holds the unit `overruled`; a later
-#              acceptance below coordinator leaves it held, one at
-#              coordinator counts it again; record prints the kind, the test
-#              files, every acceptance, refusal and overrule, and the state
-#   a coordinator whose session is gone
-#              its acceptance counts while the session exists; once the
-#              session is cleaned up status exits 1 and the unit is held,
-#              though the stored line still claims session_exists; a
-#              coordinator's overrule, or decline, still holds the unit after
-#              its session is cleaned up
-#   record of a fix
-#              the fix source, the red with its marker, the green, the
-#              reproducing test as added, and the state
+#   record     the kind, the test files, the legacy lines and the state; for
+#              a fix, the fix source, the red with its marker, the green and
+#              the reproducing test as added
 #   a refused read
 #              a context read koto refuses fails status and init with 66, the
 #              ledger untouched, never reading as an absent key
@@ -99,8 +54,8 @@
 #              the header's work tree gone: from a clone of the same
 #              repository whose HEAD holds impl_base, status gates as it did
 #              at the old path and appends one relocate line naming both
-#              paths, a second status none, and seat and accept follow the
-#              relocated tree; from a clone whose origin is another
+#              paths, a second status none, and a judgment made in the
+#              relocated tree counts; from a clone whose origin is another
 #              repository, or one whose HEAD lacks impl_base, status still
 #              exits 2 with the gone work tree's message and writes nothing;
 #              covered and record write nothing, record never re-roots from
@@ -111,7 +66,8 @@
 #              the session listed in another checkout of the same work while
 #              the header's work tree still exists: status from it appends
 #              one relocate line carrying its HEAD, classify holds its digest,
-#              seat and accept record it, status counts from an unrelated
+#              a judgment at the old tree's content leaves it held and one at
+#              the bound tree's counts it, status counts from an unrelated
 #              directory, and record prints the relocate head; a bound
 #              checkout of another repository, or a failed listing, exits 2
 #              and writes nothing
@@ -206,40 +162,6 @@ exit 1
 SHIM
 chmod +x "$BIN/gh"
 
-# --- a pseudo-terminal for a person's attempt: runs the command under a pty,
-# types back the code it prints (right) or another (wrong), and prints what the
-# terminal showed. Exit: the command's.
-PTY="$W/term_drive.py"
-cat > "$PTY" <<'PY'
-import os, pty, re, select, sys, time
-mode, argv = sys.argv[1], sys.argv[2:]
-pid, fd = pty.fork()
-if pid == 0:
-    os.execvp(argv[0], argv)
-out, sent, deadline = b"", False, time.time() + 60
-while time.time() < deadline:
-    r, _, _ = select.select([fd], [], [], 0.5)
-    if fd not in r:
-        continue
-    try:
-        data = os.read(fd, 4096)
-    except OSError:
-        break
-    if not data:
-        break
-    out += data
-    if not sent:
-        m = re.search(rb"Type the code ([0-9a-f]{6})", out)
-        if m:
-            os.write(fd, (m.group(1) if mode == "right" else b"zzzzzz") + b"\n")
-            sent = True
-_, status = os.waitpid(pid, 0)
-sys.stdout.write(out.decode("utf-8", "replace"))
-sys.exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else 99)
-PY
-HAVE_PTY=0
-command -v python3 >/dev/null 2>&1 && python3 -c 'import pty' 2>/dev/null && HAVE_PTY=1
-
 # --- the fixture repository --------------------------------------------------------
 R="$W/repo"
 mkdir -p "$R/tests"
@@ -290,6 +212,30 @@ start() {
     [ "$RC" = 0 ] || bad "$1: init" "exit $RC: $OUT $(cat "$W/err")"
 }
 
+
+# judge <session> <dir> <item> [<content> [<judgment> [<panel>]]]: one
+# recorded round of <panel> (scrutiny by default) whose seat judged <item> at
+# <content> (a test's blob at <dir>'s HEAD by default) as <judgment> (corrects
+# by default), at <dir>'s HEAD, in verdict_ledger.json as panel-scope.sh
+# --record leaves it.
+judge() {
+    local s="$1" d="$2" item="$3" content="${4:-}" verdict="${5:-corrects}" panel="${6:-scrutiny}" head f run
+    head=$(git -C "$d" rev-parse HEAD)
+    [ -n "$content" ] || content=$(git -C "$d" rev-parse "HEAD:$item")
+    f="$STORE/$s/verdict_ledger.json"
+    [ -s "$f" ] || printf '{}\n' > "$f"
+    run="run-$(jq '(.history // []) | length' "$f")-$panel"
+    jq --arg p "$panel" --arg run "$run" --arg item "$item" --arg c "$content" --arg j "$verdict" --arg h "$head" '
+        .seats["\($p)/seat"] = {verdict: "pass", run: $run}
+        | .history = ((.history // []) + [{panel: $p, decisions: [{seat: "seat", run: $run, decision: "full"}]}])
+        | .runs[$run] = {recorded: true, panel: $p}
+        | .judgments[$p] = ((.judgments[$p] // []) + [{item: $item, content: $c, judgment: $j, by: "seat", run: $run, judged_at: $h}])' \
+        "$f" > "$f.next" && mv "$f.next" "$f"
+}
+# spend <session>: the panel retry budget used up, as panel-retry-budget.sh
+# records three granted retries.
+spend() { printf 'scrutiny 3\nscrutiny 2\nscrutiny 1\n' > "$STORE/$1/panel_retries"; }
+
 # --- classify ------------------------------------------------------------------------
 echo "--- classify"
 S=cls
@@ -302,7 +248,7 @@ has "a new test is added" "added	tests/new_test.sh	" "$OUT"
 has "a test that only gained lines is added" "added	tests/other_test.sh	" "$OUT"
 run status "$S"
 eq "added-only: status exits 0" 0 "$RC"
-has "added-only: counted" "counted: no edited test or observation needs an acceptance" "$OUT"
+has "added-only: counted" "counted: no edited test or observation needs a panel's judgment" "$OUT"
 eq "added-only: no acceptance recorded" 0 "$(ledger "$S" | jq -r 'select(.event == "accept")' | wc -l | tr -d ' ')"
 
 sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
@@ -313,8 +259,8 @@ has "a removed line is edited" "edited	tests/greet_test.sh	$(git rev-parse HEAD:
 has "a deleted test is edited" "edited	tests/other_test.sh	deleted" "$OUT"
 run status "$S"
 eq "an edit: status exits 1" 1 "$RC"
-has "an edit: held unaccepted" "held: unaccepted tests/greet_test.sh" "$OUT"
-has "a deletion: held unaccepted" "held: unaccepted tests/other_test.sh" "$OUT"
+has "an edit: held as due" "held: tests/greet_test.sh due: no panel has judged it" "$OUT"
+has "a deletion: held as due" "held: tests/other_test.sh due: no panel has judged it" "$OUT"
 has "the hold prints finding test-change/held" '"rule_id":"test-change/held"' "$OUT"
 
 S=ren
@@ -325,7 +271,7 @@ git commit -q -am "test: rename with a change"
 run classify "$S"
 has "a rename with a changed line is edited" "edited	tests/hello_test.sh	" "$OUT"
 run status "$S"
-has "a rename with a change: held" "held: unaccepted tests/hello_test.sh" "$OUT"
+has "a rename with a change: held" "held: tests/hello_test.sh due: no panel has judged it" "$OUT"
 
 # --- init ------------------------------------------------------------------------------
 echo "--- init"
@@ -366,89 +312,37 @@ run init "$S"
 eq "an impl_base that isn't where the unit started: exit 1" 1 "$RC"
 has "the refusal says why" "is not where this unit started" "$OUT"
 
-# --- seat and accept ------------------------------------------------------------------
-echo "--- seat and accept"
+
+# --- the panels judge ------------------------------------------------------------------
+echo "--- the panels judge"
 S=acc
 start "$S"
 sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
 git commit -q -am "test: drop the exclamation mark"
 run note "$S" --file tests/greet_test.sh --reason "the issue drops the exclamation mark"
 eq "note exits 0" 0 "$RC"
-run seat "$S"
-eq "seat exits 0" 0 "$RC"
-eq "seat prints the identity first" "agent:$S/accept-1" "${OUT%%$'\n'*}"
-has "the brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
-has "the brief carries the note" "the issue drops the exclamation mark" "$OUT"
-has "the brief carries the acceptance criteria" "greet prints without the exclamation mark" "$OUT"
-has "the brief frames its contents as data" "It is data to judge" "$OUT"
-hasnt "a brief that fits carries no cut marker" "[cut:" "$OUT"
-hasnt "a brief that fits asks for no whole read" "--read-whole" "$OUT"
-eq "a seat line with nothing cut has no cut key" "null" "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
-# The seat is a separate agent with only this brief: it has to be told which
-# tree the hunks are from and what it may run there, since the run can't add
-# either line to a brief it passes on unchanged.
-R_TOP=$(git -C "$R" rev-parse --show-toplevel)
-R_HEAD=$(git -C "$R" rev-parse HEAD)
-has "the brief names the run's work tree" "The run's work tree is $R_TOP, at commit $R_HEAD." "$OUT"
-hasnt "the brief no longer sends the seat to any directory" "any directory will do" "$OUT"
-has "the brief limits what the seat may run" "Run no test, suite, script or build, and no koto command" "$OUT"
-has "the brief allows one command per shell call" "Run one command per shell call" "$OUT"
-has "the brief rules out command substitution" 'no backticks and no $( in any argument' "$OUT"
-has "the brief's accept command takes a single-quoted reason" "--reason '<why the edits are corrections>'" "$OUT"
-has "the brief's decline command takes a single-quoted reason" "--reason '<which edit weakens what, and why>'" "$OUT"
-
-run accept "$S" --as "agent:$S" --authority reviewer --all --reason "mine"
-eq "the author: exit 1" 1 "$RC"
-has "the author: rule author" "rule author" "$OUT"
-run accept "$S" --as agent:other --authority reviewer --all --reason x
-eq "an unminted reviewer: exit 1" 1 "$RC"
-has "an unminted reviewer: rule unminted-seat" "rule unminted-seat" "$OUT"
-run accept "$S" --as agent:other --authority owner --all --reason x
-eq "an agent at owner: exit 1" 1 "$RC"
-has "an agent at owner: rule authority-kind" "rule authority-kind" "$OUT"
-run accept "$S" --as agent:no-such-session --authority coordinator --all --reason x
-eq "a coordinator naming no session: exit 1" 1 "$RC"
-has "a coordinator naming no session: rule unknown-session" "rule unknown-session" "$OUT"
 run status "$S"
-eq "after four refusals the unit is still held" 1 "$RC"
-REF=$(ledger "$S" | jq -c 'select(.event == "refuse")')
-eq "four refuse lines" 4 "$(printf '%s\n' "$REF" | grep -c .)"
-eq "the refuse lines name their rules" "author,unminted-seat,authority-kind,unknown-session" \
-    "$(printf '%s\n' "$REF" | jq -r .rule_id | paste -sd, -)"
-eq "each refuse line records who, the action, the files and a time" 4 \
-    "$(printf '%s\n' "$REF" | jq -r 'select(.identity != null and .action == "accept" and (.files | length) == 1 and .files[0].path == "tests/greet_test.sh" and (.ts | test("^20")))' | jq -s length)"
+eq "no panel recorded: an edited test holds (exit 1)" 1 "$RC"
+has "no panel recorded: the test is named as due" "held: tests/greet_test.sh due: no panel has judged it" "$OUT"
+has "no panel recorded: the hold prints finding test-change/held" '"rule_id":"test-change/held"' "$OUT"
+hasnt "no panel recorded: nothing says to mint a seat" "mint" "$OUT"
+hasnt "no panel recorded: nothing says to commission a seat" "commission" "$OUT"
+hasnt "no panel recorded: no seat is named" "seat" "$OUT"
+eq "status wrote no line" 2 "$(ledger "$S" | wc -l | tr -d ' ')"
 
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value" --repo someone/else
-eq "a --repo that isn't the run's: exit 1" 1 "$RC"
-has "a --repo that isn't the run's: refused" "is not the run's repository" "$OUT"
-
-DIGEST=$(git rev-parse HEAD:tests/greet_test.sh)
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
-eq "the minted seat: exit 0" 0 "$RC"
+judge "$S" "$R" tests/greet_test.sh
 run status "$S"
-eq "after the seat's accept: status exits 0" 0 "$RC"
-ACC=$(ledger "$S" | jq -c 'select(.event == "accept")')
-eq "the accept line records identity, kind, authority, digest, reason and rule" \
-    "agent:$S/accept-1|agent|reviewer|tests/greet_test.sh|$DIGEST|corrects the expected value|interim" \
-    "$(printf '%s' "$ACC" | jq -r '"\(.identity)|\(.kind)|\(.authority)|\(.files[0].path)|\(.files[0].digest)|\(.reason)|\(.rule)"')"
-has "the accept line has a time" '"ts":"20' "$ACC"
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "again"
-eq "a seat used twice: rule unminted-seat" 1 "$RC"
+eq "a panel's corrects at the test's content: status exits 0" 0 "$RC"
+has "the panels' judgment counts it" "counted: the panels judged every edited test" "$OUT"
 
 printf '# changed again\n' >> tests/greet_test.sh
-git commit -q -am "test: touch the accepted test"
+git commit -q -am "test: touch the judged test"
 run status "$S"
-eq "a later commit to an accepted file: exit 1" 1 "$RC"
-has "a later commit: changed since acceptance" "held: changed since acceptance tests/greet_test.sh" "$OUT"
-run seat "$S"
-eq "the second seat" "agent:$S/accept-2" "${OUT%%$'\n'*}"
-run accept "$S" --as "agent:$S/accept-2" --authority reviewer --all --reason "still a correction"
+eq "a later commit to a judged test: exit 1" 1 "$RC"
+has "a later commit: due for the panel that judged it" "held: tests/greet_test.sh due for scrutiny" "$OUT"
+judge "$S" "$R" tests/greet_test.sh
 run status "$S"
-eq "a second accept of the new digest: status exits 0" 0 "$RC"
-
-mkdir -p "$STORE/coord_session"
-run accept "$S" --as agent:coord_session --authority coordinator --all --reason "seen"
-eq "a coordinator naming another existing session: exit 0" 0 "$RC"
+eq "a judgment at the new content: status exits 0" 0 "$RC"
 
 printf 'dirty\n' >> greet.sh
 run status "$S"
@@ -456,24 +350,93 @@ eq "uncommitted changes: exit 1" 1 "$RC"
 has "uncommitted changes: held" "held: uncommitted changes" "$OUT"
 git checkout -q -- greet.sh
 
-# --- decline ------------------------------------------------------------------------
-echo "--- decline"
-S=dec
+# An open weakens finding holds the test though a judgment matches its content.
+S=weak
 start "$S"
 sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
 git commit -q -am "test: loosen"
-for n in 1 2 3; do
-    run seat "$S"
-    run decline "$S" --as "agent:$S/accept-$n" --authority reviewer --all --reason "weakens the assertion"
-    eq "decline $n: exit 0" 0 "$RC"
-    run status "$S"
-    if [ "$n" -lt 3 ]; then
-        eq "after decline $n: status exits 1" 1 "$RC"
-        has "after decline $n: declined by the seat" "held: declined tests/greet_test.sh by agent:$S/accept-$n" "$OUT"
-    fi
-done
-eq "after the third decline of the same set: status exits 3" 3 "$RC"
-has "after the third decline: decline-limit" "held: decline-limit tests/greet_test.sh" "$OUT"
+judge "$S" "$R" tests/greet_test.sh "" weakens
+jq '.findings = {f1: {panel: "scrutiny", severity: "blocking", rule_id: "review/test-edit-weakens",
+                      summary: "the edit drops the check", location: {path: "tests/greet_test.sh"},
+                      raiser: {kind: "seat", name: "seat"}, round: 1, records: []}}' \
+    "$STORE/$S/verdict_ledger.json" > "$W/weak.json" && mv "$W/weak.json" "$STORE/$S/verdict_ledger.json"
+run status "$S"
+eq "an open weakens: exit 1" 1 "$RC"
+has "an open weakens: held naming it" "held: tests/greet_test.sh weakens: an open finding of scrutiny" "$OUT"
+
+# The retry budget: a held item with no retry left ends the run (exit 3).
+S=spent
+start "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+printf 'scrutiny 3\nscrutiny 2\n' > "$STORE/$S/panel_retries"
+run status "$S"
+eq "a held test with a retry left: exit 1" 1 "$RC"
+hasnt "a retry left: no budget line" "budget spent" "$OUT"
+spend "$S"
+run status "$S"
+eq "a held test with the budget spent: exit 3" 3 "$RC"
+has "the budget spent: held says so" "held: budget spent: panel-retry-budget.sh --remaining reports no retry left" "$OUT"
+judge "$S" "$R" tests/greet_test.sh
+run status "$S"
+eq "the budget spent but nothing held: exit 0" 0 "$RC"
+printf 'dirty\n' >> greet.sh
+run status "$S"
+eq "the budget spent, held only by uncommitted changes: exit 1" 1 "$RC"
+git checkout -q -- greet.sh
+printf '# again\n' >> tests/greet_test.sh && git commit -q -am "test: again"
+printf 'not a record line\n' > "$STORE/$S/panel_retries"
+run status "$S"
+eq "a retry record that can't be read: exit 2" 2 "$RC"
+
+# --- legacy lines ----------------------------------------------------------------------
+# Seat, accept, decline, refuse and overrule lines a run wrote before the
+# panels took over: nothing counts them, held or counted.
+echo "--- legacy lines"
+S=legacy
+start "$S"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: loosen"
+LEG_DIGEST=$(git rev-parse HEAD:tests/greet_test.sh)
+legacy_lines() {
+    jq -nc --arg s "$1" --arg d "$LEG_DIGEST" '
+        {ts: "2026-01-01T00:00:00Z", event: "seat", identity: "agent:\($s)/accept-1", nonce: "n", source: "session", rule: "interim"},
+        {ts: "2026-01-01T00:00:01Z", event: "accept", id: "accept-3", identity: "agent:\($s)/accept-1", kind: "agent", authority: "reviewer",
+         files: [{path: "tests/greet_test.sh", digest: $d}], reason: "hand-written acceptance", outcome: "allow", session_exists: false, source: "session", rule: "interim"},
+        {ts: "2026-01-01T00:00:02Z", event: "decline", id: "decline-4", identity: "agent:\($s)/accept-2", kind: "agent", authority: "reviewer",
+         files: [{path: "tests/greet_test.sh", digest: $d}], reason: "hand-written decline", outcome: "allow", session_exists: false, source: "session", rule: "interim"},
+        {ts: "2026-01-01T00:00:03Z", event: "refuse", action: "accept", identity: "agent:other", kind: "agent", authority: "reviewer",
+         files: [], reason: "x", outcome: "refuse", rule_id: "unminted-seat", detail: "d", source: "session", rule: "interim"},
+        {ts: "2026-01-01T00:00:04Z", event: "overrule", id: "overrule-5", identity: "agent:coord", kind: "agent", authority: "coordinator",
+         target: "accept-3", target_authority: "reviewer", files: [{path: "tests/greet_test.sh", digest: $d}], reason: "hand-written overrule",
+         outcome: "allow", session_exists: true, source: "session", rule: "interim"}'
+}
+run status "$S"
+HELD_RC=$RC HELD_OUT=$OUT
+cp "$STORE/$S/test_change_ledger.jsonl" "$W/legacy.clean"
+legacy_lines "$S" >> "$STORE/$S/test_change_ledger.jsonl"
+run status "$S"
+eq "legacy lines, held: the same exit code" "$HELD_RC" "$RC"
+eq "legacy lines, held: the same output" "$HELD_OUT" "$OUT"
+judge "$S" "$R" tests/greet_test.sh
+cp "$W/legacy.clean" "$STORE/$S/test_change_ledger.jsonl"
+run status "$S"
+CNT_RC=$RC CNT_OUT=$OUT
+legacy_lines "$S" >> "$STORE/$S/test_change_ledger.jsonl"
+run status "$S"
+eq "legacy lines, counted: the same exit code" "$CNT_RC" "$RC"
+eq "legacy lines, counted: the same output" "$CNT_OUT" "$OUT"
+eq "legacy lines, counted: exit 0" 0 "$RC"
+run record "$S"
+eq "record with legacy lines exits 0" 0 "$RC"
+has "record lists a seat line as legacy" "legacy, ignored: seat agent:$S/accept-1 minted" "$OUT"
+has "record lists an accept line as legacy" "legacy, ignored: accept accept-3 by agent:$S/accept-1" "$OUT"
+has "record lists a decline line as legacy" "legacy, ignored: decline decline-4" "$OUT"
+has "record lists a refuse line as legacy" "legacy, ignored: refuse: accept refused, rule unminted-seat" "$OUT"
+has "record lists an overrule line as legacy" "legacy, ignored: overrule overrule-5" "$OUT"
+has "record prints the state from the panels" "state: counted" "$OUT"
+has "record prints the unit's kind" "unit: not determined" "$OUT"
+has "record prints each test file as edited" "edited tests/greet_test.sh" "$OUT"
 
 # --- observations ----------------------------------------------------------------------
 echo "--- observations"
@@ -486,22 +449,19 @@ jq -n '{schema: "shirabe-red-first/v1", red: null, green: null,
 printf 'fixed\n' > FIXED.md && git add FIXED.md && git commit -q -m "fix: it"
 run status "$S"
 eq "an observation pair: status exits 1" 1 "$RC"
-has "the after-observation is unaccepted" "held: unaccepted observation:after" "$OUT"
+has "the pair is due" "held: observation due: no panel has judged it" "$OUT"
 run covered "$S" observation:before observation:after
-eq "covered before an acceptance: exit 1" 1 "$RC"
+eq "covered before a panel judged the pair: exit 1" 1 "$RC"
 OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$HERE/red-first.sh" check-green "$S" 2>/dev/null); RC=$?
-eq "check-green before an acceptance: exit 1" 1 "$RC"
-has "check-green before an acceptance: the pair is not counted" "refused: the observation pair is not counted at its current digests" "$OUT"
-run seat "$S"
-has "the brief lists the observation" "after text" "$OUT"
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "the pair shows it gone"
-eq "the seat accepts the pair" 0 "$RC"
+eq "check-green before a panel judged the pair: exit 1" 1 "$RC"
+has "check-green before a panel judged the pair: the pair is not counted" "refused: the observation pair is not counted at its current digests" "$OUT"
+judge "$S" "$R" observation b1b1/a2a2 shown
 run covered "$S" observation:before observation:after
-eq "covered after the acceptance: exit 0" 0 "$RC"
+eq "covered after a panel judged the pair shown: exit 0" 0 "$RC"
 OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$HERE/red-first.sh" check-green "$S" 2>/dev/null); RC=$?
-eq "check-green after the acceptance: exit 0" 0 "$RC"
+eq "check-green after a panel judged the pair shown: exit 0" 0 "$RC"
 run status "$S"
-eq "status after the acceptance: exit 0" 0 "$RC"
+eq "status after a panel judged the pair shown: exit 0" 0 "$RC"
 
 # A fix's reproducing test changed after the red, only gaining lines.
 S=redt
@@ -517,13 +477,15 @@ printf '# more\n' >> tests/empty_test.sh && git commit -q -am "test: grow the re
 run classify "$S"
 has "a reproducing test changed since the red is edited" "edited	tests/empty_test.sh	" "$OUT"
 run status "$S"
-has "and held" "held: unaccepted tests/empty_test.sh" "$OUT"
+has "and held" "held: tests/empty_test.sh due: no panel has judged it" "$OUT"
 
-# --- usage ------------------------------------------------------------------------------
-run accept acc --as nobody --authority reviewer --all --reason x
-eq "a malformed identity: exit 64" 64 "$RC"
-run accept acc --as "agent:acc/accept-9" --authority reviewer --files ../x --reason x
-eq "a path with ..: exit 64" 64 "$RC"
+# --- removed subcommands ----------------------------------------------------------------
+echo "--- removed subcommands"
+for sub in seat accept decline overrule; do
+    run "$sub" acc
+    eq "$sub: exit 64" 64 "$RC"
+    has "$sub: named as an unknown subcommand" "unknown subcommand [$sub]" "$(cat "$W/err")"
+done
 
 # --- the lock -----------------------------------------------------------------------------
 echo "--- the lock"
@@ -584,8 +546,14 @@ eq "five writers racing for one session's lock: exactly one wins" 1 "$(ls "$RACE
 wait $PIDS
 eq "  ... and the other four exit 75" 4 "$(cat "$RACE"/rc.* | grep -c '^75$')"
 
-# --- the person-required declaration -----------------------------------------------------
-echo "--- the person-required declaration"
+# --- the retired person-acceptance header ----------------------------------------------
+# The declaration is no longer read: a repository that still carries it gets
+# the same status output as one without it.
+# The header's name is built from two parts, so a search for it finds no
+# reader anywhere in the plugin.
+DECL="Test Change"
+DECL="$DECL Acceptance"
+echo "--- the retired person-acceptance header"
 
 # start_here <session> [<init args>...]: a session whose impl_base is HEAD.
 start_here() {
@@ -604,41 +572,25 @@ hdr_of() { ledger "$1" | head -n 1 | jq -r "$2"; }
 git checkout -q main
 git checkout -q -B b-undeclared
 start_here und
-eq "nothing declared: person_required false" false "$(hdr_of und .person_required)"
-has "nothing declared: the source says so" "not declared" "$(hdr_of und .person_required_source)"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: drop the mark"
+run status und
+UND_RC=$RC UND_OUT=$OUT
+hasnt "the header records no person requirement" "person_required" "$(hdr_of und .)"
 
 git checkout -q -B b-person main
-printf '# greet\n\n```\n## Test Change Acceptance: agent\n```\n\n## Test Change Acceptance: person\n' > CLAUDE.md
+printf '# greet\n\n## %s: person\n' "$DECL" > CLAUDE.md
 git add CLAUDE.md && git commit -q -m "docs: require a person"
-PERSON_BASE=$(git rev-parse HEAD)
 start_here dp
-eq "person at impl_base: person_required true" true "$(hdr_of dp .person_required)"
-has "person at impl_base: the source names it" "CLAUDE.md at impl_base: person" "$(hdr_of dp .person_required_source)"
-printf '## Test Change Acceptance: agent\n' > CLAUDE.local.md
-start_here dpl
-eq "a CLAUDE.local.md saying agent leaves it true" true "$(hdr_of dpl .person_required)"
-has "the local file is named in the source" "CLAUDE.local.md: agent" "$(hdr_of dpl .person_required_source)"
+sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
+git commit -q -am "test: drop the mark"
+printf '## %s: person\n' "$DECL" > CLAUDE.local.md
+run status dp
 rm -f CLAUDE.local.md
+eq "a person header: the same exit code as none" "$UND_RC" "$RC"
+eq "a person header: the same status output as none" "$UND_OUT" "$OUT"
+hasnt "a person header: the header records no person requirement" "person_required" "$(hdr_of dp .)"
 
-git checkout -q -B b-local main
-printf '## Test Change Acceptance: person\n' > CLAUDE.local.md
-start_here dlocal
-eq "a CLAUDE.local.md saying person tightens to true" true "$(hdr_of dlocal .person_required)"
-rm -f CLAUDE.local.md
-
-git checkout -q -B b-unknown main
-printf '## Test Change Acceptance: humans\n' > CLAUDE.md
-git add CLAUDE.md && git commit -q -m "docs: an unknown value"
-start_here dunk
-eq "an unknown value reads as person" true "$(hdr_of dunk .person_required)"
-has "the unknown value is named in the record" "[humans] is neither person nor agent, read as person" "$(hdr_of dunk .person_required_source)"
-
-git checkout -q -B b-tip main
-git update-ref refs/remotes/origin/main "$PERSON_BASE"
-start_here dtip
-eq "person at the remote default branch's tip: true" true "$(hdr_of dtip .person_required)"
-has "the tip is named in the source" "CLAUDE.md at the remote default branch: person" "$(hdr_of dtip .person_required_source)"
-git update-ref -d refs/remotes/origin/main
 
 # --- a merge of main onto a branch-only base (#1603) ----------------------------------------
 # impl_base is a commit only on the branch, so it isn't an ancestor of the
@@ -661,185 +613,13 @@ git checkout -q b-1603
 git merge -q --no-edit b-1603-main >/dev/null
 run status "$S"
 eq "a merge of main onto a branch-only base: status holds on the unit's own edit" 1 "$RC"
-has "a merge of main onto a branch-only base: the unit's own edit is held" "held: unaccepted tests/other_test.sh" "$OUT"
+has "a merge of main onto a branch-only base: the unit's own edit is held" "held: tests/other_test.sh due: no panel has judged it" "$OUT"
 case "$OUT" in
-    *"held: unaccepted tests/greet_test.sh"*) bad "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" "[$OUT]" ;;
+    *"held: tests/greet_test.sh"*) bad "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" "[$OUT]" ;;
     *) ok "a merge of main onto a branch-only base: main's test edit isn't held as the unit's own" ;;
 esac
 git update-ref -d refs/remotes/origin/main
 
-
-# --- a person-required repository ----------------------------------------------------------
-echo "--- a person-required repository"
-git checkout -q -B b-pr "$PERSON_BASE"
-S=preq
-start_here "$S"
-sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-git commit -q -am "test: drop the mark"
-run status "$S"
-eq "person-required: an edit holds" 1 "$RC"
-has "the hold names the file" "held: unaccepted tests/greet_test.sh" "$OUT"
-has "the hold prints the exact command a person runs" \
-    "\"$HERE/test-change.sh\" accept $S --as person:<your-name> --authority owner --files tests/greet_test.sh --reason" "$OUT"
-run seat "$S"
-eq "person-required: seat exits 1" 1 "$RC"
-has "person-required: seat refuses to commission a seat" "refused: this repository requires a person" "$OUT"
-eq "person-required: no seat was minted" 0 "$(ledger "$S" | jq -r 'select(.event == "seat")' | wc -l | tr -d ' ')"
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "x"
-eq "person-required: an agent's accept exits 1" 1 "$RC"
-has "person-required: rule person-required" "rule person-required" "$OUT"
-run accept "$S" --as person:pat --authority owner --all --reason "test was wrong"
-eq "a person without a terminal: exit 1" 1 "$RC"
-has "a person without a terminal: rule no-terminal" "rule no-terminal" "$OUT"
-eq "both refusals are recorded" "person-required,no-terminal" \
-    "$(ledger "$S" | jq -r 'select(.event == "refuse") | .rule_id' | paste -sd, -)"
-has "the no-terminal refusal says why" "not one terminal" "$(ledger "$S" | jq -r 'select(.rule_id == "no-terminal") | .detail')"
-
-if [ "$HAVE_PTY" -eq 1 ]; then
-    OUT=$(cd "$R" && PATH="$BIN:$PATH" python3 -I "$PTY" wrong bash "$SCRIPT" accept "$S" --as person:pat --authority owner --all --reason "test was wrong" 2>&1); RC=$?
-    eq "a person at a terminal typing the wrong code: exit 1" 1 "$RC"
-    has "the wrong code: rule no-terminal" "rule no-terminal" "$OUT"
-    run status "$S"
-    eq "after the wrong code the unit is still held" 1 "$RC"
-    OUT=$(cd "$R" && PATH="$BIN:$PATH" python3 -I "$PTY" right bash "$SCRIPT" accept "$S" --as person:pat --authority owner --all --reason "test was wrong" 2>&1); RC=$?
-    eq "a person at a terminal typing the code back: exit 0" 0 "$RC"
-    has "the terminal showed the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
-    has "the terminal showed the file and its digest" "tests/greet_test.sh  $(git rev-parse HEAD:tests/greet_test.sh)" "$OUT"
-    run status "$S"
-    eq "the person's acceptance counts the unit" 0 "$RC"
-    PL=$(ledger "$S" | jq -c 'select(.event == "accept")')
-    eq "the person line records person:pat at owner" "person:pat|person|owner" "$(printf '%s' "$PL" | jq -r '"\(.identity)|\(.kind)|\(.authority)"')"
-    has "the person line carries a tag" '"tag":"' "$PL"
-    cp "$STORE/$S/test_change_ledger.jsonl" "$W/preq.ledger"
-    jq -c 'if .event == "accept" then .reason = "edited by hand" else . end' "$W/preq.ledger" > "$STORE/$S/test_change_ledger.jsonl"
-    run status "$S"
-    eq "a person line whose tag no longer checks never counts" 1 "$RC"
-    cp "$W/preq.ledger" "$STORE/$S/test_change_ledger.jsonl"
-    run status "$S"
-    eq "restored, the tagged line counts again" 0 "$RC"
-
-    # The terminal screen builds its hunks as the brief does, so a renamed
-    # test shows there as a rename with the line its edit removed.
-    git checkout -q -B b-prren "$PERSON_BASE"
-    S=preqren
-    start_here "$S"
-    git mv tests/greet_test.sh tests/hello_test.sh
-    sed -i.bak 's/Hello, World!/Hello, World/' tests/hello_test.sh && rm -f tests/hello_test.sh.bak
-    git commit -q -am "test: rename and drop the mark"
-    OUT=$(cd "$R" && PATH="$BIN:$PATH" python3 -I "$PTY" right bash "$SCRIPT" accept "$S" --as person:pat --authority owner --all --reason "test was wrong" 2>&1); RC=$?
-    eq "a renamed test at a terminal: exit 0" 0 "$RC"
-    has "the terminal showed the rename" "rename from tests/greet_test.sh" "$OUT"
-    has "the terminal showed the line the rename's edit removed" '-[ "$out" = "Hello, World!" ]' "$OUT"
-    hasnt "the terminal showed no new file mode for the rename" "new file mode" "$OUT"
-else
-    echo "SKIP: python3 with pty not found; the pseudo-terminal person cases did not run"
-fi
-
-# --- overrule ----------------------------------------------------------------------------------
-echo "--- overrule"
-git checkout -q main
-S=ovr
-start "$S"
-printf '{"ts":"t","event":"determine","kind":"change","source":"none"}\n' > "$STORE/$S/fix_kind.jsonl"
-sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-git commit -q -am "test: loosen"
-run seat "$S"
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "looks right"
-ACC_ID=$(ledger "$S" | jq -r 'select(.event == "accept") | .id')
-run status "$S"
-eq "accepted by the seat: counted" 0 "$RC"
-mkdir -p "$STORE/coord_c"
-run overrule "$S" --as "agent:$S" --authority coordinator --acceptance "$ACC_ID" --reason x
-eq "the author overruling: exit 1" 1 "$RC"
-has "the author overruling: rule author" "rule author" "$OUT"
-run overrule "$S" --as agent:no-such-session --authority coordinator --acceptance "$ACC_ID" --reason x
-eq "a coordinator naming no session: exit 1" 1 "$RC"
-has "a coordinator naming no session: rule unknown-session" "rule unknown-session" "$OUT"
-run seat "$S"
-run overrule "$S" --as "agent:$S/accept-2" --authority reviewer --acceptance "$ACC_ID" --reason x
-eq "an overrule at the same authority: exit 1" 1 "$RC"
-has "an overrule at the same authority: rule not-higher" "rule not-higher" "$OUT"
-run overrule "$S" --as agent:coord_c --authority coordinator --acceptance accept-999 --reason x
-eq "an overrule naming no acceptance: exit 1" 1 "$RC"
-has "an overrule naming no acceptance: refused without a line" "holds no acceptance accept-999" "$OUT"
-run status "$S"
-eq "after refused overrules the unit is still counted" 0 "$RC"
-run overrule "$S" --as agent:coord_c --authority coordinator --acceptance "$ACC_ID" --reason "loosens the assertion"
-eq "a coordinator overrules the reviewer's acceptance: exit 0" 0 "$RC"
-run status "$S"
-eq "overruled: status exits 1" 1 "$RC"
-has "overruled: held with the reason" "held: overruled tests/greet_test.sh by agent:coord_c" "$OUT"
-eq "the refusals name their rules" "author,unknown-session,not-higher" \
-    "$(ledger "$S" | jq -r 'select(.event == "refuse" and .action == "overrule") | .rule_id' | paste -sd, -)"
-OVR=$(ledger "$S" | jq -c 'select(.event == "overrule")')
-eq "the overrule line names its target and its authority" "$ACC_ID|reviewer|coordinator|tests/greet_test.sh" \
-    "$(printf '%s' "$OVR" | jq -r '"\(.target)|\(.target_authority)|\(.authority)|\(.files[0].path)"')"
-run seat "$S"
-run accept "$S" --as "agent:$S/accept-3" --authority reviewer --all --reason "fine by me"
-eq "a seat's accept after the overrule is recorded" 0 "$RC"
-run status "$S"
-eq "an acceptance below the overruling's authority leaves it held" 1 "$RC"
-has "still overruled" "held: overruled tests/greet_test.sh" "$OUT"
-mkdir -p "$STORE/coord_d"
-run accept "$S" --as agent:coord_d --authority coordinator --all --reason "the coordinator agrees after all"
-run status "$S"
-eq "an acceptance at the overruling's authority counts it again" 0 "$RC"
-
-run record "$S"
-eq "record exits 0" 0 "$RC"
-has "record prints the unit's kind" "unit: change (not a fix)" "$OUT"
-has "record prints each test file as edited or added" "edited tests/greet_test.sh" "$OUT"
-has "record prints the acceptance" "accept $ACC_ID by agent:$S/accept-1 (agent at reviewer)" "$OUT"
-has "record prints the overrule" "overrule overrule-" "$OUT"
-has "record prints a refusal with its rule" "refuse: overrule refused, rule not-higher" "$OUT"
-has "record prints the state" "state: counted" "$OUT"
-
-# The coordinator's session, cleaned up: its lines stop counting at replay.
-echo "--- a coordinator whose session is gone"
-S=gone
-start "$S"
-sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-git commit -q -am "test: loosen"
-mkdir -p "$STORE/coord_g"
-run accept "$S" --as agent:coord_g --authority coordinator --all --reason "accepted by the coordinator"
-eq "a coordinator naming an existing session accepts: exit 0" 0 "$RC"
-run status "$S"
-eq "while its session exists the acceptance counts" 0 "$RC"
-rm -rf "${STORE:?}/coord_g"
-eq "the stored line still claims the session existed" true "$(ledger "$S" | jq -r 'select(.event == "accept") | .session_exists')"
-run status "$S"
-eq "once the coordinator's session is cleaned up, status exits 1" 1 "$RC"
-has "and the unit stays held" "held: unaccepted tests/greet_test.sh" "$OUT"
-
-# An overrule, or a decline, outlives its writer's session: only an acceptance
-# stops counting when the session is gone.
-S=gone_ovr
-start "$S"
-sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-git commit -q -am "test: loosen"
-run seat "$S"
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "looks right"
-ACC_ID=$(ledger "$S" | jq -r 'select(.event == "accept") | .id')
-mkdir -p "$STORE/coord_h"
-run overrule "$S" --as agent:coord_h --authority coordinator --acceptance "$ACC_ID" --reason "loosens the assertion"
-eq "a coordinator overrules the seat's acceptance: exit 0" 0 "$RC"
-rm -rf "${STORE:?}/coord_h"
-run status "$S"
-eq "after the overruling coordinator's session is cleaned up, status still exits 1" 1 "$RC"
-has "and the unit is still held as overruled" "held: overruled tests/greet_test.sh by agent:coord_h" "$OUT"
-run record "$S"
-has "record still shows the overruled state" "held: overruled tests/greet_test.sh by agent:coord_h" "$OUT"
-S=gone_dec
-start "$S"
-sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-git commit -q -am "test: loosen"
-mkdir -p "$STORE/coord_i"
-run decline "$S" --as agent:coord_i --authority coordinator --all --reason "weakens the check"
-eq "a coordinator declines: exit 0" 0 "$RC"
-rm -rf "${STORE:?}/coord_i"
-run status "$S"
-eq "after the declining coordinator's session is cleaned up, status still exits 1" 1 "$RC"
-has "and the unit is still held as declined" "held: declined tests/greet_test.sh by agent:coord_i" "$OUT"
 
 # --- record of a fix ---------------------------------------------------------------------------
 echo "--- record of a fix"
@@ -910,7 +690,6 @@ rm -rf "${STORE:?}/$S"
 mkdir -p "$STORE/$S"
 git -C "$MA" rev-parse HEAD > "$STORE/$S/impl_base"
 cp "$RULES" "$STORE/$S/review_level_rules.tsv"
-cp "$STORE/acc/context.md" "$STORE/$S/context.md"
 run_in "$MA" init "$S"
 exit_is "moved: init in the first work tree" 0
 eq "moved: the header records the repository" acme/greet "$(ledger "$S" | head -n 1 | jq -r .repo)"
@@ -946,7 +725,7 @@ exit_is "moved: record before the move is recorded exits 0" 0
 has "moved: record doesn't re-root from the directory it runs in" "state: undecided" "$OUT"
 run_in "$MB" covered "$S" tests/greet_test.sh
 exit_is "moved: covered reads the moved tree and holds the edit" 1
-has "moved: covered names the unaccepted edit" "held: unaccepted tests/greet_test.sh" "$OUT"
+has "moved: covered names the due edit" "held: tests/greet_test.sh due: no panel has judged it" "$OUT"
 eq "moved: record and covered wrote nothing" 1 "$(ledger "$S" | wc -l | tr -d ' ')"
 
 run_in "$MB" status "$S"
@@ -962,15 +741,9 @@ eq "moved: a second status writes no line" 2 "$(ledger "$S" | wc -l | tr -d ' ')
 hasnt "moved: a second status names no move" "following it" "$(cat "$W/err")"
 run_in "$R" status "$S"
 exit_is "moved: from an unrelated directory status reads the relocated tree" 1
-run_in "$MB" seat "$S"
-exit_is "moved: seat in the relocated tree" 0
-has "moved: the seat's brief carries the edited hunk" '-[ "$out" = "Hello, World!" ]' "$OUT"
-has "moved: the seat's brief names the relocated tree" "The run's work tree is $MB_TOP," "$OUT"
-hasnt "moved: the seat's brief doesn't name the gone tree" "$MA_TOP" "$OUT"
-run_in "$MB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
-exit_is "moved: the seat's accept" 0
+judge "$S" "$MB" tests/greet_test.sh
 run_in "$MB" status "$S"
-exit_is "moved: after the accept status counts" 0
+exit_is "moved: after a panel's judgment in the relocated tree status counts" 0
 LINES_NOW=$(ledger "$S" | wc -l | tr -d ' ')
 run_in "$R" record "$S"
 exit_is "moved: record from anywhere exits 0" 0
@@ -993,7 +766,6 @@ rebound_session() {
     mkdir -p "$STORE/$1"
     git -C "$RA" rev-parse HEAD > "$STORE/$1/impl_base"
     cp "$RULES" "$STORE/$1/review_level_rules.tsv"
-    cp "$STORE/acc/context.md" "$STORE/$1/context.md"
     run_in "$RA" init "$1"
     exit_is "rebound: init $1 in the first work tree" 0
 }
@@ -1028,17 +800,13 @@ eq "rebound: status follows the bound tree with one relocate line from the old t
     "$(ledger "$S" | jq -r 'select(.event == "relocate") | "\(.event)|\(.from)|\(.to)|\(.head)"')"
 run_in "$RB" classify "$S"
 has "rebound: the held digest is the bound tree's" "edited	tests/greet_test.sh	$RB_DIGEST" "$OUT"
-run_in "$RB" seat "$S"
-exit_is "rebound: seat in the bound tree" 0
-has "rebound: the seat's brief carries the bound tree's hunk" '+[ "$out" = "Hello there, World" ]' "$OUT"
-has "rebound: the seat's brief names the bound tree" "The run's work tree is $RB_TOP, at commit $RB_HEAD." "$OUT"
-hasnt "rebound: the seat's brief doesn't name the old tree" "$RA_TOP" "$OUT"
-run_in "$RB" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "corrects the expected value"
-exit_is "rebound: the seat's accept" 0
-eq "rebound: the accept records the bound tree's digest" "tests/greet_test.sh|$RB_DIGEST" \
-    "$(ledger "$S" | jq -r 'select(.event == "accept") | "\(.files[0].path)|\(.files[0].digest)"')"
+judge "$S" "$RA" tests/greet_test.sh
 run_in "$RB" status "$S"
-exit_is "rebound: after the accept status counts" 0
+exit_is "rebound: a judgment at the old tree's content leaves it held" 1
+has "rebound: held as due at the bound tree's content" "held: tests/greet_test.sh due for scrutiny" "$OUT"
+judge "$S" "$RB" tests/greet_test.sh
+run_in "$RB" status "$S"
+exit_is "rebound: after a judgment at the bound tree's content status counts" 0
 run_in "$R" status "$S"
 exit_is "rebound: from an unrelated directory status reads the bound tree and counts" 0
 eq "rebound: still one relocate line" 1 "$(ledger "$S" | jq -r 'select(.event == "relocate") | .to' | wc -l | tr -d ' ')"
@@ -1066,156 +834,6 @@ eq "no subcommand called gh" "" "$(cat "$GH_LOG")"
 eq "test-change.sh has no gh pr edit or gh pr comment" 0 "$(grep -cE 'gh pr (edit|comment)' "$SCRIPT")"
 run render rec
 eq "there is no render subcommand" 64 "$RC"
-
-# --- the swap ------------------------------------------------------------------------------
-echo "--- a refuse-all rule"
-COPY="$W/plugin"
-mkdir -p "$COPY/skills"
-cp -R "$PLUGIN/scripts" "$PLUGIN/references" "$COPY/"
-cp -R "$PLUGIN/skills/work-on" "$COPY/skills/"
-awk '
-    /^acceptance_rule_(decide|live)\(\) \{$/ {
-        print
-        if ($0 ~ /decide/) print "    echo \"refuse refuse-all every attempt is refused\""
-        else print "    printf '"'"'held\\trefuse-all\\n'"'"'"
-        print "    return 0"
-        skip = 1
-        next
-    }
-    skip && /^}$/ { skip = 0 }
-    !skip { print }
-' "$PLUGIN/scripts/lib/acceptance-rule.sh" > "$COPY/scripts/lib/acceptance-rule.sh"
-eq "only the rule library differs in the copy" "scripts/lib/acceptance-rule.sh" \
-    "$(cd "$COPY" && for f in scripts/lib/*.sh skills/work-on/scripts/test-change.sh; do cmp -s "$f" "$PLUGIN/$f" || echo "$f"; done | paste -sd, -)"
-S=swap
-start "$S"
-sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-git commit -q -am "test: edit"
-OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$COPY/skills/work-on/scripts/test-change.sh" seat "$S" 2>/dev/null)
-OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$COPY/skills/work-on/scripts/test-change.sh" accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason x 2>/dev/null); RC=$?
-eq "refuse-all: a minted seat's accept exits 1" 1 "$RC"
-has "refuse-all: the refusal names the swapped rule" "rule refuse-all" "$OUT"
-OUT=$(cd "$R" && PATH="$BIN:$PATH" bash "$COPY/skills/work-on/scripts/test-change.sh" status "$S" 2>/dev/null); RC=$?
-eq "refuse-all: the edited unit stays held" 1 "$RC"
-
-# --- a cut brief ------------------------------------------------------------------------
-# Two edited test files whose hunks together are past the brief's limit: the
-# first one's diff alone is, so the brief cuts it part way and never reaches
-# the second. A seat that judged only the brief must not be counted.
-echo "--- a cut brief"
-CUT_MSG="an acceptance was counted for a file whose change the seat never saw in full"
-cut_unit() {
-    start "$1"
-    sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-    awk 'BEGIN { for (i = 1; i <= 1200; i++) printf "# filler line %04d, so the diff is past the brief limit\n", i }' >> tests/greet_test.sh
-    sed -i.bak 's/alpha beta/alpha beta epsilon/' tests/other_test.sh && rm -f tests/other_test.sh.bak
-    git commit -q -am "test: a large edit and a small one"
-}
-S=cut
-cut_unit "$S"
-run seat "$S"
-eq "a cut brief: seat exits 0" 0 "$RC"
-has "a cut brief marks where the first file's diff stops" "of the diff of tests/greet_test.sh" "$OUT"
-has "a cut brief names the file it never reached" "[cut: the diff of tests/other_test.sh" "$OUT"
-has "a cut brief gives the work-tree read" "diff -M $BASE HEAD -- tests/greet_test.sh tests/other_test.sh" "$OUT"
-has "a cut brief's accept command states the whole read" "--read-whole tests/greet_test.sh tests/other_test.sh" "$OUT"
-hasnt "a cut brief keeps the filler's end out" "filler line 1200" "$OUT"
-eq "the seat line records the cut files" '["tests/greet_test.sh","tests/other_test.sh"]' \
-    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --reason "judged from the brief"
-eq "a cut brief: an accept without --read-whole exits 1" 1 "$RC"
-has "a cut brief: an accept without --read-whole is refused partial-read" "rule partial-read" "$OUT"
-run status "$S"
-if [ "$RC" -eq 0 ]; then
-    bad "a cut brief: an accept without --read-whole doesn't count" "$CUT_MSG"
-else
-    has "a cut brief: an accept without --read-whole doesn't count" "held: unaccepted tests/greet_test.sh" "$OUT"
-fi
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --read-whole tests/greet_test.sh --reason "read one"
-eq "a cut brief: --read-whole naming one of two cut files exits 1" 1 "$RC"
-has "a cut brief: naming one of two is refused partial-read" "rule partial-read" "$OUT"
-run accept "$S" --as "agent:$S/accept-1" --authority reviewer --all --read-whole tests/greet_test.sh tests/other_test.sh --reason "read both whole"
-eq "a cut brief: --read-whole naming every cut file exits 0" 0 "$RC"
-eq "the accept line records the whole read" '["tests/greet_test.sh","tests/other_test.sh"]' \
-    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "accept") | .read_whole)')"
-run status "$S"
-eq "a cut brief: the whole read counts" 0 "$RC"
-run record "$S"
-has "record shows the seat's cut files" "its brief cut tests/greet_test.sh,tests/other_test.sh" "$OUT"
-has "record shows the accept's whole read" "read whole: tests/greet_test.sh,tests/other_test.sh" "$OUT"
-
-S=cutfold
-cut_unit "$S"
-run seat "$S"
-jq -nc --arg id "agent:$S/accept-1" --arg g "$(git rev-parse HEAD:tests/greet_test.sh)" --arg o "$(git rev-parse HEAD:tests/other_test.sh)" '
-    {ts: "2026-01-01T00:00:00Z", event: "accept", id: "accept-90", identity: $id, kind: "agent", authority: "reviewer",
-     files: [{path: "tests/greet_test.sh", digest: $g}, {path: "tests/other_test.sh", digest: $o}],
-     reason: "hand-written", outcome: "allow", session_exists: false, source: "session", rule: "interim"}' \
-    >> "$STORE/$S/test_change_ledger.jsonl"
-run status "$S"
-if [ "$RC" -eq 0 ]; then
-    bad "a cut brief: a hand-written accept with no whole read doesn't count" "$CUT_MSG"
-else
-    has "a cut brief: a hand-written accept with no whole read doesn't count" "held: unaccepted tests/greet_test.sh" "$OUT"
-fi
-
-# --- a renamed test in the brief -----------------------------------------------------------
-# The held item is a rename's new path. A diff limited to that path shows a new
-# file with every line added, so the brief must name the old path too, or the
-# line the edit removed is shown nowhere.
-echo "--- a renamed test in the brief"
-S=renbrief
-start "$S"
-git mv tests/greet_test.sh tests/hello_test.sh
-sed -i.bak 's/Hello, World!/Hello, World/' tests/hello_test.sh && rm -f tests/hello_test.sh.bak
-git rm -q tests/other_test.sh
-printf '#!/bin/sh\n[ 2 -eq 2 ]\n' > tests/added_test.sh
-git add -A && git commit -q -m "test: rename with a change, delete one, add one"
-run seat "$S"
-eq "a renamed test: seat exits 0" 0 "$RC"
-has "a renamed test's brief shows the rename" "rename from tests/greet_test.sh" "$OUT"
-has "a renamed test's brief shows the line the edit removed" '-[ "$out" = "Hello, World!" ]' "$OUT"
-hasnt "a renamed test's brief shows no new file mode" "new file mode" "$OUT"
-has "a deleted test still shows as deleted" "deleted file mode" "$OUT"
-hasnt "an added test stays out of the edited hunks" "tests/added_test.sh" "$OUT"
-
-# Cut, with the rename's diff built per file and shown whole: the rename sorts
-# before the large edit that crosses the limit.
-S=rencut
-start "$S"
-git mv tests/greet_test.sh tests/alpha_test.sh
-sed -i.bak 's/Hello, World!/Hello, World/' tests/alpha_test.sh && rm -f tests/alpha_test.sh.bak
-awk 'BEGIN { for (i = 1; i <= 1200; i++) printf "# filler line %04d, so the diff is past the brief limit\n", i }' >> tests/other_test.sh
-sed -i.bak 's/alpha beta/alpha beta epsilon/' tests/other_test.sh && rm -f tests/other_test.sh.bak
-git commit -q -am "test: rename with a change, and a large edit"
-run seat "$S"
-eq "a cut brief with a rename: seat exits 0" 0 "$RC"
-has "a cut brief with a rename is cut" "of the diff of tests/other_test.sh" "$OUT"
-has "a cut brief shows the rename built per file" "rename from tests/greet_test.sh" "$OUT"
-has "a cut brief shows the line the rename's edit removed" '-[ "$out" = "Hello, World!" ]' "$OUT"
-hasnt "a cut brief shows no new file mode for the rename" "new file mode" "$OUT"
-
-# Cut, with the rename past the limit: the work-tree read names its old path
-# as well, and that read shows the rename and its removed line.
-S=rencutread
-start "$S"
-sed -i.bak 's/Hello, World!/Hello, World/' tests/greet_test.sh && rm -f tests/greet_test.sh.bak
-awk 'BEGIN { for (i = 1; i <= 1200; i++) printf "# filler line %04d, so the diff is past the brief limit\n", i }' >> tests/greet_test.sh
-git mv tests/other_test.sh tests/zz_test.sh
-sed -i.bak 's/alpha beta/alpha beta epsilon/' tests/zz_test.sh && rm -f tests/zz_test.sh.bak
-git commit -q -am "test: a large edit, and a rename with a change"
-run seat "$S"
-eq "a cut rename: seat exits 0" 0 "$RC"
-has "a cut rename is named as not shown" "[cut: the diff of tests/zz_test.sh" "$OUT"
-has "the work-tree read names the rename's old path" "diff -M $BASE HEAD -- tests/greet_test.sh tests/zz_test.sh tests/other_test.sh" "$OUT"
-has "--read-whole names the rename's new path only" "--read-whole tests/greet_test.sh tests/zz_test.sh --reason" "$OUT"
-eq "the seat line records the cut items" '["tests/greet_test.sh","tests/zz_test.sh"]' \
-    "$(ledger "$S" | jq -cs 'first(.[] | select(.event == "seat") | .cut)')"
-READ=$(printf '%s\n' "$OUT" | grep '^  git -C ')
-WHOLE=$(eval "$READ" 2>&1)
-has "the work-tree read shows the rename" "rename from tests/other_test.sh" "$WHOLE"
-has "the work-tree read shows the line the rename's edit removed" "-for word in alpha beta gamma delta; do" "$WHOLE"
-
 echo
 echo "test-change: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

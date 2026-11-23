@@ -59,9 +59,6 @@ on:
       # test sits beside it.
       - 'scripts/lib/default-remote-ref.sh'
       - 'scripts/lib/default-remote-ref_test.sh'
-      # test-change.sh sources the interim acceptance rule.
-      - 'scripts/lib/acceptance-rule.sh'
-      - 'scripts/lib/acceptance-rule_test.sh'
       # The suites that walk work-on.md past fix_determination serve its gh
       # call from this stand-in.
       - 'scripts/lib/gh-issue-testlib.sh'
@@ -112,8 +109,6 @@ on:
       - 'scripts/lib/test-classify_test.sh'
       - 'scripts/lib/default-remote-ref.sh'
       - 'scripts/lib/default-remote-ref_test.sh'
-      - 'scripts/lib/acceptance-rule.sh'
-      - 'scripts/lib/acceptance-rule_test.sh'
       - 'scripts/lib/gh-issue-testlib.sh'
       - 'scripts/lib/dispatch-link.sh'
       - '.claude/shirabe-extensions/verification-map.json'
@@ -585,22 +580,19 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/red-first-routes_test.sh
 
-      # The interim acceptance rule called directly, and test-change.sh (the
-      # ledger's header, the seat, accept and decline, the status gate)
-      # against repository fixtures through a koto stand-in. No engine; the
-      # macOS leg runs both on the floor too.
-      - name: Run acceptance rule tests (Linux)
-        if: runner.os == 'Linux'
-        run: bash scripts/lib/acceptance-rule_test.sh
-
+      # test-change.sh (the ledger's header, the notes, the status gate read
+      # from the panels' record, legacy lines ignored) against repository
+      # fixtures through a koto stand-in. No engine; the macOS leg runs it on
+      # the floor too.
       - name: Run test change tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/test-change_test.sh
 
       # Drives the shipped work-on.md through a real koto: an edited test held
-      # at pass_counting until a minted seat accepts it, refused for the run
-      # and an unminted name, held again after a later edit, declines back to
-      # implementation and the third to done_blocked. Skips without koto.
+      # at pass_counting as due until the review panels judge it, held again
+      # after a later edit until a re-verifier does, `declined` back to
+      # implementation, and a spent retry budget to done_blocked. Skips
+      # without koto.
       - name: Run test change route tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/test-change-routes_test.sh

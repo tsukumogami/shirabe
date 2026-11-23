@@ -248,10 +248,10 @@ If checks fail:
 4. Re-check
 
 Fix a failing test by fixing the code it tests. A test edit holds the unit until
-someone other than you accepts it: an edited test (a line removed or changed, the
+the review panels have judged it: an edited test (a line removed or changed, the
 file deleted or renamed with a change) is held at `ci_pass_counting` once CI
-passes, and the run goes no further until an acceptance seat, or a person where
-the repository requires one, accepts the edit. When the test itself is wrong,
+passes, and the run goes no further until a panel's judgment at its content now
+is recorded. When the test itself is wrong,
 edit it and record why with `test-change.sh note`, as
 `phase-4-implementation.md` describes; never edit or skip a test only to turn a
 check green.
