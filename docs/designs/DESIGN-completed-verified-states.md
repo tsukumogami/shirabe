@@ -38,7 +38,7 @@ Planned
 ## Context and Problem Statement
 
 The PRD this design implements
-([PRD-completed-verified-states](../prds/PRD-completed-verified-states.md))
+(`docs/prds/PRD-completed-verified-states.md`)
 asks for a `roadmap/v4` schema whose milestones read Not started, In progress,
 Completed, Verified or Dropped, with one shared status definition that every
 shirabe component reads, coordinator behaviour that starts dependents on
