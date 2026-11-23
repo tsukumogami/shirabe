@@ -170,7 +170,9 @@
 # the brief over the old one, and launches nothing. A leg carries one result,
 # which the report just used, so the holding moves to the message path (its
 # spent request is abandoned) and its `dispatched` date, which records when
-# the worker was last briefed, is updated. The coordinator then sends the
+# the worker was last briefed, is updated. The leg's key keeps the session
+# bound to it, stamped `rebriefed`, so the land step still reads the round
+# the worker records there (stamp_rebriefed). The coordinator then sends the
 # worker a message pointing at the brief. A held coordinate lane's re-brief
 # carries no --role, since it isn't a new dispatch: the lane continues the
 # role its record holds, so a plain re-brief never undoes a change. Its
@@ -1128,6 +1130,39 @@ request_view() {
     return 2
 }
 
+# stamp_rebriefed <request>:<leg>: before a --rebrief moves the holding off
+# the leg, write into the leg's key the session koto bound to it (`child`,
+# from the key or else from the request) and `rebriefed`, the UTC time of the
+# move. board-lib.sh's bl_rebriefed_round reads the round the worker recorded
+# in that session from there once the holding names only the message path,
+# so a round recorded before or after the re-brief, in the same session, is
+# still found without a result block in the report. Only a key of this topic
+# is stamped. Nothing here is fatal: a key that can't be stamped leaves the
+# report's result block as the land step's one source, and stderr says so.
+stamp_rebriefed() {
+    local rp=$1 req=${1%%:*} leg=${1#*:} key child rc now
+    key=$(dc_leg_get "$SESSION" "$req" "$leg")
+    rc=$?
+    case "$rc" in
+        0) ;;
+        1) printf '%s: the leg %s has no leg key: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2; return 0 ;;
+        *) printf '%s: could not read the leg key for %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2; return 0 ;;
+    esac
+    [ "$(jq -r '.topic // "" | strings' <<<"$key")" = "$TOPIC" ] || {
+        printf '%s: the leg key for %s names another worker: not stamped\n' "$PROG" "$rp" >&2; return 0; }
+    child=$(jq -r '.child // "" | strings' <<<"$key")
+    if [ -z "$child" ] && request_view "$req"; then
+        child=$(jq -r --arg l "$leg" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW") || child=
+    fi
+    if [ -z "$child" ]; then
+        printf '%s: no session is bound to %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2
+        return 0
+    fi
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -c --arg c "$child" --arg t "$now" '.child = $c | .rebriefed = $t' <<<"$key")" ||
+        printf '%s: could not stamp the leg key for %s: the land step reads %s'"'"'s round from its report only\n' "$PROG" "$rp" "$TOPIC" >&2
+}
+
 # child_facts <session>: the child session's template file and variables, from
 # the header and the first initialization of its own log, as one JSON object
 # {template, variables}. Returns 2 when the log can't be read.
@@ -1396,6 +1431,10 @@ if [ "$REBRIEF" = 1 ]; then
         1) exit 1 ;;
         *) die 2 "rendering the brief failed" ;;
     esac
+    # The holding no longer names the leg, so the land step finds the round
+    # the worker recorded in its bound session through the leg's key
+    # (board-lib.sh bl_rebriefed_round), stamped before the request goes.
+    [ "$ROW_RP" = message ] || stamp_rebriefed "$ROW_RP"
     write_row "$(printf '%s' "$ROW" | jq -c --arg d "$TODAY" '.dispatched = $d | .return_path = "message"')"
     if [ "$ROW_RP" != message ]; then
         "$KOTO" request abandon-request "${ROW_RP%%:*}" \
