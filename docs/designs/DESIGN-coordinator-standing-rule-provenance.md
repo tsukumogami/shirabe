@@ -951,8 +951,8 @@ Review already happens per class, at every succession, so no row needs
     purpose and carried by #2055 (Security Considerations says the same of
     the digest).
 
-  Accretion of unconfirmed rows is bounded by the caps and step 17's
-  threshold meanwhile.
+  Meanwhile, accretion of unconfirmed rows is bounded by the caps; step 17
+  checks the rise.
 
 - **Add both fields, counted in successions, with readers that honor
   them.** Rejected because the readers of steps 1 to 5 and the rule write
