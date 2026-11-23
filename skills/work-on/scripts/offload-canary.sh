@@ -12,7 +12,7 @@
 # PR_BODY_RULES, the conformance text the pr_creation directive names. Its
 # offload_arm gate runs `arm` and routes on the exit code to
 # offload_arm_withheld, offload_arm_preloaded, or straight to
-# review_level_choice.
+# probe_draw.
 #
 # Usage:
 #   offload-canary.sh draw <switch> <shared-branch> <session-dir> <plugin-root>
@@ -20,7 +20,7 @@
 #
 # draw prints exactly one line, the absolute path of the conformance text this
 # run reads, and always exits 0: a failing default action would hold the run
-# in offload_canary, between analysis and review_level_choice. The path is <plugin-root>/references/pr-body-conformance.md for
+# in offload_canary, between analysis and probe_draw. The path is <plugin-root>/references/pr-body-conformance.md for
 # every run in neither group or the preloaded one, so their pr_creation
 # directive is byte-for-byte a canary-off run's. A withheld run gets
 # <session-dir>/pr-rules/pr-body-conformance.md, the same file with PB4's lines

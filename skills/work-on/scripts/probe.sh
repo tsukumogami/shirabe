@@ -7,8 +7,10 @@
 # is drawn into one of three arms when its plan is settled:
 #
 #   near           the rule is printed only in the pr_creation directive
-#   far            the rule is printed only in the review_level_choice
-#                  directive, long before the pull request step
+#   far            the rule is printed only in the directive of the first
+#                  state the run stops in after fix_determination
+#                  (implementation for a change, reproduce for a fix), long
+#                  before the pull request step
 #   far_redeliver  as far, and the check at pull request creation hands the
 #                  rule back (its summary, then its full text) after the first
 #                  and second missed submissions
@@ -24,6 +26,7 @@
 #   probe.sh draw <switch> <shared-branch> <session-dir> <plugin-root>
 #   probe.sh arm <session-dir>
 #   probe.sh near-text <session-dir>
+#   probe.sh far-text <session-dir>
 #   probe.sh check <session-dir>                 (reads SHIRABE_GATE_LOG)
 #   probe.sh leak-branch <session-dir> <base>
 #   probe.sh leak-pr <session-dir> <base> [<issue-number> [<issue-repo>]]
@@ -38,11 +41,9 @@
 # <session-dir>/probe/arm (mode 0600, through a temporary file and mv,
 # refusing symlinks). A later draw in the same session reads them back and
 # never redraws, whatever the switch and the opt-in say by then, so a rewind or
-# a resume keeps the run's arm and value. For far and far_redeliver the first
-# draw prints the rule's full text with the value, which work-on.md captures as
-# PROBE_FAR_RULE, and records <session-dir>/probe/far_shown so a later visit
-# (analysis looping back) prints nothing. draw always exits 0: a failure leaves
-# the run in no arm instead of holding it. <plugin-root> is not read today: it
+# a resume keeps the run's arm and value. draw prints nothing. draw always
+# exits 0: a failure leaves the run in no arm instead of holding it.
+# <plugin-root> is not read today: it
 # is passed so the draw's command line matches the offload canary's and can
 # reach plugin files without a template change. Arguments after it are
 # ignored, and nothing seeds the draw.
@@ -51,6 +52,15 @@
 #
 # near-text prints the rule's full text with the value for a near run and
 # nothing for any other, exit 0.
+#
+# far-text prints the rule's full text with the value for a far or
+# far_redeliver run the first time it runs in a session, and records
+# <session-dir>/probe/far_shown so every later call prints nothing; for any
+# other run it prints nothing. work-on.md runs it on entry to reproduce and to
+# implementation, capturing it as PROBE_FAR_RULE_FIX and PROBE_FAR_RULE, so
+# the first of the two a run enters carries the rule and no retry, return or
+# second state repeats it. It prints only once the record of the print holds,
+# and always exits 0.
 #
 # check decides from the `ack` field of the current pr_creation visit's
 # `pr_status: created` submissions in the session log:
@@ -230,13 +240,13 @@ write_file() {
     return 1
 }
 
-# --- draw, arm, near-text ---------------------------------------------------
+# --- draw, arm, near-text, far-text -----------------------------------------
 
 cmd_draw() {
-    local switch=$1 shared=$2 sdir=$3 dir rec arm value drawn
+    local switch=$1 shared=$2 sdir=$3 dir arm value drawn
     dir="$sdir/$PROBE_DIR"
     safe_dir "$sdir" || return 0
-    rec=$(recorded "$sdir")
+    recorded "$sdir" >/dev/null
     case $? in
         0) ;;
         1)
@@ -250,19 +260,6 @@ cmd_draw() {
             safe_dir "$dir" || return 0
             write_file "$dir" value "$value" || return 0
             write_file "$dir" arm "$arm" || return 0
-            rec="$arm $value"
-            ;;
-        *) return 0 ;;
-    esac
-    arm=${rec% *}; value=${rec#* }
-    case "$arm" in
-        far|far_redeliver)
-            # Printed once per session, and only when the record of it holds,
-            # so a later visit can't print the rule again closer to the action.
-            [ ! -e "$dir/far_shown" ] && [ ! -L "$dir/far_shown" ] || return 0
-            write_file "$dir" far_shown shown || return 0
-            probe_full_text "$value"
-            printf '\n'
             ;;
     esac
     return 0
@@ -283,6 +280,22 @@ cmd_near_text() {
     local rec
     rec=$(recorded "$1") || return 0
     [ "${rec% *}" = near ] || return 0
+    probe_full_text "${rec#* }"
+    printf '\n'
+}
+
+cmd_far_text() {
+    local sdir=$1 dir rec
+    dir="$sdir/$PROBE_DIR"
+    rec=$(recorded "$sdir") || return 0
+    case "${rec% *}" in
+        far|far_redeliver) ;;
+        *) return 0 ;;
+    esac
+    # Printed once per session, and only when the record of it holds, so a
+    # later visit can't print the rule again closer to the action.
+    [ ! -e "$dir/far_shown" ] && [ ! -L "$dir/far_shown" ] || return 0
+    write_file "$dir" far_shown shown || return 0
     probe_full_text "${rec#* }"
     printf '\n'
 }
@@ -566,6 +579,10 @@ probe_main() {
             [ $# -eq 2 ] || exit 0
             cmd_near_text "$2"
             exit 0 ;;
+        far-text)
+            [ $# -eq 2 ] || exit 0
+            cmd_far_text "$2"
+            exit 0 ;;
         check)
             [ $# -eq 2 ] || exit 6
             cmd_check "$2" ;;
@@ -576,7 +593,7 @@ probe_main() {
             [ $# -ge 3 ] && [ $# -le 5 ] || exit 2
             cmd_leak_pr "$2" "$3" "${4-}" "${5-}" ;;
     esac
-    echo "usage: probe.sh draw|arm|near-text|check|leak-branch|leak-pr <session-dir> ..." >&2
+    echo "usage: probe.sh draw|arm|near-text|far-text|check|leak-branch|leak-pr <session-dir> ..." >&2
     exit 64
 }
 

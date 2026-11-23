@@ -5406,7 +5406,8 @@
       ],
       "level": "gate",
       "timing": [
-        "work-on:review_level_choice",
+        "work-on:reproduce",
+        "work-on:implementation",
         "work-on:pr_creation"
       ],
       "guards": [

@@ -90,8 +90,10 @@ REPORT_KEY=fix_report.txt
 REASON_MAX=300
 DEFAULT_FIX_LABELS=bug
 # The states a fix may be declared in: before implementation, and on a return
-# to analysis, which passes these again on its way to fix_determination.
-DECLARE_STATES=" analysis offload_canary offload_arm_withheld offload_arm_preloaded review_level_choice fix_determination "
+# to analysis, which passes these again on its way to fix_determination. The
+# run stops only at analysis (and at fix_determination while it holds); the
+# canary's states are listed for a declare that lands while one of them holds.
+DECLARE_STATES=" analysis offload_canary offload_arm_withheld offload_arm_preloaded fix_determination "
 
 # shellcheck source=../../../scripts/lib/claude-md-header.sh
 . "$PLUGIN_ROOT_SELF/scripts/lib/claude-md-header.sh" || { echo "fix-kind: cannot load scripts/lib/claude-md-header.sh" >&2; exit 64; }
