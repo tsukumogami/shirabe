@@ -226,7 +226,45 @@ again, and the `weakens` case end at `done_blocked` once the budget is spent;
 
 ### Step 5: a test-touching CI fix in /execute goes through a fix round
 
-A CI fix /execute makes that edits a test is held by the ci_fix_tests_judged gate until a fix round of the step's own run has judged it.
+**Goal**: When `/execute`'s `ci_monitor` fixes CI on the shared PR with a
+change that edits a test, it doesn't push the fix itself: it starts a fix round
+of the step's `/work-on` run (`fix-round.sh start --from <child>`) and drives
+it, so that run's panels judge the test and the run records the judgment in its
+own session. A new gate on `ci_monitor`'s `failing_fixed` edge,
+`ci_fix_tests_judged`, run by a new `skills/execute/scripts/ci-fix-tests.sh`,
+holds the edge while the diff from the newest counted head any child or fix
+round recorded to HEAD touches a test file. `/work-on` records `counted_head`
+in its own session when a counting gate passes. A CI fix that edits no test
+takes today's path (shirabe#1730). Covers PRD R20 and R26.
+
+**Acceptance Criteria**:
+
+- [ ] When a counting gate passes, the `/work-on` session holds a
+  `counted_head` key whose value is the 40-hex commit it passed at.
+- [ ] `ci-fix-tests.sh` exits 0 when the diff from the newest recorded
+  `counted_head` to HEAD touches no file the test classifier counts as a test,
+  1 when it touches one (naming it), and 2 when no head can be read, a head
+  isn't 40 hex, or a head isn't an ancestor of HEAD; it writes nothing.
+- [ ] In a fixture plan, a CI fix committed on the shared branch that edits a
+  test holds `ci_monitor`'s `failing_fixed` edge on `ci_fix_tests_judged`;
+  after a fix round of the step's run reaches `done` with the test judged and
+  its `counted_head` at HEAD, the gate exits 0 and the edge routes.
+- [ ] A CI fix that edits only production files passes the gate and routes as
+  it does today, and the `ci_monitor` directive says to start a fix round for a
+  test-touching fix and names which child (the one whose recorded changed paths
+  include the test, else the last to reach `done`).
+- [ ] No file outside `skills/work-on/` writes `test_change_ledger.jsonl`, and
+  `ci-fix-tests.sh` only reads the child sessions.
+
+**Check**: Run the new `skills/execute/scripts/ci-fix-tests_test.sh` and see
+the 0, 1 and 2 cases pass, then the route case added to
+`skills/execute/scripts/execute-output-gates-routing_test.sh` hold
+`failing_fixed` on a test-touching fix and route it once the fix round's
+counted head reaches HEAD; `scripts/validate-template-mermaid.sh` passes.
+
+**Dependencies**: Step 4
+
+**Files**: `skills/execute/scripts/ci-fix-tests.sh`, `skills/execute/scripts/ci-fix-tests_test.sh`, `skills/execute/koto-templates/execute.md`, `skills/execute/scripts/execute-output-gates-routing_test.sh`, `skills/work-on/koto-templates/work-on.md`
 
 ### Step 6: a person's panel-gate override is recorded by the run naming the person
 
