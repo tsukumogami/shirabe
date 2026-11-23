@@ -25,7 +25,11 @@
 #   - the acceptance criteria or the plan changed since a seat judged (the git
 #     hash of the `context.md` and `plan.md` context keys differs). context.md
 #     is written at setup and plan.md at analysis, so in practice this fires
-#     when a scope_expanded_retry or scope_changed_retry rewrote the plan
+#     when a scope_expanded_retry or scope_changed_retry rewrote the plan. A
+#     seat whose verdict a fix round inherited, judged no later than the
+#     round's base, is held to the criteria alone: the round's context.md
+#     must hash to the ledger's `inherited.context_sha`, since its plan.md is
+#     the fix's
 #   - the working tree has uncommitted changes, untracked files included (the
 #     fix may not be committed, and the diff below would miss it)
 #   - there are no commits since impl_base, or no impl_base recorded (nothing
@@ -35,7 +39,10 @@
 #     marker, a finding record not written by the agent) is no longer an
 #     ancestor of HEAD (a rebase or reset rewrote what it judged)
 #   - the panel's newest recorded commit has no commits since impl_base: its
-#     seats judged an empty change, so they have not reviewed this one
+#     seats judged an empty change, so they have not reviewed this one. A
+#     ledger a fix round inherited (`inherited`) is the exception when that
+#     commit is no later than the round's base: there the seats judged the
+#     run the round follows, and the round's fix is the diff from it
 #   - the diff from the panel's newest recorded commit to HEAD changes more
 #     than THRESHOLD_LINES lines (added plus deleted per --numstat, a binary
 #     file 1 per side), or that diff fails. A fix that large is new work, and
@@ -263,8 +270,12 @@
 #                          "decider_events": [...],
 #                          "history": [{"panel", "round", "head", "rev",
 #                          "spawned", "decisions": [{seat, decision, reason,
-#                          findings?}]}]}
+#                          findings?}]}],
+#                          "inherited": {from, base, context_sha}?}
 #                         Never cleared by a retry: it is what survives one.
+#                         `inherited` is set only in a fix round, by
+#                         fix-round.sh, which copied the ledger from the run
+#                         the round follows.
 #                         The seat entries are summaries of the findings, kept
 #                         in the shape review-packet.sh reads.
 #   <panel>_scope.json    this entry's decisions, for the agent to act on:
@@ -1339,6 +1350,30 @@ recorded_commits() {
         | map(select(type == "string" and test("^[0-9a-f]{40}$"))) | unique | .[]'
 }
 
+# A ledger a fix round inherited (fix-round.sh copies it from the run the
+# round follows): its seats judged that run's change, up to the round's base.
+# INHERITED_BASE is that base when it names a commit here; INHERITED_CTX is 1
+# when the round's context.md is the one those seats judged against. The round's own plan.md describes the
+# fix, so ac_sha always differs for an inherited seat; the criteria are what
+# the round is held to.
+INHERITED_BASE=$(printf '%s' "$LEDGER_JSON" | jq -r '(.inherited // {}).base // "" | strings')
+is_commit "$INHERITED_BASE" || INHERITED_BASE=""
+INHERITED_CTX=0
+if [ -n "$INHERITED_BASE" ]; then
+    want=$(printf '%s' "$LEDGER_JSON" | jq -r '(.inherited // {}).context_sha // "" | strings')
+    have=$(ctx_get context.md | git hash-object --stdin)
+    [ -n "$want" ] && [ "$want" = "$have" ] && INHERITED_CTX=1
+fi
+
+# inherited_seat <seat>: the seat's verdict was inherited and judged no later
+# than the round's base, under the same criteria.
+inherited_seat() {
+    local at
+    [ "$INHERITED_CTX" = 1 ] || return 1
+    at=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$1" '(.seats // {})[$k].judged_at // "" | strings')
+    is_commit "$at" && git merge-base --is-ancestor "$at" "$INHERITED_BASE"
+}
+
 FULL_REASON=""
 for seat in $SEATS; do
     has=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$seat" '(.seats // {})[$k].verdict // empty')
@@ -1353,7 +1388,7 @@ fi
 if [ -z "$FULL_REASON" ]; then
     for seat in $SEATS; do
         ac=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$seat" '(.seats // {})[$k].ac_sha // ""')
-        if [ "$ac" != "$AC_SHA" ]; then
+        if [ "$ac" != "$AC_SHA" ] && ! inherited_seat "$seat"; then
             FULL_REASON="the acceptance criteria or the plan changed since $seat judged"
             break
         fi
@@ -1378,7 +1413,8 @@ if [ -z "$FULL_REASON" ]; then
     PANEL_BASE=$(pick_commit newest < "$WORK/pcommits")
     if [ -z "$PANEL_BASE" ]; then
         FULL_REASON="the panel has recorded no commit to measure a fix from"
-    elif [ "$(git rev-list --count "$IMPL_BASE..$PANEL_BASE" || echo 0)" = 0 ]; then
+    elif [ "$(git rev-list --count "$IMPL_BASE..$PANEL_BASE" || echo 0)" = 0 ] \
+        && ! { [ -n "$INHERITED_BASE" ] && git merge-base --is-ancestor "$PANEL_BASE" "$INHERITED_BASE"; }; then
         FULL_REASON="the panel last judged no commit since impl_base, so its seats have not reviewed the change"
     elif ! changed=$(changed_lines "$PANEL_BASE"); then
         FULL_REASON="git diff from $(printf '%.12s' "$PANEL_BASE") failed"
