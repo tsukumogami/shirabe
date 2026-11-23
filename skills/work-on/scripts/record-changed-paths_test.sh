@@ -636,18 +636,19 @@ to_analysis() {
 to_implementation() {
     to_analysis "$1" "${2:-}"
     printf 'plan\n' | ctx add "$1" plan.md
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
     tick "$1" '{"plan_outcome":"plan_ready"}'
-    choose_level "$1" "${2:-}"
+    raise_level "$1" "${2:-}"
 }
 
-# choose_level <session> [<plugin root>]: the review level, chosen before
-# implementation; full keeps every panel on the code route. The script is run
-# from the session's own plugin root, which its rebind passes as PLUGIN_ROOT.
-choose_level() {
+# raise_level <session> [<plugin root>]: a raise to full at implementation,
+# which the level check keeps; full keeps every panel on the code route. The
+# script is run from the session's own plugin root, which its rebind passes as
+# PLUGIN_ROOT.
+raise_level() {
     (cd "$FX/repo" && "${2:-$PLUGIN_ROOT}/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    tick "$1"
 }
 
 # The routing question, reached through changed_paths_record with no evidence.
@@ -818,7 +819,7 @@ else
 fi
 printf 'plan\n' | ctx add e-plan plan.md
 tick e-plan '{"plan_outcome":"plan_ready"}'
-choose_level e-plan
+raise_level e-plan
 commit_file src/mine.go
 tick e-plan '{"implementation_status":"complete"}'
 if ctx get e-plan changed_paths.txt | grep -q sibling; then

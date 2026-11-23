@@ -5,7 +5,7 @@
 # The fixture is the design's walkthrough repository: greet.sh prints
 # `Hello, <name>!` and tests/greet_test.sh asserts it for `World`. Each case
 # branches off main, records impl_base and the rules copy as analysis and
-# review_level_choice would, and runs `init`.
+# fix_determination's review-level.sh init would, and runs `init`.
 #
 # Covers:
 #   classify   a new test and one that only gained lines are `added`; a removed

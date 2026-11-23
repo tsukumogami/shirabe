@@ -4,13 +4,17 @@
 # `koto next` calls?
 #
 # The fixture holds the SHIPPED blocks and directives of offload_canary, its
-# markers, probe_draw, the probe's markers, review_level_choice, pr_precheck,
-# probe_near, pr_creation and ci_monitor, with the gates that read GitHub or
-# other session keys stubbed to pass and review_level_choice's bound action
-# replaced by `true`. A stub fix_determination takes `go` evidence to
-# pr_precheck; ci_pass_counting and every other target are stub terminals.
-# The probe's own action, gates and script are real. A gh stub answers the
-# leak gate's pull request reads.
+# markers, probe_draw, the probe's markers, reproduce, implementation,
+# pr_precheck, probe_near, pr_creation and ci_monitor, with the gates that
+# read GitHub or other session keys stubbed to pass (reproduce's red_recorded
+# passes once the case writes red-ok into the session directory). A stub
+# fix_determination routes to implementation, or to reproduce when the case
+# wrote `fix` into the session directory, in the tick that enters it; a stub
+# changed_paths_record passes through to pr_precheck, and a stub analysis
+# passes through to offload_canary, the loop a scope change takes.
+# ci_pass_counting and every other target are stub terminals. The probe's own
+# actions, gates and script are real. A gh stub answers the leak gate's pull
+# request reads.
 #
 #   1. Static: the variable, the edges, the gate commands, the ack field, the
 #      directive lines and directive_rules, the koto floor, and decider.mode
@@ -20,10 +24,13 @@
 #      probe gates passing, every directive equal to the probe-free
 #      template's); no extra agent turn; directive placement per arm; the
 #      arrival response; near and far misses advance; far_redeliver holds
-#      twice and advances; each created edge; the leak gate holding.
+#      twice and advances; each created edge; the leak gate holding; the far
+#      rule delivered once, at implementation for a change and at reproduce
+#      for a fix, and never again on a retry, a hold or the move from
+#      reproduce to implementation.
 #   3. Records: a far_redeliver run's exported journal, a rewind and a
-#      directed move back into probe_draw, and a search of the journal for
-#      the drawn value.
+#      loop back into probe_draw, and a search of the journal for the drawn
+#      value.
 #   4. Evidence before gates: koto evaluates a state's gates on the log that
 #      already holds the evidence submitted in the same call.
 #
@@ -96,16 +103,24 @@ check "PROBE: values on and off, default on, not rebindable" \
 check "offload_canary's edges all go to probe_draw" \
     "$( { targets_of offload_canary; targets_of offload_arm_withheld; targets_of offload_arm_preloaded; } \
         | grep -v '^offload_arm_' | sort -u | tr '\n' ' ')" "probe_draw "
-check "probe_draw routes to the three markers or review_level_choice" \
-    "$(targets_of probe_draw | tr '\n' ' ')" "probe_arm_near probe_arm_far probe_arm_far_redeliver review_level_choice "
+check "probe_draw routes to the three markers or fix_determination" \
+    "$(targets_of probe_draw | tr '\n' ' ')" "probe_arm_near probe_arm_far probe_arm_far_redeliver fix_determination "
 for m in probe_arm_near probe_arm_far probe_arm_far_redeliver; do
-    check "$m passes through to review_level_choice" "$(extract_state $m | sed 1d | tr -d ' \n')" "transitions:-target:review_level_choice"
+    check "$m passes through to fix_determination" "$(extract_state $m | sed 1d | tr -d ' \n')" "transitions:-target:fix_determination"
 done
 PD=$(extract_state probe_draw)
 grep -q 'probe.sh" draw "{{PROBE}}" "{{SHARED_BRANCH}}" "{{SESSION_DIR}}" "{{PLUGIN_ROOT}}"' <<<"$PD" \
-    && grep -q '^      capture_stdout_as: PROBE_FAR_RULE$' <<<"$PD" && grep -q '^      capture_allow_empty: true$' <<<"$PD" \
-    && pass "probe_draw runs probe.sh draw into PROBE_FAR_RULE with capture_allow_empty" \
+    && ! grep -q 'capture_stdout_as' <<<"$PD" \
+    && pass "probe_draw runs probe.sh draw and captures nothing" \
     || fail "probe_draw's action: $PD"
+for pair in "implementation:PROBE_FAR_RULE" "reproduce:PROBE_FAR_RULE_FIX"; do
+    st=${pair%%:*}; v=${pair#*:}
+    B=$(extract_state "$st")
+    grep -q 'probe.sh" far-text "{{SESSION_DIR}}" || true' <<<"$B" \
+        && grep -q "^      capture_stdout_as: $v\$" <<<"$B" && grep -q '^      capture_allow_empty: true$' <<<"$B" \
+        && pass "$st runs probe.sh far-text into $v with capture_allow_empty" \
+        || fail "$st's action: $(grep -A4 'default_action' <<<"$B")"
+done
 PN=$(extract_state probe_near)
 grep -q 'probe.sh" near-text "{{SESSION_DIR}}"' <<<"$PN" && grep -q '^      capture_stdout_as: PROBE_NEAR_RULE$' <<<"$PN" \
     && grep -q '^      capture_allow_empty: true$' <<<"$PN" && [ "$(targets_of probe_near)" = pr_creation ] \
@@ -117,7 +132,7 @@ check "no pr_precheck edge targets pr_creation directly" "$(targets_of pr_preche
 PC=$(extract_state pr_creation)
 check "pr_creation accepts ack, a string with no description" \
     "$(printf '%s\n' "$PC" | awk '/^      ack:$/ { f = 1; next } f && /^      [a-z_]+:$/ { exit } f { print }' | tr -d ' \n')" "type:string"
-for pair in "review_level_choice:PROBE_FAR_RULE" "pr_creation:PROBE_NEAR_RULE"; do
+for pair in "implementation:PROBE_FAR_RULE" "reproduce:PROBE_FAR_RULE_FIX" "pr_creation:PROBE_NEAR_RULE"; do
     st=${pair%%:*}; v=${pair#*:}
     check "$st declares directive_rules for probe/ack-value (check probe_ack, full, when_set $v)" \
         "$(extract_state "$st" | awk '/^    directive_rules:$/ { f = 1; next } f && /^    [a-z_#]/ { exit } f { print }' | tr -d ' \n')" \
@@ -231,7 +246,9 @@ stub_block() {
         { print }'
 }
 
-SHIPPED="offload_canary offload_arm_withheld offload_arm_preloaded probe_draw probe_arm_near probe_arm_far probe_arm_far_redeliver review_level_choice pr_precheck probe_near pr_creation ci_monitor"
+SHIPPED="offload_canary offload_arm_withheld offload_arm_preloaded probe_draw probe_arm_near probe_arm_far probe_arm_far_redeliver reproduce implementation pr_precheck probe_near pr_creation ci_monitor"
+# The stubs that pass a run on rather than end it.
+PASSING="fix_determination changed_paths_record analysis"
 # build <file> <with-probe-lines: yes|no>: the fixture; with `no`, the two
 # directive lines the probe adds are left out, which is the template without
 # the probe as far as any directive can show.
@@ -239,7 +256,10 @@ build() {
     local file=$1 keep=$2 s blocks="" t stubs="" body
     for s in $SHIPPED; do
         case $s in
-            review_level_choice) blocks="$blocks$(stub_block "$(extract_state $s)" __action__=1)
+            reproduce) blocks="$blocks$(stub_block "$(extract_state $s)" red_recorded=1 \
+                | sed 's|^        command: "exit 1"$|        command: '"'"'test -f "{{SESSION_DIR}}/red-ok"'"'"'|')
+" ;;
+            implementation) blocks="$blocks$(stub_block "$(extract_state $s)" on_feature_branch_impl=0)
 " ;;
             pr_precheck) blocks="$blocks$(stub_block "$(extract_state $s)" branch_docs_visibility=0 tests_still_counted=0)
 " ;;
@@ -252,7 +272,7 @@ build() {
         esac
     done
     for t in $(printf '%s\n' "$blocks" | awk '/^      - target:/ { print $3 }' | sort -u); do
-        case " $SHIPPED fix_determination " in *" $t "*) ;; *) stubs="$stubs $t" ;; esac
+        case " $SHIPPED $PASSING " in *" $t "*) ;; *) stubs="$stubs $t" ;; esac
     done
     {
         printf '%s\n' '---' 'name: probe-routes-fixture' 'version: "1.0"' \
@@ -264,11 +284,17 @@ build() {
         for v in OFFLOAD_CANARY PROBE REVIEW_LEVEL REVIEW_FLOOR REVIEW_CEILING; do extract_var $v; done
         printf '%s\n' 'states:'
         printf '%s' "$blocks"
-        # `go: back` stands in for analysis looping back on a scope change,
-        # the path that re-enters offload_canary and probe_draw.
-        printf '%s\n' '  fix_determination:' '    accepts:' '      go:' '        type: enum' '        values: [pr, back]' \
-            '        required: true' '    transitions:' '      - target: pr_precheck' '        when:' '          go: pr' \
-            '      - target: offload_canary' '        when:' '          go: back'
+        # fix_determination routes in the tick that enters it, as the
+        # shipped one does: a fix when the case wrote `fix` into the session
+        # directory, a change otherwise.
+        printf '%s\n' '  fix_determination:' '    gates:' '      kind_route:' '        type: command' \
+            "        command: 'test -f \"{{SESSION_DIR}}/fix\" && exit 3; exit 0'" '    transitions:' \
+            '      - target: implementation' '        when:' '          gates.kind_route.exit_code: 0' \
+            '      - target: reproduce' '        when:' '          gates.kind_route.exit_code: 3'
+        printf '%s\n' '  changed_paths_record:' '    transitions:' '      - target: pr_precheck'
+        # analysis passes straight back into offload_canary: the loop a
+        # scope change takes, which re-enters probe_draw.
+        printf '%s\n' '  analysis:' '    transitions:' '      - target: offload_canary'
         for t in $stubs; do
             printf '%s\n' "  $t:" '    terminal: true'
             [ "$t" = done_blocked ] && printf '%s\n' '    failure: true' '    accepts:' '      failure_reason:' '        type: string'
@@ -276,10 +302,10 @@ build() {
         printf '%s\n' '---'
         for s in $SHIPPED; do
             body=$(section $s)
-            [ "$keep" = yes ] || body=$(printf '%s\n' "$body" | grep -vxE '\{\{PROBE_(FAR|NEAR)_RULE\}\}')
+            [ "$keep" = yes ] || body=$(printf '%s\n' "$body" | grep -vxE '\{\{PROBE_(FAR|NEAR)_RULE(_FIX)?\}\}')
             printf '%s\n' '' "## $s" "$body"
         done
-        printf '%s\n' '' '## fix_determination' '' 'Submit go: pr.'
+        for t in $PASSING; do printf '%s\n' '' "## $t" '' 'Passes on.'; done
         for t in $stubs; do printf '%s\n' '' "## $t" '' 'Stub.'; done
     } > "$file"
 }
@@ -305,7 +331,6 @@ start() {
         || { fail "koto init $SESS: $(cat "$T/init.err")"; return 1; }
     printf '%s\n' "$BASE" | (cd "$REPO" && koto context add "$SESS" impl_base) >/dev/null 2>&1
     SDIR=$(cd "$REPO" && koto session dir "$SESS" 2>/dev/null)
-    TPL=$tpl
     RESPS=()
 }
 tick() { RESP=$(cd "$REPO" && koto next "$SESS" --no-cleanup "$@" 2>/dev/null); RESPS+=("$RESP"); }
@@ -314,16 +339,15 @@ state_of() { printf '%s' "$RESP" | jq -r '.state // empty'; }
 directive_of() { printf '%s' "$RESP" | jq -r '.directive // ""'; }
 # preset <arm> <value>: a record as draw writes it, so the run's arm is known.
 preset() { mkdir -p "$SDIR/probe" && printf '%s\n' "$2" > "$SDIR/probe/value" && printf '%s\n' "$1" > "$SDIR/probe/arm"; }
-# to_choice: the first tick; to_pr: on through review_level_choice and
-# fix_determination to pr_creation. D_RLC and D_PRC keep the two directives.
+# to_choice: the first tick, which passes fix_determination and stops at
+# implementation (reproduce for a fix); to_pr: on from implementation through
+# pr_precheck to pr_creation. D_RLC and D_PRC keep the two directives.
 to_choice() { tick; D_RLC=$(directive_of); }
 to_pr() {
-    (cd "$REPO" && koto init "$SESS" --template "$TPL" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" \
-        --var REVIEW_LEVEL=full "$@" >/dev/null 2>&1)
-    tick
-    submit '{"go":"pr"}'
+    submit '{"implementation_status":"complete"}'
     D_PRC=$(directive_of)
 }
+deliveries() { records "$SESS" 'select(.kind == "rule_delivered" and ."koto.rule.via" == "directive")' | grep -c .; }
 entered() {
     [ -f "$JOURNAL" ] || { echo 0; return; }
     jq -c --arg s "$1" --arg st "$2" 'select(.kind == "state_entered" and .session == $s and ."koto.state" == $st)' \
@@ -351,7 +375,7 @@ for mode in no-opt-in probe-off; do
     pr_state=$(state_of); arrival=$RESP
     submit '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/7"}'
     after=$(state_of)
-    check "$mode: the tick that leaves offload_canary returns review_level_choice" "$first_state" review_level_choice
+    check "$mode: the tick that leaves offload_canary returns implementation" "$first_state" implementation
     check "$mode: the tick that leaves pr_precheck returns pr_creation" "$pr_state" pr_creation
     check "$mode: created advances to ci_monitor and on past it" "$after" ci_pass_counting
     [ ! -e "$SDIR/probe" ] && pass "$mode: nothing written under probe/" || fail "$mode: probe/ holds $(ls -A "$SDIR/probe")"
@@ -365,7 +389,7 @@ for mode in no-opt-in probe-off; do
         "$(records "$SESS" 'select(.kind == "rule_delivered" and ."koto.rule.id" == "probe/ack-value")' | grep -c .)" 0
     check "$mode: every probe gate evaluation passed" \
         "$(records "$SESS" 'select(.kind == "check_evaluated" and (."koto.check" == "probe_ack" or ."koto.check" == "probe_value_absent" or ."koto.check" == "probe_arm") and ."koto.check" != "probe_arm") | ."koto.check.outcome"' | sort -u | tr -d '"' | tr '\n' ' ')" "passed "
-    check "$mode: probe_arm took the no-arm edge (exit 3)" "$(records "$SESS" 'select(.kind == "state_entered") | ."koto.state"' | tr -d '"' | grep -A1 '^probe_draw$' | tail -n 1)" review_level_choice
+    check "$mode: probe_arm took the no-arm edge (exit 3)" "$(records "$SESS" 'select(.kind == "state_entered") | ."koto.state"' | tr -d '"' | grep -A1 '^probe_draw$' | tail -n 1)" fix_determination
     check "$mode: no probe finding" "$(records "$SESS" 'select(.kind == "check_finding" and ((."koto.rule.id" // "") | startswith("probe/")))' | grep -c .)" 0
     check "$mode: the arrival response at pr_creation lists no probe gate" \
         "$(printf '%s' "$arrival" | jq -r '[.blocking_conditions[]? | .name | select(startswith("probe"))] | length')" 0
@@ -374,13 +398,13 @@ for mode in no-opt-in probe-off; do
     start "$NOPROBE" ${extra[@]+"${extra[@]}"} || continue
     to_choice; to_pr ${extra[@]+"${extra[@]}"}
     [ "$(printf '%s' "$P_RLC" | sed "s/probe-[0-9]*/S/g" | strip)" = "$(printf '%s' "$D_RLC" | sed "s/probe-[0-9]*/S/g" | strip)" ] \
-        && pass "$mode: review_level_choice renders as the probe-free template's (trailing whitespace stripped)" \
-        || fail "$mode: review_level_choice differs from the probe-free template's"
+        && pass "$mode: implementation renders as the probe-free template's (trailing whitespace stripped)" \
+        || fail "$mode: implementation differs from the probe-free template's"
     [ "$(printf '%s' "$P_PRC" | sed "s/probe-[0-9]*/S/g" | strip)" = "$(printf '%s' "$D_PRC" | sed "s/probe-[0-9]*/S/g" | strip)" ] \
         && pass "$mode: pr_creation renders as the probe-free template's (trailing whitespace stripped)" \
         || fail "$mode: pr_creation differs from the probe-free template's"
     # The comparisons above mean nothing if either directive came back empty.
-    if grep -qF 'Choose this run' <<<"$P_RLC" && grep -qF 'SHARED_BRANCH' <<<"$P_PRC"; then
+    if grep -qF 'phase-4-implementation.md' <<<"$P_RLC" && grep -qF 'SHARED_BRANCH' <<<"$P_PRC"; then
         pass "$mode: both directives rendered (control for the comparisons)"
     else
         fail "$mode: a directive came back empty or unexpected"
@@ -397,7 +421,7 @@ while [ $tries -lt 40 ]; do
     a=$(cat "$SDIR/probe/arm" 2>/dev/null)
     case " $SEEN " in *" $a "*) ;; *) [ -n "$a" ] && SEEN="$SEEN $a"
         check "a drawn $a run enters probe_arm_$a once" "$(entered "$SESS" "probe_arm_$a")" 1
-        check "a drawn $a run reaches review_level_choice in the same tick" "$(state_of)" review_level_choice ;;
+        check "a drawn $a run reaches implementation in the same tick" "$(state_of)" implementation ;;
     esac
     tries=$((tries + 1))
     case "$SEEN" in *near*far*far_redeliver*|*) [ "$(printf '%s' "$SEEN" | wc -w | tr -d ' ')" -eq 3 ] && break ;; esac
@@ -411,7 +435,7 @@ for a in near far far_redeliver; do
     start "$FIX" || continue
     preset $a "$V"
     to_choice
-    check "$a: marker probe_arm_$a entered before review_level_choice" "$(entered "$SESS" "probe_arm_$a")" 1
+    check "$a: marker probe_arm_$a entered before implementation" "$(entered "$SESS" "probe_arm_$a")" 1
     to_pr
     rule=$(full_text "$V")
     in_rlc=$(printf '%s' "$D_RLC" | grep -cF -- "$rule")
@@ -419,14 +443,14 @@ for a in near far far_redeliver; do
     others=0
     for r in ${RESPS[@]+"${RESPS[@]}"}; do
         st=$(printf '%s' "$r" | jq -r .state)
-        case $st in review_level_choice|pr_creation) continue ;; esac
+        case $st in implementation|pr_creation) continue ;; esac
         dir=$(printf '%s' "$r" | jq -r '.directive // ""')
         grep -qF -- "$V" <<<"$dir" && others=$((others + 1))
     done
     if [ $a = near ]; then
-        check "near: the rule is in pr_creation's directive and not review_level_choice's" "$in_rlc/$in_prc" "0/1"
+        check "near: the rule is in pr_creation's directive and not implementation's" "$in_rlc/$in_prc" "0/1"
     else
-        check "$a: the rule is in review_level_choice's directive and not pr_creation's" "$in_rlc/$in_prc" "1/0"
+        check "$a: the rule is in implementation's directive and not pr_creation's" "$in_rlc/$in_prc" "1/0"
     fi
     check "$a: no other directive holds the value" "$others" 0
     check "$a: the arrival response at pr_creation lists no probe gate" "$(printf '%s' "$RESP" | jq -r '[.blocking_conditions[]? | .name | select(startswith("probe"))] | length')" 0
@@ -436,11 +460,43 @@ for a in near far far_redeliver; do
 done
 for a in near far far_redeliver; do
     eval "SESS=\$S_$a"
-    want=pr_creation; [ $a = near ] || want=review_level_choice
+    want=pr_creation; [ $a = near ] || want=implementation
     check "$a: one directive rule_delivered, at $want, via directive, full" \
         "$(records "$SESS" 'select(.kind == "rule_delivered") | "\(."koto.state")|\(."koto.rule.via")|\(."koto.rule.extent")|\(."koto.check.name")|\(."koto.rule.id")"' | tr -d '"' | tr '\n' ' ')" \
         "$want|directive|full|probe_ack|probe/ack-value "
 done
+
+# --- the far rule, once per run ------------------------------------------------
+
+# A change: implementation carries it on the first entry; a retry re-enters
+# implementation, re-runs far-text, and prints and records nothing more.
+start "$FIX" && preset far "$V" && to_choice
+check "far change: the first implementation directive carries the rule" "$(printf '%s' "$D_RLC" | grep -cF -- "$(full_text "$V")")" 1
+tick
+check "far change: a tick that holds at implementation re-prints it without the rule" \
+    "$(state_of)/$(directive_of | grep -cF -- "$V")" "implementation/0"
+submit '{"implementation_status":"partial_tests_failing_retry"}'
+check "far change: a retry back into implementation shows no rule" \
+    "$(state_of)/$(directive_of | grep -cF -- "$V")" "implementation/0"
+check "far change: one directive delivery after the hold and the retry" "$(deliveries)" 1
+to_pr
+check "far change: pr_creation's directive doesn't carry it" "$(directive_of | grep -cF -- "$V")" 0
+check "far change: still one directive delivery at pr_creation" "$(deliveries)" 1
+# A fix: reproduce, the first state it stops in, carries it; its holds and the
+# move on to implementation show it no more.
+start "$FIX" && preset far "$V" && : > "$SDIR/fix" && to_choice
+check "far fix: the first tick stops at reproduce" "$(state_of)" reproduce
+check "far fix: reproduce's directive carries the rule" "$(printf '%s' "$D_RLC" | grep -cF -- "$(full_text "$V")")" 1
+tick
+check "far fix: a tick that holds at reproduce shows no rule" "$(state_of)/$(directive_of | grep -cF -- "$V")" "reproduce/0"
+: > "$SDIR/red-ok"
+tick
+check "far fix: once the red is recorded, implementation shows no rule" "$(state_of)/$(directive_of | grep -cF -- "$V")" "implementation/0"
+check "far fix: one directive delivery, at reproduce" \
+    "$(records "$SESS" 'select(.kind == "rule_delivered") | ."koto.state"' | tr -d '"' | tr '\n' ' ')" "reproduce "
+# A near fix: reproduce and implementation never carry the rule.
+start "$FIX" && preset near "$V" && : > "$SDIR/fix" && to_choice
+check "near fix: reproduce's directive doesn't carry the rule" "$(state_of)/$(directive_of | grep -cF -- "$V")" "reproduce/0"
 
 # --- misses, the hold, and the created edges ---------------------------------------
 
@@ -508,39 +564,33 @@ SENDOUT=$(cd "$REPO" && koto session export "$SESS" 2>/dev/null; koto journal ex
 [ -z "$SENDOUT" ] || ! grep -qiF -e "$V" <<<"$SENDOUT" \
     && pass "an export of the session's journal holds no trace of the value" || fail "an export carries the value"
 
-# Going back to the draw. A far_redeliver run at review_level_choice is
-# rewound, and then loops back through offload_canary into probe_draw, as
-# analysis does on a scope change.
+# Going back to the draw. A far_redeliver run at implementation is rewound,
+# and then loops back through analysis, offload_canary and probe_draw, as a
+# scope change does.
 start "$FIX" && preset far_redeliver "$V"
 to_choice
 cp "$SDIR/probe/arm" "$T/a.before"; cp "$SDIR/probe/value" "$T/v.before"
-# koto rewind steps back one state (a second steps forward again), so from
-# review_level_choice it reaches the marker; the next tick passes through to
-# review_level_choice again, which re-prints its directive: a re-print, and
-# koto records it as one, as for any tick that holds there.
+# koto rewind steps back one state, so from implementation it reaches
+# fix_determination; the next tick routes on to implementation again, whose
+# action runs far-text again and prints nothing, so the re-print carries no
+# rule and records no delivery.
 st=$(cd "$REPO" && koto rewind "$SESS" 2>/dev/null | jq -r '.state // empty')
-check "koto rewind steps back from review_level_choice to the marker" "$st" probe_arm_far_redeliver
+check "koto rewind steps back from implementation to fix_determination" "$st" fix_determination
 tick
-check "the rewound run resumes at review_level_choice" "$(state_of)" review_level_choice
+check "the rewound run resumes at implementation" "$(state_of)" implementation
+check "the rewound run's implementation directive doesn't carry the rule again" "$(directive_of | grep -cF -- "$V")" 0
 cmp -s "$SDIR/probe/arm" "$T/a.before" && cmp -s "$SDIR/probe/value" "$T/v.before" \
     && pass "the rewind leaves the recorded arm and value byte-identical" || fail "the rewind changed the record"
 before=$(records "$SESS" 'select(.kind == "rule_delivered")' | grep -c .)
-(cd "$REPO" && koto init "$SESS" --template "$TPL" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" \
-    --var REVIEW_LEVEL=full >/dev/null 2>&1)
-tick
-# The level is unbound again on the way back, so review_level_choice waits
-# and prints its directive, as on a first visit.
-(cd "$REPO" && koto init "$SESS" --template "$TPL" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" \
-    --var REVIEW_LEVEL= >/dev/null 2>&1)
-submit '{"go":"back"}'
-check "the loop back re-enters probe_draw and reaches review_level_choice" \
-    "$(entered "$SESS" probe_draw)/$(state_of)" "2/review_level_choice"
+submit '{"implementation_status":"scope_expanded_retry"}'
+check "the loop back re-enters probe_draw and reaches implementation" \
+    "$(entered "$SESS" probe_draw)/$(state_of)" "2/implementation"
 cmp -s "$SDIR/probe/arm" "$T/a.before" && cmp -s "$SDIR/probe/value" "$T/v.before" \
     && pass "re-entering probe_draw redraws nothing: arm and value byte-identical" || fail "the second draw changed the record"
-check "after re-entering probe_draw, review_level_choice no longer carries the rule" "$(directive_of | grep -cF -- "$V")" 0
+check "after re-entering probe_draw, implementation no longer carries the rule" "$(directive_of | grep -cF -- "$V")" 0
 check "after re-entering probe_draw, no further directive delivery is recorded" \
     "$(records "$SESS" 'select(.kind == "rule_delivered")' | grep -c .)" "$before"
-check "... and the rewind's re-print was the one extra (two directive deliveries in all)" "$before" 2
+check "... and the rewind added none (one directive delivery in all)" "$before" 1
 to_pr
 submit '{"pr_status":"created","pr_url":"https://github.com/o/r/pull/7","ack":"miss"}'
 check "the first miss after the loop back adds one check_output delivery and no directive one" \

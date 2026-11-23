@@ -1986,14 +1986,16 @@ engine_to_scrutiny() {
     submit "$s" '{"status":"override"}'
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
     printf 'AC: the issue body\n' | koto context add "$s" context.md >/dev/null 2>&1
-    submit "$s" '{"plan_outcome":"plan_ready"}'
+    # Before plan_ready, whose tick runs fix_determination's action, which
+    # reads it.
     git rev-parse main | koto context add "$s" impl_base >/dev/null 2>&1
-    # The full review level keeps all three panels on the path.
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
+    submit "$s" '{"plan_outcome":"plan_ready"}'
+    # A raise to full, which the level check keeps: all three panels on the path.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$s" full >/dev/null 2>&1 \
         || { fail "$s: review-level.sh set full failed"; return 1; }
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    koto next "$s" --no-cleanup >/dev/null 2>&1
     submit "$s" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$s" '{"issue_type":"code"}'
     [ "$NEXT_STATE" = scrutiny ] || { fail "$s: walk stopped at [$NEXT_STATE] before scrutiny"; return 1; }

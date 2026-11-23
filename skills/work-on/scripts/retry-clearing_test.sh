@@ -236,16 +236,17 @@ to_analysis() {
 to_implementation() {
     to_analysis "$1"
     seed "$1" plan.md
-    submit "$1" '{"plan_outcome":"plan_ready"}'
     # analysis recorded HEAD, which already carries the fixture's work commit;
-    # the run's base is the commit before it.
+    # the run's base is the commit before it. Set before plan_ready, whose tick
+    # runs fix_determination's action, which reads it.
     git rev-parse HEAD~1 | koto context add "$1" impl_base >/dev/null 2>&1
-    # The review level, chosen before implementation: full keeps all three
-    # panels on the code route this harness walks.
+    # plan_ready runs through fix_determination, whose action records the
+    # bound and the kind and whose kind_route gate routes on it in the same
+    # tick, to implementation.
+    submit "$1" '{"plan_outcome":"plan_ready"}'
+    # A raise to full, which the level check keeps: all three panels on the
+    # code route this harness walks.
     "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
-    # Into fix_determination, whose action records the kind and whose
-    # kind_route gate routes on it in the same tick, to implementation.
-    koto next "$1" >/dev/null 2>&1
 }
 
 # A finished implementation crosses changed_paths_record on its own and stops at
@@ -423,11 +424,12 @@ fi
 to_analysis plan-adv
 seed plan-adv plan.md
 submit plan-adv '{"plan_outcome":"plan_ready"}'
-# With no review level chosen yet, plan_ready stops at the level choice.
-if [ "$NEXT_STATE" = "review_level_choice" ]; then
-    pass "analysis: plan.md present + plan_ready -> advances to review_level_choice"
+# No level is chosen up front: plan_ready runs through fix_determination to
+# implementation.
+if [ "$NEXT_STATE" = "implementation" ]; then
+    pass "analysis: plan.md present + plan_ready -> advances to implementation"
 else
-    fail "analysis: plan.md present + plan_ready -> expected review_level_choice, got [$NEXT_STATE]"
+    fail "analysis: plan.md present + plan_ready -> expected implementation, got [$NEXT_STATE]"
 fi
 
 # --- Case 5/6 — the two summary gates -----------------------------------------

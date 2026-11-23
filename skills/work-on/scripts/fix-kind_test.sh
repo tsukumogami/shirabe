@@ -270,6 +270,12 @@ run declare s9 --reason late
 eq "declare from implementation: exit 1" 1 "$RC"
 has "declare from implementation: refused naming the state" "refused: a fix is declared at analysis" "$OUT"
 eq "declare from implementation: no ledger" "" "$(ledger s9)"
+# review_level_choice is gone from the template, and with it from the states a
+# fix may be declared in: a session reporting it is past the point.
+new_session s9c review_level_choice
+run declare s9c --reason "a state the template no longer has"
+eq "declare from review_level_choice: exit 1" 1 "$RC"
+eq "declare from review_level_choice: no ledger" "" "$(ledger s9c)"
 new_session s9b analysis
 run declare s9b --reason "on a return to analysis"
 eq "declare at analysis: recorded" "fix" "$(var s9b UNIT_KIND)"
