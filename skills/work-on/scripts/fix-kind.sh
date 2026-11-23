@@ -33,8 +33,9 @@
 #             --fix-report when given, else the issue body, else the
 #             free-form task text from --task-log (the session's event log),
 #             else the session's `context.md`.
-#   declare   run by the agent at fix_determination, or at analysis on a
-#             return there: records the unit as a fix with source `declared`
+#   declare   run by the agent at analysis, before fix_determination, which
+#             routes in the tick that enters it (or there, when a hand
+#             rebind holds the run): records the unit as a fix with source `declared`
 #             and the reason. On a unit already recorded as a fix it writes no
 #             line and rebinds UNIT_KIND to `fix`, which clears a hand
 #             rebind's hold. Refused (exit 1) from any other state, since a
@@ -430,7 +431,7 @@ cmd_declare() {
     [ -n "$state" ] || die 66 "could not read the session's state with koto status"
     case "$DECLARE_STATES" in
         *" $state "*) ;;
-        *) refuse "a fix is declared at fix_determination, or at analysis on a return there (and the states between the two); the run is at $state, past the point its red would come first. Return to analysis (scope_expanded_retry) and declare it there" ;;
+        *) refuse "a fix is declared at analysis, before fix_determination routes (or at fix_determination while it holds); the run is at $state, past the point its red would come first. Return to analysis (scope_expanded_retry) and declare it there" ;;
     esac
 
     ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"

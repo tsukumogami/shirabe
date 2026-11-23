@@ -53,9 +53,11 @@ variables:
   ISSUE_TYPE:
     description: >
       Issue type hint supplied by the plan orchestrator (code, docs, or task).
-      A starting point only. The type is asked once, at issue_type_routing,
-      after implementation, where the agent confirms or overrides this hint
-      with changed_paths.txt in context. It is not submitted at analysis or
+      At issue_type_routing, after implementation, a `code` hint with a
+      recorded diff that touches anything but plain documentation takes the
+      code route with nothing asked (the code_route gate). Otherwise the type
+      is asked there, once, and the agent confirms or overrides this hint with
+      changed_paths.txt in context. It is not submitted at analysis or
       implementation.
     required: false
     default: code
@@ -2432,7 +2434,8 @@ states:
         type: enum
         values: [removed, none_found]
         description: >-
-          With ready_for_pr: whether the cleanup pass removed anything. An enum
+          Required with ready_for_pr (the route lists each value), ignored
+          otherwise: whether the cleanup pass removed anything. An enum
           rather than prose, because a free-text field here is satisfied by
           "cleaned up". The commit it was judged against goes in pre_pr.md,
           where cleanup_referent checks it is HEAD or an ancestor of it.
@@ -2440,7 +2443,8 @@ states:
         type: enum
         values: [updated, not_applicable]
         description: >-
-          With ready_for_pr: whether a design diagram was updated. The path
+          Required with ready_for_pr (the route lists each value), ignored
+          otherwise: whether a design diagram was updated. The path
           updated, or the reason it does not apply, goes in pre_pr.md, where
           diagram_referent checks it.
       check_exit_reason:
@@ -2463,9 +2467,46 @@ states:
       # verification_verdict exit 0 or a deferral to hosted CI with a reason
       # (verification_deferred).
       # It also requires both artifacts to pass the checks on them above.
+      # One edge per combination of cleanup_done and design_diagram: koto can
+      # test an evidence field only for a value, so listing every value pair
+      # is what makes both required on this route, as they were at
+      # pre_pr_evidence, while issues_found and the other outcomes need
+      # neither. A ready_for_pr without them matches no edge and holds.
       - target: pr_precheck
         when:
           finalization_status: ready_for_pr
+          cleanup_done: removed
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          finalization_status: ready_for_pr
+          cleanup_done: removed
+          design_diagram: not_applicable
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          finalization_status: ready_for_pr
+          cleanup_done: none_found
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          finalization_status: ready_for_pr
+          cleanup_done: none_found
+          design_diagram: not_applicable
           gates.summary_exists.exists: true
           gates.summary_shape.matches: true
           gates.cleanup_referent.exit_code: 0
@@ -2510,6 +2551,17 @@ states:
         type: enum
         values: [approved, rejected]
         required: true
+      cleanup_done:
+        type: enum
+        values: [removed, none_found]
+        description: >-
+          Required with approved, as finalization's ready_for_pr requires it:
+          whether the cleanup pass removed anything.
+      design_diagram:
+        type: enum
+        values: [updated, not_applicable]
+        description: >-
+          Required with approved: whether a design diagram was updated.
       deferral_detail:
         type: string
         description: >
@@ -2519,9 +2571,43 @@ states:
           rather than closing it, so the issue stays open with the criterion on
           it, and pr_creation's closing_keyword gate holds the body to that.
     transitions:
+      # Approved, like finalization's ready_for_pr, lists each pair of the two
+      # judgment enums, so an approval without them holds.
       - target: pr_precheck
         when:
           approval_decision: approved
+          cleanup_done: removed
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          approval_decision: approved
+          cleanup_done: removed
+          design_diagram: not_applicable
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          approval_decision: approved
+          cleanup_done: none_found
+          design_diagram: updated
+          gates.summary_exists.exists: true
+          gates.summary_shape.matches: true
+          gates.cleanup_referent.exit_code: 0
+          gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
+      - target: pr_precheck
+        when:
+          approval_decision: approved
+          cleanup_done: none_found
+          design_diagram: not_applicable
           gates.summary_exists.exists: true
           gates.summary_shape.matches: true
           gates.cleanup_referent.exit_code: 0
@@ -4463,8 +4549,11 @@ them the run can't meet still goes to `deferral_requested` and a person.
 Submit `finalization_status: ready_for_pr` only when every acceptance criterion is met,
 with `cleanup_done` (`removed` or `none_found`) and `design_diagram` (`updated` or
 `not_applicable`). The evidence value is the underscored enum; the `pre_pr.md`
-line is the hyphenated form with a reason. A passing submission goes straight to
-`pr_precheck`.
+line is the hyphenated form with a reason. Both are required with `ready_for_pr`:
+a submission without them holds. A passing submission goes straight to
+`pr_precheck`. If an obligation can't be met, don't record a referent you can't
+stand behind: submit `issues_found` to fix it, or `deferral_requested` to put it
+in front of a person.
 Submit `issues_found` to return to implementation. If an acceptance criterion is unmet
 and you want to defer it, submit `deferral_requested` — this does NOT finalize the issue;
 it routes to the `deferral_approval` human gate. There is no self-reported clean deferral
@@ -4513,6 +4602,8 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
 
 Evidence schema:
 - `approval_decision`: `approved` or `rejected`
+- `cleanup_done` and `design_diagram`, with `approved`, as `finalization` takes them
+  with `ready_for_pr`; an approval without them holds
 - `deferral_detail`: the unmet criterion and the human's rationale
 
 ## pr_precheck

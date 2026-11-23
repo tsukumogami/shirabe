@@ -268,7 +268,7 @@ has "declare on a fix: says so" "already a fix (source declared)" "$OUT"
 new_session s9 implementation
 run declare s9 --reason late
 eq "declare from implementation: exit 1" 1 "$RC"
-has "declare from implementation: refused naming the state" "refused: a fix is declared at fix_determination" "$OUT"
+has "declare from implementation: refused naming the state" "refused: a fix is declared at analysis" "$OUT"
 eq "declare from implementation: no ledger" "" "$(ledger s9)"
 new_session s9b analysis
 run declare s9b --reason "on a return to analysis"

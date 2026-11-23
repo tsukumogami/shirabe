@@ -22,8 +22,9 @@
 #
 # Exit codes:
 #   0  -- code, decided from the facts
-#   1  -- not decided: the state asks the agent
-#   64 -- usage
+#   1  -- not decided: the state asks the agent. Bad arguments land here
+#         too: the gate's edges name only 0 and 1, and asking is the safe
+#         answer, where any other code would hold the state with no route
 #
 # Nothing on stdout but one `route:` line saying which and why. Bash 3.2.
 set -uo pipefail
@@ -31,12 +32,12 @@ set -uo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 RL="$SCRIPT_DIR/review-level.sh"
 
-[ $# -eq 2 ] || { echo "usage: issue-type-route.sh <session> <issue-type-hint>" >&2; exit 64; }
+ask() { echo "route: ask ($1)"; exit 1; }
+
+[ $# -eq 2 ] || { echo "usage: issue-type-route.sh <session> <issue-type-hint>" >&2; ask "bad arguments"; }
 SESSION=$1
 HINT=$2
-case "$SESSION" in ""|-*|*[!A-Za-z0-9._-]*) echo "issue-type-route: bad session name [$SESSION]" >&2; exit 64 ;; esac
-
-ask() { echo "route: ask ($1)"; exit 1; }
+case "$SESSION" in ""|-*|*[!A-Za-z0-9._-]*) ask "bad session name [$SESSION]" ;; esac
 
 [ "$HINT" = code ] || ask "the type hint is ${HINT:-empty}, not code"
 
