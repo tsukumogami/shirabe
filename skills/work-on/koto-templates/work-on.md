@@ -1216,19 +1216,29 @@ states:
     # it needs no local branch named main and ignores commits the run didn't
     # make; an unrecorded impl_base fails it (scripts/has-commits.sh).
     #
-    # issue_type is decider-eligible: `code` is auto, and `docs` and `task`
-    # are never. The code route tests no gate, so `code` clears koto's
-    # promotion floor; the docs route's gate is one reason docs stays never.
-    # A code answer the decider gives at or above its threshold advances the
-    # state with no agent turn: the agent answered code on almost every run,
-    # and the facts floor at review_level_check, not this answer, is what
-    # keeps a risky change at full review. koto applies the lowest of this
-    # mode and the user's (KOTO_DECIDER or decider.mode, off by default), so
-    # the stop goes away only for a user who switched the decider on, and
-    # KOTO_DECIDER=shadow keeps it for one who did. The inputs are the two
-    # keys the directive already points the agent at, both gated upstream.
-    # Fixtures: work-on.issue_type_routing.issue_type.decider.jsonl.
+    # issue_type is decider-eligible: `code` is shadow, and `docs` and `task`
+    # are never. `code` can't be promoted to auto while its edge tests
+    # code_route (koto's floor refuses an auto answer along a gated edge), and
+    # it doesn't need to be: code_route below decides the common code case
+    # from facts for every user, where a decider in auto would act only for a
+    # user who switched the decider on (koto applies the lowest of the
+    # template's mode and the user's, which is off by default). The decider
+    # still records its answer for the cases the facts leave open. The inputs
+    # are the two keys the directive already points the agent at, both gated
+    # upstream. Fixtures: work-on.issue_type_routing.issue_type.decider.jsonl.
+    #
+    # code_route decides the common case from facts, whatever the decider's
+    # mode: a `code` hint (ISSUE_TYPE) and a recorded diff that names a path
+    # review-level.sh doesn't class as plain documentation take the code route
+    # on entry, with nothing asked (issue-type-route.sh). Code is the route
+    # that reviews the most, so the facts only ever add review. Every other
+    # case, a docs or task hint, a documentation-only or empty diff, asks as
+    # before, and every evidence edge requires code_route to have exited 1 so
+    # the two kinds of edge never both match.
     gates:
+      code_route:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/issue-type-route.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/issue-type-route.sh" "{{SESSION_NAME}}" "{{ISSUE_TYPE}}"'
       has_commits:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
@@ -1247,7 +1257,7 @@ states:
           unsure; it is the route that checks the most.
         decider:
           answers:
-            code: {description: "Changes behaviour: source, tests, build or CI logic, or a skill or koto template that drives a workflow, even when every changed path ends in .md.", mode: auto}
+            code: {description: "Changes behaviour: source, tests, build or CI logic, or a skill or koto template that drives a workflow, even when every changed path ends in .md."}
             docs: {description: "Changes only writing or structural documentation that no workflow executes, such as READMEs, guides, and design or planning docs.", mode: never}
             task: {description: "Operational work, such as running scripts or commands, that left no reviewable change set.", mode: never}
           escape: {value: unclear, description: "The issue context or the changed paths are missing, truncated, or contradict each other too much to judge."}
@@ -1258,25 +1268,33 @@ states:
       # A code change passes the review-level check before its first panel.
       - target: review_level_check
         when:
+          gates.code_route.exit_code: 0
+      - target: review_level_check
+        when:
+          gates.code_route.exit_code: 1
           issue_type: code
       # Every edge into verification has a twin into verification_deferred,
       # split on VERIFICATION; see that state's comment.
       - target: verification
         when:
+          gates.code_route.exit_code: 1
           issue_type: docs
           gates.has_commits.exit_code: 0
           vars.VERIFICATION: local
       - target: verification_deferred
         when:
+          gates.code_route.exit_code: 1
           issue_type: docs
           gates.has_commits.exit_code: 0
           vars.VERIFICATION: hosted-ci
       - target: verification
         when:
+          gates.code_route.exit_code: 1
           issue_type: task
           vars.VERIFICATION: local
       - target: verification_deferred
         when:
+          gates.code_route.exit_code: 1
           issue_type: task
           vars.VERIFICATION: hosted-ci
 
@@ -3942,6 +3960,11 @@ submit nothing -- the run advances on its own.
 
 Say what kind of change this issue turned out to be. This is the only place the
 workflow asks, and it routes what happens next.
+
+You see this only when the facts didn't decide it. A run whose hint is `code` and
+whose changed paths include anything other than plain documentation takes the
+code route on entry, with nothing asked (the `code_route` gate). Here the hint is
+not `code`, or every changed path is documentation, or none was recorded.
 
 Read `changed_paths.txt` for what the implementation actually touched, alongside
 the issue context in `context.md`:
