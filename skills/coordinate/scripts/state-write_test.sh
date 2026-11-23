@@ -424,6 +424,23 @@ RS_SESSION=$SP bash "$WR" "${RM[@]}" --pushed-head nobody "$HEAD1" >/dev/null 2>
 eq "  ... and a topic no holding has" 65 $?
 RS_SESSION=$SP bash "$WR" "${RM[@]}" --pushed-head feature-2 "$HEAD1" --close >/dev/null 2>"$T/err"
 eq "  ... --close is usage" 64 $?
+
+echo "== a long record's Holds section =="
+# The Holds owner check reads both sections from files: Linux caps one argument
+# at 131072 bytes, and a long-lived record's Holds section can grow past that.
+reader_state > "$T/cur.json"
+jq -c '.holds += [range(600) | {hold: "h\(.)", on: "acme/widgets#12", until: "lifted", set_by: ("the human " + ("x" * 300)),
+                                set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" > "$T/many-holds.json"
+[ "$(jq -c .holds "$T/many-holds.json" | wc -c)" -gt 131072 ] && ok "the Holds section is over 131072 bytes" \
+    || bad "the Holds section is over 131072 bytes" "$(jq -c .holds "$T/many-holds.json" | wc -c)"
+bash "$T/hold-writer.sh" "${RM[@]}" --state-file "$T/many-holds.json" >/dev/null 2>"$T/err"; rc=$?
+eq "the hold writer adds 600 holds" 0 "$rc"
+reader_state > "$T/cur.json"
+jq -c '(.holds[] | select(.hold == "h7") | .lifted) = "2026-09-29T21:00Z by the human"' "$T/cur.json" > "$T/lift.json"
+bash "$T/hold-writer.sh" "${RM[@]}" --state-file "$T/lift.json" >/dev/null 2>"$T/err"; rc=$?
+eq "  ... then stamps one Lifted cell against that live section" 0 "$rc"
+eq "  ... and the record holds every hold, h7 lifted" "600 2026-09-29T21:00Z by the human" \
+    "$(reader_state | jq -r '"\([.holds[] | select(.hold | startswith("h"))] | length) \(.holds[] | select(.hold == "h7") | .lifted)"')"
 eq "no write in this suite reached GitHub" "" "$(gh_writes)"
 
 done_tests state-write

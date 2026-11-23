@@ -297,9 +297,12 @@ LINE=$(pick)
 RC=$?
 [ "$RC" -eq 0 ] || { printf '%s: the record could not be read\n' "$PROG" >&2; exit "$RC"; }
 
-PASSED=$(jq -R -s -c 'split("\n") | map(select(. != ""))' "$WORK/paused") || { printf '%s: cannot read the topics passed over\n' "$PROG" >&2; exit 2; }
+# The topics passed over go to jq from a file, not argv: nothing caps how many
+# holdings a pause holds, and one argument may hold only 128 KiB on Linux.
+PASSED="$WORK/passed.json"
+jq -R -s -c 'split("\n") | map(select(. != ""))' "$WORK/paused" > "$PASSED" || { printf '%s: cannot read the topics passed over\n' "$PROG" >&2; exit 2; }
 if [ -z "$LINE" ]; then
-    put wait_target "$(jq -nc --argjson p "$PASSED" '{path: "none", passed_over: $p}')"
+    put wait_target "$(jq -nc --slurpfile p "$PASSED" '{path: "none", passed_over: $p[0]}')"
     printf 'none\n'
     exit 0
 fi
@@ -307,5 +310,5 @@ fi
 IFS='	' read -r DISP TOPIC REQ LEG <<EOF
 $LINE
 EOF
-put wait_target "$(jq -nc --arg t "$TOPIC" --arg r "$REQ" --arg l "$LEG" --arg d "$DISP" --argjson p "$PASSED" '{path: "leg", topic: $t, request: $r, leg: $l, disposition: $d, passed_over: $p}')"
+put wait_target "$(jq -nc --arg t "$TOPIC" --arg r "$REQ" --arg l "$LEG" --arg d "$DISP" --slurpfile p "$PASSED" '{path: "leg", topic: $t, request: $r, leg: $l, disposition: $d, passed_over: $p[0]}')"
 printf '%s\n' "$REQ"
