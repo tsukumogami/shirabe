@@ -184,6 +184,9 @@ LAST_SAME=""
 # whether that line carried any (a line written before #2061 doesn't).
 LAST_IDS=""
 LAST_HAS_IDS=0
+# Matched with [[ =~ ]] rather than piped into grep -q, which can stop
+# reading early and fail the pipe (scripts/check-pipe-readers.sh).
+IDS_RE='^[0-9a-f]{16}(,[0-9a-f]{16})*$'
 while IFS=' ' read -r rec_panel rec_count rec_ids rest; do
     [ -n "$rec_panel" ] || continue
     case "$rec_panel" in
@@ -198,7 +201,7 @@ while IFS=' ' read -r rec_panel rec_count rec_ids rest; do
     if [ -n "$rec_ids" ]; then
         # 16 hex characters per id, joined by single commas, and as many ids
         # as the line's count: anything else is a line this script didn't write.
-        printf '%s\n' "$rec_ids" | grep -Eq '^[0-9a-f]{16}(,[0-9a-f]{16})*$' \
+        [[ $rec_ids =~ $IDS_RE ]] \
             && [ "$(printf '%s\n' "$rec_ids" | tr ',' '\n' | grep -c .)" -eq "$((10#$rec_count))" ] \
             || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rec_ids]"
         LAST_IDS=$rec_ids
