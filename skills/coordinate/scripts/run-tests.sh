@@ -17,7 +17,8 @@
 #
 # With SUITE_SLICE=i/n set (a CI matrix job), only slice i of the selected
 # suites runs, chosen by scripts/lib/suite-slice.sh and balanced by the cost
-# table SUITE_SLICE_COSTS names (CI points it at ../check-skill.tsv); the n
+# table SUITE_SLICE_COSTS names (a path from the caller's directory; CI runs
+# from the repository root with skills/coordinate/check-skill.tsv); the n
 # slices together run every suite once, and the closing count line names the
 # slice. Unset or empty, every suite runs. --list prints the suites this run
 # would run, one per line, and runs none.
@@ -88,7 +89,9 @@ done
 rc=0
 n=0
 # One suite path per line; split on newlines only, with globbing off for the
-# split so a path is taken as written.
+# split so a path is taken as written. The list is expanded once, when the
+# loop starts, so the body puts IFS and globbing back at once: the commands
+# in it split and glob as usual.
 OLD_IFS=$IFS
 IFS='
 '
