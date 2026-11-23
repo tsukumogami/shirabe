@@ -65,6 +65,9 @@ ktg_on_exit cleanup
 
 export HOME="$WORKDIR/home"
 export XDG_STATE_HOME="$WORKDIR/state"
+# A fix round's switches, from whatever ran this suite, would change what the
+# fix-round cases carry.
+unset SHIRABE_VERIFY_FULL SHIRABE_VERIFY_BASE
 mkdir -p "$HOME" "$WORKDIR/bin"
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
@@ -1145,6 +1148,176 @@ bo_case 3 'build_output as a string (not invalid)' '"target/"'
 bo_case 4 'build_output with a number and an empty string (not invalid)' '["target/", 1, ""]'
 [ "$BO_SEL" = "$BO_NONE" ] && pass 'build_output holding a number and an empty string selects the same invocations as the map without it' \
     || fail "build_output with a number and an empty string selected $BO_SEL, without it $BO_NONE"
+
+# --- a fix round's carry ------------------------------------------------------------------
+#
+# A session whose context holds fix_round.json ({from, round, base}) carries
+# the checks the run it follows passed at the round's base and that the
+# round's own diff doesn't select. The fixtures:
+#   recenv.sh <rec> <label> [<leaf>]  records its argv and SHIRABE_VERIFY_BASE;
+#   flaky.sh <mode file> <rec>        records itself and SHIRABE_VERIFY_BASE,
+#                                     and passes when the file says pass.
+# The map: an each row over skills/*, and two plain rows for top.txt.
+
+# fix_round <session> <from> <round> <base> [<extra json>]: the session's
+# fix_round.json in the stand-in's store.
+fix_round() {
+    local x=${5:-}
+    [ -n "$x" ] || x='{}'
+    mkdir -p "$KOTO_STUB_STORE/$1"
+    jq -cn --arg from "$2" --argjson round "$3" --arg base "$4" --argjson x "$x" \
+        '{from: $from, round: $round, base: $base} + $x' > "$KOTO_STUB_STORE/$1/fix_round.json"
+}
+
+# expect_check <label> <session> <check> <jq condition>: the result's record
+# for <check> meets <condition>.
+expect_check() {
+    local res
+    res=$(result_of "$2")
+    if jq -e --arg c "$3" "[.commands[] | select(.check == \$c)] | length == 1 and (.[0] | $4)" "$res" >/dev/null 2>&1; then
+        pass "$1: the $3 record has $4"
+    else
+        fail "$1: the $3 record fails $4: $(jq -c --arg c "$3" '[.commands[] | select(.check == $c)]' "$res" 2>&1 | head -c 600)"
+    fi
+}
+
+# ran <label> <want>: what the fixture commands recorded since the last
+# reset, sorted and space-joined, is <want>.
+ran() {
+    local got
+    got=$(LC_ALL=C sort "$CR" 2>/dev/null | tr '\n' ' ')
+    [ "$got" = "$2" ] && pass "$1: ran [$2]" || fail "$1: ran [$got], want [$2]"
+}
+
+echo "--- fix round: the run the round follows"
+CR="$WORKDIR/carry.rec"
+FLAKY="$WORKDIR/flaky.mode"
+CMDS=$(jq -cn --arg f "$CR" --arg m "$FLAKY" '{
+    chk: {run: ["bin/recenv.sh", $f, "chk"], each: "skills/*"},
+    plain: {run: ["bin/recenv.sh", $f, "plain"]},
+    flaky: {run: ["bin/flaky.sh", $m, $f]}}')
+mkrepo carry "$(map "$CMDS" '[{"paths": ["skills/**"], "commands": ["chk"]}, {"paths": ["top.txt"], "commands": ["plain", "flaky"]}]')"
+printf '#!/bin/sh\nrec=$1; shift\nprintf "%%s base=%%s\\n" "$*" "${SHIRABE_VERIFY_BASE-}" >> "$rec"\n' > bin/recenv.sh
+printf '#!/bin/sh\nprintf "flaky base=%%s\\n" "${SHIRABE_VERIFY_BASE-}" >> "$2"\n[ "$(cat "$1")" = pass ]\n' > bin/flaky.sh
+chmod +x bin/recenv.sh bin/flaky.sh
+echo fail > "$FLAKY"
+change skills/a/f.txt skills/b/f.txt top.txt
+start s-orig
+settle s-orig
+expect_rc "the run a fix round follows, flaky failing" 1
+ran "the run a fix round follows" "chk a base= chk b base= flaky base= plain base= "
+DONE_HEAD=$(git rev-parse HEAD)
+
+echo "--- fix round: a fix touching one skill"
+rm -f "$CR"
+echo pass > "$FLAKY"
+fix_round s-orig-fix-1 s-orig 1 "$DONE_HEAD"
+change skills/a/f.txt
+start s-orig-fix-1
+grep -q 'fix round: carried 2 check(s) s-orig passed' "$WORKDIR/start.out" \
+    && pass "fix round: --start says what it carried" || fail "fix round: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-orig-fix-1
+expect_rc "a fix round whose carried checks stand beside passed ones" 0
+expect_no_finding "a fix round whose carried checks stand beside passed ones"
+ran "a fix round touching skills/a runs that skill's check with the round's base, and the check the run failed" \
+    "chk a base=$DONE_HEAD flaky base= "
+expect_check "a fix round touching skills/a" s-orig-fix-1 chk:a '.outcome == "passed" and (has("carried_from") | not)'
+expect_check "a fix round touching skills/a" s-orig-fix-1 chk:b \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-orig\", head: \"$DONE_HEAD\"}
+     and .exit_status == 0 and .duration_secs == 0 and .not_started == false and .argv[-1] == \"b\" and .id == \"chk\""
+expect_check "a fix round touching skills/a" s-orig-fix-1 plain \
+    ".outcome == \"carried\" and .carried_from == {session: \"s-orig\", head: \"$DONE_HEAD\"}"
+expect_check "a check the run failed runs again" s-orig-fix-1 flaky '.outcome == "passed"'
+jq -e '[.commands[].check] == ["chk:a", "chk:b", "plain", "flaky"]' "$(result_of s-orig-fix-1)" >/dev/null 2>&1 \
+    && pass "fix round: the result holds the full run's checks, in the map's order" \
+    || fail "fix round: the result's checks: $(jq -c '[.commands[].check]' "$(result_of s-orig-fix-1)" 2>&1)"
+FIX1_HEAD=$(git rev-parse HEAD)
+
+echo "--- fix round: a second skill touched"
+rm -f "$CR"
+change skills/b/f.txt
+start s-orig-fix-1
+settle s-orig-fix-1
+expect_rc "a fix round touching two skills" 0
+ran "a fix round touching skills/a and skills/b runs both skills' checks" \
+    "chk a base=$DONE_HEAD chk b base=$DONE_HEAD flaky base= "
+expect_check "a fix round touching two skills" s-orig-fix-1 plain '.outcome == "carried"'
+FIX1_HEAD2=$(git rev-parse HEAD)
+
+echo "--- fix round: a second round follows the first"
+# Round 2's base is the head round 1 left; the original's fix_rounds.jsonl
+# names round 1, so that is the run round 2 follows.
+rm -f "$CR"
+printf '%s\n%s\n' \
+    "$(jq -cn --arg h "$DONE_HEAD" '{round: 1, session: "s-orig-fix-1", base: $h, ts: "t"}')" \
+    "$(jq -cn --arg h "$FIX1_HEAD2" '{round: 2, session: "s-orig-fix-2", base: $h, ts: "t"}')" \
+    > "$KOTO_STUB_STORE/s-orig/fix_rounds.jsonl"
+fix_round s-orig-fix-2 s-orig 2 "$FIX1_HEAD2"
+start s-orig-fix-2
+settle s-orig-fix-2
+expect_rc "a second round with no change of its own" 0
+ran "a second round with no change of its own runs nothing" ""
+for c in chk:a chk:b plain flaky; do
+    expect_check "a second round" s-orig-fix-2 "$c" \
+        ".outcome == \"carried\" and .carried_from == {session: \"s-orig-fix-1\", head: \"$FIX1_HEAD2\"}"
+done
+
+echo "--- fix round: no result at the round's base"
+rm -f "$CR"
+fix_round s-nobase s-orig 1 "$FIX1_HEAD"
+start s-nobase
+grep -q 'has no verification result at the round' "$WORKDIR/start.out" \
+    && pass "no parent result: --start says nothing is carried" || fail "no parent result: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-nobase
+expect_rc "a fix round with no parent result at its base" 0
+ran "a fix round with no parent result at its base runs everything" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried" or has("carried_from"))] | length == 0' "$(result_of s-nobase)" >/dev/null 2>&1 \
+    && pass "no parent result: no record is carried" || fail "no parent result: a record was carried"
+
+echo "--- fix round: --fresh and SHIRABE_VERIFY_FULL=1 carry nothing"
+rm -f "$CR"
+fix_round s-fresh s-orig 1 "$DONE_HEAD" '{"fresh": true}'
+start s-fresh
+grep -q 'fresh: true' "$WORKDIR/start.out" \
+    && pass "fresh: --start says why nothing is carried" || fail "fresh: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-fresh
+expect_rc "a fresh fix round" 0
+ran "a fresh fix round runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-fresh)" >/dev/null 2>&1 \
+    && pass "fresh: no record is carried" || fail "fresh: a record was carried"
+
+rm -f "$CR"
+fix_round s-full s-orig 1 "$DONE_HEAD"
+SHIRABE_VERIFY_FULL=1 start s-full
+grep -q 'SHIRABE_VERIFY_FULL=1' "$WORKDIR/start.out" \
+    && pass "SHIRABE_VERIFY_FULL=1: --start says why nothing is carried" || fail "full: --start's stderr: $(cat "$WORKDIR/start.out")"
+settle s-full
+expect_rc "a fix round under SHIRABE_VERIFY_FULL=1" 0
+ran "a fix round under SHIRABE_VERIFY_FULL=1 runs everything, with no base" "chk a base= chk b base= flaky base= plain base= "
+jq -e '[.commands[] | select(.outcome == "carried")] | length == 0' "$(result_of s-full)" >/dev/null 2>&1 \
+    && pass "SHIRABE_VERIFY_FULL=1: no record is carried" || fail "SHIRABE_VERIFY_FULL=1: a record was carried"
+
+echo "--- the verdict on carried records"
+# Results written by hand at this head, from the second round's: every record
+# carried, passed and carried mixed, and a carried record beside a failed one.
+CARRY_RES=$(result_of s-orig-fix-2)
+# verdict_on <session> <jq edit>: write the edited result as <session>'s and
+# take its verdict.
+verdict_on() {
+    local res
+    res=$(result_of "$1")
+    mkdir -p "$(dirname "$res")"
+    jq "$2" "$CARRY_RES" > "$res"
+    verdict "$1"
+}
+verdict_on s-cv-carried '.'
+expect_rc "every record carried" 0
+expect_no_finding "every record carried"
+verdict_on s-cv-mixed '.commands |= map(if .check == "chk:a" then .outcome = "passed" | del(.carried_from) else . end)'
+expect_rc "passed and carried records" 0
+verdict_on s-cv-failed '.commands |= map(if .check == "flaky" then .outcome = "failed" | .exit_status = 3 | del(.carried_from) else . end)'
+expect_rc "a carried record beside a failed one" 1
+expect_rule "a carried record beside a failed one" verification/command-failed
 
 # --- the lock, the state directories ------------------------------------------------------
 

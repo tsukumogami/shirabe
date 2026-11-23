@@ -21,11 +21,15 @@
 # that gate too while it runs, so a round that ends at `done_blocked` is the
 # parent's failure as well.
 #
-# Usage: fix-round.sh start --from <session>
+# Usage: fix-round.sh start --from <session> [--fresh]
 #
 #   --from   the run that reached `done`, or one of its fix rounds, which
 #            resolves to the run it was started for. Rounds are counted
 #            against that original run, never nested.
+#   --fresh  carry nothing from the run the round follows: `fresh: true` is
+#            written into the round's fix_round.json, and its verification
+#            runs every selected check rather than carrying the ones that run
+#            passed (run-verification.sh's header).
 #
 # Refused (exit 1, a `refused=<reason>` line on stdout, nothing written):
 #
@@ -42,7 +46,8 @@
 #                    head that isn't the one the run left.
 #
 # Started (exit 0): prints `session=<original>-fix-<n>` and `round=<n>`. The
-# new session's context has `fix_round.json` ({from, round, base}), and the
+# new session's context has `fix_round.json` ({from, round, base}, and
+# `fresh: true` under --fresh), and the
 # original's context has `fix_rounds.jsonl`, one line per round started
 # ({round, session, base, ts}), so the run that reached `done` names every
 # round whose review and verification were recorded for it. `base` is HEAD as
@@ -85,8 +90,14 @@ usage() { sed -n '/^# Usage:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die() { echo "fix-round: $2" >&2; exit "$1"; }
 refuse() { echo "refused=$1"; echo "fix-round: $2" >&2; exit 1; }
 
-[ $# -eq 3 ] && [ "$1" = start ] && [ "$2" = --from ] || usage
+FRESH=0
+[ $# -ge 3 ] && [ "$1" = start ] && [ "$2" = --from ] || usage
 FROM=$3
+case $# in
+    3) ;;
+    4) [ "$4" = --fresh ] || usage; FRESH=1 ;;
+    *) usage ;;
+esac
 [[ $FROM =~ $RE_SESSION ]] || usage
 
 command -v koto >/dev/null || die 2 "the koto CLI is not on PATH"
@@ -151,8 +162,8 @@ ARGS+=(--var "PLUGIN_ROOT=$PLUGIN_ROOT_SELF")
 koto "${ARGS[@]}" >/dev/null || die 2 "koto init $NAME failed"
 
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" \
-    '{from: $from, round: $round, base: $base}' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
+jq -nc --arg from "$ORIG" --argjson round "$N" --arg base "$BASE" --argjson fresh "$FRESH" \
+    '{from: $from, round: $round, base: $base} + (if $fresh == 1 then {fresh: true} else {} end)' | koto context add "$NAME" "$ROUND_KEY" >/dev/null \
     || die 2 "the round $NAME started, but $ROUND_KEY could not be stored in it"
 { [ -n "$ROUNDS" ] && printf '%s\n' "$ROUNDS"
   jq -nc --argjson round "$N" --arg session "$NAME" --arg base "$BASE" --arg ts "$TS" \
