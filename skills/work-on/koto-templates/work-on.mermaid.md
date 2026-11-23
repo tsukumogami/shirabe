@@ -47,7 +47,7 @@ stateDiagram-v2
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pr_precheck : approval_decision: approved, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
@@ -55,12 +55,14 @@ stateDiagram-v2
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
     finalization --> check_exit : finalization_status: check_unsatisfiable, gates.commit_convention.exit_code: 1
-    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    finalization --> pr_precheck : finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     finalization --> deferral_approval : finalization_status: deferral_requested
-    fix_determination --> implementation : gates.kind_unchanged.exit_code: 0, vars.UNIT_KIND: change
-    fix_determination --> reproduce : gates.kind_unchanged.exit_code: 0, vars.UNIT_KIND: fix
-    fix_determination --> done_blocked : gates.kind_unchanged.exit_code: 1, kind_status: blocked
-    fix_determination --> done_blocked : gates.kind_unchanged.exit_code: 2, kind_status: blocked
+    fix_determination --> implementation : gates.kind_route.exit_code: 0
+    fix_determination --> reproduce : gates.kind_route.exit_code: 3
+    fix_determination --> done_blocked : gates.kind_route.exit_code: 1, gates.kind_unchanged.exit_code: 1, kind_status: blocked
+    fix_determination --> done_blocked : gates.kind_route.exit_code: 4, gates.kind_unchanged.exit_code: 1, kind_status: blocked
+    fix_determination --> done_blocked : gates.kind_route.exit_code: 66, gates.kind_unchanged.exit_code: 1, kind_status: blocked
+    fix_determination --> done_blocked : gates.kind_route.exit_code: 2, gates.kind_unchanged.exit_code: 2, kind_status: blocked
     hosted_record --> ci_monitor : gates.hosted_read.exit_code: 0, gates.hosted_ready.exit_code: 0
     hosted_record --> verification : gates.hosted_read.exit_code: 1, vars.VERIFICATION: local
     hosted_record --> verification_deferred : gates.hosted_read.exit_code: 1, vars.VERIFICATION: hosted-ci
@@ -77,11 +79,12 @@ stateDiagram-v2
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_unchanged
     introspection --> analysis : gates.introspection_artifact.exists: true, introspection_outcome: approach_updated
     introspection --> analysis
-    issue_type_routing --> review_level_check : issue_type: code
-    issue_type_routing --> verification : gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: local
-    issue_type_routing --> verification_deferred : gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: hosted-ci
-    issue_type_routing --> verification : issue_type: task, vars.VERIFICATION: local
-    issue_type_routing --> verification_deferred : issue_type: task, vars.VERIFICATION: hosted-ci
+    issue_type_routing --> review_level_check : gates.code_route.exit_code: 0
+    issue_type_routing --> review_level_check : gates.code_route.exit_code: 1, issue_type: code
+    issue_type_routing --> verification : gates.code_route.exit_code: 1, gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: local
+    issue_type_routing --> verification_deferred : gates.code_route.exit_code: 1, gates.has_commits.exit_code: 0, issue_type: docs, vars.VERIFICATION: hosted-ci
+    issue_type_routing --> verification : gates.code_route.exit_code: 1, issue_type: task, vars.VERIFICATION: local
+    issue_type_routing --> verification_deferred : gates.code_route.exit_code: 1, issue_type: task, vars.VERIFICATION: hosted-ci
     light_review --> verification : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: local
     light_review --> verification_deferred : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0, vars.VERIFICATION: hosted-ci
     light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0, vars.VERIFICATION: local
@@ -130,13 +133,6 @@ stateDiagram-v2
     pr_precheck --> pass_counting : gates.tests_still_counted.exit_code: 1, precheck_status: recount
     pr_precheck --> pass_counting : gates.tests_still_counted.exit_code: 3, precheck_status: recount
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
-    pre_pr_evidence --> pr_precheck : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : gates.commit_convention.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : gates.commit_convention.exit_code: 2, gates.summary_shape.matches: true, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : gates.cleanup_referent.exit_code: 1, gates.commit_convention.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
-    pre_pr_evidence --> done_blocked : pre_pr_status: blocked
     probe_arm_far --> review_level_choice
     probe_arm_far_redeliver --> review_level_choice
     probe_arm_near --> review_level_choice
@@ -285,6 +281,9 @@ stateDiagram-v2
         gate: summary_shape
     end note
     note left of fix_determination
+        gate: kind_route
+    end note
+    note left of fix_determination
         gate: kind_unchanged
     end note
     note left of hosted_record
@@ -298,6 +297,9 @@ stateDiagram-v2
     end note
     note left of introspection
         gate: introspection_artifact
+    end note
+    note left of issue_type_routing
+        gate: code_route
     end note
     note left of issue_type_routing
         gate: has_commits
@@ -361,18 +363,6 @@ stateDiagram-v2
     end note
     note left of pr_precheck
         gate: tests_still_counted
-    end note
-    note left of pre_pr_evidence
-        gate: cleanup_referent
-    end note
-    note left of pre_pr_evidence
-        gate: commit_convention
-    end note
-    note left of pre_pr_evidence
-        gate: diagram_referent
-    end note
-    note left of pre_pr_evidence
-        gate: summary_shape
     end note
     note left of probe_draw
         gate: probe_arm
