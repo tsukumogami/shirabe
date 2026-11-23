@@ -188,8 +188,12 @@ ids, so a round compared with it is judged on the count alone.
 **What it doesn't change.** A grant never closes a finding. The panel's
 verdict gate still blocks on every open finding in the ledger until a later
 round's reviewer closes it at a new head, so a retry granted this way can't
-let a blocking finding through. The worst case is still 4 traversals (28
-panel agents).
+let a blocking finding through. Since the comparison reads only the record's
+last line, a finding that recurs after another panel's round, or is reworded
+so its id changes, can win a retry as if it were new. The ceiling of 3 and
+the verdict gate still bound it: the run gets no fourth retry, and the panel
+can't pass while the finding is open. The worst case is still 4 traversals
+(28 panel agents).
 
 **Considered and not taken.** Letting `panel-scope.sh --record` record a
 round at its own planned head after HEAD has moved. That makes the round
