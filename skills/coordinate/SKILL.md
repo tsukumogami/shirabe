@@ -922,8 +922,8 @@ refused on that run, where the design always passes the worker's topic.
 free slot, scopes ahead a unit whose execution waits on another feature, and
 asks whoever dispatched you for out-of-scope work when the scope has nothing
 left. An active worker is a dispatched session whose work is not yet merged or
-abandoned and that isn't parked. A parked worker has a verified, ready pull
-request waiting only on a merge; parked workers, merged ones waiting for their
+abandoned and that isn't parked. A parked worker has a ready pull request whose
+checks passed, waiting only on a merge; parked workers, merged ones waiting for their
 teardown and local agents don't count against the cap. Neither does a stopped
 worker: one whose Claude jobs on this host have all finished, kept until its
 pull request merges with nothing running for it, so the worker that continues

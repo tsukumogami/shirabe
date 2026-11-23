@@ -2687,7 +2687,7 @@ and drive every worker to landed work.
   (`cap` in `coord/pick.json`: the record's Run cap when it has one, else
   the session's `--cap`) or nothing is left; each pass through pick fills one slot and comes
   back. An active worker is one whose unit isn't merged or abandoned and that
-  isn't parked. Parked workers (a verified, ready pull request waiting only on a
+  isn't parked. Parked workers (a ready pull request whose checks passed, waiting only on a
   merge), merged ones waiting for their teardown, and local agents don't count
   against the cap. Neither does a holding whose `stopped` is true: its
   worker's Claude jobs on this host have all finished, so nothing runs for it
@@ -3938,7 +3938,7 @@ its instance, and you report up to that coordinator; pass the same dispatcher to
 the progress table as `--dispatcher <instance>` (`-` when the need names none).
 Only a root coordinator's reserved step goes to a person.
 
-A parked worker is one with a verified, ready pull request waiting only on a
+A parked worker is one with a ready pull request whose checks passed, waiting only on a
 merge. After a merge-order table, the holding is already parked: its verified
 head went into the record at verified_confirm, and the record step confirms it
 there without a rewrite. Rewrite it only to set Phase `held`, when you came here
