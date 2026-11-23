@@ -960,7 +960,7 @@ add_recslow() {
     chmod +x bin/recslow.sh
 }
 HOLD_REC="$WORKDIR/hold.rec"
-CMDS=$(jq -cn --arg f "$HOLD_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 1, hosted: $h}}')
+CMDS=$(jq -cn --arg f "$HOLD_REC" --argjson h "$HOSTED" '{chk: {run: ["bin/recslow.sh", $f], timeout_secs: 5, hosted: $h}}')
 mkrepo hold "$(map "$CMDS" '[]' '["chk"]')"
 add_outcome_fixtures
 add_recslow
