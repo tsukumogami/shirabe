@@ -188,7 +188,41 @@ then run the greps in the criteria above and see each find nothing.
 
 ### Step 4: a test fixed at ci_pass_counting goes back through the panels
 
-ci_pass_counting accepts test_gap and routes to implementation, so a test fixed after CI reaches a re-verifier before counting again.
+**Goal**: A run held at `ci_pass_counting` on a due or adverse edited test (or
+one that has found a gap in its own tests after CI) submits
+`counting_status: test_gap` and returns to implementation, the route
+`pass_counting` already has, so the next panel round's re-verifier judges the
+changed test before verification, counting and CI run again on the open PR.
+`declined` keeps its route to `ci_monitor` for a hold answered with a non-test
+fix. This closes the unbounded loop step 3 left at `ci_pass_counting`
+(shirabe#1931). Covers PRD R19, R21 and R25.
+
+**Acceptance Criteria**:
+
+- [ ] `ci_pass_counting` accepts `counting_status: test_gap`, with an edge to
+  `implementation` when `tests_counted` exits 0 and one when it exits 1, and
+  these are the only edges the template gains: its state list is unchanged and
+  every new edge leaves `ci_pass_counting` on `test_gap`.
+- [ ] A route test holds a fixture run at `ci_pass_counting` on a due test,
+  submits `test_gap`, commits a test-only change, and sees the run pass a panel
+  round whose only spawned decision is the re-verifier with that test in its
+  due list, then reach `ci_pass_counting` again with `tests_counted` exiting 0
+  once the re-verifier's `corrects` is recorded.
+- [ ] The same route with the re-verifier's `weakens` adds one to the panel's
+  retry count and sends the run back to implementation; once the budget is
+  spent the counting check exits 3 and the run ends at `done_blocked`.
+- [ ] The `ci_pass_counting` directive says when to submit `test_gap` and when
+  `declined`, and the run reuses its open pull request on the way back through
+  `pr_creation`.
+
+**Check**: Run `bash skills/work-on/scripts/test-change-routes_test.sh` and see
+the new `ci_pass_counting` `test_gap` case reach the re-verifier and count
+again, and the `weakens` case end at `done_blocked` once the budget is spent;
+`scripts/validate-template-mermaid.sh` passes on the template.
+
+**Dependencies**: Step 3
+
+**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/scripts/test-change-routes_test.sh`
 
 ### Step 5: a test-touching CI fix in /execute goes through a fix round
 
