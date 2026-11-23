@@ -513,7 +513,7 @@ silently if that binary is gone. Both hooks check the session id from their
 input, and the koto session and note key read from the ledger, against their
 grammars before using them. The pre-compact hook runs its `git` calls with
 `-c core.fsmonitor=false`, `-c core.hooksPath=/dev/null` and
-`-c log.showSignature=false`. niwa writes them into instance settings at apply with no niwa
+`-c log.showSignature=false`, and with `GIT_NO_LAZY_FETCH=1` set. niwa writes them into instance settings at apply with no niwa
 change, beside its own compact-matched hooks. Without niwa, a person adds the
 same two entries to their own settings. A binary subcommand keeps the hook's
 path the same across plugin versions, which a script inside the versioned

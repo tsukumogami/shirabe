@@ -75,11 +75,14 @@ and no file is opened for it. Both exit 0 on every path, so they never block
 a compaction, and nothing from the hook input ever reaches their output.
 Neither makes a `gh` call; branch and pull request come from the entry, which
 `note` filled at its last write. Every `git` call runs with
-`-c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false`,
-and the `git log` call also passes `--no-show-signature`, so a repository's
-fsmonitor, hooks or signature program (`gpg.program`, which `git log` runs
-when the repository sets `log.showSignature` and the tip is signed) never run
-from a hook. koto and git are found on `PATH`. A koto or git call is done
+`-c core.fsmonitor=false -c core.hooksPath=/dev/null -c log.showSignature=false`
+and with `GIT_NO_LAZY_FETCH=1` set in its environment, and the `git log` call
+also passes `--no-show-signature`, so a repository's fsmonitor, hooks or
+signature program (`gpg.program`, which `git log` runs when the repository
+sets `log.showSignature` and the tip is signed) never run from a hook, and
+neither does a partial clone's promisor remote transport
+(`remote.<name>.uploadpack`, `core.sshCommand` or a remote helper, which a
+lazy fetch of a missing branch tip would run). koto and git are found on `PATH`. A koto or git call is done
 when it has exited and its output has been read to the end; a child that
 leaves a process holding its output open still ends at the call's 5-second
 limit, its answer unreadable.

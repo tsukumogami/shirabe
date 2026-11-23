@@ -110,6 +110,12 @@ const GIT_SAFE: [&str; 6] = [
     "log.showSignature=false",
 ];
 
+/// The environment every `git` call carries. With no lazy fetch, a partial
+/// clone missing an object never runs the promisor remote's transport
+/// (`remote.<name>.uploadpack`, `core.sshCommand` or a remote helper), which
+/// the `-c` flags above don't stop.
+const GIT_ENV: [(&str, &str); 1] = [("GIT_NO_LAZY_FETCH", "1")];
+
 #[derive(Args)]
 pub struct CompactionArgs {
     #[command(subcommand)]
@@ -502,7 +508,11 @@ impl Budget {
 }
 
 fn run_tool(prog: &str, args: &[&str], timeout: Duration) -> Option<String> {
-    let mut child = Command::new(prog)
+    let mut cmd = Command::new(prog);
+    if prog == "git" {
+        cmd.envs(GIT_ENV);
+    }
+    let mut child = cmd
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

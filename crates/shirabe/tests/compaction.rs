@@ -505,6 +505,79 @@ fn a_repository_signature_program_fsmonitor_or_hook_never_runs() {
     assert!(!marker.exists(), "a repository program ran");
 }
 
+#[test]
+fn a_promisor_remote_program_never_runs_through_a_lazy_fetch() {
+    let fx = Fx::new();
+    let marker = fx.p("marker");
+    let prog = fx.p("mark.sh");
+    write_exec(
+        &prog,
+        &format!(
+            "#!/bin/bash\nprintf 'ran %s\\n' \"$*\" >>'{}'\nexit 1\n",
+            marker.display()
+        ),
+    );
+    // A partial clone whose promisor remote's upload-pack is the marker, and
+    // whose branch tip is a commit missing from the object store, so reading
+    // the tip makes git fetch it.
+    fs::create_dir_all(fx.p("pc")).unwrap();
+    fx.init_repo("pc", BRANCH);
+    fx.commit("pc", AFTER_NOTE);
+    let out = fx
+        .git_cmd("pc")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let tip = String::from_utf8(out.stdout).unwrap().trim().to_string();
+    let url = fx.p("repo").display().to_string();
+    let prog_s = prog.display().to_string();
+    for (k, v) in [
+        ("core.repositoryformatversion", "1"),
+        ("extensions.partialClone", "origin"),
+        ("remote.origin.url", url.as_str()),
+        ("remote.origin.promisor", "true"),
+        ("remote.origin.uploadpack", prog_s.as_str()),
+    ] {
+        fx.git_ok("pc", &["config", k, v]);
+    }
+    fs::remove_file(fx.p("pc/.git/objects").join(&tip[..2]).join(&tip[2..])).unwrap();
+
+    // The fixture can fire: the same `git log` without GIT_NO_LAZY_FETCH runs
+    // the promisor remote's program.
+    let refname = format!("refs/heads/{BRANCH}");
+    let _ = fx
+        .git_cmd("pc")
+        .env_remove("GIT_NO_LAZY_FETCH")
+        .args(["log", "-1", "--format=%ct", &refname, "--"])
+        .output()
+        .unwrap();
+    assert!(
+        marker.exists(),
+        "the fixture's upload-pack program never ran"
+    );
+    fs::remove_file(&marker).unwrap();
+
+    // Through the entry's repo line, from outside the repository, then from
+    // the repository with no repo line.
+    fx.entry(&entry_with_repo(&fx.p("pc").display().to_string()));
+    let out = fx.run("pre-compact", "plain");
+    assert!(
+        !marker.exists(),
+        "a repository program ran: {:?}",
+        fs::read_to_string(&marker)
+    );
+    assert!(out.contains(KS) && out.contains(UNKNOWN), "{out}");
+    fx.entry(&good_entry());
+    let out = fx.run("pre-compact", "pc");
+    assert!(
+        !marker.exists(),
+        "a repository program ran: {:?}",
+        fs::read_to_string(&marker)
+    );
+    assert!(out.contains(KS) && out.contains(UNKNOWN), "{out}");
+}
+
 // --- the entry's repository -----------------------------------------------------------
 
 #[test]
@@ -573,8 +646,21 @@ fn a_repo_line_that_is_a_symlink_is_refused_and_falls_back() {
 fn a_repo_line_failing_its_grammar_is_refused_and_falls_back() {
     let fx = Fx::new();
     fx.commit("repo", AFTER_NOTE);
-    let repo = fx.p("repo").display().to_string();
-    fx.entry(&entry_with_repo(&format!("{repo}\u{200b}")));
+    // Each refused path is a real work tree whose branch has a commit newer
+    // than the note, so only the grammar keeps it from making the note stale
+    // from `other`: a directory whose name holds U+200B, and `other/repo`,
+    // where the relative `repo` lands from the hook's working directory.
+    for dir in ["zw\u{200b}", "other/repo"] {
+        fs::create_dir_all(fx.p(dir)).unwrap();
+        fx.init_repo(dir, BRANCH);
+        fx.commit(dir, AFTER_NOTE);
+    }
+    // Spelled absolute, `other/repo` passes the grammar and is used.
+    fx.entry(&entry_with_repo(&fx.p("other/repo").display().to_string()));
+    let out = fx.run("pre-compact", "other");
+    assert_eq!(out.matches(STALE).count(), 1, "the fixture: {out}");
+
+    fx.entry(&entry_with_repo(&fx.p("zw\u{200b}").display().to_string()));
     assert_repo_refused(&fx, "a format character");
     fx.entry(&entry_with_repo("repo"));
     assert_repo_refused(&fx, "a relative path");
