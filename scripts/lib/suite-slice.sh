@@ -22,7 +22,10 @@
 # (other rows are ignored, the first row for a name wins). A suite is matched
 # on its file's basename. A suite with no row costs the median of the listed
 # suites' known costs (the lower middle of an even count), or 1 when none is
-# known. A cost that is not a whole number is an error, never a default.
+# known. A cost that is not a whole number is an error, never a default. A
+# caller whose costs live elsewhere (a floor list's `cost:` lines) writes them
+# out in this row form and points SUITE_SLICE_COSTS at that file, or at a
+# process substitution.
 #
 # Standard error carries one line, `suite-slice: slice i/n: k of N suites`,
 # when a slice is set.
@@ -136,8 +139,10 @@ PICKED=$(printf '%s\n' "$KEYED" | sort -t "$(printf '\t')" -k1,1nr -k2,2 -k3,3n 
     }
 ')
 
-printf '%s\n' "$LIST" | awk -v picked="$PICKED" -v slice="$SLICE" '
-    BEGIN { m = split(picked, p, "\n"); for (j = 1; j <= m; j++) if (p[j] != "") keep[p[j]] = 1 }
+# The picked indexes, a separator line, then the list, all on standard input:
+# a multi-line value passed with awk -v is not portable to every awk.
+{ printf '%s\n' "$PICKED"; printf '%s\n' '-- suite-slice list --'; printf '%s\n' "$LIST"; } | awk -v slice="$SLICE" '
+    !inlist { if ($0 == "-- suite-slice list --") inlist = 1; else if ($0 != "") keep[$0] = 1; next }
     { n++; if (n in keep) { print; k++ } }
     END { printf "suite-slice: slice %s: %d of %d suites\n", slice, k, n > "/dev/stderr" }
 '

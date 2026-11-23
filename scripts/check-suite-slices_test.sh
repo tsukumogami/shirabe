@@ -104,6 +104,28 @@ expect "a literal SUITE_SLICE fails" 1 "$T/literal.yml" "job sliced: SUITE_SLICE
 workflow "$T/n17.yml" "$GOOD_STRATEGY" '      SUITE_SLICE: ${{ matrix.slice }}/17' 'bash run-tests.sh'
 expect "n over 16 fails" 1 "$T/n17.yml" "job sliced: SUITE_SLICE is"
 
+workflow "$T/exclude.yml" '      fail-fast: false
+      matrix:
+        slice: [1, 2, 3, 4]
+        exclude:
+          - slice: 3' "$GOOD_ENV" 'bash run-tests.sh'
+expect "a matrix exclude: on a sliced job fails" 1 "$T/exclude.yml" "job sliced: the matrix has an exclude:"
+
+workflow "$T/include.yml" '      fail-fast: false
+      matrix:
+        slice: [1, 2, 3, 4]
+        include:
+          - slice: 5' "$GOOD_ENV" 'bash run-tests.sh'
+expect "a matrix include: naming slice fails" 1 "$T/include.yml" "job sliced: a matrix include: entry names slice"
+
+for key in "if: false" "continue-on-error: true"; do
+    {
+        printf 'name: fixture\non: pull_request\njobs:\n  sliced:\n    %s\n    strategy:\n%s\n    runs-on: ubuntu-latest\n' "$key" "$GOOD_STRATEGY"
+        printf '    env:\n%s\n    steps:\n      - run: bash run-tests.sh\n' "$GOOD_ENV"
+    } > "$T/joblevel.yml"
+    expect "a job-level ${key%%:*}: on a sliced job fails" 1 "$T/joblevel.yml" "job sliced: the job has a job-level ${key%%:*}:"
+done
+
 {
     printf 'name: fixture\non: pull_request\njobs:\n  sliced:\n    strategy:\n%s\n    runs-on: ubuntu-latest\n' "$GOOD_STRATEGY"
     printf '    steps:\n      - run: bash run-tests.sh\n        env:\n          SUITE_SLICE: ${{ matrix.slice }}/4\n'

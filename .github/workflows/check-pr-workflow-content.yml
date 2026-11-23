@@ -9,7 +9,10 @@ name: Check PR workflow content switch
 # It also runs scripts/check-suite-slices.sh, which holds every sliced CI job
 # to running all of its slices, on any change to a workflow, and the tests of
 # that check and of the selector the sliced runners share
-# (scripts/lib/suite-slice.sh). That job is Linux only.
+# (scripts/lib/suite-slice.sh). That job is Linux only. The workflows path
+# it needs also re-runs the suite above, macOS leg included once the pull
+# request is ready, on any workflow edit; the suite is short, and one paths
+# list keeps the workflow's trigger in one place.
 
 on:
   pull_request:

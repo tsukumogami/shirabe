@@ -11,9 +11,13 @@
 #   - SUITE_SLICE is set in the job's own `env:`, to exactly
 #     `${{ matrix.slice }}/<n>` with 1 <= n <= 16, and in no step's `env:`;
 #   - the job's `strategy.matrix.slice` is exactly the integers [1, ..., n],
-#     so no slice is missing, repeated or out of range;
+#     so no slice is missing, repeated or out of range, and its matrix has no
+#     `exclude:` and no `include:` entry naming `slice`, either of which can
+#     drop or add a slice the list doesn't show;
 #   - its `strategy.fail-fast` is the boolean false, so one failing slice
 #     doesn't cancel the others before they report;
+#   - the job has no job-level `if:` and no `continue-on-error`, so no slice
+#     is skipped or passes having failed;
 #   - no `run:` body in the job holds `${{ matrix`: matrix values reach a
 #     step through `env:` only.
 #
@@ -39,8 +43,11 @@
 
 set -uo pipefail
 
-# <workflow file name> <job>: the sliced jobs that must exist.
-REQUIRED='check-coordinate-scripts.yml test-coordinate-engine'
+# The sliced jobs that must exist: one `<workflow file name> <job>` pair per
+# line, one line per job.
+REQUIRED='
+check-coordinate-scripts.yml test-coordinate-engine
+'
 
 ROOT=${CHECK_SUITE_SLICES_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
 
@@ -73,6 +80,17 @@ check_job() {
     if [ "$got" != "$want" ]; then
         violation "$name" "$j" "matrix.slice is $got, not $want for SUITE_SLICE .../$n"
     fi
+    if [ "$(J=$j yq -r '.jobs[strenv(J)].strategy.matrix | has("exclude")' "$f")" = true ]; then
+        violation "$name" "$j" "the matrix has an exclude:, which can drop a slice"
+    fi
+    if [ "$(J=$j yq -r '[.jobs[strenv(J)].strategy.matrix.include[]? | select(has("slice"))] | length' "$f")" != 0 ]; then
+        violation "$name" "$j" "a matrix include: entry names slice"
+    fi
+    for key in if continue-on-error; do
+        if [ "$(J=$j K=$key yq -r '.jobs[strenv(J)] | has(strenv(K))' "$f")" = true ]; then
+            violation "$name" "$j" "the job has a job-level $key:, which can skip a slice or pass a failed one"
+        fi
+    done
     tag=$(J=$j yq -r '.jobs[strenv(J)].strategy."fail-fast" | tag' "$f")
     got=$(J=$j yq -r '.jobs[strenv(J)].strategy."fail-fast"' "$f")
     if [ "$tag" != '!!bool' ] || [ "$got" != false ]; then
