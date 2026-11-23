@@ -268,7 +268,40 @@ counted head reaches HEAD; `scripts/validate-template-mermaid.sh` passes.
 
 ### Step 6: a person's panel-gate override is recorded by the run naming the person
 
-The four panel verdict gates' directives spell out koto overrides record with --by person and --surface, and the koto floor is 0.37.0.
+**Goal**: When a person decides a panel verdict gate (`scrutiny_verdict`,
+`review_verdict`, `qa_verdict` or `light_verdict`) should be passed, the run
+records it itself, naming the person and the surface they used, rather than the
+person writing into the run's session from their own shell; an unattended run,
+where nobody can be asked, records no person override and escalates instead.
+The koto floor rises from 0.33.0 to 0.37.0, the release whose
+`overrides record` takes a decider, and the skill declares the flags it uses.
+Covers PRD R22.
+
+**Acceptance Criteria**:
+
+- [ ] The directives of `scrutiny_verdict`, `review_verdict`, `qa_verdict` and
+  `light_verdict` each name `koto overrides record <session> --gate <gate>
+  --rationale "<the person's words>" --by person:<handle> --surface
+  <terminal|forge|relay>`, with `--link <url>` for `relay`, say the run runs it
+  after the person says so, and say an unattended run records none.
+- [ ] `skills/work-on/requires.tsv` declares `overrides record` with `--gate`,
+  `--rationale`, `--by`, `--surface` and `--link`, and the skill's requirement
+  check passes against koto 0.37.2.
+- [ ] `scripts/assert-koto-floor.sh` prints `0.37.0` for `--print-floor`,
+  refuses a koto reporting 0.36.x, and a short decision record supersedes the
+  floor in `docs/decisions/DECISION-preflight-koto-minimum-2026-09-27.md`.
+- [ ] On a fixture session, an override recorded with `--by person:ada
+  --surface relay --link https://example.com/x` shows `person:ada` and the link
+  in `koto overrides list`, and `review-level.sh report` still counts it.
+
+**Check**: Run `bash scripts/assert-koto-floor_test.sh` (or the suite that
+covers the floor) and the work-on requires check, and see the floor at 0.37.0;
+grep the four verdict directives for `--by person:` and see each one; record
+the fixture override above and read it back with `koto overrides list`.
+
+**Dependencies**: Step 5
+
+**Files**: `skills/work-on/koto-templates/work-on.md`, `skills/work-on/requires.tsv`, `scripts/assert-koto-floor.sh`, `docs/decisions/`
 
 ### Step 7: /review-plan refuses to write into a live /plan session
 
