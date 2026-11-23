@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# successor-handover_engine_test.sh -- a roadmap manager hands its run over to
-# a successor with dispatch-worker.sh --successor, against real koto, the
-# shipped coordinate.md and a niwa stand-in.
+# successor-handover_engine_test.sh -- a roadmap run or a discipline rotation
+# hands over to a successor with dispatch-worker.sh --successor, against real
+# koto, the shipped coordinate.md and a niwa stand-in.
 #
 # Proves, on manager runs of a milestone roadmap opened by one Claude session
 # (a synthetic CLAUDE_CODE_SESSION_ID per session):
@@ -41,6 +41,32 @@
 #      from a third Claude session with no --dispatched-by, and one naming
 #      another run, each against its own predecessor, both continue it and
 #      leave the new run's successor row with its value and Set by.
+#
+# And on discipline rotations opened as --discipline <name> --host
+# acme/widgets inside their window:
+#   7. a director's run: the mode exits 0 though its input gave no
+#      entry_args or repo; the brief's Goal line and niwa's prompt carry
+#      `/shirabe:coordinate --discipline ci-health --host acme/widgets --role
+#      director`, the brief's one line naming a role, and the row reads
+#      dispatched; the successor started from the brief's tokens with
+#      --dispatched-by prints outcome=continued and predecessor=<run>, shares
+#      the chain start, holds role director and no successor row, and its
+#      Record: line names acme/widgets and ends `Role: director.`;
+#   8. the mode exits 0 with a dispatched row when pick lists no open issue,
+#      when the only one is paused, and when it is parked on a decision; a
+#      worker dispatch of the paused issue still exits 10, leaving the
+#      record, legs/, briefs and niwa's log as they were;
+#   9. no role row, a log run-facts can't read (exit 2) and a run with no
+#      found record yet (exit 1) each exit 1 and leave the same as they were;
+#  10. the other pairs, a discipline manager and a roadmap director, each
+#      render their role on the brief's one role line and report it;
+#  11. at each scope, a failed first launch (exit 4, dispatch-failed), the
+#      role row changed by a person, and a second dispatch rendering the new
+#      role;
+#  12. at each scope, a start from the brief's tokens with --role manager
+#      against a director's record is refused (role-mismatch, exit 2, the
+#      record unchanged), and accepted with --role-change-by the reports-to
+#      address and --role-change-source dispatcher.
 #
 # Every koto call runs under koto-test-guard.sh: a scratch HOME, every
 # KOTO_SESSION_* name, KOTO_SESSIONS_BASE and KOTO_HOME unset, and the store
@@ -95,6 +121,8 @@ case "${1-}" in
         for a in "$@"; do printf ' [%s]' "$a" >> "$NS/calls.log"; done
         echo >> "$NS/calls.log"
         printf '%s\n' "$1" > "$NS/prompt"
+        # One failed launch, when the case leaves NS/fail-next: nothing listed.
+        if [ -f "$NS/fail-next" ]; then rm -f "$NS/fail-next"; echo "niwa: launch failed" >&2; exit 1; fi
         bash "$PS/state-read.sh" --session "$NS_RUN" --run > "$NS/run-at-call.json" 2> "$NS/run-at-call.err"
         name=""
         while [ $# -gt 0 ]; do [ "$1" = --name ] && name=$2; shift; done
@@ -107,7 +135,7 @@ esac
 EOF
 chmod +x "$NS/niwa"
 export NS PS
-ns_reset() { echo '[]' > "$NS/sessions.json"; : > "$NS/calls.log"; rm -f "$NS/prompt" "$NS/run-at-call.json"; }
+ns_reset() { echo '[]' > "$NS/sessions.json"; : > "$NS/calls.log"; rm -f "$NS/prompt" "$NS/run-at-call.json" "$NS/fail-next"; }
 
 # milestone_roadmap <name> <status>: a milestone roadmap with one milestone,
 # MV1, at <status>, on main and in work/.
@@ -132,9 +160,9 @@ mrun() {
     export CLAUDE_CODE_SESSION_ID=$A_ID
     if [ "$2" = done ]; then milestone_roadmap "$1" Done; else milestone_roadmap "$1" "In progress"; fi
     RAW_RECORD=1 seed_record "$1" "$(record_json roadmap "$1" | jq -c --argjson r "$RUN_ROWS" '.run = $r')"
-    open_run "$1" || { bad "$1: the run opens" "$(cat "$T/open.err")"; return 1; }
+    OPEN_ROLE=${MRUN_ROLE:-manager} open_run "$1" || { bad "$1: the run opens" "$(cat "$T/open.err")"; return 1; }
     [ "$(at)" = reconcile ] || { bad "$1: the run reaches reconcile" "$(cat "$T/tick.err")"; return 1; }
-    write_as_agent state-stored-set.sh --run role manager --by "the human" || { bad "$1: the role row is written" "$(cat "$T/w.err")"; return 1; }
+    write_as_agent state-stored-set.sh --run role "${MRUN_ROLE:-manager}" --by "the human" || { bad "$1: the role row is written" "$(cat "$T/w.err")"; return 1; }
     case "$2" in
         owed) write_as_agent roadmap-status.sh --unit MV1 || { bad "$1: MV1's verdict is owed" "$(cat "$T/w.err")"; return 1; } ;;
         paused) write_as_agent state-stored-set.sh --standing pause --on MV1 --until lifted --what "hold MV1" --owner "the human" \
@@ -354,6 +382,277 @@ if needs_takeover "6: the takeovers that keep the row"; then
         eq "6 $c: the new run keeps the successor row, its value and Set by unchanged" \
             "[{\"value\":\"dispatched $c-successor-1 $TODAY\",\"set_by\":\"$P\"}]" \
             "$(succ_row "$(line session)" "$T/work2" | jq -c 'map({value, set_by})')"
+    done
+fi
+
+# ---- discipline scope ----------------------------------------------------------------------
+#
+# A discipline run's successor: its scope --discipline <name> --host
+# <owner/repo> from coord-log.sh run-facts, --role after the four tokens.
+
+has_line() { if grep -Fq -- "$3" <<< "$2"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
+day() { jq -rn --argjson n "$1" 'now + ($n * 86400) | strftime("%Y-%m-%d")'; }
+# drun <name> <role> <open|noopen|paused|parked>: a first rotation of the
+# discipline <name> opened by A recorded <role>, its stored set written,
+# with one open issue (#12, labelled <name>) at wait (open), none (noopen),
+# #12 held by a pause (paused) or parked on a decision (parked). Sets S and
+# WD; returns non-zero when it doesn't get there.
+drun() {
+    local st
+    export CLAUDE_CODE_SESSION_ID=$A_ID
+    WD=$T/work
+    if [ "$3" != noopen ]; then
+        db '.issues = ([(.issues // [])[] | select(.labels | index($n) | not)] + [{repo: "acme/widgets", number: 12, title: "the deploy job flakes", state: "open", labels: [$n]}])' --arg n "$1"
+    fi
+    jq -nc --arg d "$1" --arg r "$2" '["--discipline", $d, "--host", "acme/widgets", "--role", $r]' > "$T/args.json"
+    OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2> "$T/open.err")
+    S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
+    [ -n "$S" ] || { bad "$1: the rotation opens" "$OPEN_OUT $(cat "$T/open.err")"; return 1; }
+    [ "$(at)" = record_open ] || { bad "$1: the find reaches record_open" "$(cat "$T/tick.err")"; return 1; }
+    write_as_agent state-open.sh --role "$2" --start "$TODAY" --end "$(day 6)" || { bad "$1: the rotation's record opens" "$(cat "$T/w.err")"; return 1; }
+    [ "$(at --with-data '{"opened":"opened"}')" = reconcile ] || { bad "$1: the run reaches reconcile" "$(cat "$T/tick.err")"; return 1; }
+    { write_as_agent state-stored-set.sh --run arguments "--discipline $1 --host acme/widgets" --by "the human" &&
+      write_as_agent state-stored-set.sh --run cap 2 --by "the human" &&
+      write_as_agent state-stored-set.sh --run coordinator coord-a --by coord-a &&
+      write_as_agent state-stored-set.sh --run reports-to "the human" --by "the human"; } \
+        || { bad "$1: the stored set is written" "$(cat "$T/w.err")"; return 1; }
+    if [ "$3" = paused ]; then
+        write_as_agent state-stored-set.sh --standing pause --on "#12" --until lifted --what "hold #12" --owner "the human" \
+            || { bad "$1: #12 is paused" "$(cat "$T/w.err")"; return 1; }
+    fi
+    st=$(tick --with-data '{"reconciled":"reported"}')
+    [ "$(jq -r '.state // empty' <<< "$st")" = pick ] || { bad "$1: the run reaches pick" "$(printf '%s' "$st" | head -c 1500) $(cat "$T/tick.err")"; return 1; }
+    if [ "$3" = parked ]; then
+        [ "$(at --with-data '{"choice":"await_decision","unit":"#12","rationale":"its fix is the human'"'"'s call"}')" = decision_raise ] &&
+            write_as_agent state-decision.sh --open --question "#12: retry the deploy job, or pin its runner?" \
+                --option "retry -- run it again on failure" --option "pin -- one runner image" --source self &&
+            [ "$(at --with-data '{"raised":"raised"}')" = decision_raise ] &&
+            write_as_agent state-stored-set.sh --work "#12" --kind decision --who "decision 1" --next "dispatch it with the answer" &&
+            [ "$(at --with-data '{"raised":"raised"}')" = decision_take ] &&
+            write_as_agent state-decision.sh --take &&
+            [ "$(at --with-data '{"taken":"taken"}')" = decision_verdict ] &&
+            write_as_agent state-decision.sh --escalate --recommendation pin --reason "a pinned image flakes less" \
+                --context "#12 can't be fixed until the approach is chosen." --problem "It changes the pipeline, which is the human's." \
+                --grounds scope --option "retry -- run it again on failure" --option "pin -- one runner image" &&
+            [ "$(at --with-data '{"verdict":"escalate","rationale":"a scope call"}')" = escalate_send ] &&
+            write_as_agent state-decision.sh --sent --route message &&
+            [ "$(at --with-data '{"sent":"sent"}')" = pick ] \
+            || { bad "$1: #12 is parked on decision 1" "$(cat "$T/w.err" "$T/tick.err")"; return 1; }
+    fi
+    [ "$(at --with-data '{"choice":"hold"}')" = wait ] || { bad "$1: the run reaches wait" "$(cat "$T/tick.err")"; return 1; }
+}
+dgoal() { printf 'Run `/shirabe:coordinate --discipline %s --host acme/widgets --role %s` in acme/widgets.' "$1" "$2"; }
+succ_value() { succ_row | jq -r 'map(.value) | join(",")'; }
+# opener_args <args json> <session id> [opener flags...]: the opener from
+# work2 with <args json> as its args file; OUT, ORC.
+opener_args() {
+    local a=$1 id=$2
+    shift 2
+    printf '%s\n' "$a" > "$T/args.json"
+    OUT=$(cd "$T/work2" && CLAUDE_CODE_SESSION_ID=$id bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$@" "$T/args.json" 2> "$T/open.err"); ORC=$?
+}
+brief_args() { goal_line "$1" | sed -e 's/^Run `\/shirabe:coordinate //' -e 's/` in .*$//' | jq -R -c 'split(" ")'; }
+# first_record <session>: the successor's Record: line at its first
+# reconcile, driven from work2.
+first_record() {
+    local n=0 st
+    S=$1 WD=$T/work2
+    st=$(at)
+    while [ "$st" != reconcile ] && [ $n -lt 6 ]; do st=$(at); n=$((n + 1)); done
+    (cd "$WD" && bash "$PS/reconcile-report-get.sh" --session "$1" --md 2>&1) | grep '^Record: '
+}
+# succeeds <label> <brief topic> <predecessor> <role>: the successor started
+# from its brief's tokens with --dispatched-by, from B, continues the
+# predecessor and reports its role. Sets SB.
+succeeds() {
+    local rec
+    opener_from "$2" "$B_ID" --dispatched-by "$3"
+    eq "$1: the successor's opener prints outcome=continued" "0 continued" "$ORC $(line outcome)"
+    eq "$1: ... and predecessor= names the run" "$3" "$(line predecessor)"
+    SB=$(line session)
+    rec=$(first_record "$SB")
+    case "$rec" in
+        *"\`acme/widgets\`"*"Role: $4.") ok "$1: its first reconcile's Record: line names acme/widgets and ends Role: $4." ;;
+        *) bad "$1: its first reconcile's Record: line names acme/widgets and ends Role: $4." "$rec $(cat "$T/open.err")" ;;
+    esac
+}
+
+# ---- 7. a discipline director hands over inside its rotation's window ---------------------
+ns_reset
+if drun ci-health director open; then
+    D=$S
+    eq "7: run-facts reads the discipline and host" "discipline ci-health acme/widgets" \
+        "$(cd "$WD" && bash "$PS/coord-log.sh" run-facts --session "$D" | jq -r '"\(.scope) \(.name) \(.repo)"')"
+    eq "7: the run's compat reads 2" 2 "$(cd "$WD" && bash "$PS/coord-log.sh" compat --session "$D" 2>/dev/null | cut -d' ' -f1)"
+    successor ci-health-successor-1
+    eq "7: --successor exits 0" 0 "$SRC"
+    eq "7: ... and prints session=<name>" "session=ci_health_successor_1-""1a2b3c4d" "$SO"
+    WANT=$(dgoal ci-health director)
+    eq "7: the brief's Goal line" "$WANT" "$(goal_line ci-health-successor-1)"
+    has_line "7: the prompt niwa was given carries the invocation" "$(cat "$NS/prompt" 2>/dev/null)" \
+        '`/shirabe:coordinate --discipline ci-health --host acme/widgets --role director`'
+    eq "7: the successor row reads dispatched" "dispatched ci-health-successor-1 $TODAY" "$(succ_value)"
+    eq "7: the invocation line is the brief's only line naming manager or director" "$WANT" \
+        "$(grep -inwE 'managers?|directors?' "$BRIEFS/ci-health-successor-1.md" | sed 's/^[0-9]*://')"
+    if needs_takeover "7: the discipline successor takes the rotation over"; then
+        succeeds "7" ci-health-successor-1 "$D" director
+        eq "7: the successor's Run section holds role director and no successor row" "director []" \
+            "$(run_rows "$SB" "$T/work2" | jq -r '[([.[] | select(.key == "role") | .value][0]), ([.[] | select(.key == "successor")] | tojson)] | join(" ")')"
+        CA=$(cd "$T/work" && bash "$PS/coord-log.sh" chain-start --session "$D")
+        CB=$(cd "$T/work2" && bash "$PS/coord-log.sh" chain-start --session "$SB")
+        if [ -n "$CA" ] && [ "$CA" = "$CB" ]; then ok "7: both runs' chain-start reads the same ($CA)"; else bad "7: both runs' chain-start reads the same" "[$CA] [$CB]"; fi
+    fi
+fi
+
+# ---- 8. a discipline run with no open issue, a paused one, a parked one ------------------
+for c in ci-noopen:noopen ci-paused:paused ci-parked:parked; do
+    name=${c%%:*} kind=${c#*:}
+    ns_reset
+    drun "$name" director "$kind" || continue
+    if [ "$kind" = paused ]; then
+        BEFORE=$(shape)
+        brief issue-12 "#12" work-on "#12" executing > "$T/wb.json"
+        printf 'issue-12' > "$T/topic"
+        (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/wb.json" > /dev/null &&
+            koto context add "$S" dispatch_topic --from-file "$T/topic" > /dev/null)
+        : > "$T/work/.niwa/workspace.toml"
+        (cd "$WD" && NIWA="$NS/niwa" NS_RUN="$S" bash "$PS/dispatch-worker.sh" --session "$S" > /dev/null 2> "$T/wk.err"); WRC=$?
+        rm -f "$T/work/.niwa/workspace.toml"
+        eq "8 pause: a worker dispatch of #12 exits 10" 10 "$WRC"
+        case "$(cat "$T/wk.err")" in *"pause s"[0-9]*" holds this unit"*) ok "8 pause: ... naming the pause" ;; *) bad "8 pause: ... naming the pause" "$(cat "$T/wk.err")" ;; esac
+        unchanged "8 pause" "$BEFORE"
+        eq "8 pause: ... and no successor row" "[]" "$(succ_row)"
+    fi
+    successor "$name-successor-1"
+    eq "8 $name: --successor exits 0" 0 "$SRC"
+    case "$SO" in "session=$(printf '%s' "$name" | tr '-' '_')_successor_1-1a2b3c4d") ok "8 $name: ... and prints session=<name>" ;; *) bad "8 $name: ... and prints session=<name>" "$SO $SE" ;; esac
+    eq "8 $name: one successor row, dispatched" "dispatched $name-successor-1 $TODAY" "$(succ_value)"
+    eq "8 $name: the brief's Goal line" "$(dgoal "$name" director)" "$(goal_line "$name-successor-1")"
+done
+
+# ---- 9. a discipline run with no role row, and one whose facts can't be read -------------
+ns_reset
+if drun ci-norole director open; then
+    live_body > "$T/rec.json"
+    jq -c 'del(.written) | .run |= map(select(.key != "role"))' "$T/rec.json" > "$T/rec2.json"
+    (cd "$WD" && session_seed "$S" "$(cat "$T/rec2.json")" "$(jq -r .written "$T/rec.json")") || bad "9: the role row is dropped" ""
+    BEFORE=$(shape)
+    successor ci-norole-successor-1
+    eq "9 no role: --successor exits 1" 1 "$SRC"
+    case "$SE" in *"state-stored-set.sh --session $S --run role"*) ok "9 no role: ... naming state-stored-set.sh --session <run> --run role" ;;
+        *) bad "9 no role: ... naming state-stored-set.sh --session <run> --run role" "$SE" ;; esac
+    unchanged "9 no role" "$BEFORE"
+    eq "9 no role: ... and no successor row" "[]" "$(succ_row)"
+    # The run's log can't be read: run-facts exits 2.
+    LOGF=$(logf)
+    chmod 000 "$LOGF"
+    (cd "$WD" && bash "$PS/coord-log.sh" run-facts --session "$S" > /dev/null 2>&1); FRC=$?
+    successor ci-norole-successor-2
+    chmod 644 "$LOGF"
+    eq "9 unreadable: run-facts exits 2" 2 "$FRC"
+    eq "9 unreadable: --successor exits 1" 1 "$SRC"
+    unchanged "9 unreadable" "$BEFORE"
+fi
+# A run whose find hasn't run yet holds no found record: run-facts exits 1.
+ns_reset
+export CLAUDE_CODE_SESSION_ID=$A_ID
+WD=$T/work
+jq -nc '["--discipline", "ci-unfound", "--host", "acme/widgets", "--role", "director"]' > "$T/args.json"
+OPEN_OUT=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2> "$T/open.err")
+S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
+if [ -n "$S" ]; then
+    (cd "$WD" && bash "$PS/coord-log.sh" run-facts --session "$S" > /dev/null 2>&1)
+    eq "9 unfound: run-facts exits 1" 1 "$?"
+    BEFORE=$(shape)
+    successor ci-unfound-successor-1
+    eq "9 unfound: --successor exits 1" 1 "$SRC"
+    unchanged "9 unfound" "$BEFORE"
+else
+    bad "9 unfound: the run opens" "$OPEN_OUT $(cat "$T/open.err")"
+fi
+
+# ---- 10. the other two pairs: a discipline manager (a roadmap director in 11) ------------
+ns_reset
+if drun ci-lint manager open; then
+    P=$S
+    successor ci-lint-successor-1
+    eq "10 discipline manager: --successor exits 0" 0 "$SRC"
+    WANT=$(dgoal ci-lint manager)
+    eq "10 discipline manager: the brief's Goal line" "$WANT" "$(goal_line ci-lint-successor-1)"
+    eq "10 discipline manager: the invocation line is the brief's only line naming manager or director" "$WANT" \
+        "$(grep -inwE 'managers?|directors?' "$BRIEFS/ci-lint-successor-1.md" | sed 's/^[0-9]*://')"
+    if needs_takeover "10 discipline manager: the takeover"; then succeeds "10 discipline manager" ci-lint-successor-1 "$P" manager; fi
+fi
+
+# ---- 11. a role row changed between a failed and a second dispatch -----------------------
+# At each scope a run recorded manager: the first launch fails (exit 4,
+# dispatch-failed), the person changes the role row to director, and a second
+# dispatch under a new topic renders --role director. The roadmap run's
+# second successor is the roadmap director pair: its brief has one role line,
+# and its successor reports director.
+for sc in discipline roadmap; do
+    ns_reset
+    if [ "$sc" = discipline ]; then
+        drun ci-rerole manager open || continue
+        n=ci-rerole
+    else
+        mrun rerole owed || continue
+        n=rerole
+    fi
+    P=$S
+    : > "$NS/fail-next"
+    successor "$n-successor-1"
+    eq "11 $sc: a failed launch exits 4" 4 "$SRC"
+    eq "11 $sc: ... the successor row reads dispatch-failed" "dispatch-failed $n-successor-1 $TODAY" "$(succ_value)"
+    case "$(goal_line "$n-successor-1")" in *"--role manager\` in acme/widgets.") ok "11 $sc: ... its brief rendered --role manager" ;;
+        *) bad "11 $sc: ... its brief rendered --role manager" "$(goal_line "$n-successor-1")" ;; esac
+    write_as_agent state-stored-set.sh --run role director --by "the human" --intervention person
+    eq "11 $sc: the person changes the role row to director" "0 director" "$? $(run_rows | jq -r '[.[] | select(.key == "role") | .value][0]')"
+    successor "$n-successor-2"
+    eq "11 $sc: a second dispatch under a new topic exits 0" 0 "$SRC"
+    case "$(goal_line "$n-successor-2")" in *"--role director\` in acme/widgets.") ok "11 $sc: ... rendering --role director" ;;
+        *) bad "11 $sc: ... rendering --role director" "$(goal_line "$n-successor-2")" ;; esac
+    eq "11 $sc: ... and the row reads dispatched" "dispatched $n-successor-2 $TODAY" "$(succ_value)"
+    if [ "$sc" = roadmap ]; then
+        WANT="Run \`/shirabe:coordinate docs/roadmaps/ROADMAP-rerole.md --role director\` in acme/widgets."
+        eq "10 roadmap director: the brief's Goal line" "$WANT" "$(goal_line rerole-successor-2)"
+        eq "10 roadmap director: the invocation line is the brief's only line naming manager or director" "$WANT" \
+            "$(grep -inwE 'managers?|directors?' "$BRIEFS/rerole-successor-2.md" | sed 's/^[0-9]*://')"
+        if needs_takeover "10 roadmap director: the takeover"; then succeeds "10 roadmap director" rerole-successor-2 "$P" director; fi
+    fi
+done
+
+# ---- 12. the opener's role check at both scopes -----------------------------------------
+# A start from the successor brief's tokens but --role manager against a
+# record holding director is refused, the record unchanged; the same start
+# with the change flags naming the record's reports-to address is accepted.
+if needs_takeover "12: the role check on a takeover"; then
+    for sc in discipline roadmap; do
+        ns_reset
+        if [ "$sc" = discipline ]; then
+            drun ci-mismatch director open || continue
+            n=ci-mismatch
+        else
+            MRUN_ROLE=director mrun mismatch owed || continue
+            n=mismatch
+        fi
+        P=$S
+        # The run reports to a session now, the address a change from above
+        # names.
+        write_as_agent state-stored-set.sh --run reports-to "the human at hub-a" --inferred "Report to hub-a: the human named it, not in a brief" --by "the human"
+        eq "12 $sc: the reports-to row names hub-a" "0 the human at hub-a" "$? $(run_rows | jq -r '[.[] | select(.key == "reports-to") | .value][0]')"
+        successor "$n-successor-1"
+        eq "12 $sc: the successor is dispatched" 0 "$SRC"
+        MM=$(brief_args "$n-successor-1" | jq -c 'map(if . == "director" then "manager" else . end)')
+        REC_BEFORE=$(live_body)
+        opener_args "$MM" "$B_ID" --dispatched-by "$P"
+        eq "12 $sc: --role manager against director exits 2" 2 "$ORC"
+        eq "12 $sc: ... printing outcome=refused and reason=role-mismatch" "refused role-mismatch" "$(line outcome) $(line reason)"
+        S=$P WD=$T/work
+        eq "12 $sc: ... the record unchanged" "$REC_BEFORE" "$(live_body)"
+        opener_args "$(jq -c '. + ["--role-change-by", "hub-a", "--role-change-source", "dispatcher"]' <<< "$MM")" "$B_ID" --dispatched-by "$P"
+        eq "12 $sc: with --role-change-by the reports-to address the start is accepted" "0 continued" "$ORC $(line outcome)"
+        eq "12 $sc: ... and prints role_changed_from=director" director "$(line role_changed_from)"
     done
 fi
 

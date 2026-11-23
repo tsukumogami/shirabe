@@ -243,28 +243,30 @@
 #
 # --successor dispatches this run's own successor, the coordinator that takes
 # the run over (docs/designs/DESIGN-coordinate-successor-role.md). The
-# coordinator runs it from the hub, at any unit state: it reads no pick fact,
-# no coord/pick.json, no dispatch_topic and no brief_input.json, so an owed
-# verdict, a pause, a parked decision or an empty scope doesn't stop it. Its
+# coordinator runs it from the hub, or at discipline scope from rotation_end,
+# at any unit state: it reads no pick fact, no coord/pick.json, no
+# dispatch_topic and no brief_input.json, so an owed verdict, a pause, a
+# parked decision or an empty scope doesn't stop it. Its
 # input is successor_input.json, from the session's context: a brief input
 # (render-brief.sh) with its topic, authority, goal, checkpoints, acceptance
 # and any of the optional fields, and no role, scope or repository to type.
 # The run, in order:
 #
 #   1. Read the input and the run's facts: the scope, name and host from
-#      coord-log.sh run-facts and the ROADMAP variable from coord-log.sh vars.
-#      Facts that can't be read, a discipline rotation (whose successor this
-#      mode doesn't dispatch yet), a ROADMAP or host that fails its
-#      variable's pattern or starts with `-`, an input entry point other than
-#      coordinate, an input `entry_args` or `repo` that differs from the
-#      derived one token for token, an input `role_change`, a record with no
-#      `coordinator` address, and a record with no Run `role` row (the message
-#      names `state-stored-set.sh --session <run> --run role`) each exit 1 with
-#      nothing written. The input then gets the derived `entry_args`
-#      (`[<ROADMAP>]`) and `repo`, `role` the record's row, `successor: true`,
-#      `grant: own` (resolved as above), `unit` naming the scope, `phase:
-#      executing`, an empty run mode, `reports_to` and `dispatcher_session`,
-#      over anything it gave.
+#      coord-log.sh run-facts and, at roadmap scope, the ROADMAP variable from
+#      coord-log.sh vars. Facts that can't be read, a ROADMAP, discipline name
+#      or host that fails its variable's pattern or starts with `-`, an input
+#      entry point other than coordinate, an input `entry_args` or `repo` that
+#      differs from the derived one token for token, an input `role_change`,
+#      a record with no `coordinator` address, and a record with no Run
+#      `role` row (the message names `state-stored-set.sh --session <run>
+#      --run role`) each exit 1 with nothing written. The input then gets the
+#      derived `entry_args` (`[<ROADMAP>]`, or `["--discipline",
+#      <DISCIPLINE>, "--host", <HOST_REPO>]` at discipline scope) and `repo`
+#      (HOST_REPO), `role` the record's row, `successor: true`, `grant: own`
+#      (resolved as above), `unit` naming the scope, `phase: executing`, an
+#      empty run mode, `reports_to` and `dispatcher_session`, over anything
+#      it gave.
 #   2. Under the run's lock ($BRIEFS/.successor.<run>.lock), read the Run
 #      `successor` row: a `dispatch-failed` or `stranded` row of this topic
 #      exits 3 (a new attempt takes a new topic). A live session using the
@@ -501,9 +503,12 @@ input_role() {
 # successor_inputs: --successor's input, its scope built from the run's facts
 # (the header's step 1). Every refusal exits 1 before anything is written.
 # RE_ROADMAP is the template's ROADMAP variable pattern (koto-templates/
-# coordinate.md) without its empty alternative; keep the two in step.
+# coordinate.md) without its empty alternative; keep the patterns in step.
 RE_ROADMAP='^docs/roadmaps/(([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+)/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
 RE_HOST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+# RE_DISCIPLINE and RE_HOST are the template's DISCIPLINE and HOST_REPO
+# patterns, DISCIPLINE's without its empty alternative.
+RE_DISCIPLINE='^[a-z0-9][a-z0-9-]*$'
 successor_refuse() { printf '%s: refused: %s\n' "$PROG" "$1" >&2; exit 1; }
 successor_inputs() {
     local ep facts vars scope name host roadmap args role rc
@@ -520,23 +525,31 @@ successor_inputs() {
     facts=$(bash "$DC_COORD_LOG" run-facts --session "$SESSION" 2>"$WORK/facts.err")
     rc=$?
     [ "$rc" = 0 ] || successor_refuse "this run's facts can't be read (coord-log.sh run-facts exit $rc: $(head -1 "$WORK/facts.err")), so its successor's scope can't be built"
-    vars=$(bash "$DC_COORD_LOG" vars --session "$SESSION" 2>"$WORK/facts.err")
-    rc=$?
-    [ "$rc" = 0 ] || successor_refuse "this run's variables can't be read (coord-log.sh vars exit $rc: $(head -1 "$WORK/facts.err")), so its successor's scope can't be built"
     scope=$(jq -r '.scope // "" | strings' <<<"$facts") || successor_refuse "coord-log.sh run-facts printed no JSON"
     name=$(jq -r '.name // "" | strings' <<<"$facts")
     host=$(jq -r '.repo // "" | strings' <<<"$facts")
     case "$scope" in
-        roadmap) ;;
-        discipline) successor_refuse "this run is a discipline rotation, whose successor --successor doesn't dispatch yet" ;;
+        roadmap)
+            vars=$(bash "$DC_COORD_LOG" vars --session "$SESSION" 2>"$WORK/facts.err")
+            rc=$?
+            [ "$rc" = 0 ] || successor_refuse "this run's variables can't be read (coord-log.sh vars exit $rc: $(head -1 "$WORK/facts.err")), so its successor's scope can't be built"
+            roadmap=$(jq -r '.ROADMAP // "" | strings' <<<"$vars") || successor_refuse "coord-log.sh vars printed no JSON"
+            case "$roadmap" in -*) successor_refuse "ROADMAP: this run's roadmap starts with -: [${roadmap:0:80}]" ;; esac
+            [[ $roadmap =~ $RE_ROADMAP ]] || successor_refuse "ROADMAP: this run's roadmap isn't a docs/roadmaps/.../ROADMAP-<name>.md path: [${roadmap:0:80}]"
+            ;;
+        discipline)
+            case "$name" in -*) successor_refuse "DISCIPLINE: this run's discipline starts with -: [${name:0:80}]" ;; esac
+            [[ $name =~ $RE_DISCIPLINE ]] || successor_refuse "DISCIPLINE: this run's discipline isn't a name matching $RE_DISCIPLINE: [${name:0:80}]"
+            ;;
         *) successor_refuse "coord-log.sh run-facts names no scope this mode knows: [${scope:0:40}]" ;;
     esac
-    roadmap=$(jq -r '.ROADMAP // "" | strings' <<<"$vars") || successor_refuse "coord-log.sh vars printed no JSON"
-    case "$roadmap" in -*) successor_refuse "ROADMAP: this run's roadmap starts with -: [${roadmap:0:80}]" ;; esac
-    [[ $roadmap =~ $RE_ROADMAP ]] || successor_refuse "ROADMAP: this run's roadmap isn't a docs/roadmaps/.../ROADMAP-<name>.md path: [${roadmap:0:80}]"
     case "$host" in -*) successor_refuse "repo: this run's host starts with -: [${host:0:80}]" ;; esac
     [[ $host =~ $RE_HOST ]] || successor_refuse "repo: this run's host isn't owner/repo: [${host:0:80}]"
-    args=$(jq -nc --arg r "$roadmap" '[$r]')
+    if [ "$scope" = roadmap ]; then
+        args=$(jq -nc --arg r "$roadmap" '[$r]')
+    else
+        args=$(jq -nc --arg d "$name" --arg h "$host" '["--discipline", $d, "--host", $h]')
+    fi
     if jq -e 'has("entry_args")' "$INPUT" >/dev/null && [ "$(jq -c '.entry_args' "$INPUT")" != "$args" ]; then
         successor_refuse "entry_args: the input gives $(jq -r '.entry_args | tojson | .[0:120]' "$INPUT"), and this run's own scope is $args"
     fi

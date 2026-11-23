@@ -4538,7 +4538,9 @@ done and the record clear.
 
 The rotation is over, or the human ended it, so it ends here: nothing to commit
 and no pull request. Write the reasoning for the next rotation, then submit
-`reasoning: written`.
+`reasoning: written`. Handing over, run
+`dispatch-worker.sh --session {{SESSION_NAME}} --successor` (see Roles) before
+that submit.
 
 ```bash
 "{{PLUGIN_ROOT}}/skills/coordinate/scripts/state-stored-set.sh" --session "{{SESSION_NAME}}" --reasoning-file <reasoning.md>
