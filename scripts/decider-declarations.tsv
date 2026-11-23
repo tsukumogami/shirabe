@@ -21,7 +21,7 @@
 # Columns, tab-separated: template path, state, field, value, mode.
 skills/work-on/koto-templates/work-on.md	plan_validation	verdict	proceed	shadow
 skills/work-on/koto-templates/work-on.md	plan_validation	verdict	exit	never
-skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	code	shadow
+skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	code	auto
 skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	docs	never
 skills/work-on/koto-templates/work-on.md	issue_type_routing	issue_type	task	never
 skills/execute/koto-templates/execute.md	worktree_discipline_check	impact	informational	never

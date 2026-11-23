@@ -15,7 +15,7 @@
 #   fix-kind.sh declare  <session> --reason <text>
 #   fix-kind.sh withdraw <session> [--reason <text>]
 #   fix-kind.sh agree    <session> <kind>
-#   fix-kind.sh kind     <session>
+#   fix-kind.sh kind     <session> [--exit [--current <kind>]]
 #
 #   resolve   fix_determination's default action. A unit is a fix when its
 #             issue carries a label the repository's `## Fix Labels:`
@@ -46,7 +46,14 @@
 #   agree     the kind_unchanged gate. Read-only. Passes when <kind> (the
 #             variable) equals the ledger's last kind; holds otherwise with a
 #             `hold:` line naming both.
-#   kind      the ledger's last kind, or nothing. Read-only.
+#   kind      the ledger's last kind, or nothing. Read-only. With --exit it
+#             is fix_determination's kind_route gate and answers in its exit
+#             status, so koto routes on the kind in the tick whose action
+#             recorded it: 0 a change, 3 a fix, 4 nothing recorded yet, and 1
+#             when --current (UNIT_KIND as the tick started) is non-empty and
+#             disagrees with the ledger, a hand rebind that kind_unchanged
+#             holds on. An empty --current is the first entry, before the
+#             rebind is seen, and the ledger decides.
 #
 # Ledger lines (JSON, one per line): `determine` (kind, source, sources,
 # fix_labels, labels_from, report_source), `declare` (kind fix, source
@@ -58,8 +65,11 @@
 #                      ../koto-templates/work-on.md beside this script.
 #
 # Exit codes:
-#   0  -- recorded, unchanged, or the gate passes
-#   1  -- refused (withdraw, or declare outside its states), or agree holds
+#   0  -- recorded, unchanged, or the gate passes; kind --exit: a change
+#   1  -- refused (withdraw, or declare outside its states), or agree holds;
+#         kind --exit: --current disagrees with the ledger
+#   3  -- kind --exit: a fix
+#   4  -- kind --exit: no kind recorded
 #   64 -- usage: unknown subcommand, a bad session name, kind or flag, or a
 #         CLAUDE.md that declares `## Fix Labels:` twice
 #   66 -- a koto call failed (the rebind, a context read or write, the
@@ -491,11 +501,33 @@ cmd_agree() {
 }
 
 cmd_kind() {
-    [ $# -eq 1 ] || usage "kind takes <session>"
-    valid_session "$1" || usage "bad session name [$1]"
-    ctx_get "$1" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
-    last_kind "$WORK/ledger"
-    exit 0
+    [ $# -ge 1 ] || usage "kind takes <session> [--exit [--current <kind>]]"
+    local s="$1" route=0 current="" last
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --exit) route=1; shift ;;
+            --current) [ $# -ge 2 ] || usage "--current needs a value"; current="$2"; shift 2 ;;
+            *) usage "kind takes <session> [--exit [--current <kind>]]; unknown argument [$1]" ;;
+        esac
+    done
+    valid_session "$s" || usage "bad session name [$s]"
+    [ "$route" -eq 1 ] || [ -z "$current" ] || usage "--current is read only with --exit"
+    [ -z "$current" ] || valid_kind "$current" || usage "--current [$current] is not change or fix"
+    ctx_get "$s" "$LEDGER" "$WORK/ledger" || die 66 "could not read $LEDGER"
+    last=$(last_kind "$WORK/ledger")
+    [ -z "$last" ] || echo "$last"
+    [ "$route" -eq 1 ] || exit 0
+    [ -n "$last" ] || exit 4
+    if [ -n "$current" ] && [ "$current" != "$last" ]; then
+        echo "hold: UNIT_KIND is $current but the ledger records $last" >&2
+        exit 1
+    fi
+    case "$last" in
+        change) exit 0 ;;
+        fix) exit 3 ;;
+    esac
+    die 66 "the ledger's last kind [$last] is not change or fix"
 }
 
 command -v jq >/dev/null || die 66 "jq is not on PATH"
