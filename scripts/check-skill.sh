@@ -176,6 +176,24 @@
 #                      the last whole summary. The variable is unset before any
 #                      check runs, so no suite can write the summary itself.
 #                      Unset, nothing is written and nothing else changes.
+#   SKILL_GATE_PART    Which half of the run to make, for the skill gate's two
+#                      jobs (.github/workflows/check-skill-gate.yml). `suites`
+#                      runs step 4 only, still resolving the shirabe the
+#                      suites read through SHIRABE_BIN; `checks` runs every
+#                      step but 4. Unset or empty runs both. Any other value
+#                      is a usage error (exit 2). --list honours it: `suites`
+#                      lists no script cases, `checks` no suites.
+#   SUITE_SLICE        i/n: step 4 runs only slice i of n of the suites it
+#                      would otherwise launch (after --changed's selection),
+#                      chosen by scripts/lib/suite-slice.sh, so the n slices of
+#                      a CI matrix run every suite exactly once. The run says
+#                      `check-skill: k of N suites (slice i/n)`. Unset or
+#                      empty runs every suite. --list lists the slice.
+#   SUITE_SLICE_COSTS  The cost table the slices are balanced on; unset, the
+#                      skill's own check-skill.tsv when it has one.
+#                      These three are read and then unset before any check
+#                      runs, so no suite or script case slices its own work
+#                      or sees a part.
 #   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*
 #                      Cleared before any check runs: a koto session running
 #                      this script passes its own store and session to it, and
@@ -227,6 +245,23 @@ if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     echo "check-skill: invalid skill name (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
     exit 2
 fi
+
+# The part of the run and the slice (see the header), taken here and unset so
+# that nothing this script starts sees them: a suite that runs its own list
+# through the selector would otherwise slice it a second time.
+PART="${SKILL_GATE_PART:-}"
+case "$PART" in
+    ""|suites|checks) ;;
+    *)
+        echo "check-skill: SKILL_GATE_PART must be suites or checks (or unset)" >&2
+        exit 2
+        ;;
+esac
+SLICE="${SUITE_SLICE:-}"
+SLICE_COSTS="${SUITE_SLICE_COSTS:-}"
+unset SKILL_GATE_PART SUITE_SLICE SUITE_SLICE_COSTS
+# run_part <part>: whether this run makes the steps of <part>.
+run_part() { [ -z "$PART" ] || [ "$PART" = "$1" ]; }
 
 missing=""
 for tool in koto python3 git; do
@@ -925,6 +960,29 @@ if [ "$CHANGED" = 1 ]; then
         echo "check-skill: --changed runs every suite: $ALL_REASON"
     fi
 fi
+# The `checks` part launches no suite; the summary and --list say so too.
+run_part suites || suites=()
+# A slice keeps its share of what would otherwise launch, in the same order.
+# The selector is this script's own copy, like the shape helper. An empty list
+# is left alone: the selector refuses one, and a skill with no suites has
+# nothing to slice.
+if [ -n "$SLICE" ] && [ "${#suites[@]}" -gt 0 ]; then
+    [ -n "$SLICE_COSTS" ] || { [ -f "$MAP" ] && SLICE_COSTS=$MAP; }
+    if ! sliced=$(printf '%s\n' "${suites[@]}" \
+        | SUITE_SLICE="$SLICE" SUITE_SLICE_COSTS="$SLICE_COSTS" \
+            bash "$SCRIPT_DIR/lib/suite-slice.sh" "check-skill.sh $SKILL"); then
+        echo "check-skill: cannot take slice $SLICE of $SKILL's suites" >&2
+        exit 2
+    fi
+    total=${#suites[@]}
+    suites=()
+    while IFS= read -r t; do
+        [ -n "$t" ] && suites+=("$t")
+    done <<EOF
+$sliced
+EOF
+    echo "check-skill: ${#suites[@]} of $total suites (slice $SLICE)"
+fi
 order_suites
 
 if [ "$LIST" = 1 ]; then
@@ -932,6 +990,7 @@ if [ "$LIST" = 1 ]; then
         echo "${suites[$i]}"
     done
     # The script cases step 6 would run, listed by the runner, which runs none.
+    run_part checks || exit 0
     if [ ! -f "$CASE_RUNNER" ]; then
         echo "check-skill: script cases: no runner at $CASE_RUNNER" >&2
         exit 2
@@ -1004,6 +1063,10 @@ else
 fi
 echo "check-skill: validating with $VALIDATOR ($VALIDATOR_FROM)"
 
+# Steps 2, 3 and 5 to 8 are the `checks` part, step 4 the `suites` part (see
+# SKILL_GATE_PART in the header). The shirabe above resolves for both, since
+# the suites read it through SHIRABE_BIN.
+if run_part checks; then
 # 2. shirabe validate, once, over the skill's Markdown outside evals/ and
 # koto-templates/. Collected into an array so names reach the tool intact.
 md_files=()
@@ -1036,6 +1099,7 @@ for t in "$SKILL_DIR"/koto-templates/*.md; do
         fail "koto template compile: $t"
     fi
 done
+fi # the checks part, steps 2 and 3
 
 # 4. The skill's own script suites, from the repository root. Up to $JOBS run
 # at once, each into its own log. A suite keeps what it writes in its own
@@ -1106,6 +1170,7 @@ while [ "$NEXT" -lt "${#suites[@]}" ]; do
 done
 write_summary final
 
+if run_part checks; then
 # 5. The shape of the eval scenarios.
 evals_json="$SKILL_DIR/evals/evals.json"
 if python3 "$SHAPE_CHECK" "$evals_json" "$SKILL_DIR/SKILL.md" >"$LOG" 2>&1; then
@@ -1183,6 +1248,7 @@ else
     show_log
     fail "mktemp guards: $SKILL_DIR (scripts/check-mktemp-guards.sh)"
 fi
+fi # the checks part, steps 5 to 8
 
 if [ -n "$FAILURES" ]; then
     echo ""

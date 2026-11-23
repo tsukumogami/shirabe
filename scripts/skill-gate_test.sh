@@ -6,14 +6,15 @@
 # scripts/check-skill.sh and a stand-in scripts/lib/script-cases.py, and the
 # skills alpha, beta and gamma. Each stand-in appends `check-skill <args>` or
 # `script-cases <args>` to the file STUB_RECORD names and exits with the code
-# STUB_FAIL gives its first argument (`alpha=1 --all=1`), 0 otherwise. Each
+# STUB_FAIL gives its first argument (`alpha=1 --all=1`), 0 otherwise; the
+# check-skill.sh stand-in adds ` part=<value>` when SKILL_GATE_PART reaches it. Each
 # case is one commit on top of a shared base, and the copied gate runs with
 # SKILL_GATE_BASE set to that base.
 #
 # Covers: the skills a change selects, each once and in full; each shared
 # path, alone and with a skill; the paths that select nothing; a deleted and
 # a renamed skill; the failure list; each refused base; the empty base; and
-# --list. Nothing here runs a real check, so it needs git and python3, and no
+# --list; and SKILL_GATE_PART's two parts and its refusal. Nothing here runs a real check, so it needs git and python3, and no
 # koto, yq or network.
 #
 # Usage: bash scripts/skill-gate_test.sh
@@ -56,7 +57,7 @@ cp "$GATE" "$REPO/scripts/skill-gate.sh" || exit 1
 
 cat >"$REPO/scripts/check-skill.sh" <<'STUB'
 #!/usr/bin/env bash
-printf 'check-skill %s\n' "$*" >>"$STUB_RECORD"
+printf 'check-skill %s%s\n' "$*" "${SKILL_GATE_PART:+ part=$SKILL_GATE_PART}" >>"$STUB_RECORD"
 for want in ${STUB_FAIL:-}; do
     if [ "${want%%=*}" = "${1-}" ]; then
         exit "${want#*=}"
@@ -164,6 +165,8 @@ not_in() {
 }
 
 export SKILL_GATE_BASE STUB_FAIL
+# A part from the caller's environment would change every record below.
+unset SKILL_GATE_PART SUITE_SLICE SUITE_SLICE_COSTS
 
 # -- skill selection ----------------------------------------------------------
 
@@ -301,6 +304,41 @@ for args in "--bogus" "--list --list" "alpha"; do
     run_gate $args
     expect "the argument list [$args] is a usage error" 2 "" "usage: scripts/skill-gate.sh [--list]"
 done
+
+# -- SKILL_GATE_PART ----------------------------------------------------------
+
+commit_case edit:skills/alpha/SKILL.md edit:skills/beta/x.md edit:scripts/check-handoff.sh
+SKILL_GATE_PART=suites
+export SKILL_GATE_PART
+run_gate
+expect "the suites part checks each skill with the part passed through, and no script cases" 0 \
+    "check-skill alpha part=suites|check-skill beta part=suites" "skill-gate: 2 of 2 checks passed"
+run_gate --list
+expect "  ... and --list leaves script-cases --all out" 0 "" "check-skill beta"
+not_in "  ... in the listing too" "script-cases"
+
+SKILL_GATE_PART=checks
+run_gate
+expect "the checks part checks each skill with the part passed through, then every script case" 0 \
+    "check-skill alpha part=checks|check-skill beta part=checks|script-cases --all" "skill-gate: 3 of 3 checks passed"
+
+unset SKILL_GATE_BASE
+SKILL_GATE_PART=suites
+run_gate
+expect "with no base, the suites part has nothing to check" 0 "" "skill-gate: nothing to check"
+SKILL_GATE_PART=checks
+run_gate
+expect "with no base, the checks part runs every script case" 0 "script-cases --all"
+SKILL_GATE_BASE=$BASE
+export SKILL_GATE_BASE
+
+for bad in all SUITES " suites" "suites,checks"; do
+    SKILL_GATE_PART=$bad
+    run_gate
+    expect "SKILL_GATE_PART [$bad] is refused before anything runs" 2 "" \
+        "skill-gate: SKILL_GATE_PART must be suites or checks (or unset)"
+done
+unset SKILL_GATE_PART
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"

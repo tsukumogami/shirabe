@@ -138,6 +138,45 @@ workflow "$T/nslice-ok.yml" '      fail-fast: false
         os: [ubuntu-latest, macos-latest]' '      SUITE_SLICE: ${{ matrix.slice }}/2' 'bash run-tests.sh'
 expect "a slice matrix crossed with os passes" 0 "$T/nslice-ok.yml"
 
+# --- the skill gate: skill-gate waits on every slice ---------------------------
+
+# gate_workflow <file> <skill-gate's extra job lines> [<skill-gate-suites' extra job lines>]:
+# a well-formed skill-gate-suites job and a skill-gate job carrying the lines.
+gate_workflow() {
+    {
+        printf 'name: fixture\non: pull_request\njobs:\n  skill-gate-suites:\n'
+        [ -z "${3-}" ] || printf '%s\n' "$3"
+        printf '    strategy:\n%s\n    runs-on: ubuntu-latest\n    env:\n%s\n' "$GOOD_STRATEGY" "$GOOD_ENV"
+        printf '    steps:\n      - run: bash scripts/skill-gate.sh\n'
+        printf '  skill-gate:\n'
+        [ -z "$2" ] || printf '%s\n' "$2"
+        printf '    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/skill-gate.sh\n'
+    } > "$1"
+}
+
+gate_workflow "$T/gate-good.yml" '    needs: skill-gate-suites'
+expect "skill-gate with needs: skill-gate-suites passes" 0 "$T/gate-good.yml"
+
+gate_workflow "$T/gate-list.yml" '    needs: [other, skill-gate-suites]'
+expect "skill-gate-suites in a needs: list passes" 0 "$T/gate-list.yml"
+
+gate_workflow "$T/gate-noneeds.yml" ''
+expect "skill-gate without needs: fails" 1 "$T/gate-noneeds.yml" "job skill-gate: needs: does not list skill-gate-suites"
+
+gate_workflow "$T/gate-otherneeds.yml" '    needs: [other]'
+expect "skill-gate whose needs: lacks skill-gate-suites fails" 1 "$T/gate-otherneeds.yml" \
+    "job skill-gate: needs: does not list skill-gate-suites"
+
+for key in "if: always()" "continue-on-error: true"; do
+    gate_workflow "$T/gate-key.yml" "    needs: skill-gate-suites
+    $key"
+    expect "skill-gate with a job-level ${key%%:*}: fails" 1 "$T/gate-key.yml" \
+        "job skill-gate: the job has a job-level ${key%%:*}:"
+    gate_workflow "$T/gate-key.yml" '    needs: skill-gate-suites' "    $key"
+    expect "skill-gate-suites with a job-level ${key%%:*}: fails" 1 "$T/gate-key.yml" \
+        "job skill-gate-suites: the job has a job-level ${key%%:*}:"
+done
+
 printf 'not: [valid\n' > "$T/broken.yml"
 expect "an unreadable workflow exits 2" 2 "$T/broken.yml"
 

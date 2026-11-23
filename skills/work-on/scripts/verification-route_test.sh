@@ -643,6 +643,13 @@ for c in cancelled failure skipped timed_out neutral action_required stale; do
     read_case "a latest attempt concluded $c, naming the job and the commit" 1 \
         "check check-skill:coordinate, job $JOB, commit $HEAD_SHA" "concluded $c"
 done
+# The skill gate's job of record waits on its suite slices (needs:), so a
+# failed slice leaves it skipped while the other slices pass.
+gh_reset s-read
+runs_page "$HEAD_SHA" 1 "[$(run_obj 508 9 1 completed failure)]"
+jobs_at 508 1 "[$(job_obj completed success 'skill-gate-suites (ubuntu-latest, 1)'), $(job_obj completed failure 'skill-gate-suites (ubuntu-latest, 2)'), $(job_obj completed success 'skill-gate-suites (ubuntu-latest, 3)'), $(job_obj completed success 'skill-gate-suites (ubuntu-latest, 4)'), $(job_obj completed skipped)]"
+read_case "a skill-gate skipped after a failed suite slice is not passed" 1 \
+    "check check-skill:coordinate, job $JOB, commit $HEAD_SHA" "concluded skipped"
 gh_reset s-read
 runs_page "$HEAD_SHA" 1 "[$(run_obj 505 9 1 completed success)]"
 touch "$FAKE_GH/api/$(api_name "$(runs_path "$HEAD_SHA" 1)").fail"

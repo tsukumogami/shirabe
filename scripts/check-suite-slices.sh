@@ -25,6 +25,17 @@
 # job, or dropping its SUITE_SLICE, fails here rather than quietly shrinking
 # what CI runs.
 #
+# The skill gate splits into two jobs: skill-gate-suites runs the suites in
+# slices, and skill-gate, the verification map's job of record, runs the rest
+# once every slice is done. skill-gate's success has to mean every slice
+# passed, so in any workflow with a job named skill-gate:
+#
+#   - skill-gate lists skill-gate-suites in its `needs:`, so a failed slice
+#     leaves it skipped, which the verification route reads as not passed;
+#   - neither skill-gate nor skill-gate-suites has a job-level `if:` or
+#     `continue-on-error`, either of which could run skill-gate after a
+#     failed slice, or count a failed one as passed.
+#
 # Usage:
 #   scripts/check-suite-slices.sh              every workflow, plus REQUIRED
 #   scripts/check-suite-slices.sh FILE...      these workflows only
@@ -49,6 +60,7 @@ REQUIRED='
 check-coordinate-scripts.yml test-coordinate-engine
 check-coordinate-scripts.yml test-coordinate-scripts
 check-koto-entry-floor.yml entry-floor-coordinate
+check-skill-gate.yml skill-gate-suites
 '
 
 ROOT=${CHECK_SUITE_SLICES_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}
@@ -107,6 +119,23 @@ check_job() {
     fi
 }
 
+# check_skill_gate <file> <name>: the skill gate's shape (see the header),
+# when the workflow has a job named skill-gate.
+check_skill_gate() {
+    local f=$1 name=$2 j key
+    [ "$(yq -r '.jobs // {} | has("skill-gate")' "$f")" = true ] || return 0
+    if [ "$(yq -r '[.jobs."skill-gate".needs] | flatten | any_c(. == "skill-gate-suites")' "$f")" != true ]; then
+        violation "$name" skill-gate "needs: does not list skill-gate-suites, so skill-gate can pass with a slice failed or unrun"
+    fi
+    for j in skill-gate skill-gate-suites; do
+        for key in if continue-on-error; do
+            if [ "$(J=$j K=$key yq -r '(.jobs[strenv(J)] // {}) | has(strenv(K))' "$f")" = true ]; then
+                violation "$name" "$j" "the job has a job-level $key:, which can run skill-gate after a failed slice or pass a failed one"
+            fi
+        done
+    done
+}
+
 SLICED=""
 for f in "$@"; do
     name=$(basename "$f")
@@ -121,6 +150,7 @@ for f in "$@"; do
 "
         check_job "$f" "$name" "$j"
     done
+    check_skill_gate "$f" "$name"
 done
 
 if [ "$DEFAULT" = 1 ]; then

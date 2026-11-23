@@ -128,6 +128,27 @@ else
     fail "slice env (rc=$RC): $OUT"
 fi
 
+# The skill gate runs its floor suite in two jobs, the suites in slices and the
+# rest once; their setups match but for the variables that split the run.
+fresh
+yq -i '.jobs.test2 = .jobs.test
+    | .jobs.test.env.SKILL_GATE_PART = "checks"
+    | .jobs.test2.env.SKILL_GATE_PART = "suites"
+    | .jobs.test2.env.SUITE_SLICE = "${{ matrix.slice }}/4"' "$CASE/floor-a.yml"
+check
+if [ "$RC" -eq 0 ]; then
+    pass "a suite run in two jobs whose setups differ only in SKILL_GATE_PART and the slice passes"
+else
+    fail "two jobs, split env (rc=$RC): $OUT"
+fi
+yq -i '.jobs.test2.env.OTHER = "x"' "$CASE/floor-a.yml"
+check
+if [ "$RC" -eq 1 ] && has "suite demo: runs in floor-a.yml job test and in floor-a.yml job test2 with different setups"; then
+    pass "  ... and fails once the two jobs' env differs in any other variable"
+else
+    fail "two jobs, other env (rc=$RC): $OUT"
+fi
+
 fresh
 # Add a timeout under the floor step's name.
 awk '{ print } /name: Run the suite on the floor \(macOS\)/ { print "        timeout-minutes: 20" }' \

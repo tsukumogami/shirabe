@@ -131,16 +131,99 @@ jobs:
         if: runner.os == 'macOS'
         run: scripts/check-bash-floor.sh --backend system check-skill
 
-  # The pull request gate: check-skill.sh on each skill with changed files
-  # under skills/<name>/, and every script case when a shared path changes.
-  # A change under skills/coordinate/ runs all of that skill's suites, which
-  # takes tens of minutes; the job sets no time limit of its own.
+  # The pull request gate's script suites: check-skill.sh's step 4 for each
+  # skill with changed files under skills/<name>/, spread over four slices per
+  # platform. A change under skills/coordinate/ runs tens of minutes of
+  # suites, so each slice runs a cost-balanced quarter of each selected
+  # skill's suites (scripts/lib/suite-slice.sh, on the skill's
+  # check-skill.tsv) and the four together run every suite exactly once. On
+  # macOS the skill-gate floor list passes the slice through (`slice: pass`),
+  # so check-skill.sh slices there too. scripts/check-suite-slices.sh holds
+  # this job's matrix and fail-fast shape.
+  skill-gate-suites:
+    strategy:
+      fail-fast: false
+      matrix:
+        # No macOS leg while the pull request is a draft (shirabe#1300);
+        # scripts/check-macos-floor-legs.sh holds the one copy of this line.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        slice: [1, 2, 3, 4]
+    env:
+      SUITE_SLICE: ${{ matrix.slice }}/4
+      SKILL_GATE_PART: suites
+    runs-on: ${{ matrix.os }}
+    steps:
+      # The gate diffs HEAD against the base commit, which a shallow checkout
+      # doesn't have.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # check-skill.sh compiles each skill's templates with koto, and the
+      # script cases attach templates with it.
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto
+        env:
+          TSUKU_TELEMETRY: "0"
+          # tsuku install calls the GitHub API; the token keeps shared runners
+          # from hitting the unauthenticated rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tsuku install -y
+
+      - name: Assert koto meets the floor
+        run: |
+          command -v koto
+          scripts/assert-koto-floor.sh
+
+      # The gate diffs HEAD against SKILL_GATE_BASE, which this step writes to
+      # the job's environment. On a pull request the checkout is the merge
+      # commit of the pull request into the base branch's current tip, so the
+      # base is that commit's first parent and the diff is the pull request's
+      # own change set. The base commit the event records can be older than
+      # that tip, and a diff against it would also pick up skills that changed
+      # on main since. On a push to main the base is the commit before the
+      # push. Neither run step sets SKILL_GATE_BASE, since a step's own env
+      # would override this one.
+      - name: Pick the base commit
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base=$(git rev-parse HEAD^1)
+          else
+            base=$BEFORE
+          fi
+          echo "SKILL_GATE_BASE=$base" >> "$GITHUB_ENV"
+
+      - name: Run the gate (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/skill-gate.sh
+
+      - name: Run the gate on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system skill-gate
+
+  # The pull request gate, and its job of record: the verification map names
+  # skill-gate (ubuntu-latest) for every touched skill. It runs everything but
+  # the suites (shirabe validate, template compile, the evals shape check, the
+  # skill's script cases, the pipe-reader and mktemp checks, and every script
+  # case when a shared path changes), and starts only once every
+  # skill-gate-suites slice has passed. A failed slice leaves this job
+  # skipped, which the verification route reads as not passed, so the job
+  # takes no job-level if: and no continue-on-error;
+  # scripts/check-suite-slices.sh fails the workflow that gives it either.
   skill-gate:
+    needs: skill-gate-suites
     strategy:
       matrix:
         # No macOS leg while the pull request is a draft (shirabe#1300);
         # scripts/check-macos-floor-legs.sh holds the one copy of this line.
         os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+    env:
+      SKILL_GATE_PART: checks
     runs-on: ${{ matrix.os }}
     steps:
       # The gate diffs HEAD against the base commit, which a shallow checkout
