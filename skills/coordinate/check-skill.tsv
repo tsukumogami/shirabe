@@ -58,7 +58,9 @@ walk	coordinate-template-structure_engine_test.sh	koto-templates/*.md
 # discipline-carry_engine_test.sh, review-round-telemetry_engine_test.sh,
 # driver-check_engine_test.sh, directive-ceiling_engine_test.sh,
 # successor-handover_engine_test.sh and state-write-race_test.sh were each
-# measured alone in one run.
+# measured alone in one run; lib-status_test.sh, reconcile-owe_test.sh,
+# roadmap-status-v4_test.sh and roadmap-status-v4-verdict_test.sh were each
+# measured alone in one run on a loaded host.
 cost	driver-check_engine_test.sh	527
 cost	coordinate_1_engine_test.sh	271
 cost	state-carry_test.sh	262
@@ -188,3 +190,7 @@ cost	discipline-carry_engine_test.sh	23
 cost	review-round-telemetry_engine_test.sh	0
 cost	directive-ceiling_engine_test.sh	3
 cost	cloud-hosts-start_test.sh	0
+cost	lib-status_test.sh	21
+cost	reconcile-owe_test.sh	13
+cost	roadmap-status-v4_test.sh	25
+cost	roadmap-status-v4-verdict_test.sh	37

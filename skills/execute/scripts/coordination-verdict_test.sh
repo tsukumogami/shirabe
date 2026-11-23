@@ -247,6 +247,19 @@ printf '%s' "CI only" > "$CASE/ctx/work-on-t-$CT_CORE-1/verification_deferral"
 run_verdict "$PLANDIR" --merge true --loop-line "error:execute:deferral-record"
 check "a node PR missing its deferral record" error "" "" "" "execute:deferral-record"
 
+# The same for a work item that re-ran a failed verification command and a
+# body without its re-run line.
+ct_case error-rerun-record
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
+ct_write_db
+mkdir -p "$CASE/ctx/work-on-t-$CT_CORE-1"
+jq -cn --arg h "$CT_HEAD" '{attempt: 1, head: $h, merge_base: $h, status: "done", reason: "flaky test",
+    commands: [{id: "unit", exit_status: 1, timed_out: false}]}' > "$CASE/ctx/work-on-t-$CT_CORE-1/verification_attempts"
+run_verdict "$PLANDIR" --merge true --loop-line "error:execute:rerun-record"
+check "a node PR missing its re-run record" error "" "" "" "execute:rerun-record"
+
 ct_case error-early
 ct_record_setup
 ct_write_db

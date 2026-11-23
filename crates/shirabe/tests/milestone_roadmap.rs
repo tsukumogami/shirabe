@@ -293,11 +293,11 @@ fn the_schema_line_decides_whether_milestone_checks_run() {
     assert!(ok, "v1 with classic items validates:\n{text}");
     assert!(fc21_lines(&text).is_empty(), "{text}");
 
-    let v4 = write_roadmap("classic-v4", &roadmap("roadmap/v4", CLASSIC));
-    let (code, text) = validate_code(&v4, &[]);
+    let v5 = write_roadmap("classic-v5", &roadmap("roadmap/v5", CLASSIC));
+    let (code, text) = validate_code(&v5, &[]);
     assert_eq!(code, 4, "an unknown schema is skipped, exit 4:\n{text}");
     assert!(
-        text.contains("schema \"roadmap/v4\" not in supported range"),
+        text.contains("schema \"roadmap/v5\" not in supported range"),
         "an unknown schema gets the SCHEMA notice:\n{text}"
     );
     assert!(fc21_lines(&text).is_empty(), "{text}");

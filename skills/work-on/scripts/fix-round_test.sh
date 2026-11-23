@@ -18,7 +18,11 @@
 #     and in the round;
 #   - the route can't loop: a second round is refused while the first is open,
 #     a round started from a round counts against the original, and a fourth
-#     round is refused.
+#     round is refused;
+#   - a round inherits the verdict ledger of the run it follows (the last
+#     round, else the child) when every commit the ledger recorded is an
+#     ancestor of the round's base, and inherits nothing when one isn't or
+#     with --fresh.
 #
 # The child is a stand-in template with the variables a coordinated child
 # carries and a pr_creation that goes to done, not the shipped work-on.md
@@ -52,6 +56,12 @@ if [[ $RC -eq 64 && -z "$OUT" ]]; then
     pass "a call without --from is a usage error"
 else
     fail "a call without --from was not refused as usage (rc=$RC, out=[$OUT])"
+fi
+OUT=$(bash "$FIX_ROUND" start --from x --stale 2>/dev/null); RC=$?
+if [[ $RC -eq 64 && -z "$OUT" ]]; then
+    pass "an unknown fourth argument is a usage error"
+else
+    fail "start --from x --stale was not refused as usage (rc=$RC, out=[$OUT])"
 fi
 
 for tool in koto jq git; do
@@ -192,11 +202,31 @@ else
 fi
 
 # --- the first round -------------------------------------------------------------
+# The child's panels judged the head it left, as panel-scope.sh records them.
+# ledger_at <commit>: a ledger whose one seat judged <commit>.
+ledger_at() {
+    jq -nc --arg h "$1" '{rev: 1,
+        seats: {"review/architect": {verdict: "pass", judged_at: $h, ac_sha: "a"}},
+        findings: {}, history: [{panel: "review", round: 1, head: $h, rev: 1}]}'
+}
+ledger_at "$DONE_HEAD" | koto context add par.kid verdict_ledger.json >/dev/null
+# The criteria review-level.sh stored from the child's context.md.
+printf 'criteria\n' | koto context add par.kid review_level_criteria.txt >/dev/null
+OFF_BRANCH=$(git -C "$REPO" commit-tree "HEAD^{tree}" -m "not on the branch")
+
 OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid); RC=$?
-if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-1\nround=1' ]]; then
-    pass "a child at done starts fix round 1"
+if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-1\nround=1\ninherited=par.kid' ]]; then
+    pass "a child at done starts fix round 1, inheriting its ledger"
 else
     fail "fix round 1 did not start (rc=$RC, out=[$OUT])"
+fi
+CRIT_SHA=$(printf 'criteria\n' | git hash-object --stdin)
+if koto context get par.kid-fix-1 verdict_ledger.json 2>/dev/null | jq -e --arg h "$DONE_HEAD" --arg c "$CRIT_SHA" '
+        .seats["review/architect"].judged_at == $h and .rev == 1
+        and .inherited == {from: "par.kid", base: $h, criteria_sha: $c}' >/dev/null; then
+    pass "the inherited ledger keeps the child's verdicts and names the child, the base and the criteria"
+else
+    fail "the round's ledger is $(koto context get par.kid-fix-1 verdict_ledger.json 2>&1)"
 fi
 
 R1=par.kid-fix-1
@@ -285,11 +315,20 @@ fi
 # entry's `skipped` mode is the shortest way to a terminal state in the shipped
 # template, which is all the open-round rule asks of a finished round.
 tick "$R1" '{"mode":"skipped"}'
+# Round 2 follows round 1, so it reads round 1's ledger, not the child's: one
+# that recorded a commit the branch doesn't hold (a rebase since) is not
+# inherited, though the child's still would be.
+ledger_at "$OFF_BRANCH" | koto context add "$R1" verdict_ledger.json >/dev/null
 OUT=$(in_repo bash "$FIX_ROUND" start --from "$R1"); RC=$?
-if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-2\nround=2' ]]; then
+if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-2\nround=2\ninherited=none' ]]; then
     pass "a round started from a round counts against the original child"
 else
     fail "a round from a round did not start par.kid-fix-2 (rc=$RC, out=[$OUT])"
+fi
+if ! koto context exists par.kid-fix-2 verdict_ledger.json; then
+    pass "a ledger recording a commit the round's base doesn't hold is not inherited"
+else
+    fail "par.kid-fix-2 inherited a ledger that judged a commit off the branch"
 fi
 # The round's record names the run it continues: the original, never the
 # round it was started from.
@@ -300,7 +339,14 @@ else
 fi
 
 tick par.kid-fix-2 '{"mode":"skipped"}'
-in_repo bash "$FIX_ROUND" start --from par.kid >/dev/null
+ledger_at "$FIX_HEAD" | koto context add par.kid-fix-2 verdict_ledger.json >/dev/null
+OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid --fresh); RC=$?
+if [[ $RC -eq 0 && "$OUT" == $'session=par.kid-fix-3\nround=3\ninherited=none' ]] \
+   && ! koto context exists par.kid-fix-3 verdict_ledger.json; then
+    pass "--fresh inherits no ledger, even one the round could have inherited"
+else
+    fail "--fresh round 3: rc=$RC out=[$OUT]"
+fi
 tick par.kid-fix-3 '{"mode":"skipped"}'
 OUT=$(in_repo bash "$FIX_ROUND" start --from par.kid 2>/dev/null); RC=$?
 N=$(koto context get par.kid fix_rounds.jsonl | jq -s length)
