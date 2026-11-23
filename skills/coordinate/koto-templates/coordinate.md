@@ -2403,9 +2403,10 @@ and `record/reasoning`):
 - found (bare): this run's own session holds the rotation; the run reconciles.
 - first: the discipline has no earlier rotation anywhere: `record_open`.
 - predecessor `<session>`: the latest earlier rotation ended, and its state is
-  carried into this run (`predecessor_carry`).
+  carried into this run (`predecessor_carry`). One opened from another
+  template, an older plugin's, is carried the same way.
 - unreadable `<session>`: the latest earlier rotation fails a rule (its name,
-  provenance, discipline or host, an open window, another rotation already
+  discipline or host, an open window, another rotation already
   carried it, or a record that doesn't read back): `record_conflict`, carrying
   nothing.
 
