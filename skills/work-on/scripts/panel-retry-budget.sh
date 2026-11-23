@@ -11,23 +11,35 @@
 # The rule (docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md):
 #
 #   - The first FLOOR retries in a run are granted whatever the counts.
-#   - Past those, a retry is granted only when this panel's blocking count is
-#     lower than its own count on its previous blocking round. A panel with no
-#     earlier blocking round has nothing to show progress against and is
-#     refused.
+#   - Past those, a retry is granted when the run shows progress, in either
+#     of two ways:
+#       - this panel's blocking count is lower than its own count on its
+#         previous blocking round; or
+#       - none of this round's open blocking findings was open on the run's
+#         previous blocking round, whichever panel that was (amended for
+#         shirabe#2061). Every finding that round raised has been cleared,
+#         and what is open now is new.
+#     A round that shows neither is refused: a finding still open from the
+#     previous round, alone or beside new ones, is not progress unless the
+#     count fell.
 #   - No run gets more than CEILING retries.
 #
 # Counts are compared within one panel because the panels count different
 # things: scrutiny, review and light_review count blocking findings,
-# qa_validation counts failed scenarios. A run whose level moves between
-# `light` and the full panels has nothing to compare across that move: once
-# the floor is spent, the first blocking round on the other side has no
-# earlier round of its own and is refused.
+# qa_validation counts failed scenarios. Finding ids need no such care: an id
+# hashes its panel, so it is either the same finding or a different one. A
+# run's previous blocking round is the record's last line. A grant never
+# closes a finding: the panel's --verdict gate still blocks on every finding
+# open in the ledger until a later round's reviewer closes it.
 #
 # The record is the koto context key `panel_retries`: one line per granted
-# retry, "<panel> <count>", oldest first. The retry loops in the phase files
-# clear the panel result keys and summary.md, never this one, so it lasts the
-# whole run. A refusal records nothing.
+# retry, "<panel> <count> <ids>", oldest first, <ids> the round's open
+# blocking finding ids joined by commas, <count> of them. A line written
+# before #2061 has no <ids>; it still counts toward the ceiling and the count
+# rule, but it can't show which findings were open, so a round compared with
+# it is judged on the count alone. The retry loops in the phase files clear
+# the panel result keys and summary.md, never this one, so it lasts the whole
+# run. A refusal records nothing.
 #
 # Fails closed where it can tell. A record koto reports present but won't
 # return, a record line this script didn't write, a write that fails, or a
@@ -53,8 +65,10 @@
 # ledger through `panel-scope.sh --open-count`: the number of the panel's
 # blocking findings with no closing record, which is the number of findings
 # the panel's --verdict gate printed (failed scenarios for qa_validation).
-# Advisory findings are never counted. A count it can't read -- the ledger
-# unreadable, the round not fully recorded, the script missing -- is a
+# Advisory findings are never counted. The ids come from the same ledger
+# through `panel-scope.sh --open-ids`, and must number exactly the count. A
+# count or ids it can't read -- the ledger unreadable, the round not fully
+# recorded, the script missing, ids that don't match the count -- is a
 # refusal (64), never a grant, and a count of 0 is a refusal too: a panel
 # with nothing open passes, it doesn't retry.
 #
@@ -68,8 +82,8 @@
 # Exit codes:
 #   0  -- retry granted and recorded; submit blocking_retry through the retry loop
 #   1  -- refused; submit blocking_escalate with the printed reason
-#   64 -- no answer: the record or the ledger's count could not be read, or the
-#         record holds a line this script didn't write; escalate
+#   64 -- no answer: the record or the ledger's count or ids could not be
+#         read, or the record holds a line this script didn't write; escalate
 #   66 -- the grant could not be recorded: the write failed, or the read-back
 #         doesn't show it; escalate
 #   67 -- bad arguments, a count among them; nothing was read or written
@@ -143,6 +157,17 @@ esac
 COUNT=$(printf '%s' "$COUNT" | sed 's/^0*//')
 [ -n "$COUNT" ] || refuse "$PANEL has no open blocking finding in the ledger; a panel with nothing open passes, it doesn't retry"
 
+# The same findings' ids, joined by commas for the record line.
+ID_LIST=$("$SCOPE_SH" --open-ids "$LEDGER_PANEL" "$SESSION" 2>/dev/null) \
+    || no_answer "could not read $PANEL's open blocking finding ids from the ledger (panel-scope.sh --open-ids $LEDGER_PANEL)"
+IDS=$(printf '%s\n' "$ID_LIST" | grep . | paste -sd ',' -)
+ID_COUNT=$(printf '%s\n' "$ID_LIST" | grep -c .)
+[ "$ID_COUNT" -eq "$COUNT" ] \
+    || no_answer "the ledger gave $COUNT open blocking findings for $PANEL but $ID_COUNT ids"
+case ",$IDS," in
+    *,,*|*[!0-9a-f,]*) no_answer "the ledger's ids for $PANEL are malformed: [$IDS]" ;;
+esac
+
 # --- read the record ---------------------------------------------------------
 
 # `exists` is used only to find a record that is there; its "absent" is taken
@@ -155,7 +180,11 @@ fi
 
 USED=0
 LAST_SAME=""
-while IFS=' ' read -r rec_panel rec_count rest; do
+# The ids on the record's last line, the run's previous blocking round, and
+# whether that line carried any (a line written before #2061 doesn't).
+LAST_IDS=""
+LAST_HAS_IDS=0
+while IFS=' ' read -r rec_panel rec_count rec_ids rest; do
     [ -n "$rec_panel" ] || continue
     case "$rec_panel" in
         scrutiny|review|qa_validation|light_review) ;;
@@ -165,7 +194,19 @@ while IFS=' ' read -r rec_panel rec_count rest; do
         ''|*[!0-9]*) no_answer "the retry record ($KEY) has a malformed count: [$rec_panel $rec_count]" ;;
     esac
     [ "${#rec_count}" -le 6 ] && [ -z "$rest" ] \
-        || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rest]"
+        || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rec_ids $rest]"
+    if [ -n "$rec_ids" ]; then
+        # 16 hex characters per id, joined by single commas, and as many ids
+        # as the line's count: anything else is a line this script didn't write.
+        printf '%s\n' "$rec_ids" | grep -Eq '^[0-9a-f]{16}(,[0-9a-f]{16})*$' \
+            && [ "$(printf '%s\n' "$rec_ids" | tr ',' '\n' | grep -c .)" -eq "$((10#$rec_count))" ] \
+            || no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count $rec_ids]"
+        LAST_IDS=$rec_ids
+        LAST_HAS_IDS=1
+    else
+        LAST_IDS=""
+        LAST_HAS_IDS=0
+    fi
     USED=$((USED + 1))
     [ "$rec_panel" = "$PANEL" ] && LAST_SAME=$rec_count
 done <<EOF
@@ -178,21 +219,47 @@ if [ "$USED" -ge "$CEILING" ]; then
     refuse "this run has used all $CEILING blocking retries"
 fi
 if [ "$USED" -ge "$FLOOR" ]; then
-    if [ -z "$LAST_SAME" ]; then
-        refuse "$USED blocking retries used and $PANEL has no earlier blocking round to show progress against"
+    # Progress by count: this panel's count fell below its own previous one.
+    FELL=0
+    if [ -n "$LAST_SAME" ]; then
+        LAST_SAME=$(printf '%s' "$LAST_SAME" | sed 's/^0*//')
+        LAST_SAME=${LAST_SAME:-0}
+        # Only a comparison that succeeds sets FELL: if `[` can't compare the
+        # two, it fails, and the count rule grants nothing.
+        if [ "$COUNT" -lt "$LAST_SAME" ]; then
+            FELL=1
+        fi
     fi
-    LAST_SAME=$(printf '%s' "$LAST_SAME" | sed 's/^0*//')
-    LAST_SAME=${LAST_SAME:-0}
-    # Written as "not fewer" rather than `-ge`: if `[` can't compare the two, it
-    # fails, and the negation turns that failure into a refusal, not a grant.
-    if ! [ "$COUNT" -lt "$LAST_SAME" ]; then
-        refuse "$USED blocking retries used and $PANEL found $COUNT, not fewer than its previous $LAST_SAME"
+    # Progress by findings: nothing open now was open on the previous round.
+    # It needs the previous round's ids; a line without them shows nothing.
+    CLEARED=0
+    STILL_OPEN=""
+    if [ "$LAST_HAS_IDS" -eq 1 ]; then
+        for id in $(printf '%s\n' "$IDS" | tr ',' ' '); do
+            case ",$LAST_IDS," in
+                *",$id,"*) STILL_OPEN="$STILL_OPEN $id" ;;
+            esac
+        done
+        [ -n "$STILL_OPEN" ] || CLEARED=1
+    fi
+    if [ "$FELL" -ne 1 ] && [ "$CLEARED" -ne 1 ]; then
+        if [ -n "$LAST_SAME" ]; then
+            WHY="$PANEL found $COUNT, not fewer than its previous $LAST_SAME"
+        else
+            WHY="$PANEL has no earlier blocking round to show progress against"
+        fi
+        if [ -n "$STILL_OPEN" ]; then
+            WHY="$WHY, and its findings$STILL_OPEN were open on the previous blocking round too"
+        elif [ "$LAST_HAS_IDS" -ne 1 ]; then
+            WHY="$WHY, and the previous blocking round's record names no findings to compare with"
+        fi
+        refuse "$USED blocking retries used and $WHY"
     fi
 fi
 
 # --- record the grant, then confirm it landed ----------------------------------
 
-LINE="$PANEL $COUNT"
+LINE="$PANEL $COUNT $IDS"
 if [ -n "$RECORD" ]; then
     NEW=$(printf '%s\n%s\n' "$RECORD" "$LINE")
 else
