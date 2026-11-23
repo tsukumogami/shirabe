@@ -20,8 +20,10 @@
 # Prefer reading the status through its properties over a record: Rust asks
 # crates/shirabe-validate/src/statuses.rs, a coordinate script asks
 # lib_status_prop. A record belongs only where the word is not a milestone's
-# status: a document's own status, a GitHub state, the text of a message, or
-# the exact word a writer has just written.
+# status (a document's own status, a GitHub state, the text of a message, the
+# exact word a writer has just written), or where a v1-v3 read is legacy
+# behaviour kept on purpose because reading it through the table would change
+# what the tool does; such a reason says so and names the change it avoids.
 
 crates/shirabe-validate/src/checks.rs	!doc.status.trim().eq_ignore_ascii_case("Done")	FC21 on a v4 roadmap reads the roadmap document's own status, not a milestone's; the milestones are then read through statuses::table()
 crates/shirabe-validate/src/checks.rs	observed == IssueState::Closed	a GitHub issue's observed state (IssueState::Closed), not a status word
@@ -31,7 +33,7 @@ crates/shirabe/src/migrate.rs	v.starts_with("verified") => "Verified".to_string(
 skills/coordinate/scripts/pick-facts_test.sh	select(.status == "Done" and .done != true and .holding == null)	asserts the decider fixtures hold no row pick-facts.sh would have collapsed; reads fixture data, not a roadmap
 skills/coordinate/scripts/reconcile-report.sh	elif .what == "verdict owed" then "verdict owed: the roadmap reads it Completed	compares the change kind (verdict owed); Completed is in the message text
 skills/coordinate/scripts/roadmap-status-v4_test.sh	test("verdict is owed.*sets it Completed")	asserts the text of the roadmap edit's message
-skills/coordinate/scripts/roadmap-status.sh	in Done*) refuse "$TAG already reads Done on $DEFAULT_BRANCH"	the v1-v3 verdict writer refuses a second verdict on a milestone whose block already carries the Done it writes; v4 goes through lib_status_move on the line before
-skills/coordinate/scripts/roadmap-status.sh	jq -e '.status == "Done"'	the v1-v3 verdict writer checks the block now carries the Done it just wrote
-skills/work-on/scripts/run-cascade.sh	if [[ "$line" != "Done" ]]; then	the completion cascade edits only roadmap/v1 feature roadmaps, whose features it sets Done itself; milestone roadmaps are left alone
+skills/coordinate/scripts/roadmap-status.sh	in Done*) refuse "$TAG already reads Done on $DEFAULT_BRANCH"	v1-v3 legacy behaviour left as it was on purpose: the verdict writer refuses a second verdict only on a block reading Done*, so a Shipped or Closed milestone can still take one; v4 goes through lib_status_move on the line before
+skills/coordinate/scripts/roadmap-status.sh	jq -e '.status == "Done"'	the v1-v3 verdict writer checks the block now carries the Done it just wrote, a read of its own write rather than of a status someone else set
+skills/work-on/scripts/run-cascade.sh	if [[ "$line" != "Done" ]]; then	roadmap/v1 legacy behaviour left as it was on purpose: the completion cascade edits only roadmap/v1 feature roadmaps (milestone roadmaps are left alone) and deletes one only when every feature reads exactly Done, so a Shipped or Closed feature keeps the roadmap; reading it through the table would widen that deletion
 skills/work-on/scripts/run-cascade_test.sh	[[ "$feature_status" == "**Status:** Done" ]]	asserts the cascade wrote Done into a roadmap/v1 feature roadmap

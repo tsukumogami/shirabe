@@ -153,6 +153,11 @@ add "$R" skills/coordinate/scripts/x.sh 'STATUS=Done'
 expect_pass "readers, their tests, headings and non-comparisons pass" "$R"
 
 R=$(new_root)
+add "$R" skills/coordinate/scripts/x.sh '[ "$m" = "Done" ] && echo "the PLAN is next"'
+expect_fail "a document word without status doesn't exempt a milestone comparison" "$R" \
+    "skills/coordinate/scripts/x.sh:1:"
+
+R=$(new_root)
 add "$R" skills/coordinate/scripts/x.sh 'case "$status" in Done|Shipped) echo y ;; esac'
 expect_fail "a case on a status word fails" "$R" "skills/coordinate/scripts/x.sh:1:"
 record "$R" skills/coordinate/scripts/x.sh 'case "$status" in Done|Shipped)' "a test record"

@@ -35,7 +35,7 @@ set -euo pipefail
 #   - the lib_status* functions in skills/coordinate/scripts/state-common.sh,
 #     and skills/coordinate/scripts/lib-status_test.sh, their tests;
 #   - lines that compare a PLAN, PRD, DESIGN or BRIEF document's status rather
-#     than a milestone's: any line naming one of those words, and any line in
+#     than a milestone's: any line naming one of those words and the word status, and any line in
 #     skills/plan, skills/prd, skills/design or skills/brief.
 #
 # Any other match needs a record in scripts/check-status-words.allow saying
@@ -85,7 +85,9 @@ WORD='(^|[^[:alnum:]_])(Done|Shipped|Closed|Completed|Verified)([^[:alnum:]_]|$)
 OP='(==|!=|=~|starts_with|eq_ignore_ascii_case|test\(|(^|[^[:alnum:]_])case .* in( |$))'
 BRACKET='\[\[? [^]]* = [^]]*'
 PATTERN="($OP.*$WORD)|($BRACKET$WORD)"
-# A line naming the document types whose statuses are not milestone statuses.
+# A line naming one of the document types whose statuses are not milestone
+# statuses. It must also say "status", so a milestone comparison that merely
+# shares a line with one of the words is still flagged.
 DOC_TYPES='(^|[^[:alnum:]_])(PLAN|PRD|DESIGN|BRIEF)([^[:alnum:]_]|$)'
 
 # lib_status_lines <file>: the line numbers inside a lib_status* function of
@@ -126,7 +128,7 @@ accepted() {
             case "$STATE_COMMON_LINES " in *" $2 "*) return 0 ;; esac
             ;;
     esac
-    grep -qE "$DOC_TYPES" <<< "$3"
+    grep -qE "$DOC_TYPES" <<< "$3" && grep -qiE "status" <<< "$3"
 }
 
 # The search. In a git work tree it reads the tracked files, as the PRD's
