@@ -163,8 +163,7 @@ correcting change, and ends with that check passing. `references/red-first.md` h
 the rules; this is the route.
 
 - **`fix_determination`**, after `analysis` and before implementation. Its
-  action records the review-level bound (`scripts/review-level.sh init`), then
-  `scripts/fix-kind.sh resolve` records the unit as a
+  action, `scripts/fix-kind.sh resolve`, records the unit as a
   fix when its issue carries a label the repository's `## Fix Labels:` lists (`bug`
   by default) or its plan step has a `**Fixes**:` line (`FIX_REPORT`), and as a
   change otherwise, and its `kind_route` gate routes on that in the same tick, so
@@ -671,11 +670,12 @@ leg, since one leg answers one session.
   `scripts/panel-scope_test.sh` is its harness.
 - `scripts/review-level.sh init|set|set-from-facts|facts|check|slice|report|level` — the run's
   review level (`references/review-levels.md`). koto runs `init` in
-  `fix_determination`'s action, and `facts`, `set-from-facts`, `level --exit`,
+  `analysis`'s action (and again, as a no-op safety net, in
+  `fix_determination`'s), and `facts`, `set-from-facts`, `level --exit`,
   `check` and `slice` at `review_level_check`, where `set-from-facts` sets the
   level from the facts within the bound; the agent runs `set <session> <level>`
-  to raise (or, with a reason, lower) it from `reproduce` or `implementation`
-  on. Each of the two rebinds `REVIEW_LEVEL` and appends to the
+  to raise (or, with a reason, lower) it from `analysis` on. Each of the two
+  rebinds `REVIEW_LEVEL` and appends to the
   `review_level.jsonl` ledger together, and a maintainer runs `report` to read
   the ledgers of retained sessions. `work-on-open.sh` runs `level` to read the
   ledger's last level before it attaches a live session. The script's header has every subcommand's
@@ -839,9 +839,9 @@ and routes on it in the same tick, without stopping:
 The level is the facts floor, or the bound's floor when that is higher, or
 higher still when you raised it. To raise it, because the change is riskier
 than its paths show, run `scripts/review-level.sh set <session> <level>
---reason "<why>"` from `reproduce` or `implementation` on; `set` is refused at
-`analysis`, since the bound it checks against is recorded as the run passes
-`fix_determination`. The check keeps a raise, and the level never drops on its
+--reason "<why>"` from `analysis` on, once koto has recorded the bound it
+checks against as the run entered `analysis`. The check keeps a raise, and the
+level never drops on its
 own when a later lap's facts are lighter; a lower needs a recorded reason and
 never goes below the floor. A facts floor above the bound's ceiling wins, and
 the ledger records the breach. A session from an earlier template has no level
@@ -851,9 +851,9 @@ panels. `references/review-levels.md` has the rules, the bound and the ledger.
 A caller can bound the choice with `--review-floor=<level>` and
 `--review-ceiling=<level>`, which become `REVIEW_FLOOR` and `REVIEW_CEILING` at
 init (see **Initialize**); `/execute` and `/deliver` take the same two flags and
-pass them to every `/work-on` run they start. `fix_determination`'s action records
-the bound in the ledger's `bound` line before any level, and the bound doesn't move
-inside a run.
+pass them to every `/work-on` run they start. `analysis`'s action records the bound
+in the ledger's `bound` line before any level, and the bound doesn't move inside a
+run.
 
 | Flag | Variable | Values |
 |------|----------|--------|

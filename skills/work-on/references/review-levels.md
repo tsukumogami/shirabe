@@ -73,8 +73,8 @@ when a rule below refuses it (nothing changes), 64 on a usage error, and 66
 when the rebind or a context read or write fails (neither changes).
 
 `set` is refused until the bound is recorded (`refused: no bound recorded
-yet`), which `fix_determination`'s action does: a raise is made from
-`reproduce` or `implementation` on, not at `analysis`.
+yet`), which `analysis`'s action does as the run enters it: a raise is made
+from `analysis` on, before anything is implemented.
 
 - **Before the first check.** With no level in the ledger yet, `set` records
   a `choose`, which the check then keeps as a raise. It is refused below the
@@ -103,7 +103,7 @@ A coordinator can give a run a floor, a ceiling, or both, each one of the
 three level names, through `--review-floor=<level>` and
 `--review-ceiling=<level>`. The run holds them in the `REVIEW_FLOOR` and
 `REVIEW_CEILING` template variables, and `review-level.sh init` records them
-once, in `fix_determination`'s action, as a `bound` line and the
+once, in `analysis`'s action, as a `bound` line and the
 `review_level_bound.json` key. The level the check sets never sits below the
 bound's floor; it goes above the ceiling only for a facts floor or a raise
 with a reason, and either is logged as a breach. A bound whose floor is above

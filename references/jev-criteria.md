@@ -147,7 +147,7 @@ too light for the facts of the change.
 **Sources.** `review_facts.json`, which the state's own `default_action`
 (`review-level.sh facts`) writes from git; `review_level_rules.tsv`, the copy
 of `review-level-rules.tsv` that `review-level.sh init` stores in
-`fix_determination`'s action, which `facts` derived the floor from (a
+`analysis`'s action, which `facts` derived the floor from (a
 session with no stored copy, one `init` never ran for, uses the shipped file,
 as `facts` does); and the ledger's level, which `set-from-facts` set from the
 facts in the same action (raised above the floor when the agent raised it),

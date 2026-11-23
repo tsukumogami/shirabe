@@ -120,7 +120,7 @@ A pass that came with an edited test, or a fix that rests on observations, is
 not counted until someone other than the run accepts it. `pass_counting`'s
 `tests_counted` gate (`test-change.sh status`) classifies the test files the
 unit's committed diff touched since `impl_base`, with the `test` class of the
-rules copy `fix_determination`'s action stored (`review-level.sh init`):
+rules copy `review-level.sh init` stored in `analysis`'s action:
 
 | Label | When |
 |-------|------|
