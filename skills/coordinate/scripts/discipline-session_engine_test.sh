@@ -23,10 +23,13 @@
 #   6. the rotation ends at rotation_end: past its window, pick_facts and the
 #      close-out route it there, the reasoning is written and the run ends
 #      closed, naming its session as the record;
-#   7. one scenario per rule an earlier session breaks (its name, provenance,
+#   7. one scenario per rule an earlier session breaks (its name,
 #      discipline, host, a predecessor another rotation names, two at one
 #      stamp): each find reads `unreadable <session>`, the run stops at
-#      record_conflict, and nothing is carried;
+#      record_conflict, and nothing is carried; an ended rotation opened from
+#      another template, which fails provenance alone, is carried instead:
+#      the start cancels it (its log kept), the find reads `predecessor
+#      <session>`, the carry lands and the next find reaches reconcile;
 #   8. the run's role on a carried rotation
 #      (docs/designs/DESIGN-coordinator-named-roles.md, Decision 1): the
 #      opener reads the ended rotation's role, prints role= for the carry,
@@ -214,7 +217,8 @@ eq "  ... naming its session as the record" "$S4" "$(key "$S4" record_url)"
 
 echo "== 7. an earlier session that breaks one rule =="
 # craft <discipline> <name> <vars-json> [template]: an earlier rotation, ended,
-# opened from the template (the shipped one unless given) with those variables.
+# opened from the template (the shipped one unless given) with those variables,
+# and cancelled unless CRAFT_LIVE is set.
 craft() {
     local d=$1 n=$2 vars=$3 tpl=${4:-$TPL}
     printf '%s' "$vars" | jq -c 'to_entries | map([.key, .value])' > "$T/craft-vars.json"
@@ -222,7 +226,8 @@ craft() {
     jq -nc --arg n "$d" '{scope: {kind: "discipline", name: $n}, store: "session", written: "2026-10-01T10:00:00Z", pending: false}' > "$T/meta.json"
     for k in holdings deferrals side-effects reversals; do (cd "$WD" && printf '[]' | koto context add "$n" "record/$k"); done
     jq -nc --arg s "$WEEK_AGO" --arg e "$YESTERDAY" '{start: $s, end: $e, host_repo: "acme/widgets", predecessor: null}' > "$T/rot.json"
-    (cd "$WD" && koto context add "$n" record/rotation --from-file "$T/rot.json" && koto context add "$n" record/meta --from-file "$T/meta.json" && koto cancel "$n") > /dev/null
+    (cd "$WD" && koto context add "$n" record/rotation --from-file "$T/rot.json" && koto context add "$n" record/meta --from-file "$T/meta.json") > /dev/null
+    [ -n "${CRAFT_LIVE:-}" ] || (cd "$WD" && koto cancel "$n") > /dev/null
 }
 vars_of() { jq -nc --arg d "$1" --arg h "${2:-acme/widgets}" --arg p "$PR" '{SCOPE: "discipline", DISCIPLINE: $d, HOST_REPO: $h, PLUGIN_ROOT: $p}'; }
 stops() { # stops <label> <discipline> <expected-session>
@@ -238,8 +243,22 @@ stops "a name that isn't coordinate-<slug>-<stamp>" badname coordinate-disciplin
 # A structural change: a text-only one passes provenance through the compat
 # table (coordinate.compat.json).
 sed 's/^variables:$/variables:\n  PROVENANCE_PROBE:\n    description: A variable the shipped template does not declare.\n    default: ""/' "$TPL" > "$T/other-template.md"
-craft prov coordinate-discipline-prov-20261001T100000Z "$(vars_of prov)" "$T/other-template.md"
-stops "a session that fails provenance" prov coordinate-discipline-prov-20261001T100000Z
+# A session opened from that template, an older plugin's, fails provenance and
+# no other rule: the next rotation carries it, as a roadmap start carries one.
+# It is left live, so the start cancels it.
+PV=coordinate-discipline-prov-20261001T100000Z
+CRAFT_LIVE=1 craft prov "$PV" "$(vars_of prov)" "$T/other-template.md"
+(cd "$WD" && bash "$PS/coord-log.sh" provenance --session "$PV") > /dev/null 2>&1
+eq "7: a session opened from a structurally different template fails provenance" 1 $?
+DISC=prov
+open_run prov || bad "7: the next rotation opens" "$(cat "$T/open.err")"
+case "$OPEN_OUT" in *"cancelled=$PV"*) ok "7: the start cancels the live predecessor" ;; *) bad "7: the start cancels the live predecessor" "$OPEN_OUT" ;; esac
+eq "7: the find reads the predecessor, the carry lands, and the next find reaches reconcile" "predecessor_carry reconcile" "$(to_reconcile)"
+eq "  ... the find's token names it" "predecessor $PV" "$(token)"
+eq "  ... the rotation names it" "$PV" "$(key "$S" record/rotation | jq -r .predecessor)"
+eq "  ... the carried record reads back as this discipline's" '{"kind":"discipline","name":"prov"}' "$(key "$S" record/meta | jq -c .scope)"
+PVLOG="$( (cd "$WD" && koto session dir "$PV"))/koto-$PV.state.jsonl"
+eq "  ... the predecessor's log is kept, ending cancelled" 1 "$(jq -c 'select(.type == "workflow_cancelled")' "$PVLOG" 2>/dev/null | grep -c .)"
 craft disc coordinate-discipline-disc-20261001T100000Z "$(vars_of other)"
 stops "a session of another discipline" disc coordinate-discipline-disc-20261001T100000Z
 craft host coordinate-discipline-host-20261001T100000Z "$(vars_of host acme/gadgets)"
