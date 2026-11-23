@@ -9,6 +9,9 @@ decision: |
   record, decides, and records the retry it grants. This supersedes, for the
   panel cap only, the "review panels take 2 blocking retries and then
   escalate" clause of DECISION-contradiction-retry-caps-2026-09-28.md.
+  Amended 2026-11-23 for shirabe#2061: past the two, a retry is also granted
+  when none of the round's open blocking findings was open on the run's
+  previous blocking round, in any panel; the ceiling of 3 is unchanged.
 rationale: |
   A fixed count can't tell a run that is converging from one that is stuck.
   Two large units found 7, then 2, then 1 blocking defects and escalated to
@@ -29,6 +32,10 @@ falling count, so one round past the second retry is the smallest ceiling that
 would have let them continue. Whether that round would have been their last
 isn't known; a run that still finds a blocking issue on its fourth round
 escalates. The gate-enforced form of the same rule is deferred, not rejected.
+
+Amended on 2026-11-23, for shirabe#2061: a second way to show progress, by
+findings rather than by count. See **Amendment 2026-11-23** below. The
+Decision section keeps the text as accepted; the amendment says what it adds.
 
 ## Context
 
@@ -148,10 +155,58 @@ observed runs continue.
   panel cap "with the same number" now means the same rule: an engine-side cap
   would need these counts, which koto doesn't have.
 
+## Amendment 2026-11-23
+
+For shirabe#2061.
+
+**What changed.** Past the first 2 retries, a panel also gets another retry
+when none of its open blocking findings was open on the run's previous
+blocking round, whichever panel ran that round. The count rule above still
+grants as before, and the ceiling of 3 still refuses a fourth retry whatever
+the findings. A round with a finding still open from the previous blocking
+round, alone or beside new ones, is judged on the count alone.
+
+**Why.** The count rule can't tell a stuck run from one that keeps clearing
+what it finds. A run found one blocking finding in a scrutiny round, fixed it,
+and then found a different one in a review round. Review had no earlier
+blocking round of its own to compare with, so once the two unconditional
+retries were spent the round was refused and the run ended at `done_blocked`.
+The same happens inside one panel when each round finds a single, different
+finding: the count stays at 1. In both cases every finding the previous round
+raised had been closed, which is the progress this decision exists to reward.
+A finding id is the hash of its panel, raiser, path and summary, so two
+rounds' findings can be compared directly, across panels as well. The
+comparison that rules out a stuck run is whether something stayed open, not
+how many things are open.
+
+**How.** `panel-scope.sh --open-ids` prints the ids of the findings
+`--open-count` counts. `panel-retry-budget.sh` writes them as a third field on
+each `panel_retries` line, "<panel> <count> <ids>". Its previous blocking
+round is the record's last line. A line written before this amendment has no
+ids, so a round compared with it is judged on the count alone.
+
+**What it doesn't change.** A grant never closes a finding. The panel's
+verdict gate still blocks on every open finding in the ledger until a later
+round's reviewer closes it at a new head, so a retry granted this way can't
+let a blocking finding through. Since the comparison reads only the record's
+last line, a finding that recurs after another panel's round, or is reworded
+so its id changes, can win a retry as if it were new. The ceiling of 3 and
+the verdict gate still bound it: the run gets no fourth retry, and the panel
+can't pass while the finding is open. The worst case is still 4 traversals
+(28 panel agents).
+
+**Considered and not taken.** Letting `panel-scope.sh --record` record a
+round at its own planned head after HEAD has moved. That makes the round
+recordable but leaves the budget's refusal in place. It would help only if
+the fix were made inside the panel state, without a retry, and that path
+never touches `panel_retries`, so the ceiling could be stepped around.
+
 ## References
 
 - shirabe#548
+- shirabe#2061 (the 2026-11-23 amendment)
 - shirabe#521 (panel sizing, out of scope here)
 - `DECISION-contradiction-retry-caps-2026-09-28.md`
 - `skills/work-on/koto-templates/work-on.md`
 - `skills/work-on/scripts/panel-retry-budget.sh`
+- `skills/work-on/scripts/panel-scope.sh`
