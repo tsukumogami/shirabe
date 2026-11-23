@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   `/work-on`'s verification step keeps one result per head and merge-base, and a
   later entry into verification at that head keeps the result it finds and starts
@@ -52,7 +52,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
