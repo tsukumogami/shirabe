@@ -62,6 +62,8 @@ full suite list runs locally.
 
 **Goal**: On a pull request, the floor check shows five per-skill jobs plus four /coordinate engine slices instead of one 41-53 minute job, and every one of them still runs on exactly the floor koto release. The offline /coordinate suites, the macOS floor list, `run-suites.sh` and `check-bash-floor.sh` all honour `SUITE_SLICE=i/n` through the Step 1 selector, so a list's slices together run each suite once.
 
+What Step 1 landed, for this step to build on: the selector is `scripts/lib/suite-slice.sh`. It reads costs only from a file named by `SUITE_SLICE_COSTS`, one row per suite as `cost<TAB><basename><TAB><secs>`. So this step writes a floor list's `cost:` lines out as those TSV rows, to a temp file or a process substitution, and adds no second cost input. `skills/coordinate/scripts/run-tests.sh` already filters through the selector and has `--list`. Locally the 48 engine suites split 13/12/12/11, about 711 cost-seconds per slice. `scripts/check-suite-slices.sh`, run by a Linux job in `check-pr-workflow-content.yml`, checks each sliced matrix's shape (fail-fast off, no exclude or include, no job-level `if:` or `continue-on-error`, `${{ matrix` in the run line) against a REQUIRED list of sliced jobs; every job this step slices goes on that list.
+
 **Acceptance Criteria**:
 
 - [ ] On a pull request, the floor check lists five leg jobs (shared, scope, execute, deliver, work-on) and four `entry-floor-coordinate` jobs (slices 1 to 4), and each job's log prints a koto version equal to the output of `assert-koto-floor.sh --print-floor`.
