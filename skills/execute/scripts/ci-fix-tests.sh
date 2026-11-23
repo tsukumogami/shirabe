@@ -21,10 +21,10 @@
 # the one with the fewest commits between it and HEAD, not the latest
 # recorded: every head must be an ancestor of HEAD (else exit 2), and on the
 # shared branch's linear history the closest one is the last counted. It then
-# classifies the
-# diff from that commit to HEAD with scripts/lib/test-classify.sh, using the
-# `review_level_rules.tsv` copy stored in the same child's session, or the
-# rules /work-on ships when that child has none.
+# classifies the diff from that commit to HEAD with
+# scripts/lib/test-classify.sh, using the `review_level_rules.tsv` copy stored
+# in the same child's session, or the rules /work-on ships when that child has
+# none.
 #
 # It only reads: no koto context write, no git write, nothing to GitHub.
 #
@@ -82,19 +82,19 @@ while IFS= read -r child; do
         1) continue ;;
         *) undecided "koto context exists $child $COUNTED_KEY failed (exit $rc): $(tail -n 1 "$WORK/koto.err")" ;;
     esac
-    head=$(koto context get "$child" "$COUNTED_KEY" 2>"$WORK/koto.err" < /dev/null) \
+    sha=$(koto context get "$child" "$COUNTED_KEY" 2>"$WORK/koto.err" < /dev/null) \
         || undecided "koto context get $child $COUNTED_KEY failed: $(tail -n 1 "$WORK/koto.err")"
-    head=$(printf '%s' "$head" | tr -d '[:space:]')
-    case "$head" in
+    sha=$(printf '%s' "$sha" | tr -d '[:space:]')
+    case "$sha" in
         *[!0-9a-f]*|'') undecided "$child recorded a $COUNTED_KEY that isn't 40 hex" ;;
     esac
-    [ "${#head}" -eq 40 ] || undecided "$child recorded a $COUNTED_KEY that isn't 40 hex"
-    git cat-file -e "$head^{commit}" 2>/dev/null || undecided "$child's $COUNTED_KEY $head names no commit here"
-    git merge-base --is-ancestor "$head" "$HEAD" 2>/dev/null \
-        || undecided "$child's $COUNTED_KEY $head is not an ancestor of HEAD"
-    dist=$(git rev-list --count "$head..$HEAD" 2>/dev/null) || undecided "could not count the commits from $head to HEAD"
+    [ "${#sha}" -eq 40 ] || undecided "$child recorded a $COUNTED_KEY that isn't 40 hex"
+    git cat-file -e "$sha^{commit}" 2>/dev/null || undecided "$child's $COUNTED_KEY $sha names no commit here"
+    git merge-base --is-ancestor "$sha" "$HEAD" 2>/dev/null \
+        || undecided "$child's $COUNTED_KEY $sha is not an ancestor of HEAD"
+    dist=$(git rev-list --count "$sha..$HEAD" 2>/dev/null) || undecided "could not count the commits from $sha to HEAD"
     if [ -z "$NEWEST_DIST" ] || [ "$dist" -lt "$NEWEST_DIST" ]; then
-        NEWEST=$head NEWEST_CHILD=$child NEWEST_DIST=$dist
+        NEWEST=$sha NEWEST_CHILD=$child NEWEST_DIST=$dist
     fi
 done < "$WORK/children.txt"
 

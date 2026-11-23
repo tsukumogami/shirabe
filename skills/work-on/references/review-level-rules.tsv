@@ -109,6 +109,7 @@ class	engine	skills/deliver/scripts/deliver-absent.sh
 class	engine	skills/deliver/scripts/deliver-execute-leg.sh
 class	engine	skills/deliver/scripts/deliver-open-request.sh
 class	engine	skills/deliver/scripts/deliver-probe.sh
+class	engine	skills/execute/scripts/ci-fix-tests.sh
 class	engine	skills/execute/scripts/drift-facts.sh
 class	engine	skills/execute/scripts/owned-pr.sh
 class	engine	skills/execute/scripts/record-coordination-verdict.sh
