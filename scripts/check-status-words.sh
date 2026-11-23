@@ -106,7 +106,9 @@ lib_status_lines() {
 # is_flagged <text>: true when the line, its test-heading prefix removed, is
 # a status-word comparison.
 is_flagged() {
-    printf '%s\n' "$1" | sed -e "s/^[[:space:]]*echo [\"']==//" | grep -qE "$PATTERN"
+    local stripped
+    stripped=$(sed -e "s/^[[:space:]]*echo [\"']==//" <<< "$1")
+    grep -qE "$PATTERN" <<< "$stripped"
 }
 
 # accepted <file> <lineno> <text>: true when the line needs no record.
@@ -124,7 +126,7 @@ accepted() {
             case "$STATE_COMMON_LINES " in *" $2 "*) return 0 ;; esac
             ;;
     esac
-    printf '%s\n' "$3" | grep -qE "$DOC_TYPES"
+    grep -qE "$DOC_TYPES" <<< "$3"
 }
 
 # The search. In a git work tree it reads the tracked files, as the PRD's
