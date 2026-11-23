@@ -117,6 +117,18 @@ else
 fi
 
 fresh
+edit floor-a.yml 's/^    runs-on: \${{ matrix.os }}$/&\
+    env:\
+      SUITE_SLICE: ${{ matrix.slice }}\/4\
+      SUITE_SLICE_COSTS: skills\/demo\/check-skill.tsv/'
+check
+if [ "$RC" -eq 0 ] && grep -q 'SUITE_SLICE: ' "$CASE/floor-a.yml"; then
+    pass "a slice the suite's own job sets is not required of macos-floor.yml, which runs the suite whole"
+else
+    fail "slice env (rc=$RC): $OUT"
+fi
+
+fresh
 # Add a timeout under the floor step's name.
 awk '{ print } /name: Run the suite on the floor \(macOS\)/ { print "        timeout-minutes: 20" }' \
     "$CASE/floor-a.yml" >"$CASE/floor-a.yml.new" && mv "$CASE/floor-a.yml.new" "$CASE/floor-a.yml"

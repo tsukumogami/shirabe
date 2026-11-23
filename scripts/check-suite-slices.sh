@@ -47,6 +47,8 @@ set -uo pipefail
 # line, one line per job.
 REQUIRED='
 check-coordinate-scripts.yml test-coordinate-engine
+check-coordinate-scripts.yml test-coordinate-scripts
+check-koto-entry-floor.yml entry-floor-coordinate
 '
 
 ROOT=${CHECK_SUITE_SLICES_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}

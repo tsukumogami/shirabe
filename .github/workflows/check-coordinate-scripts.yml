@@ -76,13 +76,24 @@ jobs:
   # and drive test-local gh and koto stand-ins. run-tests.sh shadows the real
   # gh and koto and unsets the tokens, so a test that reached either fails.
   # Both platforms on a push, to keep the bash 3.2 floor honest on macOS.
+  #
+  # Each platform runs four slices: run-tests.sh on Linux and the coordinate
+  # floor list on macOS keep slice SUITE_SLICE of their suites, balanced by
+  # check-skill.tsv's cost rows (scripts/lib/suite-slice.sh), and the four
+  # together run every suite once. fail-fast stays off so one failing slice
+  # doesn't cancel the rest; scripts/check-suite-slices.sh holds that shape.
   test-coordinate-scripts:
     strategy:
+      fail-fast: false
       matrix:
         # No macOS leg on any pull request run, draft or ready (shirabe#1342);
         # scripts/check-macos-floor-legs.sh holds the one copy of this line.
         os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
+        slice: [1, 2, 3, 4]
     runs-on: ${{ matrix.os }}
+    env:
+      SUITE_SLICE: ${{ matrix.slice }}/4
+      SUITE_SLICE_COSTS: skills/coordinate/check-skill.tsv
     steps:
       - uses: actions/checkout@v4
 
@@ -100,13 +111,20 @@ jobs:
         run: bash skills/coordinate/scripts/run-tests.sh
 
       # The squash-message builder the land step calls lives in scripts/lib/,
-      # outside run-tests.sh's directory, so its suite runs on its own.
+      # outside run-tests.sh's directory, so its suite runs on its own, in
+      # slice 1 only. The slice is read from SUITE_SLICE rather than put in
+      # the `if`, which scripts/check-macos-floor-legs.sh reads as Linux-only
+      # only in its plain form.
       - name: Run squash-message tests (Linux)
         if: runner.os == 'Linux'
-        run: bash scripts/lib/squash-message_test.sh
+        run: |
+          case "$SUITE_SLICE" in
+            1/*) bash scripts/lib/squash-message_test.sh ;;
+            *) echo "squash-message tests run in slice 1; this is slice $SUITE_SLICE" ;;
+          esac
 
       # The runner refuses a /bin/bash that is not 3.2 and keeps a nested
-      # `bash` on 3.2 as well.
+      # `bash` on 3.2 as well. It runs slice SUITE_SLICE of the list.
       - name: Run the coordinate suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
         run: scripts/check-bash-floor.sh --backend system coordinate

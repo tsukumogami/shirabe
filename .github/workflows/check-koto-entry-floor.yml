@@ -6,9 +6,11 @@ name: Check koto entry floor
 # definition. .tsuku.toml tracks the newest koto 0.x rather than pinning a
 # release, so every other workflow runs whatever 0.x is newest, and nothing else
 # would notice shirabe starting to depend on something the minimum release
-# lacks. This job installs exactly the minimum -- the version is read from
-# assert-koto-floor.sh -- and runs the templates' compiles, the decider check
-# (scripts/check-koto-release.sh), and the skills' koto-backed suites on it.
+# lacks. Each job here installs exactly the minimum -- the version is read from
+# assert-koto-floor.sh -- and runs its share of the check on it: the shared leg
+# the templates' compiles, the decider check (scripts/check-koto-release.sh)
+# and the shared entry suites, one leg per skill its koto-backed suites, and
+# entry-floor-coordinate one slice of /coordinate's engine suites.
 
 on:
   pull_request:
@@ -43,7 +45,16 @@ permissions:
   contents: read
 
 jobs:
+  # One job per leg, so no job carries the whole list. Every leg, and every
+  # slice of entry-floor-coordinate below, sets up the same floor on its own:
+  # full history, the floor read from assert-koto-floor.sh, exactly that koto
+  # installed and asserted, and shirabe built. fail-fast stays off so one red
+  # leg doesn't cancel the others before they report.
   entry-floor:
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [shared, scope, execute, deliver, work-on]
     runs-on: ubuntu-latest
     steps:
       # Full history: coordinate's directive-ceiling_engine_test.sh reads the
@@ -108,12 +119,14 @@ jobs:
           command -v shirabe
           bash scripts/assert-koto-floor.sh
           got=$(koto version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
+          echo "koto on PATH: ${got:-unknown}"
           if [ "$got" != "$KOTO_FLOOR_RELEASE" ]; then
             echo "koto on PATH is ${got:-unknown}, expected exactly $KOTO_FLOOR_RELEASE" >&2
             exit 1
           fi
 
       - name: Compile every shipped template
+        if: matrix.leg == 'shared'
         run: |
           set -euo pipefail
           for t in skills/scope/koto-templates/scope.md \
@@ -129,6 +142,7 @@ jobs:
       # Decider declarations compile on the minimum, and its decider floor rule
       # refuses an auto answer on a route to a terminal.
       - name: Check the decider declarations on the minimum
+        if: matrix.leg == 'shared'
         run: bash scripts/check-koto-release.sh
 
       # The steps below run their suites through scripts/run-suites.sh, which
@@ -136,9 +150,11 @@ jobs:
       # non-zero or printed "command not found", naming it. /coordinate's
       # run-tests.sh applies the same rule to its own suites.
       - name: Check the suite runner
+        if: matrix.leg == 'shared'
         run: bash scripts/run-suites_test.sh
 
       - name: Run the shared entry and preflight suites
+        if: matrix.leg == 'shared'
         run: |
           bash scripts/run-suites.sh \
             scripts/koto-open_test.sh \
@@ -146,6 +162,7 @@ jobs:
             scripts/lib/preflight-probe_test.sh
 
       - name: Run /scope's koto-backed suites
+        if: matrix.leg == 'scope'
         run: |
           bash scripts/run-suites.sh \
             skills/scope/scripts/scope-substrate_test.sh \
@@ -156,6 +173,7 @@ jobs:
             skills/scope/scripts/publish-scoping-pr_test.sh
 
       - name: Run /execute's koto-backed suites
+        if: matrix.leg == 'execute'
         run: |
           bash scripts/run-suites.sh \
             skills/execute/scripts/settled-branch-record_test.sh \
@@ -167,6 +185,7 @@ jobs:
             skills/execute/scripts/drift-facts_test.sh
 
       - name: Run /deliver's koto-backed suites
+        if: matrix.leg == 'deliver'
         run: |
           bash scripts/run-suites.sh \
             skills/deliver/scripts/deliver-template-structure_test.sh \
@@ -177,6 +196,7 @@ jobs:
             skills/deliver/scripts/deliver-requires_test.sh
 
       - name: Run /work-on's koto-backed suites
+        if: matrix.leg == 'work-on'
         run: |
           bash scripts/run-suites.sh \
             skills/work-on/scripts/terminal-retention_test.sh \
@@ -193,6 +213,83 @@ jobs:
             skills/work-on/scripts/work-on-open_test.sh \
             skills/work-on/scripts/leg-result_test.sh \
             skills/work-on/scripts/work-on-requires_test.sh
+
+  # /coordinate's koto-backed suites on the floor, as four slices: run-tests.sh
+  # keeps slice SUITE_SLICE of its engine suites, balanced by check-skill.tsv's
+  # cost rows (scripts/lib/suite-slice.sh), and the four together run every
+  # suite once. A job of its own rather than a sixth leg, so the slice sits in
+  # matrix.slice, where scripts/check-suite-slices.sh holds its shape.
+  entry-floor-coordinate:
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    env:
+      SUITE_SLICE: ${{ matrix.slice }}/4
+      SUITE_SLICE_COSTS: skills/coordinate/check-skill.tsv
+    steps:
+      # Full history: directive-ceiling_engine_test.sh reads the hub's ceiling
+      # at the merge base with the base branch, and fails a pull request run
+      # that can't.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read the floor
+        run: |
+          set -euo pipefail
+          floor=$(bash scripts/assert-koto-floor.sh --print-floor)
+          if [ -z "$floor" ]; then
+            echo "cannot read the floor from scripts/assert-koto-floor.sh" >&2
+            exit 1
+          fi
+          echo "koto floor: $floor"
+          echo "KOTO_FLOOR_RELEASE=$floor" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache Cargo
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build and install shirabe
+        run: |
+          cargo build --release --bin shirabe
+          mkdir -p "$HOME/.floor-bin"
+          install -m 0755 target/release/shirabe "$HOME/.floor-bin/shirabe"
+          echo "$HOME/.floor-bin" >> "$GITHUB_PATH"
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Install tsuku
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto at the floor
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y "tsukumogami/koto@$KOTO_FLOOR_RELEASE"
+
+      - name: Assert koto is exactly the floor release
+        run: |
+          set -euo pipefail
+          command -v shirabe
+          bash scripts/assert-koto-floor.sh
+          got=$(koto version | head -1 | sed -n 's/^koto v\{0,1\}\([0-9][0-9.]*\).*$/\1/p')
+          echo "koto on PATH: ${got:-unknown}"
+          if [ "$got" != "$KOTO_FLOOR_RELEASE" ]; then
+            echo "koto on PATH is ${got:-unknown}, expected exactly $KOTO_FLOOR_RELEASE" >&2
+            exit 1
+          fi
 
       - name: Run /coordinate's koto-backed suites
         run: bash skills/coordinate/scripts/run-tests.sh --engine

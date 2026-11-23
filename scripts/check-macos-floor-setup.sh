@@ -24,7 +24,9 @@
 # suites. For every suite, the steps that apply to it must equal its own
 # setup, in order; the env macos-floor.yml's floor step sees (its own, the
 # job's and the workflow's) must hold every variable the suite's own floor
-# step sees; and the two floor steps must set the same shell,
+# step sees, except SUITE_SLICE and SUITE_SLICE_COSTS, which slice a suite's
+# list across its own workflow's matrix while macos-floor.yml runs it whole;
+# and the two floor steps must set the same shell,
 # working-directory and timeout. macos-floor.yml checks out the commit it
 # resolved, with full history for every suite, which covers a suite whose own
 # checkout asks for it, so a checkout's ref and fetch-depth are left out and
@@ -280,6 +282,7 @@ for step in (job.get("steps") or [])[:floor_at]:
                              "the macOS floor"))
     net_steps.append((applies, norm(step)))
 
+SLICE_VARS = ("SUITE_SLICE", "SUITE_SLICE_COSTS")
 net_floor = job["steps"][floor_at]
 net_env = env_of(net, job, net_floor)
 for suite in sorted(suites):
@@ -293,6 +296,10 @@ for suite in sorted(suites):
                          "(and those with no `if`) match the own list, in the same order; "
                          "names and conditions aren't compared"))
     for key, value in sorted(own["env"].items()):
+        # A slice is how a suite's own workflow divides its list across a
+        # matrix; macos-floor.yml runs every suite whole, so it sets none.
+        if key in SLICE_VARS:
+            continue
         if net_env.get(key) != value:
             problems.append((suite, f"{own['where']} sets env {key}={value!r}; "
                              f"{NET} job {job_name} does not"))
