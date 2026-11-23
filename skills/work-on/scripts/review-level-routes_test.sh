@@ -19,6 +19,9 @@
 #                       bound recorded, and the run reaches its first panel at
 #                       the level the facts set, with nothing submitted and
 #                       no stop at the level check
+#   a raise at analysis `set full --reason` at analysis is accepted (analysis's
+#                       action recorded the bound), survives to the level
+#                       check over a light floor, and the run takes QA
 #   light               light_review, then verification; never scrutiny,
 #                       review or qa_validation
 #   standard            scrutiny, review, verification; never qa_validation,
@@ -219,9 +222,13 @@ GOT=$(jq -r '.states.review_level_check.default_action.command // ""' "$COMPILED
 case "$GOT" in *"review-level.sh\" facts"*"--no-check-line && "*"review-level.sh\" set-from-facts"*)
     pass "the level check's action gathers the facts, then sets the level from them" ;;
     *) fail "the level check's action is [$GOT]" ;; esac
+GOT=$(jq -r '.states.analysis.default_action.command // ""' "$COMPILED" 2>/dev/null)
+case "$GOT" in *"record-changed-paths.sh --base "*"&& "*"review-level.sh\" init "*'"{{REVIEW_FLOOR}}" "{{REVIEW_CEILING}}"')
+    pass "analysis's action records impl_base, then the review-level bound" ;;
+    *) fail "analysis's action is [$GOT]" ;; esac
 GOT=$(jq -r '.states.fix_determination.default_action.command // ""' "$COMPILED" 2>/dev/null)
 case "$GOT" in *"review-level.sh\" init "*"&& "*"test-change.sh\" init "*)
-    pass "fix_determination's action records the bound before the test-change header" ;;
+    pass "fix_determination's action runs init again, as a safety net, before the test-change header" ;;
     *) fail "fix_determination's action is [$GOT]" ;; esac
 
 # --- the repository the gates and actions read ---------------------------------
@@ -317,6 +324,11 @@ new_case() {
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
     # Before plan_ready: fix_determination runs in that tick and reads it.
     printf '%s\n' "$MAIN" | koto context add "$s" impl_base >/dev/null 2>&1
+    [ "$NEXT_STATE" = analysis ] || { fail "$s: walked to [$NEXT_STATE], not analysis"; return 1; }
+    # AT_ANALYSIS, when set, is a command run while the run sits at analysis.
+    if [ -n "${AT_ANALYSIS:-}" ]; then
+        eval "$AT_ANALYSIS" || { fail "$s: [$AT_ANALYSIS] failed at analysis"; return 1; }
+    fi
     tick "$s" '{"plan_outcome":"plan_ready"}'
     [ "$NEXT_STATE" = implementation ] || { fail "$s: plan_ready stopped at [$NEXT_STATE], not implementation"; return 1; }
     return 0
@@ -393,6 +405,27 @@ if new_case "$S" "$SMALL"; then
         || fail "ledger events are [$(events "$S")]"
     [ "$(ledger "$S" | jq -r 'select(.event == "from_facts") | "\(.to)|\(.source)"')" = "light|facts" ] \
         && pass "the from_facts line names light, from the facts" || fail "ledger is [$(ledger "$S")]"
+fi
+
+# A raise made at analysis, before anything is implemented, survives to the
+# level check, which keeps it over a lighter facts floor: the run takes the
+# full panel set.
+S=raise-at-analysis
+if AT_ANALYSIS='"$RL" set "$s" full --reason "the plan touches the release path" >"$WORKDIR/set.out" 2>&1' \
+    new_case "$S" "$SMALL"; then
+    [ "$(ledger "$S" | jq -r 'select(.event == "choose") | "\(.to)|\(.reason)"')" = "full|the plan touches the release path" ] \
+        && pass "set at analysis is accepted and recorded with its reason" || fail "ledger is [$(ledger "$S")]: $(cat "$WORKDIR/set.out")"
+    expect_state "plan_ready after a raise at analysis" implementation
+    tick "$S" '{"implementation_status":"complete"}'
+    [ "$NEXT_STATE" = issue_type_routing ] && tick "$S" '{"issue_type":"code"}'
+    expect_state "a docs-sized change raised to full at analysis" scrutiny
+    [ "$(events "$S")" = "bound choose check" ] && pass "the check kept the raise: no from_facts line" \
+        || fail "ledger events are [$(events "$S")]"
+    [ "$(ledger "$S" | tail -n 1 | jq -r '"\(.level)|\(.floor)"')" = "full|light" ] \
+        && pass "the check line is at full over a light facts floor" || fail "last line: $(ledger "$S" | tail -n 1)"
+    pass_scrutiny "$S"
+    pass_review "$S"
+    expect_state "its passed review at full" qa_validation
 fi
 
 S=no-level-standard

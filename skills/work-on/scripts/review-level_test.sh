@@ -295,6 +295,28 @@ expect_rc "a second init" 0
     || fail "a second init wrote $(( $(wc -l < "$(store .addlog)") - ADDS )) keys"
 [ "$(ledger)" = "$LEDGER_BEFORE" ] && pass "a second init leaves the ledger as it was" || fail "a second init changed the ledger"
 
+# analysis's action can run before context.md exists (a test walk that writes
+# it later, say): init then stores no criteria copy, and the next init, the
+# no-op at fix_determination, stores it once context.md is there.
+fixture init-late-criteria
+rm -f "$(store context.md)"
+run init "$SESSION" "" ""
+expect_rc "init with no context.md" 0
+[ ! -f "$(store review_level_criteria.txt)" ] && pass "init with no context.md stores no criteria copy" \
+    || fail "a criteria copy of [$(cat "$(store review_level_criteria.txt)")] was stored"
+[ "$(events)" = bound ] && pass "it still records the bound" || fail "events are [$(events)]"
+printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] late criteria\n' > "$(store context.md)"
+LB=$(ledger)
+run init "$SESSION" "" ""
+expect_rc "a second init once context.md exists" 0
+grep -q "late criteria" "$(store review_level_criteria.txt)" 2>/dev/null \
+    && pass "the second init stores the criteria copy" || fail "no criteria copy after the second init"
+[ "$(ledger)" = "$LB" ] && pass "the second init adds no bound line" || fail "the second init changed the ledger"
+printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] changed later\n' > "$(store context.md)"
+run init "$SESSION" "" ""
+grep -q "late criteria" "$(store review_level_criteria.txt)" \
+    && pass "a third init leaves the stored copy alone" || fail "a third init overwrote the criteria copy"
+
 fixture init-empty
 run init "$SESSION" "" ""
 GOT=$(ledger | jq -c '{floor, ceiling}')
@@ -309,7 +331,7 @@ fixture set-early
 run set "$SESSION" light --reason x
 expect_rc "set before init" 1
 expect_out "set before init names the rule" "refused: no bound recorded yet"
-expect_out "the refusal says where a level can be set" "set the level from reproduce or implementation on"
+expect_out "the refusal says where a level can be set" "set the level from analysis on"
 [ -z "$(var)" ] && pass "set before init rebinds nothing" || fail "set before init rebound to [$(var)]"
 
 fixture choose
