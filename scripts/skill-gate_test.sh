@@ -7,15 +7,15 @@
 # skills alpha, beta and gamma. Each stand-in appends `check-skill <args>` or
 # `script-cases <args>` to the file STUB_RECORD names and exits with the code
 # STUB_FAIL gives its first argument (`alpha=1 --all=1`), 0 otherwise; the
-# check-skill.sh stand-in adds ` part=<value>` when SKILL_GATE_PART reaches it. Each
-# case is one commit on top of a shared base, and the copied gate runs with
-# SKILL_GATE_BASE set to that base.
+# check-skill.sh stand-in adds ` part=<value>` when SKILL_GATE_PART reaches
+# it. Each case is one commit on top of a shared base, and the copied gate
+# runs with SKILL_GATE_BASE set to that base.
 #
 # Covers: the skills a change selects, each once and in full; each shared
 # path, alone and with a skill; the paths that select nothing; a deleted and
 # a renamed skill; the failure list; each refused base; the empty base; and
-# --list; and SKILL_GATE_PART's two parts and its refusal. Nothing here runs a real check, so it needs git and python3, and no
-# koto, yq or network.
+# --list; and SKILL_GATE_PART's two parts and its refusal. Nothing here runs
+# a real check, so it needs git and python3, and no koto, yq or network.
 #
 # Usage: bash scripts/skill-gate_test.sh
 #        /bin/bash scripts/skill-gate_test.sh   (macOS: the bash 3.2 floor)

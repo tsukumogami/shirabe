@@ -3,20 +3,23 @@
 # skill-gate.sh - the pull request gate: run the deterministic checks on each
 # skill a change touches, and every script case when a shared path changes
 #
-# The skill-gate job of .github/workflows/check-skill-gate.yml runs this on
-# Linux with `bash` and on macOS as the `skill-gate` floor suite, so it takes
-# no arguments and reads its base from the environment. It takes the paths
+# The skill-gate and skill-gate-suites jobs of
+# .github/workflows/check-skill-gate.yml run this on Linux with `bash` and on
+# macOS as the `skill-gate` floor suite, so it takes no arguments and reads
+# its base, and the part of the gate the job makes (SKILL_GATE_PART, below),
+# from the environment. It takes the paths
 # that changed between SKILL_GATE_BASE and HEAD
 # (`git diff --name-only --no-renames`) and runs:
 #
-#   - `scripts/check-skill.sh <skill>`, in full, once for each skills/<skill>/
+#   - `scripts/check-skill.sh <skill>`, in full or in the job's part, once for each skills/<skill>/
 #     directory a changed path falls under and that still exists at HEAD, in
 #     name order. A deleted skill selects nothing, since nothing is left to
 #     check; a renamed one selects its new name only. A path under a skill's
 #     own scripts/ selects that skill and is not a shared path;
 #   - `python3 scripts/lib/script-cases.py --all` once, last, when a changed
 #     path is under scripts/, references/ or koto-templates/ at the root,
-#     since any skill's cases can depend on those.
+#     since any skill's cases can depend on those. The suites part leaves
+#     this out.
 #
 # Both are the checked tree's own copies. Every selected check runs even after
 # one fails, and the run ends with the list of those that failed, each with

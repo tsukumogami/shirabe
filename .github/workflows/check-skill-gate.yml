@@ -1,16 +1,19 @@
 name: Check skill gate
 
-# The pull request gate. The skill-gate job runs scripts/skill-gate.sh, which
-# runs scripts/check-skill.sh on each skill the pull request (or the push to
-# main) changes files of: shirabe validate, koto template compile, the skill's
-# own script suites, the evals.json shape check and the script cases that
-# check its hand-offs. When a shared path changes (scripts/, references/ or
-# koto-templates/ at the root) it also runs every skill's script cases,
-# scripts/lib/script-cases.py --all. It compares HEAD against the pull
-# request's base, or the commit before the push, so it checks out full
-# history. Nothing sets SHIRABE_BIN, so check-skill.sh builds the tree's own
-# shirabe with cargo on each leg that checks a skill. The Linux leg runs it
-# under bash 5, the macOS leg as the skill-gate floor suite on bash 3.2.
+# The pull request gate, in two jobs that both run scripts/skill-gate.sh,
+# which runs scripts/check-skill.sh on each skill the pull request (or the
+# push to main) changes files of. skill-gate-suites (SKILL_GATE_PART=suites)
+# runs the skill's own script suites, in four slices per platform;
+# skill-gate (SKILL_GATE_PART=checks), the job of record, waits for every
+# slice and runs the rest: shirabe validate, koto template compile, the
+# evals.json shape check and the script cases that check its hand-offs, and,
+# when a shared path changes (scripts/, references/ or koto-templates/ at the
+# root), every skill's script cases, scripts/lib/script-cases.py --all. Both
+# compare HEAD against the pull request's base, or the commit before the
+# push, so they check out full history. Nothing sets SHIRABE_BIN, so
+# check-skill.sh builds the tree's own shirabe with cargo on each leg that
+# checks a skill, every slice included. The Linux legs run it under bash 5,
+# the macOS legs as the skill-gate floor suite on bash 3.2.
 #
 # test-check-skill runs the suites of check-skill.sh and skill-gate.sh, which
 # build throwaway skills and repositories with stand-in shirabe, koto, claude,
@@ -139,7 +142,9 @@ jobs:
   # check-skill.tsv) and the four together run every suite exactly once. On
   # macOS the skill-gate floor list passes the slice through (`slice: pass`),
   # so check-skill.sh slices there too. scripts/check-suite-slices.sh holds
-  # this job's matrix and fail-fast shape.
+  # this job's matrix and fail-fast shape. Its steps are skill-gate's, copied:
+  # a change to one belongs in both (check-macos-floor-setup.sh fails the
+  # macOS legs' setups drifting apart).
   skill-gate-suites:
     strategy:
       fail-fast: false
